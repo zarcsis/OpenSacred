@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use opensacred_data::tables::{Spell, WeaponArt};
 
 use super::*;
+use crate::spawning::Rng;
 
 /// The original's curves of the skills that shorten the times.
 static ORIGINAL: LazyLock<Shortening> = LazyLock::new(Shortening::default);

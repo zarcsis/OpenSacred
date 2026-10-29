@@ -39,6 +39,7 @@ mod esc_menu;
 mod fight;
 mod files;
 mod fliers;
+mod foe_panel;
 mod followers;
 mod forms;
 mod frame;
@@ -330,6 +331,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         esc_menu::EscMenuPlugin,
         fight::FightPlugin,
         fliers::FliersPlugin,
+        foe_panel::FoePanelPlugin,
+    ))
+    .add_plugins((
         followers::FollowersPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,

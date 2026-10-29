@@ -1,24 +1,25 @@
 //! The talks (#1028; docs/re/netscript.md, "Dialogues"): a left click on a creature of a dialogue
 //! sends the hero within 1.5 times their reach, where the creature stops, both turn to each other
 //! and the creature plays its talk; its function `Dialog:<name>` runs (`scripts::speak`), and a
-//! window at the screen's middle shows the creature's name, its texts and its buttons, until the
-//! original's interface of M5 (#1087). A button closes it, ends the talk and runs its function
-//! (`scripts::answer`); without buttons Enter or a click closes it; the talk ends too where the
-//! hero stands farther than 1,500 from the creature. Its voice-over ends as it closes. The world
-//! runs on meanwhile, the hero's clicks on it held back while the window shows
+//! window at the screen's middle shows the creature's portrait, name, texts and buttons, laid out
+//! and framed as the original's `cUI_Tooltip` (#1458). A button closes it, ends the talk and runs
+//! its function (`scripts::answer`); without buttons Enter or a click closes it; the talk ends too
+//! where the hero stands farther than 1,500 from the creature. Its voice-over ends as it closes.
+//! The world runs on meanwhile, the hero's clicks on it held back while the window shows
 //! (docs/decisions/interface.md, "Dialogue window holds back world clicks").
 
 use bevy::picking::Pickable;
-use bevy::picking::events::PointerClick;
+use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
-use bevy::text::FontSize;
+use bevy::text::{FontSize, LineHeight};
 use bevy_kira_audio::prelude::{Audio, AudioControl};
 use opensacred_data::tables::PORTRAITS;
 use opensacred_rules::minds;
 
 use crate::ai::Mind;
 use crate::attack::{self, Aim};
+use crate::bar::UiImages;
 use crate::fight::Health;
 use crate::files;
 use crate::frame::{Control, Playing, Step, Unpaused};
@@ -44,17 +45,42 @@ const REGION_SIDES: [u8; 6] = [3, 7, 8, 12, 14, 15];
 const REGION_FLAGS: u32 = 0x1006_DCF8;
 const NOT_REGION: u32 = 0x4_0000;
 
-/// The name's colour (`0xFFFFFF80`), the texts', the buttons' and the panel's.
-const NAME: Color = Color::srgb(1.0, 1.0, 0.5);
-const WORDS: Color = Color::srgb(0.92, 0.92, 0.88);
-const BUTTON: Color = Color::srgb(0.25, 0.9, 0.25);
-const PANEL: Color = Color::srgba(0.04, 0.04, 0.05, 0.78);
-const FRAME: Color = Color::srgb(0.45, 0.42, 0.36);
-const FONT_SIZE: f32 = 18.0;
+/// The name's colour (`0xFFFFFF80`), the texts', a button's and one under the cursor, and the
+/// window's ground, black at 160/255 (read off the original's frames, #1458), each in the frame's
+/// sRGB values (`hud`; #1467).
+const NAME: Color = Color::linear_rgb(1.0, 1.0, 128.0 / 255.0);
+const WORDS: Color = Color::WHITE;
+const BUTTON: Color = Color::linear_rgb(0.0, 1.0, 0.0);
+const BUTTON_LIT: Color = Color::linear_rgb(1.0, 1.0, 0.0);
+const PANEL: Color = Color::linear_rgba(0.0, 0.0, 0.0, 160.0 / 255.0);
+/// The window's measures in the original's pixels (`cUI_Tooltip`'s layout, `0x6E7AF0`): its
+/// width, a portrait's room beside the text past the portrait's own width, the portrait's inset
+/// from the corner, the text's width (the window's less 16) and its inset, a line, and the room
+/// a line takes at the text's foot and at the buttons' row (#1458).
+const WIDTH: f32 = 640.0;
+const BESIDE_PORTRAIT: f32 = 16.0;
+const PORTRAIT_IN: f32 = 8.0;
+const TEXT_WIDTH: f32 = 624.0;
+const TEXT_IN: f32 = 4.0;
+const LINE: f32 = 25.0;
+const FOOT: f32 = 4.0;
+/// How far below its line's top the original sets a line's letters past where Bevy sets them.
+const DROP: f32 = 4.0;
+/// The size of the window's font, AntiquaSSK, at which a long line is as wide as the original's
+/// (its GDI's size is not read): its hinted glyphs of whole pixels make a line of narrow ones
+/// wider, so that such a line may take a word more here (docs/decisions/interface.md).
+const FONT_SIZE: f32 = 23.7;
+/// The frame about the window, its `UI_STATIC_BORDER`s: the interface's images of an edge
+/// across, an edge down and a corner (`0x9ECEB0`'s 21, 34 and 55), each edge stretched along
+/// its side, the corner as it is at the top right and turned about for the others.
+const EDGE_ACROSS: u32 = 21;
+const EDGE_DOWN: u32 = 34;
+const CORNER: u32 = 55;
 /// An `InfoPlayer`'s text: its colour, as the chapters' titles show, how long it shows, in
 /// seconds, and how far down the screen (**hypothesis**: the engine's event `0x10` of the kind 3
 /// is not read).
-const NOTICE: Color = Color::srgb(1.0, 0.55, 0.12);
+const NOTICE: Color = Color::linear_rgb(1.0, 0.55, 0.12);
+const NOTICE_SIZE: f32 = 25.2;
 const NOTICE_SECONDS: f32 = 5.0;
 const NOTICE_TOP: f32 = 22.0;
 /// The modes of an `InfoPlayer` that show its text (`0x4AE350`): 0 and 1, 2 with the music
@@ -372,12 +398,17 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
         });
     let functions = buttons.iter().map(|(_, f)| f.clone()).collect();
     let text = lines.join("\n");
+    let width = WIDTH + beside(portrait.as_ref());
+    let frame = world
+        .get_resource::<UiImages>()
+        .map(|images| frame(images, world.resource::<AssetServer>(), width))
+        .unwrap_or_default();
     let root = spawn_window(
         &mut world.commands(),
         &font,
         (name.as_deref(), portrait),
-        &text,
-        &buttons,
+        (&text, &buttons),
+        frame,
     );
     world.flush();
     world.insert_resource(Shown {
@@ -415,7 +446,7 @@ fn shown_text(text: &str) -> String {
 
 /// The key of a name of the scripts' resources, `res:<key>` (case aside), as the window looks
 /// its string up: `res:17095` the string of `17095`.
-fn resource(name: &str) -> &str {
+pub(crate) fn resource(name: &str) -> &str {
     match name.get(..4) {
         Some(prefix) if prefix.eq_ignore_ascii_case("res:") => &name[4..],
         _ => name,
@@ -451,20 +482,115 @@ fn hush(world: &mut World) {
     voices::name_line(world, None);
 }
 
-/// The window: a panel at the screen's middle, the name over the texts, the buttons under them,
-/// each choosing its function ([`choose`]).
+/// The room a portrait takes beside the window's text, which widens the window: its width and 16
+/// (`0x6E7AF0`); none without one.
+fn beside(portrait: Option<&Portrait>) -> f32 {
+    portrait.map_or(0.0, |(_, [_, _, w, _])| f32::from(*w) + BESIDE_PORTRAIT)
+}
+
+/// The pieces of the window's frame (#1458) about a window `width` wide: the edges across at the
+/// top and, turned about, at the bottom, the edges down at the sides, and the corners, each image
+/// on its node, placed about the window's rectangle as the original's frames show them; each
+/// node's size given, as an image's node along an edge would keep its picture's size.
+fn frame(images: &UiImages, assets: &AssetServer, width: f32) -> Vec<(ImageNode, Node)> {
+    let at = |[left, right, top, bottom]: [Option<f32>; 4], (width, height): (Val, Val)| Node {
+        position_type: PositionType::Absolute,
+        left: left.map_or(Val::Auto, Val::Px),
+        right: right.map_or(Val::Auto, Val::Px),
+        top: top.map_or(Val::Auto, Val::Px),
+        bottom: bottom.map_or(Val::Auto, Val::Px),
+        width,
+        height,
+        ..default()
+    };
+    let across = (Val::Px(width - 4.0), Val::Px(images.size(EDGE_ACROSS).y));
+    let down = images.size(EDGE_DOWN).x;
+    let side = (Val::Px(down), Val::Percent(100.0));
+    let corner = images.size(CORNER);
+    let corner = (Val::Px(corner.x), Val::Px(corner.y));
+    [
+        (
+            EDGE_ACROSS,
+            [false; 2],
+            at([Some(4.0), None, Some(-4.0), None], across),
+        ),
+        (
+            EDGE_ACROSS,
+            [false, true],
+            at([Some(4.0), None, None, Some(-3.0)], across),
+        ),
+        (
+            EDGE_DOWN,
+            [false; 2],
+            at([Some(-4.0), None, Some(0.0), None], side),
+        ),
+        (
+            EDGE_DOWN,
+            [false; 2],
+            at([None, Some(-down), Some(0.0), None], side),
+        ),
+        (
+            CORNER,
+            [true, false],
+            at([Some(-13.0), None, Some(-11.0), None], corner),
+        ),
+        (
+            CORNER,
+            [false; 2],
+            at([None, Some(-14.0), Some(-11.0), None], corner),
+        ),
+        (
+            CORNER,
+            [true, true],
+            at([Some(-13.0), None, None, Some(-11.0)], corner),
+        ),
+        (
+            CORNER,
+            [false, true],
+            at([None, Some(-14.0), None, Some(-11.0)], corner),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(index, [flip_x, flip_y], node)| {
+        let (file, rect, [turned_x, turned_y]) = images.turned_part(index)?;
+        let image = ImageNode {
+            rect: Some(rect),
+            flip_x: flip_x != turned_x,
+            flip_y: flip_y != turned_y,
+            image_mode: NodeImageMode::Stretch,
+            ..ImageNode::new(crate::hud::image(assets, file.to_owned()))
+        };
+        Some((image, node))
+    })
+    .collect()
+}
+
+/// The window, as the original's `cUI_Tooltip` lays a dialogue out (`0x6E7AF0`, `0x6E76C0`;
+/// #1458): 640 wide and as high as its lines, at the screen's middle, black at 160/255 within
+/// its frame; the portrait 8 in from its corner and the text beside it, 16 past the portrait's
+/// width, the window wider by as much; the name and, a line apart, the texts in one justified
+/// block of lines of 25, at least as high as the portrait; under it a row of the buttons, the
+/// window's width shared out evenly about them, green, yellow under the cursor, each choosing
+/// its function ([`choose`]).
 fn spawn_window(
     commands: &mut Commands,
     font: &Handle<Font>,
     (name, portrait): (Option<&str>, Option<Portrait>),
-    text: &str,
-    buttons: &[(String, String)],
+    (text, buttons): (&str, &[(String, String)]),
+    frame: Vec<(ImageNode, Node)>,
 ) -> Entity {
-    let words = |size: f32| TextFont {
-        font: font.clone().into(),
-        font_size: FontSize::Px(size),
-        ..default()
-    };
+    let words = (
+        TextFont {
+            font: font.clone().into(),
+            font_size: FontSize::Px(FONT_SIZE),
+            ..default()
+        },
+        LineHeight::Px(LINE),
+    );
+    let beside = beside(portrait.as_ref());
+    let tallest = portrait
+        .as_ref()
+        .map_or(0.0, |(_, [_, _, _, h])| f32::from(*h));
     commands
         .spawn((
             DespawnOnExit(AppState::InGame),
@@ -482,19 +608,13 @@ fn spawn_window(
             screen
                 .spawn((
                     Node {
-                        width: Val::Percent(76.0),
-                        max_width: Val::Px(900.0),
-                        flex_direction: FlexDirection::Row,
-                        column_gap: Val::Px(16.0),
-                        padding: UiRect::all(Val::Px(8.0)),
-                        border: UiRect::all(Val::Px(2.0)),
+                        width: Val::Px(WIDTH + beside),
+                        flex_direction: FlexDirection::Column,
                         ..default()
                     },
                     BackgroundColor(PANEL),
-                    BorderColor::all(FRAME),
                 ))
                 .with_children(|panel| {
-                    // The portrait, 8 pixels in from the corner (`0x6E76C0`).
                     if let Some((image, [x, y, w, h])) = portrait {
                         let (x, y, w, h) = (f32::from(x), f32::from(y), f32::from(w), f32::from(h));
                         panel.spawn((
@@ -504,9 +624,11 @@ fn spawn_window(
                                 ..default()
                             },
                             Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(PORTRAIT_IN),
+                                top: Val::Px(PORTRAIT_IN),
                                 width: Val::Px(w),
                                 height: Val::Px(h),
-                                flex_shrink: 0.0,
                                 ..default()
                             },
                         ));
@@ -514,45 +636,86 @@ fn spawn_window(
                     panel
                         .spawn(Node {
                             flex_direction: FlexDirection::Column,
-                            flex_grow: 1.0,
-                            row_gap: Val::Px(12.0),
-                            padding: UiRect::all(Val::Px(10.0)),
+                            width: Val::Px(TEXT_WIDTH),
+                            min_height: Val::Px(tallest - FOOT),
+                            margin: UiRect {
+                                left: Val::Px(beside + TEXT_IN),
+                                top: Val::Px(DROP),
+                                bottom: Val::Px(FOOT - DROP),
+                                ..default()
+                            },
                             ..default()
                         })
-                        .with_children(|panel| {
+                        .with_children(|block| {
+                            // The name, a line, then the texts (`0x6E70D0`).
                             if let Some(name) = name {
-                                panel.spawn((Text::new(name), words(FONT_SIZE), TextColor(NAME)));
+                                block.spawn((
+                                    Text::new(name),
+                                    words.clone(),
+                                    TextColor(NAME),
+                                    Node {
+                                        margin: UiRect::bottom(Val::Px(LINE)),
+                                        ..default()
+                                    },
+                                ));
                             }
-                            panel.spawn((
+                            block.spawn((
                                 Text::new(text),
-                                words(FONT_SIZE),
+                                words.clone(),
                                 TextColor(WORDS),
                                 TextLayout::justify(Justify::Justified),
                             ));
-                            panel
-                        .spawn(Node {
-                            flex_direction: FlexDirection::Row,
-                            justify_content: JustifyContent::SpaceEvenly,
-                            ..default()
-                        })
-                        .with_children(|row| {
-                            for (index, (label, _)) in buttons.iter().enumerate() {
-                                row.spawn((Text::new(label), words(FONT_SIZE), TextColor(BUTTON)))
-                                    .observe(
-                                        move |click: On<PointerClick>, mut commands: Commands| {
-                                            if click.button == PointerButton::Primary {
-                                                commands.queue(move |world: &mut World| {
-                                                    choose(world, index);
-                                                });
-                                            }
-                                        },
-                                    );
-                            }
                         });
-                        });
+                    if !buttons.is_empty() {
+                        panel
+                            .spawn(Node {
+                                height: Val::Px(LINE + FOOT),
+                                padding: UiRect::top(Val::Px(DROP)),
+                                flex_direction: FlexDirection::Row,
+                                justify_content: JustifyContent::SpaceEvenly,
+                                ..default()
+                            })
+                            .with_children(|row| {
+                                for (index, (label, _)) in buttons.iter().enumerate() {
+                                    spawn_button(row, (label, index), &words);
+                                }
+                            });
+                    }
+                    for piece in frame {
+                        panel.spawn((piece, Pickable::IGNORE));
+                    }
                 });
         })
         .id()
+}
+
+/// A button of the window's row: its label, green and yellow under the cursor, and a click on it
+/// choosing its function.
+fn spawn_button(
+    row: &mut ChildSpawnerCommands,
+    (label, index): (&str, usize),
+    words: &(TextFont, LineHeight),
+) {
+    row.spawn((Text::new(label), words.clone(), TextColor(BUTTON)))
+        .observe(
+            |over: On<PointerOver>, mut colours: Query<&mut TextColor>| {
+                if let Ok(mut colour) = colours.get_mut(over.entity) {
+                    colour.0 = BUTTON_LIT;
+                }
+            },
+        )
+        .observe(|out: On<PointerOut>, mut colours: Query<&mut TextColor>| {
+            if let Ok(mut colour) = colours.get_mut(out.entity) {
+                colour.0 = BUTTON;
+            }
+        })
+        .observe(move |click: On<PointerClick>, mut commands: Commands| {
+            if click.button == PointerButton::Primary {
+                commands.queue(move |world: &mut World| {
+                    choose(world, index);
+                });
+            }
+        });
 }
 
 /// A button chosen: the window closes, the talk ends, and its function runs with no creature
@@ -674,7 +837,7 @@ fn notices(
                 Text::new(text),
                 TextFont {
                     font: font.into(),
-                    font_size: FontSize::Px(FONT_SIZE * 1.4),
+                    font_size: FontSize::Px(NOTICE_SIZE),
                     ..default()
                 },
                 TextColor(NOTICE),

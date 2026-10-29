@@ -84,11 +84,27 @@ pub struct Panels {
     pub log: bool,
 }
 
+/// `[interface]`: what the interface over the world shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Interface {
+    /// The foe's panel at the bottom while the cursor is over one, the original's
+    /// `SHOW_ENEMYINFO` of `Settings.cfg`, on as the installation's (#1459).
+    pub enemy_info: bool,
+}
+
+impl Default for Interface {
+    fn default() -> Self {
+        Self { enemy_info: true }
+    }
+}
+
 /// The settings in force: the file's, with the command line's for this run.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub display: Display,
+    pub interface: Interface,
     pub debug: Panels,
 }
 
@@ -380,6 +396,7 @@ mod tests {
                 width: 1280,
                 height: 720,
             },
+            interface: Interface { enemy_info: false },
             debug: Panels {
                 overlay: true,
                 log: true,
@@ -391,6 +408,7 @@ mod tests {
                 "display.mode",
                 "display.width",
                 "display.height",
+                "interface.enemy_info",
                 "debug.overlay",
                 "debug.log",
             ],

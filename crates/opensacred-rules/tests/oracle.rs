@@ -1,5 +1,7 @@
-//! The fight's formulas against the vectors that `opensacred-oracle` records from the developer's
-//! own `Sacred.exe` (docs/03 §3.4, docs/04 §2.3): the original's functions run in the emulator,
+//! The fight's formulas and the game's rolls against the vectors that `opensacred-oracle` records
+//! from the developer's own `Sacred.exe` (docs/03 §3.4, docs/04 §2.3): the original's functions
+//! run in the emulator, the rolls with `rand()` answering a script that the rules' `Script` dice
+//! answer alike (#1433),
 //! their inputs and outputs in JSON files outside the repository. Like the other tests that need
 //! the game, they run locally: first `cargo run --release -p opensacred-oracle --features
 //! emulator`, which writes the vectors to `OPENSACRED_VECTORS`, else to
@@ -12,10 +14,12 @@ use std::path::{Path, PathBuf};
 
 use opensacred_data::tables::{Balance, BalanceValue, BalanceVariable};
 use opensacred_formats::bin_tables::{self, BALANCE_KEYS, Kind};
+use opensacred_rules::drops::between;
 use opensacred_rules::fight::{
     Rules, creature_earns, dealt, exponent, hero_health, hit_chance, level_end, level_of,
-    most_health,
+    most_health, weighing,
 };
+use opensacred_rules::spawning::Script;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -227,6 +231,72 @@ fn the_most_health_is_the_originals() {
         );
     }
     assert!(!vectors.is_empty(), "no vectors of the most health");
+}
+
+#[derive(Deserialize)]
+struct Between {
+    least: i32,
+    most: i32,
+    rolls: Vec<u32>,
+    value: i32,
+    taken: usize,
+}
+
+/// `0x443B20`: the game's roll between two bounds, `rand()` answering a script, and how many of
+/// its values the roll took (#1433).
+#[test]
+#[ignore = "needs the game files in OriginalGame/"]
+fn a_roll_between_two_takes_the_originals_values() {
+    let vectors: Vec<Between> = vectors("between");
+    for v in vectors {
+        let mut script = Script::new(v.rolls.clone());
+        let value = between(i64::from(v.least), i64::from(v.most), &mut script);
+        assert_eq!(
+            (value, script.taken()),
+            (i64::from(v.value), v.taken),
+            "R({}, {}) of {:?}",
+            v.least,
+            v.most,
+            v.rolls
+        );
+    }
+}
+
+#[derive(Deserialize)]
+struct Weighing {
+    level: u32,
+    hero: u32,
+    weighing: f64,
+}
+
+/// `0x551530`: the factor of the levels of a creature against a hero, which the kill's experience
+/// and the drops take, the creature's level on bronze's scale (#1454).
+#[test]
+#[ignore = "needs the game files in OriginalGame/"]
+fn the_levels_weigh_as_the_originals() {
+    let vectors: Vec<Weighing> = vectors("weighing");
+    let balance = balance();
+    let rules = Rules::of(Some(&balance));
+    let value = |name: &str| {
+        balance
+            .f32(name)
+            .unwrap_or_else(|| panic!("Balance.bin: no {name}"))
+    };
+    let levels = (
+        value("UnterExpAnteil"),
+        value("UnterExpVoll"),
+        value("ObereEXPVoll"),
+    );
+    for v in vectors {
+        let ours = f64::from(weighing(rules.on_bronze(v.level), v.hero, levels));
+        assert!(
+            (ours - v.weighing).abs() <= 1e-6,
+            "the level {} against the hero's {}: {ours}, the original's {}",
+            v.level,
+            v.hero,
+            v.weighing
+        );
+    }
 }
 
 /// Whether a divisor of the weight `0x43EEE0` divides, beyond the double ±0.001.

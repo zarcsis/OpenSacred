@@ -66,6 +66,11 @@ struct State {
     stubs: HashMap<u32, Stub>,
     /// What stopped the last call, when something did.
     fault: Option<String>,
+    /// The C library's `rand()`, when its stub answers the values of a script.
+    rand: Option<u32>,
+    /// The script's values, and how many of them the calls of `rand()` took.
+    rolls: Vec<u32>,
+    taken: usize,
 }
 
 pub struct Machine<'a> {
@@ -230,6 +235,34 @@ impl<'a> Machine<'a> {
         Ok(())
     }
 
+    /// Replaces the C library's `rand()` at `address` (`cdecl`) by a stub that answers the values
+    /// of the script that [`Self::script_rand`] gives in turn, 0 once they are spent, counting
+    /// the calls (#1433).
+    pub fn stub_rand(&mut self, address: u32) -> Result<()> {
+        self.stub_function(
+            address,
+            Stub {
+                name: "rand".to_owned(),
+                value: 0,
+                pops: 0,
+            },
+        )?;
+        self.uc.get_data_mut().rand = Some(address);
+        Ok(())
+    }
+
+    /// The values that the stub of `rand()` answers from now on, none taken yet.
+    pub fn script_rand(&mut self, values: &[u32]) {
+        let state = self.uc.get_data_mut();
+        state.rolls = values.to_vec();
+        state.taken = 0;
+    }
+
+    /// The calls of `rand()` since its script was given, those past its last value among them.
+    pub fn rand_taken(&self) -> usize {
+        self.uc.get_data().taken
+    }
+
     /// Writes `bytes` at `address`.
     pub fn write(&mut self, address: u32, bytes: &[u8]) -> Result<()> {
         self.uc
@@ -359,8 +392,9 @@ fn fault(uc: &mut Unicorn<'_, State>, what: String) {
     let _ = uc.emu_stop();
 }
 
-/// Runs the stub at `address` in place of the code there: its value in `EAX`, the return address
-/// popped with its arguments, the code going on there; a thunk without a stub is a fault.
+/// Runs the stub at `address` in place of the code there: its value in `EAX` (`rand()`'s the
+/// script's next), the return address popped with its arguments, the code going on there; a
+/// thunk without a stub is a fault.
 fn run_stub(uc: &mut Unicorn<'_, State>, address: u64) {
     let Ok(address) = u32::try_from(address) else {
         return;
@@ -376,10 +410,18 @@ fn run_stub(uc: &mut Unicorn<'_, State>, address: u64) {
         }
         return;
     };
+    let state = uc.get_data_mut();
+    let value = if state.rand == Some(address) {
+        let value = state.rolls.get(state.taken).copied().unwrap_or(0);
+        state.taken += 1;
+        value
+    } else {
+        stub.value
+    };
     let result = (|| -> Result<()> {
         let esp = u32::try_from(uc.reg_read(RegisterX86::ESP)?)?;
         let back = return_address(uc)?;
-        uc.reg_write(RegisterX86::EAX, u64::from(stub.value))?;
+        uc.reg_write(RegisterX86::EAX, u64::from(value))?;
         uc.reg_write(RegisterX86::ESP, u64::from(esp + 4 + stub.pops))?;
         uc.reg_write(RegisterX86::EIP, u64::from(back))?;
         Ok(())
@@ -491,6 +533,21 @@ mod tests {
             )
             .unwrap();
         assert_eq!(machine.call(0x40_1050, None, &[9], false).unwrap().eax, 10);
+    }
+
+    #[test]
+    fn rand_answers_its_script_in_turn_and_counts_the_calls() {
+        let mut machine = Machine::new(&image(), control_word(53).unwrap()).unwrap();
+        machine.stub_rand(0x40_1060).unwrap();
+        machine.script_rand(&[7, 9]);
+        assert_eq!(machine.call(0x40_1050, None, &[0], false).unwrap().eax, 14);
+        assert_eq!(machine.call(0x40_1050, None, &[0], false).unwrap().eax, 18);
+        // Past the script's last value, 0, the call counted all the same.
+        assert_eq!(machine.call(0x40_1050, None, &[0], false).unwrap().eax, 0);
+        assert_eq!(machine.rand_taken(), 3);
+        machine.script_rand(&[5]);
+        assert_eq!(machine.rand_taken(), 0);
+        assert_eq!(machine.call(0x40_1050, None, &[0], false).unwrap().eax, 10);
     }
 
     #[test]

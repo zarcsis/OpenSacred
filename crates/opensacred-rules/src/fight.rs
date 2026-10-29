@@ -10,7 +10,7 @@ use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
 use crate::arts;
 use crate::drops::Difficulty;
-use crate::spawning::{Dice, Rng, SpawnValues};
+use crate::spawning::{Dice, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
 pub const HERO_LEVEL: u32 = 1;
@@ -149,8 +149,8 @@ impl Rank {
     /// roll of 5 for 343 that changes nothing); 37, 48, 55 and 84 a boss or a champion by a coin,
     /// 127 and 49 so in one case of two; else, `hostile` to the hero, a champion when a roll of 0
     /// to 1,000 is below `HarteSau`.
-    pub fn of_fill(creature: u32, hostile: bool, rng: &mut Rng, rules: &Rules) -> Self {
-        let coin = |rng: &mut Rng| {
+    pub fn of_fill<D: Dice>(creature: u32, hostile: bool, rng: &mut D, rules: &Rules) -> Self {
+        let coin = |rng: &mut D| {
             if rng.below(2) == 1 {
                 Self::Boss
             } else {
@@ -903,7 +903,11 @@ impl Rules {
     /// levels hold it, else the last pair, which the original takes without its test, so that
     /// the factor goes on along the last segment's line above the last point (#418); the pair's
     /// first weight plus the level times its slope, the level taken whole rather than from the
-    /// first point (the original's own). 1 without two points.
+    /// first point (the original's own). 1 without two points. As the client's FPU computes it
+    /// (`0x565BF9` to `0x565C2E`): the slope first, then the level and the first weight, in
+    /// double precision, the factor stored as a float; in floats throughout, 2.4400005 at level
+    /// 216 took a most health of 109,259 to 266,592, where the original's 2.4400003 takes it to
+    /// 266,591 (#1449).
     fn level_factor(&self, level: f32) -> f32 {
         let pairs = self.points.windows(2);
         let last = pairs.clone().last();
@@ -913,7 +917,8 @@ impl Rules {
             .or(last)
             .map_or(1.0, |pair| {
                 let ((s0, w0), (s1, w1)) = (pair[0], pair[1]);
-                w0 + level * (w1 - w0) / (s1 - s0)
+                let [s0, w0, s1, w1, level] = [s0, w0, s1, w1, level].map(f64::from);
+                stored(w0 + level * ((w1 - w0) / (s1 - s0)))
             })
     }
 }
@@ -2368,7 +2373,7 @@ pub enum Side {
 /// span, `(most − least)·r·0.01 + least`. 15 physical when every kind's is below 1; then each
 /// times `factor` (`ProzDmg` for a creature striking the hero, `0x56B130`, after the record) at
 /// 53 bits, stored as a float.
-fn roll_damage(damage: &[[f32; 2]; KINDS], factor: f32, rng: &mut Rng) -> [f32; KINDS] {
+fn roll_damage(damage: &[[f32; 2]; KINDS], factor: f32, rng: &mut impl Dice) -> [f32; KINDS] {
     let step = match damage[0][1] {
         most if most < 100.0 => Some((100.0, HUNDREDTH)),
         most if most < 1000.0 => Some((10.0, f64::from(0.1_f32))),
@@ -2420,7 +2425,12 @@ pub(crate) fn truncated(value: f64) -> i64 {
 /// of bronze; the sum, a float, times the factor of the attacker's level and the strike's factor
 /// ([`taken`]), at least 1, held at a player's cap, whole. `blow` holds those factors, `k`, the
 /// rolled damage's and the cap.
-pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Option<u32> {
+pub fn strike(
+    attacker: &Combat,
+    defender: &Combat,
+    blow: Blow,
+    rng: &mut impl Dice,
+) -> Option<u32> {
     strike_landed(attacker, defender, blow, rng).map(|landed| landed.damage)
 }
 
@@ -2429,7 +2439,7 @@ pub fn strike_landed(
     attacker: &Combat,
     defender: &Combat,
     blow: Blow,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<Landed> {
     let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
@@ -2442,12 +2452,17 @@ pub fn strike_landed(
 /// Gladiator's 1016's effect sends (`0x562730` at `0x563310`) and the Seraphim's bolts send
 /// (`0x5ABD80`; seen: the resolution `0x56B130` takes no chance from `0x43EEE0` for them, #854):
 /// its damage as a plain strike's ([`strike`]).
-pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
+pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice) -> u32 {
     sure_landed(attacker, defender, blow, rng).damage
 }
 
 /// [`sure_strike`], with what landed ([`Landed`]).
-pub fn sure_landed(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Landed {
+pub fn sure_landed(
+    attacker: &Combat,
+    defender: &Combat,
+    blow: Blow,
+    rng: &mut impl Dice,
+) -> Landed {
     damage(attacker, defender, blow, rng)
 }
 
@@ -2460,7 +2475,7 @@ pub fn art_strike(
     defender: &Combat,
     blow: Blow,
     level: u32,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<u32> {
     art_landed(attacker, defender, blow, level, rng).map(|landed| landed.damage)
 }
@@ -2471,7 +2486,7 @@ pub fn art_landed(
     defender: &Combat,
     blow: Blow,
     level: u32,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<Landed> {
     let chance = hit_chance(art_attack(attacker.attack, level), defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
@@ -2502,7 +2517,7 @@ const POISON: usize = 3;
 
 /// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
 /// the damping, summed, and what the sum takes off the health ([`taken`]).
-fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Landed {
+fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice) -> Landed {
     let rolled = roll_damage(&attacker.damage, blow.rolled, rng);
     let through: Vec<f32> = rolled
         .iter()
@@ -2529,7 +2544,7 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> La
 /// infinite and its integers indefinite (docs/decisions/fight.md, "No poison against no
 /// resistance"). The poison's own strikes, the hits of the kinds 17 and 18, give none: the
 /// caller leaves them out.
-pub fn poisons(landed: &Landed, rng: &mut Rng) -> Option<Poison> {
+pub fn poisons(landed: &Landed, rng: &mut impl Dice) -> Option<Poison> {
     let [p, q, through] = landed.poison;
     if p <= q || q <= 0.0 {
         return None;
@@ -2841,7 +2856,7 @@ pub fn most_health(
         level,
         health_raise(skills, rules),
         rank,
-        f64::from(rules.level_factor(level_f32) * rules.factor),
+        f64::from(rules.level_factor(level_f32)) * f64::from(rules.factor),
     )
 }
 
@@ -2906,6 +2921,7 @@ mod tests {
     use opensacred_data::tables::{BalanceValue, BalanceVariable};
 
     use super::*;
+    use crate::spawning::Rng;
 
     #[test]
     fn a_type_without_a_record_is_made_as_the_originals_crab() {
@@ -4291,6 +4307,27 @@ mod tests {
         assert_eq!(experience_with(worth, 1, 1, &rules, 0.5), 37);
         assert_eq!(experience_with(worth, 3, 1, &rules, 0.5), 48);
         assert_eq!(experience_with(worth, 3, 1, &rules, 0.0), 32);
+    }
+
+    #[test]
+    fn a_hero_from_level_92_weighs_by_a_threshold_of_its_own() {
+        // The original's factors (`opensacred-oracle`'s vectors of `0x551530`, #1454): from level
+        // 92 the threshold is `(H − 6)/(H + 9)`, 86/101 at 92, so that a creature of level 80
+        // weighs `(89 − 86)/(101 − 86)`, not by `UnterExpAnteil`'s 0.85.
+        let levels = (0.85, 1.0, 1.1);
+        let near = |level, hero, original: f32| {
+            let ours = weighing(level, hero, levels);
+            assert!(
+                (ours - original).abs() < 1e-6,
+                "{level} against {hero}: {ours}, the original's {original}"
+            );
+        };
+        near(80, 92, 0.2);
+        near(91, 92, 0.933_333_35);
+        near(92, 93, 0.933_333_1);
+        near(50, 92, 0.04);
+        // Above `ObereEXPVoll`, `ObereEXPVoll/r`.
+        near(150, 92, 0.698_742_15);
     }
 
     #[test]

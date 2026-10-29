@@ -17,11 +17,13 @@ pub const INDEX: &str = "netscript.ron";
 
 /// The index, `netscript.ron`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct NetScript {
     pub trees: Vec<TreeEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct TreeEntry {
     /// The directory in the installation, such as `bin/Addon/TYPE_NPC_ELVE`.
     pub source: String,
@@ -33,6 +35,7 @@ pub struct TreeEntry {
 
 /// The scripts of a tree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Tree {
     /// `StartCode.bin`: the records run when the world starts.
     pub start: Vec<Record>,
@@ -46,6 +49,7 @@ pub struct Tree {
 
 /// A function block of `FunkCode.bin`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Function {
     pub name: String,
     /// The id of the quest it belongs to, or −1.
@@ -56,6 +60,7 @@ pub struct Function {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Record {
     /// The original record type, below 141.
     pub kind: u16,
@@ -63,6 +68,7 @@ pub struct Record {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Body {
     Operands(Vec<Operand>),
     /// Type 40: a dialog table entry.
@@ -75,6 +81,7 @@ pub enum Body {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Operand {
     /// The original operand tag.
     pub tag: u8,
@@ -83,6 +90,7 @@ pub struct Operand {
 
 /// The payload of an operand (`opensacred_formats::netscript::Value`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Value {
     Marker,
     U8(u8),
@@ -348,6 +356,7 @@ pub fn shape(tag: u8) -> Shape {
 pub const VARIABLE_TAG: u8 = 0x9F;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Quest {
     pub id: u32,
     pub name: String,
@@ -355,6 +364,7 @@ pub struct Quest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Region {
     pub id: u32,
     pub name: String,
@@ -364,6 +374,7 @@ pub struct Region {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct RegionEntry {
     pub list: Vec<u32>,
     pub values: [i32; 4],
