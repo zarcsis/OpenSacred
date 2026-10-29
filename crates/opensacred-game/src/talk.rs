@@ -46,12 +46,13 @@ const REGION_FLAGS: u32 = 0x1006_DCF8;
 const NOT_REGION: u32 = 0x4_0000;
 
 /// The name's colour (`0xFFFFFF80`), the texts', a button's and one under the cursor, and the
-/// window's ground, black at 160/255 (read off the original's frames, #1458).
-const NAME: Color = Color::srgb(1.0, 1.0, 0.5);
+/// window's ground, black at 160/255 (read off the original's frames, #1458), each in the frame's
+/// sRGB values (`hud`; #1467).
+const NAME: Color = Color::linear_rgb(1.0, 1.0, 128.0 / 255.0);
 const WORDS: Color = Color::WHITE;
-const BUTTON: Color = Color::srgb(0.0, 1.0, 0.0);
-const BUTTON_LIT: Color = Color::srgb(1.0, 1.0, 0.0);
-const PANEL: Color = Color::srgba_u8(0, 0, 0, 160);
+const BUTTON: Color = Color::linear_rgb(0.0, 1.0, 0.0);
+const BUTTON_LIT: Color = Color::linear_rgb(1.0, 1.0, 0.0);
+const PANEL: Color = Color::linear_rgba(0.0, 0.0, 0.0, 160.0 / 255.0);
 /// The window's measures in the original's pixels (`cUI_Tooltip`'s layout, `0x6E7AF0`): its
 /// width, a portrait's room beside the text past the portrait's own width, the portrait's inset
 /// from the corner, the text's width (the window's less 16) and its inset, a line, and the room
@@ -78,7 +79,7 @@ const CORNER: u32 = 55;
 /// An `InfoPlayer`'s text: its colour, as the chapters' titles show, how long it shows, in
 /// seconds, and how far down the screen (**hypothesis**: the engine's event `0x10` of the kind 3
 /// is not read).
-const NOTICE: Color = Color::srgb(1.0, 0.55, 0.12);
+const NOTICE: Color = Color::linear_rgb(1.0, 0.55, 0.12);
 const NOTICE_SIZE: f32 = 25.2;
 const NOTICE_SECONDS: f32 = 5.0;
 const NOTICE_TOP: f32 = 22.0;
