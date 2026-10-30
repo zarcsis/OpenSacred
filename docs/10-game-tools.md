@@ -249,7 +249,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | Alt | the game | the items' names, while held (#1409) |
 | I | the game | the inventory's windows (#1267) |
 | L | the game | the quest book (#1560); its close button and Esc close it |
-| M | the game | the world map, which pauses the game (#1561); its close button and Esc close it, the screen's edges and the right button held scroll it |
+| M | the game | the world map, which pauses the game (#1561); its close button and Esc close it, the screen's edges and the right button held scroll it, the left button held shows the lens over the land explored (#1568) |
 | Space, Shift + Space | the game | drink a healing potion of the belt, the yellow one (#1311, #1313) |
 | Q, W, E, R | the game | drink a purple, blue, green or yellow potion of the belt, again while held (#1536) |
 | B | the game | a healing potion of the belt for the weakest follower (#1536) |
