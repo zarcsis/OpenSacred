@@ -145,6 +145,62 @@ pub(crate) const PUSHPIN: &str = "mouse_pushpin";
 const PIN_MARK: f32 = 64.0;
 const PIN_SPOT: f32 = 16.0;
 
+/// The frontier of the land walked (`0x6C8800`): a red square of 2 × 2 for each entered neighbour
+/// of a sector not entered, about the sector's corner's pixel 20 lower, toward the neighbour.
+const FRONTIER_DOWN: f32 = 20.0;
+const FRONTIER_TOWARD: [Vec2; 8] = [
+    Vec2::new(0.0, -20.0),
+    Vec2::new(10.0, -10.0),
+    Vec2::new(20.0, 0.0),
+    Vec2::new(-10.0, -10.0),
+    Vec2::new(10.0, 10.0),
+    Vec2::new(-20.0, 0.0),
+    Vec2::new(-10.0, 10.0),
+    Vec2::new(0.0, 20.0),
+];
+const FRONTIER_DOT: f32 = 2.0;
+const FRONTIER_RED: u32 = 0xFFFF_0000;
+
+/// A dot of the frontier.
+#[derive(Component)]
+struct FrontierDot;
+
+/// The frontier's dots' places on the map (`0x6C8800`), of the sectors and their bits.
+fn frontier_dots(frontier: &[((u16, u16), u8)]) -> Vec<Vec2> {
+    frontier
+        .iter()
+        .flat_map(|&((x, y), bits)| {
+            let corner = crate::paths::centre((i32::from(x) * 64, i32::from(y) * 64));
+            let base = pixel(corner) + Vec2::new(0.0, FRONTIER_DOWN);
+            (0..8)
+                .filter(move |k| bits & (1 << k) != 0)
+                .map(move |k| base + FRONTIER_TOWARD[k])
+        })
+        .collect()
+}
+
+/// Lays the frontier's dots on the map as it shows.
+fn show_frontier(
+    mut commands: Commands,
+    sectors: Res<crate::explored::MapSectors>,
+    scrolled: Query<Entity, Added<Scrolled>>,
+) {
+    let Ok(container) = scrolled.single() else {
+        return;
+    };
+    for at in frontier_dots(&sectors.frontier()) {
+        let dot = commands
+            .spawn((
+                FrontierDot,
+                bar::placed(at, Vec2::splat(FRONTIER_DOT)),
+                BackgroundColor(argb(FRONTIER_RED)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(container).add_child(dot);
+    }
+}
+
 /// The pin's mark on the map.
 #[derive(Component)]
 struct PinMark;
@@ -754,6 +810,8 @@ fn show(
         .spawn((
             Cross,
             bar::placed(Vec2::ZERO, Vec2::splat(CROSS)),
+            // The hero and the quests over the frontier's dots (`0x6C9520` after `0x6C8800`).
+            ZIndex(1),
             Pickable::IGNORE,
         ))
         .id();
@@ -909,7 +967,13 @@ fn follow(
                 picture.color = argb(colour);
                 picture.image_mode = NodeImageMode::Stretch;
                 let child = commands
-                    .spawn((QuestIcon(entry.quest), picture, node, Pickable::IGNORE))
+                    .spawn((
+                        QuestIcon(entry.quest),
+                        picture,
+                        node,
+                        ZIndex(1),
+                        Pickable::IGNORE,
+                    ))
                     .id();
                 commands.entity(container).add_child(child);
             }
@@ -1050,7 +1114,15 @@ impl Plugin for WorldMapPlugin {
             .add_systems(
                 Update,
                 (
-                    place_pin, scroll, show, follow, show_pin, tooltip, hold_lens, show_lens,
+                    place_pin,
+                    scroll,
+                    show,
+                    show_frontier,
+                    follow,
+                    show_pin,
+                    tooltip,
+                    hold_lens,
+                    show_lens,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
