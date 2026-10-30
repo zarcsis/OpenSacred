@@ -101,15 +101,51 @@ pub fn side_alpha(distance: u32, radius: u32) -> u8 {
     u8::try_from((distance + 255).saturating_sub(radius)).unwrap_or(u8::MAX)
 }
 
+/// The lines of a quest log entry (`+0x28`, ten).
+pub const LINES: usize = 10;
+
+/// How a quest log entry stands (`+4`): entered (2, `0x46C160`), won (100) or lost (101), as
+/// `ExitQuest` or `LoseQuest` ends it (`0x46CBE0`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Standing {
+    #[default]
+    Entered,
+    Won,
+    Lost,
+}
+
+/// A quest log entry (`0x174` bytes at the script manager's `+0x424`), as the quest book shows
+/// it (docs/re/questbook.md): its quest (`+8`), its title (`+0x24`) and its
+/// lines (`+0x28`) as `QuestBook` writes them, the texts' ids
+/// (`opensacred_data::text::sacred_hash`), its chapter (`+0x16C`), how it stands, and whether
+/// it was entered since the game began (`+0xC` bit 0, which no save keeps).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Entry {
+    pub quest: u32,
+    pub title: Option<u32>,
+    pub lines: Vec<u32>,
+    pub chapter: i32,
+    pub standing: Standing,
+    #[serde(skip)]
+    pub new: bool,
+}
+
+impl Entry {
+    /// Whether its quest is a main one (`0x46C160`: 1 to 99, the entry's kind 3; else 4).
+    pub fn main(&self) -> bool {
+        (1..SIDE_FROM).contains(&self.quest)
+    }
+}
+
 /// The quests' flags by number, and the quests in the quest log, and their compasses.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quests {
     flags: BTreeMap<u32, u32>,
     log: BTreeSet<u32>,
-    /// The quests in the order they entered the log, by which an entry has its index (the
-    /// log's vector at the script manager's `+0x424`).
+    /// The log's entries in the order the quests entered it, by which an entry has its index
+    /// (the vector at the script manager's `+0x424`).
     #[serde(default)]
-    order: Vec<u32>,
+    book: Vec<Entry>,
     /// The compasses that `QuestKompassPos` and `QuestKompassObj` set, by the quest whose log
     /// entry holds them.
     #[serde(default)]
@@ -199,8 +235,17 @@ impl Quests {
                     self.pending = None;
                     return None;
                 }
+                // The entry takes the chapter of the newest main quest's.
                 if self.log.insert(quest) {
-                    self.order.push(quest);
+                    let chapter = self.newest[0]
+                        .and_then(|main| self.book.iter().find(|entry| entry.quest == main))
+                        .map_or(0, |entry| entry.chapter);
+                    self.book.push(Entry {
+                        quest,
+                        chapter,
+                        new: true,
+                        ..Entry::default()
+                    });
                 }
                 *self.flags.entry(quest).or_default() |= ENTERED;
                 // The newest main or side quest, and the compass that waited for it, a main
@@ -230,6 +275,13 @@ impl Quests {
             }
             (Transition::Exit | Transition::Lose, _) => {
                 *self.flags.entry(quest).or_default() |= FINISHED;
+                if let Some(entry) = self.book.iter_mut().find(|entry| entry.quest == quest) {
+                    entry.standing = if transition == Transition::Exit {
+                        Standing::Won
+                    } else {
+                        Standing::Lost
+                    };
+                }
                 None
             }
         }
@@ -252,6 +304,7 @@ impl Quests {
             *flags &= !ENTERED;
         }
         self.log.remove(&quest);
+        self.book.retain(|entry| entry.quest != quest);
         self.compasses.remove(&quest);
     }
 
@@ -294,7 +347,61 @@ impl Quests {
 
     /// The index of the quest `quest`'s entry in the log, the order the quests entered it.
     pub fn entry(&self, quest: u32) -> Option<usize> {
-        self.order.iter().position(|&entered| entered == quest)
+        self.book.iter().position(|entry| entry.quest == quest)
+    }
+
+    /// The log's entries in the order the quests entered it.
+    pub fn book(&self) -> &[Entry] {
+        &self.book
+    }
+
+    /// The compass of the quest `quest`'s entry.
+    pub fn compass(&self, quest: u32) -> Option<&Compass> {
+        self.compasses.get(&quest)
+    }
+
+    /// `QuestBook` (53, `0x496080`): the text `text` into the quest `quest`'s entry, its title
+    /// for a `line` divisible by 10, written over the one before, else its first line of ten
+    /// still free; nothing for no text, a line below 0, a quest out of the log, or ten lines
+    /// taken.
+    pub fn write(&mut self, quest: u32, line: i32, text: u32) {
+        let Some(entry) = self.book.iter_mut().find(|entry| entry.quest == quest) else {
+            return;
+        };
+        if text == 0 || line < 0 {
+            return;
+        }
+        if line % 10 == 0 {
+            entry.title = Some(text);
+        } else if entry.lines.len() < LINES {
+            entry.lines.push(text);
+        }
+    }
+
+    /// `SetQuestInfo` (87, `0x4A6EA0`): the chapter of the quest `quest`'s entry, the quest of
+    /// the function that runs.
+    pub fn set_chapter(&mut self, quest: u32, chapter: i32) {
+        if let Some(entry) = self.book.iter_mut().find(|entry| entry.quest == quest) {
+            entry.chapter = chapter;
+        }
+    }
+
+    /// The side quest `quest` made the one the inner pin follows, as a click on its row of the
+    /// quest book makes it (`0x49DAB0`, the manager's `+0x3A8`): one in the log, not ended;
+    /// whether it is.
+    pub fn track(&mut self, quest: u32) -> bool {
+        let tracks = self.book.iter().any(|entry| {
+            entry.quest == quest && !entry.main() && entry.standing == Standing::Entered
+        });
+        if tracks {
+            self.newest[1] = Some(quest);
+        }
+        tracks
+    }
+
+    /// The side quest that the inner pin follows, the newest entered or the one tracked.
+    pub fn tracked(&self) -> Option<u32> {
+        self.newest[1]
     }
 
     /// Whether a marker was set anew since the last call, for the bar's sonar.
@@ -1389,6 +1496,65 @@ mod tests {
         assert_eq!(quests.marked(Marker::Main), Some((2, &compass)));
     }
 
+    /// The quest book's entries (#1560): `QuestBook`'s title and ten lines, `SetQuestInfo`'s
+    /// chapter, which a new entry takes from the newest main quest's, how an entry stands, and
+    /// the side quest tracked.
+    #[test]
+    fn the_logs_entries_take_their_titles_lines_and_chapters() {
+        let mut quests = Quests::default();
+        let mut ran = Vec::new();
+        let enter = |quests: &mut Quests, quest: u32, ran: &mut Vec<String>| {
+            quests.set_up(quest, &mut runtime(ran, true));
+            quests.trigger(quest, &mut runtime(ran, true));
+        };
+        // Nothing for a quest out of the log.
+        quests.write(1, 0, 11);
+        enter(&mut quests, 1, &mut ran);
+        assert_eq!(quests.book()[0].title, None);
+        quests.write(1, 0, 11);
+        quests.write(1, 10, 12);
+        for text in 20..32 {
+            quests.write(1, 1, text);
+        }
+        quests.write(1, -1, 40);
+        quests.write(1, 1, 0);
+        let entry = &quests.book()[0];
+        assert_eq!(entry.title, Some(12));
+        assert_eq!(entry.lines, (20..30).collect::<Vec<_>>());
+        assert!(entry.main() && entry.new && entry.chapter == 0);
+        // The chapter set, and taken by the next entry from the newest main quest.
+        quests.set_chapter(1, 2);
+        enter(&mut quests, 150, &mut ran);
+        enter(&mut quests, 151, &mut ran);
+        assert_eq!(
+            quests
+                .book()
+                .iter()
+                .map(|entry| entry.chapter)
+                .collect::<Vec<_>>(),
+            [2, 2, 2]
+        );
+        // The newest side quest tracked, another tracked by a click, not a main one or one
+        // ended.
+        assert_eq!(quests.tracked(), Some(151));
+        assert!(quests.track(150) && quests.tracked() == Some(150));
+        assert!(!quests.track(1));
+        quests.exit(151, &mut runtime(&mut ran, true));
+        quests.lose(1, &mut runtime(&mut ran, true));
+        assert!(!quests.track(151));
+        assert_eq!(
+            quests
+                .book()
+                .iter()
+                .map(|entry| entry.standing)
+                .collect::<Vec<_>>(),
+            [Standing::Lost, Standing::Entered, Standing::Won]
+        );
+        // An untrigger takes the entry out, the later ones moving up.
+        quests.untrigger(1);
+        assert_eq!(quests.entry(150), Some(0));
+    }
+
     #[test]
     fn a_quest_triggered_before_it_is_set_up_does_nothing() {
         let mut quests = Quests::default();
@@ -1989,6 +2155,9 @@ mod tests {
         scripts.drops.set(38, 6005, 75);
         let bytes = postcard::to_allocvec(&scripts).expect("the state serializes");
         let back: Scripts = postcard::from_bytes(&bytes).expect("the state reads back");
+        // A loaded game's entries are not new: no save keeps `+0xC`.
+        assert!(scripts.quests.book[0].new && !back.quests.book[0].new);
+        scripts.quests.book[0].new = false;
         assert_eq!(back, scripts);
     }
     #[test]

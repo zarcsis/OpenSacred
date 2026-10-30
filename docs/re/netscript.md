@@ -609,6 +609,8 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 - `0x40` holds where the named creature is in the hero's list of followers (`+0x39C`), or is the creature that `0x55C630` answers (not read).
 - `QuestBook` (53, `0x496080`) takes the text (`0x01`), the quest's number and the line's index (the two `0x0B`s), and finds the quest's entry in the log (the vector at `+0x424`, entries of 0x174 bytes, the number at `+8`): an index divisible by 10 sets the entry's title (`+0x24`), another writes the text into the first free one of its ten lines (`+0x28`).
   It tests none of the quest's flags, so a line still goes into the log of a quest finished or lost, and nowhere for a quest never entered, whose entry its entering makes (`0x46C160`); an eleventh line is dropped.
+  The text may come as `0x16`, `0x1D` or `0x1E` too, and the quest and the line as a pair `0x04`; no text, a quest or a line below 0, does nothing; a second title takes the first's place (read 2026-10-30, #1560).
+- `SetQuestInfo` (87, `0x4A6EA0`) sets the chapter (`+0x16C`) of the entry of the running function's quest (the manager's `+0x18`) to its last `0x0B`, which the quest book's bookmarks follow (docs/re/questbook.md); a quest's entry takes the chapter of the player's newest main quest's entry as it is made (`0x46C160`), and its `+0xC` bit 0, which no save keeps (read 2026-10-30, #1560).
 - `SetTimer` keeps the last `0x0B` as the id and `0x38` as the time, neither set before the tags are read (`0x4982D0`), so a record without `0x38` carries whatever time the stack held.
 
 ### Moorbrook

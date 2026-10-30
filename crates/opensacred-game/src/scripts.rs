@@ -490,6 +490,17 @@ impl Live {
         self.state.quests.marker(marker)
     }
 
+    /// The quests' state: the log's entries, their compasses, the side quest tracked.
+    pub fn quests(&self) -> &quests::Quests {
+        &self.state.quests
+    }
+
+    /// The side quest `quest` tracked, as a click on its row of the quest book makes it
+    /// (`quests::Quests::track`); whether it is.
+    pub fn track(&mut self, quest: u32) -> bool {
+        self.state.quests.track(quest)
+    }
+
     /// The log's index of the entry of the marker `marker`'s quest, with its compass.
     pub fn marked_entry(&self, marker: quests::Marker) -> Option<(usize, &quests::Compass)> {
         let (quest, compass) = self.state.quests.marked(marker)?;
@@ -1251,6 +1262,30 @@ impl Host for Recorder<'_> {
                         None => step,
                     };
                     variables.set(name, value);
+                }
+                Handled::Done
+            }
+            // A quest's log entry's title or line (`QuestBook`, 53, `0x496080`): the text, then
+            // the quest's number and the line's index.
+            "quest_book" => {
+                if let (Some(text), [quest, line, ..]) =
+                    (tags.texts("_01").first(), tags.numbers("_0B").as_slice())
+                    && let Ok(quest) = u32::try_from(*quest)
+                {
+                    let id =
+                        opensacred_data::text::sacred_hash(crate::talk::resource(text).as_bytes());
+                    self.state.quests.write(quest, *line, id);
+                }
+                Handled::Done
+            }
+            // The chapter of the running function's quest's entry (`SetQuestInfo`, 87,
+            // `0x4A6EA0`, the manager's `+0x18`).
+            "set_quest_info" => {
+                if let (Some(&chapter), Some(quest)) = (
+                    tags.numbers("_0B").last(),
+                    self.running.last().copied().flatten(),
+                ) {
+                    self.state.quests.set_chapter(quest, chapter);
                 }
                 Handled::Done
             }
@@ -2652,6 +2687,54 @@ mod tests {
             })
         );
         assert!(state.quests.take_fresh());
+    }
+
+    /// The quest book's records (#1560): `QuestBook`'s title and lines into the quest's entry by
+    /// their resources' names, `SetQuestInfo`'s chapter into the running function's quest's.
+    #[test]
+    fn the_quest_books_records_write_the_logs_entries() {
+        let runtime = runtime(&[
+            (
+                "start.luau",
+                "local F = {}\n\
+                 F[\"StartCode\"] = function()\n\
+                 set_up_quest { _0B = 1 }\n\
+                 trigger_quest { _0B = 1 }\n\
+                 quest_book { _01 = \"Res:NQ_Log_Qend\", _0B = { 1, 1 } }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/1.luau",
+                "local F = {}\n\
+                 F[\"QIS_Trigger1\"] = function()\n\
+                 return true\n\
+                 end\n\
+                 F[\"QIS_OnEnter1\"] = function()\n\
+                 quest_book { _01 = \"Res:R10NQ01_Log_Title\", _0B = { 1, 0 } }\n\
+                 quest_book { _01 = \"res:17095\", _0B = { 1, 1 } }\n\
+                 set_quest_info { _0B = 2 }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+        ]);
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
+        let hash = |name: &str| opensacred_data::text::sacred_hash(name.as_bytes());
+        let entry = &state.quests.book()[0];
+        assert_eq!(entry.title, Some(hash("R10NQ01_Log_Title")));
+        assert_eq!(entry.lines, [hash("17095"), hash("NQ_LOG_QEND")]);
+        assert_eq!(entry.chapter, 2);
     }
 
     #[test]
