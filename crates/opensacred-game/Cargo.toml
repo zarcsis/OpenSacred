@@ -9,6 +9,11 @@ publish.workspace = true
 # The version from Git, shared by the two binaries (build.rs)
 build = "../../build.rs"
 
+[features]
+# The build that the releases ship (#1495): no console window, and the assets by default in the
+# user's data directory (%LOCALAPPDATA%\OpenSacred\assets).
+packaged = []
+
 [dependencies]
 anyhow.workspace = true
 bevy.workspace = true

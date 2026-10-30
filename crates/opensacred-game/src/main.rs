@@ -2,6 +2,9 @@
 //! `assets/`. The start of M2 (PLAN.md §10, step 7): the original's isometric view of one
 //! sector's ground and the hero model with an animation, at any resolution.
 
+// The packaged build opens no console window (#1495).
+#![cfg_attr(feature = "packaged", windows_subsystem = "windows")]
+
 mod ai;
 mod ambience;
 mod arrows;
@@ -123,9 +126,10 @@ use opensacred_rules::spawning;
     about = "OpenSacred: the game on the converted assets"
 )]
 struct Cli {
-    /// Directory of the converted assets (opensacred-convert all)
-    #[arg(long, default_value = "assets")]
-    assets: PathBuf,
+    /// Directory of the converted assets (opensacred-convert all): assets, or in the packaged
+    /// build assets in the user's data directory (%LOCALAPPDATA%\OpenSacred on Windows)
+    #[arg(long)]
+    assets: Option<PathBuf>,
     /// The settings file, instead of settings.toml in the user's configuration directory
     /// (%APPDATA%\OpenSacred on Windows)
     #[arg(long, value_name = "FILE")]
@@ -197,9 +201,21 @@ fn task_pools() -> TaskPoolOptions {
     options
 }
 
+/// The assets' directory when `--assets` names none: `assets` in the working directory, or in the
+/// packaged build `assets` in the user's data directory, where the converter writes them for the
+/// player (#1495).
+fn default_assets() -> PathBuf {
+    let packaged = cfg!(feature = "packaged")
+        .then(settings::data_dir)
+        .flatten()
+        .map(|dir| dir.join("assets"));
+    packaged.unwrap_or_else(|| PathBuf::from("assets"))
+}
+
 fn run(cli: Cli) -> Result<AppExit> {
-    let assets = std::path::absolute(&cli.assets)
-        .map_err(|e| anyhow::anyhow!("resolving {}: {e}", cli.assets.display()))?;
+    let given = cli.assets.clone().unwrap_or_else(default_assets);
+    let assets = std::path::absolute(&given)
+        .map_err(|e| anyhow::anyhow!("resolving {}: {e}", given.display()))?;
     // The assets' layers: the loose files, then the archives (#699).
     files::init(&assets).map_err(|e| anyhow::anyhow!("opening {}: {e}", assets.display()))?;
     let world = terrain::read_world(&assets)?;
@@ -476,12 +492,35 @@ fn run(cli: Cli) -> Result<AppExit> {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            // Its usage, its help or its version too, which the packaged build cannot print.
+            write_failure(&e.render().to_string());
+            e.exit()
+        }
+    };
+    match run(cli) {
         Ok(AppExit::Success) => ExitCode::SUCCESS,
         Ok(AppExit::Error(code)) => ExitCode::from(code.get()),
         Err(e) => {
             eprintln!("error: {e:#}");
+            write_failure(&format!("error: {e:#}\n"));
             ExitCode::FAILURE
         }
     }
+}
+
+/// The packaged build, which has no console, writes the error it ends with into
+/// `logs\opensacred-error.log` in the user's state directory, beside the log (#1495).
+fn write_failure(text: &str) {
+    if !cfg!(feature = "packaged") {
+        return;
+    }
+    let Some(dir) = settings::state_dir().map(|dir| dir.join("logs")) else {
+        return;
+    };
+    // Nothing more can be told of a failure to write it.
+    let _ = std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(dir.join("opensacred-error.log"), text));
 }

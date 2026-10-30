@@ -139,6 +139,19 @@ pub fn state_dir() -> Option<PathBuf> {
     base.map(|base| base.join(DIRECTORY))
 }
 
+/// The game's directory in the user's data directory, for the assets that the converter makes of
+/// the player's installation (#1494): `%LOCALAPPDATA%\OpenSacred` on Windows,
+/// `$XDG_DATA_HOME/OpenSacred` (`~/.local/share/OpenSacred`) elsewhere.
+pub fn data_dir() -> Option<PathBuf> {
+    let base = if cfg!(windows) {
+        env_dir("LOCALAPPDATA")
+    } else {
+        env_dir("XDG_DATA_HOME")
+            .or_else(|| env_dir("HOME").map(|home| home.join(".local").join("share")))
+    };
+    base.map(|base| base.join(DIRECTORY))
+}
+
 /// The absolute directory in the environment variable `name`.
 fn env_dir(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
