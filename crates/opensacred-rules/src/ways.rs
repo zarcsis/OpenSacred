@@ -1,6 +1,7 @@
 //! The ways and the cells in the way (docs/re/movement.md): the search of the fewest steps over
 //! the walkable cells of a 64 × 64 window (`0x421B90`), on a layer and, through the doors, the
-//! others; the straight line's test of the cells it crosses; and who stops whose step into a
+//! others; the straight line's test of the cells it crosses, and the original's test of a
+//! straight way by whole cells with its way round a closed cell (`0x4FCC80`); and who stops whose step into a
 //! cell that another creature holds (`0x4F7E10`, "The creatures in the way").
 //! `opensacred-game` (`paths`, `crowd`) keeps the world's points, the cells that the creatures
 //! stand on and the systems that walk them; this module is the rules alone.
@@ -107,6 +108,113 @@ pub fn nearer(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<C
         .rev()
         .map(|k| (from.0 + dx * k / far, from.1 + dy * k / far))
         .find(|&cell| walkable(cell))
+}
+
+/// A cell's eight neighbours in a ring, clockwise from the one at `y − 1` (`0x955874`).
+const RING: [(i32, i32); 8] = [
+    (0, -1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+];
+
+/// A line of whole cells as the original's test of a straight way walks it (`0x4FCC80`): a step
+/// along `x` while the error is below `dx`, the error taking `dy` and a step along `y` with it
+/// where it reaches `dx`; else a step along `y` alone, the error giving up `dx`.
+struct Line {
+    at: Cell,
+    error: i32,
+    span: (i32, i32),
+    step: (i32, i32),
+}
+
+impl Line {
+    fn new(from: Cell, to: Cell) -> Self {
+        let span = ((to.0 - from.0).abs(), (to.1 - from.1).abs());
+        Self {
+            at: from,
+            error: span.0.max(span.1) / 2,
+            span,
+            step: ((to.0 - from.0).signum(), (to.1 - from.1).signum()),
+        }
+    }
+
+    fn advance(&mut self) -> Cell {
+        if self.error < self.span.0 {
+            self.error += self.span.1;
+            self.at.0 += self.step.0;
+            if self.error >= self.span.0 {
+                self.error -= self.span.0;
+                self.at.1 += self.step.1;
+            }
+        } else {
+            self.error -= self.span.0;
+            self.at.1 += self.step.1;
+        }
+        self.at
+    }
+}
+
+/// Whether a straight way leads from cell `from` to cell `to` by the original's test
+/// (`0x4FCC80`, docs/re/containers.md, "The hero's order"): the cells of the line by whole cells
+/// ([`Line`]) pass `walkable`, `to` passing whatever it is and `from` not; where one does not, the
+/// next cell of the line must, and a way must lead round the closed cell from the cell before it
+/// to that one through the closed cell's neighbours, one way round the ring and else the other,
+/// every neighbour passing. A way round counts one cell of the two, so the line then walks a cell
+/// past `to` and tests it too, as the original's does.
+pub fn straight(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> bool {
+    let passes = |cell: Cell| cell == to || walkable(cell);
+    if !walkable(from) {
+        return false;
+    }
+    let mut line = Line::new(from, to);
+    let steps = line.span.0.max(line.span.1);
+    let mut counted = 0;
+    while counted < steps {
+        let before = line.at;
+        let next = line.advance();
+        if passes(next) {
+            counted += 1;
+            continue;
+        }
+        let beyond = line.advance();
+        counted += 1;
+        if !passes(beyond) || !round(before, next, beyond, passes) {
+            return false;
+        }
+        if beyond == to {
+            return true;
+        }
+    }
+    true
+}
+
+/// Whether a way leads round the closed cell `closed` from its neighbour `before` to its neighbour
+/// `beyond` through its other neighbours, every one passing `passes`: clockwise round the ring
+/// from `before`, else anticlockwise.
+fn round(before: Cell, closed: Cell, beyond: Cell, passes: impl Fn(Cell) -> bool) -> bool {
+    let offset = (before.0 - closed.0, before.1 - closed.1);
+    let Some(start) = RING.iter().position(|&ring| ring == offset) else {
+        return false;
+    };
+    let way = |turns: &mut dyn Iterator<Item = usize>| {
+        for turn in turns {
+            let (dx, dy) = RING[turn % RING.len()];
+            let cell = (closed.0 + dx, closed.1 + dy);
+            if !passes(cell) {
+                return false;
+            }
+            if cell == beyond {
+                return true;
+            }
+        }
+        true
+    };
+    way(&mut (start..start + 8)) || way(&mut (start..start + 8).rev())
 }
 
 /// The walkable neighbours of `cell` on one layer, by `walkable`: round a corner, not between two
@@ -493,6 +601,52 @@ mod tests {
     /// One layer, the wall's.
     fn flat((cell, layer): (Cell, ())) -> Vec<(Cell, ())> {
         around(cell, wall).map(|next| (next, layer)).collect()
+    }
+
+    #[test]
+    fn a_straight_way_walks_the_lines_whole_cells() {
+        // Along x, then a step along y where the error reaches the span along x.
+        let mut line = Line::new((0, 0), (4, 1));
+        let cells: Vec<Cell> = (0..4).map(|_| line.advance()).collect();
+        assert_eq!(cells, [(1, 0), (2, 1), (3, 1), (4, 1)]);
+        let mut line = Line::new((0, 0), (1, -4));
+        let cells: Vec<Cell> = (0..4).map(|_| line.advance()).collect();
+        assert_eq!(cells, [(0, -1), (0, -2), (1, -3), (1, -4)]);
+    }
+
+    #[test]
+    fn a_straight_way_lets_its_last_cell_through_but_not_its_first() {
+        let open = |_| true;
+        assert!(straight((0, 0), (5, 2), open));
+        let closed_end = |cell: Cell| cell != (5, 2);
+        assert!(straight((0, 0), (5, 2), closed_end));
+        let closed_start = |cell: Cell| cell != (0, 0);
+        assert!(!straight((0, 0), (5, 2), closed_start));
+        // Across the wall along x = 5.
+        assert!(!straight((2, 4), (8, 4), wall));
+    }
+
+    #[test]
+    fn a_straight_way_goes_round_one_closed_cell_but_not_two() {
+        let post = |cell: Cell| cell != (2, 0);
+        assert!(straight((0, 0), (4, 0), post));
+        let two = |cell: Cell| cell != (2, 0) && cell != (3, 0);
+        assert!(!straight((0, 0), (4, 0), two));
+        // The post with its neighbours above and below closed: both ways round meet one.
+        let gate = |cell: Cell| cell.0 != 2 || cell.1.abs() > 1;
+        assert!(!straight((0, 0), (4, 0), gate));
+        // Only the neighbours above: the other way round.
+        let above = |cell: Cell| cell != (2, 0) && cell != (2, -1) && cell != (1, -1);
+        assert!(straight((0, 0), (4, 0), above));
+    }
+
+    #[test]
+    fn after_a_way_round_a_straight_way_tests_a_cell_past_its_end() {
+        // Two closed cells past the end stop it only where a way round came before.
+        let past = |cell: Cell| cell != (5, 0) && cell != (6, 0);
+        assert!(straight((0, 0), (4, 0), past));
+        let both = |cell: Cell| past(cell) && cell != (2, 0);
+        assert!(!straight((0, 0), (4, 0), both));
     }
 
     #[test]

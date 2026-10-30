@@ -100,6 +100,15 @@ Not read in detail: the search's order, its costs, and the points it keeps.
 Seen 2026-10-22 in the original with its driver (#476): at the merchant's house of 50,40, its door open, the hero clicked onto the floor 1 beside the door from (3258, 2584), below the wall, walks to the exit (3257, 2579) and stops there, while from (3255, 2584) or (3254, 2582), left of the door, it comes onto the entrance (3256, 2578) straight up the grid and goes in.
 From that exit the shortest way in is the diagonal onto the entrance past the corner of the wall's cell (3257, 2578) (**hypothesis**: `0x4FABE0` takes such a diagonal, which the walk does not step).
 
+### The straight way (`0x4FCC80`)
+
+Read 2026-10-30 (#1413, #1526, **confirmed** by code): the test of a straight way from a creature to a target, which a creature's attack and pursuit (docs/re/fight.md), a hero's opening of a container and its pick-up's reach, the items thrown out of a hero's reach (docs/re/containers.md), the followers' steps aside (docs/re/ai.md), the wolf's summoning and the jumps (docs/re/arts.md) ask.
+- It walks the cells of the line from the creature's cell to the target's by whole cells: of the spans `dx` and `dy` along the axes and an error from half the longer, a step along `x` while the error is below `dx`, the error taking `dy`, and a step along `y` with it once the error reaches `dx`, giving `dx` up; else a step along `y` alone, the error giving `dx` up.
+- It tests each cell with the creature's test of a cell (`0x4F7DD0`, on the target's floor byte), the creature's own first; a cell that fails is passed where it is the target's, so a target on a closed cell, a container's, is reached.
+- Where another fails, the next cell of the line must pass, and a way must lead round the closed cell from the cell before it to that one through the closed cell's eight neighbours (the ring of offsets at `0x955874`, clockwise from the one above): one way round, and where a neighbour on that way fails, the other way, failing where that way meets a closed neighbour too; the line then goes on from the cell beyond.
+- The way round counts one step of the two, so after one the line walks a cell past the target and tests it too, as above.
+- While it runs, the creature's `+0x259` holds one of the call's arguments and its word `+0x1F4` takes the bit `0x200000` where another asks it (**hypothesis**: the target and the creatures in the way set aside); both are given back after.
+
 ## The objects in the way
 
 Read 2026-10-19 (#154).
@@ -237,6 +246,8 @@ The flags word is made from each `CreateNPC` record's tags as the client makes i
 A follower (#895) does not stop its master's steps, the hero's, unless it is hostile to it, of class 7 or of the guards' mode (`opensacred_rules::ways::stops_its_master`, `crowd::Crowd::stops`, #1013), so that a summoned one, of bit 0, stops only the others'.
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
 The hero takes its orders at the world's next tick (`hero::take_orders`, #640): a press of the left button orders it once, and held longer than 0.4 s at every tick after (`hero::steer`), as do the commands (`go`) and its attack's and art's approaches; it moves at every frame, and arrived, or stopped by a cell it may not step into, it runs in place until the second tick after, when its clip blends into the stand.
+Since #1526 the test of a straight way is the original's above (`opensacred_rules::ways::straight`, `paths::straight`), taken by the creatures' attack and pursuit and their doors in the way (`ai`), the items thrown out of the hero's reach (`drops`), the pick-up's reach (`pickup`), the jumps and the wolf's summoning (`making`); the creatures' arguments of `+0x259` and `+0x1F4` are not followed, the walkability of the cells (`terrain::Heights::walkable_on`) standing for `0x4F7DD0`.
+
 The deviations are in docs/decisions/movement.md.
 
 The hero's and the NPCs' walk and run speeds are their `Creature.pak` pairs times their pace's factor (#599, `opensacred_rules::fight::Combat::pace_factor`, the pace of `fight::pace` with the items' 812 and the skill 11's curve; a horse's 130, its table not read) times `GameSpeed`, in world units a second, rather than times the models' scale, 1.52, as until #599; a walk's and a run's clips play at `GameSpeed` times that factor, every other clip at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.

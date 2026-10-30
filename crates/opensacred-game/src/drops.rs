@@ -921,7 +921,8 @@ fn fly(
 /// that the hero may not stand on (`0x4EBCA0`), or with no straight line of walkable cells to it
 /// from the hero (`0x4FCC80`).
 fn out_of_reach(hero: Vec2, item: Vec2, walkable: impl Fn(crate::paths::Cell) -> bool) -> bool {
-    !walkable(crate::paths::cell_of(item.x, item.y)) || !crate::paths::clear(hero, item, walkable)
+    !walkable(crate::paths::cell_of(item.x, item.y))
+        || !crate::paths::straight(hero, item, walkable)
 }
 
 /// Counts the time played.
