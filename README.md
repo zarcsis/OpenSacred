@@ -29,7 +29,7 @@ It is not a game you can play through yet: the inventory is partly made, and the
 
 ## Requirements
 
-- **The game:** your own copy of Sacred Gold 2.28 (English) from GOG. The converter checks it against the embedded SHA-256 manifest ([docs/manifest-gog-2.28.txt](docs/manifest-gog-2.28.txt)); other builds are not supported.
+- **The game:** your own copy of Sacred Gold 2.28 (English) from GOG or Steam. The converter checks it against the embedded SHA-256 manifests ([docs/manifest-gog-2.28.txt](docs/manifest-gog-2.28.txt), and [docs/manifest-steam-2.28.txt](docs/manifest-steam-2.28.txt) for the four files in which the Steam release differs); other builds are not supported. The development tools (the oracle, the original's driver) take the GOG release alone.
 - **Rust:** [rustup](https://rustup.rs/); the exact toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml) and installs automatically.
 - **Windows:** Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK. The workspace links with `rust-lld` ([.cargo/config.toml](.cargo/config.toml)).
 - **CMake** in `PATH`: the game's build compiles libopus with it.

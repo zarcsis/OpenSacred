@@ -46,7 +46,7 @@
 The repository holds no file of the game.
 Every developer uses their own GOG installation of Sacred Gold 2.28: copied into `OriginalGame/` at the repository root or linked there (ignored by Git either way; the default `--game-dir` of the converter and of the research scripts), or passed with `--game-dir <path>`.
 On Windows a link is `New-Item -ItemType SymbolicLink -Path OriginalGame -Target <installation>`, which needs Developer Mode or an elevated shell.
-`cargo run -p opensacred-convert -- verify` checks it against the embedded manifest (`docs/manifest-gog-2.28.txt`).
+`cargo run -p opensacred-convert -- verify` checks it against the embedded manifest (`docs/manifest-gog-2.28.txt`); a player's Steam installation passes it too, its four files of its own checked against `docs/manifest-steam-2.28.txt` (#1490), but the development tools, the oracle and the driver of the original, take the GOG release alone.
 The manifest lists only the files the game never writes (docs/02 §13), so the same installation can be played from without breaking the checks.
 The driver of the original (§3.8) runs it there in place, and the game then writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), as the maintainer allowed on 2026-10-21 (#448); nothing else in `OriginalGame/` is changed.
 Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, §4).

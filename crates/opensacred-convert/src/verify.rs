@@ -1,8 +1,9 @@
-//! Checking a GOG installation against the SHA-256 manifest (`docs/manifest-gog-2.28.txt`,
-//! docs/02 §13).
+//! Checking an installation against the SHA-256 manifest of the GOG release
+//! (`docs/manifest-gog-2.28.txt`, docs/02 §13), and of the four files in which the Steam release
+//! differs from it (`docs/manifest-steam-2.28.txt`, docs/01 §1, #1490).
 //!
-//! The manifest is embedded in the binary so that the converter always knows the reference it
-//! works with. It lists only the files that the project uses and the game never writes:
+//! The manifests are embedded in the binary so that the converter always knows the reference it
+//! works with. The GOG one lists only the files that the project uses and the game never writes:
 //! `Settings.cfg`, `Gameserver.cfg`, the saves of `save/` and the `DefPos.bin` caches change when
 //! the game runs and are not in it, nor are the extra installation files (`unins*`, `goggame-*`,
 //! PDFs, empty `Quest*Code.bin`), nor the files that nothing of the project reads (#1482):
@@ -21,19 +22,36 @@ use sha2::{Digest, Sha256};
 /// Manifest of the reference GOG Sacred Gold 2.28 ENG installation in `sha256sum` format.
 pub const GOG_MANIFEST: &str = include_str!("../../../docs/manifest-gog-2.28.txt");
 
+/// The files of the Steam release of Sacred Gold 2.28 that differ from the GOG release's, in
+/// `sha256sum` format: its `Sacred.exe`, the same build wrapped by Steam's DRM, whose data
+/// sections are the GOG file's at the same addresses, two loading screens and an intro's logo.
+/// Its other files are the GOG release's.
+pub const STEAM_MANIFEST: &str = include_str!("../../../docs/manifest-steam-2.28.txt");
+
 /// Contents of a file of the installation.
 pub fn read_game_file(path: &Path) -> Result<Vec<u8>> {
     fs::read(path).with_context(|| format!("reading {}", path.display()))
 }
 
-/// Contents of a file of the installation that must be the reference's own, its SHA-256 the
-/// manifest's: for a reader that takes its data from fixed places of the GOG 2.28 build (the
-/// combat arts' tables of `Sacred.exe`, docs/02 §6.5).
+/// Contents of a file of the installation that must be the reference's own, its SHA-256 the GOG
+/// manifest's or the Steam one's: for a reader that takes its data from fixed places of the
+/// 2.28 build's data sections (the combat arts' tables of `Sacred.exe`, docs/02 §6.5), which the
+/// two releases hold alike.
 pub fn read_reference_file(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
-    read_checked(game_dir, path, &parse_manifest(GOG_MANIFEST)?)
+    read_checked(
+        game_dir,
+        path,
+        &parse_manifest(GOG_MANIFEST)?,
+        &parse_manifest(STEAM_MANIFEST)?,
+    )
 }
 
-fn read_checked(game_dir: &Path, path: &str, manifest: &[Entry<'_>]) -> Result<Vec<u8>> {
+fn read_checked(
+    game_dir: &Path,
+    path: &str,
+    manifest: &[Entry<'_>],
+    variants: &[Entry<'_>],
+) -> Result<Vec<u8>> {
     let expected = manifest
         .iter()
         .find(|e| e.path == path)
@@ -42,10 +60,11 @@ fn read_checked(game_dir: &Path, path: &str, manifest: &[Entry<'_>]) -> Result<V
     let file = game_dir.join(path);
     let bytes = read_game_file(&file)?;
     let found = hex(&Sha256::digest(&bytes));
-    if found != expected {
+    let variant = variants.iter().any(|e| e.path == path && e.sha256 == found);
+    if found != expected && !variant {
         bail!(
-            "{} is not the GOG Sacred Gold 2.28 file: its SHA-256 is {found}, the manifest's \
-             {expected}; its data is read from that build's addresses",
+            "{} is not the GOG or Steam Sacred Gold 2.28 file: its SHA-256 is {found}, the GOG \
+             manifest's {expected}; its data is read from that build's addresses",
             file.display()
         );
     }
@@ -103,10 +122,17 @@ pub struct Report<'a> {
     pub bytes: u64,
     /// Mismatching files in manifest order.
     pub problems: Vec<(&'a str, Problem)>,
+    /// The files that matched a variant of `variants` and not the manifest, in manifest order.
+    pub variants: Vec<&'a str>,
 }
 
-/// Hashes every manifest file in `game_dir` and collects the mismatches.
-pub fn verify<'a>(game_dir: &Path, manifest: &[Entry<'a>]) -> Result<Report<'a>> {
+/// Hashes every manifest file in `game_dir` and collects the mismatches; a file that is one of
+/// `variants` instead, a release's own (the Steam release's four, [`STEAM_MANIFEST`]), matches.
+pub fn verify<'a>(
+    game_dir: &Path,
+    manifest: &[Entry<'a>],
+    variants: &[Entry<'_>],
+) -> Result<Report<'a>> {
     let mut report = Report::default();
     for entry in manifest {
         let path = game_dir.join(entry.path);
@@ -119,7 +145,15 @@ pub fn verify<'a>(game_dir: &Path, manifest: &[Entry<'a>]) -> Result<Report<'a>>
             Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
         report.bytes += len;
-        if sha256 != entry.sha256 {
+        if sha256 == entry.sha256 {
+            continue;
+        }
+        if variants
+            .iter()
+            .any(|v| v.path == entry.path && v.sha256 == sha256)
+        {
+            report.variants.push(entry.path);
+        } else {
             report.problems.push((entry.path, Problem::Mismatch));
         }
     }
@@ -194,14 +228,46 @@ mod tests {
         assert!(parse_manifest(&format!("{} Sacred.exe\n", "0".repeat(64))).is_err());
     }
 
+    /// The Steam release's four files are of the GOG manifest's paths, in its order, and differ
+    /// from them (docs/01 §1, #1490).
+    #[test]
+    fn the_steam_manifest_names_four_gog_files_anew() {
+        let gog = parse_manifest(GOG_MANIFEST).unwrap();
+        let steam = parse_manifest(STEAM_MANIFEST).unwrap();
+        let paths: Vec<&str> = steam.iter().map(|e| e.path).collect();
+        assert_eq!(
+            paths,
+            [
+                "PAK/loading0.bmp",
+                "PAK/loading1.bmp",
+                "Sacred.exe",
+                "movie/oem.wmv"
+            ]
+        );
+        for entry in &steam {
+            let own = gog.iter().find(|e| e.path == entry.path).unwrap();
+            assert_ne!(own.sha256, entry.sha256, "{}", entry.path);
+        }
+    }
+
     #[test]
     fn reports_missing_and_mismatch() {
         let dir = scratch_dir("verify");
         fs::write(dir.join("ok.bin"), "hello").unwrap();
         fs::write(dir.join("changed.bin"), "hello!").unwrap();
-        let text = format!("{HELLO}  ok.bin\n{HELLO}  changed.bin\n{HELLO}  absent.bin\n");
+        fs::write(dir.join("variant.bin"), "hello!").unwrap();
+        let text = format!(
+            "{HELLO}  ok.bin\n{HELLO}  changed.bin\n{HELLO}  variant.bin\n{HELLO}  absent.bin\n"
+        );
+        let changed = hex(&Sha256::digest(b"hello!"));
+        let variants = format!("{changed}  variant.bin\n");
 
-        let report = verify(&dir, &parse_manifest(&text).unwrap()).unwrap();
+        let report = verify(
+            &dir,
+            &parse_manifest(&text).unwrap(),
+            &parse_manifest(&variants).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             report.problems,
@@ -210,25 +276,36 @@ mod tests {
                 ("absent.bin", Problem::Missing),
             ]
         );
+        assert_eq!(report.variants, ["variant.bin"]);
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
-    fn a_reference_file_reads_only_as_the_manifest_has_it() {
+    fn a_reference_file_reads_only_as_a_manifest_has_it() {
         let dir = scratch_dir("verify-reference");
         fs::write(dir.join("ok.bin"), "hello").unwrap();
         fs::write(dir.join("changed.bin"), "hello!").unwrap();
-        let text = format!("{HELLO}  ok.bin\n{HELLO}  changed.bin\n");
+        fs::write(dir.join("variant.bin"), "hello!").unwrap();
+        let text = format!("{HELLO}  ok.bin\n{HELLO}  changed.bin\n{HELLO}  variant.bin\n");
         let manifest = parse_manifest(&text).unwrap();
-        assert_eq!(read_checked(&dir, "ok.bin", &manifest).unwrap(), b"hello");
-        let error = read_checked(&dir, "changed.bin", &manifest)
+        let variants = format!("{}  variant.bin\n", hex(&Sha256::digest(b"hello!")));
+        let variants = parse_manifest(&variants).unwrap();
+        assert_eq!(
+            read_checked(&dir, "ok.bin", &manifest, &variants).unwrap(),
+            b"hello"
+        );
+        assert_eq!(
+            read_checked(&dir, "variant.bin", &manifest, &variants).unwrap(),
+            b"hello!"
+        );
+        let error = read_checked(&dir, "changed.bin", &manifest, &variants)
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("not the GOG Sacred Gold 2.28 file"),
+            error.contains("not the GOG or Steam Sacred Gold 2.28 file"),
             "{error}"
         );
-        let error = read_checked(&dir, "other.bin", &manifest)
+        let error = read_checked(&dir, "other.bin", &manifest, &variants)
             .unwrap_err()
             .to_string();
         assert!(error.contains("not in the manifest"), "{error}");
@@ -239,7 +316,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn installation_matches_manifest() {
         let game_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../OriginalGame");
-        let report = verify(&game_dir, &parse_manifest(GOG_MANIFEST).unwrap()).unwrap();
+        let report = verify(&game_dir, &parse_manifest(GOG_MANIFEST).unwrap(), &[]).unwrap();
         assert!(report.problems.is_empty(), "{:?}", report.problems);
     }
 }
