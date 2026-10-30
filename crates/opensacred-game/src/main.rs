@@ -105,6 +105,7 @@ mod spells;
 mod srgb;
 mod stashes;
 mod statics;
+mod statistics;
 mod steps;
 mod tables;
 mod talk;
@@ -417,6 +418,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         statics::StaticsPlugin,
+        statistics::StatisticsPlugin,
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,

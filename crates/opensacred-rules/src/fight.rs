@@ -59,6 +59,11 @@ const HELD_SKILLS: u32 = 2;
 const TOP_LEVEL: u32 = 216;
 
 impl Experience {
+    /// The skills it may still learn (`+0x44`).
+    pub fn to_learn(&self) -> u32 {
+        self.to_learn
+    }
+
     /// Adds `earned` (`0x57E160`), the experience held below the top level's end, and gives the
     /// levels it reaches: for each, an attribute point, and for each level `p` reached, half,
     /// rounded up, of the skill slots held and open (two held, one more open from each of the

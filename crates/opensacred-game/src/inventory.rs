@@ -12,9 +12,9 @@
 //! (`0x6BAC80`). Clicks over the windows do not reach the world.
 //!
 //! Not followed yet: the grid's cells and the items (#1268), the slots (#1270), the tabs' pages and
-//! their buttons' pressed looks (the spells' and the combos' pages are #1090's), the statistics'
-//! window (#1089), the sort's button's other mode (#1321), and the camera's shift as the
-//! equipment shows.
+//! their buttons' pressed looks (the spells' and the combos' pages are #1090's), the sort's
+//! button's other mode (#1321), and the camera's shift as the equipment shows. The statistics
+//! window beside them is `statistics`' (#1521).
 
 use bevy::input::InputSystems;
 use bevy::prelude::*;
@@ -380,7 +380,7 @@ fn show(
 }
 
 /// Whether the pointer is off the windows that show, whose clicks do not reach the world: the
-/// inventory with its tabs above it, and the equipment.
+/// inventory with its tabs above it, the equipment and the statistics (#1521).
 fn off_the_windows(
     shown: Option<Res<Shown>>,
     pointer: Res<Pointer>,
@@ -397,7 +397,7 @@ fn off_the_windows(
         min: INVENTORY.min + Vec2::new(0.0, TAB_TOP),
         max: INVENTORY.max,
     };
-    !(tabs.contains(at) || EQUIPMENT.contains(at))
+    !(tabs.contains(at) || EQUIPMENT.contains(at) || crate::statistics::WINDOW.contains(at))
 }
 
 /// The windows hidden at each game's start.
