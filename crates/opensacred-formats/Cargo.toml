@@ -14,6 +14,7 @@ miniz_oxide.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+opensacred-locate.workspace = true
 png.workspace = true
 
 [lints]

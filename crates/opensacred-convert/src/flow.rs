@@ -584,7 +584,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_function_of_the_trees_runs_as_the_walker_runs_it() {
-        let game = crate::testing::repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let mut functions = 0;
         for source in crate::netscript::trees().unwrap() {
             let tree = crate::netscript::tree(&game, &source).unwrap();

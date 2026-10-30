@@ -13,6 +13,7 @@ opensacred-data.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+opensacred-locate.workspace = true
 # The vectors of opensacred-oracle and the balance, which tests/oracle.rs reads; the scripts'
 # state's round trip; the properties of the fight's formulas (#1428).
 opensacred-formats.workspace = true

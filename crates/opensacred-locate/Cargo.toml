@@ -1,0 +1,17 @@
+[package]
+name = "opensacred-locate"
+description = "Finding the installation of Sacred Gold 2.28: the player's GOG or Steam one, and the developer's"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
+
+[lints]
+workspace = true

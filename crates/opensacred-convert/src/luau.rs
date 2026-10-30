@@ -617,7 +617,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_translated_function_runs_as_the_walker_runs_it() {
         use rayon::prelude::*;
-        let game = crate::testing::repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let runs: usize = crate::netscript::trees()
             .unwrap()
             .par_iter()
@@ -740,7 +740,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_tree_translates_into_files_that_compile() {
         use rayon::prelude::*;
-        let game = crate::testing::repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let sources = crate::netscript::trees().unwrap();
         let counts: Vec<(usize, usize)> = sources
             .par_iter()

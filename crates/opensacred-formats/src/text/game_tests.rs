@@ -6,14 +6,14 @@ use std::ffi::OsStr;
 use std::fs;
 
 use super::*;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 #[test]
 #[ignore = "needs the game files in OriginalGame/ and Python"]
 fn strings_match_global_res_dump_py() {
     let out = scratch_dir("text");
     let table = out.join("strings.tsv");
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/global_res_dump.py",
         &[

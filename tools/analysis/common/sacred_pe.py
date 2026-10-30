@@ -15,12 +15,18 @@ Usage from a script (``uv run python -I`` does not add the script's directory to
 
 Dependencies: pefile, capstone.
 """
+import os
 import struct
+import sys
 
 import pefile
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
 
-DEFAULT_GAME_DIR = './OriginalGame'
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'common'))
+from installation import game_dir  # noqa: E402
+
+# OriginalGame/, else the GOG installation that the registry names (#1556).
+DEFAULT_GAME_DIR = game_dir()
 
 
 class Img:

@@ -88,8 +88,10 @@ const BALANCE_SIZE: usize = 4896;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let exe = vectors::checked(&cli.game_dir, "Sacred.exe")?;
-    let balance_file = vectors::checked(&cli.game_dir, "bin/Balance.bin")?;
+    // `OriginalGame/`, else the GOG installation that the registry names (#1556).
+    let game_dir = opensacred_locate::resolve_original(cli.game_dir);
+    let exe = vectors::checked(&game_dir, "Sacred.exe")?;
+    let balance_file = vectors::checked(&game_dir, "bin/Balance.bin")?;
     let balance = balance_file
         .get(4..4 + BALANCE_SIZE)
         .context("bin/Balance.bin: shorter than its image")?;

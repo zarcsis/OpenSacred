@@ -12,7 +12,7 @@ use crc32fast::Hasher;
 
 use super::*;
 use crate::mdl::{Kind, MdlPak, Record};
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 const PAKS: [&str; 2] = ["PAK/models.pak", "PAK/models03.pak"];
 
@@ -363,7 +363,7 @@ fn format_name(format: TextureFormat) -> &'static str {
 fn trees_skeletons_and_models_match_grn_dump_py() {
     let out = scratch_dir("grn-trees");
     let table = out.join("records.tsv");
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/grn_dump.py",
         &[

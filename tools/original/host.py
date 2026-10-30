@@ -33,6 +33,9 @@ import frida
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# OriginalGame/, else the GOG installation that the registry names (#1556).
+sys.path.insert(0, os.path.join(ROOT, 'tools', 'common'))
+import installation  # noqa: E402
 MANIFEST = os.path.join(ROOT, 'docs', 'manifest-gog-2.28.txt')
 AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent.js')
 WIDTH, HEIGHT = 1024, 768
@@ -1556,8 +1559,8 @@ def serve(host, port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--game-dir', default=os.path.join(ROOT, 'OriginalGame'),
-                        help='the GOG installation (OriginalGame/ by default)')
+    parser.add_argument('--game-dir', default=installation.game_dir(),
+                        help='the GOG installation (OriginalGame/, else the one the registry names)')
     parser.add_argument('--port', type=int, default=15703, help='the port of the remote control (15703 by default)')
     parser.add_argument('--holder', help="who holds the original while the host runs, the session's name as "
                                          "ListAgents shows it, which a host started meanwhile names as it refuses")

@@ -88,7 +88,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn a_script_reaches_the_originals_roll_between_two() {
-        let game = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../OriginalGame");
+        let game = opensacred_locate::original();
         let exe = vectors::checked(&game, "Sacred.exe").unwrap_or_else(|e| panic!("{e:#}"));
         let image = Image::parse(&exe).unwrap_or_else(|e| panic!("{e:#}"));
         let control = machine::control_word(53).unwrap_or_else(|e| panic!("{e:#}"));

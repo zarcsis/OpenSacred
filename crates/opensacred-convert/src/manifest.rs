@@ -202,7 +202,7 @@ pub fn up_to_date(game_dir: &Path, out: &Path, command: &str, converter: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
     use crate::{heroes, netscript, tables, text, ui};
 
     /// The subcommands that write a manifest, each into the output subdirectory of its name.
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn runs_are_deterministic_and_recorded() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let runs: Vec<PathBuf> = ["a", "b"]
             .iter()
             .map(|name| scratch_dir(&format!("manifest-{name}")))

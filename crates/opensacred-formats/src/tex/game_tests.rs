@@ -8,9 +8,7 @@ use std::fs;
 use std::thread;
 
 use super::*;
-use crate::testing::{
-    PakRecord, build_pak, game_file, read_png, repo_root, run_python, scratch_dir,
-};
+use crate::testing::{PakRecord, build_pak, game_file, read_png, run_python, scratch_dir};
 
 const TEXTURE_PAK: &str = "PAK/texture.pak";
 const TEXTURE03_PAK: &str = "PAK/texture03.pak";
@@ -201,7 +199,7 @@ fn bgra8888_matches_tex_fmt6_py() {
     }
 
     let out = scratch_dir("tex-fmt6");
-    let pak_path = repo_root().join("OriginalGame").join(TEXTURE_PAK);
+    let pak_path = opensacred_locate::original().join(TEXTURE_PAK);
     let stdout = run_python(
         "tools/analysis/formats/tex_fmt6.py",
         &[

@@ -161,7 +161,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     #[test]
     fn hero_files_keep_their_directory() {
@@ -174,7 +174,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_hero_converts() {
         let out = scratch_dir("heroes");
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         assert_eq!(convert(&game, &out).unwrap(), 8);
         let dir = output_dir(&out);
         let index: Heroes = ron::from_str(&fs::read_to_string(dir.join(INDEX)).unwrap()).unwrap();

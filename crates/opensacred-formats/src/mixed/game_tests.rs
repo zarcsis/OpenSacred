@@ -7,14 +7,14 @@ use std::fs;
 
 use super::*;
 use crate::items::Items;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 #[test]
 #[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn items_and_sprites_match_mixed_dump_py() {
     let out = scratch_dir("mixed");
     let (items_table, sprites_table) = (out.join("items.tsv"), out.join("sprites.tsv"));
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/mixed_dump.py",
         &[

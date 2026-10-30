@@ -8,7 +8,7 @@ use std::fs;
 use super::tests::{creature_bytes, motion_bytes, trigger_bytes, weapon_bytes};
 use super::*;
 use crate::items::Items;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 fn hex(text: &str) -> String {
     text.chars()
@@ -21,7 +21,7 @@ fn hex(text: &str) -> String {
 fn every_record_matches_tables_dump_py() {
     let out = scratch_dir("tables");
     let rows = out.join("rows.tsv");
-    let game = repo_root().join("OriginalGame");
+    let game = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/tables_dump.py",
         &[

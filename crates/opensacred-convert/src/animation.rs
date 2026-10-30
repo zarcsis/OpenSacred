@@ -1167,7 +1167,6 @@ mod game_tests {
 
     use super::tests::{original, sample};
     use super::*;
-    use crate::testing::repo_root;
     use crate::verify::read_game_file;
 
     /// Times across a curve: four per span and the keys.
@@ -1180,7 +1179,7 @@ mod game_tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_curve_converts_within_its_bounds() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let (mut translations, mut rotations_checked, mut with_jumps) = (0, 0, 0);
         let (mut worst_translation, mut worst_rotation) = (0.0f64, 0.0f64);
         for path in ["PAK/models.pak", "PAK/models03.pak"] {

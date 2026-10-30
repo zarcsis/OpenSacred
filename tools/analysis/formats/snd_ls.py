@@ -17,7 +17,11 @@ With --list, one line per entry (id, flags, offset, size, kind, parameters). Dep
 """
 import sys, os, struct, mmap, collections, argparse
 
-DEFAULT_GAME_DIR = './OriginalGame'  # as in common/sacred_pe.py; the module is not imported to avoid pulling in capstone
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'common'))
+from installation import game_dir  # noqa: E402
+
+# As in common/sacred_pe.py, which is not imported to avoid pulling in capstone (#1556).
+DEFAULT_GAME_DIR = game_dir()
 
 ap = argparse.ArgumentParser(description='List and classify sound.pak (SND v1) entries.')
 ap.add_argument('--game-dir', default=DEFAULT_GAME_DIR)
