@@ -1,5 +1,5 @@
 //! The log, readable in the game and after it (docs/10 §5). A `tracing` layer under Bevy's
-//! `LogPlugin` keeps the last records in a ring, which F4 shows at the lower left and the console
+//! `LogPlugin` keeps the last records in a ring, which F12 shows at the lower left and the console
 //! and the remote protocol read, and writes every record to a file: a new one each start, the two
 //! before kept, so that what came before a crash can be read after it.
 
@@ -311,13 +311,13 @@ fn visibility(shown: bool) -> Visibility {
     }
 }
 
-/// F4: the panel shown or hidden, kept in the settings.
+/// F12: the panel shown or hidden, kept in the settings.
 fn toggle(
     keys: Res<ButtonInput<KeyCode>>,
     mut settings: ResMut<Settings>,
     mut file: ResMut<SettingsFile>,
 ) {
-    if !keys.just_pressed(KeyCode::F4) {
+    if !keys.just_pressed(KeyCode::F12) {
         return;
     }
     settings.debug.log = !settings.debug.log;
@@ -363,7 +363,7 @@ fn draw(
     }
 }
 
-/// The log's panel on F4; the [`Journal`] comes from `main`.
+/// The log's panel on F12; the [`Journal`] comes from `main`.
 pub struct JournalPlugin;
 
 impl Plugin for JournalPlugin {
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn f4_shows_the_last_records_and_the_settings_keep_it() {
+    fn f12_shows_the_last_records_and_the_settings_keep_it() {
         let dir = scratch("panel");
         let path = dir.join("settings.toml");
         let (file, settings) = SettingsFile::read(Some(path.clone()));
@@ -505,7 +505,7 @@ mod tests {
         assert!(!shown(&mut app));
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::F4);
+            .press(KeyCode::F12);
         app.update();
         assert!(shown(&mut app));
         assert_eq!(fs::read_to_string(&path).unwrap(), "[debug]\nlog = true\n");

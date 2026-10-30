@@ -295,6 +295,27 @@ fn a_new_game_keeps_the_arts_that_no_rune_taught() {
     assert_eq!(arts.entries[0].slot(), 0);
 }
 
+#[test]
+fn a_key_bound_leaves_every_other_art_and_clears_the_mark_of_new() {
+    let mut held = arts(&[
+        entry(Table::Spells, 1071, 1, 0),
+        entry(Table::Spells, 1070, 1, 0),
+        entry(Table::Spells, 1017, 1, 0),
+    ]);
+    // 1071 taught by a rune, 1070 on F2 and taught, 1017 on F3.
+    held.entries[0].flags = TAUGHT;
+    held.entries[1].flags = (2 << 8) | TAUGHT;
+    held.entries[2].flags = 3 << 8;
+    held.bind(1071, 2);
+    let words: Vec<u16> = held.entries.iter().map(|e| e.flags).collect();
+    // 1071 takes F2 and loses its mark; 1070 keeps its mark alone; 1017 keeps F3.
+    assert_eq!(words, [2 << 8, TAUGHT, 3 << 8]);
+    assert_eq!(held.get(1071).map(Entry::slot), Some(2));
+    // Bound again to its own key, the art keeps it.
+    held.bind(1071, 2);
+    assert_eq!(held.get(1071).map(Entry::slot), Some(2));
+}
+
 /// The two tables of `OriginalGame/Sacred.exe`, as `opensacred-convert tables` writes them but
 /// for the texts.
 fn game_tables() -> Tables {

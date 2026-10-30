@@ -189,7 +189,7 @@ pub struct NewGame {
     /// The hero's clip when running
     #[arg(long)]
     pub run: Option<String>,
-    /// Walk rather than run at the start (the R key toggles it)
+    /// Walk rather than run, as though Shift were held (the console's `gait run` lets it go)
     #[arg(long)]
     pub walking: bool,
     /// The hero's creature record in Creature.pak, for its speeds (by default the class's own)
@@ -684,6 +684,7 @@ fn load(
     hero.pickup = clips.pickup;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
+        hero.walking = true;
         hero.gait = hero::Gait::Walk;
     }
     hero.target = game.target.map(|(dx, dy)| center + iso::ground(dx, dy));

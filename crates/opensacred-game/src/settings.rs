@@ -78,9 +78,9 @@ impl Display {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Panels {
-    /// The debug overlay at the upper left (F3).
+    /// The debug overlay at the upper left (F7).
     pub overlay: bool,
-    /// The log's last records at the lower left (F4).
+    /// The log's last records at the lower left (F12).
     pub log: bool,
 }
 

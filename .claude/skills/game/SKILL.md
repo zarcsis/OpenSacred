@@ -37,7 +37,7 @@ Always pass `--hidden` (or `--windowed` for a one-shot script), `--no-music`, an
 | `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one; `wait` is for scripts: from the client, use `wait-ready` or `wait-state` |
 | `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, the NPCs, objects and entities, the nearest creature's health and level, the hero's level, health and experience, the drops nearest the hero, the version, GPU and window, whether the scene is ready (`--json` has them all; `exec state` prints the game's own lines) |
 | `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then, through the game's start too (`--timeout`, 120 s) |
-| `key NAME` (`--hold N`) | press and release a key by its place, held N frames (Alt over a screenshot of the items' labels): `Escape`, `Enter`, `F1`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
+| `key NAME` (`--hold N`) | press and release a key by its place, held N frames (Alt over a screenshot of the items' labels): `Escape`, `Enter`, `F1`…`F6` (the arts' keys), `F7`, `F10`, `F11`, `F12`, `Q`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
 | `type "TEXT"` | type text, as into the console |
 | `click X Y` (`--button`, `--hold`) | click a pixel of the window: a menu's item, or the ground for the hero to walk there |
 | `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |
@@ -54,7 +54,7 @@ The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM]`, 
 
 ## Keys of the game
 
-The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, the right button on a foe makes the selected combat art, R walks or runs, I opens the inventory, Space drinks a healing potion of the belt (Shift the yellow one), 1 to 5 choose a weapon set, the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F1 the keys' help (a frame of it lists them all), F3 the overlay, F4 the log, F11 borderless or windowed; the key under Esc the console.
+The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, the right button on a foe makes the selected combat art, Shift held walks rather than runs (`--hold` it, or `gait walk`), I opens the inventory, Space drinks a healing potion of the belt (Shift the yellow one), Q, W, E and R the purple, blue, green and yellow ones, B gives a healing one to a follower, 1 to 5 choose a weapon set and 6 to 0 an art slot, F1 to F6 put the arts bound to them into the selected slot (over an art of the spells page they bind it), the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F10 the keys' help (a frame of it lists them all), F7 the overlay, F12 the log, F11 borderless or windowed; the key under Esc the console.
 
 ## Rules
 

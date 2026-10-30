@@ -1,4 +1,4 @@
-//! The debug overlay (docs/10 §5): F3 shows and hides, in the upper left, the frame rate and
+//! The debug overlay (docs/10 §5): F7 shows and hides, in the upper left, the frame rate and
 //! times, where the hero is and what it does, the clock, the zoom, the sectors, the NPCs and the
 //! objects, the entities, the version, the GPU and the window, refreshed four times a second in
 //! Bevy's monospaced default font. Whether it shows is kept in the settings (`[debug] overlay`).
@@ -494,13 +494,13 @@ fn spawn_panel(mut commands: Commands, settings: Res<Settings>) {
     ));
 }
 
-/// F3: the overlay shown or hidden, kept in the settings.
+/// F7: the overlay shown or hidden, kept in the settings.
 fn toggle(
     keys: Res<ButtonInput<KeyCode>>,
     mut settings: ResMut<Settings>,
     mut file: ResMut<SettingsFile>,
 ) {
-    if !keys.just_pressed(KeyCode::F3) {
+    if !keys.just_pressed(KeyCode::F7) {
         return;
     }
     settings.debug.overlay = !settings.debug.overlay;
@@ -533,7 +533,7 @@ fn draw(
     text.0 = probe.snapshot().lines().join("\n");
 }
 
-/// The debug overlay on F3 and the frame times it shows.
+/// The debug overlay on F7 and the frame times it shows.
 pub struct OverlayPlugin;
 
 impl Plugin for OverlayPlugin {
@@ -623,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn f3_shows_the_overlay_and_the_settings_keep_it() {
+    fn f7_shows_the_overlay_and_the_settings_keep_it() {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-overlay-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -645,7 +645,7 @@ mod tests {
         assert!(!panel(&mut app).0);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::F3);
+            .press(KeyCode::F7);
         app.update();
         let (shown, text) = panel(&mut app);
         assert!(shown);

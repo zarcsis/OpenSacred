@@ -88,7 +88,7 @@ Movies are not needed to complete the game, so this is a low priority.
   The log goes to the state directory: `%LOCALAPPDATA%\OpenSacred\logs\` on Windows, `$XDG_STATE_HOME/OpenSacred` (`~/.local/state/OpenSacred`) on Linux (docs/10 §5).
 * **Settings:** TOML: graphics (resolution, window mode, backend, zoom, UI scale, HD packs), sound (volumes), controls (layouts), gameplay.
   Done ahead of M6 on 2026-10-19 (#167): `settings.toml` with its display section, `mode` (`borderless`, the default: borderless full screen at the monitor's resolution; or `windowed`) and the window's `width` and `height` in physical pixels; F11 switches the mode and writes it at once (docs/10 §3).
-  Since #169 and #170 a `[debug]` section keeps whether the overlay (F3) and the log (F4) show.
+  Since #169 and #170 a `[debug]` section keeps whether the overlay (F7) and the log (F12) show.
   The game writes only the key it changes, through `toml_edit`, so the user's comments, order and unknown keys stay; a file that does not read is reported, the defaults are taken, and it is never written; an unknown key is reported.
   `--settings FILE` reads and writes another file, `--windowed`, `--borderless`, `--width` and `--height` override it for one run, and `--screenshot`, `--record` and `--benchmark` run in a window of the given size.
   The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` wait for multiplayer, after version 1.0.

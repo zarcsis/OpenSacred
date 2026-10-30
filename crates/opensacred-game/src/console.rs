@@ -4,7 +4,7 @@
 //! Enter runs a command (`command`); Up and Down walk the history, kept beside the settings
 //! (`history.txt`, the last 100 lines), Tab completes, Ctrl+V pastes from the system's clipboard
 //! and Ctrl+C copies the line to it, PageUp, PageDown and the wheel scroll. While it is open the
-//! player's keys and mouse do nothing else (`frame::Control`); F3, F4 and F11 still work, and the
+//! player's keys and mouse do nothing else (`frame::Control`); F7, F10, F11 and F12 still work, and the
 //! game goes on under it.
 //!
 //! The line of input is the console's own rather than Bevy's text input widget: a console needs
