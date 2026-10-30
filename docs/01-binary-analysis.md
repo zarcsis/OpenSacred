@@ -52,6 +52,12 @@ The build path `F:\Buildserver\Lord_2_28_ProtectDisc6\Source\engine\object\balan
 
 Other known builds (community-reported): German retail 2.0 (0x451BBE74 = 2006-09-28), Russian retail Gold 2.28 (a separate binary, the addresses differ), the official 2009 LGP Linux port (stripped i386 ELF, Itanium RTTI with 318 classes; a supplementary, not a primary, source).
 
+The Steam release of Sacred Gold (**confirmed** on file 2026-10-30, #1484, `opensacred-convert verify` on the maintainer's Steam installation): 315 of the manifest's 319 files are the GOG files byte for byte; four differ.
+- `Sacred.exe` (11,927,552 B) is the same build, its PE timestamp 0x452F85C7, wrapped by Steam's DRM: a fifth section `.bind` (RVA 0x196C000, 0x2000 B) holds the entry point, and `.text` is encrypted; `.rdata`, `.data` and `.rsrc` are the GOG file's byte for byte, at the same addresses.
+  The project decrypts nothing of it (docs/08), so what lies in the code of the GOG build (the voices' and the portraits' tables, docs/02 §6.6, §6.7) cannot be read from it.
+- `pak/loading0.bmp` and `pak/loading1.bmp` are other loading screens, 1024×768: the first at 24 bits with two bytes after its pixels, the second at 16 bits (`BI_RGB`, 5-5-5).
+- `movie/oem.wmv` is another intro's logo.
+
 ## 2. The GOG client
 
 Checked on the file `OriginalGame/Sacred.exe` (`tools/triage/pe_triage.py`, pefile, `uv run python -I`, read-only):
