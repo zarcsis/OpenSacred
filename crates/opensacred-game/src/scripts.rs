@@ -482,6 +482,16 @@ impl Live {
         self.state.variables.value(name)
     }
 
+    /// The compass that the marker `marker` shows (`sdk_MARKER_RESOLVE`, #1462).
+    pub fn marker(&self, marker: quests::Marker) -> Option<&quests::Compass> {
+        self.state.quests.marker(marker)
+    }
+
+    /// Whether a marker was set anew since the last call, for the bar's sonar (#1462).
+    pub fn take_fresh_marker(&mut self) -> bool {
+        self.state.quests.take_fresh()
+    }
+
     /// Runs the function `function` found by its name case aside (`0x46BF40`, `0x460590`), as
     /// the runner runs one (`0x46BA90`), a quest's only while the quest is set up: a creature's
     /// death's function, a count's: what it did to the world, nothing where the tree has no such
@@ -867,6 +877,66 @@ impl<'a> Recorder<'a> {
         named.or_else(|| self.running.last().copied().flatten())
     }
 
+    /// The quest and the compass of a `QuestKompassPos` or a `QuestKompassObj` (docs/re/
+    /// interface.md, "The markers"). A name `rad:N` is the radius, 1,200 without one. The
+    /// position's other names are a `DefPos` and then a variable holding the quest's number, its
+    /// numbers the cell's x and y where no name gave them and then the quest's number, and its
+    /// raw coordinates (`0x20`) the cell (`0x49A4B0`). The object's name is its first other name
+    /// (`0x49AC80`). Without a quest's number, either takes the running function's quest (the
+    /// manager's `+0x18`), and with none, the compass waits for the next quest entered.
+    fn compass(&self, call: &str, tags: &Tags) -> Option<(Option<u32>, quests::Compass)> {
+        let texts = tags.texts("_01");
+        let radius = texts
+            .iter()
+            .find_map(|text| {
+                text.get(..4)
+                    .filter(|head| head.eq_ignore_ascii_case("rad:"))
+                    .and_then(|_| text[4..].trim().parse::<u32>().ok())
+            })
+            .unwrap_or(quests::COMPASS_RADIUS);
+        let mut names = texts.into_iter().filter(|text| {
+            !text
+                .get(..4)
+                .is_some_and(|head| head.eq_ignore_ascii_case("rad:"))
+        });
+        let quest_of = |number: i32| u32::try_from(number).ok();
+        let running = self.running.last().copied().flatten();
+        if call == "quest_compass_obj" {
+            let name = names.next()?.to_owned();
+            let quest = match tags.numbers("_0B").first() {
+                Some(&number) => quest_of(number),
+                None => running,
+            };
+            let compass = quests::Compass {
+                target: quests::Target::Named(name),
+                radius,
+            };
+            return Some((quest, compass));
+        }
+        let mut numbers = tags.numbers("_0B").into_iter();
+        let (x, y) = match (tags.numbers("_20").as_slice(), names.next()) {
+            ([x, y, ..], _) => (*x, *y),
+            (_, Some(name)) => match self.state.positions.get(name)? {
+                [x, y, ..] => (*x, *y),
+                _ => return None,
+            },
+            (_, None) => (numbers.next()?, numbers.next()?),
+        };
+        if x < 0 || y < 0 {
+            return None;
+        }
+        let quest = match (names.next(), numbers.next()) {
+            (Some(variable), _) => quest_of(self.state.variables.value(variable)),
+            (None, Some(number)) => quest_of(number),
+            (None, None) => running,
+        };
+        let compass = quests::Compass {
+            target: quests::Target::Cell(x, y),
+            radius,
+        };
+        Some((quest, compass))
+    }
+
     /// Whether the tree has the quest `quest`: a file of its functions (`0xAABF18`'s records,
     /// **hypothesis**: a quest of none is not one of them).
     fn has_quest(&self, quest: u32) -> bool {
@@ -1153,6 +1223,13 @@ impl Host for Recorder<'_> {
             "def_pos" => {
                 if let Some(name) = tags.texts("_01").first() {
                     self.state.positions.define(name, &tags.numbers("_0B"));
+                }
+                Handled::Done
+            }
+            // A quest's compass (#1462): a cell, or an object by its name; `rad:N` its radius.
+            "quest_compass_pos" | "quest_compass_obj" => {
+                if let Some((quest, compass)) = self.compass(name, &tags) {
+                    self.state.quests.set_compass(quest, compass);
                 }
                 Handled::Done
             }
@@ -2410,6 +2487,79 @@ mod tests {
                 .any(|o| o.tag == 0x02 && o.value == opensacred_data::netscript::Value::I32(679))
         );
         assert!(state.quests.in_log(1) && !state.quests.in_log(2));
+    }
+
+    /// The compasses' records (#1462): a position by its `DefPos` and a quest's number, waiting
+    /// for a quest not yet entered; an object by its name, and a position by its numbers, for
+    /// the running function's quest; `rad:N` the radius.
+    #[test]
+    fn the_compasses_records_point_the_quests_markers() {
+        let runtime = runtime(&[
+            (
+                "start.luau",
+                "local F = {}\n\
+                 F[\"StartCode\"] = function()\n\
+                 def_pos { _01 = \"ziel\", _0B = { 3370, 2524 } }\n\
+                 quest_compass_pos { _01 = \"ziel\", _0B = 1 }\n\
+                 set_up_quest { _0B = 1 }\n\
+                 trigger_quest { _0B = 1 }\n\
+                 set_up_quest { _0B = 120 }\n\
+                 trigger_quest { _0B = 120 }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/1.luau",
+                "local F = {}\n\
+                 F[\"QIS_Trigger1\"] = function()\n\
+                 return true\n\
+                 end\n\
+                 F[\"QIS_OnEnter1\"] = function()\n\
+                 quest_compass_obj { _01 = \"res:17095\" }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/120.luau",
+                "local F = {}\n\
+                 F[\"QIS_Trigger120\"] = function()\n\
+                 return true\n\
+                 end\n\
+                 F[\"QIS_OnEnter120\"] = function()\n\
+                 quest_compass_pos { _01 = \"rad:500\", _0B = { 30, 40 } }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+        ]);
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
+        // The position waited for quest 1, whose `OnEnter` then pointed it at its novice.
+        assert_eq!(
+            state.quests.marker(quests::Marker::Main),
+            Some(&quests::Compass {
+                target: quests::Target::Named("res:17095".into()),
+                radius: quests::COMPASS_RADIUS,
+            })
+        );
+        assert_eq!(
+            state.quests.marker(quests::Marker::Side),
+            Some(&quests::Compass {
+                target: quests::Target::Cell(30, 40),
+                radius: 500,
+            })
+        );
+        assert!(state.quests.take_fresh());
     }
 
     #[test]
