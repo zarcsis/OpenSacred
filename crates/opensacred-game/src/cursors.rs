@@ -128,16 +128,22 @@ fn admits(launch: Option<u8>, foe: bool) -> bool {
     }
 }
 
-/// The item under the hand, whose name shows beside the cursor: the item, and the name of the
-/// game's texts that the scripts gave it (`npcs::TextName`).
+/// What is under the hand, whose name shows beside the cursor: an item, and the name of the
+/// game's texts that the scripts gave it (`npcs::TextName`), or a hidden stash's text's name
+/// alone (#1518).
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-struct Named(Option<(Dropped, Option<String>)>);
+struct Named(Option<(Option<Dropped>, Option<String>)>);
 
 impl Named {
-    /// The item's name ([`item_name`]), of the item maker's name where `tables` are given.
+    /// The item's name ([`item_name`]), of the item maker's name where `tables` are given; a
+    /// stash's text.
     fn shown<'a>(&self, texts: &'a Texts, tables: Option<&Tables>) -> Option<&'a str> {
-        let (dropped, text) = self.0.as_ref()?;
-        item_name(texts, tables, dropped, text.as_deref())
+        match self.0.as_ref()? {
+            (Some(dropped), text) => item_name(texts, tables, dropped, text.as_deref()),
+            (None, text) => texts
+                .named(text.as_deref()?)
+                .filter(|name| !name.is_empty()),
+        }
     }
 }
 
@@ -231,10 +237,11 @@ fn choose(
         ),
         Without<Dies>,
     >,
-    (items, doors, containers): (
+    (items, doors, containers, stashes): (
         Query<(&GlobalTransform, &Lying, Option<&TextName>)>,
         Query<&GlobalTransform, With<Door>>,
         Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
+        Query<(&GlobalTransform, &crate::stashes::Stash)>,
     ),
     (heights, buildings): (Option<Res<Heights>>, Option<Res<Buildings>>),
     heroes: Query<(
@@ -313,7 +320,7 @@ fn choose(
                             .map(|d| (d, lying.dropped, text))
                     })
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
-                item = Some((kind, text.map(|text| text.0.clone())));
+                item = Some((Some(kind), text.map(|text| text.0.clone())));
                 Some(Look::Hand)
             })
             .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
@@ -325,6 +332,17 @@ fn choose(
                     .filter_map(|(entity, at, _)| Some((near(at)?, entity)))
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
                 container_under = Some(entity);
+                Some(Look::Hand)
+            })
+            // A hidden stash: the hand and its text (`0x612909`, #1518).
+            .or_else(|| {
+                let (_, stash) = stashes
+                    .iter()
+                    .filter_map(|(at, stash)| {
+                        Some((crate::stashes::picked(ray, at.translation())?, stash))
+                    })
+                    .min_by(|a, b| a.0.total_cmp(&b.0))?;
+                item = Some((None, Some(stash.text.clone())));
                 Some(Look::Hand)
             })
             .or_else(|| {
@@ -471,7 +489,7 @@ mod tests {
                 values: None,
                 named: None,
             };
-            Named(Some((dropped, text.map(str::to_owned))))
+            Named(Some((Some(dropped), text.map(str::to_owned))))
         };
         assert_eq!(named(6001, None).shown(&texts, None), Some("a type's name"));
         assert_eq!(

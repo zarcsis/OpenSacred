@@ -688,6 +688,122 @@ pub fn potion(difficulty: Difficulty, dice: &mut impl Dice) -> u32 {
     POTIONS[row][usize::try_from(column).unwrap_or(2)]
 }
 
+/// The categories of a random item and their weights (`0x43B090`, the table at `0x890B60`): the
+/// weapons, the armour, the cannons, the rings, the potions, the shields, the books, the helmets,
+/// the boots, the belts, the amulets, the shoulders, the arms, the legs, the gloves, the wings,
+/// the runes, the bridles and the category 30.
+const RANDOM_CATEGORIES: [(u8, u32); 19] = [
+    (5, 100),
+    (6, 100),
+    (33, 75),
+    (8, 50),
+    (9, 80),
+    (13, 60),
+    (16, 30),
+    (17, 60),
+    (18, 50),
+    (19, 40),
+    (20, 70),
+    (21, 40),
+    (22, 40),
+    (23, 40),
+    (24, 30),
+    (25, 40),
+    (28, 50),
+    (29, 20),
+    (30, 20),
+];
+
+/// A random category of any class (`0x43B090(0)`): `r = ⌊rand()/32767 · W⌋`, `W` the weights'
+/// sum, and the first category whose weights summed in turn pass `r`; 0, no category, where `r`
+/// reaches `W`.
+pub fn random_category(dice: &mut impl Dice) -> u8 {
+    let total: u32 = RANDOM_CATEGORIES.iter().map(|&(_, weight)| weight).sum();
+    let r = u64::from(dice.below(32_768)) * u64::from(total) / 32_767;
+    let mut summed = 0;
+    for &(category, weight) in &RANDOM_CATEGORIES {
+        summed += u64::from(weight);
+        if r < summed {
+            return category;
+        }
+    }
+    0
+}
+
+/// What a `CreateObj` of `0x54` and no type makes for the local hero (`0x4863D4`; docs/re/
+/// containers.md, "The hidden stashes"): a potion, or a type to choose as `Wanted` says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScriptItem {
+    Potion(u32),
+    Wanted(Wanted),
+}
+
+/// The random item of a `CreateObj` of `0x54` and no type for the hero of the level `level` and
+/// the creature type `class` on `difficulty` (`0x4863D4`): in 1 case of 4 a potion (`0x43B1A0`);
+/// else in 1 of 3 a weapon, else in 1 of 2 an armour, else a [`random_category`]; each at the
+/// level `level + rand() % (⌊level/5⌋ + 3) + d`, `d` 0, 1, 3, 5 and 8 bronze to niobium, of the
+/// hero's class in 1 case of 2, loose, of the quality 14.
+pub fn script_item(
+    level: u32,
+    class: u32,
+    difficulty: Difficulty,
+    dice: &mut impl Dice,
+) -> ScriptItem {
+    let bonus = script_bonus(difficulty);
+    if dice.below(4) == 1 {
+        return ScriptItem::Potion(potion(difficulty, dice));
+    }
+    let category = if dice.below(3) == 1 {
+        Some(5)
+    } else if dice.below(2) == 1 {
+        Some(6)
+    } else {
+        None
+    };
+    let mut wanted = script_wanted(category.unwrap_or(0), level, class, bonus, dice);
+    // The random category is rolled after the class and the level (`0x48661C`).
+    if category.is_none() {
+        wanted.category = random_category(dice);
+    }
+    ScriptItem::Wanted(wanted)
+}
+
+/// A weapon's roll once more, where a [`script_item`] found no type (`0x48662D`).
+pub fn script_weapon(
+    level: u32,
+    class: u32,
+    difficulty: Difficulty,
+    dice: &mut impl Dice,
+) -> Wanted {
+    script_wanted(5, level, class, script_bonus(difficulty), dice)
+}
+
+/// The levels that the difficulty adds to a `CreateObj`'s random item: 0, 1, 3, 5 and 8, bronze
+/// to niobium (`0x48640B`).
+fn script_bonus(difficulty: Difficulty) -> u32 {
+    match difficulty {
+        Difficulty::Bronze => 0,
+        Difficulty::Silver => 1,
+        Difficulty::Gold => 3,
+        Difficulty::Platinum => 5,
+        Difficulty::Niobium => 8,
+    }
+}
+
+/// The type wanted of `category` for the hero of `level` and `class` with the difficulty's bonus.
+fn script_wanted(category: u8, level: u32, class: u32, bonus: u32, dice: &mut impl Dice) -> Wanted {
+    let class = if dice.below(2) == 1 { class } else { 0 };
+    let level = level + dice.below(level / 5 + 3) + bonus;
+    Wanted {
+        category,
+        level,
+        class,
+        loose: true,
+        quality: 14,
+        kind: None,
+    }
+}
+
 /// The gold pile of a creature of level `level` (`0x559BF0`): 5132, but in a case of 13 above
 /// level 4 5133, of those in a case of 7 above level 9 5134, and of those in a case of 4 above
 /// level 19 5135.

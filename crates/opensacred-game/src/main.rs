@@ -103,6 +103,7 @@ mod sound;
 mod sparkles;
 mod spells;
 mod srgb;
+mod stashes;
 mod statics;
 mod steps;
 mod tables;
@@ -412,9 +413,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         sparkles::SparklesPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
-        statics::StaticsPlugin,
+        stashes::StashesPlugin,
     ))
     .add_plugins((
+        statics::StaticsPlugin,
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,

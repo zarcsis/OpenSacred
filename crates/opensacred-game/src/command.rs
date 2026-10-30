@@ -124,6 +124,9 @@ enum Command {
     /// The creatures within RADIUS cells of the hero (20 by default), the nearest first, as the
     /// original's driver lists them
     Creatures { radius: Option<u32> },
+    /// The hidden stashes within RADIUS cells of the hero (20 by default), the nearest first: each
+    /// its cell, its function and its text's name
+    Stashes { radius: Option<u32> },
     /// A creature's fight values, the hero's by default; ID as `creatures` prints it
     Stats { id: Option<String> },
     /// Make COUNT creatures of type TYPE (as `creatures` prints it) on a cell and the rings about
@@ -1131,6 +1134,13 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 wait: None,
             })
         }
+        Command::Stashes { radius } => {
+            in_game(world)?;
+            Ok(Outcome {
+                lines: crate::stashes::near(world, radius.unwrap_or(20))?,
+                wait: None,
+            })
+        }
         Command::Stats { id } => {
             in_game(world)?;
             let id = id.map(|id| debug::creature(world, &id)).transpose()?;
@@ -1730,6 +1740,7 @@ mod tests {
                 "setrain",
                 "setsnow",
                 "spawn",
+                "stashes",
                 "state",
                 "stats"
             ]
