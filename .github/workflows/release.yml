@@ -1,7 +1,10 @@
 # Versions (docs/03 §3.6): a merged pull request labeled `feature` raises the minor version, one
 # labeled `bug` the patch; the other labels leave it. A version is an annotated tag vX.Y.Z on the
-# pull request's squash commit, with a GitHub Release whose notes list the pull requests since the
-# previous version (.github/release.yml); before 1.0.0, a pre-release. The major version is raised
+# pull request's squash commit. At most one release a day (#1548): a scheduled run versions the
+# pull requests merged since the last tag once the newest release is a day old, and publishes the
+# newest version alone, as a GitHub Release whose notes list the pull requests since the previous
+# release (.github/release.yml); before 1.0.0, a pre-release. The versions between two releases stay
+# tags. A manual run, `gh workflow run release.yml`, releases at once; the major version is raised
 # only at the maintainer's request: `gh workflow run release.yml -f bump=major` tags the head of main.
 # The newest version that a run publishes gets the player's archive (#1500, #1494): the game in its
 # packaged build and the converter, in the dist profile, our FFmpeg (ffmpeg.yml, #1499), the licenses
@@ -9,25 +12,19 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '41 * * * *' # every hour; a run releases only once the newest release is a day old
   workflow_dispatch:
     inputs:
       bump:
-        description: The part of the version to raise on the head of main
+        description: The part of the version to raise on the head of main, beyond the labels' versions
         type: choice
-        options: [major, minor, patch]
-        default: major
+        options: [none, major, minor, patch]
+        default: none
 
 permissions:
   contents: write # the tags and the releases
   pull-requests: read # the labels of the merged pull requests
-
-# One run at a time. GitHub keeps only the newest pending run of a group and cancels the others, so a
-# run versions every commit since the last tag, not only its own.
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
 
 jobs:
   release:
@@ -35,75 +32,95 @@ jobs:
     # Not in forks; a manual run only on main.
     if: github.repository == 'zarcsis/OpenSacred' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # One versioning at a time, so that two runs never both find the newest release a day old.
+    # GitHub keeps only the newest pending run of a group and cancels the others, so the archive's
+    # build stays outside the group: a manual run pending behind a build of half an hour would be
+    # cancelled by the next hour's run.
+    concurrency:
+      group: ${{ github.workflow }}
+      cancel-in-progress: false
     outputs:
       tag: ${{ steps.publish.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      # The newest release: its version starts the next one's notes, and a scheduled run releases
+      # only once it is a day old.
+      - name: Newest release
+        id: newest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          newest=$(gh release list --exclude-drafts --limit 10000 --json tagName,publishedAt \
+            --jq 'max_by(.publishedAt) | "\(.tagName) \(.publishedAt)"')
+          read -r tag published <<< "$newest"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [[ $GITHUB_EVENT_NAME == schedule ]] && (( $(date +%s) - $(date -d "$published" +%s) < 24 * 60 * 60 )); then
+            echo "$tag was published at $published, less than a day ago."
+          else
+            echo 'due=true' >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.newest.outputs.due
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the history and the tags
-      - name: Tag and publish
+      - if: steps.newest.outputs.due
+        name: Tag and publish
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump }}
+          RELEASED: ${{ steps.newest.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-          # The versions on main, the highest first.
-          versions() { git tag --merged HEAD --list 'v[0-9]*' --sort=-v:refname; }
-          last=$(versions | sed -n 1p)
+          last=$(git tag --merged HEAD --list 'v[0-9]*' --sort=-v:refname | sed -n 1p)
           if [[ -z $last ]]; then
             echo '::error::main has no version tag v*'
             exit 1
           fi
 
-          # Publishes the release of tag $1 with the pull requests since tag $2, if any; before 1.0.0,
-          # as a pre-release.
-          publish() {
-            local options=(--verify-tag --title "$1" --generate-notes)
-            if [[ -n $2 ]]; then options+=(--notes-start-tag "$2"); fi
-            if [[ $1 == v0.* ]]; then options+=(--prerelease); fi
-            gh release create "$1" "${options[@]}"
-          }
-          # Tags commit $1 with the next version, raising part $2, the message $3, and publishes it.
-          release() {
-            local major minor patch next
+          # Tags commit $1 with the next version, raising part $2, the message $3.
+          tags=()
+          version() {
+            local major minor patch
             IFS=. read -r major minor patch <<< "${last#v}"
             case $2 in
-              major) next=v$((major + 1)).0.0 ;;
-              minor) next=v$major.$((minor + 1)).0 ;;
-              patch) next=v$major.$minor.$((patch + 1)) ;;
+              major) last=v$((major + 1)).0.0 ;;
+              minor) last=v$major.$((minor + 1)).0 ;;
+              patch) last=v$major.$minor.$((patch + 1)) ;;
             esac
-            git tag -a "$next" -m "$3" "$1"
-            git push origin "refs/tags/$next"
-            publish "$next" "$last"
-            last=$next
+            git tag -a "$last" -m "$3" "$1"
+            tags+=("refs/tags/$last")
           }
 
-          # A run that pushed a tag but failed to publish it leaves the release to the next run.
-          if ! gh release view "$last" > /dev/null 2>&1; then
-            publish "$last" "$(versions | sed -n 2p)"
-          fi
-
-          first=$last
           for commit in $(git rev-list --reverse --first-parent "$last..HEAD"); do
             labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" \
               --jq ".[] | select(.merge_commit_sha == \"$commit\") | .labels[].name")
             if grep -qx feature <<< "$labels"; then
-              release "$commit" minor "$(git log -1 --format=%s "$commit")"
+              version "$commit" minor "$(git log -1 --format=%s "$commit")"
             elif grep -qx bug <<< "$labels"; then
-              release "$commit" patch "$(git log -1 --format=%s "$commit")"
+              version "$commit" patch "$(git log -1 --format=%s "$commit")"
             fi
           done
 
-          if [[ -n $BUMP ]]; then
-            release HEAD "$BUMP" "The $BUMP version, raised at the maintainer's request"
+          if [[ -n $BUMP && $BUMP != none ]]; then
+            version HEAD "$BUMP" "The $BUMP version, raised at the maintainer's request"
           fi
 
-          # The newest version that this run published, for its archive.
-          if [[ $last != "$first" ]]; then
+          if (( ${#tags[@]} )); then
+            git push --atomic origin "${tags[@]}"
+          fi
+
+          # The newest version is released with the pull requests since the previous release, before
+          # 1.0.0 as a pre-release, and gets the archive. A run that pushed its tags but failed before
+          # the release leaves the release to the next run.
+          if [[ $last != "$RELEASED" ]]; then
+            options=(--verify-tag --title "$last" --generate-notes --notes-start-tag "$RELEASED")
+            if [[ $last == v0.* ]]; then options+=(--prerelease); fi
+            gh release create "$last" "${options[@]}"
             echo "tag=$last" >> "$GITHUB_OUTPUT"
           fi
 
