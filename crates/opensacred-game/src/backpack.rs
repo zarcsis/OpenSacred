@@ -58,14 +58,22 @@ const fn tinted(r: u8, g: u8, b: u8) -> Color {
     )
 }
 
-/// The pointer on the original's screen from the grid's top left, in its pixels.
+/// The pointer on the original's screen from the grid's top left, in its pixels, while the items'
+/// page shows (`page`, the grid none on another).
 pub(crate) fn on_grid(
     pointer: &Pointer,
     ui_scale: &UiScale,
     windows: &Query<&Window>,
+    page: &crate::inventory::Page,
 ) -> Option<Vec2> {
+    if page.0 != ITEMS_PAGE {
+        return None;
+    }
     Some(crate::inventory::screen_point(pointer, ui_scale, windows)? - GRID)
 }
+
+/// The items' page among the inventory's tabs.
+pub(crate) const ITEMS_PAGE: u8 = 0;
 
 /// The cell, column and row, under the point `at` from the grid's top left, where it lies on the
 /// grid.
@@ -113,20 +121,20 @@ struct Model(u32);
 )]
 fn show(
     mut commands: Commands,
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     olds: Query<Entity, Or<(With<Root>, With<Scene>)>>,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
     mut targets: ResMut<Assets<Image>>,
     mut layers: ResMut<Assets<Layer>>,
     window: Option<Single<&Window>>,
 ) {
-    if !shown.is_changed() {
+    if !shown.is_changed() && !page.is_changed() {
         return;
     }
     for old in &olds {
         commands.entity(old).despawn();
     }
-    if !shown.0 {
+    if !shown.0 || page.0 != ITEMS_PAGE {
         return;
     }
     let root = commands.spawn((Root, screen(), GlobalZIndex(-1))).id();
@@ -303,7 +311,7 @@ pub(crate) fn posed(centre: Vec3, pose: Pose) -> Transform {
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn tint(
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     pack: Res<Pack>,
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
@@ -319,7 +327,7 @@ fn tint(
         return;
     }
     let held = pack.held.and_then(|held| {
-        let at = on_grid(&pointer, &ui_scale, &windows)?;
+        let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
         cell_under(at)?;
         let cell = held_at((at.x, at.y), held.size);
         Some((cell, held.size, pack.grid.highlight(cell, held.size)))
@@ -390,13 +398,16 @@ pub(crate) fn refuses(
 /// #1321).
 fn lay_out(
     mut commands: Commands,
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     pack: Res<Pack>,
     (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
     mut models: Query<(Entity, &Model, &mut Transform)>,
     added: Query<(), Added<Tint>>,
 ) {
-    if !shown.0 || !(pack.is_changed() || shown.is_changed() || !added.is_empty()) {
+    if !shown.0
+        || page.0 != ITEMS_PAGE
+        || !(pack.is_changed() || shown.is_changed() || !added.is_empty())
+    {
         return;
     }
     let Some(tables) = tables else {

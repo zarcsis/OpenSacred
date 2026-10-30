@@ -287,7 +287,7 @@ fn tint(
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn click(
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
@@ -321,7 +321,7 @@ fn click(
     // The right button on an item of the grid puts it on, the cursor empty.
     if right
         && pack.held.is_none()
-        && let Some(cell) = on_grid(&pointer, &ui_scale, &windows).and_then(cell_under)
+        && let Some(cell) = on_grid(&pointer, &ui_scale, &windows, &page).and_then(cell_under)
     {
         let Some(&placed) = pack.grid.at(cell) else {
             return;

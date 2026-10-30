@@ -89,6 +89,19 @@ pub(crate) struct EquipmentWindow;
 #[derive(Resource, Default)]
 pub struct Shown(pub bool);
 
+/// The page of the inventory's tab sheet that shows (`cUI_TabSheet`): 0 the items', 1 the
+/// spells' (`spells_page`), 2 the combos'; the items' each time the windows show (`0x6C5A50`,
+/// `0x729940(0)`).
+#[derive(Resource, Default)]
+pub struct Page(pub u8);
+
+/// A tab of the tab sheet, by its page.
+#[derive(Component)]
+struct Tab(u8);
+
+/// The sound of the spells' page as it shows (`0x6C1E60`: (14, 2, 2), `UI_CLICK01`).
+const SPELLS_SHOW: u32 = 7000;
+
 /// The container of the windows, the original's screen centred along the window's width.
 #[derive(Component)]
 struct Screen;
@@ -259,7 +272,7 @@ pub(crate) fn screen_point(
 /// Makes the windows as they show and takes them away as they hide.
 fn show(
     mut commands: Commands,
-    shown: Res<Shown>,
+    (shown, mut page): (Res<Shown>, ResMut<Page>),
     screens: Query<Entity, With<Screen>>,
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
     mut dice: Local<Option<Rng>>,
@@ -273,6 +286,7 @@ fn show(
     if !shown.0 {
         return;
     }
+    page.0 = 0;
     let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1267));
     let anchors = |index| images.anchors(index);
     let size = |index| images.size(index);
@@ -331,7 +345,7 @@ fn show(
         ))
         .id();
     commands.entity(inventory).add_child(tabs);
-    for key in TAB_TEXTS {
+    for (index, key) in (0_u8..).zip(TAB_TEXTS) {
         let words = texts
             .as_deref()
             .and_then(|texts| texts.named(key))
@@ -343,6 +357,7 @@ fn show(
         // within its node's padding.
         let tab = commands
             .spawn((
+                Tab(index),
                 image,
                 Node {
                     min_width: Val::Px(TAB_WIDTH),
@@ -376,6 +391,42 @@ fn show(
             })
             .id();
         commands.entity(tabs).add_child(tab);
+    }
+}
+
+/// A left click on a tab shows its page (`cUI_TabSheet`, `0x729980`), the spells' with its sound.
+fn select(
+    buttons: Res<ButtonInput<MouseButton>>,
+    (shown, mut page): (Res<Shown>, ResMut<Page>),
+    (pointer, windows): (Res<Pointer>, Query<&Window>),
+    tabs: Query<(&Tab, &ComputedNode, &UiGlobalTransform)>,
+    mut sounds: MessageWriter<sfx::Play>,
+) {
+    if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    // The pointer in the window's physical pixels, as the interface's nodes lie.
+    let (Some(at), Ok(window)) = (pointer.0, windows.single()) else {
+        return;
+    };
+    let point = at * window.scale_factor();
+    let Some(tab) = tabs
+        .iter()
+        .find(|(_, node, transform)| node.contains_point(**transform, point))
+        .map(|(tab, ..)| tab.0)
+    else {
+        return;
+    };
+    if page.0 == tab {
+        return;
+    }
+    page.0 = tab;
+    if tab == crate::spells_page::PAGE {
+        sounds.write(sfx::Play {
+            sound: sfx::Of::Id(SPELLS_SHOW),
+            at: None,
+            rate: (0.5, sfx::Roll::None),
+        });
     }
 }
 
@@ -417,6 +468,7 @@ pub struct InventoryPlugin;
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shown>()
+            .init_resource::<Page>()
             .configure_sets(Update, Control.run_if(off_the_windows))
             .add_systems(OnEnter(AppState::InGame), hide)
             .add_systems(
@@ -428,7 +480,12 @@ impl Plugin for InventoryPlugin {
             )
             .add_systems(
                 Update,
-                (show.in_set(Opened), sort.after(Opened)).run_if(in_state(AppState::InGame)),
+                (
+                    show.in_set(Opened),
+                    select.in_set(Opened).after(show),
+                    sort.after(Opened),
+                )
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }

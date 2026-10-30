@@ -70,7 +70,7 @@ pub(crate) fn put_sound(category: u8) -> (u32, (f32, sfx::Roll)) {
 /// item under it onto the cursor; with an item, put where it fits, with its sound, or in place of
 /// the one item under it; else nothing.
 fn click(
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
@@ -81,7 +81,7 @@ fn click(
     if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    let Some(at) = on_grid(&pointer, &ui_scale, &windows) else {
+    let Some(at) = on_grid(&pointer, &ui_scale, &windows, &page) else {
         return;
     };
     let Some(cell) = cell_under(at) else {

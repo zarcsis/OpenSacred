@@ -161,6 +161,7 @@ impl UiImages {
                 crate::art_burn::BURN,
                 crate::sparkles::SPARK,
                 crate::sparkles::SPARK_HALF,
+                crate::spells_page::FLASH,
             ])
             .collect();
         names.sort_unstable();

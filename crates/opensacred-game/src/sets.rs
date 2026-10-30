@@ -470,7 +470,7 @@ fn edit(
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn send(
-    shown: Res<crate::inventory::Shown>,
+    (shown, page): (Res<crate::inventory::Shown>, Res<crate::inventory::Page>),
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale): (Res<crate::hud::Pointer>, Res<UiScale>),
     windows: Query<&Window>,
@@ -501,7 +501,7 @@ fn send(
         return;
     };
     let Some(cell) =
-        backpack::on_grid(&pointer, &ui_scale, &windows).and_then(backpack::cell_under)
+        backpack::on_grid(&pointer, &ui_scale, &windows, &page).and_then(backpack::cell_under)
     else {
         return;
     };

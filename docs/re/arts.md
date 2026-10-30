@@ -186,6 +186,34 @@ The heroes' second starting skills are 25 for the Gladiator and the Dark Elf and
 The Gladiator's 1057 taught by a rune then rose from 7.14 to 9.82 s at level 2, the growth still to run (seen).
 `opensacred_rules::arts` follows them (`Arts::recompute`, `Arts::shorten`, `Arts::start`, `Arts::regenerate`, `Arts::ready`, `Speeds`), `opensacred_rules::fight::arts_speeds` gives a creature's speeds, and the game runs the hero's regeneration on the world's tick, as the original does (`frame::WorldTick`, #616, #627); every entry of the 8 templates, taught or not, recomputes to the very time the template holds.
 
+## The spells page
+
+Read 2026-10-30 for #1090 (#1528, **confirmed** by code and **seen** in the running original at the Seraphim's level 8 with arts taught by the driver's `arts learn`).
+
+- The inventory's tab sheet makes the page (`cUI_SpellTab`, `UI_TABPAGE_SPELLS`, the text 1156; its constructor `0x6C1720`, its input `0x6C1F30`, its draw `0x6C25A0`, its show `0x6C1E60`) as its second, with the rectangle (0, 0, 640, 256) at the inventory's corner (0, 388); opening the inventory always shows its first page, the items' (`0x6C5A50`, `0x729940(0)`, **seen**).
+- Its list (`0x6C2500`, at each draw and as it shows) is made again where the hero's type, its night's flag (`+0x14` bit `0x2000`) or the master's window (`0x75A9D0`) differ from those it was made for: `0x6C2E60(type, night)` sets three backgrounds (`0x6C2BA0`) at the page's (0, 0), (256, 0) and (512, 0), each its image's size (256, 256 and 129 × 256), tinted `0xAFFFFFFF` (`0xCFFFFFFF` for the Wood Elf), and each class's fixed arts, 64 × 64 at places compiled in; no list, no scrolling, no text.
+
+| Type | Backgrounds | Arts at the page's (x, y) |
+|---|---|---|
+| 1 Seraphim | 1487–1489 | 21 (44, 20), 1019 (116, 20), 20 (188, 20), 19 (20, 100), 17 (116, 100), 18 (212, 100), 15 (44, 180), 13 (116, 180), 22 (188, 180), 1070 (364, 20), 1071 (436, 20), 1072 (508, 20), 1020 (340, 100), 1054 (436, 100), 1017 (532, 100), 1069 (388, 180), 1018 (484, 180) |
+| 2 Gladiator | 1490–1492 | 1003 (16, 16), 1013 (16, 96), 1012 (16, 176), 1010 (108, 96), 1014 (192, 16), 1015 (192, 96), 1016 (192, 176), 1058 (352, 128), 1059 (444, 160), 1057 (536, 128), 1060 (444, 80) |
+| 3 Mage | 1493–1495 | 5 (8, 20), 24 (60, 70), 23 (8, 120), 11 (60, 170), 2 (136, 20), 25 (188, 70), 16 (136, 120), 26 (188, 170), 28 (264, 20), 29 (316, 70), 1 (264, 120), 33 (316, 170), 27 (392, 20), 34 (444, 70), 35 (392, 120), 4 (444, 170), 7 (520, 20), 30 (572, 70), 31 (520, 120), 32 (572, 170) |
+| 4 Dark Elf | 1496–1498 | 1042 (32, 16), 1043 (32, 96), 1044 (32, 176), 1045 (96, 16), 1046 (124, 96), 1068 (160, 176), 1065 (176, 16), 1066 (204, 96), 1067 (240, 176), 1051 (464, 16), 1052 (428, 96), 1053 (400, 176), 1048 (544, 16), 1049 (508, 96), 1047 (480, 176), 1050 (548, 176) |
+| 5 Wood Elf | 1499–1501 | 1006 (16, 44), 36 (16, 124), 1007 (94, 92), 38 (94, 172), 1008 (172, 92), 39 (172, 172), 1004 (250, 60), 40 (250, 140), 1005 (328, 44), 41 (328, 124), 1061 (406, 28), 42 (406, 108), 1062 (484, 28), 37 (484, 108), 1063 (562, 44), 3 (562, 124) |
+| 6, 7 Vampiress | 1502–1504 | by day 1022 (72, 16), 1024 (152, 16), 1026 (20, 64), 1028 (200, 64), 1073 (112, 96), 1074 (36, 136), 1075 (186, 136), 1076 (112, 176); by night 1023, 1025, 1027, 1029, 1038, 1039, 1040, 1041 at those places; then 1030 (424, 16), 1031 (504, 16), 1032 (372, 64), 1033 (552, 64), 1034 (464, 96), 1035 (388, 136), 1036 (538, 136), 1037 (464, 176) |
+| 8 Dwarf | 1508–1510 | 1089 (30, 20), 1083 (116, 20), 1084 (196, 20), 1078 (30, 100), 1079 (116, 100), 1080 (30, 180), 1082 (116, 180), 55 (398, 20), 58 (484, 20), 59 (564, 20), 56 (484, 100), 57 (564, 100), 1085 (398, 180), 1086 (484, 180), 1087 (564, 180) |
+| 9 Daemon | 1505–1507 | 67 (40, 104), 60 (112, 74), 66 (184, 48), 62 (256, 34), 65 (328, 54), 63 (400, 60), 64 (472, 34), 1097 (136, 146), 1100 (208, 162), 1098 (280, 170), 1099 (352, 162), 1094 (424, 146) |
+
+- Its draw: the backgrounds, then each art: one the hero holds (`0x580A10`) by its vivid image (the record's `+0x38`), but the Vampiress's later eight (1030 to 1037) by her day by their grey one (`+0x30`) unless the master's window shows; one it does not hold by its own picture, the texture its record's `+0x0C` names, whole (**seen** grey); each a quad of 64 × 64 with the image 174 (a frame) over it.
+- A held art that is not greyed and whose entry's word `+0x08` has its bit 0 flashes (`0x6C2D50`): the frame `⌊13t⌋ mod 16` of the 4 × 4 frames of `FX_BUTTONFLASH`, `t` the timer at `0xCD7A58`, added onto the screen (`ONE`, `ONE`).
+  The bit marks an art new to the page: a rune sets it as it teaches or raises an art (`0x580750`, `0x581F80`), the page's hide clears it on every art (`0x5809B0`), and the high byte of the word is the art's key F1 to F6 (`0x580D00`, #1529).
+- An art under the mouse shows its tooltip (`0x5893B0(art, text, 1)`) at its corner and (70, 32), the style `0x8B` (and `0x4000` where the hero lacks it); a key's name `F%d` stands at (44, 42) of the icon.
+- Its show (`0x6C1E60`) makes the list again, reads the keys (`0x580C80`) and plays (14, 2, 2), `UI_CLICK01`.
+
+In `opensacred-game` since #1528 (`spells_page`, `inventory::Page`): the tabs show their pages, the items' as the inventory opens, the spells page with its sound; the page as above, the arts the hero holds by their vivid images and the rest by their own pictures under the frame, the Vampiress's by her form, an art newly taught flashing (its entry's `TAUGHT` bit, cleared on every art as the page hides), the flash a material of the interface added onto the screen; the backpack's grid, its clicks and its tooltips only on the items' page.
+**Seen** in the game beside the original at the Seraphim's start: the backgrounds and the seventeen icons at the original's places, 1071 vivid and the rest grey; 1070 taught by the console flashing over its vivid icon, and no more once the page hid.
+Not followed yet: the tooltips, the arts onto the cursor, the right button and the keys (#1529), the master's window's view (#1530).
+
 ## A hero's combos
 
 A hero's stats (only for a creature of the heroes' class, `0x426650`) hold its combos as a list of entries of 38 bytes, from `+0x10E` to `+0x112` of the stats (`0x5813D0`): an id at `+0`, four arts' references from `+2` (four bytes each, the art's id in the low word) and their levels from `+0x12` (a `u16` each), the combo's time at `+0x1A`, its regeneration's speed at `+0x1E`, and the time regenerated at `+0x22`, counting up.
