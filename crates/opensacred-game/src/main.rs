@@ -70,6 +70,7 @@ mod inventory;
 mod iso;
 mod journal;
 mod labels;
+mod lens_creatures;
 mod lines;
 mod liquids;
 mod low_health;
