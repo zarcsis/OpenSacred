@@ -61,11 +61,67 @@ pub enum Transition {
     Lose,
 }
 
-/// The quests' flags by number, and the quests in the quest log.
+/// The first side quest's number: below it, from 1, the main quests (`0x46C160`).
+pub const SIDE_FROM: u32 = 100;
+
+/// The radius of a compass that names none (`0x49A4B0`, `0x49AC80`: 1,200 world units).
+pub const COMPASS_RADIUS: u32 = 1200;
+
+/// Where a quest's compass points (the log entry's `+0x10` and `+0x14`, docs/re/interface.md,
+/// "The compass"): a cell, or an object of the world by its name, which the game finds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Target {
+    Cell(i32, i32),
+    Named(String),
+}
+
+/// A quest's compass: its target and its radius (`+0x20`), within which the side quest's pin
+/// fades out ([`side_alpha`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Compass {
+    pub target: Target,
+    pub radius: u32,
+}
+
+/// The compass's markers that the quests set (`sdk_MARKER_RESOLVE`, `0x4A5980`): the needle, the
+/// newest main quest's, and the inner pin, the newest side quest's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Marker {
+    Main,
+    Side,
+}
+
+/// The side quest pin's alpha at `distance` world units from its target of `radius`
+/// (`0x4A5980`): whole beyond the radius, fading to nothing over its last 255 units, none
+/// nearer.
+pub fn side_alpha(distance: u32, radius: u32) -> u8 {
+    if distance >= radius {
+        return u8::MAX;
+    }
+    u8::try_from((distance + 255).saturating_sub(radius)).unwrap_or(u8::MAX)
+}
+
+/// The quests' flags by number, and the quests in the quest log, and their compasses.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quests {
     flags: BTreeMap<u32, u32>,
     log: BTreeSet<u32>,
+    /// The compasses that `QuestKompassPos` and `QuestKompassObj` set, by the quest whose log
+    /// entry holds them.
+    #[serde(default)]
+    compasses: BTreeMap<u32, Compass>,
+    /// A compass set for a quest not in the log, which the next quest entered takes
+    /// (`0xAB782C`).
+    #[serde(default)]
+    pending: Option<Compass>,
+    /// The newest main quest and side quest entered, whose compasses the markers show (the
+    /// quest manager's `+0x3A4` and `+0x3A8` by the player).
+    #[serde(default)]
+    newest: [Option<u32>; 2],
+    /// Whether a marker was set anew since [`Quests::take_fresh`]: the taskbar's message `0x34`,
+    /// by which the bar starts a sonar.
+    #[serde(default)]
+    fresh: bool,
 }
 
 impl Quests {
@@ -134,12 +190,26 @@ impl Quests {
             }
             (Transition::Trigger, []) => set_up.then_some(Section::Trigger),
             (Transition::Trigger, [true]) => {
+                // The entry (`0x46C160`) ends a compass waiting, whether it enters or not.
                 if flags & ENTERED != 0 {
+                    self.pending = None;
                     return None;
                 }
                 self.log.insert(quest);
                 *self.flags.entry(quest).or_default() |= ENTERED;
+                // The newest main or side quest, and the compass that waited for it, a main
+                // quest's a new marker.
+                let main = quest < SIDE_FROM;
+                self.newest[usize::from(!main)] = Some(quest);
+                if let Some(compass) = self.pending.take() {
+                    self.compasses.insert(quest, compass);
+                    self.fresh |= main;
+                }
                 Some(Section::OnEnter)
+            }
+            (Transition::Trigger, [true, _]) => {
+                self.pending = None;
+                None
             }
             (Transition::Trigger, _) => None,
             (Transition::Exit | Transition::Lose, []) => {
@@ -176,6 +246,40 @@ impl Quests {
             *flags &= !ENTERED;
         }
         self.log.remove(&quest);
+        self.compasses.remove(&quest);
+    }
+
+    /// `QuestKompassPos` (63, `0x49A4B0`) and `QuestKompassObj` (64, `0x49AC80`): the compass of
+    /// the quest `quest`'s log entry; for a quest not in the log, or none, the compass waits for
+    /// the next quest entered. A main quest's compass, or the newest side quest's, that changed
+    /// sets a new marker (the taskbar's message `0x34`).
+    pub fn set_compass(&mut self, quest: Option<u32>, compass: Compass) {
+        let Some(quest) = quest.filter(|quest| self.log.contains(quest)) else {
+            self.pending = Some(compass);
+            return;
+        };
+        let shown = quest < SIDE_FROM || self.newest.contains(&Some(quest));
+        let changed = self.compasses.get(&quest).map(|old| &old.target) != Some(&compass.target);
+        self.fresh |= shown && changed;
+        self.compasses.insert(quest, compass);
+    }
+
+    /// The compass that the marker `marker` shows (`sdk_MARKER_RESOLVE`, `0x4A5980`): the newest
+    /// main quest's, or the newest side quest's but those of 9000 to 9499; none for a quest out of
+    /// the log or finished (**hypothesis**: the entry's `+0x4` from 100), or without a compass.
+    pub fn marker(&self, marker: Marker) -> Option<&Compass> {
+        let quest = match marker {
+            Marker::Main => self.newest[0],
+            Marker::Side => self.newest[1].filter(|quest| !(9000..9500).contains(quest)),
+        }?;
+        (self.log.contains(&quest) && self.flags(quest) & FINISHED == 0)
+            .then(|| self.compasses.get(&quest))
+            .flatten()
+    }
+
+    /// Whether a marker was set anew since the last call, for the bar's sonar.
+    pub fn take_fresh(&mut self) -> bool {
+        std::mem::take(&mut self.fresh)
     }
 }
 
@@ -1215,6 +1319,65 @@ mod tests {
         quests.untrigger(2);
         assert!(!quests.in_log(2));
         assert_eq!(quests.flags(2), SET_UP | FINISHED);
+    }
+
+    /// The compasses (#1462): set on a quest in the log, or waiting for the next quest entered;
+    /// the needle the newest main quest's, the inner pin the newest side quest's but 9000 to
+    /// 9499's; a new marker for a main quest, or the newest side quest, whose compass changed.
+    #[test]
+    fn the_markers_show_the_newest_quests_compasses() {
+        let mut quests = Quests::default();
+        let mut ran = Vec::new();
+        let enter = |quests: &mut Quests, quest: u32, ran: &mut Vec<String>| {
+            quests.set_up(quest, &mut runtime(ran, true));
+            quests.trigger(quest, &mut runtime(ran, true));
+        };
+        let cell = |x, y| Compass {
+            target: Target::Cell(x, y),
+            radius: COMPASS_RADIUS,
+        };
+        // A compass for a quest not in the log waits for the next one entered.
+        quests.set_compass(Some(1), cell(10, 20));
+        assert_eq!(quests.marker(Marker::Main), None);
+        enter(&mut quests, 1, &mut ran);
+        assert_eq!(quests.marker(Marker::Main), Some(&cell(10, 20)));
+        assert!(quests.take_fresh());
+        assert!(!quests.take_fresh());
+        // The same target again is no new marker; another is.
+        quests.set_compass(Some(1), cell(10, 20));
+        assert!(!quests.take_fresh());
+        quests.set_compass(Some(1), cell(11, 20));
+        assert!(quests.take_fresh());
+        // A side quest's compass is the pin's, and a new marker as it is the newest.
+        enter(&mut quests, 120, &mut ran);
+        quests.set_compass(Some(120), cell(5, 5));
+        assert_eq!(quests.marker(Marker::Side), Some(&cell(5, 5)));
+        assert!(quests.take_fresh());
+        // An older side quest's changes no marker.
+        enter(&mut quests, 130, &mut ran);
+        quests.set_compass(Some(120), cell(6, 6));
+        assert!(!quests.take_fresh());
+        assert_eq!(quests.marker(Marker::Side), None);
+        // 9000 to 9499 show no pin, and a finished quest no marker.
+        enter(&mut quests, 9001, &mut ran);
+        quests.set_compass(Some(9001), cell(7, 7));
+        assert_eq!(quests.marker(Marker::Side), None);
+        quests.exit(1, &mut runtime(&mut ran, true));
+        assert_eq!(quests.marker(Marker::Main), None);
+        // A compass that waited is gone with the next entry that enters nothing.
+        quests.set_compass(None, cell(8, 8));
+        quests.trigger(1, &mut runtime(&mut ran, true));
+        enter(&mut quests, 2, &mut ran);
+        assert_eq!(quests.marker(Marker::Main), None);
+    }
+
+    #[test]
+    fn the_side_pin_fades_within_its_radius() {
+        assert_eq!(side_alpha(5000, 1200), 255);
+        assert_eq!(side_alpha(1200, 1200), 255);
+        assert_eq!(side_alpha(1199, 1200), 254);
+        assert_eq!(side_alpha(945, 1200), 0);
+        assert_eq!(side_alpha(100, 1200), 0);
     }
 
     #[test]

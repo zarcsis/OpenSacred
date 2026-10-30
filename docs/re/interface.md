@@ -75,6 +75,30 @@ The left orb is the weapon set (the left button's attack), the right orb the sel
 - All in the texture of image 136 (`GUI_main_01`), filter linear, vertex colour white.
 - A marker newly set (the taskbar's message `0x34` with its number k) starts a "sonar" ring: `FX_SONAREFFECT.TGA` tinted `0xDDCCAA` at (512, 711), from radius r = 10 out to r + 40, r growing 600 pixels a second until 500, its alpha falling (**hypothesis** for the alpha's formula), with the sound event (9, `0x46`); four can run at once.
 
+### The markers (`sdk_MARKER_RESOLVE`, `0x4A5980`)
+
+Read 2026-10-30 (#1462), **confirmed** by code unless marked otherwise.
+
+- The quest manager's log is a vector of entries of 0x174 bytes (`+0x424`, `+0x428`): `+0x0` the kind (3 a main quest, 4 a side quest), `+0x4` a state (2 as the quest is entered), `+0x8` the quest's number, `+0x10` and `+0x14` the compass's target, `+0x20` its radius.
+  A quest's entry (`0x46C160`) appends one and makes it the player's newest main quest (`+0x3A4` by the player, a number from 1 to 99) or newest side quest (`+0x3A8`).
+- The target: `0xEEEEEEEE` and a name's hash, an object not yet found, which the next call looks up by name and turns into `−1` and the object's id; `−1` and an object's id, the object's place each frame; else the cell `(+0x10, +0x14)` (`sdk_BUILD_POS`); `0, 0` none.
+- Marker 0, the needle: the newest main quest's target, none for a number above 100 or a state from 100 (**hypothesis**: a quest finished).
+- Marker 1, the inner pin: the newest side quest's target, none for a number below 100, from 9000 to 9499 or a state from 100; within the entry's radius of the hero the pin fades, its alpha `d + 255 − r` at the distance `d` (the integer root of the squares, 32,000 where either axis is beyond it), nothing nearer than `r − 255`.
+- Marker 2, the outer pin: a point that the world map's window (`cUI_Megamap`, `0x6C8140`) stores at `+0x7674` through `0x4A63B0` (**hypothesis**: the player's own marker on the map); `0x4A63E0` reads it.
+- Marker 3, the blinking pin: a creature that `GroupIsDead` (24, `0x48C860`) stores at `+0x7704` as it finds the group's nearest living member within 25,000 world units, for 60 s of the game's clock (`+0x7718`, `+0x771C`); a group found dead clears it.
+- The direction is the target's place less the hero's, turned by 45° (`fcos`, `fsin` of π/4), the screen's axes of the isometric view.
+  Where the hero and the target lie on different sides of a dungeon's mouth (`0x634840`, `0x6238C0`), it points at the way between them instead (`0x4A5420`, `0x4A4E20`, not read); quest 61 with three variables of its own takes a fixed place (`0x4790C66`).
+- With its last argument set it teleports the hero to the marker instead (`sdk_ENGINE_TP`, its debug use from `0x615550`).
+
+`QuestKompassPos` (63, `0x49A4B0`) and `QuestKompassObj` (64, `0x49AC80`) set a quest's compass:
+
+- A name `rad:N` is the radius, 1,200 world units without one.
+- `QuestKompassPos`: a name is a `DefPos` (`+0x334`, entries of 100 bytes) and a second one a variable whose value is the quest's number; its numbers are the cell's x and y where no name gave them, then the quest's number; raw coordinates (`0x20`) the cell; a cell of a negative coordinate is refused.
+- `QuestKompassObj`: its name is the object's, and its quest the number, else the running function's quest (the manager's `+0x18`).
+- On a quest in the log, the entry takes the compass, and where the quest is a main one, or the player's newest main or side quest, and its target changed, the taskbar gets the message `0x34`, the sonar.
+- On a quest not in the log, the compass waits (`0xAB782C`) for the next quest entered, which takes it with the message `0x34` for a main quest; an entry clears it at its end, whether it entered a quest or not.
+- In the Seraphim's tree: 3,330 such records, 2,083 positions (1,153 a `DefPos` and a quest, the rest numbers) and 1,247 objects (1,112 with a quest, 135 of the running function's); no `rad:` name.
+
 ### The slots' drawing (`0x6E3430` right, `0x6E29E0` left, `0x6DFBF0` rings)
 
 - A selected slot's ring is image 103 (gold), the others 102 (dark), on both sides; the left's selection is `0x5D9BA0(0)`, the right's `0x5D9BA0(1)`.
@@ -171,7 +195,8 @@ Done by 2026-10-28: items 1 to 3, the sets' keys and slots of item 4 (#1348), an
 ## Open questions
 
 - The sender and meaning of the taskbar's message `0x35` (the burn).
-- What `sdk_MARKER_RESOLVE`'s four markers are (the quests' goals by their kinds, **hypothesis**) and the frame of its direction.
+- What the log entry's state `+0x4` holds after the quest's end, which hides its markers from 100.
+- The ways between a dungeon and the world that the markers take across its mouth (`0x4A5420`, `0x4A4E20`).
 - The right rail's middle piece in the frames matches neither image 9 nor 10 well at x 570 (its chain's knot at 641–660 fits image 9; the wavy line left of it does not show).
 - `0x5D96C0`; `0x6D60E0`; the control at `+0x160`.
 - How the bar scales at the original's other resolutions (the windows' rectangles are fixed at 1024 × 768 here).
@@ -195,3 +220,4 @@ Since #1349 the inventory open is the left slots' edit mode: a click takes an it
 Since #1408 a click on the Collect button sends the hero collecting the items about it (`pickup`, docs/re/items.md, "The automatic pick-up").
 Since #1463 the red part of the ring glows while the hero's health is below a quarter of its most, and the red alarm spreads about the portrait once as it falls below the warning level (`low_health`): the glow is a material of the interface that adds the 49 copies of the part as drawn onto the frame, 6 pixels about it and under the portrait, and the alarm one that lays the texture's row across a ring, a circle rather than the original's 90 pieces (a third of a pixel apart at most, at the radius 540); the level is the settings' `[interface] warning_level` (docs/10), 25 as the installation's.
 Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the points' "+", the followers' entries and the mount's bar.
+Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`); the bar draws them next.
