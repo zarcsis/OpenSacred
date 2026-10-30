@@ -9,7 +9,7 @@
 //! button puts one into the selected slot (the messages 3 and 4); an art on the cursor shows its
 //! vivid picture at the cursor, and goes as the inventory hides. A combo comes onto the cursor
 //! from the combos page (the kind 4) and into a slot as an art does (the message 6, `combos_page`);
-//! a slot that holds one makes nothing yet (#1531). The keys F1 to F6 put the arts bound to them
+//! a slot that holds one runs it with the right button (`combos`, #1531). The keys F1 to F6 put the arts bound to them
 //! into the selected slot (`spells_page`, #1536).
 //!
 //! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`), the
@@ -108,10 +108,8 @@ fn sync(mut slots: ResMut<ArtSlots>, mut selected: ResMut<Selected>, arts: Optio
             slots.arts[slot] = selected.0;
         }
     }
-    // A combo's run is not followed yet (#1531): its slot makes nothing.
-    let art = slots
-        .selected_art()
-        .filter(|&art| !crate::combos::is_combo(art));
+    // A combo's slot runs it (`combos`, #1531).
+    let art = slots.selected_art();
     if selected.0 != art {
         selected.0 = art;
     }

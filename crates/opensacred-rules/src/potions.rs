@@ -109,10 +109,19 @@ pub enum Drink {
     Lasts(Effect, f32),
     /// A green potion: each effect 30 cured by this per cent ([`cured`]).
     Cures(u32),
-    /// A yellow potion: the combos' regeneration by this per cent (`0x562470` with the kind 3 and
-    /// the time −40 times it, docs/re/arts.md), which waits for the combos (#1090): used up with
-    /// no effect.
-    Refills(u32),
+    /// A yellow potion: every combo's regeneration set to this factor of its time, its size's
+    /// cocktail over the difficulty's `PotionDiv` (`0x562470` with the kind 3 and the time −40
+    /// times its per cent, `crate::combos::refilled`).
+    Refills(f32),
+}
+
+/// The balance's cocktails of the yellow potions by size, small to large (`DriversComboCocktail`,
+/// `ComboCocktail`, `JumboComboCocktail`, at `0xAD5788`, `0xAD5784` and `0xAD5780`).
+const COCKTAILS: [f32; 3] = [120.0, 200.0, 300.0];
+
+/// A whole count as a float, exact below 2²⁴.
+fn to_f32(value: u32) -> f32 {
+    f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
 /// The balance's seconds of the purple and the blue potions by size, small to large, and by the
@@ -132,6 +141,9 @@ const LASTS: [[f32; 5]; 3] = [
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Potions {
     per_cent: [u32; 3],
+    /// The yellow potions' factors by size, small to large: `DriversComboCocktail`,
+    /// `ComboCocktail` and `JumboComboCocktail` (120, 200 and 300) over `PotionDiv`.
+    cocktails: [f32; 3],
     /// The purple's value and seconds by size, and the blue's.
     banishes: (f32, [f32; 3]),
     mentors: (f32, [f32; 3]),
@@ -152,6 +164,7 @@ impl Potions {
         let bronze = LASTS.map(|row| row[0]);
         Self {
             per_cent: healing.map(|value| (value / divisor).min(100)),
+            cocktails: COCKTAILS.map(|cocktail| cocktail / to_f32(divisor)),
             banishes: (0.8, bronze),
             mentors: (0.5, bronze),
         }
@@ -178,7 +191,17 @@ impl Potions {
                     .trunc()
             })
         };
+        let cocktails = [
+            "DriversComboCocktail",
+            "ComboCocktail",
+            "JumboComboCocktail",
+        ]
+        .iter()
+        .zip(COCKTAILS)
+        .map(|(name, or)| float(name, or) / to_f32(divisor.max(1)));
+        let cocktails: Vec<f32> = cocktails.collect();
         Self {
+            cocktails: [cocktails[0], cocktails[1], cocktails[2]],
             banishes: (float("PotionOfUndeadDeathPercent", 0.8), lasts("Black")),
             mentors: (float("PotionOfMentorPercent", 0.5), lasts("Blue")),
             ..Self::new(healing, divisor)
@@ -209,7 +232,7 @@ impl Potions {
             5137 | 5142 | 5168 => lasts(BANISHES, self.banishes),
             5138 | 5143 | 5169 => lasts(MENTORS, self.mentors),
             5139 | 5144 | 5170 => Drink::Cures(size.per_cent()),
-            _ => Drink::Refills(size.per_cent()),
+            _ => Drink::Refills(self.cocktails[size.index()]),
         })
     }
 
@@ -373,7 +396,8 @@ mod tests {
         assert_eq!(bronze.drink(5139), Some(Drink::Cures(100)));
         assert_eq!(bronze.drink(5144), Some(Drink::Cures(50)));
         assert_eq!(bronze.drink(5170), Some(Drink::Cures(25)));
-        assert_eq!(bronze.drink(5172), Some(Drink::Refills(25)));
+        // A small cocktail of 120 over bronze's `PotionDiv` of 1.
+        assert_eq!(bronze.drink(5172), Some(Drink::Refills(120.0)));
         assert_eq!(bronze.drink(5171), Some(Drink::Heals(100)));
         assert_eq!(bronze.drink(5060), None);
         assert_eq!(bronze.drink(5633), None);

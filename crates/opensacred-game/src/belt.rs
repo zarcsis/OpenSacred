@@ -136,7 +136,10 @@ fn drink(
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     mut pack: ResMut<Pack>,
-    healing: Option<Res<Potions>>,
+    (healing, mut combos): (
+        Option<Res<Potions>>,
+        Option<ResMut<crate::combos::HeroCombos>>,
+    ),
     mut heroes: Query<(Entity, &mut Health), With<Body>>,
     mut followers: Query<(Entity, &Follower, &mut Health), Without<Body>>,
     mut sounds: MessageWriter<sfx::Play>,
@@ -249,9 +252,12 @@ fn drink(
             });
             info!("belt: {who} drinks {item}: the poison cured by {per_cent} %");
         }
-        // The combos' regeneration, which waits for the combos (#1090).
-        Some(Drink::Refills(per_cent)) => {
-            info!("belt: {who} drinks {item}: the combos refilled by {per_cent} %, none held");
+        // The combos' regeneration set to the cocktail's factor of their times (#1531).
+        Some(Drink::Refills(factor)) => {
+            if let Some(combos) = combos.as_deref_mut() {
+                opensacred_rules::combos::refilled(&mut combos.0, factor);
+            }
+            info!("belt: {who} drinks {item}: the combos refilled by {factor} times");
         }
         _ => {
             debug!("belt: {who} drinks {item} to no effect");

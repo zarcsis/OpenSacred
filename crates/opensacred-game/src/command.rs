@@ -295,6 +295,17 @@ enum CombosAction {
     },
     /// Every combo regenerated at once
     Ready,
+    /// Put the combo COMBO (1 to 4) on the right button, into the selected art slot
+    Select {
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=4))]
+        combo: u8,
+    },
+    /// Run the combo COMBO (1 to 4), the selected by default, on the hostile creature nearest
+    /// the hero, as a right click on it does: where none runs and it is ready
+    Make {
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=4))]
+        combo: Option<u8>,
+    },
 }
 
 /// What a script waits for.
@@ -553,6 +564,7 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
                 art,
                 target: hero,
                 point: None,
+                level: None,
             });
         return Ok(format!("the hero makes {art} on itself"));
     }
@@ -571,6 +583,7 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
                 art,
                 target: corpse,
                 point: None,
+                level: None,
             });
         return Ok(format!(
             "the hero makes {art} on the dead {corpse} at {distance:.0}"
@@ -598,7 +611,12 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
     world
         .entity_mut(hero)
         .remove::<(crate::attack::Attack, crate::attack::Striking)>()
-        .insert(crate::making::Making { art, target, point });
+        .insert(crate::making::Making {
+            art,
+            target,
+            point,
+            level: None,
+        });
     Ok(format!("the hero makes {art} on {target} at {distance:.0}"))
 }
 
@@ -1458,12 +1476,26 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                         combo.regenerated = combo.time;
                     }
                 }
+                Some(CombosAction::Select { combo }) => {
+                    let id = opensacred_rules::combos::FIRST + u16::from(combo - 1);
+                    world.resource_mut::<crate::making::Selected>().0 = Some(id);
+                }
+                Some(CombosAction::Make { combo }) => {
+                    let id = match combo {
+                        Some(combo) => opensacred_rules::combos::FIRST + u16::from(combo - 1),
+                        None => world
+                            .resource::<crate::making::Selected>()
+                            .0
+                            .filter(|&id| crate::combos::is_combo(id))
+                            .ok_or("no combo is selected")?,
+                    };
+                    crate::combos::make(world, id)?;
+                }
                 None => {}
             }
-            Ok(Outcome {
-                lines: world.resource::<crate::combos::HeroCombos>().lines(),
-                wait: None,
-            })
+            let mut lines = vec![world.resource::<crate::combos::ComboRun>().line()];
+            lines.extend(world.resource::<crate::combos::HeroCombos>().lines());
+            Ok(Outcome { lines, wait: None })
         }
         Command::State => {
             let snapshot = world

@@ -100,14 +100,41 @@ impl Combo {
         }
     }
 
-    /// Its regeneration on by `seconds` at its speed, held at its time.
+    /// Its regeneration on by `seconds` at its speed while it is below its time (`0x562730`),
+    /// which its last tick may pass (seen 2026-10-30, #1531: 24.01 s of 24).
     pub fn regenerate(&mut self, seconds: f32) {
-        self.regenerated = (self.regenerated + seconds * self.speed).min(self.time);
+        if self.regenerated < self.time {
+            self.regenerated += seconds * self.speed;
+        }
     }
 
     /// The time its tooltip gives (`0x581550`, the mode 3): its time over its speed.
     pub fn shown_time(&self) -> f32 {
         self.time / self.speed
+    }
+}
+
+/// A use of an art while a combo runs or its mark holds (`0x562470`, its combos' branch, the
+/// art's time `time`): the running combo's regeneration, `running` its index, back to 0, then
+/// every combo's less the time, held within 0 and its time; the arts' own regeneration does not
+/// start (seen 2026-10-30, #1531).
+pub fn used(combos: &mut [Combo], running: Option<usize>, time: f32) {
+    for (index, combo) in combos.iter_mut().enumerate() {
+        if running == Some(index) {
+            combo.regenerated = 0.0;
+        }
+        combo.regenerated = (combo.regenerated - time).max(0.0).min(combo.time);
+    }
+}
+
+/// A yellow potion's cocktail (`0x562470` with the kind 3 and the time −40 times its per
+/// cent): every combo's regeneration set to `factor` times its time, held at its time,
+/// `factor` its size's cocktail of the balance over the difficulty's `PotionDiv`
+/// ([`crate::potions::Drink::Refills`]); no share of 100 is taken, so that every cocktail of
+/// the installation's balance, 120 at least over 5 at most, fills every combo.
+pub fn refilled(combos: &mut [Combo], factor: f32) {
+    for combo in combos {
+        combo.regenerated = (factor * combo.time).min(combo.time);
     }
 }
 
@@ -227,6 +254,41 @@ mod tests {
         assert!((combo.regenerated - 13.7).abs() < 1e-4 && !combo.ready());
         combo.regenerate(100.0);
         assert!(combo.ready() && combo.share() == 1.0);
+    }
+
+    #[test]
+    fn a_step_takes_its_time_from_every_combo_and_its_own_back_to_none() {
+        let mut combos = new_hero();
+        for (combo, regenerated) in combos.iter_mut().zip([24.0, 10.0, 3.0, 1.0]) {
+            combo.time = 24.0;
+            combo.regenerated = regenerated;
+        }
+        // The first combo runs, its step of 1071's 15 s: its own from 0, the others less 15.
+        used(&mut combos, Some(0), 15.0);
+        let after: Vec<f32> = combos.iter().map(|c| c.regenerated).collect();
+        assert_eq!(after, [0.0, 0.0, 0.0, 0.0]);
+        combos[1].regenerated = 20.0;
+        // With the mark alone, none runs: each less the time.
+        used(&mut combos, None, 8.0);
+        assert_eq!(combos[1].regenerated, 12.0);
+        // The regeneration passes its time by its last tick, as the original's (24.01 of 24), and
+        // stops there.
+        combos[1].regenerate(10.0);
+        assert_eq!(combos[1].regenerated, 22.0);
+        combos[1].regenerate(10.0);
+        assert_eq!(combos[1].regenerated, 32.0);
+        combos[1].regenerate(10.0);
+        assert_eq!(combos[1].regenerated, 32.0);
+    }
+
+    #[test]
+    fn a_cocktail_fills_every_combo() {
+        let mut combos = new_hero();
+        combos[0].time = 24.0;
+        combos[2].time = 66.4;
+        refilled(&mut combos, 120.0 / 5.0);
+        assert!(combos.iter().all(Combo::ready));
+        assert_eq!(combos[2].regenerated, 66.4);
     }
 
     #[test]

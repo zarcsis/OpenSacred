@@ -30,6 +30,9 @@ pub struct HeroArts {
     pub skills: Vec<(u8, u32)>,
     /// The curves of the skills that shorten the arts' times.
     pub shortening: Shortening,
+    /// While a combo runs or its mark holds (`combos::ComboRun`), the times of the arts used,
+    /// which go to the combos rather than to the arts' own regeneration (`0x562470`).
+    pub combo_uses: Option<Vec<f32>>,
 }
 
 impl HeroArts {
@@ -61,6 +64,7 @@ impl HeroArts {
             tables: Arc::new(tables),
             skills,
             shortening: balance.map(Shortening::of).unwrap_or_default(),
+            combo_uses: None,
         };
         hero.arts = Arts::new_game(template, &hero.context());
         hero
@@ -103,7 +107,8 @@ impl HeroArts {
 
     /// A use of `art`, as its executor starts the regeneration at its first strike or its cast
     /// (`0x562470`): its time added to what is still to run of every art of its kind, without a
-    /// group. The hero needs not hold it, as the original's use of an art it lacks.
+    /// group. The hero needs not hold it, as the original's use of an art it lacks. While a
+    /// combo runs or its mark holds, the time goes to the combos instead ([`Self::combo_uses`]).
     pub fn start(&mut self, art: u16) {
         let kind = self.arts.get(art).map_or_else(
             || {
@@ -116,6 +121,10 @@ impl HeroArts {
             opensacred_rules::arts::Entry::kind,
         );
         let time = self.arts.time_of(art, &self.tables);
+        if let Some(uses) = &mut self.combo_uses {
+            uses.push(time);
+            return;
+        }
         self.arts.start(time, kind, None, 0);
     }
 
