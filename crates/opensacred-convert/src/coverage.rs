@@ -1,10 +1,12 @@
 //! `coverage` subcommand: what becomes of every file of the reference installation (G1 in
-//! PLAN.md §1.2: the converter processes 100% of the files of the manifest). Each file is
-//! converted by a subcommand, converted in part, skipped for a stated reason, or not converted
-//! yet.
+//! PLAN.md §1.2: the converter processes 100% of the files of the manifest). The manifest holds
+//! the files that the project uses at some stage (docs/02 §13); each is converted by a
+//! subcommand, converted in part, used only in development (the original's runs, its analysis),
+//! or not converted yet.
 
 use anyhow::Result;
 
+use crate::manifest;
 use crate::verify::{GOG_MANIFEST, parse_manifest};
 
 /// What becomes of a file.
@@ -18,8 +20,8 @@ pub enum Status {
         reason = "no file is converted in part at the moment; the status stays for the next one"
     )]
     Partial(&'static str, &'static str),
-    /// Why it needs no conversion.
-    Skipped(&'static str),
+    /// Not converted: who uses it in development.
+    Development(&'static str),
     /// Not converted yet: what it holds.
     Pending(&'static str),
 }
@@ -50,35 +52,32 @@ const RULES: &[(&str, Status)] = &[
     ("movie/", Status::Converted("video")),
     ("scripts/us/global.res", Status::Converted("text")),
     (
-        "PAK/Models.tmp",
-        Status::Skipped("a cache of the model descriptors, rebuilt from the paks"),
-    ),
-    (
-        "PAK/Texture.TMP",
-        Status::Skipped("a cache of the texture directory, rebuilt from the paks"),
-    ),
-    (
         "Sacred.exe",
-        Status::Skipped(
-            "the original program: rules recovered in M3; `sound` reads its sound names, `tables` its combat arts",
+        Status::Development(
+            "the original program: the oracle, its runs under Frida, Ghidra; `sound` reads its sound names, `tables` its tables",
         ),
     ),
     (
         "GameServer.exe",
-        Status::Skipped("the network server: out of scope"),
+        Status::Development(
+            "the network server: in Ghidra and `fn_match.py`, the functions it shares with the client (docs/01 §5)",
+        ),
     ),
-    ("Config.exe", Status::Skipped("the original settings tool")),
     (
         "*.dll",
-        Status::Skipped("a library of the original program"),
+        Status::Development("a library that the original loads, for its runs under Frida"),
     ),
     (
         "mssds3d.m3d",
-        Status::Skipped("a Miles sound provider of the original program"),
+        Status::Development(
+            "a Miles sound provider that the original loads, for its runs under Frida",
+        ),
     ),
     (
         "mssmp3.asi",
-        Status::Skipped("a Miles MP3 decoder of the original program"),
+        Status::Development(
+            "the Miles MP3 decoder that the original loads, for its runs under Frida",
+        ),
     ),
     ("*.bmp", Status::Converted("ui")),
     ("font/", Status::Converted("ui")),
@@ -121,13 +120,16 @@ pub fn status(path: &str) -> Status {
         .map_or(Status::Pending("not described"), |(_, status)| *status)
 }
 
-/// Counts of the manifest's files by status.
+/// Counts of the manifest's files by status, and how many of them the converter reads.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Coverage {
     pub converted: usize,
     pub partial: Vec<(String, &'static str)>,
-    pub skipped: usize,
+    pub development: usize,
     pub pending: Vec<(String, &'static str)>,
+    /// The files that some command reads: the converted ones, those in part, and the files of
+    /// development that a command reads besides (`Sacred.exe`).
+    pub read: usize,
 }
 
 pub fn coverage() -> Result<Coverage> {
@@ -136,8 +138,11 @@ pub fn coverage() -> Result<Coverage> {
         match status(entry.path) {
             Status::Converted(_) => out.converted += 1,
             Status::Partial(_, missing) => out.partial.push((entry.path.to_owned(), missing)),
-            Status::Skipped(_) => out.skipped += 1,
+            Status::Development(_) => out.development += 1,
             Status::Pending(what) => out.pending.push((entry.path.to_owned(), what)),
+        }
+        if manifest::is_source(entry.path) {
+            out.read += 1;
         }
     }
     Ok(out)
@@ -152,8 +157,8 @@ mod tests {
         assert_eq!(status("PAK/TEXTURE.PAK"), Status::Converted("textures"));
         assert_eq!(status("mp3/MUSIC_CREDITS.mp3"), Status::Converted("sound"));
         assert_eq!(
-            status("MSVCRT.DLL"),
-            Status::Skipped("a library of the original program")
+            status("GRANNY.DLL"),
+            Status::Development("a library that the original loads, for its runs under Frida")
         );
         assert_eq!(
             status("bin/Addon/NetScript/FunkCode.bin"),
@@ -163,7 +168,7 @@ mod tests {
         assert_eq!(status("unknown.dat"), Status::Pending("not described"));
     }
 
-    /// Every file of the manifest has a rule; the counts track M1.
+    /// Every file of the manifest has a rule; the counts track M1 and the manifest (#1482).
     #[test]
     fn every_file_of_the_manifest_has_a_rule() {
         let coverage = coverage().unwrap();
@@ -175,8 +180,14 @@ mod tests {
             "{:?}",
             coverage.pending
         );
-        let total =
-            coverage.converted + coverage.partial.len() + coverage.skipped + coverage.pending.len();
-        assert_eq!(total, 319);
+        let total = coverage.converted
+            + coverage.partial.len()
+            + coverage.development
+            + coverage.pending.len();
+        assert_eq!(total, 313);
+        // The ten files of development: the two programs, the six libraries and the two Miles
+        // providers that the original loads; the converter reads the converted and `Sacred.exe`.
+        assert_eq!((coverage.converted, coverage.development), (303, 10));
+        assert_eq!(coverage.read, 304);
     }
 }

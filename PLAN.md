@@ -49,7 +49,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 
 | # | Goal | Criterion |
 |---|---|---|
-| G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; tables and hero files keep the fields not yet understood as raw spans |
+| G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; since 2026-10-29 the manifest holds only the files the project uses, 313: 303 converted and 10 used in development, the converter reading 304 of them (#1482); tables and hero files keep the fields not yet understood as raw spans |
 | G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors, about 580 on 2026-10-19, and 365 to 392 on 2026-10-25 with the creatures and the fight (docs/05 §3.6, docs/10) |
 | G3 | Game rules | Combat, attributes, skills, items and loot work by the recovered formulas; deviations from the original are deliberate and recorded |
 | G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish |
@@ -360,6 +360,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Done 2026-10-16: Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with the `verify` command), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions; `.gitignore` excludes `assets/`, `assets-hd/`, `target/`.
 2. Done 2026-10-16: the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt` (`sha256sum` format); the converter checks the installation against it.
    Since 2026-10-17 it lists 319 files: the files the game writes (`Gameserver.cfg`, the saves of `save/`, the `DefPos.bin` caches) were removed, like `Settings.cfg` before them (docs/02 §13).
+   Since 2026-10-29 it lists 313: the six files that nothing of the project reads were removed (#1482).
 3. Moved to the start of M3 on 2026-10-16: install Ghidra 12.1.4, load the GOG `Sacred.exe` and `GameServer.exe`, import the community names, connect GhidraMCP or pyghidra-mcp to Claude Code.
    M1 and M2 work from the data and the community format descriptions; if a format question needs the original's code, Ghidra is installed earlier.
    Done 2026-10-18, ahead of M3: Ghidra 12.1.4 on Temurin 25, pyghidra-mcp connected to Claude Code, `Sacred.exe` and `GameServer.exe` imported and analyzed (docs/03 §3.2).

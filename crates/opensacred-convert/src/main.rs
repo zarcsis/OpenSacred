@@ -383,11 +383,13 @@ fn execute(command: Command) -> Result<ExitCode> {
         Command::Coverage => {
             let coverage = coverage::coverage()?;
             println!(
-                "{} files converted, {} in part, {} skipped, {} not yet",
+                "{} files converted, {} in part, {} used in development, {} not yet; the \
+                 converter reads {} of them",
                 coverage.converted,
                 coverage.partial.len(),
-                coverage.skipped,
+                coverage.development,
                 coverage.pending.len(),
+                coverage.read,
             );
             for (path, missing) in &coverage.partial {
                 println!("  in part: {path} (missing: {missing})");

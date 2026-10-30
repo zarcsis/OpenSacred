@@ -13,11 +13,8 @@ and prints how many records satisfy it.
            Directory size = 1194 + 2 * dataSize for a model, 256 + dataSize for a motion. Records lie back to back in
            directory order up to the end of the file. ModelDesc +0x70: 256 u32 motion ordinals (0 = none). ModelDesc
            +0x470: three equal f32, the model's own scale, which the client applies to the model and its motions as it
-           loads them (0x411F50, 0x4118B0). Fields that the Models.tmp cache fills in hold MSVC fill 0xCC in the pak.
-  Models.tmp (MDT v2)  0x118 + the descriptors of models.pak and models03.pak in order: all models, then all motions.
-           It differs from the pak descriptors only in the global number (ModelDesc +0x4A8, MotionDesc +0x2E u16), in
-           ModelDesc +0x47C (the pak index: 0 for models.pak, 4 for models03.pak, as in Texture.TMP), in the MotionDesc
-           parameter block +0x80..+0x100 (MOTIONS.PAK) and in motion references that point to custom motions.
+           loads them (0x411F50, 0x4118B0). Fields that the Models.tmp cache fills in hold MSVC fill 0xCC in the pak;
+           the cache itself (docs/02 §4.1) is not in the manifest, and the script does not read it (#1482).
   GRN      +0x00 64-byte signature, the same in every file. +0x40 root header (32 B): tag 0xCA5E0000, section count 3,
            CRC-32 of the section table, 0, size from +0x40 to the end of the file, 12 zero bytes. +0x60 section table:
            3 x 20 B {tag, 0, offset from the start of the file, CRC-32 of the section bytes, 0}, tags 0102, 0103, 0101;
@@ -61,7 +58,7 @@ Examples
   uv run python -I tools/analysis/formats/grn_dump.py --game-dir ./OriginalGame --records /tmp/analysis/grn_records.tsv
 
 Expected output (2.28): "PAK/models.pak: MDL v3 ... models 1572, motions 3421" and "PAK/models03.pak: ... models 2,
-motions 2", then "PAK/Models.tmp: ... True" and "GRN: 4993 non-empty records"; every check passes on all of its items
+motions 2", then "GRN: 4993 non-empty records"; every check passes on all of its items
 ("dataOffset == offset + descriptor size: 4993/4993", "sections: CRC-32 of the section bytes: 14979/14979"), followed
 by the tag census, the skeleton census ("skeleton: bone 0 has parent 0, every other parent precedes it:
 4993/4993") and the model census ("model: files with meshes 1568, meshes 2555, ..."; "pass: triangles and set
@@ -81,11 +78,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from sacred_pe import DEFAULT_GAME_DIR
 
 PAKS = ('PAK/models.pak', 'PAK/models03.pak')
-MODELS_TMP = 'PAK/Models.tmp'
 KIND_MODEL, KIND_MOTION = 0x40, 0x41
 DESC_SIZE = {KIND_MODEL: 1194, KIND_MOTION: 256}
 KIND_NAME = {KIND_MODEL: 'model', KIND_MOTION: 'motion'}
-MDT_HEADER = 0x118
 GRN_SIGNATURE_SIZE = 0x40
 TAG_ROOT, TAG_END = 0xCA5E0000, 0xCA5EFFFF
 SECTION_TAGS = (0xCA5E0102, 0xCA5E0103, 0xCA5E0101)
@@ -201,41 +196,6 @@ def check_mdl(path, header, records):
     c.report()
     print(f'  flags by kind: {dict(sorted(flags.items()))}; empty records: {empty}; names without NUL: {long_names}')
     print(f'  model scales: {", ".join(f"{s:.4g} x{n}" for s, n in sorted(scales.items()))}')
-
-
-def check_models_tmp(path, paks):
-    d = open(path, 'rb').read()
-    models = [r for _, records in paks for r in records if r[1] == KIND_MODEL]
-    motions = [r for _, records in paks for r in records if r[1] == KIND_MOTION]
-    fields = u32s(d, 4, 6)
-    print(f'{MODELS_TMP}: {d[:3].decode("latin-1")} v{d[3]}, header {fields}; size {len(d)} == 0x118 + {len(models)} * 1194 '
-          f'+ {len(motions)} * 256: {len(d) == MDT_HEADER + len(models) * 1194 + len(motions) * 256}')
-    c = Check()
-    base = MDT_HEADER + len(models) * 1194
-    for n, rec in enumerate(models):
-        pak_desc = rec[4]
-        tmp = d[MDT_HEADER + n * 1194:MDT_HEADER + (n + 1) * 1194]
-        where = f'model {n}'
-        c('ModelDesc +0x4A8 == global model number', struct.unpack_from('<H', tmp, 0x4A8)[0] == n, where)
-        pak_index = 0 if n < paks[0][0]['models'] else 4
-        c('ModelDesc +0x47C == pak index (0 models.pak, 4 models03.pak)',
-          struct.unpack_from('<I', tmp, 0x47C)[0] == pak_index, where)
-        same = [o for o in range(1194) if not (0x47C <= o < 0x480 or 0x4A8 <= o < 0x4AA)
-                and not (0x70 <= o < 0x470) and tmp[o] != pak_desc[o]]
-        c('ModelDesc equal to the pak outside +0x70..+0x470, +0x47C, +0x4A8', not same, where)
-        pak_refs, tmp_refs = u32s(pak_desc, 0x70, 256), u32s(tmp, 0x70, 256)
-        # Motion ordinals are local to the pak; in the cache they are global, and custom motions fill extra slots.
-        offset = 0 if n < paks[0][0]['models'] else paks[0][0]['motions']
-        changed = [(s, p, t) for s, (p, t) in enumerate(zip(pak_refs, tmp_refs)) if p and p + offset != t]
-        c('ModelDesc pak motion ordinals keep their slot in the cache (offset by preceding paks)', not changed, where)
-    for n, rec in enumerate(motions):
-        pak_desc = rec[4]
-        tmp = d[base + n * 256:base + (n + 1) * 256]
-        where = f'motion {n}'
-        c('MotionDesc +0x2E == global motion number', struct.unpack_from('<H', tmp, 0x2E)[0] == n, where)
-        diff = [o for o in range(256) if not (0x2E <= o < 0x30 or 0x80 <= o < 0x100) and tmp[o] != pak_desc[o]]
-        c('MotionDesc equal to the pak outside +0x2E and +0x80..+0x100', not diff, where)
-    c.report()
 
 
 def walk_section(g, start, end, c, where):
@@ -883,7 +843,6 @@ def main():
         header, records = read_mdl(os.path.join(args.game_dir, rel))
         check_mdl(rel, header, records)
         paks.append((header, records))
-    check_models_tmp(os.path.join(args.game_dir, MODELS_TMP), paks)
 
     c = Check()
     signature = next(r[5][:GRN_SIGNATURE_SIZE] for _, records in paks for r in records if r[5])

@@ -74,7 +74,7 @@ Movies are not needed to complete the game, so this is a low priority.
 * **Layout:** `assets-src/` holds the converter's masters and `assets/` the game's assets built from them, in ZIP archives by kind with a loose overlay (#694, #699); `assets-hd/` holds HD packs and mods in the masters' formats with the same relative paths, which stage B builds into archives that override the base ones by path (M7).
 * **Loading:** the sectors are read and built on Bevy's async compute pool, the models and images through its AssetServer; the sectors and their creatures come in as the hero approaches.
 * **Names:** the converter normalizes paths to lowercase and forward slashes, so file system case does not matter.
-* **Installation check:** the command `opensacred-convert verify` cross-checks `OriginalGame/` against the SHA-256 manifest of the GOG installation (`docs/manifest-gog-2.28.txt`, 319 files, excluding the files the game writes: `Settings.cfg`, `Gameserver.cfg`, `save/`, the `DefPos.bin` caches); the conversions do not check it themselves.
+* **Installation check:** the command `opensacred-convert verify` cross-checks `OriginalGame/` against the SHA-256 manifest of the GOG installation (`docs/manifest-gog-2.28.txt`, 313 files, excluding the files the game writes: `Settings.cfg`, `Gameserver.cfg`, `save/`, the `DefPos.bin` caches; and those nothing of the project reads, docs/02 §13); the conversions do not check it themselves.
 * **Empty quest files:** 29 `QuestCode.bin` and `QuestPoolCode.bin` files (9 and 20) in the GOG release are zero-sized and are not in the manifest; the converter treats an empty file and a missing file alike as "no script".
 * **Packaging a build for personal use:** the exe + `assets/`, its archives, in one directory.
 
