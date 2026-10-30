@@ -248,6 +248,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | Ctrl + left mouse button | the game | strike at once |
 | Alt | the game | the items' names, while held (#1409) |
 | I | the game | the inventory's windows (#1267) |
+| L | the game | the quest book (#1560); its close button and Esc close it |
 | Space, Shift + Space | the game | drink a healing potion of the belt, the yellow one (#1311, #1313) |
 | Q, W, E, R | the game | drink a purple, blue, green or yellow potion of the belt, again while held (#1536) |
 | B | the game | a healing potion of the belt for the weakest follower (#1536) |
@@ -255,7 +256,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | 6 to 0 | the game | choose an art slot (#1529) |
 | F1 to F6 | the game | the art bound to the key into the selected slot, F5 and F6 only while the spells page shows; over an art of the spells page, bind the key to it or take it off (#1536) |
 | Wheel | the game | zoom |
-| Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
+| Esc | the menus, the game, the console | back a screen; in the game, closes the quest book, else the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
 | F7 | everywhere | the overlay |
 | F10 | everywhere | the keys' help (#196); Esc hides it too |

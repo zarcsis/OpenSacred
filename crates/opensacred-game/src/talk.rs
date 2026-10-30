@@ -478,7 +478,7 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
 /// A text of `global.res` as the window shows it: its line breaks (`<n>`, 3,760 of them in the
 /// English texts) broken, its colours' tags (`<color=…>`, `<colorw=…>`) left out, and any other
 /// tag, a speaker's sigh or groan, kept as it stands.
-fn shown_text(text: &str) -> String {
+pub(crate) fn shown_text(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(start) = rest.find('<') {

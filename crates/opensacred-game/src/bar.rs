@@ -65,11 +65,13 @@ pub(crate) const INVENTORY_BUTTON: (u32, Vec2) = (87, Vec2::new(399.0, 705.0));
 pub(crate) const COLLECT_BUTTON: (u32, Vec2) = (134, Vec2::new(496.0, 743.0));
 /// The options' button (`UI_TB_OPTIONS`), which opens the menu over the game (`esc_menu`).
 pub(crate) const OPTIONS_BUTTON: (u32, Vec2) = (89, Vec2::new(434.0, 729.0));
+/// The book's button (`UI_TB_BOOK`, `quest_book`).
+pub(crate) const BOOK_BUTTON: (u32, Vec2) = (93, Vec2::new(594.0, 705.0));
 const BUTTONS: [(u32, Vec2); 5] = [
     INVENTORY_BUTTON,
     OPTIONS_BUTTON,
     (91, Vec2::new(558.0, 729.0)),
-    (93, Vec2::new(594.0, 705.0)),
+    BOOK_BUTTON,
     COLLECT_BUTTON,
 ];
 /// The potions' belt's buttons, 32 × 32 each, the slots 1 to 5 (`belt`).
@@ -165,6 +167,7 @@ impl UiImages {
                 crate::sparkles::SPARK_HALF,
                 crate::spells_page::FLASH,
             ])
+            .chain(crate::quest_book::BASES)
             .collect();
         names.sort_unstable();
         names.dedup();

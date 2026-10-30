@@ -76,6 +76,7 @@ mod making;
 mod master;
 mod menu;
 mod menu_sound;
+mod minimap;
 mod models;
 mod motions;
 mod music;
@@ -88,6 +89,7 @@ mod pick;
 mod pickup;
 mod points;
 mod puffs;
+mod quest_book;
 mod remarks;
 mod remote;
 mod rewards;
@@ -416,6 +418,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         pickup::PickupPlugin,
         points::PointsPlugin,
         puffs::PuffsPlugin,
+        quest_book::QuestBookPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
@@ -467,6 +470,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(voices::Voices::read(&assets)?)
     .insert_resource(talk::Portraits::read(&assets)?)
     .insert_resource(bar::UiImages::read(&assets)?)
+    .insert_resource(minimap::Minimaps::read(&assets))
     .insert_resource(weather::Rolls::read(&assets)?)
     .insert_resource(icons::Files::find(&assets))
     .insert_resource(sfx::Sfx::new(&sound_index.0))
