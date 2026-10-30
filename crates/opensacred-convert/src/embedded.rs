@@ -114,13 +114,13 @@ mod game_tests {
     use opensacred_formats::mdl::MdlPak;
 
     use super::*;
-    use crate::testing::{read_png_bytes, repo_root};
+    use crate::testing::read_png_bytes;
     use crate::verify::read_game_file;
 
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn every_embedded_texture_decodes() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let mut decoded = std::collections::HashMap::new();
         let mut uniform = Vec::new();
         for path in ["PAK/models.pak", "PAK/models03.pak"] {

@@ -5,7 +5,7 @@ description: Run the developer's own original Sacred.exe (GOG 2.28) in the backg
 
 # Running and driving the original
 
-The original is the developer's own `Sacred.exe` in `OriginalGame/` (a link to the GOG installation; in a worktree, link it first as for the ignored tests). `tools/original/host.py` starts it under Frida with `tools/original/agent.js` loaded, and serves the game's own remote-control methods on `127.0.0.1:15703` (docs/03 §3.8, #448). The maintainer allowed Claude Code to start it at any time (#448, decision 3): it runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.
+The original is the developer's own `Sacred.exe` in `OriginalGame/` (a link to the GOG installation), else in the GOG installation that the registry names, as in a worktree (#1556). `tools/original/host.py` starts it under Frida with `tools/original/agent.js` loaded, and serves the game's own remote-control methods on `127.0.0.1:15703` (docs/03 §3.8, #448). The maintainer allowed Claude Code to start it at any time (#448, decision 3): it runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.
 
 ## Start and stop
 
@@ -39,7 +39,7 @@ One original runs on the machine, whichever worktree starts it. `--holder` takes
 | `--arg WORD` | a word of `Sacred.exe`'s command line, as `--arg tabblocker` (docs/re/window.md) |
 | `--port N` | another port (15703 by default) |
 | `--holder NAME` | who holds the original while the host runs: the session's name as `ListAgents` shows it, which a host started meanwhile names as it refuses (#1398) |
-| `--game-dir DIR`, `--agent FILE` | another installation (`OriginalGame/` by default), another agent (`tools/original/agent.js` by default) |
+| `--game-dir DIR`, `--agent FILE` | another installation (`OriginalGame/`, else the registry's GOG one, by default), another agent (`tools/original/agent.js` by default) |
 | `--interactive` (`--monitor N`) | the maintainer's play (#551, docs/03 §3.8): the original full screen through dgVoodoo2 on the primary monitor (or the n-th the log lists), scaled with its proportions kept, the maintainer's mouse and keyboard reaching it while it has the foreground; it takes the screen and the focus, so only when the maintainer starts it or asks for it, never for a check of Claude Code's own |
 
 ## What the client does here

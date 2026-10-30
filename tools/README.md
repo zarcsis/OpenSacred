@@ -15,7 +15,7 @@
 * [uv](https://docs.astral.sh/uv/) brings the Python of the repository's own (docs/03 §2): Python 3.15 (tested on 3.15.1), uv's interpreter rather than the system's, and the packages of `pyproject.toml` at their versions in `uv.lock`, in `.venv/` at the root.
   `uv run` makes the environment on its first run and keeps it at `uv.lock`; nothing is installed by hand.
 * Run from the repository root with `uv run python -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
-* The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`.
+* The scripts read your own copy of the GOG installation: `OriginalGame/` by default (ignored by Git), else the GOG installation that the registry names (`common/installation.py`, #1556), or the directory given with `--game-dir`.
   Output files go to the `--out` path outside the repository.
 
 ```bash
@@ -79,7 +79,7 @@ With the original running beside the game under its driver, two more compare the
 `tools/original/host.py` starts the developer's own `Sacred.exe` in the background under Frida, with `tools/original/agent.js` loaded into it, and serves the same methods on `127.0.0.1:15703`, so that `tools/game/remote.py --port 15703` drives the original as it drives the game (docs/03 §3.8, #448; the skill `original`).
 One original runs on the machine: the host records its holder (`--holder`) while it runs, and a host started meanwhile refuses, naming it (#1398); tests: `uv run python -I -m unittest discover -s tools/original -p "test_*.py"`.
 The agent guards the maintainer's desktop (no low-level hooks, no focus, no topmost window, no display mode, no cursor), keeps the game drawing without the focus, counts its frames and takes its screenshots, takes the player's input as its own messages, reads the world and runs commands on the render thread, and traces the original's functions (docs/re/traces.md); the host keeps the game in a job object that ends with it and clicks through the original's menus (a new game, the saves).
-It needs `frida` and Pillow (`pyproject.toml`) and the installation in `OriginalGame/`, and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
+It needs `frida` and Pillow (`pyproject.toml`) and the installation in `OriginalGame/`, else the GOG one that the registry names (#1556), and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
 
 ```bash
 uv run python -I tools/original/host.py --holder <session> --log-file <scratch>/original.log   # in the background
@@ -93,6 +93,7 @@ uv run python -I tools/game/remote.py --port 15703 exec quit
 | Script | Area | What it does |
 |---|---|---|
 | `triage/pe_triage.py` | PE | headers, sections with entropy, imports and exports, version, RTTI names |
+| `common/installation.py` | shared module | the developer's installation: `OriginalGame/`, else the GOG one that the registry names (#1556); the standard library alone, its tests `test_installation.py` (`uv run --no-project python -I -m unittest discover -s tools/common -p "test_*.py"`) |
 | `analysis/common/sacred_pe.py` | shared module | in-memory PE image loader, disassembler, operand annotations |
 | `analysis/pe/pe_deep.py` | PE | functions, calling conventions, import call sites, RTTI, vtables, EH |
 | `analysis/pe/class_compare.py` | PE | classes shared by the client and the server, from RTTI |

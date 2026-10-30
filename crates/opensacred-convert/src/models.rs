@@ -384,7 +384,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::testing::{Tex, repo_root, scratch_dir, tex_pak};
+    use crate::testing::{Tex, scratch_dir, tex_pak};
 
     #[test]
     fn a_built_model_refers_to_the_ktx2_textures_and_embeds_its_own_as_ktx2() {
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn texture_names_resolve_to_the_last_record_of_texture_pak() {
-        let index = TextureIndex::read(&repo_root().join("OriginalGame")).unwrap();
+        let index = TextureIndex::read(&opensacred_locate::original()).unwrap();
         // openheilig's records of the game's choice (community-reported).
         for (name, file) in [
             (b"DWARF".as_slice(), "07986-dwarf.png"),
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_smallest_gold_pile_is_a_third_of_its_file() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let out = scratch_dir("models-scale");
         let (pak, dir_name) = PAKS[0];
         let dst = output_dir(&out, dir_name);
@@ -647,7 +647,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and glTF-Validator"]
     fn seraphim_has_the_games_draws_and_validates() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let out = scratch_dir("models");
         let (pak, dir_name) = PAKS[0];
         let dst = output_dir(&out, dir_name);

@@ -315,7 +315,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn installation_matches_manifest() {
-        let game_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../OriginalGame");
+        let game_dir = opensacred_locate::original();
         let report = verify(&game_dir, &parse_manifest(GOG_MANIFEST).unwrap(), &[]).unwrap();
         assert!(report.problems.is_empty(), "{:?}", report.problems);
     }

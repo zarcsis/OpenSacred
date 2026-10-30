@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use std::fs;
 
 use super::*;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 const MODELS_PAK: &str = "PAK/models.pak";
 const MODELS03_PAK: &str = "PAK/models03.pak";
@@ -142,7 +142,7 @@ fn model_paks_match_docs() {
 fn records_match_grn_dump_py() {
     let out = scratch_dir("grn-dump");
     let table = out.join("records.tsv");
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/grn_dump.py",
         &[

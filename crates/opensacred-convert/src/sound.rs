@@ -289,7 +289,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     /// A FLAC of a second of a tone, mono and stereo, becomes Ogg Opus at its bitrate that FFmpeg
     /// decodes back to the same length at 48 kHz.
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn samples_convert_losslessly_and_reproducibly() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let sound = read_game_file(&game.join("PAK/sound.pak")).unwrap();
         let pak = SoundPak::parse(&sound).unwrap();
         // The first PCM, the first IMA ADPCM and the first MP3 sample with leading zeros.

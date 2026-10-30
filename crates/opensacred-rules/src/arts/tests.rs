@@ -343,9 +343,7 @@ fn game_tables() -> Tables {
 }
 
 fn game_file(path: &str) -> Vec<u8> {
-    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../OriginalGame")
-        .join(path);
+    let file = opensacred_locate::original().join(path);
     std::fs::read(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()))
 }
 

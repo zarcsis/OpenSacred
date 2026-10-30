@@ -9,7 +9,7 @@ use std::fs;
 use crc32fast::Hasher;
 
 use super::*;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 /// The 32 bytes of a cell, rebuilt from its fields: the fields cover the whole record.
 /// A sector's weather entries as `world_dump.py` prints them: each as
@@ -83,7 +83,7 @@ fn cell_bytes(cell: &Cell) -> [u8; 32] {
 fn sectors_and_chains_match_world_dump_py() {
     let out = scratch_dir("world");
     let table = out.join("sectors.tsv");
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/world/world_dump.py",
         &[

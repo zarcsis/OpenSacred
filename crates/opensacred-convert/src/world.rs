@@ -715,7 +715,7 @@ fn weather(entries: &[Option<WeatherEntry>; 4]) -> Vec<SectorWeather> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     #[test]
     fn file_names_are_grid_positions() {
@@ -805,7 +805,7 @@ mod tests {
         // Counted on Static.PAK for #149: the buildings of flag 0x400 whose object lies there.
         const CASTLE_OPEN_BUILDINGS: usize = 22;
         let out = scratch_dir("world-open");
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         convert(&game, &out, Some((45, 52))).unwrap();
         let sectors = output_dir(&out).join("sectors");
         let sector = Sector::decode(&fs::read(sectors.join("45-52.sector")).unwrap()).unwrap();
@@ -822,7 +822,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_starting_sector_converts_and_loads() {
         let out = scratch_dir("world");
-        let summary = convert(&repo_root().join("OriginalGame"), &out, Some((50, 39))).unwrap();
+        let summary = convert(&opensacred_locate::original(), &out, Some((50, 39))).unwrap();
         assert_eq!((summary.sectors, summary.missing_sheets), (1, 0));
         let dir = output_dir(&out);
         let file = fs::read(dir.join("sectors").join("50-39.sector")).unwrap();

@@ -472,7 +472,7 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     #[test]
     fn tree_files_are_named_after_their_directory() {
@@ -532,7 +532,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_tree_converts() {
         let out = scratch_dir("netscript");
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let summary = convert(&game, &out, false).unwrap();
         assert_eq!(summary.trees, 20);
         // The installation's records, and those that the quests' repairs add and take away: 2203's
@@ -635,7 +635,7 @@ mod tests {
     fn the_objects_world_positions_lie_off_their_cells() {
         const CELL: f64 = 53.665_63;
         let tree = tree(
-            &repo_root().join("OriginalGame"),
+            &opensacred_locate::original(),
             "bin/Addon/TYPE_NPC_SERAPHIM",
         )
         .unwrap();

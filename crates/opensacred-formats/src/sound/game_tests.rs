@@ -7,14 +7,14 @@ use std::ffi::OsStr;
 use std::fs;
 
 use super::*;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 #[test]
 #[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn samples_and_profiles_match_sound_dump_py() {
     let out = scratch_dir("sound");
     let (samples_table, profiles_table) = (out.join("samples.tsv"), out.join("profiles.tsv"));
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/sound_dump.py",
         &[
@@ -87,7 +87,7 @@ fn samples_and_profiles_match_sound_dump_py() {
 fn names_match_sound_dump_py() {
     let out = scratch_dir("sound-names");
     let table = out.join("names.tsv");
-    let game_dir = repo_root().join("OriginalGame");
+    let game_dir = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/sound_dump.py",
         &[

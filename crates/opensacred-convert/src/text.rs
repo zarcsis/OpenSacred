@@ -141,7 +141,7 @@ mod tests {
     use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
 
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     /// The messages of a Fluent resource, each value read back as plain text.
     fn read_back(ftl: &str) -> Vec<(String, String)> {
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_string_reads_back() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let out = scratch_dir("text");
         let summary = convert(&game, &out).unwrap();
         assert_eq!(summary.strings, 23_123);

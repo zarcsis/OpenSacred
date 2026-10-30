@@ -4655,6 +4655,7 @@ dependencies = [
  "mlua",
  "opensacred-data",
  "opensacred-formats",
+ "opensacred-locate",
  "png",
  "postcard",
  "rayon",
@@ -4662,7 +4663,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "winreg",
  "zstd 0.14.3",
 ]
 
@@ -4688,6 +4688,7 @@ dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
  "opensacred-data",
+ "opensacred-locate",
  "png",
  "thiserror 2.0.21",
 ]
@@ -4715,6 +4716,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "opensacred-locate"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "winreg",
+]
+
+[[package]]
 name = "opensacred-oracle"
 version = "0.0.0"
 dependencies = [
@@ -4722,6 +4731,7 @@ dependencies = [
  "clap",
  "opensacred-data",
  "opensacred-formats",
+ "opensacred-locate",
  "opensacred-rules",
  "proptest",
  "serde",
@@ -4736,6 +4746,7 @@ version = "0.0.0"
 dependencies = [
  "opensacred-data",
  "opensacred-formats",
+ "opensacred-locate",
  "postcard",
  "proptest",
  "serde",
