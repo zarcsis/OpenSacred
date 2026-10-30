@@ -33,7 +33,7 @@ use crate::pickup::Pack;
 
 /// The grid's top left on the original's screen, its cells' side and image, and an item's cells'
 /// tint (`0x5DC430`).
-const GRID: Vec2 = Vec2::new(0.0, 392.0);
+pub(crate) const GRID: Vec2 = Vec2::new(0.0, 392.0);
 pub(crate) const CELL: f32 = 32.0;
 const CELL_IMAGE: u32 = 165;
 const ITEM_TINT: Color = tinted(0x3D, 0x59, 0xAB);

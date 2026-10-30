@@ -17,8 +17,8 @@
 //!
 //! Not followed yet: the buttons' windows and their pressed images, the slots'
 //! selection and their edit mode, the weapons' models and damage icons in the left slots, the
-//! glows and sparkles, the tooltips, the points' "+", the followers' rings' glow and the mount's
-//! bar.
+//! glows, the sparkle of the flag `0x20000000` (the potions' are `sparkles`'), the tooltips, the
+//! points' "+", the followers' rings' glow and the mount's bar.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -159,6 +159,8 @@ impl UiImages {
                 DISC_RING,
                 crate::low_health::SONAR,
                 crate::art_burn::BURN,
+                crate::sparkles::SPARK,
+                crate::sparkles::SPARK_HALF,
             ])
             .collect();
         names.sort_unstable();

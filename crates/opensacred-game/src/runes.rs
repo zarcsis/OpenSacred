@@ -9,9 +9,13 @@
 //! up with the same sound, read before or not; the sound event `(9, 0x11)` of a book new to the
 //! list plays nothing (`0x67A7A0`).
 //!
+//! An item that the scripts laid with a `Use:` function (`CreateObj`'s `0x83`, #1272) runs that
+//! function instead, before anything else takes the click (`0x6C0150` at `0x6C0A49`), and leaves
+//! the grid (`0x5DA630`), with no sound.
+//!
 //! Not followed: the spells' page told of the art (`UI_TABPAGE_SPELLS`), the taskbar's book button
-//! told of a new book (`UI_TB_BOOK`), the cell's sparkle, and the event (7, 2) of an art that
-//! neither table holds.
+//! told of a new book (`UI_TB_BOOK`), the event (7, 2) of an art that neither table holds, and the `Use:` function of an item dropped into the world and taken
+//! again, or of a quest's item, whose page waits for #1090.
 
 use bevy::prelude::*;
 use opensacred_rules::equipment::may_use;
@@ -33,6 +37,42 @@ const USED_UP: u32 = 7006;
 
 /// The category of the books and the scrolls (`items.pak +0x2E`).
 const BOOK: u8 = 16;
+
+/// An item of the backpack used by the scripts: its `Use:` function, which `scripts` runs.
+#[derive(Message, Clone, Debug)]
+pub struct Used(pub String);
+
+/// The right button on an item of the grid with a `Use:` function, the cursor empty: the function
+/// runs and the item leaves the grid, the click taken from the other uses of the right button
+/// (the potions, the runes, the equipment and the weapon sets), which read it later.
+fn use_scripted(
+    mut buttons: ResMut<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    shown: Option<Res<Shown>>,
+    mut pack: ResMut<Pack>,
+    mut used: MessageWriter<Used>,
+) {
+    if !shown.is_some_and(|shown| shown.0)
+        || pack.held.is_some()
+        || !buttons.just_pressed(MouseButton::Right)
+    {
+        return;
+    }
+    let Some(key) = on_grid(&pointer, &ui_scale, &windows)
+        .and_then(cell_under)
+        .and_then(|cell| pack.grid.at(cell))
+        .map(|placed| placed.key)
+    else {
+        return;
+    };
+    let Some(function) = pack.use_of(key).map(str::to_owned) else {
+        return;
+    };
+    buttons.clear_just_pressed(MouseButton::Right);
+    let item = pack.take_out(key).map_or(0, |(_, dropped)| dropped.item);
+    info!("runes: the hero uses {item}, which runs {function}");
+    used.write(Used(function));
+}
 
 /// The right button on a rune or a book of the grid, the cursor empty: the hero reads it.
 #[expect(
@@ -105,14 +145,21 @@ fn read(
     }
 }
 
-/// The runes and the books read.
+/// The runes and the books read, and the items that the scripts use.
 pub struct RunesPlugin;
 
 impl Plugin for RunesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            read.in_set(Unpaused).run_if(in_state(AppState::InGame)),
-        );
+        app.add_message::<Used>()
+            .add_systems(
+                PreUpdate,
+                use_scripted
+                    .after(bevy::input::InputSystems)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                read.in_set(Unpaused).run_if(in_state(AppState::InGame)),
+            );
     }
 }

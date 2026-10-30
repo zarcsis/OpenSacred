@@ -18,7 +18,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use opensacred_data::heroes::Carried;
 use opensacred_rules::drops::{Dropped, Kind};
-use opensacred_rules::inventory::{Grid, Put};
+use opensacred_rules::inventory::{Grid, Placed, Put};
 
 use crate::attack::{self, Aim};
 use crate::doors::Opens;
@@ -133,6 +133,12 @@ pub struct Pack {
     /// The types of the books read, each once, in the order read (the inventory entry's list at
     /// `+0xC`, `0x5DD5D0`; #1358), which the quest book's window shows (#1091).
     pub books: Vec<u32>,
+    /// The `Use:` functions of the items that the scripts laid, by their keys (`CreateObj`'s
+    /// `0x83`, the script manager's list at `+0x358`; #1272).
+    pub uses: Vec<(u32, String)>,
+    /// The items used up since `sparkles` last looked, their places in the grid and their types,
+    /// each of which sparkles (`0x5D8000`, #1272).
+    pub used: Vec<(Placed, u32)>,
 }
 
 /// An item on the cursor: its key in the grid, the item and its size in cells.
@@ -207,11 +213,37 @@ impl Pack {
     }
 
     /// Takes the item of the key `key` out of the grid for good, as a potion drunk is used up
-    /// (`0x5DEBC0`, #1311): the item, none where the grid holds no such key.
+    /// (`0x5DEBC0`, #1311), to sparkle where it was (`0x5D8000`, #1272): the item, none where the
+    /// grid holds no such key.
     pub fn use_up(&mut self, key: u32) -> Option<Dropped> {
+        let (placed, dropped) = self.take_out(key)?;
+        self.used.push((placed, dropped.item));
+        Some(dropped)
+    }
+
+    /// Takes the item of the key `key` out of the grid for good with no sparkle, as a `Use:`
+    /// function's item leaves it (`0x5DA630`, #1272): its place and the item.
+    pub fn take_out(&mut self, key: u32) -> Option<(Placed, Dropped)> {
         let index = self.items.iter().position(|(k, _)| *k == key)?;
-        self.grid.remove(key);
-        Some(self.items.remove(index).1)
+        let placed = self.grid.remove(key)?;
+        self.uses.retain(|(k, _)| *k != key);
+        Some((placed, self.items.remove(index).1))
+    }
+
+    /// Gives the item taken last, into the grid or onto the cursor, the `Use:` function
+    /// `function` (#1272).
+    pub fn bind_use(&mut self, function: String) {
+        if let Some(key) = self.next.checked_sub(1) {
+            self.uses.push((key, function));
+        }
+    }
+
+    /// The `Use:` function of the item of the key `key`, none for an item without one.
+    pub fn use_of(&self, key: u32) -> Option<&str> {
+        self.uses
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, function)| function.as_str())
     }
 
     /// Adds the book of the type `item` to the books read where it is not among them
@@ -597,6 +629,10 @@ impl Taking<'_, '_> {
                 });
             } else {
                 self.taken.write(Taken(lying.dropped.item));
+                // A `CreateObj`'s item keeps its use's function in the backpack (#1272).
+                if let Some(function) = script_item.and_then(|item| item.uses.clone()) {
+                    self.pack.bind_use(function);
+                }
             }
         }
         // A `CreateObj`'s item taken is not laid again as its sector comes back (#1296).
@@ -1212,6 +1248,28 @@ mod tests {
         assert_eq!(pack.use_up(key), None);
         assert_eq!(pack.potions().len(), 2);
         assert!(pack.grid.at((2, 0)).is_none());
+        // It sparkles where it lay.
+        let sparkles: Vec<_> = pack.used.iter().map(|(p, item)| (p.at, *item)).collect();
+        assert_eq!(sparkles, [((2, 0), 5171)]);
+    }
+
+    #[test]
+    fn a_scripts_item_keeps_its_use_and_leaves_without_a_sparkle() {
+        let mut pack = Pack::default();
+        assert!(pack.take(dropped(Kind::Other, 6080, 1), (1, 1)));
+        pack.bind_use("heilung".into());
+        assert!(pack.take(dropped(Kind::Potion, 5171, 1), (1, 1)));
+        let (first, second) = (pack.items[0].0, pack.items[1].0);
+        assert_eq!(pack.use_of(first), Some("heilung"));
+        assert_eq!(pack.use_of(second), None);
+        // Lifted and put back, it keeps its key and its use.
+        assert!(pack.lift((0, 0)));
+        assert_eq!(pack.put_held((0, 0)), Put::Placed);
+        assert_eq!(pack.use_of(first), Some("heilung"));
+        let (placed, dropped) = pack.take_out(first).unwrap();
+        assert_eq!((placed.at, dropped.item), ((0, 0), 6080));
+        assert_eq!(pack.use_of(first), None);
+        assert!(pack.used.is_empty());
     }
 
     #[test]

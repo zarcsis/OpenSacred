@@ -100,6 +100,7 @@ mod shadows;
 mod skies;
 mod souls;
 mod sound;
+mod sparkles;
 mod spells;
 mod srgb;
 mod statics;
@@ -407,12 +408,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
+        sparkles::SparklesPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
-        steps::StepsPlugin,
     ))
     .add_plugins((
+        steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
         undead::UndeadPlugin,

@@ -5,7 +5,8 @@
 //! potion of the grid, the cursor empty, drinks that one (`0x6C0150`, the hero's event `0x10`).
 //! With Shift, Space drinks the yellow potion of the kind 5; the right button on a slot of the
 //! kinds 1, 2 or 4 gives its potion to the hero's follower of the lowest most health among those
-//! below 99 % of their health (`0x612FA0`, #1313).
+//! below 99 % of their health (`0x612FA0`, #1313), as Shift with the right button on a potion of
+//! the grid gives that one (`0x6C0150`, #1272).
 //! A drink (`0x54AA80`, `cPotion3D`'s `0x5CAA60`) plays one of the three drinking sounds, and by
 //! its kind (`opensacred_rules::potions::Drink`, #1353): a healing potion, where the drinker's
 //! health is below its most, gives back its share of the most health; a purple or a blue one gives
@@ -13,7 +14,8 @@
 //! yellow one waits for the combos (#1090). Each is then used up, with the sound of an item used
 //! up (`0x5D8000`); a healing potion at full health is not.
 //!
-//! Not followed: the hero's horse healed with it; the slots' sparkles and tooltips (#1272).
+//! The slots' sparkles are `sparkles`' (#1272). Not followed: the hero's horse healed with it; the
+//! slots' tooltips (#1273).
 
 use bevy::prelude::*;
 use opensacred_rules::potions::{self, Drink, choose, healed, missing};
@@ -138,17 +140,19 @@ fn drink(
     } else {
         (None, false)
     };
-    let key = match kind {
-        Some(kind) => choose(pack.potions(), kind, wound, &healing),
-        // The right button on a potion of the grid, the cursor empty.
+    let (key, given) = match kind {
+        Some(kind) => (choose(pack.potions(), kind, wound, &healing), given),
+        // The right button on a potion of the grid, the cursor empty; with Shift, to the weakest
+        // follower (`0x6C0150`).
         None if shown.0 && pack.held.is_none() && buttons.just_pressed(MouseButton::Right) => {
-            on_grid(&pointer, &ui_scale, &windows)
+            let key = on_grid(&pointer, &ui_scale, &windows)
                 .and_then(cell_under)
                 .and_then(|cell| pack.grid.at(cell))
                 .map(|placed| placed.key)
-                .filter(|key| pack.potions().iter().any(|(k, _)| k == key))
+                .filter(|key| pack.potions().iter().any(|(k, _)| k == key));
+            (key, shift)
         }
-        None => None,
+        None => (None, false),
     };
     let Some((key, item)) = key.and_then(|key| pack.potions().into_iter().find(|p| p.0 == key))
     else {

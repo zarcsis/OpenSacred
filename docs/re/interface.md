@@ -127,6 +127,9 @@ Read 2026-10-30 (#1462), **confirmed** by code unless marked otherwise.
 - Without `0x10` the button draws its `+0x64` image (the first row of `GUI_main_01`, lit); with it the `+0x54` image (the second row, darker, pressed in), so a button stays down while its window is open.
 - No hover image; the hover shows the tooltip.
 - The flags `0x20000` (1 s) and `0x20000000` (4 s) draw a sparkle: a glow of radius 30 cos(πt/2) and 20 random sparks; the potions' buttons get `0x20000` from the message `0x10`, which a potion used up sends with its belt kind (`0x5CAA60`, docs/re/inventory.md, §7), and an emptied slot passes it to its empty flask.
+  The sparkle (read 2026-10-30, #1272, **confirmed** by code): its time `t` (`+0xB8`) grows by the frame's time, and the flag is cleared and `t` set to 0 once it reaches 1 (4 for `0x20000000`).
+  Each frame `0x40B980` draws at the button's centre a square of `PARTICLE_SPARK04.TGA` of the half side 30 cos(πt/2), turned 2 (1 − t) radians clockwise and tinted `0xBB9360`, and over it one of `PARTICLE_SPARK07.TGA` of half that side tinted `0xBBBBBB`, both added onto the screen (`SRCBLEND` and `DESTBLEND` `ONE`, the flags 8 and `0x10` of `0x643430`); then 20 sparks the same, of the half side 9 sin(πt) turned a right angle, each at a point of the button's rectangle drawn at random every frame (`rand()`).
+  The two textures are `cGranny`'s (`0x401030`, its `+0xBC` and `+0xC0`); the grid's sparkles are drawn the same way (docs/re/inventory.md, §7).
 - The glow `0x732220(a)` (the "+" and the portrait's ring) draws the control again 49 times shifted by −6 to +6 pixels in steps of 2, added onto the screen (`DESTBLEND` `ONE`) at an alpha of ⌊12.75 a⌋/255 (16 times at alpha 16/255 on a display below 32 bits).
 
 ### Draw order (`0x6E3D10`)
@@ -226,8 +229,9 @@ Since #1465 the portraits come from the column's own table (`portraits.ron`'s `c
 Those shown keep their places as others come, the newcomers after them, and a follower's entry goes as it dies or is let go; clicks over the entries do not reach the world.
 **Seen** in the game: the Vampiress's wolf (588) called at her level 16 took the entry under hers, its ring grey down to its 80th row at 60 of its 214, and a second call's wolf took the first's entry as the first went.
 Not followed for them: the order of the hero's list `+0x39C` (not read), their rings' glow, the tooltip and the mount's bar.
+Since #1272 a potion used up sparkles on its kind's slot of the belt as above (`sparkles`), its sparks drawn anew every frame by the game's own dice.
 
-Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the glows and sparkles, the tooltips, the points' "+" and the mount's bar.
+Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the glows, the sparkle of the flag `0x20000000`, the tooltips, the points' "+" and the mount's bar.
 
 Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, of the running function's quest without a number, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`).
 `compass` draws them on the bar: the needle (image 101) turned about (512, 710) toward the newest main quest's target, the inner pin (image 136) on its ellipse toward the newest side quest's, fading within its radius, the angle φ clockwise from up of the target's place less the hero's as the camera shows them; a cell's target is its centre, a named one the creature of that name in the scripts (`npcs::ScriptName`) where it stands.
