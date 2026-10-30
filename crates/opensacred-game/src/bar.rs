@@ -47,7 +47,7 @@ pub(crate) const BAR: Rect = Rect {
     min: Vec2::new(0.0, 676.0),
     max: Vec2::new(1024.0, 768.0),
 };
-const COLUMN: Rect = Rect {
+pub(crate) const COLUMN: Rect = Rect {
     min: Vec2::new(932.0, 0.0),
     max: Vec2::new(1024.0, 676.0),
 };
@@ -869,16 +869,37 @@ pub(crate) fn belt_slot(at: Vec2) -> Option<u8> {
         .map(|(slot, _)| slot)
 }
 
+/// The pointer on the original's screen as the column is placed, along the window's right edge.
+pub(crate) fn column_point(
+    pointer: &Pointer,
+    ui_scale: &UiScale,
+    windows: &Query<&Window>,
+) -> Option<Vec2> {
+    let at = pointer.0?;
+    let window = windows.single().ok()?;
+    let scale = ui_scale.0.max(0.01);
+    let at = at / scale;
+    Some(Vec2::new(at.x - window.width() / scale + SCREEN.x, at.y))
+}
+
 /// Whether the pointer is off the bar's and the portraits' areas, where the original's windows
 /// take the mouse (`0x6E1BC0`: x 384 − 80n to 640 + 80n and y from 676 for `n` slots a side; the
-/// hero's portrait and ring, and the followers' entries below): a click there does not reach the
-/// world.
+/// hero's portrait and ring, the followers' entries below, and the points' "+" while it shows): a
+/// click there does not reach the world.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources as arguments"
+)]
 fn off_the_bar(
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window>,
-    (shown, entries): (Option<Res<Shown>>, Option<Res<Entries>>),
-    bars: Query<(), With<BarRoot>>,
+    (shown, entries, plus): (
+        Option<Res<Shown>>,
+        Option<Res<Entries>>,
+        Option<Res<crate::points::Plus>>,
+    ),
+    (bars, images): (Query<(), With<BarRoot>>, Res<UiImages>),
 ) -> bool {
     let (Some(at), Ok(window), Some(shown)) = (pointer.0, windows.single(), shown) else {
         return true;
@@ -898,7 +919,9 @@ fn off_the_bar(
     let followers = entries.map_or(0, |entries| entries.0.len());
     let below = ENTRY_STEP * f32::from(u8::try_from(followers).unwrap_or(0));
     let over_portrait = column.x >= 0.0 && column.y <= RING_AT.y + below + RING_SIZE.y + 24.0;
-    !(over_bar || over_portrait)
+    let over_plus = plus.is_some_and(|plus| plus.shown)
+        && crate::points::plus_rect(&images).contains(column + COLUMN.min);
+    !(over_bar || over_portrait || over_plus)
 }
 
 /// The bar and the portrait's column.

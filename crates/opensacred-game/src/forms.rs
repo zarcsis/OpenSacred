@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use bevy::prelude::*;
 use opensacred_rules::arts as rules;
-use opensacred_rules::fight::{Effect, combat_with, hero_health, regeneration_with};
+use opensacred_rules::fight::{Effect, combat_with, hero_health_with, regeneration_with};
 
 use crate::arts::HeroArts;
 use crate::daynight::HeroLight;
@@ -189,7 +189,12 @@ fn change(
     for (body, mut base, mut health, mut combat, mut regenerates, mut size, holding, effects) in
         &mut bodies
     {
-        *base = form.base;
+        // The form's attributes, the points spent and the skills learnt kept (#1522).
+        *base = Base(opensacred_rules::fight::Base {
+            attributes: form.base.attributes,
+            night: form.base.night,
+            ..base.0
+        });
         size.0 = form.size;
         let effect = Effect::new(rules::NIGHT_FORM, 0.0);
         let list = match effects {
@@ -216,7 +221,7 @@ fn change(
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         *combat = Combat(combat_with(&base, level, holds, &skills, &list, &rules));
         regenerates.value = regeneration_with(&base, level, &skills, &list, &rules);
-        let most = hero_health(base.attributes, level, &skills, &rules);
+        let most = hero_health_with(base.attributes, base.extras, level, &skills, &rules);
         *health = Health {
             current: health.current.min(most),
             most,

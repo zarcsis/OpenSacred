@@ -81,6 +81,7 @@ mod paths;
 mod pause;
 mod pick;
 mod pickup;
+mod points;
 mod puffs;
 mod remarks;
 mod remote;
@@ -393,13 +394,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        points::PointsPlugin,
         puffs::PuffsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
-        runes::RunesPlugin,
     ))
     .add_plugins((
+        runes::RunesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
@@ -414,9 +416,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sparkles::SparklesPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
-        stashes::StashesPlugin,
     ))
     .add_plugins((
+        stashes::StashesPlugin,
         statics::StaticsPlugin,
         statistics::StatisticsPlugin,
         steps::StepsPlugin,

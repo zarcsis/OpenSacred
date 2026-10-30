@@ -38,7 +38,7 @@ pub(crate) const EQUIPMENT: Rect = Rect {
     max: Vec2::new(912.0, 644.0),
 };
 /// The sounds of the window shown and hidden (`(14, 2, 1)`, `UI_INV_OPEN01`, `UI_INV_CLOSE01`).
-const OPENS: u32 = 7111;
+pub(crate) const OPENS: u32 = 7111;
 const CLOSES: u32 = 7112;
 
 /// The inventory's frame (`0x6C6490`, all of `GUI_main_03`): the top edge's first and last

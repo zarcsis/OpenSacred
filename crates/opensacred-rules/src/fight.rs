@@ -29,9 +29,9 @@ pub const KINDS: usize = 4;
 const ATTACK: [f32; 3] = [50.0, 50.0, 100.0];
 const DEFENCE: [f32; 3] = [20.0, 80.0, 100.0];
 
-/// The hero's experience, which its kills earn (`0x57D860`), its level by it (`0x57F8D0`), and
-/// the attribute and skill points its levels gave (`0x57E160`), which it cannot spend yet, and
-/// the skills it may still learn.
+/// The hero's experience, which its kills earn (`0x57D860`), its level by it (`0x57F8D0`), the
+/// attribute and skill points its levels gave (`0x57E160`), which [`Base::raise_attribute`] and
+/// [`Base::raise_skill`] spend, and the skills it may still learn ([`Base::learn`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Experience {
     pub points: u64,
@@ -39,6 +39,8 @@ pub struct Experience {
     pub attribute_points: u32,
     pub skill_points: u32,
     to_learn: u32,
+    /// The skills learnt, whose slots count in the skill points as they did open.
+    learnt: u32,
 }
 
 impl Default for Experience {
@@ -49,6 +51,7 @@ impl Default for Experience {
             attribute_points: 0,
             skill_points: 0,
             to_learn: 0,
+            learnt: 0,
         }
     }
 }
@@ -81,7 +84,7 @@ impl Experience {
                 .iter()
                 .filter(|&&t| from < t && t <= p)
                 .count();
-            let n = HELD_SKILLS + self.to_learn + u32::try_from(opened).unwrap_or(0);
+            let n = HELD_SKILLS + self.learnt + self.to_learn + u32::try_from(opened).unwrap_or(0);
             self.skill_points += n.div_ceil(2);
         }
         self.attribute_points += reached - from;
@@ -529,7 +532,7 @@ pub fn regeneration_with(
     let b3 = base.hardened.attribute(u32::from(base.attributes[3]));
     let mut value = to_f32(
         base.hardened
-            .regeneration(b3 + b3 * (level.max(1) - 1) / 10),
+            .regeneration(b3 + b3 * (level.max(1) - 1) / 10 + u32::from(base.extras[3])),
     );
     for effect in effects.iter().filter(|e| e.id == effects::REGENERATION) {
         value = quickened(value, f64::from(effect.value) + 1.0);
@@ -1003,8 +1006,16 @@ pub struct Base {
     pub damping: [[u8; 5]; KINDS],
     pub experience: [u16; 2],
     /// Its eight skill slots (`0x586C00`): `+0x14`, `+0x15` and, for a type not of class 1, the
-    /// first six of `+0x16`; 0 for none.
+    /// first six of `+0x16`; 0 for none. A hero learns into its empty slots ([`Base::learn`]).
     pub skills: [u8; 8],
+    /// The hero's attribute points spent on each attribute (`e_i`, the stats' `+0x1C`…,
+    /// `0x580E90`), which its attributes and its multipliers take; 0 for an NPC.
+    pub extras: [u8; 6],
+    /// The hero's skills' base levels by slot (the stats' `+0x2C`…, `0x5824A0`), 0 for a slot
+    /// at its first level (1).
+    pub levels: [u8; 8],
+    /// The class's skills to learn, in their order (`Creature.pak +0x16`, `0x581070`).
+    pub learnable: [u8; 16],
     /// Whether its creature is in the Vampiress's night form (`+0x14` bit `0x2000`), which takes
     /// [`NIGHT_SLOWS`] off its three speeds.
     pub night: bool,
@@ -1039,9 +1050,76 @@ impl Base {
                 }
                 skills
             },
+            extras: [0; 6],
+            levels: [0; 8],
+            learnable: creature.skills_extra,
             night: false,
             hardened: Hardened::No,
         }
+    }
+
+    /// The skills that the hero may learn now (`0x581070`): its class's list, less the skills
+    /// it holds, the first eight in order.
+    pub fn learnable_now(&self) -> Vec<u8> {
+        let mut held: Vec<u8> = self.skills.iter().copied().filter(|&s| s != 0).collect();
+        self.learnable
+            .iter()
+            .copied()
+            .filter(|&skill| {
+                if skill == 0 {
+                    return false;
+                }
+                // Each held skill takes out its first copy alone.
+                match held.iter().position(|&h| h == skill) {
+                    Some(at) => {
+                        held.remove(at);
+                        false
+                    }
+                    None => true,
+                }
+            })
+            .take(8)
+            .collect()
+    }
+
+    /// Spends an attribute point on the attribute `k` (`0x580E90`): whether it did.
+    pub fn raise_attribute(&mut self, k: usize, experience: &mut Experience) -> bool {
+        if experience.attribute_points == 0 || k >= 6 {
+            return false;
+        }
+        experience.attribute_points -= 1;
+        self.extras[k] = self.extras[k].saturating_add(1);
+        true
+    }
+
+    /// Spends a skill point on the skill of the slot `slot` (`0x5824A0`) where its base level is
+    /// below the hero's level `level`: whether it did.
+    pub fn raise_skill(&mut self, slot: usize, level: u32, experience: &mut Experience) -> bool {
+        let (Some(&skill), Some(&base)) = (self.skills.get(slot), self.levels.get(slot)) else {
+            return false;
+        };
+        let base = base.max(1);
+        if skill == 0 || experience.skill_points == 0 || u32::from(base) >= level {
+            return false;
+        }
+        experience.skill_points -= 1;
+        self.levels[slot] = base.saturating_add(1);
+        true
+    }
+
+    /// Learns `skill` into the first empty slot at its first level (`0x581120`): whether it did.
+    pub fn learn(&mut self, skill: u8, experience: &mut Experience) -> bool {
+        if experience.to_learn == 0 || skill == 0 {
+            return false;
+        }
+        let Some(slot) = self.skills.iter().position(|&s| s == 0) else {
+            return false;
+        };
+        experience.to_learn -= 1;
+        experience.learnt += 1;
+        self.skills[slot] = skill;
+        self.levels[slot] = 1;
+        true
     }
 }
 
@@ -1423,21 +1501,27 @@ fn normalised(mut a: [u32; KINDS], p: f64) -> [u32; KINDS] {
 
 /// The skills a creature of `base` counts at level `level`, and their levels: an NPC the first
 /// of its slots, none below level 3, one up to 6, two up to 20, three up to 35, else all eight,
-/// each at a third of its level (`0x564D60`); a hero its two slots at level 1 (`0x586C00`;
-/// **hypothesis**: the template's own levels are not read).
+/// each at a third of its level (`0x564D60`); a hero its first two slots and those it learnt,
+/// each at its base level ([`Base::levels`], at least 1; the stats' `+0x2C`…, #1522).
 pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
-    let (count, at) = if hero {
-        (2, 1)
-    } else {
-        let count = match level {
-            0..3 => 0,
-            3..=6 => 1,
-            7..=20 => 2,
-            21..=35 => 3,
-            _ => 8,
-        };
-        (count, level / 3)
+    if hero {
+        return base
+            .skills
+            .iter()
+            .zip(base.levels)
+            .enumerate()
+            .filter(|&(slot, (&skill, at))| skill != 0 && (slot < 2 || at > 0))
+            .map(|(_, (&skill, at))| (skill, u32::from(at).max(1)))
+            .collect();
+    }
+    let count = match level {
+        0..3 => 0,
+        3..=6 => 1,
+        7..=20 => 2,
+        21..=35 => 3,
+        _ => 8,
     };
+    let at = level / 3;
     base.skills
         .iter()
         .take(count)
@@ -1789,7 +1873,11 @@ pub fn combat_with(
     let mut attributes = base.attributes.map(u32::from);
     attributes[3] = base.hardened.attribute(attributes[3]);
     let b = attributes.map(to_f32);
-    let grown = attributes.map(|b| b + b * (level - 1) / 10);
+    // The hero's spent points add to its attributes and its multipliers (`e_i`, #1522).
+    let e = base.extras.map(|e| to_f32(u32::from(e)));
+    let grown: [u32; 6] = std::array::from_fn(|i| {
+        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
+    });
     let a = grown.map(to_f32);
     let l = to_f32(level);
     let off = rules.stat_offset;
@@ -2009,11 +2097,13 @@ pub fn combat_with(
     // The physical part by `b2` rather than `b0` with a ranged weapon (#492).
     let physical = if holds.ranged { b[2] } else { b[0] };
     let damage_parts = [physical, b[0] + b[2], b[4], b[1] + b[5]];
+    let spent = if holds.ranged { e[2] } else { e[0] };
+    let spent_parts = [spent, 2.0 * (e[0] + e[2]), e[4], 2.0 * (e[1] + e[5])];
     let [dmg, res] = rules.balance;
     let multipliers: [f32; KINDS] = std::array::from_fn(|kind| {
         (1.0 + damage_skill
             + item_multipliers[kind]
-            + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind])
+            + (f * damage_parts[kind] / 10.0 + spent_parts[kind]) / rules.damage_divisors[kind])
             .max(0.0)
     });
     for (ends, factor) in damage.iter_mut().zip(multipliers) {
@@ -2021,13 +2111,14 @@ pub fn combat_with(
     }
     // The spells' `+0xB6`: their items' bonuses, then the attributes' magic part for every kind
     // (`0x57B3FE`), then the magic lore's; with `+0x96`, 1 and the other items' bonuses.
-    let magic_part = f * damage_parts[2] / 10.0 / rules.damage_divisors[2];
+    let magic_part = (f * damage_parts[2] / 10.0 + spent_parts[2]) / rules.damage_divisors[2];
     let spells: [f32; KINDS] = std::array::from_fn(|kind| {
         ((1.0 + item_multipliers[kind]) + (spell_items[kind] + magic_part + magic_lore)).max(0.0)
     });
     for (kind, value) in resistance.iter_mut().enumerate() {
-        let factor =
-            1.0 + resistance_skill[kind] + f * b[1] / 10.0 / rules.resistance_divisors[kind];
+        let factor = 1.0
+            + resistance_skill[kind]
+            + (f * b[1] / 10.0 + e[1]) / rules.resistance_divisors[kind];
         *value = value.max(0.0) * factor.max(0.0) * res;
     }
     // The attributes' parts after the items' (`0x5796A0`), each held at 0 and above.
@@ -2195,9 +2286,10 @@ pub fn arts_speeds_with(
     effects: &[Effect],
 ) -> arts::Speeds {
     let level = level.max(1);
-    let grown = base
-        .attributes
-        .map(|b| u32::from(b) + u32::from(b) * (level - 1) / 10);
+    let grown: [u32; 6] = std::array::from_fn(|i| {
+        let b = u32::from(base.attributes[i]);
+        b + b * (level - 1) / 10 + u32::from(base.extras[i])
+    });
     let mut bonuses = [0.0_f32; 2];
     let mut attribute_bonuses = [0.0_f32; 6];
     for item in &holds.items {
@@ -2872,6 +2964,19 @@ pub fn hero_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rule
     health_of(base, level, health_raise(skills, rules), 1.0, 1.0)
 }
 
+/// [`hero_health`] with the hero's spent points `extras` (`e_i`, #1522): its `a0` and `a3` raised
+/// by them, the base's sum `S` not.
+pub fn hero_health_with(
+    base: [u8; 6],
+    extras: [u8; 6],
+    level: u32,
+    skills: &[(u8, u32)],
+    rules: &Rules,
+) -> u32 {
+    let spent = f64::from(extras[0]) + f64::from(extras[3]);
+    health_spent(base, spent, level, health_raise(skills, rules), 1.0, 1.0)
+}
+
 /// The skill 10's per cent of the curve `HP…VW` for a most health (`0x5658F0`): of its first
 /// slot, at its level, as the x87 unit computes it at 53 bits and keeps it, not stored as a
 /// float ([`per_cent`], #598); none without the skill.
@@ -2888,6 +2993,18 @@ const HEALTH_EXPONENT: f32 = 0.003_996_323_3;
 /// The most health of `base` at `level`, times `rank` and then `factor` (`0x5658F0`), in double
 /// precision as the client's FPU computes it: the exponent's factor a float, the rest doubles.
 fn health_of(base: [u8; 6], level: u32, raise: Option<f64>, rank: f32, factor: f64) -> u32 {
+    health_spent(base, 0.0, level, raise, rank, factor)
+}
+
+/// [`health_of`] with `spent` points added to `a0 + a3`.
+fn health_spent(
+    base: [u8; 6],
+    spent: f64,
+    level: u32,
+    raise: Option<f64>,
+    rank: f32,
+    factor: f64,
+) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
     let l = f64::from(level.max(1) - 1);
     let (a0, a3) = (a + (l * a / 10.0).floor(), b + (l * b / 10.0).floor());
@@ -2895,7 +3012,7 @@ fn health_of(base: [u8; 6], level: u32, raise: Option<f64>, rank: f32, factor: f
     let g = 1.5 + f64::from(HEALTH_EXPONENT) * (60.0 - a - b).max(0.0);
     // A base without the attributes 0 and 3 gives nothing, and so 100.
     let most = if s > 0.0 {
-        (s.powf(g) * ((a0 + a3) / s) * (10.0 / 31.0)).trunc()
+        (s.powf(g) * ((a0 + a3 + spent) / s) * (10.0 / 31.0)).trunc()
     } else {
         0.0
     };
@@ -4385,6 +4502,95 @@ mod tests {
             (3, 2, 3)
         );
         assert_eq!(experience.to_learn, 1);
+    }
+
+    #[test]
+    fn an_attribute_point_spent_raises_the_attribute_and_its_parts() {
+        let rules = Rules::default();
+        let mut experience = Experience {
+            attribute_points: 2,
+            ..Experience::default()
+        };
+        let mut base = Base::of(&recordless(163));
+        let before = combat(&base, 1, Holds::default(), &[], &rules);
+        assert!(base.raise_attribute(0, &mut experience));
+        assert!(base.raise_attribute(0, &mut experience));
+        assert!(!base.raise_attribute(0, &mut experience));
+        assert_eq!(
+            (base.extras, experience.attribute_points),
+            ([2, 0, 0, 0, 0, 0], 0)
+        );
+        // `a0` 27: `A = (a0 + a2)/2` by 1 more, `D = 0.2·a0 + 0.8·a2` by 0.4.
+        let after = combat(&base, 1, Holds::default(), &[], &rules);
+        assert!(
+            (after.attack - before.attack - 1.0).abs() < 1e-4,
+            "{after:?}"
+        );
+        assert!(
+            (after.defence - before.defence - 0.4).abs() < 1e-4,
+            "{after:?}"
+        );
+        // The physical multiplier by `e0/BalCharPD`, the most health by `a0 + a3` over `S`: the
+        // Dwarf's 133 at level 1 becomes ⌊S^g·52/50·10/31⌋, 138, with a point on each of `a0`
+        // and `a3`.
+        assert!(after.damage[0][1] > before.damage[0][1]);
+        let dwarf = [26, 18, 25, 24, 0, 8];
+        assert_eq!(hero_health_with(dwarf, [0; 6], 1, &[], &rules), 133);
+        assert_eq!(
+            hero_health_with(dwarf, [1, 0, 0, 1, 0, 0], 1, &[], &rules),
+            138
+        );
+    }
+
+    #[test]
+    fn a_skill_point_raises_a_held_skill_below_the_heros_level() {
+        let mut experience = Experience {
+            skill_points: 3,
+            ..Experience::default()
+        };
+        let mut base = Base::of(&recordless(163));
+        base.skills = [12, 25, 0, 0, 0, 0, 0, 0];
+        assert_eq!(skills(&base, 1, true), [(12, 1), (25, 1)]);
+        // At level 1 the base is at the hero's level; an empty slot has no skill.
+        assert!(!base.raise_skill(0, 1, &mut experience));
+        assert!(!base.raise_skill(2, 5, &mut experience));
+        assert!(base.raise_skill(0, 3, &mut experience));
+        assert!(base.raise_skill(0, 3, &mut experience));
+        assert!(!base.raise_skill(0, 3, &mut experience));
+        assert_eq!(experience.skill_points, 1);
+        assert_eq!(skills(&base, 3, true), [(12, 3), (25, 1)]);
+    }
+
+    #[test]
+    fn a_skill_learnt_takes_the_first_empty_slot_and_keeps_the_points_count() {
+        let rules = Rules::default();
+        let mut experience = Experience::default();
+        let mut base = Base::of(&recordless(163));
+        base.skills = [12, 25, 0, 0, 0, 0, 0, 0];
+        base.learnable = [12, 25, 1, 3, 4, 10, 9, 22, 7, 8, 0, 0, 0, 0, 0, 0];
+        // The list less the skills held, the first eight.
+        assert_eq!(base.learnable_now(), [1, 3, 4, 10, 9, 22, 7, 8]);
+        assert!(!base.learn(1, &mut experience));
+        // Level 3 opens a slot.
+        assert!(experience.add(1200, &rules));
+        assert_eq!(
+            (
+                experience.level,
+                experience.to_learn(),
+                experience.skill_points
+            ),
+            (3, 1, 3)
+        );
+        let mut unlearnt = experience;
+        assert!(base.learn(4, &mut experience));
+        assert!(!base.learn(3, &mut experience));
+        assert_eq!(base.skills, [12, 25, 4, 0, 0, 0, 0, 0]);
+        assert_eq!(skills(&base, 3, true), [(12, 1), (25, 1), (4, 1)]);
+        assert_eq!(base.learnable_now(), [1, 3, 10, 9, 22, 7, 8]);
+        // Level 4 counts the learnt slot as it did the open one: ⌈3/2⌉ more either way.
+        assert!(experience.add(level_end(3) - experience.points, &rules));
+        assert!(unlearnt.add(level_end(3) - unlearnt.points, &rules));
+        assert_eq!((experience.skill_points, unlearnt.skill_points), (5, 5));
     }
 
     #[test]
