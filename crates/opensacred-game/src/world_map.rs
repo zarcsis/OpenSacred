@@ -14,9 +14,14 @@
 //! pointer in a tooltip; the hero's white cross (`0x6C9520`); the black edge 70 pixels deep; the
 //! window's frame (`0x725870`, the style 1); the buttons' ornament and the buttons.
 //!
+//! The left button held off the bar shows the lens (#1568, `0x6CCBD0`): over 0.2 s a view of
+//! 700 × 525 at the screen's middle of the minimap's ground about the point under the pointer
+//! (`minimap`), its fog of war over the land explored (`explored`), and the quests' icons with
+//! their titles beside them; the map's tooltip hides under it.
+//!
 //! Not followed yet: the places' names, the people's icons, the portals, the frontier of the land
-//! walked and the pacified areas (#1567); the lens's creatures, party, places and pin, and its
-//! titles' layout apart; the pin's button and the pin (#1569);
+//! walked and the pacified areas (#1567); the lens's creatures and party (#1571), its places and
+//! pin, and its titles' layout apart; the pin's button and the pin (#1569);
 //! the buttons' pressed looks and tooltips, and the edges' cursors.
 
 use bevy::input::InputSystems;
