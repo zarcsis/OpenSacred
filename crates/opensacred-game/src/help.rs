@@ -1,4 +1,4 @@
-//! The keys' help (docs/10 §9): F1 shows and hides, over the middle of the screen, what each key
+//! The keys' help (docs/10 §9): F10 shows and hides, over the middle of the screen, what each key
 //! does everywhere, in the game, in the menus and in the console. Esc hides it too, without
 //! pausing a game, after the console has had its Esc; the game goes on under it. The command
 //! `keys on|off` shows and hides it from a script or from afar.
@@ -13,9 +13,9 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
         "Everywhere",
         &[
-            ("F1", "this help"),
-            ("F3", "the debug overlay"),
-            ("F4", "the log"),
+            ("F10", "this help"),
+            ("F7", "the debug overlay"),
+            ("F12", "the log"),
             ("F11", "borderless full screen or a window"),
             ("~", "the console (the key under Esc)"),
         ],
@@ -23,12 +23,23 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
         "In the game",
         &[
-            ("Left button", "walk or run to the cursor"),
+            ("Left button", "run to the cursor"),
+            ("Shift", "walk rather than run, while held"),
             ("Left button on a foe", "strike it; hold to strike on"),
             ("Ctrl+left button", "strike at once"),
             ("Right button on a foe", "make the selected combat art"),
-            ("R", "walk or run"),
+            ("Alt", "the items' names"),
             ("I", "the inventory"),
+            ("1 to 5", "the weapon sets"),
+            ("6 to 0", "the art slots"),
+            ("F1 to F6", "the art of the key into the selected slot"),
+            (
+                "F1 to F6 on an art",
+                "on the spells page: bind the key to it",
+            ),
+            ("Space", "a healing potion (with Shift the yellow one)"),
+            ("Q, W, E, R", "a purple, blue, green or yellow potion"),
+            ("B", "a healing potion for a follower"),
             ("Wheel", "zoom in and out"),
             ("Esc", "pause: Continue, Main menu, Quit"),
         ],
@@ -58,7 +69,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
 const TITLE: f32 = 16.0;
 const TEXT: f32 = 11.0;
 /// How wide the keys' column is.
-const KEY_WIDTH: f32 = 140.0;
+const KEY_WIDTH: f32 = 170.0;
 /// The panel's colours, in the frame's sRGB values (`hud`).
 const BACK: Color = Color::linear_rgba(0.02, 0.02, 0.03, 0.9);
 const GOLD: Color = Color::linear_rgb(0.86, 0.74, 0.45);
@@ -146,11 +157,11 @@ fn spawn(mut commands: Commands) {
         });
 }
 
-/// F1 shows and hides the help; Esc hides it, taken from the game so that it does not pause it.
+/// F10 shows and hides the help; Esc hides it, taken from the game so that it does not pause it.
 fn keys(mut keys: ResMut<ButtonInput<KeyCode>>, mut help: ResMut<Help>) {
-    if keys.just_pressed(KeyCode::F1) {
+    if keys.just_pressed(KeyCode::F10) {
         help.shown = !help.shown;
-        keys.clear_just_pressed(KeyCode::F1);
+        keys.clear_just_pressed(KeyCode::F10);
     } else if help.shown && keys.just_pressed(KeyCode::Escape) {
         help.shown = false;
         keys.clear_just_pressed(KeyCode::Escape);
@@ -168,7 +179,7 @@ fn show(help: Res<Help>, mut panel: Single<&mut Visibility, With<Panel>>) {
     }
 }
 
-/// The keys' help on F1.
+/// The keys' help on F10.
 pub struct HelpPlugin;
 
 impl Plugin for HelpPlugin {
@@ -198,12 +209,15 @@ mod tests {
             .flat_map(|(_, keys)| keys.iter().map(|(key, _)| *key))
             .collect();
         for key in [
-            "F1",
-            "F3",
-            "F4",
+            "F10",
+            "F7",
+            "F12",
             "F11",
             "~",
-            "R",
+            "Shift",
+            "F1 to F6",
+            "Q, W, E, R",
+            "B",
             "Esc",
             "Tab",
             "Ctrl+V, Ctrl+C",
@@ -214,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn f1_shows_the_help_and_esc_hides_it_without_reaching_the_game() {
+    fn f10_shows_the_help_and_esc_hides_it_without_reaching_the_game() {
         #[derive(Resource, Default)]
         struct Escaped(u32);
         let mut app = App::new();
@@ -248,15 +262,15 @@ mod tests {
             *panels.single(app.world()).unwrap() != Visibility::Hidden
         };
         assert!(!shown(&mut app));
-        press(&mut app, KeyCode::F1, Key::F1);
+        press(&mut app, KeyCode::F10, Key::F10);
         assert!(shown(&mut app));
         press(&mut app, KeyCode::Escape, Key::Escape);
         assert!(!shown(&mut app));
         assert_eq!(app.world().resource::<Escaped>().0, 0);
         press(&mut app, KeyCode::Escape, Key::Escape);
         assert_eq!(app.world().resource::<Escaped>().0, 1);
-        press(&mut app, KeyCode::F1, Key::F1);
-        press(&mut app, KeyCode::F1, Key::F1);
+        press(&mut app, KeyCode::F10, Key::F10);
+        press(&mut app, KeyCode::F10, Key::F10);
         assert!(!shown(&mut app));
     }
 }

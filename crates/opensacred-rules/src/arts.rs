@@ -3139,6 +3139,20 @@ impl Arts {
         self.entries.iter().find(|e| e.art == art)
     }
 
+    /// Binds the shortcut's slot `slot` (the key F1 to F6 by its number) to `art` (`0x580D00`):
+    /// every entry of that slot keeps only the four low bits of its word, and the art's word
+    /// becomes the slot alone in its high byte, its mark of [`TAUGHT`] cleared with the rest.
+    pub fn bind(&mut self, art: u16, slot: u8) {
+        for entry in &mut self.entries {
+            if entry.slot() == slot {
+                entry.flags &= 0xF;
+            }
+            if entry.art == art {
+                entry.flags = u16::from(slot) << 8;
+            }
+        }
+    }
+
     /// The level that `creature` makes `art` at (`0x580A10`): its entry's level and bonus, the
     /// class's own for the generic 1061 and 1062; a creature that is no player's and lacks the
     /// art makes it at `⌊its level / 5⌋ + 1`, a player's not at all.

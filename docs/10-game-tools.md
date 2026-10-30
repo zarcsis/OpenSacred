@@ -7,7 +7,7 @@
 * **Settings:** `settings.toml` in the user's directory; borderless full screen by default, F11 for a window, both kept.
 * **Menu:** a main menu (New Game, Quit) and the choice of the hero, which needs the game to start and end inside one process: states, and a loading in the background.
   Esc in the game, or the taskbar's Options button, pauses it under the original's Esc menu (#1410).
-* **On the screen:** the HUD's portrait, health bar and gait go, the original's bar and portrait coming in their place with #1087; F3 shows a debug overlay (the frame rate and times, the hero's place), F4 the log, which a file keeps too.
+* **On the screen:** the HUD's portrait, health bar and gait go, the original's bar and portrait coming in their place with #1087; F7 shows a debug overlay (the frame rate and times, the hero's place), F12 the log, which a file keeps too.
 * **Commands:** one set of commands, which the command line's scripts, the console on `~` and the remote protocol run alike; the command line's options become commands.
 * **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/` and the project skill `game` for Claude Code, no MCP server.
 * **Work:** the issue #165 and its sub-issues #166–#181 and #189, in M2, then #196, #198 and #202; done 2026-10-19 and 2026-10-20.
@@ -28,8 +28,8 @@ command line ── --exec, --script ─┐
 console (~) ──────────────────────┼──► commands (clap) ──► the game: states, resources, messages
 remote protocol: opensacred/exec ─┘                            ▲
 remote protocol: opensacred/input ──► keyboard and mouse ──────┘
-settings.toml ◄──► settings: the display mode, the window's size, the overlays (F11, F3, F4)
-tracing ──► the log's ring ──► F4, the console, opensacred/logs, the log file
+settings.toml ◄──► settings: the display mode, the window's size, the overlays (F11, F7, F12)
+tracing ──► the log's ring ──► F12, the console, opensacred/logs, the log file
 ```
 
 Each part is a module of `opensacred-game` with its own plugin (CLAUDE.md, "Code conventions").
@@ -99,7 +99,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   Since #292 the overlay shows the hero's health too; the original's bar and the hero's portrait came back in #1087 (`bar`).
   The cursor and the interface's scale stay; docs/decisions/interface.md, "Bar, portrait and cursor scaled" changes with it.
   Done 2026-10-19.
-* **The overlay (F3)**, in the upper left, refreshed four times a second in a monospaced font.
+* **The overlay (F7)**, in the upper left, refreshed four times a second in a monospaced font.
   One function gathers its values, which the remote protocol returns too (§8):
   * the frames a second, the mean and slowest frame time of the last second;
   * the hero's cell, sector, level, target and gait;
@@ -112,7 +112,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 
   Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
   At 3840 × 2160, running across sectors, the overlay shown took 2.3 % of the frame rate (580 frames a second without it, 566 with it, about 0.04 ms a frame).
-* **The log (F4)**: a `tracing` layer keeps the last 1,000 records in a ring with sequence numbers; F4 shows the last 15 at the lower left, warnings yellow and errors red.
+* **The log (F12)**: a `tracing` layer keeps the last 1,000 records in a ring with sequence numbers; F12 shows the last 15 at the lower left, warnings yellow and errors red.
   The same records go to `%LOCALAPPDATA%\OpenSacred\logs\opensacred.log` (`$XDG_STATE_HOME` on Linux), a new file each start with the two before kept, so that a crash's log can be read after it; `--log-file` writes another one.
   Done 2026-10-19 (#169): the records are those that Bevy's filter lets through (INFO and above), each line of the file `seconds-since-the-start LEVEL target: message`; the panel takes one line a record, its targets in the game without `opensacred_game::`, and whether it shows is the setting `[debug] log`.
 
@@ -132,7 +132,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `cell-info [X,Y]` | what a cell of the loaded sectors is, the hero's by default: its ground, the inside layers over it, whether it is a pocket, what stands in it (#522) | |
 | `nearest [X,Y]` | where `sector` would land the hero for a cell: the cell itself, a room, or the nearest cell of the ground it walks on from (#522) | |
 | `go X,Y`, `go +DX,+DY` | sends the hero to a cell, or by an offset in cells, as a click does | `--target` |
-| `gait walk\|run` | as R | `--walking` |
+| `gait walk\|run` | walk as though Shift were held, or run | `--walking` |
 | `zoom Z` | the camera's zoom, 0.5 to 2 as in the original, 2 the widest view | `--zoom` |
 | `time HH:MM` | sets the clock | `--time` |
 | `setrain N`, `setfog N`, `setsnow N` | starts the rain, the fog or the snow of the intensity N (1 to 100), or stops it with 0, as the original's console (docs/re/weather.md) | |
@@ -142,7 +142,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `record DIR N` | saves N frames | `--record`, `--record-frames` |
 | `benchmark SECONDS` | measures and prints | `--benchmark` |
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
-| `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F3, F4, F1 and the key under Esc; without a switch, toggles | |
+| `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F7, F12, F10 and the key under Esc; without a switch, toggles | |
 | `state` | the app's state, the hero, the clock, the frames, the drops nearest the hero (the overlay's values) | |
 | `creatures [RADIUS]` | the creatures within RADIUS cells of the hero (20), the nearest first: an id, the type, the cell (and the floor inside), the health, the level, hostile or peaceful, awake, fighting, a champion or a boss, dying, a dialogue; as the original's driver lists them (#523) | |
 | `stashes [RADIUS]` | the hidden stashes within RADIUS cells of the hero (20), the nearest first: each its cell, its function and its text's name, and their count in all (#1518) | |
@@ -197,9 +197,9 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 * The key under Esc opens and closes it, by its place rather than its character (`KeyCode::Backquote`: `~` in an English layout, `Ё` in a Russian one); Esc closes it too.
 * The top half of the screen: one scrolling view of the log and the commands' output, and a line of input of its own (no `bevy_egui`).
 * Enter runs the line; Up and Down walk the history, kept between runs; Tab completes the commands' names and the options' values; Ctrl+V pastes; PageUp and PageDown scroll the view.
-* While it is open the game takes no keys or clicks (no walking, no R, the wheel scrolls the console); F3, F4 and F11 still work, and the game goes on under it.
+* While it is open the game takes no keys or clicks (no walking, no potions, the wheel scrolls the console); F7, F10, F11 and F12 still work, and the game goes on under it.
 * Done 2026-10-19 (#174), in a module `console`, with a line of input of its own rather than Bevy's `TextInput`: a console needs a line, a cursor and the history, which take a few dozen lines.
-  The view is the log itself: the commands' lines and their output are logged under the target `console`, so F4 and the log file have them too.
+  The view is the log itself: the commands' lines and their output are logged under the target `console`, so F12 and the log file have them too.
   A set `frame::Control` holds the player's keys and mouse on the world, the pause and the menus, which the open console holds back; the console reads the keys right after Bevy does and takes Esc and its own key from the game, so that Esc closes it without pausing the game.
   The history lies beside the settings file (`history.txt`), so that a run with `--settings` keeps its own; the command `console on|off` opens and closes it from a script.
   Ctrl+V did not paste at first: Bevy reads the system's clipboard through `arboard`, whose Windows backend `clipboard-win` (and its `error-code`) is under BSL-1.0, which `deny.toml` did not allow.
@@ -241,24 +241,30 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 
 | Key | Where | What it does |
 |---|---|---|
-| Left mouse button | the game | the hero walks or runs to the cursor |
+| Left mouse button | the game | the hero runs to the cursor |
+| Shift | the game | the hero walks rather than runs while it is held (#1536) |
 | Left mouse button on a foe | the game | attack it; held, strike on |
 | Right mouse button on a foe | the game | make the selected combat art |
 | Ctrl + left mouse button | the game | strike at once |
-| R | the game | walk or run |
+| Alt | the game | the items' names, while held (#1409) |
 | I | the game | the inventory's windows (#1267) |
 | Space, Shift + Space | the game | drink a healing potion of the belt, the yellow one (#1311, #1313) |
+| Q, W, E, R | the game | drink a purple, blue, green or yellow potion of the belt, again while held (#1536) |
+| B | the game | a healing potion of the belt for the weakest follower (#1536) |
 | 1 to 5 | the game | choose a weapon set (#1348) |
+| 6 to 0 | the game | choose an art slot (#1529) |
+| F1 to F6 | the game | the art bound to the key into the selected slot, F5 and F6 only while the spells page shows; over an art of the spells page, bind the key to it or take it off (#1536) |
 | Wheel | the game | zoom |
 | Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
-| F1 | everywhere | the keys' help (#196); Esc hides it too |
-| F3 | everywhere | the overlay |
-| F4 | everywhere | the log |
+| F7 | everywhere | the overlay |
+| F10 | everywhere | the keys' help (#196); Esc hides it too |
 | F11 | everywhere | borderless or windowed |
+| F12 | everywhere | the log |
 
-The original's own keys come with remapping in M6 (docs/06 §3); F1, F3, F4 and F11 move then if they clash.
-F1 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
+The game's keys are the original's (#1536): its F1 to F6 bind the combat arts, F8 and F9 load and save the quick save, and Shift held walks, so the game's own tools take the keys it leaves free, F7, F10, F11 and F12, and the key under Esc, which opens the original's console too.
+Every key moves into a file of its own, `controls.toml` beside `settings.toml`, with #1553.
+F10 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
 
 ## 10. Order and estimates
 
@@ -282,5 +288,4 @@ The estimates follow the game's recent pull requests, ≈0.7 agent-hours each; t
 
 ## 11. Open questions
 
-1. Whether F3 and F4 clash with the original's keys: settled with remapping in M6.
-2. Whether the remote protocol stays in release builds: on at runtime only with `--remote`; a Cargo feature can leave it out of a player's build later.
+1. Whether the remote protocol stays in release builds: on at runtime only with `--remote`; a Cargo feature can leave it out of a player's build later.

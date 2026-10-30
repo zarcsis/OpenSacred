@@ -2,7 +2,7 @@
 //! the hero is in chooses by its weather entries (`world.ron`), on timers of real time that every
 //! sector shares, and their levels moving toward what the choice wants as the game runs
 //! (`opensacred_rules::weather`), the rolls `Sacred.exe`'s (`tables/weather_rolls.ron`). `skies`
-//! draws and plays it (#1073); the overlay (F3) and `state` show it, and the console's
+//! draws and plays it (#1073); the overlay (F7) and `state` show it, and the console's
 //! `setrain`, `setfog` and `setsnow` set it, as the original's do (`0x614230`).
 
 use std::collections::HashMap;

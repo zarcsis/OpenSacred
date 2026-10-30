@@ -78,7 +78,7 @@ enum Command {
         #[arg(value_parser = parse_goal, allow_hyphen_values = true)]
         to: Goal,
     },
-    /// Walk or run, as R
+    /// Walk as though Shift were held, or run
     Gait { gait: GaitArg },
     /// The camera's zoom, 0.5 to 2 as in the original: 2 shows twice the world
     Zoom { zoom: f32 },
@@ -111,13 +111,13 @@ enum Command {
         width: Option<u32>,
         height: Option<u32>,
     },
-    /// Show or hide the debug overlay (F3); kept in the settings
+    /// Show or hide the debug overlay (F7); kept in the settings
     Overlay { on: Option<Switch> },
-    /// Show or hide the log's panel (F4); kept in the settings
+    /// Show or hide the log's panel (F12); kept in the settings
     Log { on: Option<Switch> },
     /// Open or close the console (the key under Esc)
     Console { on: Option<Switch> },
-    /// Show or hide the keys' help (F1)
+    /// Show or hide the keys' help (F10)
     Keys { on: Option<Switch> },
     /// The state of the process, the game, the hero, the clock and the frames
     State,
@@ -1031,10 +1031,8 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Gait { gait } => {
             in_game(world)?;
             let mut hero = world.get_resource_mut::<Hero>().ok_or("no hero")?;
-            hero.gait = match gait {
-                GaitArg::Walk => Gait::Walk,
-                GaitArg::Run => Gait::Run,
-            };
+            hero.walking = matches!(gait, GaitArg::Walk);
+            hero.gait = if hero.walking { Gait::Walk } else { Gait::Run };
             Ok(Outcome::say(format!("{gait:?}").to_lowercase()))
         }
         Command::Zoom { zoom } => {

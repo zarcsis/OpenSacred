@@ -7,6 +7,10 @@
 //! kinds 1, 2 or 4 gives its potion to the hero's follower of the lowest most health among those
 //! below 99 % of their health (`0x612FA0`, #1313), as Shift with the right button on a potion of
 //! the grid gives that one (`0x6C0150`, #1272).
+//! The keys Q, W, E and R drink the purple, blue, green and yellow potions, and B gives the healing
+//! one to that follower (`cEngine_receiveEvent`, `0x618090`, #1536): on their characters, which
+//! repeat while a key is held, where Space drinks once a press (its latch `+0x1C8`, which the
+//! key's release clears). The open console holds them back with the clicks (#1554).
 //! A drink (`0x54AA80`, `cPotion3D`'s `0x5CAA60`) plays one of the three drinking sounds, and by
 //! its kind (`opensacred_rules::potions::Drink`, #1353): a healing potion, where the drinker's
 //! health is below its most, gives back its share of the most health; a purple or a blue one gives
@@ -17,6 +21,8 @@
 //! The slots' sparkles are `sparkles`' (#1272). Not followed: the hero's horse healed with it; the
 //! slots' tooltips (#1273).
 
+use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use opensacred_rules::potions::{self, Drink, choose, healed, missing};
 use opensacred_rules::spawning::Rng;
@@ -99,18 +105,32 @@ fn light(
 /// (`0x612FA0`).
 const HURT: f64 = 0.99;
 
-/// The left button on a slot of the belt, Space (with Shift the yellow potion), or the right
-/// button on a potion of the grid: the hero drinks the potion (`0x612FA0`, `0x54AA80`). The right
-/// button on a slot of the kinds 1, 2 or 4: its potion, chosen as for the hero, goes to the
-/// hero's follower of the lowest most health among those below 99 % of their health, who drinks
-/// it (#1313). What the drink does goes by the potion's kind (#1353).
+/// The keys of the potions by their characters, without Control: the kind each drinks, and
+/// whether it gives it to a follower (`0x618090`).
+const LETTERS: [(KeyCode, u8, bool); 5] = [
+    (KeyCode::KeyQ, 2, false),
+    (KeyCode::KeyW, 3, false),
+    (KeyCode::KeyE, 4, false),
+    (KeyCode::KeyR, 5, false),
+    (KeyCode::KeyB, 1, true),
+];
+
+/// The left button on a slot of the belt, Space (with Shift the yellow potion), Q, W, E or R, or
+/// the right button on a potion of the grid: the hero drinks the potion (`0x612FA0`, `0x54AA80`).
+/// The right button on a slot of the kinds 1, 2 or 4, or B for the kind 1: its potion, chosen as
+/// for the hero, goes to the hero's follower of the lowest most health among those below 99 % of
+/// their health, who drinks it (#1313). What the drink does goes by the potion's kind (#1353).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system's parameters are its inputs"
 )]
 fn drink(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
+    (keys, mut letters, console): (
+        Res<ButtonInput<KeyCode>>,
+        MessageReader<KeyboardInput>,
+        Option<Res<crate::console::Console>>,
+    ),
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
@@ -121,6 +141,18 @@ fn drink(
     mut sounds: MessageWriter<sfx::Play>,
     mut dice: Local<Option<Rng>>,
 ) {
+    // A character's press or its repeat, the first of the frame's (`0x618090`).
+    let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let lettered = letters
+        .read()
+        .filter(|key| key.state == ButtonState::Pressed && !control)
+        .filter_map(|key| LETTERS.iter().find(|(code, ..)| *code == key.key_code))
+        .map(|&(_, kind, given)| (kind, given))
+        .reduce(|first, _| first);
+    // The open console takes the keys and the clicks (#1554).
+    if console.is_some_and(|console| console.is_open()) {
+        return;
+    }
     let Ok((hero, health)) = heroes.single_mut() else {
         return;
     };
@@ -133,6 +165,8 @@ fn drink(
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let (kind, given) = if keys.just_pressed(KeyCode::Space) {
         (Some(if shift { 5 } else { 1 }), false)
+    } else if let Some((kind, given)) = lettered {
+        (Some(kind), given)
     } else if buttons.just_pressed(MouseButton::Left) {
         (slot(), false)
     } else if buttons.just_pressed(MouseButton::Right) {

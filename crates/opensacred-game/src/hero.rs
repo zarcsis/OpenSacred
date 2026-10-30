@@ -137,6 +137,9 @@ pub struct Hero {
     /// Where to go first, if anywhere.
     pub target: Option<Vec3>,
     pub gait: Gait,
+    /// Whether it walks as though Shift were held ([`pace`]): the console's `gait walk` and
+    /// `--walking`.
+    pub walking: bool,
     /// Its size by its type and what it holds, of which and a creature's their reach is the
     /// mean (`opensacred_rules::minds::size`, `0x4DBC60`, #642).
     pub size: u32,
@@ -180,6 +183,7 @@ impl Hero {
             floor: None,
             target: None,
             gait: Gait::Run,
+            walking: false,
             size: opensacred_rules::minds::SIZE,
             creature: 1,
             armed: crate::sfx::Armed::default(),
@@ -686,13 +690,14 @@ fn still(
     }
 }
 
-/// Toggles walking and running.
-pub fn toggle(keys: Res<ButtonInput<KeyCode>>, mut hero: ResMut<Hero>) {
-    if keys.just_pressed(KeyCode::KeyR) {
-        hero.gait = match hero.gait {
-            Gait::Walk => Gait::Run,
-            Gait::Run => Gait::Walk,
-        };
+/// The hero walks while Shift is held and runs once it is let go, as the original's moving action
+/// turns a hero's gait at every step of its move (`0x4F4770`, at `0x4F5193` and `0x4F6155`): the
+/// original has no key that toggles them. [`Hero::walking`] holds the walk as Shift would.
+pub fn pace(keys: Res<ButtonInput<KeyCode>>, mut hero: ResMut<Hero>) {
+    let walk = hero.walking || keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let gait = if walk { Gait::Walk } else { Gait::Run };
+    if hero.gait != gait {
+        hero.gait = gait;
     }
 }
 
@@ -1331,7 +1336,7 @@ impl Plugin for HeroPlugin {
             .add_systems(
                 Update,
                 (
-                    (toggle, steer).in_set(Unpaused).in_set(Control),
+                    (pace, steer).in_set(Unpaused).in_set(Control),
                     take_orders.run_if(crate::frame::ticked),
                     land,
                     run,

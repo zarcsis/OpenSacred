@@ -11,8 +11,15 @@
 //! (`0x6C1F30`, `0x6C1930`, `0x6C1AE0`; `art_slots`); the Vampiress's night arts by day are
 //! refused.
 //!
-//! Not followed yet: the hovered art's tooltip (`0x5893B0`), the keys F1 to F6 bound to the arts,
-//! and the master's window's view of the page (#1540).
+//! The keys F1 to F6, on their release (#1536): while the page shows, one over a held art binds
+//! the key to it, in the page's list and in the hero's entries (`0x580D00`), and the same key over
+//! the art that holds it clears it in the list alone, which the page's next show reads back from
+//! the entries (`0x6C1E60`, `0x580C80`); elsewhere the key's art goes into the bar's selected
+//! slot as the right press puts one, F1 to F6 while the page shows and F1 to F4 alone while it is
+//! hidden (`0x6C1F30`). The page writes `F%d` on an art of a key (`0x6C25A0`).
+//!
+//! Not followed yet: the hovered art's tooltip (`0x5893B0`) and the master's window's view of the
+//! page (#1540).
 
 use std::collections::HashMap;
 
@@ -22,13 +29,15 @@ use bevy::render::render_resource::{
     AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, RenderPipelineDescriptor,
 };
 use bevy::shader::ShaderRef;
+use bevy::text::FontSize;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::ui_render::ui_material::UiMaterialKey;
 
 use crate::art_slots::{ArtSlots, HeldArt};
 use crate::arts::HeroArts;
 use crate::bar::{self, UiImages};
-use crate::game::{AppState, Data};
+use crate::frame::Unpaused;
+use crate::game::{AppState, Data, FONT};
 use crate::inventory::{Page, Shown};
 
 /// The page's corner on the original's screen (the inventory's window).
@@ -337,6 +346,155 @@ fn pick(
     }
 }
 
+/// The keys F1 to F6, by their numbers (`0x65DD10`: the codes `0x10F` to `0x114`, less `0x10E`).
+const ART_KEYS: [KeyCode; 6] = [
+    KeyCode::F1,
+    KeyCode::F2,
+    KeyCode::F3,
+    KeyCode::F4,
+    KeyCode::F5,
+    KeyCode::F6,
+];
+/// The keys that reach the page while it is hidden: F1 to F4, its test stopping at `0x112`.
+const HIDDEN_KEYS: u8 = 4;
+/// Where a key's name stands on its art's icon, and its font: the interface's font 1, white
+/// (`0x6C25A0`, `0x649BE0`), AntiquaSSK at the size of the foe's panel's (`foe_panel`).
+const KEY_AT: Vec2 = Vec2::new(44.0, 42.0);
+const KEY_FONT: f32 = 19.5;
+
+/// The page's list of its arts' keys (`+0x2CC`, each entry's word `+0x0C`): the layout it was
+/// made for, the hero's type and its form by night, and the arts of a key with their keys' numbers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Keyed {
+    kind: u32,
+    night: bool,
+    keys: Vec<(u16, u8)>,
+}
+
+impl Keyed {
+    /// The list made for the hero's layout with the keys of its entries (`0x6C2500`, `0x580C80`):
+    /// each art of the page that the hero holds with a shortcut's slot.
+    fn read(arts: &HeroArts, night: bool) -> Self {
+        let keys = arts_of(arts.kind, night)
+            .map(|(_, places)| {
+                places
+                    .into_iter()
+                    .filter_map(|(art, _)| {
+                        let slot = arts.arts.get(art)?.slot();
+                        (slot > 0).then_some((art, slot))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            kind: arts.kind,
+            night,
+            keys,
+        }
+    }
+
+    /// The key's number of the art `art`.
+    fn of(&self, art: u16) -> Option<u8> {
+        self.keys
+            .iter()
+            .find(|&&(a, _)| a == art)
+            .map(|&(_, key)| key)
+    }
+}
+
+/// The page's list, none until it is first made: as the page shows, or at a key.
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ArtKeys(Option<Keyed>);
+
+/// What a key over the page does (`0x6C1F30`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Keying {
+    /// The key bound to the art, in the list and in the hero's entries.
+    Bound(u16),
+    /// The key taken off the art in the list alone.
+    Cleared(u16),
+    /// The key's art into the bar's selected slot.
+    Selected(u16),
+    Nothing,
+}
+
+/// The key of the number `key` on the list `list`, over the held art `over` while the page shows
+/// (`0x6C1F30`): bound to it, or cleared where it holds the key, the list changed; else the art of
+/// the key, if any, for the selected slot.
+fn keyed(list: &mut Keyed, key: u8, over: Option<u16>) -> Keying {
+    if let Some(art) = over {
+        if list.of(art) == Some(key) {
+            list.keys.retain(|&(a, _)| a != art);
+            return Keying::Cleared(art);
+        }
+        list.keys.retain(|&(a, k)| a != art && k != key);
+        list.keys.push((art, key));
+        return Keying::Bound(art);
+    }
+    list.keys
+        .iter()
+        .find(|&&(_, k)| k == key)
+        .map_or(Keying::Nothing, |&(art, _)| Keying::Selected(art))
+}
+
+/// The keys F1 to F6 on their release (`0x6C1F30`, the event of a key's code): over a held art
+/// while the page shows, bound to it or cleared; else the key's art into the bar's selected slot,
+/// as a right press puts one (`0x6C1AE0`), F5 and F6 only while the page shows.
+fn press(
+    (keys, console): (
+        Res<ButtonInput<KeyCode>>,
+        Option<Res<crate::console::Console>>,
+    ),
+    (shown, page): (Res<Shown>, Res<Page>),
+    (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
+    (arts, forms): (Option<ResMut<HeroArts>>, Option<Res<crate::forms::Forms>>),
+    (mut list, mut slots): (ResMut<ArtKeys>, ResMut<ArtSlots>),
+) {
+    let Some(key) = (1..)
+        .zip(ART_KEYS)
+        .find(|&(_, code)| keys.just_released(code))
+        .map(|(key, _)| key)
+    else {
+        return;
+    };
+    if console.is_some_and(|console| console.is_open()) {
+        return;
+    }
+    let on = shown.0 && page.0 == PAGE;
+    let Some(mut arts) = arts.filter(|_| on || key <= HIDDEN_KEYS) else {
+        return;
+    };
+    let night = forms.is_some_and(|forms| forms.by_night());
+    let over = crate::inventory::screen_point(&pointer, &ui_scale, &windows)
+        .filter(|_| on)
+        .and_then(|at| held_under(&arts, night, at));
+    let keying = keyed(
+        list.0.get_or_insert_with(|| Keyed::read(&arts, night)),
+        key,
+        over,
+    );
+    match keying {
+        Keying::Bound(art) => {
+            arts.arts.bind(art, key);
+            info!("spells page: F{key} bound to {art}");
+        }
+        Keying::Cleared(art) => info!("spells page: F{key} taken off {art}"),
+        Keying::Selected(art) if !refused(art, night) => {
+            let slot = slots.selected;
+            if slots.arts[slot] != Some(art) {
+                slots.arts[slot] = Some(art);
+                info!("spells page: F{key} puts {art} into the slot {}", slot + 1);
+            }
+        }
+        Keying::Selected(_) | Keying::Nothing => {}
+    }
+}
+
+/// A new game's list not made yet.
+fn reset(mut list: ResMut<ArtKeys>) {
+    list.0 = None;
+}
+
 /// The files of the arts' own pictures, found once.
 #[derive(Resource, Default)]
 struct Pictures(HashMap<u16, String>);
@@ -465,11 +623,31 @@ fn show(
         Option<Res<crate::forms::Forms>>,
     ),
     roots: Query<Entity, With<PageRoot>>,
-    mut flashes: ResMut<Assets<Flash>>,
-    mut was: Local<Option<(u32, bool, Vec<(u16, u8)>)>>,
+    (mut flashes, mut list): (ResMut<Assets<Flash>>, ResMut<ArtKeys>),
+    mut was: Local<Option<(u32, bool, Vec<(u16, u8)>, Vec<(u16, u8)>)>>,
 ) {
     let on = shown.0 && page.0 == PAGE;
     let night = forms.is_some_and(|forms| forms.by_night());
+    if on && let Some(arts) = arts.as_deref() {
+        let made = list.0.as_ref().map(|keyed| (keyed.kind, keyed.night));
+        if was.is_none() {
+            // The page's show makes its list and reads the keys (`0x6C1E60`).
+            list.0 = Some(Keyed::read(arts, night));
+        } else if made != Some((arts.kind, night)) {
+            // Its draw makes the list anew for another layout, every key 0 (`0x6C2500`,
+            // `0x6C2E60`).
+            list.0 = Some(Keyed {
+                kind: arts.kind,
+                night,
+                keys: Vec::new(),
+            });
+        }
+    }
+    let keys = list
+        .0
+        .as_ref()
+        .map(|keyed| keyed.keys.clone())
+        .unwrap_or_default();
     let now = arts.as_deref().filter(|_| on).map(|arts| {
         let held = arts
             .arts
@@ -482,7 +660,7 @@ fn show(
                 )
             })
             .collect();
-        (arts.kind, night, held)
+        (arts.kind, night, held, keys.clone())
     });
     if *was == now {
         return;
@@ -500,7 +678,7 @@ fn show(
     for root in &roots {
         commands.entity(root).despawn();
     }
-    let (Some((kind, night, _)), Some(arts)) = (now, arts.as_deref()) else {
+    let (Some((kind, night, _, keys)), Some(arts)) = (now, arts.as_deref()) else {
         commands.remove_resource::<Flashing>();
         return;
     };
@@ -587,6 +765,29 @@ fn show(
                 .id();
             commands.entity(root).add_child(child);
         }
+        // The key's name over the art (`0x6C25A0`).
+        if let Some(&(_, key)) = keys.iter().find(|&&(a, _)| a == art) {
+            let child = commands
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(at.x + KEY_AT.x),
+                        top: Val::Px(at.y + KEY_AT.y),
+                        ..default()
+                    },
+                    Text::new(format!("F{key}")),
+                    TextFont {
+                        font: assets.load::<Font>(FONT).into(),
+                        font_size: FontSize::Px(KEY_FONT),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::no_wrap(),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(root).add_child(child);
+        }
     }
 }
 
@@ -623,6 +824,8 @@ impl Plugin for SpellsPagePlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "flash.wesl");
         app.add_plugins(UiMaterialPlugin::<Flash>::default())
+            .init_resource::<ArtKeys>()
+            .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
                 Update,
                 begin
@@ -631,7 +834,7 @@ impl Plugin for SpellsPagePlugin {
             )
             .add_systems(
                 Update,
-                (pick, show, flash)
+                (pick, press.in_set(Unpaused), show, flash)
                     .chain()
                     .after(crate::inventory::Opened)
                     .run_if(in_state(AppState::InGame)),
@@ -667,6 +870,25 @@ mod tests {
         assert!(refused(1035, false));
         assert!(!refused(1035, true));
         assert!(!refused(1022, false));
+    }
+
+    #[test]
+    fn a_key_binds_moves_clears_and_selects_as_the_original_s() {
+        let mut list = Keyed {
+            kind: 1,
+            night: false,
+            keys: vec![(1070, 2)],
+        };
+        // F1 over 1071 binds it; F2 over it moves F2 from 1070, its F1 going.
+        assert_eq!(keyed(&mut list, 1, Some(1071)), Keying::Bound(1071));
+        assert_eq!(keyed(&mut list, 2, Some(1071)), Keying::Bound(1071));
+        assert_eq!(list.keys, [(1071, 2)]);
+        // Elsewhere F2 selects 1071, F1 nothing.
+        assert_eq!(keyed(&mut list, 2, None), Keying::Selected(1071));
+        assert_eq!(keyed(&mut list, 1, None), Keying::Nothing);
+        // F2 over the art that holds it clears it.
+        assert_eq!(keyed(&mut list, 2, Some(1071)), Keying::Cleared(1071));
+        assert!(list.keys.is_empty());
     }
 
     #[test]

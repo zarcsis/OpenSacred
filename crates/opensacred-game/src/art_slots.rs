@@ -9,11 +9,11 @@
 //! button puts one into the selected slot (the messages 3 and 4); an art on the cursor shows its
 //! vivid picture at the cursor, and goes as the inventory hides. A combo comes onto the cursor
 //! from the combos page (the kind 4) and into a slot as an art does (the message 6, `combos_page`);
-//! a slot that holds one makes nothing yet (#1531).
+//! a slot that holds one makes nothing yet (#1531). The keys F1 to F6 put the arts bound to them
+//! into the selected slot (`spells_page`, #1536).
 //!
 //! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`), the
-//! keys F1 to F6 (which the game's own keys hold), the slots kept in the saves, and a slot's
-//! tooltip.
+//! slots kept in the saves, and a slot's tooltip.
 
 use bevy::prelude::*;
 
