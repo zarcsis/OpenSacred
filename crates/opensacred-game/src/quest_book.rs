@@ -1038,7 +1038,7 @@ fn show(
         return;
     };
     let root = commands
-        .spawn((BookRoot, crate::backpack::screen(), GlobalZIndex(1)))
+        .spawn((BookRoot, crate::backpack::screen(), GlobalZIndex(2)))
         .id();
     let add = |commands: &mut Commands, bundle: (ImageNode, Node)| {
         let child = commands.spawn((bundle, Pickable::IGNORE)).id();
@@ -1201,7 +1201,13 @@ fn show(
             node.overflow = Overflow::clip();
             let picture = commands.spawn((node, Pickable::IGNORE)).id();
             commands.entity(root).add_child(picture);
-            crate::minimap::spawn(&mut commands, picture, (&minimaps, &assets), place, origin);
+            crate::minimap::spawn(
+                &mut commands,
+                picture,
+                (&minimaps, &assets),
+                (place, origin),
+                1.0,
+            );
             (top + PICTURE_ROOM, model.first, 0)
         }
         (0, None) => (top, model.later, 0),

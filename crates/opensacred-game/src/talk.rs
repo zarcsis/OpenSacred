@@ -547,7 +547,7 @@ fn beside(portrait: Option<&Portrait>) -> f32 {
 /// top and, turned about, at the bottom, the edges down at the sides, and the corners, each image
 /// on its node, placed about the window's rectangle as the original's frames show them; each
 /// node's size given, as an image's node along an edge would keep its picture's size.
-fn frame(images: &UiImages, assets: &AssetServer, width: f32) -> Vec<(ImageNode, Node)> {
+pub(crate) fn frame(images: &UiImages, assets: &AssetServer, width: f32) -> Vec<(ImageNode, Node)> {
     let at = |[left, right, top, bottom]: [Option<f32>; 4], (width, height): (Val, Val)| Node {
         position_type: PositionType::Absolute,
         left: left.map_or(Val::Auto, Val::Px),

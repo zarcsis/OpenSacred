@@ -377,8 +377,8 @@ fn show_lens(
                 &mut commands,
                 plane,
                 (&minimaps, &assets),
-                point,
-                Vec2::ZERO,
+                (point, Vec2::ZERO),
+                1.0,
             );
             crate::minimap::spawn_fog(
                 &mut commands,
@@ -422,7 +422,7 @@ fn show_lens(
 /// The quests' icons and titles in the lens about the iso plane's point `point`, at their
 /// compasses' cells (`0x497620`): each icon at its own size in its colour, its title beside it in
 /// the font 2 over grey, white for a quest that runs and grey for one ended.
-fn quests_in_lens(
+pub(crate) fn quests_in_lens(
     commands: &mut Commands,
     plane: Entity,
     (images, assets, texts): (&UiImages, &AssetServer, Option<&Texts>),
@@ -720,7 +720,7 @@ fn show(
                 ..default()
             },
             BackgroundColor(Color::BLACK),
-            GlobalZIndex(2),
+            GlobalZIndex(3),
             Pickable::IGNORE,
             DespawnOnExit(AppState::InGame),
         ))
