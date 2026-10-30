@@ -226,15 +226,18 @@ fn sort(
 }
 
 /// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), with their
-/// sounds; the key taken from the game.
-fn toggle(
+/// sounds; the key taken from the game; not while the world map shows (`0x757840`).
+pub(crate) fn toggle(
     mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     images: Res<UiImages>,
-    mut shown: ResMut<Shown>,
+    (mut shown, map): (ResMut<Shown>, Res<crate::world_map::Map>),
     mut sounds: MessageWriter<sfx::Play>,
 ) {
+    if map.shown {
+        return;
+    }
     let pressed = keys.take(crate::controls::Action::Inventory);
     let clicked = buttons.just_pressed(MouseButton::Left)
         && screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {

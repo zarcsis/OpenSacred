@@ -124,6 +124,7 @@ mod town_stash;
 mod undead;
 mod voices;
 mod weather;
+mod world_map;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -453,6 +454,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         undead::UndeadPlugin,
         voices::VoicesPlugin,
         weather::WeatherPlugin,
+        world_map::WorldMapPlugin,
     ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)

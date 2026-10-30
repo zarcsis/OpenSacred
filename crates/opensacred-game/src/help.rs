@@ -91,6 +91,7 @@ pub const KEYS: &[(&str, &[(Row, &str)])] = &[
             (of(&[Action::Labels]), "the items' names"),
             (of(&[Action::Inventory]), "the inventory"),
             (of(&[Action::QuestBook]), "the quest book"),
+            (of(&[Action::WorldMap]), "the world map"),
             (of(&WEAPON_SETS), "the weapon sets"),
             (of(&ART_SLOTS), "the art slots"),
             (of(&ART_KEYS), "the art of the key into the selected slot"),
