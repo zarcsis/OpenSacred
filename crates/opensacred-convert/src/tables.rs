@@ -227,7 +227,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     let arts = arts(game_dir)?;
     write(&dir, ARTS, &arts)?;
     let exe = read_reference_file(game_dir, "Sacred.exe")?;
-    let voices = crate::voices::voices(&exe)?;
+    let voices = crate::voices::voices();
     write(&dir, VOICES, &voices)?;
     let portraits = portraits(&exe)?;
     write(&dir, PORTRAITS, &portraits)?;
@@ -395,12 +395,13 @@ fn anchors(
     })
 }
 
-/// The creatures' portraits of `Sacred.exe` (#1032): each type's image of the interface by the
-/// function `0x4345C0`, its texture's name lower-cased without its `.tga` and its rectangle as
-/// its left, top, width and height, and the default's.
+/// The creatures' portraits (#1032): each type's image of the interface by the function
+/// `0x4345C0`, which the converter carries (`portraits`, #1489), its texture's name lower-cased
+/// without its `.tga` and its rectangle as its left, top, width and height from the images' table
+/// of `Sacred.exe`, and the default's.
 fn portraits(exe: &[u8]) -> Result<Portraits> {
-    use opensacred_formats::portraits::{creature_images, interface_images};
-    let (default, images) = creature_images(exe)?;
+    use opensacred_formats::portraits::interface_images;
+    let (default, images) = (crate::portraits::DEFAULT, crate::portraits::images());
     let mut indices: Vec<u32> = images.iter().map(|&(_, image)| image).collect();
     indices.push(default);
     indices.sort_unstable();
@@ -889,34 +890,21 @@ mod tests {
         fs::remove_dir_all(out).unwrap();
     }
 
-    /// The voices by the byte table of `Sacred.exe`: 328 types have a case, six of them one that
-    /// names the profile 0, and the start's creatures speak as docs/re/sound.md reads (#710).
+    /// The tables that the converter carries are those of the GOG `Sacred.exe`'s code: the
+    /// voices' byte table at `0x68BBD0` and the portraits' switch of `0x4345C0` (#1489).
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
-    fn the_creatures_speak_by_their_cases() {
+    fn the_carried_tables_are_the_gog_builds() {
         let game = repo_root().join("OriginalGame");
         let exe = read_reference_file(&game, "Sacred.exe").unwrap();
-        let cases = opensacred_formats::voices::cases(&exe).unwrap();
-        let spoken = cases
-            .iter()
-            .filter(|&&case| case != opensacred_formats::voices::NO_VOICE)
-            .count();
-        assert_eq!(spoken, 328);
-        let voices = crate::voices::voices(&exe).unwrap().voices;
-        assert_eq!(voices.len(), 322);
-        let voice = |creature| {
-            voices
-                .iter()
-                .find(|v| v.creature == creature)
-                .map(|v| (v.profiles.clone(), v.rolls, v.wait))
-        };
-        // The goblin warrior, a bear, the Seraphim and the thief.
-        assert_eq!(voice(76), Some((vec![2031], [4, 4, 4, 1], 5.0)));
-        assert_eq!(voice(536), Some((vec![2009], [2, 2, 2, 1], 1.0)));
-        assert_eq!(voice(1), Some((vec![1008, 1009], [4, 4, 4, 1], 10.0)));
-        assert_eq!(voice(313), Some((vec![2023], [7, 5, 5, 1], 10.0)));
-        // A rabbit has none.
-        assert_eq!(voice(516), None);
+        assert_eq!(
+            opensacred_formats::voices::cases(&exe).unwrap(),
+            crate::voices::cases()
+        );
+        assert_eq!(
+            opensacred_formats::portraits::creature_images(&exe).unwrap(),
+            (crate::portraits::DEFAULT, crate::portraits::images())
+        );
     }
 
     /// The arts' texts are `global.res` ids: every name and short description is a string of

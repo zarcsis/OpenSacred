@@ -1,9 +1,9 @@
 //! The creatures' voices (docs/re/sound.md, "The fight's sounds"): `Sacred.exe`'s byte table at
 //! `0x68BBD0` gives each creature type the case of the voice function `0x6852B0` that speaks for
-//! it, and [`CASES`] says what each of the 118 cases does, as read off the code and checked in the
-//! running original (#710), → `tables/voices.ron` ([`opensacred_data::tables::Voices`]).
+//! it, which [`CASE_TYPES`] carries (#1489), and [`CASES`] says what each of the 118 cases does,
+//! as read off the code and checked in the running original (#710), → `tables/voices.ron`
+//! ([`opensacred_data::tables::Voices`]).
 
-use anyhow::{Context, Result};
 use opensacred_data::tables::{Voice, Voices};
 use opensacred_formats::voices::{self, CASE_COUNT};
 
@@ -168,13 +168,154 @@ pub const CASES: [Case; CASE_COUNT as usize] = [
     Case::NONE, // 0x75 at 0x68b7a5
 ];
 
-/// The voices of the types 1 to 714 by the byte table of `Sacred.exe`, which must be the
-/// manifest's: it is read at the address of that build. A type of a case without a voice has
-/// none.
-pub fn voices(exe: &[u8]) -> Result<Voices> {
-    let cases = voices::cases(exe).context("Sacred.exe: the voices' cases")?;
+/// The types, in ranges, that take each case of `0x6852B0`, by the case's index: the byte
+/// table at `0x68BBD0` of the GOG build (docs/02 §6.6), which the converter carries, as the
+/// Steam build encrypts the code that holds it (#1489); the types of 1 to 714 left out take
+/// `0x75`, no voice.
+#[rustfmt::skip]
+pub const CASE_TYPES: [&[(u16, u16)]; CASE_COUNT as usize] = [
+    &[(1, 1)], // 0x00
+    &[(2, 2)], // 0x01
+    &[(3, 3)], // 0x02
+    &[(4, 4)], // 0x03
+    &[(5, 5)], // 0x04
+    &[(6, 7)], // 0x05
+    &[(8, 8)], // 0x06
+    &[(9, 9)], // 0x07
+    &[(32, 32), (48, 48), (80, 81), (112, 117), (355, 355), (708, 710), (713, 714)], // 0x08
+    &[(33, 33), (204, 204), (350, 350), (711, 712)], // 0x09
+    &[(34, 34), (119, 123)], // 0x0a
+    &[(36, 36), (50, 50), (73, 73), (124, 124)], // 0x0b
+    &[(37, 37), (84, 84)], // 0x0c
+    &[(38, 38)], // 0x0d
+    &[(39, 39)], // 0x0e
+    &[(40, 40)], // 0x0f
+    &[(41, 43)], // 0x10
+    &[(44, 44), (64, 66)], // 0x11
+    &[(45, 45), (60, 62), (68, 68), (89, 92), (202, 202), (344, 344), (359, 359)], // 0x12
+    &[(46, 46), (63, 63), (125, 126), (130, 130), (597, 598), (706, 706)], // 0x13
+    &[(47, 47), (70, 70), (93, 93), (95, 95), (106, 107)], // 0x14
+    &[(49, 49), (51, 51), (137, 137), (360, 360)], // 0x15
+    &[(52, 52), (74, 74), (88, 88), (100, 103)], // 0x16
+    &[(53, 53)], // 0x17
+    &[(54, 54), (57, 59), (96, 98)], // 0x18
+    &[(55, 55), (237, 237)], // 0x19
+    &[(56, 56)], // 0x1a
+    &[(67, 67)], // 0x1b
+    &[(71, 71), (75, 75), (99, 99), (109, 109), (234, 236)], // 0x1c
+    &[(76, 76), (118, 118), (127, 129)], // 0x1d
+    &[(77, 77)], // 0x1e
+    &[(83, 83)], // 0x1f
+    &[(85, 86)], // 0x20
+    &[(87, 87)], // 0x21
+    &[(105, 105), (108, 108), (134, 134), (321, 321)], // 0x22
+    &[(133, 133), (140, 140), (146, 146), (326, 327)], // 0x23
+    &[(136, 136)], // 0x24
+    &[(141, 141), (258, 258), (262, 262)], // 0x25
+    &[(142, 142)], // 0x26
+    &[(143, 143)], // 0x27
+    &[(144, 144)], // 0x28
+    &[(145, 145)], // 0x29
+    &[(171, 172), (214, 214), (313, 313)], // 0x2a
+    &[(173, 174), (215, 215), (272, 272)], // 0x2b
+    &[(175, 175), (273, 273)], // 0x2c
+    &[(176, 176), (259, 259)], // 0x2d
+    &[(177, 177), (304, 304)], // 0x2e
+    &[(178, 181)], // 0x2f
+    &[(182, 182)], // 0x30
+    &[(183, 183)], // 0x31
+    &[(184, 184), (249, 249)], // 0x32
+    &[(185, 185)], // 0x33
+    &[(186, 186), (333, 333)], // 0x34
+    &[(187, 187), (205, 208), (253, 254), (331, 331)], // 0x35
+    &[(188, 188), (245, 245)], // 0x36
+    &[(189, 189), (334, 334)], // 0x37
+    &[(190, 190), (335, 336)], // 0x38
+    &[(191, 191), (353, 354), (358, 358)], // 0x39
+    &[(192, 192), (329, 329), (342, 343)], // 0x3a
+    &[(193, 193)], // 0x3b
+    &[(194, 194), (246, 246)], // 0x3c
+    &[(195, 195), (198, 198), (247, 248), (345, 345)], // 0x3d
+    &[(196, 196), (337, 338)], // 0x3e
+    &[(197, 197), (339, 340)], // 0x3f
+    &[(199, 201)], // 0x40
+    &[(203, 203), (351, 352)], // 0x41
+    &[(209, 209), (347, 348)], // 0x42
+    &[(210, 210), (346, 346)], // 0x43
+    &[(211, 212), (349, 349)], // 0x44
+    &[(213, 213), (341, 341)], // 0x45
+    &[(216, 216), (263, 264)], // 0x46
+    &[(217, 217), (265, 266)], // 0x47
+    &[(218, 219), (693, 693)], // 0x48
+    &[(222, 222)], // 0x49
+    &[(223, 223), (328, 328), (364, 364)], // 0x4a
+    &[(224, 224)], // 0x4b
+    &[(238, 238), (319, 320)], // 0x4c
+    &[(250, 250)], // 0x4d
+    &[(251, 251)], // 0x4e
+    &[(252, 252)], // 0x4f
+    &[(257, 257), (274, 277)], // 0x50
+    &[(260, 260)], // 0x51
+    &[(267, 268)], // 0x52
+    &[(269, 271)], // 0x53
+    &[(278, 282)], // 0x54
+    &[(283, 288)], // 0x55
+    &[(289, 293)], // 0x56
+    &[(294, 296)], // 0x57
+    &[(297, 297)], // 0x58
+    &[(298, 298)], // 0x59
+    &[(299, 303)], // 0x5a
+    &[(305, 305)], // 0x5b
+    &[(306, 306), (314, 314)], // 0x5c
+    &[(307, 307)], // 0x5d
+    &[(308, 308)], // 0x5e
+    &[(309, 309)], // 0x5f
+    &[(311, 311)], // 0x60
+    &[(312, 312)], // 0x61
+    &[(322, 322)], // 0x62
+    &[(323, 323)], // 0x63
+    &[(324, 324)], // 0x64
+    &[(356, 357)], // 0x65
+    &[(361, 361)], // 0x66
+    &[(362, 362)], // 0x67
+    &[(363, 363)], // 0x68
+    &[(365, 365)], // 0x69
+    &[(366, 366)], // 0x6a
+    &[(367, 367)], // 0x6b
+    &[(368, 368)], // 0x6c
+    &[(512, 512), (567, 571), (573, 588), (599, 599)], // 0x6d
+    &[(536, 538), (591, 591), (600, 600)], // 0x6e
+    &[(543, 543), (545, 545)], // 0x6f
+    &[(677, 679)], // 0x70
+    &[(689, 690)], // 0x71
+    &[(697, 697)], // 0x72
+    &[(699, 699)], // 0x73
+    &[(700, 700)], // 0x74
+    &[], // 0x75
+];
+
+/// The byte table that [`CASE_TYPES`] makes, as `Sacred.exe` holds it at `0x68BBD0`: each type's
+/// case, the type 1's first, `0x75` for the types that take none.
+pub fn cases() -> Vec<u8> {
+    let mut cases = vec![voices::NO_VOICE; voices::TYPES];
+    for (case, ranges) in (0u8..).zip(CASE_TYPES) {
+        for creature in ranges.iter().flat_map(|&(first, last)| first..=last) {
+            if let Some(slot) = usize::from(creature)
+                .checked_sub(1)
+                .and_then(|index| cases.get_mut(index))
+            {
+                *slot = case;
+            }
+        }
+    }
+    cases
+}
+
+/// The voices of the types 1 to 714 by [`CASE_TYPES`] and [`CASES`]. A type of a case without a
+/// voice has none.
+pub fn voices() -> Voices {
     let mut voices = Vec::new();
-    for (creature, &case) in (1u16..).zip(&cases) {
+    for (creature, &case) in (1u16..).zip(&cases()) {
         let case = CASES[usize::from(case)];
         if case.profiles.is_empty() {
             continue;
@@ -188,12 +329,38 @@ pub fn voices(exe: &[u8]) -> Result<Voices> {
             faints: case.faints.to_vec(),
         });
     }
-    Ok(Voices { voices })
+    Voices { voices }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 328 types have a case, six of them one without a voice, and the start's creatures speak
+    /// as docs/re/sound.md reads (#710).
+    #[test]
+    fn the_creatures_speak_by_their_cases() {
+        let spoken = cases()
+            .iter()
+            .filter(|&&case| case != voices::NO_VOICE)
+            .count();
+        assert_eq!(spoken, 328);
+        let voices = voices().voices;
+        assert_eq!(voices.len(), 322);
+        let voice = |creature| {
+            voices
+                .iter()
+                .find(|v| v.creature == creature)
+                .map(|v| (v.profiles.clone(), v.rolls, v.wait))
+        };
+        // The goblin warrior, a bear, the Seraphim and the thief.
+        assert_eq!(voice(76), Some((vec![2031], [4, 4, 4, 1], 5.0)));
+        assert_eq!(voice(536), Some((vec![2009], [2, 2, 2, 1], 1.0)));
+        assert_eq!(voice(1), Some((vec![1008, 1009], [4, 4, 4, 1], 10.0)));
+        assert_eq!(voice(313), Some((vec![2023], [7, 5, 5, 1], 10.0)));
+        // A rabbit has none.
+        assert_eq!(voice(516), None);
+    }
 
     #[test]
     fn the_cases_without_a_voice_are_the_profile_0s_and_0x75() {
