@@ -74,6 +74,8 @@ bevy_kira_audio = { version = "0.27.1", default-features = false, features = ["o
 clap = { version = "4.6.7", features = ["derive"] }
 crc32fast = "1.5.2"
 fluent-syntax = "0.12.0"
+# The free space of the disk that the player's conversion writes to (#1497).
+fs4 = "1.1.0"
 # The BC7 encoder of the converter's textures (#700): Intel's ISPC Texture Compressor, its
 # kernels prebuilt for Windows, Linux and macOS, so that no ISPC is needed.
 intel_tex_2 = "0.5.0"

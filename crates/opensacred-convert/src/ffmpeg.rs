@@ -1,4 +1,5 @@
-//! FFmpeg as an external program (`FFMPEG`, else `ffmpeg` from `PATH`; docs/03): it decodes the
+//! FFmpeg as an external program (the one beside the converter, else `FFMPEG`, else `ffmpeg` from
+//! `PATH`; docs/03): it decodes the
 //! VTex textures and encodes the samples, so no codec code enters the converter.
 
 use std::io::Write;
@@ -6,9 +7,14 @@ use std::process::{Command, Output, Stdio};
 
 use anyhow::{Context, Result, anyhow, bail};
 
-/// The program to run.
+/// The program to run: the FFmpeg beside the converter, as a release carries it (#1497), else
+/// `FFMPEG`, else `ffmpeg` from `PATH`.
 fn program() -> String {
-    std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned())
+    let beside = std::env::current_exe().ok().and_then(|exe| {
+        let path = exe.with_file_name(format!("ffmpeg{}", std::env::consts::EXE_SUFFIX));
+        path.is_file().then(|| path.to_string_lossy().into_owned())
+    });
+    beside.unwrap_or_else(|| std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned()))
 }
 
 /// FFmpeg's command, without a console window of its own on Windows: run from a converter that

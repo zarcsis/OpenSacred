@@ -4,6 +4,7 @@
 //! The game reads only these types and never the original files.
 
 pub mod archive;
+pub mod converted;
 pub mod heroes;
 pub mod luau;
 pub mod netscript;

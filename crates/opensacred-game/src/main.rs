@@ -206,9 +206,8 @@ fn task_pools() -> TaskPoolOptions {
 /// player (#1495).
 fn default_assets() -> PathBuf {
     let packaged = cfg!(feature = "packaged")
-        .then(settings::data_dir)
-        .flatten()
-        .map(|dir| dir.join("assets"));
+        .then(opensacred_data::converted::assets_dir)
+        .flatten();
     packaged.unwrap_or_else(|| PathBuf::from("assets"))
 }
 
