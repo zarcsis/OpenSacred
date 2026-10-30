@@ -25,6 +25,9 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
+
 [dev-dependencies]
 bcdec_rs.workspace = true
 fluent-syntax.workspace = true

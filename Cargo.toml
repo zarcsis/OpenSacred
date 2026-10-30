@@ -109,6 +109,9 @@ thiserror = "2.0.21"
 toml_edit = { version = "0.25.17", features = ["serde"] }
 # The emulator of opensacred-oracle alone (GPL-2.0, docs/04 §2.3), the 32-bit x86 of Sacred.exe.
 unicorn-engine = { version = "2.1.5", default-features = false, features = ["arch_x86"] }
+# The converter's search for the player's installation in the registry on Windows (#1496), on the
+# windows-sys that the tree already holds.
+winreg = "0.56.0"
 # The KTX2 textures' supercompression (#700), on the C library (`zstd-sys`) that Bevy's `zstd_c`
 # already builds; Bevy 0.20 binds it through zstd 0.13, so both versions of the binding stay in
 # the tree until Bevy moves (#826).

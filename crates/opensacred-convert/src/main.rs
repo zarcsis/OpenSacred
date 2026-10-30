@@ -14,6 +14,7 @@ mod idle_noises;
 mod item_names;
 mod item_patches;
 mod ktx;
+mod locate;
 mod luau;
 mod manifest;
 mod model_repairs;
@@ -87,6 +88,14 @@ enum Command {
     },
     /// Show what becomes of every file of the reference installation
     Coverage,
+    /// Find the player's installation of Sacred Gold 2.28, GOG's by the registry, Steam's by its
+    /// libraries, and check each place against the manifests: the first that passes is the
+    /// installation
+    Locate {
+        /// Print what was found as JSON, for the game
+        #[arg(long)]
+        json: bool,
+    },
     /// Check the installation against the embedded SHA-256 manifest
     Verify {
         /// Game installation directory
@@ -219,6 +228,25 @@ fn parse_position(text: &str) -> Result<(u32, u32), String> {
 }
 
 impl Command {
+    /// The installation directory of a command that reads one.
+    fn game_dir_mut(&mut self) -> Option<&mut PathBuf> {
+        match self {
+            Command::All { game_dir, .. }
+            | Command::Verify { game_dir }
+            | Command::Textures { game_dir, .. }
+            | Command::Models { game_dir, .. }
+            | Command::World { game_dir, .. }
+            | Command::Sound { game_dir, .. }
+            | Command::Text { game_dir, .. }
+            | Command::Video { game_dir, .. }
+            | Command::Ui { game_dir, .. }
+            | Command::Netscript { game_dir, .. }
+            | Command::Tables { game_dir, .. }
+            | Command::Heroes { game_dir, .. } => Some(game_dir),
+            Command::Build { .. } | Command::Coverage | Command::Locate { .. } => None,
+        }
+    }
+
     /// The manifest a run records: the installation, the output directory, the command's name,
     /// and whether the run writes all of its outputs.
     fn manifest(&self) -> Option<(&PathBuf, &PathBuf, &'static str, bool)> {
@@ -252,13 +280,27 @@ impl Command {
             Command::All { .. }
             | Command::Build { .. }
             | Command::Coverage
+            | Command::Locate { .. }
             | Command::Verify { .. } => return None,
         })
     }
 }
 
 fn main() -> Result<ExitCode> {
-    match Cli::parse().command {
+    let mut command = Cli::parse().command;
+    // Without `--game-dir` and `OriginalGame/`, the player's installation (#1496).
+    if let Some(game_dir) = command.game_dir_mut() {
+        let (dir, found) = locate::resolve(std::mem::take(game_dir));
+        if let Some(place) = found {
+            println!(
+                "the {} installation in {}",
+                place.release.name(),
+                dir.display()
+            );
+        }
+        *game_dir = dir;
+    }
+    match command {
         Command::All {
             game_dir,
             assets_src,
@@ -407,6 +449,7 @@ fn execute(command: Command) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Locate { json } => locate_command(json),
         Command::Verify { game_dir } => {
             let manifest = verify::parse_manifest(verify::GOG_MANIFEST)?;
             let steam = verify::parse_manifest(verify::STEAM_MANIFEST)?;
@@ -674,4 +717,69 @@ fn execute(command: Command) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// What `locate` found at a place: the release, the directory, and the files that do not match
+/// the manifests, none for a place not checked.
+#[derive(serde::Serialize)]
+struct Located {
+    release: locate::Release,
+    dir: PathBuf,
+    checked: bool,
+    problems: Vec<String>,
+}
+
+/// `locate`: each place found checked against the manifests until one passes, which is the
+/// installation; with `json`, `{"installation": dir or null, "places": [...]}` on stdout.
+fn locate_command(json: bool) -> Result<ExitCode> {
+    let manifest = verify::parse_manifest(verify::GOG_MANIFEST)?;
+    let steam = verify::parse_manifest(verify::STEAM_MANIFEST)?;
+    let mut found = None;
+    let mut located = Vec::new();
+    for place in locate::places() {
+        let checked = found.is_none();
+        let problems = if checked {
+            verify::verify(&place.dir, &manifest, &steam)?
+                .problems
+                .iter()
+                .map(|(path, problem)| format!("{path}: {problem}"))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if checked && problems.is_empty() {
+            found = Some(place.dir.clone());
+        }
+        located.push(Located {
+            release: place.release,
+            dir: place.dir,
+            checked,
+            problems,
+        });
+    }
+    if json {
+        let report = serde_json::json!({ "installation": found, "places": located });
+        println!("{report}");
+    } else {
+        for place in &located {
+            let state = match (place.checked, place.problems.len()) {
+                (false, _) => "not checked".to_owned(),
+                (true, 0) => "matches the manifests".to_owned(),
+                (true, n) => format!(
+                    "{n} files missing or changed, such as {}",
+                    place.problems[0]
+                ),
+            };
+            println!("{} {}: {state}", place.release.name(), place.dir.display());
+        }
+        match &found {
+            Some(dir) => println!("installation: {}", dir.display()),
+            None => println!("no installation of Sacred Gold 2.28 found"),
+        }
+    }
+    Ok(if found.is_some() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }
