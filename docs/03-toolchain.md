@@ -298,6 +298,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   A pull request is based on another only when it cannot be written from `main`, and at most two deep; otherwise Claude Code takes other work from `main`, or waits.
   Once the base is squash-merged, its children still carry its own commits, and where they changed its lines Git sees two versions of them; `tools/stack/stack.py after <N>` merges `main` into each child with the newest of its base's commits that it holds as the merge base, so that the child keeps its changes and gains only what `main` got beyond its base, and pushes the merge.
   When two or more pull requests wait, `tools/stack/stack.py integrate --check` merges them all into a local branch `integration`, a stacked one after its base, with fmt, clippy and the tests: the order of merging and the conflicts are written into the pull requests, and the conflicts resolved on their branches, before the maintainer merges.
+  The check builds in a temporary worktree into `target/integration/`, apart from the checkout's own build, whose tests would otherwise run the binaries built for the deleted tree (#1502).
 * **Versions.**
   Since 2026-10-17 the version follows the merged pull requests.
   On every push to `main`, the Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.

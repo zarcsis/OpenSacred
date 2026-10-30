@@ -151,10 +151,19 @@ def after(args):
         print(f'no open pull request holds commits of #{parent["number"]}\'s branch')
 
 
+def integration_target(environ):
+    """The target directory of the integration's check: `integration/` in the checkout's own.
+
+    Not the checkout's own: the test binaries bake their tree's `CARGO_MANIFEST_DIR` into the paths
+    of the game files, and cargo would take those built for the temporary tree as fresh for the
+    checkout's sources when they are the same, their tests then looking for the deleted tree
+    (#1502)."""
+    return Path(environ.get('CARGO_TARGET_DIR', str(ROOT / 'target'))) / 'integration'
+
+
 def check(git, branch):
     """fmt, clippy and the tests (without the game files) on `branch`, in a temporary worktree."""
-    target = os.environ.get('CARGO_TARGET_DIR', str(ROOT / 'target'))
-    env = {**os.environ, 'CARGO_TARGET_DIR': target}
+    env = {**os.environ, 'CARGO_TARGET_DIR': str(integration_target(os.environ))}
     with tempfile.TemporaryDirectory(prefix='opensacred-integration-') as tmp:
         tree = Path(tmp) / 'tree'
         git.run('worktree', 'add', '--quiet', '--detach', str(tree), branch)
