@@ -24,8 +24,11 @@
 //! point the compass's outer pin's target (`compass`); a right press on the mark takes it
 //! away, elsewhere it ends the mode; the edges do not scroll and the lens does not show in it.
 //!
-//! Not followed yet: the places' names, the people's icons, the portals, the frontier of the land
-//! walked and the pacified areas (#1567); the lens's creatures and party (#1571), its places and
+//! Under the hero and the quests (#1567): the people's icons of `bin/merc.bin` in the areas whose
+//! region has run its init, the portals of the sectors visited, the frontier of the land walked,
+//! red dots toward the sectors entered, and the pacified areas.
+//!
+//! Not followed yet: the places' names (#1577); the lens's creatures and party (#1571), its places and
 //! pin, and its titles' layout apart; the buttons' pressed looks and tooltips, and the edges'
 //! cursors.
 
@@ -144,6 +147,185 @@ impl Map {
 pub(crate) const PUSHPIN: &str = "mouse_pushpin";
 const PIN_MARK: f32 = 64.0;
 const PIN_SPOT: f32 = 16.0;
+
+/// The portals (`0x6C8A40`, `EE_USEPORTAL`'s cells 0 to 12), each shown once its sector has been
+/// visited, the image 125 32 × 32 about its cell's pixel.
+const PORTALS: [(i32, i32); 13] = [
+    (3357, 2459),
+    (2642, 3057),
+    (1343, 2239),
+    (2383, 4160),
+    (1393, 2832),
+    (1860, 3496),
+    (3500, 3590),
+    (2455, 2010),
+    (1395, 1508),
+    (3132, 2220),
+    (3291, 1397),
+    (4062, 2508),
+    (4625, 2489),
+];
+const PORTAL: u32 = 125;
+const ICON: f32 = 32.0;
+/// The people's icons (`0x49A350`, `bin/merc.bin`'s places, `0x46F9B0`): by the kind the trader's,
+/// the smith's, the combat master's and the horse trader's cursor pictures, each whole in a quad
+/// of 32 × 32 about its cell's pixel (the picture, the texture's top left quarter, at half its
+/// size), shown once its area's region has run its init.
+pub(crate) const PEOPLE: [&str; 4] = [
+    "mouse_trader",
+    "mouse_blacksmith",
+    "mouse_combo",
+    "mouse_horsetrader",
+];
+/// The pacified areas (`0x6C9330`): each area pacified that has a place (`0xAD6F38`, the cells
+/// `0x61DC20` writes), the image 364 32 × 32 about its cell's pixel.
+const PACIFIED: [(u8, (i32, i32)); 26] = [
+    (1, (3387, 2555)),
+    (2, (2962, 2869)),
+    (3, (2588, 3167)),
+    (4, (2163, 3114)),
+    (5, (2071, 3564)),
+    (6, (1841, 3520)),
+    (7, (1854, 3037)),
+    (8, (1364, 2773)),
+    (9, (1507, 2248)),
+    (10, (1826, 2421)),
+    (12, (2491, 2272)),
+    (13, (2665, 2043)),
+    (14, (2463, 2026)),
+    (15, (2710, 2570)),
+    (16, (3156, 2325)),
+    (17, (3047, 2163)),
+    (18, (2784, 1711)),
+    (19, (3481, 1525)),
+    (20, (3945, 1733)),
+    (21, (3727, 2228)),
+    (22, (4254, 2001)),
+    (23, (4151, 2575)),
+    (24, (3520, 3514)),
+    (25, (1937, 4091)),
+    (110, (2162, 2528)),
+    (111, (1723, 2072)),
+];
+const PACIFIED_IMAGE: u32 = 364;
+
+/// The frontier of the land walked (`0x6C8800`): a red square of 2 × 2 for each entered neighbour
+/// of a sector not entered, about the sector's corner's pixel 20 lower, toward the neighbour.
+const FRONTIER_DOWN: f32 = 20.0;
+const FRONTIER_TOWARD: [Vec2; 8] = [
+    Vec2::new(0.0, -20.0),
+    Vec2::new(10.0, -10.0),
+    Vec2::new(20.0, 0.0),
+    Vec2::new(-10.0, -10.0),
+    Vec2::new(10.0, 10.0),
+    Vec2::new(-20.0, 0.0),
+    Vec2::new(-10.0, 10.0),
+    Vec2::new(0.0, 20.0),
+];
+const FRONTIER_DOT: f32 = 2.0;
+const FRONTIER_RED: u32 = 0xFFFF_0000;
+
+/// A dot of the frontier.
+#[derive(Component)]
+struct FrontierDot;
+
+/// The frontier's dots' places on the map (`0x6C8800`), of the sectors and their bits.
+fn frontier_dots(frontier: &[((u16, u16), u8)]) -> Vec<Vec2> {
+    frontier
+        .iter()
+        .flat_map(|&((x, y), bits)| {
+            let corner = crate::paths::centre((i32::from(x) * 64, i32::from(y) * 64));
+            let base = pixel(corner) + Vec2::new(0.0, FRONTIER_DOWN);
+            (0..8)
+                .filter(move |k| bits & (1 << k) != 0)
+                .map(move |k| base + FRONTIER_TOWARD[k])
+        })
+        .collect()
+}
+
+/// The middle of the cell `cell` on the map.
+fn cell_pixel(cell: (i32, i32)) -> Vec2 {
+    pixel(crate::paths::centre(cell))
+}
+
+/// Lays the map's layers on it as it shows, in the original's order: the people's icons and the
+/// portals (`0x6C8A40`), the frontier's dots (`0x6C8800`) and the pacified areas (`0x6C9330`).
+fn show_layers(
+    mut commands: Commands,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    sectors: Res<crate::explored::MapSectors>,
+    streamer: Option<Res<crate::sectors::Streamer>>,
+    live: Option<NonSend<crate::scripts::Live>>,
+    data: Option<Res<crate::game::Data>>,
+    scrolled: Query<Entity, Added<Scrolled>>,
+) {
+    let Ok(container) = scrolled.single() else {
+        return;
+    };
+    let icon = |commands: &mut Commands, image: ImageNode, at: Vec2| {
+        let child = commands
+            .spawn((
+                image,
+                bar::placed(at - Vec2::splat(ICON / 2.0), Vec2::splat(ICON)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(container).add_child(child);
+    };
+    let area = |cell: (i32, i32)| {
+        let sector = (
+            u32::try_from(cell.0.div_euclid(64)).ok()?,
+            u32::try_from(cell.1.div_euclid(64)).ok()?,
+        );
+        streamer.as_deref()?.area(sector)
+    };
+    let people = data
+        .as_deref()
+        .and_then(|data| data.0.tables.mercenaries().ok())
+        .unwrap_or_default();
+    for person in people {
+        let (Ok(x), Ok(y)) = (i32::try_from(person.x), i32::try_from(person.y)) else {
+            continue;
+        };
+        let ran = area((x, y))
+            .is_some_and(|area| live.as_deref().is_some_and(|live| live.region_ran(area)));
+        let file = usize::try_from(person.kind)
+            .ok()
+            .and_then(|kind| PEOPLE.get(kind))
+            .and_then(|name| images.file(name));
+        if let (true, Some(file)) = (ran, file) {
+            let image = ImageNode::new(crate::hud::image(&assets, file.to_owned()));
+            icon(&mut commands, image, cell_pixel((x, y)));
+        }
+    }
+    for cell in PORTALS {
+        let sector = (
+            u16::try_from(cell.0 / 64).unwrap_or(u16::MAX),
+            u16::try_from(cell.1 / 64).unwrap_or(u16::MAX),
+        );
+        if sectors.entered(sector) {
+            let (image, _) = bar::piece(&images, &assets, PORTAL, Vec2::ZERO, Vec2::ZERO);
+            icon(&mut commands, image, cell_pixel(cell));
+        }
+    }
+    for at in frontier_dots(&sectors.frontier()) {
+        let dot = commands
+            .spawn((
+                FrontierDot,
+                bar::placed(at, Vec2::splat(FRONTIER_DOT)),
+                BackgroundColor(argb(FRONTIER_RED)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(container).add_child(dot);
+    }
+    for (area, cell) in PACIFIED {
+        if live.as_deref().is_some_and(|live| live.pacified(area)) {
+            let (image, _) = bar::piece(&images, &assets, PACIFIED_IMAGE, Vec2::ZERO, Vec2::ZERO);
+            icon(&mut commands, image, cell_pixel(cell));
+        }
+    }
+}
 
 /// The pin's mark on the map.
 #[derive(Component)]
@@ -754,6 +936,8 @@ fn show(
         .spawn((
             Cross,
             bar::placed(Vec2::ZERO, Vec2::splat(CROSS)),
+            // The hero and the quests over the frontier's dots (`0x6C9520` after `0x6C8800`).
+            ZIndex(1),
             Pickable::IGNORE,
         ))
         .id();
@@ -909,7 +1093,13 @@ fn follow(
                 picture.color = argb(colour);
                 picture.image_mode = NodeImageMode::Stretch;
                 let child = commands
-                    .spawn((QuestIcon(entry.quest), picture, node, Pickable::IGNORE))
+                    .spawn((
+                        QuestIcon(entry.quest),
+                        picture,
+                        node,
+                        ZIndex(1),
+                        Pickable::IGNORE,
+                    ))
                     .id();
                 commands.entity(container).add_child(child);
             }
@@ -1050,7 +1240,15 @@ impl Plugin for WorldMapPlugin {
             .add_systems(
                 Update,
                 (
-                    place_pin, scroll, show, follow, show_pin, tooltip, hold_lens, show_lens,
+                    place_pin,
+                    scroll,
+                    show,
+                    show_layers,
+                    follow,
+                    show_pin,
+                    tooltip,
+                    hold_lens,
+                    show_lens,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),

@@ -189,9 +189,114 @@ impl Explored {
     }
 }
 
+/// The frontier's grid's sectors along each side (the world's `+0xB73C`, 100 × 100).
+const GRID: i32 = 100;
+/// A sector's eight neighbours in the frontier's order, (x, y) offsets: the row above from the
+/// left, the row's two, the row below (`0x6333F0`).
+pub const NEIGHBOURS: [(i32, i32); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
+
+/// The sectors that the world map's layers follow (the sector's `+0x30`): seen (`0x400`), set on
+/// the sector the hero enters and its eight neighbours (`0x6263B0`), and entered (`0x20000`, and
+/// visited, `0x1000`, which the same entry sets), set on the sector it enters.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sectors {
+    seen: std::collections::BTreeSet<(u16, u16)>,
+    entered: std::collections::BTreeSet<(u16, u16)>,
+}
+
+impl Sectors {
+    /// The hero entering the sector `sector`.
+    pub fn enter(&mut self, sector: (u16, u16)) {
+        self.entered.insert(sector);
+        let (x, y) = (i32::from(sector.0), i32::from(sector.1));
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if let (Ok(x), Ok(y)) = (u16::try_from(x + dx), u16::try_from(y + dy)) {
+                    self.seen.insert((x, y));
+                }
+            }
+        }
+    }
+
+    /// Whether the sector `sector` has been seen.
+    pub fn seen(&self, sector: (u16, u16)) -> bool {
+        self.seen.contains(&sector)
+    }
+
+    /// Whether the sector `sector` has been entered.
+    pub fn entered(&self, sector: (u16, u16)) -> bool {
+        self.entered.contains(&sector)
+    }
+
+    /// The frontier of the land walked (`0x6331D0`, `0x6333F0`): each sector not entered beside
+    /// one entered, its row from 1 and its column from 0 below 100, and the bits of its entered
+    /// neighbours in [`NEIGHBOURS`]' order.
+    pub fn frontier(&self) -> Vec<((u16, u16), u8)> {
+        let mut sectors = std::collections::BTreeSet::new();
+        for &(x, y) in &self.entered {
+            for (dx, dy) in NEIGHBOURS {
+                let (nx, ny) = (i32::from(x) + dx, i32::from(y) + dy);
+                if (0..GRID).contains(&nx) && (1..GRID).contains(&ny) {
+                    sectors.insert((nx, ny));
+                }
+            }
+        }
+        sectors
+            .into_iter()
+            .filter_map(|(x, y)| {
+                let sector = (u16::try_from(x).ok()?, u16::try_from(y).ok()?);
+                if self.entered(sector) {
+                    return None;
+                }
+                let bits = NEIGHBOURS
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &(dx, dy))| {
+                        let (nx, ny) = (x + dx, y + dy);
+                        u16::try_from(nx)
+                            .ok()
+                            .zip(u16::try_from(ny).ok())
+                            .is_some_and(|neighbour| self.entered(neighbour))
+                    })
+                    .fold(0_u8, |bits, (k, _)| bits | 1 << k);
+                Some((sector, bits))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sector_entered_is_seen_with_its_neighbours_and_its_frontier_points_at_it() {
+        let mut sectors = Sectors::default();
+        sectors.enter((50, 39));
+        assert!(sectors.entered((50, 39)) && !sectors.entered((51, 39)));
+        assert!(sectors.seen((49, 38)) && sectors.seen((51, 40)) && !sectors.seen((52, 39)));
+        let frontier = sectors.frontier();
+        assert_eq!(frontier.len(), 8);
+        // The sector right of it sees it as its neighbour on the left (the bit 3); the one below
+        // and right as its neighbour above and left (the bit 0).
+        assert!(frontier.contains(&((51, 39), 1 << 3)));
+        assert!(frontier.contains(&((51, 40), 1)));
+        // A second sector entered beside it: neither is on the frontier, the shared neighbours
+        // see both.
+        sectors.enter((51, 39));
+        let frontier = sectors.frontier();
+        assert!(!frontier.iter().any(|(sector, _)| *sector == (51, 39)));
+        assert!(frontier.contains(&((51, 40), 1 | 1 << 1)));
+    }
 
     #[test]
     fn the_stamps_cover_their_cells() {
