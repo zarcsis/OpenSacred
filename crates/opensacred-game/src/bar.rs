@@ -171,6 +171,7 @@ impl UiImages {
                 crate::spells_page::FLASH,
             ])
             .chain(crate::quest_book::BASES)
+            .chain([crate::quest_book::CIRCLE])
             .chain(tiles.iter().map(String::as_str))
             .chain([crate::world_map::PUSHPIN])
             .chain(crate::world_map::PEOPLE)

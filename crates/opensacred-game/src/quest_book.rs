@@ -24,8 +24,14 @@
 //! their own, each with the title, their arrows and their count. Texts are laid out and measured
 //! by Bevy, a hidden node each, for the pages' breaks.
 //!
-//! Not followed yet: the hero's, the information's and the statistics' books (#1565), the
-//! bar's button's pressed look, and the place of a compass on a creature taken where the
+//! The hero's book (#1565, `0x6B0E00`): the class's page, its text on the left and its picture
+//! on the right, under the class's bookmark; the skills; the combat arts and the magic, each
+//! with its icon over its text; the main quest's items over `GUI_BOOK_CIRCLE`. The
+//! information's book (`0x6B04B0`): the books and scrolls read, each in its record's chapter.
+//! Each tab keeps its own chapter, page and selected row.
+//!
+//! Not followed yet: the statistics' book (#1579), the item's model turning in the circle,
+//! the bar's button's pressed look, and the place of a compass on a creature taken where the
 //! creature stands as the book is built, not as the quest was entered.
 
 use std::collections::HashMap;
@@ -274,6 +280,11 @@ pub struct Book {
     shifts: [f32; CHAPTERS],
     entries: Vec<Entry>,
     places: Vec<Option<Vec2>>,
+    /// The hero's and the information's books' chapters as the last build made them (#1565).
+    others: [Vec<Chapter>; 2],
+    /// The chapter, the list's page, its rows' selection and the right page's page kept by each
+    /// book while another tab shows: each book keeps its own (`cUI_Book`).
+    kept: [(usize, usize, HashMap<usize, usize>, usize); TABS],
     /// Whether the book is to be built again from the log.
     stale: bool,
 }
@@ -297,11 +308,277 @@ impl Book {
     }
 }
 
+/// The hero's book's chapters' titles (`0x9E07CC`, the fifth written by its builder) and the
+/// information's.
+const OTHER_TITLES: [[Option<&str>; CHAPTERS]; 2] = [
+    [
+        None,
+        Some("9030"),
+        Some("9031"),
+        Some("9032"),
+        Some("9033"),
+        None,
+        None,
+    ],
+    [
+        Some("9021"),
+        Some("9020"),
+        Some("9022"),
+        Some("9023"),
+        Some("9024"),
+        None,
+        None,
+    ],
+];
+/// Their bookmarks and lit bookmarks (`0x9E0778`, `0x9E0794`), the hero's first by its class
+/// ([`class_mark`]).
+const OTHER_MARKS: [[(u32, u32); 5]; 2] = [
+    [
+        (0x4BD, 0x4C1),
+        (0x4B6, 0x4BB),
+        (0x4C8, 0x4CC),
+        (0x4C0, 0x4C4),
+        (0x4BC, 0x4AC),
+    ],
+    [
+        (0x4B2, 0x4B7),
+        (0x4B3, 0x4B8),
+        (0x4B4, 0x4B9),
+        (0x4B5, 0x4BA),
+        (0x4AB, 0x4B1),
+    ],
+];
+/// The Vampiress's night arts, which the hero's book leaves out (`0x4D1CC0`).
+const NIGHT_ARTS: [u16; 8] = [1023, 1025, 1027, 1029, 1038, 1039, 1040, 1041];
+/// The skills' names and long descriptions (texts 9399 + v and 9449 + v).
+const SKILL_NAMES: u32 = 9399;
+const SKILL_TEXTS: u32 = 9449;
+/// A main quest's item's circle (`GUI_BOOK_CIRCLE`), 290 × 290 from (556, 246), its text 32 a
+/// cell of the item's height and 16 below the text's top; an art's icon's text 8 below it; the
+/// class's picture's side.
+pub(crate) const CIRCLE: &str = "gui_book_circle";
+const CIRCLE_AT: Vec2 = Vec2::new(556.0, 246.0);
+const CIRCLE_SIDE: f32 = 290.0;
+const CIRCLE_CELL: f32 = 32.0;
+const CIRCLE_BELOW: f32 = 16.0;
+const ICON_BELOW: f32 = 8.0;
+const ICON_SIDE: f32 = 64.0;
+const CLASS_PICTURE: f32 = 256.0;
+/// The middle of the right page's pictures, across (the book's 492 + 128).
+const PICTURE_MIDDLE: f32 = 684.0;
+
+/// The picture of a leaf's right page (`0x6B1FF0`): none, an art's icon (an image) at its own size,
+/// the circle of a main quest's item of a height in cells (its model not followed), or the
+/// class's picture.
+#[derive(Clone, Debug, PartialEq)]
+enum Picture {
+    None,
+    Icon(u32),
+    Circle(u8),
+}
+
+/// A row of the hero's or the information's book and the item its right page shows: its title,
+/// its text and its picture.
+#[derive(Clone, Debug, PartialEq)]
+struct Leaf {
+    title: String,
+    text: String,
+    picture: Picture,
+}
+
+/// A chapter of the hero's or the information's book: its leaves, or a page of its own text with
+/// a picture, the class's.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Chapter {
+    leaves: Vec<Leaf>,
+    own: Option<(String, u32)>,
+}
+
+impl Chapter {
+    fn holds(&self) -> bool {
+        !self.leaves.is_empty() || self.own.is_some()
+    }
+}
+
+/// The hero's chapter 0's bookmark by its type (`0x6B3E20`).
+fn class_mark(creature: u32) -> (u32, u32) {
+    match creature {
+        2 => (0x4BF, 0x4C3),
+        3 => (0x4BE, 0x4C2),
+        4 => (0x4C6, 0x4CA),
+        5 => (0x4C7, 0x4CB),
+        6 | 7 => (0x4C5, 0x4C9),
+        8 => (0x4D0, 0x4D4),
+        9 => (0x4CF, 0x4D3),
+        _ => (0x4BD, 0x4C1),
+    }
+}
+
+/// The class's page of the hero's type: its text's index and its picture (`0x6B0E00`).
+fn class_page(creature: u32) -> (u32, u32) {
+    match creature {
+        1 => (1061, 0x5C7),
+        2 => (1060, 0x5C8),
+        3 => (1064, 0x5CB),
+        4 => (1062, 0x5C9),
+        5 => (1063, 0x5CA),
+        8 => (1067, 0x5CE),
+        9 => (1066, 0x5CD),
+        _ => (1065, 0x5CC),
+    }
+}
+
+/// Whether an art goes among the magic (`0x4D2AE0`): the spells but 51 and 55 to 59, and the
+/// weapon art 1019.
+fn magic(art: u16) -> bool {
+    if art < 1000 {
+        !(art == 51 || (55..=59).contains(&art))
+    } else {
+        art == 1019
+    }
+}
+
+/// The text of the index `index` of `global.res`.
+fn indexed(texts: Option<&Texts>, index: u32) -> String {
+    texts
+        .and_then(|texts| texts.named(&index.to_string()))
+        .map(crate::talk::shown_text)
+        .unwrap_or_default()
+}
+
+/// What the hero's and the information's books read of the hero.
+struct Reader<'a> {
+    creature: u32,
+    arts: Option<&'a crate::arts::HeroArts>,
+    quest_items: &'a [(u32, String)],
+    books: &'a [u32],
+}
+
+/// The hero's book (`0x6B0E00`) and the information's (`0x6B04B0`), their chapters as the hero
+/// stands: the class's page, the skills, the combat arts and the magic, the main quest's items;
+/// the books and scrolls read, each in the chapter of its record.
+fn other_books(
+    hero: &Reader<'_>,
+    (texts, items, drops): (
+        Option<&Texts>,
+        &[opensacred_data::tables::Item],
+        Option<&crate::drops::Tables>,
+    ),
+) -> [Vec<Chapter>; 2] {
+    let mut heros: Vec<Chapter> = vec![Chapter::default(); CHAPTERS];
+    let (text, picture) = class_page(hero.creature);
+    heros[0].own = Some((indexed(texts, text), picture));
+    if let Some(arts) = hero.arts {
+        for &(skill, _) in &arts.skills {
+            let skill = u32::from(skill);
+            heros[1].leaves.push(Leaf {
+                title: indexed(texts, SKILL_NAMES + skill),
+                text: indexed(texts, SKILL_TEXTS + skill),
+                picture: Picture::None,
+            });
+        }
+        let said_id = |id: u32| said(texts, id);
+        for weapon_pass in [true, false] {
+            for entry in &arts.arts.entries {
+                let weapon = entry.art >= 1000;
+                if weapon != weapon_pass || NIGHT_ARTS.contains(&entry.art) {
+                    continue;
+                }
+                let record = if weapon {
+                    arts.tables
+                        .weapon_arts
+                        .iter()
+                        .find(|art| art.id == entry.art)
+                        .map(|art| (art.name, art.description, art.sprites[0]))
+                } else {
+                    arts.tables
+                        .spells
+                        .iter()
+                        .find(|spell| spell.id == entry.art)
+                        .map(|spell| (spell.name, spell.description, spell.sprites[0]))
+                };
+                let Some((name, description, icon)) = record else {
+                    continue;
+                };
+                let chapter = if magic(entry.art) { 3 } else { 2 };
+                heros[chapter].leaves.push(Leaf {
+                    title: said_id(name),
+                    text: said_id(description),
+                    picture: Picture::Icon(icon),
+                });
+            }
+        }
+    }
+    let record = |item: u32| items.iter().find(|record| record.slot == item);
+    for (item, key) in hero.quest_items {
+        let cells = drops.map_or(1, |drops| drops.size(*item).1);
+        let leaf = if key.is_empty() || key == "0" || key == "-1" {
+            Leaf {
+                title: texts
+                    .and_then(|texts| texts.named(&item.to_string()))
+                    .unwrap_or_default()
+                    .to_owned(),
+                text: record(*item)
+                    .map_or_else(String::new, |record| indexed(texts, record.words_14[2])),
+                picture: Picture::Circle(cells),
+            }
+        } else {
+            Leaf {
+                title: texts
+                    .and_then(|texts| texts.named(crate::talk::resource(key)))
+                    .map(crate::talk::shown_text)
+                    .unwrap_or_default(),
+                text: String::new(),
+                picture: Picture::Circle(cells),
+            }
+        };
+        heros[4].leaves.push(leaf);
+    }
+    let mut infos: Vec<Chapter> = vec![Chapter::default(); CHAPTERS];
+    for &book in hero.books {
+        let Some(record) = record(book) else {
+            continue;
+        };
+        // The title's index (`+0x1C`), the text the next, the chapter `+0x62` (`0x43AEB0`).
+        let title = record.words_14[2];
+        let chapter = usize::try_from((record.words_58[2] >> 16) & 0xFF).unwrap_or(CHAPTERS);
+        if title == 0 || chapter >= CHAPTERS {
+            continue;
+        }
+        infos[chapter].leaves.push(Leaf {
+            title: indexed(texts, title),
+            text: indexed(texts, title + 1),
+            picture: Picture::None,
+        });
+    }
+    [heros, infos]
+}
+
+/// The pages of a chapter's leaves, a page ending before a leaf once its rows reach
+/// [`PAGE_DEPTH`], or all on the first (the hero's skills).
+fn leaf_pages(chapter: &Chapter, height: impl Fn(&Leaf) -> f32, one_page: bool) -> Vec<Vec<Row>> {
+    let mut pages = vec![Vec::new()];
+    let mut used = 0.0;
+    for (index, leaf) in chapter.leaves.iter().enumerate() {
+        if used >= PAGE_DEPTH && !one_page {
+            pages.push(Vec::new());
+            used = 0.0;
+        }
+        if let Some(page) = pages.last_mut() {
+            page.push(Row::Leaf(index));
+        }
+        used += height(leaf) + ROW_GAP;
+    }
+    pages
+}
+
 /// A row of the list: an ornament, or the entry of the log's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Row {
     Ornament,
     Entry(usize),
+    /// A leaf of the hero's or the information's book, by its index in its chapter.
+    Leaf(usize),
 }
 
 /// A chapter's place among the bookmarks: an entry's chapter, 0 taken as 1 (`0x6B07E0`).
@@ -489,6 +766,9 @@ struct Model {
     /// The right page's first page's lines and every later page's.
     first: usize,
     later: usize,
+    /// The leaf whose page the right page shows, and the chapter's page of its own text.
+    leaf: Option<Leaf>,
+    own: Option<(String, u32)>,
 }
 
 /// The text of the id `id`, its line breaks (`<n>`) broken and its colours' tags left out.
@@ -527,10 +807,18 @@ impl Model {
         let height = |entry: &Entry| {
             f32::from(u16::try_from(row_lines(entry)).unwrap_or(1)) * row_style(entry).line()
         };
-        let pages = if book.tab == 0 {
-            pages(entries, book.chapter, height)
-        } else {
-            vec![Vec::new()]
+        let other = (1..TABS - 1)
+            .contains(&book.tab)
+            .then(|| book.others[book.tab - 1].get(book.chapter))
+            .flatten();
+        let leaf_lines = |leaf: &Leaf| measures.lines(Style::Side, &leaf.title);
+        let leaf_height = |leaf: &Leaf| {
+            f32::from(u16::try_from(leaf_lines(leaf)).unwrap_or(1)) * Style::Side.line()
+        };
+        let pages = match (book.tab, other) {
+            (0, _) => pages(entries, book.chapter, height),
+            (tab, Some(chapter)) => leaf_pages(chapter, leaf_height, tab == 1 && book.chapter == 1),
+            _ => vec![Vec::new()],
         };
         let page = book.page.min(pages.len().saturating_sub(1));
         let mut rows = Vec::new();
@@ -541,6 +829,9 @@ impl Model {
                 Row::Entry(index) => entries
                     .get(index)
                     .map_or((1, 0.0), |entry| (row_lines(entry), height(entry))),
+                Row::Leaf(index) => other
+                    .and_then(|chapter| chapter.leaves.get(index))
+                    .map_or((1, 0.0), |leaf| (leaf_lines(leaf), leaf_height(leaf))),
             };
             rows.push((y, row, lines));
             y += h + ROW_GAP;
@@ -549,21 +840,37 @@ impl Model {
         let first_entry = pages.first().and_then(|rows| {
             rows.iter().find_map(|row| match row {
                 Row::Entry(index) => Some(*index),
-                Row::Ornament => None,
+                Row::Ornament | Row::Leaf(_) => None,
             })
         });
         let item = match rows.get(book.selected(page)) {
             Some((_, Row::Entry(index), _)) => Some(*index),
             _ => first_entry,
         };
+        let item = item.filter(|_| book.tab == 0);
+        // A leaf's page: the selected row's, else the chapter's first.
+        let leaf = other.and_then(|chapter| {
+            let index = match rows.get(book.selected(page)) {
+                Some((_, Row::Leaf(index), _)) => *index,
+                _ => 0,
+            };
+            chapter.leaves.get(index).cloned()
+        });
+        let own = other.and_then(|chapter| chapter.own.clone());
         let entry = item.and_then(|index| entries.get(index));
-        let title = entry
-            .and_then(|entry| entry.title)
-            .map(|id| said(texts, id))
-            .unwrap_or_default();
-        let text = entry
-            .map(|entry| item_text(entry, texts))
-            .unwrap_or_default();
+        let title = match &leaf {
+            Some(leaf) => leaf.title.clone(),
+            None => entry
+                .and_then(|entry| entry.title)
+                .map(|id| said(texts, id))
+                .unwrap_or_default(),
+        };
+        let text = match &leaf {
+            Some(leaf) => leaf.text.clone(),
+            None => entry
+                .map(|entry| item_text(entry, texts))
+                .unwrap_or_default(),
+        };
         let title_lines = if title.is_empty() {
             0
         } else {
@@ -588,18 +895,28 @@ impl Model {
             lines
         };
         let later = fits(height).max(1);
-        let first = if picture {
-            fits(height - PICTURE_ROOM)
-        } else {
-            later
+        let first = match leaf.as_ref().map(|leaf| &leaf.picture) {
+            Some(Picture::Icon(_)) => fits(height - ICON_SIDE - ICON_BELOW),
+            Some(Picture::Circle(cells)) => {
+                fits(height - CIRCLE_CELL * f32::from(*cells) - CIRCLE_BELOW)
+            }
+            _ if picture => fits(height - PICTURE_ROOM),
+            _ => later,
         };
         let text_pages = if text_lines <= first {
             1
         } else {
             1 + (text_lines - first).div_ceil(later)
         };
+        let marked = match book.tab {
+            0 => marked(entries),
+            tab if tab < TABS - 1 => {
+                std::array::from_fn(|c| book.others[tab - 1].get(c).is_some_and(Chapter::holds))
+            }
+            _ => [false; CHAPTERS],
+        };
         Self {
-            marked: marked(entries),
+            marked,
             pages,
             rows,
             item,
@@ -609,6 +926,8 @@ impl Model {
             text_pages,
             first,
             later,
+            leaf,
+            own,
         }
     }
 
@@ -627,6 +946,15 @@ impl Model {
                 {
                     let title = entry.title.map(|id| said(texts, id)).unwrap_or_default();
                     wanted.push((row_style(entry), title));
+                }
+                if let Row::Leaf(index) = row
+                    && let Some(leaf) = (1..TABS - 1)
+                        .contains(&book.tab)
+                        .then(|| book.others[book.tab - 1].get(book.chapter))
+                        .flatten()
+                        .and_then(|chapter| chapter.leaves.get(*index))
+                {
+                    wanted.push((Style::Side, leaf.title.clone()));
                 }
             }
         }
@@ -654,7 +982,7 @@ fn over(book: &Book, model: &Model, at: Vec2) -> Option<Over> {
     if let Some(tab) = (0..TABS).find(|&tab| within(tab_at(tab, book.tab), TAB_SIZE)) {
         return Some(Over::Tab(tab));
     }
-    if book.tab == 0
+    if book.tab < TABS - 1
         && let Some(chapter) = (0..CHAPTERS).find(|&chapter| {
             model.marked[chapter]
                 && within(mark_at(chapter, book.shifts[chapter]), Vec2::splat(MARK))
@@ -670,13 +998,14 @@ fn over(book: &Book, model: &Model, at: Vec2) -> Option<Over> {
     // A row within its first line, across the list (`0x6B3640`).
     if (LIST.x..LIST.x + LIST_WIDTH).contains(&at.x) {
         for (i, (top, row, _)) in model.rows.iter().enumerate() {
-            let Row::Entry(index) = row else {
-                continue;
+            let line = match row {
+                Row::Entry(index) => book
+                    .entries
+                    .get(*index)
+                    .map_or(0.0, |entry| row_style(entry).line()),
+                Row::Leaf(_) => Style::Side.line(),
+                Row::Ornament => continue,
             };
-            let line = book
-                .entries
-                .get(*index)
-                .map_or(0.0, |entry| row_style(entry).line());
             if (*top..*top + line - 1.0).contains(&at.y) {
                 return Some(Over::Row(i, at.x >= LIST.x + BESIDE_ICON));
             }
@@ -792,12 +1121,25 @@ fn hide_under_inventory(
     }
 }
 
-/// The book built again as it shows.
+/// The book built again as it shows: the quests' from the log, the hero's and the
+/// information's from the hero (#1565).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the books read the log, the hero, its arts, its pack and the tables"
+)]
 fn build(
     mut book: ResMut<Book>,
     live: Option<NonSend<crate::scripts::Live>>,
     named: Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
     mut sounds: MessageWriter<sfx::Play>,
+    hero: Option<Res<crate::hero::Hero>>,
+    arts: Option<Res<crate::arts::HeroArts>>,
+    pack: Option<Res<crate::pickup::Pack>>,
+    texts: Option<Res<Texts>>,
+    (data, drops): (
+        Option<Res<crate::game::Data>>,
+        Option<Res<crate::drops::Tables>>,
+    ),
 ) {
     if !book.stale {
         return;
@@ -811,6 +1153,21 @@ fn build(
         Some((crate::minimap::iso(middle) + PICTURE_SHIFT).trunc())
     };
     rebuild(&mut book, live.as_deref(), place, &mut sounds);
+    let quest_items = live
+        .as_deref()
+        .map(|live| live.quests_items().to_vec())
+        .unwrap_or_default();
+    let reader = Reader {
+        creature: hero.as_deref().map_or(1, |hero| hero.creature),
+        arts: arts.as_deref(),
+        quest_items: &quest_items,
+        books: pack.as_deref().map_or(&[], |pack| pack.books.as_slice()),
+    };
+    let items = data
+        .as_deref()
+        .and_then(|data| data.0.tables.items().ok())
+        .unwrap_or_default();
+    book.others = other_books(&reader, (texts.as_deref(), items, drops.as_deref()));
 }
 
 /// The clicks on the book: its tabs, its close button, its bookmarks, its arrows and its rows.
@@ -838,6 +1195,17 @@ fn click(
     };
     match (over, left) {
         (Over::Tab(tab), true) => {
+            let old = book.tab;
+            let state = (
+                book.chapter,
+                book.page,
+                std::mem::take(&mut book.selected),
+                book.text_page,
+            );
+            book.kept[old] = state;
+            let (chapter, page, selected, text_page) = std::mem::take(&mut book.kept[tab]);
+            (book.chapter, book.page, book.selected, book.text_page) =
+                (chapter, page, selected, text_page);
             book.tab = tab;
             play(&mut sounds, TURNS);
             if tab < TABS - 1 {
@@ -872,6 +1240,14 @@ fn click(
             }
         }
         (Over::Row(i, beside), _) => {
+            if let Some((_, Row::Leaf(_), _)) = model.rows.get(i).copied() {
+                if left && beside {
+                    let page = book.page;
+                    book.selected.insert(page, i);
+                    book.text_page = 0;
+                }
+                return;
+            }
             let Some((_, Row::Entry(index), _)) = model.rows.get(i).copied() else {
                 return;
             };
@@ -994,6 +1370,7 @@ struct Look {
     entries: Vec<Entry>,
     tracked: Option<u32>,
     measured: usize,
+    others: [Vec<Chapter>; 2],
 }
 
 /// Makes the book as it shows and as it changes, and takes it away as it hides.
@@ -1026,6 +1403,7 @@ fn show(
         entries: book.entries.clone(),
         tracked: live.as_deref().and_then(|live| live.quests().tracked()),
         measured: measures.0.len(),
+        others: book.others.clone(),
     });
     if *was == now {
         return;
@@ -1066,9 +1444,16 @@ fn show(
             piece(tab_image(tab, look.creature), tab_at(tab, look.tab)),
         );
     }
-    if look.tab == 0 {
+    if look.tab < TABS - 1 {
         for chapter in (0..CHAPTERS).filter(|&chapter| model.marked[chapter]) {
-            let (image, lit) = MARKS[chapter];
+            let (image, lit) = match look.tab {
+                0 => MARKS[chapter],
+                1 if chapter == 0 => class_mark(look.creature),
+                tab => OTHER_MARKS[tab - 1]
+                    .get(chapter)
+                    .copied()
+                    .unwrap_or_default(),
+            };
             let shown = if chapter == look.chapter || look.over == Some(Over::Mark(chapter)) {
                 lit
             } else {
@@ -1119,9 +1504,11 @@ fn show(
         child
     };
     // The left page: the chapter's title, the list's rows, its arrows and its count.
-    if look.tab == 0
-        && let Some(key) = CHAPTER_TITLES[look.chapter]
-    {
+    let chapter_title = match look.tab {
+        0 => CHAPTER_TITLES[look.chapter],
+        tab => OTHER_TITLES[tab - 1][look.chapter],
+    };
+    if let Some(key) = chapter_title {
         let title = texts.and_then(|texts| texts.named(key)).unwrap_or(key);
         write(
             &mut commands,
@@ -1165,7 +1552,50 @@ fn show(
                     (style, colour, false),
                 );
             }
+            // A leaf's row: AntiquaSSK without an indent or an icon (the flags `0x11`).
+            Row::Leaf(index) => {
+                let Some(leaf) = book.others[look.tab - 1]
+                    .get(look.chapter)
+                    .and_then(|chapter| chapter.leaves.get(index))
+                else {
+                    continue;
+                };
+                let colour = if matches!(look.over, Some(Over::Row(r, _)) if r == i) {
+                    HOVERED
+                } else if look.selected == i {
+                    SELECTED
+                } else {
+                    ROW
+                };
+                let x = LIST.x + TEXT_IN;
+                write(
+                    &mut commands,
+                    (&leaf.title, Rect::new(x, top, x + LIST_WIDTH, top)),
+                    (Style::Side, colour, false),
+                );
+            }
         }
+    }
+    // A chapter's page of its own text (the class's): its text in the list's rectangle, its
+    // picture on the right page from the text's top, 256 × 256.
+    if let Some((text, picture)) = &model.own {
+        write(
+            &mut commands,
+            (text, Rect::new(LIST.x, LIST.y, LIST.x + LIST_WIDTH, LIST.y)),
+            (Style::Body, BLUE, false),
+        );
+        let (top, _) = body(0);
+        let (mut image, mut node) = bar::piece(
+            &images,
+            &assets,
+            *picture,
+            Vec2::new(PICTURE_MIDDLE - CLASS_PICTURE / 2.0, top),
+            Vec2::ZERO,
+        );
+        node.width = Val::Px(CLASS_PICTURE);
+        node.height = Val::Px(CLASS_PICTURE);
+        image.image_mode = NodeImageMode::Stretch;
+        add(&mut commands, (image, node));
     }
     let count = |page: usize, pages: usize| format!("{}/{}", page + 1, pages.max(1));
     write(
@@ -1194,7 +1624,38 @@ fn show(
     let line = Style::Body.line();
     let lines = |n: usize| f32::from(u16::try_from(n).unwrap_or(0)) * line;
     let text_page = look.text_page.min(model.text_pages.saturating_sub(1));
+    let leaf_picture = model.leaf.as_ref().map(|leaf| &leaf.picture);
     let (from, shown, skipped) = match (text_page, place) {
+        (0, _) if matches!(leaf_picture, Some(Picture::Icon(_))) => {
+            let Some(Picture::Icon(icon)) = leaf_picture else {
+                return;
+            };
+            let size = images.size(*icon);
+            add(
+                &mut commands,
+                piece(*icon, Vec2::new(PICTURE_MIDDLE - size.x / 2.0, top)),
+            );
+            (top + size.y + ICON_BELOW, model.first, 0)
+        }
+        (0, _) if matches!(leaf_picture, Some(Picture::Circle(_))) => {
+            let Some(Picture::Circle(cells)) = leaf_picture else {
+                return;
+            };
+            if let Some(file) = images.file(CIRCLE) {
+                add(
+                    &mut commands,
+                    (
+                        ImageNode::new(crate::hud::image(&assets, file.to_owned())),
+                        bar::placed(CIRCLE_AT, Vec2::splat(CIRCLE_SIDE)),
+                    ),
+                );
+            }
+            (
+                top + CIRCLE_CELL * f32::from(*cells) + CIRCLE_BELOW,
+                model.first,
+                0,
+            )
+        }
         (0, Some(place)) => {
             let origin = Vec2::new(PICTURE_X, top);
             let mut node = bar::placed(origin, Vec2::splat(crate::minimap::PICTURE));
@@ -1442,5 +1903,54 @@ mod tests {
         assert_eq!(tab_at(2, 2), Vec2::new(308.0, 72.0));
         assert_eq!(mark_at(5, 3.0), Vec2::new(863.0, 184.0));
         assert_eq!(mark_at(4, 0.0), Vec2::new(86.0, 504.0));
+    }
+
+    fn book_record(slot: u32, title: u32, chapter: u32) -> opensacred_data::tables::Item {
+        opensacred_data::tables::Item {
+            slot,
+            kind: 0,
+            class: 0,
+            subclass: 0,
+            name: String::new(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0, 0, title, 0, 0, 0, 0, 0],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0, 0, (chapter << 16) | 0x0200, 0, 0, 0, 0, 0, 0, 0],
+        }
+    }
+
+    #[test]
+    fn the_information_book_puts_each_book_read_in_its_records_chapter() {
+        let items = [
+            book_record(4100, 8000, 0),
+            book_record(4125, 8002, 1),
+            book_record(4175, 8004, 4),
+            book_record(4097, 0, 0),
+        ];
+        let reader = Reader {
+            creature: 2,
+            arts: None,
+            quest_items: &[],
+            books: &[4175, 4100, 4097, 4999, 4125],
+        };
+        let [heros, infos] = other_books(&reader, (None, &items, None));
+        assert_eq!(heros[0].own, Some((String::new(), 0x5C8)));
+        assert!(heros[1..].iter().all(|chapter| !chapter.holds()));
+        let counts: Vec<usize> = infos.iter().map(|chapter| chapter.leaves.len()).collect();
+        assert_eq!(counts, [1, 1, 0, 0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn the_heros_chapters_take_its_class_and_its_arts_kinds() {
+        assert_eq!(class_page(7), (1065, 0x5CC));
+        assert_eq!(class_page(9), (1066, 0x5CD));
+        assert_eq!(class_mark(6), class_mark(7));
+        assert_eq!(class_mark(0), class_mark(1));
+        assert!(magic(1) && magic(1019));
+        assert!(!magic(51) && !magic(57) && !magic(1000));
     }
 }
