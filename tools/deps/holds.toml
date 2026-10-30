@@ -1,0 +1,14 @@
+# The versions that the daily dependency update keeps back (tools/deps/daily.py, docs/03 §3.3): it updates the rest,
+# then puts each of these back, `cargo update --package <crate> --precise <version>` and
+# `uv lock --upgrade-package <package>==<version>`. A hold names the `deps` issue that tells why and when it ends,
+# and goes with that issue's fix. For example:
+#
+#   [cargo]
+#   luau0-src = { version = "0.22.0+luau740", issue = 869 }
+#
+#   [uv]
+#   frida = { version = "17.24.3", issue = 1234 }
+
+[cargo]
+
+[uv]

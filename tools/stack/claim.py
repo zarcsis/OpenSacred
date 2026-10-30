@@ -8,7 +8,7 @@ and the steps of taking one, repeated by hand, are easy to get wrong (#1210 lost
 repository is public, and a session reads the issue it takes as its task: only the issues and pull requests that the
 sessions' own account wrote are taken into work, so that another's text never reaches a session as an instruction
 (#1421, the maintainer's guard against prompt injection; the policy for the community's issues is to come). An issue
-that another account filed is refused, naming its author; the open pull requests of other accounts are not read, so
+that another account filed is refused, naming its author, but for the daily dependency update's app (#1550); the open pull requests of other accounts are not read, so
 they hold nothing, and --base on another's pull request is refused. An issue is held when it is assigned (unless
 --mine: this session filed it assigned), when a branch `<type>/<N>-<slug>` exists, locally or on origin, or when an
 open pull request of the account closes it (`Closes #N`) or comes from such a branch; a closed issue, or one without
@@ -32,6 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stack import MAIN, REMOTE, Git  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+# The accounts whose issues are taken as the sessions' own: the maintainer's GitHub App of the daily dependency update
+# (#1550, tools/deps/daily.py), whose issues are made of the manifests' names, the registries' version numbers and the
+# checks' names alone, never of another's words.
+TRUSTED = ('app/opensacred-deps',)
 # The labels of the issue forms' types, which name a branch's first part (CLAUDE.md, "Issues and pull requests").
 TYPES = ('bug', 'deps', 'feature', 'research', 'infra', 'docs')
 SLUG = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
@@ -100,7 +104,7 @@ def login(record):
 def foreign(issue, account):
     """Why the issue is not taken, being another account's (#1421), or None for the account's own."""
     author = login(issue)
-    if author == account:
+    if author == account or author in TRUSTED:
         return None
     return (f"#{issue['number']} ({issue['title']}) was filed by {author or 'an unknown account'}, not by {account}, "
             'the account the sessions work under: an issue of another account is not taken into work until the '
