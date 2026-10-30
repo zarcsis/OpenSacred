@@ -307,9 +307,14 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   The check builds in a temporary worktree into `target/integration/`, apart from the checkout's own build, whose tests would otherwise run the binaries built for the deleted tree (#1502).
 * **Versions.**
   Since 2026-10-17 the version follows the merged pull requests.
-  On every push to `main`, the Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
-  A run that pushed a tag but failed before its release leaves the release to the next run.
-  A version is an annotated tag `vX.Y.Z` on the squash commit and a GitHub Release whose notes list the pull requests since the previous version by label (`.github/release.yml`); before 1.0.0 the releases are pre-releases, as the versions are initial development (SemVer §4).
+  The Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
+  A version is an annotated tag `vX.Y.Z` on the squash commit.
+  At most one release a day (the maintainer's rule of 2026-10-30, #1548): the workflow runs every hour, and a run versions the commits only once the newest release is a day old, then releases the newest version alone, as a GitHub Release whose notes list the pull requests since the previous release by label (`.github/release.yml`).
+  The versions between two releases stay tags; before 1.0.0 the releases are pre-releases, as the versions are initial development (SemVer §4).
+  Under daily work a release thus comes about an hour later each day, as the first hourly run past the day.
+  Until 2026-10-30 every push to `main` released each version it brought, up to 56 releases a day.
+  A manual run (`gh workflow run release.yml`) versions and releases at once, whatever the newest release's age.
+  A run that pushed its tags but failed before the release leaves the release to the next run.
   The major version is raised only at the maintainer's request, by a manual run on the head of `main` (`gh workflow run release.yml -f bump=major`).
   The base is `v0.1.0`, `main` before the workflow (677863c).
   The newest version that a run publishes gets the player's archive (#1500, #1494): the Release workflow builds `opensacred-game` with its feature `packaged` and `opensacred-convert` in the profile `dist` (the release profile with thin link-time optimization, one code generation unit and the symbols stripped) on Windows, takes our FFmpeg from `.github/workflows/ffmpeg.yml` (#1499), and attaches `OpenSacred-vX.Y.Z-windows-x64.7z` (LZMA2) to the release with the FFmpeg build's three source archives.
@@ -546,7 +551,7 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
   The dependencies' build is cached by `Swatinem/rust-cache` and saved only on `main`, which pull requests restore: caches of every branch would push `main`'s out of the repository's 10 GB.
   The Linux job's system packages that the runner image lacks are cached likewise, as their `.deb` files under the image's version (`ImageOS`, `ImageVersion`), and installed with `dpkg`, so the Ubuntu mirror, minutes slow in some runs, is reached once an image (#1109).
   Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
-* The Release workflow (`.github/workflows/release.yml`) runs on every push to `main` and versions the merged pull requests (§3.6).
+* The Release workflow (`.github/workflows/release.yml`) runs every hour, versions the merged pull requests and releases at most once a day (§3.6).
 * The Mutants workflow (`.github/workflows/mutants.yml`, #1432) runs `cargo-mutants` on the lines of each pull request that changes `opensacred-rules`, `opensacred-data` or `opensacred-formats`, on Linux alone and without a cache, since the three crates build without Bevy; it fails only when it cannot measure them, and the ruleset does not require it (§3.4).
 * The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.
 * A run that fails on GitHub's side (a stalled download on the runner, a broken answer of the API) is run again by hand, `gh run rerun <id> --failed`; the workflows carry no timeouts or retries for it.
