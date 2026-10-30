@@ -402,10 +402,14 @@ const QUEST_ITEM: u8 = 0x8E;
 const ON_TAKE: u8 = 0x41;
 /// A quest's item's quality key as a drop: a plain item's, made by no item maker.
 const QUEST_KEY: u8 = 16;
-/// The categories of the types that a creature may pick up (`0x427920`; docs/re/items.md,
-/// "The walk"): 5 to 9, 13 to 25, 28, 29 and 33.
-fn takeable(category: u8) -> bool {
-    matches!(category, 5..=9 | 13..=25 | 28 | 29 | 33)
+/// The bit of an `items.pak` record's byte `+0x02` of a type that nobody picks up, its first
+/// word's bit 22 (`0x427920`): the signposts 4993 to 4999 and `windstrauch.grn` (#1476).
+const UNTAKEABLE: u8 = 0x40;
+
+/// Whether a creature may pick up an item of the type `item` (`0x427920`; docs/re/items.md,
+/// "The walk"): of the categories 5 to 9, 13 to 25, 28, 29 and 33, and without [`UNTAKEABLE`].
+fn takeable(item: &Item) -> bool {
+    matches!(category(item), 5..=9 | 13..=25 | 28 | 29 | 33) && item.subclass & UNTAKEABLE == 0
 }
 
 /// An item that a `CreateObj` of an item's type without [`QUEST_ITEM`] lays in the world, which the
@@ -2755,10 +2759,10 @@ impl Makers {
             },
             key: (record.kind == CREATE_OBJ).then(|| name_of(ops)).flatten(),
             lies: record.kind == CREATE_OBJ
-                && takeable(category(item))
+                && takeable(item)
                 && !ops.iter().any(|o| o.tag == QUEST_ITEM),
             quest: (record.kind == CREATE_OBJ
-                && takeable(category(item))
+                && takeable(item)
                 && ops
                     .iter()
                     .any(|o| o.tag == QUEST_ITEM && matches!(o.value, Value::Marker)))
@@ -8514,6 +8518,15 @@ mod tests {
         };
         makers.items.insert(6001, item(6001, "bush01.grn", 15));
         makers.items.insert(5218, item(5218, "chest.grn", CHEST));
+        let signpost = Item {
+            subclass: UNTAKEABLE,
+            ..item(4993, "wegweiser_01.grn", 15)
+        };
+        makers.items.insert(4993, signpost.clone());
+        makers.models.insert(
+            "WEGWEISER_01.GRN".to_owned(),
+            "models/wegweiser_01.glb".to_owned(),
+        );
         makers
             .models
             .insert("BUSH01.GRN".to_owned(), "models/bush01.glb".to_owned());
@@ -8562,8 +8575,15 @@ mod tests {
             made(5218, &[take, op(QUEST_ITEM, Value::Marker)]).quest,
             None
         );
-        assert!(takeable(5) && takeable(15) && takeable(33));
-        assert!(!takeable(4) && !takeable(10) && !takeable(12) && !takeable(26));
+        let of = |category| item(1, "item.grn", category);
+        assert!(takeable(&of(5)) && takeable(&of(15)) && takeable(&of(33)));
+        assert!(!takeable(&of(4)) && !takeable(&of(10)) && !takeable(&of(12)));
+        assert!(!takeable(&of(26)));
+        // A plain item of a `CreateObj` lies to be picked up, a signpost not (#1476).
+        assert!(made(6001, &[]).lies);
+        assert!(!takeable(&signpost));
+        let sign = made(4993, &[]);
+        assert!(sign.object && !sign.lies && sign.quest.is_none());
     }
 
     #[test]
