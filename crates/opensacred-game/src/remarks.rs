@@ -14,6 +14,13 @@
 //! `COMEINTOTOWN` or `COMEINTOVILLAGE`, out of the fight and once in 300 s, as it steps onto a
 //! settlement's ground outside the dungeons (`0x593CE0`), waiting for silence and for its line's
 //! wait, setting the clock back and making the line wait 60 s.
+//!
+//! On the quests' places (#1563): `APPROACHQLOC` as the hero steps into a cell within 1,500 world
+//! units on both axes of the newest main quest's compass, else the newest side quest's, posted
+//! once until it is near neither (a latch of the entry's index, which the log's first entry never
+//! holds, so that it posts at every step, `0x593CE0`); its case out of the fight, every post
+//! setting its timer back, speaking past 180 s one time in four (`0x67D1D0`), waiting for silence
+//! and for its line's wait as the settlement's.
 
 use std::collections::HashMap;
 
@@ -26,6 +33,7 @@ use bevy::prelude::{
     Time, Transform, Update, Vec3, With, Without,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance};
+use opensacred_rules::quests::Marker;
 use opensacred_rules::spawning::Rng;
 
 use crate::ai::Mind;
@@ -60,6 +68,8 @@ pub enum Remark {
     /// `CANTCARRYMORE` (8, 3): an item picked up that finds no room in the backpack (`0x558080`,
     /// #1324).
     CantCarry,
+    /// `APPROACHQLOC` (9, `0x3F`): the hero come near the newest quests' places (#1563).
+    Approach,
 }
 
 impl Remark {
@@ -72,6 +82,7 @@ impl Remark {
             Self::Pacified { .. } => 1,
             Self::Settlement { .. } => 12,
             Self::CantCarry => 11,
+            Self::Approach => 6,
         }
     }
 
@@ -96,6 +107,7 @@ impl Remark {
             Self::Pacified { .. } => format!("SOUND_FX_REGIONPACIFIED01_{class}"),
             // The Dwarf's table names a tenth and an eleventh that the sound data lacks, silent.
             Self::CantCarry => format!("SOUND_FX_CANTCARRYMORE{n:02}_{class}"),
+            Self::Approach => format!("SOUND_FX_APPROACHQLOC{n:02}_{class}"),
             // Six of the town, then six of the village, by consecutive ids: the Wood Elf, who
             // lacks her fifth of the village, says her fourth for it.
             Self::Settlement { .. } if n <= 6 => format!("SOUND_FX_COMEINTOTOWN_{n:02}_{class}"),
@@ -117,6 +129,7 @@ impl Remark {
             Self::Pacified { .. } => Some(PACIFIED),
             Self::Settlement { .. } => Some(SETTLEMENT),
             Self::CantCarry => Some(CANT_CARRY),
+            Self::Approach => Some(APPROACH),
             _ => None,
         }
     }
@@ -131,6 +144,11 @@ const PACIFIED: u8 = 0x35;
 const SETTLEMENT: u8 = 0xCC;
 /// The timer of the event (8, 3), its sub-command.
 const CANT_CARRY: u8 = 3;
+const APPROACH: u8 = 0x3F;
+/// How near a quest's place the hero comes, in world units on both axes (`0x593CE0`), and the
+/// seconds its case waits since its last post (`0x67D1D0`).
+const NEAR_QUEST: f32 = 1_500.0;
+const APPROACH_AFTER: f64 = 180.0;
 /// How long the play runs without the player's input before the hero remarks on it, in seconds
 /// (`0x424A60`).
 const IDLE: f64 = 120.0;
@@ -150,6 +168,8 @@ struct Remarks {
     areas: HashMap<(u32, u32), u8>,
     sector: Option<(u32, u32)>,
     cell: Option<paths::Cell>,
+    /// The index of the entry whose place the hero came near (`0xAD4400`), 0 for none.
+    near: usize,
     dice: Rng,
 }
 
@@ -161,6 +181,7 @@ impl Default for Remarks {
             areas: HashMap::new(),
             sector: None,
             cell: None,
+            near: 0,
             dice: Rng::of(0, 0, 0x1246),
         }
     }
@@ -197,6 +218,15 @@ impl Remarks {
             }
             // Made at 2.1 s, past 2.0 s (`0x691610(3, 2.1)`), then 0.
             Remark::CantCarry => self.passes(CANT_CARRY, 2.0, 2.1),
+            // Out of the fight, every post setting the timer back, made at 0; past 180 s one
+            // time in four (`0x67D1D0`).
+            Remark::Approach => {
+                if !calm {
+                    return false;
+                }
+                let timer = self.timers.insert(APPROACH, 0.0).unwrap_or(0.0);
+                timer > APPROACH_AFTER && self.dice.below(4) == 0
+            }
             _ => true,
         }
     }
@@ -279,7 +309,10 @@ fn land(
     mut remarks: ResMut<Remarks>,
     heroes: Query<(&Transform, Option<&Health>), With<Body>>,
     (npcs, dungeons, heights): (Option<Res<Npcs>>, Option<Res<Dungeons>>, Res<Heights>),
-    scripts: Option<NonSend<scripts::Live>>,
+    (scripts, named): (
+        Option<NonSend<scripts::Live>>,
+        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
+    ),
     mut posts: MessageWriter<Remark>,
 ) {
     let Ok((at, health)) = heroes.single() else {
@@ -310,8 +343,30 @@ fn land(
         }
     }
     let cell = paths::cell_of(x, z);
-    if let Some(before) = remarks.cell.replace(cell)
-        && before != cell
+    let stepped = remarks.cell.replace(cell).filter(|&before| before != cell);
+    // The newest quests' places (`0x593CE0`): the main quest's, else the side quest's, within
+    // 1,500 on both axes; posted while the latch holds no entry, which the log's first entry
+    // leaves so.
+    if stepped.is_some() {
+        let near = scripts.as_ref().and_then(|live| {
+            [Marker::Main, Marker::Side].into_iter().find_map(|marker| {
+                let (entry, compass) = live.marked_entry(marker)?;
+                let place = crate::compass::target_of(compass, &named)?;
+                ((place.x - x).abs() <= NEAR_QUEST && (place.y - z).abs() <= NEAR_QUEST)
+                    .then_some(entry)
+            })
+        });
+        match near {
+            Some(entry) if remarks.near == 0 => {
+                debug!("remarks: the hero comes near the place of the log's entry {entry}");
+                remarks.near = entry;
+                posts.write(Remark::Approach);
+            }
+            Some(_) => {}
+            None => remarks.near = 0,
+        }
+    }
+    if let Some(before) = stepped
         && !dungeons.is_some_and(|dungeons| dungeons.sector(sector))
     {
         let settled = |cell| {
@@ -375,10 +430,18 @@ fn remark(
         let quiet = post.timer().is_none()
             || matches!(post, Remark::Region { .. })
             || hero_at.is_some_and(|at| calm(at, creatures.iter()));
-        // The roll first, as the cases draw it.
-        let n = remarks.dice.below(post.count());
+        // The roll first, as the cases draw it, but the approach's after its one in four.
+        let first = post != Remark::Approach;
+        let mut n = if first {
+            remarks.dice.below(post.count())
+        } else {
+            0
+        };
         if !remarks.lets(post, quiet) {
             continue;
+        }
+        if !first {
+            n = remarks.dice.below(post.count());
         }
         let (Some(hero), Ok((entity, at))) = (hero.as_ref(), heroes.single()) else {
             continue;
@@ -390,7 +453,7 @@ fn remark(
             debug!("remarks: no line {name}");
             continue;
         };
-        let waits = matches!(post, Remark::Settlement { .. });
+        let waits = matches!(post, Remark::Settlement { .. } | Remark::Approach);
         if waits
             && (named.plays(&audio)
                 || voices
@@ -528,6 +591,32 @@ mod tests {
         assert!(!remarks.lets(entering, true));
         remarks.timers.insert(SETTLEMENT, 301.0);
         assert!(remarks.lets(entering, true));
+    }
+
+    #[test]
+    fn the_approach_speaks_past_180_s_one_time_in_four_every_post_setting_it_back() {
+        let mut remarks = Remarks::default();
+        // Made at 0 by the first post, and set back by every post.
+        assert!(!remarks.lets(Remark::Approach, true));
+        remarks.timers.insert(APPROACH, 100.0);
+        assert!(!remarks.lets(Remark::Approach, true));
+        assert_eq!(remarks.timers[&APPROACH], 0.0);
+        // In a fight nothing, the timer kept.
+        remarks.timers.insert(APPROACH, 200.0);
+        assert!(!remarks.lets(Remark::Approach, false));
+        assert_eq!(remarks.timers[&APPROACH], 200.0);
+        // Past 180 s about one time in four.
+        let spoke = (0..400)
+            .filter(|_| {
+                remarks.timers.insert(APPROACH, 200.0);
+                remarks.lets(Remark::Approach, true)
+            })
+            .count();
+        assert!((60..140).contains(&spoke), "{spoke}");
+        assert_eq!(
+            Remark::Approach.name(1, 5).as_deref(),
+            Some("SOUND_FX_APPROACHQLOC06_SERA")
+        );
     }
 
     #[test]

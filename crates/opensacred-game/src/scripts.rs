@@ -490,6 +490,12 @@ impl Live {
         self.state.quests.marker(marker)
     }
 
+    /// The log's index of the entry of the marker `marker`'s quest, with its compass.
+    pub fn marked_entry(&self, marker: quests::Marker) -> Option<(usize, &quests::Compass)> {
+        let (quest, compass) = self.state.quests.marked(marker)?;
+        Some((self.state.quests.entry(quest)?, compass))
+    }
+
     /// Whether a marker was set anew since the last call, for the bar's sonar (#1462).
     pub fn take_fresh_marker(&mut self) -> bool {
         self.state.quests.take_fresh()
