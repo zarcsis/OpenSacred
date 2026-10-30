@@ -1,0 +1,82 @@
+# Our own minimal FFmpeg for the release archive (#1499): tools/ffmpeg/build.sh cross-builds a static
+# ffmpeg.exe under the LGPL from the sources that tools/ffmpeg/versions.toml pins, kept in the cache
+# by the hash of tools/ffmpeg/ so that it is built again only when they change; a Windows job runs it
+# on synthetic sound and video through every encoder and muxer the converter takes. The Release
+# workflow calls it for the archive (#1500); a pull request that changes it runs it.
+name: FFmpeg
+
+on:
+  pull_request:
+    paths:
+      - tools/ffmpeg/**
+      - .github/workflows/ffmpeg.yml
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ffmpeg-out
+          key: ffmpeg-${{ hashFiles('tools/ffmpeg/**') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Install the cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mingw-w64 nasm ninja-build cmake pkg-config
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build
+        run: tools/ffmpeg/build.sh "$PWD/ffmpeg-out"
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ffmpeg-out
+          key: ffmpeg-${{ hashFiles('tools/ffmpeg/**') }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ffmpeg-windows-x64
+          path: ffmpeg-out
+
+  smoke:
+    name: Smoke test
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: ffmpeg-windows-x64
+          path: ffmpeg
+      # A second of a tone and a few frames of a gradient, raw, through the converter's encoders and
+      # muxers: FLAC, Ogg Opus, FFV1 and FLAC in Matroska, AV1 and Opus in WebM, and the decoders that
+      # read them back.
+      - name: Encode and decode
+        shell: pwsh
+        run: |
+          $ffmpeg = Resolve-Path ffmpeg\ffmpeg.exe
+          & $ffmpeg -hide_banner -version
+          $samples = [byte[]]::new(44100 * 2)
+          for ($i = 0; $i -lt 44100; $i++) {
+            $v = [int16](8000 * [math]::Sin($i * 2 * [math]::PI * 440 / 44100))
+            $samples[2 * $i] = $v -band 0xFF; $samples[2 * $i + 1] = ($v -shr 8) -band 0xFF
+          }
+          [IO.File]::WriteAllBytes("$PWD\tone.raw", $samples)
+          $frame = [byte[]]::new(64 * 48 * 3 / 2)
+          for ($i = 0; $i -lt $frame.Length; $i++) { $frame[$i] = $i % 251 }
+          [IO.File]::WriteAllBytes("$PWD\frames.yuv", [byte[]]($frame * 10))
+          $run = { param($what) & $ffmpeg -v error -y @what; if ($LASTEXITCODE) { throw "ffmpeg $what" } }
+          & $run @('-f', 's16le', '-ar', '44100', '-ac', '1', '-i', 'tone.raw', '-f', 'wav', 'tone.wav')
+          & $run @('-f', 'wav', '-i', 'tone.wav', '-compression_level', '8', '-f', 'flac', 'tone.flac')
+          & $run @('-f', 'flac', '-i', 'tone.flac', '-ar', '48000', '-c:a', 'libopus', '-b:a', '64k', '-f', 'ogg', 'tone.ogg')
+          & $run @('-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-s', '64x48', '-r', '10', '-i', 'frames.yuv', '-i', 'tone.flac', '-c:v', 'ffv1', '-level', '3', '-c:a', 'flac', '-sample_fmt', 's16', '-f', 'matroska', 'master.mkv')
+          & $run @('-i', 'master.mkv', '-c:v', 'libsvtav1', '-crf', '30', '-preset', '6', '-pix_fmt', 'yuv420p', '-c:a', 'libopus', '-b:a', '128k', '-f', 'webm', 'cutscene.webm')
+          & $run @('-i', 'cutscene.webm', '-f', 's16le', '-ac', '1', 'back.raw')
+          & $run @('-i', 'master.mkv', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'frame.rgba')
+          Get-ChildItem tone.*, master.mkv, cutscene.webm, back.raw, frame.rgba | Format-Table Name, Length

@@ -64,3 +64,9 @@ SOFTWARE.
 The game links Bevy with its `default_font` feature, which embeds the Fira Mono font (SIL Open Font
 License 1.1). A binary release must ship that license with the executable, together with the
 licenses of the other dependencies (`cargo deny list` prints them).
+
+The release archive carries `ffmpeg.exe`, which the converter runs as a separate program: FFmpeg
+(LGPL 2.1 or later) built statically with libopus (BSD-3-Clause) and SVT-AV1 (BSD-3-Clause-Clear
+and the AOMedia Patent License 1.0) by `tools/ffmpeg/build.sh` from the sources that
+`tools/ffmpeg/versions.toml` pins. The archive holds its `FFMPEG.md`, which names the sources and
+the configuration, and the three licenses' texts, and the release offers the sources (docs/08 §4).

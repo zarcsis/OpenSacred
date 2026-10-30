@@ -73,6 +73,10 @@ The risk is low (**estimate**), and it stays apart from the repository: a compla
 * A dependency comes only under a license that `deny.toml` allows (`CLAUDE.md`, "Prohibitions"): Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0, ISC, MIT, MIT-0, MPL-2.0, Unicode-3.0 and Zlib.
   `cargo deny check` checks the licenses on every pull request (docs/03 §3.4, §5).
 * A binary release must ship with the executable the SIL Open Font License 1.1 of the Fira Mono font, which Bevy's `default_font` feature embeds, together with the licenses of the other dependencies (`cargo deny list` prints them; `THIRD-PARTY-NOTICES.md`, "Binary distributions").
+* The release archive carries our own `ffmpeg.exe` (#1499, #1494), which the converter runs as a separate program: FFmpeg under the LGPL 2.1 or later, nothing GPL or non-free enabled, built statically with libopus (BSD-3-Clause) and SVT-AV1 (BSD-3-Clause-Clear with the AOMedia Patent License 1.0) from their unchanged sources, which `tools/ffmpeg/versions.toml` pins by their SHA-256, by `tools/ffmpeg/build.sh` (`.github/workflows/ffmpeg.yml`).
+  Beside it go `FFMPEG.md` (the versions, the sources' places and hashes, the configuration) and the three licenses' texts; the release offers the three source archives as downloaded, as the LGPL's §4 asks of a program given in object form.
+  `cargo deny` sees none of them, as they are no crates: a change of the build's sources or configuration that enables another library is checked against this paragraph by hand.
+* The release archive (#1500, docs/03 §3.6) carries the licenses that the binaries owe: the crates' texts in `THIRD-PARTY-LICENSES.html`, which cargo-about writes from the licenses that `deny.toml` allows, the Fira Mono font's SIL Open Font License 1.1 (`release/FiraMono-LICENSE.txt`, Mozilla's text), our own `LICENSE-MIT` and `LICENSE-APACHE`, and FFmpeg's as above.
 
 ## 5. Community work
 

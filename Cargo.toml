@@ -147,3 +147,12 @@ todo = "warn"
 # PNG, while our own code stays easy to debug (docs/03 §5).
 [profile.dev.package."*"]
 opt-level = 3
+
+# The build that the releases ship (#1500): the release profile with link-time optimization across
+# the crates, one code generation unit and the symbols stripped, for a smaller and faster
+# executable at the price of a longer build.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+strip = true
