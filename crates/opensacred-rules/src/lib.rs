@@ -15,6 +15,7 @@
 
 pub mod arrows;
 pub mod arts;
+pub mod combos;
 pub mod containers;
 pub mod drops;
 pub mod equipment;

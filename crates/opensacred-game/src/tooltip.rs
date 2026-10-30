@@ -31,13 +31,13 @@ use crate::pickup::Pack;
 
 /// The panel's colour (**measured** 2026-10-30: black at half alpha), its text's inset and line,
 /// and the font's size that fills the line (**estimate**).
-const PANEL: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.5);
-const INSET: f32 = 4.0;
+pub(crate) const PANEL: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.5);
+pub(crate) const INSET: f32 = 4.0;
 const LINE: f32 = 20.0;
-const FONT_SIZE: f32 = 20.0;
+pub(crate) const FONT_SIZE: f32 = 20.0;
 /// The tooltip's place from the item's top right, and how far it keeps within the screen.
 const FROM_ITEM: Vec2 = Vec2::new(16.0, 16.0);
-const MARGIN: f32 = 16.0;
+pub(crate) const MARGIN: f32 = 16.0;
 /// The border's images: the edges along and down, and the corner.
 const EDGE_ALONG: u32 = 21;
 const EDGE_DOWN: u32 = 34;
