@@ -697,6 +697,9 @@ class Host:
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
                 "ready at once; arts use ART: the hero's art starts its regeneration as a use of it does, its time "
                 'added to every art of its kind',
+                "combos: the hero's combos, the combo that runs and its step; combos set INDEX ART:LEVEL...: a combo "
+                "of up to four steps, as the combat master makes it; combos select INDEX: the combo on the right "
+                'button; combos ready: every combo regenerated',
                 "weather rain|fog|snow|quake N: the weather's level asked, 0 to 100, as the console's setrain, "
                 "setfog, setsnow and setquake ask it; weather clear: every level fades to 0",
                 "pause [on|off]: the world's time stands without the menu, the frames going on, or goes on; "
@@ -1282,6 +1285,33 @@ class Host:
                 + f" time {a['time']:.1f} s, factor {a['factor']:g}, to run {a['remaining']:.1f} s"
                 for a in arts]
 
+    def command_combos(self, rest):
+        # The hero's combos (#1531): `combos set INDEX ART:LEVEL...` makes one of up to four steps, `combos select
+        # INDEX` puts it on the right button, `combos ready` fills every combo's regeneration.
+        words = rest.split()
+        params = {'set': None, 'steps': [], 'select': None, 'ready': False}
+        if len(words) >= 3 and words[0] == 'set' and words[1].isdigit():
+            params['set'] = int(words[1])
+            try:
+                params['steps'] = [[int(part) for part in step.split(':')] for step in words[2:]]
+            except ValueError:
+                raise ValueError('combos set INDEX ART:LEVEL [ART:LEVEL ...]') from None
+            if len(params['steps']) > 4 or any(len(step) != 2 for step in params['steps']):
+                raise ValueError('combos set INDEX ART:LEVEL [ART:LEVEL ...], four steps at most')
+        elif len(words) == 2 and words[0] == 'select' and words[1].isdigit():
+            params['select'] = int(words[1])
+        elif words == ['ready']:
+            params['ready'] = True
+        elif words:
+            raise ValueError('combos, combos set INDEX ART:LEVEL [ART:LEVEL ...], combos select INDEX or combos ready')
+        state = self.world('combos', params)
+        lines = [f"running {state['running']} step {state['step']} mark {state['mark']}"]
+        for combo in state['combos']:
+            steps = ', '.join(f'{art & 0xffff}:{level}' for art, level in combo['steps'] if art & 0xffff)
+            lines.append(f"combo {combo['id']:#x} [{steps or 'empty'}] time {combo['time']:.2f} s, "
+                         f"speed {combo['speed']:g}, regenerated {combo['regenerated']:.2f} s")
+        return lines
+
     def command_effect(self, rest):
         parser = argparse.ArgumentParser(prog='effect', add_help=False, exit_on_error=False)
         parser.add_argument('effect', type=int)
@@ -1481,7 +1511,7 @@ WORLD_COMMANDS = {
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
     'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause,
-    'weather': Host.command_weather, 'arts': Host.command_arts, 'level': Host.command_level,
+    'weather': Host.command_weather, 'arts': Host.command_arts, 'combos': Host.command_combos, 'level': Host.command_level,
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
     'gold': Host.command_gold, 'home': Host.command_home, 'wear': Host.command_wear,

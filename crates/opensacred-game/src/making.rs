@@ -50,6 +50,9 @@ pub struct Making {
     pub target: Entity,
     /// The point on the ground an art of the launch type 3 is aimed at.
     pub point: Option<Vec3>,
+    /// The level of a combo's step, which its executor takes instead of the art's own
+    /// (`0x56ABE0`, `combos`).
+    pub level: Option<u32>,
 }
 
 /// An art's action under way: its style, its clip's node and length, its hit points and how many
@@ -77,7 +80,18 @@ impl Playing {
     pub fn target(&self) -> Entity {
         self.target
     }
+
+    /// The share of its clip played on `player`, none where the clip is gone.
+    pub fn done(&self, player: &AnimationPlayer) -> Option<f32> {
+        player
+            .animation(self.node)
+            .map(|active| active.seek_time() / self.length.max(f32::EPSILON))
+    }
 }
+
+/// The hero's making of its arts, which the combos' steps follow (`combos`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Made;
 
 /// The dice of the hero's arts (the `Hardhit` of an attack's clip at random).
 #[derive(Resource)]
@@ -280,6 +294,10 @@ pub(crate) fn aim(
     let (Some(cursor), Some(art), Some(arts)) = (pointer.0, selected.0, arts) else {
         return;
     };
+    // A combo on the right button is the combos' to run (`combos`, #1531).
+    if crate::combos::is_combo(art) {
+        return;
+    }
     let (camera, view) = *camera;
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
@@ -386,6 +404,7 @@ pub(crate) fn aim(
                             || arts::style(art) == Some(Style::Dash)
                             || (spell && target == hero))
                             .then_some(ground),
+                        level: None,
                     });
             }
             Err(_) if arts.arts.get(art).is_some() && !arts.arts.ready(art) => {
@@ -538,14 +557,16 @@ fn make(
                 if spells::turns(making.art) && toward.length() > f32::EPSILON {
                     transform.rotation = hero::facing(toward);
                 }
-                let level = arts.arts.level_in_play(
-                    making.art,
-                    Creature {
-                        kind: arts.kind,
-                        level: experience.level,
-                        player: true,
-                    },
-                );
+                let level = making.level.or_else(|| {
+                    arts.arts.level_in_play(
+                        making.art,
+                        Creature {
+                            kind: arts.kind,
+                            level: experience.level,
+                            player: true,
+                        },
+                    )
+                });
                 let action = clips
                     .arts
                     .iter()
@@ -640,16 +661,19 @@ fn make(
                 transform.rotation = hero::facing((target - here).with_y(0.0));
             }
             body.stop();
+            // A combo's step at its own level (`0x56ABE0`).
             let (Some(style), Some(level)) = (
                 arts::style(making.art),
-                arts.arts.level_in_play(
-                    making.art,
-                    Creature {
-                        kind: arts.kind,
-                        level: experience.level,
-                        player: true,
-                    },
-                ),
+                making.level.or_else(|| {
+                    arts.arts.level_in_play(
+                        making.art,
+                        Creature {
+                            kind: arts.kind,
+                            level: experience.level,
+                            player: true,
+                        },
+                    )
+                }),
             ) else {
                 end(&mut commands);
                 continue;
@@ -2544,7 +2568,9 @@ impl Plugin for MakingPlugin {
                 Update,
                 (
                     aim.in_set(Control).before(hero::steer),
-                    make.after(hero::steer).before(hero::take_orders),
+                    make.in_set(Made)
+                        .after(hero::steer)
+                        .before(hero::take_orders),
                     blades.after(make),
                     leap.after(make),
                 )

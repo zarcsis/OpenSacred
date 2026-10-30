@@ -1022,6 +1022,7 @@ const WORLD = {
   artIndex: ptr('0x581d40'),         // the stats: thiscall (stats, art), the index of its entry
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
+  setCombo: ptr('0x5813d0'),         // the stats: thiscall (stats, index, four arts as dwords, four levels as words, id)
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
   addEffect: ptr('0x582d50'),        // the stats: thiscall (stats, id, whole, value, seconds, art, 0, 0, 0), an effect
   addGold: ptr('0x57fd80'),          // the stats: thiscall (stats, amount), the gold's handler: adds the amount (less
@@ -1100,6 +1101,14 @@ const artIndex = new NativeFunction(WORLD.artIndex, 'uint32', ['pointer', 'uint3
 const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'],
   'thiscall');
 const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float', 'uint32', 'uint32'], 'thiscall');
+const setCombo = new NativeFunction(WORLD.setCombo, 'void', ['pointer', 'uint32', 'pointer', 'pointer', 'uint32'],
+  'thiscall');
+// A hero's combos (docs/re/arts.md, "A hero's combos"): entries of 38 bytes between the stats' pointers at +0x10E and
+// +0x112, an id, four arts as dwords, four levels as words, the time, the speed and the time regenerated; the
+// creature's +0x2B4 the combo that runs (its index plus 1) and +0x2B3 its step, the stats' +0x59 the mark of the
+// combo whose step the last use of an art was (0x562470).
+const COMBO = { list: 0x10e, end: 0x112, size: 38, id: 0, arts: 2, levels: 0x12, time: 0x1a, speed: 0x1e,
+  regenerated: 0x22, running: 0x2b4, step: 0x2b3, mark: 0x59 };
 const addEffect = new NativeFunction(WORLD.addEffect, 'void',
   ['pointer', 'uint32', 'int32', 'float', 'float', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const addGold = new NativeFunction(WORLD.addGold, 'void', ['pointer', 'int32'], 'thiscall');
@@ -1610,6 +1619,62 @@ const COMMANDS = {
       time: e.add(ART.time).readFloat(), factor: e.add(ART.factor).readFloat(),
       remaining: e.add(ART.remaining).readFloat(),
     }));
+  },
+  // The hero's combos (#1531): each one's id, steps (art and level), time, speed and time regenerated, the combo that
+  // runs and its step, and the stats' mark of 0x562470; `set` makes the combo INDEX of up to four ART:LEVEL steps
+  // through the original's own 0x5813D0 as the combat master does, `select` puts it on the right button (the engine's
+  // +0x5A its id, 0x200 and its index, +0x58 2), `ready` fills every combo's regeneration.
+  combos: (engine, { set, steps, select, ready }) => {
+    const object = hero();
+    if (object === null) {
+      throw new Error('no hero');
+    }
+    const stats = object.add(STATS);
+    const entries = () => {
+      const begin = stats.add(COMBO.list).readPointer();
+      const end = stats.add(COMBO.end).readPointer();
+      if (begin.isNull() || end.compare(begin) <= 0) {
+        return [];
+      }
+      const count = Math.min(Math.floor(end.sub(begin).toInt32() / COMBO.size), 16);
+      return Array.from({ length: count }, (_, i) => begin.add(COMBO.size * i));
+    };
+    if (set !== undefined && set !== null) {
+      if (set >= entries().length) {
+        throw new Error(`no combo ${set}: the hero has ${entries().length}`);
+      }
+      const arts = Memory.alloc(16);
+      const levels = Memory.alloc(8);
+      for (let i = 0; i < 4; i += 1) {
+        const [art, level] = steps[i] ?? [0, 0];
+        arts.add(4 * i).writeU32(art);
+        levels.add(2 * i).writeU16(level);
+      }
+      setCombo(stats, set, arts, levels, 0x200 + set);
+    }
+    if (ready) {
+      for (const entry of entries()) {
+        entry.add(COMBO.regenerated).writeFloat(entry.add(COMBO.time).readFloat());
+      }
+    }
+    if (select !== undefined && select !== null) {
+      const game = ADDRESSES.engine.readPointer();
+      if (game.isNull()) {
+        throw new Error('no game');
+      }
+      game.add(0x5a).writeU16(0x200 + select);
+      game.add(0x58).writeU8(2);
+    }
+    return {
+      running: object.add(COMBO.running).readU8(), step: object.add(COMBO.step).readU8(),
+      mark: stats.add(COMBO.mark).readU8(),
+      combos: entries().map((e) => ({
+        id: e.add(COMBO.id).readU16(),
+        steps: [0, 1, 2, 3].map((i) => [e.add(COMBO.arts + 4 * i).readU32(), e.add(COMBO.levels + 2 * i).readU16()]),
+        time: e.add(COMBO.time).readFloat(), speed: e.add(COMBO.speed).readFloat(),
+        regenerated: e.add(COMBO.regenerated).readFloat(),
+      })),
+    };
   },
   // An effect on a creature's stats, the hero's by default, through the original's own 0x582D50 (#651, docs/re/arts.md,
   // "The effects"): its id, whole value, value, seconds and art, as a spell's object gives it.

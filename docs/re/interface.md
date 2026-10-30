@@ -252,7 +252,7 @@ Since #1273 the grid's items have their tooltips in the window above (`tooltip`)
 
 Since #1529 the art slots hold their arts (`art_slots`): a new game's first holds the hero's first art, the selected one's art is the right button's, a click selects a slot or, in the edit mode while the inventory shows, takes the art on the cursor or clears the slot, the keys 6 to 9 and 0, and 1 to 5 with the weapon sets, select the slots; each slot draws its art split by its regeneration, an empty one its orb (479 selected, 635 not, 533 while the cursor holds a spell or, in the edit mode, a weapon art), its ring 103 selected and 102 not; an art on the cursor shows its vivid picture there.
 **Seen** in the game beside the original's frames: 1070 taken from the spells page with every empty slot green, dropped on the second slot, which took the gold ring; the selected slot cleared to its pale blue orb; the key 6 selecting the first.
-Since #1530 a slot holds a combo too, from the combos page (`combos_page`, docs/re/arts.md): its images 801 to 812 split by its share regenerated, no slot green while the cursor holds one; a slot that holds a combo makes nothing until #1531.
+Since #1530 a slot holds a combo too, from the combos page (`combos_page`, docs/re/arts.md): its images 801 to 812 split by its share regenerated, no slot green while the cursor holds one; a slot that holds a combo runs it with the right button since #1531 (`combos`, docs/re/arts.md, "A combo's run").
 Since #1536 the keys F1 to F6 put the arts bound to them into the selected slot (`spells_page`, docs/re/arts.md, "The spells page").
 Not followed for them: the Vampiress's second bank and a slot's tooltip.
 
