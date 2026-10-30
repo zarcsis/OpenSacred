@@ -1182,6 +1182,7 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 - UI bitmaps: 1024×1024 `UI_*.TGA` in format 6 (A8R8G8B8, §3.1), the cursor `MOUSE_MAIN.TGA`; the `cUI_*` widget layout is defined in code, there are no layout files.
   The interface follows the original's places and images (`tables/ui_images.ron`, [docs/re/interface.md](re/interface.md)).
 - Loading screens: `pak/loading0/1.bmp`, `loadgame.bmp`, `savegame.bmp`, `LoadingUW00/01.bmp`: BMP 1024×768, 24-bit, uncompressed, rows from the bottom; three files carry 2 bytes after the pixels.
+  The Steam release's `loading1.bmp` is 16-bit, uncompressed (`BI_RGB`, 5-5-5, the top bit unused), and its `loading0.bmp` carries 2 bytes after the pixels (docs/01 §1); since #1488 the reader takes 16 bits too, each channel widened to eight bits by repeating its top bits.
   **Implemented 2026-10-17:** `opensacred_formats::bmp` decodes them, `opensacred-convert ui` writes `ui/screens/*.png` (a test compares every pixel with FFmpeg's decoding) and copies the two fonts to `ui/fonts/` and `credits.txt`, `credits2.txt` (ASCII with CRLF) to `ui/texts/`, with LF since #835.
 
 ## 12. Conversion: targets, order, checks
