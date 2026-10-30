@@ -84,6 +84,7 @@ mod music;
 mod npcs;
 mod opus;
 mod overlay;
+mod overview;
 mod paths;
 mod pause;
 mod pick;
@@ -419,6 +420,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         overlay::OverlayPlugin,
+        overview::OverviewPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
         points::PointsPlugin,

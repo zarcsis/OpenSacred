@@ -127,13 +127,14 @@ fn corner((x, y): (i32, i32)) -> Vec2 {
 }
 
 /// Spawns the ground about the iso plane's point `point` as the children of `parent`, a node
-/// whose top left corner stands at `origin` of the screen and which clips them.
+/// whose top left corner stands at `origin` of the screen and which clips them, at the alpha
+/// `alpha` (the call's, `alpha << 24 | 0xFFFFFF`; an absent sector's black of it).
 pub fn spawn(
     commands: &mut Commands,
     parent: Entity,
     (minimaps, assets): (&Minimaps, &AssetServer),
-    point: Vec2,
-    origin: Vec2,
+    (point, origin): (Vec2, Vec2),
+    alpha: f32,
 ) {
     for (sector, corner) in ground(point) {
         let node = crate::bar::placed(corner - origin, Vec2::splat(PICTURE));
@@ -141,12 +142,17 @@ pub fn spawn(
             Some(file) => commands
                 .spawn((
                     node,
-                    ImageNode::new(crate::hud::image(assets, file.to_owned())),
+                    ImageNode::new(crate::hud::image(assets, file.to_owned()))
+                        .with_color(Color::WHITE.with_alpha(alpha)),
                     Pickable::IGNORE,
                 ))
                 .id(),
             None => commands
-                .spawn((node, BackgroundColor(Color::BLACK), Pickable::IGNORE))
+                .spawn((
+                    node,
+                    BackgroundColor(Color::BLACK.with_alpha(alpha)),
+                    Pickable::IGNORE,
+                ))
                 .id(),
         };
         commands.entity(parent).add_child(child);
