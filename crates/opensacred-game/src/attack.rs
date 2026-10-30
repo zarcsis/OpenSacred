@@ -141,7 +141,7 @@ pub(crate) fn from_line(ray: Ray3d, point: Vec3) -> f32 {
 pub(crate) fn aim(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     mut aim: ResMut<Aim>,
@@ -194,7 +194,7 @@ pub(crate) fn aim(
         .filter(|&(_, distance)| distance <= PICKED_WITHIN)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(entity, _)| entity);
-    let at_once = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let at_once = keys.pressed(crate::controls::Action::StrikeAtOnce);
     for (hero, transform, attack, playing) in &mut heroes {
         // Where the cursor's line of sight meets the hero's height: the air it strikes.
         let along = (transform.translation.y - ray.origin.y) / ray.direction.y;

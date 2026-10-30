@@ -34,6 +34,7 @@ mod command;
 mod compass;
 mod console;
 mod containers;
+mod controls;
 mod crowd;
 mod cursors;
 mod daemon;
@@ -253,6 +254,8 @@ fn run(cli: Cli) -> Result<AppExit> {
     });
     let sound_index = sound::Index::read(&assets)?;
     let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
+    // The keys, `controls.toml` beside the settings (#1553).
+    let (controls, control_warnings) = controls::Controls::read(settings_file.path());
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
     // frames do not depend on the monitor.
     let fixed = cli.screenshot.is_some() || cli.record.is_some() || cli.benchmark.is_some();
@@ -358,6 +361,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         compass::CompassPlugin,
         console::ConsolePlugin,
         containers::ContainersPlugin,
+        controls::ControlsPlugin,
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
         daemon::DaemonPlugin,
@@ -450,6 +454,8 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
+    .insert_resource(controls)
+    .insert_resource(controls::Warnings(control_warnings))
     .insert_resource(daynight::LightTypes::read(&shared.tables)?)
     .insert_resource(dungeons)
     .insert_resource(hero::GameSpeed::read(&shared.tables)?)

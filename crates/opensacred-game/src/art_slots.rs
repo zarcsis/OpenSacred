@@ -26,22 +26,6 @@ use crate::making::Selected;
 
 /// The slots at the right.
 pub(crate) const SLOTS: usize = 5;
-/// The keys that select the slots 1 to 5, and those that select them with the weapon sets
-/// (`COMBINE_SLOTS`, `0x81CF80`).
-const KEYS: [KeyCode; SLOTS] = [
-    KeyCode::Digit6,
-    KeyCode::Digit7,
-    KeyCode::Digit8,
-    KeyCode::Digit9,
-    KeyCode::Digit0,
-];
-const COMBINED: [KeyCode; SLOTS] = [
-    KeyCode::Digit1,
-    KeyCode::Digit2,
-    KeyCode::Digit3,
-    KeyCode::Digit4,
-    KeyCode::Digit5,
-];
 /// An art's picture on the cursor, its side and its corner from the pointer (`0x6C1930`).
 const ON_CURSOR: f32 = 64.0;
 
@@ -139,7 +123,7 @@ fn sync(mut slots: ResMut<ArtSlots>, mut selected: ResMut<Selected>, arts: Optio
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn choose(
-    (keys, buttons): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>),
+    (keys, buttons): (crate::controls::Keys, Res<ButtonInput<MouseButton>>),
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, inventory, console): (
         Option<Res<bar::Shown>>,
@@ -178,10 +162,15 @@ fn choose(
     if console.is_some_and(|console| console.is_open()) {
         return;
     }
-    let keyed = KEYS
+    // The slots' keys, and the weapon sets' with them (`COMBINE_SLOTS`, `0x81CF80`).
+    let keyed = crate::controls::ART_SLOTS
         .iter()
-        .position(|&key| keys.just_pressed(key))
-        .or_else(|| COMBINED.iter().position(|&key| keys.just_pressed(key)));
+        .position(|&action| keys.just_pressed(action))
+        .or_else(|| {
+            crate::controls::WEAPON_SETS
+                .iter()
+                .position(|&action| keys.just_pressed(action))
+        });
     if let Some(slot) = keyed.filter(|&slot| slot < count)
         && slots.selected != slot
     {

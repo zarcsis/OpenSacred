@@ -265,7 +265,7 @@ fn tint(
 /// put where it fits, with its sound, or in place of the one item under it.
 fn click(
     (shown, opened): (Res<Shown>, Res<Opened>),
-    (buttons, keys): (Res<ButtonInput<MouseButton>>, Res<ButtonInput<KeyCode>>),
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
     (mut chest, mut pack): (ResMut<Chest>, ResMut<Pack>),
@@ -282,7 +282,7 @@ fn click(
         return;
     };
     let chest = &mut *chest;
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let shift = keys.pressed(crate::controls::Action::SendItem);
     if shift && pack.held.is_none() {
         // Into the backpack (`0x5DEBC0`, `0x5DECC0`): out of the store where the backpack takes it.
         let Some(placed) = chest.grid.at(cell).copied() else {

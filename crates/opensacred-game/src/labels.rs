@@ -48,9 +48,10 @@ impl Shown {
     }
 }
 
-/// Whether Alt is held (`GetAsyncKeyState` of `VK_MENU`, the world view's flag `0x4000`).
-pub fn held(keys: &ButtonInput<KeyCode>) -> bool {
-    keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight])
+/// Whether the labels' key is held, Alt by default (`GetAsyncKeyState` of `VK_MENU`, the world
+/// view's flag `0x4000`).
+pub fn held(keys: &crate::controls::Keys) -> bool {
+    keys.pressed(crate::controls::Action::Labels)
 }
 
 /// A label's node, by the item it names.
@@ -114,7 +115,7 @@ fn lay_out(points: &[Vec2], sizes: &[Vec2]) -> Vec<Rect> {
 )]
 fn label(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     (texts, tables): (Option<Res<Texts>>, Option<Res<Tables>>),
     (assets, ui_scale): (Res<AssetServer>, Res<UiScale>),
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,

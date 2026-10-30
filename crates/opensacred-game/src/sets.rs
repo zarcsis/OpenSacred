@@ -69,14 +69,6 @@ pub struct WeaponSets {
     pub selected: usize,
 }
 
-/// The keys that choose the weapon sets 1 to 5 (`0x6E1BC0`).
-const KEYS: [KeyCode; SETS] = [
-    KeyCode::Digit1,
-    KeyCode::Digit2,
-    KeyCode::Digit3,
-    KeyCode::Digit4,
-    KeyCode::Digit5,
-];
 /// A slot's side on the original's screen.
 const SLOT: f32 = 64.0;
 
@@ -274,7 +266,7 @@ fn slot_at(at: Vec2, count: usize) -> Option<usize> {
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn choose(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, console, inventory): (
         Res<crate::hud::Pointer>,
@@ -323,9 +315,10 @@ fn choose(
     {
         sounds.write(put_sound());
     }
-    let keyed = KEYS
+    // The keys that choose the weapon sets 1 to 5 (`0x6E1BC0`).
+    let keyed = crate::controls::WEAPON_SETS
         .iter()
-        .position(|&key| keys.just_pressed(key))
+        .position(|&action| keys.just_pressed(action))
         .filter(|_| console.is_none_or(|console| !console.is_open()));
     if let Some(set) = clicked
         .map(|(set, _)| set)

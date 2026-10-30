@@ -1,5 +1,6 @@
 //! The keys' help (docs/10 §9): F10 shows and hides, over the middle of the screen, what each key
-//! does everywhere, in the game, in the menus and in the console. Esc hides it too, without
+//! does everywhere, in the game, in the menus and in the console, the keys as `controls.toml` has
+//! them (`controls`). Esc hides it too, without
 //! pausing a game, after the console has had its Esc; the game goes on under it. The command
 //! `keys on|off` shows and hides it from a script or from afar.
 
@@ -8,59 +9,154 @@ use bevy::picking::Pickable;
 use bevy::prelude::*;
 use bevy::text::FontSize;
 
+use crate::controls::{ART_KEYS, ART_SLOTS, Action, Controls, KeysMut, WEAPON_SETS};
+
+/// A row's keys: the keys of actions, the first of each where there are several, between words
+/// before and after them; or words alone, for the mouse and the console's line.
+pub struct Row {
+    before: &'static str,
+    actions: &'static [Action],
+    after: &'static str,
+}
+
+const fn of(actions: &'static [Action]) -> Row {
+    Row {
+        before: "",
+        actions,
+        after: "",
+    }
+}
+
+const fn words(before: &'static str) -> Row {
+    Row {
+        before,
+        actions: &[],
+        after: "",
+    }
+}
+
+impl Row {
+    /// Its keys' text, by the controls in force.
+    fn text(&self, controls: &Controls) -> String {
+        let names = match self.actions {
+            [action] => controls.names(*action),
+            actions => actions
+                .iter()
+                .filter_map(|&action| controls.bindings(action).first().map(|b| b.name()))
+                .collect::<Vec<_>>()
+                .join(", "),
+        };
+        let between = if self.before.is_empty() || names.is_empty() {
+            ""
+        } else {
+            ", "
+        };
+        format!("{}{between}{names}{}", self.before, self.after)
+    }
+}
+
 /// The keys and what they do, by where they work.
-pub const KEYS: &[(&str, &[(&str, &str)])] = &[
+pub const KEYS: &[(&str, &[(Row, &str)])] = &[
     (
         "Everywhere",
         &[
-            ("F10", "this help"),
-            ("F7", "the debug overlay"),
-            ("F12", "the log"),
-            ("F11", "borderless full screen or a window"),
-            ("~", "the console (the key under Esc)"),
+            (of(&[Action::Help]), "this help"),
+            (of(&[Action::Overlay]), "the debug overlay"),
+            (of(&[Action::Log]), "the log"),
+            (of(&[Action::Window]), "borderless full screen or a window"),
+            (of(&[Action::Console]), "the console (the key under Esc)"),
         ],
     ),
     (
         "In the game",
         &[
-            ("Left button", "run to the cursor"),
-            ("Shift", "walk rather than run, while held"),
-            ("Left button on a foe", "strike it; hold to strike on"),
-            ("Ctrl+left button", "strike at once"),
-            ("Right button on a foe", "make the selected combat art"),
-            ("Alt", "the items' names"),
-            ("I", "the inventory"),
-            ("1 to 5", "the weapon sets"),
-            ("6 to 0", "the art slots"),
-            ("F1 to F6", "the art of the key into the selected slot"),
+            (words("Left button"), "run to the cursor"),
+            (of(&[Action::Walk]), "walk rather than run, while held"),
             (
-                "F1 to F6 on an art",
+                words("Left button on a foe"),
+                "strike it; hold to strike on",
+            ),
+            (
+                Row {
+                    before: "",
+                    actions: &[Action::StrikeAtOnce],
+                    after: "+left button",
+                },
+                "strike at once",
+            ),
+            (
+                words("Right button on a foe"),
+                "make the selected combat art",
+            ),
+            (of(&[Action::Labels]), "the items' names"),
+            (of(&[Action::Inventory]), "the inventory"),
+            (of(&WEAPON_SETS), "the weapon sets"),
+            (of(&ART_SLOTS), "the art slots"),
+            (of(&ART_KEYS), "the art of the key into the selected slot"),
+            (
+                words("The same over an art"),
                 "on the spells page: bind the key to it",
             ),
-            ("Space", "a healing potion (with Shift the yellow one)"),
-            ("Q, W, E, R", "a purple, blue, green or yellow potion"),
-            ("B", "a healing potion for a follower"),
-            ("Wheel", "zoom in and out"),
-            ("Esc", "pause: Continue, Main menu, Quit"),
+            (
+                of(&[Action::BeltPotion]),
+                "a healing potion (with Shift the yellow one)",
+            ),
+            (
+                of(&[
+                    Action::PurplePotion,
+                    Action::BluePotion,
+                    Action::GreenPotion,
+                    Action::YellowPotion,
+                ]),
+                "a purple, blue, green or yellow potion",
+            ),
+            (
+                of(&[Action::FollowerPotion]),
+                "a healing potion for a follower",
+            ),
+            (
+                Row {
+                    before: "",
+                    actions: &[Action::SendItem],
+                    after: "+click on an item",
+                },
+                "the stash's to the backpack, a potion to a follower",
+            ),
+            (words("Wheel"), "zoom in and out"),
+            (of(&[Action::Back]), "pause: Continue, Main menu, Quit"),
         ],
     ),
     (
         "In the menus",
         &[
-            ("Mouse, arrows", "choose"),
-            ("Click, Enter", "do it"),
-            ("Esc", "back"),
+            (
+                Row {
+                    before: "Mouse",
+                    actions: &[Action::Next, Action::Previous],
+                    after: "",
+                },
+                "choose",
+            ),
+            (
+                Row {
+                    before: "Click",
+                    actions: &[Action::Confirm],
+                    after: "",
+                },
+                "do it",
+            ),
+            (of(&[Action::Back]), "back"),
         ],
     ),
     (
         "In the console",
         &[
-            ("Enter", "run the line (help lists the commands)"),
-            ("Up, Down", "the history"),
-            ("Tab", "complete"),
-            ("Ctrl+V, Ctrl+C", "paste, copy the line"),
-            ("PageUp, PageDown", "scroll"),
-            ("Esc", "close"),
+            (words("Enter"), "run the line (help lists the commands)"),
+            (words("Up, Down"), "the history"),
+            (words("Tab"), "complete"),
+            (words("Ctrl+V, Ctrl+C"), "paste, copy the line"),
+            (words("PageUp, PageDown"), "scroll"),
+            (of(&[Action::Back]), "close"),
         ],
     ),
 ];
@@ -85,7 +181,9 @@ pub struct Help {
 #[derive(Component)]
 struct Panel;
 
-fn spawn(mut commands: Commands) {
+fn spawn(mut commands: Commands, controls: Option<Res<Controls>>) {
+    let defaults = Controls::default();
+    let controls = controls.as_deref().unwrap_or(&defaults);
     let text = |size: f32, colour: Color, words: &str| {
         (
             Text::new(words),
@@ -143,7 +241,7 @@ fn spawn(mut commands: Commands) {
                                 })
                                 .with_children(|row| {
                                     row.spawn((
-                                        text(TEXT, WORDS, key),
+                                        text(TEXT, WORDS, &key.text(controls)),
                                         Node {
                                             width: Val::Px(KEY_WIDTH),
                                             ..default()
@@ -158,13 +256,11 @@ fn spawn(mut commands: Commands) {
 }
 
 /// F10 shows and hides the help; Esc hides it, taken from the game so that it does not pause it.
-fn keys(mut keys: ResMut<ButtonInput<KeyCode>>, mut help: ResMut<Help>) {
-    if keys.just_pressed(KeyCode::F10) {
+fn keys(mut keys: KeysMut, mut help: ResMut<Help>) {
+    if keys.take(Action::Help) {
         help.shown = !help.shown;
-        keys.clear_just_pressed(KeyCode::F10);
-    } else if help.shown && keys.just_pressed(KeyCode::Escape) {
+    } else if help.shown && keys.take(Action::Back) {
         help.shown = false;
-        keys.clear_just_pressed(KeyCode::Escape);
     }
 }
 
@@ -203,27 +299,35 @@ mod tests {
     use crate::frame::Control;
 
     #[test]
-    fn the_help_names_every_key_of_the_game() {
-        let keys: Vec<&str> = KEYS
+    fn the_help_names_every_action_by_its_keys() {
+        let controls = Controls::default();
+        let rows: Vec<(String, &str)> = KEYS
             .iter()
-            .flat_map(|(_, keys)| keys.iter().map(|(key, _)| *key))
+            .flat_map(|(_, rows)| rows.iter().map(|(row, does)| (row.text(&controls), *does)))
             .collect();
-        for key in [
-            "F10",
-            "F7",
-            "F12",
-            "F11",
-            "~",
-            "Shift",
-            "F1 to F6",
-            "Q, W, E, R",
-            "B",
-            "Esc",
-            "Tab",
-            "Ctrl+V, Ctrl+C",
-            "Ctrl+left button",
+        // Every action has its row.
+        let shown: Vec<Action> = KEYS
+            .iter()
+            .flat_map(|(_, rows)| rows.iter().flat_map(|(row, _)| row.actions.iter().copied()))
+            .collect();
+        for action in Action::all() {
+            assert!(shown.contains(&action), "{action:?}");
+        }
+        for (keys, does) in [
+            ("F10", "this help"),
+            ("Shift", "walk rather than run, while held"),
+            ("Control+left button", "strike at once"),
+            ("1, 2, 3, 4, 5", "the weapon sets"),
+            (
+                "F1, F2, F3, F4, F5, F6",
+                "the art of the key into the selected slot",
+            ),
+            ("Q, W, E, R", "a purple, blue, green or yellow potion"),
+            ("Mouse, ArrowDown, ArrowUp", "choose"),
+            ("Click, Enter, NumpadEnter", "do it"),
+            ("Ctrl+V, Ctrl+C", "paste, copy the line"),
         ] {
-            assert!(keys.contains(&key), "{key}");
+            assert!(rows.contains(&(keys.to_owned(), does)), "{keys}: {rows:#?}");
         }
     }
 

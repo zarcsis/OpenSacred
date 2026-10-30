@@ -29,6 +29,7 @@ use opensacred_rules::spawning::Rng;
 
 use crate::backpack::{cell_under, on_grid};
 use crate::bar::{self, EMPTY_FLASK, UiImages};
+use crate::controls::{Action, Keys};
 use crate::effects::Effects;
 use crate::fight::Health;
 use crate::followers::Follower;
@@ -105,14 +106,14 @@ fn light(
 /// (`0x612FA0`).
 const HURT: f64 = 0.99;
 
-/// The keys of the potions by their characters, without Control: the kind each drinks, and
-/// whether it gives it to a follower (`0x618090`).
-const LETTERS: [(KeyCode, u8, bool); 5] = [
-    (KeyCode::KeyQ, 2, false),
-    (KeyCode::KeyW, 3, false),
-    (KeyCode::KeyE, 4, false),
-    (KeyCode::KeyR, 5, false),
-    (KeyCode::KeyB, 1, true),
+/// The potions' keys by their characters, without Control: the kind each drinks, and whether
+/// it gives it to a follower (`0x618090`).
+const LETTERS: [(Action, u8, bool); 5] = [
+    (Action::PurplePotion, 2, false),
+    (Action::BluePotion, 3, false),
+    (Action::GreenPotion, 4, false),
+    (Action::YellowPotion, 5, false),
+    (Action::FollowerPotion, 1, true),
 ];
 
 /// The left button on a slot of the belt, Space (with Shift the yellow potion), Q, W, E or R, or
@@ -127,7 +128,7 @@ const LETTERS: [(KeyCode, u8, bool); 5] = [
 fn drink(
     mut commands: Commands,
     (keys, mut letters, console): (
-        Res<ButtonInput<KeyCode>>,
+        Keys,
         MessageReader<KeyboardInput>,
         Option<Res<crate::console::Console>>,
     ),
@@ -142,11 +143,15 @@ fn drink(
     mut dice: Local<Option<Rng>>,
 ) {
     // A character's press or its repeat, the first of the frame's (`0x618090`).
-    let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let held = keys.modifiers();
     let lettered = letters
         .read()
-        .filter(|key| key.state == ButtonState::Pressed && !control)
-        .filter_map(|key| LETTERS.iter().find(|(code, ..)| *code == key.key_code))
+        .filter(|key| key.state == ButtonState::Pressed && !held.control)
+        .filter_map(|key| {
+            LETTERS
+                .iter()
+                .find(|&&(action, ..)| keys.controls().is(action, key, held))
+        })
         .map(|&(_, kind, given)| (kind, given))
         .reduce(|first, _| first);
     // The open console takes the keys and the clicks (#1554).
@@ -162,9 +167,10 @@ fn drink(
     let healing = healing.map(|h| h.0).unwrap_or_default();
     let wound = Some(missing(health.current, health.most));
     let slot = || screen_point(&pointer, &ui_scale, &windows).and_then(bar::belt_slot);
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let (kind, given) = if keys.just_pressed(KeyCode::Space) {
-        (Some(if shift { 5 } else { 1 }), false)
+    // The belt's key, Space, drinks the kind 6: the healing potion, with Shift the yellow
+    // (`0x612FA0` reads Shift itself).
+    let (kind, given) = if keys.just_pressed(Action::BeltPotion) {
+        (Some(if held.shift { 5 } else { 1 }), false)
     } else if let Some((kind, given)) = lettered {
         (Some(kind), given)
     } else if buttons.just_pressed(MouseButton::Left) {
@@ -184,7 +190,7 @@ fn drink(
                 .and_then(|cell| pack.grid.at(cell))
                 .map(|placed| placed.key)
                 .filter(|key| pack.potions().iter().any(|(k, _)| k == key));
-            (key, shift)
+            (key, keys.pressed(Action::SendItem))
         }
         None => (None, false),
     };
