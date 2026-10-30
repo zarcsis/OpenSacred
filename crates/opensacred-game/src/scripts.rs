@@ -2289,6 +2289,29 @@ fn take_for_quest(
     }
 }
 
+/// Runs the `Use:` function of each item that the hero used from the backpack (`0x46BF40`,
+/// #1272), the hero put where they teleport it.
+fn use_items(
+    mut live: Option<NonSendMut<Live>>,
+    mut used: MessageReader<crate::runes::Used>,
+    mut heroes: Query<(&mut Transform, &mut Body)>,
+    mut queues: Queues,
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
+) {
+    for crate::runes::Used(function) in used.read() {
+        let Some(live) = live.as_mut() else {
+            continue;
+        };
+        bevy::log::info!("scripts: the hero uses an item, which runs {function}");
+        live.living = living_groups(npcs.as_deref(), minds.iter());
+        let effects = live.run_named(function);
+        if let Ok((mut transform, mut body)) = heroes.single_mut() {
+            put(live, &effects.teleports, &mut transform, &mut body);
+        }
+        queues.hand(effects);
+    }
+}
+
 /// Runs the functions whose turns came in their creatures' queues (#1278), each found by its
 /// name as the scripts run one, its records handed to the world.
 fn run_due(world: &mut World) {
@@ -2366,7 +2389,7 @@ impl Plugin for ScriptsPlugin {
             )
             .add_systems(
                 Update,
-                (collect, take_for_quest)
+                (collect, take_for_quest, use_items)
                     .after(crate::pickup::picking)
                     .in_set(Playing)
                     .in_set(Unpaused),

@@ -307,6 +307,9 @@ struct Placement {
     /// A container's (an object of [`CHEST`]): its `Take:` function, its `CreateObj`'s
     /// [`ON_TAKE`], which fills it as it opens (`containers`, #1380).
     container: Option<Option<String>>,
+    /// An object's item's `Use:` function, its `CreateObj`'s [`ON_USE`], which the right button
+    /// runs on it in the backpack (#1272).
+    uses: Option<String>,
 }
 
 impl Placement {
@@ -400,6 +403,8 @@ const FX_HEIGHT: u8 = 0x7E;
 /// netscript.md, "The log's quest items"; #1256).
 const QUEST_ITEM: u8 = 0x8E;
 const ON_TAKE: u8 = 0x41;
+/// The `CreateObj`'s tag of an item's use's function (`Use:`, `0x486263`).
+const ON_USE: u8 = 0x83;
 /// A quest's item's quality key as a drop: a plain item's, made by no item maker.
 const QUEST_KEY: u8 = 16;
 /// The bit of an `items.pak` record's byte `+0x02` of a type that nobody picks up, its first
@@ -414,10 +419,11 @@ fn takeable(item: &Item) -> bool {
 
 /// An item that a `CreateObj` of an item's type without [`QUEST_ITEM`] lays in the world, which the
 /// hero picks up as any lying item (seen in the original, #1296): its placement, which is not
-/// placed again once taken ([`Npcs::taken`]).
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+/// placed again once taken ([`Npcs::taken`]), and its `Use:` function ([`ON_USE`], #1272).
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct ScriptItem {
     pub index: usize,
+    pub uses: Option<String>,
 }
 
 /// A quest's item that a `CreateObj` of [`QUEST_ITEM`] lays in the world, which the hero picks up
@@ -733,6 +739,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         key: None,
         lies: false,
         container: None,
+        uses: None,
     }
 }
 
@@ -2778,6 +2785,14 @@ impl Makers {
                     _ => None,
                 })
             }),
+            uses: (record.kind == CREATE_OBJ)
+                .then(|| {
+                    ops.iter().find_map(|o| match (o.tag, &o.value) {
+                        (ON_USE, Value::Str(name)) => Some(name.clone()),
+                        _ => None,
+                    })
+                })
+                .flatten(),
         }))
     }
 
@@ -3963,7 +3978,10 @@ fn place_index(
     // An item of a `CreateObj` lies to be picked up as a drop (#1296).
     if placement.lies && placement.quest.is_none() {
         commands.entity(entity).insert((
-            ScriptItem { index },
+            ScriptItem {
+                index,
+                uses: placement.uses.clone(),
+            },
             drops::Lying {
                 dropped: opensacred_rules::drops::Dropped {
                     kind: opensacred_rules::drops::Kind::Other,
