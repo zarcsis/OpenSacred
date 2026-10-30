@@ -1668,6 +1668,11 @@ pub struct Combat {
     /// (`0x4D2310`; docs/re/arts.md, "The Seraphim's bolts"); the items' bonuses of the condition
     /// bits `0x2000` and `0x4000`, which only those damages take, are not read.
     pub multipliers: [f32; KINDS],
+    /// Each kind's factor of its resistance (the stats' floats `+0xD6`), by which the
+    /// recomputation scales the resistance's own value (`+0x66`): 1, the resistance skill's
+    /// curves over 100 and the attributes' part; the statistics window's bonus of the
+    /// resistances (`0x564250`) compares them.
+    pub resistance_factors: [f32; KINDS],
     /// Each kind's multiplier of its spells' damages, the stats' `+0x96` plus `+0xB6` (docs/re/
     /// fight.md, "An NPC's attack, defence and damage"): 1, the items' bonuses of no condition's
     /// bit and of the bit 13 and the effects, the attributes' magic part and the magic lore's
@@ -2115,11 +2120,12 @@ pub fn combat_with(
     let spells: [f32; KINDS] = std::array::from_fn(|kind| {
         ((1.0 + item_multipliers[kind]) + (spell_items[kind] + magic_part + magic_lore)).max(0.0)
     });
-    for (kind, value) in resistance.iter_mut().enumerate() {
-        let factor = 1.0
-            + resistance_skill[kind]
-            + (f * b[1] / 10.0 + e[1]) / rules.resistance_divisors[kind];
-        *value = value.max(0.0) * factor.max(0.0) * res;
+    let resistance_factors: [f32; KINDS] = std::array::from_fn(|kind| {
+        (1.0 + resistance_skill[kind] + (f * b[1] / 10.0 + e[1]) / rules.resistance_divisors[kind])
+            .max(0.0)
+    });
+    for (value, factor) in resistance.iter_mut().zip(resistance_factors) {
+        *value = value.max(0.0) * factor * res;
     }
     // The attributes' parts after the items' (`0x5796A0`), each held at 0 and above.
     let part =
@@ -2189,6 +2195,7 @@ pub fn combat_with(
         speed: (speed - slows).clamp(100.0, 220.0),
         pace: pace - slows,
         multipliers,
+        resistance_factors,
         spells,
         cast: cast - slows,
         attributes: a,
@@ -3529,6 +3536,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            resistance_factors: [1.0; KINDS],
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
@@ -3598,6 +3606,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            resistance_factors: [1.0; KINDS],
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
@@ -3760,6 +3769,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            resistance_factors: [1.0; KINDS],
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
@@ -4282,6 +4292,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            resistance_factors: [1.0; KINDS],
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],

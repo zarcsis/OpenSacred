@@ -83,11 +83,452 @@ const PORTRAIT: Rect = Rect {
     max: Vec2::new(188.0, 304.0),
 };
 
-/// The last foe the hero struck: its defence, against which the window gives the hero's hit
-/// chance, and its type, whose portrait it shows (the player's statistics' record, `0x424700`;
-/// **hypothesis**: the foe the hero struck last).
+/// The last foe the hero struck (the player's statistics' record, `0x424700`; **hypothesis**:
+/// the foe the hero struck last): its defence gives the window's hit chance, its type the
+/// portrait, and the whole the foe's panel.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct LastFoe(pub Option<(f32, u32)>);
+pub(crate) struct LastFoe(pub Option<Foe>);
+
+/// A foe as the player's statistics keep it (`0x424250`, a record of `0x24` bytes of the 16 at
+/// `+0x30A4`): its type, level and health, its attack and defence, its damage (`0x564800`: each
+/// kind's most, or its least where the most is 0) and its resistances' sum (`0x553A00`), and each
+/// kind's share of those times 255 (`0x564470`, `0x564740`), the icons' alphas.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Foe {
+    pub creature: u32,
+    pub level: u32,
+    pub health: u32,
+    pub attack: f32,
+    pub defence: f32,
+    pub damage: f32,
+    pub resistance: f32,
+    pub damage_shares: [u32; 4],
+    pub resistance_shares: [u32; 4],
+}
+
+impl Foe {
+    /// The record of a foe of the type `creature`, of `health` and `combat`, as the hero kills it:
+    /// its most health (**seen**).
+    pub(crate) fn of(
+        creature: u32,
+        health: &Health,
+        combat: &opensacred_rules::fight::Combat,
+    ) -> Self {
+        let damages = combat
+            .damage
+            .map(|[least, most]| if most <= 0.001 { least } else { most });
+        Self {
+            creature,
+            level: health.level,
+            health: health.most,
+            attack: combat.attack,
+            defence: combat.defence,
+            damage: damages.iter().sum(),
+            resistance: combat.resistance.iter().sum(),
+            damage_shares: of_total(damages),
+            resistance_shares: of_total(combat.resistance),
+        }
+    }
+}
+
+/// The shares of `values` of their sum, `⌊v/s·255⌋` (`0x564470`, the float 255 at `0x890908`).
+fn of_total(values: [f32; 4]) -> [u32; 4] {
+    let sum: f32 = values.iter().sum();
+    values.map(|v| {
+        if sum <= 0.0 {
+            return 0;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a share of 0 to 255"
+        )]
+        let share = (v / sum * 255.0).clamp(0.0, 255.0) as u32;
+        share
+    })
+}
+
+/// A line of the lower panel under the mouse (`0x6AA169`, its zones over x 2 to 248, both edges
+/// in): C the health's and the next level's, D the attack's and the defence's, E the weapon's
+/// damage, F the art's, G the resistances'.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Block {
+    C,
+    D,
+    E,
+    F,
+    G,
+}
+
+/// What the mouse is over in the window: a line of the lower panel, or a row of the upper panel's
+/// list, a skill's name or its level, an attribute, or a skill to learn (`0x6A72F0`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Hover {
+    #[default]
+    None,
+    Block(Block),
+    Attribute(u8),
+    SkillName(u8),
+    SkillLevel(u8),
+    Learn(u8),
+}
+
+/// The hovered fills' colour (`0x6A72F0`, an untextured quad).
+const FILL: u32 = 0x60FF_FF80;
+/// The upper panel's fill while a line of the lower panel is under the mouse.
+const UPPER_FILL: Rect = Rect {
+    min: Vec2::new(3.0, 50.0),
+    max: Vec2::new(254.0, 221.0),
+};
+
+/// What the mouse at `at`, in the window's pixels, is over of `sheet`'s window.
+fn hover_at(at: Vec2, sheet: &Sheet) -> Hover {
+    let within =
+        |x0: f32, x1: f32, y0: f32, y1: f32| (x0..=x1).contains(&at.x) && (y0..=y1).contains(&at.y);
+    for (block, (y0, y1)) in [
+        (Block::C, (222.0, 263.0)),
+        (Block::D, (264.0, 305.0)),
+        (Block::E, (306.0, 325.0)),
+        (Block::F, (326.0, 346.0)),
+        (Block::G, (347.0, 366.0)),
+    ] {
+        if within(2.0, 248.0, y0, y1) {
+            return Hover::Block(block);
+        }
+    }
+    let rows = |count: usize| (0..count).filter_map(|i| u8::try_from(i).ok());
+    if sheet.learning && !sheet.attributes {
+        let shown = if sheet.to_learn > 0 {
+            sheet.candidates.len()
+        } else {
+            0
+        };
+        return rows(shown)
+            .find(|&i| {
+                let y = 67.0 + ROW * f32::from(i);
+                within(8.0, 252.0, y, y + 18.0)
+            })
+            .map_or(Hover::None, Hover::Learn);
+    }
+    if sheet.attributes {
+        let width = if sheet.attribute_points > 0 {
+            240.0
+        } else {
+            220.0
+        };
+        return rows(sheet.attribute_rows.len())
+            .find(|&k| {
+                let y = 67.0 + ROW * f32::from(k);
+                within(8.0, 8.0 + width, y, y + 16.0)
+            })
+            .map_or(Hover::None, Hover::Attribute);
+    }
+    for i in rows(sheet.skills.len()) {
+        let y = 69.0 + ROW * f32::from(i);
+        if within(8.0, 188.0, y, y + 18.0) {
+            return Hover::SkillName(i);
+        }
+        if within(189.0, 248.0, y, y + 18.0) {
+            return Hover::SkillLevel(i);
+        }
+    }
+    Hover::None
+}
+
+/// The fills that the hover `hover` of `sheet` draws, in the window's pixels.
+fn fills(hover: Hover, sheet: &Sheet) -> Vec<Rect> {
+    let rect = |x0: f32, y0: f32, x1: f32, y1: f32| Rect::new(x0, y0, x1, y1);
+    match hover {
+        Hover::None => Vec::new(),
+        Hover::Block(block) => {
+            let lower = match block {
+                Block::C => rect(3.0, 224.0, 254.0, 262.0),
+                Block::D => rect(3.0, 265.0, 254.0, 304.0),
+                Block::E => rect(3.0, 307.0, 254.0, 326.0),
+                Block::F => rect(3.0, 326.0, 254.0, 346.0),
+                Block::G => rect(3.0, 346.0, 254.0, 365.0),
+            };
+            vec![UPPER_FILL, lower]
+        }
+        Hover::Attribute(k) => {
+            let y = 67.0 + ROW * f32::from(k);
+            let width = if sheet.attribute_points > 0 {
+                240.0
+            } else {
+                220.0
+            };
+            vec![rect(6.0, y + 4.0, 12.0 + width, y + 21.0)]
+        }
+        Hover::SkillName(i) => {
+            let y = 69.0 + ROW * f32::from(i);
+            vec![rect(6.0, y + 2.0, 188.0, y + 19.0)]
+        }
+        Hover::SkillLevel(i) => {
+            let y = 69.0 + ROW * f32::from(i);
+            vec![rect(189.0, y + 2.0, 230.0, y + 19.0)]
+        }
+        Hover::Learn(i) => {
+            let y = 67.0 + ROW * f32::from(i);
+            vec![rect(6.0, y, 228.0, y + 24.0)]
+        }
+    }
+}
+
+/// The last foe's portrait in its panel, stretched (`0x6A7390`).
+const FOE_PORTRAIT: Rect = Rect {
+    min: Vec2::new(8.0, 56.0),
+    max: Vec2::new(72.0, 120.0),
+};
+/// The panels' first line's colour, the last foe's header's.
+const PANEL_HEADER: u32 = 0xFFFF_FF80;
+
+/// A row of kinds' icons that the panel draws: the first image, its place (the image 1 lower),
+/// and each kind's alpha, each the next to the left of the last by its width less 4 (`0x6A7140`).
+type Icons = (u32, Vec2, [u32; 4]);
+
+/// The panel that takes the upper panel's place while the line `block` of the lower panel is under
+/// the mouse (`0x6AA7D2`): the last foe's (D, `0x6A7390`), the weapon's kinds (E, `0x6A7C60`) or
+/// the resistances' (G, `0x6A8A00`), and below the weapon's and the resistances' the four more
+/// lines (`0x6AAA6E`); its texts by `write` and its icons into `icons`.
+fn upper_panel(
+    sheet: &Sheet,
+    block: Option<Block>,
+    write: &mut impl FnMut(&str, Vec2, f32, (u32, JustifyContent)),
+    icons: &mut Vec<Icons>,
+) {
+    let (left, right) = (JustifyContent::FlexStart, JustifyContent::FlexEnd);
+    let row = |i: u8| 48.0 + ROW * f32::from(i);
+    let kind_texts = ["1078", "1079", "1080", "1081"];
+    match block {
+        Some(Block::D) => {
+            let foe = &sheet.foe_panel;
+            write(
+                said(sheet, "1120"),
+                Vec2::new(78.0, row(0)),
+                240.0,
+                (PANEL_HEADER, left),
+            );
+            write(&foe.name, Vec2::new(78.0, row(1)), 170.0, (WHITE, left));
+            write(
+                said(sheet, "1070"),
+                Vec2::new(78.0, row(2)),
+                170.0,
+                (WHITE, left),
+            );
+            write(
+                &foe.level.to_string(),
+                Vec2::new(78.0, row(2)),
+                170.0,
+                (WHITE, right),
+            );
+            write(
+                said(sheet, "1073"),
+                Vec2::new(78.0, row(3)),
+                170.0,
+                (WHITE, left),
+            );
+            write(
+                &foe.health.to_string(),
+                Vec2::new(78.0, row(3)),
+                170.0,
+                (WHITE, right),
+            );
+            for (i, name, chance) in [(4, "1121", foe.hit), (5, "1122", foe.its_hit)] {
+                write(
+                    said(sheet, name),
+                    Vec2::new(8.0, row(i)),
+                    240.0,
+                    (WHITE, left),
+                );
+                write(
+                    &format!("{chance}%"),
+                    Vec2::new(8.0, row(i)),
+                    240.0,
+                    (WHITE, right),
+                );
+            }
+            write(
+                said(sheet, "1076"),
+                Vec2::new(8.0, row(7)),
+                240.0,
+                (WHITE, left),
+            );
+            write(
+                &foe.damage.to_string(),
+                Vec2::new(8.0, row(7)),
+                240.0,
+                (WHITE, right),
+            );
+            icons.push((
+                DAMAGE_ICONS.0,
+                Vec2::new(154.0, row(7) + 1.0),
+                foe.damage_shares,
+            ));
+            write(
+                said(sheet, "1077"),
+                Vec2::new(8.0, row(8)),
+                240.0,
+                (WHITE, left),
+            );
+            write(
+                &foe.resistance.to_string(),
+                Vec2::new(8.0, row(8)),
+                240.0,
+                (WHITE, right),
+            );
+            icons.push((
+                RESISTANCE_ICONS.0,
+                Vec2::new(154.0, row(8) + 1.0),
+                foe.resistance_shares,
+            ));
+        }
+        Some(Block::E) => {
+            write(
+                said(sheet, "1087"),
+                Vec2::new(8.0, row(0)),
+                240.0,
+                (WHITE, left),
+            );
+            let total = format!("{}-{}", sheet.weapon.0, sheet.weapon.1);
+            write(&total, Vec2::new(8.0, row(0)), 240.0, (WHITE, right));
+            for (k, (name, ends)) in (0_u8..).zip(kind_texts.iter().zip(sheet.kinds)) {
+                let y = row(k + 1);
+                write(said(sheet, name), Vec2::new(24.0, y), 216.0, (WHITE, left));
+                let value = format!("{}-{}", ends.0, ends.1);
+                write(&value, Vec2::new(8.0, y), 240.0, (WHITE, right));
+                icons.push((
+                    DAMAGE_ICONS.0 + u32::from(k),
+                    Vec2::new(4.0, y + 2.0),
+                    [255, 0, 0, 0],
+                ));
+            }
+            more_lines(sheet, sheet.bonuses.0, "1152", write);
+        }
+        Some(Block::G) => {
+            write(
+                said(sheet, "1077"),
+                Vec2::new(8.0, row(0)),
+                240.0,
+                (WHITE, left),
+            );
+            let total: i64 = sheet.resistances.iter().sum();
+            write(
+                &total.to_string(),
+                Vec2::new(8.0, row(0)),
+                240.0,
+                (WHITE, right),
+            );
+            for (k, (name, value)) in (0_u8..).zip(kind_texts.iter().zip(sheet.resistances)) {
+                let y = row(k + 1);
+                write(said(sheet, name), Vec2::new(24.0, y), 216.0, (WHITE, left));
+                write(&value.to_string(), Vec2::new(8.0, y), 240.0, (WHITE, right));
+                icons.push((
+                    RESISTANCE_ICONS.0 + u32::from(k),
+                    Vec2::new(4.0, y + 2.0),
+                    [255, 0, 0, 0],
+                ));
+            }
+            more_lines(sheet, sheet.bonuses.1, "1153", write);
+        }
+        _ => {}
+    }
+}
+
+/// The four more lines under the weapon's and the resistances' panels (`0x6AAA6E`): the bonus
+/// `bonus` of the text `name`, the pace, the attack speed and the survival bonus.
+fn more_lines(
+    sheet: &Sheet,
+    bonus: i64,
+    name: &str,
+    write: &mut impl FnMut(&str, Vec2, f32, (u32, JustifyContent)),
+) {
+    let (left, right) = (JustifyContent::FlexStart, JustifyContent::FlexEnd);
+    let lines = [
+        (name, format!("{bonus}%"), 143.0),
+        ("1101", sheet.pace.to_string(), 162.0),
+        ("1100", sheet.speed.to_string(), 181.0),
+        ("1159", format!("{}%", sheet.survival), 200.0),
+    ];
+    for (label, value, y) in lines {
+        write(said(sheet, label), Vec2::new(8.0, y), 240.0, (WHITE, left));
+        write(&value, Vec2::new(8.0, y), 240.0, (WHITE, right));
+    }
+}
+
+/// What the last foe's panel shows (`0x6A7390`), its labels and zeros before a foe is kept.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct FoePanel {
+    name: String,
+    level: u32,
+    health: u32,
+    /// The hero's chance to hit it and its chance to hit the hero, in per cent.
+    hit: u32,
+    its_hit: u32,
+    damage: u32,
+    resistance: u32,
+    damage_shares: [u32; 4],
+    resistance_shares: [u32; 4],
+}
+
+/// The damage's bonus in per cent (`0x5642A0`): each kind's most before its multiplier, or its
+/// least where the most is 0, against itself times the multiplier.
+fn damage_bonus(combat: &Combat) -> i64 {
+    let (plain, raised) = combat.damage.iter().zip(combat.multipliers).fold(
+        (0.0_f64, 0.0_f64),
+        |(plain, raised), (&[least, most], m)| {
+            let end = if most <= 0.001 { least } else { most };
+            let own = if m > 0.001 {
+                f64::from(end) / f64::from(m)
+            } else {
+                0.0
+            };
+            (plain + own, raised + own * f64::from(m))
+        },
+    );
+    bonus(plain, raised)
+}
+
+/// The resistances' bonus in per cent (`0x564250`): each resistance before its factor against
+/// itself times the factor.
+fn resistance_bonus(combat: &Combat) -> i64 {
+    let (plain, raised) = combat
+        .resistance
+        .iter()
+        .zip(combat.resistance_factors)
+        .fold((0.0_f64, 0.0_f64), |(plain, raised), (&r, m)| {
+            let own = if m > 0.001 {
+                f64::from(r) / f64::from(m)
+            } else {
+                0.0
+            };
+            (plain + own, raised + own * f64::from(m))
+        });
+    bonus(plain, raised)
+}
+
+/// The survival bonus's whole per cent, truncated (`%d`).
+fn per_cent(sb: f64) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a per cent of 0 to 100"
+    )]
+    let whole = sb.clamp(0.0, 100.0) as u32;
+    whole
+}
+
+/// `(raised − plain)·100/plain` truncated, 0 where `plain` is 0.
+fn bonus(plain: f64, raised: f64) -> i64 {
+    if plain <= 0.0 {
+        return 0;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a per cent, far below the integers' range"
+    )]
+    let bonus = ((raised - plain) * 100.0 / plain).trunc() as i64;
+    bonus
+}
 
 /// Which list the upper panel shows: the attributes where the header bar is pressed.
 #[derive(Resource, Default)]
@@ -129,6 +570,17 @@ struct Sheet {
     resistance_shares: [u32; 4],
     gold: u32,
     texts: Vec<String>,
+    /// What the mouse is over, the last foe's panel, each kind's raised damage and resistance,
+    /// and the four more lines: the damage's and the
+    /// resistances' bonuses, the pace, the attack speed and the survival bonus.
+    hover: Hover,
+    foe_panel: FoePanel,
+    kinds: [(i64, i64); 4],
+    resistances: [i64; 4],
+    bonuses: (i64, i64),
+    pace: u32,
+    speed: u32,
+    survival: u32,
 }
 
 /// The survival bonus of `minutes` played (`0x6AA062`, `0x565D70(0, m, 120, 50)`):
@@ -192,7 +644,7 @@ fn sheet(
     experience: &opensacred_rules::fight::Experience,
     (base, combat, health): (&Base, &Combat, &Health),
     pack: &Pack,
-    (foe, minutes): (Option<(f32, u32)>, u32),
+    (foe, minutes): (Option<Foe>, u32),
     (attributes, learning): (bool, bool),
 ) -> Sheet {
     let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
@@ -228,9 +680,27 @@ fn sheet(
         .iter()
         .map(|&r| i64::from(whole(r + 0.5)))
         .sum();
-    let hit = foe.map_or(0, |(defence, _)| {
-        whole((opensacred_rules::fight::hit_chance(combat.attack, defence) * 100.0).min(100.0))
+    let chance = |attack: f32, defence: f32| {
+        whole((opensacred_rules::fight::hit_chance(attack, defence) * 100.0).min(100.0))
+    };
+    let hit = foe.map_or(0, |foe| chance(combat.attack, foe.defence));
+    // The last foe's panel: its name its type's text (`0x44A1C0`).
+    let foe_panel = foe.map_or_else(FoePanel::default, |foe| FoePanel {
+        name: text(&foe.creature.to_string()),
+        level: foe.level,
+        health: foe.health,
+        hit,
+        its_hit: chance(foe.attack, combat.defence),
+        damage: whole(foe.damage),
+        resistance: whole(foe.resistance),
+        damage_shares: foe.damage_shares,
+        resistance_shares: foe.resistance_shares,
     });
+    // Each kind's damage raised by the survival bonus; its ends raised by a half are never 0.0,
+    // so that a kind of none shows `0-0` (**seen**), not the `-` of the code.
+    let kinds = combat
+        .damage
+        .map(|[least, most]| (raised(least, sb), raised(most, sb)));
     Sheet {
         name: name.to_owned(),
         level,
@@ -249,20 +719,36 @@ fn sheet(
         attack: whole(combat.attack),
         defence: whole(combat.defence),
         hit,
-        foe: foe.map(|(_, creature)| creature),
+        foe: foe.map(|foe| foe.creature),
         weapon: (least, most),
         damage_shares: shares(combat.damage.map(|[_, most]| most)),
         resistance,
         resistance_shares: shares(combat.resistance),
         gold: pack.gold,
-        texts: [
-            "1070", "1096", "1145", "1099", "1071", "1072", "1073", "1119", "1074", "1117", "1075",
-            "1087", "1089", "1077", "1082",
-        ]
-        .map(text)
-        .to_vec(),
+        texts: TEXTS
+            .iter()
+            .chain(&MORE_TEXTS)
+            .map(|name| text(name))
+            .collect(),
+        hover: Hover::None,
+        foe_panel,
+        kinds,
+        resistances: combat.resistance.map(|r| i64::from(whole(r + 0.5))),
+        bonuses: (damage_bonus(combat), resistance_bonus(combat)),
+        pace: whole(combat.pace),
+        speed: whole(combat.speed.min(220.0)),
+        survival: per_cent(sb),
     }
 }
+
+/// The texts that the window shows, by their names.
+const TEXTS: [&str; 26] = [
+    "1070", "1096", "1145", "1099", "1071", "1072", "1073", "1119", "1074", "1117", "1075", "1087",
+    "1089", "1077", "1082", "1120", "1121", "1122", "1076", "1078", "1079", "1080", "1081", "1152",
+    "1153", "1101",
+];
+/// The texts of the four more lines' last two (the attack speed and the survival bonus).
+const MORE_TEXTS: [&str; 2] = ["1100", "1159"];
 
 /// The rows whose "+" the window draws (`0x6A8DF0`, `0x6A9790`), while points wait or the learning
 /// mode is on (`0x6AC310`): the attributes' six with attribute points, the learning mode's skills
@@ -295,12 +781,9 @@ fn pluses(
 
 /// The text of `sheet` of the name `name` among those it keeps.
 fn said<'a>(sheet: &'a Sheet, name: &str) -> &'a str {
-    const NAMES: [&str; 15] = [
-        "1070", "1096", "1145", "1099", "1071", "1072", "1073", "1119", "1074", "1117", "1075",
-        "1087", "1089", "1077", "1082",
-    ];
-    NAMES
+    TEXTS
         .iter()
+        .chain(&MORE_TEXTS)
         .position(|&n| n == name)
         .and_then(|at| sheet.texts.get(at))
         .map_or("", String::as_str)
@@ -330,6 +813,7 @@ fn show(
         Res<crate::talk::Portraits>,
     ),
     heroes: Query<(&Base, &Combat, &Health), With<Body>>,
+    (pointer, ui_scale, screens): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     windows: Query<Entity, With<StatsWindow>>,
     mut last: Local<Option<Sheet>>,
 ) {
@@ -351,6 +835,12 @@ fn show(
                 (foe.0, played.minutes()),
                 (attributes.0, learning.0),
             )
+        })
+        .map(|mut sheet| {
+            if let Some(at) = screen_point(&pointer, &ui_scale, &screens) {
+                sheet.hover = hover_at(at - WINDOW.min, &sheet);
+            }
+            sheet
         });
     if *last == current {
         return;
@@ -435,8 +925,24 @@ fn show(
             .id();
         commands.entity(window).add_child(line);
     }
-    // The header bar, under its text, but in the learning mode.
-    if !sheet.learning {
+    // The hovered fills, under what they light (`0x6A72F0`).
+    for fill in fills(sheet.hover, &sheet) {
+        let quad = commands
+            .spawn((
+                bar::placed(fill.min, fill.size()),
+                BackgroundColor(argb(FILL)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(window).add_child(quad);
+    }
+    let block = match sheet.hover {
+        Hover::Block(block) => Some(block),
+        _ => None,
+    };
+    // The header bar, under its text, but in the learning mode and under a hovered line of the
+    // lower panel (`0x6AA993`).
+    if !sheet.learning && block.is_none() {
         add(
             piece(
                 if sheet.attributes {
@@ -492,14 +998,20 @@ fn show(
         220.0,
         (WHITE, right),
     );
-    // The upper panel: the header and its points, then the list.
-    let (header, points) = if sheet.attributes {
+    // The upper panel: the header and its points, then the list; the attributes' under the
+    // health's and the next level's lines (**seen**).
+    let attributes = sheet.attributes || block == Some(Block::C);
+    let (header, points) = if attributes {
         (said(&sheet, "1145"), sheet.attribute_points)
     } else {
         (said(&sheet, "1096"), sheet.skill_points)
     };
-    let learning = sheet.learning && !sheet.attributes;
-    if !learning {
+    let learning = sheet.learning && !attributes;
+    let panel = matches!(block, Some(Block::D | Block::E | Block::G));
+    let mut panel_icons: Vec<Icons> = Vec::new();
+    if panel {
+        upper_panel(&sheet, block, &mut write, &mut panel_icons);
+    } else if !learning {
         write(header, Vec2::new(28.0, 49.0), 180.0, (0xA000_0000, centre));
         write(header, Vec2::new(26.0, 47.0), 180.0, (HEADER_TEXT, centre));
         write(
@@ -509,7 +1021,9 @@ fn show(
             (HEADER_TEXT, right),
         );
     }
-    if learning {
+    if panel {
+        // The panel stands in the list's place.
+    } else if learning {
         // The learning mode: its header in yellow, the skills to learn below.
         if sheet.to_learn > 0 {
             write(
@@ -523,7 +1037,7 @@ fn show(
                 write(name, Vec2::new(8.0, y), 220.0, (WHITE, left));
             }
         }
-    } else if sheet.attributes {
+    } else if attributes {
         for (k, (label, value, raised)) in (0_u8..).zip(&sheet.attribute_rows) {
             let y = 67.0 + ROW * f32::from(k);
             write(label, Vec2::new(8.0, y), 220.0, (WHITE, left));
@@ -645,11 +1159,19 @@ fn show(
         240.0,
         (WHITE, centre),
     );
-    // The kinds' icons, each the next to the left of the last, at its share's alpha.
-    for ((first, at), alphas) in [
+    // The kinds' icons, each the next to the left of the last, at its share's alpha; the panel's
+    // its image 1 lower.
+    let rows = [
         (DAMAGE_ICONS, sheet.damage_shares),
         (RESISTANCE_ICONS, sheet.resistance_shares),
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        panel_icons
+            .into_iter()
+            .map(|(first, at, alphas)| ((first, at + Vec2::Y), alphas)),
+    );
+    for ((first, at), alphas) in rows {
         let mut x = at.x;
         for (index, alpha) in (first..).zip(alphas) {
             if alpha == 0 {
@@ -678,6 +1200,28 @@ fn show(
                     ..ImageNode::new(crate::hud::image(&assets, file.to_owned()))
                 },
                 bar::placed(PORTRAIT.min, PORTRAIT.size()),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(window).add_child(child);
+    }
+    if block == Some(Block::D)
+        && let Some((file, [x, y, w, h])) = sheet.foe.and_then(|foe| portraits.of(foe))
+    {
+        let rect = Rect::new(
+            f32::from(x),
+            f32::from(y),
+            f32::from(x) + f32::from(w),
+            f32::from(y) + f32::from(h),
+        );
+        let child = commands
+            .spawn((
+                ImageNode {
+                    rect: Some(rect),
+                    image_mode: NodeImageMode::Stretch,
+                    ..ImageNode::new(crate::hud::image(&assets, file.to_owned()))
+                },
+                bar::placed(FOE_PORTRAIT.min, FOE_PORTRAIT.size()),
                 Pickable::IGNORE,
             ))
             .id();
@@ -862,6 +1406,33 @@ fn toggle(
     }
 }
 
+/// A left click on the close button (`UI_STAT_BTN_BASE`, `cCommand_onInvClose`, `0x756870`)
+/// closes the inventory's windows, with their sound.
+fn close(
+    buttons: Res<ButtonInput<MouseButton>>,
+    shown: Option<ResMut<Shown>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    images: Res<UiImages>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
+) {
+    let Some(mut shown) = shown.filter(|shown| shown.0) else {
+        return;
+    };
+    if !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let corner = WINDOW.min + CLOSE.1;
+    let button = Rect::from_corners(corner, corner + images.size(CLOSE.0));
+    if screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| button.contains(at)) {
+        shown.0 = false;
+        sounds.write(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(crate::inventory::CLOSES),
+            at: None,
+            rate: (0.5, crate::sfx::Roll::None),
+        });
+    }
+}
+
 /// The statistics window.
 pub struct StatisticsPlugin;
 
@@ -872,7 +1443,7 @@ impl Plugin for StatisticsPlugin {
             .init_resource::<LastFoe>()
             .add_systems(
                 Update,
-                (leave_learning, toggle, spend, show)
+                (leave_learning, close, toggle, spend, show)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
@@ -882,6 +1453,55 @@ impl Plugin for StatisticsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_mouse_finds_its_line_or_row() {
+        let sheet = Sheet {
+            skills: vec![("a".into(), 3, 3), ("b".into(), 1, 1)],
+            ..Sheet::default()
+        };
+        let at = |x: f32, y: f32| hover_at(Vec2::new(x, y), &sheet);
+        // The lower panel's lines, their zones' edges in.
+        assert_eq!(at(2.0, 222.0), Hover::Block(Block::C));
+        assert_eq!(at(248.0, 305.0), Hover::Block(Block::D));
+        assert_eq!(at(100.0, 306.0), Hover::Block(Block::E));
+        assert_eq!(at(100.0, 346.0), Hover::Block(Block::F));
+        assert_eq!(at(100.0, 366.0), Hover::Block(Block::G));
+        assert_eq!(at(1.0, 300.0), Hover::None);
+        // The skills' names and levels, the second slot's at 88.
+        assert_eq!(at(20.0, 70.0), Hover::SkillName(0));
+        assert_eq!(at(200.0, 90.0), Hover::SkillLevel(1));
+        assert_eq!(at(200.0, 120.0), Hover::None);
+        // A hovered line lights the upper panel and itself.
+        assert_eq!(
+            fills(Hover::Block(Block::E), &sheet),
+            [UPPER_FILL, Rect::new(3.0, 307.0, 254.0, 326.0)]
+        );
+        assert_eq!(
+            fills(Hover::SkillLevel(1), &sheet),
+            [Rect::new(189.0, 90.0, 230.0, 107.0)]
+        );
+        let attributes = Sheet {
+            attributes: true,
+            attribute_rows: vec![("s".into(), 10, false); 6],
+            ..Sheet::default()
+        };
+        assert_eq!(
+            hover_at(Vec2::new(200.0, 86.0), &attributes),
+            Hover::Attribute(1)
+        );
+        assert_eq!(hover_at(Vec2::new(240.0, 86.0), &attributes), Hover::None);
+    }
+
+    #[test]
+    fn a_foes_kinds_take_their_shares_of_the_sum() {
+        assert_eq!(of_total([30.0, 10.0, 0.0, 0.0]), [191, 63, 0, 0]);
+        assert_eq!(of_total([0.0; 4]), [0; 4]);
+        // The bonus of a multiplier of 1.5 on one kind and 1 on another of the same own value.
+        assert_eq!(bonus(20.0, 25.0), 25);
+        assert_eq!(bonus(0.0, 5.0), 0);
+        assert_eq!(bonus(20.0, 19.9), 0);
+    }
 
     #[test]
     fn the_survival_bonus_grows_with_the_minutes_played() {
