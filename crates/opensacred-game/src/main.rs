@@ -9,6 +9,7 @@ mod ai;
 mod ambience;
 mod arrows;
 mod arsenal;
+mod art_burn;
 mod art_sounds;
 mod arts;
 mod atmosphere;
@@ -314,6 +315,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         ambience::AmbiencePlugin,
         arrows::ArrowsPlugin,
         arsenal::ArsenalPlugin,
+        art_burn::ArtBurnPlugin,
         art_sounds::ArtSoundsPlugin,
         arts::ArtsPlugin,
         atmosphere::AtmospherePlugin,
@@ -324,9 +326,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         belt::BeltPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
-        blast::BlastPlugin,
     ))
     .add_plugins((
+        blast::BlastPlugin,
         blended::BlendedPlugin,
         bolts::BoltsPlugin,
         breath::BreathPlugin,
@@ -341,9 +343,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
         daemon::DaemonPlugin,
-        daynight::DayNightPlugin,
     ))
     .add_plugins((
+        daynight::DayNightPlugin,
         doors::DoorsPlugin,
         drops::DropsPlugin,
         effects::EffectsPlugin,
@@ -358,11 +360,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         fx::FxPlugin,
         game::GamePlugin,
         glance::GlancePlugin,
-        glitter::GlitterPlugin,
     ))
-    .add_plugins((guns::GunsPlugin, held::HeldPlugin))
-    .add_plugins((help::HelpPlugin, hero::HeroPlugin, hover::HoverPlugin))
     .add_plugins((
+        glitter::GlitterPlugin,
+        guns::GunsPlugin,
+        held::HeldPlugin,
+        help::HelpPlugin,
+        hero::HeroPlugin,
+        hover::HoverPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
@@ -372,13 +377,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         low_health::LowHealthPlugin,
+    ))
+    .add_plugins((
         making::MakingPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
-    ))
-    .add_plugins((
         npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
@@ -389,13 +394,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         runes::RunesPlugin,
+    ))
+    .add_plugins((
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         sets::SetsPlugin,
         settings::SettingsPlugin,
-    ))
-    .add_plugins((
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
@@ -406,6 +411,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         steps::StepsPlugin,
+    ))
+    .add_plugins((
         talk::TalkPlugin,
         terrain::GroundPlugin,
         undead::UndeadPlugin,

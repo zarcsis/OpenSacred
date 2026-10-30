@@ -149,7 +149,12 @@ impl UiImages {
         let mut names: Vec<&str> = images
             .iter()
             .map(|image| image.texture.as_str())
-            .chain([DISC, DISC_RING, crate::low_health::SONAR])
+            .chain([
+                DISC,
+                DISC_RING,
+                crate::low_health::SONAR,
+                crate::art_burn::BURN,
+            ])
             .collect();
         names.sort_unstable();
         names.dedup();
@@ -240,8 +245,14 @@ pub(crate) fn weapon_slot(set: usize, count: usize) -> Vec2 {
     Vec2::new(394.0 + 66.0 * (set - count), SLOT_Y)
 }
 
+/// The art slot `i`'s place at the right, from 0 (`0x6E3430`).
+pub(crate) fn art_slot(i: usize) -> Vec2 {
+    let i = u16::try_from(i).unwrap_or(0);
+    Vec2::new(640.0 + 66.0 * f32::from(i), SLOT_Y)
+}
+
 /// A side's slots at the hero's level `level` (`0x57F890`).
-fn slots(level: u32) -> usize {
+pub(crate) fn slots(level: u32) -> usize {
     SLOTS_FROM
         .iter()
         .filter(|&&from| level >= from)
@@ -492,7 +503,7 @@ fn rebuild(
     // The art slots at the right, the first holding the selected art (its icon set at each
     // frame), the others empty.
     for i in 0..count {
-        let at = Vec2::new(640.0 + 66.0 * f32::from(i), SLOT_Y);
+        let at = art_slot(usize::try_from(i).unwrap_or(0));
         if i == 0 {
             add(image(ART_SELECTED, at), Some((true, false)), 0);
             add(image(ART_SELECTED, at), Some((false, true)), 0);
