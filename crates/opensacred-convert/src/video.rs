@@ -144,7 +144,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[String]) -> Result<Summary> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     /// The MD5 of a cutscene's stream as FFmpeg decodes it, the frames in `yuv420p` and the
     /// samples in 16 bits: whole, as the WMV's and the FLAC's packets differ in length.
@@ -165,7 +165,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn a_cutscene_becomes_a_lossless_master_and_av1_and_opus() {
         let out = scratch_dir("video");
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let summary = convert(&game, &out, &["ascaron".to_owned()]).unwrap();
         assert_eq!(summary.movies, 1);
         let wmv = game.join("movie/ascaron.wmv");

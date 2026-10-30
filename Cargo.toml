@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 opensacred-data = { path = "crates/opensacred-data" }
 opensacred-formats = { path = "crates/opensacred-formats" }
+opensacred-locate = { path = "crates/opensacred-locate" }
 opensacred-rules = { path = "crates/opensacred-rules" }
 opensacred-scripts = { path = "crates/opensacred-scripts" }
 

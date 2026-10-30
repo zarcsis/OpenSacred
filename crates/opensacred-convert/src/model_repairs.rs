@@ -382,7 +382,7 @@ mod tests {
     use super::*;
     use crate::gltf;
     use crate::models::{self, TextureIndex};
-    use crate::testing::{Glb, repo_root, scratch_dir};
+    use crate::testing::{Glb, scratch_dir};
     use crate::verify::read_game_file;
 
     const IDENTITY: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
@@ -583,7 +583,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_earth_amulet_follows_spine3_like_its_siblings() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let (pak, dir_name) = models::PAKS[0];
         let data = read_game_file(&game.join(pak)).unwrap();
         let mdl = MdlPak::parse(&data).unwrap();
@@ -760,7 +760,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_cannon_strap_leaves_the_pelvis() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let (pak, dir_name) = models::PAKS[0];
         let out = scratch_dir("cannon-strap");
         let dst = models::output_dir(&out, dir_name);
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_dragons_tail_roots_are_blended() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let (pak, dir_name) = models::PAKS[0];
         let out = scratch_dir("dragon-tails");
         let dst = models::output_dir(&out, dir_name);

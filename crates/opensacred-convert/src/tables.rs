@@ -660,7 +660,7 @@ fn convert_bin_tables(game_dir: &Path, dir: &Path) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{repo_root, scratch_dir};
+    use crate::testing::scratch_dir;
 
     /// A `balance.ron` of an earlier converter, without the tail's tables, still reads; the
     /// tables come back as they were written.
@@ -757,7 +757,7 @@ mod tests {
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_table_converts() {
         let out = scratch_dir("tables");
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let summary = convert(&game, &out).unwrap();
         assert_eq!(
             summary,
@@ -905,7 +905,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_carried_tables_are_the_gog_builds() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let exe = read_reference_file(&game, "Sacred.exe").unwrap();
         assert_eq!(
             opensacred_formats::voices::cases(&exe).unwrap(),
@@ -926,7 +926,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_arts_name_their_texts_by_global_res_ids() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let arts = arts(&game).unwrap();
         let res = read(&game, "scripts/us/global.res").unwrap();
         let res = opensacred_formats::text::GlobalRes::parse(&res).unwrap();
@@ -992,7 +992,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_drops_tables_convert_reproducibly() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let runs = ["a", "b"].map(|run| scratch_dir(&format!("tables-balance-{run}")));
         let texts: Vec<String> = runs
             .iter()

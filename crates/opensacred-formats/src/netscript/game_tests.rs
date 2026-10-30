@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use super::*;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 const SCRIPT_FILES: [&str; 4] = [
     "FunkCode.bin",
@@ -153,7 +153,7 @@ fn every_script_matches_netscript_dump_py() {
         out.join("names.tsv"),
         out.join("vectors.tsv"),
     );
-    let game = repo_root().join("OriginalGame");
+    let game = opensacred_locate::original();
     run_python(
         "tools/analysis/scripts/netscript_dump.py",
         &[

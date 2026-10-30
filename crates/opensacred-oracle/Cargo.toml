@@ -26,6 +26,7 @@ emulator = [
 ]
 
 [dependencies]
+opensacred-locate.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 opensacred-data = { workspace = true, optional = true }

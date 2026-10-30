@@ -80,7 +80,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
 mod tests {
     use super::*;
     use crate::ffmpeg;
-    use crate::testing::{read_png_bytes, repo_root, scratch_dir};
+    use crate::testing::{read_png_bytes, scratch_dir};
 
     #[test]
     fn targets_are_lower_case_names() {
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn screens_match_ffmpeg() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let out = scratch_dir("ui");
         let summary = convert(&game, &out).unwrap();
         assert_eq!((summary.screens, summary.fonts, summary.texts), (6, 2, 2));

@@ -6,14 +6,14 @@ use std::ffi::OsStr;
 use std::fs;
 
 use super::*;
-use crate::testing::{game_file, repo_root, run_python, scratch_dir};
+use crate::testing::{game_file, run_python, scratch_dir};
 
 #[test]
 #[ignore = "needs the game files in OriginalGame/ and Python"]
 fn every_section_matches_amh_dump_py() {
     let out = scratch_dir("amh");
     let rows = out.join("rows.tsv");
-    let game = repo_root().join("OriginalGame");
+    let game = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/amh_dump.py",
         &[
@@ -51,7 +51,7 @@ fn every_section_matches_amh_dump_py() {
 fn every_item_matches_amh_dump_py() {
     let out = scratch_dir("amh-items");
     let rows = out.join("items.tsv");
-    let game = repo_root().join("OriginalGame");
+    let game = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/amh_dump.py",
         &[
@@ -88,7 +88,7 @@ fn every_item_matches_amh_dump_py() {
 fn every_combat_art_matches_amh_dump_py() {
     let out = scratch_dir("amh-arts");
     let rows = out.join("arts.tsv");
-    let game = repo_root().join("OriginalGame");
+    let game = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/amh_dump.py",
         &[
@@ -137,7 +137,7 @@ fn every_combat_art_matches_amh_dump_py() {
 fn every_backpack_matches_amh_dump_py() {
     let out = scratch_dir("amh-backpack");
     let rows = out.join("backpack.tsv");
-    let game = repo_root().join("OriginalGame");
+    let game = opensacred_locate::original();
     run_python(
         "tools/analysis/formats/amh_dump.py",
         &[

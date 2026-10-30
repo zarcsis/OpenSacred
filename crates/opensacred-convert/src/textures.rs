@@ -229,7 +229,7 @@ mod tests {
     use miniz_oxide::deflate::compress_to_vec_zlib;
 
     use super::*;
-    use crate::testing::{Tex, repo_root, scratch_dir, tex_pak};
+    use crate::testing::{Tex, scratch_dir, tex_pak};
 
     fn read_png(path: &Path) -> (u32, u32, Vec<u8>) {
         let file = fs::File::open(path).unwrap();
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_lavas_frames_come_out_opaque() {
-        let game = repo_root().join("OriginalGame");
+        let game = opensacred_locate::original();
         let dir = scratch_dir("textures-lavas");
         let dst = output_dir(&dir, "texture");
         let summary = convert_pak(&game.join(PAKS[0].0), &dst).unwrap();

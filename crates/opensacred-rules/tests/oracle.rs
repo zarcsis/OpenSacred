@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use opensacred_data::tables::{Balance, BalanceValue, BalanceVariable};
 use opensacred_formats::bin_tables::{self, BALANCE_KEYS, Kind};
@@ -182,8 +182,8 @@ struct MostHealth {
 /// The balance of `OriginalGame/bin/Balance.bin`, its variables named as `opensacred-convert
 /// tables` names them; the tables of its tail, which the fight's formulas do not read, left out.
 fn balance() -> Balance {
-    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../OriginalGame/bin/Balance.bin")
+    let file = opensacred_locate::original()
+        .join("bin/Balance.bin")
         .canonicalize()
         .unwrap_or_else(|error| panic!("OriginalGame/bin/Balance.bin: {error}"));
     let data = fs::read(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()));

@@ -337,7 +337,7 @@ pub fn repo_root() -> PathBuf {
 
 /// File of the GOG installation in `OriginalGame/` (path cased as in the manifest).
 pub fn game_file(path: &str) -> Vec<u8> {
-    let path = repo_root().join("OriginalGame").join(path);
+    let path = opensacred_locate::original().join(path);
     fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
