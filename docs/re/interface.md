@@ -176,6 +176,22 @@ The portrait is blended by its alpha (its background is black at the alpha 0 to 
 
 The other images of `GUI_main_02` beside them (yellow beads 65, red frame 68 and beads 69) are not used by these functions.
 
+## The tooltip (`cUI_Tooltip`)
+
+Read 2026-10-30 (#1273), **confirmed** by code unless marked otherwise; the item's lines are docs/re/inventory.md, §9.
+
+- The manager's tooltip (`UI_WND_TOOLTIP`) is shown by `0x75B390(x, y, text, item, style, raise)`: it takes the style's bits (`0x6E8860`), the corner `(x, y)` (`+0x24`, `+0x28`), the text (`0x6E6EA0`) and the item's id (`0x6E81C0`, `+0x21D0`), whose sockets it draws under the text (`0x5C0A70`).
+- The style's bits (`+0x154`): 1 the tooltip goes as the control under the cursor changes (`0xCD7A50`); 2 `(x, y)` is its top left, else its centre; 8 it is kept 16 pixels within the 1024 × 768 screen; `0x20` it stands at the screen's centre.
+  The grid's items take the style `0xB` (`0x6C1480`).
+- Its layout (`0x6E7AF0`): its width the text's, measured in its font (`+0x158`), and 8; its height the lines times the font's height of `A` and 4; with sockets, 40 more high and at least 40 a socket and 16 wide; an image of its own (`+0x21DC`) widens it by the image's width and 16.
+- Its draw (`0x6E76C0`): the window's panel and border (`cUI_Window2_render`, `0x7277B0`), then the text from 4 pixels in.
+- Its panel is black at the alpha of a half (**measured** 2026-10-30 on the original's frames with the tooltip and without, `with ≈ 0.5 · without` in each channel).
+- Its border is eight `UI_STATIC_BORDER`s made once (`0x727B30`), for a window of `W × H`:
+  - the image 21 (`gui_main_03` (224, 0), 32 × 6) along the top from (4, −4) and the bottom from (4, H − 3), `W − 4` long;
+  - the image 34 (`gui_main_03` (120, 112), 6 × 32) down the left at −4 and the right at `W`, `H` long;
+  - the image 55 (`gui_main_02` (114, 180), 38 × 18) at the corners: the top right's at (W − 24, −11) as stored, the top left's at (−13, −11) turned about across, the bottom right's at (W − 24, H − 8) turned about along, the bottom left's at (−13, H − 8) both.
+- **Measured** on a potion's tooltip at 1024 × 768: its lines 20 pixels apart, its name's letters 165 pixels wide and 16 high from 4 pixels in.
+
 ## What changes with the hero's state
 
 - Level: the slots a side (1, 2, 3, 4, 5 at 1, 2, 8, 16, 30) and with them the rail's length and the bar's mouse area.
@@ -230,6 +246,7 @@ Those shown keep their places as others come, the newcomers after them, and a fo
 **Seen** in the game: the Vampiress's wolf (588) called at her level 16 took the entry under hers, its ring grey down to its 80th row at 60 of its 214, and a second call's wolf took the first's entry as the first went.
 Not followed for them: the order of the hero's list `+0x39C` (not read), their rings' glow, the tooltip and the mount's bar.
 Since #1272 a potion used up sparkles on its kind's slot of the belt as above (`sparkles`), its sparks drawn anew every frame by the game's own dice.
+Since #1273 the grid's items have their tooltips in the window above (`tooltip`): the panel, the border's eight pieces, the text 4 pixels in from its corner at the item's right edge and 16 and its top and 16, kept 16 pixels within the screen, its font at 20 pixels so that a line's letters are as wide as the original's (a potion's name 167 pixels to 165; its letters 3 pixels higher), the lines 20 apart.
 
 Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the glows, the sparkle of the flag `0x20000000`, the tooltips, the points' "+" and the mount's bar.
 

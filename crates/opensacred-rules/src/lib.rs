@@ -10,7 +10,8 @@
 //! ([`quests`]), a quest's reward ([`rewards`]), the weather ([`weather`]), the peace stream's
 //! music ([`music`]), the undead that rise again ([`undead`]), the particle systems
 //! ([`particles`]), the backpack's grid ([`inventory`]), the equipment's slots and who may use an
-//! item ([`equipment`]), the potions and the belt ([`potions`]) and the weapon sets ([`sets`]).
+//! item ([`equipment`]), the potions and the belt ([`potions`]), the weapon sets ([`sets`]) and the
+//! prices ([`trade`]).
 
 pub mod arrows;
 pub mod arts;
@@ -28,6 +29,7 @@ pub mod rewards;
 pub mod sets;
 pub mod spawning;
 pub mod spells;
+pub mod trade;
 pub mod undead;
 pub mod ways;
 pub mod weather;
