@@ -145,11 +145,11 @@ pub struct Asks {
 /// The classes' bits of the record's `+0x04`: the types 1 to 6 in the bits 0 to 5 (the
 /// Vampiress's night form 7 as her day's), the Dwarf in 22, the Daemon in 23; and the bit 6, no
 /// class.
-const CLASSES: u32 = 0x00C0_003F;
-const NO_CLASS: u32 = 0x40;
+pub const CLASSES: u32 = 0x00C0_003F;
+pub const NO_CLASS: u32 = 0x40;
 
 /// The bit of the hero of the type `hero` among [`CLASSES`].
-fn class_bit(hero: u32) -> u32 {
+pub fn class_bit(hero: u32) -> u32 {
     match hero {
         1..=6 => 1 << (hero - 1),
         7 => 1 << 5,

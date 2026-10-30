@@ -61,7 +61,7 @@ impl Flask {
 
 /// What the potions do on the game's difficulty.
 #[derive(Resource, Debug, Default)]
-struct Potions(potions::Potions);
+pub(crate) struct Potions(pub(crate) potions::Potions);
 
 /// Takes the potions' values of the balance on the game's difficulty.
 fn begin(mut commands: Commands, data: Option<Res<Data>>, difficulty: Option<Res<Difficulty>>) {

@@ -108,6 +108,7 @@ mod steps;
 mod tables;
 mod talk;
 mod terrain;
+mod tooltip;
 mod undead;
 mod voices;
 mod weather;
@@ -417,6 +418,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
+        tooltip::TooltipPlugin,
         undead::UndeadPlugin,
         voices::VoicesPlugin,
         weather::WeatherPlugin,

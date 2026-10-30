@@ -44,6 +44,11 @@ impl Texts {
         Self(parse(ftl))
     }
 
+    /// The text of the id `id`, its name's hash (`opensacred_data::text::sacred_hash`).
+    pub fn id(&self, id: u32) -> Option<&str> {
+        self.0.get(&id).map(String::as_str)
+    }
+
     /// The text named `name`.
     pub fn named(&self, name: &str) -> Option<&str> {
         self.0

@@ -54,6 +54,24 @@ pub struct Tables {
     /// The types that glitter lying on the ground: their `items.pak` record's first word's bit
     /// 19, the byte `+0x02` bit 3 (`0x428460`; #1382, `glitter`).
     glittering: std::collections::HashSet<u32>,
+    /// Each type's record's bytes `+0x14` to `+0x1B` as the file holds them: the level it asks,
+    /// the strength, the dexterity, the charisma and the endurance it asks, its own level, and its
+    /// skill and the skill's level, which the tooltip names (#1273).
+    requirements: HashMap<u32, [u8; 8]>,
+}
+
+/// What a tooltip tells of an item's type (#1273): its record's word `+0x04` (its classes, its
+/// quality and its difficulty), its weapon's kind, the level it asks and its own (`+0x14`,
+/// `+0x19`, as the file holds them), its other requirements (the strength, the dexterity, the
+/// charisma, the endurance, the skill and its level) and its price.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Record {
+    pub word: u32,
+    pub kind: u8,
+    pub asked: u8,
+    pub level: u8,
+    pub requirements: [u8; 6],
+    pub price: i64,
 }
 
 /// The bit of an `items.pak` record's byte `+0x02` of a type that glitters on the ground, its
@@ -160,6 +178,17 @@ impl Tables {
                 )
             })
             .collect();
+        let requirements = records
+            .iter()
+            .map(|(&id, weapon)| {
+                let bytes = |k: usize| weapon.words_84.get(k).copied().unwrap_or(0).to_le_bytes();
+                let [a, b] = bytes(8);
+                let [c, d] = bytes(9);
+                let [e, f] = bytes(10);
+                let [g, h] = bytes(11);
+                (id, [a, b, c, d, e, f, g, h])
+            })
+            .collect();
         let rune_arts = items
             .iter()
             .filter_map(|item| {
@@ -212,6 +241,7 @@ impl Tables {
             categories,
             rune_arts,
             records: used,
+            requirements,
             prices,
             glittering,
         })
@@ -276,6 +306,33 @@ impl Tables {
                 &values, rules,
             )),
         }
+    }
+
+    /// What a tooltip tells of the type `item`'s record, of its derived type's root (#1273).
+    pub(crate) fn record(&self, item: u32) -> Record {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        let of = |item: u32| {
+            let (word, kind, _) = self.records.get(&item)?;
+            let [
+                asked,
+                strength,
+                dexterity,
+                charisma,
+                endurance,
+                level,
+                skill,
+                skill_level,
+            ] = self.requirements.get(&item).copied().unwrap_or_default();
+            Some(Record {
+                word: *word,
+                kind: *kind,
+                asked,
+                level,
+                requirements: [strength, dexterity, charisma, endurance, skill, skill_level],
+                price: self.prices.get(&item).copied().unwrap_or_default(),
+            })
+        };
+        of(item).or_else(|| of(slot)).unwrap_or_default()
     }
 
     /// The category of an item of the type `item` (`items.pak +0x2E`, `0x426220`), of its derived
