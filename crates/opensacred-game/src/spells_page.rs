@@ -6,8 +6,13 @@
 //! over an art newly taught or raised (its entry's `TAUGHT` bit) the flash of `FX_BUTTONFLASH`, the
 //! bits cleared as the page hides (`0x5809B0`).
 //!
-//! Not followed yet: the hovered art's tooltip (`0x5893B0`), the arts taken onto the cursor and the
-//! keys bound to them (#1529), and the master's window's view of the page (#1530).
+//! A left press on a held art takes it onto the cursor, the cursor empty, and a press with an art
+//! on the cursor lets it go; a right press on a held art puts it into the bar's selected slot
+//! (`0x6C1F30`, `0x6C1930`, `0x6C1AE0`; `art_slots`); the Vampiress's night arts by day are
+//! refused.
+//!
+//! Not followed yet: the hovered art's tooltip (`0x5893B0`), the keys F1 to F6 bound to the arts,
+//! and the master's window's view of the page (#1530).
 
 use std::collections::HashMap;
 
@@ -20,6 +25,7 @@ use bevy::shader::ShaderRef;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::ui_render::ui_material::UiMaterialKey;
 
+use crate::art_slots::{ArtSlots, HeldArt};
 use crate::arts::HeroArts;
 use crate::bar::{self, UiImages};
 use crate::game::{AppState, Data};
@@ -40,6 +46,10 @@ const WOOD_ELF: u32 = 5;
 /// The flash (`0x6C2D50`): its texture's 4 × 4 frames, 13 a second.
 pub(crate) const FLASH: &str = "fx_buttonflash";
 const FLASH_FRAMES: f32 = 13.0;
+/// The arts that a press refuses by day (`0x4D1D60`): the Vampiress's night arts.
+const NIGHT_ARTS: [u16; 3] = [1025, 1027, 1029];
+const NIGHT_ARTS_FROM: u16 = 1030;
+const NIGHT_ARTS_TO: u16 = 1041;
 /// The Vampiress's two types, her first eight arts by day and by night, and the place from which
 /// her later arts are grey by day.
 const VAMPIRESS: [u32; 2] = [6, 7];
@@ -258,6 +268,75 @@ fn look(held: bool, kind: u32, night: bool, i: usize) -> Look {
     }
 }
 
+/// Whether a press refuses the art `art` at the hour `night` (`0x4D1D60`): a night art by day.
+fn refused(art: u16, night: bool) -> bool {
+    !night && (NIGHT_ARTS.contains(&art) || (NIGHT_ARTS_FROM..=NIGHT_ARTS_TO).contains(&art))
+}
+
+/// The art held by the hero under the point `at` of the original's screen on the page of a hero of
+/// the type `kind`.
+fn held_under(arts: &HeroArts, night: bool, at: Vec2) -> Option<u16> {
+    let (_, places) = arts_of(arts.kind, night)?;
+    places
+        .into_iter()
+        .find(|&(_, corner)| {
+            let corner = CORNER + corner;
+            (corner.x..=corner.x + ICON).contains(&at.x)
+                && (corner.y..=corner.y + ICON).contains(&at.y)
+        })
+        .map(|(art, _)| art)
+        .filter(|&art| arts.arts.get(art).is_some())
+}
+
+/// A press on the page (`0x6C1F30`): the left with an art on the cursor lets it go; with the
+/// cursor empty, the held art under it onto the cursor (`0x6C1930`); the right on a held art puts
+/// it into the bar's selected slot (`0x6C1AE0`, the taskbar's messages 3 and 4).
+fn pick(
+    buttons: Res<ButtonInput<MouseButton>>,
+    (shown, page): (Res<Shown>, Res<Page>),
+    (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
+    (arts, forms, pack): (
+        Option<Res<HeroArts>>,
+        Option<Res<crate::forms::Forms>>,
+        Res<crate::pickup::Pack>,
+    ),
+    (mut held, mut slots): (ResMut<HeldArt>, ResMut<ArtSlots>),
+) {
+    let (left, right) = (
+        buttons.just_pressed(MouseButton::Left),
+        buttons.just_pressed(MouseButton::Right),
+    );
+    if !shown.0 || page.0 != PAGE || !(left || right) {
+        return;
+    }
+    let (Some(arts), Some(at)) = (
+        arts,
+        crate::inventory::screen_point(&pointer, &ui_scale, &windows),
+    ) else {
+        return;
+    };
+    let on_page = Rect::from_corners(CORNER, CORNER + Vec2::new(640.0, 256.0)).contains(at);
+    if !on_page {
+        return;
+    }
+    if left && held.0.is_some() {
+        held.0 = None;
+        return;
+    }
+    let night = forms.is_some_and(|forms| forms.by_night());
+    let Some(art) = held_under(&arts, night, at).filter(|&art| !refused(art, night)) else {
+        return;
+    };
+    if left && pack.held.is_none() {
+        held.0 = Some(art);
+    } else if right {
+        let slot = slots.selected;
+        if slots.arts[slot] != Some(art) {
+            slots.arts[slot] = Some(art);
+        }
+    }
+}
+
 /// The files of the arts' own pictures, found once.
 #[derive(Resource, Default)]
 struct Pictures(HashMap<u16, String>);
@@ -348,7 +427,7 @@ fn begin(mut commands: Commands, data: Option<Res<Data>>, arts: Res<HeroArts>) {
 
 /// The three images of the art `art` (its record's `+0x30`, `+0x34`, `+0x38`): grey, pale and
 /// vivid.
-fn sprites(arts: &HeroArts, art: u16) -> Option<[u32; 3]> {
+pub(crate) fn sprites(arts: &HeroArts, art: u16) -> Option<[u32; 3]> {
     let tables = &arts.tables;
     tables
         .spells
@@ -552,7 +631,7 @@ impl Plugin for SpellsPagePlugin {
             )
             .add_systems(
                 Update,
-                (show, flash)
+                (pick, show, flash)
                     .chain()
                     .after(crate::inventory::Opened)
                     .run_if(in_state(AppState::InGame)),
@@ -580,6 +659,14 @@ mod tests {
         assert_eq!(look(true, 6, false, 8), Look::Grey);
         assert_eq!(look(true, 6, true, 8), Look::Vivid);
         assert_eq!(look(false, 1, false, 0), Look::Own);
+    }
+
+    #[test]
+    fn the_night_arts_are_refused_by_day() {
+        assert!(refused(1025, false));
+        assert!(refused(1035, false));
+        assert!(!refused(1035, true));
+        assert!(!refused(1022, false));
     }
 
     #[test]

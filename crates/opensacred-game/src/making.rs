@@ -200,25 +200,14 @@ pub fn launch(arts: &HeroArts, art: u16) -> Option<u8> {
     })
 }
 
-/// At a new game, the hero's first art whose action is read is the right button's.
-fn select_first(arts: Option<Res<HeroArts>>, mut selected: ResMut<Selected>) {
-    // A hero that holds the selected art keeps it; a new game's hero, which does not, takes its
-    // first (#678).
-    let Some(arts) = arts else {
-        return;
-    };
-    if selected.0.is_some_and(|art| arts.arts.get(art).is_some()) {
-        return;
-    }
-    let first = arts
-        .arts
+/// The hero's first art whose action is read, which a new game's first art slot holds (#678,
+/// `art_slots`).
+pub(crate) fn first_art(arts: &HeroArts) -> Option<u16> {
+    arts.arts
         .entries
         .iter()
         .find(|e| arts::style(e.art).is_some())
-        .map(|e| e.art);
-    if selected.0 != first {
-        selected.0 = first;
-    }
+        .map(|e| e.art)
 }
 
 /// Whether the hero may make `art` now: it holds it, it is ready, its action is read, and no
@@ -2551,7 +2540,6 @@ impl Plugin for MakingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Selected>()
             .insert_resource(Dice(Rng::of(0, 0, 2)))
-            .add_systems(Update, select_first)
             .add_systems(
                 Update,
                 (
