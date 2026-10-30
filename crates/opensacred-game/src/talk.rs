@@ -147,6 +147,13 @@ impl Portraits {
         let portrait = self.table.as_ref()?.of(creature);
         Some((self.files.get(&portrait.texture)?.as_str(), portrait.rect))
     }
+
+    /// The interface's image of the creature type `creature` in the portraits' column
+    /// (`0x435D30`, #1465), none for a type without one or without the table's column (assets
+    /// converted before it).
+    pub(crate) fn column(&self, creature: u32) -> Option<u32> {
+        self.table.as_ref()?.column_image(creature)
+    }
 }
 
 /// A portrait in the window: its texture, and its part, its left, top, width and height.

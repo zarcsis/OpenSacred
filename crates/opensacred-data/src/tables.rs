@@ -182,6 +182,18 @@ impl Voice {
 pub struct Portraits {
     pub default: Portrait,
     pub creatures: Vec<CreaturePortrait>,
+    /// The portraits' column's images by the creature type (`0x435D30`, #1465): each type with
+    /// one, and the index of its image among the interface's (`ui_images.ron`).
+    #[serde(default)]
+    pub column: Vec<ColumnPortrait>,
+}
+
+/// A creature type's picture in the portraits' column: its index among the interface's images.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct ColumnPortrait {
+    pub creature: u16,
+    pub image: u32,
 }
 
 /// A creature type's portrait.
@@ -246,6 +258,15 @@ impl Portraits {
             .iter()
             .find(|c| u32::from(c.creature) == creature)
             .map_or(&self.default, |c| &c.portrait)
+    }
+
+    /// The image of the portraits' column of the creature type `creature`, none for a type
+    /// without one.
+    pub fn column_image(&self, creature: u32) -> Option<u32> {
+        self.column
+            .iter()
+            .find(|c| u32::from(c.creature) == creature)
+            .map(|c| c.image)
     }
 }
 
