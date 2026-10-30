@@ -50,6 +50,12 @@ $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadle
 | `ghidra/ProjectStatsScript.java` | the counts: functions by the source of their names, library, in classes; classes; vftables |
 | `ghidra/mcp_bridge.py` | the ghidra MCP server of a Claude Code session (stdio): starts pyghidra-mcp when nothing answers, and passes the session's messages to it over Streamable HTTP; `--start` starts it alone; the standard library alone, its tests `test_mcp_bridge.py` on a fake server |
 
+## The release's FFmpeg
+
+`tools/ffmpeg/build.sh OUT` cross-builds on Linux with MinGW-w64 the static `ffmpeg.exe` that the release archive carries for the converter (#1499): FFmpeg under the LGPL with libopus and SVT-AV1, from the sources that `tools/ffmpeg/versions.toml` pins by their SHA-256, with only what the converter runs; `.github/workflows/ffmpeg.yml` runs it, keeps the result in the cache by the hash of `tools/ffmpeg/`, and tests the program on Windows.
+`tools/ffmpeg/outdated.py` prints each source's pin and newest release, and exits with 1 when one is behind: the daily dependency update runs it (`CLAUDE.md`, "Work order"); tests: `uv run --no-project python -I -m unittest discover -s tools/ffmpeg -p "test_*.py"`.
+A new version is its pin's `version`, `url` and `sha256` changed together (`sha256sum` of the archive downloaded), then the workflow's run on the pull request.
+
 ## The game's remote control
 
 `tools/game/remote.py` drives an `opensacred-game` started with `--remote` (docs/10 §8, docs/03 §3.7): it runs the game's commands, reads its state and log, sends the player's keys, text and clicks, and takes screenshots, through the game's Remote Protocol on `127.0.0.1`; the standard library alone.

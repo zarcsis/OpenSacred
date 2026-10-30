@@ -182,7 +182,7 @@ Size rule: one task is one finished result, verifiable by a test, of 1–4 agent
 Large systems are cut into such tasks in the milestone plan.
 
 Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is the open issues (§3.6).
-Once a day the maintainer's first session starts with `cargo update` and `uv lock --upgrade` in a pull request of its own, and opens a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order").
+Once a day the maintainer's first session starts with `cargo update` and `uv lock --upgrade` in a pull request of its own, and opens a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order"), and for each newer release of a source of the release's FFmpeg, which `tools/ffmpeg/outdated.py` lists (#1499; `tools/README.md`, "The release's FFmpeg").
 The Python packages are bounded in `pyproject.toml` as Cargo bounds the crates, below by the version taken and above by the next major release, so that `uv lock --upgrade` takes only the compatible ones; `uv tree --outdated --depth 1` shows the newest release of each.
 Updating often keeps each step small.
 A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls back to the last cache of `main` and cargo rebuilds only the packages that changed (1.5 minutes on 2026-10-17 for a bump that Linux does not compile, against 15 for a cold build); once a day bounds those rebuilds and the cache entries that each new `Cargo.lock` leaves.
