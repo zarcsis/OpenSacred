@@ -386,6 +386,7 @@ fn off_the_windows(
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window>,
+    stash: Option<Res<crate::town_stash::Opened>>,
 ) -> bool {
     if !shown.is_some_and(|shown| shown.0) {
         return true;
@@ -397,7 +398,12 @@ fn off_the_windows(
         min: INVENTORY.min + Vec2::new(0.0, TAB_TOP),
         max: INVENTORY.max,
     };
-    !(tabs.contains(at) || EQUIPMENT.contains(at) || crate::statistics::WINDOW.contains(at))
+    let over_stash =
+        stash.is_some_and(|stash| stash.0.is_some()) && crate::town_stash::WINDOW.contains(at);
+    !(tabs.contains(at)
+        || EQUIPMENT.contains(at)
+        || crate::statistics::WINDOW.contains(at)
+        || over_stash)
 }
 
 /// The windows hidden at each game's start.
