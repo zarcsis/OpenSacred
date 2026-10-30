@@ -83,18 +83,65 @@ The world map's lens draws the minimap about a point of the iso plane; the quest
 
 ## The other books
 
-- The hero's (type 1, `0x6B0E00`): the class's page with its picture, the hero's skills, its combat arts in two chapters, the creatures shown turning in `GUI_BOOK_CIRCLE`; the information's (type 2, `0x6B04B0`): the information the hero collected, each in its chapter; the statistics' (type 3, `cUI_StatsTab`): four panels, no bookmarks and no list.
-  Their research is #1565.
+Read in the code for #1565; **seen** in the game where said.
+
+### What the hero's and the information's books share
+
+- Their rows have the flags `0x11`: drawn in font 1 as a side quest's row without its indent and icon, `0xFF000033`, the selected row `0xFF000066`, the one under the pointer `0xFF000099`; a left click from x 176 selects one (`0x6B3940`), and the quests' book's tracking does nothing (the handler returns before it for a type other than 0).
+- A new page starts where the next row would pass the page's end (`0x6B1D90`), but the hero's skills, which all go on the chapter's first page (at most eight).
+- The left page's title is the chapter's for every page of it; the right page shows the selected row's item, the first row's until another is clicked.
+- A page may have a text of its own (`+8`, a "non-list" page): that text is drawn in the list's rectangle, (160, 196) 284 × 352, in font 1, `0xFF000066`, wrapped (the flags `0x500`, **hypothesis** for their sense), in one piece; its right page shows the item whose index is the right page's current page number (`book + 0x160`, `0x6B2E3A`; a quirk, 0 while the right page is not turned).
+- The bookmarks stand as the quests' book's, each shown while its chapter holds something.
+- The chapters' titles (`0x9E07CC`, seven `u16` per type): the hero's 0, 9030, 9031, 9032, and 9033 that its builder writes itself (`0x6B15E1`) for the fifth; the information's 9021, 9020, 9022, 9023, 9024; the statistics' none.
+  The title 0 is the empty string (`0x672C90`), so the class's page has no title on either page.
+- The bookmarks' images (`0x9E075C`, a pair of the image and its lit look per chapter): the hero's `0x4BD`/`0x4C1` (replaced by the class's below), `0x4B6`/`0x4BB`, `0x4C8`/`0x4CC`, `0x4C0`/`0x4C4`, `0x4BC`/`0x4AC`; the information's `0x4B2`/`0x4B7`, `0x4B3`/`0x4B8`, `0x4B4`/`0x4B9`, `0x4B5`/`0x4BA`, `0x4AB`/`0x4B1`; 64 × 64 cells of `gui_book_x4` to `gui_book_x7`.
+- The class's bookmark (`0x6B3E20`, the hero's book alone): the chapter 0's pair by the hero's type, 1 `0x4BD`/`0x4C1`, 2 `0x4BF`/`0x4C3`, 3 `0x4BE`/`0x4C2`, 4 `0x4C6`/`0x4CA`, 5 `0x4C7`/`0x4CB`, 6 and 7 `0x4C5`/`0x4C9`, 8 `0x4D0`/`0x4D4`, 9 `0x4CF`/`0x4D3`, any other `0x4BD`/`0x4C1`.
+  It runs at every draw, and a type other than the one remembered (`0x17EA060`) changes the bookmark and builds the book again, so a change of class or of the Vampiress's form shows at once.
+
+### The hero's book (type 1, `0x6B0E00`)
+
+- Chapter 0, the class (made only for a hero's type, `0x426650`: the type's `Creature.pak` byte `+4` equal to 1): one non-list page, its text the class's description and its item the class's picture, by the type: 1 the text 1061 and the image `0x5C7`, 2 1060 and `0x5C8`, 3 1064 and `0x5CB`, 4 1062 and `0x5C9`, 5 1063 and `0x5CA`, 8 1067 and `0x5CE`, 9 1066 and `0x5CD`, any other (the Vampiress's 6 and 7) 1065 and `0x5CC` (`gui_qbp_*`).
+  The item has neither title nor lines: the right page shows the picture, 256 × 256 from x 556 (centred on 684), from the right page's text top.
+- Chapter 1, the skills: for each of the stats' eight skill slots in order (`0x5823C0`, the byte `stats + 0x24 + i`), a skill `v` not 0 makes a row titled with the text 9399 + `v` (its name) and an item of that title whose line is the text 9449 + `v` (its long description; the statistics window takes 9499 + `v`, the short one, docs/re/character.md); no picture, no level.
+- Chapters 2 and 3, the combat arts and the magic: two passes over the stats' arts list (docs/re/arts.md), first the weapon arts (kind 2, `0x581CE0`), then the spells (kind 1, `0x581C30`), each in the list's order.
+  The weapon arts' pass leaves out the Vampiress's night arts (`0x4D1CC0`: 1023, 1025, 1027, 1029, 1038 to 1041), so each pair of hers shows once, by its day art.
+  The chapter (`0x4D2AE0`): the magic for the spells but 51 and 55 to 59 and for the weapon art 1019; the combat arts for the others.
+  An art's item: its record's name as the title, its long description as the line, its first sprite (a 64 × 64 `gui_spell*` icon) as the picture; its level is not shown.
+  The icon is drawn on the text's first page at its own size, centred on x 684, its top at the text's top, the text 8 below it (`0x6B23BF…0x6B2480`).
+- Chapter 4, the main quest's items: the inventory entry's list of pairs `{item type, key}` (`cInventoryEntry::addMainQuestItem`, `0x5D8280`; `opensacred_rules::quests::QuestItems`), a row and an item each in the list's order: the title the key, else, where the key is 0 or −1, the type's name with its description as the line; the item shows its type turning in the circle.
+  So an entry with a key shows its key alone, with no text.
+- The circle (`0x6B1FF0`), on the item's first text page: `GUI_BOOK_CIRCLE.TGA` stretched to 290 × 290, white, from (556, 246), whatever the title; the type's model centred at (701, 391), scaled 2.5 at the depth −100, rocking `0.2·sin(1.03541·t)` radians about x and `0.2·sin(0.9142·t)` about z, `t` the seconds the book has been drawn; the text from `32·h + 16` below the text's top, `h` the item's height in the backpack's cells (docs/re/inventory.md).
+
+### The information's book (type 2, `0x6B04B0`)
+
+- The books and scrolls the hero has read (the inventory entry's list at `+0xC`, each once in the order read; `pickup::Pack::books`, #1358), each an item of its `items.pak` record (`0x43AEB0`): the text `+0x1C` as the title, `+0x1C` + 1 as the line, the byte `+0x62` as the chapter; a type whose `+0x1C` is 0 is logged and passed over.
+- Then, chapter by chapter, a row per item; no picture: the right page shows the title and the text.
+- On the data (`tables/items.ron` with the client's changes of docs/02 §6.1): 139 types of the category 16 have the book `+0x61` 2 and a title; by `+0x62`: 0 62 types from 4100 to 4639, 1 13 from 4125 to 4137, 2 13 from 4150 to 4162, 3 8 from 4250 to 4257, 4 43 from 4175 to 4243.
+- The diary passes a UI event (`0x10`, message `0x20`) to the book `items.pak +0x61` of a type (`0x6AED40`), which builds the book again; the build starts again from the hero's list, so it matters only where the list holds the type; its sender was not found.
+
+### The statistics' book (type 3, `cUI_StatsTab`)
+
+- No pages, bookmarks or arrows: each draw (`0x6B2B10`, under and over the parchment) makes a `cUI_StatsTab` (`0x6DDB00`, `UI_TAB_STATS`) on the stack, calls its four panels with places of the screen and destroys it; every label and value takes its colour `0xFF000033`.
+- The player's statistics object (`0x425290`): 768 records of 16 bytes by creature type (`0x424250`: the type, its kills, the highest level killed, the two hit chances at that kill); `+0x3000` the ten types of the most kills (`0x424560`, the earlier type first among equals); `+0x30A4` the 16 latest kills, records of `0x24` bytes, the newest last (the type, its name's text, the two hit chances, its level, its health, damage, resistances' sum, attack and defence); `+0x32E4` a record per level from 1 and `+0x56E8` their count, kept at each level-up (`0x424CA0`: the gold, each damage kind's value, each resistance times its factor); `+0x56EC` the sectors visited (as a sector first takes its flag `0x1000`), `+0x56F0` the kills, `+0x56F4` the resurrections, `+0x56F8…+0x5700` the hours, minutes and milliseconds played.
+- `0x6DDCC0`, the latest foes: the title `UI_STATS_GEGNER_TITLE` in font 6 red at (550, 167); the heads `LOG_1070`, `LOG_1073`, `LOG_1078_2HIT`, `LOG_1076`, `LOG_1077` in font 1 centred in 80 × 16 at y 191, x 575, 630, 690, 740, 790; ten rows from the newest at y 210 + 24k, stopping at the first empty one: the level, the health, the two chances `%2d/%2d`, the damage and the resistances (the flags 4, **hypothesis**: right-aligned), the type's portrait in (550, y − 2) 24 × 24, its name's tooltip at (598, y + 6) while the pointer is on the portrait.
+- `0x6DE2B0`, the most frequent foes: the title `UI_STATS_GEGNER2_TITLE` at (550, 452); the heads `UI_STATS_MAX_LEVEL`, `LOG_1078_2HIT` and `UI_STATS_COUNT` centred in 50 × 16 at y 476, x 600, 690, 780; the first four of the ten at y 500 + 24k: the highest level killed, the chances at that kill, the kills and the portrait.
+- `0x6DE710`, the game's history: the title `UI_STATS_HISTORY_TITLE` at (174, 318); white axes, x 180 from y 350 to 580 and y 570 from x 170 to 430; for the levels' records and a last live point, `w = ⌊250/(L + 1)⌋` apart, three polylines from y 570 (each segment from the point before, so the first is flat): the gold in `0xFFFFFF00` at `200/max`, the four damages' sum in `0xFFFF0000` at `200/max`, the four resistances' sum in `0xFF0000FF` at `220/max`; the legend `UI_STATS_GRAPH_BLUELINE`, `_REDLINE` and `_GOLDLINE` in font 7, `0xFFFFFF80`, at x 174, three lines up from 560; each line's highest in its colour at x 400 (y 350, 370, 390) and the levels' count in white at (400, 577).
+- `0x6DEE60`, the statistics: the title `UI_STATS_STATS_TITLE` at (170, 168); lines 24 apart from y 192, 250 × 24 at x 170 in font 1, the label left and its value right: `UI_STATS_CHARACTER` and the class's name (while the local hero exists, else the others move up), `UI_STATS_PLAYTIME` and `%d:%.2d:%.2d`, `UI_STATS_WELT` and `%.2f` of 100 times the sectors visited over the world's (the object manager's `+0x8284`) with `%` at x 420, `UI_STATS_VICTORY` and the kills, `UI_STATS_RESPAWN` and the resurrections.
 
 ## Open questions
 
 - What clears an entry's `+0xC` bit 0 within a game, if anything.
 - Where an ornament falls where a page break and a main quest after another kind meet.
 - What plays `UI_QUESTBOOK_CLOSE02`, `TURN02` and `WRITING` (`WRITING`: an item of a quest picked up, docs/re/sound.md).
+- The sender of the UI message `0x20` that adds an information item to a shown book.
+- The `CreateObj` handler's condition for `addMainQuestItem` (`0x4868F6`), and when its entries' keys are 0.
+- The statistics' font 7 and the font at `0x182EE2C`; the exact terms of the levels' damage values; whether the world's sectors' count (`+0x8284`) counts the empty slots of the sectors' array.
 
 ## In `opensacred-game`
 
 Since #1560 `opensacred_rules::quests` keeps the log's entries (`Entry`: the title, the lines, the chapter, how it stands, whether entered since the game began) as `QuestBook` and `SetQuestInfo` write them, and `Quests::track` the side quest tracked; `quest_book` shows the book, its tabs, the quests' book's bookmarks, pages, rows, texts, arrows and counts as above, and `minimap` its picture's ground.
 Bevy lays the texts out, in the fonts at about the original's widths (AntiquaSSK at 19.5, Carolingia at 23 and 26 pixels), set 2 or 3 pixels lower than it would set them; a hidden node of each text measures its lines for the pages' breaks.
 **Seen** in the game beside the original's frames: the Seraphim's first quest's row, its picture and its text's two pages within a few pixels; a side quest's click selecting and tracking it.
-Not followed: the other three books (#1565), the bar's button's pressed look, the corners of the picture's ground; a compass's place is taken where its creature stands as the book is built.
+Since #1565 the hero's and the information's books are built from the hero's class, skills and arts (`arts::HeroArts`), its main quest's items (`QuestItems`) and the books it read (`pickup::Pack::books`), as above, each tab keeping its own chapter, page and selected row.
+**Seen** in the game: the Seraphim's class page with its picture, its two skills, its art with its icon, and two books read in the information's first two chapters.
+Not followed: the statistics' book (#1579), the item's model turning in the circle (the circle is drawn, the model not), the bar's button's pressed look, the corners of the picture's ground; a compass's place is taken where its creature stands as the book is built.

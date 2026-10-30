@@ -1426,6 +1426,11 @@ impl Stashes {
 pub struct QuestItems(Vec<(u32, String)>);
 
 impl QuestItems {
+    /// The items and their keys in the order they joined the list.
+    pub fn list(&self) -> &[(u32, String)] {
+        &self.0
+    }
+
     /// Adds `item` of the key `key` (`cInventoryEntry::addMainQuestItem`, `0x5D8280`): unless an
     /// entry has its type already, or any entry has the key 0: whether it did.
     pub fn add(&mut self, item: u32, key: &str) -> bool {

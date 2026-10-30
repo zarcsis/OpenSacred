@@ -496,6 +496,12 @@ impl Live {
         self.state.quests.marker(marker)
     }
 
+    /// The main quest's items and their keys (`cInventoryEntry::addMainQuestItem`), which the quest
+    /// book's hero's book lists (#1565).
+    pub fn quests_items(&self) -> &[(u32, String)] {
+        self.state.items.list()
+    }
+
     /// The quests' state: the log's entries, their compasses, the side quest tracked.
     pub fn quests(&self) -> &quests::Quests {
         &self.state.quests
