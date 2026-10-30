@@ -41,6 +41,7 @@ mod equipment;
 mod esc_menu;
 mod fight;
 mod files;
+mod first_start;
 mod fliers;
 mod foe_panel;
 mod followers;
@@ -499,6 +500,19 @@ fn main() -> ExitCode {
             e.exit()
         }
     };
+    // The packaged game's assets made first, or made again after an update (#1498).
+    if cfg!(feature = "packaged")
+        && cli.assets.is_none()
+        && let Some(assets) = opensacred_data::converted::assets_dir()
+    {
+        let need = first_start::need(&assets, env!("OPENSACRED_VERSION"));
+        if need != first_start::Need::Nothing {
+            let log_file = cli.log_file.clone().or_else(|| {
+                settings::state_dir().map(|dir| dir.join("logs").join("opensacred.log"))
+            });
+            return first_start::run(need, cli.hidden, log_file, cli.screenshot.clone());
+        }
+    }
     match run(cli) {
         Ok(AppExit::Success) => ExitCode::SUCCESS,
         Ok(AppExit::Error(code)) => ExitCode::from(code.get()),

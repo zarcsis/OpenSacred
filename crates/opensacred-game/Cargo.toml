@@ -33,5 +33,8 @@ symphonia.workspace = true
 symphonia-adapter-libopus.workspace = true
 toml_edit.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+rfd.workspace = true
+
 [lints]
 workspace = true

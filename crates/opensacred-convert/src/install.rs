@@ -43,12 +43,13 @@ pub const NEEDED_BYTES: u64 = 11 << 30;
 #[serde(rename_all = "lowercase")]
 pub enum Line<'a> {
     /// The stage `stage`, the `step`-th of `steps`, starts with the share `done` of the run
-    /// behind it.
+    /// behind it, and ends at the share `until`.
     Stage {
         stage: &'a str,
         step: usize,
         steps: usize,
         done: f32,
+        until: f32,
     },
     /// The assets are in `assets`.
     Done { assets: &'a Path },
@@ -82,12 +83,16 @@ impl Progress {
 
     /// The stage `name` starts.
     pub fn stage(self, name: &str) {
-        let index = STAGES.iter().position(|&(stage, _)| stage == name);
+        let at = STAGES
+            .iter()
+            .position(|&(stage, _)| stage == name)
+            .unwrap_or(0);
         self.tell(&Line::Stage {
             stage: name,
-            step: index.map_or(0, |i| i + 1),
+            step: at + 1,
             steps: STAGES.len(),
-            done: share_before(index.unwrap_or(0)),
+            done: share_before(at),
+            until: share_before(at + 1),
         });
     }
 }
@@ -233,11 +238,12 @@ mod tests {
             step: 5,
             steps: 12,
             done: 0.25,
+            until: 0.5,
         })
         .unwrap();
         assert_eq!(
             line,
-            r#"{"stage":{"stage":"sound","step":5,"steps":12,"done":0.25}}"#
+            r#"{"stage":{"stage":"sound","step":5,"steps":12,"done":0.25,"until":0.5}}"#
         );
         let done = serde_json::to_string(&Line::Done {
             assets: Path::new("a"),
