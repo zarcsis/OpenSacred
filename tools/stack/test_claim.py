@@ -106,6 +106,10 @@ class Take(unittest.TestCase):
     def test_an_issue_of_another_account_is_refused(self):
         reason = self.refused(FakeGitHub(issue(author='someone')))
         self.assertIn('was filed by someone, not by zarcsis', reason)
+        self.assertIn('was filed by app/someones-app', self.refused(FakeGitHub(issue(author='app/someones-app'))))
+
+    def test_an_issue_of_the_dependency_update_is_taken(self):
+        self.take(FakeGitHub(issue(author='app/opensacred-deps')))
 
     def test_a_pull_request_of_another_account_is_not_read(self):
         github = FakeGitHub(issue(), [pr(9, 'feature/70-other', 'Closes #7', author='someone')])

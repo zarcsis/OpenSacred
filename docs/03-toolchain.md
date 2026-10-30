@@ -182,7 +182,12 @@ Size rule: one task is one finished result, verifiable by a test, of 1–4 agent
 Large systems are cut into such tasks in the milestone plan.
 
 Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is the open issues (§3.6).
-Once a day the maintainer's first session starts with `cargo update` and `uv lock --upgrade` in a pull request of its own, and opens a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order"), and for each newer release of a source of the release's FFmpeg, which `tools/ffmpeg/outdated.py` lists (#1499; `tools/README.md`, "The release's FFmpeg").
+Once a day the Dependencies workflow (`.github/workflows/deps.yml`, #1550) runs `tools/deps/daily.py`: `cargo update` and `uv lock --upgrade` in a pull request of their own, which merges itself once its checks are green, and a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order"), and for each newer release of a source of the release's FFmpeg, which `tools/ffmpeg/outdated.py` lists (#1499; `tools/README.md`, "The release's FFmpeg").
+  Until 2026-10-30 the maintainer's first session of the day did it; its 11 pull requests, from #139 to #1501, each merged with the one commit it was opened with, and the steps needed no judgment that CI could not give.
+  The workflow works as the maintainer's GitHub App `opensacred-deps`, with a token of an hour that `actions/create-github-app-token` makes from the variable `DEPS_APP_CLIENT_ID` and the secret `DEPS_APP_PRIVATE_KEY`: a pull request that `GITHUB_TOKEN` opens runs no workflow, so it would never get the checks that the ruleset requires.
+  `tools/stack/claim.py` takes the app's issues as the sessions' own (#1421): their text is made of the manifests' names, the registries' version numbers and the checks' names alone.
+  CI has no game files, so the update merges without the tests on them (the maintainer's decision of 2026-10-30), which the next task that touches the game files runs.
+  An update that breaks something leaves its pull request open; the next run closes it with its branch and files or comments the issue `Dependencies: the daily update did not merge`, and a session fixes the cause, or holds the package back in `tools/deps/holds.toml`, which every run puts back after the update (`cargo update --package <crate> --precise <version>`, `uv lock --upgrade-package <package>==<version>`), since a hold kept in `Cargo.lock` alone would be lifted by the next day's update.
 The Python packages are bounded in `pyproject.toml` as Cargo bounds the crates, below by the version taken and above by the next major release, so that `uv lock --upgrade` takes only the compatible ones; `uv tree --outdated --depth 1` shows the newest release of each.
 Updating often keeps each step small.
 A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls back to the last cache of `main` and cargo rebuilds only the packages that changed (1.5 minutes on 2026-10-17 for a bump that Linux does not compile, against 15 for a cold build); once a day bounds those rebuilds and the cache entries that each new `Cargo.lock` leaves.
@@ -324,7 +329,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * **Usage.**
   Every pull request's description ends with its Claude Code usage, written by `tools/usage/pr_usage.py` after `gh pr create` and again when the work on it is over (§3.5, `docs/usage.md`).
   Until 2026-10-17 a session's usage went into a row of `docs/usage.md` through a pull request of its own; that cost a CI run and a commit on `main` each time, and a session is not a unit of work.
-* **Without an issue:** the daily `Dependencies: cargo update` pull request (`Cargo.lock` and `uv.lock` alone, label `deps`), auto-merged.
+* **Without an issue:** the daily `Dependencies: cargo update` pull request (`Cargo.lock` and `uv.lock` alone, label `deps`), which the Dependencies workflow opens as its app and auto-merges (§3.3).
 * **Protection.**
   A ruleset on `main` for everyone, the repository's administrators included: changes only through a pull request, with the Linux, Windows and cargo deny checks green; no force pushes, no deletion.
   There is no bypass, so the `cargo update` pull request goes the same way.
@@ -554,6 +559,7 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 * The Release workflow (`.github/workflows/release.yml`) runs every hour, versions the merged pull requests and releases at most once a day (§3.6).
 * The Mutants workflow (`.github/workflows/mutants.yml`, #1432) runs `cargo-mutants` on the lines of each pull request that changes `opensacred-rules`, `opensacred-data` or `opensacred-formats`, on Linux alone and without a cache, since the three crates build without Bevy; it fails only when it cannot measure them, and the ruleset does not require it (§3.4).
 * The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.
+* The Dependencies workflow (`.github/workflows/deps.yml`, #1550) runs every day: the dependency update's pull request and the `deps` issues of newer incompatible releases (§3.3).
 * A run that fails on GitHub's side (a stalled download on the runner, a broken answer of the API) is run again by hand, `gh run rerun <id> --failed`; the workflows carry no timeouts or retries for it.
   Until 2026-10-22 the Mesa install (#534) and the release's lookup of a pull request (#515) had them; they did not keep a run green (#543) and made the workflows harder to read (#544).
 

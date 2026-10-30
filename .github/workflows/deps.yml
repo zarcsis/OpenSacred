@@ -1,0 +1,48 @@
+# The daily dependency update (#1550; CLAUDE.md, "Work order"; docs/03 §3.3): tools/deps/daily.py runs `cargo update`
+# and `uv lock --upgrade` with the holds of tools/deps/holds.toml put back, opens a pull request
+# `Dependencies: cargo update` that merges itself once its checks are green, files a `deps` issue for each newer
+# incompatible release, and closes the previous day's update if it is still open, with an issue of what kept it. It
+# works with a token of the maintainer's GitHub App `opensacred-deps`, since a pull request that GITHUB_TOKEN opens runs
+# no workflow and so would never get the checks that the ruleset on main requires.
+name: Dependencies
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read # the app's token writes
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update
+    # Not in forks.
+    if: github.repository == 'zarcsis/OpenSacred'
+    runs-on: ubuntu-latest
+    steps:
+      # A token of an hour for this repository alone, with the app's permissions: the contents, the pull requests
+      # and the issues.
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEPS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPS_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app.outputs.token }} # the update's branch is pushed as the app
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      # The repository's Python is uv's (docs/03 §2); the script needs only the standard library. The action publishes
+      # no major tag since v8, only releases.
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Update
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: uv run --no-project python -I tools/deps/daily.py
