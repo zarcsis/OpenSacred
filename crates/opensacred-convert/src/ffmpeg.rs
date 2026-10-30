@@ -13,16 +13,19 @@ fn program() -> String {
 
 /// FFmpeg's command, without a console window of its own on Windows: run from a converter that
 /// has no console, as the packaged game starts it, it would otherwise open one each time (#1495).
+#[cfg(windows)]
 fn command(program: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    /// `CREATE_NO_WINDOW` of `CreateProcess`.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let mut command = Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        /// `CREATE_NO_WINDOW` of `CreateProcess`.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    command.creation_flags(CREATE_NO_WINDOW);
     command
+}
+
+#[cfg(not(windows))]
+fn command(program: &str) -> Command {
+    Command::new(program)
 }
 
 /// Runs FFmpeg with `args` (after `-v error`), `input` on its stdin, and returns its stdout.
