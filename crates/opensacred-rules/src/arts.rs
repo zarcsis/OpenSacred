@@ -12,7 +12,8 @@ use crate::fight::{Effect, curve};
 use crate::spawning::Dice;
 
 /// The bit of an entry's flags that a rune sets: on every art it adds (`0x580750`) and on every
-/// art it raises for good (`0x581F80`).
+/// art it raises for good (`0x581F80`); the spells page's hide clears it on every art
+/// (`0x5809B0`), a mark of the arts new to the page.
 pub const TAUGHT: u16 = 1;
 /// The Vampiress's arts by day and by night, in pairs (`0x580750`, `0x552370`).
 const VAMPIRESS: [(u16, u16); 8] = [

@@ -48,7 +48,7 @@ pub struct Used(pub String);
 fn use_scripted(
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
-    shown: Option<Res<Shown>>,
+    (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
     mut pack: ResMut<Pack>,
     mut used: MessageWriter<Used>,
 ) {
@@ -58,7 +58,7 @@ fn use_scripted(
     {
         return;
     }
-    let Some(key) = on_grid(&pointer, &ui_scale, &windows)
+    let Some(key) = on_grid(&pointer, &ui_scale, &windows, &page)
         .and_then(cell_under)
         .and_then(|cell| pack.grid.at(cell))
         .map(|placed| placed.key)
@@ -82,7 +82,7 @@ fn use_scripted(
 fn read(
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     mut pack: ResMut<Pack>,
     (tables, rules, experience): (Option<Res<Tables>>, Res<Rules>, Res<Experience>),
     hero: Option<Res<Hero>>,
@@ -102,7 +102,7 @@ fn read(
             rate: (0.5, sfx::Roll::None),
         });
     };
-    let Some(placed) = on_grid(&pointer, &ui_scale, &windows)
+    let Some(placed) = on_grid(&pointer, &ui_scale, &windows, &page)
         .and_then(cell_under)
         .and_then(|cell| pack.grid.at(cell).copied())
     else {

@@ -103,6 +103,7 @@ mod souls;
 mod sound;
 mod sparkles;
 mod spells;
+mod spells_page;
 mod srgb;
 mod stashes;
 mod statics;
@@ -416,9 +417,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         sound::SoundPlugin,
         sparkles::SparklesPlugin,
         spells::SpellsPlugin,
-        srgb::SrgbPlugin,
+        spells_page::SpellsPagePlugin,
     ))
     .add_plugins((
+        srgb::SrgbPlugin,
         stashes::StashesPlugin,
         statics::StaticsPlugin,
         statistics::StatisticsPlugin,

@@ -179,7 +179,7 @@ struct Panel {
 fn grid(
     mut commands: Commands,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
-    shown: Option<Res<Shown>>,
+    (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
     pack: Res<Pack>,
     texts: Option<Res<Texts>>,
     weighing: Weighing,
@@ -189,7 +189,7 @@ fn grid(
 ) {
     let under = shown
         .is_some_and(|shown| shown.0)
-        .then(|| on_grid(&pointer, &ui_scale, &windows))
+        .then(|| on_grid(&pointer, &ui_scale, &windows, &page))
         .flatten()
         .and_then(cell_under)
         .and_then(|cell| pack.grid.at(cell).copied());

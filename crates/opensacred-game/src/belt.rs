@@ -113,7 +113,7 @@ fn drink(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
-    shown: Res<Shown>,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     mut pack: ResMut<Pack>,
     healing: Option<Res<Potions>>,
     mut heroes: Query<(Entity, &mut Health), With<Body>>,
@@ -145,7 +145,7 @@ fn drink(
         // The right button on a potion of the grid, the cursor empty; with Shift, to the weakest
         // follower (`0x6C0150`).
         None if shown.0 && pack.held.is_none() && buttons.just_pressed(MouseButton::Right) => {
-            let key = on_grid(&pointer, &ui_scale, &windows)
+            let key = on_grid(&pointer, &ui_scale, &windows, &page)
                 .and_then(cell_under)
                 .and_then(|cell| pack.grid.at(cell))
                 .map(|placed| placed.key)
