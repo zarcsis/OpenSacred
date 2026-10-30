@@ -36,7 +36,7 @@ const GLOW_PULSE: f32 = 4.0;
 /// The alarm's centre in the column, (975, 70) of the original's screen; its first radius, its
 /// width, its growth a second and its last radius, and its tint (`0xFF0000`).
 const SONAR_CENTRE: Vec2 = Vec2::new(975.0 - 932.0, 70.0);
-const SONAR_FIRST: f32 = 10.0;
+pub(crate) const SONAR_FIRST: f32 = 10.0;
 const SONAR_WIDTH: f32 = 40.0;
 const SONAR_GROWTH: f32 = 600.0;
 const SONAR_LAST: f32 = 500.0;
@@ -116,6 +116,40 @@ impl UiMaterial for Sonar {
     }
 }
 
+impl Sonar {
+    /// A ring of the texture `texture`, not spreading yet.
+    pub(crate) fn new(texture: Handle<Image>) -> Self {
+        Self {
+            ring: Ring::default(),
+            texture,
+        }
+    }
+
+    /// The ring at the radius `radius`, 40 wide, tinted `tint` at the alpha of its radius.
+    pub(crate) fn spread(&mut self, radius: f32, tint: Vec3) {
+        self.ring = Ring {
+            inner: radius,
+            outer: radius + SONAR_WIDTH,
+            colour: tint.extend(sonar_alpha(radius)),
+        };
+    }
+}
+
+/// A sonar's node of the side `2 (radius + 40)` about `centre` of its container.
+pub(crate) fn sonar_node(node: &mut Node, centre: Vec2, radius: f32) {
+    let outer = radius + SONAR_WIDTH;
+    node.left = Val::Px(centre.x - outer);
+    node.top = Val::Px(centre.y - outer);
+    node.width = Val::Px(2.0 * outer);
+    node.height = Val::Px(2.0 * outer);
+}
+
+/// A sonar's next radius after `seconds`, none once it passes the last.
+pub(crate) fn sonar_next(radius: f32, seconds: f32) -> Option<f32> {
+    let next = radius + SONAR_GROWTH * seconds;
+    (next <= SONAR_LAST).then_some(next)
+}
+
 /// The glow's node, a child of the red ring's.
 #[derive(Component)]
 struct GlowNode;
@@ -161,10 +195,7 @@ fn spawn(
     let Some(file) = images.file(SONAR) else {
         return;
     };
-    let sonar = sonars.add(Sonar {
-        ring: Ring::default(),
-        texture: hud::image(&assets, file.to_owned()),
-    });
+    let sonar = sonars.add(Sonar::new(hud::image(&assets, file.to_owned())));
     commands.entity(column).with_child((
         SonarNode {
             radius: None,
@@ -263,20 +294,11 @@ fn alarm(
         return;
     };
     visibility.set_if_neq(Visibility::Inherited);
-    let outer = radius + SONAR_WIDTH;
-    node.left = Val::Px(SONAR_CENTRE.x - outer);
-    node.top = Val::Px(SONAR_CENTRE.y - outer);
-    node.width = Val::Px(2.0 * outer);
-    node.height = Val::Px(2.0 * outer);
+    sonar_node(&mut node, SONAR_CENTRE, radius);
     if let Some(mut material) = sonars.get_mut(&material.0) {
-        material.ring = Ring {
-            inner: radius,
-            outer,
-            colour: SONAR_TINT.extend(sonar_alpha(radius)),
-        };
+        material.spread(radius, SONAR_TINT);
     }
-    let next = radius + SONAR_GROWTH * time.delta_secs();
-    sonar.radius = (next <= SONAR_LAST).then_some(next);
+    sonar.radius = sonar_next(radius, time.delta_secs());
 }
 
 /// The low health's glow and alarm.

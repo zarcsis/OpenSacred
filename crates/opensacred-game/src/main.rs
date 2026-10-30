@@ -27,6 +27,7 @@ mod burns;
 mod butterflies;
 mod choice;
 mod command;
+mod compass;
 mod console;
 mod containers;
 mod crowd;
@@ -334,15 +335,16 @@ fn run(cli: Cli) -> Result<AppExit> {
         butterflies::ButterfliesPlugin,
         choice::ChoicePlugin,
         command::CommandPlugin,
+        compass::CompassPlugin,
         console::ConsolePlugin,
         containers::ContainersPlugin,
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
         daemon::DaemonPlugin,
         daynight::DayNightPlugin,
-        doors::DoorsPlugin,
     ))
     .add_plugins((
+        doors::DoorsPlugin,
         drops::DropsPlugin,
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,
@@ -350,8 +352,6 @@ fn run(cli: Cli) -> Result<AppExit> {
         fight::FightPlugin,
         fliers::FliersPlugin,
         foe_panel::FoePanelPlugin,
-    ))
-    .add_plugins((
         followers::FollowersPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
@@ -359,9 +359,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         game::GamePlugin,
         glance::GlancePlugin,
         glitter::GlitterPlugin,
-        guns::GunsPlugin,
-        held::HeldPlugin,
     ))
+    .add_plugins((guns::GunsPlugin, held::HeldPlugin))
     .add_plugins((help::HelpPlugin, hero::HeroPlugin, hover::HoverPlugin))
     .add_plugins((
         hud::HudPlugin,

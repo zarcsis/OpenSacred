@@ -94,10 +94,11 @@ Read 2026-10-30 (#1462), **confirmed** by code unless marked otherwise.
 
 - A name `rad:N` is the radius, 1,200 world units without one.
 - `QuestKompassPos`: a name is a `DefPos` (`+0x334`, entries of 100 bytes) and a second one a variable whose value is the quest's number; its numbers are the cell's x and y where no name gave them, then the quest's number; raw coordinates (`0x20`) the cell; a cell of a negative coordinate is refused.
-- `QuestKompassObj`: its name is the object's, and its quest the number, else the running function's quest (the manager's `+0x18`).
+- `QuestKompassObj`: its name is the object's, and its quest the number.
+- Without a quest's number, either takes the running function's quest (the manager's `+0x18`, read at `0x49A4D8` and `0x49ACA7`).
 - On a quest in the log, the entry takes the compass, and where the quest is a main one, or the player's newest main or side quest, and its target changed, the taskbar gets the message `0x34`, the sonar.
-- On a quest not in the log, the compass waits (`0xAB782C`) for the next quest entered, which takes it with the message `0x34` for a main quest; an entry clears it at its end, whether it entered a quest or not.
-- In the Seraphim's tree: 3,330 such records, 2,083 positions (1,153 a `DefPos` and a quest, the rest numbers) and 1,247 objects (1,112 with a quest, 135 of the running function's); no `rad:` name.
+- On a quest not in the log, or none (a record outside a quest's functions), the compass waits (`0xAB782C`) for the next quest entered, which takes it with the message `0x34` for a main quest; an entry clears it at its end, whether it entered a quest or not.
+- In the Seraphim's tree: 3,330 such records, 2,083 positions (1,153 a `DefPos` and a quest, the rest numbers, some without the quest's, as quest 9's `OnEnter`) and 1,247 objects (1,112 with a quest, 135 of the running function's); no `rad:` name.
 
 ### The slots' drawing (`0x6E3430` right, `0x6E29E0` left, `0x6DFBF0` rings)
 
@@ -219,5 +220,10 @@ Since #1348 a click on a left slot, the cursor empty, or the keys 1 to 5 choose 
 Since #1349 the inventory open is the left slots' edit mode: a click takes an item out of a set or puts the held one in, and the halves that would take the held item glow under the ring (`sets`, docs/re/inventory.md, §5); the hero's skill of two weapons, which lets a second one-handed weapon into the left hand, not followed (none of the templates has it).
 Since #1408 a click on the Collect button sends the hero collecting the items about it (`pickup`, docs/re/items.md, "The automatic pick-up").
 Since #1463 the red part of the ring glows while the hero's health is below a quarter of its most, and the red alarm spreads about the portrait once as it falls below the warning level (`low_health`): the glow is a material of the interface that adds the 49 copies of the part as drawn onto the frame, 6 pixels about it and under the portrait, and the alarm one that lays the texture's row across a ring, a circle rather than the original's 90 pieces (a third of a pixel apart at most, at the radius 540); the level is the settings' `[interface] warning_level` (docs/10), 25 as the installation's.
-Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the points' "+", the followers' entries and the mount's bar.
-Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`); the bar draws them next.
+Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the burn, the glows and sparkles, the tooltips, the points' "+", the followers' entries and the mount's bar.
+
+Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, of the running function's quest without a number, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`).
+`compass` draws them on the bar: the needle (image 101) turned about (512, 710) toward the newest main quest's target, the inner pin (image 136) on its ellipse toward the newest side quest's, fading within its radius, the angle φ clockwise from up of the target's place less the hero's as the camera shows them; a cell's target is its centre, a named one the creature of that name in the scripts (`npcs::ScriptName`) where it stands.
+A new marker starts one of four sonar rings at (512, 711), `FX_SONAREFFECT` tinted `0xDDCCAA` as the hero's alarm spreads (`low_health::Sonar`), with the sound 7027.
+**Seen** in the game: at the Seraphim's start the needle points at the novice as she walks to the benches, and turns as the hero moves; `quest trigger 9` turned it at quest 9's target with a sonar.
+Not followed: the outer pins (the world map's marker, #1091; `GroupIsDead`'s creature), objects that only a `CreateObj` names, and the way across a dungeon's mouth.
