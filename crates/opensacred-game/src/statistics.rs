@@ -6,20 +6,23 @@
 //! the experience and the next level's (`0x6A8DF0`), the health, the experience still to gain,
 //! `A` and `D` with the hit chance against the last foe and its portrait, the weapon's damage
 //! raised by the survival bonus with its kinds' icons, the resistances with theirs, and the gold
-//! (`0x6A9F20`); the "+" buttons while points wait.
+//! (`0x6A9F20`); the "+" buttons while points wait, which spend them (`0x6A6110`, #1522): an
+//! attribute point on an attribute, a skill point on a skill below the hero's level, or the
+//! learning mode's list of the skills to learn, one of which a "+" learns.
 //!
-//! Not followed yet: the spending of the points (#1522), the combat arts' damage, the panels and
-//! the tooltips that the hovered lines show, the button that closes the inventory, the bonus of a
-//! set's pieces in the survival bonus, the player's own name, and the window's following a
-//! follower's portrait.
+//! Not followed yet: the combat arts' damage, the panels and the tooltips that the hovered lines
+//! show, the button that closes the inventory, the bonus of a set's pieces in the survival bonus,
+//! the items' bonuses of the skills, the player's own name, the window's following a follower's
+//! portrait, and the gold dropped by a click on it.
 
 use bevy::prelude::*;
 
 use crate::arts::HeroArts;
 use crate::bar::{self, UiImages};
-use crate::fight::{Base, Combat, Experience, Health};
+use crate::effects::Effects;
+use crate::fight::{Base, Combat, Experience, Health, Holding, Regenerates, Rules};
 use crate::game::{AppState, FONT};
-use crate::hero::Body;
+use crate::hero::{Body, Hero};
 use crate::hud::Pointer;
 use crate::inventory::{Shown, screen_point};
 use crate::lines::Texts;
@@ -90,6 +93,11 @@ pub(crate) struct LastFoe(pub Option<(f32, u32)>);
 #[derive(Resource, Default)]
 struct Attributes(bool);
 
+/// The learning mode (`+0xF84`): the skills' list gives way to the skills to learn, left as the
+/// window shows (`0x6A5FA0`) and as a skill is learnt.
+#[derive(Resource, Default)]
+struct Learning(bool);
+
 /// The window's container.
 #[derive(Component)]
 struct StatsWindow;
@@ -103,6 +111,9 @@ struct Sheet {
     skills: Vec<(String, u32, u32)>,
     skill_points: u32,
     to_learn: u32,
+    learning: bool,
+    candidates: Vec<String>,
+    pluses: Vec<u8>,
     attribute_rows: Vec<(String, u32, bool)>,
     attribute_points: u32,
     experience: u64,
@@ -175,35 +186,35 @@ fn whole(value: f32) -> u32 {
 }
 
 /// What the window shows of the hero now.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a Bevy system's inputs gathered for the window"
-)]
 fn sheet(
     texts: &Texts,
     name: &str,
     experience: &opensacred_rules::fight::Experience,
-    arts: Option<&HeroArts>,
     (base, combat, health): (&Base, &Combat, &Health),
     pack: &Pack,
     (foe, minutes): (Option<(f32, u32)>, u32),
-    attributes: bool,
+    (attributes, learning): (bool, bool),
 ) -> Sheet {
     let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
+    let skill_name = |id: u8| text(&(9399 + u32::from(id)).to_string());
     let level = experience.level;
-    let skills = arts
-        .map(|arts| {
-            arts.skills
-                .iter()
-                .map(|&(id, at)| (text(&(9399 + u32::from(id)).to_string()), at, at))
-                .collect()
-        })
-        .unwrap_or_default();
-    // An attribute that the items raise above its own (`+0x22`): above the base grown by the level.
+    // The skills by their slots at their base levels (the items' bonuses are not kept yet).
+    let skills: Vec<(String, u32, u32)> = opensacred_rules::fight::skills(base, level, true)
+        .into_iter()
+        .map(|(id, at)| (skill_name(id), at, at))
+        .collect();
+    let candidates: Vec<String> = base.learnable_now().into_iter().map(skill_name).collect();
+    let pluses = pluses(
+        experience,
+        (skills.len(), candidates.len()),
+        (attributes, learning),
+    );
+    // An attribute that the items raise above its own (`+0x22`): above the base grown by the level
+    // with the points spent on it.
     let attribute_rows = (0..6)
         .map(|k| {
             let own = u32::from(base.attributes[k]);
-            let grown = own + own * level.saturating_sub(1) / 10;
+            let grown = own + own * level.saturating_sub(1) / 10 + u32::from(base.extras[k]);
             let value = whole(combat.attributes[k]);
             (text(&(1090 + k).to_string()), value, value > grown)
         })
@@ -227,6 +238,9 @@ fn sheet(
         skills,
         skill_points: experience.skill_points,
         to_learn: experience.to_learn(),
+        learning,
+        candidates,
+        pluses,
         attribute_rows,
         attribute_points: experience.attribute_points,
         experience: experience.points,
@@ -248,6 +262,35 @@ fn sheet(
         .map(text)
         .to_vec(),
     }
+}
+
+/// The rows whose "+" the window draws (`0x6A8DF0`, `0x6A9790`), while points wait or the learning
+/// mode is on (`0x6AC310`): the attributes' six with attribute points, the learning mode's skills
+/// to learn, else the skills held and the first empty slot while skills wait to be learnt.
+fn pluses(
+    experience: &opensacred_rules::fight::Experience,
+    (held, candidates): (usize, usize),
+    (attributes, learning): (bool, bool),
+) -> Vec<u8> {
+    let shown = experience.attribute_points > 0 || experience.skill_points > 0 || learning;
+    let rows = if !shown {
+        0
+    } else if attributes {
+        if experience.attribute_points > 0 {
+            6
+        } else {
+            0
+        }
+    } else if learning {
+        if experience.to_learn() > 0 {
+            candidates
+        } else {
+            0
+        }
+    } else {
+        held + usize::from(experience.to_learn() > 0 && held < 8)
+    };
+    (0..8).take(rows).collect()
 }
 
 /// The text of `sheet` of the name `name` among those it keeps.
@@ -281,7 +324,11 @@ fn show(
         Res<LastFoe>,
         Res<crate::drops::Played>,
     ),
-    (attributes, portraits): (Res<Attributes>, Res<crate::talk::Portraits>),
+    (attributes, learning, portraits): (
+        Res<Attributes>,
+        Res<Learning>,
+        Res<crate::talk::Portraits>,
+    ),
     heroes: Query<(&Base, &Combat, &Health), With<Body>>,
     windows: Query<Entity, With<StatsWindow>>,
     mut last: Local<Option<Sheet>>,
@@ -299,11 +346,10 @@ fn show(
                 texts,
                 name,
                 &experience.0,
-                arts.as_deref(),
                 hero,
                 &pack,
                 (foe.0, played.minutes()),
-                attributes.0,
+                (attributes.0, learning.0),
             )
         });
     if *last == current {
@@ -389,19 +435,21 @@ fn show(
             .id();
         commands.entity(window).add_child(line);
     }
-    // The header bar, under its text.
-    add(
-        piece(
-            if sheet.attributes {
-                HEADER_ATTRIBUTES
-            } else {
-                HEADER_SKILLS
-            },
-            HEADER.min,
-        ),
-        None,
-        &mut commands,
-    );
+    // The header bar, under its text, but in the learning mode.
+    if !sheet.learning {
+        add(
+            piece(
+                if sheet.attributes {
+                    HEADER_ATTRIBUTES
+                } else {
+                    HEADER_SKILLS
+                },
+                HEADER.min,
+            ),
+            None,
+            &mut commands,
+        );
+    }
     // A text in its box, at its left, its right or its middle (the font's flags 0, 4 and 1).
     let mut write = |text: &str, at: Vec2, width: f32, (colour, justify): (u32, JustifyContent)| {
         let mut boxed = bar::placed(at, Vec2::new(width, 18.0));
@@ -450,16 +498,32 @@ fn show(
     } else {
         (said(&sheet, "1096"), sheet.skill_points)
     };
-    write(header, Vec2::new(28.0, 49.0), 180.0, (0xA000_0000, centre));
-    write(header, Vec2::new(26.0, 47.0), 180.0, (HEADER_TEXT, centre));
-    write(
-        &points.to_string(),
-        Vec2::new(8.0, 48.0),
-        236.0,
-        (HEADER_TEXT, right),
-    );
-    let plus_shown = sheet.attribute_points > 0 || sheet.skill_points > 0;
-    if sheet.attributes {
+    let learning = sheet.learning && !sheet.attributes;
+    if !learning {
+        write(header, Vec2::new(28.0, 49.0), 180.0, (0xA000_0000, centre));
+        write(header, Vec2::new(26.0, 47.0), 180.0, (HEADER_TEXT, centre));
+        write(
+            &points.to_string(),
+            Vec2::new(8.0, 48.0),
+            236.0,
+            (HEADER_TEXT, right),
+        );
+    }
+    if learning {
+        // The learning mode: its header in yellow, the skills to learn below.
+        if sheet.to_learn > 0 {
+            write(
+                said(&sheet, "1099"),
+                Vec2::new(8.0, 48.0),
+                220.0,
+                (TO_LEARN, left),
+            );
+            for (row, name) in (1_u8..).zip(&sheet.candidates) {
+                let y = 48.0 + ROW * f32::from(row);
+                write(name, Vec2::new(8.0, y), 220.0, (WHITE, left));
+            }
+        }
+    } else if sheet.attributes {
         for (k, (label, value, raised)) in (0_u8..).zip(&sheet.attribute_rows) {
             let y = 67.0 + ROW * f32::from(k);
             write(label, Vec2::new(8.0, y), 220.0, (WHITE, left));
@@ -620,14 +684,161 @@ fn show(
         commands.entity(window).add_child(child);
     }
     add(piece(CLOSE.0, CLOSE.1), None, &mut commands);
-    if plus_shown {
-        for i in 0..8_u8 {
-            add(
-                piece(PLUS, PLUS_AT + Vec2::new(0.0, ROW * f32::from(i))),
-                None,
-                &mut commands,
-            );
+    for &i in &sheet.pluses {
+        add(piece(PLUS, plus_at(i)), None, &mut commands);
+    }
+}
+
+/// The "+" `i`'s corner in the window.
+fn plus_at(i: u8) -> Vec2 {
+    PLUS_AT + Vec2::new(0.0, ROW * f32::from(i))
+}
+
+/// The hero's values made anew after a point spent or a skill learnt (`0x5796A0(0, 1)`), as its
+/// effects' change makes them (`effects::refit_hero`): its attack, defence, damage and
+/// resistances, its regeneration, its pace, its most health with its health held below it, and
+/// its arts' skills.
+fn refit(
+    level: u32,
+    rules: &Rules,
+    (base, holding, effects): (&Base, Option<&Holding>, Option<&Effects>),
+    (combat, regenerates, health): (&mut Combat, &mut Regenerates, &mut Health),
+    (arts, hero): (Option<&mut HeroArts>, Option<&mut Hero>),
+) {
+    let skills = opensacred_rules::fight::skills(base, level, true);
+    let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+    let list = effects.map(Effects::list).unwrap_or_default();
+    *combat = Combat(opensacred_rules::fight::combat_with(
+        base, level, holds, &skills, &list, rules,
+    ));
+    regenerates.value =
+        opensacred_rules::fight::regeneration_with(base, level, &skills, &list, rules);
+    let most = opensacred_rules::fight::hero_health_with(
+        base.attributes,
+        base.extras,
+        level,
+        &skills,
+        rules,
+    );
+    health.most = most;
+    health.current = health.current.min(most);
+    if let Some(hero) = hero {
+        hero.pace = combat.pace_factor();
+    }
+    if let Some(arts) = arts {
+        arts.skills = skills;
+    }
+}
+
+/// A left click on a shown "+" spends a point (`0x6A6110`): in the attributes' list with attribute
+/// points it raises the attribute (`0x580E90`); in the skills' list, on a slot that holds a skill
+/// with skill points left, it raises the skill where its base is below the hero's level
+/// (`0x5824A0`), else, with skills to learn, it turns the learning mode on; in the learning mode
+/// it learns the skill of its row into the first empty slot (`0x581070`, `0x581120`) and leaves
+/// the mode. Any stops the taskbar's "+"'s glow (its message 7 with 2). The sounds it asks for,
+/// (9, `0x13`) and (9, `0x14`), play none (docs/re/sound.md).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn spend(
+    buttons: Res<ButtonInput<MouseButton>>,
+    shown: Option<Res<Shown>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (mut experience, mut learning, attributes, rules): (
+        ResMut<Experience>,
+        ResMut<Learning>,
+        Res<Attributes>,
+        Res<Rules>,
+    ),
+    (mut plus, mut arts, mut hero): (
+        ResMut<crate::points::Plus>,
+        Option<ResMut<HeroArts>>,
+        Option<ResMut<Hero>>,
+    ),
+    mut heroes: Query<
+        (
+            &mut Base,
+            Option<&Holding>,
+            Option<&Effects>,
+            &mut Combat,
+            &mut Regenerates,
+            &mut Health,
+        ),
+        With<Body>,
+    >,
+) {
+    if !shown.is_some_and(|shown| shown.0) || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let points = experience.attribute_points > 0 || experience.skill_points > 0;
+    if !(points || learning.0) {
+        return;
+    }
+    let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
+        return;
+    };
+    let Some(i) = (0_u8..8).find(|&i| {
+        let corner = WINDOW.min + plus_at(i);
+        Rect::from_corners(corner, corner + Vec2::splat(16.0)).contains(at)
+    }) else {
+        return;
+    };
+    plus.glowing = false;
+    let Some((mut base, holding, effects, mut combat, mut regenerates, mut health)) =
+        heroes.iter_mut().next()
+    else {
+        return;
+    };
+    let slot = usize::from(i);
+    let level = experience.level;
+    let spent = if experience.attribute_points > 0 && i <= 5 && attributes.0 {
+        base.0.raise_attribute(slot, &mut experience.0)
+    } else if !learning.0 {
+        if attributes.0 {
+            false
+        } else if base.skills[slot] != 0 && experience.skill_points > 0 {
+            base.0.raise_skill(slot, level, &mut experience.0)
+        } else {
+            if experience.to_learn() > 0 {
+                learning.0 = true;
+            }
+            false
         }
+    } else if !attributes.0 {
+        learning.0 = false;
+        base.learnable_now()
+            .get(slot)
+            .is_some_and(|&skill| base.0.learn(skill, &mut experience.0))
+    } else {
+        false
+    };
+    if !spent {
+        return;
+    }
+    info!(
+        "statistics: a point spent: attributes {:?}, skills {:?} at {:?}, points left {} and {}, \
+         {} to learn",
+        base.extras,
+        base.skills,
+        base.levels,
+        experience.attribute_points,
+        experience.skill_points,
+        experience.to_learn()
+    );
+    refit(
+        level,
+        &rules,
+        (&base, holding, effects),
+        (&mut combat, &mut regenerates, &mut health),
+        (arts.as_deref_mut(), hero.as_deref_mut()),
+    );
+}
+
+/// The learning mode left as the window shows (`0x6A5FA0`).
+fn leave_learning(shown: Option<Res<Shown>>, mut learning: ResMut<Learning>) {
+    if shown.is_some_and(|shown| shown.is_changed() && shown.0) {
+        learning.0 = false;
     }
 }
 
@@ -657,10 +868,13 @@ pub struct StatisticsPlugin;
 impl Plugin for StatisticsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Attributes>()
+            .init_resource::<Learning>()
             .init_resource::<LastFoe>()
             .add_systems(
                 Update,
-                (toggle, show).chain().run_if(in_state(AppState::InGame)),
+                (leave_learning, toggle, spend, show)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -677,6 +891,26 @@ mod tests {
         // A damage of 30 after 121 minutes: 30·50·0.5·0.01 + 30 + 0.5.
         assert_eq!(raised(30.0, survival(121)), 38);
         assert_eq!(raised(30.0, 0.0), 30);
+    }
+
+    #[test]
+    fn the_pluses_follow_the_points_and_the_list() {
+        let rules = opensacred_rules::fight::Rules::default();
+        let mut experience = opensacred_rules::fight::Experience::default();
+        assert!(pluses(&experience, (2, 6), (false, false)).is_empty());
+        // Level 3: attribute points, skill points and a skill to learn.
+        experience.add(1200, &rules);
+        assert_eq!(
+            pluses(&experience, (2, 6), (true, false)),
+            [0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(pluses(&experience, (2, 6), (false, false)), [0, 1, 2]);
+        assert_eq!(
+            pluses(&experience, (2, 6), (false, true)),
+            [0, 1, 2, 3, 4, 5]
+        );
+        experience.attribute_points = 0;
+        assert!(pluses(&experience, (2, 6), (true, false)).is_empty());
     }
 
     #[test]

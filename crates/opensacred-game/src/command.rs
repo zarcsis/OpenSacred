@@ -472,7 +472,8 @@ fn teleport(world: &mut World, mut position: Vec3, arrival: Arrival) -> Result<(
 
 /// Sets the hero's experience to `points`, or adds them to it where `add`, its level and points
 /// as its kills would give them (`Experience::add`); `fight::level_up` then rebuilds its health
-/// and values. A line of what it has.
+/// and values. A rise adds the difference, so that the points spent stay spent (#1522); a fall
+/// starts again from none. A line of what it has.
 fn experience(world: &mut World, points: u64, add: bool) -> Result<String, String> {
     let rules = world
         .get_resource::<fight::Rules>()
@@ -481,9 +482,14 @@ fn experience(world: &mut World, points: u64, add: bool) -> Result<String, Strin
     let mut experience = world
         .get_resource_mut::<fight::Experience>()
         .ok_or("no fight is played")?;
-    if !add {
-        *experience = fight::Experience::default();
-    }
+    let points = match points.checked_sub(experience.points) {
+        _ if add => points,
+        Some(more) => more,
+        None => {
+            *experience = fight::Experience::default();
+            points
+        }
+    };
     experience.add(points, &rules);
     Ok(format!(
         "the hero is level {} with {} experience, {} attribute and {} skill points",
@@ -1972,6 +1978,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(world.resource::<fight::Experience>().level, 3);
+        // A rise keeps the points spent spent (#1522).
+        world.resource_mut::<fight::Experience>().attribute_points = 0;
+        run(world, &format!("experience {}", level_end(3))).unwrap();
+        let experience = *world.resource::<fight::Experience>();
+        assert_eq!((experience.level, experience.attribute_points), (4, 1));
         let line = run(world, "experience 0").unwrap();
         assert_eq!(world.resource::<fight::Experience>().level, 1);
         assert!(line.lines[0].starts_with("the hero is level 1 with 0 experience"));

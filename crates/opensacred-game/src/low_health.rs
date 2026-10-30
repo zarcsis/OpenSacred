@@ -27,7 +27,7 @@ const SONAR_SHADER: &str = "embedded://opensacred_game/sonar.wesl";
 pub(crate) const SONAR: &str = "fx_sonareffect";
 
 /// The glow's reach about the ring in the original's pixels, the same as the shader's.
-const GLOW_REACH: f32 = 6.0;
+pub(crate) const GLOW_REACH: f32 = 6.0;
 /// The glow's alpha of each copy at its brightest, as a byte (`0x732220`: ⌊12.75 a⌋).
 const GLOW_BYTE: f32 = 12.75;
 /// The glow's pulse: a = (sin 4T + 1) / 2, T the real time in seconds.
@@ -60,6 +60,27 @@ pub(crate) struct Glow {
     #[texture(1)]
     #[sampler(2)]
     picture: Handle<Image>,
+}
+
+impl Glow {
+    /// A glow of nothing yet.
+    pub(crate) fn empty() -> Self {
+        Self {
+            glow: GlowPart::default(),
+            picture: Handle::default(),
+        }
+    }
+
+    /// The glow of the part `part` of `picture` in texels, each copy at `alpha`.
+    pub(crate) fn of(&mut self, picture: &Handle<Image>, part: Rect, alpha: f32) {
+        self.glow = GlowPart {
+            part: Vec4::new(part.min.x, part.min.y, part.width(), part.height()),
+            alpha,
+        };
+        if self.picture != *picture {
+            self.picture = picture.clone();
+        }
+    }
 }
 
 impl UiMaterial for Glow {
@@ -176,10 +197,7 @@ fn spawn(
     let (Ok(red), Ok(column)) = (reds.single(), columns.single()) else {
         return;
     };
-    let glow = glows.add(Glow {
-        glow: GlowPart::default(),
-        picture: Handle::default(),
-    });
+    let glow = glows.add(Glow::empty());
     commands.entity(red).with_child((
         GlowNode,
         MaterialNode(glow),
@@ -253,13 +271,7 @@ fn glow(
     node.width = Val::Px(part.width() + 2.0 * GLOW_REACH);
     node.height = Val::Px(part.height() + 2.0 * GLOW_REACH);
     if let Some(mut glow) = glows.get_mut(&material.0) {
-        glow.glow = GlowPart {
-            part: Vec4::new(part.min.x, part.min.y, part.width(), part.height()),
-            alpha,
-        };
-        if glow.picture != red.image {
-            glow.picture = red.image.clone();
-        }
+        glow.of(&red.image, part, alpha);
     }
 }
 
