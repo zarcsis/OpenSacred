@@ -1,5 +1,6 @@
-//! The glitter over the items lying on the ground (#1382; docs/re/items.md, "The glitter"): every
-//! item of a type that glitters (`drops::Tables::glitters`) draws, as the objects' draw calls
+//! The glitter over the items lying on the ground and flying as they are thrown (#1382, #1477;
+//! docs/re/items.md, "The glitter"): every item of a type that glitters
+//! (`drops::Tables::glitters`) draws, as the objects' draw calls
 //! `sdk_GLOW` (`0x408B70`), its sparks wandering about it (`opensacred_rules::particles::glitter`):
 //! each a camera-facing square of `PARTICLE_SPARK04` in a hue that turns, and over it a grey one
 //! of `PARTICLE_SPARK07`, both added to the frame and not tinted by the night. The sparks of
@@ -77,8 +78,9 @@ fn glitters(
     };
     let (mut coloured, mut grey) = (Quads::default(), Quads::default());
     let whole = (Vec2::ZERO, 1.0);
+    // An item flying as it is thrown glitters too, an object drawn in the air (#1477).
     for (item, at, lying) in &items {
-        if !lying.resting || !tables.glitters(lying.dropped.item) {
+        if !tables.glitters(lying.dropped.item) {
             continue;
         }
         let phase = f32::from(u16::try_from(item.index_u32() % 1000).unwrap_or(0)) * PHASE;
