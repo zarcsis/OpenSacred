@@ -28,6 +28,8 @@ mod buildings;
 mod burns;
 mod butterflies;
 mod choice;
+mod combos;
+mod combos_page;
 mod command;
 mod compass;
 mod console;
@@ -347,6 +349,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         burns::BurnsPlugin,
         butterflies::ButterfliesPlugin,
         choice::ChoicePlugin,
+    ))
+    .add_plugins((
+        combos::CombosPlugin,
+        combos_page::CombosPagePlugin,
         command::CommandPlugin,
         compass::CompassPlugin,
         console::ConsolePlugin,

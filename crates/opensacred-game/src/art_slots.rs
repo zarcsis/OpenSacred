@@ -7,11 +7,13 @@
 //! drops the art that the cursor holds into a slot, or clears an empty or the selected slot. The
 //! spells page's arts go onto the cursor (`spells_page`, the cursor's kinds 2 and 3) and the right
 //! button puts one into the selected slot (the messages 3 and 4); an art on the cursor shows its
-//! vivid picture at the cursor, and goes as the inventory hides.
+//! vivid picture at the cursor, and goes as the inventory hides. A combo comes onto the cursor
+//! from the combos page (the kind 4) and into a slot as an art does (the message 6, `combos_page`);
+//! a slot that holds one makes nothing yet (#1531).
 //!
 //! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`), the
-//! keys F1 to F6 (which the game's own keys hold), the combos' slots (#1530), the slots kept in
-//! the saves, and a slot's tooltip.
+//! keys F1 to F6 (which the game's own keys hold), the slots kept in the saves, and a slot's
+//! tooltip.
 
 use bevy::prelude::*;
 
@@ -59,13 +61,14 @@ impl ArtSlots {
     }
 }
 
-/// The art on the cursor (the cursor's kind 2, a spell, or 3, a weapon art; `cMouse +0x68`).
+/// The art on the cursor (the cursor's kind 2, a spell, 3, a weapon art, or 4, a combo; `cMouse
+/// +0x68`).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HeldArt(pub Option<u16>);
 
-/// Whether the art `art` is a spell (the first table) rather than a weapon art.
+/// Whether the art `art` is a spell (the first table) rather than a weapon art or a combo.
 pub(crate) fn is_spell(art: u16) -> bool {
-    art < 1000
+    art < 1000 && !crate::combos::is_combo(art)
 }
 
 /// What a click on the slot `slot` does (`0x6E1BC0`): the slots afterwards, and whether the art on
@@ -121,7 +124,10 @@ fn sync(mut slots: ResMut<ArtSlots>, mut selected: ResMut<Selected>, arts: Optio
             slots.arts[slot] = selected.0;
         }
     }
-    let art = slots.selected_art();
+    // A combo's run is not followed yet (#1531): its slot makes nothing.
+    let art = slots
+        .selected_art()
+        .filter(|&art| !crate::combos::is_combo(art));
     if selected.0 != art {
         selected.0 = art;
     }
@@ -194,8 +200,8 @@ fn let_go(shown: Res<Shown>, mut held: ResMut<HeldArt>) {
 #[derive(Component)]
 struct OnCursor(u16);
 
-/// The art on the cursor drawn at the cursor, its vivid picture (`0x6C1930`), made as an art comes
-/// onto it and taken away as it goes.
+/// The art on the cursor drawn at the cursor, its vivid picture (`0x6C1930`), a combo's of its
+/// three, made as an art comes onto it and taken away as it goes.
 fn draw(
     mut commands: Commands,
     held: Res<HeldArt>,
@@ -222,9 +228,11 @@ fn draw(
         }
         return;
     }
-    let Some(vivid) = arts
-        .as_deref()
-        .and_then(|arts| crate::spells_page::sprites(arts, art))
+    let Some(vivid) = crate::combos::sprites(art)
+        .or_else(|| {
+            arts.as_deref()
+                .and_then(|arts| crate::spells_page::sprites(arts, art))
+        })
         .map(|[_, _, vivid]| vivid)
     else {
         return;

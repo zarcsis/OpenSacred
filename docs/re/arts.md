@@ -215,16 +215,38 @@ Read 2026-10-30 for #1090 (#1528, **confirmed** by code and **seen** in the runn
 In `opensacred-game` since #1528 (`spells_page`, `inventory::Page`): the tabs show their pages, the items' as the inventory opens, the spells page with its sound; the page as above, the arts the hero holds by their vivid images and the rest by their own pictures under the frame, the Vampiress's by her form, an art newly taught flashing (its entry's `TAUGHT` bit, cleared on every art as the page hides), the flash a material of the interface added onto the screen; the backpack's grid, its clicks and its tooltips only on the items' page.
 **Seen** in the game beside the original at the Seraphim's start: the backgrounds and the seventeen icons at the original's places, 1071 vivid and the rest grey; 1070 taught by the console flashing over its vivid icon, and no more once the page hid.
 Since #1529 the page's presses take a held art onto the cursor, let it go, and put one into the selected slot, the night arts refused by day (`spells_page`, `art_slots`).
-Not followed yet: the tooltips, the keys F1 to F6, the master's window's view (#1530).
+Not followed yet: the tooltips, the keys F1 to F6, the master's window's view (#1540).
 
 ## A hero's combos
 
 A hero's stats (only for a creature of the heroes' class, `0x426650`) hold its combos as a list of entries of 38 bytes, from `+0x10E` to `+0x112` of the stats (`0x5813D0`): an id at `+0`, four arts' references from `+2` (four bytes each, the art's id in the low word) and their levels from `+0x12` (a `u16` each), the combo's time at `+0x1A`, its regeneration's speed at `+0x1E`, and the time regenerated at `+0x22`, counting up.
-Setting a combo writes its four arts and levels and makes `+0x1A` the sum of their values at their levels, from either table, 1.0 where it comes below 0.001, `+0x1E` 1.0 and `+0x22` 0.
-The speed is then `1 +` the mean over its arts of their attribute over 100, `MagicRegen` for an id below 1000 and `PhysicalRegen` above; the combo is ready when `+0x22` reaches `+0x1A` (`0x581A60`).
+The stats' constructor (`0x55E1B0`) makes the list four entries, each set empty with the id `0x200` and its index (`0x5813D0(k, none, none, 0x200 + k)`).
+Setting a combo (`0x5813D0(index, arts, levels, id)`, called by the constructor and the combat master's make `0x6D22A0`) writes its id, its four arts and levels and makes `+0x1A` 1.0 plus the sum of their times at their levels, from either table (`0x4D1C00`, `0x4D25C0`), 1.0 where that comes below 0.001, `+0x1E` 1.0 and `+0x22` 0, and marks the stats changed (`+0x127`) (**confirmed** by code and **seen** 2026-10-30, #1090: the Seraphim's combos of level 8, their arts' times 14, 33 and 32, then 14, 33, 32 and 11, gave 58.4 s and 66.4 s in their tooltips, `(1 + 79) / 1.37` and `(1 + 90) / 1.37`; this corrects "the sum" alone).
+The speed is then `1 +` the mean over its arts of their attribute over 100, `MagicRegen` for an id below 1000 and `PhysicalRegen` above; the combo is ready when `+0x22` reaches `+0x1A` (`0x581A60`), and its share regenerated (`0x581A20`) is `+0x22` over `+0x1A`, held at 1.
+The combos' table at `0x955348` (`0x4D2B30`) has five records of `0x30` bytes: the symbol's texture `UI_COMBO<n>.TGA` (its handle at `+0x20`, `0x4D2B10`) and three images at `+0x24`, `+0x28` and `+0x2C`, grey, pale and vivid as an art's: 801 to 803 for the first combo, 804 to 806, 807 to 809 and 810 to 812 for the others (`gui_combo01`'s columns), and 813, 817 and 818 for the fifth, `0x204`, which no hero has.
+A combo on the cursor (`0x6BF170`) is the kind 4 with the combo's id at `+4`, its arts at `+8` and `+0xC` (two words each) and its four levels as bytes at `+0x10`; an empty combo can be taken too.
 While a combo runs, a use of an art takes from every combo's `+0x22` and its own goes back to 0 (read in part).
 A combo is ordered as an art of `0x200` plus its index (the right button, below); its arts' executors take the level of the combo's step (`0x56ABE0(combo, step)`: the step's level for the steps 0 to 3, else the level of the last step that has an art and a level) where the creature's `+0x2B3` and `+0x2B4` name a combo and its step, or `+0x401` a combo, instead of the art's own (read 2026-10-23, #510).
-Its description (`0x581550`) lists each art's name and level, then `+0x1A` over `+0x1E` (`+0x1A` alone where `+0x1E` is 0) to one decimal between the regeneration's label and its unit, the texts 1107 and 1146.
+Its description (`0x581550`) has three modes: 1 the steps raw, 2 a line for each step of its art's name and its level, and 3 those and then `+0x1A` over `+0x1E` (`+0x1A` alone where `+0x1E` is 0) to one decimal between the regeneration's label and its unit, the texts 1107 and 1146 (**seen** in a slot's tooltip).
+
+In `opensacred-game` since #1530 (`combos`, `opensacred_rules::combos`): the hero's four combos, made empty with a new game, set by the console's `combos set` until the master's window comes (#1540); their regeneration on the world's tick at their speed by the hero's regenerations (`fight::regenerations`, the attributes as the arts' speeds take them); a combo onto the cursor and into the bar's slots, each slot's images by the combo's share regenerated.
+**Seen** in the game at the Seraphim's level 8: the original's two combos at 58.4 s and 66.4 s.
+A slot that holds a combo makes nothing yet: their run in play is #1531's.
+
+## The combos page
+
+Read 2026-10-30 for #1090 (#1530, **confirmed** by code and **seen** in the running original at the Seraphim's level 8 with the combos that the master made).
+
+- The inventory's tab sheet makes the page (`cUI_ComboTab`, the text 1157; its constructor `0x6BEFB0`, its layout `0x6BFCF0`, its input `0x6BF420`, its draw `0x6BF6F0`, its show `0x6BF3F0`) as its third, at the inventory's corner (0, 388); its show plays (14, 2, 3).
+- Its layout: three backgrounds `UI_STATIC_BG` of `GUI_hero_combo1` to `3.tga` at the page's (0, 0), (256, 0) and (512, 0), each 256 × 256, tinted `0xAFFFFFFF`; four controls `UI_IV_COMBO1` to `4` (`cUI_Static2`, `+0x154` on), 64 × 64 at (32, 32), (320, 32), (32, 140) and (320, 140); `FX_COMBOALPHA180`, `120` and `90` loaded, and never drawn.
+- Its draw: each control's own frame, then its combo's `UI_COMBO` texture over it (the symbol, round, its corners clear), and at the control's right, 72 along and 8 above its corner, the combo's description of the mode 2, a line of 20 pixels for each step (**seen** at (104, 412)).
+  The control's frame is a line of a pixel of `0xBB` grey about a square black within, a darker bevel of two pixels between them (**measured** in the original's frames).
+- A control rested on a third of a second (`0x7327B0`, `0x9E52AC`) shows its tooltip, the master's window shut: the text `UI_TOOLTIP_COMBOSYMBOL`, the style `0x209`, centred 48 along and 80 below the control's corner and kept within the screen (**seen** at its left edge for the first control); the master's window open, the control's text.
+- Its input: a left press with the cursor empty takes the combo under it onto the cursor (`0x6BF170`, the kind 4), an empty one too; a right press puts it into the bar's selected slot (the taskbar's message 6); after any press, a combo still on the cursor is let go (**hypothesis**: so that a second left press lets it go). `0x6BF290` has no caller.
+
+In `opensacred-game` since #1530 (`combos_page`): the page as above, the steps' lines in the game's font, the tooltip a panel of the items' tooltip's look without its border; a left press on a symbol takes its combo, a press with something on the cursor lets it go, a right press puts the combo into the selected slot.
+**Seen** in the game beside the original's frames at the Seraphim's level 8: the four symbols in their frames and the two combos' lines at the original's places, the first combo onto the cursor and dropped on the second slot, the second by the right button into the selected slot, and the tooltip at the screen's left edge.
+Not followed: the master's window's view of the page (#1540).
 
 ## An art in a strike
 

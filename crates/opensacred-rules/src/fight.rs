@@ -2285,6 +2285,26 @@ pub fn arts_speeds_with(
     holds: &Holds,
     effects: &[Effect],
 ) -> arts::Speeds {
+    let (bonuses, a) = regeneration_values(base, level, holds);
+    let effect = effects
+        .iter()
+        .filter(|e| e.id == effects::ARTS_SPEED)
+        .map(|e| e.value)
+        .sum();
+    arts::Speeds::of(bonuses, effect, a[4], a[3], base.id)
+}
+
+/// The attributes `MagicRegen` (4) and `PhysicalRegen` (3) of a creature of `base` at level
+/// `level` holding `holds`, as [`arts_speeds`] takes them: what a combo's speed is made of
+/// (`combos::Combo::speed_of`).
+pub fn regenerations(base: &Base, level: u32, holds: &Holds) -> (f32, f32) {
+    let (_, a) = regeneration_values(base, level, holds);
+    (a[4], a[3])
+}
+
+/// The items' bonuses 813 and 814, each a hundredth of its value, and the six attributes grown
+/// by the level and raised by the items', held at 0 and above.
+fn regeneration_values(base: &Base, level: u32, holds: &Holds) -> ([f32; 2], [f32; 6]) {
     let level = level.max(1);
     let grown: [u32; 6] = std::array::from_fn(|i| {
         let b = u32::from(base.attributes[i]);
@@ -2305,13 +2325,8 @@ pub fn arts_speeds_with(
             }
         }
     }
-    let a: [f32; 6] = std::array::from_fn(|i| (to_f32(grown[i]) + attribute_bonuses[i]).max(0.0));
-    let effect = effects
-        .iter()
-        .filter(|e| e.id == effects::ARTS_SPEED)
-        .map(|e| e.value)
-        .sum();
-    arts::Speeds::of(bonuses, effect, a[4], a[3], base.id)
+    let a = std::array::from_fn(|i| (to_f32(grown[i]) + attribute_bonuses[i]).max(0.0));
+    (bonuses, a)
 }
 
 /// What a strike's resolution (`0x56B130`) takes besides its two sides' values.

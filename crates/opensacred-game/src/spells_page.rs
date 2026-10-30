@@ -12,7 +12,7 @@
 //! refused.
 //!
 //! Not followed yet: the hovered art's tooltip (`0x5893B0`), the keys F1 to F6 bound to the arts,
-//! and the master's window's view of the page (#1530).
+//! and the master's window's view of the page (#1540).
 
 use std::collections::HashMap;
 

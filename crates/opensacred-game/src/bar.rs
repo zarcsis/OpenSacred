@@ -764,8 +764,9 @@ fn entry_rings(
 
 /// Each art slot's icon (`0x6E3430`): its art ready, the vivid picture whole; else the top
 /// `⌊(1 − s)·64⌋` rows of its grey picture over the rest of its pale one, `s` the share
-/// regenerated; without an art, the empty slot's orb, the selected one's 479, the others' 635,
-/// and the green 533 while the cursor holds a spell, or a weapon art in the edit mode; the
+/// regenerated, a combo's of its three (`combos::sprites`) by its own share (`0x581A20`);
+/// without an art, the empty slot's orb, the selected one's 479, the others' 635, and the green
+/// 533 while the cursor holds a spell, or a weapon art in the edit mode, never a combo; the
 /// selected slot's ring 103, the others' 102.
 #[expect(
     clippy::type_complexity,
@@ -779,7 +780,10 @@ fn art_icon(
         Option<Res<crate::art_slots::HeldArt>>,
         Option<Res<crate::inventory::Shown>>,
     ),
-    arts: Option<Res<HeroArts>>,
+    (arts, combos): (
+        Option<Res<HeroArts>>,
+        Option<Res<crate::combos::HeroCombos>>,
+    ),
     mut tops: Query<(&ArtTop, &mut ImageNode, &mut Node), Without<ArtBottom>>,
     mut bottoms: Query<
         (&ArtBottom, &mut ImageNode, &mut Node),
@@ -791,9 +795,9 @@ fn art_icon(
         return;
     };
     let editing = inventory.is_some_and(|inventory| inventory.0);
-    let takes = held
-        .and_then(|held| held.0)
-        .is_some_and(|art| crate::art_slots::is_spell(art) || editing);
+    let takes = held.and_then(|held| held.0).is_some_and(|art| {
+        !crate::combos::is_combo(art) && (crate::art_slots::is_spell(art) || editing)
+    });
     let mut set = |image: &mut ImageNode, index: u32, rows: Option<(f32, f32)>| {
         if let Some((file, rect)) = images.part(index) {
             let rect = match rows {
@@ -839,7 +843,7 @@ fn art_icon(
         };
         let grey_rows = slot_icon(
             art,
-            arts.as_deref(),
+            (arts.as_deref(), combos.as_deref()),
             empty,
             (&mut top, &mut bottom),
             &mut set,
@@ -850,37 +854,43 @@ fn art_icon(
     }
 }
 
-/// Sets an art slot's two pieces by its art, of `arts`, or by its empty orb `empty`: the grey
-/// rows of the top, by `set` of an image, its index and its rows.
+/// Sets an art slot's two pieces by its art, of `arts`, or its combo, of `combos`, or by its
+/// empty orb `empty`: the grey rows of the top, by `set` of an image, its index and its rows.
 fn slot_icon(
     art: Option<u16>,
-    arts: Option<&HeroArts>,
+    (arts, combos): (Option<&HeroArts>, Option<&crate::combos::HeroCombos>),
     empty: u32,
     (top, bottom): (&mut ImageNode, &mut ImageNode),
     set: &mut impl FnMut(&mut ImageNode, u32, Option<(f32, f32)>),
 ) -> f32 {
-    let icon = art.zip(arts).and_then(|(art, arts)| {
-        let sprites = arts
-            .tables
-            .spells
-            .iter()
-            .find(|spell| spell.id == art)
-            .map(|spell| spell.sprites)
-            .or_else(|| {
-                arts.tables
-                    .weapon_arts
-                    .iter()
-                    .find(|weapon_art| weapon_art.id == art)
-                    .map(|weapon_art| weapon_art.sprites)
-            })?;
-        let share = arts.arts.get(art).map_or(1.0, |entry| {
-            if entry.time <= 0.0 || arts.arts.ready(art) {
-                1.0
-            } else {
-                (1.0 - entry.remaining / entry.time).clamp(0.0, 1.0)
-            }
-        });
-        Some((sprites, share))
+    let combo = art.zip(combos).and_then(|(art, combos)| {
+        let combo = combos.get(art)?;
+        Some((crate::combos::sprites(art)?, combo.share()))
+    });
+    let icon = combo.or_else(|| {
+        art.zip(arts).and_then(|(art, arts)| {
+            let sprites = arts
+                .tables
+                .spells
+                .iter()
+                .find(|spell| spell.id == art)
+                .map(|spell| spell.sprites)
+                .or_else(|| {
+                    arts.tables
+                        .weapon_arts
+                        .iter()
+                        .find(|weapon_art| weapon_art.id == art)
+                        .map(|weapon_art| weapon_art.sprites)
+                })?;
+            let share = arts.arts.get(art).map_or(1.0, |entry| {
+                if entry.time <= 0.0 || arts.arts.ready(art) {
+                    1.0
+                } else {
+                    (1.0 - entry.remaining / entry.time).clamp(0.0, 1.0)
+                }
+            });
+            Some((sprites, share))
+        })
     });
     match icon {
         Some(([grey, pale, vivid], share)) => {

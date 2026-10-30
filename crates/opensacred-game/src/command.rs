@@ -245,6 +245,12 @@ enum Command {
         #[command(subcommand)]
         action: Option<ArtsAction>,
     },
+    /// The hero's four combos: each one's steps, its time, its speed and what of it has
+    /// regenerated, and the time its tooltip gives
+    Combos {
+        #[command(subcommand)]
+        action: Option<CombosAction>,
+    },
     /// In a script: wait before the next command
     Wait {
         #[command(subcommand)]
@@ -274,6 +280,20 @@ enum ArtsAction {
     /// The hero makes ART, the selected by default, on the hostile creature nearest it, as a
     /// right click on it does
     Make { art: Option<u16> },
+}
+
+/// What `combos` does before it lists the hero's combos.
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+enum CombosAction {
+    /// Make the combo COMBO (1 to 4) of STEPS, each ART:LEVEL, at most four, none emptying it,
+    /// as the combat master makes it, its gold not taken: its regeneration starts from 0
+    Set {
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=4))]
+        combo: u8,
+        steps: Vec<String>,
+    },
+    /// Every combo regenerated at once
+    Ready,
 }
 
 /// What a script waits for.
@@ -1419,6 +1439,32 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 lines.push(format!("selected {art}"));
             }
             Ok(Outcome { lines, wait: None })
+        }
+        Command::Combos { action } => {
+            in_game(world)?;
+            match action {
+                Some(CombosAction::Set { combo, steps }) => {
+                    let steps = crate::combos::parse_steps(&steps)?;
+                    let tables = world
+                        .get_resource::<crate::arts::HeroArts>()
+                        .ok_or("no game is played")?
+                        .tables
+                        .clone();
+                    let mut combos = world.resource_mut::<crate::combos::HeroCombos>();
+                    let index = usize::from(combo - 1);
+                    combos.0[index].set(steps, &tables);
+                }
+                Some(CombosAction::Ready) => {
+                    for combo in &mut world.resource_mut::<crate::combos::HeroCombos>().0 {
+                        combo.regenerated = combo.time;
+                    }
+                }
+                None => {}
+            }
+            Ok(Outcome {
+                lines: world.resource::<crate::combos::HeroCombos>().lines(),
+                wait: None,
+            })
         }
         Command::State => {
             let snapshot = world
