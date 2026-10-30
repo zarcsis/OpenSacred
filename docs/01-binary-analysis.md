@@ -36,8 +36,8 @@ Executables and libraries:
 | `tincat2.dll` | 335,872 | TinCat 2 Network System 2.0.28 (instance four), MSVC 7.1 | 2005-03-08 | — | network transport and lobby (4 imports: `TinCat_CreateAPI`, `TinCat_CreateTinCatValues`, `TinCat_Scramble`, `TinCat_GetBuildNumber`; the rest via a virtual interface) | confirmed |
 | `ijl15.dll` | 352,256 | Intel JPEG Library 1.51 | — | — | JPEG (4 ordinals; hero portrait) | confirmed |
 | `libxml2.dll` + `iconv.dll` | 770,048 + 872,448 | libxml2 (2003) | — | — | `guiconfig.xml` (12 imports, 154 calls) | confirmed |
-| `unicows.dll` | 245,408 | MSLU | — | — | Unicode layer for Win9x; the MSLU loader is linked into the exe | confirmed |
-| `MSVCRT.DLL`, `MSVCP60.DLL` | 323,072; 401,462 | — | — | — | **not imported by the game**; needed by `libxml2.dll` and possibly other DLLs | confirmed |
+| `unicows.dll` | 245,408 | MSLU | — | — | Unicode layer for Win9x; the MSLU loader is linked into the exe and loads it only on Windows 9x: a running client on Windows 11 has no `unicows.dll` among its modules (2026-10-29, #1482) | confirmed |
+| `MSVCRT.DLL`, `MSVCP60.DLL` | 323,072; 401,462 | — | — | — | **not imported by the game**; `granny.dll`, `libxml2.dll`, `iconv.dll` and `MSVCP60.DLL` import `msvcrt.dll`, which Windows maps from `System32` as one of its KnownDLLs, and no file imports `MSVCP60.DLL`, so a running client loads neither copy (2026-10-29, #1482) | confirmed |
 
 Specifics of the GOG release that matter for the converter and the engine:
 
@@ -241,7 +241,7 @@ Server: 186 functions from 10 DLLs; kernel32 366 calls, user32 274 (the server h
 
 Video: function 0x6A0D80 creates `CLSID_AMMultiMediaStream` → `IAMMultiMediaStream::Initialize/AddMediaStream(MSPID_PrimaryVideo, PrimaryAudio)/OpenFile`; frames are read via `IDirectDrawMediaStream` into a DirectDraw surface (callers 0x6A1590, 0x6A1780); 16 `.wmv` names in `.data` at 0x5DFDCC…; Microsoft has declared `amstream` deprecated → in the new engine the cutscenes are converted to AV1 via FFmpeg.
 The `COMPAT_VIDEO` key from `Settings.cfg` (the string at VA 0x9E0074, referenced from 0x6A0F06, 0x6A0F1E, 0x6A0F24, i.e. only inside this function; confirmed on file): according to a static reading (a **medium-confidence hypothesis**), the value is taken from the configuration object 0x182EE88; an empty value keeps the original path (a 1024×512 DirectDraw surface for `IDirectDrawMediaStream`), a non-empty one (GOG sets 1 by default) enables an alternative presentation with `GetWindowRect` and D3D7 render flags via `setRenderFlag` (0x643430): a compatibility mode for showing cutscenes on modern drivers (see [06-platform-backends.md](06-platform-backends.md), §4, and [09-ecosystem.md](09-ecosystem.md), §2.2).
-Dynamically loaded: `riched20.dll` (console/editor), `amstream.dll`, `snmpapi.dll` + `inetmib1.dll` (hypothesis: the MAC address as a hardware ID for the lobby), `unicows.dll`.
+Dynamically loaded: `riched20.dll` (console/editor), `amstream.dll`, `snmpapi.dll` + `inetmib1.dll` (hypothesis: the MAC address as a hardware ID for the lobby), `unicows.dll` (on Windows 9x only).
 
 ### 4.6 Resources
 

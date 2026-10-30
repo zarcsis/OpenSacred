@@ -84,7 +84,7 @@ The other root causes (confirmed by static analysis, see docs/01): the resolutio
 ### 2.2 Symptoms and community-accepted workarounds
 
 On the development machine (Windows 11 Pro build 26300, NVIDIA GeForce RTX 4080; 2026-10-18) the GOG installation runs without any wrapper: with `FULLSCREEN : 0` in `Settings.cfg` the game opens a borderless 1024×768 window and plays normally (verified locally, by running it).
-The installation holds no wrapper DLL (`ddraw.dll`, `D3DImm.dll` or the like), only the DLLs of the manifest, and the only compatibility layer the registry holds for its executables is `HIGHDPIAWARE` (verified locally).
+The installation holds no wrapper DLL (`ddraw.dll`, `D3DImm.dll` or the like), only the DLLs of the GOG release, and the only compatibility layer the registry holds for its executables is `HIGHDPIAWARE` (verified locally).
 That observation does not cover fullscreen mode, long sessions, Alt-Tab or the cutscenes; the symptoms below are what players report.
 
 | Symptom | Cause | Workaround | Status |

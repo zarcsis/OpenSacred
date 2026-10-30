@@ -2,9 +2,13 @@
 //! docs/02 §13).
 //!
 //! The manifest is embedded in the binary so that the converter always knows the reference it
-//! works with. It lists only the files the game never writes: `Settings.cfg`, `Gameserver.cfg`,
-//! the saves of `save/` and the `DefPos.bin` caches change when the game runs and are not in it,
-//! nor are the extra installation files (`unins*`, `goggame-*`, PDFs, empty `Quest*Code.bin`).
+//! works with. It lists only the files that the project uses and the game never writes:
+//! `Settings.cfg`, `Gameserver.cfg`, the saves of `save/` and the `DefPos.bin` caches change when
+//! the game runs and are not in it, nor are the extra installation files (`unins*`, `goggame-*`,
+//! PDFs, empty `Quest*Code.bin`), nor the files that nothing of the project reads (#1482):
+//! `Config.exe`; `MSVCRT.DLL`, `MSVCP60.DLL` and `unicows.dll`, which the original never loads;
+//! and the caches `PAK/Models.tmp` and `PAK/Texture.TMP`, which it writes again when they are
+//! lost.
 
 use std::fmt;
 use std::fs::{self, File};
@@ -157,7 +161,7 @@ mod tests {
     #[test]
     fn embedded_manifest_is_the_gog_reference() {
         let manifest = parse_manifest(GOG_MANIFEST).unwrap();
-        assert_eq!(manifest.len(), 319);
+        assert_eq!(manifest.len(), 313);
         // PLAN.md §2: SHA-256 `db9b86a4…71e74`
         let exe = manifest.iter().find(|e| e.path == "Sacred.exe").unwrap();
         assert!(exe.sha256.starts_with("db9b86a4") && exe.sha256.ends_with("71e74"));
@@ -165,6 +169,18 @@ mod tests {
             && e.path != "Gameserver.cfg"
             && !e.path.starts_with("save/")
             && !e.path.ends_with("/DefPos.bin")));
+        // Nothing of the project reads them: the client loads none of the libraries and writes
+        // the caches again when they are lost (#1482).
+        for unused in [
+            "Config.exe",
+            "MSVCP60.DLL",
+            "MSVCRT.DLL",
+            "PAK/Models.tmp",
+            "PAK/Texture.TMP",
+            "unicows.dll",
+        ] {
+            assert!(manifest.iter().all(|e| e.path != unused), "{unused}");
+        }
         assert!(
             manifest.windows(2).all(|w| w[0].path < w[1].path),
             "paths must be sorted and unique"

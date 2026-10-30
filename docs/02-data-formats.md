@@ -64,9 +64,9 @@ The scripts in the last column are under `tools/analysis/`.
 | File | Magic/version | Records × size | Purpose | Parsing status | Checked by |
 |---|---|---|---|---|---|
 | `pak/texture.pak` (860 MB) + `texture03.pak` | `TEX` 3 | 25,535 (+3); 80 B record header + data | textures | format confirmed, including the fmt 6 channels | `formats/tex_decode.py`, `formats/tex_fmt6.py`; §3.1 |
-| `pak/Texture.TMP` | `TXL` 1 | 25,538 × 80 | `cTextureManager` directory cache | confirmed; not needed by the port | §3.2 |
+| `pak/Texture.TMP` | `TXL` 1 | 25,538 × 80 | `cTextureManager` directory cache | confirmed; not needed by the port, not in the manifest (§13) | §3.2 |
 | `pak/models.pak` (434 MB) + `models03.pak` | `MDL` 3 | 1,572 + 2 × ModelDesc 1,194 B and 3,421 + 2 × MotionDesc 256 B, each followed by a GRN file | Granny 1.2b models and animations | container and GRN container confirmed on every record; GRN contents: §4 | `formats/grn_dump.py`; §4.1–4.2 |
-| `pak/Models.tmp` | `MDT` 2 | 1,574 × 1,194 + 3,423 × 256 | descriptor cache | confirmed | `formats/grn_dump.py`, `formats/mhp_vs_mdt.py`; §4.1 |
+| `pak/Models.tmp` | `MDT` 2 | 1,574 × 1,194 + 3,423 × 256 | descriptor cache | confirmed; not in the manifest (§13) | `formats/mhp_vs_mdt.py`; §4.1 |
 | `pak/MOTIONS.PAK` | `MHP` 1 | 3,423 × 198 | motion parameters (= `MotionDesc[0x42:0x100]`) | structure confirmed; the attack's hit fractions confirmed by code (§4.1), the other floats a hypothesis | `formats/tables_dump.py`, `formats/mhp_vs_mdt.py`; §4.1 |
 | `pak/tiles.pak` | `ISO` 3 | 90,132 × 64 | tile definitions: name `isoNNNN.tga`, texture index, diamond number 0..17 | confirmed; diamond geometry from the code (§5.4) | `world/world_dump.py`; §5.5 |
 | `pak/mixed.pak` (14 MB) | `MIX` 0 | 32,096 records: 16 B + nPieces × 64 B | the sprites of the static objects, assembled from pieces of atlases | confirmed on every record (§3.3) | `formats/mixed_dump.py`; §3.3 |
@@ -133,6 +133,7 @@ Its other texture fixes are not named in what is public, so none can be identifi
 `TXL` v1: a 0x118 B header + 25,538 × 80 B, the same record headers but with `packedOffset` filled in; 25,534 records with `pakIndex` 0 matched the `texture.pak` directory by (offset, size), two with `pakIndex` 4 come from `texture03.pak`.
 Confirmed on file.
 This is the `cTextureManager` cache, sorted by name; the new engine builds the index from the directories itself and **does not write to the game directory**.
+The client loads it at its start (`0x656420`) and, when it is missing or stale, reads the directories of `PAK\TEXTURE.PAK` and of the overlays `PAK\TEXTURE00.PAK`…`TEXTURE15.PAK` that exist and writes it again (**confirmed** by code 2026-10-29, #1482).
 
 ### 3.3 MIX ground atlases and mixed.pak
 
@@ -190,6 +191,8 @@ Implemented the same day: `opensacred_formats::mdl`, cross-checked against the s
   The header: `0, size(models.pak), 13268, 1574, 3423, size(models.pak + models03.pak)`.
   The cached descriptors match the pak ones except for: the global number (ModelDesc `+0x4A8`, MotionDesc `+0x2E`); the pak index at ModelDesc `+0x47C` (0 for `models.pak`, 4 for `models03.pak`, like `pakIndex` in `Texture.TMP`, §3.2); the MotionDesc parameter block `+0x80…+0x100` (filled from `MOTIONS.PAK`); and the motion slots, where pak ordinals become global numbers and custom motions fill extra slots (`KROMBACHER.GRN` slots 169 and 170 point to `BO02_ACTIVATE.GRN`, global motion 3,422).
   The new engine builds the same index from the pak directories and does not write to the game directory.
+  The client loads it at its start (`0x413030`) and, when it is missing or stale, reads the model paks' directories, `Pak\Motions.pak` and `SCRIPTS\CUSTOMMOTION.TXT` (not shipped, §6) and writes it again (**confirmed** by code 2026-10-29, #1482); so the custom slots of `KROMBACHER.GRN` probably came from that text (**hypothesis**, #1483).
+  `grn_dump.py` checked the cache against the paks until it left the manifest (#1482); `mhp_vs_mdt.py` still reads it.
 
 `MOTIONS.PAK` (`MHP` v1, 3,423 × 198 B; **checked on every record 2026-10-17** by `tables_dump.py`: `u16 index; u16 0; u16 index; u16 v` (v = 0 but in one record), zeros to `+0x46`, `f32[4]` at `+0x46`, zeros, `f32[9]` at `+0x62`, zeros, `u16` at `+0xBE` (0 but in two), zeros; the parameter blocks of the motions in `models.pak` itself are all zero, so this file is their only source; `opensacred-convert tables` writes them with the motion names to `tables/motions.ron`) is a byte-for-byte copy of `MotionDesc[0x42:0x100]` for all 3,423 records (confirmed on file by `tools/analysis/formats/mhp_vs_mdt.py`).
 It is the output of `cGrannyModelManager::saveMotionParams()`: motion parameters compiled from `CUSTOMMOTION.TXT`, which is not shipped.
@@ -1178,9 +1181,9 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 
 | Source | Target | Check |
 |---|---|---|
-| TEX (`texture*.pak`) | PNG RGBA8 (`textures/<pak>/`); `Texture.TMP` is a cache and is skipped | pixel cross-check against the `tools/analysis/formats/tex_decode.py` prototype |
+| TEX (`texture*.pak`) | PNG RGBA8 (`textures/<pak>/`); `Texture.TMP` is a cache, not in the manifest | pixel cross-check against the `tools/analysis/formats/tex_decode.py` prototype |
 | Tiles and MIX atlases | PNG atlases + the UV table of the 18 diamonds | rendering a test sector |
-| MDL + GRN (`models*.pak`) | `.glb`: meshes, skeletons, weights, materials, clips; `Models.tmp` is a cache and is skipped | glTF-Validator, Blender, reference poses |
+| MDL + GRN (`models*.pak`) | `.glb`: meshes, skeletons, weights, materials, clips; `Models.tmp` is a cache, not in the manifest | glTF-Validator, Blender, reference poses |
 | Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 9), `sprites.bin` and the sprites assembled from their pieces (`sprites/<record>.png`) | loading all 6,050 sectors; the sprites against `mixed_dump.py --assembled` |
 | `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts of `Sacred.exe` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
 | `global.res` | Fluent (`.ftl`) | 23,123 strings in place |
@@ -1243,9 +1246,13 @@ The whole converter: 80–160 agent-hours (milestone M1); the breakdown by forma
   The game rewrites the file on launch (adds `AUTOSAVE`, `NETWORK_*` and other keys, changes `FULLSCREEN`, `VIOLENCE`), so the file is not in the manifest.
   For the new engine the values matter only as a hint for default settings.
 * `EULA.txt` (the GOG user agreement), `license.rtf` (the publisher's license), `Gold.jpg`, `drache.jpg` are not game data; the converter skips them.
-* The SHA-256 manifest is `docs/manifest-gog-2.28.txt`: 319 game files (≈2.54 GiB), only those the game never writes.
+* The SHA-256 manifest is `docs/manifest-gog-2.28.txt`: 313 game files (≈2.53 GiB), those that the project uses at some stage and the game never writes.
+  `opensacred-convert coverage` tells the converter's from the others: it converts 303; 10 are used in development, `Sacred.exe` (the oracle, the original's runs under Frida, Ghidra), `GameServer.exe` (Ghidra) and the six libraries and the two Miles providers that the original loads, for its runs; and the converter reads 304, the 303 and `Sacred.exe`'s tables.
   Not in it: `Settings.cfg` and `Gameserver.cfg`, which the game rewrites on launch; the saves of `save/`, among them the two level-29 heroes that ship with the installation, which the game lists for import and deletes on request; the 20 `DefPos.bin` caches, which the client rebuilds (§7.1); the empty script files and the non-game files above.
+  Nor, since 2026-10-29 (#1482), six files that nothing of the project reads: `Config.exe`, the settings tool, which nothing runs; `MSVCRT.DLL`, which `granny.dll`, `libxml2.dll`, `iconv.dll` and `MSVCP60.DLL` import, but which Windows maps from `System32` as one of its KnownDLLs; `MSVCP60.DLL`, which no file imports; `unicows.dll`, which the MSLU loader of `Sacred.exe` loads only on Windows 9x; and the caches `PAK/Texture.TMP` and `PAK/Models.tmp` (§3.2, §4.1), which the original reads but writes again when they are lost or stale, so that one rebuilt would fail `verify` on a sound installation.
+  Confirmed 2026-10-29 by the static imports of every PE file at the installation's root and by the modules of a running `Sacred.exe` in a new game under its driver (docs/03 §3.8): from the installation it maps `granny.dll`, `mss32.dll`, `mssmp3.asi`, `mssds3d.m3d`, `ijl15.dll`, `libxml2.dll`, `iconv.dll` and `tincat2.dll`, besides dgVoodoo2's two DLLs.
   Removed from the manifest on 2026-10-17: after a launch from the installation and the two shipped heroes deleted in the game, the remaining 319 files still matched; `sha256sum` format, paths relative to the installation root.
+  Six more removed on 2026-10-29 (#1482), above.
   Check: `cd OriginalGame && sha256sum -c ../docs/manifest-gog-2.28.txt`.
   As of 2026-10-16 the manifest matches a clean GOG 2.28 installation (395 files: 377 game files plus 18 GOG and installer files, such as PDF manuals, `unins*`, `goggame-*`).
   The converter ignores the files outside the manifest.

@@ -73,6 +73,14 @@ pub fn sources(command: &str) -> Result<Vec<String>> {
     Ok(paths)
 }
 
+/// Whether some command reads the installation file `path`.
+pub fn is_source(path: &str) -> bool {
+    matches!(status(path), Status::Converted(_) | Status::Partial(..))
+        || EXTRA_SOURCES
+            .iter()
+            .any(|(_, paths)| paths.iter().any(|x| x.eq_ignore_ascii_case(path)))
+}
+
 pub(crate) fn hash(path: &Path, name: String) -> Result<FileHash> {
     let (sha256, size) =
         sha256_file(path).with_context(|| format!("reading {}", path.display()))?;
