@@ -7,7 +7,10 @@
 //! difficulty's name, and the dialogue's frame about the view. The game goes on, and the clicks
 //! reach the world.
 //!
-//! Not followed yet: the region's line and its counter (#1574); the lens's creatures (#1571); the
+//! The region's line under the difficulty's name: the region of the hero's area, the kills that
+//! remain in it and its total (#1574, `regions`).
+//!
+//! Not followed yet: the lens's creatures (#1571); the
 //! settings' `MINIMAP_ALPHA` and `EXPLOREMAP`, and the scripts' boxes' tooltip, which no box of
 //! the release has.
 
@@ -38,6 +41,7 @@ const TEXT_AT: Vec2 = Vec2::new(170.0, 124.0);
 const TEXT_SIZE: f32 = 24.0;
 const TEXT_DROP: f32 = 2.0;
 const TEXT_COLOUR: u32 = 0xFFFF_FF80;
+const TEXT_STEP: f32 = 25.0;
 const DIFFICULTIES: [&str; 5] = [
     "UI_DIFFICULTY_BRONZE",
     "UI_DIFFICULTY_SILVER",
@@ -66,6 +70,9 @@ struct OverviewRoot;
 struct Plane;
 #[derive(Component)]
 struct Arrow(usize);
+/// The region's line, under the difficulty's name.
+#[derive(Component)]
+struct RegionLine;
 
 /// The edge that a ray from the view's middle along `direction` leaves it by, 0 the top, 1 the
 /// bottom, 2 the left and 3 the right, and where on the view's edge.
@@ -250,13 +257,8 @@ fn show(
         .as_deref()
         .and_then(|texts| texts.named(key))
         .unwrap_or(key);
-    let text = commands
-        .spawn((
-            bar::placed(
-                TEXT_AT + Vec2::new(0.0, TEXT_DROP),
-                Vec2::new(VIEW.width(), 32.0),
-            ),
-            Text::new(name),
+    let lettering = || {
+        (
             TextFont {
                 font: assets.load(FONT).into(),
                 font_size: FontSize::Px(TEXT_SIZE),
@@ -268,9 +270,23 @@ fn show(
             },
             TextColor(argb(TEXT_COLOUR)),
             Pickable::IGNORE,
-        ))
+        )
+    };
+    let line = |n: f32| {
+        bar::placed(
+            TEXT_AT + Vec2::new(0.0, TEXT_DROP + TEXT_STEP * n),
+            Vec2::new(VIEW.width(), 32.0),
+        )
+    };
+    let text = commands
+        .spawn((line(0.0), Text::new(name), lettering()))
         .id();
     commands.entity(root).add_child(text);
+    // The region's line under it, written as the counts change (#1574).
+    let region = commands
+        .spawn((RegionLine, line(1.0), Text::default(), lettering()))
+        .id();
+    commands.entity(root).add_child(region);
     // The markers' arrows, placed as they show.
     for marker in 0..ARROW_COLOURS.len() {
         let arrow = commands
@@ -340,6 +356,37 @@ fn arrows(
     }
 }
 
+/// Writes the region's line of the hero's area (#1574): none where the area is of no region.
+fn region_line(
+    overview: Res<Overview>,
+    (region_kills, streamer, texts): (
+        Res<crate::regions::RegionKills>,
+        Option<Res<crate::sectors::Streamer>>,
+        Option<Res<Texts>>,
+    ),
+    heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
+    mut lines: Query<&mut Text, With<RegionLine>>,
+) {
+    if !overview.shown {
+        return;
+    }
+    let line = heroes
+        .iter()
+        .next()
+        .zip(streamer.as_deref())
+        .and_then(|(hero, streamer)| {
+            let at = hero.translation();
+            streamer.area(crate::music::sector_of(at.x, at.z))
+        })
+        .and_then(|area| region_kills.line(area, texts.as_deref()))
+        .unwrap_or_default();
+    for mut text in &mut lines {
+        if text.0 != line {
+            text.0.clone_from(&line);
+        }
+    }
+}
+
 /// A new game's overview, hidden.
 fn reset(mut overview: ResMut<Overview>) {
     *overview = Overview::default();
@@ -354,7 +401,7 @@ impl Plugin for OverviewPlugin {
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
                 Update,
-                (hold, show, arrows)
+                (hold, show, arrows, region_line)
                     .chain()
                     .after(crate::frame::Step::Follow)
                     .run_if(in_state(AppState::InGame)),

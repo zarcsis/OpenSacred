@@ -36,6 +36,19 @@ fn lines(path: &str, data: &[u8]) -> Vec<String> {
             lines.extend(t.chances.into_iter().map(|(effect, floats)| {
                 line([effect].into_iter().chain(floats.map(f32::to_bits)))
             }));
+            lines.extend(
+                t.item_lists
+                    .into_iter()
+                    .map(|(key, items)| line([key].into_iter().chain(items))),
+            );
+            lines.extend(t.regions.into_iter().map(|region| {
+                let numbers = region
+                    .areas
+                    .into_iter()
+                    .chain(region.name.bytes())
+                    .map(u32::from);
+                line(numbers.chain([region.total, u32::from(region.index)]))
+            }));
             lines.push(line(t.rest));
             lines
         }

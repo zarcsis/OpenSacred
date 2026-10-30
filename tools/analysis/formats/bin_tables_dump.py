@@ -13,7 +13,7 @@ follow the client's loader (0x42F8CE: fread of 0xD4 bytes, a u32 count, count x 
                   (33), n x {u32 key; u32 weight} (18, the drops' weights of the quality keys), n x {u32 key;
                   u32 value} (16, the quality key to the quality pass's value), n x {u32 key; u32[7]} (9),
                   n x {u32 effect; f32 a, b, c} (5, the parameters of a chance by an effect's value), to byte
-                  22,048; then 570 words of another layout to the end
+                  22,048; then 6 lists of items by a key and the 32 regions' records to the end
   World.bin       u32 n, n x {i32, i32, i32}
   World2.bin      u32 32768, 32768 bytes
   sets.bin        u32 66, 66 x 112 B: the first all 0xCC, the others {u32 items[10]; u32 hash; u8 bytes[4]; 64 zeros}
@@ -106,10 +106,23 @@ def balance(d, check):
     rows = [c.u32s(8) for _ in range(c.u32())]
     chances = [c.u32s(4) for _ in range(c.u32())]
     end = c.p
+    items = []
+    for _ in range(c.u32()):
+        key, m = c.u32s(2)
+        items.append([key] + c.u32s(m))
+    regions = []
+    for _ in range(c.u32()):
+        record = d[c.p:c.p + 64]
+        c.p += 64
+        areas = list(record[:16])
+        name = list(record[16:48].split(b'\0')[0])
+        total, _warning, _remaining, index = struct.unpack_from('<4I', record, 48)
+        regions.append(areas + name + [total, index & 0xFF])
     rest = c.u32s(c.left() // 4)
-    check('Balance.bin: the tail parses to byte 22048 with 33, 18, 16, 9 and 5 entries, then 570 words to the end',
+    check('Balance.bin: the tail parses to byte 22048 with 33, 18, 16, 9 and 5 entries, then 6 lists of items and 32 regions'
+          ' to the end',
           (len(lists), len(weights) // 2, len(qualities) // 2, len(rows), len(chances)) == (33, 18, 16, 9, 5)
-          and end == 22048 and len(rest) == 570 and c.left() == 0, end)
+          and end == 22048 and (len(items), len(regions)) == (6, 32) and not rest and c.left() == 0, end)
     check('Balance.bin: the weights and the quality pass\'s values are of the keys 0 to 17 and 0 to 15 in order',
           weights[::2] == list(range(18)) and qualities[::2] == list(range(16)))
     print('  Balance.bin: weights', line(weights[1::2]))
@@ -117,7 +130,7 @@ def balance(d, check):
     floats = lambda words: ' '.join(f'{struct.unpack("<f", struct.pack("<I", w))[0]:g}' for w in words)  # noqa: E731
     print('  Balance.bin: chances', ', '.join(f'{r[0]}: {floats(r[1:])}' for r in chances))
     return ([line(image)] + [line(r) for r in lists] + [line(weights), line(qualities)] + [line(r) for r in rows]
-            + [line(r) for r in chances] + [line(rest)])
+            + [line(r) for r in chances] + [line(r) for r in items] + [line(r) for r in regions] + [line(rest)])
 
 
 def world(d, check):

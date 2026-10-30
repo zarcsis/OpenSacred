@@ -7,11 +7,12 @@
 //! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
 //! drops ([`drops`]), a creature's combat arts with the runes that teach them ([`arts`]), the
 //! spells' cast ([`spells`]), the scripts' state: the quests, the variables and the dialogues
-//! ([`quests`]), a quest's reward ([`rewards`]), the weather ([`weather`]), the peace stream's
-//! music ([`music`]), the undead that rise again ([`undead`]), the particle systems
-//! ([`particles`]), the backpack's grid ([`inventory`]), the equipment's slots and who may use an
-//! item ([`equipment`]), the land explored ([`explored`]), the potions and the belt
-//! ([`potions`]), the weapon sets ([`sets`]) and the prices ([`trade`]).
+//! ([`quests`]), the regions' kills ([`regions`]), a quest's reward ([`rewards`]), the weather
+//! ([`weather`]), the peace stream's music ([`music`]), the undead that rise again
+//! ([`undead`]), the particle systems ([`particles`]), the backpack's grid ([`inventory`]), the
+//! equipment's slots and who may use an item ([`equipment`]), the land explored ([`explored`]),
+//! the potions and the belt ([`potions`]), the weapon sets ([`sets`]) and the prices
+//! ([`trade`]).
 
 pub mod arrows;
 pub mod arts;
@@ -27,6 +28,7 @@ pub mod music;
 pub mod particles;
 pub mod potions;
 pub mod quests;
+pub mod regions;
 pub mod rewards;
 pub mod sets;
 pub mod spawning;

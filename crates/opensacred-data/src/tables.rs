@@ -367,7 +367,15 @@ pub struct Balance {
     /// The tail's fifth table: the parameters of a chance by an effect's value.
     #[serde(default)]
     pub effect_chances: Vec<EffectChance>,
-    /// The 570 words after the tail's tables, of another layout, not read.
+    /// The tail's sixth table: lists of item types by a key; not followed.
+    #[serde(default)]
+    pub item_lists: Vec<BalanceItems>,
+    /// The tail's seventh table: the regions whose kills the overview counts (#1574), those
+    /// with a name.
+    #[serde(default)]
+    pub regions: Vec<Region>,
+    /// The words after the tail's tables: none in the file (an earlier converter's 570 words of
+    /// the sixth and the seventh tables).
     pub rest: Vec<u32>,
 }
 
@@ -393,6 +401,26 @@ pub struct QualityWeight {
 pub struct QualityPass {
     pub key: u32,
     pub value: u32,
+}
+
+/// An entry of the tail's sixth table: a key and its items' types.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct BalanceItems {
+    pub key: u32,
+    pub items: Vec<u32>,
+}
+
+/// A region of the tail's seventh table (`0xAAAD28`, docs/02 §6.3): its record's index, its
+/// areas, its name's text key and its total of kills, which the overview's line counts down
+/// (docs/re/maps.md, "The overview map").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Region {
+    pub index: u8,
+    pub areas: Vec<u8>,
+    pub name: String,
+    pub total: u32,
 }
 
 /// An entry of the tail's fourth table.
