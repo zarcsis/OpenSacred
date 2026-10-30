@@ -36,6 +36,19 @@ fn lines(path: &str, data: &[u8]) -> Vec<String> {
             lines.extend(t.chances.into_iter().map(|(effect, floats)| {
                 line([effect].into_iter().chain(floats.map(f32::to_bits)))
             }));
+            lines.extend(
+                t.item_lists
+                    .into_iter()
+                    .map(|(key, items)| line([key].into_iter().chain(items))),
+            );
+            lines.extend(t.regions.into_iter().map(|region| {
+                let numbers = region
+                    .areas
+                    .into_iter()
+                    .chain(region.name.bytes())
+                    .map(u32::from);
+                line(numbers.chain([region.total, u32::from(region.index)]))
+            }));
             lines.push(line(t.rest));
             lines
         }
@@ -185,7 +198,33 @@ fn the_tail_of_balance_bin_holds_the_drops_tables() {
         ),
         (33, 18, 16, 9, 5)
     );
-    assert_eq!(data.len() - 4 * t.rest.len(), 22_048);
+    // The sixth table and the regions' end the file (#1574): 22,048 bytes, 57 words of lists,
+    // and the count of 32 regions with their records.
+    assert_eq!(
+        (t.item_lists.len(), t.regions.len(), t.rest.len()),
+        (6, 32, 0)
+    );
+    assert_eq!(data.len(), 22_048 + 4 * 57 + 4 + 32 * 0x40);
+    let named: Vec<_> = t
+        .regions
+        .iter()
+        .filter(|region| !region.name.is_empty())
+        .map(|region| (region.index, region.total))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            (1, 7500),
+            (2, 7500),
+            (3, 5500),
+            (4, 8500),
+            (5, 6500),
+            (6, 5500),
+            (7, 3500),
+            (8, 7500),
+            (9, 7500)
+        ]
+    );
     assert!(t.weights.iter().map(|&(key, _)| key).eq(0..18));
     let weights: Vec<u32> = t.weights.iter().map(|&(_, weight)| weight).collect();
     assert_eq!(

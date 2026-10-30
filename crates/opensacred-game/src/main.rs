@@ -92,6 +92,7 @@ mod pickup;
 mod points;
 mod puffs;
 mod quest_book;
+mod regions;
 mod remarks;
 mod remote;
 mod rewards;
@@ -426,6 +427,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         points::PointsPlugin,
         puffs::PuffsPlugin,
         quest_book::QuestBookPlugin,
+        regions::RegionsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,

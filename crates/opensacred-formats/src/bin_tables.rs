@@ -36,9 +36,22 @@ pub struct Tail {
     /// 5: an effect and the parameters `a`, `b`, `c` of a chance by its value
     /// (`(1 − a/(b + v))·100 + 0.5` per cent at most `c`, `0x5F23A0`).
     pub chances: Vec<(u32, [f32; 3])>,
-    /// The words after the fifth table, to the end of the file: lists of another layout, not
-    /// read.
+    /// 6: lists of item types by a key, into `0xAD57EC`; not followed.
+    pub item_lists: Vec<(u32, Vec<u32>)>,
+    /// 7: the regions (`0xAAAD28`), records of 0x40 bytes.
+    pub regions: Vec<Region>,
+    /// The words after the seventh table, to the end of the file: none in the file.
     pub rest: Vec<u32>,
+}
+
+/// A record of the regions' table (docs/02 §6.3): its 16 areas' numbers (0 unused), its name's
+/// text key, its total of kills, and the record's own index at `+0x3C`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Region {
+    pub areas: [u8; 16],
+    pub name: String,
+    pub total: u32,
+    pub index: u8,
 }
 
 /// What a balance variable holds: the parser stores a float with `fstp`, an integer with `mov`.
@@ -160,6 +173,17 @@ fn tail(r: &mut Reader<'_>) -> Result<Tail> {
     let chances = (0..n)
         .map(|_| Ok((r.u32()?, r.f32s()?)))
         .collect::<Result<_>>()?;
+    let n = count(r, 8)?;
+    let item_lists = (0..n)
+        .map(|_| {
+            let key = r.u32()?;
+            let m = count(r, 4)?;
+            let items = (0..m).map(|_| r.u32()).collect::<Result<_>>()?;
+            Ok((key, items))
+        })
+        .collect::<Result<_>>()?;
+    let n = count(r, REGION)?;
+    let regions = (0..n).map(|_| region(r)).collect::<Result<_>>()?;
     if !r.rest().len().is_multiple_of(4) {
         return Err(r.error(field(
             "balance rest",
@@ -176,7 +200,33 @@ fn tail(r: &mut Reader<'_>) -> Result<Tail> {
         qualities,
         rows,
         chances,
+        item_lists,
+        regions,
         rest,
+    })
+}
+
+/// A region's record's size.
+const REGION: usize = 0x40;
+
+/// A record of the regions' table: the areas at `+0`, the name's key at `+0x10` (32 bytes, to its
+/// first zero), the total at `+0x30`, the warning's byte at `+0x34`, the remaining count at
+/// `+0x38`, the index at `+0x3C` (`0x5E5C50`).
+fn region(r: &mut Reader<'_>) -> Result<Region> {
+    let areas = r.array::<16>("region areas")?;
+    let name = r.bytes(32, "region name")?;
+    let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+    let name = String::from_utf8_lossy(&name[..end]).into_owned();
+    let total = r.u32()?;
+    let _warning = r.u32()?;
+    let _remaining = r.u32()?;
+    let index = r.u8()?;
+    r.bytes(3, "region padding")?;
+    Ok(Region {
+        areas,
+        name,
+        total,
+        index,
     })
 }
 
@@ -338,6 +388,11 @@ mod tests {
         words.extend([1, 1, 140, 5, 25, 5, 15, 55, 0]);
         words.extend([1, 868]);
         words.extend([500.0_f32, 502.0, 25.0].map(f32::to_bits));
+        // A list of two items by the key 3, and one region of the areas 1 and 2, `AB`, 7,500.
+        words.extend([1, 3, 2, 1758, 1715]);
+        words.extend([1, 0x0201, 0, 0, 0, 0x4241]);
+        words.extend([0; 7]);
+        words.extend([7500, 0, 7500, 1]);
         words.extend([6, 3]);
         let b = balance(&le(&words)).unwrap();
         assert_eq!(
@@ -350,6 +405,13 @@ mod tests {
                     qualities: vec![(8, 9)],
                     rows: vec![(1, [140, 5, 25, 5, 15, 55, 0])],
                     chances: vec![(868, [500.0, 502.0, 25.0])],
+                    item_lists: vec![(3, vec![1758, 1715])],
+                    regions: vec![Region {
+                        areas: [1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        name: "AB".to_owned(),
+                        total: 7500,
+                        index: 1,
+                    }],
                     rest: vec![6, 3],
                 }
             }

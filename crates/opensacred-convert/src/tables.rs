@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
-    ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
-    BalanceVariable, CREATURES, ColumnPortrait, Creature, CreaturePortrait, EffectChance, FIGURES,
-    Figure, IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
-    Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, RUNES, STAIRS,
-    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, TYPE_NAMES, Trigger, TypeName,
-    UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS,
-    WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
+    ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceItems, BalanceList, BalanceRow,
+    BalanceValue, BalanceVariable, CREATURES, ColumnPortrait, Creature, CreaturePortrait,
+    EffectChance, FIGURES, Figure, IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES,
+    MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass,
+    QualityWeight, RUNES, STAIRS, START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS,
+    TYPE_NAMES, Trigger, TypeName, UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS,
+    WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -587,6 +587,22 @@ fn convert_bin_tables(game_dir: &Path, dir: &Path) -> Result<usize> {
                 .into_iter()
                 .map(|(effect, [a, b, most])| EffectChance { effect, a, b, most })
                 .collect(),
+            item_lists: tail
+                .item_lists
+                .into_iter()
+                .map(|(key, items)| BalanceItems { key, items })
+                .collect(),
+            regions: tail
+                .regions
+                .into_iter()
+                .filter(|region| !region.name.is_empty())
+                .map(|region| opensacred_data::tables::Region {
+                    index: region.index,
+                    areas: region.areas.into_iter().filter(|&area| area != 0).collect(),
+                    name: region.name,
+                    total: region.total,
+                })
+                .collect(),
             rest: tail.rest,
         },
     )?;
@@ -1039,7 +1055,12 @@ mod tests {
             (b.i32("GoldProLevel"), b.i32("GoldProLevel[1]")),
             (Some(20), Some(2000))
         );
-        assert_eq!((b.tail_1.len(), b.tail_4.len(), b.rest.len()), (33, 9, 570));
+        assert_eq!((b.tail_1.len(), b.tail_4.len(), b.rest.len()), (33, 9, 0));
+        assert_eq!((b.item_lists.len(), b.regions.len()), (6, 9));
+        assert_eq!(
+            b.regions.iter().map(|region| region.total).sum::<u32>(),
+            7500 + 7500 + 5500 + 8500 + 6500 + 5500 + 3500 + 7500 + 7500
+        );
         for out in runs {
             fs::remove_dir_all(out).unwrap();
         }
