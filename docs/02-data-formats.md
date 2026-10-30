@@ -1269,6 +1269,8 @@ The whole converter: 80–160 agent-hours (milestone M1); the breakdown by forma
   Removed from the manifest on 2026-10-17: after a launch from the installation and the two shipped heroes deleted in the game, the remaining 319 files still matched; `sha256sum` format, paths relative to the installation root.
   Six more removed on 2026-10-29 (#1482), above.
   Check: `cd OriginalGame && sha256sum -c ../docs/manifest-gog-2.28.txt`.
+* The Steam release differs in four of those files (docs/01 §1), whose SHA-256 `docs/manifest-steam-2.28.txt` lists in the same format: `Sacred.exe`, `PAK/loading0.bmp`, `PAK/loading1.bmp` and `movie/oem.wmv`.
+  Since #1490 `verify` takes a file that is either release's, and says how many are the Steam release's own; `tables` takes either `Sacred.exe`, whose data sections it reads, the same in both.
   As of 2026-10-16 the manifest matches a clean GOG 2.28 installation (395 files: 377 game files plus 18 GOG and installer files, such as PDF manuals, `unins*`, `goggame-*`).
   The converter ignores the files outside the manifest.
 

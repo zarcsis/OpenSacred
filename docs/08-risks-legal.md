@@ -8,6 +8,7 @@
   Under Article 8, a contract cannot exclude them.
 * The GOG build has no copy protection.
   The project circumvents nothing, and publishes nothing about circumventing a protection.
+  The Steam build wraps `Sacred.exe` in Steam's DRM, which encrypts its code: the converter reads only its data sections, which the DRM leaves as they are, and decrypts nothing (docs/01 §1, #1484).
 * What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words.
   Never: game files, converted assets, decompiler output, game texts (§3).
   Issues and pull requests also carry frames of a problem, cropped to it, as their attachments, never in the repository's git (§3).
@@ -26,7 +27,7 @@ The applicable law depends on where you live; when in doubt, consult a lawyer.
 | Decompiling the parts of the code that hold the information needed to read the data and reproduce the behavior in an independently created program | Art. 6(1): only by a person entitled to use the copy, only for information not readily available otherwise, only the parts needed |
 | What may be done with that information | Art. 6(2): it may not be used for other goals, given to others except where necessary for interoperability, or used for a program substantially similar in its expression. Hence the rules of §3: the information is published as facts and descriptions of behavior, never as code |
 | Contract terms against these exceptions | Art. 8: null and void |
-| Technical protection | not involved: the GOG `Sacred.exe` has no DRM (docs/01 §1–2). Means of circumventing a protection are covered by Art. 7(1)(c); the project has none and publishes none |
+| Technical protection | not involved: the GOG `Sacred.exe` has no DRM (docs/01 §1–2); the Steam one's DRM encrypts its code, which the project neither reads nor decrypts, reading only the data sections it leaves as they are (#1484). Means of circumventing a protection are covered by Art. 7(1)(c); the project has none and publishes none |
 | Format facts | not protected by copyright; code, texts and assets are |
 
 The text of the Directive: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009L0024.
@@ -43,7 +44,7 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 | Addresses, offsets, identifiers, counts and hashes needed to read the data or to check a reader | Decompiler output (pseudo-C, listings) or code translated from it; memory dumps |
 | Facts of the original's behavior that its code keeps as tables by the creature type, which voice, portrait or idle noise each type takes, written as the converter's constants, numbers only, and checked against the user's own copy by tests on the game files (#714, #1489; the maintainer's choice on #1484) | The game's own data sections, tables or resources copied whole |
 | Words of the project's own that the converter puts in place of the game's texts' defects, named by the strings' ids and the original words' hashes (docs/02 §8, #403) | Another release's or a mod's wording of those texts |
-| The SHA-256 manifest of the reference installation (`docs/manifest-gog-2.28.txt`) | Texts of the game, its dialogues, credits or license agreements |
+| The SHA-256 manifest of the reference installation (`docs/manifest-gog-2.28.txt`), and of the Steam release's four files that differ from it (`docs/manifest-steam-2.28.txt`) | Texts of the game, its dialogues, credits or license agreements |
 | Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
 | | Anything about removing or circumventing a protection |
 

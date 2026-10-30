@@ -962,7 +962,7 @@ mod tests {
         fs::write(game.join("Sacred.exe"), b"MZ").unwrap();
         let error = arts(&game).unwrap_err().to_string();
         assert!(
-            error.contains("not the GOG Sacred Gold 2.28 file"),
+            error.contains("not the GOG or Steam Sacred Gold 2.28 file"),
             "{error}"
         );
         fs::remove_dir_all(game).unwrap();

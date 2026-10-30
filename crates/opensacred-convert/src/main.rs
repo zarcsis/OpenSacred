@@ -409,7 +409,8 @@ fn execute(command: Command) -> Result<ExitCode> {
         }
         Command::Verify { game_dir } => {
             let manifest = verify::parse_manifest(verify::GOG_MANIFEST)?;
-            let report = verify::verify(&game_dir, &manifest)?;
+            let steam = verify::parse_manifest(verify::STEAM_MANIFEST)?;
+            let report = verify::verify(&game_dir, &manifest, &steam)?;
             const SHOWN: usize = 20;
             for (path, problem) in report.problems.iter().take(SHOWN) {
                 eprintln!("{path}: {problem}");
@@ -417,8 +418,17 @@ fn execute(command: Command) -> Result<ExitCode> {
             if report.problems.len() > SHOWN {
                 eprintln!("... and {} more", report.problems.len() - SHOWN);
             }
+            // The release: the GOG one, or the Steam one where any of its own files is found.
+            let release = if report.variants.is_empty() {
+                "the GOG 2.28 manifest".to_owned()
+            } else {
+                format!(
+                    "the 2.28 manifests, {} of them the Steam release's own",
+                    report.variants.len()
+                )
+            };
             println!(
-                "{} of {} files match the GOG 2.28 manifest ({:.2} GiB read)",
+                "{} of {} files match {release} ({:.2} GiB read)",
                 manifest.len() - report.problems.len(),
                 manifest.len(),
                 report.bytes as f64 / f64::from(1 << 30),
