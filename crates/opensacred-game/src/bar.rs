@@ -38,7 +38,6 @@ use crate::frame::Control;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::{self, Pointer};
-use crate::making::Selected;
 use crate::talk::Portraits;
 
 /// The original's screen, the bar's and the column's places on it.
@@ -96,6 +95,9 @@ const SLOT_SIDE: f32 = 64.0;
 const WEAPON_SELECTED: u32 = 515;
 const ORB: u32 = 635;
 const ART_SELECTED: u32 = 479;
+/// An empty art slot while the cursor holds a spell, or a weapon art in the edit mode
+/// (`0x6E3430`: the image 533, `GUI_spell04`, green).
+const ART_TAKES: u32 = 533;
 const RING_SELECTED: u32 = 103;
 const RING: u32 = 102;
 /// The rings' layer among the bar's pieces: over a weapon set's halves' glow (`sets`, at 1) and
@@ -245,11 +247,13 @@ struct Entry {
 #[derive(Resource, Default)]
 struct Entries(Vec<Entity>);
 
-/// The selected art's icon in the first art slot: its grey top and its pale or vivid bottom.
+/// An art slot's icon, by its slot: its grey top and its pale or vivid bottom; and its ring.
 #[derive(Component)]
-struct ArtTop;
+struct ArtTop(usize);
 #[derive(Component)]
-struct ArtBottom;
+struct ArtBottom(usize);
+#[derive(Component)]
+struct ArtRing(usize);
 
 /// The slots a side shown, 0 before the first are made.
 #[derive(Resource, Default)]
@@ -485,16 +489,19 @@ fn rebuild(
         commands.entity(entity).despawn();
     }
     let dice = dice.get_or_insert_with(|| opensacred_rules::spawning::Rng::of(0, 0, 1087));
-    let mut add = |bundle: (ImageNode, Node), marker: Option<(bool, bool)>, z: i32| {
+    let mut add = |bundle: (ImageNode, Node), marker: Option<(usize, u8)>, z: i32| {
         let mut entity = commands.spawn((SlotPiece, bundle));
         match marker {
-            Some((true, _)) => {
-                entity.insert(ArtTop);
+            Some((slot, 0)) => {
+                entity.insert(ArtTop(slot));
             }
-            Some((false, true)) => {
-                entity.insert(ArtBottom);
+            Some((slot, 1)) => {
+                entity.insert(ArtBottom(slot));
             }
-            _ => {}
+            Some((slot, _)) => {
+                entity.insert(ArtRing(slot));
+            }
+            None => {}
         }
         if z != 0 {
             entity.insert(ZIndex(z));
@@ -526,21 +533,14 @@ fn rebuild(
         None,
         0,
     );
-    // The art slots at the right, the first holding the selected art (its icon set at each
-    // frame), the others empty.
+    // The art slots at the right, each its art's icon and its ring set at each frame
+    // (`art_icon`).
     for i in 0..count {
-        let at = art_slot(usize::try_from(i).unwrap_or(0));
-        if i == 0 {
-            add(image(ART_SELECTED, at), Some((true, false)), 0);
-            add(image(ART_SELECTED, at), Some((false, true)), 0);
-        } else {
-            add(image(ORB, at), None, 0);
-        }
-        add(
-            image(if i == 0 { RING_SELECTED } else { RING }, at),
-            None,
-            RING_Z,
-        );
+        let slot = usize::try_from(i).unwrap_or(0);
+        let at = art_slot(slot);
+        add(image(ART_SELECTED, at), Some((slot, 0)), 0);
+        add(image(ART_SELECTED, at), Some((slot, 1)), 0);
+        add(image(RING, at), Some((slot, 2)), RING_Z);
     }
     // The weapon sets at the left, the selected one's orb and ring (`0x6E1690`).
     for i in 0..count {
@@ -762,29 +762,104 @@ fn entry_rings(
     }
 }
 
-/// The selected art's icon in the first art slot (`0x6E3430`): ready, the vivid picture whole;
-/// else the top `⌊(1 − s)·64⌋` rows of its grey picture over the rest of its pale one, `s` the
-/// share regenerated; without an art, the empty slot's orb.
+/// Each art slot's icon (`0x6E3430`): its art ready, the vivid picture whole; else the top
+/// `⌊(1 − s)·64⌋` rows of its grey picture over the rest of its pale one, `s` the share
+/// regenerated; without an art, the empty slot's orb, the selected one's 479, the others' 635,
+/// and the green 533 while the cursor holds a spell, or a weapon art in the edit mode; the
+/// selected slot's ring 103, the others' 102.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
 fn art_icon(
-    images: Res<UiImages>,
-    assets: Res<AssetServer>,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
     mut loaded: Local<HashMap<String, Handle<Image>>>,
-    selected: Option<Res<Selected>>,
+    (slots, held, inventory): (
+        Option<Res<crate::art_slots::ArtSlots>>,
+        Option<Res<crate::art_slots::HeldArt>>,
+        Option<Res<crate::inventory::Shown>>,
+    ),
     arts: Option<Res<HeroArts>>,
-    mut tops: Query<(&mut ImageNode, &mut Node), (With<ArtTop>, Without<ArtBottom>)>,
-    mut bottoms: Query<(&mut ImageNode, &mut Node), (With<ArtBottom>, Without<ArtTop>)>,
+    mut tops: Query<(&ArtTop, &mut ImageNode, &mut Node), Without<ArtBottom>>,
+    mut bottoms: Query<
+        (&ArtBottom, &mut ImageNode, &mut Node),
+        (Without<ArtTop>, Without<ArtRing>),
+    >,
+    mut rings: Query<(&ArtRing, &mut ImageNode), (Without<ArtTop>, Without<ArtBottom>)>,
 ) {
-    let (Ok((mut top, mut top_node)), Ok((mut bottom, mut bottom_node))) =
-        (tops.single_mut(), bottoms.single_mut())
-    else {
+    let Some(slots) = slots else {
         return;
     };
-    let art = selected.as_deref().and_then(|selected| selected.0);
-    let icon = art.zip(arts.as_deref()).and_then(|(art, arts)| {
+    let editing = inventory.is_some_and(|inventory| inventory.0);
+    let takes = held
+        .and_then(|held| held.0)
+        .is_some_and(|art| crate::art_slots::is_spell(art) || editing);
+    let mut set = |image: &mut ImageNode, index: u32, rows: Option<(f32, f32)>| {
+        if let Some((file, rect)) = images.part(index) {
+            let rect = match rows {
+                Some((from, to)) => {
+                    Rect::new(rect.min.x, rect.min.y + from, rect.max.x, rect.min.y + to)
+                }
+                None => rect,
+            };
+            let handle = loaded
+                .entry(file.to_owned())
+                .or_insert_with(|| hud::image(&assets, file.to_owned()))
+                .clone();
+            if image.image != handle {
+                image.image = handle;
+            }
+            image.rect = Some(rect);
+        }
+    };
+    for (ring, mut image) in &mut rings {
+        set(
+            &mut image,
+            if ring.0 == slots.selected {
+                RING_SELECTED
+            } else {
+                RING
+            },
+            None,
+        );
+    }
+    for (slot, mut top, mut top_node) in &mut tops {
+        let Some((_, mut bottom, mut bottom_node)) =
+            bottoms.iter_mut().find(|(bottom, ..)| bottom.0 == slot.0)
+        else {
+            continue;
+        };
+        let art = slots.arts.get(slot.0).copied().flatten();
+        let empty = if takes {
+            ART_TAKES
+        } else if slot.0 == slots.selected {
+            ART_SELECTED
+        } else {
+            ORB
+        };
+        let grey_rows = slot_icon(
+            art,
+            arts.as_deref(),
+            empty,
+            (&mut top, &mut bottom),
+            &mut set,
+        );
+        top_node.height = Val::Px(grey_rows);
+        bottom_node.top = Val::Px(SLOT_Y - BAR.min.y + grey_rows);
+        bottom_node.height = Val::Px(SLOT_SIDE - grey_rows);
+    }
+}
+
+/// Sets an art slot's two pieces by its art, of `arts`, or by its empty orb `empty`: the grey
+/// rows of the top, by `set` of an image, its index and its rows.
+fn slot_icon(
+    art: Option<u16>,
+    arts: Option<&HeroArts>,
+    empty: u32,
+    (top, bottom): (&mut ImageNode, &mut ImageNode),
+    set: &mut impl FnMut(&mut ImageNode, u32, Option<(f32, f32)>),
+) -> f32 {
+    let icon = art.zip(arts).and_then(|(art, arts)| {
         let sprites = arts
             .tables
             .spells
@@ -807,48 +882,27 @@ fn art_icon(
         });
         Some((sprites, share))
     });
-    let mut set = |image: &mut ImageNode, index: u32, rows: Option<(f32, f32)>| {
-        if let Some((file, rect)) = images.part(index) {
-            let rect = match rows {
-                Some((from, to)) => {
-                    Rect::new(rect.min.x, rect.min.y + from, rect.max.x, rect.min.y + to)
-                }
-                None => rect,
-            };
-            let handle = loaded
-                .entry(file.to_owned())
-                .or_insert_with(|| hud::image(&assets, file.to_owned()))
-                .clone();
-            if image.image != handle {
-                image.image = handle;
-            }
-            image.rect = Some(rect);
-        }
-    };
-    let grey_rows = match icon {
+    match icon {
         Some(([grey, pale, vivid], share)) => {
             let rows = if share >= 1.0 {
                 0.0
             } else {
                 ((1.0 - share) * SLOT_SIDE).floor()
             };
-            set(&mut top, grey, Some((0.0, rows)));
+            set(top, grey, Some((0.0, rows)));
             set(
-                &mut bottom,
+                bottom,
                 if share >= 1.0 { vivid } else { pale },
                 Some((rows, SLOT_SIDE)),
             );
             rows
         }
         None => {
-            set(&mut top, ART_SELECTED, Some((0.0, 0.0)));
-            set(&mut bottom, ART_SELECTED, None);
+            set(top, empty, Some((0.0, 0.0)));
+            set(bottom, empty, None);
             0.0
         }
-    };
-    top_node.height = Val::Px(grey_rows);
-    bottom_node.top = Val::Px(SLOT_Y - BAR.min.y + grey_rows);
-    bottom_node.height = Val::Px(SLOT_SIDE - grey_rows);
+    }
 }
 
 /// `part` over `whole`, as a float.

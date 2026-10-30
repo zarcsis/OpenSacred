@@ -10,6 +10,7 @@ mod ambience;
 mod arrows;
 mod arsenal;
 mod art_burn;
+mod art_slots;
 mod art_sounds;
 mod arts;
 mod atmosphere;
@@ -323,8 +324,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         arrows::ArrowsPlugin,
         arsenal::ArsenalPlugin,
         art_burn::ArtBurnPlugin,
+        art_slots::ArtSlotsPlugin,
         art_sounds::ArtSoundsPlugin,
         arts::ArtsPlugin,
+    ))
+    .add_plugins((
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
         backpack::BackpackPlugin,

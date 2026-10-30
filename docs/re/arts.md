@@ -209,10 +209,13 @@ Read 2026-10-30 for #1090 (#1528, **confirmed** by code and **seen** in the runn
   The bit marks an art new to the page: a rune sets it as it teaches or raises an art (`0x580750`, `0x581F80`), the page's hide clears it on every art (`0x5809B0`), and the high byte of the word is the art's key F1 to F6 (`0x580D00`, #1529).
 - An art under the mouse shows its tooltip (`0x5893B0(art, text, 1)`) at its corner and (70, 32), the style `0x8B` (and `0x4000` where the hero lacks it); a key's name `F%d` stands at (44, 42) of the icon.
 - Its show (`0x6C1E60`) makes the list again, reads the keys (`0x580C80`) and plays (14, 2, 2), `UI_CLICK01`.
+- Its input (`0x6C1F30`): a left press on the page with a spell or a weapon art on the cursor lets it go, the press taken, another thing on the cursor left alone; with the cursor empty, the held art under the press goes onto the cursor (`0x6C1930`, the kind 2 or 3, its picture the vivid one at (−32, −32)), without a sound, a night art of the Vampiress (`0x4D1D60`: 1025, 1027, 1029, 1030 to 1041) refused by day unless the master's window shows; a right press on a held art puts it into the bar's selected slot (`0x6C1AE0`: the taskbar's message 4 for a weapon art, unless a night art by day, else 3).
+  F1 to F6 over a held art while the inventory shows bind the key to it (the same key clears it; the entry's `+0x08` high byte, `0x580D00`), and elsewhere put its art into the selected slot.
 
 In `opensacred-game` since #1528 (`spells_page`, `inventory::Page`): the tabs show their pages, the items' as the inventory opens, the spells page with its sound; the page as above, the arts the hero holds by their vivid images and the rest by their own pictures under the frame, the Vampiress's by her form, an art newly taught flashing (its entry's `TAUGHT` bit, cleared on every art as the page hides), the flash a material of the interface added onto the screen; the backpack's grid, its clicks and its tooltips only on the items' page.
 **Seen** in the game beside the original at the Seraphim's start: the backgrounds and the seventeen icons at the original's places, 1071 vivid and the rest grey; 1070 taught by the console flashing over its vivid icon, and no more once the page hid.
-Not followed yet: the tooltips, the arts onto the cursor, the right button and the keys (#1529), the master's window's view (#1530).
+Since #1529 the page's presses take a held art onto the cursor, let it go, and put one into the selected slot, the night arts refused by day (`spells_page`, `art_slots`).
+Not followed yet: the tooltips, the keys F1 to F6, the master's window's view (#1530).
 
 ## A hero's combos
 
