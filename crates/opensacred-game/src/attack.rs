@@ -378,8 +378,10 @@ fn engage(
                     }
                 } else if ranged {
                     // Its shot leaves at the clip's first hit, an arrow from its left hand toward
-                    // its target (`0x4DD90E`, `0x4EB700`), which the arrows fly and hit.
+                    // its target (`0x4DD90E`, `0x4EB700`), which the arrows fly and hit, with its
+                    // bow's sound as a creature's (`0x4DCB80`, #1475).
                     if let (Some(entity), 1) = (attack.target, striking.struck) {
+                        blows.write(crate::sfx::Blow::Shot { shooter: hero });
                         shots.write(crate::arrows::Loose {
                             shooter: hero,
                             target: entity,
