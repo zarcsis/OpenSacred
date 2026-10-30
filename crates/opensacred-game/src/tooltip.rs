@@ -481,6 +481,107 @@ fn kept(at: Vec2, size: Vec2) -> Vec2 {
     at
 }
 
+/// A control's tooltip of the style `0x209` (the combos page's symbols, the master's controls):
+/// its window, and the centre of its top on the original's screen.
+#[derive(Component)]
+struct Tip(Vec2);
+
+/// A control's tooltip's container.
+#[derive(Component)]
+pub(crate) struct TipRoot;
+
+/// The rest before a control's tooltip shows (`0x7327B0`, `0x9E52AC`).
+pub(crate) const TIP_AFTER: f32 = 1.0 / 3.0;
+
+/// The control that the pointer rests on, the time it came onto it and whether its tooltip
+/// shows.
+#[derive(Default)]
+pub(crate) struct Rest(Option<(u32, f32, bool)>);
+
+impl Rest {
+    /// The pointer over the control `over` at `now`: whether the tooltip that shows goes (the
+    /// control left or another's), and the control whose tooltip is due, once, after
+    /// [`TIP_AFTER`].
+    pub(crate) fn step(&mut self, over: Option<u32>, now: f32) -> (bool, Option<u32>) {
+        let gone = match (over, self.0) {
+            (Some(control), Some((was, ..))) if control == was => false,
+            (Some(control), _) => {
+                self.0 = Some((control, now, false));
+                true
+            }
+            (None, rest) => {
+                self.0 = None;
+                rest.is_some()
+            }
+        };
+        let due = match self.0 {
+            Some((control, since, false)) if now - since >= TIP_AFTER => {
+                self.0 = Some((control, since, true));
+                Some(control)
+            }
+            _ => None,
+        };
+        (gone, due)
+    }
+}
+
+/// A control's tooltip of `text` on the original's screen, centred along on `centre` with its top
+/// there, a panel of the items' tooltip's look without its border (the style `0x209`), kept 16
+/// pixels within the screen by [`centre_tips`].
+pub(crate) fn spawn_tip(commands: &mut Commands, assets: &AssetServer, text: &str, centre: Vec2) {
+    let panel = commands
+        .spawn((
+            Tip(centre),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(centre.x),
+                top: Val::Px(centre.y),
+                padding: UiRect::axes(Val::Px(INSET), Val::Px(INSET / 2.0)),
+                ..default()
+            },
+            BackgroundColor(PANEL),
+            Pickable::IGNORE,
+        ))
+        .with_child((
+            Text::new(text),
+            TextFont {
+                font: assets.load(FONT).into(),
+                font_size: FontSize::Px(FONT_SIZE),
+                ..default()
+            },
+            TextLayout {
+                linebreak: LineBreak::NoWrap,
+                ..default()
+            },
+            TextColor(argb(WHITE)),
+            Pickable::IGNORE,
+        ))
+        .id();
+    let root = commands
+        .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(2)))
+        .id();
+    commands.entity(root).add_child(panel);
+}
+
+/// Each control's tooltip centred on its place by its width as laid out, kept 16 pixels within
+/// the screen.
+fn centre_tips(mut tips: Query<(&Tip, &ComputedNode, &mut Node)>) {
+    for (tip, computed, mut node) in &mut tips {
+        let width = computed.size().x * computed.inverse_scale_factor();
+        let left = tip_left(tip.0.x, width);
+        if node.left != Val::Px(left) {
+            node.left = Val::Px(left);
+        }
+    }
+}
+
+/// The left of a tooltip of `width` centred on `centre`, kept 16 pixels within the screen.
+fn tip_left(centre: f32, width: f32) -> f32 {
+    (centre - width / 2.0)
+        .min(bar::SCREEN.x - MARGIN - width)
+        .max(MARGIN)
+}
+
 /// The items' tooltip.
 pub struct TooltipPlugin;
 
@@ -488,7 +589,7 @@ impl Plugin for TooltipPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (grid, keep_within)
+            (grid, keep_within, centre_tips)
                 .chain()
                 .run_if(in_state(AppState::InGame)),
         );
@@ -498,6 +599,27 @@ impl Plugin for TooltipPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_controls_tooltip_is_centred_and_kept_on_the_screen() {
+        assert_eq!(tip_left(400.0, 200.0), 300.0);
+        // The combos page's first symbol's, as wide as the original's line, moved to the margin.
+        assert_eq!(tip_left(80.0, 340.0), 16.0);
+        assert_eq!(tip_left(1000.0, 100.0), 1024.0 - 16.0 - 100.0);
+    }
+
+    #[test]
+    fn a_tooltip_shows_once_after_its_rest() {
+        let mut rest = Rest::default();
+        assert_eq!(rest.step(Some(1), 0.0), (true, None));
+        assert_eq!(rest.step(Some(1), 0.2), (false, None));
+        assert_eq!(rest.step(Some(1), 0.4), (false, Some(1)));
+        assert_eq!(rest.step(Some(1), 0.9), (false, None));
+        // Another control's starts its own rest, the one shown going.
+        assert_eq!(rest.step(Some(2), 1.0), (true, None));
+        assert_eq!(rest.step(None, 1.1), (true, None));
+        assert_eq!(rest.step(None, 1.2), (false, None));
+    }
 
     #[test]
     fn a_tooltip_keeps_16_pixels_within_the_screen() {

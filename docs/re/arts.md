@@ -248,6 +248,39 @@ In `opensacred-game` since #1530 (`combos_page`): the page as above, the steps' 
 **Seen** in the game beside the original's frames at the Seraphim's level 8: the four symbols in their frames and the two combos' lines at the original's places, the first combo onto the cursor and dropped on the second slot, the second by the right button into the selected slot, and the tooltip at the screen's left edge.
 Not followed: the master's window's view of the page (#1540).
 
+## The combat master
+
+Read 2026-10-30 for #1090 (#1540, **confirmed** by code and **seen** in the running original at the Seraphim's level 8, the master of type 317 at 3258,2851; another at 4151,2544, its floor 2).
+
+- A creature's talk (`0x52AB70`, its state 0) runs its dialogue where it has one; where its dialogue's number (`0x549920`) is below 1 or above 200,000, its `+0x200` chooses a trader's windows: the bit `0x1000` the inventory and `UI_WND_BLACKSMITH`, `0x2000` the inventory and `UI_WND_MERCHANT`, `0x4000` the inventory and `UI_WND_MASTER` (`cUI_Master`), each shown by the event `0x11`, and then the event `0x2F` (8, the creature's `+0x3FE`, its id) to the window, which keeps them at `+0x1D4` and `+0x1D8`; the talk then ends.
+- The window (`cUI_Master`, its constructor `0x6D1460`, its show `0x6D1360`, which plays (14, 2, `0x20`) and selects its first tab): at (0, 0), 640 × 336, a panel `UI_STATIC_BG` at (512, 16), 128 × 324, and another at (0, 50), 512 × 292, both tinted `0x9F000000`; the master's portrait (`+0x158`) at the right panel's top; the title, the text 1198, in `0xFF0050FF`; a tab sheet `UI_TABSHEET_MASTER` at (0, 44), 640 × 256, of two pages, COMBO (`cUI_MasterCombo`) and EXCHANGE (`cUI_MasterLotto`, not read), their tabs' texts `UI_MASTER_COMBO` and `UI_MASTER_LOTTO`; the inventory's hide hides it.
+  Its portrait is not the creature's dialogue's (`0x4345C0`, a wizard in his hat for the type 317): the original's window shows a bald old man (**seen**), whose image is not read.
+- Its COMBO page (`cUI_MasterCombo`: its constructor `0x6D1DA0`, its layout `0x6D3870`, its show `0x6D24A0` with (14, 2, `0x21`), its input `0x6D26D0`, its draw `0x6D2DF0`), at the screen's places:
+
+| Control | Place, size | Image | Tooltip |
+|---|---|---|---|
+| Title `UI_COMBO_MAKE` | (16, 62), 256 × 16 | its text's own colour, `<colorl=FFFFFF80>` | |
+| Symbol's frame (`+0x78C`) | (16, 92), 89 × 88 | 246; 247 while a combo is on the cursor | 9936 while no symbol |
+| Symbol (`+0x808`) | (27, 103), 64 × 64 | the combo's texture | |
+| Step `k`'s frame (`+0x154 + 0x188k`) | (16 + 88k, 212), 64 × 64, while a symbol is set | 202 | 9938 while empty |
+| Arrow `k` (`k` < 3) | (88 + 88k, 236), 13 × 21 | 251 | |
+| Step `k`'s art | (16 + 88k, 212) | the art's picture | |
+| Button (`+0x884`) | (432, 212), 61 × 60 | 255 grey, 253 lit | 9939 |
+| The art lines | (144, 92 + 24i) | | the art's name, "-", the text of the level and the step's level |
+| A step's price | (14 + 88k, 276), then the text 1082 16 below | | 100 · L, for a changed step only |
+| The total | (429, 276), 64 × 24, then 1082 | | `0xFFFFFF80` where the gold reaches the cost, else `0xFFFF0020` |
+| The count | (370, 280), 32 × 16 | | `x%d` where more than one step holds an art |
+
+  The tooltips stand centred at the control's corner and (32, 80), of the style `0x209`.
+- Its flow: the master's show selects the inventory's combos page (the event `0x32` (1, 2)); a combo dropped on the frame is copied to `+0x778`, its texture shown, the cursor emptied, its steps loaded (`0x6D2130`) and the spells page selected (`0x32` (1, 1)); a press on the frame with a symbol gives it back and clears the steps; a left press on a step takes its art onto the cursor and puts the cursor's spell or weapon art into it, a right press empties it.
+- The button lights while a step holds an art and the cost is the gold or less (`0x6D26D0`); its press makes the combo (`0x6D22A0`) only with the cursor empty and the gold above the cost, strictly: it finds the combo (`0x581AE0`), sets it (`0x5813D0`), takes the gold (`0x57FD80`), clears the page and selects the combos page (**seen**: 5,000 gold to 3,200 for a cost of 1,800; the gold equal to the cost lit the button and made nothing; 3,201 to 1).
+- The cost (`0x6D23E0`): the steps that hold an art times the sum, over the steps changed by their art or their level (`0x6D1F80`), of 100 times their level (`0x4D2770`; `0x4D1D20` for a weapon art), with no test of the hero's skills, level or class.
+  The event `0x2F` (1, a value not 0) makes the combo too (`0x6D274D`); its sender is not read.
+
+In `opensacred-game` since #1540 (`master`, `talk::Speech`): the talk of a creature of `quests::WIZARD` without a dialogue shows the inventory and the window, the combos page selected, and ends; the window's panels, the creature's portrait from the dialogues' table, the title and the two tabs as the inventory's are drawn, and its COMBO page as above, its flow, prices, total, count, button and tooltips; the inventory's hide takes it away.
+**Seen** in the game at the Seraphim's level 8 at the master of type 317: a combo of three steps priced 200, 200 and 100 and 1,500 in all, `x3`, the total red without gold and yellow at 1,500, the button lit at 1,500 and making nothing, and at 1,801 the combo made, 1,500 taken, the page cleared and the combos page showing it.
+Not followed: the master's own portrait (above), the smiths' and the merchants' windows, the EXCHANGE page, the window's sounds and the spells page's view under the master.
+
 ## An art in a strike
 
 The order to make an art (`0x4FD0F0`, `KiSpMove`) tests its launch type (`0x51D840`), walks to within its distance `+0x48` of the target and takes the class's action of the arts from `0x95583C` (the same at `0x956C48`): the Seraphim 9, the Gladiator 8, the Mage 12, the Dark Elf 10, the Wood Elf 11, the Vampiress 13, the Dwarf 14, the Daemon 15; the art in use is the creature's `+0x120`.

@@ -26,7 +26,7 @@ use crate::frame::{Control, Playing, Step, Unpaused};
 use crate::game::{AppState, FONT};
 use crate::hero::{self, Body, Size};
 use crate::lines::Texts;
-use crate::npcs::{Dies, Npcs, ScriptName, Still, Talk, Talks, Walk};
+use crate::npcs::{Dies, Npcs, ScriptName, Still, Talk, Talks, Trades, Walk};
 use crate::scripts::{self, SHOWN};
 use crate::sfx::Sfx;
 use crate::voices;
@@ -92,11 +92,47 @@ const SHOWS: [i32; 4] = [0, 1, 2, 3];
 #[derive(Component)]
 struct Notice(f32);
 
-/// The hero speaking to `creature`, its dialogue `dialogue`: going to it until the talk opens.
+/// What a talk opens (`0x52AB70`): the creature's dialogue by its function's name, or, for a
+/// combat master without one (its number below 1 or above 200,000), the master's window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Speech {
+    Dialogue(String),
+    Master,
+}
+
+impl std::fmt::Display for Speech {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dialogue(dialogue) => f.write_str(dialogue),
+            Self::Master => f.write_str("the combat master's window"),
+        }
+    }
+}
+
+/// What the creature of `talk`, `mind` and `trades` opens as the hero speaks to it, of `npcs`:
+/// its dialogue ([`dialogue_of`]), else the master's window where it is a combat master
+/// (`+0x200` bit `0x4000`, `quests::WIZARD`); the smiths' and the merchants' windows are not
+/// followed.
+pub(crate) fn speech_of(
+    talk: Option<&Talk>,
+    mind: &Mind,
+    trades: Option<&Trades>,
+    npcs: Option<&Npcs>,
+) -> Option<Speech> {
+    dialogue_of(talk, mind, npcs)
+        .map(Speech::Dialogue)
+        .or_else(|| {
+            trades
+                .is_some_and(|trades| trades.0 & opensacred_rules::quests::WIZARD != 0)
+                .then_some(Speech::Master)
+        })
+}
+
+/// The hero speaking to `creature`, of `dialogue`: going to it until the talk opens.
 #[derive(Component, Clone, Debug)]
 pub struct Talking {
     creature: Entity,
-    dialogue: String,
+    dialogue: Speech,
     open: bool,
     /// How many times the hero has stopped short of the creature.
     stops: u8,
@@ -217,6 +253,7 @@ fn pick(
             &Mind,
             &Health,
             Option<&Talk>,
+            Option<&Trades>,
             &crate::crowd::InTheWay,
         ),
         Without<Dies>,
@@ -241,8 +278,8 @@ fn pick(
     let Some((creature, (at, level), dialogue)) = creatures
         .iter()
         .filter(|(_, _, _, health, ..)| health.current > 0)
-        .filter_map(|(entity, at, mind, _, talk, way)| {
-            let dialogue = dialogue_of(talk, mind, npcs.as_deref())?;
+        .filter_map(|(entity, at, mind, _, talk, trades, way)| {
+            let dialogue = speech_of(talk, mind, trades, npcs.as_deref())?;
             let at = at.translation();
             Some((
                 entity,
@@ -342,8 +379,19 @@ fn approach(
             .entity(creature)
             .remove::<Walk>()
             .insert((Still, Talks));
-        let dialogue = talking.dialogue.clone();
-        commands.queue(move |world: &mut World| open(world, hero, creature, &dialogue));
+        match talking.dialogue.clone() {
+            Speech::Dialogue(dialogue) => {
+                commands.queue(move |world: &mut World| open(world, hero, creature, &dialogue));
+            }
+            // A master shows its window beside the inventory, and the talk ends at once
+            // (`0x52AB70`).
+            Speech::Master => {
+                commands.queue(move |world: &mut World| {
+                    crate::master::open(world, creature);
+                    end(world, hero, creature);
+                });
+            }
+        }
     }
 }
 
@@ -905,7 +953,8 @@ fn popups(
     }
 }
 
-/// Sends the hero to speak to `creature`, or to the creature of a dialogue nearest it (the
+/// Sends the hero to speak to `creature`, or to the creature of a dialogue or the combat master
+/// nearest it (the
 /// command `talk`), as a click on it does: a line of which.
 pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, String> {
     let mut heroes = world.query_filtered::<(Entity, &Transform), With<Body>>();
@@ -914,13 +963,13 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
         .next()
         .map(|(hero, transform)| (hero, transform.translation))
         .ok_or("the hero is not in the world yet")?;
-    let found: Vec<(Entity, Vec3, crate::terrain::Level, String)> = {
+    let found: Vec<(Entity, Vec3, crate::terrain::Level, Speech)> = {
         let mut creatures = world.query_filtered::<(
             Entity,
             &Transform,
             &Mind,
             &Health,
-            Option<&Talk>,
+            (Option<&Talk>, Option<&Trades>),
             &crate::crowd::InTheWay,
         ), Without<Dies>>();
         let npcs = world.get_resource::<Npcs>();
@@ -929,12 +978,12 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
             .filter(|(entity, _, _, health, ..)| {
                 health.current > 0 && creature.is_none_or(|c| c == *entity)
             })
-            .filter_map(|(entity, at, mind, _, talk, way)| {
+            .filter_map(|(entity, at, mind, _, (talk, trades), way)| {
                 Some((
                     entity,
                     at.translation,
                     way.level,
-                    dialogue_of(talk, mind, npcs)?,
+                    speech_of(talk, mind, trades, npcs)?,
                 ))
             })
             .collect()
@@ -945,7 +994,7 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
             let d = |at: Vec3| (at - here).xz().length_squared();
             d(a.1).total_cmp(&d(b.1))
         })
-        .ok_or("no creature of a dialogue is near")?;
+        .ok_or("no creature of a dialogue or combat master is near")?;
     let mut body = world
         .get_mut::<Body>(hero)
         .ok_or("the hero is not in the world yet")?;
