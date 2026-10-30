@@ -54,7 +54,7 @@ The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM]`, 
 
 ## Keys of the game
 
-The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, the right button on a foe makes the selected combat art, Shift held walks rather than runs (`--hold` it, or `gait walk`), I opens the inventory, L the quest book (Esc closes it), Space drinks a healing potion of the belt (Shift the yellow one), Q, W, E and R the purple, blue, green and yellow ones, B gives a healing one to a follower, 1 to 5 choose a weapon set and 6 to 0 an art slot, F1 to F6 put the arts bound to them into the selected slot (over an art of the spells page they bind it), the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F10 the keys' help (a frame of it lists them all), F7 the overlay, F12 the log, F11 borderless or windowed; the key under Esc the console.
+The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, the right button on a foe makes the selected combat art, Shift held walks rather than runs (`--hold` it, or `gait walk`), I opens the inventory, L the quest book and M the world map (Esc closes them), Space drinks a healing potion of the belt (Shift the yellow one), Q, W, E and R the purple, blue, green and yellow ones, B gives a healing one to a follower, 1 to 5 choose a weapon set and 6 to 0 an art slot, F1 to F6 put the arts bound to them into the selected slot (over an art of the spells page they bind it), the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F10 the keys' help (a frame of it lists them all), F7 the overlay, F12 the log, F11 borderless or windowed; the key under Esc the console.
 
 ## Rules
 

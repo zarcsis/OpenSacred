@@ -57,6 +57,7 @@ pub enum Action {
     Labels,
     Inventory,
     QuestBook,
+    WorldMap,
     WeaponSet1,
     WeaponSet2,
     WeaponSet3,
@@ -118,7 +119,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 37] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 38] = [
     (
         Action::Walk,
         Section::World,
@@ -153,6 +154,13 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 37] = [
         "quest_book",
         &["L"],
         "the quest book",
+    ),
+    (
+        Action::WorldMap,
+        Section::World,
+        "world_map",
+        &["M"],
+        "the world map",
     ),
     (
         Action::WeaponSet1,

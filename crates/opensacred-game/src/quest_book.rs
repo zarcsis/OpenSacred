@@ -740,8 +740,13 @@ fn rebuild(
 }
 
 /// `L`, the bar's book button and Esc show and hide the book, with their sounds; the book's show
-/// hides the inventory, and the inventory's show the book.
-fn toggle(
+/// hides the inventory, and the inventory's show the book; neither while the world map shows
+/// (`0x757840`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the keys, the click, the windows it hides and its sounds"
+)]
+pub(crate) fn toggle(
     mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
@@ -749,7 +754,11 @@ fn toggle(
     mut book: ResMut<Book>,
     mut inventory: ResMut<crate::inventory::Shown>,
     mut sounds: MessageWriter<sfx::Play>,
+    map: Res<crate::world_map::Map>,
 ) {
+    if map.shown {
+        return;
+    }
     let pressed = keys.take(crate::controls::Action::QuestBook);
     let clicked = buttons.just_pressed(MouseButton::Left)
         && screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {

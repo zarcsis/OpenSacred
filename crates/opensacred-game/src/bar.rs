@@ -65,12 +65,14 @@ pub(crate) const INVENTORY_BUTTON: (u32, Vec2) = (87, Vec2::new(399.0, 705.0));
 pub(crate) const COLLECT_BUTTON: (u32, Vec2) = (134, Vec2::new(496.0, 743.0));
 /// The options' button (`UI_TB_OPTIONS`), which opens the menu over the game (`esc_menu`).
 pub(crate) const OPTIONS_BUTTON: (u32, Vec2) = (89, Vec2::new(434.0, 729.0));
+/// The map's button (`UI_TB_MAP`, `world_map`).
+pub(crate) const MAP_BUTTON: (u32, Vec2) = (91, Vec2::new(558.0, 729.0));
 /// The book's button (`UI_TB_BOOK`, `quest_book`).
 pub(crate) const BOOK_BUTTON: (u32, Vec2) = (93, Vec2::new(594.0, 705.0));
 const BUTTONS: [(u32, Vec2); 5] = [
     INVENTORY_BUTTON,
     OPTIONS_BUTTON,
-    (91, Vec2::new(558.0, 729.0)),
+    MAP_BUTTON,
     BOOK_BUTTON,
     COLLECT_BUTTON,
 ];
@@ -155,6 +157,7 @@ impl UiImages {
             files::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
         let images: Vec<UiImage> =
             ron::from_str(&text).map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
+        let tiles = crate::world_map::tiles();
         let mut names: Vec<&str> = images
             .iter()
             .map(|image| image.texture.as_str())
@@ -168,6 +171,7 @@ impl UiImages {
                 crate::spells_page::FLASH,
             ])
             .chain(crate::quest_book::BASES)
+            .chain(tiles.iter().map(String::as_str))
             .collect();
         names.sort_unstable();
         names.dedup();
