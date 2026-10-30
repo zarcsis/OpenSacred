@@ -72,20 +72,20 @@ cmake -S "$work/svt-av1" -B "$work/build-svt" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$
     -DBUILD_APPS=OFF -DBUILD_TESTING=OFF
 cmake --build "$work/build-svt" --target install
 
-# FFmpeg with nothing but what the converter runs; the rawvideo, s16le and wav parts serve the
-# workflow's smoke test too.
+# FFmpeg with nothing but what the converter runs; the rawvideo, raw PCM (`-f s16le`) and wav parts
+# serve the workflow's smoke test too.
 flags=(
     --target-os=mingw32 --arch=x86_64 --cross-prefix=$host- --prefix="$prefix"
     --pkg-config=pkg-config --pkg-config-flags=--static
     --extra-cflags="-I$prefix/include" --extra-ldflags="-L$prefix/lib -static"
     --disable-everything --disable-autodetect --disable-doc --disable-debug --disable-network
-    --disable-ffplay --disable-ffprobe --enable-ffmpeg --enable-w32threads
+    --disable-ffplay --disable-ffprobe --disable-avdevice --enable-ffmpeg --enable-w32threads
     --enable-libopus --enable-libsvtav1 --enable-swscale --enable-swresample
     --enable-protocol=file,pipe
-    --enable-demuxer=wav,mp3,flac,bink,asf,matroska,rawvideo,s16le
+    --enable-demuxer=wav,mp3,flac,bink,asf,matroska,rawvideo,pcm_s16le
     --enable-decoder=pcm_s16le,pcm_u8,pcm_s24le,pcm_s32le,pcm_f32le,adpcm_ms,adpcm_ima_wav,mp3float,mp3,flac,bink,binkaudio_rdft,binkaudio_dct,wmv3,wmav2,wmapro,ffv1,rawvideo,opus,libopus
     --enable-encoder=flac,libopus,ffv1,libsvtav1,rawvideo,pcm_s16le
-    --enable-muxer=flac,ogg,matroska,webm,rawvideo,s16le,wav
+    --enable-muxer=flac,ogg,matroska,webm,rawvideo,pcm_s16le,wav
     --enable-parser=mpegaudio,flac,opus,av1
     --enable-filter=aresample,aformat,format,scale,anull,null
 )
