@@ -568,9 +568,9 @@ fn think(
             hero_size,
             foes: &foes,
         };
-        // A straight line of walkable cells to its target.
+        // A straight line of walkable cells to its target (`0x4FCC80`).
         let clear = |to: Spot| {
-            paths::clear(here.xz(), Vec2::new(to.x, to.y), |cell| {
+            paths::straight(here.xz(), Vec2::new(to.x, to.y), |cell| {
                 heights.walkable_on(cell, way.level)
             })
         };
@@ -826,9 +826,9 @@ fn pursue(
             hero_size: target_size,
         };
         let hero = target;
-        // A straight line of walkable cells to its target, asked again below.
+        // A straight line of walkable cells to its target, asked again below (`0x4FCC80`).
         let clear = || {
-            paths::clear(here.xz(), hero.xz(), |cell| {
+            paths::straight(here.xz(), hero.xz(), |cell| {
                 heights.walkable_on(cell, way.level)
             })
         };

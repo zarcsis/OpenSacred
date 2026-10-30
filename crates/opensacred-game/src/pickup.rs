@@ -695,7 +695,7 @@ pub(crate) fn take(
         let (here, at) = (transform.translation, at.translation());
         let level = body.level();
         if !takes(here, at)
-            || !paths::clear(here.xz(), at.xz(), |cell| heights.walkable_on(cell, level))
+            || !paths::straight(here.xz(), at.xz(), |cell| heights.walkable_on(cell, level))
         {
             debug!("pickup: the hero cannot reach {}", picks.0);
             continue;

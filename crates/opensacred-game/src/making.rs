@@ -808,7 +808,7 @@ fn make(
                 let level = body.level();
                 let walkable = |cell| heights.walkable_on(cell, level);
                 let to = crate::paths::cell_of(point.x, point.z);
-                if !crate::paths::clear(here.xz(), point.xz(), walkable) || !walkable(to) {
+                if !crate::paths::straight(here.xz(), point.xz(), walkable) || !walkable(to) {
                     info!("making: no straight way for the jump to its target");
                     end(&mut commands);
                     continue;
@@ -1162,7 +1162,7 @@ fn make(
                 let level = body.level();
                 let reaches = |[x, z]: [f32; 2]| {
                     heights.walkable_on(crate::paths::cell_of(x, z), level)
-                        && crate::paths::clear(here.xz(), Vec2::new(x, z), |cell| {
+                        && crate::paths::straight(here.xz(), Vec2::new(x, z), |cell| {
                             heights.walkable_on(cell, level)
                         })
                 };

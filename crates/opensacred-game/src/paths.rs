@@ -52,6 +52,13 @@ pub fn clear(a: Vec2, b: Vec2, walkable: impl Fn(Cell) -> bool) -> bool {
     ways::clear(in_cells(a), in_cells(b), walkable)
 }
 
+/// Whether a straight way leads from the cell of world `a` to the cell of `b` by the original's
+/// test (`0x4FCC80`, `opensacred_rules::ways::straight`): the cells of the line by whole cells,
+/// `b`'s let through, with a way round one closed cell.
+pub fn straight(a: Vec2, b: Vec2, walkable: impl Fn(Cell) -> bool) -> bool {
+    ways::straight(cell_of(a.x, a.y), cell_of(b.x, b.y), walkable)
+}
+
 /// Whether the straight line from world `a` to `b` crosses only cells that `crossed` takes and
 /// passes a corner only between cells that `beside` takes (`opensacred_rules::ways::clear_by`).
 fn clear_by(
