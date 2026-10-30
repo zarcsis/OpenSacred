@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
     ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
-    BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, FIGURES, Figure,
-    IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
+    BalanceVariable, CREATURES, ColumnPortrait, Creature, CreaturePortrait, EffectChance, FIGURES,
+    Figure, IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
     Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, RUNES, STAIRS,
     START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, TYPE_NAMES, Trigger, TypeName,
     UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS,
@@ -435,6 +435,16 @@ fn portraits(exe: &[u8]) -> Result<Portraits> {
                 Ok(CreaturePortrait {
                     creature: u16::try_from(creature)?,
                     portrait: portrait(image)?,
+                })
+            })
+            .collect::<Result<_>>()?,
+        // The column's pictures, by the interface's images' indices (#1465).
+        column: crate::portraits::column_images()
+            .into_iter()
+            .map(|(creature, image)| {
+                Ok(ColumnPortrait {
+                    creature: u16::try_from(creature)?,
+                    image,
                 })
             })
             .collect::<Result<_>>()?,
@@ -904,6 +914,10 @@ mod tests {
         assert_eq!(
             opensacred_formats::portraits::creature_images(&exe).unwrap(),
             (crate::portraits::DEFAULT, crate::portraits::images())
+        );
+        assert_eq!(
+            opensacred_formats::portraits::column_images(&exe).unwrap(),
+            crate::portraits::column_images()
         );
     }
 

@@ -86,6 +86,31 @@ fn constant(image: &Image<'_>, case: u32) -> Result<u32> {
     }
 }
 
+/// The portraits' column's switch (`0x435D30`, #1465): its jump table for the types 1 to `0x2CA`
+/// in GOG 2.28, each case `mov eax, imm32; ret 4`, the default's a bare `ret 4` of the `eax` 0 it
+/// cleared, no portrait.
+const COLUMN_TABLE: u32 = 0x0043_6694;
+const COLUMN_TYPES: (u32, u32) = (1, 0x2CA);
+
+/// The column's portraits by the function `0x435D30`: each type with one and its image's index,
+/// in the order of the types (docs/re/interface.md, "The portraits' column").
+pub fn column_images(exe: &[u8]) -> Result<Vec<(u32, u32)>> {
+    let image = Image::parse(exe)?;
+    let (first, last) = COLUMN_TYPES;
+    let count = usize::try_from(last - first + 1).unwrap_or(0);
+    let mut r = image.at(COLUMN_TABLE, count * 4, "column's jump table")?;
+    let mut images = Vec::new();
+    for creature in first..=last {
+        let case = r.u32()?;
+        let mut code = image.at(case, 3, "column's case")?;
+        if code.bytes(3, "column's case")? == [0xC2, 0x04, 0x00] {
+            continue;
+        }
+        images.push((creature, constant(&image, case)?));
+    }
+    Ok(images)
+}
+
 /// The interface's images of the indices `indices`, from the table at `0x9ECEB0`.
 pub fn interface_images(
     exe: &[u8],

@@ -10,14 +10,15 @@
 //! right, 1 to 5 a side by the hero's level, the selected art's icon split by its regeneration,
 //! the inventory's, the options', the map's, the book's and the collecting's buttons, and the
 //! potions' belt. The column: the health's ring, red below and grey above as the health drains,
-//! the portrait by the hero's type, the bonuses' "+" and the experience's bar. Clicks over the
-//! bar's area and the portrait do not reach the world (`0x6E1BC0`). The low health's glow and
-//! alarm are `low_health`'s.
+//! the portrait by the hero's type, the bonuses' "+" and the experience's bar, and below them up
+//! to four followers' entries, each its ring and its portrait. Clicks over the bar's area and the
+//! portraits do not reach the world (`0x6E1BC0`). The low health's glow and alarm are
+//! `low_health`'s.
 //!
 //! Not followed yet: the buttons' windows and their pressed images, the slots'
 //! selection and their edit mode, the weapons' models and damage icons in the left slots, the
-//! compass, the burn, the glows and sparkles, the tooltips, the points' "+", the followers'
-//! portraits and the mount's bar.
+//! glows and sparkles, the tooltips, the points' "+", the followers' rings' glow and the mount's
+//! bar.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -27,15 +28,18 @@ use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use opensacred_data::tables::{UI_IMAGES, UiImage};
 
+use crate::ai::Mind;
 use crate::arts::HeroArts;
 use crate::daynight::Clock;
 use crate::fight::{Experience, Health};
 use crate::files;
+use crate::followers::Follower;
 use crate::frame::Control;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::{self, Pointer};
 use crate::making::Selected;
+use crate::talk::Portraits;
 
 /// The original's screen, the bar's and the column's places on it.
 pub(crate) const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
@@ -110,8 +114,9 @@ const BONUSES: (u32, Vec2) = (110, Vec2::new(1000.0, 34.0));
 const EXPERIENCE_FRAME: (u32, Vec2) = (66, Vec2::new(940.0, 122.0));
 const EXPERIENCE_FILL: (u32, Vec2) = (67, Vec2::new(940.0, 124.0));
 const EXPERIENCE_WIDTH: f32 = 73.0;
-/// The heroes' portraits by their creature types 1 to 9 (`0x435D30`).
-const PORTRAITS: [u32; 9] = [1255, 1257, 1256, 1260, 1261, 1259, 1259, 1438, 1437];
+/// The followers' entries under the hero's, 132 pixels apart, four at most (`0x6D6430`).
+const ENTRY_STEP: f32 = 132.0;
+const MOST_FOLLOWERS: usize = 4;
 /// An image read as stored, sampled without its smaller levels, as the original's interface
 /// draws its textures (one level): the disc's rings keep their runes as the ellipse shrinks them.
 fn crisp(assets: &AssetServer, path: String) -> Handle<Image> {
@@ -225,6 +230,18 @@ pub(crate) struct HealthRed;
 #[derive(Component)]
 pub(crate) struct ExperienceFill;
 
+/// A piece of a follower's entry in the column: the follower it shows, and for its ring's parts
+/// whether the part is the red one and the ring's top in the column; none for the portrait.
+#[derive(Component)]
+struct Entry {
+    follower: Entity,
+    ring: Option<(bool, f32)>,
+}
+
+/// The followers whose entries the column shows, in their order.
+#[derive(Resource, Default)]
+struct Entries(Vec<Entity>);
+
 /// The selected art's icon in the first art slot: its grey top and its pale or vivid bottom.
 #[derive(Component)]
 struct ArtTop;
@@ -284,6 +301,13 @@ pub(crate) fn piece(
     (image, placed(at - origin, size))
 }
 
+/// A portrait's piece stretched to the column's 64 × 74.
+fn stretched((image, mut node): (ImageNode, Node)) -> (ImageNode, Node) {
+    node.width = Val::Px(PORTRAIT_SIZE.x);
+    node.height = Val::Px(PORTRAIT_SIZE.y);
+    (image, node)
+}
+
 /// A node at `at` of its container, of `size`.
 pub(crate) fn placed(at: Vec2, size: Vec2) -> Node {
     Node {
@@ -301,6 +325,7 @@ pub(crate) fn spawn(
     mut commands: Commands,
     images: Res<UiImages>,
     assets: Res<AssetServer>,
+    portraits: Res<Portraits>,
     arts: Option<Res<HeroArts>>,
 ) {
     if images.images.is_empty() {
@@ -391,25 +416,22 @@ pub(crate) fn spawn(
             DespawnOnExit(AppState::InGame),
         ))
         .id();
-    let kind = arts.as_deref().map_or(1, |arts| arts.kind);
-    let portrait = usize::try_from(kind)
-        .ok()
-        .and_then(|kind| PORTRAITS.get(kind.checked_sub(1)?))
-        .copied()
-        .unwrap_or(PORTRAITS[0]);
     // The ring first, the grey part, then the red with its glow (`low_health`), the glass middle
-    // under the portrait, which is stretched to 64 × 74.
-    let (portrait, mut portrait_node) = image(portrait, PORTRAIT_AT, COLUMN.min);
-    portrait_node.width = Val::Px(PORTRAIT_SIZE.x);
-    portrait_node.height = Val::Px(PORTRAIT_SIZE.y);
-    let pieces = [
+    // under the portrait by the hero's type (`0x435D30`), which is stretched to 64 × 74.
+    let kind = arts.as_deref().map_or(1, |arts| arts.kind);
+    let mut pieces = vec![
         commands
             .spawn((HealthGrey, image(HEALTH_GREY, RING_AT, COLUMN.min)))
             .id(),
         commands
             .spawn((HealthRed, image(HEALTH_RED, RING_AT, COLUMN.min)))
             .id(),
-        commands.spawn((portrait, portrait_node)).id(),
+    ];
+    if let Some(portrait) = portraits.column(kind) {
+        let portrait = stretched(image(portrait, PORTRAIT_AT, COLUMN.min));
+        pieces.push(commands.spawn(portrait).id());
+    }
+    pieces.extend([
         commands.spawn(image(BONUSES.0, BONUSES.1, COLUMN.min)).id(),
         commands
             .spawn(image(EXPERIENCE_FRAME.0, EXPERIENCE_FRAME.1, COLUMN.min))
@@ -420,9 +442,10 @@ pub(crate) fn spawn(
                 image(EXPERIENCE_FILL.0, EXPERIENCE_FILL.1, COLUMN.min),
             ))
             .id(),
-    ];
+    ]);
     commands.entity(column).add_children(&pieces);
     commands.insert_resource(Shown(0));
+    commands.insert_resource(Entries::default());
 }
 
 /// The slots and the rail for the hero's level, made again as a side's count changes
@@ -579,26 +602,13 @@ pub(crate) fn fill(
         ),
     >,
 ) {
-    let share = heroes.iter().next().map_or(1.0, |health| {
-        if health.most == 0 {
-            0.0
-        } else {
-            ratio(u64::from(health.current), u64::from(health.most))
-        }
-    });
-    let grey = ((RING_SIZE.y - CLASP) * (1.0 - share) + CLASP).floor();
-    let at = RING_AT - COLUMN.min;
-    if let (Some((_, g)), Ok((mut image, mut node))) =
-        (images.part(HEALTH_GREY), greys.single_mut())
-    {
-        image.rect = Some(Rect::new(g.min.x, g.min.y, g.max.x, g.min.y + grey));
-        node.height = Val::Px(grey);
+    let grey = grey_rows(heroes.iter().next().map_or(1.0, health_share));
+    let top = (RING_AT - COLUMN.min).y;
+    if let Ok((mut image, mut node)) = greys.single_mut() {
+        cut_ring(&images, (false, top), grey, &mut image, &mut node);
     }
-    if let (Some((_, r)), Ok((mut image, mut node))) = (images.part(HEALTH_RED), reds.single_mut())
-    {
-        image.rect = Some(Rect::new(r.min.x, r.min.y + grey, r.max.x, r.max.y));
-        node.top = Val::Px(at.y + grey);
-        node.height = Val::Px(RING_SIZE.y - grey);
+    if let Ok((mut image, mut node)) = reds.single_mut() {
+        cut_ring(&images, (true, top), grey, &mut image, &mut node);
     }
     let level = experience.0.level;
     let (start, end) = (
@@ -615,6 +625,137 @@ pub(crate) fn fill(
     {
         image.rect = Some(Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y));
         node.width = Val::Px(width);
+    }
+}
+
+/// The share of its most that a creature's health is, 0 for no most.
+fn health_share(health: &Health) -> f32 {
+    if health.most == 0 {
+        0.0
+    } else {
+        ratio(u64::from(health.current), u64::from(health.most))
+    }
+}
+
+/// The health's ring's grey rows at the share `share`: ⌊97·(1 − f) + 11⌋.
+fn grey_rows(share: f32) -> f32 {
+    ((RING_SIZE.y - CLASP) * (1.0 - share) + CLASP).floor()
+}
+
+/// Cuts a health's ring's part, the red one or the grey by `(red, top)`, `top` the ring's in the
+/// column, at its `grey` rows: the grey's top rows or the red's rest below them.
+fn cut_ring(
+    images: &UiImages,
+    (red, top): (bool, f32),
+    grey: f32,
+    image: &mut ImageNode,
+    node: &mut Node,
+) {
+    let Some((_, rect)) = images.part(if red { HEALTH_RED } else { HEALTH_GREY }) else {
+        return;
+    };
+    if red {
+        image.rect = Some(Rect::new(
+            rect.min.x,
+            rect.min.y + grey,
+            rect.max.x,
+            rect.max.y,
+        ));
+        node.top = Val::Px(top + grey);
+        node.height = Val::Px(RING_SIZE.y - grey);
+    } else {
+        image.rect = Some(Rect::new(
+            rect.min.x,
+            rect.min.y,
+            rect.max.x,
+            rect.min.y + grey,
+        ));
+        node.height = Val::Px(grey);
+    }
+}
+
+/// The followers' entries under the hero's (`0x6D6430`, `0x6D8250`): the hero's followers, four
+/// at most, those shown keeping their places and the newcomers after them, each its health's ring
+/// and its portrait by its type (`0x435D30`), none for a type without one; made again as they
+/// come, die and go.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn entries(
+    mut commands: Commands,
+    mut shown: ResMut<Entries>,
+    images: Res<UiImages>,
+    assets: Res<AssetServer>,
+    portraits: Res<Portraits>,
+    columns: Query<Entity, With<ColumnRoot>>,
+    heroes: Query<Entity, With<Body>>,
+    followers: Query<(Entity, &Follower, &Mind)>,
+    pieces: Query<Entity, With<Entry>>,
+) {
+    let (Ok(column), Ok(hero)) = (columns.single(), heroes.single()) else {
+        return;
+    };
+    let theirs = followers
+        .iter()
+        .filter(|(_, follower, _)| follower.master == hero)
+        .map(|(entity, ..)| entity)
+        .collect();
+    let order = entry_order(&shown.0, theirs);
+    if order == shown.0 {
+        return;
+    }
+    for piece in &pieces {
+        commands.entity(piece).despawn();
+    }
+    for (k, &follower) in (1_u8..).zip(&order) {
+        let step = Vec2::new(0.0, ENTRY_STEP * f32::from(k));
+        let image = |index: u32, at: Vec2| piece(&images, &assets, index, at + step, COLUMN.min);
+        let top = (RING_AT + step - COLUMN.min).y;
+        let mut parts = vec![
+            (image(HEALTH_GREY, RING_AT), Some((false, top))),
+            (image(HEALTH_RED, RING_AT), Some((true, top))),
+        ];
+        let kind = followers.get(follower).map(|(_, _, mind)| mind.creature);
+        if let Some(portrait) = kind.ok().and_then(|kind| portraits.column(kind)) {
+            parts.push((stretched(image(portrait, PORTRAIT_AT)), None));
+        }
+        for (bundle, ring) in parts {
+            let child = commands.spawn((Entry { follower, ring }, bundle)).id();
+            commands.entity(column).add_child(child);
+        }
+    }
+    shown.0 = order;
+}
+
+/// The followers that the entries show of the hero's followers `theirs`, those shown in `shown`:
+/// those still followers in their places, then the newcomers by their entities' indices, four at
+/// most.
+fn entry_order(shown: &[Entity], mut theirs: Vec<Entity>) -> Vec<Entity> {
+    theirs.sort_unstable_by_key(|entity| entity.index_u32());
+    let mut order: Vec<Entity> = shown
+        .iter()
+        .copied()
+        .filter(|entity| theirs.contains(entity))
+        .collect();
+    theirs.retain(|entity| !order.contains(entity));
+    order.extend(theirs);
+    order.truncate(MOST_FOLLOWERS);
+    order
+}
+
+/// The followers' rings split by their health as the hero's.
+fn entry_rings(
+    images: Res<UiImages>,
+    healths: Query<&Health>,
+    mut parts: Query<(&Entry, &mut ImageNode, &mut Node)>,
+) {
+    for (entry, mut image, mut node) in &mut parts {
+        let Some(ring) = entry.ring else {
+            continue;
+        };
+        let share = healths.get(entry.follower).map_or(0.0, health_share);
+        cut_ring(&images, ring, grey_rows(share), &mut image, &mut node);
     }
 }
 
@@ -726,14 +867,15 @@ pub(crate) fn belt_slot(at: Vec2) -> Option<u8> {
         .map(|(slot, _)| slot)
 }
 
-/// Whether the pointer is off the bar's and the portrait's areas, where the original's windows
+/// Whether the pointer is off the bar's and the portraits' areas, where the original's windows
 /// take the mouse (`0x6E1BC0`: x 384 − 80n to 640 + 80n and y from 676 for `n` slots a side; the
-/// hero's portrait and ring): a click there does not reach the world.
+/// hero's portrait and ring, and the followers' entries below): a click there does not reach the
+/// world.
 fn off_the_bar(
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window>,
-    shown: Option<Res<Shown>>,
+    (shown, entries): (Option<Res<Shown>>, Option<Res<Entries>>),
     bars: Query<(), With<BarRoot>>,
 ) -> bool {
     let (Some(at), Ok(window), Some(shown)) = (pointer.0, windows.single(), shown) else {
@@ -751,7 +893,9 @@ fn off_the_bar(
     let over_bar = bar.y >= BAR.min.y && bar.x >= 384.0 - 80.0 * n && bar.x <= 640.0 + 80.0 * n
         || belt_slot(bar).is_some();
     let column = Vec2::new(at.x - (width - COLUMN.width()), at.y);
-    let over_portrait = column.x >= 0.0 && column.y <= RING_AT.y + RING_SIZE.y + 24.0;
+    let followers = entries.map_or(0, |entries| entries.0.len());
+    let below = ENTRY_STEP * f32::from(u8::try_from(followers).unwrap_or(0));
+    let over_portrait = column.x >= 0.0 && column.y <= RING_AT.y + below + RING_SIZE.y + 24.0;
     !(over_bar || over_portrait)
 }
 
@@ -765,7 +909,7 @@ impl Plugin for BarPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn)
             .add_systems(
                 Update,
-                (rebuild, turn, fill, art_icon)
+                (rebuild, turn, fill, art_icon, entries, entry_rings)
                     .chain()
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Shown>),
@@ -787,6 +931,27 @@ mod tests {
         assert_eq!(slots(29), 4);
         assert_eq!(slots(30), 5);
         assert_eq!(slots(200), 5);
+    }
+
+    #[test]
+    fn the_followers_shown_keep_their_places_and_four_at_most_are() {
+        let e = |n: u32| Entity::from_raw_u32(n).unwrap();
+        assert_eq!(entry_order(&[], vec![e(9), e(3)]), [e(3), e(9)]);
+        // One gone: the others keep their order, the newcomer after them.
+        assert_eq!(
+            entry_order(&[e(9), e(3), e(5)], vec![e(5), e(1), e(9)]),
+            [e(9), e(5), e(1)]
+        );
+        let six = (1..=6).map(e).collect();
+        assert_eq!(entry_order(&[], six), [e(1), e(2), e(3), e(4)]);
+    }
+
+    #[test]
+    fn the_ring_is_grey_above_its_share() {
+        assert!((grey_rows(1.0) - CLASP).abs() < 1e-6);
+        assert!((grey_rows(0.0) - RING_SIZE.y).abs() < 1e-6);
+        // 60 of 214: ⌊97 · 154/214 + 11⌋ = 80.
+        assert!((grey_rows(ratio(60, 214)) - 80.0).abs() < 1e-6);
     }
 
     #[test]
