@@ -481,14 +481,15 @@ fn act(
 /// a submenu or the heroes to the main menu.
 fn keys(
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     screen: Option<Res<State<Screen>>>,
     mut next: ResMut<NextState<Screen>>,
     mut chosen: ResMut<Chosen>,
     items: Query<(&Item, &Place)>,
 ) {
-    let pressed = |codes: &[KeyCode]| keys.any_just_pressed(codes.iter().copied());
-    if pressed(&[KeyCode::Escape]) && screen.is_some_and(|screen| *screen.get() != Screen::Main) {
+    if keys.just_pressed(crate::controls::Action::Back)
+        && screen.is_some_and(|screen| *screen.get() != Screen::Main)
+    {
         next.set(Screen::Main);
         return;
     }
@@ -503,13 +504,13 @@ fn keys(
     places.sort_unstable();
     let at = places.iter().position(|&place| place == chosen.0);
     let count = places.len();
-    if pressed(&[KeyCode::ArrowDown, KeyCode::ArrowRight]) {
+    if keys.just_pressed(crate::controls::Action::Next) {
         chosen.0 = places[at.map_or(0, |at| (at + 1) % count)];
     }
-    if pressed(&[KeyCode::ArrowUp, KeyCode::ArrowLeft]) {
+    if keys.just_pressed(crate::controls::Action::Previous) {
         chosen.0 = places[at.map_or(count - 1, |at| (at + count - 1) % count)];
     }
-    if pressed(&[KeyCode::Enter, KeyCode::NumpadEnter])
+    if keys.just_pressed(crate::controls::Action::Confirm)
         && let Some((item, _)) = items
             .iter()
             .find(|(item, place)| place.0 == chosen.0 && item.works())

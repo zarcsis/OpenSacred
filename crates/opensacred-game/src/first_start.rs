@@ -685,8 +685,8 @@ fn show(
 }
 
 /// Esc ends the first start, and the conversion with it.
-fn keys(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
-    if keys.just_pressed(KeyCode::Escape) {
+fn keys(keys: crate::controls::Keys, mut exit: MessageWriter<AppExit>) {
+    if keys.just_pressed(crate::controls::Action::Back) {
         exit.write(AppExit::error());
     }
 }

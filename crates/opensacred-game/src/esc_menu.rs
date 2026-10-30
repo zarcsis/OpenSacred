@@ -341,15 +341,15 @@ fn answered(
 /// on the taskbar's Options button pauses the game under the menu, or goes on (`UI_TB_OPTIONS`).
 fn keys(
     mut commands: Commands,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&bevy::window::Window>),
     images: Res<UiImages>,
     (play, mut next): (Res<State<Play>>, ResMut<NextState<Play>>),
     dialogs: Query<Entity, With<Dialog>>,
 ) {
-    if keys.just_pressed(KeyCode::Escape) && !dialogs.is_empty() {
-        keys.clear_just_pressed(KeyCode::Escape);
+    if keys.just_pressed(crate::controls::Action::Back) && !dialogs.is_empty() {
+        keys.clear(crate::controls::Action::Back);
         for dialog in &dialogs {
             commands.entity(dialog).despawn();
         }

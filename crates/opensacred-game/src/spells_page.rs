@@ -346,16 +346,7 @@ fn pick(
     }
 }
 
-/// The keys F1 to F6, by their numbers (`0x65DD10`: the codes `0x10F` to `0x114`, less `0x10E`).
-const ART_KEYS: [KeyCode; 6] = [
-    KeyCode::F1,
-    KeyCode::F2,
-    KeyCode::F3,
-    KeyCode::F4,
-    KeyCode::F5,
-    KeyCode::F6,
-];
-/// The keys that reach the page while it is hidden: F1 to F4, its test stopping at `0x112`.
+/// The arts' keys that reach the page while it is hidden: F1 to F4, its test stopping at `0x112`.
 const HIDDEN_KEYS: u8 = 4;
 /// Where a key's name stands on its art's icon, and its font: the interface's font 1, white
 /// (`0x6C25A0`, `0x649BE0`), AntiquaSSK at the size of the foe's panel's (`foe_panel`).
@@ -441,18 +432,17 @@ fn keyed(list: &mut Keyed, key: u8, over: Option<u16>) -> Keying {
 /// while the page shows, bound to it or cleared; else the key's art into the bar's selected slot,
 /// as a right press puts one (`0x6C1AE0`), F5 and F6 only while the page shows.
 fn press(
-    (keys, console): (
-        Res<ButtonInput<KeyCode>>,
-        Option<Res<crate::console::Console>>,
-    ),
+    (keys, console): (crate::controls::Keys, Option<Res<crate::console::Console>>),
     (shown, page): (Res<Shown>, Res<Page>),
     (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
     (arts, forms): (Option<ResMut<HeroArts>>, Option<Res<crate::forms::Forms>>),
     (mut list, mut slots): (ResMut<ArtKeys>, ResMut<ArtSlots>),
 ) {
+    // The keys F1 to F6 by their numbers (`0x65DD10`: the codes `0x10F` to `0x114`, less
+    // `0x10E`).
     let Some(key) = (1..)
-        .zip(ART_KEYS)
-        .find(|&(_, code)| keys.just_released(code))
+        .zip(crate::controls::ART_KEYS)
+        .find(|&(_, action)| keys.just_released(action))
         .map(|(key, _)| key)
     else {
         return;

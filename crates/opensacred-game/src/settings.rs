@@ -306,11 +306,11 @@ fn report(file: Res<SettingsFile>) {
 
 /// F11: borderless full screen or the window, kept in the file.
 fn toggle(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     mut settings: ResMut<Settings>,
     mut file: ResMut<SettingsFile>,
 ) {
-    if !keys.just_pressed(KeyCode::F11) {
+    if !keys.just_pressed(crate::controls::Action::Window) {
         return;
     }
     settings.display.mode = settings.display.mode.toggled();

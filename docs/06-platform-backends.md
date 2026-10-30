@@ -6,7 +6,7 @@
   Everything builds from one codebase on Bevy and wgpu.
 * **Sound:** Kira through `bevy_kira_audio`; the sound and the music as Opus in Ogg, decoded through libopus (#701).
   Sound events are taken from the original's 175 profiles, converted to RON.
-* **Input:** keyboard and mouse as in the original plus a gamepad; key remapping through `leafwing-input-manager`; touch controls only for Android.
+* **Input:** keyboard and mouse as in the original plus a gamepad; key remapping through `controls.toml` beside the settings (#1553); touch controls only for Android.
 * **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d; movies can be skipped.
   The conversion is done (`opensacred-convert video`); playback comes in M5.
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
@@ -52,7 +52,7 @@ Estimate: 10–20 agent-hours (M2 and M5).
 * **Keyboard and mouse:** click to move, attack, the quick skill bar, the original's hotkeys as the default layout.
 * **Gamepad** (new): stick movement, skills on buttons, a radial menu for the skill bar; through gilrs inside Bevy.
   `bevy_gilrs` is linked; the game reads no gamepad yet.
-* **Remapping:** `leafwing-input-manager` 0.22; the layout is stored in the settings.
+* **Remapping:** the game's own module `controls` (#1553): every action and its keys in `controls.toml` beside `settings.toml`, the defaults the original's (docs/10 §9); `leafwing-input-manager` is not used, its action states adding nothing a list of keys per action lacks.
 * **Touch input:** only for Android, after the platform decision.
 * IME for text input (the hero's name), by means of Bevy and winit.
 

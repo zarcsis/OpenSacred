@@ -55,7 +55,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * Writing changes only the keys it sets and keeps the user's comments (`toml_edit`).
 * The command line overrides the file for one run without writing it: `--settings FILE` (another file, for the tests and Claude Code's runs), `--windowed` or `--borderless`, `--width` and `--height`, and `--hidden`, a window that is never shown, for the runs driven from afar (#556).
 * `--screenshot`, `--record` and `--benchmark` run in a window of the given size, as now, so that their frames do not depend on the monitor.
-* The overlays add `[debug] overlay` and `[debug] log` (§5); the rest of docs/06 §6 (sound, controls, gameplay) comes with M6.
+* The overlays add `[debug] overlay` and `[debug] log` (§5); the keys are in `controls.toml` beside the settings (§9, #1553); the rest of docs/06 §6 (sound, gameplay) comes with M6.
 * `[interface] enemy_info` (on by default, as the installation's `SHOW_ENEMYINFO`) shows the foe's panel at the bottom while the cursor is over a foe (#1459).
 * `[interface] warning_level` (25 by default, as the installation's `WARNING_LEVEL`) is the percentage of the most health below which the hero's falling health raises the red alarm about its portrait (#1463).
 
@@ -263,7 +263,15 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | F12 | everywhere | the log |
 
 The game's keys are the original's (#1536): its F1 to F6 bind the combat arts, F8 and F9 load and save the quick save, and Shift held walks, so the game's own tools take the keys it leaves free, F7, F10, F11 and F12, and the key under Esc, which opens the original's console too.
-Every key moves into a file of its own, `controls.toml` beside `settings.toml`, with #1553.
+Every key is in a file of its own, `controls.toml` beside `settings.toml` (#1553, the module `controls`), and the table gives the defaults:
+
+* An action of the game to the list of its keys, in a section for each place they work: `[world]`, `[interface]` and `[tools]`.
+  A key by its place on the keyboard, so that `I` is `I` on any layout: a letter, a digit, `F1` to `F24`, `Space`, `Escape`, `Enter`, `Backquote`, the arrows, the keypad's (`NumpadEnter`, `NumpadAdd`, …), `Shift`, `Control`, `Alt`, and the modifiers held with a key before it (`Shift+Space`).
+  A key asks for its modifiers and lets the others be held too (Q drinks while Shift walks), but a key of more modifiers that are held wins over it in its section.
+* The game writes the file with the defaults, each action under a comment of what it does, where there is none: beside the file `--settings` names, else in the configuration directory.
+  An action the file lacks takes its default (deleting the file brings back them all); an unknown section, action or key's name is a warning in the log, the default kept; two actions of one section on one key are a warning.
+* Not in it: the editing of a line of text (the console's and the hero's name's: Enter, the arrows, Tab, Ctrl+V and Ctrl+C), and the mouse's buttons.
+* The keys' help (F10) names the keys as the file has them.
 F10 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
 
 ## 10. Order and estimates

@@ -693,8 +693,8 @@ fn still(
 /// The hero walks while Shift is held and runs once it is let go, as the original's moving action
 /// turns a hero's gait at every step of its move (`0x4F4770`, at `0x4F5193` and `0x4F6155`): the
 /// original has no key that toggles them. [`Hero::walking`] holds the walk as Shift would.
-pub fn pace(keys: Res<ButtonInput<KeyCode>>, mut hero: ResMut<Hero>) {
-    let walk = hero.walking || keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+pub fn pace(keys: crate::controls::Keys, mut hero: ResMut<Hero>) {
+    let walk = hero.walking || keys.pressed(crate::controls::Action::Walk);
     let gait = if walk { Gait::Walk } else { Gait::Run };
     if hero.gait != gait {
         hero.gait = gait;

@@ -221,17 +221,17 @@ pub fn closed(console: Option<Res<Console>>) -> bool {
 /// Esc does not pause a game as it closes the console, nor hides the keys' help under it.
 pub fn keys(
     mut console: ResMut<Console>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut keys: crate::controls::KeysMut,
     mut input: MessageReader<KeyboardInput>,
     scroll: Res<AccumulatedMouseScroll>,
     mut clipboard: Option<ResMut<Clipboard>>,
 ) {
-    let toggled = keys.just_pressed(KeyCode::Backquote);
-    let escaped = console.open && keys.just_pressed(KeyCode::Escape);
+    let toggled = keys.just_pressed(crate::controls::Action::Console);
+    let escaped = console.open && keys.just_pressed(crate::controls::Action::Back);
     if toggled || escaped {
         console.open = !console.open && !escaped;
-        keys.clear_just_pressed(KeyCode::Backquote);
-        keys.clear_just_pressed(KeyCode::Escape);
+        keys.clear(crate::controls::Action::Console);
+        keys.clear(crate::controls::Action::Back);
         input.clear();
         return;
     }
@@ -239,9 +239,11 @@ pub fn keys(
         input.clear();
         return;
     }
-    let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let control = keys.modifiers().control;
     for event in input.read() {
-        if event.state != ButtonState::Pressed || event.key_code == KeyCode::Backquote {
+        if event.state != ButtonState::Pressed
+            || keys.is_key(crate::controls::Action::Console, event.key_code)
+        {
             continue;
         }
         match (control, event.key_code, clipboard.as_deref_mut()) {
