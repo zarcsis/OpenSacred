@@ -20,6 +20,7 @@ Its sub-state 0 chooses by the target's category (`0x426220`; the jump table `0x
 
 The sub-state 2 (`0x53BD9D`, the doors' too) waits while the creature moves; a creature target or one on another layer (the layers 0 and 1 counting as one) goes idle (`0x54E6D0`).
 Farther than 300 from the container (`0x53BE8C`), or for a container without a straight line of walkable cells to it (`0x4FCC80`, `0x53BEDC`), the order ends without opening.
+`0x4FCC80` passes a closed cell where it is the line's last (docs/re/movement.md, "The straight way"), so the container's own closed cell lets the line through (read 2026-10-30, #1413).
 Then, in a single player's game:
 
 1. the quests' hook `0x471790(creature, container, 3, 0)` runs (not read further);
@@ -148,7 +149,7 @@ On 2026-10-28 (#1379, the driver of #448, the save `start-seraphim`, traces of `
 
 ## Not read
 
-What the sound events `(9, 0x16)` and `(9, 0x17)` play; `0x5D57C0`'s level and the arguments of `0x5C7FA0` here; where `0x45FF80` puts the ghost; whether the flight stops at a blocked cell; whether `0x4FCC80` passes the container's own closed cell; whether the saves keep the emptied bit; `cChest3D`'s `+0x44` (`0x5C9800`) and `0x608080`.
+What the sound events `(9, 0x16)` and `(9, 0x17)` play; `0x5D57C0`'s level and the arguments of `0x5C7FA0` here; where `0x45FF80` puts the ghost; whether the flight stops at a blocked cell; whether the saves keep the emptied bit; `cChest3D`'s `+0x44` (`0x5C9800`) and `0x608080`.
 To see in the running original: the same chest's contents after a reload and after the hero gains experience; the share of containers that give nothing and the gold's range over many; the graves' and the shrines' ghosts; a dwarves' chest and the cells of the barrels after it; a town stash; a chest against a wall; quest 1111's chest.
 
 ## In `opensacred-game`
@@ -159,7 +160,9 @@ The cursor shows the hand over a container that opens, none over one emptied (`c
 Since #1381 the container's `FillChest`s, taken out of the records its function ran, make what it holds (`opensacred_rules::containers::fill`, `SPAWN_ITEM`): seeded by the hero's type, its experience and the container's point and placement, the value's nothing or ghost, the run of items with their prices (`Weapon.pak +0x8C`, 600 without a record) off the value, the gold, the books and the type named, a rune of which may be replaced; each thrown from the container to a point `R(20, 50)` from the hero along each axis, in 0.9 s along an arc that peaks at 80 (`drops::Flight::to_point`), a raised creature beside the hero.
 **Seen** in the game: `chest_sera2` threw the rune 5394 and the item 2149, as the original's did, both landing 36 and 43 from the Seraphim.
 Since #1407 the thrown items are marked as the hero's (`drops::throw_to`), and one that lands on a cell that the hero may not stand on, or without a straight line of walkable cells to it from the hero, is moved to the hero's point (`drops::fly`), where the hero picks it up; before, it lay out of the hero's reach, a click on it giving up.
-Not followed yet: the town stash's window, the straight line of walkable cells that the opening wants, `FillChest`'s random items of `0x57` (the categories' table `0x890B60` is read since #1518, `opensacred_rules::drops::random_category`), the class's variant of a type (`0x43CA20`), and the item maker's own level and key for the contents (docs/decisions/items.md, "Containers' items at the hero's level").
+Since #1413 the hero opens a container only along a straight way to it, its own closed cell let through (`containers::opens_from`, `paths::straight`).
+
+Not followed yet: the town stash's window, `FillChest`'s random items of `0x57` (the categories' table `0x890B60` is read since #1518, `opensacred_rules::drops::random_category`), the class's variant of a type (`0x43CA20`), and the item maker's own level and key for the contents (docs/decisions/items.md, "Containers' items at the hero's level").
 Since #1518 the hidden stashes (`stashes`): the scripts keep the pools that `AddPoolPos` fills and the stashes that `MachVersteck` lays from them, drawn by the scripts' dice (`opensacred_rules::quests::Pools`, `Stashes`), 819 in the Seraphim's tree as the original's log lists them; each stands at its cell's centre, 40 above its ground, and is picked within 45 of the cursor's line of sight, where the cursor shows the hand and the stash's text (`cursors`); a left click sends the hero there, and standing within 300 of it the hero searches it: the stash leaves the scripts' list and its function runs (`scripts::run_function`).
 A `CreateObj` of `0x54` and no type makes a random item for the hero (`opensacred_rules::drops::script_item`, with the categories' table `0x890B60` as `random_category`), made as a container's item (`drops::contained`) and thrown 20 to 50 from the hero along each axis; the command `stashes` lists those about the hero.
 **Seen** in the game at the Seraphim's start: the stash in the bush at 3216, 2556 showed its text under the cursor, and a click gave the item 7089 at her feet, the stashes then 818.

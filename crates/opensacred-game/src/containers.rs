@@ -1,8 +1,8 @@
 //! The containers that the hero opens (#1380; docs/re/containers.md): the chests, barrels, vases,
 //! coffins, graves, cabinets, book stands and shrines that the scripts' `CreateObj`s place, the
 //! `items.pak` category 4, the client's `cChest3D`. A left click on one gives the hero the event 7
-//! and the AI's state 1 (`0x53A170`), which walks it there and, standing within 300 of it, sends
-//! it the event `0x21`: its own trigger opens with its model's clip of the slot 170
+//! and the AI's state 1 (`0x53A170`), which walks it there and, standing within 300 of it with a
+//! straight line of walkable cells to it (`0x4FCC80`), sends it the event `0x21`: its own trigger opens with its model's clip of the slot 170
 //! (`MOTION_ACTIVATE`) and its type's sound (`0x44BCD0`, `0x695800`), its `Take:` function runs,
 //! which fills it (`0x4A71F0`), and it throws what it holds to the hero (`0x5C9BA0`, #1381) and is
 //! emptied for good (`+0x14` bit `0x4000`): the cursor shows no hand over it, a click on it does
@@ -12,8 +12,7 @@
 //!
 //! As the doors, the game picks the container nearest the cursor's line of sight and the hero
 //! walks where the click sends it, beside the container's closed cell (`hero::steer`). Not
-//! followed yet: the town stash (5200), whose window opens instead, and the straight line of
-//! walkable cells that the opening wants (`0x4FCC80`).
+//! followed yet: the town stash (5200), whose window opens instead.
 
 use std::time::Duration;
 
@@ -181,7 +180,8 @@ fn open(
             continue;
         }
         commands.entity(hero).remove::<Opens>();
-        if !container.opens() || !opens_from(transform.translation, at.at) {
+        let walkable = |cell| heights.walkable_on(cell, body.level());
+        if !container.opens() || !opens_from(transform.translation, at.at, walkable) {
             continue;
         }
         debug!(
@@ -418,9 +418,12 @@ fn whole(value: f32) -> i32 {
 }
 
 /// Whether a hero standing at `hero` opens the container at `container`: within
-/// [`OPENS_WITHIN`] of it on the ground.
-fn opens_from(hero: Vec3, container: Vec3) -> bool {
+/// [`OPENS_WITHIN`] of it on the ground (`0x53BE8C`), and with a straight way from it to the
+/// container (`0x53BEDC`, `0x4FCC80`, `paths::straight`), which lets the container's own closed
+/// cell through as the line's last.
+fn opens_from(hero: Vec3, container: Vec3, walkable: impl Fn(crate::paths::Cell) -> bool) -> bool {
     (container - hero).xz().length() <= OPENS_WITHIN
+        && crate::paths::straight(hero.xz(), container.xz(), walkable)
 }
 
 /// Gives each container's animation player its clip of opening, played to its end at once for
@@ -502,14 +505,30 @@ mod tests {
     #[test]
     fn the_hero_opens_a_container_it_stands_within_300_of() {
         let container = Vec3::new(1000.0, 0.0, 1000.0);
+        let open = |_| true;
         assert!(opens_from(
             container + Vec3::new(200.0, 50.0, 200.0),
-            container
+            container,
+            open
         ));
         assert!(!opens_from(
             container + Vec3::new(250.0, 0.0, 250.0),
-            container
+            container,
+            open
         ));
+    }
+
+    #[test]
+    fn a_wall_between_keeps_a_container_shut_but_its_own_closed_cell_does_not() {
+        let at = |x, y| {
+            let point = crate::paths::centre((x, y));
+            Vec3::new(point.x, 0.0, point.y)
+        };
+        // The container stands on its closed cell (6, 2), a wall along the column 4.
+        let walkable = |(x, y): crate::paths::Cell| x != 4 && (x, y) != (6, 2);
+        assert!(opens_from(at(5, 2), at(6, 2), walkable));
+        assert!(opens_from(at(5, 4), at(6, 2), walkable));
+        assert!(!opens_from(at(3, 2), at(6, 2), walkable));
     }
 
     #[test]
