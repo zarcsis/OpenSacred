@@ -72,6 +72,7 @@ mod lines;
 mod liquids;
 mod low_health;
 mod making;
+mod master;
 mod menu;
 mod menu_sound;
 mod models;
@@ -397,12 +398,15 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         making::MakingPlugin,
+        master::MasterPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
+    ))
+    .add_plugins((
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,

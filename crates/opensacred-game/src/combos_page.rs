@@ -24,6 +24,7 @@ use crate::game::{AppState, Data, FONT};
 use crate::hud::Pointer;
 use crate::inventory::{Page, Shown};
 use crate::lines::Texts;
+use crate::tooltip::{Rest, TipRoot, spawn_tip};
 
 /// The page's corner on the original's screen (the inventory's window), and its size.
 const CORNER: Vec2 = Vec2::new(0.0, 388.0);
@@ -51,9 +52,8 @@ const FRAME_BEVEL: Color = Color::srgb(34.0 / 255.0, 34.0 / 255.0, 34.0 / 255.0)
 const LINES_FROM: Vec2 = Vec2::new(72.0, -8.0);
 const LINE: f32 = 20.0;
 const WHITE: u32 = 0xFFFF_FFFF;
-/// The tooltip: its text, the rest before it shows, and its centre's place from the control.
+/// The tooltip: its text and its centre's place from the control.
 const TOOLTIP: &str = "UI_TOOLTIP_COMBOSYMBOL";
-const TOOLTIP_AFTER: f32 = 1.0 / 3.0;
 const TOOLTIP_FROM: Vec2 = Vec2::new(48.0, 80.0);
 
 /// The files of the backgrounds and the symbols, found once.
@@ -66,14 +66,6 @@ struct Textures {
 /// The page's container.
 #[derive(Component)]
 struct PageRoot;
-
-/// The tooltip's window, and the centre of its top on the original's screen.
-#[derive(Component)]
-struct Tip(Vec2);
-
-/// The tooltip's container.
-#[derive(Component)]
-struct TipRoot;
 
 /// The control under the point `at` of the original's screen.
 fn control_at(at: Vec2) -> Option<usize> {
@@ -256,7 +248,7 @@ fn show(
 }
 
 /// The symbol's tooltip, shown once the pointer rests on a control a third of a second and taken
-/// away as it leaves or the page hides.
+/// away as it leaves or the page hides (`tooltip::Rest`).
 fn tooltip(
     mut commands: Commands,
     time: Res<Time<Real>>,
@@ -264,93 +256,30 @@ fn tooltip(
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (assets, texts): (Res<AssetServer>, Option<Res<Texts>>),
     tips: Query<Entity, With<TipRoot>>,
-    mut rested: Local<Option<(usize, f32, bool)>>,
+    mut rest: Local<Rest>,
 ) {
     let over = (shown.0 && page.0 == PAGE)
         .then(|| crate::inventory::screen_point(&pointer, &ui_scale, &windows))
         .flatten()
-        .and_then(control_at);
-    let now = time.elapsed_secs();
-    match (over, *rested) {
-        (Some(control), Some((was, _, _))) if control == was => {}
-        (Some(control), _) => {
-            for tip in &tips {
-                commands.entity(tip).despawn();
-            }
-            *rested = Some((control, now, false));
-        }
-        (None, _) => {
-            for tip in &tips {
-                commands.entity(tip).despawn();
-            }
-            *rested = None;
+        .and_then(control_at)
+        .and_then(|control| u32::try_from(control).ok());
+    let (gone, due) = rest.step(over, time.elapsed_secs());
+    if gone {
+        for tip in &tips {
+            commands.entity(tip).despawn();
         }
     }
-    let Some((control, since, false)) = *rested else {
+    let Some(control) = due.and_then(|control| usize::try_from(control).ok()) else {
         return;
     };
-    if now - since < TOOLTIP_AFTER {
-        return;
+    if let Some(text) = texts.as_deref().and_then(|texts| texts.named(TOOLTIP)) {
+        spawn_tip(
+            &mut commands,
+            &assets,
+            text,
+            CORNER + CONTROLS[control] + TOOLTIP_FROM,
+        );
     }
-    *rested = Some((control, since, true));
-    let Some(text) = texts.as_deref().and_then(|texts| texts.named(TOOLTIP)) else {
-        return;
-    };
-    let centre = CORNER + CONTROLS[control] + TOOLTIP_FROM;
-    let panel = commands
-        .spawn((
-            Tip(centre),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(centre.x),
-                top: Val::Px(centre.y),
-                padding: UiRect::axes(
-                    Val::Px(crate::tooltip::INSET),
-                    Val::Px(crate::tooltip::INSET / 2.0),
-                ),
-                ..default()
-            },
-            BackgroundColor(crate::tooltip::PANEL),
-            Pickable::IGNORE,
-        ))
-        .with_child((
-            Text::new(text),
-            TextFont {
-                font: assets.load(FONT).into(),
-                font_size: FontSize::Px(crate::tooltip::FONT_SIZE),
-                ..default()
-            },
-            TextLayout {
-                linebreak: LineBreak::NoWrap,
-                ..default()
-            },
-            TextColor(crate::tooltip::argb(WHITE)),
-            Pickable::IGNORE,
-        ))
-        .id();
-    let root = commands
-        .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(2)))
-        .id();
-    commands.entity(root).add_child(panel);
-}
-
-/// The tooltip centred on its place by its width as laid out, kept 16 pixels within the screen.
-fn centre_tip(mut tips: Query<(&Tip, &ComputedNode, &mut Node)>) {
-    for (tip, computed, mut node) in &mut tips {
-        let width = computed.size().x * computed.inverse_scale_factor();
-        let left = tip_left(tip.0.x, width);
-        if node.left != Val::Px(left) {
-            node.left = Val::Px(left);
-        }
-    }
-}
-
-/// The left of a tooltip of `width` centred on `centre`, kept 16 pixels within the screen.
-fn tip_left(centre: f32, width: f32) -> f32 {
-    let margin = crate::tooltip::MARGIN;
-    (centre - width / 2.0)
-        .min(bar::SCREEN.x - margin - width)
-        .max(margin)
 }
 
 /// The inventory's combos page.
@@ -366,7 +295,7 @@ impl Plugin for CombosPagePlugin {
         )
         .add_systems(
             Update,
-            (pick, show, tooltip, centre_tip)
+            (pick, show, tooltip)
                 .chain()
                 .after(crate::inventory::Opened)
                 .run_if(in_state(AppState::InGame)),
@@ -384,13 +313,5 @@ mod tests {
         assert_eq!(control_at(Vec2::new(383.0, 483.0)), Some(1));
         assert_eq!(control_at(Vec2::new(40.0, 530.0)), Some(2));
         assert_eq!(control_at(Vec2::new(100.0, 420.0)), None);
-    }
-
-    #[test]
-    fn the_tooltip_is_centred_and_kept_on_the_screen() {
-        assert_eq!(tip_left(400.0, 200.0), 300.0);
-        // The first control's, as wide as the original's line, moved to the margin.
-        assert_eq!(tip_left(80.0, 340.0), 16.0);
-        assert_eq!(tip_left(1000.0, 100.0), 1024.0 - 16.0 - 100.0);
     }
 }

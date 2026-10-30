@@ -332,6 +332,32 @@ fn show(
         .id();
     commands.entity(inventory).add_child(sort);
     // The tabs above the window, each its text on the image 108 stretched to it.
+    let labels: Vec<String> = TAB_TEXTS
+        .iter()
+        .map(|key| {
+            texts
+                .as_deref()
+                .and_then(|texts| texts.named(key))
+                .unwrap_or(key)
+                .to_owned()
+        })
+        .collect();
+    let (tabs, each) = spawn_tabs(&mut commands, (&images, &assets), &font, &labels);
+    commands.entity(inventory).add_child(tabs);
+    for (index, tab) in (0_u8..).zip(each) {
+        commands.entity(tab).insert(Tab(index));
+    }
+}
+
+/// A tab sheet's tabs (`cUI_TabSheet`, `0x729980`) of `labels`, in a row standing above its
+/// sheet's top left: each its label in capitals on the image 108 stretched to it; the row and
+/// each tab.
+pub(crate) fn spawn_tabs(
+    commands: &mut Commands,
+    (images, assets): (&UiImages, &AssetServer),
+    font: &Handle<Font>,
+    labels: &[String],
+) -> (Entity, Vec<Entity>) {
     let tabs = commands
         .spawn((
             Node {
@@ -344,24 +370,19 @@ fn show(
             Pickable::IGNORE,
         ))
         .id();
-    commands.entity(inventory).add_child(tabs);
-    for (index, key) in (0_u8..).zip(TAB_TEXTS) {
-        let words = texts
-            .as_deref()
-            .and_then(|texts| texts.named(key))
-            .unwrap_or(key)
-            .to_uppercase();
-        let (mut image, _) = piece(TAB, Vec2::ZERO);
+    let mut each = Vec::new();
+    for label in labels {
+        let words = label.to_uppercase();
+        let (mut image, _) = bar::piece(images, assets, TAB, Vec2::ZERO, Vec2::ZERO);
         image.image_mode = NodeImageMode::Stretch;
         // The image over the whole tab, the text's room in a node of its own: an image is drawn
         // within its node's padding.
         let tab = commands
             .spawn((
-                Tab(index),
                 image,
                 Node {
                     min_width: Val::Px(TAB_WIDTH),
-                    height: Val::Px(size(TAB).y),
+                    height: Val::Px(images.size(TAB).y),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::FlexStart,
                     ..default()
@@ -391,7 +412,9 @@ fn show(
             })
             .id();
         commands.entity(tabs).add_child(tab);
+        each.push(tab);
     }
+    (tabs, each)
 }
 
 /// A left click on a tab shows its page (`cUI_TabSheet`, `0x729980`), the spells' with its sound.
@@ -437,7 +460,10 @@ fn off_the_windows(
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window>,
-    stash: Option<Res<crate::town_stash::Opened>>,
+    (stash, master): (
+        Option<Res<crate::town_stash::Opened>>,
+        Option<Res<crate::master::Master>>,
+    ),
 ) -> bool {
     if !shown.is_some_and(|shown| shown.0) {
         return true;
@@ -451,10 +477,12 @@ fn off_the_windows(
     };
     let over_stash =
         stash.is_some_and(|stash| stash.0.is_some()) && crate::town_stash::WINDOW.contains(at);
+    let over_master = master.is_some() && crate::master::WINDOW.contains(at);
     !(tabs.contains(at)
         || EQUIPMENT.contains(at)
         || crate::statistics::WINDOW.contains(at)
-        || over_stash)
+        || over_stash
+        || over_master)
 }
 
 /// The windows hidden at each game's start.

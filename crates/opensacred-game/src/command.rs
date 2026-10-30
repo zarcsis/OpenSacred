@@ -189,7 +189,8 @@ enum Command {
     /// The hero collects the items lying about it, as the bar's Collect button sends it: it walks
     /// to each that it may carry within 19 cells and picks up those about it, until none is left
     Collect,
-    /// The hero goes to speak to the creature ID, or to the nearest of a dialogue, as a left click
+    /// The hero goes to speak to the creature ID, or to the nearest of a dialogue or a combat
+    /// master, as a left click
     /// on it does; ID as `creatures` prints it
     Talk { id: Option<String> },
     /// The dialogue's window shown: its button N (from 1) chosen, as a click on it does, or its
