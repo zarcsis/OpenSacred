@@ -3,6 +3,9 @@
 # pull request's squash commit, with a GitHub Release whose notes list the pull requests since the
 # previous version (.github/release.yml); before 1.0.0, a pre-release. The major version is raised
 # only at the maintainer's request: `gh workflow run release.yml -f bump=major` tags the head of main.
+# The newest version that a run publishes gets the player's archive (#1500, #1494): the game in its
+# packaged build and the converter, in the dist profile, our FFmpeg (ffmpeg.yml, #1499), the licenses
+# and a read-me, in a 7z attached to the release with the FFmpeg build's source archives.
 name: Release
 
 on:
@@ -32,11 +35,14 @@ jobs:
     # Not in forks; a manual run only on main.
     if: github.repository == 'zarcsis/OpenSacred' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.publish.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the history and the tags
       - name: Tag and publish
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump }}
@@ -81,6 +87,7 @@ jobs:
             publish "$last" "$(versions | sed -n 2p)"
           fi
 
+          first=$last
           for commit in $(git rev-list --reverse --first-parent "$last..HEAD"); do
             labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" \
               --jq ".[] | select(.merge_commit_sha == \"$commit\") | .labels[].name")
@@ -94,3 +101,58 @@ jobs:
           if [[ -n $BUMP ]]; then
             release HEAD "$BUMP" "The $BUMP version, raised at the maintainer's request"
           fi
+
+          # The newest version that this run published, for its archive.
+          if [[ $last != "$first" ]]; then
+            echo "tag=$last" >> "$GITHUB_OUTPUT"
+          fi
+
+  ffmpeg:
+    name: FFmpeg
+    needs: release
+    if: needs.release.outputs.tag != ''
+    uses: ./.github/workflows/ffmpeg.yml
+
+  archive:
+    name: Archive
+    needs: [release, ffmpeg]
+    runs-on: windows-latest
+    env:
+      TAG: ${{ needs.release.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          fetch-depth: 0 # git describe, the executables' versions
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Build
+        run: cargo build --profile dist -p opensacred-game --features opensacred-game/packaged -p opensacred-convert
+      - uses: actions/download-artifact@v7
+        with:
+          name: ffmpeg-windows-x64
+          path: ffmpeg
+      # The archive's folder: the programs, the licenses, the notices and the read-me; no file of
+      # the game (docs/08 §3, §4).
+      - name: Archive and attach
+        shell: pwsh
+        run: |
+          $name = "OpenSacred-$env:TAG-windows-x64"
+          $dir = New-Item -ItemType Directory -Force $name
+          Copy-Item target\dist\opensacred-game.exe, target\dist\opensacred-convert.exe, ffmpeg\ffmpeg.exe, ffmpeg\FFMPEG.md, LICENSE-MIT, LICENSE-APACHE, THIRD-PARTY-NOTICES.md, release\README.txt $dir
+          Copy-Item release\FiraMono-LICENSE.txt "$dir\FiraMono-LICENSE.txt"
+          Copy-Item -Recurse ffmpeg\licenses "$dir\ffmpeg-licenses"
+          cargo about generate -c release\about.toml --workspace release\about.hbs -o "$dir\THIRD-PARTY-LICENSES.html"
+          if ($LASTEXITCODE) { throw 'cargo about' }
+          7z a -t7z -m0=lzma2 -mx=9 "$name.7z" $name
+          if ($LASTEXITCODE) { throw '7z' }
+          gh release upload $env:TAG "$name.7z" (Get-ChildItem ffmpeg\sources\*).FullName --clobber
+          if ($LASTEXITCODE) { throw 'gh release upload' }
+          Get-Item "$name.7z" | Format-Table Name, Length

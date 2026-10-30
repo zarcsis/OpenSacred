@@ -27,6 +27,10 @@ Multiplayer comes after version 1.0; until then there is no networking. Original
 
 It is not a game you can play through yet: the inventory is partly made, and there is no trade, no character sheet and no saving. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
 
+## Playing a release
+
+Each release on the [Releases](https://github.com/zarcsis/OpenSacred/releases) page carries `OpenSacred-vX.Y.Z-windows-x64.7z`: unpack it into a folder of its own and run `opensacred-game.exe`. At its first start the game finds your GOG or Steam installation of Sacred Gold 2.28 (English), or asks for its folder, and makes its assets from it once, which takes some minutes and 11 GB of free disk space for its time; they stay in `%LOCALAPPDATA%\OpenSacred\assets`. The archive holds no file of the game; its `README.txt` says the rest.
+
 ## Requirements
 
 - **The game:** your own copy of Sacred Gold 2.28 (English) from GOG or Steam. The converter checks it against the embedded SHA-256 manifests ([docs/manifest-gog-2.28.txt](docs/manifest-gog-2.28.txt), and [docs/manifest-steam-2.28.txt](docs/manifest-steam-2.28.txt) for the four files in which the Steam release differs); other builds are not supported. The development tools (the oracle, the original's driver) take the GOG release alone.

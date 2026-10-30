@@ -1,0 +1,18 @@
+# cargo-about's configuration for THIRD-PARTY-LICENSES.html of the release archive (#1500): the
+# licenses' texts of the crates that the game and the converter are built from, for Windows. The
+# accepted licenses are those that deny.toml allows; cargo deny checks them on every pull request.
+targets = ["x86_64-pc-windows-msvc"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+accepted = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
