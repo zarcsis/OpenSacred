@@ -28,7 +28,7 @@
 //! region has run its init, the portals of the sectors visited, the frontier of the land walked,
 //! red dots toward the sectors entered, and the pacified areas.
 //!
-//! Not followed yet: the places' names (#1577); the lens's creatures and party (#1571), its places and
+//! Not followed yet: the places' names (#1577); the lens's party, its places and
 //! pin, and its titles' layout apart; the buttons' pressed looks and tooltips, and the edges'
 //! cursors.
 
@@ -438,6 +438,41 @@ struct LensPlane;
 
 /// The nodes of a kind of the lens's, apart from another's.
 type Placed<'w, 's, T, U> = Query<'w, 's, (Entity, &'static mut Node), (With<T>, Without<U>)>;
+
+/// The creatures' marks of the lens, laid again each frame.
+#[derive(Component)]
+struct CreatureLayer;
+
+/// How far about the lens's point the creatures it marks stand: its sectors', four sectors.
+const CREATURES_REACH: f32 = 4.0 * 64.0 * crate::iso::CELL;
+
+/// Lays the creatures' marks in the lens's plane each frame (#1571, `lens_creatures`).
+fn lens_marks(
+    mut commands: Commands,
+    lens: Res<Lens>,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    creatures: crate::lens_creatures::Creatures,
+    planes: Query<Entity, With<LensPlane>>,
+    layers: Query<Entity, With<CreatureLayer>>,
+    mut classes: Local<std::collections::HashMap<u32, u8>>,
+) {
+    for layer in &layers {
+        commands.entity(layer).despawn();
+    }
+    let (Some((laid, _)), Ok(plane)) = (lens.laid, planes.single()) else {
+        return;
+    };
+    let marks = creatures.marks(crate::minimap::world(laid), CREATURES_REACH, &mut classes);
+    let layer = commands
+        .spawn((
+            CreatureLayer,
+            bar::placed(Vec2::ZERO, bar::SCREEN),
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(plane).add_child(layer);
+    crate::lens_creatures::spawn(&mut commands, layer, (&images, &assets), &marks, laid);
+}
 
 /// The iso plane's point of the map's pixel `pixel` (`0x6CCBD0`: `0x6CB3B0` undone).
 fn iso_of(pixel: Vec2) -> Vec2 {
@@ -1249,6 +1284,7 @@ impl Plugin for WorldMapPlugin {
                     tooltip,
                     hold_lens,
                     show_lens,
+                    lens_marks,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),

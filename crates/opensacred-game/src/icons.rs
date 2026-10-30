@@ -210,12 +210,20 @@ impl Looks {
 /// A creature's icon while it shows: its value, its image's file, its two squares, the image and
 /// the pulse, the pulse's grey, and the head's bone once found.
 #[derive(Component)]
-struct Icon {
+pub(crate) struct Icon {
     icon: i32,
     file: String,
     squares: [Entity; 2],
     step: u8,
     head: Option<Entity>,
+}
+
+impl Icon {
+    /// Its value (`quests::icon`): a dialogue's "!" and "?" below 50, a townsperson's activity
+    /// from it.
+    pub(crate) fn value(&self) -> i32 {
+        self.icon
+    }
 }
 
 fn make_square(mut commands: Commands, meshes: Option<ResMut<Assets<Mesh>>>) {

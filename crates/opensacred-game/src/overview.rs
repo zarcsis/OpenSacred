@@ -10,7 +10,9 @@
 //! The region's line under the difficulty's name: the region of the hero's area, the kills that
 //! remain in it and its total (#1574, `regions`).
 //!
-//! Not followed yet: the lens's creatures (#1571); the
+//! The creatures' marks as the lens draws them (#1571, `lens_creatures`).
+//!
+//! Not followed yet: the
 //! settings' `MINIMAP_ALPHA` and `EXPLOREMAP`, and the scripts' boxes' tooltip, which no box of
 //! the release has.
 
@@ -387,6 +389,40 @@ fn region_line(
     }
 }
 
+/// The creatures' marks of the overview's lens, laid again each frame.
+#[derive(Component)]
+struct CreatureLayer;
+
+/// Lays the creatures' marks in the overview's plane each frame (#1571, `lens_creatures`).
+fn marks(
+    mut commands: Commands,
+    overview: Res<Overview>,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    creatures: crate::lens_creatures::Creatures,
+    planes: Query<Entity, With<Plane>>,
+    layers: Query<Entity, With<CreatureLayer>>,
+    mut classes: Local<std::collections::HashMap<u32, u8>>,
+) {
+    for layer in &layers {
+        commands.entity(layer).despawn();
+    }
+    let (Some((laid, _)), Ok(plane)) = (overview.laid.filter(|_| overview.shown), planes.single())
+    else {
+        return;
+    };
+    let reach = 4.0 * 64.0 * crate::iso::CELL;
+    let marks = creatures.marks(crate::minimap::world(laid), reach, &mut classes);
+    let layer = commands
+        .spawn((
+            CreatureLayer,
+            bar::placed(Vec2::ZERO, bar::SCREEN),
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(plane).add_child(layer);
+    crate::lens_creatures::spawn(&mut commands, layer, (&images, &assets), &marks, laid);
+}
+
 /// A new game's overview, hidden.
 fn reset(mut overview: ResMut<Overview>) {
     *overview = Overview::default();
@@ -401,7 +437,7 @@ impl Plugin for OverviewPlugin {
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
                 Update,
-                (hold, show, arrows, region_line)
+                (hold, show, marks, arrows, region_line)
                     .chain()
                     .after(crate::frame::Step::Follow)
                     .run_if(in_state(AppState::InGame)),

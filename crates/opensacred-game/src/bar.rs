@@ -174,6 +174,7 @@ impl UiImages {
             .chain(tiles.iter().map(String::as_str))
             .chain([crate::world_map::PUSHPIN])
             .chain(crate::world_map::PEOPLE)
+            .chain([crate::lens_creatures::DOT])
             .collect();
         names.sort_unstable();
         names.dedup();
