@@ -91,5 +91,12 @@ class MergeOrder(unittest.TestCase):
         self.assertEqual([p['number'] for p in stack.merge_order(prs)], [3, 5, 7, 9])
 
 
+class IntegrationTarget(unittest.TestCase):
+    def test_the_check_builds_apart_from_the_checkouts_target(self):
+        self.assertEqual(stack.integration_target({}), stack.ROOT / 'target' / 'integration')
+        shared = Path(tempfile.gettempdir()) / 'shared-target'
+        self.assertEqual(stack.integration_target({'CARGO_TARGET_DIR': str(shared)}), shared / 'integration')
+
+
 if __name__ == '__main__':
     unittest.main()
