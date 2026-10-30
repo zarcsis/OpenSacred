@@ -212,12 +212,6 @@ pub(crate) fn resolve(
             (false, true) => Some(Side::Defender),
             _ => None,
         };
-        // The foe the hero strikes, for the statistics window's hit chance (#1521).
-        if side == Some(Side::Attacker)
-            && let Some(last_foe) = last_foe.as_deref_mut()
-        {
-            last_foe.0 = Some((defender.defence, victim.map_or(0, |mind| mind.creature)));
-        }
         let level = mind.map_or(experience.level, |mind| mind.level);
         let (mut attacker, mut defender, mut blow) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);
@@ -408,6 +402,18 @@ pub(crate) fn resolve(
                     level: health.level,
                     rank: rank.map_or(Rank::Common, |rank| rank.0),
                 });
+            }
+            // The foe the hero kills, which the statistics window's last foe and hit chance
+            // show (the player's statistics' record, `0x424250`; **seen**: kept at the kill,
+            // with its most health, #1525).
+            if side == Some(Side::Attacker)
+                && let Some(last_foe) = last_foe.as_deref_mut()
+            {
+                last_foe.0 = Some(crate::statistics::Foe::of(
+                    victim.map_or(0, |mind| mind.creature),
+                    &health,
+                    &defender,
+                ));
             }
             let worth = worth
                 .filter(|_| hero)
@@ -843,6 +849,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],

@@ -39,7 +39,7 @@ pub(crate) const EQUIPMENT: Rect = Rect {
 };
 /// The sounds of the window shown and hidden (`(14, 2, 1)`, `UI_INV_OPEN01`, `UI_INV_CLOSE01`).
 pub(crate) const OPENS: u32 = 7111;
-const CLOSES: u32 = 7112;
+pub(crate) const CLOSES: u32 = 7112;
 
 /// The inventory's frame (`0x6C6490`, all of `GUI_main_03`): the top edge's first and last
 /// pieces and the range of the others, the bottom edge's, and the right edge's, which starts 4
