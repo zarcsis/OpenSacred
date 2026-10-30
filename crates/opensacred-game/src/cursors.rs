@@ -48,10 +48,12 @@ pub enum Look {
     Combo,
     Smith,
     HorseTrader,
+    /// The world map's pin's mode (#1569).
+    Pushpin,
 }
 
 impl Look {
-    pub const ALL: [Look; 10] = [
+    pub const ALL: [Look; 11] = [
         Look::Arrow,
         Look::Hand,
         Look::Sword,
@@ -62,6 +64,7 @@ impl Look {
         Look::Combo,
         Look::Smith,
         Look::HorseTrader,
+        Look::Pushpin,
     ];
 
     /// Its texture's name, as the converter names the file.
@@ -77,6 +80,16 @@ impl Look {
             Look::Combo => "mouse_combo",
             Look::Smith => "mouse_blacksmith",
             Look::HorseTrader => "mouse_horsetrader",
+            Look::Pushpin => "mouse_pushpin",
+        }
+    }
+
+    /// Its point within its picture, at the scale 1: the pin's middle, which the original
+    /// draws 16 pixels up and left of the pointer (`0x6C7540`), the others' corner.
+    pub fn spot(self) -> u16 {
+        match self {
+            Look::Pushpin => 16,
+            _ => 0,
         }
     }
 
@@ -93,6 +106,7 @@ impl Look {
             Look::Combo => "combo",
             Look::Smith => "smith",
             Look::HorseTrader => "horse-trader",
+            Look::Pushpin => "pushpin",
         }
     }
 }
@@ -218,10 +232,11 @@ fn choose(
         ResMut<Foe>,
         ResMut<Highlit>,
     ),
-    (state, window, pointer): (
+    (state, window, pointer, map): (
         Option<Res<State<AppState>>>,
         Option<Res<crate::talk::Shown>>,
         Res<Pointer>,
+        Option<Res<crate::world_map::Map>>,
     ),
     (hovered, nodes): (Option<Res<HoverMap>>, Query<(), With<Node>>),
     cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
@@ -356,6 +371,12 @@ fn choose(
             .unwrap_or_default()
         }
         _ => Look::Arrow,
+    };
+    // The world map's pin's mode shows the pin (`0x6C8140`).
+    let look = if map.is_some_and(|map| map.pin_mode()) {
+        Look::Pushpin
+    } else {
+        look
     };
     shown.set_if_neq(Shown(look));
     named.set_if_neq(Named(item.filter(|_| look == Look::Hand)));

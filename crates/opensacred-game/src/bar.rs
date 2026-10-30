@@ -172,6 +172,7 @@ impl UiImages {
             ])
             .chain(crate::quest_book::BASES)
             .chain(tiles.iter().map(String::as_str))
+            .chain([crate::world_map::PUSHPIN])
             .collect();
         names.sort_unstable();
         names.dedup();

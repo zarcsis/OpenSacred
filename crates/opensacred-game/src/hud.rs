@@ -269,7 +269,9 @@ fn cursor(
             }
         },
     };
-    // The glow widens the picture by its reach on each side, its point as far in.
+    // The glow widens the picture by its reach on each side, its point as far in; a picture's
+    // own point by the scale.
+    let spot = look.spot() * u16::try_from(scale).unwrap_or(1);
     let point = if glows {
         u16::try_from(GLOW_REACH * scale).unwrap_or(0)
     } else {
@@ -279,7 +281,7 @@ fn cursor(
         .entity(entity)
         .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
             handle,
-            hotspot: (point, point),
+            hotspot: (point + spot, point + spot),
             ..default()
         })));
 }
