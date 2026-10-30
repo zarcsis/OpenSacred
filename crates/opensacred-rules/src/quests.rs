@@ -106,6 +106,10 @@ pub fn side_alpha(distance: u32, radius: u32) -> u8 {
 pub struct Quests {
     flags: BTreeMap<u32, u32>,
     log: BTreeSet<u32>,
+    /// The quests in the order they entered the log, by which an entry has its index (the
+    /// log's vector at the script manager's `+0x424`).
+    #[serde(default)]
+    order: Vec<u32>,
     /// The compasses that `QuestKompassPos` and `QuestKompassObj` set, by the quest whose log
     /// entry holds them.
     #[serde(default)]
@@ -195,7 +199,9 @@ impl Quests {
                     self.pending = None;
                     return None;
                 }
-                self.log.insert(quest);
+                if self.log.insert(quest) {
+                    self.order.push(quest);
+                }
                 *self.flags.entry(quest).or_default() |= ENTERED;
                 // The newest main or side quest, and the compass that waited for it, a main
                 // quest's a new marker.
@@ -275,6 +281,20 @@ impl Quests {
         (self.log.contains(&quest) && self.flags(quest) & FINISHED == 0)
             .then(|| self.compasses.get(&quest))
             .flatten()
+    }
+
+    /// The quest of the marker `marker` with its compass, as [`Quests::marker`] gives it.
+    pub fn marked(&self, marker: Marker) -> Option<(u32, &Compass)> {
+        let quest = match marker {
+            Marker::Main => self.newest[0],
+            Marker::Side => self.newest[1],
+        }?;
+        self.marker(marker).map(|compass| (quest, compass))
+    }
+
+    /// The index of the quest `quest`'s entry in the log, the order the quests entered it.
+    pub fn entry(&self, quest: u32) -> Option<usize> {
+        self.order.iter().position(|&entered| entered == quest)
     }
 
     /// Whether a marker was set anew since the last call, for the bar's sonar.
@@ -1345,6 +1365,28 @@ mod tests {
             ran.push(name.to_owned());
             through
         }
+    }
+
+    #[test]
+    fn the_logs_entries_keep_the_order_the_quests_entered_it() {
+        let mut quests = Quests::default();
+        let mut ran = Vec::new();
+        for quest in [150, 1, 2] {
+            quests.set_up(quest, &mut runtime(&mut ran, true));
+            assert!(quests.trigger(quest, &mut runtime(&mut ran, true)));
+        }
+        assert_eq!(
+            [150, 1, 2, 3].map(|quest| quests.entry(quest)),
+            [Some(0), Some(1), Some(2), None]
+        );
+        // The newest main quest's marker with its quest, once it has a compass.
+        assert_eq!(quests.marked(Marker::Main), None);
+        let compass = Compass {
+            target: Target::Cell(3240, 2511),
+            radius: 0,
+        };
+        quests.set_compass(Some(2), compass.clone());
+        assert_eq!(quests.marked(Marker::Main), Some((2, &compass)));
     }
 
     #[test]

@@ -93,7 +93,10 @@ fn on_ellipse(phi: f32, axes: Vec2) -> Vec2 {
 }
 
 /// Where a compass's target stands on the ground (`x`, `z`), a creature's where it is now.
-fn target_of(compass: &Compass, named: &Query<(&ScriptName, &GlobalTransform)>) -> Option<Vec2> {
+pub(crate) fn target_of(
+    compass: &Compass,
+    named: &Query<(&ScriptName, &GlobalTransform)>,
+) -> Option<Vec2> {
     match &compass.target {
         Target::Cell(x, y) => Some(paths::centre((*x, *y))),
         Target::Named(name) => named
