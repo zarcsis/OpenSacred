@@ -475,6 +475,12 @@ impl Live {
             .cloned()
     }
 
+    /// Whether the area `area`'s region has run its `Region<n>Init` (the areas' table's `+8` bit 0,
+    /// which the world map's people's icons wait for).
+    pub fn region_ran(&self, area: u8) -> bool {
+        self.state.regions.ran(quests::region(area))
+    }
+
     /// Whether the areas' entry `area` stands pacified (`0x61DB10`, `RegionFrei`).
     pub fn pacified(&self, area: u8) -> bool {
         self.state.pacified.holds(area)

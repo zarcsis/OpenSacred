@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 
 use anyhow::{Result, anyhow};
 use opensacred_data::tables::{
-    BALANCE, Balance, CREATURES, Creature, ITEMS, Item, MOTIONS, Motion, TYPE_NAMES, TypeName,
-    WEAPONS, Weapon,
+    BALANCE, Balance, CREATURES, Creature, ITEMS, Item, MERCENARIES, MOTIONS, Mercenary, Motion,
+    TYPE_NAMES, TypeName, WEAPONS, Weapon,
 };
 use serde::de::DeserializeOwned;
 
@@ -26,6 +26,7 @@ pub struct Tables {
     motions: Parsed<Vec<Motion>>,
     balance: Parsed<Balance>,
     type_names: Parsed<Vec<TypeName>>,
+    mercenaries: Parsed<Vec<Mercenary>>,
 }
 
 impl Tables {
@@ -39,6 +40,7 @@ impl Tables {
             motions: OnceLock::new(),
             balance: OnceLock::new(),
             type_names: OnceLock::new(),
+            mercenaries: OnceLock::new(),
         }
     }
 
@@ -70,6 +72,13 @@ impl Tables {
     /// `type_names.ron`, the types' names of `Sacred.exe` (#1171).
     pub fn type_names(&self) -> Result<&[TypeName]> {
         self.parsed(&self.type_names, TYPE_NAMES).map(Vec::as_slice)
+    }
+
+    /// `mercenaries.ron`, `bin/merc.bin`'s places of the traders, the smiths, the combat masters
+    /// and the horse traders, which the world map shows (#1567).
+    pub fn mercenaries(&self) -> Result<&[Mercenary]> {
+        self.parsed(&self.mercenaries, MERCENARIES)
+            .map(Vec::as_slice)
     }
 
     /// The path of the table `file`, for messages.
