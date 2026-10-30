@@ -39,11 +39,11 @@ type Channels<'w> = (
 
 /// Esc pauses the game, and again goes on.
 pub(crate) fn toggle(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     play: Res<State<Play>>,
     mut next: ResMut<NextState<Play>>,
 ) {
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(crate::controls::Action::Back) {
         next.set(match play.get() {
             Play::Running => Play::Paused,
             Play::Paused => Play::Running,

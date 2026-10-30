@@ -228,17 +228,14 @@ fn sort(
 /// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), with their
 /// sounds; the key taken from the game.
 fn toggle(
-    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     images: Res<UiImages>,
     mut shown: ResMut<Shown>,
     mut sounds: MessageWriter<sfx::Play>,
 ) {
-    let pressed = keys.just_pressed(KeyCode::KeyI);
-    if pressed {
-        keys.clear_just_pressed(KeyCode::KeyI);
-    }
+    let pressed = keys.take(crate::controls::Action::Inventory);
     let clicked = buttons.just_pressed(MouseButton::Left)
         && screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
             let (index, corner) = bar::INVENTORY_BUTTON;

@@ -246,7 +246,7 @@ Versions as of 2026-10-16.
 
 | Task | Crate | Version | License |
 |---|---|---|---|
-| Input with remapping | leafwing-input-manager | 0.22.0 | MIT or Apache-2.0 |
+| Input with remapping | leafwing-input-manager (not used: the game's own `controls`, #1553) | 0.22.0 | MIT or Apache-2.0 |
 | AV1 video | rav1d | 1.1.0 | BSD-2-Clause |
 | WebM container | matroska-demuxer or webm-iterable | 0.8.1 / 0.7.1 | Zlib, MIT or Apache-2.0 / MIT |
 | Tests | insta, proptest | 1.49.0, 1.12.0 | Apache-2.0; MIT or Apache-2.0 |

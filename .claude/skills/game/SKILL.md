@@ -28,7 +28,7 @@ The game is `opensacred-game` (docs/10). It reads the converted assets of `asset
   uv run python -I tools/game/remote.py wait-ready             # loaded, the hero animating, the sectors in place
   ```
 
-Always pass `--hidden` (or `--windowed` for a one-shot script), `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), console history and log. `--hidden` keeps the window off the screen, the taskbar and Alt-Tab, while the game draws on and its screenshots are whole, also while the computer is locked (#556); it cannot be shown again, as the game hangs when it is. With `--remote` the window opens without taking the focus.
+Always pass `--hidden` (or `--windowed` for a one-shot script), `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), keys (`controls.toml`, beside the settings), console history and log. `--hidden` keeps the window off the screen, the taskbar and Alt-Tab, while the game draws on and its screenshots are whole, also while the computer is locked (#556); it cannot be shown again, as the game hangs when it is. With `--remote` the window opens without taking the focus.
 
 ## What the client does
 

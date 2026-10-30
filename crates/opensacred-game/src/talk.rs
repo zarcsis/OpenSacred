@@ -818,7 +818,7 @@ fn end(world: &mut World, hero: Entity, creature: Entity) {
 fn dismiss(
     mut commands: Commands,
     shown: Option<Res<Shown>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     buttons: Res<ButtonInput<MouseButton>>,
     heroes: Query<&Transform, With<Body>>,
     creatures: Query<&Transform, Without<Dies>>,
@@ -827,7 +827,8 @@ fn dismiss(
         return;
     };
     let pressed = shown.functions.is_empty()
-        && (keys.just_pressed(KeyCode::Enter) || buttons.get_just_pressed().next().is_some());
+        && (keys.just_pressed(crate::controls::Action::Confirm)
+            || buttons.get_just_pressed().next().is_some());
     let apart = match (heroes.iter().next(), creatures.get(shown.creature)) {
         (Some(hero), Ok(creature)) => {
             (creature.translation - hero.translation).xz().length() > ENDS_BEYOND

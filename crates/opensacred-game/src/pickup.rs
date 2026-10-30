@@ -450,7 +450,7 @@ impl Pack {
 )]
 pub(crate) fn pick(
     mut commands: Commands,
-    (buttons, keys): (Res<ButtonInput<MouseButton>>, Res<ButtonInput<KeyCode>>),
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
     pointer: Res<Pointer>,
     aim: Res<Aim>,
     labels: Res<crate::labels::Shown>,

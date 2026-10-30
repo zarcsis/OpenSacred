@@ -496,11 +496,11 @@ fn spawn_panel(mut commands: Commands, settings: Res<Settings>) {
 
 /// F7: the overlay shown or hidden, kept in the settings.
 fn toggle(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: crate::controls::Keys,
     mut settings: ResMut<Settings>,
     mut file: ResMut<SettingsFile>,
 ) {
-    if !keys.just_pressed(KeyCode::F7) {
+    if !keys.just_pressed(crate::controls::Action::Overlay) {
         return;
     }
     settings.debug.overlay = !settings.debug.overlay;
