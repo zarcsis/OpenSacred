@@ -802,12 +802,24 @@ A value by the level `L` is a pair `(a, b)`, `a + L·b`.
 
 **Confirmed** by code and in the running original 2026-10-23 (#710): 714 bytes at VA `0x68BBD0` give the creature types 1 to 714, in order, the case of the voice function `0x6852B0` (docs/re/sound.md, "The fight's sounds"), below 118, `0x75` none; 328 types have another case.
 What each case does lies in its code, not in data: `opensacred-convert tables` holds the 118 cases' values as a table and writes the types' voices into `tables/voices.ron` (`opensacred_data::tables::Voices`).
+The data files do not hold the table (**confirmed** on the data 2026-10-30, #1485, for the Steam build, whose code is encrypted, docs/01 §1):
+- of the 474 types 1 to 714 that have an `items.pak` record (all of the type 2 and the category 3), no field of the record, a byte, a `u16` or a `u32` at any offset, equals one of its voice's profiles;
+- a field tells the voice only as far as the types that share its value speak alike, and only the model, its name or its index `+0x70`, does so for more than three in four: 300 types share 58 models, and the most common voice among a model's types is a type's own for 236 of them;
+- 174 types have a model of their own, and the name of a voice's profile (`sndProfiles.pak`: `gobliins`, `echse`, `SOUND`) does not follow the model's;
+- no field of `Creature.pak`'s records (470 of the types have one of their id) tells it as well as the model;
+- the 714 bytes lie in no other file of the installation, `GameServer.exe` among them.
+
 The creatures' idle noises (#714) lie in code too, two switches by the type in the sound manager's update (docs/re/sound.md, "The idle noises"): `opensacred-convert tables` holds their cases and writes `tables/idle_noises.ron` (`opensacred_data::tables::IdleNoises`), 311 types as hostile to the hero and 241 as not.
 
 ### 6.7 The creatures' portraits in Sacred.exe
 
 **Confirmed** by code 2026-10-26 (#1032; docs/re/netscript.md, "Dialogues"): the function at VA `0x4345C0` gives each creature type the index of its portrait among the interface's images, a switch over two jump tables, the types 1 to 9's at `0x435264` and the types `0x21` to `0x2CA`'s at `0x435288`, with the types `0x20` and `0x17E2` compared alone; every case, its default at `0x43525A` too, is `mov eax, imm32; ret 4`.
 467 types have a case of their own; the others take the default's image 900.
+The data files do not hold the choice (**confirmed** on the data 2026-10-30, #1485):
+- the 474 types of an `items.pak` record take 396 images, so that the types of one model mostly take images of their own: the nine types of `GARGOYLE.GRN` (45, 60 to 62, 68, 89 to 92) nine images;
+- within the 300 types that share a model, the most common image of the model's types is a type's own for 100;
+- no field of the type's `items.pak` or `Creature.pak` record equals its image's index, and the nearest, the low byte of the own index `+0x20`, by which the types 256 apart share a value, gives 161 of the 379 types that share one their image;
+- the cases' constants lie in no other file of the installation.
 The interface's images' table at VA `0x9ECEB0` has entries of 0x54 bytes: the index (`u32`, the entry's own), a `u32`, the TGA's name (`char[36]` from `+8`), and from `+0x2C` the rectangle as four `f32`, the left, top, right and bottom pixels, the last two included: the type 1's image 964 is the part (96, 0)–(191, 127) of `GUI_portraitX34.TGA`, whose texture is `texture.pak`'s `gui_portraitx34`.
 `opensacred-convert tables` writes them into `tables/portraits.ron` (`opensacred_data::tables::Portraits`): each type's texture by its name lower-cased and its part's left, top, width and height, and the default's.
 The table runs from its entry 0 (`INVALID`, a rectangle of zeros) to the entry 1,823, whose next stores another index (1,771); its pieces lie in 274 TGAs, most in `GUI_main_12` (64), `GUI_main_01` (61) and `GUI_main_icons` (57) (counted 2026-10-27, #1087).
