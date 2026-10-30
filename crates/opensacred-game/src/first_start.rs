@@ -69,6 +69,23 @@ pub enum Told {
     Said(String),
 }
 
+/// Whether the assets in `assets` that the converter has just made are the game's of `version`:
+/// a converter of another version beside the game makes assets that the game would make again at
+/// each of its starts, without end (#1510).
+pub fn made(assets: &Path, version: &str) -> Result<(), String> {
+    match need(assets, version) {
+        Need::Nothing => Ok(()),
+        Need::Update { from } => Err(format!(
+            "the converter beside the game is of version {from}, and the game of version \
+             {version}: unpack the release again, the game and its converter together"
+        )),
+        Need::First => Err(format!(
+            "the converter wrote no assets that the game reads in {}",
+            assets.display()
+        )),
+    }
+}
+
 /// What a line of the converter's stdout tells: its JSON lines by their key, the others as said.
 pub fn told(line: &str) -> Told {
     let Some(value) = line
@@ -162,6 +179,8 @@ impl Drop for Run {
 struct Screen {
     phase: Phase,
     need: Need,
+    /// The assets' directory, whose mark is read again once they are made.
+    assets: PathBuf,
     shot: Option<PathBuf>,
 }
 
@@ -314,7 +333,12 @@ fn minutes(seconds: f32) -> String {
 
 /// Runs the first start's window for `need`; once the assets are made, starts the game again
 /// with the same arguments.
-pub fn run(need: Need, hidden: bool, log_file: Option<PathBuf>, shot: Option<PathBuf>) -> ExitCode {
+pub fn run(
+    (need, assets): (Need, PathBuf),
+    hidden: bool,
+    log_file: Option<PathBuf>,
+    shot: Option<PathBuf>,
+) -> ExitCode {
     let mut app = App::new();
     app.insert_resource(crate::journal::Journal::new(log_file));
     app.add_plugins(
@@ -338,6 +362,7 @@ pub fn run(need: Need, hidden: bool, log_file: Option<PathBuf>, shot: Option<Pat
     .insert_resource(Screen {
         phase: Phase::Locating,
         need,
+        assets,
         shot,
     })
     .add_systems(Startup, (spawn, locate))
@@ -543,14 +568,20 @@ fn pump(
                     since: Instant::now(),
                 };
             }
-            Told::Done => {
-                info!(
-                    "first start: the assets are made in {:.0} s",
-                    run.started.elapsed().as_secs_f32()
-                );
-                screen.phase = Phase::Made;
-                exit.write(AppExit::Success);
-            }
+            Told::Done => match made(&screen.assets, env!("OPENSACRED_VERSION")) {
+                Ok(()) => {
+                    info!(
+                        "first start: the assets are made in {:.0} s",
+                        run.started.elapsed().as_secs_f32()
+                    );
+                    screen.phase = Phase::Made;
+                    exit.write(AppExit::Success);
+                }
+                Err(message) => {
+                    warn!("first start: {message}");
+                    screen.phase = Phase::Failed(message);
+                }
+            },
             Told::Failed(message) => {
                 warn!("first start: {message}");
                 screen.phase = Phase::Failed(message);
@@ -717,6 +748,22 @@ mod tests {
             Told::Said("textures: 25534 textures".into())
         );
         assert_eq!(told("{ not json"), Told::Said("{ not json".into()));
+    }
+
+    /// Assets made by a converter of another version are refused, not made again (#1510).
+    #[test]
+    fn assets_of_another_version_are_refused_once_made() {
+        let dir = std::env::temp_dir().join(format!("opensacred-made-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(made(&dir, "1.0.0").unwrap_err().contains("no assets"));
+        std::fs::write(dir.join(MARK), "(version: \"1.1.0\", release: \"gog\")").unwrap();
+        let error = made(&dir, "1.0.0").unwrap_err();
+        assert!(
+            error.contains("1.1.0") && error.contains("1.0.0"),
+            "{error}"
+        );
+        assert_eq!(made(&dir, "1.1.0"), Ok(()));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

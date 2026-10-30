@@ -510,7 +510,7 @@ fn main() -> ExitCode {
             let log_file = cli.log_file.clone().or_else(|| {
                 settings::state_dir().map(|dir| dir.join("logs").join("opensacred.log"))
             });
-            return first_start::run(need, cli.hidden, log_file, cli.screenshot.clone());
+            return first_start::run((need, assets), cli.hidden, log_file, cli.screenshot.clone());
         }
     }
     match run(cli) {
