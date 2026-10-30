@@ -218,6 +218,8 @@ pub struct Effects {
     pub remarks: Vec<Remark>,
     /// The items it gave the hero straight among the main quest's items (#1256).
     pub given: Vec<u32>,
+    /// The random items that its `CreateObj`s of `0x54` and no type make for the hero (#1518).
+    pub random_items: u32,
     /// The side quests that its `ExitQuest`s won, each of which may give the hero a rune of its
     /// class (`0x46D362`, `rewards`; #1386).
     pub won: Vec<u32>,
@@ -239,6 +241,7 @@ impl Effects {
         self.sounds.extend(other.sounds);
         self.remarks.extend(other.remarks);
         self.given.extend(other.given);
+        self.random_items += other.random_items;
         self.won.extend(other.won);
     }
 }
@@ -492,6 +495,16 @@ impl Live {
         self.state.quests.take_fresh()
     }
 
+    /// The hidden stashes not searched yet (`MachVersteck`, #1518).
+    pub fn stashes(&self) -> &[quests::Stash] {
+        &self.state.stashes.0
+    }
+
+    /// The stash at `cell`, which its search takes away (#1518).
+    pub fn search_stash(&mut self, cell: (i32, i32)) -> Option<quests::Stash> {
+        self.state.stashes.search(cell)
+    }
+
     /// Runs the function `function` found by its name case aside (`0x46BF40`, `0x460590`), as
     /// the runner runs one (`0x46BA90`), a quest's only while the quest is set up: a creature's
     /// death's function, a count's: what it did to the world, nothing where the tree has no such
@@ -636,6 +649,7 @@ impl Live {
             sounds: recorder.sounds,
             remarks: recorder.remarks,
             given: recorder.given,
+            random_items: recorder.random_items,
             won: recorder.won,
         };
         (effects, outcome)
@@ -810,6 +824,8 @@ struct Recorder<'a> {
     /// The items that its `CreateObj`s gave the hero straight among the main quest's items
     /// ([`Recorder::given`], #1256).
     given: Vec<u32>,
+    /// The random items that its `CreateObj`s of `0x54` and no type make ([`Effects::random_items`]).
+    random_items: u32,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
     won: Vec<u32>,
     /// Whether the scripts' anim mode is on in the run, from a `SetAnimMode` or a
@@ -861,6 +877,7 @@ impl<'a> Recorder<'a> {
             running: Vec::new(),
             names: Vec::new(),
             given: Vec::new(),
+            random_items: 0,
             won: Vec::new(),
             anim: false,
         }
@@ -1062,6 +1079,17 @@ impl Host for Recorder<'_> {
         {
             return handled;
         }
+        // A `CreateObj` of `0x54` and no type, which makes a random item for the local hero
+        // (`0x4863D4`, docs/re/containers.md, "The hidden stashes"; #1518).
+        if name == "create_obj"
+            && tags.numbers("_02").is_empty()
+            && tags.numbers("_54").first().is_some_and(|&n| n >= 0)
+        {
+            if ran.is_empty() {
+                self.random_items += 1;
+            }
+            return Handled::Done;
+        }
         if ran.is_empty()
             && let Some(mut record) = opensacred_scripts::record(name, operands)
         {
@@ -1223,6 +1251,35 @@ impl Host for Recorder<'_> {
             "def_pos" => {
                 if let Some(name) = tags.texts("_01").first() {
                     self.state.positions.define(name, &tags.numbers("_0B"));
+                }
+                Handled::Done
+            }
+            // A place into a pool (`AddPoolPos`, 108; #1518).
+            "add_pool_pos" => {
+                if let (Some(name), [x, y, ..]) =
+                    (tags.texts("_01").first(), tags.numbers("_0B").as_slice())
+                {
+                    self.state.pools.add(name, (*x, *y));
+                }
+                Handled::Done
+            }
+            // The hidden stashes (`MachVersteck`, 140, `0x4B0C00`; #1518): a count, else the
+            // value of the variable of the fourth name, of places drawn from the pool.
+            "make_hiding_place" => {
+                let names = tags.texts("_01");
+                let count = match (tags.numbers("_0B").first(), names.as_slice()) {
+                    (Some(&count), [_, _, _]) => Some(count),
+                    (None, [_, _, _, variable]) => Some(variables.value(variable)),
+                    _ => None,
+                };
+                if let (Some(count), [text, pool, function, ..]) = (count, names.as_slice()) {
+                    let count = u32::try_from(count).unwrap_or(0);
+                    self.state.stashes.lay(
+                        &mut self.state.pools,
+                        (text, pool, function),
+                        count,
+                        &mut *self.rng,
+                    );
                 }
                 Handled::Done
             }
@@ -2001,12 +2058,14 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         sounds,
         remarks,
         given,
+        random_items,
         won,
         ..
     } = effects;
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
     world.write_message_batch(given.into_iter().map(crate::pickup::Given));
+    world.write_message_batch((0..random_items).map(|_| crate::stashes::RandomItem));
     world.write_message_batch(won.into_iter().map(crate::rewards::QuestWon));
     world.resource_mut::<Infos>().0.extend(infos);
     world.resource_mut::<Popups>().0.extend(popups);
@@ -2080,6 +2139,7 @@ struct Queues<'w> {
     sounds: MessageWriter<'w, ScriptSound>,
     remarks: MessageWriter<'w, Remark>,
     given: MessageWriter<'w, crate::pickup::Given>,
+    random_items: MessageWriter<'w, crate::stashes::RandomItem>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
 }
 
@@ -2098,6 +2158,8 @@ impl Queues<'_> {
         self.remarks.write_batch(effects.remarks);
         self.given
             .write_batch(effects.given.into_iter().map(crate::pickup::Given));
+        self.random_items
+            .write_batch((0..effects.random_items).map(|_| crate::stashes::RandomItem));
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
     }
@@ -2360,6 +2422,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
+            .add_message::<crate::stashes::RandomItem>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
@@ -2874,6 +2937,7 @@ mod tests {
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
+            .add_message::<crate::stashes::RandomItem>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, deaths);
         let dying = |app: &mut App, function: &str| {
@@ -2931,6 +2995,7 @@ mod tests {
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
+            .add_message::<crate::stashes::RandomItem>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, run_due);
         app.update();
@@ -3216,6 +3281,45 @@ mod tests {
         // The items given are in the hero's list by their names' keys (#1257).
         assert!(live.state.items.holds("RES:6049"));
         assert!(!live.state.items.holds("res:6046"));
+    }
+
+    /// The hidden stashes (#1518): `MachVersteck` lays the count of its variable from its pool,
+    /// a search takes one away, and the stash's `CreateObj` of `0x54` and no type makes a random
+    /// item rather than an object.
+    #[test]
+    fn the_stashes_take_their_places_from_the_pools_and_make_random_items() {
+        let runtime = runtime(&[(
+            "functions/stashes.luau",
+            "local F = {}
+             F[\"lay\"] = function()
+             set_var { _01 = \"MaxVerstecke_r1\", _0B = 2 }
+             add_pool_pos { _01 = \"Versteck_1\", _0B = { 10, 20 } }
+             add_pool_pos { _01 = \"Versteck_1\", _0B = { 11, 21 } }
+             add_pool_pos { _01 = \"Versteck_1\", _0B = { 12, 22 } }
+             make_hiding_place { _01 = { \"res:VERSTECKMOUSEOVER\", \"Versteck_1\", \"VERSTECK\", \"MaxVerstecke_r1\" } }
+             return true
+             end
+             F[\"VERSTECK\"] = function()
+             create_obj { _04 = \"CPOS:HERO\", _54 = 3, _79 = { 16777215, 4 } }
+             return true
+             end
+             return F",
+        )]);
+        let mut live = live(runtime);
+        live.run_named("lay");
+        let stashes = live.stashes().to_vec();
+        assert_eq!(stashes.len(), 2);
+        assert!(
+            stashes
+                .iter()
+                .all(|stash| stash.function == "VERSTECK" && stash.text == "VERSTECKMOUSEOVER")
+        );
+        let cell = stashes[0].cell;
+        assert!(live.search_stash(cell).is_some());
+        assert_eq!(live.stashes().len(), 1);
+        let effects = live.run_named("VERSTECK");
+        assert_eq!(effects.random_items, 1);
+        assert!(effects.records.iter().all(|record| record.kind != 8));
     }
 
     #[test]

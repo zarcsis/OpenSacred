@@ -1373,3 +1373,50 @@ fn a_made_item_keeps_its_own_name_or_takes_its_weapon_kinds_word() {
     assert_eq!(named(&of_kind(2, "AXT_D.GRN")).as_deref(), Some(words[3]));
     assert_eq!(named(&of_kind(7, "BOW.GRN")).as_deref(), Some(words[4]));
 }
+
+#[test]
+fn a_scripts_random_item_rolls_its_kind_its_class_and_its_level() {
+    /// Dice that answer from a list, then 0.
+    struct Answers(Vec<u32>);
+    impl Dice for Answers {
+        fn below(&mut self, n: u32) -> u32 {
+            if self.0.is_empty() {
+                0
+            } else {
+                self.0.remove(0).min(n.saturating_sub(1))
+            }
+        }
+    }
+    // Not a potion (0), a weapon (1), of the hero's class (1), 2 levels more, on gold.
+    let item = script_item(10, 3, Difficulty::Gold, &mut Answers(vec![0, 1, 1, 2]));
+    let ScriptItem::Wanted(wanted) = item else {
+        panic!("{item:?}");
+    };
+    assert_eq!((wanted.category, wanted.class, wanted.level), (5, 3, 15));
+    assert!(wanted.loose && wanted.quality == 14);
+    // Neither a weapon nor an armour: the class and the level, then the category.
+    let item = script_item(
+        1,
+        3,
+        Difficulty::Bronze,
+        &mut Answers(vec![0, 0, 0, 0, 0, 0]),
+    );
+    assert_eq!(
+        item,
+        ScriptItem::Wanted(Wanted {
+            category: 5,
+            level: 1,
+            class: 0,
+            loose: true,
+            quality: 14,
+            kind: None,
+        })
+    );
+    assert!(matches!(
+        script_item(1, 3, Difficulty::Bronze, &mut Answers(vec![1])),
+        ScriptItem::Potion(_)
+    ));
+    // The weights summed: 497 of 995 falls in the helmets' (17).
+    assert_eq!(random_category(&mut Answers(vec![16_384])), 17);
+    assert_eq!(random_category(&mut Answers(vec![32_767])), 0);
+}

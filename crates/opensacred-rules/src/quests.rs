@@ -1195,6 +1195,100 @@ pub struct Scripts {
     /// to `0x9A` test (`0x4987B0`; docs/re/fight.md, "The difficulty"; #1125).
     #[serde(default)]
     pub difficulty: u8,
+    /// The pools of places that `AddPoolPos` fills (#1518).
+    #[serde(default)]
+    pub pools: Pools,
+    /// The hidden stashes that `MachVersteck` lays and the hero has not searched yet (#1518).
+    #[serde(default)]
+    pub stashes: Stashes,
+}
+
+/// The scripts' pools of places (`AddPoolPos`, 108; the interpreter's list at `+0x334`, entries
+/// of 100 bytes of the kind 2; docs/re/containers.md, "The hidden stashes"): each pool's cells in
+/// the order added.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pools(BTreeMap<String, Vec<(i32, i32)>>);
+
+/// The most places of a pool that a pick weighs (`0x4B0C00`).
+const MOST_CANDIDATES: usize = 100;
+
+impl Pools {
+    /// `AddPoolPos`: the cell `cell` into the pool `name`.
+    pub fn add(&mut self, name: &str, cell: (i32, i32)) {
+        self.0.entry(name.to_owned()).or_default().push(cell);
+    }
+
+    /// One of the pool `name`'s first 100 places at random (`rand() % n`), which leaves the pool;
+    /// none of an empty pool.
+    pub fn take(
+        &mut self,
+        name: &str,
+        dice: &mut impl crate::spawning::Dice,
+    ) -> Option<(i32, i32)> {
+        let places = self.0.get_mut(name)?;
+        let candidates = places.len().min(MOST_CANDIDATES);
+        if candidates == 0 {
+            return None;
+        }
+        let at = if candidates == 1 {
+            0
+        } else {
+            usize::try_from(dice.below(u32::try_from(candidates).unwrap_or(1))).unwrap_or(0)
+        };
+        Some(places.remove(at))
+    }
+
+    /// The places left in the pool `name`.
+    pub fn len(&self, name: &str) -> usize {
+        self.0.get(name).map_or(0, Vec::len)
+    }
+}
+
+/// A hidden stash (`MachVersteck`, a mouse event of `0x4AB160`): its cell, the function its
+/// search runs, and the name of the text the cursor shows over it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stash {
+    pub cell: (i32, i32),
+    pub function: String,
+    pub text: String,
+}
+
+/// The hidden stashes not searched yet, in the order laid.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stashes(pub Vec<Stash>);
+
+impl Stashes {
+    /// `MachVersteck` (140, `0x4B0C00`): `count` places taken at random from the pool `pool`, each
+    /// a stash of the function `function` and the text `text` (a `res:` name's key), as many as
+    /// the pool holds.
+    pub fn lay(
+        &mut self,
+        pools: &mut Pools,
+        (text, pool, function): (&str, &str, &str),
+        count: u32,
+        dice: &mut impl crate::spawning::Dice,
+    ) {
+        let text = text
+            .strip_prefix("res:")
+            .or_else(|| text.strip_prefix("RES:"))
+            .unwrap_or(text);
+        for _ in 0..count {
+            let Some(cell) = pools.take(pool, dice) else {
+                break;
+            };
+            self.0.push(Stash {
+                cell,
+                function: function.to_owned(),
+                text: text.to_owned(),
+            });
+        }
+    }
+
+    /// The stash at `cell`, which its search takes away (the mouse event's function run once).
+    pub fn search(&mut self, cell: (i32, i32)) -> Option<Stash> {
+        let at = self.0.iter().position(|stash| stash.cell == cell)?;
+        Some(self.0.remove(at))
+    }
 }
 
 /// The local hero's list of the main quest's items (its inventory entry's, `0x5D8280`): pairs
@@ -1854,5 +1948,38 @@ mod tests {
         let bytes = postcard::to_allocvec(&scripts).expect("the state serializes");
         let back: Scripts = postcard::from_bytes(&bytes).expect("the state reads back");
         assert_eq!(back, scripts);
+    }
+    #[test]
+    fn a_stash_takes_a_place_from_its_pool_and_a_search_takes_it_away() {
+        /// Dice that answer each `below` with its largest number.
+        struct Last;
+        impl crate::spawning::Dice for Last {
+            fn below(&mut self, n: u32) -> u32 {
+                n.saturating_sub(1)
+            }
+        }
+        let mut pools = Pools::default();
+        for cell in [(1, 1), (2, 2), (3, 3)] {
+            pools.add("Versteck_1", cell);
+        }
+        let mut stashes = Stashes::default();
+        stashes.lay(
+            &mut pools,
+            ("res:VERSTECKMOUSEOVER", "Versteck_1", "VERSTECK"),
+            2,
+            &mut Last,
+        );
+        let cells: Vec<_> = stashes.0.iter().map(|stash| stash.cell).collect();
+        assert_eq!(cells, [(3, 3), (2, 2)]);
+        assert_eq!(pools.len("Versteck_1"), 1);
+        assert_eq!(stashes.0[0].text, "VERSTECKMOUSEOVER");
+        // More than the pool holds lays what it holds.
+        stashes.lay(&mut pools, ("t", "Versteck_1", "f"), 5, &mut Last);
+        assert_eq!(stashes.0.len(), 3);
+        assert_eq!(
+            stashes.search((2, 2)).map(|stash| stash.function),
+            Some("VERSTECK".into())
+        );
+        assert_eq!(stashes.search((2, 2)), None);
     }
 }
