@@ -11,11 +11,25 @@ fn program() -> String {
     std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned())
 }
 
+/// FFmpeg's command, without a console window of its own on Windows: run from a converter that
+/// has no console, as the packaged game starts it, it would otherwise open one each time (#1495).
+fn command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NO_WINDOW` of `CreateProcess`.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 /// Runs FFmpeg with `args` (after `-v error`), `input` on its stdin, and returns its stdout.
 /// `what` names the input in errors.
 pub fn pipe(args: &[&str], input: &[u8], what: &str) -> Result<Vec<u8>> {
     let program = program();
-    let mut child = Command::new(&program)
+    let mut child = command(&program)
         .args(["-v", "error"])
         .args(args)
         .stdin(Stdio::piped())
@@ -43,7 +57,7 @@ pub fn pipe(args: &[&str], input: &[u8], what: &str) -> Result<Vec<u8>> {
 /// Runs FFmpeg with `args` (after `-v error`), which name its input and output files.
 pub fn run(args: &[&std::ffi::OsStr], what: &str) -> Result<()> {
     let program = program();
-    let output = Command::new(&program)
+    let output = command(&program)
         .args(["-v", "error"])
         .args(args)
         .stdin(Stdio::null())
