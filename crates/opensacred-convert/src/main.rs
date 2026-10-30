@@ -11,6 +11,7 @@ mod flow;
 mod gltf;
 mod heroes;
 mod idle_noises;
+mod install;
 mod item_names;
 mod item_patches;
 mod ktx;
@@ -37,7 +38,7 @@ mod world;
 #[cfg(test)]
 mod testing;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -88,6 +89,21 @@ enum Command {
     },
     /// Show what becomes of every file of the reference installation
     Coverage,
+    /// Convert the player's installation into the game's assets in one run, for the game's
+    /// first start: the installation found as `locate` finds it unless named, checked, the
+    /// masters made beside the assets and removed after, the assets written whole or not at all
+    Install {
+        /// Game installation directory; found by `locate` when not given
+        #[arg(long)]
+        game_dir: Option<PathBuf>,
+        /// The assets' directory; assets in the user's data directory (%LOCALAPPDATA%\OpenSacred
+        /// on Windows) when not given
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the progress as JSON lines, for the game
+        #[arg(long)]
+        json: bool,
+    },
     /// Find the player's installation of Sacred Gold 2.28, GOG's by the registry, Steam's by its
     /// libraries, and check each place against the manifests: the first that passes is the
     /// installation
@@ -220,6 +236,70 @@ enum Command {
     },
 }
 
+/// The extractions' names, in the order that `all` and `install` run them.
+const EXTRACTIONS: [&str; 10] = [
+    "textures",
+    "models",
+    "world",
+    "sound",
+    "text",
+    "video",
+    "ui",
+    "netscript",
+    "tables",
+    "heroes",
+];
+
+/// The extractions of the installation `game_dir` into the masters' directory `src`, whole, in
+/// [`EXTRACTIONS`]' order.
+fn extractions(game_dir: &Path, src: &Path) -> [Command; 10] {
+    let (game_dir, out) = (game_dir.to_path_buf(), src.to_path_buf());
+    [
+        Command::Textures {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+        },
+        Command::Models {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+            only: Vec::new(),
+        },
+        Command::World {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+            sector: None,
+        },
+        Command::Sound {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+            only: Vec::new(),
+        },
+        Command::Text {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+        },
+        Command::Video {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+            only: Vec::new(),
+        },
+        Command::Ui {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+        },
+        Command::Netscript {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+            listing: false,
+        },
+        Command::Tables {
+            game_dir: game_dir.clone(),
+            out: out.clone(),
+        },
+        Command::Heroes { game_dir, out },
+    ]
+}
+
 /// `x,y` of a grid position.
 fn parse_position(text: &str) -> Result<(u32, u32), String> {
     let (x, y) = text.split_once(',').ok_or("expected X,Y")?;
@@ -243,7 +323,10 @@ impl Command {
             | Command::Netscript { game_dir, .. }
             | Command::Tables { game_dir, .. }
             | Command::Heroes { game_dir, .. } => Some(game_dir),
-            Command::Build { .. } | Command::Coverage | Command::Locate { .. } => None,
+            Command::Build { .. }
+            | Command::Coverage
+            | Command::Install { .. }
+            | Command::Locate { .. } => None,
         }
     }
 
@@ -280,6 +363,7 @@ impl Command {
             Command::All { .. }
             | Command::Build { .. }
             | Command::Coverage
+            | Command::Install { .. }
             | Command::Locate { .. }
             | Command::Verify { .. } => return None,
         })
@@ -310,53 +394,7 @@ fn main() -> Result<ExitCode> {
             let start = Instant::now();
             let src = assets_src;
             let converter = manifest::converter()?;
-            for command in [
-                Command::Textures {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                },
-                Command::Models {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                    only: Vec::new(),
-                },
-                Command::World {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                    sector: None,
-                },
-                Command::Sound {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                    only: Vec::new(),
-                },
-                Command::Text {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                },
-                Command::Video {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                    only: Vec::new(),
-                },
-                Command::Ui {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                },
-                Command::Netscript {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                    listing: false,
-                },
-                Command::Tables {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                },
-                Command::Heroes {
-                    game_dir: game_dir.clone(),
-                    out: src.clone(),
-                },
-            ] {
+            for command in extractions(&game_dir, &src) {
                 if let Some((game_dir, out, name, _)) = command.manifest()
                     && !force
                     && manifest::up_to_date(game_dir, out, name, &converter)?
@@ -449,6 +487,11 @@ fn execute(command: Command) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Install {
+            game_dir,
+            out,
+            json,
+        } => install_command(game_dir, out, json),
         Command::Locate { json } => locate_command(json),
         Command::Verify { game_dir } => {
             let manifest = verify::parse_manifest(verify::GOG_MANIFEST)?;
@@ -782,4 +825,64 @@ fn locate_command(json: bool) -> Result<ExitCode> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// `install`: the run, its error told as a line of the progress too.
+fn install_command(
+    game_dir: Option<PathBuf>,
+    out: Option<PathBuf>,
+    json: bool,
+) -> Result<ExitCode> {
+    let progress = install::Progress { json };
+    let result = install_run(game_dir, out, progress);
+    if let Err(e) = &result {
+        progress.tell(&install::Line::Error {
+            message: format!("{e:#}"),
+        });
+    }
+    result
+}
+
+fn install_run(
+    game_dir: Option<PathBuf>,
+    out: Option<PathBuf>,
+    progress: install::Progress,
+) -> Result<ExitCode> {
+    let start = Instant::now();
+    progress.stage("verify");
+    let (game_dir, release) = install::installation(game_dir)?;
+    println!(
+        "the {} installation in {}",
+        release.name(),
+        game_dir.display()
+    );
+    let out = match out {
+        Some(out) => out,
+        None => install::default_out()?,
+    };
+    let work = install::Work::start(&out, install::NEEDED_BYTES)?;
+    for (command, name) in extractions(&game_dir, &work.masters())
+        .into_iter()
+        .zip(EXTRACTIONS)
+    {
+        progress.stage(name);
+        run(command)?;
+    }
+    progress.stage("build");
+    run(Command::Build {
+        assets_src: work.masters(),
+        out: work.assets(),
+        force: true,
+    })?;
+    work.finish(&opensacred_data::converted::Converted {
+        version: env!("OPENSACRED_VERSION").to_owned(),
+        release: match release {
+            locate::Release::Gog => "gog",
+            locate::Release::Steam => "steam",
+        }
+        .to_owned(),
+    })?;
+    progress.tell(&install::Line::Done { assets: &out });
+    println!("install done in {:.1} s", start.elapsed().as_secs_f64());
+    Ok(ExitCode::SUCCESS)
 }

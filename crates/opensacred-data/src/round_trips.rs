@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::DecodeError;
-use crate::{heroes, luau, netscript, packed, sound, tables, world};
+use crate::{converted, heroes, luau, netscript, packed, sound, tables, world};
 
 /// The converter's RON layout (`opensacred-convert`'s `utf8::pretty`): `ron`'s pretty one with
 /// LF line ends.
@@ -93,6 +93,7 @@ macro_rules! ron_round_trips {
 }
 
 ron_round_trips! {
+    the_conversions_mark_reads_back_from_its_ron: converted::Converted,
     the_world_reads_back_from_its_ron: world::World,
     the_heroes_read_back_from_their_ron: heroes::Heroes,
     the_trees_read_back_from_their_ron: netscript::NetScript,

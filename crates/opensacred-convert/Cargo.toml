@@ -12,6 +12,7 @@ build = "../../build.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+fs4.workspace = true
 intel_tex_2.workspace = true
 miniz_oxide.workspace = true
 mlua.workspace = true
