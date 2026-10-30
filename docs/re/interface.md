@@ -262,4 +262,5 @@ Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: 
 `compass` draws them on the bar: the needle (image 101) turned about (512, 710) toward the newest main quest's target, the inner pin (image 136) on its ellipse toward the newest side quest's, fading within its radius, the angle φ clockwise from up of the target's place less the hero's as the camera shows them; a cell's target is its centre, a named one the creature of that name in the scripts (`npcs::ScriptName`) where it stands.
 A new marker starts one of four sonar rings at (512, 711), `FX_SONAREFFECT` tinted `0xDDCCAA` as the hero's alarm spreads (`low_health::Sonar`), with the sound 7027.
 **Seen** in the game: at the Seraphim's start the needle points at the novice as she walks to the benches, and turns as the hero moves; `quest trigger 9` turned it at quest 9's target with a sonar.
-Not followed: the outer pins (the world map's marker, #1091; `GroupIsDead`'s creature), objects that only a `CreateObj` names, and the way across a dungeon's mouth.
+Since #1569 the outer pin (image 137 on its ellipse of 58 × 29) points at the world map's pin (docs/re/maps.md, "The pin").
+Not followed: the blinking pin of `GroupIsDead`'s creature, objects that only a `CreateObj` names, and the way across a dungeon's mouth.

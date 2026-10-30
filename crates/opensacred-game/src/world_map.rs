@@ -19,10 +19,15 @@
 //! (`minimap`), its fog of war over the land explored (`explored`), and the quests' icons with
 //! their titles beside them; the map's tooltip hides under it.
 //!
+//! The pin's button starts the pin's mode, its cursor the pin (#1569, `0x6C8140`): a left
+//! release off the bar places the pin there, its mark the pin's picture 64 × 64, its world
+//! point the compass's outer pin's target (`compass`); a right press on the mark takes it
+//! away, elsewhere it ends the mode; the edges do not scroll and the lens does not show in it.
+//!
 //! Not followed yet: the places' names, the people's icons, the portals, the frontier of the land
 //! walked and the pacified areas (#1567); the lens's creatures and party (#1571), its places and
-//! pin, and its titles' layout apart; the pin's button and the pin (#1569);
-//! the buttons' pressed looks and tooltips, and the edges' cursors.
+//! pin, and its titles' layout apart; the buttons' pressed looks and tooltips, and the edges'
+//! cursors.
 
 use bevy::input::InputSystems;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -108,6 +113,11 @@ const TIP_INSET: f32 = 3.0;
 pub struct Map {
     pub shown: bool,
     scroll: Vec2,
+    /// Whether the pin's mode holds (`+0xC0154` bit `0x100`), and the pin: its place on the map
+    /// (`+0xC06C0`) and its world point, the compass's outer pin's (#1569).
+    pin_mode: bool,
+    pin: Option<Vec2>,
+    pin_world: Option<Vec2>,
 }
 
 impl Map {
@@ -115,6 +125,105 @@ impl Map {
     /// pixel left of the original's at the scroll's fraction).
     fn shown_scroll(&self) -> Vec2 {
         self.scroll.trunc()
+    }
+
+    /// Whether the pin's mode holds, which the cursor's pin shows.
+    pub fn pin_mode(&self) -> bool {
+        self.shown && self.pin_mode
+    }
+
+    /// The world point of the pin, the compass's outer pin's target.
+    pub fn pin_target(&self) -> Option<Vec2> {
+        self.pin_world
+    }
+}
+
+/// The pin's picture, which its mode's cursor and its mark show (`MOUSE_PUSHPIN`), the mark's
+/// side, the hot spot's offset of the cursor's picture, and the box about the mark that a right
+/// press takes it away within (`0x6C8140`).
+pub(crate) const PUSHPIN: &str = "mouse_pushpin";
+const PIN_MARK: f32 = 64.0;
+const PIN_SPOT: f32 = 16.0;
+
+/// The pin's mark on the map.
+#[derive(Component)]
+struct PinMark;
+
+/// The pin's button starts the pin's mode; in it a left release off the bar places the pin, its
+/// world point kept as the compass's outer pin's (`0x4A63B0`, the marker 2); a right press within
+/// the pin's mark takes it away, elsewhere in the mode it ends the mode (`0x6C8140`).
+fn place_pin(
+    mut map: ResMut<Map>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+) {
+    if !map.shown {
+        return;
+    }
+    let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
+        return;
+    };
+    let on_button =
+        Rect::from_corners(PIN_BUTTON.1, PIN_BUTTON.1 + Vec2::splat(BUTTON)).contains(at);
+    if buttons.just_pressed(MouseButton::Left) && on_button && !map.pin_mode {
+        map.pin_mode = true;
+        return;
+    }
+    let scroll = map.shown_scroll();
+    if map.pin_mode && buttons.just_released(MouseButton::Left) && !BAR.contains(at) {
+        // The mark at the cursor's picture's middle, the world point at the pointer.
+        map.pin = Some(scroll + at + Vec2::splat(PIN_SPOT));
+        map.pin_world = Some(crate::minimap::world(iso_of(scroll + at)));
+        map.pin_mode = false;
+        info!("world map: the pin placed at the map's {}", scroll + at);
+    }
+    if buttons.just_pressed(MouseButton::Right) {
+        let on_pin = map
+            .pin
+            .is_some_and(|pin| (pin - scroll - at).abs().max_element() <= PIN_MARK / 2.0);
+        if on_pin {
+            map.pin = None;
+            map.pin_world = None;
+            info!("world map: the pin taken away");
+        } else if map.pin_mode {
+            map.pin_mode = false;
+        }
+    }
+}
+
+/// The pin's mark, its picture 64 × 64 about its place on the map.
+fn show_pin(
+    mut commands: Commands,
+    map: Res<Map>,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    scrolled: Query<Entity, With<Scrolled>>,
+    mut marks: Query<(Entity, &mut Node), With<PinMark>>,
+) {
+    let place = map.pin.filter(|_| map.shown);
+    match (place, marks.single_mut()) {
+        (Some(pin), Ok((_, mut node))) => {
+            node.left = Val::Px(pin.x - PIN_MARK / 2.0);
+            node.top = Val::Px(pin.y - PIN_MARK / 2.0);
+        }
+        (Some(pin), Err(_)) => {
+            let (Ok(container), Some(file)) = (scrolled.single(), images.file(PUSHPIN)) else {
+                return;
+            };
+            let mark = commands
+                .spawn((
+                    PinMark,
+                    ImageNode::new(crate::hud::image(&assets, file.to_owned())),
+                    bar::placed(pin - Vec2::splat(PIN_MARK / 2.0), Vec2::splat(PIN_MARK)),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(container).add_child(mark);
+        }
+        (None, _) => {
+            for (mark, _) in &marks {
+                commands.entity(mark).despawn();
+            }
+        }
     }
 }
 
@@ -173,7 +282,7 @@ fn hold_lens(
     }
     let at = screen_point(&pointer, &ui_scale, &windows);
     let off_bar = at.is_some_and(|at| !BAR.contains(at));
-    if buttons.just_pressed(MouseButton::Left) && off_bar {
+    if buttons.just_pressed(MouseButton::Left) && off_bar && !map.pin_mode {
         lens.on = true;
     }
     if buttons.just_released(MouseButton::Left) {
@@ -536,6 +645,7 @@ fn toggle(
         return;
     }
     map.shown = !map.shown;
+    map.pin_mode = false;
     if map.shown {
         // The hero at the screen's middle (**hypothesis**: the show centres it).
         if let Some(hero) = heroes.iter().next() {
@@ -565,8 +675,10 @@ fn scroll(
     let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
         return;
     };
-    // The edges scroll while no button is held (`0x6C9F60`).
-    let step = if buttons.pressed(MouseButton::Right) {
+    // The edges scroll while no button is held, neither in the pin's mode (`0x6C9F60`).
+    let step = if map.pin_mode {
+        Vec2::ZERO
+    } else if buttons.pressed(MouseButton::Right) {
         -motion.delta / ui_scale.0.max(0.01)
     } else if buttons.pressed(MouseButton::Left) {
         Vec2::ZERO
@@ -937,7 +1049,9 @@ impl Plugin for WorldMapPlugin {
             )
             .add_systems(
                 Update,
-                (scroll, show, follow, tooltip, hold_lens, show_lens)
+                (
+                    place_pin, scroll, show, follow, show_pin, tooltip, hold_lens, show_lens,
+                )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
