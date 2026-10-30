@@ -165,7 +165,7 @@ pub(crate) fn resolve(
     mut blows: MessageWriter<crate::sfx::Blow>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
-    rules: Res<Rules>,
+    (rules, mut last_foe): (Res<Rules>, Option<ResMut<crate::statistics::LastFoe>>),
     (hero_arts, effects, clock, mut lusts): (
         Option<Res<crate::arts::HeroArts>>,
         Query<&crate::effects::Effects>,
@@ -212,6 +212,12 @@ pub(crate) fn resolve(
             (false, true) => Some(Side::Defender),
             _ => None,
         };
+        // The foe the hero strikes, for the statistics window's hit chance (#1521).
+        if side == Some(Side::Attacker)
+            && let Some(last_foe) = last_foe.as_deref_mut()
+        {
+            last_foe.0 = Some((defender.defence, victim.map_or(0, |mind| mind.creature)));
+        }
         let level = mind.map_or(experience.level, |mind| mind.level);
         let (mut attacker, mut defender, mut blow) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);

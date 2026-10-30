@@ -143,7 +143,7 @@ impl Portraits {
 
     /// The texture's file of the creature type `creature`'s portrait, and its part: its left,
     /// top, width and height.
-    fn of(&self, creature: u32) -> Option<(&str, [u16; 4])> {
+    pub(crate) fn of(&self, creature: u32) -> Option<(&str, [u16; 4])> {
         let portrait = self.table.as_ref()?.of(creature);
         Some((self.files.get(&portrait.texture)?.as_str(), portrait.rect))
     }

@@ -207,7 +207,7 @@ The slots' places in the window, (x, y) of their frames' corners:
 
 ## 8. The gold
 
-- The inventory window draws no gold: the gold, the stats' `+0x46` (the creature's `+0x3EE`), is the statistics window's (seen on its last line, not read).
+- The inventory window draws no gold: the gold, the stats' `+0x46` (the creature's `+0x3EE`), is the statistics window's (its last line, docs/re/character.md).
 - In that window's input (`0x6A62C0`) a click in a region tested against 723 to 1567 and 368 to 753 (their units not read) drops gold, all of it below 1000, else a tenth, taken by `0x57FD80` and laid at the hero's place by `0x4AEBD0` (**hypothesis**: the gold's line clicked).
 
 ## 9. The item's tooltip (the item's virtual `+0x44`, `0x5C5360`)
@@ -283,6 +283,6 @@ Not followed: the set's name and colour, the quest's line, the sockets, the pric
 - The sender of the taskbar's message 9, the weapon sets' lock; `0x4263A0`, `0x427E30` and `0x427E80` of the slot's test.
 - What sets the inventory window's `+0x168` bit 4, the sort's mode.
 - `0x43F710` (the cube), the references `0x11` and `0x1A` of the Shift's clicks, the hero's query `0x51`, the engine's event `0x14`.
-- The statistics window's gold and its region for the drop; the cells' mark `0x40`.
+- The cells' mark `0x40`.
 - The combos' fields that the cocktails set (docs/re/arts.md).
 - The tooltip's: who writes the item's `+0xFC`, the record's bit `0x40`, `0x43CA20` and `0x603EA0` in the refusal, the region's factors of the price and who sets them, the worth of `0x5D3AB0`, the table of the opponents' names at `0x8EB79C`, the classes of `0x5C95C0`, `0x5C9800`, `0x5CC1F0`, `0x5CC780` and `0x5CCC40`, and `UNIQUE_COLOR`'s default.
