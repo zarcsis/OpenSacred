@@ -116,7 +116,8 @@ Read 2026-10-30 (#1462), **confirmed** by code unless marked otherwise.
 
 ### The burn (`FX_BUTTONBURN.TGA`, `0x6E4CA0`)
 
-- The taskbar's message `0x35` starts it (`+0xAB8` set, the start time kept); who sends it is not read (**hypothesis**: an art learnt or raised).
+- The taskbar's message `0x35` starts it (`+0xAB8` set, the start time kept).
+  Its one sender is the Vampiress's change of form (`0x557040`, read 2026-10-30, #1464; found by a scan of the code that names `UI_WND_TASKBAR` for the message's id): her type set to 6 by day or 7 by night, her clips, her values and her arts' regenerations made anew, it posts `0x35` where she is the local player's hero, as her arts change with her form; its callers are her creature's event handler (`0x53079C`, `0x5307AA`) and `0x55D608`.
 - 16 frames at 16 a second from the 4 × 4 grid of the 256 × 256 texture, frame f at (f mod 4, f div 4) · 64; after the 16th it stops.
 - It is drawn over every visible art slot at once, after the icon and before the ring, blended by alpha (`0x643430(8, 0)` and `(0x10, 0)`: `SRCBLEND` `SRCALPHA`, `DESTBLEND` `INVSRCALPHA`).
 
@@ -195,7 +196,6 @@ Done by 2026-10-28: items 1 to 3, the sets' keys and slots of item 4 (#1348), an
 
 ## Open questions
 
-- The sender and meaning of the taskbar's message `0x35` (the burn).
 - What the log entry's state `+0x4` holds after the quest's end, which hides its markers from 100.
 - The ways between a dungeon and the world that the markers take across its mouth (`0x4A5420`, `0x4A4E20`).
 - The right rail's middle piece in the frames matches neither image 9 nor 10 well at x 570 (its chain's knot at 641–660 fits image 9; the wavy line left of it does not show).
@@ -220,7 +220,10 @@ Since #1348 a click on a left slot, the cursor empty, or the keys 1 to 5 choose 
 Since #1349 the inventory open is the left slots' edit mode: a click takes an item out of a set or puts the held one in, and the halves that would take the held item glow under the ring (`sets`, docs/re/inventory.md, §5); the hero's skill of two weapons, which lets a second one-handed weapon into the left hand, not followed (none of the templates has it).
 Since #1408 a click on the Collect button sends the hero collecting the items about it (`pickup`, docs/re/items.md, "The automatic pick-up").
 Since #1463 the red part of the ring glows while the hero's health is below a quarter of its most, and the red alarm spreads about the portrait once as it falls below the warning level (`low_health`): the glow is a material of the interface that adds the 49 copies of the part as drawn onto the frame, 6 pixels about it and under the portrait, and the alarm one that lays the texture's row across a ring, a circle rather than the original's 90 pieces (a third of a pixel apart at most, at the radius 540); the level is the settings' `[interface] warning_level` (docs/10), 25 as the installation's.
-Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the burn, the glows and sparkles, the tooltips, the points' "+", the followers' entries and the mount's bar.
+Since #1464 the art slots burn as the Vampiress's form changes (`art_burn`): the 16 frames of `FX_BUTTONBURN` at 16 a second of real time over every visible art slot, over its icon and under its ring.
+**Seen** in the game: her changeling 1022 at the level 16 burnt her four art slots.
+
+Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the glows and sparkles, the tooltips, the points' "+", the followers' entries and the mount's bar.
 
 Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, of the running function's quest without a number, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`).
 `compass` draws them on the bar: the needle (image 101) turned about (512, 710) toward the newest main quest's target, the inner pin (image 136) on its ellipse toward the newest side quest's, fading within its radius, the angle φ clockwise from up of the target's place less the hero's as the camera shows them; a cell's target is its centre, a named one the creature of that name in the scripts (`npcs::ScriptName`) where it stands.
