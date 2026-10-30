@@ -19,6 +19,7 @@ mod manifest;
 mod model_repairs;
 mod models;
 mod netscript;
+mod portraits;
 mod script_repairs;
 mod sound;
 mod tables;
