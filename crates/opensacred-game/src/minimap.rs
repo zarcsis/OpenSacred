@@ -9,15 +9,22 @@
 //! quest, a view of (556, 204) 256 × 256, matches these pictures so laid to the pixel). The 25
 //! sectors within three steps of the point's are drawn, a sector without a picture black.
 //!
-//! Not followed: the fog of war over the explored bitmaps, the quests', the creatures', the
-//! party's and the places' icons and the pin, which the quest book leaves out; and the corners
-//! faded where a sector lacks a neighbour.
+//! The fog of war over them (`0x638F30`, #1568): each sector's explored bitmap
+//! (`opensacred_rules::explored`) as a texture of 32 × 32, black where a bit is clear and
+//! clear where it is set, laid on the sector's own diamond, (0, 128), (256, 0), (512, 128) and
+//! (256, 256) of its picture's corner, its texels along the sector's x from the top corner to
+//! the right one and along its y to the left one.
+//!
+//! Not followed: the corners faded where a sector lacks a neighbour.
 
 use std::collections::HashMap;
 use std::path::Path;
 
+use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use opensacred_data::texture;
+use opensacred_rules::explored::Explored;
 
 use crate::files;
 use crate::iso::CELL;
@@ -31,6 +38,10 @@ const SCALE: f32 = 12.0;
 const MIDDLE: Vec2 = Vec2::new(512.0, 384.0);
 /// How many sectors' steps from the point's the ground reaches (`|dx| + |dy|`).
 const REACH: i32 = 3;
+/// A sector's fog: its bits along each side, and its diamond's width and height.
+const FOG_BITS: usize = 32;
+const DIAMOND: Vec2 = Vec2::new(512.0, 256.0);
+const SEAM: f32 = 2.0;
 
 /// The sectors' pictures' files, by the sector, found as the game starts.
 #[derive(Resource, Default)]
@@ -139,6 +150,76 @@ pub fn spawn(
                 .id(),
         };
         commands.entity(parent).add_child(child);
+    }
+}
+
+/// A sector's fog (`0x638F30`): black, opaque or at half where `opaque` is false, where its
+/// bitmap's bit is clear, clear where it is set.
+pub fn fog(explored: &Explored, sector: (i32, i32), opaque: bool) -> Image {
+    let shade = if opaque { u8::MAX } else { 0x80 };
+    let sector = (
+        u16::try_from(sector.0).unwrap_or(u16::MAX),
+        u16::try_from(sector.1).unwrap_or(u16::MAX),
+    );
+    let mut texels = Vec::with_capacity(FOG_BITS * FOG_BITS * 4);
+    for row in 0..FOG_BITS {
+        for column in 0..FOG_BITS {
+            let alpha = if explored.bit(sector, column, row) {
+                0
+            } else {
+                shade
+            };
+            texels.extend_from_slice(&[0, 0, 0, alpha]);
+        }
+    }
+    let side = u32::try_from(FOG_BITS).unwrap_or(32);
+    Image::new(
+        Extent3d {
+            width: side,
+            height: side,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        texels,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// Spawns the fog over the ground about the iso plane's point `point` as the children of
+/// `parent`, whose top left corner stands at `origin` of the screen: each sector's fog texture on
+/// its diamond, a square turned by 45° within a box squeezed to half its height.
+pub fn spawn_fog(
+    commands: &mut Commands,
+    parent: Entity,
+    (explored, images): (&Explored, &mut Assets<Image>),
+    point: Vec2,
+    origin: Vec2,
+) {
+    // A pixel wider, so that the neighbours' diamonds leave no seam between their smoothed edges.
+    let side = (DIAMOND.x + SEAM) / std::f32::consts::SQRT_2;
+    for (sector, corner) in ground(point) {
+        let image = images.add(fog(explored, sector, true));
+        let squeezed = commands
+            .spawn((
+                crate::bar::placed(
+                    corner - origin - Vec2::new(0.0, DIAMOND.x / 2.0 - DIAMOND.y / 2.0),
+                    Vec2::splat(DIAMOND.x),
+                ),
+                UiTransform::from_scale(Vec2::new(1.0, DIAMOND.y / DIAMOND.x)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        let turned = commands
+            .spawn((
+                crate::bar::placed(Vec2::splat((DIAMOND.x - side) / 2.0), Vec2::splat(side)),
+                UiTransform::from_rotation(Rot2::radians(std::f32::consts::FRAC_PI_4)),
+                ImageNode::new(image),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(squeezed).add_child(turned);
+        commands.entity(parent).add_child(squeezed);
     }
 }
 

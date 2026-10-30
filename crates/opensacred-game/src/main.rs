@@ -45,6 +45,7 @@ mod drops;
 mod effects;
 mod equipment;
 mod esc_menu;
+mod explored;
 mod fight;
 mod files;
 mod first_start;
@@ -376,6 +377,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,
         esc_menu::EscMenuPlugin,
+    ))
+    .add_plugins((
+        explored::ExploredPlugin,
         fight::FightPlugin,
         fliers::FliersPlugin,
         foe_panel::FoePanelPlugin,

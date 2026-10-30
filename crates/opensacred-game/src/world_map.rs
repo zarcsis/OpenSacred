@@ -15,7 +15,8 @@
 //! window's frame (`0x725870`, the style 1); the buttons' ornament and the buttons.
 //!
 //! Not followed yet: the places' names, the people's icons, the portals, the frontier of the land
-//! walked and the pacified areas (#1567); the lens (#1568); the pin's button and the pin (#1569);
+//! walked and the pacified areas (#1567); the lens's creatures, party, places and pin, and its
+//! titles' layout apart; the pin's button and the pin (#1569);
 //! the buttons' pressed looks and tooltips, and the edges' cursors.
 
 use bevy::input::InputSystems;
@@ -109,6 +110,266 @@ impl Map {
     /// pixel left of the original's at the scroll's fraction).
     fn shown_scroll(&self) -> Vec2 {
         self.scroll.trunc()
+    }
+}
+
+/// The lens (`0x6CCBD0`): its view of 700 × 525 about the screen's middle, grown and shrunk at 5
+/// a second, and the title's colours by how a quest stands (`0x4972E0(i, 1)`).
+const LENS: Vec2 = Vec2::new(700.0, 525.0);
+const LENS_RATE: f32 = 5.0;
+const TITLE_RUNS: u32 = 0xFFFF_FFFF;
+const TITLE_ENDED: u32 = 0xFFAF_AFAF;
+/// The lens's titles beside their icons (**hypothesis**: the label layout `0x6620F0`, which
+/// keeps them apart, is not followed), 2 pixels off.
+const TITLE_BESIDE: f32 = 2.0;
+
+/// The lens: whether the left button holds it, its alpha, the screen's point it shows, and the
+/// iso plane's point and sector its content was laid out for.
+#[derive(Resource, Debug, Default)]
+struct Lens {
+    on: bool,
+    alpha: f32,
+    at: Vec2,
+    laid: Option<(Vec2, (i32, i32))>,
+}
+
+/// The lens's view, and its plane, which holds its content at the screen's places of the point it
+/// was laid out for.
+#[derive(Component)]
+struct LensView;
+#[derive(Component)]
+struct LensPlane;
+
+/// The nodes of a kind of the lens's, apart from another's.
+type Placed<'w, 's, T, U> = Query<'w, 's, (Entity, &'static mut Node), (With<T>, Without<U>)>;
+
+/// The iso plane's point of the map's pixel `pixel` (`0x6CCBD0`: `0x6CB3B0` undone).
+fn iso_of(pixel: Vec2) -> Vec2 {
+    (pixel - OFFSET) / SCALE
+}
+
+/// The lens's view at its alpha `alpha`: (512 − 350a, 384 − 262.5a) 700a × 525a.
+fn lens_view(alpha: f32) -> Rect {
+    Rect::from_center_size(bar::SCREEN / 2.0, LENS * alpha)
+}
+
+/// The left button held on the map, off the bar, holds the lens on, the pointer kept; its alpha
+/// follows at 5 a second, of the real time.
+fn hold_lens(
+    map: Res<Map>,
+    mut lens: ResMut<Lens>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    time: Res<Time<Real>>,
+) {
+    if !map.shown {
+        *lens = Lens::default();
+        return;
+    }
+    let at = screen_point(&pointer, &ui_scale, &windows);
+    let off_bar = at.is_some_and(|at| !BAR.contains(at));
+    if buttons.just_pressed(MouseButton::Left) && off_bar {
+        lens.on = true;
+    }
+    if buttons.just_released(MouseButton::Left) {
+        lens.on = false;
+    }
+    if lens.on
+        && let Some(at) = at.filter(|_| off_bar)
+    {
+        lens.at = at;
+    }
+    let step = LENS_RATE * time.delta_secs();
+    lens.alpha = if lens.on {
+        (lens.alpha + step).min(1.0)
+    } else {
+        (lens.alpha - step).max(0.0)
+    };
+}
+
+/// Lays the lens's content out about its point: the ground, the fog and the quests' icons with
+/// their titles; moves it as the point moves within its sector, and lays it out again as it
+/// leaves it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the lens, its pieces, the land explored and the quests"
+)]
+fn show_lens(
+    mut commands: Commands,
+    (map, mut lens): (Res<Map>, ResMut<Lens>),
+    (images, assets, mut pictures): (Res<UiImages>, Res<AssetServer>, ResMut<Assets<Image>>),
+    (minimaps, land, texts): (
+        Res<crate::minimap::Minimaps>,
+        Res<crate::explored::Land>,
+        Option<Res<Texts>>,
+    ),
+    roots: Query<Entity, With<MapRoot>>,
+    mut views: Placed<LensView, LensPlane>,
+    mut planes: Placed<LensPlane, LensView>,
+    (live, named): (
+        Option<NonSend<crate::scripts::Live>>,
+        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
+    ),
+) {
+    if lens.alpha <= 0.0 {
+        for (view, _) in &views {
+            commands.entity(view).despawn();
+        }
+        lens.laid = None;
+        return;
+    }
+    let Some(root) = roots.iter().next() else {
+        return;
+    };
+    let point = iso_of(lens.at + map.shown_scroll());
+    let world = crate::minimap::world(point);
+    let sector = (
+        (world.x / (64.0 * crate::iso::CELL)).floor(),
+        (world.y / (64.0 * crate::iso::CELL)).floor(),
+    );
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a sector of the world, within its 128"
+    )]
+    let sector = (sector.0 as i32, sector.1 as i32);
+    let rect = lens_view(lens.alpha);
+    let (view, plane) = match (views.single_mut(), lens.laid) {
+        (Ok((view, mut node)), Some((_, laid))) if laid == sector => {
+            node.left = Val::Px(rect.min.x);
+            node.top = Val::Px(rect.min.y);
+            node.width = Val::Px(rect.width());
+            node.height = Val::Px(rect.height());
+            (view, None)
+        }
+        _ => {
+            for (view, _) in &views {
+                commands.entity(view).despawn();
+            }
+            let mut node = bar::placed(rect.min, rect.size());
+            node.overflow = Overflow::clip();
+            let view = commands
+                .spawn((LensView, node, ZIndex(1), Pickable::IGNORE))
+                .id();
+            commands.entity(root).add_child(view);
+            let plane = commands
+                .spawn((
+                    LensPlane,
+                    bar::placed(Vec2::ZERO, bar::SCREEN),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(view).add_child(plane);
+            crate::minimap::spawn(
+                &mut commands,
+                plane,
+                (&minimaps, &assets),
+                point,
+                Vec2::ZERO,
+            );
+            crate::minimap::spawn_fog(
+                &mut commands,
+                plane,
+                (&land, &mut pictures),
+                point,
+                Vec2::ZERO,
+            );
+            if let Some(live) = live.as_deref() {
+                quests_in_lens(
+                    &mut commands,
+                    plane,
+                    (&images, &assets, texts.as_deref()),
+                    (live, &named),
+                    point,
+                );
+            }
+            lens.laid = Some((point, sector));
+            (view, Some(plane))
+        }
+    };
+    let _ = view;
+    // The plane at the point it was laid out for, less the view's corner.
+    let laid = lens.laid.map_or(point, |(laid, _)| laid);
+    let offset = (laid - point) / 12.0 - rect.min;
+    match plane {
+        Some(plane) => {
+            commands
+                .entity(plane)
+                .insert(bar::placed(offset, bar::SCREEN));
+        }
+        None => {
+            if let Ok((_, mut node)) = planes.single_mut() {
+                node.left = Val::Px(offset.x);
+                node.top = Val::Px(offset.y);
+            }
+        }
+    }
+}
+
+/// The quests' icons and titles in the lens about the iso plane's point `point`, at their
+/// compasses' cells (`0x497620`): each icon at its own size in its colour, its title beside it in
+/// the font 2 over grey, white for a quest that runs and grey for one ended.
+fn quests_in_lens(
+    commands: &mut Commands,
+    plane: Entity,
+    (images, assets, texts): (&UiImages, &AssetServer, Option<&Texts>),
+    (live, named): (
+        &crate::scripts::Live,
+        &Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
+    ),
+    point: Vec2,
+) {
+    let quests = live.quests();
+    for entry in quests.book() {
+        let Some(at) = quests
+            .compass(entry.quest)
+            .and_then(|compass| crate::compass::target_of(compass, named))
+        else {
+            continue;
+        };
+        let middle = crate::paths::centre(crate::paths::cell_of(at.x, at.y));
+        let screen = (crate::minimap::iso(middle) - point) / 12.0 + bar::SCREEN / 2.0;
+        let (image, colour) = icon(entry);
+        let size = images.size(image);
+        let (mut picture, node) =
+            bar::piece(images, assets, image, screen - size / 2.0, Vec2::ZERO);
+        picture.color = argb(colour);
+        let child = commands.spawn((picture, node, Pickable::IGNORE)).id();
+        commands.entity(plane).add_child(child);
+        let Some(title) = entry.title else {
+            continue;
+        };
+        let title = texts
+            .and_then(|texts| texts.id(title))
+            .map_or_else(|| title.to_string(), crate::talk::shown_text);
+        let colour = if entry.standing == Standing::Entered {
+            TITLE_RUNS
+        } else {
+            TITLE_ENDED
+        };
+        let label = commands
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(screen.x + size.x / 2.0 + TITLE_BESIDE),
+                    top: Val::Px(screen.y - TIP_SIZE / 2.0 - TIP_INSET),
+                    padding: UiRect::all(Val::Px(TIP_INSET)),
+                    ..default()
+                },
+                BackgroundColor(argb(TIP_GROUND)),
+                Pickable::IGNORE,
+            ))
+            .with_child((
+                Text::new(title),
+                TextFont {
+                    font: assets.load(MENU_FONT).into(),
+                    font_size: FontSize::Px(TIP_SIZE),
+                    ..default()
+                },
+                TextColor(argb(colour)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(plane).add_child(label);
     }
 }
 
@@ -299,8 +560,11 @@ fn scroll(
     let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
         return;
     };
+    // The edges scroll while no button is held (`0x6C9F60`).
     let step = if buttons.pressed(MouseButton::Right) {
         -motion.delta / ui_scale.0.max(0.01)
+    } else if buttons.pressed(MouseButton::Left) {
+        Vec2::ZERO
     } else {
         edge_scroll(at)
     };
@@ -421,6 +685,7 @@ fn show(
             .spawn((
                 bar::placed(rect.min, rect.size()),
                 fade(to),
+                ZIndex(2),
                 Pickable::IGNORE,
             ))
             .id();
@@ -434,6 +699,7 @@ fn show(
         let child = commands
             .spawn((
                 bar::piece(&images, &assets, index, at, Vec2::ZERO),
+                ZIndex(2),
                 Pickable::IGNORE,
             ))
             .id();
@@ -539,10 +805,11 @@ fn follow(
     }
 }
 
-/// The titles of the quests whose icons lie under the pointer, at its right (`0x6C9F60`).
+/// The titles of the quests whose icons lie under the pointer, at its right (`0x6C9F60`); none
+/// while the lens, drawn after them, shows.
 fn tooltip(
     mut commands: Commands,
-    map: Res<Map>,
+    (map, lens): (Res<Map>, Res<Lens>),
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (assets, texts): (Res<AssetServer>, Option<Res<Texts>>),
     (icons, live): (
@@ -552,8 +819,7 @@ fn tooltip(
     (roots, tips): (Query<Entity, With<MapRoot>>, Query<Entity, With<MapTip>>),
     mut was: Local<Vec<u32>>,
 ) {
-    let at = map
-        .shown
+    let at = (map.shown && lens.alpha <= 0.0)
         .then(|| screen_point(&pointer, &ui_scale, &windows))
         .flatten();
     let under: Vec<u32> = at
@@ -607,6 +873,7 @@ fn tooltip(
         .spawn((
             MapTip,
             tip_node(at),
+            ZIndex(3),
             BackgroundColor(argb(TIP_GROUND)),
             Pickable::IGNORE,
         ))
@@ -651,6 +918,7 @@ pub struct WorldMapPlugin;
 impl Plugin for WorldMapPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Map>()
+            .init_resource::<Lens>()
             .configure_sets(Update, Control.run_if(hidden))
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
@@ -664,7 +932,7 @@ impl Plugin for WorldMapPlugin {
             )
             .add_systems(
                 Update,
-                (scroll, show, follow, tooltip)
+                (scroll, show, follow, tooltip, hold_lens, show_lens)
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );

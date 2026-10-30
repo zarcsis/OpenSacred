@@ -52,8 +52,12 @@ All places are pixels of the 1024 × 768 screen; "image N" is the entry N of the
 ## The lens and the fog of war (#1568)
 
 - The left button held off the bar shows over 0.2 s a view of 700 × 525 at the screen's middle of the minimap about the map's point under the pointer, the point at the screen's middle (docs/re/questbook.md, "The lens's ground"), with its fog, its quests' icons and titles laid out not to overlap, the creatures within the hero's sight by their side, the party, the places and the pin.
-- The fog (`0x638F30`): each sector's explored bitmap (`+0x180`, 32 × 32 bits, a bit for 2 × 2 cells) as `FOGOFWAR01.TGA`, black where unexplored, over the sector as a diamond; the bitmap stamped about the local hero at each cell it steps into (`0x5997C0`): a disc 29 cells across by day, 15 at night (22:20 to 03:20), a stamp of 15 × 15 in a dungeon.
-- Not read: the fog's diamond against the ground's square (they disagree in width as read), the creatures' colours' predicates.
+- The lens's view is (512 − 350a, 384 − 262.5a) 700a × 525a, its alpha a rising and falling at 5 a second as the left button holds it or not; the pointer is kept while it holds it, and the edges do not scroll while a button is held.
+- The fog (`0x638F30`): each sector's explored bitmap (`+0x180`, 32 rows of 4 bytes, the bit `(dx >> 1) & 7` of the byte `(dy >> 1) · 4 + (dx >> 4)` for the cell (dx, dy) of the sector) as `FOGOFWAR01.TGA` of 32 × 32, a set bit clear and a clear bit opaque black (half black where the call's flag and `0x81B540` on `0x182EE78` are off), drawn white over the sector's own diamond: (0, 128), (256, 0), (512, 128) and (256, 256) of its picture's corner, which is the sector's area at the lens's scale, the picture's square being another tile of the same lattice.
+- The stamps (`0x5997C0`), about the local hero's cell each time it changes (`0xAD4404`, `0xAD4408`), the bits of a cell below 8192 on each axis set (`0x638E00`): by day a rasterised disc 29 cells across (616 cells, the mask at `0x8915CC`), at night, 22:20 to 03:20 (`0x41BAB0`), one 15 across (145 cells, `0x891328`), in a dungeon (the renderer's `+0x9E0C`) an uneven patch of 67 cells of a 15 × 15 mask (`0x891409`); a third mask of 24 cells (`0x8914EA`) is not used there.
+  The masks' rows are not those of a disc's formula: the day's runs 9, 13, 15, 17, 19, 21, 21, 23, 23, 25, 25, 27, 27, 29, 29, 29, 27, 27, 25, 25, 23, 22, 22, 21, 19, 17, 14, 13, 9 cells down its rows, the last few shifted by one; the night's 1, 7, 9, 11, 11, 13, 13, 15, 13, 13, 11, 11, 9, 7, 1.
+- **Seen** in the game: the fog's edge soft (the 32 × 32 texture smoothed over the 512 × 256 diamond), as in the original's frames.
+- Not read: the creatures' colours' predicates.
 
 ## The pin (#1569)
 
@@ -64,4 +68,5 @@ All places are pixels of the 1024 × 768 screen; "image N" is the entry N of the
 
 Since #1561 `world_map` shows the map as above: M, the taskbar's map button and Esc, the close button, the pause, its show hiding the inventory and the book, the pictures from the scroll that centres the hero, the edges' scroll and the right button's drag, the hero's cross, the quests' icons at their compasses' cells with the titles' tooltip, the black edge, the frame, the ornament and the buttons.
 **Seen** in the game beside the original's frames: the pictures, the frame, the ornament and the buttons at the Seraphim's start to the pixel; the cross and the first quest's icon at the screen's middle with its title under the pointer.
-Not followed yet: the layers of #1567, the lens (#1568), the pin (#1569), the buttons' pressed looks and tooltips, the edges' cursors.
+Since #1568 `opensacred_rules::explored` keeps the sectors' explored bitmaps and the stamps, `explored` stamps them about the hero at each cell it steps into, and the left button held on the map shows the lens (`world_map`): the minimap's ground about the point under the pointer, its fog over the sectors' diamonds (`minimap`), and the quests' icons at their own sizes with their titles beside them over grey (**hypothesis**: the label layout that keeps the titles apart is not followed); the map's tooltip hides under it.
+Not followed yet: the layers of #1567, the lens's creatures and party, the pin (#1569), the buttons' pressed looks and tooltips, the edges' cursors.
