@@ -11,8 +11,12 @@
 //! it throws along arcs to the hero's feet (#1381).
 //!
 //! As the doors, the game picks the container nearest the cursor's line of sight and the hero
-//! walks where the click sends it, beside the container's closed cell (`hero::steer`). Not
-//! followed yet: the town stash (5200), whose window opens instead.
+//! walks where the click sends it, beside the container's closed cell (`hero::steer`).
+//!
+//! A town stash (5200) opens as the others, but its window shows with the inventory instead of a
+//! fill (`town_stash`, #1411): emptied only while the window shows, it closes with its clip of the
+//! slot 171 (`MOTION_DEACTIVATE`) and its sound as the inventory hides (`0x6ACD80`, the event
+//! `0x21`).
 
 use std::time::Duration;
 
@@ -25,6 +29,7 @@ use crate::attack::{self, Aim};
 use crate::frame::{Control, Step, Unpaused};
 use crate::hero::{self, Body};
 use crate::hud::Pointer;
+use crate::inventory::Shown;
 use crate::npcs::{Npcs, Object};
 use crate::sfx;
 use crate::terrain::Heights;
@@ -34,14 +39,15 @@ const OPENS_WITHIN: f32 = 300.0;
 /// The town stash, which opens its window rather than throwing what it holds (`0x428760`).
 const STASH: u32 = 5200;
 
-/// A container: its type, by which it sounds, its model, its clip of opening (`*_ACTIVATE`) and
-/// its animation player once it has them, its `Take:` function and its own trigger, its
-/// placement, and whether it is emptied.
+/// A container: its type, by which it sounds, its model, its clips of opening (`*_ACTIVATE`) and
+/// of closing (`*_DEACTIVATE`) and its animation player once it has them, its `Take:` function
+/// and its own trigger, its placement, and whether it is emptied.
 #[derive(Component)]
 pub struct Container {
     kind: u32,
     gltf: Handle<Gltf>,
     clip: Option<AnimationNodeIndex>,
+    closing: Option<AnimationNodeIndex>,
     player: Option<Entity>,
     function: Option<String>,
     trigger: Option<String>,
@@ -64,6 +70,7 @@ impl Container {
             kind,
             gltf,
             clip: None,
+            closing: None,
             player: None,
             function,
             trigger,
@@ -72,9 +79,9 @@ impl Container {
         }
     }
 
-    /// Whether the hero may open it: not emptied, nor a town stash.
+    /// Whether the hero may open it: not emptied (a town stash only while its window shows).
     pub fn opens(&self) -> bool {
-        !self.emptied && self.kind != STASH
+        !self.emptied
     }
 }
 
@@ -159,7 +166,10 @@ fn open(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut heroes: Query<(Entity, &Transform, &Body, &mut Opens)>,
     (mut npcs, mut heights): (ResMut<Npcs>, ResMut<Heights>),
-    speed: Res<hero::GameSpeed>,
+    (speed, mut stash): (
+        Res<hero::GameSpeed>,
+        (ResMut<crate::town_stash::Opened>, ResMut<Shown>),
+    ),
     mut dice: ResMut<crate::drops::Dice>,
     mut sounds: MessageWriter<sfx::Play>,
 ) {
@@ -204,6 +214,20 @@ fn open(
         }
         if let Some(trigger) = &container.trigger {
             crate::npcs::open_container_trigger(&mut npcs, &mut heights, trigger);
+        }
+        if container.kind == STASH {
+            // Its window with the inventory, emptied while it shows (`0x6ACFC0`).
+            container.emptied = true;
+            stash.0.0 = Some(opens.0);
+            if !stash.1.0 {
+                stash.1.0 = true;
+                sounds.write(sfx::Play {
+                    sound: sfx::Of::Id(crate::inventory::OPENS),
+                    at: None,
+                    rate: (0.5, sfx::Roll::None),
+                });
+            }
+            continue;
         }
         if let Some(function) = container.function.clone() {
             let opened = opens.0;
@@ -457,11 +481,14 @@ fn clips(
         };
         let mut graph = AnimationGraph::new();
         let root = graph.root;
-        let opening = gltf
-            .named_animations
-            .iter()
-            .find(|(name, _)| name.ends_with("_ACTIVATE"))
-            .map(|(_, clip)| graph.add_clip(clip.clone(), 1.0, root));
+        let mut named = |end: &str| {
+            gltf.named_animations
+                .iter()
+                .find(|(name, _)| name.ends_with(end))
+                .map(|(_, clip)| graph.add_clip(clip.clone(), 1.0, root))
+        };
+        let opening = named("_ACTIVATE");
+        container.closing = named("_DEACTIVATE");
         container.clip = opening;
         container.player = Some(entity);
         let mut transitions = AnimationTransitions::new();
@@ -480,6 +507,42 @@ fn clips(
 /// The speed of the opening's clip of a container placed again emptied, which ends it in a frame.
 const EMPTIED_AT_ONCE: f32 = 1000.0;
 
+/// As the inventory hides with a town stash's window shown, the window hides with it (`0x6ACD80`):
+/// the stash is no more emptied and its trigger closes, its lid with its clip of closing and its
+/// sound (the event `0x21`, `0x416280`, the sound group 3).
+fn close_stash(
+    (shown, mut opened): (Res<Shown>, ResMut<crate::town_stash::Opened>),
+    mut containers: Query<&mut Container>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    (mut npcs, mut heights, speed): (ResMut<Npcs>, ResMut<Heights>, Res<hero::GameSpeed>),
+    mut sounds: MessageWriter<sfx::Play>,
+) {
+    let Some(stash) = opened.0.filter(|_| !shown.0) else {
+        return;
+    };
+    opened.0 = None;
+    let Ok(mut container) = containers.get_mut(stash) else {
+        return;
+    };
+    container.emptied = false;
+    if let (Some(clip), Some(player)) = (container.closing, container.player)
+        && let Ok((mut player, mut transitions)) = players.get_mut(player)
+    {
+        transitions
+            .play(&mut player, clip, Duration::ZERO)
+            .set_speed(speed.0);
+    }
+    sounds.write(sfx::Play {
+        sound: sfx::Of::Profile(605, sfx::CLOSE),
+        at: Some(stash),
+        rate: (0.45, sfx::Roll::Tenths),
+    });
+    if let Some(trigger) = &container.trigger {
+        crate::npcs::close_container_trigger(&mut npcs, &mut heights, trigger);
+    }
+    debug!("containers: the town stash {stash} closes");
+}
+
 /// The containers that the hero opens.
 pub struct ContainersPlugin;
 
@@ -494,7 +557,13 @@ impl Plugin for ContainersPlugin {
                 .in_set(Unpaused)
                 .in_set(Step::HeroMove),
         )
-        .add_systems(Update, clips);
+        .add_systems(Update, clips)
+        .add_systems(
+            Update,
+            close_stash
+                .after(crate::inventory::Opened)
+                .run_if(in_state(crate::game::AppState::InGame)),
+        );
     }
 }
 
@@ -552,6 +621,7 @@ mod tests {
             |kind, emptied| Container::new(kind, Handle::default(), (None, None), 0, emptied);
         assert!(container(5201, false).opens());
         assert!(!container(5201, true).opens());
-        assert!(!container(STASH, false).opens());
+        assert!(container(STASH, false).opens());
+        assert!(!container(STASH, true).opens());
     }
 }

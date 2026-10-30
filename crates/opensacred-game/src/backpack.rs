@@ -19,6 +19,7 @@ use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
+use opensacred_rules::drops::Dropped;
 use opensacred_rules::inventory::{COLUMNS, Grid, Highlight, ROWS, held_at};
 
 use crate::bar::{self, UiImages};
@@ -69,7 +70,13 @@ pub(crate) fn on_grid(
 /// The cell, column and row, under the point `at` from the grid's top left, where it lies on the
 /// grid.
 pub(crate) fn cell_under(at: Vec2) -> Option<(u8, u8)> {
-    let size = Vec2::new(f32::from(COLUMNS), f32::from(ROWS)) * CELL;
+    cell_in(at, (COLUMNS, ROWS))
+}
+
+/// The cell, column and row, under the point `at` from the top left of a grid of `columns` ×
+/// `rows`, where it lies on it.
+pub(crate) fn cell_in(at: Vec2, (columns, rows): (u8, u8)) -> Option<(u8, u8)> {
+    let size = Vec2::new(f32::from(columns), f32::from(rows)) * CELL;
     if at.x < 0.0 || at.y < 0.0 || at.x >= size.x || at.y >= size.y {
         return None;
     }
@@ -87,7 +94,7 @@ pub(crate) struct Matte;
 struct Root;
 
 /// The items' camera, light and models.
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct Scene;
 
 /// A cell's tint, at its column and row.
@@ -122,36 +129,62 @@ fn show(
     if !shown.0 {
         return;
     }
-    let size = Vec2::new(f32::from(COLUMNS), f32::from(ROWS)) * CELL;
-    let root = commands
-        .spawn((
-            Root,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(50.0),
-                top: Val::Px(0.0),
-                margin: UiRect::left(Val::Px(-bar::SCREEN.x / 2.0)),
-                width: Val::Px(bar::SCREEN.x),
-                height: Val::Px(bar::SCREEN.y),
-                ..default()
-            },
-            GlobalZIndex(-1),
-            Pickable::IGNORE,
-            DespawnOnExit(AppState::InGame),
-        ))
-        .id();
+    let root = commands.spawn((Root, screen(), GlobalZIndex(-1))).id();
+    let scale = window.map_or(1.0, |window| window.height() / bar::SCREEN.y);
+    spawn_grid(
+        &mut commands,
+        (&images, &assets),
+        (&mut targets, &mut layers),
+        scale,
+        (root, GRID, (COLUMNS, ROWS)),
+        (ITEMS, Tint, Scene),
+    );
+}
+
+/// A container of the original's screen centred along the window's width, as the inventory's
+/// windows lie, for a window's grid.
+pub(crate) fn screen() -> impl Bundle {
+    (
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            top: Val::Px(0.0),
+            margin: UiRect::left(Val::Px(-bar::SCREEN.x / 2.0)),
+            width: Val::Px(bar::SCREEN.x),
+            height: Val::Px(bar::SCREEN.y),
+            ..default()
+        },
+        Pickable::IGNORE,
+        DespawnOnExit(AppState::InGame),
+    )
+}
+
+/// Makes a grid of `columns` × `rows` cells at `origin` of the container `parent` (`0x5DC430`):
+/// each cell the image 165 with its tint over it (`tint` of its column and row), and over them a
+/// picture of the window's pixels (`scale` of the original's) that a camera of the render layer
+/// `layer` draws the items' models into, its light with it, both `scene`: the backpack's grid, a
+/// town stash's (`chest`).
+pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
+    commands: &mut Commands,
+    (images, assets): (&UiImages, &AssetServer),
+    (targets, layers): (&mut Assets<Image>, &mut Assets<Layer>),
+    scale: f32,
+    (parent, origin, (columns, rows)): (Entity, Vec2, (u8, u8)),
+    (layer, tint, scene): (usize, impl Fn((u8, u8)) -> T, S),
+) {
+    let size = Vec2::new(f32::from(columns), f32::from(rows)) * CELL;
     let grid = commands
-        .spawn((bar::placed(GRID, size), Pickable::IGNORE))
+        .spawn((bar::placed(origin, size), Pickable::IGNORE))
         .id();
-    commands.entity(root).add_child(grid);
-    for column in 0..COLUMNS {
-        for row in 0..ROWS {
+    commands.entity(parent).add_child(grid);
+    for column in 0..columns {
+        for row in 0..rows {
             let at = Vec2::new(f32::from(column), f32::from(row)) * CELL;
-            let (image, node) = bar::piece(&images, &assets, CELL_IMAGE, at, Vec2::ZERO);
+            let (image, node) = bar::piece(images, assets, CELL_IMAGE, at, Vec2::ZERO);
             let cell = commands
                 .spawn((image, node, Pickable::IGNORE))
                 .with_child((
-                    Tint((column, row)),
+                    tint((column, row)),
                     Node {
                         width: Val::Percent(100.0),
                         height: Val::Percent(100.0),
@@ -165,7 +198,6 @@ fn show(
         }
     }
     // The items' picture, of the window's pixels, over the cells.
-    let scale = window.map_or(1.0, |window| window.height() / bar::SCREEN.y);
     let pixels = (size * scale).round().as_uvec2().max(UVec2::ONE);
     let target = targets.add(Image::new_target_texture(
         pixels.x,
@@ -184,7 +216,7 @@ fn show(
         .id();
     commands.entity(grid).add_child(picture);
     commands.spawn((
-        Scene,
+        scene.clone(),
         Camera3d::default(),
         Camera {
             order: -2,
@@ -209,19 +241,19 @@ fn show(
             brightness: AMBIENT,
             affects_lightmapped_meshes: true,
         },
-        RenderLayers::layer(ITEMS),
+        RenderLayers::layer(layer),
         Apart,
         DespawnOnExit(AppState::InGame),
     ));
     commands.spawn((
-        Scene,
+        scene,
         DirectionalLight {
             illuminance: LIGHT,
             shadow_maps_enabled: false,
             ..default()
         },
         Transform::from_xyz(-0.5, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-        RenderLayers::layer(ITEMS),
+        RenderLayers::layer(layer),
         DespawnOnExit(AppState::InGame),
     ));
 }
@@ -293,32 +325,64 @@ fn tint(
         Some((cell, held.size, pack.grid.highlight(cell, held.size)))
     });
     let refused = |key: u32| {
-        let (Some(hero), Some(tables)) = (hero.as_deref(), tables.as_deref()) else {
-            return false;
-        };
         pack.items
             .iter()
             .find(|(k, _)| *k == key)
             .is_some_and(|(_, dropped)| {
-                let asks = tables.asks(dropped, &rules);
-                !opensacred_rules::equipment::may_use(hero.creature, experience.0.level, &asks)
+                refuses(
+                    (hero.as_deref(), &experience, &rules, tables.as_deref()),
+                    dropped,
+                )
             })
     };
     for (tint, mut colour) in &mut tints {
-        let wanted = match held {
-            Some((at, size, highlight)) if Grid::held_over(tint.0, at, size) => match highlight {
-                Highlight::Fits => FITS_TINT,
-                Highlight::Swaps => SWAPS_TINT,
-                Highlight::Refused => REFUSED_TINT,
-            },
-            _ => match pack.grid.at(tint.0) {
-                Some(placed) if refused(placed.key) => REFUSED_TINT,
-                Some(_) => ITEM_TINT,
-                None => Color::NONE,
-            },
-        };
-        colour.set_if_neq(BackgroundColor(wanted));
+        colour.set_if_neq(BackgroundColor(cell_tint(
+            &pack.grid, held, tint.0, refused,
+        )));
     }
+}
+
+/// An item held over a grid: the cell it would go to, its size, and where it would go.
+pub(crate) type HeldOver = ((i32, i32), (u8, u8), Highlight);
+
+/// The tint of the cell `cell` of `grid` (`0x5DC430`): under an item held over it (its cell, size
+/// and highlight) by where it would go, green, purple or red; else under an item blue, or red
+/// where `refused` refuses its key to the hero.
+pub(crate) fn cell_tint(
+    grid: &Grid,
+    held: Option<HeldOver>,
+    cell: (u8, u8),
+    refused: impl Fn(u32) -> bool,
+) -> Color {
+    match held {
+        Some((at, size, highlight)) if Grid::held_over(cell, at, size) => match highlight {
+            Highlight::Fits => FITS_TINT,
+            Highlight::Swaps => SWAPS_TINT,
+            Highlight::Refused => REFUSED_TINT,
+        },
+        _ => match grid.at(cell) {
+            Some(placed) if refused(placed.key) => REFUSED_TINT,
+            Some(_) => ITEM_TINT,
+            None => Color::NONE,
+        },
+    }
+}
+
+/// Whether the hero may not use the item `dropped` (`0x54ABE0`, #1417), by its type's demands.
+pub(crate) fn refuses(
+    (hero, experience, rules, tables): (
+        Option<&crate::hero::Hero>,
+        &crate::fight::Experience,
+        &crate::fight::Rules,
+        Option<&Tables>,
+    ),
+    dropped: &Dropped,
+) -> bool {
+    let (Some(hero), Some(tables)) = (hero, tables) else {
+        return false;
+    };
+    let asks = tables.asks(dropped, rules);
+    !opensacred_rules::equipment::may_use(hero.creature, experience.0.level, &asks)
 }
 
 /// Lays the items' models out as the pack holds them, while the inventory shows: a model for each
@@ -338,14 +402,36 @@ fn lay_out(
     let Some(tables) = tables else {
         return;
     };
-    for (entity, model, _) in &models {
-        if !pack.grid.items.iter().any(|item| item.key == model.0) {
-            commands.entity(entity).despawn();
+    let laid = models
+        .iter_mut()
+        .map(|(entity, model, transform)| (entity, model.0, transform))
+        .collect();
+    lay_models(
+        &mut commands,
+        (&tables, &assets),
+        (&pack.items, &pack.grid),
+        laid,
+        (ITEMS, |key| (Scene, Model(key))),
+    );
+}
+
+/// Lays the models of the items of a grid out (`items` by their keys, `grid` their places): a
+/// model for each item, made as it comes (`made` of its key, in the render layer `layer`), taken
+/// away as it goes, and moved where the item moves; `laid` the models made before, by their keys.
+pub(crate) fn lay_models<B: Bundle>(
+    commands: &mut Commands,
+    (tables, assets): (&Tables, &AssetServer),
+    (items, grid): (&[(u32, Dropped)], &Grid),
+    mut laid: Vec<(Entity, u32, Mut<Transform>)>,
+    (layer, made): (usize, impl Fn(u32) -> B),
+) {
+    for (entity, key, _) in &laid {
+        if !grid.items.iter().any(|item| item.key == *key) {
+            commands.entity(*entity).despawn();
         }
     }
-    for placed in &pack.grid.items {
-        let Some(item) = pack
-            .items
+    for placed in &grid.items {
+        let Some(item) = items
             .iter()
             .find(|(key, _)| *key == placed.key)
             .map(|(_, dropped)| dropped.item)
@@ -356,27 +442,23 @@ fn lay_out(
             continue;
         };
         let at = placement(placed.at, placed.size, pose);
-        if let Some((.., mut transform)) = models
-            .iter_mut()
-            .find(|(_, model, _)| model.0 == placed.key)
-        {
-            if *transform != at {
-                *transform = at;
+        if let Some((.., transform)) = laid.iter_mut().find(|(_, key, _)| *key == placed.key) {
+            if **transform != at {
+                **transform = at;
             }
             continue;
         }
         let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
         let mut entity = commands.spawn((
-            Scene,
-            Model(placed.key),
+            made(placed.key),
             Matte,
             WorldAssetRoot(scene),
             at,
-            RenderLayers::layer(ITEMS),
+            RenderLayers::layer(layer),
             DespawnOnExit(AppState::InGame),
         ));
         if let Some(texture) = texture {
-            entity.insert(Retexture::load(&assets, texture));
+            entity.insert(Retexture::load(assets, texture));
         }
     }
 }

@@ -6102,6 +6102,11 @@ pub(crate) fn open_container_trigger(npcs: &mut Npcs, heights: &mut Heights, nam
     open_trigger(npcs, heights, name, true);
 }
 
+/// Closes the trigger `name` of a town stash as its window hides (`0x416280`, #1411).
+pub(crate) fn close_container_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str) {
+    open_trigger(npcs, heights, name, false);
+}
+
 /// Opens or closes the cells of the trigger `name`, bit 0 of its state, and keeps the state for
 /// the sectors that come in.
 fn open_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str, open: bool) {

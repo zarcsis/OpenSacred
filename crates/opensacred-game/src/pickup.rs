@@ -141,6 +141,72 @@ pub struct Pack {
     pub used: Vec<(Placed, u32)>,
 }
 
+/// Takes the item over the cell `cell` of a grid and its items onto the cursor `held` where it
+/// holds nothing (`0x5DA3D0`): whether one went. The backpack's and a town stash's alike.
+pub(crate) fn lift_from(
+    (items, grid): (&mut Vec<(u32, Dropped)>, &mut Grid),
+    held: &mut Option<Held>,
+    cell: (u8, u8),
+) -> bool {
+    if held.is_some() {
+        return false;
+    }
+    let Some(placed) = grid.at(cell).copied() else {
+        return false;
+    };
+    let Some(index) = items.iter().position(|(key, _)| *key == placed.key) else {
+        return false;
+    };
+    grid.remove(placed.key);
+    let (key, dropped) = items.remove(index);
+    *held = Some(Held {
+        key,
+        dropped,
+        size: placed.size,
+    });
+    true
+}
+
+/// Puts the item on the cursor `held` at the cell `at` of a grid and its items (`0x6C0150`,
+/// `0x6ACFC0`): where it fits, the cursor emptied; over exactly one item, that one onto the cursor
+/// in its place; else nothing.
+pub(crate) fn put_into(
+    (items, grid): (&mut Vec<(u32, Dropped)>, &mut Grid),
+    held: &mut Option<Held>,
+    at: (i32, i32),
+) -> Put {
+    let Some(holding) = *held else {
+        return Put::Refused;
+    };
+    // The sizes of the items in the grid, before the put takes one out.
+    let sizes: Vec<(u32, (u8, u8))> = grid
+        .items
+        .iter()
+        .map(|placed| (placed.key, placed.size))
+        .collect();
+    let put = grid.put(holding.key, at, holding.size);
+    match put {
+        Put::Placed => {
+            items.push((holding.key, holding.dropped));
+            *held = None;
+        }
+        Put::Swapped(other) => {
+            items.push((holding.key, holding.dropped));
+            *held = None;
+            if let Some(index) = items.iter().position(|(key, _)| *key == other) {
+                let (key, dropped) = items.remove(index);
+                let size = sizes
+                    .iter()
+                    .find(|(key, _)| *key == other)
+                    .map_or((1, 1), |&(_, size)| size);
+                *held = Some(Held { key, dropped, size });
+            }
+        }
+        Put::Refused => {}
+    }
+    put
+}
+
 /// An item on the cursor: its key in the grid, the item and its size in cells.
 #[derive(Clone, Copy, Debug)]
 pub struct Held {
@@ -274,60 +340,14 @@ impl Pack {
     /// Takes the item over the cell `cell` out of the grid onto the cursor where it holds nothing
     /// (`0x5DA3D0`): whether one went.
     pub fn lift(&mut self, cell: (u8, u8)) -> bool {
-        if self.held.is_some() {
-            return false;
-        }
-        let Some(placed) = self.grid.at(cell).copied() else {
-            return false;
-        };
-        let Some(index) = self.items.iter().position(|(key, _)| *key == placed.key) else {
-            return false;
-        };
-        self.grid.remove(placed.key);
-        let (key, dropped) = self.items.remove(index);
-        self.held = Some(Held {
-            key,
-            dropped,
-            size: placed.size,
-        });
-        true
+        lift_from((&mut self.items, &mut self.grid), &mut self.held, cell)
     }
 
     /// Puts the item on the cursor at the cell `at` of the grid (`0x6C0150`): where it fits, the
     /// cursor emptied; over exactly one item, that one onto the cursor in its place; else
     /// nothing.
     pub fn put_held(&mut self, at: (i32, i32)) -> Put {
-        let Some(held) = self.held else {
-            return Put::Refused;
-        };
-        // The sizes of the items in the grid, before the put takes one out.
-        let sizes: Vec<(u32, (u8, u8))> = self
-            .grid
-            .items
-            .iter()
-            .map(|placed| (placed.key, placed.size))
-            .collect();
-        let put = self.grid.put(held.key, at, held.size);
-        match put {
-            Put::Placed => {
-                self.items.push((held.key, held.dropped));
-                self.held = None;
-            }
-            Put::Swapped(other) => {
-                self.items.push((held.key, held.dropped));
-                self.held = None;
-                if let Some(index) = self.items.iter().position(|(key, _)| *key == other) {
-                    let (key, dropped) = self.items.remove(index);
-                    let size = sizes
-                        .iter()
-                        .find(|(key, _)| *key == other)
-                        .map_or((1, 1), |&(_, size)| size);
-                    self.held = Some(Held { key, dropped, size });
-                }
-            }
-            Put::Refused => {}
-        }
-        put
+        put_into((&mut self.items, &mut self.grid), &mut self.held, at)
     }
 
     /// Takes the item worn in `slot` off onto the empty cursor, of `size` in the grid (`0x556A30`):
