@@ -5205,17 +5205,32 @@ pub fn animate(
             // The clips change through transitions, which blend them (`stance`); a walk's and a
             // run's play at its pace too (`0x413610`, #599).
             let rate = if moving.is_some() { npc.pace } else { 1.0 };
-            let mut transitions = AnimationTransitions::new();
-            transitions
-                .play(&mut player, node, Duration::ZERO)
-                .repeat()
-                .set_speed(speed.0 * rate);
+            let transitions = first_clip(&mut player, node, speed.0 * rate);
             commands
                 .entity(entity)
                 .insert((AnimationGraphHandle(clips.graph), transitions));
             npc.player = Some(entity);
         }
     }
+}
+
+/// Starts `player` on the clip `node` of its new graph, on and on at `speed`, and the transitions
+/// that change its clips from there. A player whose graph [`rearm`] took keeps the old graph's
+/// clips by their nodes, which the new graph gives to others, and they go first: a stale stance
+/// looping on at what is now the dying clip's node made a corpse replay its death on and on, as
+/// `AnimationPlayer::start` keeps an active clip's repeat (#1538).
+fn first_clip(
+    player: &mut AnimationPlayer,
+    node: AnimationNodeIndex,
+    speed: f32,
+) -> AnimationTransitions {
+    player.stop_all();
+    let mut transitions = AnimationTransitions::new();
+    transitions
+        .play(player, node, Duration::ZERO)
+        .repeat()
+        .set_speed(speed);
+    transitions
 }
 
 /// Walks each walking NPC toward its target as the hero walks (`hero::run`): round what blocks
@@ -8038,6 +8053,7 @@ mod tests {
     use std::f32::consts::FRAC_PI_2;
     use std::fs;
 
+    use bevy::animation::{ActiveAnimation, RepeatAnimation};
     use bevy::prelude::Vec2;
     use opensacred_data::netscript::{Function, Operand};
 
@@ -9304,6 +9320,23 @@ mod tests {
         let sword = InHand::of([(1753, WEAPON, Some(1))]);
         assert_eq!(class_of(&sword), 1);
         assert!(!ranged_of(&sword));
+    }
+
+    #[test]
+    fn a_graph_made_anew_starts_without_the_old_ones_clips() {
+        // A thief's graph with its bow loops its stance at the node 4; with a sword it has no
+        // stance, and the node 4 is its dying clip (#1538).
+        let (idle, node_4) = (AnimationNodeIndex::new(1), AnimationNodeIndex::new(4));
+        let mut player = AnimationPlayer::default();
+        player.start(idle).repeat();
+        player.start(node_4).repeat();
+        let mut transitions = first_clip(&mut player, idle, 1.0);
+        assert!(player.animation(node_4).is_none());
+        let main = player.animation(idle).map(ActiveAnimation::repeat_mode);
+        assert_eq!(main, Some(RepeatAnimation::Forever));
+        // Its death plays the dying clip once.
+        let dying = transitions.play(&mut player, node_4, BLEND);
+        assert_eq!(dying.repeat_mode(), RepeatAnimation::Never);
     }
 
     #[test]
