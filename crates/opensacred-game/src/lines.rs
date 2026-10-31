@@ -240,24 +240,11 @@ fn show(
                 }
                 _ => {
                     let label = commands
-                        .spawn((
-                            Node {
-                                position_type: PositionType::Absolute,
-                                left,
-                                top: at_top,
-                                width: Val::Px(WIDTH),
-                                justify_content: JustifyContent::Center,
-                                ..default()
-                            },
-                            Text::new(text(said).unwrap_or_default()),
-                            TextFont {
-                                font: assets.load(FONT).into(),
-                                font_size: FontSize::Px(FONT_SIZE),
-                                ..default()
-                            },
-                            TextColor(said.color),
-                            TextLayout::justify(Justify::Center),
-                            DespawnOnExit(AppState::InGame),
+                        .spawn(label(
+                            text(said).unwrap_or_default(),
+                            said.color,
+                            assets.load(FONT),
+                            (left, at_top),
                         ))
                         .id();
                     debug!("lines: {entity} says {}", said.line.name());
@@ -266,6 +253,32 @@ fn show(
             }
         }
     }
+}
+
+/// A line's label, its box's corner at `(left, top)`. It takes no pointer: the original draws
+/// the lines with the world, out of the interface's manager's windows that take the cursor
+/// (`0x75AA90`), so the cursor and a click read what lies under a line (#1602).
+fn label(text: String, color: Color, font: Handle<Font>, (left, top): (Val, Val)) -> impl Bundle {
+    (
+        Node {
+            position_type: PositionType::Absolute,
+            left,
+            top,
+            width: Val::Px(WIDTH),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        Text::new(text),
+        TextFont {
+            font: font.into(),
+            font_size: FontSize::Px(FONT_SIZE),
+            ..default()
+        },
+        TextColor(color),
+        TextLayout::justify(Justify::Center),
+        Pickable::IGNORE,
+        DespawnOnExit(AppState::InGame),
+    )
 }
 
 /// The lines over the creatures.
@@ -294,5 +307,20 @@ mod tests {
         assert_eq!(texts.len(), 3);
         let texts = Texts(texts);
         assert_eq!(texts.named("1"), Some("Seraphim"));
+    }
+
+    #[test]
+    fn a_line_takes_no_pointer() {
+        let mut world = World::new();
+        let line = world
+            .spawn(label(
+                "+12".into(),
+                Color::WHITE,
+                Handle::default(),
+                (Val::Px(0.0), Val::Px(0.0)),
+            ))
+            .id();
+        let pickable = world.get::<Pickable>(line).copied();
+        assert!(pickable.is_some_and(|p| !p.is_hoverable && !p.should_block_lower));
     }
 }
