@@ -89,12 +89,32 @@ As the client loads the item types (`0x425AEB`, which logs `makeSpawnInfo`, gate
 - `T = max(D + Σ resistances (+0x32 to +0x38), 1)`, and with a template (`0x42CA70`, after the chain of parents) `T = 100·T/S`, `S` its word 6;
 - `x = max(T − SpawnWeaponMin, 1)·100/(SpawnWeaponMax − SpawnWeaponMin)` (25 and 275), and the level `⌊x + 0.5⌋`, at most 255 (`0x890908`), 0 becoming 1 (`0x5D47E2` to `0x5D4815`);
 - with sockets, at least the highest of its sockets' items' levels (a call of itself at `0x5D409A`);
-- then `+0x14 = ⌊max((level + 9)·MinLevelFactor − 8.5, 1)⌋` (0.8 at `0xAD55AC`, 8.5 at `0x890CA0`, `0x5D4973` to `0x5D49AB`), and its price `+0x08` anew.
+- then `+0x14 = ⌊max((level + 9)·MinLevelFactor − 8.5, 1)⌋` (0.8 at `0xAD55AC`, 8.5 at `0x890CA0`, `0x5D4973` to `0x5D49AB`), and it answers the item's worth (below), which the loader writes to the record's price (`+0x88` of the `Weapon.pak` record, `0x425B3B`) and the item maker to the made item's (`+0x08`, `0x5D5702`).
 
 The item maker writes the level it makes an item at into the item (`0x5D55FE`), but no flags it gives carry bit 31, so that its call of `0x5D3AB0` (`0x5D56FA`) replaces it by the estimate from the damage and the resistances it made; the level it was made at reaches only the bonuses and the quality pass (`0x42BF40` at `0x5D5601`), which run before (**hypothesis**: so a ring without damage or resistances asks the level 1, as 7511 below).
 The sockets' code (`0x5C0430`) takes the level back from `+0x14` the other way, `⌊(+0x14 + 9)/0.8 − 8.5⌋`.
 For example the Seraphim's staff 3809 of 1018 (35 to 42 physical and 8 to 15 magic, its template's scale 113) is worth 50, `100·50/113` 44.25, `(44.25 − 25)·100/250` 7.7, the level 8, and `+0x14` `⌊17·0.8 − 8.5⌋` 5, as #448's driver read in the running original where the file has 10 and 6, which follow the same rule for `+0x14`.
 `opensacred_rules::fight::item_level` works it out so, its sockets left out (#844).
+
+## The worth of an item (`0x5D3AB0`)
+
+Read 2026-10-31 for #1621 (**confirmed** by code, and on the files: for 4,700 of the 4,708 `Weapon.pak` records of bit 31 the worth below is the file's price, `opensacred_rules::trade::worth` run over `tables/weapons.ron`).
+The trade's price of an item is its record's `+0x08` plus its sockets' items' (`0x5BEC70`), which `0x43C350` turns into what it costs and fetches (docs/re/inventory.md, §9 "The price"); the worth is what `0x5D3AB0` writes there, in the balance's `Price…` keys (docs/02-data-formats.md, the balance's image):
+
+1. A potion (category 9) is worth its record's price; a book (category 16) its record's price, else its type's record's, else 600; the gold piles 5132 to 5135 their amount or a roll (not followed).
+2. With the item's object given, each socket's item takes its damage and resistances, scaled by the socket's kind, off the item's sums, and the item's level is at least the highest of its sockets' (the game has no sockets).
+3. The damage `d`: half the sum of each kind's least and most (`+0x1C`…`+0x2A`) times its weight (`PriceDPh`, `PriceDFe`, `PriceDMa`, `PriceDGi`: 1, 2, 2 and 1.7, physical, fire, magic and poison); where above 0, the worth `⌊c2·d² + c1·d + c0⌋` by the row `PriceDmg:` (300, 10, 0.4), the polynomial stored as a single float first.
+4. The resistances `r`: each (`+0x32`…`+0x38`) times its weight (`PriceRPh`, `PriceRFe`, `PriceRMa`, `PriceRGi`: 2, 1, 2 and 1.5); where above 0, the worth `⌊worth + (c2·r² + c1·r + c0)⌋` by the row `PriceRes:` (450, 21, 0.9), the polynomial a single float.
+5. `A` (`+0x2C`) and `D` (`+0x2E`) where not 0, each `⌊c2·x² + c1·x + worth + c0⌋` by its three of the row `PriceAwVw:` (`A` 0, 3, 0.4; `D` 0, 4, 0.4).
+6. Each of the eight bonuses (`+0x4A`, its value at `+0x6A`) by its effect: its value times the row `PriceBoni:`'s 100 for an effect below 200, 90 above 999, 40 for 600 to 798, 20 for 815 to 819 and 7 for the others; the effects 840 to 867 by their keys (`840_Glckskind` … `867_Tollwut`), some times the value (840, 844 to 845, 847 to 849, 852 and 866), the others fixed, 858 and 860 to 863 nothing, and each of them sets the factor below back to 1.
+   Where the effect has no attribute (its high word 0) and its record's fourth float (`0x5E22B0`, the balance's image from `+0x9DC`) is 0, the bonus's worth, at least 0, is added; else `⌊min(v·f/r₄, r₃)⌋` adds a tenth to a factor from 1, a single float, `r₃` and `r₄` its record's fourth and fifth floats, `f` its sixth for a ring or an amulet (else 1) times 1/1.33, 1/1.66, 1/2 or 1/2.33 for the record's difficulty (`+0x04` bits 24 to 27 of 2 to 5).
+7. The worth, at least the last polynomial's single float, times that factor where it is above 1; times `1 + q/8` of its quality `q` (`+0x04` bits 16 to 19), `1 + q/2` for a ring or an amulet; times one plus `RareSlotBronze`, `RareSlotSilber` or `RareSlotGold` (0.1 each) for each socket of the kinds 1, 2 and 3 (`+0x0C`…`+0x13`); each step cut.
+8. A rune (category 28) a fiftieth of it, its levels set to 1; a worth of 0 its record's price; then times `PricePromille` (1.0).
+
+So the sword 7901 (21 to 23 physical, `A` 5, `D` 2, the effects 811 of 14 and 812 of 2, whose records' fourth and fifth floats are 25 and 2.5) is worth `d` 22, `⌊713.6⌋` 713, with `A` 738, with `D` 747, its 811 raising the factor by `⌊14/2.5⌋/10` to 1.5: 1120, the file's price, by which the original sells it (#1273).
+The 8 records whose prices are not their worths (1799, 2006, 2302, 3122, 3851, 4065, 7579 and 7741, each with an effect 856 or 866) are worth 5 to 7 % less; the client works their prices out anew as it loads the types, so it trades them by the worths (**hypothesis**: the files' prices of an earlier balance).
+
+Since #1621 the game prices every type by its record's worth as it loads the tables, and a made item by its values' (`drops::Tables::trade_price`), its quality and its difficulty those of the passes it does not follow (#1367), so 0; the tooltip shows a made item's price.
 
 ## The made item's name (`0x5C3130`)
 

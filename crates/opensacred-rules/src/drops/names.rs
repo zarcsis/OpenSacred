@@ -68,7 +68,7 @@ const NORMS_AT: usize = 0x9DC / 4;
 const SHARES: [u32; 3] = [51, 41, 31];
 
 /// The effects' records of the balance's image `image` ([`NORMS`]); none where it is too short.
-pub(super) fn norms(image: &[u32]) -> Vec<[f32; 6]> {
+pub(crate) fn norms(image: &[u32]) -> Vec<[f32; 6]> {
     image
         .get(NORMS_AT..NORMS_AT + 6 * NORMS)
         .map(|words| {
@@ -323,7 +323,7 @@ fn effect_kind(effect: u32) -> u8 {
 }
 
 /// The record of the effect `effect` of the effects' records `norms` (`0x5E22B0`).
-fn norm(norms: &[[f32; 6]], effect: u32) -> Option<&[f32; 6]> {
+pub(crate) fn norm(norms: &[[f32; 6]], effect: u32) -> Option<&[f32; 6]> {
     let index = match effect {
         0..200 => 70,
         1000.. => 71,

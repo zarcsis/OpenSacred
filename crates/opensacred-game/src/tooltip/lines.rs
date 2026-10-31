@@ -84,18 +84,18 @@ const CLASS_COLOURS: [u32; 10] = [
 const PLAIN: u32 = 0xFFEF_EFEF;
 
 /// What a tooltip tells of an item: its type, its name, its category, its type's record, its
-/// quality, its values, its level and the level it asks, whether the item maker made it, and the
-/// share of its health that it heals, of a healing potion.
+/// price (its record's, a made item's worth), its quality, its values, its level and the level it
+/// asks, and the share of its health that it heals, of a healing potion.
 pub(crate) struct Item<'a> {
     pub item: u32,
     pub name: &'a str,
     pub category: u8,
     pub record: Record,
+    pub price: i64,
     pub quality: u8,
     pub values: ItemValues,
     pub level: u32,
     pub asked: u32,
-    pub made: bool,
     pub heals: Option<u32>,
 }
 
@@ -146,10 +146,10 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
         lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
     }
     // The price, as the hero would sell it.
-    if !item.made && item.record.price > 0 {
+    if item.price > 0 {
         let trading = hero.skill(opensacred_rules::trade::TRADING);
         let price = opensacred_rules::trade::shown(
-            item.record.price,
+            item.price,
             hero.level,
             trading,
             f64::from(hero.attributes[5]),
@@ -157,7 +157,7 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
             1.0,
         );
         let text = if trading > 0 {
-            format!("{}: {price} ({})", words.of("1055"), item.record.price)
+            format!("{}: {price} ({})", words.of("1055"), item.price)
         } else {
             format!("{}: {price}", words.of("1055"))
         };
@@ -710,11 +710,11 @@ mod tests {
                 price: 400,
                 ..Record::default()
             },
+            price: 400,
             quality: 0,
             values: ItemValues::default(),
             level: 0,
             asked: 0,
-            made: false,
             heals: Some(100),
         };
         let lines: Vec<String> = lines(&item, Some(&hero(&[])), &words())
@@ -752,11 +752,11 @@ mod tests {
                 word: 1 << 23,
                 ..Record::default()
             },
+            price: 0,
             quality: 0,
             values,
             level: 3,
             asked: 1,
-            made: true,
             heals: None,
         };
         let lines = lines(&item, Some(&hero(&[])), &words());
@@ -808,11 +808,11 @@ mod tests {
                 price: 1120,
                 ..Record::default()
             },
+            price: 1120,
             quality: 0,
             values,
             level: 1,
             asked: 2,
-            made: false,
             heals: None,
         };
         let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words())
