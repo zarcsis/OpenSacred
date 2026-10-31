@@ -2,7 +2,7 @@
 //! the right holds an art (the inventory entry's records at `+0xC90`), the selected one's the art
 //! that the right button makes (`0x5D9860`, `cEngine +0x5A`; `making::Selected`); a slot is
 //! selected by a click, the right button's or, outside the edit mode, the left's (`0x6E1BC0`), and
-//! by the keys 6 to 9 and 0, and 1 to 5 with the weapon sets (`COMBINE_SLOTS`, on by default).
+//! by the keys 6 to 9 and 0; the weapon sets' keys 1 to 5 choose none (#1597).
 //! While the inventory shows, the bar is in its edit mode (the taskbar's message 2): the left button
 //! drops the art that the cursor holds into a slot, or clears an empty or the selected slot. The
 //! spells page's arts go onto the cursor (`spells_page`, the cursor's kinds 2 and 3) and the right
@@ -160,20 +160,20 @@ fn choose(
     if console.is_some_and(|console| console.is_open()) {
         return;
     }
-    // The slots' keys, and the weapon sets' with them (`COMBINE_SLOTS`, `0x81CF80`).
-    let keyed = crate::controls::ART_SLOTS
-        .iter()
-        .position(|&action| keys.just_pressed(action))
-        .or_else(|| {
-            crate::controls::WEAPON_SETS
-                .iter()
-                .position(|&action| keys.just_pressed(action))
-        });
-    if let Some(slot) = keyed.filter(|&slot| slot < count)
+    if let Some(slot) = keyed(|action| keys.just_pressed(action)).filter(|&slot| slot < count)
         && slots.selected != slot
     {
         slots.selected = slot;
     }
+}
+
+/// The slot that the keys pressed choose: the art slots' keys alone, the weapon sets' choosing
+/// none, as the original's after the first press that writes `COMBINE_SLOTS` 0 where its
+/// `Settings.cfg` lacks it (`0x81CF80`, #1597).
+fn keyed(pressed: impl Fn(crate::controls::Action) -> bool) -> Option<usize> {
+    crate::controls::ART_SLOTS
+        .iter()
+        .position(|&action| pressed(action))
 }
 
 /// The inventory's hide lets go of the art on the cursor (`0x6C5A50`).
@@ -295,5 +295,14 @@ mod tests {
         assert_eq!((after.selected, after.arts[0]), (0, None));
         let (after, _) = clicked(&slots, 2, (false, true), None);
         assert_eq!((after.selected, after.arts[2]), (2, Some(13)));
+    }
+
+    #[test]
+    fn the_weapon_sets_keys_choose_no_slot() {
+        use crate::controls::{ART_SLOTS, WEAPON_SETS};
+        for (slot, (&set, &art)) in WEAPON_SETS.iter().zip(&ART_SLOTS).enumerate() {
+            assert_eq!(keyed(|action| action == set), None);
+            assert_eq!(keyed(|action| action == art), Some(slot));
+        }
     }
 }
