@@ -203,6 +203,103 @@ impl Kills {
     }
 }
 
+/// A level's record of the game's history (`0x424CA0`, 36 bytes, #1613): the gold, each damage
+/// kind's mean and each resistance, whole.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LevelRecord {
+    pub gold: u32,
+    pub damages: [u32; 4],
+    pub resistances: [u32; 4],
+}
+
+impl LevelRecord {
+    /// The record of the hero's damages `damage` (each kind's least and most), its resistances
+    /// `resistance` and its gold `gold`: each kind's least and most rounded and their mean cut,
+    /// `⌊(l + m)/2⌋`, and each resistance cut (`0x57E160` at `0x57F1D5`…`0x57F35D`, `0x424870` for
+    /// the values now). The halving of a hero's damage without a weapon in its hands
+    /// (`0x54A470`) is not followed.
+    pub fn of(damage: [[f32; 2]; 4], resistance: [f32; 4], gold: u32) -> Self {
+        let round = |value: f32| whole(value + 0.5);
+        Self {
+            gold,
+            damages: damage.map(|[least, most]| (round(least) + round(most)) / 2),
+            resistances: resistance.map(whole),
+        }
+    }
+
+    /// The damages' sum, the graph's red line.
+    pub fn damage(&self) -> u32 {
+        self.damages.iter().sum()
+    }
+
+    /// The resistances' sum, the graph's blue line.
+    pub fn resistance(&self) -> u32 {
+        self.resistances.iter().sum()
+    }
+}
+
+/// The game's history (the statistics object's records from `+0x32E4`, one a level from 1, and
+/// `+0x56E8` the highest kept, #1613): as the hero rises, the record of the moment for each level
+/// it passes, from its old level up to the new one less 1 (`0x424CA0`).
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct History {
+    levels: Vec<LevelRecord>,
+    /// The hero's level last seen, none before the game's first.
+    seen: Option<u32>,
+}
+
+/// The levels a history keeps (`0x424CA0`: below 256).
+const LEVELS: u32 = 0x100;
+
+impl History {
+    /// The hero risen from the level `from` to `to` with `record`.
+    pub fn rise(&mut self, from: u32, to: u32, record: LevelRecord) {
+        for level in from.max(1)..to.min(LEVELS) {
+            let Ok(index) = usize::try_from(level - 1) else {
+                continue;
+            };
+            if self.levels.len() <= index {
+                self.levels.resize(index + 1, LevelRecord::default());
+            }
+            self.levels[index] = record;
+        }
+    }
+
+    /// The graph's points: the records of the levels 1 to the highest kept, then `now`, the
+    /// values now (`0x6DE710`, `0x424870` of 1000).
+    pub fn points(&self, now: LevelRecord) -> Vec<LevelRecord> {
+        let mut points = self.levels.clone();
+        points.push(now);
+        points
+    }
+}
+
+/// Keeps a record of the game's history for each level the hero passes as it rises.
+fn record_levels(
+    experience: Res<crate::fight::Experience>,
+    pack: Option<Res<crate::pickup::Pack>>,
+    heroes: Query<&crate::fight::Combat, With<crate::hero::Body>>,
+    mut history: ResMut<History>,
+) {
+    let level = experience.level;
+    match history.seen {
+        Some(seen) if seen < level => {
+            let Some(combat) = heroes.iter().next() else {
+                return;
+            };
+            let gold = pack.as_deref().map_or(0, |pack| pack.gold);
+            history.rise(
+                seen,
+                level,
+                LevelRecord::of(combat.damage, combat.resistance, gold),
+            );
+            history.seen = Some(level);
+        }
+        Some(_) => {}
+        None => history.seen = Some(level),
+    }
+}
+
 /// The chance in per cent of an attack `attack` to hit a defence `defence`, whole, at most 100
 /// (`0x56AA10`, `0x43EEE0`).
 pub(crate) fn chance(attack: f32, defence: f32) -> u32 {
@@ -215,9 +312,10 @@ fn play(time: Res<Time>, mut tally: ResMut<Tally>) {
 }
 
 /// A new game's counters and records, from nothing.
-fn start(mut tally: ResMut<Tally>, mut kills: ResMut<Kills>) {
+fn start(mut tally: ResMut<Tally>, mut kills: ResMut<Kills>, mut history: ResMut<History>) {
     *tally = Tally::default();
     *kills = Kills::default();
+    *history = History::default();
 }
 
 /// A foe as the player's statistics keep it (`0x424250`, a record of `0x24` bytes of the 16 at
@@ -1579,12 +1677,13 @@ impl Plugin for StatisticsPlugin {
             .init_resource::<LastFoe>()
             .init_resource::<Tally>()
             .init_resource::<Kills>()
+            .init_resource::<History>()
             .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(
                 Update,
                 (
                     (leave_learning, close, toggle, spend, show).chain(),
-                    play.in_set(crate::frame::Playing),
+                    (play, record_levels).in_set(crate::frame::Playing),
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -1642,6 +1741,31 @@ mod tests {
         assert_eq!(bonus(20.0, 25.0), 25);
         assert_eq!(bonus(0.0, 5.0), 0);
         assert_eq!(bonus(20.0, 19.9), 0);
+    }
+
+    #[test]
+    fn the_history_keeps_a_record_for_each_level_passed() {
+        let record = |gold| LevelRecord {
+            gold,
+            damages: [31, 0, 0, 0],
+            resistances: [2, 2, 1, 0],
+        };
+        let mut history = History::default();
+        // From 1 to 3: the levels 1 and 2, alike.
+        history.rise(1, 3, record(10));
+        history.rise(3, 4, record(20));
+        let points = history.points(record(30));
+        assert_eq!(
+            points.iter().map(|p| p.gold).collect::<Vec<_>>(),
+            [10, 10, 20, 30]
+        );
+        assert_eq!((points[0].damage(), points[0].resistance()), (31, 5));
+        let now = LevelRecord::of(
+            [[30.2, 33.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            [2.65, 2.14, 1.82, 2.07],
+            0,
+        );
+        assert_eq!((now.damage(), now.resistance()), (31, 7));
     }
 
     #[test]
