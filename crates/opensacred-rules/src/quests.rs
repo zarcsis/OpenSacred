@@ -1371,20 +1371,100 @@ impl Pools {
     }
 }
 
-/// A hidden stash (`MachVersteck`, a mouse event of `0x4AB160`): its cell, the function its
-/// search runs, and the name of the text the cursor shows over it.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Stash {
-    pub cell: (i32, i32),
-    pub function: String,
-    pub text: String,
+/// The uses of a mouse event that never run out (`0x4A6950`'s 16,000, which a use leaves as it
+/// is, `0x53BA29`).
+pub const ENDLESS: u16 = 16_000;
+
+/// How a mouse event shows in the world (`cWorldView_renderTileRow`, `0x62CF12`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Look {
+    /// The hidden stash's blink (the flags 2, `0x40A230`).
+    #[default]
+    Blink,
+    /// The sparks of `0x409D00` (neither flag).
+    Sparks,
+    /// Nothing (the flags 1).
+    Hidden,
 }
 
-/// The hidden stashes not searched yet, in the order laid.
+/// A mouse event of `0x4AB160`: a hidden stash (`MachVersteck`) or a `MouseEvent` record's. Its
+/// cell and floor, the function that a click runs as the hero arrives, the name of the text the
+/// cursor shows over it, its uses left (of [`ENDLESS`] none is spent) and how it shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stash {
+    pub cell: (i32, i32),
+    pub floor: i32,
+    pub function: String,
+    pub text: String,
+    pub uses: u16,
+    pub look: Look,
+}
+
+impl Default for Stash {
+    fn default() -> Self {
+        Self {
+            cell: (0, 0),
+            floor: 0,
+            function: String::new(),
+            text: String::new(),
+            uses: 1,
+            look: Look::Blink,
+        }
+    }
+}
+
+/// The text's name of a `res:` name.
+fn text_key(text: &str) -> &str {
+    text.strip_prefix("res:")
+        .or_else(|| text.strip_prefix("RES:"))
+        .unwrap_or(text)
+}
+
+/// The mouse events with uses left, the hidden stashes among them, in the order laid.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stashes(pub Vec<Stash>);
 
 impl Stashes {
+    /// Adds `event` (`0x4AB160`) unless an event holds its cell and floor already: whether it did.
+    pub fn add(&mut self, event: Stash) -> bool {
+        let held = self
+            .0
+            .iter()
+            .any(|other| other.cell == event.cell && other.floor == event.floor);
+        if !held {
+            self.0.push(event);
+        }
+        !held
+    }
+
+    /// `MouseEvent` (94, `0x4A6950`): an event at the cell and floor `at` of the function
+    /// `function` and the text `text` (a `res:` name's key, none where empty), of one use where
+    /// `once` (`0x66`), else endless; the flags 1 (`0x10`) show nothing, the flags 2 (`0x0F`)
+    /// the stash's blink, neither the sparks.
+    pub fn mouse_event(
+        &mut self,
+        (x, y, floor): (i32, i32, i32),
+        (function, text): (&str, &str),
+        (flags, once): (Option<u8>, bool),
+    ) {
+        if x < 0 || y < 0 || floor < 0 || (function.is_empty() && text.is_empty()) {
+            return;
+        }
+        let look = match flags {
+            Some(1) => Look::Hidden,
+            Some(_) => Look::Blink,
+            None => Look::Sparks,
+        };
+        self.add(Stash {
+            cell: (x, y),
+            floor,
+            function: function.to_owned(),
+            text: text_key(text).to_owned(),
+            uses: if once { 1 } else { ENDLESS },
+            look,
+        });
+    }
+
     /// `MachVersteck` (140, `0x4B0C00`): `count` places taken at random from the pool `pool`, each
     /// a stash of the function `function` and the text `text` (a `res:` name's key), as many as
     /// the pool holds.
@@ -1395,26 +1475,32 @@ impl Stashes {
         count: u32,
         dice: &mut impl crate::spawning::Dice,
     ) {
-        let text = text
-            .strip_prefix("res:")
-            .or_else(|| text.strip_prefix("RES:"))
-            .unwrap_or(text);
         for _ in 0..count {
             let Some(cell) = pools.take(pool, dice) else {
                 break;
             };
-            self.0.push(Stash {
+            self.add(Stash {
                 cell,
                 function: function.to_owned(),
-                text: text.to_owned(),
+                text: text_key(text).to_owned(),
+                ..Stash::default()
             });
         }
     }
 
-    /// The stash at `cell`, which its search takes away (the mouse event's function run once).
+    /// The event at `cell` used as the hero arrives (`0x53BA29`): it loses a use unless endless,
+    /// and leaves the list with none left (`0x4AB640`); the event as it stood before.
     pub fn search(&mut self, cell: (i32, i32)) -> Option<Stash> {
         let at = self.0.iter().position(|stash| stash.cell == cell)?;
-        Some(self.0.remove(at))
+        let event = self.0[at].clone();
+        let left = &mut self.0[at].uses;
+        if *left < ENDLESS {
+            *left = left.saturating_sub(1);
+        }
+        if *left == 0 || *left > ENDLESS {
+            self.0.remove(at);
+        }
+        Some(event)
     }
 }
 
@@ -2197,5 +2283,39 @@ mod tests {
             Some("VERSTECK".into())
         );
         assert_eq!(stashes.search((2, 2)), None);
+    }
+
+    #[test]
+    fn a_mouse_events_uses_run_out_unless_endless_and_its_flags_choose_its_look() {
+        let mut events = Stashes::default();
+        events.mouse_event((5, 6, 0), ("BRUNNEN", "BRUNNENMOUSEOVER"), (Some(1), true));
+        events.mouse_event((7, 8, 0), ("setvar_009", "res:GRABSTEIN"), (Some(1), false));
+        events.mouse_event((9, 9, 0), ("F_Gold", "CURSED_GOLD"), (None, true));
+        events.mouse_event((9, 9, 0), ("other", "OTHER"), (Some(2), true));
+        events.mouse_event((-1, 9, 0), ("none", "NONE"), (Some(1), true));
+        events.mouse_event((3, 3, 0), ("", ""), (Some(1), true));
+        let looks: Vec<_> = events
+            .0
+            .iter()
+            .map(|event| (event.cell, event.look))
+            .collect();
+        assert_eq!(
+            looks,
+            [
+                ((5, 6), Look::Hidden),
+                ((7, 8), Look::Hidden),
+                ((9, 9), Look::Sparks)
+            ]
+        );
+        assert_eq!(events.0[1].text, "GRABSTEIN");
+        // The well gives once; the gravestone each time.
+        assert_eq!(
+            events.search((5, 6)).map(|event| event.function),
+            Some("BRUNNEN".into())
+        );
+        assert_eq!(events.search((5, 6)), None);
+        for _ in 0..3 {
+            assert_eq!(events.search((7, 8)).map(|event| event.uses), Some(ENDLESS));
+        }
     }
 }

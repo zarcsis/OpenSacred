@@ -149,7 +149,21 @@ Read 2026-10-30 (#1478), **confirmed** by code unless marked otherwise, and seen
 - The cursor over it (`cEngine_updateWorldCursor`, `0x612909`): the object's bit `0x80` finds its event (`0x4A6770`), and its mouse-over text shows beside the hand (**seen**, the text of `VERSTECKMOUSEOVER`).
 - A click (`0x617A5B`) sends the hero to it (the order 7 with the event's index), and as it arrives (`0x53BA29`) the event's function runs (**seen**: the log's `WorkFunktion` of `VERSTECK`, an item at the hero's feet); the stash is then gone, the cursor over it showing nothing (**seen**).
 - `VERSTECK` runs `CreateObj` at the hero (`CPOS:HERO`) with `0x54` 3 and `0x79` (`0xFFFFFF`, 4) and no type, which makes a random item for the local hero (`0x4863D4`): `srand(time)`; the difficulty's bonus `d`, 0 on bronze, 1 on silver, 3 on gold, 5 on platinum, 8 on niobium; in 1 case of 4 a potion (`0x43B1A0` of the difficulty, docs/re/items.md); else in 1 of 3 a weapon (5), else in 1 of 2 an armour (6), else a category of `0x43B090(0)`, each by `0x5C7FA0(category, L + rand() % (⌊L/5⌋ + 3) + d, 0, 15, the hero's type in 1 case of 2 else 0, 2, 1, 14)`, `L` the hero's level; without a type a weapon's roll once more.
-- Not read: what `0x79` gives the item maker, how the event leaves the lists once its function ran, the order 7's walk, and the underworld's pools' use.
+- Not read: what `0x79` gives the item maker, the order 7's walk, and the underworld's pools' use.
+
+## The mouse events (`MouseEvent`)
+
+Read 2026-10-30 (#1584), **confirmed** by code.
+
+- A stash is one kind of the scripts' mouse events; the record `MouseEvent` (94, `0x4A6950`) lays the others: a cell and floor (`0x04`), a text (`0x1D` or `0x1E`; `0x01` is not read), a function (`0x41`), a box (`0x0C` and `0x0D`, two numbers each), the flags 1 (`0x10`) or 2 (`0x0F`), and one use with `0x66`.
+  Without a function and a text, or with a negative cell or floor, it lays nothing.
+- The event's entry (0x58 bytes): `+0` the cell and `+4` the floor, `+6` its uses (1 with `0x66`, else 16,000), `+8` to `+0xE` the box, `+0x10` the text, `+0x14` the flags (1, 2, or −1 for neither), `+0x18` the function's name; `MachVersteck`'s have one use and the flags 2.
+- `0x4AB160` adds an event to the lists unless one of the same cell and floor is there (the first stays), those with a box before the others, and marks the static object on its cell with the bit `0x80`.
+- As the hero arrives (`0x53A170`, at `0x53BA29`), with a straight way from it to the event's point (`0x4FCC80`, else `0x52E460`; the point moved by 3/2 of the box's fourth number along both axes where the box has one), or for a function named `NimmtElementLuft`, the event's function runs with the hero as its object (`0x46BF40`); then an event of fewer than 16,000 uses loses one, and one of none left leaves the lists (`0x4AB640`), its object's bit `0x80` cleared where no other event holds the cell.
+- The blink (above) is drawn only for an event without the flags 1: so no `MouseEvent` of `0x10` blinks; one of neither flag shows the sparks of `0x409D00`.
+- The object's lookup (`0x4A6560`) of the cursor (`0x612909`) and of the click (`0x617A5B`) leaves out the events with a box; how those are reached is not read.
+- In all the trees 35,208 records, 34,273 of `0x10`, 31 of `0x0F`, 904 of neither; in the Seraphim's start function 2,116: the gravestones (`setvar_*`, `setvar_uw*`), the stones (`F_Stein_*`), the well (`BRUNNEN`, `BRUNNENuw`), the cursed gold (`F_Gold`, `F_GoldUW`, of neither flag), the powerups (`Powerup*`), a signpost and a few others.
+- The well at the Seraphim's start (3252, 2524, of a box and one use): `BRUNNEN` rolls 1 to 100 and makes at the hero the item 5056 below 50, 5057 below 90, else 5058, the healing potions; so the well gives one potion a game and does not blink (**seen** by the maintainer in the original, every new game).
 
 ## Seen in the running original
 
@@ -183,5 +197,7 @@ A `CreateObj` of `0x54` and no type makes a random item for the hero (`opensacre
 **Seen** in the game at the Seraphim's start: the stash in the bush at 3216, 2556 showed its text under the cursor, and a click gave the item 7089 at her feet, the stashes then 818.
 Since #1519 every stash blinks as above (`stashes`), its squares brought 49 units toward the camera along its line of sight (docs/decisions/drawing.md, "Stashes' blink in front of the ground").
 **Seen** in the game: the turning four-pointed spark, warm white, over the stone beside the fern of the stash at (3284, 2526), growing and shrinking.
+Since #1584 the `MouseEvent` records lay their events beside the stashes (`opensacred_rules::quests::Stashes::mouse_event`), each of its uses and its look, and they stand, show and run as the stashes do; a use spends one where the event is not endless, and one of none left leaves the world; only the flags 2 blink; the command `stashes` lists them with their uses and looks.
+**Seen** in the game at the Seraphim's start: 2,059 events in all, the well's text under the cursor, a click on it gave the potion 5057 at her feet, and the well then left the list.
 
-Not followed: the static object's mark (the stash is picked at its cell's point, not by the object's picture), what the `CreateObj`'s `0x79` gives the item maker, and the order 7's walk.
+Not followed: the static object's mark (the event is picked at its cell's point on the ground, whatever its floor, not by the object's picture), the events' boxes, the sparks of the events of neither flag, the arrival's straight way, what the `CreateObj`'s `0x79` gives the item maker, and the order 7's walk.

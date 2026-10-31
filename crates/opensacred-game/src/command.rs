@@ -124,8 +124,9 @@ enum Command {
     /// The creatures within RADIUS cells of the hero (20 by default), the nearest first, as the
     /// original's driver lists them
     Creatures { radius: Option<u32> },
-    /// The hidden stashes within RADIUS cells of the hero (20 by default), the nearest first: each
-    /// its cell, its function and its text's name
+    /// The hidden stashes and the scripts' mouse events within RADIUS cells of the hero (20 by
+    /// default), the nearest first: each its cell, its function, its text's name, its uses and its
+    /// look
     Stashes { radius: Option<u32> },
     /// A creature's fight values, the hero's by default; ID as `creatures` prints it
     Stats { id: Option<String> },
