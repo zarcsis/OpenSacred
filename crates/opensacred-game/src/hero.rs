@@ -1239,11 +1239,12 @@ pub fn fall(
     time: Res<Time>,
     hero: Res<Hero>,
     clips: Option<Res<Clips>>,
-    (speed, mut pack, home, difficulty): (
+    (speed, mut pack, home, difficulty, mut tally): (
         Res<GameSpeed>,
         Option<ResMut<crate::pickup::Pack>>,
         Option<Res<crate::scripts::HeroHome>>,
         Option<Res<crate::game::Difficulty>>,
+        Option<ResMut<crate::statistics::Tally>>,
     ),
     mut bodies: Query<(
         Entity,
@@ -1323,6 +1324,10 @@ pub fn fall(
                 .set_speed(speed.0);
         }
         body.moving = None;
+        // The statistics' resurrections (`0x4246D0`, #1611).
+        if let Some(tally) = tally.as_deref_mut() {
+            tally.rose();
+        }
         info!("hero: the hero rises again");
     }
 }

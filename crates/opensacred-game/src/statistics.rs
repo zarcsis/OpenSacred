@@ -89,6 +89,60 @@ const PORTRAIT: Rect = Rect {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct LastFoe(pub Option<Foe>);
 
+/// The player's statistics' counters that the quest book's statistics tab shows (the statistics
+/// object's `+0x56F0` to `+0x5700`, #1611): the foes the hero defeated, one more at each kill's
+/// record (`0x424250`); its resurrections (`0x4246D0`); and the seconds played, which the render
+/// thread adds at each frame (`0x424A60`; here the game's time, which stands while it is paused,
+/// **hypothesis**). Each count stops at `0x7FFFFFFF`.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct Tally {
+    pub kills: u32,
+    pub rises: u32,
+    pub played: f64,
+}
+
+/// The counts' most (`0x7FFFFFFF`).
+const MOST: u32 = 0x7FFF_FFFF;
+
+impl Tally {
+    /// A foe the hero defeated.
+    pub fn killed(&mut self) {
+        self.kills = (self.kills + 1).min(MOST);
+    }
+
+    /// The hero's resurrection.
+    pub fn rose(&mut self) {
+        self.rises = (self.rises + 1).min(MOST);
+    }
+
+    /// The time played as the tab writes it (`%d:%.2d:%.2d`): the hours, the minutes and the
+    /// seconds.
+    pub fn played(&self) -> String {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "whole seconds played, positive, far below the integers' range"
+        )]
+        let seconds = self.played.max(0.0).floor() as u64;
+        format!(
+            "{}:{:02}:{:02}",
+            seconds / 3600,
+            seconds / 60 % 60,
+            seconds % 60
+        )
+    }
+}
+
+/// Adds the frame's time of the game to the time played.
+fn play(time: Res<Time>, mut tally: ResMut<Tally>) {
+    tally.played += f64::from(time.delta_secs());
+}
+
+/// A new game's counters, from nothing.
+fn start(mut tally: ResMut<Tally>) {
+    *tally = Tally::default();
+}
+
 /// A foe as the player's statistics keep it (`0x424250`, a record of `0x24` bytes of the 16 at
 /// `+0x30A4`): its type, level and health, its attack and defence, its damage (`0x564800`: each
 /// kind's most, or its least where the most is 0) and its resistances' sum (`0x553A00`), and each
@@ -1447,10 +1501,14 @@ impl Plugin for StatisticsPlugin {
         app.init_resource::<Attributes>()
             .init_resource::<Learning>()
             .init_resource::<LastFoe>()
+            .init_resource::<Tally>()
+            .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(
                 Update,
-                (leave_learning, close, toggle, spend, show)
-                    .chain()
+                (
+                    (leave_learning, close, toggle, spend, show).chain(),
+                    play.in_set(crate::frame::Playing),
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -1507,6 +1565,22 @@ mod tests {
         assert_eq!(bonus(20.0, 25.0), 25);
         assert_eq!(bonus(0.0, 5.0), 0);
         assert_eq!(bonus(20.0, 19.9), 0);
+    }
+
+    #[test]
+    fn the_tally_counts_up_to_its_most_and_writes_the_time_played() {
+        let mut tally = Tally {
+            kills: MOST - 1,
+            ..Tally::default()
+        };
+        tally.killed();
+        tally.killed();
+        tally.rose();
+        assert_eq!((tally.kills, tally.rises), (MOST, 1));
+        tally.played = 30.9;
+        assert_eq!(tally.played(), "0:00:30");
+        tally.played = 3.0 * 3600.0 + 7.0 * 60.0 + 5.0;
+        assert_eq!(tally.played(), "3:07:05");
     }
 
     #[test]

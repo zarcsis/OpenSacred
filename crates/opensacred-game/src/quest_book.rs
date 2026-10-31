@@ -138,6 +138,23 @@ const LEFT_TITLE: Rect = Rect {
 const RIGHT_TITLE: Vec2 = Vec2::new(540.0, 160.0);
 const RIGHT_TITLE_WIDTH: f32 = 316.0;
 const TITLE_RED: u32 = 0xFF99_0000;
+/// The statistics tab's statistics block (`cUI_StatsTab`, `0x6DEE60`, #1611): its corner, its
+/// title 32 above it in the font 6, its first row 8 above it and the rows 24 apart in the font 1,
+/// each a label at the left of a rectangle 250 wide and its value at its right; the share of the
+/// world discovered with its `%` after the rectangle.
+const STATS_AT: Vec2 = Vec2::new(170.0, 200.0);
+const STATS_TITLE_ABOVE: f32 = 32.0;
+const STATS_FIRST: f32 = -8.0;
+const STATS_ROW: f32 = 24.0;
+const STATS_WIDTH: f32 = 250.0;
+const STATS_TITLE: &str = "UI_STATS_STATS_TITLE";
+const STATS_LABELS: [&str; 5] = [
+    "UI_STATS_CHARACTER",
+    "UI_STATS_PLAYTIME",
+    "UI_STATS_WELT",
+    "UI_STATS_VICTORY",
+    "UI_STATS_RESPAWN",
+];
 /// The list (`0x6B0240`): its rows from (160, 196), 284 wide, their texts 24 along and a side
 /// quest's 16 further, each row taking its height and 1 more; a page ends before an entry once
 /// its rows reach 334 down (`0x6B1D90`).
@@ -1357,6 +1374,109 @@ fn lettering(assets: &AssetServer, style: Style) -> (TextFont, LineHeight) {
     )
 }
 
+/// The values of the statistics block (`0x6DEE60`): the hero's class's name, the time played,
+/// the share of the world discovered, the foes defeated and the resurrections.
+#[derive(Clone, Debug, PartialEq)]
+struct Stats {
+    class: String,
+    played: String,
+    world: String,
+    kills: u32,
+    rises: u32,
+}
+
+impl Stats {
+    /// The values of the hero of the type `creature` by the game's counters `tally`, the
+    /// sectors entered `entered` of the world's `sectors` (`0x4249D0`: their share, held between
+    /// 0 and 1, `%.2f` of it times 100).
+    fn of(
+        texts: Option<&Texts>,
+        creature: u32,
+        tally: &crate::statistics::Tally,
+        (entered, sectors): (usize, usize),
+    ) -> Self {
+        let share = if sectors == 0 {
+            0.0
+        } else {
+            let count = |n: usize| f64::from(u32::try_from(n).unwrap_or(u32::MAX));
+            (count(entered) / count(sectors)).clamp(0.0, 1.0)
+        };
+        Self {
+            class: texts
+                .and_then(|texts| texts.named(&creature.to_string()))
+                .unwrap_or_default()
+                .to_owned(),
+            played: tally.played(),
+            world: format!("{:.2}", share * 100.0),
+            kills: tally.kills,
+            rises: tally.rises,
+        }
+    }
+
+    /// Each row's value, as the block writes it.
+    fn values(&self) -> [String; 5] {
+        [
+            self.class.clone(),
+            self.played.clone(),
+            self.world.clone(),
+            self.kills.to_string(),
+            self.rises.to_string(),
+        ]
+    }
+}
+
+/// Writes the statistics block under `root`: its title and its rows (`0x6DEE60`).
+fn stats_block(
+    commands: &mut Commands,
+    root: Entity,
+    (assets, texts): (&AssetServer, Option<&Texts>),
+    stats: &Stats,
+) {
+    let named = |key: &'static str| texts.and_then(|texts| texts.named(key)).unwrap_or(key);
+    let mut write = |text: &str, at: Vec2, style: Style, (colour, justify): (u32, Justify)| {
+        let mut node = bar::placed(
+            at + Vec2::new(0.0, style.drop()),
+            Vec2::new(STATS_WIDTH, STATS_ROW),
+        );
+        node.height = Val::Auto;
+        let child = commands
+            .spawn((
+                node,
+                Text::new(text),
+                lettering(assets, style),
+                TextColor(argb(colour)),
+                TextLayout {
+                    justify,
+                    ..default()
+                },
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(root).add_child(child);
+    };
+    write(
+        named(STATS_TITLE),
+        STATS_AT - Vec2::new(0.0, STATS_TITLE_ABOVE),
+        Style::Title,
+        (TITLE_RED, Justify::Left),
+    );
+    let values = stats.values();
+    for (i, (label, value)) in STATS_LABELS.iter().zip(&values).enumerate() {
+        let row = f32::from(u8::try_from(i).unwrap_or(0));
+        let at = STATS_AT + Vec2::new(0.0, STATS_FIRST + STATS_ROW * row);
+        write(named(label), at, Style::Body, (ROW, Justify::Left));
+        write(value, at, Style::Body, (ROW, Justify::Right));
+        if *label == "UI_STATS_WELT" {
+            write(
+                "%",
+                at + Vec2::new(STATS_WIDTH, 0.0),
+                Style::Body,
+                (ROW, Justify::Left),
+            );
+        }
+    }
+}
+
 /// What the book shows, made again as it changes.
 #[derive(Clone, Debug, PartialEq)]
 struct Look {
@@ -1371,6 +1491,8 @@ struct Look {
     tracked: Option<u32>,
     measured: usize,
     others: [Vec<Chapter>; 2],
+    /// The statistics tab's block, while the tab shows.
+    stats: Option<Stats>,
 }
 
 /// Makes the book as it shows and as it changes, and takes it away as it hides.
@@ -1389,9 +1511,23 @@ fn show(
     live: Option<NonSend<crate::scripts::Live>>,
     roots: Query<Entity, With<BookRoot>>,
     mut was: Local<Option<Look>>,
+    (tally, sectors, data): (
+        Option<Res<crate::statistics::Tally>>,
+        Res<crate::explored::MapSectors>,
+        Option<Res<crate::game::Data>>,
+    ),
 ) {
     let texts = texts.as_deref();
     let model = book.shown.then(|| Model::of(&book, texts, &measures));
+    let creature = hero.as_deref().map_or(1, |hero| hero.creature);
+    let stats = (book.shown && book.tab == TABS - 1)
+        .then(|| {
+            let world = data.as_deref().map_or(0, |data| data.0.world.sectors.len());
+            tally
+                .as_deref()
+                .map(|tally| Stats::of(texts, creature, tally, (sectors.0.entered_count(), world)))
+        })
+        .flatten();
     let now = model.as_ref().map(|model| Look {
         tab: book.tab,
         chapter: book.chapter,
@@ -1399,11 +1535,12 @@ fn show(
         selected: book.selected(book.page),
         text_page: book.text_page,
         over: screen_point(&pointer, &ui_scale, &windows).and_then(|at| over(&book, model, at)),
-        creature: hero.as_deref().map_or(1, |hero| hero.creature),
+        creature,
         entries: book.entries.clone(),
         tracked: live.as_deref().and_then(|live| live.quests().tracked()),
         measured: measures.0.len(),
         others: book.others.clone(),
+        stats,
     });
     if *was == now {
         return;
@@ -1476,6 +1613,9 @@ fn show(
     }
     add(&mut commands, piece(CLOSE.0, CLOSE.1));
     if look.tab >= TABS - 1 {
+        if let Some(stats) = &look.stats {
+            stats_block(&mut commands, root, (&assets, texts), stats);
+        }
         return;
     }
     let write = |commands: &mut Commands,
