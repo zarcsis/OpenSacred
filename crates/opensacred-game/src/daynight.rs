@@ -177,17 +177,25 @@ impl Plugin for DayNightPlugin {
     }
 }
 
-/// Keeps the projection of the camera of what the night leaves untinted (`iso::Untinted`,
-/// #1191) the world camera's, its zoom.
+/// Keeps the zoom of the camera of what the night leaves untinted (`iso::Untinted`, #1191) the
+/// world camera's, whose projection it has. It writes only a zoom that differs: Bevy's
+/// `camera_system` takes a camera's target size anew when its projection changes, else only when
+/// the window reports a resize, and the two cameras of the window share one depth texture, so
+/// that a frame failed when F11 had set the window's size and this camera alone had taken it
+/// (#1590).
 fn follow(
     worlds: Query<&Projection, (With<Night>, Without<crate::iso::Untinted>)>,
     mut untinted: Query<&mut Projection, With<crate::iso::Untinted>>,
 ) {
-    let Some(world) = worlds.iter().next() else {
+    let Some(Projection::Orthographic(world)) = worlds.iter().next() else {
         return;
     };
     for mut projection in &mut untinted {
-        *projection = world.clone();
+        let differs =
+            matches!(&*projection, Projection::Orthographic(ortho) if ortho.scale != world.scale);
+        if differs && let Projection::Orthographic(ortho) = &mut *projection {
+            ortho.scale = world.scale;
+        }
     }
 }
 
@@ -616,6 +624,86 @@ mod tests {
         assert_eq!(shadow_alpha(minutes(23.5)), 0.0);
         // Half way through the dusk, the night's level 127.5.
         assert!((shadow_alpha(minutes(21.0) + 20.0) - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_cameras_of_the_window_take_its_size_in_the_same_frames() {
+        use bevy::camera::CameraUpdateSystems;
+        use bevy::math::UVec2;
+        use bevy::prelude::{AssetEvent, Assets, Image, Window};
+        use bevy::window::{
+            PrimaryWindow, WindowCreated, WindowResized, WindowResolution, WindowScaleFactorChanged,
+        };
+        let mut app = App::new();
+        app.add_message::<WindowResized>()
+            .add_message::<WindowCreated>()
+            .add_message::<WindowScaleFactorChanged>()
+            .add_message::<AssetEvent<Image>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<bevy::render::texture::ManualTextureViews>()
+            .add_systems(
+                PostUpdate,
+                (
+                    follow.before(CameraUpdateSystems),
+                    bevy::render::camera::camera_system.in_set(CameraUpdateSystems),
+                ),
+            );
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: WindowResolution::new(3840, 2160).with_scale_factor_override(1.0),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        let world = app
+            .world_mut()
+            .spawn((crate::iso::camera(Vec3::ZERO, 1.0), Night::default()))
+            .id();
+        let untinted = app.world_mut().spawn(crate::iso::untinted()).id();
+        app.update();
+        let sizes = |app: &App| {
+            [world, untinted].map(|camera| {
+                app.world()
+                    .get::<Camera>(camera)
+                    .and_then(Camera::physical_target_size)
+            })
+        };
+        assert_eq!(sizes(&app), [Some(UVec2::new(3840, 2160)); 2]);
+        // F11 to a window sets the window's size at once (`settings::display`), and the system
+        // reports the resize frames later: the two cameras of the window share a depth texture,
+        // which they must not size differently in between (#1590).
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set_physical_resolution(1920, 1080);
+        for _ in 0..3 {
+            app.update();
+            let [a, b] = sizes(&app);
+            assert_eq!(a, b);
+        }
+        app.world_mut().write_message(WindowResized {
+            window,
+            width: 1920.0,
+            height: 1080.0,
+        });
+        app.update();
+        assert_eq!(sizes(&app), [Some(UVec2::new(1920, 1080)); 2]);
+        // The zoom follows the world camera's.
+        if let Some(mut projection) = app.world_mut().get_mut::<Projection>(world)
+            && let Projection::Orthographic(ortho) = &mut *projection
+        {
+            ortho.scale = 2.0;
+        }
+        app.update();
+        let scale = |camera| match app.world().get::<Projection>(camera) {
+            Some(Projection::Orthographic(ortho)) => ortho.scale,
+            _ => 0.0,
+        };
+        assert_eq!((scale(world), scale(untinted)), (2.0, 2.0));
     }
 
     #[test]
