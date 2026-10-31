@@ -81,8 +81,15 @@ struct Weighing<'w, 's> {
 }
 
 impl Weighing<'_, '_> {
-    /// The tooltip's lines of `dropped`, named `name`, of the texts `texts`.
-    fn lines(&self, dropped: &Dropped, name: &str, texts: Option<&Texts>) -> Vec<Line> {
+    /// The tooltip's lines of `dropped`, named `name`, of the texts `texts`, its price as the hero
+    /// would buy it where `buying` (a merchant's, #1618), else as it would sell it.
+    fn lines(
+        &self,
+        dropped: &Dropped,
+        name: &str,
+        texts: Option<&Texts>,
+        buying: bool,
+    ) -> Vec<Line> {
         let Some(tables) = self.tables.as_deref() else {
             return vec![Line::of(name, WHITE)];
         };
@@ -100,6 +107,7 @@ impl Weighing<'_, '_> {
             category: tables.category(dropped.item),
             record,
             price: tables.trade_price(dropped),
+            buying,
             quality,
             values,
             // A made item's levels by its values (`0x5D3AB0` at `0x5D56FA`), another's as its
@@ -162,16 +170,32 @@ pub(crate) const WHITE: u32 = 0xFFFF_FFFF;
 #[derive(Component)]
 struct Root;
 
+/// The grid whose item a tooltip shows: the backpack's, or a page of a merchant's (#1618).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Source {
+    Backpack,
+    Merchant(opensacred_rules::trade::stock::Page),
+}
+
 /// The tooltip shown: what it shows (the grid's item by its key), its place on the original's
 /// screen before it is kept within it.
 #[derive(Component)]
 struct Panel {
+    source: Source,
     key: u32,
     at: Vec2,
 }
 
-/// The tooltip of the grid's item under the pointer while the items' page shows, made as the
-/// pointer comes to an item and taken away as it leaves it (`0x6C1480`).
+/// The merchant's window's page and its stock, whose items show their tooltips too.
+type Merchant<'w> = (
+    Option<Res<'w, crate::merchant::Merchant>>,
+    Res<'w, crate::merchant::Showing>,
+    Res<'w, crate::merchant::Wares>,
+);
+
+/// The tooltip of the grid's item under the pointer while the items' page shows, or of a
+/// merchant's page's item with its price as bought (`0x6DAA70`), made as the pointer comes to an
+/// item and taken away as it leaves it (`0x6C1480`).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -180,43 +204,52 @@ fn grid(
     mut commands: Commands,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
-    pack: Res<Pack>,
+    (pack, (merchant, showing, wares)): (Res<Pack>, Merchant),
     texts: Option<Res<Texts>>,
     weighing: Weighing,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
     panels: Query<(Entity, &Panel)>,
     roots: Query<Entity, With<Root>>,
 ) {
-    let under = shown
-        .is_some_and(|shown| shown.0)
-        .then(|| on_grid(&pointer, &ui_scale, &windows, &page))
-        .flatten()
-        .and_then(cell_under)
-        .and_then(|cell| pack.grid.at(cell).copied());
+    let shown = shown.is_some_and(|shown| shown.0);
+    let sold = || {
+        let (placed, dropped) = crate::merchant::hovered(
+            (merchant.as_deref(), &showing, &wares),
+            (&pointer, &ui_scale, &windows),
+        )?;
+        Some((
+            Source::Merchant(showing.0),
+            crate::merchant::GRID,
+            placed,
+            dropped,
+        ))
+    };
+    let carried = || {
+        let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
+        let placed = *pack.grid.at(cell_under(at)?)?;
+        let dropped = pack.items.iter().find(|(key, _)| *key == placed.key)?.1;
+        Some((Source::Backpack, GRID, placed, dropped))
+    };
+    let under = shown.then(|| sold().or_else(carried)).flatten();
     let current = panels.iter().next();
-    if current.map(|(_, panel)| panel.key) == under.map(|placed| placed.key) {
+    if current.map(|(_, panel)| (panel.source, panel.key))
+        == under.map(|(source, _, placed, _)| (source, placed.key))
+    {
         return;
     }
     if let Some((entity, _)) = current {
         commands.entity(entity).despawn();
     }
-    let Some(placed) = under else {
-        return;
-    };
-    let Some(dropped) = pack
-        .items
-        .iter()
-        .find(|(key, _)| *key == placed.key)
-        .map(|(_, dropped)| *dropped)
-    else {
+    let Some((source, origin, placed, dropped)) = under else {
         return;
     };
     let name = texts
         .as_deref()
         .and_then(|texts| item_name(texts, weighing.tables.as_deref(), &dropped, None))
         .unwrap_or_default();
-    let lines = weighing.lines(&dropped, name, texts.as_deref());
-    let corner = GRID
+    let buying = matches!(source, Source::Merchant(_));
+    let lines = weighing.lines(&dropped, name, texts.as_deref(), buying);
+    let corner = origin
         + Vec2::new(
             f32::from(placed.at.0 + placed.size.0),
             f32::from(placed.at.1),
@@ -228,6 +261,7 @@ fn grid(
         .unwrap_or_else(|| commands.spawn(root()).id());
     let panel = spawn(&mut commands, &images, &assets, corner, &lines);
     commands.entity(panel).insert(Panel {
+        source,
         key: placed.key,
         at: corner,
     });
