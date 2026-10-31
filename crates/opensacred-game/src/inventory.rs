@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use opensacred_rules::spawning::Rng;
 
 use crate::bar::{self, UiImages};
-use crate::frame::Control;
+use crate::frame::HoldsControl;
 use crate::game::{AppState, FONT};
 use crate::hud::Pointer;
 use crate::lines::Texts;
@@ -461,6 +461,7 @@ fn select(
 /// inventory with its tabs above it, the equipment and the statistics (#1521).
 fn off_the_windows(
     shown: Option<Res<Shown>>,
+    images: Res<UiImages>,
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window>,
@@ -475,18 +476,27 @@ fn off_the_windows(
     let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
         return true;
     };
+    let over_stash =
+        stash.is_some_and(|stash| stash.0.is_some()) && crate::town_stash::WINDOW.contains(at);
+    let over_master = master.is_some() && crate::master::WINDOW.contains(at);
+    !(over_windows(at, crate::statistics::close_button(&images)) || over_stash || over_master)
+}
+
+/// Whether `at` is over the windows that show with the inventory: the inventory with its tabs
+/// above it, its sort's button, which stands below it but its top two rows, the equipment, and
+/// the statistics window with its close button `close`, which stands out of its right edge
+/// (#1593).
+fn over_windows(at: Vec2, close: Rect) -> bool {
     let tabs = Rect {
         min: INVENTORY.min + Vec2::new(0.0, TAB_TOP),
         max: INVENTORY.max,
     };
-    let over_stash =
-        stash.is_some_and(|stash| stash.0.is_some()) && crate::town_stash::WINDOW.contains(at);
-    let over_master = master.is_some() && crate::master::WINDOW.contains(at);
-    !(tabs.contains(at)
+    let sort = INVENTORY.min + SORT.1;
+    tabs.contains(at)
+        || Rect::from_corners(sort, sort + Vec2::splat(SORT_SIDE)).contains(at)
         || EQUIPMENT.contains(at)
         || crate::statistics::WINDOW.contains(at)
-        || over_stash
-        || over_master)
+        || close.contains(at)
 }
 
 /// The windows hidden at each game's start.
@@ -501,7 +511,7 @@ impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shown>()
             .init_resource::<Page>()
-            .configure_sets(Update, Control.run_if(off_the_windows))
+            .hold_control(off_the_windows)
             .add_systems(OnEnter(AppState::InGame), hide)
             .add_systems(
                 PreUpdate,
@@ -609,5 +619,25 @@ mod tests {
         let last_bottom = pieces[EQUIPMENT_RIGHT + 7];
         assert_eq!(last_top.1.x, last_bottom.1.x + 3.0);
         assert_eq!(last_bottom.0, 61);
+    }
+
+    #[test]
+    fn the_buttons_out_of_the_windows_hold_their_clicks() {
+        // The statistics window's close button, 34 wide at (898, 10), out of its right edge.
+        let close = Rect::from_corners(Vec2::new(898.0, 10.0), Vec2::new(932.0, 44.0));
+        let sort = INVENTORY.min + SORT.1;
+        for at in [
+            sort + Vec2::splat(1.0),
+            sort + Vec2::splat(SORT_SIDE - 1.0),
+            Vec2::new(930.0, 26.0),
+        ] {
+            assert!(over_windows(at, close), "{at}");
+        }
+        // The world beside them.
+        assert!(!over_windows(
+            sort + Vec2::new(SORT_SIDE + 1.0, 30.0),
+            close
+        ));
+        assert!(!over_windows(Vec2::new(935.0, 26.0), close));
     }
 }

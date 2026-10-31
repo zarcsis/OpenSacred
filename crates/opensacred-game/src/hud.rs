@@ -300,7 +300,7 @@ pub fn scale(window: Single<&Window>, mut ui_scale: ResMut<UiScale>) {
 #[derive(Resource, Default)]
 pub struct Pointer(pub Option<Vec2>);
 
-fn point(
+pub(crate) fn point(
     mut pointer: ResMut<Pointer>,
     mut moved: MessageReader<CursorMoved>,
     mut left: MessageReader<CursorLeft>,

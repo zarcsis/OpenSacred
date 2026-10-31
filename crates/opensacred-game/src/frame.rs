@@ -3,8 +3,10 @@
 //! commands applied before the next. Every step, and every other system of a game, is
 //! [`Playing`]: it runs only while a game is played.
 
+use bevy::input::InputSystems;
 use bevy::prelude::{
-    App, IntoScheduleConfigs, Plugin, Res, ResMut, Resource, SystemSet, Time, Update, in_state,
+    App, First, In, IntoScheduleConfigs, IntoSystem, Plugin, PreUpdate, Res, ResMut, Resource,
+    SystemSet, Time, Update, in_state,
 };
 
 use crate::game::AppState;
@@ -49,9 +51,66 @@ pub struct Playing;
 pub struct Unpaused;
 
 /// The player's keys and mouse on the world, the pause and the menus, which the open console
-/// holds back (`console`).
+/// holds back (`console`), and the pointer over the bar or a window (`bar`, `inventory`,
+/// `quest_book`, `talk`, `world_map`): each module's test of it ([`HoldsControl`]) taken as the
+/// frame begins ([`HeldBack`]).
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Control;
+
+/// Whether [`Control`] is held back in this frame, by the tests of [`HoldsControl`] as the windows
+/// and the console stood when it began (#1593): taken in `PreUpdate` ([`Hold`]) before any key or
+/// click of the frame shows or hides one, so that a press that hides its window (a close button)
+/// does not reach the world in its frame, whichever of its systems runs first. The original's
+/// button takes the press it lies under, whatever it does with it (`0x72B560`).
+#[derive(Resource, Debug, Default)]
+pub struct HeldBack(bool);
+
+/// The step of `PreUpdate` that takes [`HeldBack`]: after Bevy reads the input and the pointer
+/// (`hud`), before the console's keys and the windows' toggles, which run after them.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Hold;
+
+/// A module's test of whether the player's keys and mouse go to the world, true where they do.
+pub trait HoldsControl {
+    /// Holds [`Control`] back in the frames that begin with `free` false.
+    fn hold_control<M>(&mut self, free: impl IntoSystem<(), bool, M> + 'static) -> &mut Self;
+}
+
+impl HoldsControl for App {
+    fn hold_control<M>(&mut self, free: impl IntoSystem<(), bool, M> + 'static) -> &mut Self {
+        self.add_systems(PreUpdate, free.pipe(hold).in_set(Hold))
+    }
+}
+
+/// A test that found the world's controls held back.
+fn hold(In(free): In<bool>, mut held: ResMut<HeldBack>) {
+    if !free {
+        held.0 = true;
+    }
+}
+
+/// A new frame, held back by none yet.
+fn release(mut held: ResMut<HeldBack>) {
+    held.0 = false;
+}
+
+/// Whether no test held [`Control`] back as the frame began.
+fn free(held: Res<HeldBack>) -> bool {
+    !held.0
+}
+
+/// [`HeldBack`], its taking each frame in its step and [`Control`]'s condition.
+pub(crate) fn held_back(app: &mut App) {
+    app.init_resource::<HeldBack>()
+        .add_systems(First, release)
+        .configure_sets(
+            PreUpdate,
+            Hold.after(InputSystems)
+                .after(crate::hud::point)
+                .before(crate::console::keys),
+        )
+        .configure_sets(Update, Control.run_if(free));
+}
 
 /// The world's tick (`cEngine::renderThread::run`, `0x60E350`): the render loop adds each
 /// frame's time to `0xAD6EFC` and, once the sum is above 0.1 s, runs the creatures' updates
@@ -90,6 +149,7 @@ pub struct FramePlugin;
 
 impl Plugin for FramePlugin {
     fn build(&self, app: &mut App) {
+        held_back(app);
         app.init_resource::<WorldTick>()
             .configure_sets(Update, Playing.run_if(in_state(AppState::InGame)))
             .configure_sets(
@@ -145,5 +205,33 @@ mod tests {
         // A frame of more than a tenth ticks at once, with what was gathered before it.
         world.gather(0.25);
         assert!(world.seconds.is_some_and(|seconds| seconds >= 0.25));
+    }
+
+    #[test]
+    fn a_window_hidden_in_its_frame_holds_the_world_back_until_the_next() {
+        use bevy::prelude::{IntoScheduleConfigs as _, MinimalPlugins};
+        #[derive(Resource)]
+        struct Shown(bool);
+        #[derive(Resource, Default)]
+        struct Steered(u32);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        held_back(&mut app);
+        app.insert_resource(Shown(true))
+            .init_resource::<Steered>()
+            .hold_control(|shown: Res<Shown>| !shown.0)
+            // A close button that hides its window, then the world's controls.
+            .add_systems(
+                Update,
+                (
+                    |mut shown: ResMut<Shown>| shown.0 = false,
+                    (|mut steered: ResMut<Steered>| steered.0 += 1).in_set(Control),
+                )
+                    .chain(),
+            );
+        app.update();
+        assert_eq!(app.world().resource::<Steered>().0, 0);
+        app.update();
+        assert_eq!(app.world().resource::<Steered>().0, 1);
     }
 }

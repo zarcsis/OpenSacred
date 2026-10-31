@@ -44,7 +44,7 @@ use opensacred_rules::quests::{Entry, Standing};
 use opensacred_rules::spawning::Rng;
 
 use crate::bar::{self, UiImages};
-use crate::frame::Control;
+use crate::frame::HoldsControl;
 use crate::game::{AppState, FONT};
 use crate::hud::Pointer;
 use crate::inventory::screen_point;
@@ -1797,7 +1797,7 @@ impl Plugin for QuestBookPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Book>()
             .init_resource::<Measures>()
-            .configure_sets(Update, Control.run_if(off_the_book))
+            .hold_control(off_the_book)
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
                 PreUpdate,

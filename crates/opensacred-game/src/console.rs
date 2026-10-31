@@ -23,7 +23,7 @@ use bevy::prelude::*;
 use bevy::text::FontSize;
 
 use crate::command;
-use crate::frame::Control;
+use crate::frame::HoldsControl;
 use crate::journal::Journal;
 use crate::settings::SettingsFile;
 
@@ -442,7 +442,7 @@ pub struct ConsolePlugin;
 
 impl Plugin for ConsolePlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(Update, Control.run_if(closed))
+        app.hold_control(closed)
             .add_systems(Startup, spawn)
             .add_systems(PreUpdate, keys.after(InputSystems))
             .add_systems(Update, (run, draw).chain());
@@ -559,11 +559,13 @@ mod tests {
 
     #[test]
     fn the_open_console_holds_the_keys_back_and_esc_closes_it_without_a_pause() {
+        use crate::frame::Control;
         #[derive(Resource, Default)]
         struct Controlled(u32);
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin))
-            .add_plugins(ConsolePlugin)
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        crate::frame::held_back(&mut app);
+        app.add_plugins(ConsolePlugin)
             .insert_resource(Console::default())
             .insert_resource(Journal::new(None))
             .init_resource::<Controlled>()

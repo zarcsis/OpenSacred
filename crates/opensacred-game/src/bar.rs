@@ -34,7 +34,7 @@ use crate::daynight::Clock;
 use crate::fight::{Experience, Health};
 use crate::files;
 use crate::followers::Follower;
-use crate::frame::Control;
+use crate::frame::HoldsControl;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::{self, Pointer};
@@ -1006,7 +1006,7 @@ pub struct BarPlugin;
 impl Plugin for BarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UiImages>()
-            .configure_sets(Update, Control.run_if(off_the_bar))
+            .hold_control(off_the_bar)
             .add_systems(OnEnter(AppState::InGame), spawn)
             .add_systems(
                 Update,
