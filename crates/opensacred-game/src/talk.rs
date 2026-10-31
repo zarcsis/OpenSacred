@@ -1,8 +1,9 @@
 //! The talks (#1028; docs/re/netscript.md, "Dialogues"): a left click on a creature of a dialogue
-//! sends the hero within 1.5 times their reach, where the creature stops, both turn to each other
-//! and the creature plays its talk; its function `Dialog:<name>` runs (`scripts::speak`), and a
-//! window at the screen's middle shows the creature's portrait, name, texts and buttons, laid out
-//! and framed as the original's `cUI_Tooltip` (#1458). A button closes it, ends the talk and runs
+//! stops the hero where it stands within 1.5 times their reach, else sends it within the reach
+//! (#1636); there the creature stops, both turn to each other and the creature plays its talk;
+//! its function `Dialog:<name>` runs (`scripts::speak`), and a window at the screen's middle
+//! shows the creature's portrait, name, texts and buttons, laid out and framed as the original's
+//! `cUI_Tooltip` (#1458). A button closes it, ends the talk and runs
 //! its function (`scripts::answer`); without buttons Enter or a click closes it; the talk ends too
 //! where the hero stands farther than 1,500 from the creature. Its voice-over ends as it closes.
 //! The world runs on meanwhile, the hero's clicks on it held back while the window shows
@@ -142,6 +143,9 @@ pub struct Talking {
     creature: Entity,
     dialogue: Speech,
     open: bool,
+    /// Whether the hero walks to the creature until within their reach, having stood farther than
+    /// 1.5 times it as the talk began; unknown until then.
+    walks: Option<bool>,
     /// How many times the hero has stopped short of the creature.
     stops: u8,
 }
@@ -315,16 +319,25 @@ fn pick(
                 creature,
                 dialogue: dialogue.clone(),
                 open: false,
+                walks: None,
                 stops: 0,
             });
     }
 }
 
-/// The hero going to speak to a creature: within 1.5 times their reach it stops, the creature
-/// stops, both turn to each other and the creature plays its talk, and the dialogue runs
-/// ([`open`]); farther it walks to the creature, heading for it again as it moves, and gives the
-/// talk up where it stops short of it again and again, or where the creature is gone or dead
-/// (`0x529C60`, `0x52AB70`).
+/// Whether the talk opens with the hero `distance` from the creature, `reach` their reach, as the
+/// first step of the hero's AI's state 10 decides (`0x529C60`): at once where the hero stood
+/// within 1.5 times the reach as it began (not `walks`); else once it comes within the reach, or
+/// once its walk to the creature has `ended` within 1.5 times the reach.
+fn opens(distance: f32, reach: f32, walks: bool, ended: bool) -> bool {
+    !walks || distance <= reach || (ended && distance <= OPENS_WITHIN * reach)
+}
+
+/// The hero going to speak to a creature: within 1.5 times their reach it stops at once, farther
+/// it walks to the creature until within the reach, heading for it again as it moves ([`opens`]);
+/// then the creature stops, both turn to each other and the creature plays its talk, and the
+/// dialogue runs ([`open`]). The hero gives the talk up where it stops short of it again and
+/// again, or where the creature is gone or dead (`0x529C60`, `0x52AB70`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -358,9 +371,12 @@ fn approach(
         let here = transform.translation;
         let there = theirs.translation;
         let size = size.map_or(minds::SIZE, |size| size.0);
-        let within = OPENS_WITHIN * minds::reach_f32(size, mind.size());
-        if (there - here).xz().length() > within {
-            // An order waits for the world's next tick (`hero::take_orders`).
+        let reach = minds::reach_f32(size, mind.size());
+        let distance = (there - here).xz().length();
+        let walks = *talking.walks.get_or_insert(distance > OPENS_WITHIN * reach);
+        // An order waits for the world's next tick (`hero::take_orders`).
+        let ended = !body.ordered() && body.target().is_none();
+        if !opens(distance, reach, walks, ended) {
             if body.ordered() {
                 continue;
             }
@@ -1021,6 +1037,7 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
             creature,
             dialogue: dialogue.clone(),
             open: false,
+            walks: None,
             stops: 0,
         });
     Ok(format!("the hero goes to speak to {creature} ({dialogue})"))
@@ -1155,6 +1172,21 @@ mod tests {
             ),
             Some(Speech::Dialogue("auftrag10".into()))
         );
+    }
+
+    #[test]
+    fn a_hero_from_afar_walks_within_the_reach_to_talk() {
+        // The Dark Elf (80) and the elf archer of his start (130): a reach of 105, 157.5 at 1.5
+        // times (#1636).
+        let reach = minds::reach_f32(80, 130);
+        // Within 1.5 times the reach as the talk begins, it opens where the hero stands.
+        assert!(opens(157.0, reach, false, false));
+        // From afar the hero walks on past 1.5 times the reach, to within the reach.
+        assert!(!opens(157.0, reach, true, false));
+        assert!(opens(105.0, reach, true, false));
+        // A walk that ends short of the reach opens it within 1.5 times the reach, not beyond.
+        assert!(opens(157.0, reach, true, true));
+        assert!(!opens(158.0, reach, true, true));
     }
 
     #[test]
