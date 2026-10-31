@@ -367,6 +367,13 @@ pub fn scene(assets: &AssetServer, model: &str) -> (WorldAssetRoot, Source) {
 #[derive(Component)]
 pub struct Unplaced;
 
+/// A mesh of a model whose scene has just spawned, hidden until [`convert`] gives it its model
+/// material (#1628). Drawn before, it showed for a frame the glTF's material, lit by the scene's
+/// lights and out of the order, and a worn item's mesh on the item's own skeleton, which
+/// `npcs::bind_worn` binds to its wearer's bones in the frame [`convert`] runs in.
+#[derive(Component)]
+pub struct Veiled;
+
 /// The copy of a model's mesh that draws the translucent texels of its material
 /// ([`Pass::Fringe`]), a child of the mesh: its material in the objects' layer, and in the layer
 /// under the liquids, which it takes while its model is [`Sunk`].
@@ -469,10 +476,46 @@ fn release(removed: On<Remove<Ordered>>, mut anchors: ResMut<Anchors>, roots: Qu
 /// A model's root, of its own place or its holder's.
 type Model = Or<(With<Ordered>, With<OrderedWith>)>;
 
-/// Marks a model whose scene has spawned, to give its meshes their places.
-fn ready(ready: On<WorldInstanceReady>, mut commands: Commands, models: Query<(), Model>) {
-    if models.contains(ready.entity) {
-        commands.entity(ready.entity).insert(Unplaced);
+/// Marks a model whose scene has spawned, to give its meshes their places, and veils its meshes
+/// until then ([`Veiled`]). A model of no slot, which [`convert`] leaves as it is (the items of the
+/// choice's figures, whose holders are not in the order), is shown at once.
+fn ready(
+    ready: On<WorldInstanceReady>,
+    mut commands: Commands,
+    models: Query<Option<&OrderedWith>, Model>,
+    roots: Query<&Ordered>,
+    children: Query<&Children>,
+    raw: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
+) {
+    let Ok(with) = models.get(ready.entity) else {
+        return;
+    };
+    commands.entity(ready.entity).insert(Unplaced);
+    let root = with.map_or(ready.entity, |with| with.0);
+    if !roots.get(root).is_ok_and(|ordered| ordered.0.is_some()) {
+        return;
+    }
+    for entity in children.iter_descendants(ready.entity) {
+        if raw.contains(entity) {
+            commands.entity(entity).insert((Veiled, Visibility::Hidden));
+        }
+    }
+}
+
+/// Shows the meshes of `model` that [`ready`] veiled.
+fn unveil(
+    commands: &mut Commands,
+    children: &Query<&Children>,
+    veiled: &Query<(), With<Veiled>>,
+    model: Entity,
+) {
+    for entity in children.iter_descendants(model) {
+        if veiled.contains(entity) {
+            commands
+                .entity(entity)
+                .remove::<Veiled>()
+                .insert(Visibility::Inherited);
+        }
     }
 }
 
@@ -490,7 +533,8 @@ type ModelMesh = (
 /// materials (after `npcs::retexture` has given them their item's texture) and their root's
 /// slot of the anchors for a tag; and each mesh whose material has translucent texels a
 /// [`Fringe`] copy, the same mesh skinned to the same joints, tagged with the same slot, in its
-/// root's layer. A model waits for the images of its materials, whose alpha says which have them.
+/// root's layer; then shows its veiled meshes ([`Veiled`]). A model waits, veiled, for the images
+/// of its materials, whose alpha says which have them.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources as arguments"
@@ -501,6 +545,7 @@ pub fn convert(
     roots: Query<(&Ordered, Has<Sunk>)>,
     children: Query<&Children>,
     meshes: Query<ModelMesh>,
+    veiled: Query<(), With<Veiled>>,
     standard: Res<Assets<StandardMaterial>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
@@ -512,6 +557,7 @@ pub fn convert(
         let root = with.map_or(model, |with| with.0);
         let Ok((Ordered(Some(slot)), sunk)) = roots.get(root) else {
             commands.entity(model).remove::<Unplaced>();
+            unveil(&mut commands, &children, &veiled, model);
             continue;
         };
         let mut made = Vec::new();
@@ -550,6 +596,7 @@ pub fn convert(
             made.push((entity, both));
         }
         commands.entity(model).remove::<Unplaced>();
+        unveil(&mut commands, &children, &veiled, model);
         for (entity, Made { mesh: own, fringe }) in made {
             commands
                 .entity(entity)
@@ -751,6 +798,70 @@ mod tests {
         app.world_mut().entity_mut(root).despawn();
         app.update();
         assert_eq!(held(), None);
+    }
+
+    #[test]
+    fn a_models_meshes_wait_hidden_for_their_model_material() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::world_serialization::WorldSerializationPlugin,
+        ))
+        .register_type::<ChildOf>()
+        .register_type::<Children>()
+        .init_asset::<Image>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<ModelMaterial>()
+        .init_asset::<ShaderBuffer>()
+        .init_resource::<Anchors>()
+        .init_resource::<Converted>()
+        .add_observer(hold)
+        .add_observer(ready)
+        .add_systems(Update, convert);
+        let mut empty = World::new();
+        empty.spawn_empty();
+        let world = app.world_mut();
+        let scene = world
+            .resource_mut::<Assets<bevy::world_serialization::WorldAsset>>()
+            .add(bevy::world_serialization::WorldAsset::new(empty));
+        let material = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial::default());
+        let mesh_of = |world: &mut World, model| {
+            world
+                .spawn((
+                    Mesh3d(Handle::default()),
+                    MeshMaterial3d(material.clone()),
+                    Visibility::default(),
+                    ChildOf(model),
+                ))
+                .id()
+        };
+        // A model in the order, and an item held by a figure that is not (the choice's).
+        let model = world
+            .spawn((WorldAssetRoot(scene.clone()), Ordered::default()))
+            .id();
+        let mesh = mesh_of(world, model);
+        let figure = world.spawn(Transform::default()).id();
+        let item = world
+            .spawn((WorldAssetRoot(scene), OrderedWith(figure)))
+            .id();
+        let held = mesh_of(world, item);
+        let visibility = |app: &App, entity| *app.world().get::<Visibility>(entity).unwrap();
+        // The frame the scenes spawn in.
+        app.update();
+        assert_eq!(visibility(&app, mesh), Visibility::Hidden);
+        assert_eq!(visibility(&app, held), Visibility::Inherited);
+        // The next, which gives the model's mesh its material.
+        app.update();
+        assert_eq!(visibility(&app, mesh), Visibility::Inherited);
+        assert!(
+            app.world()
+                .get::<MeshMaterial3d<ModelMaterial>>(mesh)
+                .is_some()
+        );
+        assert!(app.world().get::<Veiled>(mesh).is_none());
     }
 
     #[test]
