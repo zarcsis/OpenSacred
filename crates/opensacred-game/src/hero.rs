@@ -458,7 +458,14 @@ pub fn spawn(
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     bodies: Query<Entity, With<Body>>,
-    wielded: Query<(Entity, &crate::models::OrderedWith), crate::npcs::Carried>,
+    wielded: Query<
+        (
+            Entity,
+            &crate::models::OrderedWith,
+            Option<&crate::npcs::Piece>,
+        ),
+        crate::npcs::Carried,
+    >,
     old: Option<Res<Clips>>,
 ) {
     if hero.spawned {
@@ -466,9 +473,9 @@ pub fn spawn(
     }
     // A form's model goes on a frame after what the old one held is gone: the spawner would
     // put an item's instance back under a holder that the old model took away with it.
-    if hero.worn {
+    if hero.worn && !hero.kept {
         let mut stripped = false;
-        for (item, holder) in &wielded {
+        for (item, holder, _) in &wielded {
             if bodies.contains(holder.0) {
                 commands.entity(item).despawn();
                 stripped = true;
@@ -568,6 +575,26 @@ pub fn spawn(
                 .entity(player)
                 .remove::<AnimationPlayer>()
                 .insert(AnimationPlayer::default());
+        }
+        // And the pieces it carries that it still shows: only those it shows no more go, and
+        // only the new come, so that its armour stays on it as its hands' items change (#1600),
+        // as the original's set's choice puts on the slots 12 and 13 alone (`0x6E1690`).
+        if kept {
+            let mut equipment = hero.equipment.take();
+            for (item, holder, piece) in &wielded {
+                if !bodies.contains(holder.0) {
+                    continue;
+                }
+                let still = piece.is_some_and(|piece| {
+                    equipment
+                        .as_mut()
+                        .is_some_and(|equipment| equipment.take(piece))
+                });
+                if !still {
+                    commands.entity(item).despawn();
+                }
+            }
+            hero.equipment = equipment;
         }
         for body in &bodies {
             let mut body = commands.entity(body);
