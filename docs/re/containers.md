@@ -163,7 +163,7 @@ Read 2026-10-30 (#1584), **confirmed** by code.
 - The blink (above) is drawn only for an event without the flags 1: so no `MouseEvent` of `0x10` blinks; one of neither flag shows the sparks of `0x409D00`.
 - The object's lookup (`0x4A6560`) of the cursor (`0x612909`) and of the click (`0x617A5B`) leaves out the events with a box; how those are reached is not read.
 - In all the trees 35,208 records, 34,273 of `0x10`, 31 of `0x0F`, 904 of neither; in the Seraphim's start function 2,116: the gravestones (`setvar_*`, `setvar_uw*`), the stones (`F_Stein_*`), the well (`BRUNNEN`, `BRUNNENuw`), the cursed gold (`F_Gold`, `F_GoldUW`, of neither flag), the powerups (`Powerup*`), a signpost and a few others.
-- The well at the Seraphim's start (3252, 2524, of a box and one use): `BRUNNEN` rolls 1 to 100 and makes at the hero the item 5056 below 50, 5057 below 90, else 5058, the healing potions; so the well gives one potion a game and does not blink (**seen** by the maintainer in the original, every new game).
+- The well at the Seraphim's start (3252, 2524, of a box and one use): `BRUNNEN` rolls 1 to 100 and makes at the hero the item 5056 below 50, 5057 below 90, else 5058, the healing potions, which the object maker makes the vials 5171, 5145 and 5140 (docs/re/netscript.md, #1630); so the well gives one potion a game and does not blink (**seen** by the maintainer in the original, every new game).
 
 ## Seen in the running original
 

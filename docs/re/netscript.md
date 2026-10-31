@@ -769,6 +769,12 @@ Not followed: an object in the world whose type is in the list (`0x498860`), and
 Since #1272 the game keeps it with the item as the hero takes it (`npcs::ScriptItem`, `pickup::Pack::uses`) and runs it as the right button uses the item (`runes`, `scripts`); a quest's item's waits for the quest items' page (#1090).
 
 An item laid by a `CreateObj` of a `res:` name goes by that name's text under the cursor rather than by its type's (docs/re/cursor.md, "The chooser's tests"; #1360).
+
+The object maker of the records (`sdk_OBJ_CREATE_NPOS`, `0x5FB530`) passes the type through `0x43FC40` before it makes the object, which makes an old potion the new one of its kind and size and leaves every other type as it is (**confirmed** by code, #1630): the bottle 3999 and 5056 become 5171, 5057 5145, 5058 5140, 5059 5169, 5060 5143, 5061 5138, 5062 5172, 5063 5146 and 5064 5141; the difficulty, its second argument, is not read.
+So the bottles of `BOTTLE01`–`03.GRN` that the scripts make (the well's at the Seraphim's start, `BRUNNEN`, the start's objects, the chests' fills, the rewards) never show, as the drops never make them either (docs/re/items.md).
+**Seen** in the original (2026-10-31): `BRUNNEN` run by the driver made a potion that sat in the backpack as the round vial of 5145, beside two of 5145.
+The game makes them so since #1630 (`opensacred_rules::potions::made`, in `npcs::Makers::placement`); before, they lay and sat in the backpack as bright red bottles, which the maintainer never saw in the original.
+A `CreateObj` that gives its item straight to the hero (above) makes no object, and its type is taken as it is (**hypothesis**: no potion is given so).
 Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy, and what draws the glitter over a quest's item lying in the world (seen, #1256; #1382); to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
 
 ### Spawns and markers
