@@ -148,7 +148,7 @@ pub fn open(world: &mut World, creature: Entity) {
 
 /// A text of `global.res` without the colour's tag it may start with (`<colorl=FFFFFF80>`), and
 /// that colour, an ARGB word.
-fn tagged(text: &str) -> (&str, Option<u32>) {
+pub(crate) fn tagged(text: &str) -> (&str, Option<u32>) {
     let Some(rest) = text.strip_prefix("<color") else {
         return (text, None);
     };

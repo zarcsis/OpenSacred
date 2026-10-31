@@ -177,6 +177,39 @@ const FREQUENT_HEADER: [(&str, f32); 3] = [
 const FREQUENT_HEADER_Y: f32 = 476.0;
 const FREQUENT_RIGHTS: [f32; 3] = [630.0, 740.0, 815.0];
 const FREQUENT_ROWS: f32 = 500.0;
+/// The statistics tab's game history (`0x6DE710`, #1613): its title at (174, 318); its axes,
+/// white, from (180, 350) to (180, 580) and from (170, 570) to (430, 570); its lines from x 180 in
+/// steps of `⌊250/points⌋` over y 570, the gold in yellow 200 high at its most, the damages' sum
+/// in red 200 high and the resistances' sum in blue 220 high; the maxima's labels at x 400, the
+/// blue's at y 350, the red's at 370 and the gold's at 390, and the highest level kept in white
+/// at 577; the legend right in 250 from x 174, its lines 13 apart from y 521 (**seen** on the
+/// original's frame).
+const HISTORY_TITLE: (&str, Vec2) = ("UI_STATS_HISTORY_TITLE", Vec2::new(174.0, 318.0));
+const HISTORY_IMAGE: Rect = Rect {
+    min: Vec2::new(168.0, 346.0),
+    max: Vec2::new(432.0, 582.0),
+};
+const HISTORY_X: i64 = 180;
+const HISTORY_BASE: i64 = 570;
+const HISTORY_WIDTH: i64 = 250;
+const HISTORY_AXES: [(Vec2, Vec2); 2] = [
+    (Vec2::new(180.0, 350.0), Vec2::new(180.0, 580.0)),
+    (Vec2::new(170.0, 570.0), Vec2::new(430.0, 570.0)),
+];
+const HISTORY_GOLD: (u32, f64) = (0xFFFF_FF00, 200.0);
+const HISTORY_RED: (u32, i64) = (0xFFFF_0000, 200);
+const HISTORY_BLUE: (u32, i64) = (0xFF00_00FF, 220);
+const HISTORY_WHITE: u32 = 0xFFFF_FFFF;
+const HISTORY_LABELS_X: f32 = 400.0;
+const HISTORY_LABELS_Y: [f32; 4] = [350.0, 370.0, 390.0, 577.0];
+const HISTORY_LEGEND: [&str; 3] = [
+    "UI_STATS_GRAPH_BLUELINE",
+    "UI_STATS_GRAPH_REDLINE",
+    "UI_STATS_GRAPH_GOLDLINE",
+];
+const HISTORY_LEGEND_TOP: f32 = 521.0;
+const HISTORY_LEGEND_STEP: f32 = 13.0;
+const HISTORY_LEGEND_X: f32 = 174.0;
 /// The foes' portraits' corner from a row's left and top, and their side.
 const FOE_PORTRAIT_X: f32 = 550.0;
 const FOE_PORTRAIT_UP: f32 = 2.0;
@@ -264,20 +297,22 @@ const TURNS: u32 = 7106;
 /// Their sizes here, at which their words are about the original's width, their lines, the
 /// height of an 'A' of the original's (**measured**: the text's lines 20 apart, the right page's
 /// one line of title making its text start 8 lower), and how much lower than Bevy sets them the
-/// original sets its letters in their lines (**measured** by the frames of #1560).
+/// original sets its letters in their lines (**measured** by the frames of #1560). And 7,
+/// AntiquaSSK 8, for the game history's legend and labels (#1613), at the same scale.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Style {
     Title,
     Main,
     Side,
     Body,
+    Small,
 }
 
 impl Style {
     fn font(self) -> &'static str {
         match self {
             Self::Title | Self::Main => MENU_FONT,
-            Self::Side | Self::Body => FONT,
+            Self::Side | Self::Body | Self::Small => FONT,
         }
     }
 
@@ -286,6 +321,7 @@ impl Style {
             Self::Title => 26.0,
             Self::Main => 23.0,
             Self::Side | Self::Body => 19.5,
+            Self::Small => 12.0,
         }
     }
 
@@ -294,6 +330,7 @@ impl Style {
             Self::Title => 28.0,
             Self::Main => 25.0,
             Self::Side | Self::Body => 20.0,
+            Self::Small => HISTORY_LEGEND_STEP,
         }
     }
 
@@ -301,6 +338,7 @@ impl Style {
         match self {
             Self::Main => 2.0,
             Self::Title | Self::Side | Self::Body => 3.0,
+            Self::Small => 1.0,
         }
     }
 
@@ -310,6 +348,7 @@ impl Style {
             Self::Title => RIGHT_TITLE_WIDTH,
             Self::Main | Self::Side => LIST_WIDTH,
             Self::Body => BODY_WIDTH,
+            Self::Small => STATS_WIDTH,
         }
     }
 }
@@ -1540,6 +1579,251 @@ fn chances(hit: u32, its_hit: u32) -> String {
     format!("{hit:2}/{its_hit:2}")
 }
 
+/// The game history's graph (`0x6DE710`): its points, the records of the levels 1 to the
+/// highest kept and the values now, and that level.
+#[derive(Clone, Debug, PartialEq)]
+struct Graph {
+    points: Vec<crate::statistics::LevelRecord>,
+}
+
+impl Graph {
+    /// The highest level kept, which the graph writes under its right end.
+    fn highest(&self) -> usize {
+        self.points.len().saturating_sub(1)
+    }
+
+    /// The maxima of the damages' sum, the resistances' sum and the gold over the points.
+    fn maxima(&self) -> (u32, u32, u32) {
+        self.points.iter().fold((0, 0, 0), |(d, r, g), point| {
+            (
+                d.max(point.damage()),
+                r.max(point.resistance()),
+                g.max(point.gold),
+            )
+        })
+    }
+
+    /// The graph's segments and their colours, as `0x6DE710` draws them: for each point `i` from
+    /// the point `i − 1` (the first from itself) at x `180 + i·s` to it at `180 + (i + 1)·s`, `s`
+    /// `⌊250/points⌋`, the gold's, the damages' and the resistances' where their most is not 0.
+    fn segments(&self) -> Vec<(Vec2, Vec2, u32)> {
+        let count = i64::try_from(self.points.len()).unwrap_or(i64::MAX).max(1);
+        let step = HISTORY_WIDTH / count;
+        let (damage, resistance, gold) = self.maxima();
+        let y = |value: i64| float(HISTORY_BASE - value);
+        let mut segments = Vec::new();
+        for (i, point) in self.points.iter().enumerate() {
+            let before = &self.points[i.saturating_sub(1)];
+            let i = i64::try_from(i).unwrap_or(0);
+            let (x0, x1) = (
+                float(HISTORY_X + i * step),
+                float(HISTORY_X + (i + 1) * step),
+            );
+            if gold != 0 {
+                let (colour, height) = HISTORY_GOLD;
+                let raised = |g: u32| y(whole_f64(f64::from(g) * height / f64::from(gold)));
+                segments.push((
+                    Vec2::new(x0, raised(before.gold)),
+                    Vec2::new(x1, raised(point.gold)),
+                    colour,
+                ));
+            }
+            for (most, (colour, height), value) in [
+                (
+                    damage,
+                    HISTORY_RED,
+                    (|p: &crate::statistics::LevelRecord| p.damage()) as fn(&_) -> u32,
+                ),
+                (resistance, HISTORY_BLUE, |p| p.resistance()),
+            ] {
+                if most == 0 {
+                    continue;
+                }
+                let raised = |v: u32| y(i64::from(v) * height / i64::from(most));
+                segments.push((
+                    Vec2::new(x0, raised(value(before))),
+                    Vec2::new(x1, raised(value(point))),
+                    colour,
+                ));
+            }
+        }
+        segments
+    }
+}
+
+/// A number of the graph's pixels as a float.
+fn float(value: i64) -> f32 {
+    f32::from(i16::try_from(value).unwrap_or(i16::MAX))
+}
+
+/// `value` cut to a whole number, as `__ftol` cuts it.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a height of the graph, within its 200 pixels"
+)]
+fn whole_f64(value: f64) -> i64 {
+    value.trunc() as i64
+}
+
+/// The graph's axes and lines drawn into an image of `scale` of its pixels a pixel of the
+/// original's screen, each line a pixel wide, over nothing.
+fn graph_image(segments: &[(Vec2, Vec2, u32)], scale: f32) -> Image {
+    let scale = scale.max(1.0);
+    let size = HISTORY_IMAGE.size() * scale;
+    let (width, height) = (pixels(size.x), pixels(size.y));
+    // Premultiplied, then straightened.
+    let mut colour = vec![[0.0_f32; 4]; width * height];
+    let lines: Vec<(Vec2, Vec2, u32)> = HISTORY_AXES
+        .iter()
+        .map(|&(a, b)| (a, b, HISTORY_WHITE))
+        .chain(segments.iter().copied())
+        .collect();
+    for (a, b, argb_word) in lines {
+        let [_, r, g, b_] = argb_word.to_be_bytes().map(|c| f32::from(c) / 255.0);
+        let (a, b) = (
+            (a - HISTORY_IMAGE.min) * scale,
+            (b - HISTORY_IMAGE.min) * scale,
+        );
+        let half = 0.5 * scale;
+        let (low, high) = (
+            a.min(b) - Vec2::splat(half + 1.0),
+            a.max(b) + Vec2::splat(half + 1.0),
+        );
+        for y in pixels(low.y.max(0.0))..pixels(high.y).min(height) {
+            for x in pixels(low.x.max(0.0))..pixels(high.x).min(width) {
+                let at = Vec2::new(float_of(x) + 0.5, float_of(y) + 0.5);
+                let along = b - a;
+                let t = if along.length_squared() > 0.0 {
+                    ((at - a).dot(along) / along.length_squared()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let distance = (a + along * t - at).length();
+                let cover = (half + 0.5 - distance).clamp(0.0, 1.0);
+                if cover <= 0.0 {
+                    continue;
+                }
+                let texel = &mut colour[y * width + x];
+                for (c, value) in texel
+                    .iter_mut()
+                    .zip([r * cover, g * cover, b_ * cover, cover])
+                {
+                    *c = value + *c * (1.0 - cover);
+                }
+            }
+        }
+    }
+    let data = colour
+        .into_iter()
+        .flat_map(|[r, g, b, a]| {
+            let straight = |c: f32| if a > 0.0 { c / a } else { 0.0 };
+            [straight(r), straight(g), straight(b), a].map(|c| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a channel from 0 to 255"
+                )]
+                let byte = (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+                byte
+            })
+        })
+        .collect();
+    Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: u32::try_from(width).unwrap_or(1),
+            height: u32::try_from(height).unwrap_or(1),
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        data,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// A length of the image's pixels, whole, none below 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a place in an image, small and checked not negative"
+)]
+fn pixels(value: f32) -> usize {
+    value.max(0.0).ceil() as usize
+}
+
+/// A place of the image's pixels as a float.
+fn float_of(value: usize) -> f32 {
+    f32::from(u16::try_from(value).unwrap_or(u16::MAX))
+}
+
+/// Writes the game history under `root`: its title, its graph's image, its maxima's labels, the
+/// highest level kept and its legend.
+fn history_panel(
+    commands: &mut Commands,
+    (root, assets, texts): (Entity, &AssetServer, Option<&Texts>),
+    graph: &Graph,
+    image: Handle<Image>,
+) {
+    let named = |key: &str| {
+        texts
+            .and_then(|texts| texts.named(key))
+            .map_or_else(|| key.to_owned(), str::to_owned)
+    };
+    let (title, at) = HISTORY_TITLE;
+    write_in(
+        commands,
+        (root, assets),
+        &named(title),
+        (at, STATS_WIDTH),
+        (Style::Title, TITLE_RED, Justify::Left),
+    );
+    let child = commands
+        .spawn((
+            ImageNode::new(image),
+            bar::placed(HISTORY_IMAGE.min, HISTORY_IMAGE.size()),
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(root).add_child(child);
+    let (damage, resistance, gold) = graph.maxima();
+    for (value, colour, y) in [
+        (resistance, HISTORY_BLUE.0, HISTORY_LABELS_Y[0]),
+        (damage, HISTORY_RED.0, HISTORY_LABELS_Y[1]),
+        (gold, HISTORY_GOLD.0, HISTORY_LABELS_Y[2]),
+        (
+            u32::try_from(graph.highest()).unwrap_or(0),
+            HISTORY_WHITE,
+            HISTORY_LABELS_Y[3],
+        ),
+    ] {
+        write_in(
+            commands,
+            (root, assets),
+            &value.to_string(),
+            (Vec2::new(HISTORY_LABELS_X, y), STATS_WIDTH),
+            (Style::Small, colour, Justify::Left),
+        );
+    }
+    for (i, key) in HISTORY_LEGEND.iter().enumerate() {
+        let text = named(key);
+        let (words, colour) = crate::master::tagged(&text);
+        let row = f32::from(u8::try_from(i).unwrap_or(0));
+        write_in(
+            commands,
+            (root, assets),
+            words,
+            (
+                Vec2::new(
+                    HISTORY_LEGEND_X,
+                    HISTORY_LEGEND_TOP + HISTORY_LEGEND_STEP * row,
+                ),
+                STATS_WIDTH,
+            ),
+            (Style::Small, colour.unwrap_or(ROW), Justify::Right),
+        );
+    }
+}
+
 /// The latest foes' rows (`0x6DDCC0`): each record's level, health, the hit chances between it
 /// and the hero now (`0x424700` makes them again at each draw), its damage and its resistances.
 fn latest_rows(
@@ -1689,6 +1973,14 @@ type Foes<'w, 's> = (
     Query<'w, 's, &'static crate::fight::Combat, With<crate::hero::Body>>,
 );
 
+/// What the statistics tab's game history reads: its records, the hero's gold, and the images
+/// it makes at the window's scale.
+type Histories<'w> = (
+    Option<Res<'w, crate::statistics::History>>,
+    Option<Res<'w, crate::pickup::Pack>>,
+    ResMut<'w, Assets<Image>>,
+);
+
 /// What the book shows, made again as it changes.
 #[derive(Clone, Debug, PartialEq)]
 struct Look {
@@ -1703,9 +1995,10 @@ struct Look {
     tracked: Option<u32>,
     measured: usize,
     others: [Vec<Chapter>; 2],
-    /// The statistics tab's block and its foes' rows, while the tab shows.
+    /// The statistics tab's block, its foes' rows and its graph, while the tab shows.
     stats: Option<Stats>,
     foes: Option<(Vec<FoeRow>, Vec<FoeRow>)>,
+    graph: Option<Graph>,
 }
 
 /// Makes the book as it shows and as it changes, and takes it away as it hides.
@@ -1730,6 +2023,7 @@ fn show(
         Option<Res<crate::game::Data>>,
     ),
     (kills, portraits, heroes): Foes,
+    (history, pack, mut images_made): Histories,
 ) {
     let texts = texts.as_deref();
     let model = book.shown.then(|| Model::of(&book, texts, &measures));
@@ -1740,6 +2034,16 @@ fn show(
             tally
                 .as_deref()
                 .map(|tally| Stats::of(texts, creature, tally, (sectors.0.entered_count(), world)))
+        })
+        .flatten();
+    let graph = (book.shown && book.tab == TABS - 1)
+        .then(|| {
+            let hero = heroes.iter().next()?;
+            let gold = pack.as_deref().map_or(0, |pack| pack.gold);
+            let now = crate::statistics::LevelRecord::of(hero.damage, hero.resistance, gold);
+            Some(Graph {
+                points: history.as_deref()?.points(now),
+            })
         })
         .flatten();
     let foes = (book.shown && book.tab == TABS - 1)
@@ -1764,6 +2068,7 @@ fn show(
         others: book.others.clone(),
         stats,
         foes,
+        graph,
     });
     if *was == now {
         return;
@@ -1838,6 +2143,11 @@ fn show(
     if look.tab >= TABS - 1 {
         if let Some(stats) = &look.stats {
             stats_block(&mut commands, root, (&assets, texts), stats);
+        }
+        if let Some(graph) = &look.graph {
+            let scale = ui_scale.0 * windows.single().map_or(1.0, Window::scale_factor);
+            let image = images_made.add(graph_image(&graph.segments(), scale));
+            history_panel(&mut commands, (root, &assets, texts), graph, image);
         }
         if let Some((latest, frequent)) = &look.foes {
             let pieces = (root, &*assets, texts, portraits.as_deref());
@@ -2270,6 +2580,42 @@ mod tests {
         quest.standing = Standing::Entered;
         assert_eq!((icon(&quest, true), icon(&quest, false)), (0x499, 0x49A));
         assert_eq!(icon(&entry(1, 1), false), 0x496);
+    }
+
+    #[test]
+    fn the_history_draws_its_segments_as_the_original_does() {
+        let point = |resistance| crate::statistics::LevelRecord {
+            gold: 0,
+            damages: [31, 0, 0, 0],
+            resistances: [resistance, 0, 0, 0],
+        };
+        // The original's frame at the level 3: the levels 1 and 2 kept, then the values now.
+        let graph = Graph {
+            points: vec![point(5), point(5), point(7)],
+        };
+        assert_eq!((graph.highest(), graph.maxima()), (2, (31, 7, 0)));
+        let segments = graph.segments();
+        // No gold line at 0 gold; the red flat at 370, the blue at 413 then up to 350.
+        assert_eq!(segments.len(), 6);
+        assert!(segments.iter().all(|s| s.2 != HISTORY_GOLD.0));
+        let red: Vec<_> = segments.iter().filter(|s| s.2 == HISTORY_RED.0).collect();
+        assert!(
+            red.iter()
+                .all(|(a, b, _)| (a.y - 370.0).abs() < 1e-3 && (b.y - 370.0).abs() < 1e-3)
+        );
+        let blue: Vec<(f32, f32, f32, f32)> = segments
+            .iter()
+            .filter(|s| s.2 == HISTORY_BLUE.0)
+            .map(|(a, b, _)| (a.x, a.y, b.x, b.y))
+            .collect();
+        assert_eq!(
+            blue,
+            [
+                (180.0, 413.0, 263.0, 413.0),
+                (263.0, 413.0, 346.0, 413.0),
+                (346.0, 413.0, 429.0, 350.0),
+            ]
+        );
     }
 
     #[test]
