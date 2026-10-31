@@ -66,9 +66,17 @@ pub(crate) fn put_sound(category: u8) -> (u32, (f32, sfx::Roll)) {
     (id, (0.4, sfx::Roll::Share(0.2)))
 }
 
+/// The backpack's grid's press, which a merchant's sale by Shift goes before (#1619).
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Click;
+
 /// A left click on the grid while the inventory shows (`0x6C0150`): with the cursor empty, the
 /// item under it onto the cursor; with an item, put where it fits, with its sound, or in place of
-/// the one item under it; else nothing.
+/// the one item under it; else nothing, and nothing while the purchase window asks.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn click(
     (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     buttons: Res<ButtonInput<MouseButton>>,
@@ -77,8 +85,9 @@ fn click(
     mut pack: ResMut<Pack>,
     tables: Option<Res<Tables>>,
     mut sounds: MessageWriter<sfx::Play>,
+    asking: Option<Res<crate::purchase::Asking>>,
 ) {
-    if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
+    if !shown.0 || asking.is_some() || !buttons.just_pressed(MouseButton::Left) {
         return;
     }
     let Some(at) = on_grid(&pointer, &ui_scale, &windows, &page) else {
@@ -321,7 +330,7 @@ impl Plugin for HeldPlugin {
         app.add_systems(
             Update,
             (
-                click.before(show),
+                click.in_set(Click).before(show),
                 (show, follow, cursor)
                     .chain()
                     .before(backpack::layer)

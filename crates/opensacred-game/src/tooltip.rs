@@ -363,6 +363,16 @@ fn spawn(
         }
         commands.entity(panel).add_child(row);
     }
+    add_border(commands, (images, assets), panel);
+    panel
+}
+
+/// Puts the tooltip's border about `panel` (`0x727B30`), as the purchase window's too.
+pub(crate) fn add_border(
+    commands: &mut Commands,
+    (images, assets): (&UiImages, &AssetServer),
+    panel: Entity,
+) {
     for (index, place, turned) in border() {
         let Some((file, rect, _)) = images.turned_part(index) else {
             continue;
@@ -382,7 +392,6 @@ fn spawn(
             .id();
         commands.entity(panel).add_child(piece);
     }
-    panel
 }
 
 /// The border's pieces: each image, its node about the panel, and whether it is turned about
