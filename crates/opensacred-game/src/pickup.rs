@@ -3,8 +3,9 @@
 //! the item's point and 25 along both axes, as the AI's state 1 walks a creature to an item
 //! (`0x53A170`); standing, within a hero's reach of 100 and with a straight line of walkable
 //! cells to it (`0x4FCC80`), the hero turns to it and plays its pick-up, taking it once half the
-//! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), every
-//! other item into its pack, not yet into the hands or the slots (#1088).
+//! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), an
+//! item that the hero may use into the first empty slot of its class that takes it (#1601), and
+//! any other item into its pack; the hands not yet (#1608).
 //!
 //! The bar's Collect button and the key A send the hero collecting (the creature event `0x113`,
 //! the AI's state 12 without a target, `0x4EC560`; #1408, #1591): it walks to the first item about it that it may carry,
@@ -322,6 +323,17 @@ impl Pack {
         true
     }
 
+    /// Puts `dropped`, picked up, on in `slot` where nothing is worn there (`sdk_EQUIP` of
+    /// `0x558080`, #1601): whether it went.
+    pub fn wear_picked(&mut self, dropped: Dropped, slot: u8) -> bool {
+        let Some(worn @ None) = self.worn.get_mut(usize::from(slot)) else {
+            return false;
+        };
+        *worn = Some((self.next, dropped));
+        self.next += 1;
+        true
+    }
+
     /// Takes `dropped` of `size` onto the cursor where it holds nothing, as an item picked up
     /// while the items' page shows goes (`0x5D9060`, `0x655580`): whether it did.
     pub fn hold(&mut self, dropped: Dropped, size: (u8, u8)) -> bool {
@@ -559,6 +571,7 @@ pub(crate) struct Taking<'w, 's> {
     tables: Option<Res<'w, crate::drops::Tables>>,
     shown: Option<Res<'w, crate::inventory::Shown>>,
     remarks: MessageWriter<'w, crate::remarks::Remark>,
+    wearer: Wearer<'w>,
 }
 
 impl Taking<'_, '_> {
@@ -622,6 +635,13 @@ impl Taking<'_, '_> {
                 at: None,
                 rate: (0.45, sfx::Roll::Share(0.1)),
             });
+        } else if put_on(
+            &mut self.pack,
+            (self.tables.as_deref(), &self.wearer),
+            &mut self.sounds,
+            &lying.dropped,
+        ) {
+            self.taken.write(Taken(lying.dropped.item));
         } else {
             let size = self
                 .tables
@@ -661,6 +681,56 @@ impl Taking<'_, '_> {
         }
         self.commands.entity(item).despawn();
     }
+}
+
+/// The hero that wears what it picks up: its type, its level and the balance.
+type Wearer<'w> = (
+    Option<Res<'w, crate::hero::Hero>>,
+    Res<'w, crate::fight::Experience>,
+    Res<'w, crate::fight::Rules>,
+);
+
+/// Puts `dropped` on in the first empty slot of the hero's class that takes it, where the hero
+/// may use it (`0x558080`'s branch before the cursor and the grid,
+/// `opensacred_rules::equipment::slot_on_pickup`, #1601), with its category's sound (the event
+/// `(9, 5)`): whether it went. The equipment's `refit` and `dress` make the hero's values and look
+/// anew with it.
+fn put_on(
+    pack: &mut Pack,
+    (tables, (hero, experience, rules)): (Option<&crate::drops::Tables>, &Wearer),
+    sounds: &mut MessageWriter<sfx::Play>,
+    dropped: &Dropped,
+) -> bool {
+    let (Some(tables), Some(hero)) = (tables, hero) else {
+        return false;
+    };
+    if dropped.kind == Kind::Gold {
+        return false;
+    }
+    let asks = tables.asks(dropped, rules);
+    let Some(slot) = opensacred_rules::equipment::slot_on_pickup(
+        hero.creature,
+        experience.level,
+        &asks,
+        |slot| {
+            pack.worn
+                .get(usize::from(slot))
+                .is_some_and(Option::is_none)
+        },
+    ) else {
+        return false;
+    };
+    if !pack.wear_picked(*dropped, slot) {
+        return false;
+    }
+    info!("pickup: the hero puts {} on in {slot}", dropped.item);
+    let (id, rate) = crate::held::put_sound(asks.category);
+    sounds.write(sfx::Play {
+        sound: sfx::Of::Id(id),
+        at: None,
+        rate,
+    });
+    true
 }
 
 /// The rate of the pick-up's clip of a hero of the attack speed `attack_speed` (`0x584FE0`, the
@@ -1278,6 +1348,22 @@ mod tests {
         // It sparkles where it lay.
         let sparkles: Vec<_> = pack.used.iter().map(|(p, item)| (p.at, *item)).collect();
         assert_eq!(sparkles, [((2, 0), 5171)]);
+    }
+
+    #[test]
+    fn an_item_picked_up_goes_on_only_in_an_empty_slot() {
+        let mut pack = Pack::default();
+        let ring = dropped(Kind::Jewel, 4876, 1);
+        assert!(pack.wear_picked(ring, 8));
+        assert!(!pack.wear_picked(ring, 8));
+        assert!(pack.wear_picked(ring, 9));
+        assert!(!pack.wear_picked(ring, opensacred_rules::equipment::SLOTS));
+        // Each its own key, the backpack untouched.
+        assert_ne!(
+            pack.worn[8].map(|(key, _)| key),
+            pack.worn[9].map(|(key, _)| key)
+        );
+        assert!(pack.items.is_empty());
     }
 
     #[test]

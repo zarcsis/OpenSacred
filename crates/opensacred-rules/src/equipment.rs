@@ -234,6 +234,28 @@ pub fn slot_for(category: u8, empty: impl Fn(u8) -> bool) -> Option<u8> {
         .or_else(|| taking.first().copied())
 }
 
+/// The slot that an item the hero of the type `hero` and the level `level` picks up goes into by
+/// itself (`cCreature::pickupItem`, `0x558080`, docs/re/items.md, "What becomes of the item",
+/// #1601): where the hero may use it (`0x54ABE0`), the first of its class's slots (`0x43F3B0`, the
+/// window's frames) that takes it (`0x43EFC0`) and is `empty`, holding nothing or a class's
+/// default; none where none is, the item going on into the grid. The hands (the slots 12 and 13)
+/// are not among them.
+pub fn slot_on_pickup(
+    hero: u32,
+    level: u32,
+    asks: &Asks,
+    empty: impl Fn(u8) -> bool,
+) -> Option<u8> {
+    if !may_use(hero, level, asks) {
+        return None;
+    }
+    let mut slots: Vec<u8> = frames(hero).iter().map(|frame| frame.slot).collect();
+    slots.sort_unstable();
+    slots
+        .into_iter()
+        .find(|&slot| takes(slot, asks.category) && empty(slot))
+}
+
 /// How a slot of the equipment window glows while the cursor holds an item (docs/re/inventory.md,
 /// §4; seen with a potion held, every slot red): green where it takes the item and the hero may
 /// use it, red otherwise; white with nothing held.
@@ -354,6 +376,42 @@ mod tests {
         assert_eq!(slot_for(8, |slot| slot != 8), Some(9));
         assert_eq!(slot_for(8, |_| false), Some(8));
         assert_eq!(slot_for(9, |_| true), None);
+    }
+
+    #[test]
+    fn an_item_picked_up_goes_into_the_first_empty_slot_of_the_class_that_takes_it() {
+        let ring = Asks {
+            category: 8,
+            ..Asks::default()
+        };
+        // The Seraphim's two rings, the first empty of them.
+        assert_eq!(slot_on_pickup(1, 1, &ring, |_| true), Some(8));
+        assert_eq!(slot_on_pickup(1, 1, &ring, |slot| slot != 8), Some(9));
+        assert_eq!(slot_on_pickup(1, 1, &ring, |slot| slot < 8), None);
+        // The Mage's four.
+        assert_eq!(slot_on_pickup(3, 1, &ring, |slot| slot > 10), Some(11));
+        // Gloves: the Seraphim has no frame of them, the Gladiator has.
+        let gloves = Asks {
+            category: 24,
+            ..Asks::default()
+        };
+        assert_eq!(slot_on_pickup(1, 1, &gloves, |_| true), None);
+        assert_eq!(slot_on_pickup(2, 1, &gloves, |_| true), Some(4));
+        // Not where the hero may not use it, nor what no slot takes.
+        let kilt = Asks {
+            category: 18,
+            classes: 0x800F_1302,
+            level: 5,
+            ..Asks::default()
+        };
+        assert_eq!(slot_on_pickup(1, 30, &kilt, |_| true), None);
+        assert_eq!(slot_on_pickup(2, 1, &kilt, |_| true), None);
+        assert_eq!(slot_on_pickup(2, 5, &kilt, |_| true), Some(3));
+        let potion = Asks {
+            category: 9,
+            ..Asks::default()
+        };
+        assert_eq!(slot_on_pickup(1, 1, &potion, |_| true), None);
     }
 
     #[test]
