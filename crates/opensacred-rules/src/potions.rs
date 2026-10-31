@@ -24,6 +24,26 @@ pub fn kind(item: u32) -> Option<u8> {
     })
 }
 
+/// The type that the scripts' object maker makes of the type `item` (`0x43FC40`, which
+/// `sdk_OBJ_CREATE_NPOS` at `0x5FB530` calls before it makes a `CreateObj`'s or a `CreateNPC`'s
+/// object; #1630): an old potion, a bottle of `BOTTLE01`–`03.GRN` or the bottle 3999, becomes the
+/// new one of its kind and size, the red 5171, 5145 and 5140, the blue 5169, 5143 and 5138 and
+/// the yellow 5172, 5146 and 5141; any other type stays.
+pub fn made(item: u32) -> u32 {
+    match item {
+        3999 | 5056 => 5171,
+        5057 => 5145,
+        5058 => 5140,
+        5059 => 5169,
+        5060 => 5143,
+        5061 => 5138,
+        5062 => 5172,
+        5063 => 5146,
+        5064 => 5141,
+        _ => item,
+    }
+}
+
 /// The sizes of the potions, by which they give more or last longer: the rows of
 /// `HealingPotion`, `BlackPotion…Dur` and `BluePotion…Dur`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -356,6 +376,29 @@ mod tests {
         assert_eq!(kind(5170), Some(4));
         assert_eq!(kind(5146), Some(5));
         assert_eq!(kind(5633), None);
+    }
+
+    #[test]
+    fn the_scripts_old_potions_are_made_new_of_their_kinds_and_sizes() {
+        let old = [3999, 5056, 5057, 5058, 5059, 5060, 5061, 5062, 5063, 5064];
+        assert_eq!(
+            old.map(made),
+            [5171, 5171, 5145, 5140, 5169, 5143, 5138, 5172, 5146, 5141]
+        );
+        for item in old {
+            assert_eq!(kind(made(item)), kind(item));
+        }
+        // The healing bottles keep their sizes; the bottle 3999, a large one, becomes small.
+        let bottles = [5056, 5057, 5058];
+        assert_eq!(
+            bottles.map(|item| Size::heals(made(item))),
+            bottles.map(Size::heals)
+        );
+        assert_eq!(Size::heals(made(3999)), Some(Size::Small));
+        // Any other type stays, the new potions and the drops' items among them.
+        for item in [5171, 5145, 5140, 5137, 1712, 0] {
+            assert_eq!(made(item), item);
+        }
     }
 
     #[test]
