@@ -546,6 +546,27 @@ impl Held {
     pub fn slot(&self) -> Option<u8> {
         self.slot
     }
+
+    /// What its model on its holder is made of ([`Piece`]).
+    fn piece(&self) -> Piece {
+        Piece {
+            model: self.model.clone(),
+            texture: self.texture.clone(),
+            hand: self.hand,
+            mount: self.mount,
+        }
+    }
+}
+
+/// What the model of an item on its holder is made of (`equip`): its model, its texture, its
+/// hand and where it goes, by which a hero whose form keeps its model keeps the pieces it still
+/// shows (`hero::spawn`, #1600).
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct Piece {
+    model: String,
+    texture: Option<String>,
+    hand: Hand,
+    mount: Mount,
 }
 
 /// An item in an NPC's hand, whose values it fights with: its type, its category, its weapon's
@@ -4848,10 +4869,10 @@ pub fn bind_worn(
 pub struct Equipment(Vec<Equip>);
 
 pub struct Equip {
+    /// What it is made of, its hand and where it goes among them.
+    piece: Piece,
     gltf: Handle<Gltf>,
     texture: Option<Handle<Image>>,
-    hand: Hand,
-    mount: Mount,
     ready: bool,
     /// The frames it waits once its holder's scene is ready ([`SETTLES`]).
     waits: u8,
@@ -4884,10 +4905,9 @@ pub fn equipment(assets: &AssetServer, held: &[Held]) -> Equipment {
     Equipment(
         held.iter()
             .map(|held| Equip {
+                piece: held.piece(),
                 gltf: assets.load(held.model.clone()),
                 texture: held.texture.as_ref().map(|t| load_texture(assets, t)),
-                hand: held.hand,
-                mount: held.mount,
                 ready: false,
                 waits: SETTLES,
             })
@@ -4903,6 +4923,17 @@ impl Equipment {
             item.ready = true;
         }
         self
+    }
+
+    /// Takes out an item of `piece`, which its holder carries already: whether one was there.
+    pub fn take(&mut self, piece: &Piece) -> bool {
+        match self.0.iter().position(|item| item.piece == *piece) {
+            Some(at) => {
+                self.0.remove(at);
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -4942,7 +4973,7 @@ pub fn equip(
             };
             // A worn item's model goes under its wearer, its skinned meshes then bound to the
             // wearer's bones ([`bind_worn`]).
-            if item.mount == Mount::Worn {
+            if item.piece.mount == Mount::Worn {
                 let Some(scene) = gltf.scenes.first().cloned() else {
                     return false;
                 };
@@ -4955,6 +4986,7 @@ pub fn equip(
                     ChildOf(npc),
                     models::OrderedWith(npc),
                     WornBy(npc),
+                    item.piece.clone(),
                 ));
                 if let Some(texture) = &item.texture {
                     piece.insert(Retexture(texture.clone()));
@@ -4962,7 +4994,7 @@ pub fn equip(
                 bevy::log::debug!("npcs: {npc} wears {}", piece.id());
                 return false;
             }
-            let (socket, own, holder) = bones(item.hand, item.mount);
+            let (socket, own, holder) = bones(item.piece.hand, item.piece.mount);
             let Some(pose) = pose(gltf, &nodes, socket) else {
                 return false;
             };
@@ -4985,11 +5017,12 @@ pub fn equip(
                 Transform::from_matrix(pose.to_matrix().inverse()),
                 ChildOf(holder),
                 models::OrderedWith(npc),
+                item.piece.clone(),
             ));
-            if item.mount == Mount::Back {
+            if item.piece.mount == Mount::Back {
                 weapon.insert(Shouldered);
             } else {
-                weapon.insert(Wielded(item.hand));
+                weapon.insert(Wielded(item.piece.hand));
             }
             if let Some(texture) = &item.texture {
                 weapon.insert(Retexture(texture.clone()));
@@ -7882,7 +7915,7 @@ fn rearm(
         if let Some(equipment) = equipment.as_mut() {
             equipment
                 .0
-                .retain(|item| !item.mount.handed() || !gone(item.hand));
+                .retain(|item| !item.piece.mount.handed() || !gone(item.piece.hand));
         }
         let grade = mind.level;
         if let Some(item) = rearms.takes
@@ -7904,10 +7937,14 @@ fn rearm(
             arms.holding.push((held, values));
             if let Some(model) = &gear.model {
                 let equip = Equip {
+                    piece: Piece {
+                        model: model.clone(),
+                        texture: gear.texture.clone(),
+                        hand: other,
+                        mount: Mount::held(gear.category),
+                    },
                     gltf: assets.load(model.clone()),
                     texture: gear.texture.as_ref().map(|t| load_texture(&assets, t)),
-                    hand: other,
-                    mount: Mount::held(gear.category),
                     ready: true,
                     waits: 0,
                 };
@@ -7975,10 +8012,14 @@ fn instrument(
         npc.hands_empty = false;
         npc.instrument = Some(plays.instrument);
         commands.entity(entity).insert(Equipment(vec![Equip {
+            piece: Piece {
+                model: model.clone(),
+                texture: texture.clone(),
+                hand: Hand::Right,
+                mount: Mount::Hand,
+            },
             gltf: assets.load(model.clone()),
             texture: texture.as_ref().map(|t| load_texture(&assets, t)),
-            hand: Hand::Right,
-            mount: Mount::Hand,
             ready: true,
             waits: 0,
         }]));
@@ -8058,6 +8099,33 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn a_piece_carried_already_is_taken_out_of_the_equipment_once() {
+        let piece = |model: &str, hand| Piece {
+            model: model.into(),
+            texture: None,
+            hand,
+            mount: Mount::Worn,
+        };
+        let equip = |piece| Equip {
+            piece,
+            gltf: Handle::default(),
+            texture: None,
+            ready: true,
+            waits: 0,
+        };
+        let helmet = piece("helmet.glb", Hand::Right);
+        let mut equipment = Equipment(vec![
+            equip(helmet.clone()),
+            equip(piece("sword.glb", Hand::Right)),
+        ]);
+        assert!(equipment.take(&helmet));
+        assert!(!equipment.take(&helmet));
+        // Another hand is another piece.
+        assert!(!equipment.take(&piece("sword.glb", Hand::Left)));
+        assert_eq!(equipment.0.len(), 1);
+    }
 
     #[test]
     fn a_createnpc_of_the_tag_0x11_joins_its_group_apart_from_the_fills_packs() {
