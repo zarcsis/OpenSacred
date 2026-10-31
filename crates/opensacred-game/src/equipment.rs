@@ -237,12 +237,11 @@ fn lay_out(
             -(centre.y - backpack::CELL / 2.0),
             0.0,
         ) * backpack::placement((0, 0), (1, 1), pose);
-        let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
         let mut entity = commands.spawn((
             Scene,
             Model(key, slot),
             Matte,
-            WorldAssetRoot(scene),
+            crate::models::scene(&assets, model),
             placed,
             RenderLayers::layer(WORN),
             DespawnOnExit(AppState::InGame),

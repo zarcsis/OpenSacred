@@ -772,11 +772,10 @@ fn lay(
     // (#596).
     let slot = tables.catalogue.slot(dropped.item).unwrap_or(dropped.item);
     if let Some((model, texture)) = tables.looks.get(&slot) {
-        let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.clone()));
         // An item, of a `Weapon.pak` record, which the original draws under the surface of a
         // liquid cell (`0x434070`).
         entity.insert((
-            WorldAssetRoot(scene),
+            models::scene(assets, model),
             models::Ordered::default(),
             models::Sinks,
         ));

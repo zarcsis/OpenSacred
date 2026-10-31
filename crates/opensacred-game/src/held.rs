@@ -215,7 +215,6 @@ fn show(
         RenderLayers::layer(HELD),
         DespawnOnExit(AppState::InGame),
     ));
-    let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
     let mut entity = commands.spawn((
         Model {
             key: held.key,
@@ -223,7 +222,7 @@ fn show(
             pose,
         },
         Matte,
-        WorldAssetRoot(scene),
+        crate::models::scene(&assets, model),
         Transform::default(),
         Visibility::Hidden,
         RenderLayers::layer(HELD),

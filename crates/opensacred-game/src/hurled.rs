@@ -76,11 +76,10 @@ fn throw(
             "hurled: the hero hurls {} toward {:.0},{:.0}",
             hurled.item.item, to[0], to[1]
         );
-        let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(hurled.held.model.clone()));
         let mut entity = commands.spawn((
             Transform::from_translation(transform.translation)
                 .with_scale(Vec3::splat(iso::MODEL_SCALE)),
-            WorldAssetRoot(scene),
+            models::scene(&assets, &hurled.held.model),
             models::Ordered::default(),
             Flying {
                 from,

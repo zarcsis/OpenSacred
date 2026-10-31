@@ -232,11 +232,10 @@ fn lay_out(
                 continue;
             };
             let at = origin(corner, tables.in_slot(item.item), half, both_weapons);
-            let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
             let mut entity = commands.spawn((
                 Model,
                 Matte,
-                WorldAssetRoot(scene),
+                crate::models::scene(&assets, model),
                 backpack::posed(at, pose),
                 RenderLayers::layer(MODELS),
                 DespawnOnExit(AppState::InGame),

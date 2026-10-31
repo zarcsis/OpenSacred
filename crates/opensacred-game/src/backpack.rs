@@ -459,11 +459,10 @@ pub(crate) fn lay_models<B: Bundle>(
             }
             continue;
         }
-        let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
         let mut entity = commands.spawn((
             made(placed.key),
             Matte,
-            WorldAssetRoot(scene),
+            crate::models::scene(assets, model),
             at,
             RenderLayers::layer(layer),
             DespawnOnExit(AppState::InGame),

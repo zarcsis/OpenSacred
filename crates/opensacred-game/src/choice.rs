@@ -1556,11 +1556,13 @@ fn dress(
         let Some(gltf) = figure.gltf.as_ref().and_then(|handle| gltfs.get(handle)) else {
             continue;
         };
-        if let Some(scene) = gltf.scenes.first().cloned() {
-            commands.entity(entity).insert(WorldAssetRoot(scene));
-        }
+        let scene = gltf.scenes.first().cloned();
         let idle = gltf.named_animations.get(figure.idle.as_str()).cloned();
-        figure.gltf = None;
+        if let (Some(scene), Some(source)) = (scene, figure.gltf.take()) {
+            commands
+                .entity(entity)
+                .insert((WorldAssetRoot(scene), crate::models::Source(source)));
+        }
         if let Some(idle) = idle {
             commands.entity(entity).insert(Idle(idle));
         }

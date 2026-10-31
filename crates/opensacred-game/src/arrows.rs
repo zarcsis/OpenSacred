@@ -197,9 +197,8 @@ fn loose(
                 "arrows: {} looses an arrow at {} from {:.0},{:.0},{:.0} toward {:.0},{:.0},{:.0}",
                 shot.shooter, shot.target, from.x, from.y, from.z, toward.x, toward.y, toward.z
             );
-            let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
             let mut arrow = commands.spawn((
-                WorldAssetRoot(scene),
+                models::scene(&assets, model),
                 Transform::from_translation(from)
                     .with_rotation(pointing(flight.velocity()))
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
