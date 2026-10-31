@@ -979,11 +979,14 @@ impl Mind {
     }
 
     /// The alarm of the group `group` (`0x46AE70`): it sends the group's hostile members at the
-    /// hero.
-    pub fn hears_alarm(&mut self, group: u32) {
+    /// hero; whether it sends this one, which leaves any other as it is.
+    pub fn hears_alarm(&mut self, group: u32) -> bool {
         if self.group == Some(group) && self.hostile() && !self.fighting && !self.to_door {
             self.fighting = true;
             self.deciding = true;
+            true
+        } else {
+            false
         }
     }
 
