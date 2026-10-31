@@ -302,7 +302,7 @@ Read 2026-10-30 for #1090 (#1540, **confirmed** by code and **seen** in the runn
 
 In `opensacred-game` since #1540 (`master`, `talk::Speech`): the talk of a creature of `quests::WIZARD` without a dialogue shows the inventory and the window, the combos page selected, and ends; the window's panels, the creature's portrait from the dialogues' table, the title and the two tabs as the inventory's are drawn, and its COMBO page as above, its flow, prices, total, count, button and tooltips; the inventory's hide takes it away.
 **Seen** in the game at the Seraphim's level 8 at the master of type 317: a combo of three steps priced 200, 200 and 100 and 1,500 in all, `x3`, the total red without gold and yellow at 1,500, the button lit at 1,500 and making nothing, and at 1,801 the combo made, 1,500 taken, the page cleared and the combos page showing it.
-Not followed: the master's own portrait (above), the smiths' and the merchants' windows, the EXCHANGE page, the window's sounds and the spells page's view under the master.
+Not followed: the master's own portrait (above), the smiths' window (the merchants' since #1618, docs/re/trade.md), the EXCHANGE page, the window's sounds and the spells page's view under the master.
 
 ## An art in a strike
 

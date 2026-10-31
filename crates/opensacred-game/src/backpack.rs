@@ -37,19 +37,19 @@ use crate::pickup::Pack;
 pub(crate) const GRID: Vec2 = Vec2::new(0.0, 392.0);
 pub(crate) const CELL: f32 = 32.0;
 const CELL_IMAGE: u32 = 165;
-const ITEM_TINT: Color = tinted(0x3D, 0x59, 0xAB);
+pub(crate) const ITEM_TINT: Color = tinted(0x3D, 0x59, 0xAB);
 /// The cells' tints under a held item (`0x5DC430`): where it fits, where it would swap, where it
 /// would not go.
 const FITS_TINT: Color = tinted(0x3D, 0x91, 0x40);
 const SWAPS_TINT: Color = tinted(0x91, 0x21, 0x9E);
-const REFUSED_TINT: Color = tinted(0xFF, 0x00, 0x00);
+pub(crate) const REFUSED_TINT: Color = tinted(0xFF, 0x00, 0x00);
 /// The render layer of the items' models, and the light their camera gives them (**estimate**).
 const ITEMS: usize = 10;
 pub(crate) const AMBIENT: f32 = 600.0;
 pub(crate) const LIGHT: f32 = 3_000.0;
 
 /// A cell's tint of the colour `(r, g, b)` at the alpha `0x40`.
-const fn tinted(r: u8, g: u8, b: u8) -> Color {
+pub(crate) const fn tinted(r: u8, g: u8, b: u8) -> Color {
     Color::srgba(
         r as f32 / 255.0,
         g as f32 / 255.0,

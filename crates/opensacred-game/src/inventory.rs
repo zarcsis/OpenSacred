@@ -457,18 +457,24 @@ fn select(
     }
 }
 
+/// The traders' and the stashes' windows that show with the inventory: a town stash's, a combat
+/// master's and a merchant's.
+type BesideWindows<'w> = (
+    Option<Res<'w, crate::town_stash::Opened>>,
+    Option<Res<'w, crate::master::Master>>,
+    Option<Res<'w, crate::merchant::Merchant>>,
+);
+
 /// Whether the pointer is off the windows that show, whose clicks do not reach the world: the
-/// inventory with its tabs above it, the equipment and the statistics (#1521).
+/// inventory with its tabs above it, the equipment and the statistics (#1521), and a stash's or
+/// a trader's window beside them.
 fn off_the_windows(
     shown: Option<Res<Shown>>,
     images: Res<UiImages>,
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     windows: Query<&Window>,
-    (stash, master): (
-        Option<Res<crate::town_stash::Opened>>,
-        Option<Res<crate::master::Master>>,
-    ),
+    (stash, master, merchant): BesideWindows,
 ) -> bool {
     if !shown.is_some_and(|shown| shown.0) {
         return true;
@@ -479,7 +485,11 @@ fn off_the_windows(
     let over_stash =
         stash.is_some_and(|stash| stash.0.is_some()) && crate::town_stash::WINDOW.contains(at);
     let over_master = master.is_some() && crate::master::WINDOW.contains(at);
-    !(over_windows(at, crate::statistics::close_button(&images)) || over_stash || over_master)
+    let over_merchant = merchant.is_some() && crate::merchant::WINDOW.contains(at);
+    !(over_windows(at, crate::statistics::close_button(&images))
+        || over_stash
+        || over_master
+        || over_merchant)
 }
 
 /// Whether `at` is over the windows that show with the inventory: the inventory with its tabs

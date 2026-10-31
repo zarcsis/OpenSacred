@@ -60,6 +60,9 @@ pub struct Tables {
     requirements: HashMap<u32, [u8; 8]>,
     /// The balance's prices of the items' values, by which a made item's worth goes (#1621).
     worths: opensacred_rules::trade::worth::Prices,
+    /// The balance's lists of the weapon skills' weapons (its tail's sixth table), of which a
+    /// merchant offers one (#1618).
+    weapon_lists: Vec<(u32, Vec<u32>)>,
 }
 
 /// The classes' bits of a record's word `+0x04`, which a made item keeps of its type's (`0x5D5080`,
@@ -122,6 +125,15 @@ impl Tables {
         let modifiers: Vec<WeaponModifier> = table(assets, WEAPON_MODIFIERS)?;
         let balance = shared.tables.balance().ok();
         let worths = opensacred_rules::trade::worth::Prices::of(balance);
+        let weapon_lists = balance
+            .map(|balance| {
+                balance
+                    .item_lists
+                    .iter()
+                    .map(|list| (list.key, list.items.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         let templates = fight::Templates::new(&modifiers, weapons);
         // The runes that the drops draw from (#1183), none from assets made before them.
         let runes: Vec<u32> = table(assets, RUNES).unwrap_or_else(|e| {
@@ -265,6 +277,7 @@ impl Tables {
             records: used,
             requirements,
             worths,
+            weapon_lists,
             prices,
             glittering,
         })
@@ -462,6 +475,23 @@ impl Tables {
     /// `0x5D3AB0`, for a type without a record.
     pub(crate) fn price(&self, item: u32) -> i64 {
         self.prices.get(&item).copied().unwrap_or(DEFAULT_PRICE)
+    }
+
+    /// The items' tables as a merchant's stock takes them (#1618): the catalogue, the templates
+    /// and the items' sizes.
+    pub(crate) fn supply(
+        &self,
+    ) -> opensacred_rules::trade::stock::Tables<'_, impl Fn(u32) -> (u8, u8) + '_> {
+        opensacred_rules::trade::stock::Tables {
+            catalogue: &self.catalogue,
+            templates: &self.templates,
+            size: |item| self.size(item),
+        }
+    }
+
+    /// The balance's lists of the weapon skills' weapons, by their skills.
+    pub(crate) fn weapon_lists(&self) -> &[(u32, Vec<u32>)] {
+        &self.weapon_lists
     }
 
     /// The drops' balance's values, which the quests' rewards take too (`rewards`, #1386).

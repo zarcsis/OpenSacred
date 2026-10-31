@@ -407,7 +407,7 @@ impl Shelf {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stock {
     pub shelves: [Shelf; 3],
-    pub merchant: Option<u32>,
+    pub merchant: Option<u64>,
 }
 
 impl Default for Stock {
@@ -432,7 +432,7 @@ impl Stock {
     /// give it (`0x6DA1A0`) are not followed.
     pub fn visit(
         &mut self,
-        merchant: u32,
+        merchant: u64,
         level: u32,
         buyer: &Buyer,
         supply: &impl Supply,

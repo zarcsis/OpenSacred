@@ -84,14 +84,16 @@ const CLASS_COLOURS: [u32; 10] = [
 const PLAIN: u32 = 0xFFEF_EFEF;
 
 /// What a tooltip tells of an item: its type, its name, its category, its type's record, its
-/// price (its record's, a made item's worth), its quality, its values, its level and the level it
-/// asks, and the share of its health that it heals, of a healing potion.
+/// price (its record's, a made item's worth) and whether the hero would buy it (a merchant's), its
+/// quality, its values, its level and the level it asks, and the share of its health that it
+/// heals, of a healing potion.
 pub(crate) struct Item<'a> {
     pub item: u32,
     pub name: &'a str,
     pub category: u8,
     pub record: Record,
     pub price: i64,
+    pub buying: bool,
     pub quality: u8,
     pub values: ItemValues,
     pub level: u32,
@@ -145,7 +147,7 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
     if refused(word, hero.creature) {
         lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
     }
-    // The price, as the hero would sell it.
+    // The price, as the hero would sell it, or buy it from a merchant (`0x59FE80`).
     if item.price > 0 {
         let trading = hero.skill(opensacred_rules::trade::TRADING);
         let price = opensacred_rules::trade::shown(
@@ -153,7 +155,7 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
             hero.level,
             trading,
             f64::from(hero.attributes[5]),
-            false,
+            item.buying,
             1.0,
         );
         let text = if trading > 0 {
@@ -711,6 +713,7 @@ mod tests {
                 ..Record::default()
             },
             price: 400,
+            buying: false,
             quality: 0,
             values: ItemValues::default(),
             level: 0,
@@ -753,6 +756,7 @@ mod tests {
                 ..Record::default()
             },
             price: 0,
+            buying: false,
             quality: 0,
             values,
             level: 3,
@@ -809,6 +813,7 @@ mod tests {
                 ..Record::default()
             },
             price: 1120,
+            buying: false,
             quality: 0,
             values,
             level: 1,
