@@ -72,9 +72,12 @@ pub struct WeaponSets {
 /// A slot's side on the original's screen.
 const SLOT: f32 = 64.0;
 
-/// A set's half's model.
-#[derive(Component)]
-struct Model;
+/// A set's half's model: its item, at its place in the picture.
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
+struct Model {
+    item: u32,
+    at: Vec3,
+}
 
 /// The sets' camera, light and picture.
 #[derive(Component)]
@@ -202,13 +205,51 @@ fn origin(corner: Vec2, offset: Vec2, half: usize, both_weapons: bool) -> Vec3 {
     Vec3::new(at.x, -at.y, if half == 0 { -DEPTH } else { DEPTH })
 }
 
-/// Lays the shown sets' models out in their slots as the sets or the slots shown change.
+/// The models that the shown sets' slots draw, each of its item at its place.
+fn models_of(sets: &WeaponSets, shown: usize, tables: &Tables) -> Vec<Model> {
+    let mut models = Vec::new();
+    for (set, halves) in sets.halves.iter().enumerate().take(shown) {
+        let both_weapons = halves
+            .iter()
+            .all(|half| half.is_some_and(|item| tables.category(item.item) == WEAPON));
+        let corner = bar::weapon_slot(set, shown);
+        for (half, item) in halves.iter().enumerate() {
+            let Some(item) = item else {
+                continue;
+            };
+            models.push(Model {
+                item: item.item,
+                at: origin(corner, tables.in_slot(item.item), half, both_weapons),
+            });
+        }
+    }
+    models
+}
+
+/// The keys of the models of `had` that `wanted` no longer holds, and the models of `wanted` not
+/// among `had`, which alone are made anew.
+fn changed<K: Copy>(had: &[(K, Model)], mut wanted: Vec<Model>) -> (Vec<K>, Vec<Model>) {
+    let mut gone = Vec::new();
+    for &(key, model) in had {
+        match wanted.iter().position(|&kept| kept == model) {
+            Some(kept) => {
+                wanted.swap_remove(kept);
+            }
+            None => gone.push(key),
+        }
+    }
+    (gone, wanted)
+}
+
+/// Lays the shown sets' models out in their slots as the sets or the slots shown change: the
+/// models of the items gone or moved despawned, those of the items come or moved spawned, the rest
+/// left drawn, as a new model's scene takes frames to load (a set's choice moves none).
 fn lay_out(
     mut commands: Commands,
     sets: Option<Res<WeaponSets>>,
     shown: Option<Res<bar::Shown>>,
     (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
-    models: Query<Entity, With<Model>>,
+    models: Query<(Entity, &Model)>,
 ) {
     let (Some(sets), Some(shown), Some(tables)) = (sets, shown, tables) else {
         return;
@@ -216,33 +257,28 @@ fn lay_out(
     if !(sets.is_changed() || shown.is_changed()) {
         return;
     }
-    for model in &models {
-        commands.entity(model).despawn();
+    let had: Vec<(Entity, Model)> = models
+        .iter()
+        .map(|(entity, &model)| (entity, model))
+        .collect();
+    let (gone, new) = changed(&had, models_of(&sets, shown.0, &tables));
+    for entity in gone {
+        commands.entity(entity).despawn();
     }
-    for (set, halves) in sets.halves.iter().enumerate().take(shown.0) {
-        let both_weapons = halves
-            .iter()
-            .all(|half| half.is_some_and(|item| tables.category(item.item) == WEAPON));
-        let corner = bar::weapon_slot(set, shown.0);
-        for (half, item) in halves.iter().enumerate() {
-            let Some(item) = item else {
-                continue;
-            };
-            let Some((model, texture, pose)) = tables.look(item.item) else {
-                continue;
-            };
-            let at = origin(corner, tables.in_slot(item.item), half, both_weapons);
-            let mut entity = commands.spawn((
-                Model,
-                Matte,
-                crate::models::scene(&assets, model),
-                backpack::posed(at, pose),
-                RenderLayers::layer(MODELS),
-                DespawnOnExit(AppState::InGame),
-            ));
-            if let Some(texture) = texture {
-                entity.insert(Retexture::load(&assets, texture));
-            }
+    for new in new {
+        let Some((model, texture, pose)) = tables.look(new.item) else {
+            continue;
+        };
+        let mut entity = commands.spawn((
+            new,
+            Matte,
+            crate::models::scene(&assets, model),
+            backpack::posed(new.at, pose),
+            RenderLayers::layer(MODELS),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(texture) = texture {
+            entity.insert(Retexture::load(&assets, texture));
         }
     }
 }
@@ -748,6 +784,31 @@ mod tests {
         assert_eq!(
             replaced.and_then(|piece| item_of(piece, &halves, None)),
             Some(item(7901))
+        );
+    }
+
+    #[test]
+    fn the_models_that_stay_at_their_places_are_not_made_anew() {
+        let model = |item: u32, x: f32| Model {
+            item,
+            at: Vec3::new(x, -40.0, DEPTH),
+        };
+        let had = [(1, model(7, 30.0)), (2, model(9, 96.0))];
+        // Another set chosen: the same models at the same places.
+        assert_eq!(
+            changed(&had, vec![model(9, 96.0), model(7, 30.0)]),
+            (vec![], vec![])
+        );
+        // An item put into the second set: its old model goes and the new one comes, the first
+        // set's stays drawn.
+        assert_eq!(
+            changed(&had, vec![model(7, 30.0), model(4, 96.0)]),
+            (vec![2], vec![model(4, 96.0)])
+        );
+        // The same item moved within its slot as a weapon joins it in the other hand.
+        assert_eq!(
+            changed(&had, vec![model(7, 38.0), model(9, 96.0)]),
+            (vec![1], vec![model(7, 38.0)])
         );
     }
 

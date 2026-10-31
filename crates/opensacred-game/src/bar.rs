@@ -266,6 +266,12 @@ struct ArtBottom(usize);
 #[derive(Component)]
 struct ArtRing(usize);
 
+/// A weapon set's slot's orb and ring, by its set.
+#[derive(Component)]
+struct SetOrb(usize);
+#[derive(Component)]
+struct SetRing(usize);
+
 /// The slots a side shown, 0 before the first are made.
 #[derive(Resource, Default)]
 pub(crate) struct Shown(pub usize);
@@ -466,10 +472,11 @@ pub(crate) fn spawn(
     commands.insert_resource(Entries::default());
 }
 
-/// The slots and the rail for the hero's level, made again as a side's count changes
-/// (`0x6E0070`, `0x6E01F0`): the left's weapon sets, the first selected, and the right's art
-/// slots, the first holding the selected art; the rail's ends at their places and the middle
-/// pieces between, each chosen at random once.
+/// The slots and the rail for the hero's level, made again only as a side's count changes
+/// (`0x6DFD60`, `0x6E0070`, `0x6E01F0`): the left's weapon sets, the selected one's orb and ring,
+/// and the right's art slots, the first holding the selected art; the rail's ends at their places
+/// and the middle pieces between, each chosen at random once. A set's choice changes its orbs
+/// alone ([`set_orbs`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -482,20 +489,19 @@ fn rebuild(
     assets: Res<AssetServer>,
     bars: Query<Entity, With<BarRoot>>,
     pieces: Query<Entity, With<SlotPiece>>,
-    (sets, mut chosen): (Option<Res<crate::sets::WeaponSets>>, Local<Option<usize>>),
+    sets: Option<Res<crate::sets::WeaponSets>>,
     mut dice: Local<Option<opensacred_rules::spawning::Rng>>,
 ) {
     let Ok(bar) = bars.single() else {
         return;
     };
     let n = slots(experience.0.level);
-    // The weapon set selected (#1348).
-    let selected = sets.map_or(0, |sets| sets.selected);
-    if shown.0 == n && *chosen == Some(selected) {
+    if shown.0 == n {
         return;
     }
     shown.0 = n;
-    *chosen = Some(selected);
+    // The weapon set selected (#1348).
+    let selected = sets.map_or(0, |sets| sets.selected);
     for entity in &pieces {
         commands.entity(entity).despawn();
     }
@@ -519,6 +525,7 @@ fn rebuild(
         }
         let child = entity.id();
         commands.entity(bar).add_child(child);
+        child
     };
     let image = |index: u32, at: Vec2| piece(&images, &assets, index, at, BAR.min);
     let count = i16::try_from(n).unwrap_or(1);
@@ -554,20 +561,55 @@ fn rebuild(
         add(image(RING, at), Some((slot, 2)), RING_Z);
     }
     // The weapon sets at the left, the selected one's orb and ring (`0x6E1690`).
+    let mut orbs = Vec::new();
     for i in 0..count {
         let set = usize::try_from(i).unwrap_or(0);
         let at = weapon_slot(set, usize::from(count.unsigned_abs()));
         let chosen = set == selected;
-        add(
+        let orb = add(
             image(if chosen { WEAPON_SELECTED } else { ORB }, at),
             None,
             0,
         );
-        add(
+        let ring = add(
             image(if chosen { RING_SELECTED } else { RING }, at),
             None,
             RING_Z,
         );
+        orbs.push((set, orb, ring));
+    }
+    for (set, orb, ring) in orbs {
+        commands.entity(orb).insert(SetOrb(set));
+        commands.entity(ring).insert(SetRing(set));
+    }
+}
+
+/// The weapon sets' orbs and rings as the selected set changes (`0x6E1690`): the selected one's
+/// orb 515 and ring 103, the others' 635 and 102, each piece's image changed where it stands, the
+/// slots, the rail and the sets' models left as they are.
+fn set_orbs(
+    sets: Option<Res<crate::sets::WeaponSets>>,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    mut orbs: Query<(&SetOrb, &mut ImageNode), Without<SetRing>>,
+    mut rings: Query<(&SetRing, &mut ImageNode), Without<SetOrb>>,
+) {
+    let Some(sets) = sets.filter(|sets| sets.is_changed()) else {
+        return;
+    };
+    let image = |index: u32| piece(&images, &assets, index, Vec2::ZERO, Vec2::ZERO).0;
+    for (orb, mut node) in &mut orbs {
+        *node = image(if orb.0 == sets.selected {
+            WEAPON_SELECTED
+        } else {
+            ORB
+        });
+    }
+    for (ring, mut node) in &mut rings {
+        *node = image(if ring.0 == sets.selected {
+            RING_SELECTED
+        } else {
+            RING
+        });
     }
 }
 
@@ -1010,7 +1052,15 @@ impl Plugin for BarPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn)
             .add_systems(
                 Update,
-                (rebuild, turn, fill, art_icon, entries, entry_rings)
+                (
+                    rebuild,
+                    set_orbs,
+                    turn,
+                    fill,
+                    art_icon,
+                    entries,
+                    entry_rings,
+                )
                     .chain()
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Shown>),
@@ -1032,6 +1082,82 @@ mod tests {
         assert_eq!(slots(29), 4);
         assert_eq!(slots(30), 5);
         assert_eq!(slots(200), 5);
+    }
+
+    #[test]
+    fn a_sets_choice_changes_its_orbs_alone_and_the_rail_stays() {
+        // Each image its own part of one texture, its index its left.
+        let images = UiImages {
+            images: (0..700)
+                .map(|index| UiImage {
+                    texture: "gui".to_owned(),
+                    rect: [index, 0, 1, 1],
+                    turned: [false; 2],
+                    anchors: [0; 4],
+                })
+                .collect(),
+            files: HashMap::from([("gui".to_owned(), "gui.png".to_owned())]),
+        };
+        let mut experience = Experience::default();
+        experience.0.level = 2;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .insert_resource(images)
+            .insert_resource(experience)
+            .insert_resource(Shown(0))
+            .init_resource::<crate::sets::WeaponSets>()
+            .add_systems(Update, (rebuild, set_orbs).chain());
+        app.world_mut().spawn(BarRoot);
+        app.update();
+        let pieces = |app: &mut App| {
+            let mut pieces: Vec<(Entity, Option<Rect>)> = app
+                .world_mut()
+                .query_filtered::<(Entity, &ImageNode), With<SlotPiece>>()
+                .iter(app.world())
+                .map(|(entity, image)| (entity, image.rect))
+                .collect();
+            pieces.sort_by_key(|&(entity, _)| entity);
+            pieces
+        };
+        // The images of the sets' orbs and rings, by their sets.
+        fn shown<C: Component>(app: &mut App, set: fn(&C) -> usize) -> Vec<(usize, Option<Rect>)> {
+            let mut shown: Vec<(usize, Option<Rect>)> = app
+                .world_mut()
+                .query::<(&C, &ImageNode)>()
+                .iter(app.world())
+                .map(|(piece, image)| (set(piece), image.rect))
+                .collect();
+            shown.sort_by_key(|&(set, _)| set);
+            shown
+        }
+        let part = |index: u16| Some(Rect::new(index.into(), 0.0, (index + 1).into(), 1.0));
+        let orb = |orb: &SetOrb| orb.0;
+        let ring = |ring: &SetRing| ring.0;
+        assert_eq!(shown(&mut app, orb), [(0, part(515)), (1, part(635))]);
+        assert_eq!(shown(&mut app, ring), [(0, part(103)), (1, part(102))]);
+        let before = pieces(&mut app);
+        app.world_mut()
+            .resource_mut::<crate::sets::WeaponSets>()
+            .selected = 1;
+        app.update();
+        assert_eq!(shown(&mut app, orb), [(0, part(635)), (1, part(515))]);
+        assert_eq!(shown(&mut app, ring), [(0, part(102)), (1, part(103))]);
+        // The rail's pieces and the art slots stay as they were, the same entities of the same
+        // parts; only the sets' orbs and rings changed their images.
+        let after = pieces(&mut app);
+        assert_eq!(
+            before.iter().map(|&(entity, _)| entity).collect::<Vec<_>>(),
+            after.iter().map(|&(entity, _)| entity).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            before
+                .iter()
+                .zip(&after)
+                .filter(|(before, after)| before.1 != after.1)
+                .count(),
+            4
+        );
     }
 
     #[test]
