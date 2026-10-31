@@ -34,6 +34,8 @@ pub struct Summary {
     pub repaired_cells: usize,
     /// The repairs of functions made, by what they mend, and the trees each was made in.
     pub repairs: BTreeMap<&'static str, usize>,
+    /// The old potions that the records named, made the new ones (`script_repairs::renew_potions`).
+    pub renewed_potions: usize,
     pub warnings: Vec<String>,
 }
 
@@ -385,6 +387,7 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 source,
                 &mut tree,
             );
+            let renewed = script_repairs::renew_potions(&mut tree);
             let file = file_name(source);
             let bytes = tree
                 .encode()
@@ -431,13 +434,15 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 u64::try_from(bytes.len()).unwrap_or(u64::MAX),
                 outcome,
                 report,
+                renewed,
             ))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
     let mut trees = Vec::with_capacity(entries.len());
-    for (entry, bytes, outcome, report) in entries {
+    for (entry, bytes, outcome, report, renewed) in entries {
+        summary.renewed_potions += renewed;
         match outcome {
             Outcome::None => {}
             Outcome::Repaired(cells) => {
@@ -550,6 +555,8 @@ mod tests {
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
         assert_eq!((summary.repaired_trees, summary.repaired_cells), (11, 11));
+        // The old potions of 1,308 `CreateObj`s and 120 `FillChest`s (#1634).
+        assert_eq!(summary.renewed_potions, 1_308 + 120);
         // The quests' repairs, each in every tree that holds its quest.
         assert_eq!(
             summary.repairs,
