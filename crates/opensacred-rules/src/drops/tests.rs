@@ -1033,6 +1033,34 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
 }
 
 #[test]
+fn a_keyed_item_takes_the_makers_key_and_level_as_they_are() {
+    let templates = Templates::new(&[dagger_template()], &[]);
+    let bare = Record {
+        limits: None,
+        ..record(0, [1, 1], [0, 0, 0])
+    };
+    let catalogue = catalogue(&[(DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])), (5171, 9, bare)]);
+    let mut dice = script(&[0, 0, 0, 0, 0, 0, 1]);
+    let dagger = keyed(&catalogue, &templates, (DAGGER, 4, 3), &mut dice).unwrap();
+    assert!(dice.0.is_empty(), "{:?} left", dice.0);
+    assert_eq!(
+        (dagger.kind, dagger.level, dagger.key, dagger.quality),
+        (Kind::Weapon, 4, 13, 3)
+    );
+    assert!(dagger.values.is_some());
+    // A potion as it is, of no level or quality; a type the table does not hold, none.
+    let potion = keyed(&catalogue, &templates, (5171, 4, 3), &mut script(&[])).unwrap();
+    assert_eq!(
+        (potion.kind, potion.level, potion.quality, potion.values),
+        (Kind::Potion, 0, 0, None)
+    );
+    assert_eq!(
+        keyed(&catalogue, &templates, (9999, 4, 3), &mut script(&[])),
+        None
+    );
+}
+
+#[test]
 fn a_rune_comes_by_the_heros_level_its_runes_and_its_arts() {
     let rules = Rules::default();
     let seraphim = |level, runes, arts| Hero {

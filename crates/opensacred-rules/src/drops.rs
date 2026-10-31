@@ -674,8 +674,14 @@ impl Rules {
 /// The potion of a drop (`0x43B1A0`): the row 5 in 601 cases of 1,000, else one of the rows 0
 /// to 4; small on bronze, small or medium on silver, medium or large on gold, large above.
 pub fn potion(difficulty: Difficulty, dice: &mut impl Dice) -> u32 {
+    potion_from(0, difficulty, dice)
+}
+
+/// The potion of `0x43B1A0` whose second argument makes `least` the least of its rows 0 to 4: 0
+/// for a drop's, 2 for a merchant's (docs/re/trade.md).
+pub fn potion_from(least: i64, difficulty: Difficulty, dice: &mut impl Dice) -> u32 {
     let row = if dice.below(1000) > 600 {
-        usize::try_from(between(0, 4, dice)).unwrap_or(5)
+        usize::try_from(between(least, 4, dice)).unwrap_or(5)
     } else {
         5
     };
@@ -713,6 +719,15 @@ const RANDOM_CATEGORIES: [(u8, u32); 19] = [
     (29, 20),
     (30, 20),
 ];
+
+/// The weight of `category` in the table of `0x43B060` (`0x890B60`), 0 for a category that it
+/// does not name.
+pub fn category_weight(category: u8) -> u32 {
+    RANDOM_CATEGORIES
+        .iter()
+        .find(|&&(c, _)| c == category)
+        .map_or(0, |&(_, weight)| weight)
+}
 
 /// A random category of any class (`0x43B090(0)`): `r = ⌊rand()/32767 · W⌋`, `W` the weights'
 /// sum, and the first category whose weights summed in turn pass `r`; 0, no category, where `r`
@@ -1007,6 +1022,17 @@ impl Catalogue {
             category if JEWELS.contains(&category) => Some(Kind::Jewel),
             _ => None,
         }
+    }
+
+    /// The category of the type `item` (`items.pak +0x2E` of its entry), none for a type that the
+    /// items table does not hold.
+    pub fn category(&self, item: u32) -> Option<u8> {
+        self.categories.get(&item).copied()
+    }
+
+    /// The weapon kind of the record of `item` (`Weapon.pak +0x1E`), 0 for a type without one.
+    pub fn weapon_kind(&self, item: u32) -> u8 {
+        self.records.get(&item).map_or(0, |record| record.kind)
     }
 
     /// The types listed for `category`, in the order of their slots.
@@ -1502,6 +1528,39 @@ pub fn thrown(
             drop.named = names::roll(drop.values.as_ref(), dice);
         }
     }
+    Some(drop)
+}
+
+/// An item of type `item` that the item maker makes at `level` by its own key `key` (`0x5D5080`),
+/// as a merchant's page makes it (`0x6D9DE0`, docs/re/trade.md): gold, potions, runes and the
+/// categories 26, 30 and 31 as they are; another, a type of no drop's kind of [`Kind::Other`], by
+/// the maker at `level`, held at no least, and its name's roll; its pass's key `16 − key`. `None`
+/// for a type that the items table does not hold.
+pub fn keyed(
+    catalogue: &Catalogue,
+    templates: &Templates,
+    (item, level, key): (u32, u32, u8),
+    dice: &mut impl Dice,
+) -> Option<Dropped> {
+    let category = catalogue.category(item)?;
+    let kind = catalogue.kind(item).unwrap_or(Kind::Other);
+    let mut drop = Dropped {
+        kind,
+        item,
+        level: 0,
+        key: 16_u8.saturating_sub(key),
+        quality: key,
+        amount: 1,
+        values: None,
+        named: None,
+    };
+    if GOLD.contains(&item) || UNMADE.contains(&category) {
+        drop.quality = 0;
+        return Some(drop);
+    }
+    drop.level = level;
+    drop.values = templates.make(item, level, dice);
+    drop.named = names::roll(drop.values.as_ref(), dice);
     Some(drop)
 }
 
