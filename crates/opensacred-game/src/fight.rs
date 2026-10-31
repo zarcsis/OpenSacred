@@ -165,7 +165,11 @@ pub(crate) fn resolve(
     mut blows: MessageWriter<crate::sfx::Blow>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
-    (rules, mut last_foe): (Res<Rules>, Option<ResMut<crate::statistics::LastFoe>>),
+    (rules, mut last_foe, mut tally): (
+        Res<Rules>,
+        Option<ResMut<crate::statistics::LastFoe>>,
+        Option<ResMut<crate::statistics::Tally>>,
+    ),
     (hero_arts, effects, clock, mut lusts): (
         Option<Res<crate::arts::HeroArts>>,
         Query<&crate::effects::Effects>,
@@ -406,14 +410,18 @@ pub(crate) fn resolve(
             // The foe the hero kills, which the statistics window's last foe and hit chance
             // show (the player's statistics' record, `0x424250`; **seen**: kept at the kill,
             // with its most health, #1525).
-            if side == Some(Side::Attacker)
-                && let Some(last_foe) = last_foe.as_deref_mut()
-            {
-                last_foe.0 = Some(crate::statistics::Foe::of(
-                    victim.map_or(0, |mind| mind.creature),
-                    &health,
-                    &defender,
-                ));
+            if side == Some(Side::Attacker) {
+                if let Some(last_foe) = last_foe.as_deref_mut() {
+                    last_foe.0 = Some(crate::statistics::Foe::of(
+                        victim.map_or(0, |mind| mind.creature),
+                        &health,
+                        &defender,
+                    ));
+                }
+                // The kills' counter of the same record (`+0x56F0`, #1611).
+                if let Some(tally) = tally.as_deref_mut() {
+                    tally.killed();
+                }
             }
             let worth = worth
                 .filter(|_| hero)
@@ -502,8 +510,8 @@ fn earn(
 }
 
 /// Fells the hostile creatures within `radius` cells of the hero along each axis as if the hero
-/// killed them (the command `kill`, #524): they die, drop and give the hero their experience; a
-/// line for each.
+/// killed them (the command `kill`, #524): they die, drop and give the hero their experience, and
+/// count among its kills (#1611); a line for each.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -513,7 +521,7 @@ pub fn kill(
     mut commands: Commands,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
-    rules: Res<Rules>,
+    (rules, mut tally): (Res<Rules>, Option<ResMut<crate::statistics::Tally>>),
     hero: Query<(&Transform, Option<&crate::effects::Effects>), With<Body>>,
     mut creatures: Query<
         (
@@ -558,6 +566,9 @@ pub fn kill(
             &health,
             worth,
         );
+        if let Some(tally) = tally.as_deref_mut() {
+            tally.killed();
+        }
         lines.push(format!(
             "{entity} type {} level {} falls, {earned} experience",
             mind.creature, health.level

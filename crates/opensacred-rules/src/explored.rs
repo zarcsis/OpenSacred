@@ -237,6 +237,12 @@ impl Sectors {
         self.entered.contains(&sector)
     }
 
+    /// How many sectors have been entered: the player's statistics' sectors visited (`+0x56EC`,
+    /// one more as a sector is first visited, `0x4249C0` from `0x622AE0`).
+    pub fn entered_count(&self) -> usize {
+        self.entered.len()
+    }
+
     /// The frontier of the land walked (`0x6331D0`, `0x6333F0`): each sector not entered beside
     /// one entered, its row from 1 and its column from 0 below 100, and the bits of its entered
     /// neighbours in [`NEIGHBOURS`]' order.

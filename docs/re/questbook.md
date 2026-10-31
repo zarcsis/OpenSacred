@@ -135,7 +135,8 @@ Read in the code for #1565; **seen** in the game where said.
 - What plays `UI_QUESTBOOK_CLOSE02`, `TURN02` and `WRITING` (`WRITING`: an item of a quest picked up, docs/re/sound.md).
 - The sender of the UI message `0x20` that adds an information item to a shown book.
 - The `CreateObj` handler's condition for `addMainQuestItem` (`0x4868F6`), and when its entries' keys are 0.
-- The statistics' font 7 and the font at `0x182EE2C`; the exact terms of the levels' damage values; whether the world's sectors' count (`+0x8284`) counts the empty slots of the sectors' array.
+- The font at `0x182EE2C`; the exact terms of the levels' damage values; whether the world's sectors' count (`+0x8284`) counts the empty slots of the sectors' array (**hypothesis**: it is the sectors the world loads, 6,050, by which three sectors visited make the original's 0.05 %).
+- The fonts' table (`0xA1CDB4`, entries of `0x44` bytes, the face's name then its size) makes the font 7 AntiquaSSK 8, the statistics' legend's (read 2026-10-31, #1611).
 
 ## In `opensacred-game`
 
@@ -144,4 +145,6 @@ Bevy lays the texts out, in the fonts at about the original's widths (AntiquaSSK
 **Seen** in the game beside the original's frames: the Seraphim's first quest's row, its picture and its text's two pages within a few pixels; a side quest's click selecting and tracking it.
 Since #1565 the hero's and the information's books are built from the hero's class, skills and arts (`arts::HeroArts`), its main quest's items (`QuestItems`) and the books it read (`pickup::Pack::books`), as above, each tab keeping its own chapter, page and selected row.
 **Seen** in the game: the Seraphim's class page with its picture, its two skills, its art with its icon, and two books read in the information's first two chapters.
-Not followed: the statistics' book (#1579), the item's model turning in the circle (the circle is drawn, the model not), the bar's button's pressed look, the corners of the picture's ground; a compass's place is taken where its creature stands as the book is built.
+Since #1611 the statistics' book writes its statistics block (`quest_book::stats_block`): its title and five lines as `0x6DEE60` lays them, the class's name by the hero's type, the time played `h:mm:ss` of the game's time (`statistics::Tally`, standing while the game is paused, **hypothesis** for the render thread's), the sectors entered over the world's 6,050 sectors, the foes the hero killed (counted where its last foe is kept, and by the command `kill`) and the hero's rises.
+**Seen** beside the original's frame after five kills and a level-up at 52,40: the same lines at the same places, `0.05%` in both.
+Not followed: the statistics' book's foes (#1612) and game history (#1613), the item's model turning in the circle (the circle is drawn, the model not), the bar's button's pressed look, the corners of the picture's ground; a compass's place is taken where its creature stands as the book is built.
