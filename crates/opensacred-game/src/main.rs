@@ -94,6 +94,7 @@ mod pickup;
 mod place_names;
 mod points;
 mod puffs;
+mod purchase;
 mod quest_book;
 mod regions;
 mod remarks;
@@ -430,6 +431,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         pickup::PickupPlugin,
         points::PointsPlugin,
         puffs::PuffsPlugin,
+        purchase::PurchasePlugin,
         quest_book::QuestBookPlugin,
         regions::RegionsPlugin,
         remarks::RemarksPlugin,

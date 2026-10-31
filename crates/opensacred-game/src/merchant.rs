@@ -9,9 +9,18 @@
 //! as the backpack's, and yellow under an item that costs more than the hero's gold; a hovered
 //! item's tooltip tells its price as bought (`tooltip`). The inventory's hide hides it.
 //!
-//! Not followed yet: buying and selling (#1619), the pieces of the frame (its panel's edges drawn
-//! as the master's), the page's show's sound (14, 2, `0x1F`), the switch of each item to the
-//! hero's class's variant as a page shows (`0x5C7370`), and the stock's keeping in the saves.
+//! The trade (#1619, `0x6DAD90`): a left press on an item asks, in the purchase window
+//! (`purchase`), whether to buy it at its price, or tells that the backpack has no room for it
+//! or the gold is short; a right press buys it at once where it may. An item on the cursor put
+//! onto the page asks whether to sell it at its price as sold, No putting it back onto the
+//! cursor; Shift with a left press on the backpack's item sells it at once (`0x75A9B0`). A
+//! purchase takes the price off the gold and the item into the backpack at its first fit; a sale
+//! adds the price and puts the item onto the page of its category, where the hero may buy it
+//! back at its price as bought.
+//!
+//! Not followed yet: the pieces of the frame (its panel's edges drawn as the master's), the
+//! page's show's sound (14, 2, `0x1F`), the switch of each item to the hero's class's variant as
+//! a page shows (`0x5C7370`), the stock's keeping in the saves, and the trade's sounds.
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -26,6 +35,7 @@ use crate::hud::Pointer;
 use crate::inventory::{Shown, screen_point};
 use crate::lines::Texts;
 use crate::pickup::Pack;
+use crate::purchase::{Answered, Ask, Asking};
 use crate::tooltip::argb;
 
 /// The window on the original's screen: its rectangle down to its pages' bottom, and its panel
@@ -401,8 +411,9 @@ fn select(
     (merchant, mut showing): (Option<Res<Merchant>>, ResMut<Showing>),
     (pointer, windows): (Res<Pointer>, Query<&Window>),
     tabs: Query<(&Tab, &ComputedNode, &UiGlobalTransform)>,
+    asking: Option<Res<Asking>>,
 ) {
-    if merchant.is_none() || !buttons.just_pressed(MouseButton::Left) {
+    if merchant.is_none() || asking.is_some() || !buttons.just_pressed(MouseButton::Left) {
         return;
     }
     let (Some(at), Ok(window)) = (pointer.0, windows.single()) else {
@@ -433,6 +444,278 @@ pub(crate) fn hovered(
     Some((placed, dropped))
 }
 
+/// A purchase or a sale that waits for the purchase window's answer (`+0x3DC`, `+0x3E0`).
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+enum Pending {
+    /// The item of `key` on the page `page`, at `price`.
+    Buy { page: Page, key: u32, price: i64 },
+    /// The item taken off the cursor, of `size`, at `price`.
+    Sell {
+        dropped: Dropped,
+        size: (u8, u8),
+        price: i64,
+    },
+}
+
+/// What the trade asks of the world: the items' tables, the hero's level, its skills and its
+/// fight's values.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Trading<'w, 's> {
+    tables: Option<Res<'w, Tables>>,
+    experience: Res<'w, crate::fight::Experience>,
+    arts: Option<Res<'w, crate::arts::HeroArts>>,
+    combats: Query<'w, 's, &'static crate::fight::Combat, With<crate::hero::Body>>,
+}
+
+impl Trading<'_, '_> {
+    /// The hero's level, trading and charisma.
+    fn trader(&self) -> (u32, u32, f32) {
+        trader(
+            &self.experience,
+            self.arts.as_deref(),
+            self.combats.iter().next(),
+        )
+    }
+
+    /// What `dropped` fetches as the hero sells it (`0x5DEE60(item, 0)`).
+    fn fetches(&self, dropped: &Dropped) -> i64 {
+        let Some(tables) = self.tables.as_deref() else {
+            return 0;
+        };
+        let (level, trading, charisma) = self.trader();
+        opensacred_rules::trade::shown(
+            tables.trade_price(dropped),
+            level,
+            trading,
+            f64::from(charisma),
+            false,
+            1.0,
+        )
+    }
+
+    /// What `dropped` costs the hero (`0x5DEE60(item, 1)`).
+    fn costs(&self, dropped: &Dropped) -> i64 {
+        self.tables
+            .as_deref()
+            .map_or(i64::MAX, |tables| cost(tables, dropped, self.trader()))
+    }
+
+    /// The page that an item of `dropped`'s category goes onto as the hero sells it.
+    fn page_of(&self, dropped: &Dropped) -> Option<Page> {
+        let tables = self.tables.as_deref()?;
+        Page::of(tables.category(dropped.item))
+    }
+}
+
+/// Buys the item `key` of the page `page` at `price` (`0x6D9840`): off the page, its price off
+/// the gold, into the backpack at its first fit; whether it went.
+fn buy(wares: &mut Wares, pack: &mut Pack, (page, key, price): (Page, u32, i64)) -> bool {
+    let shelf = wares.0.shelf(page);
+    let Some(placed) = shelf.grid.items.iter().find(|p| p.key == key).copied() else {
+        return false;
+    };
+    let gold = i64::from(pack.gold);
+    if price > gold || pack.grid.first_fit(placed.size).is_none() {
+        return false;
+    }
+    let Some(dropped) = shelf.take(key) else {
+        return false;
+    };
+    if !pack.take(dropped, placed.size) {
+        shelf.put(dropped, placed.size);
+        return false;
+    }
+    pack.gold = u32::try_from(gold - price).unwrap_or(0);
+    info!(
+        "merchant: the hero buys {} for {price} gold, {} left",
+        dropped.item, pack.gold
+    );
+    true
+}
+
+/// Sells `dropped` of `size` at `price` (the merchant's event `0x2E` 7): the price into the
+/// gold, the item onto the page of its category at its first fit, destroyed where it fits
+/// nowhere or no page takes it.
+fn sell(
+    wares: &mut Wares,
+    pack: &mut Pack,
+    (dropped, size, price, page): (Dropped, (u8, u8), i64, Option<Page>),
+) {
+    let gold = i64::from(pack.gold).saturating_add(price.max(0));
+    pack.gold = u32::try_from(gold.min(0x7FFF_FFFE)).unwrap_or(pack.gold);
+    let kept = page.and_then(|page| wares.0.shelf(page).put(dropped, size));
+    info!(
+        "merchant: the hero sells {} for {price} gold, {} now{}",
+        dropped.item,
+        pack.gold,
+        if kept.is_some() {
+            ""
+        } else {
+            "; the item is gone"
+        }
+    );
+}
+
+/// The presses on the page (`0x6DAD90`): an item on the cursor taken off it and asked for sale;
+/// else on an item, the backpack without room for it or the gold short of its price told, a right
+/// press buying it at once, a left asking.
+fn press_page(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (merchant, showing, mut wares, mut pack): (
+        Option<Res<Merchant>>,
+        Res<Showing>,
+        ResMut<Wares>,
+        ResMut<Pack>,
+    ),
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (asking, mut answered): (Option<Res<Asking>>, MessageReader<Answered>),
+    trading: Trading,
+) {
+    let (left, right) = (
+        buttons.just_pressed(MouseButton::Left),
+        buttons.just_pressed(MouseButton::Right),
+    );
+    // The press that answered the purchase window goes no further.
+    let answering = !answered.is_empty();
+    answered.clear();
+    if merchant.is_none() || asking.is_some() || answering || !(left || right) {
+        return;
+    }
+    let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
+        return;
+    };
+    let Some(cell) = backpack::cell_in(at - GRID, (COLUMNS, ROWS)) else {
+        return;
+    };
+    if let Some(held) = pack.held {
+        if !left {
+            return;
+        }
+        pack.held = None;
+        let price = trading.fetches(&held.dropped);
+        commands.insert_resource(Pending::Sell {
+            dropped: held.dropped,
+            size: held.size,
+            price,
+        });
+        commands.insert_resource(Asking {
+            ask: Ask::Sell,
+            price,
+        });
+        return;
+    }
+    let shelf = shelf(&wares, showing.0);
+    let Some(placed) = shelf.grid.at(cell).copied() else {
+        return;
+    };
+    let Some(dropped) = shelf
+        .items
+        .iter()
+        .find(|(k, _)| *k == placed.key)
+        .map(|(_, d)| *d)
+    else {
+        return;
+    };
+    let price = trading.costs(&dropped);
+    let ask = if pack.grid.first_fit(placed.size).is_none() {
+        Ask::Full
+    } else if price > i64::from(pack.gold) {
+        Ask::Poor
+    } else if right {
+        buy(&mut wares, &mut pack, (showing.0, placed.key, price));
+        return;
+    } else {
+        commands.insert_resource(Pending::Buy {
+            page: showing.0,
+            key: placed.key,
+            price,
+        });
+        Ask::Buy
+    };
+    commands.insert_resource(Asking { ask, price });
+}
+
+/// The purchase window's answer (the merchant's event `0x2E` 1 and 3): Yes buys or sells what
+/// waits; No to a sale puts the item back onto the cursor.
+fn answer(
+    mut commands: Commands,
+    mut answers: MessageReader<Answered>,
+    pending: Option<Res<Pending>>,
+    (mut wares, mut pack): (ResMut<Wares>, ResMut<Pack>),
+    trading: Trading,
+) {
+    for answer in answers.read() {
+        let Some(pending) = pending.as_deref().copied() else {
+            continue;
+        };
+        commands.remove_resource::<Pending>();
+        match (pending, answer.yes) {
+            (Pending::Buy { page, key, price }, true) => {
+                buy(&mut wares, &mut pack, (page, key, price));
+            }
+            (
+                Pending::Sell {
+                    dropped,
+                    size,
+                    price,
+                },
+                true,
+            ) => {
+                let page = trading.page_of(&dropped);
+                sell(&mut wares, &mut pack, (dropped, size, price, page));
+            }
+            (Pending::Sell { dropped, size, .. }, false) => {
+                pack.hold(dropped, size);
+            }
+            (Pending::Buy { .. }, false) => {}
+        }
+    }
+}
+
+/// Shift with a left press on the backpack's item while the window shows sells it at once
+/// (`0x75A9B0`), before the backpack's own press takes it onto the cursor.
+fn sell_shifted(
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
+    (merchant, page): (Option<Res<Merchant>>, Res<crate::inventory::Page>),
+    (mut wares, mut pack): (ResMut<Wares>, ResMut<Pack>),
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    asking: Option<Res<Asking>>,
+    trading: Trading,
+) {
+    if merchant.is_none()
+        || asking.is_some()
+        || pack.held.is_some()
+        || !buttons.just_pressed(MouseButton::Left)
+        || !keys.pressed(crate::controls::Action::SendItem)
+    {
+        return;
+    }
+    let Some(cell) =
+        backpack::on_grid(&pointer, &ui_scale, &windows, &page).and_then(backpack::cell_under)
+    else {
+        return;
+    };
+    let Some(placed) = pack.grid.at(cell).copied() else {
+        return;
+    };
+    let Some(index) = pack.items.iter().position(|(k, _)| *k == placed.key) else {
+        return;
+    };
+    pack.grid.remove(placed.key);
+    let (_, dropped) = pack.items.remove(index);
+    let price = trading.fetches(&dropped);
+    let page = trading.page_of(&dropped);
+    sell(&mut wares, &mut pack, (dropped, placed.size, price, page));
+}
+
+/// Forgets a trade that waits as the window goes.
+fn forget(mut commands: Commands, merchant: Option<Res<Merchant>>, pending: Option<Res<Pending>>) {
+    if merchant.is_none() && pending.is_some() {
+        commands.remove_resource::<Pending>();
+    }
+}
+
 /// The merchant's window.
 pub struct MerchantPlugin;
 
@@ -445,8 +728,17 @@ impl Plugin for MerchantPlugin {
             })
             .add_systems(
                 Update,
-                (visit, follow, show, select, lay_out, tint)
+                (
+                    visit, follow, show, select, answer, press_page, forget, lay_out, tint,
+                )
                     .chain()
+                    .after(crate::inventory::Opened)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                sell_shifted
+                    .before(crate::held::Click)
                     .after(crate::inventory::Opened)
                     .run_if(in_state(AppState::InGame)),
             );
