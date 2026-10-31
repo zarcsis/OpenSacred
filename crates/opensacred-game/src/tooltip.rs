@@ -99,6 +99,7 @@ impl Weighing<'_, '_> {
             name,
             category: tables.category(dropped.item),
             record,
+            price: tables.trade_price(dropped),
             quality,
             values,
             // A made item's levels by its values (`0x5D3AB0` at `0x5D56FA`), another's as its
@@ -113,7 +114,6 @@ impl Weighing<'_, '_> {
             } else {
                 u32::from(record.asked)
             },
-            made,
             heals: self
                 .potions
                 .as_deref()

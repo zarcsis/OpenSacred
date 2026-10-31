@@ -58,7 +58,13 @@ pub struct Tables {
     /// the strength, the dexterity, the charisma and the endurance it asks, its own level, and its
     /// skill and the skill's level, which the tooltip names (#1273).
     requirements: HashMap<u32, [u8; 8]>,
+    /// The balance's prices of the items' values, by which a made item's worth goes (#1621).
+    worths: opensacred_rules::trade::worth::Prices,
 }
+
+/// The classes' bits of a record's word `+0x04`, which a made item keeps of its type's (`0x5D5080`,
+/// docs/re/items.md).
+const CLASS_BITS: u32 = 0x00C0_003F;
 
 /// What a tooltip tells of an item's type (#1273): its record's word `+0x04` (its classes, its
 /// quality and its difficulty), its weapon's kind, the level it asks and its own (`+0x14`,
@@ -115,6 +121,7 @@ impl Tables {
         let sets: Vec<ItemSet> = table(assets, ITEM_SETS)?;
         let modifiers: Vec<WeaponModifier> = table(assets, WEAPON_MODIFIERS)?;
         let balance = shared.tables.balance().ok();
+        let worths = opensacred_rules::trade::worth::Prices::of(balance);
         let templates = fight::Templates::new(&modifiers, weapons);
         // The runes that the drops draw from (#1183), none from assets made before them.
         let runes: Vec<u32> = table(assets, RUNES).unwrap_or_else(|e| {
@@ -157,11 +164,26 @@ impl Tables {
                 )
             })
             .collect();
+        // Each record's price its worth, as the client works it out anew as it loads the types
+        // (`0x5D3AB0` at `0x425B2C`, #1621): the file's but for 8 records.
         let prices = records
             .iter()
             .map(|(&id, weapon)| {
-                let word = |k: usize| i64::from(weapon.words_84.get(k).copied().unwrap_or(0));
-                (id, word(2) | word(3) << 16)
+                let word = |k: usize| u32::from(weapon.words_84.get(k).copied().unwrap_or(0));
+                let values = fight::ItemValues::of_record(&weapon.words_84);
+                let mut sockets = [0; 8];
+                for (pair, k) in sockets.as_chunks_mut::<2>().0.iter_mut().zip(4..) {
+                    *pair = weapon.words_84.get(k).copied().unwrap_or(0).to_le_bytes();
+                }
+                let item = opensacred_rules::trade::worth::Item {
+                    item: id,
+                    category: catalogue.category(id).unwrap_or(0),
+                    values: &values,
+                    flags: word(0) | word(1) << 16,
+                    sockets,
+                    price: i64::from(word(2) | word(3) << 16),
+                };
+                (id, opensacred_rules::trade::worth::worth(&worths, &item))
             })
             .collect();
         let used = records
@@ -242,6 +264,7 @@ impl Tables {
             rune_arts,
             records: used,
             requirements,
+            worths,
             prices,
             glittering,
         })
@@ -306,6 +329,29 @@ impl Tables {
                 &values, rules,
             )),
         }
+    }
+
+    /// The price of `dropped` that the trade goes by (`0x5BEC70`, #1621): its record's `+0x08`,
+    /// which the item maker sets to a made item's worth by its values (`0x5D3AB0` at `0x5D5702`),
+    /// its quality and its difficulty those of the passes it does not follow, so 0; its type's
+    /// price otherwise, its record's worth.
+    pub fn trade_price(&self, dropped: &Dropped) -> i64 {
+        let record = self.record(dropped.item);
+        if dropped.values.is_none() {
+            return record.price;
+        }
+        let values = self.values(dropped);
+        opensacred_rules::trade::worth::worth(
+            &self.worths,
+            &opensacred_rules::trade::worth::Item {
+                item: dropped.item,
+                category: self.category(dropped.item),
+                values: &values,
+                flags: record.word & CLASS_BITS,
+                sockets: [0; 8],
+                price: record.price,
+            },
+        )
     }
 
     /// What a tooltip tells of the type `item`'s record, of its derived type's root (#1273).

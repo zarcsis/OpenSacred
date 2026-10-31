@@ -1,8 +1,10 @@
 //! The prices (#1273; docs/re/inventory.md, §9 "The price"): what an item fetches as the hero sells
 //! it and costs as the hero buys it (`0x43C350`), by its price, the hero's level, its trading
-//! (skill 21), its charisma and the factor of the place; and the merchants' stock (`stock`, #1617).
+//! (skill 21), its charisma and the factor of the place; the merchants' stock (`stock`, #1617);
+//! and the worth of an item (`worth`, #1621).
 
 pub mod stock;
+pub mod worth;
 
 /// The balance's gold of the hero's level and of its square (`GoldXLev`, `GoldX2Lev`), which cap
 /// what a sale fetches.

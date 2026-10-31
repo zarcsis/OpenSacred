@@ -19,6 +19,7 @@ use crate::spawning::Dice;
 
 mod names;
 pub use names::name;
+pub(crate) use names::{norm, norms};
 
 /// The dagger 1712, which a pass drops where it finds no type of its kind.
 pub const DAGGER: u32 = 1712;
