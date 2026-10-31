@@ -254,6 +254,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | Space, Shift + Space | the game | drink a healing potion of the belt, the yellow one (#1311, #1313) |
 | Q, W, E, R | the game | drink a purple, blue, green or yellow potion of the belt, again while held (#1536) |
 | B | the game | a healing potion of the belt for the weakest follower (#1536) |
+| A | the game | collect the items about the hero, as the bar's Collect button (#1408, #1591) |
 | 1 to 5 | the game | choose a weapon set (#1348) |
 | 6 to 0 | the game | choose an art slot (#1529) |
 | F1 to F6 | the game | the art bound to the key into the selected slot, F5 and F6 only while the spells page shows; over an art of the spells page, bind the key to it or take it off (#1536) |

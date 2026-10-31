@@ -81,6 +81,7 @@ pub enum Action {
     GreenPotion,
     YellowPotion,
     FollowerPotion,
+    Collect,
     Back,
     Confirm,
     Next,
@@ -120,7 +121,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 39] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 40] = [
     (
         Action::Walk,
         Section::World,
@@ -323,6 +324,13 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 39] = [
         "follower_potion",
         &["B"],
         "a healing potion for the weakest follower",
+    ),
+    (
+        Action::Collect,
+        Section::World,
+        "collect",
+        &["A"],
+        "collect the items about the hero, as the bar's Collect button",
     ),
     (
         Action::Back,
@@ -1085,6 +1093,7 @@ mod tests {
         assert_eq!(controls.names(Action::ArtKey1), "F1");
         assert_eq!(controls.names(Action::Confirm), "Enter, NumpadEnter");
         assert_eq!(controls.names(Action::Walk), "Shift");
+        assert_eq!(controls.names(Action::Collect), "A");
         let dir = scratch("defaults");
         let settings = dir.join("settings.toml");
         let (read, warnings) = Controls::read(Some(&settings));
