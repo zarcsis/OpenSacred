@@ -1844,10 +1844,14 @@ fn alarm(mut hits: MessageReader<crate::fight::Hit>, mut creatures: Query<(Entit
                     joins
                 }
                 Some(Some(_)) => false,
+                // Only a member that hears it comes at the hero; any other, a follower fighting a
+                // creature among them, keeps its foe (#1638).
                 Some(None) => {
-                    mind.hears_alarm(group);
-                    mind.foe = None;
-                    mind.fighting()
+                    let hears = mind.hears_alarm(group);
+                    if hears {
+                        mind.foe = None;
+                    }
+                    hears
                 }
                 None => mind.wakes(group),
             };
@@ -1948,6 +1952,61 @@ mod tests {
             nearest_foe(me, Vec3::ZERO, &boss, &others[..1]).map(|o| o.entity),
             None
         );
+    }
+
+    #[test]
+    fn a_groups_alarm_leaves_a_follower_its_foe() {
+        let mut app = App::new();
+        app.add_message::<crate::fight::Hit>()
+            .add_systems(Update, alarm);
+        let hostile = |group| {
+            let mut mind = Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, true),
+                Some(group),
+                [70.0, 180.0],
+                (567, 2),
+            );
+            mind.side = 2;
+            mind
+        };
+        // A wolf of the group 10 that fights the hero, and its idle fellow.
+        let mut wolf = hostile(10);
+        assert!(wolf.hears_alarm(10));
+        let wolf = app.world_mut().spawn(wolf).id();
+        let fellow = app.world_mut().spawn(hostile(10)).id();
+        // The elf archer that follows the hero, sent at another creature (#1638).
+        let foe = app.world_mut().spawn_empty().id();
+        let mut archer = Mind::new(
+            Vec3::ZERO,
+            minds::FOLLOWS,
+            (false, true),
+            None,
+            [70.0, 180.0],
+            (134, 12),
+        );
+        archer.side = 3;
+        assert!(archer.send_at(foe));
+        let archer = app.world_mut().spawn(archer).id();
+        let hero = app.world_mut().spawn_empty().id();
+        app.world_mut().write_message(crate::fight::Hit {
+            attacker: hero,
+            target: wolf,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: None,
+            sure: false,
+            poison: false,
+        });
+        app.update();
+        // The fellow comes at the hero; the archer, of no group, keeps its foe.
+        let fellow = app.world().get::<Mind>(fellow).unwrap();
+        assert!(fellow.fighting() && fellow.foe().is_none());
+        let archer = app.world().get::<Mind>(archer).unwrap();
+        assert!(archer.fighting());
+        assert_eq!(archer.foe(), Some(foe));
     }
 
     #[test]
