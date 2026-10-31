@@ -775,20 +775,29 @@ mod tests {
         ))
         .init_asset::<Gltf>();
         let model = "models/item.glb";
-        let held = |app: &App| {
-            app.world()
-                .resource::<AssetServer>()
-                .get_handle::<Gltf>(model)
-                .is_some()
-        };
-        let bundle = scene(app.world().resource::<AssetServer>(), model);
-        let root = app.world_mut().spawn(bundle).id();
-        app.update();
-        // Loaded again, the glTF would replace the scene of the model standing (#1626).
-        assert!(held(&app));
+        let server = app.world().resource::<AssetServer>().clone();
+        let root = app.world_mut().spawn(scene(&server, model)).id();
+        let held = || server.get_handle::<Gltf>(model).map(|held| held.id());
+        // Its load, of no file, fails on the server's tasks, which hold the glTF while they run:
+        // the frames go on until it has failed, however long that takes (#1632).
+        let gltf = held().expect("a load");
+        for _ in 0..10_000 {
+            if matches!(server.load_state(gltf), bevy::asset::LoadState::Failed(_)) {
+                break;
+            }
+            app.update();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(matches!(
+            server.load_state(gltf),
+            bevy::asset::LoadState::Failed(_)
+        ));
+        // While the model stands its glTF is held, so that a load of it again finds the same
+        // glTF rather than loading it anew, which would replace the model's scene (#1626).
+        assert_eq!(held(), Some(gltf));
         app.world_mut().entity_mut(root).despawn();
         app.update();
-        assert!(!held(&app));
+        assert_eq!(held(), None);
     }
 
     #[test]
