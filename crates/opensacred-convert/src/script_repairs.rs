@@ -10,6 +10,8 @@
 //!   function no tree defines name the one meant, and an [`Addition`] adds a function beside
 //!   another. A function whose records are not what its repair expects is left as it is, with a
 //!   warning.
+//! - The old potions that the records make (#1634, docs/decisions/netscript.md, "Scripts' old
+//!   potions made the new ones"): [`renew_potions`].
 
 use opensacred_data::netscript::{Body, Function, Operand, Record, Tree, Value};
 
@@ -43,6 +45,55 @@ const SET_VAR_BIT: u16 = 68;
 /// `ReplaceSpawn`.
 const REPLACE_SPAWN: u16 = 96;
 const INFO_PLAYER: u16 = 132;
+/// `FillChest`.
+const FILL_CHEST: u16 = 78;
+
+/// The old potions and the new ones that the original's object maker makes of them, of the same
+/// kind and size (`0x43FC40`, which `sdk_OBJ_CREATE_NPOS` at `0x5FB530` calls on the type of
+/// every object it makes; docs/re/netscript.md, #1630): the bottle 3999 and the red, blue and
+/// yellow bottles of `BOTTLE01`–`03.GRN`, small to large.
+pub const OLD_POTIONS: [(i32, i32); 10] = [
+    (3999, 5171),
+    (5056, 5171),
+    (5057, 5145),
+    (5058, 5140),
+    (5059, 5169),
+    (5060, 5143),
+    (5061, 5138),
+    (5062, 5172),
+    (5063, 5146),
+    (5064, 5141),
+];
+
+/// Makes every old potion that `tree`'s records name as a type (`0x02`) of an object they make,
+/// a `CreateObj`'s, a `CreateNPC`'s or a `FillChest`'s, the new one of [`OLD_POTIONS`], as the
+/// original's object maker makes every object, so that no old potion reaches the game (#1634);
+/// the number made.
+pub fn renew_potions(tree: &mut Tree) -> usize {
+    let mut made = 0;
+    let scripts = [&mut tree.start, &mut tree.quest]
+        .into_iter()
+        .chain(tree.functions.iter_mut().map(|f| &mut f.records));
+    for records in scripts {
+        for record in records {
+            if ![CREATE_OBJ, CREATE_NPC, FILL_CHEST].contains(&record.kind) {
+                continue;
+            }
+            let Body::Operands(ops) = &mut record.body else {
+                continue;
+            };
+            for o in ops.iter_mut().filter(|o| o.tag == 0x02) {
+                if let Value::I32(old) = o.value
+                    && let Some(&(_, new)) = OLD_POTIONS.iter().find(|(from, _)| *from == old)
+                {
+                    o.value = Value::I32(new);
+                    made += 1;
+                }
+            }
+        }
+    }
+    made
+}
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
 /// client reads it from whatever follows the record (docs/re/netscript.md, "Truncated operands"),
@@ -1081,6 +1132,60 @@ mod tests {
                 (0x29, Value::Str(name.into())),
             ],
         )
+    }
+
+    #[test]
+    fn the_old_potions_that_records_make_are_made_the_new_ones() {
+        let made = |kind, ops: Vec<(u8, Value)>| record(kind, ops);
+        let well = made(
+            CREATE_OBJ,
+            vec![
+                (0x02, Value::I32(5057)),
+                (0x04, Value::Str("CPOS:HERO".into())),
+            ],
+        );
+        let chest = made(FILL_CHEST, vec![(0x02, Value::I32(5062))]);
+        let bottle = made(CREATE_OBJ, vec![(0x02, Value::I32(3999))]);
+        // A cell that happens to hold an old potion's number, and a record that makes nothing.
+        let at = made(
+            CREATE_OBJ,
+            vec![
+                (0x02, Value::I32(5214)),
+                (0x04, Value::I32x3([5059, 349, 0])),
+            ],
+        );
+        let counted = made(SET_VAR_BIT, vec![(0x02, Value::I32(5056))]);
+        let mut tree = Tree {
+            start: vec![at.clone(), bottle],
+            quest: Vec::new(),
+            functions: vec![Function {
+                name: "BRUNNEN".into(),
+                quest: -1,
+                region: 0,
+                records: vec![well, chest, counted.clone()],
+            }],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        assert_eq!(renew_potions(&mut tree), 3);
+        let types = |records: &[Record]| -> Vec<Option<i32>> {
+            records
+                .iter()
+                .map(|r| {
+                    operands(r).iter().find_map(|o| match (o.tag, &o.value) {
+                        (0x02, Value::I32(t)) => Some(*t),
+                        _ => None,
+                    })
+                })
+                .collect()
+        };
+        assert_eq!(types(&tree.start), [Some(5214), Some(5171)]);
+        assert_eq!(tree.start[0], at);
+        assert_eq!(
+            types(&tree.functions[0].records),
+            [Some(5145), Some(5172), Some(5056)]
+        );
+        assert_eq!(tree.functions[0].records[2], counted);
     }
 
     #[test]

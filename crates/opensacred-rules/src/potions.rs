@@ -12,36 +12,18 @@ use crate::fight::{Effect, HUNDREDTH, effects, stored};
 pub const KINDS: u8 = 5;
 
 /// The belt's kind of a potion of the type `item` (`0x43F760`, the category 9): 1 red, 2 purple,
-/// 3 blue, 4 green, 5 yellow; none for another type.
+/// 3 blue, 4 green, 5 yellow; none for another type. The original's table names the old potions
+/// too (3999 and 5056 to 5064), which its object maker makes no object of and the converter makes
+/// the new ones in the scripts (#1634), so that none reaches the game.
 pub fn kind(item: u32) -> Option<u8> {
     Some(match item {
-        3999 | 5056..=5058 | 5140 | 5145 | 5171 => 1,
+        5140 | 5145 | 5171 => 1,
         5137 | 5142 | 5168 => 2,
-        5059..=5061 | 5138 | 5143 | 5169 => 3,
+        5138 | 5143 | 5169 => 3,
         5139 | 5144 | 5170 => 4,
-        5062..=5064 | 5141 | 5146 | 5172 => 5,
+        5141 | 5146 | 5172 => 5,
         _ => return None,
     })
-}
-
-/// The type that the scripts' object maker makes of the type `item` (`0x43FC40`, which
-/// `sdk_OBJ_CREATE_NPOS` at `0x5FB530` calls before it makes a `CreateObj`'s or a `CreateNPC`'s
-/// object; #1630): an old potion, a bottle of `BOTTLE01`–`03.GRN` or the bottle 3999, becomes the
-/// new one of its kind and size, the red 5171, 5145 and 5140, the blue 5169, 5143 and 5138 and
-/// the yellow 5172, 5146 and 5141; any other type stays.
-pub fn made(item: u32) -> u32 {
-    match item {
-        3999 | 5056 => 5171,
-        5057 => 5145,
-        5058 => 5140,
-        5059 => 5169,
-        5060 => 5143,
-        5061 => 5138,
-        5062 => 5172,
-        5063 => 5146,
-        5064 => 5141,
-        _ => item,
-    }
 }
 
 /// The sizes of the potions, by which they give more or last longer: the rows of
@@ -83,26 +65,26 @@ impl Size {
         }
     }
 
-    /// The size by which a potion of the type `item` heals (`0x5CA9E0`): small 5056 and 5171,
-    /// medium 5057 and 5145, large 5058, 5140 and the bottle 3999; none for another type.
+    /// The size by which a potion of the type `item` heals (`0x5CA9E0`): small 5171, medium 5145
+    /// and large 5140 (the original's names the old 5056 to 5058 and 3999 too, [`kind`]); none for
+    /// another type.
     fn heals(item: u32) -> Option<Self> {
         Some(match item {
-            5056 | 5171 => Self::Small,
-            5057 | 5145 => Self::Medium,
-            5058 | 5140 | 3999 => Self::Large,
+            5171 => Self::Small,
+            5145 => Self::Medium,
+            5140 => Self::Large,
             _ => return None,
         })
     }
 
     /// The size whose per cent the belt's choice of a healing potion weighs a potion of the type
-    /// `item` by (`0x5DA8C0`): small 5171, large 5145, medium 5140 and 3999, the medium and the
-    /// large crossed against [`Self::heals`]; none for the others, which the choice takes only
-    /// as the first of the kind.
+    /// `item` by (`0x5DA8C0`): small 5171, large 5145 and medium 5140 (and the old 3999), the
+    /// medium and the large crossed against [`Self::heals`]; none for the others.
     fn weighed(item: u32) -> Option<Self> {
         Some(match item {
             5171 => Self::Small,
             5145 => Self::Large,
-            5140 | 3999 => Self::Medium,
+            5140 => Self::Medium,
             _ => return None,
         })
     }
@@ -232,7 +214,7 @@ impl Potions {
     /// heals; the purple ones (5137, 5142, 5168) give the effect 33 of the whole value 4 and the
     /// blue ones (5138, 5143, 5169) of the whole value 5; the green ones (5139, 5144, 5170) cure
     /// and the yellow ones (5141, 5146, 5172) refill by 100, 50 or 25 per cent; none for another
-    /// type, which is drunk to no effect and kept (5059 to 5064 among them).
+    /// type, which is drunk to no effect and kept.
     pub fn drink(&self, item: u32) -> Option<Drink> {
         if let Some(share) = self.heals(item) {
             return Some(Drink::Heals(share));
@@ -370,35 +352,13 @@ mod tests {
     #[test]
     fn the_belt_kinds_go_by_the_types() {
         assert_eq!(kind(5171), Some(1));
-        assert_eq!(kind(3999), Some(1));
         assert_eq!(kind(5137), Some(2));
-        assert_eq!(kind(5060), Some(3));
+        assert_eq!(kind(5143), Some(3));
         assert_eq!(kind(5170), Some(4));
         assert_eq!(kind(5146), Some(5));
         assert_eq!(kind(5633), None);
-    }
-
-    #[test]
-    fn the_scripts_old_potions_are_made_new_of_their_kinds_and_sizes() {
-        let old = [3999, 5056, 5057, 5058, 5059, 5060, 5061, 5062, 5063, 5064];
-        assert_eq!(
-            old.map(made),
-            [5171, 5171, 5145, 5140, 5169, 5143, 5138, 5172, 5146, 5141]
-        );
-        for item in old {
-            assert_eq!(kind(made(item)), kind(item));
-        }
-        // The healing bottles keep their sizes; the bottle 3999, a large one, becomes small.
-        let bottles = [5056, 5057, 5058];
-        assert_eq!(
-            bottles.map(|item| Size::heals(made(item))),
-            bottles.map(Size::heals)
-        );
-        assert_eq!(Size::heals(made(3999)), Some(Size::Small));
-        // Any other type stays, the new potions and the drops' items among them.
-        for item in [5171, 5145, 5140, 5137, 1712, 0] {
-            assert_eq!(made(item), item);
-        }
+        // The old potions, which the converter makes the new ones (#1634), are none.
+        assert_eq!(kind(5057), None);
     }
 
     #[test]
@@ -409,12 +369,12 @@ mod tests {
         assert_eq!(healed(40, 119, 100), 119);
         let silver = Potions::at(None, Difficulty::Silver);
         assert_eq!(
-            [5171, 5145, 5140, 3999].map(|item| silver.heals(item)),
-            [Some(60), Some(100), Some(100), Some(100)]
+            [5171, 5145, 5140].map(|item| silver.heals(item)),
+            [Some(60), Some(100), Some(100)]
         );
         let niobium = Potions::at(None, Difficulty::Niobium);
         assert_eq!(
-            [5056, 5057, 5058].map(|item| niobium.heals(item)),
+            [5171, 5145, 5140].map(|item| niobium.heals(item)),
             [Some(24), Some(40), Some(60)]
         );
         assert_eq!(niobium.heals(5172), None);
@@ -442,7 +402,6 @@ mod tests {
         // A small cocktail of 120 over bronze's `PotionDiv` of 1.
         assert_eq!(bronze.drink(5172), Some(Drink::Refills(120.0)));
         assert_eq!(bronze.drink(5171), Some(Drink::Heals(100)));
-        assert_eq!(bronze.drink(5060), None);
         assert_eq!(bronze.drink(5633), None);
     }
 

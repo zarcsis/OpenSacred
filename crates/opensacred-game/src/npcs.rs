@@ -2603,9 +2603,7 @@ impl Makers {
             (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
             _ => None,
         });
-        // The object maker makes an old potion the new one of its kind (`sdk_OBJ_CREATE_NPOS`,
-        // `0x43FC40`; #1630).
-        let creature = items_named.next().map(opensacred_rules::potions::made);
+        let creature = items_named.next();
         let items: Vec<u32> = if record.kind == CREATE_NPC {
             items_named.collect()
         } else {
@@ -8628,13 +8626,6 @@ mod tests {
         };
         makers.items.insert(6001, item(6001, "bush01.grn", 15));
         makers.items.insert(5218, item(5218, "chest.grn", CHEST));
-        makers
-            .items
-            .insert(5145, item(5145, "potion_medium.grn", 9));
-        makers.models.insert(
-            "POTION_MEDIUM.GRN".to_owned(),
-            "models/potion_medium.glb".to_owned(),
-        );
         let signpost = Item {
             subclass: UNTAKEABLE,
             ..item(4993, "wegweiser_01.grn", 15)
@@ -8701,11 +8692,6 @@ mod tests {
         assert!(!takeable(&signpost));
         let sign = made(4993, &[]);
         assert!(sign.object && !sign.lies && sign.quest.is_none());
-        // The well's bottle 5057 is made the medium vial 5145, as the original's maker makes it
-        // (#1630).
-        let potion = made(5057, &[]);
-        assert_eq!(potion.creature.0, 5145);
-        assert_eq!(potion.model, "models/potion_medium.glb");
     }
 
     #[test]

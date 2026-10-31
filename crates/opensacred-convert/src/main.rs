@@ -702,6 +702,12 @@ fn execute(command: Command) -> Result<ExitCode> {
             for (what, trees) in &summary.repairs {
                 println!("  repaired: {what} in {trees} trees");
             }
+            if summary.renewed_potions > 0 {
+                println!(
+                    "  repaired: {} old potions made the new ones",
+                    summary.renewed_potions
+                );
+            }
             for warning in &summary.warnings {
                 eprintln!("warning: {warning}");
             }
