@@ -117,6 +117,7 @@ pub const KEYS: &[(&str, &[(Row, &str)])] = &[
                 of(&[Action::FollowerPotion]),
                 "a healing potion for a follower",
             ),
+            (of(&[Action::Collect]), "collect the items about the hero"),
             (
                 Row {
                     before: "",

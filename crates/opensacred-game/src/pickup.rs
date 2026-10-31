@@ -6,8 +6,8 @@
 //! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), every
 //! other item into its pack, not yet into the hands or the slots (#1088).
 //!
-//! The bar's Collect button sends the hero collecting (the creature event `0x113`, the AI's state
-//! 12 without a target, `0x4EC560`; #1408): it walks to the first item about it that it may carry,
+//! The bar's Collect button and the key A send the hero collecting (the creature event `0x113`,
+//! the AI's state 12 without a target, `0x4EC560`; #1408, #1591): it walks to the first item about it that it may carry,
 //! by square rings of cells out to 19, plays its pick-up there and takes every item on the 3 × 3
 //! cells about it at the clip's half, and looks again as the clip ends, until nothing is left.
 
@@ -822,12 +822,17 @@ type Busy = Or<(
     With<crate::npcs::Dies>,
 )>;
 
-/// A left click on the bar's Collect button (`UI_TB_COLLECT`) sends the hero collecting: the
-/// creature event `0x113`, which the hero takes as the AI's state 12 without a target
-/// (`0x530C9F`), unless it is [`Busy`].
-fn collect_button(
+/// A left click on the bar's Collect button (`UI_TB_COLLECT`), or the key A (`cEngine_receiveEvent`,
+/// `0x618090`, #1591), sends the hero collecting: the creature event `0x113`, which the hero takes
+/// as the AI's state 12 without a target (`0x530C9F`), unless it is [`Busy`]. The key works over
+/// the interface too, so it is not of `frame::Control`; the open console takes it (#1554).
+fn send_collecting(
     mut commands: Commands,
-    buttons: Res<ButtonInput<MouseButton>>,
+    (buttons, keys, console): (
+        Res<ButtonInput<MouseButton>>,
+        crate::controls::Keys,
+        Option<Res<crate::console::Console>>,
+    ),
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     images: Res<crate::bar::UiImages>,
     heroes: Query<Entity, With<Body>>,
@@ -838,7 +843,9 @@ fn collect_button(
             let (index, corner) = crate::bar::COLLECT_BUTTON;
             Rect::from_corners(corner, corner + images.size(index)).contains(at)
         });
-    if !clicked {
+    let keyed = keys.just_pressed(crate::controls::Action::Collect)
+        && !console.is_some_and(|console| console.is_open());
+    if !(clicked || keyed) {
         return;
     }
     for hero in &heroes {
@@ -1153,7 +1160,7 @@ impl Plugin for PickupPlugin {
                         .after(crate::doors::pick),
                     take.after(hero::run),
                     picking.after(take),
-                    collect_button.before(collect),
+                    send_collecting.before(collect),
                     collect.after(picking),
                 )
                     .in_set(Unpaused)
