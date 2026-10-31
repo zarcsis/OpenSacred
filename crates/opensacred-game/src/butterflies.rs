@@ -209,7 +209,7 @@ fn make(
             let swarm = swarm.id();
             let (cx, cy) = paths::cell_of(place.x, place.z);
             debug!("butterflies: a swarm of {count} in {at:?} at {cx},{cy}");
-            streamer.adopt(at, swarm);
+            streamer.adopt(&mut commands, at, swarm);
         }
     }
 }
