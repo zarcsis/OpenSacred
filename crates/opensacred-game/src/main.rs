@@ -90,6 +90,7 @@ mod paths;
 mod pause;
 mod pick;
 mod pickup;
+mod place_names;
 mod points;
 mod puffs;
 mod quest_book;

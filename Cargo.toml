@@ -105,6 +105,9 @@ ron = "0.12.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
+# The glyphs of the world map's places' names, written on arcs into images of their own (#1577):
+# the outlines' scaler that Bevy's text already builds on, through parley.
+swash = { version = "0.2.10", default-features = false, features = ["scale"] }
 # The Ogg demuxer of the game's Opus (#701), and the Opus decoder for it, over the C libopus that
 # its `opusic-sys` builds with CMake.
 symphonia = { version = "0.6.1", default-features = false, features = ["ogg"] }

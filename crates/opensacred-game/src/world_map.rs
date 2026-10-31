@@ -28,7 +28,11 @@
 //! region has run its init, the portals of the sectors visited, the frontier of the land walked,
 //! red dots toward the sectors entered, and the pacified areas.
 //!
-//! Not followed yet: the places' names (#1577); the lens's party, its places and
+//! Under them all, the places' names (#1577, `place_names`): each name of the start scripts'
+//! `SetMapIcon`s whose sector has been seen, written on its arc in the ink of
+//! `ui_worldMapFontBg`.
+//!
+//! Not followed yet: the lens's party, its places and
 //! pin, and its titles' layout apart; the buttons' pressed looks and tooltips, and the edges'
 //! cursors.
 
@@ -145,6 +149,8 @@ impl Map {
 /// side, the hot spot's offset of the cursor's picture, and the box about the mark that a right
 /// press takes it away within (`0x6C8140`).
 pub(crate) const PUSHPIN: &str = "mouse_pushpin";
+/// The places' names' ink (`0x6C8A40`, the flag `0x800`): its alpha the names' opacity.
+pub(crate) const INK: &str = "ui_worldmapfontbg";
 const PIN_MARK: f32 = 64.0;
 const PIN_SPOT: f32 = 16.0;
 
@@ -248,8 +254,31 @@ fn cell_pixel(cell: (i32, i32)) -> Vec2 {
     pixel(crate::paths::centre(cell))
 }
 
-/// Lays the map's layers on it as it shows, in the original's order: the people's icons and the
-/// portals (`0x6C8A40`), the frontier's dots (`0x6C8800`) and the pacified areas (`0x6C9330`).
+/// The places' names written, by their text, cell and arc and the scale of their images: the box
+/// on the map and the image, kept from one show of the map to the next.
+#[derive(Default)]
+struct Names {
+    written: Vec<(crate::place_names::Key, Rect, Handle<Image>)>,
+    font: Option<Vec<u8>>,
+    ink: Option<Option<crate::place_names::Ink>>,
+}
+
+/// What the places' names' images are made with: the game's texts, the images, and the scale of
+/// the interface on the window.
+type Writing<'w, 's> = (
+    Option<Res<'w, Texts>>,
+    ResMut<'w, Assets<Image>>,
+    Res<'w, UiScale>,
+    Query<'w, 's, &'static Window>,
+);
+
+/// Lays the map's layers on it as it shows, in the original's order: the places' names, the
+/// people's icons and the portals (`0x6C8A40`), the frontier's dots (`0x6C8800`) and the pacified
+/// areas (`0x6C9330`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show_layers(
     mut commands: Commands,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
@@ -258,10 +287,66 @@ fn show_layers(
     live: Option<NonSend<crate::scripts::Live>>,
     data: Option<Res<crate::game::Data>>,
     scrolled: Query<Entity, Added<Scrolled>>,
+    (texts, mut pictures, ui_scale, windows): Writing,
+    mut names: Local<Names>,
 ) {
     let Ok(container) = scrolled.single() else {
         return;
     };
+    // The names under the icons, each image made once at the window's scale.
+    let scale = ui_scale.0 * windows.single().map_or(1.0, Window::scale_factor);
+    let names = &mut *names;
+    if names.font.is_none() {
+        names.font = crate::files::read(crate::game::FONT)
+            .inspect_err(|e| warn!("world map: no font for the places' names: {e}"))
+            .ok();
+    }
+    let ink = names.ink.get_or_insert_with(|| {
+        let file = images.file(INK)?;
+        crate::place_names::Ink::read(file)
+            .inspect_err(|e| warn!("world map: no ink for the places' names: {e}"))
+            .ok()
+    });
+    let places = live.as_deref().map(crate::scripts::Live::map_names);
+    for place in places.into_iter().flatten() {
+        let sector = (
+            u16::try_from(place.cell.0.div_euclid(64)).unwrap_or(u16::MAX),
+            u16::try_from(place.cell.1.div_euclid(64)).unwrap_or(u16::MAX),
+        );
+        if !sectors.seen(sector) {
+            continue;
+        }
+        let key = crate::place_names::Key::of(place, scale);
+        let made = names.written.iter().find(|(k, _, _)| *k == key);
+        let (rect, image) = match made {
+            Some((_, rect, image)) => (*rect, image.clone()),
+            None => {
+                let (Some(font), Some(text)) = (
+                    names.font.as_deref(),
+                    texts.as_deref().and_then(|texts| texts.named(&place.text)),
+                ) else {
+                    continue;
+                };
+                let at = (cell_pixel(place.cell), place.curvature, place.angle);
+                let Some((rect, image)) =
+                    crate::place_names::render(font, text, at, ink.as_ref(), scale)
+                else {
+                    continue;
+                };
+                let image = pictures.add(image);
+                names.written.push((key, rect, image.clone()));
+                (rect, image)
+            }
+        };
+        let child = commands
+            .spawn((
+                ImageNode::new(image),
+                bar::placed(rect.min, rect.size()),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(container).add_child(child);
+    }
     let icon = |commands: &mut Commands, image: ImageNode, at: Vec2| {
         let child = commands
             .spawn((

@@ -1328,6 +1328,9 @@ pub struct Scripts {
     /// The hidden stashes that `MachVersteck` lays and the hero has not searched yet (#1518).
     #[serde(default)]
     pub stashes: Stashes,
+    /// The places' names that the world map writes (`SetMapIcon` with a text, #1577).
+    #[serde(default)]
+    pub map_names: MapNames,
 }
 
 /// The scripts' pools of places (`AddPoolPos`, 108; the interpreter's list at `+0x334`, entries
@@ -1539,9 +1542,60 @@ impl QuestItems {
     }
 }
 
+/// A place's name on the world map (`SetMapIcon`'s entry of a text, `0x4A81F0`; docs/re/maps.md,
+/// "The places, the people, the portals, the frontier and the pacified areas"): its text (a
+/// `res:` name's key), its cell, and the curvature and the angle in degrees of the arc it is
+/// written on, the entry's bytes `+0x10` and `+0x11`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MapName {
+    pub text: String,
+    pub cell: (i32, i32),
+    pub curvature: i8,
+    pub angle: i8,
+}
+
+/// The places' names in the order the scripts set them (the script manager's vector `+0x430`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MapNames(pub Vec<MapName>);
+
+impl MapNames {
+    /// `SetMapIcon` (97) with the text `text` and four numbers: the cell, and the curvature and
+    /// the angle kept as their low bytes (`0x499F80`, no test of repeats). An entry of three
+    /// numbers, a kind of the lens's places, has no text and is not one of them.
+    pub fn add(&mut self, text: &str, [x, y, curvature, angle]: [i32; 4]) {
+        let byte = |value: i32| i8::from_le_bytes([value.to_le_bytes()[0]]);
+        self.0.push(MapName {
+            text: text_key(text).to_owned(),
+            cell: (x, y),
+            curvature: byte(curvature),
+            angle: byte(angle),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_map_icon_of_a_text_keeps_its_key_cell_and_arc_bytes() {
+        let mut names = MapNames::default();
+        names.add("res:CITY_A", [3376, 2670, 73, 43]);
+        names.add("res:CITY_A", [3120, 2774, -71, 8]);
+        names.add("CITY_B", [1, 2, 300, -300]);
+        assert_eq!(
+            names.0[0],
+            MapName {
+                text: "CITY_A".into(),
+                cell: (3376, 2670),
+                curvature: 73,
+                angle: 43,
+            }
+        );
+        // Repeats kept; the bytes signed.
+        assert_eq!(names.0[1].curvature, -71);
+        assert_eq!((names.0[2].curvature, names.0[2].angle), (44, -44));
+    }
 
     #[test]
     fn the_quest_items_list_refuses_a_type_twice_and_all_after_the_key_0() {
