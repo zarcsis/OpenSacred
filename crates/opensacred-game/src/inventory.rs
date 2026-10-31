@@ -225,8 +225,9 @@ fn sort(
     }
 }
 
-/// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), with their
-/// sounds; the key taken from the game; not while the world map shows (`0x757840`).
+/// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), and Esc hides
+/// them, with their sounds; the keys taken from the game; not while the world map shows
+/// (`0x757840`).
 pub(crate) fn toggle(
     mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -244,7 +245,10 @@ pub(crate) fn toggle(
             let (index, corner) = bar::INVENTORY_BUTTON;
             Rect::from_corners(corner, corner + images.size(index)).contains(at)
         });
-    if !(pressed || clicked) {
+    // Esc closes the windows after the world map and the quest book, which take it first, and
+    // before the pause's menu (`cUI_Manager::handleEsc`, `0x7572C0`, #1592).
+    let escaped = shown.0 && keys.take(crate::controls::Action::Back);
+    if !(pressed || clicked || escaped) {
         return;
     }
     shown.0 = !shown.0;
@@ -504,6 +508,8 @@ impl Plugin for InventoryPlugin {
                 toggle
                     .after(InputSystems)
                     .after(crate::console::keys)
+                    // The book takes Esc before the inventory (`0x7572C0`).
+                    .after(crate::quest_book::toggle)
                     .run_if(in_state(AppState::InGame)),
             )
             .add_systems(
