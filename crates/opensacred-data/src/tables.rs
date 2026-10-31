@@ -367,7 +367,8 @@ pub struct Balance {
     /// The tail's fifth table: the parameters of a chance by an effect's value.
     #[serde(default)]
     pub effect_chances: Vec<EffectChance>,
-    /// The tail's sixth table: lists of item types by a key; not followed.
+    /// The tail's sixth table: the weapon skills' lists of weapons, of which a merchant offers
+    /// one of the hero's best skill (docs/re/trade.md).
     #[serde(default)]
     pub item_lists: Vec<BalanceItems>,
     /// The tail's seventh table: the regions whose kills the overview counts (#1574), those
