@@ -57,7 +57,7 @@ use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
-    Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image, In,
+    Component, DetectChangesMut, Entity, GlobalTransform, Handle, Has, Image, In,
     IntoScheduleConfigs, MeshMaterial3d, MessageReader, MessageWriter, Name, On, Plugin, Query,
     Remove, Res, ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec2, Vec3, With,
     Without, WorldAssetRoot,
@@ -4566,9 +4566,8 @@ fn spawn(
             (layered, layered.visibility(states)),
         );
     }
-    let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
     let mut entity = commands.spawn((
-        WorldAssetRoot(scene),
+        models::scene(assets, &placement.model),
         Transform::from_translation(model)
             .with_rotation(hero::facing(heading(placement.heading)))
             .with_scale(Vec3::splat(iso::MODEL_SCALE)),
@@ -4982,6 +4981,7 @@ pub fn equip(
                 }
                 let mut piece = commands.spawn((
                     WorldAssetRoot(scene),
+                    models::Source(item.gltf.clone()),
                     Transform::default(),
                     ChildOf(npc),
                     models::OrderedWith(npc),
@@ -5014,6 +5014,7 @@ pub fn equip(
             }
             let mut weapon = commands.spawn((
                 WorldAssetRoot(scene),
+                models::Source(item.gltf.clone()),
                 Transform::from_matrix(pose.to_matrix().inverse()),
                 ChildOf(holder),
                 models::OrderedWith(npc),

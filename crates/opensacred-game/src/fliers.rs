@@ -195,9 +195,11 @@ fn dress(
         };
         let scene = gltf.scenes.first().cloned();
         let clip = gltf.named_animations.get(flier.clip.as_str()).cloned();
-        flier.gltf = None;
-        if let Some(scene) = scene {
-            commands.entity(entity).insert(WorldAssetRoot(scene));
+        let source = flier.gltf.take();
+        if let (Some(scene), Some(source)) = (scene, source) {
+            commands
+                .entity(entity)
+                .insert((WorldAssetRoot(scene), crate::models::Source(source)));
         }
         if let Some(clip) = clip {
             commands.entity(entity).insert(Flying(clip));

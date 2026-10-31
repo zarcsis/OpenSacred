@@ -30,6 +30,7 @@ use std::collections::HashMap;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling};
+use bevy::gltf::Gltf;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
 use bevy::pbr::{
@@ -339,6 +340,28 @@ fn translucent_texels(image: &Image) -> bool {
 /// The root of a model drawn at its holder's place: an NPC's weapon.
 #[derive(Component)]
 pub struct OrderedWith(pub Entity);
+
+/// The glTF that a model's scene comes from, held while the model stands (#1626): a glTF that no
+/// handle holds is unloaded while its scene stays with the models that show it, and a load of it
+/// again puts a new scene in the old one's place, which Bevy's spawner then makes anew in every
+/// model of it, for a frame as the glTF has it (its own materials, a worn item's skinned meshes on
+/// the item's own skeleton, at the wearer's feet).
+#[derive(Component)]
+pub struct Source(
+    #[expect(
+        dead_code,
+        reason = "held, never read: the handle keeps the glTF loaded"
+    )]
+    pub Handle<Gltf>,
+);
+
+/// The scene of the glTF `model` for a model's root, with the glTF it comes from ([`Source`]).
+pub fn scene(assets: &AssetServer, model: &str) -> (WorldAssetRoot, Source) {
+    (
+        WorldAssetRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()))),
+        Source(assets.load(model.to_owned())),
+    )
+}
 
 /// A model whose scene is ready and whose meshes have their glTF materials still.
 #[derive(Component)]
@@ -694,6 +717,32 @@ mod tests {
 
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn a_models_gltf_stays_loaded_while_the_model_stands() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::world_serialization::WorldSerializationPlugin,
+        ))
+        .init_asset::<Gltf>();
+        let model = "models/item.glb";
+        let held = |app: &App| {
+            app.world()
+                .resource::<AssetServer>()
+                .get_handle::<Gltf>(model)
+                .is_some()
+        };
+        let bundle = scene(app.world().resource::<AssetServer>(), model);
+        let root = app.world_mut().spawn(bundle).id();
+        app.update();
+        // Loaded again, the glTF would replace the scene of the model standing (#1626).
+        assert!(held(&app));
+        app.world_mut().entity_mut(root).despawn();
+        app.update();
+        assert!(!held(&app));
+    }
 
     #[test]
     fn a_model_keeps_within_its_cells_place() {
