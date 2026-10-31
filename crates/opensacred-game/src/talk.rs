@@ -22,7 +22,7 @@ use crate::attack::{self, Aim};
 use crate::bar::UiImages;
 use crate::fight::Health;
 use crate::files;
-use crate::frame::{Control, Playing, Step, Unpaused};
+use crate::frame::{Control, HoldsControl, Playing, Step, Unpaused};
 use crate::game::{AppState, FONT};
 use crate::hero::{self, Body, Size};
 use crate::lines::Texts;
@@ -1057,7 +1057,7 @@ pub struct TalkPlugin;
 
 impl Plugin for TalkPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(Update, Control.run_if(no_window))
+        app.hold_control(no_window)
             .add_systems(OnExit(AppState::InGame), forget)
             .add_systems(
                 Update,

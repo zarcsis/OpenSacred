@@ -1406,6 +1406,13 @@ fn toggle(
     }
 }
 
+/// The close button's rectangle on the original's screen, which stands out of the window's right
+/// edge (#1593).
+pub(crate) fn close_button(images: &UiImages) -> Rect {
+    let corner = WINDOW.min + CLOSE.1;
+    Rect::from_corners(corner, corner + images.size(CLOSE.0))
+}
+
 /// A left click on the close button (`UI_STAT_BTN_BASE`, `cCommand_onInvClose`, `0x756870`)
 /// closes the inventory's windows, with their sound.
 fn close(
@@ -1421,8 +1428,7 @@ fn close(
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    let corner = WINDOW.min + CLOSE.1;
-    let button = Rect::from_corners(corner, corner + images.size(CLOSE.0));
+    let button = close_button(&images);
     if screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| button.contains(at)) {
         shown.0 = false;
         sounds.write(crate::sfx::Play {

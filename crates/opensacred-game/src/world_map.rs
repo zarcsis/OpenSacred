@@ -39,7 +39,7 @@ use bevy::text::FontSize;
 use opensacred_rules::quests::{Entry, Standing};
 
 use crate::bar::{self, UiImages};
-use crate::frame::Control;
+use crate::frame::HoldsControl;
 use crate::game::AppState;
 use crate::hud::Pointer;
 use crate::inventory::screen_point;
@@ -1261,7 +1261,7 @@ impl Plugin for WorldMapPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Map>()
             .init_resource::<Lens>()
-            .configure_sets(Update, Control.run_if(hidden))
+            .hold_control(hidden)
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
                 PreUpdate,
