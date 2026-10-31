@@ -133,21 +133,98 @@ impl Tally {
     }
 }
 
+/// The kills' records that the quest book's statistics tab shows (the statistics object's
+/// `+0x30A4` and its counts by type from `+0`, `0x424250`, #1612): the latest foes, the newest
+/// last, and by each type below 768 the kills, the highest level killed and the two hit chances
+/// at its first kill of that level.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct Kills {
+    latest: std::collections::VecDeque<Foe>,
+    types: std::collections::BTreeMap<u32, Kind>,
+}
+
+/// A type's kills: their count, the highest level killed, and the hero's chance to hit it and its
+/// chance to hit the hero at that level's first kill, in per cent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Kind {
+    pub count: u32,
+    pub level: u32,
+    pub hit: u32,
+    pub its_hit: u32,
+}
+
+/// The latest kills kept (`+0x30A4`, 16 records), and those the tab lists, the newest first.
+const LATEST: usize = 16;
+const LISTED: usize = 10;
+/// The types that have counts (`0x300`), and those the tab lists, of the ten that the counts'
+/// cache keeps (`0x424560`).
+const TYPES: u32 = 0x300;
+const FREQUENT: usize = 4;
+
+impl Kills {
+    /// The kill of `foe`, the hero's chance to hit it `hit` and its chance to hit the hero
+    /// `its_hit` at the kill (`0x424250`).
+    pub(crate) fn record(&mut self, foe: Foe, (hit, its_hit): (u32, u32)) {
+        if self.latest.len() == LATEST {
+            self.latest.pop_front();
+        }
+        self.latest.push_back(foe);
+        if foe.creature < TYPES {
+            let kind = self.types.entry(foe.creature).or_default();
+            kind.count = (kind.count + 1).min(MOST);
+            if kind.level < foe.level {
+                *kind = Kind {
+                    level: foe.level,
+                    hit,
+                    its_hit,
+                    ..*kind
+                };
+            }
+        }
+    }
+
+    /// The latest foes the tab lists, the newest first (`0x6DDCC0`, the records 15 down to 6).
+    pub(crate) fn latest(&self) -> impl Iterator<Item = &Foe> {
+        self.latest.iter().rev().take(LISTED)
+    }
+
+    /// The types killed most that the tab lists, by their counts, the lower type first among
+    /// equals (`0x424560`'s cache, `0x6DE2B0`), the type 0 left out.
+    pub fn frequent(&self) -> Vec<(u32, Kind)> {
+        let mut kinds: Vec<(u32, Kind)> = self
+            .types
+            .iter()
+            .filter(|&(&creature, _)| creature != 0)
+            .map(|(&creature, &kind)| (creature, kind))
+            .collect();
+        kinds.sort_by_key(|&(creature, kind)| (std::cmp::Reverse(kind.count), creature));
+        kinds.truncate(FREQUENT);
+        kinds
+    }
+}
+
+/// The chance in per cent of an attack `attack` to hit a defence `defence`, whole, at most 100
+/// (`0x56AA10`, `0x43EEE0`).
+pub(crate) fn chance(attack: f32, defence: f32) -> u32 {
+    whole((opensacred_rules::fight::hit_chance(attack, defence) * 100.0).min(100.0))
+}
+
 /// Adds the frame's time of the game to the time played.
 fn play(time: Res<Time>, mut tally: ResMut<Tally>) {
     tally.played += f64::from(time.delta_secs());
 }
 
-/// A new game's counters, from nothing.
-fn start(mut tally: ResMut<Tally>) {
+/// A new game's counters and records, from nothing.
+fn start(mut tally: ResMut<Tally>, mut kills: ResMut<Kills>) {
     *tally = Tally::default();
+    *kills = Kills::default();
 }
 
 /// A foe as the player's statistics keep it (`0x424250`, a record of `0x24` bytes of the 16 at
 /// `+0x30A4`): its type, level and health, its attack and defence, its damage (`0x564800`: each
 /// kind's most, or its least where the most is 0) and its resistances' sum (`0x553A00`), and each
 /// kind's share of those times 255 (`0x564470`, `0x564740`), the icons' alphas.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Foe {
     pub creature: u32,
     pub level: u32,
@@ -162,11 +239,13 @@ pub(crate) struct Foe {
 
 impl Foe {
     /// The record of a foe of the type `creature`, of `health` and `combat`, as the hero kills it:
-    /// its most health (**seen**).
+    /// its most health (**seen**), and its attack and defence as the getters give them, times
+    /// the difficulty's `aw` (`ProzAW`) and cut to whole numbers (`0x5348D7`, the record's words).
     pub(crate) fn of(
         creature: u32,
         health: &Health,
         combat: &opensacred_rules::fight::Combat,
+        aw: f32,
     ) -> Self {
         let damages = combat
             .damage
@@ -175,8 +254,8 @@ impl Foe {
             creature,
             level: health.level,
             health: health.most,
-            attack: combat.attack,
-            defence: combat.defence,
+            attack: (combat.attack * aw).trunc(),
+            defence: (combat.defence * aw).trunc(),
             damage: damages.iter().sum(),
             resistance: combat.resistance.iter().sum(),
             damage_shares: of_total(damages),
@@ -734,9 +813,6 @@ fn sheet(
         .iter()
         .map(|&r| i64::from(whole(r + 0.5)))
         .sum();
-    let chance = |attack: f32, defence: f32| {
-        whole((opensacred_rules::fight::hit_chance(attack, defence) * 100.0).min(100.0))
-    };
     let hit = foe.map_or(0, |foe| chance(combat.attack, foe.defence));
     // The last foe's panel: its name its type's text (`0x44A1C0`).
     let foe_panel = foe.map_or_else(FoePanel::default, |foe| FoePanel {
@@ -1502,6 +1578,7 @@ impl Plugin for StatisticsPlugin {
             .init_resource::<Learning>()
             .init_resource::<LastFoe>()
             .init_resource::<Tally>()
+            .init_resource::<Kills>()
             .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(
                 Update,
@@ -1565,6 +1642,46 @@ mod tests {
         assert_eq!(bonus(20.0, 25.0), 25);
         assert_eq!(bonus(0.0, 5.0), 0);
         assert_eq!(bonus(20.0, 19.9), 0);
+    }
+
+    #[test]
+    fn the_kills_keep_the_latest_sixteen_and_the_counts_by_type() {
+        let foe = |creature, level| Foe {
+            creature,
+            level,
+            ..Foe::default()
+        };
+        let mut kills = Kills::default();
+        kills.record(foe(76, 2), (70, 27));
+        kills.record(foe(76, 3), (66, 32));
+        kills.record(foe(76, 3), (60, 40));
+        kills.record(foe(50, 1), (90, 10));
+        kills.record(foe(40, 1), (90, 10));
+        // The level's first kill keeps its chances.
+        assert_eq!(
+            kills.frequent()[0],
+            (
+                76,
+                Kind {
+                    count: 3,
+                    level: 3,
+                    hit: 66,
+                    its_hit: 32,
+                }
+            )
+        );
+        // Among equal counts the lower type first.
+        assert_eq!(kills.frequent()[1].0, 40);
+        assert_eq!(kills.latest().next().map(|foe| foe.creature), Some(40));
+        for i in 0..20 {
+            kills.record(foe(100 + i, 1), (50, 50));
+        }
+        assert_eq!(kills.latest.len(), LATEST);
+        assert_eq!(kills.latest().count(), LISTED);
+        assert_eq!(kills.frequent().len(), FREQUENT);
+        // No counts for the types from 768 on.
+        kills.record(foe(800, 1), (50, 50));
+        assert!(!kills.types.contains_key(&800));
     }
 
     #[test]

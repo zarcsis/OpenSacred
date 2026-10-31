@@ -721,6 +721,12 @@ impl Rules {
         }
     }
 
+    /// The difficulty's factor of a creature's attack and defence (`ProzAW`) as the getters of a
+    /// creature not a hero give them (`0x56AA10`, `0x56AA90`), 0.65 on bronze.
+    pub fn creatures_aw(&self) -> f32 {
+        self.difficulty[0]
+    }
+
     /// The most damage that a creature of level `level` deals a player in a strike (`0x56B130`
     /// at `0x56DA04`…`0x56DA9F`): `(6·(E + 9))^1.5 · 0.32258 · m`, `E` its level on bronze's scale
     /// ([`Rules::on_bronze`]) and `m` the difficulty's share ([`CAPS`]), on the x87 unit.

@@ -148,6 +148,39 @@ const STATS_FIRST: f32 = -8.0;
 const STATS_ROW: f32 = 24.0;
 const STATS_WIDTH: f32 = 250.0;
 const STATS_TITLE: &str = "UI_STATS_STATS_TITLE";
+/// The statistics tab's latest foes (`0x6DDCC0`, #1612): the title at (550, 168), the header's
+/// rows at y 192 each centred in 80, the rows 24 apart from y 211, each the foe's portrait of 24
+/// × 24 from (550, its row's top less 2) and its values at the right of their rectangles: the
+/// level, the health, the hit chances, the damage and the resistances (**measured** on the
+/// original's frame).
+const LATEST_TITLE: (&str, Vec2) = ("UI_STATS_GEGNER_TITLE", Vec2::new(550.0, 168.0));
+const LATEST_HEADER: [(&str, f32); 5] = [
+    ("LOG_1070", 615.0),
+    ("LOG_1073", 670.0),
+    ("LOG_1078_2HIT", 730.0),
+    ("LOG_1076", 780.0),
+    ("LOG_1077", 830.0),
+];
+const LATEST_HEADER_Y: f32 = 192.0;
+const LATEST_RIGHTS: [f32; 5] = [625.0, 680.0, 750.0, 790.0, 840.0];
+const LATEST_ROWS: f32 = 211.0;
+/// The statistics tab's most frequent foes (`0x6DE2B0`, #1612): the title 48 above the rows, the
+/// header 24 above them each centred in 50, the rows 24 apart from y 500, each the type's portrait
+/// and the highest level, the hit chances at its first kill and the count at the right of their
+/// rectangles (**measured**).
+const FREQUENT_TITLE: (&str, Vec2) = ("UI_STATS_GEGNER2_TITLE", Vec2::new(550.0, 452.0));
+const FREQUENT_HEADER: [(&str, f32); 3] = [
+    ("UI_STATS_MAX_LEVEL", 625.0),
+    ("LOG_1078_2HIT", 715.0),
+    ("UI_STATS_COUNT", 805.0),
+];
+const FREQUENT_HEADER_Y: f32 = 476.0;
+const FREQUENT_RIGHTS: [f32; 3] = [630.0, 740.0, 815.0];
+const FREQUENT_ROWS: f32 = 500.0;
+/// The foes' portraits' corner from a row's left and top, and their side.
+const FOE_PORTRAIT_X: f32 = 550.0;
+const FOE_PORTRAIT_UP: f32 = 2.0;
+const FOE_PORTRAIT: f32 = 24.0;
 const STATS_LABELS: [&str; 5] = [
     "UI_STATS_CHARACTER",
     "UI_STATS_PLAYTIME",
@@ -1425,6 +1458,35 @@ impl Stats {
     }
 }
 
+/// Writes `text` under `root` in the rectangle from `at` `width` wide, justified by `justify`.
+fn write_in(
+    commands: &mut Commands,
+    (root, assets): (Entity, &AssetServer),
+    text: &str,
+    (at, width): (Vec2, f32),
+    (style, colour, justify): (Style, u32, Justify),
+) {
+    let mut node = bar::placed(
+        at + Vec2::new(0.0, style.drop()),
+        Vec2::new(width, STATS_ROW),
+    );
+    node.height = Val::Auto;
+    let child = commands
+        .spawn((
+            node,
+            Text::new(text),
+            lettering(assets, style),
+            TextColor(argb(colour)),
+            TextLayout {
+                justify,
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(root).add_child(child);
+}
+
 /// Writes the statistics block under `root`: its title and its rows (`0x6DEE60`).
 fn stats_block(
     commands: &mut Commands,
@@ -1434,25 +1496,13 @@ fn stats_block(
 ) {
     let named = |key: &'static str| texts.and_then(|texts| texts.named(key)).unwrap_or(key);
     let mut write = |text: &str, at: Vec2, style: Style, (colour, justify): (u32, Justify)| {
-        let mut node = bar::placed(
-            at + Vec2::new(0.0, style.drop()),
-            Vec2::new(STATS_WIDTH, STATS_ROW),
+        write_in(
+            commands,
+            (root, assets),
+            text,
+            (at, STATS_WIDTH),
+            (style, colour, justify),
         );
-        node.height = Val::Auto;
-        let child = commands
-            .spawn((
-                node,
-                Text::new(text),
-                lettering(assets, style),
-                TextColor(argb(colour)),
-                TextLayout {
-                    justify,
-                    ..default()
-                },
-                Pickable::IGNORE,
-            ))
-            .id();
-        commands.entity(root).add_child(child);
     };
     write(
         named(STATS_TITLE),
@@ -1477,6 +1527,168 @@ fn stats_block(
     }
 }
 
+/// A foe's row on the statistics tab: its type, whose portrait it shows, and its values as the
+/// tab writes them.
+#[derive(Clone, Debug, PartialEq)]
+struct FoeRow {
+    creature: u32,
+    values: Vec<String>,
+}
+
+/// The two hit chances as the tab writes them (`%2d/%2d`).
+fn chances(hit: u32, its_hit: u32) -> String {
+    format!("{hit:2}/{its_hit:2}")
+}
+
+/// The latest foes' rows (`0x6DDCC0`): each record's level, health, the hit chances between it
+/// and the hero now (`0x424700` makes them again at each draw), its damage and its resistances.
+fn latest_rows(
+    kills: &crate::statistics::Kills,
+    hero: Option<&opensacred_rules::fight::Combat>,
+) -> Vec<FoeRow> {
+    kills
+        .latest()
+        .map(|foe| {
+            let (hit, its_hit) = hero.map_or((0, 0), |hero| {
+                (
+                    crate::statistics::chance(hero.attack, foe.defence),
+                    crate::statistics::chance(foe.attack, hero.defence),
+                )
+            });
+            FoeRow {
+                creature: foe.creature,
+                values: vec![
+                    foe.level.to_string(),
+                    foe.health.to_string(),
+                    chances(hit, its_hit),
+                    whole(foe.damage).to_string(),
+                    whole(foe.resistance).to_string(),
+                ],
+            }
+        })
+        .collect()
+}
+
+/// The most frequent foes' rows (`0x6DE2B0`): each type's highest level, the hit chances at its
+/// first kill and its count.
+fn frequent_rows(kills: &crate::statistics::Kills) -> Vec<FoeRow> {
+    kills
+        .frequent()
+        .into_iter()
+        .map(|(creature, kind)| FoeRow {
+            creature,
+            values: vec![
+                kind.level.to_string(),
+                chances(kind.hit, kind.its_hit),
+                kind.count.to_string(),
+            ],
+        })
+        .collect()
+}
+
+/// `value` cut to a whole number, none below 0, as the record keeps its words.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a foe's damage or resistances, small and positive"
+)]
+fn whole(value: f32) -> u32 {
+    value.max(0.0) as u32
+}
+
+/// Writes a panel of foes under `root`: its title, its header's words each centred about its
+/// column, and its rows 24 apart, each its portrait and its values at the right of their
+/// rectangles.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a panel's places and pieces, each named"
+)]
+fn foes_panel(
+    commands: &mut Commands,
+    (root, assets, texts, portraits): (
+        Entity,
+        &AssetServer,
+        Option<&Texts>,
+        Option<&crate::talk::Portraits>,
+    ),
+    (title, title_at): (&str, Vec2),
+    header: &[(&str, f32)],
+    header_y: f32,
+    rights: &[f32],
+    rows_y: f32,
+    rows: &[FoeRow],
+) {
+    let named = |key: &str| {
+        texts
+            .and_then(|texts| texts.named(key))
+            .map_or_else(|| key.to_owned(), str::to_owned)
+    };
+    write_in(
+        commands,
+        (root, assets),
+        &named(title),
+        (title_at, STATS_WIDTH * 2.0),
+        (Style::Title, TITLE_RED, Justify::Left),
+    );
+    const HEADER_WIDTH: f32 = 80.0;
+    for &(key, centre) in header {
+        write_in(
+            commands,
+            (root, assets),
+            &named(key),
+            (
+                Vec2::new(centre - HEADER_WIDTH / 2.0, header_y),
+                HEADER_WIDTH,
+            ),
+            (Style::Body, ROW, Justify::Center),
+        );
+    }
+    const VALUE_WIDTH: f32 = 60.0;
+    for (i, row) in rows.iter().enumerate() {
+        let top = rows_y + STATS_ROW * f32::from(u8::try_from(i).unwrap_or(0));
+        for (value, &right) in row.values.iter().zip(rights) {
+            write_in(
+                commands,
+                (root, assets),
+                value,
+                (Vec2::new(right - VALUE_WIDTH, top), VALUE_WIDTH),
+                (Style::Body, ROW, Justify::Right),
+            );
+        }
+        if let Some((file, [x, y, w, h])) = portraits.and_then(|p| p.of(row.creature)) {
+            let rect = Rect::new(
+                f32::from(x),
+                f32::from(y),
+                f32::from(x) + f32::from(w),
+                f32::from(y) + f32::from(h),
+            );
+            let child = commands
+                .spawn((
+                    ImageNode {
+                        rect: Some(rect),
+                        image_mode: NodeImageMode::Stretch,
+                        ..ImageNode::new(crate::hud::image(assets, file.to_owned()))
+                    },
+                    bar::placed(
+                        Vec2::new(FOE_PORTRAIT_X, top - FOE_PORTRAIT_UP),
+                        Vec2::splat(FOE_PORTRAIT),
+                    ),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(root).add_child(child);
+        }
+    }
+}
+
+/// What the statistics tab's foes' panels read: the kills' records, the portraits and the
+/// hero's fight.
+type Foes<'w, 's> = (
+    Option<Res<'w, crate::statistics::Kills>>,
+    Option<Res<'w, crate::talk::Portraits>>,
+    Query<'w, 's, &'static crate::fight::Combat, With<crate::hero::Body>>,
+);
+
 /// What the book shows, made again as it changes.
 #[derive(Clone, Debug, PartialEq)]
 struct Look {
@@ -1491,8 +1703,9 @@ struct Look {
     tracked: Option<u32>,
     measured: usize,
     others: [Vec<Chapter>; 2],
-    /// The statistics tab's block, while the tab shows.
+    /// The statistics tab's block and its foes' rows, while the tab shows.
     stats: Option<Stats>,
+    foes: Option<(Vec<FoeRow>, Vec<FoeRow>)>,
 }
 
 /// Makes the book as it shows and as it changes, and takes it away as it hides.
@@ -1516,6 +1729,7 @@ fn show(
         Res<crate::explored::MapSectors>,
         Option<Res<crate::game::Data>>,
     ),
+    (kills, portraits, heroes): Foes,
 ) {
     let texts = texts.as_deref();
     let model = book.shown.then(|| Model::of(&book, texts, &measures));
@@ -1526,6 +1740,14 @@ fn show(
             tally
                 .as_deref()
                 .map(|tally| Stats::of(texts, creature, tally, (sectors.0.entered_count(), world)))
+        })
+        .flatten();
+    let foes = (book.shown && book.tab == TABS - 1)
+        .then(|| {
+            let hero = heroes.iter().next().map(|combat| &combat.0);
+            kills
+                .as_deref()
+                .map(|kills| (latest_rows(kills, hero), frequent_rows(kills)))
         })
         .flatten();
     let now = model.as_ref().map(|model| Look {
@@ -1541,6 +1763,7 @@ fn show(
         measured: measures.0.len(),
         others: book.others.clone(),
         stats,
+        foes,
     });
     if *was == now {
         return;
@@ -1615,6 +1838,29 @@ fn show(
     if look.tab >= TABS - 1 {
         if let Some(stats) = &look.stats {
             stats_block(&mut commands, root, (&assets, texts), stats);
+        }
+        if let Some((latest, frequent)) = &look.foes {
+            let pieces = (root, &*assets, texts, portraits.as_deref());
+            foes_panel(
+                &mut commands,
+                pieces,
+                LATEST_TITLE,
+                &LATEST_HEADER,
+                LATEST_HEADER_Y,
+                &LATEST_RIGHTS,
+                LATEST_ROWS,
+                latest,
+            );
+            foes_panel(
+                &mut commands,
+                pieces,
+                FREQUENT_TITLE,
+                &FREQUENT_HEADER,
+                FREQUENT_HEADER_Y,
+                &FREQUENT_RIGHTS,
+                FREQUENT_ROWS,
+                frequent,
+            );
         }
         return;
     }

@@ -165,10 +165,11 @@ pub(crate) fn resolve(
     mut blows: MessageWriter<crate::sfx::Blow>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
-    (rules, mut last_foe, mut tally): (
+    (rules, mut last_foe, mut tally, mut records): (
         Res<Rules>,
         Option<ResMut<crate::statistics::LastFoe>>,
         Option<ResMut<crate::statistics::Tally>>,
+        Option<ResMut<crate::statistics::Kills>>,
     ),
     (hero_arts, effects, clock, mut lusts): (
         Option<Res<crate::arts::HeroArts>>,
@@ -181,7 +182,7 @@ pub(crate) fn resolve(
         Has<Body>,
         Option<&crate::ai::Mind>,
         &GlobalTransform,
-        Option<&Ranked>,
+        (Option<&Ranked>, Option<&crate::followers::Follower>),
     )>,
     mut targets: Query<
         (
@@ -198,7 +199,7 @@ pub(crate) fn resolve(
 ) {
     for hit in hits.read() {
         let (
-            Ok((attacker, hero, mind, from, ranked)),
+            Ok((attacker, hero, mind, from, (ranked, follower))),
             Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim))),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -407,16 +408,35 @@ pub(crate) fn resolve(
                     rank: rank.map_or(Rank::Common, |rank| rank.0),
                 });
             }
-            // The foe the hero kills, which the statistics window's last foe and hit chance
-            // show (the player's statistics' record, `0x424250`; **seen**: kept at the kill,
-            // with its most health, #1525).
-            if side == Some(Side::Attacker) {
+            // The foe the hero or its follower kills, which the statistics window's last foe and
+            // hit chance and the statistics tab show (the player's statistics' record,
+            // `0x424250`, made where the killer is the player's hero or its master is,
+            // `0x5348BA`; **seen**: kept at the kill, with its most health, #1525).
+            let recorder = if hero {
+                (!hero_hit).then_some(attacker)
+            } else {
+                follower
+                    .and_then(|follower| attackers.get(follower.master).ok())
+                    .filter(|&(_, master_hero, ..)| master_hero && !hero_hit)
+                    .map(|(combat, ..)| combat.0)
+            };
+            if let Some(hero_combat) = recorder {
+                let foe = crate::statistics::Foe::of(
+                    victim.map_or(0, |mind| mind.creature),
+                    &health,
+                    &defender,
+                    rules.creatures_aw(),
+                );
                 if let Some(last_foe) = last_foe.as_deref_mut() {
-                    last_foe.0 = Some(crate::statistics::Foe::of(
-                        victim.map_or(0, |mind| mind.creature),
-                        &health,
-                        &defender,
-                    ));
+                    last_foe.0 = Some(foe);
+                }
+                // The kills' records, the hero's chances of the kill's moment (#1612).
+                if let Some(records) = records.as_deref_mut() {
+                    let chances = (
+                        crate::statistics::chance(hero_combat.attack, foe.defence),
+                        crate::statistics::chance(foe.attack, hero_combat.defence),
+                    );
+                    records.record(foe, chances);
                 }
                 // The kills' counter of the same record (`+0x56F0`, #1611).
                 if let Some(tally) = tally.as_deref_mut() {
@@ -521,8 +541,19 @@ pub fn kill(
     mut commands: Commands,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
-    (rules, mut tally): (Res<Rules>, Option<ResMut<crate::statistics::Tally>>),
-    hero: Query<(&Transform, Option<&crate::effects::Effects>), With<Body>>,
+    (rules, mut tally, mut records): (
+        Res<Rules>,
+        Option<ResMut<crate::statistics::Tally>>,
+        Option<ResMut<crate::statistics::Kills>>,
+    ),
+    hero: Query<
+        (
+            &Transform,
+            Option<&crate::effects::Effects>,
+            Option<&Combat>,
+        ),
+        With<Body>,
+    >,
     mut creatures: Query<
         (
             Entity,
@@ -530,12 +561,12 @@ pub fn kill(
             &mut Health,
             &crate::ai::Mind,
             Option<&Worth>,
-            Option<&Ranked>,
+            (Option<&Ranked>, &Combat),
         ),
         (Without<Dies>, Without<Body>),
     >,
 ) -> Result<Vec<String>, String> {
-    let (at, effects) = hero
+    let (at, effects, hero_combat) = hero
         .iter()
         .next()
         .ok_or("the hero is not in the world yet")?;
@@ -545,7 +576,7 @@ pub fn kill(
     let home = crate::paths::cell_of(at.x, at.z);
     let radius = i32::try_from(radius).unwrap_or(i32::MAX);
     let mut lines = Vec::new();
-    for (entity, transform, mut health, mind, worth, rank) in &mut creatures {
+    for (entity, transform, mut health, mind, worth, (rank, combat)) in &mut creatures {
         let here = transform.translation;
         let cell = crate::paths::cell_of(here.x, here.z);
         if !mind.hostile() || (cell.0 - home.0).abs() > radius || (cell.1 - home.1).abs() > radius {
@@ -568,6 +599,15 @@ pub fn kill(
         );
         if let Some(tally) = tally.as_deref_mut() {
             tally.killed();
+        }
+        if let (Some(records), Some(hero)) = (records.as_deref_mut(), hero_combat) {
+            let foe =
+                crate::statistics::Foe::of(mind.creature, &health, combat, rules.creatures_aw());
+            let chances = (
+                crate::statistics::chance(hero.attack, foe.defence),
+                crate::statistics::chance(foe.attack, hero.defence),
+            );
+            records.record(foe, chances);
         }
         lines.push(format!(
             "{entity} type {} level {} falls, {earned} experience",
