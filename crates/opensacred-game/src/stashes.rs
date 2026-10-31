@@ -10,13 +10,24 @@
 //! shrinks again as it turns, tinted `0xBB9360`, and a grey one of half its side over it, both
 //! added to the frame.
 //!
-//! Not followed: the static object's mark (the stash stands at its cell's centre, picked as a
-//! creature is), the item maker's use of the `CreateObj`'s `0x79`, and the hero's walk of the
-//! order 7 (the click's own walk takes it there).
+//! The scripts' `MouseEvent` records (#1584, `0x4A6950`) lay events of the same kind, which stand
+//! and are used the same way: the well, the gravestones, the stones and the like. An event loses
+//! a use as its function runs, and leaves the world with none left: a stash and an event of
+//! `0x66` (the well) have one, the others never run out; those of the flags 1, every `MouseEvent`
+//! of `0x10`, do not blink.
+//!
+//! Not followed: the static object's mark (the stash stands at its cell's centre on the ground,
+//! whatever its floor, picked as a creature is), the events' boxes (`0x0C`, `0x0D`), the sparks
+//! of the events of neither flag (`0x409D00`), the arrival's straight way, the item maker's use of
+//! the `CreateObj`'s `0x79`, and the hero's walk of the order 7 (the click's own walk takes it
+//! there).
+
+use std::collections::HashSet;
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
 use opensacred_rules::drops::ScriptItem;
+use opensacred_rules::quests::Look;
 
 use crate::attack::{self, Aim};
 use crate::frame::{Control, Playing, Step, Unpaused};
@@ -56,11 +67,13 @@ const BLINK_GREY: [f32; 4] = [187.0 / 255.0, 187.0 / 255.0, 187.0 / 255.0, 1.0];
 /// `10 · 2 · √2` units down the screen, lies `√3` times that in front of the ground.
 const BLINK_TOWARD: f32 = 49.0;
 
-/// A hidden stash in the world: its cell, and the name of the text the cursor shows over it.
+/// A hidden stash or a mouse event in the world: its cell, the name of the text the cursor shows
+/// over it, and how it shows.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Stash {
     pub cell: (i32, i32),
     pub text: String,
+    pub look: Look,
 }
 
 /// One random item that a `CreateObj` of `0x54` and no type makes for the hero (`scripts`).
@@ -79,8 +92,9 @@ pub(crate) fn picked(ray: bevy::shape::Ray3d, at: Vec3) -> Option<f32> {
     (distance <= attack::PICKED_WITHIN).then_some(distance)
 }
 
-/// The stashes in the world kept in step with the scripts' (`MachVersteck`, the searches): one
-/// made for each new stash at its cell's centre on the ground, one taken away for each gone.
+/// The stashes and the events in the world kept in step with the scripts' (`MachVersteck`,
+/// `MouseEvent`, their uses): one made for each new event at its cell's centre on the ground,
+/// one taken away for each gone.
 fn place(
     mut commands: Commands,
     live: Option<NonSend<Live>>,
@@ -91,23 +105,29 @@ fn place(
         return;
     };
     let listed = live.stashes();
+    let cells: HashSet<(i32, i32)> = listed.iter().map(|listed| listed.cell).collect();
+    let mut standing = HashSet::new();
     for (entity, stash) in &stashes {
-        if !listed.iter().any(|listed| listed.cell == stash.cell) {
+        if cells.contains(&stash.cell) {
+            standing.insert(stash.cell);
+        } else {
             commands.entity(entity).despawn();
         }
     }
     for listed in listed {
-        if stashes.iter().any(|(_, stash)| stash.cell == listed.cell) {
+        if standing.contains(&listed.cell) {
             continue;
         }
         let point = crate::paths::centre(listed.cell);
         let Some(ground) = heights.at(point.x, point.y) else {
             continue;
         };
+        standing.insert(listed.cell);
         commands.spawn((
             Stash {
                 cell: listed.cell,
                 text: listed.text.clone(),
+                look: listed.look,
             },
             Transform::from_xyz(point.x, ground + PICKED_ABOVE, point.y),
             Visibility::Hidden,
@@ -299,14 +319,19 @@ pub(crate) fn near(world: &mut World, radius: u32) -> Result<Vec<String>, String
         .collect();
     found.sort_by_key(|&(distance, _)| distance);
     let mut lines = vec![format!(
-        "{} hidden stashes within {radius} cells of the hero, {} in all",
+        "{} hidden stashes and mouse events within {radius} cells of the hero, {} in all",
         found.len(),
         live.stashes().len()
     )];
     lines.extend(found.into_iter().map(|(_, stash)| {
+        let uses = if stash.uses >= opensacred_rules::quests::ENDLESS {
+            "endless".to_owned()
+        } else {
+            format!("{} uses", stash.uses)
+        };
         format!(
-            "cell {},{} runs {} shows {}",
-            stash.cell.0, stash.cell.1, stash.function, stash.text
+            "cell {},{} runs {} shows {}, {uses}, {:?}",
+            stash.cell.0, stash.cell.1, stash.function, stash.text, stash.look
         )
     }));
     Ok(lines)
@@ -369,7 +394,7 @@ fn blink(
     let mut quads = Quads::default();
     if let Some((half, angle)) = blink_at(time.elapsed().as_millis()) {
         let whole = (Vec2::ZERO, 1.0);
-        for stash in &stashes {
+        for stash in stashes.iter().filter(|stash| stash.look == Look::Blink) {
             let point = crate::paths::centre(stash.cell);
             let centre = Vec3::new(point.x, 0.0, point.y) - iso::forward() * BLINK_TOWARD;
             quads.push(centre, half * BLINK_SPACE, angle, whole, BLINK_TINT);

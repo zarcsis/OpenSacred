@@ -524,12 +524,14 @@ impl Live {
         self.state.quests.take_fresh()
     }
 
-    /// The hidden stashes not searched yet (`MachVersteck`, #1518).
+    /// The mouse events with uses left: the hidden stashes not searched yet (`MachVersteck`,
+    /// #1518) and the `MouseEvent` records' (#1584).
     pub fn stashes(&self) -> &[quests::Stash] {
         &self.state.stashes.0
     }
 
-    /// The stash at `cell`, which its search takes away (#1518).
+    /// The event at `cell` used as the hero arrives: a use spent, the event gone with none left
+    /// (#1518, #1584).
     pub fn search_stash(&mut self, cell: (i32, i32)) -> Option<quests::Stash> {
         self.state.stashes.search(cell)
     }
@@ -1332,6 +1334,34 @@ impl Host for Recorder<'_> {
                         (text, pool, function),
                         count,
                         &mut *self.rng,
+                    );
+                }
+                Handled::Done
+            }
+            // A mouse event (`MouseEvent`, 94, `0x4A6950`; #1584): a cell and floor, the function a
+            // click runs as the hero arrives, the text the cursor shows (`0x1D`, `0x1E`), the
+            // flags 1 (`0x10`) or 2 (`0x0F`), one use with `0x66`.
+            "mouse_event" => {
+                let has = |key: &str| matches!(tags.values(key).first(), Some(Operand::Bool(true)));
+                let text = tags
+                    .texts("_1E")
+                    .last()
+                    .or(tags.texts("_1D").last())
+                    .copied();
+                let flags = if has("_10") {
+                    Some(1)
+                } else if has("_0F") {
+                    Some(2)
+                } else {
+                    None
+                };
+                if let [x, y, ref rest @ ..] = tags.numbers("_04")[..] {
+                    let floor = rest.first().copied().unwrap_or(0);
+                    let function = tags.texts("_41").first().copied().unwrap_or_default();
+                    self.state.stashes.mouse_event(
+                        (x, y, floor),
+                        (function, text.unwrap_or_default()),
+                        (flags, has("_66")),
                     );
                 }
                 Handled::Done
@@ -3421,6 +3451,43 @@ mod tests {
         let effects = live.run_named("VERSTECK");
         assert_eq!(effects.random_items, 1);
         assert!(effects.records.iter().all(|record| record.kind != 8));
+    }
+
+    /// The scripts' mouse events (#1584): the well of one use, the gravestone's endless, both
+    /// without a blink, the cursed gold's with the sparks.
+    #[test]
+    fn the_mouse_events_lay_the_well_and_the_gravestones() {
+        let runtime = runtime(&[(
+            "functions/events.luau",
+            "local F = {}
+             F[\"lay\"] = function()
+             mouse_event { _04 = { 3252, 2524, 0 }, _0C = { -53, -47, 0 }, _0D = { 52, 50, 0 }, _10 = true, _1E = \"BRUNNENMOUSEOVER\", _41 = \"BRUNNEN\", _66 = true }
+             mouse_event { _04 = { 3217, 2593, 0 }, _10 = true, _1E = \"GRABSTEINMOUSEOVER\", _41 = \"setvar_009\" }
+             mouse_event { _04 = { 392, 1111, 0 }, _1E = \"CURSED_GOLD\", _41 = \"F_GoldUW\", _66 = true }
+             return true
+             end
+             return F",
+        )]);
+        let mut live = live(runtime);
+        live.run_named("lay");
+        let events: Vec<_> = live
+            .stashes()
+            .iter()
+            .map(|event| (event.function.as_str(), event.uses, event.look))
+            .collect();
+        assert_eq!(
+            events,
+            [
+                ("BRUNNEN", 1, quests::Look::Hidden),
+                ("setvar_009", quests::ENDLESS, quests::Look::Hidden),
+                ("F_GoldUW", 1, quests::Look::Sparks)
+            ]
+        );
+        assert_eq!(live.stashes()[0].text, "BRUNNENMOUSEOVER");
+        assert!(live.search_stash((3252, 2524)).is_some());
+        assert!(live.search_stash((3252, 2524)).is_none());
+        assert!(live.search_stash((3217, 2593)).is_some());
+        assert!(live.search_stash((3217, 2593)).is_some());
     }
 
     #[test]
