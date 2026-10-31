@@ -82,9 +82,10 @@ pub fn up() -> Vec3 {
     view().up().as_vec3()
 }
 
-/// The camera that looks at `target` at `zoom` (clamped to the original's range).
-pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
-    let projection = OrthographicProjection {
+/// The world's projection at `zoom` (clamped to the original's range), the [`Untinted`]
+/// camera's too.
+fn projection(zoom: f32) -> Projection {
+    Projection::Orthographic(OrthographicProjection {
         // Everything drawn lies within a few thousand units of the point looked at (the
         // ground 5,000 behind it): a narrow range keeps the depth buffer's steps small, a
         // thousandth of a unit, against which the sprites' shader orders sprites at one depth.
@@ -95,7 +96,11 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
         },
         scale: zoom.clamp(*ZOOM.start(), *ZOOM.end()),
         ..OrthographicProjection::default_3d()
-    };
+    })
+}
+
+/// The camera that looks at `target` at `zoom` (clamped to the original's range).
+pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
     (
         Camera3d::default(),
         // The art's texels reach the screen as they are, as in the original, which has no
@@ -106,7 +111,7 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
         crate::srgb::Frame,
         // The models' true depths, by which they are ordered among themselves (`models`).
         DepthPrepass,
-        Projection::Orthographic(projection),
+        projection(zoom),
         view_of(target),
     )
 }
@@ -119,8 +124,9 @@ pub const UNTINTED: usize = 8;
 /// world's camera ([`camera`]) that draws the layer [`UNTINTED`] after it and its night's pass
 /// (`daynight::Night`) into the same frame, against the world's depth, which the cameras of one
 /// target share, so that a fire keeps its colours by night and the fireflies add theirs to the
-/// darkened frame, as the original draws its effects without the tint; its projection follows the
-/// world camera's (`daynight`), and the interface, drawn by the last camera, lies over both.
+/// darkened frame, as the original draws its effects without the tint; it has the world camera's
+/// projection, whose zoom `daynight` keeps it, and the interface, drawn by the last camera, lies
+/// over both.
 #[derive(Component, Clone, Copy, Default)]
 pub struct Untinted;
 
@@ -133,7 +139,7 @@ pub struct Apart;
 /// [`Apart`] left out.
 pub type Eye<F = With<Camera3d>> = (F, Without<Untinted>, Without<Apart>);
 
-/// The [`Untinted`] camera, a child of the world's.
+/// The [`Untinted`] camera, a child of the world's, at zoom 1.
 pub fn untinted() -> impl Bundle {
     (
         Untinted,
@@ -149,7 +155,7 @@ pub fn untinted() -> impl Bundle {
         Tonemapping::None,
         DebandDither::Disabled,
         crate::srgb::Frame,
-        Projection::Orthographic(OrthographicProjection::default_3d()),
+        projection(1.0),
         bevy::camera::visibility::RenderLayers::layer(UNTINTED),
     )
 }
