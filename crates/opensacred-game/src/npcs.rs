@@ -3859,7 +3859,7 @@ pub fn spawn_creatures(
         };
         npcs.kept.spawned(&placed);
         commands.entity(entity).insert(placed);
-        streamer.adopt(at, entity);
+        streamer.adopt(&mut commands, at, entity);
         made.push(entity);
     }
     Ok(made)
@@ -4039,7 +4039,7 @@ fn place_index(
         npcs.kept.spawned(&placed);
         commands.entity(entity).insert(placed);
     }
-    streamer.adopt(at, entity);
+    streamer.adopt(commands, at, entity);
     // A kept creature comes again with the weapon chosen for it (`respawn`).
     if kept
         && turned.is_none()
@@ -4165,7 +4165,7 @@ pub fn place(
             };
             npcs.kept.spawned(&placed);
             commands.entity(entity).insert(placed);
-            streamer.adopt(at, entity);
+            streamer.adopt(&mut commands, at, entity);
         }
         if !entered.fill {
             continue;
@@ -4310,7 +4310,7 @@ pub fn place(
                 };
                 npcs.kept.spawned(&placed);
                 commands.entity(entity).insert(placed);
-                streamer.adopt(at, entity);
+                streamer.adopt(&mut commands, at, entity);
             }
         }
     }
@@ -4400,7 +4400,7 @@ fn swimmers(
         );
         // Not kept as it goes, lacking the fills' mark (`+0x2B8` bit `0x80`): made again at the
         // next coming in where none comes back.
-        streamer.adopt(at, entity);
+        streamer.adopt(commands, at, entity);
     }
 }
 
@@ -6301,7 +6301,7 @@ fn region_changes(
         }
         commands.entity(entity).insert(Remade).despawn();
         streamer.disown(entity);
-        streamer.adopt(sector, made);
+        streamer.adopt(&mut commands, sector, made);
     }
 }
 

@@ -102,9 +102,11 @@ impl Streamer {
             .map(|entry| entry.area)
     }
 
-    /// Makes `entity` part of sector `at`: it goes when the sector goes.
-    pub fn adopt(&mut self, at: (u32, u32), entity: Entity) {
+    /// Makes `entity` part of sector `at`: it goes when the sector goes, and leaves the sector's
+    /// list when it goes before ([`forget`]).
+    pub fn adopt(&mut self, commands: &mut Commands, at: (u32, u32), entity: Entity) {
         self.loaded.entry(at).or_default().push(entity);
+        commands.entity(entity).try_insert(InSector(at));
     }
 
     /// Takes `entity` from its sector, which no longer despawns it: a creature that the scripts
@@ -147,6 +149,26 @@ impl Streamer {
             ready: Vec::new(),
             missing: HashSet::new(),
         }
+    }
+}
+
+/// The sector that adopted an entity ([`Streamer::adopt`]).
+#[derive(Component)]
+pub struct InSector((u32, u32));
+
+/// Takes an adopted entity that goes before its sector off the sector's list, whatever despawns
+/// it: an item the hero picks up, a creature the scripts remove, an undead's corpse made anew; its
+/// sector, once gone, would despawn it again (#1588).
+fn forget(
+    gone: On<Despawn<InSector>>,
+    sectors: Query<&InSector>,
+    streamer: Option<ResMut<Streamer>>,
+) {
+    let (Ok(InSector(at)), Some(mut streamer)) = (sectors.get(gone.entity), streamer) else {
+        return;
+    };
+    if let Some(entities) = streamer.loaded.get_mut(at) {
+        entities.retain(|&kept| kept != gone.entity);
     }
 }
 
@@ -309,7 +331,7 @@ pub fn stream(
                 && near.contains(&to)
                 && streamer.loaded.contains_key(&to)
             {
-                streamer.adopt(to, entity);
+                streamer.adopt(&mut commands, to, entity);
                 continue;
             }
             commands.entity(entity).despawn();
@@ -323,7 +345,8 @@ pub struct SectorsPlugin;
 impl Plugin for SectorsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, stream.in_set(Step::Sectors))
-            .add_systems(OnExit(AppState::InGame), leave);
+            .add_systems(OnExit(AppState::InGame), leave)
+            .add_observer(forget);
     }
 }
 
@@ -365,8 +388,9 @@ mod tests {
             .id();
         let camera = app.world_mut().spawn(Transform::default()).id();
         let mut streamer = Streamer::empty(shared);
-        streamer.adopt((50, 39), ground);
-        streamer.adopt((50, 39), npc);
+        let mut commands = app.world_mut().commands();
+        streamer.adopt(&mut commands, (50, 39), ground);
+        streamer.adopt(&mut commands, (50, 39), npc);
         app.insert_resource(streamer);
         app.update();
         app.world_mut()
@@ -377,6 +401,32 @@ mod tests {
             assert!(app.world().get_entity(gone).is_err());
         }
         assert!(app.world().get_entity(camera).is_ok());
+    }
+
+    #[test]
+    fn an_adopted_entity_despawned_before_its_sector_leaves_its_list() {
+        let mut app = App::new();
+        app.add_observer(forget);
+        let item = app.world_mut().spawn(Transform::default()).id();
+        let npc = app.world_mut().spawn(Transform::default()).id();
+        let mut streamer = Streamer::empty(shared());
+        let mut commands = app.world_mut().commands();
+        streamer.adopt(&mut commands, (50, 39), item);
+        streamer.adopt(&mut commands, (50, 39), npc);
+        app.insert_resource(streamer);
+        app.world_mut().flush();
+        // Picked up: the sector keeps only the creature.
+        app.world_mut().despawn(item);
+        assert_eq!(app.world().resource::<Streamer>().loaded[&(50, 39)], [npc]);
+        // The sector goes, and the creature that walked out of it goes with the next one (#329).
+        let mut streamer = app.world_mut().remove_resource::<Streamer>().unwrap();
+        streamer.loaded.remove(&(50, 39));
+        let mut commands = app.world_mut().commands();
+        streamer.adopt(&mut commands, (51, 39), npc);
+        app.insert_resource(streamer);
+        app.world_mut().flush();
+        app.world_mut().despawn(npc);
+        assert!(app.world().resource::<Streamer>().loaded[&(51, 39)].is_empty());
     }
 
     #[test]
