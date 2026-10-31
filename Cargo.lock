@@ -4710,6 +4710,7 @@ dependencies = [
  "ron",
  "serde",
  "serde_json",
+ "swash",
  "symphonia",
  "symphonia-adapter-libopus",
  "toml_edit",

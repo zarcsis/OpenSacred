@@ -524,6 +524,11 @@ impl Live {
         self.state.quests.take_fresh()
     }
 
+    /// The places' names that the world map writes (`SetMapIcon`, #1577).
+    pub fn map_names(&self) -> &[quests::MapName] {
+        &self.state.map_names.0
+    }
+
     /// The mouse events with uses left: the hidden stashes not searched yet (`MachVersteck`,
     /// #1518) and the `MouseEvent` records' (#1584).
     pub fn stashes(&self) -> &[quests::Stash] {
@@ -1306,6 +1311,16 @@ impl Host for Recorder<'_> {
             "def_pos" => {
                 if let Some(name) = tags.texts("_01").first() {
                     self.state.positions.define(name, &tags.numbers("_0B"));
+                }
+                Handled::Done
+            }
+            // A place's name on the world map (`SetMapIcon`, 97, `0x4A81F0`; #1577): a text and
+            // four numbers; the lens's places of three numbers and no text not followed.
+            "set_map_icon" => {
+                if let (Some(text), &[x, y, curvature, angle]) =
+                    (tags.texts("_01").first(), tags.numbers("_0B").as_slice())
+                {
+                    self.state.map_names.add(text, [x, y, curvature, angle]);
                 }
                 Handled::Done
             }

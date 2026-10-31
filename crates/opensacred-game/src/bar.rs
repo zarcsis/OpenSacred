@@ -173,7 +173,7 @@ impl UiImages {
             .chain(crate::quest_book::BASES)
             .chain([crate::quest_book::CIRCLE])
             .chain(tiles.iter().map(String::as_str))
-            .chain([crate::world_map::PUSHPIN])
+            .chain([crate::world_map::PUSHPIN, crate::world_map::INK])
             .chain(crate::world_map::PEOPLE)
             .chain([crate::lens_creatures::DOT])
             .collect();
