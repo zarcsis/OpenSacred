@@ -10,7 +10,8 @@
 //! The bar's Collect button and the key A send the hero collecting (the creature event `0x113`,
 //! the AI's state 12 without a target, `0x4EC560`; #1408, #1591): it walks to the first item about it that it may carry,
 //! by square rings of cells out to 19, plays its pick-up there and takes every item on the 3 × 3
-//! cells about it at the clip's half, and looks again as the clip ends, until nothing is left.
+//! cells about it at the clip's half, and looks again as the clip ends, until nothing is left;
+//! the items still in flight among them, out of the air (#1646).
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -23,7 +24,7 @@ use opensacred_rules::inventory::{Grid, Placed, Put};
 
 use crate::attack::{self, Aim};
 use crate::doors::Opens;
-use crate::drops::Lying;
+use crate::drops::{Flying, Lying};
 use crate::fight;
 use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
@@ -32,7 +33,7 @@ use crate::hud::Pointer;
 use crate::npcs::QuestItem;
 use crate::paths;
 use crate::sfx;
-use crate::terrain::Heights;
+use crate::terrain::{Heights, Level};
 
 /// How far along both axes from the item's point the hero walks to (`+0x158`, `+0x15C`).
 const BESIDE: f32 = 25.0;
@@ -81,7 +82,7 @@ const COLLECT_STOP: f32 = 20.0;
 const LOOKS_AGAIN: f32 = 0.2;
 /// How far an item may lie above or below the height that the hero's level gives at its point and
 /// still lie on the hero's layer, which the collecting searches (**estimate**: well within a
-/// floor's height; the items keep no layer of their own).
+/// floor's height; the items at rest keep no layer of their own, [`on_layer`]).
 const SAME_LAYER: f32 = 20.0;
 
 /// The hero collecting the items about it (the AI's state 12 without a target, `0x4EC560`), as the
@@ -956,7 +957,9 @@ pub fn start_collecting(world: &mut World) -> Result<String, String> {
 /// found, it goes idle (`0x54E6D0`). Standing, it plays its pick-up, takes every item of the
 /// 3 × 3 cells about it at the clip's half (`cCreature::pickupItem`, `0x558080`), or at once
 /// without a clip, and looks again [`LOOKS_AGAIN`] before the clip's end; nothing about it at
-/// the half, it goes idle. A fight, an art or another clip in its pick-up's place ends it.
+/// the half, it goes idle. A fight, an art or another clip in its pick-up's place ends it. The
+/// items still in flight count as those at rest: neither the state 12 nor `0x558080` asks after
+/// the flight (`+0x14` bit `0x100000`, which `0x558080` clears as it takes the item; #1646).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -969,7 +972,7 @@ pub(crate) fn collect(
         Res<hero::GameSpeed>,
         Res<Assets<AnimationClip>>,
     ),
-    lying: Query<(Entity, &GlobalTransform, &Lying)>,
+    lying: Query<(Entity, &GlobalTransform, Option<&Flying>), With<Lying>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     busy: Query<(), Busy>,
     mut heroes: Query<(
@@ -988,17 +991,12 @@ pub(crate) fn collect(
         }
         let here = transform.translation;
         let level = body.level();
-        let on_layer = |at: Vec3| {
-            heights
-                .standing(at.x, at.z, level)
-                .is_some_and(|height| (height - at.y).abs() <= SAME_LAYER)
-        };
         let on_layer_items = || {
             lying
                 .iter()
-                .filter(|(_, _, item)| item.resting)
-                .map(|(item, at, _)| (item, at.translation()))
-                .filter(|&(_, at)| on_layer(at))
+                .map(|(item, at, flying)| (item, at.translation(), flying))
+                .filter(|&(_, at, flying)| on_layer(&heights, level, at, flying.map(Flying::level)))
+                .map(|(item, at, _)| (item, at))
                 .collect::<Vec<_>>()
         };
         let rate = hero_rate(combat, frenzy);
@@ -1020,12 +1018,7 @@ pub(crate) fn collect(
                 }
             },
             Collecting::Walking(item) => {
-                let Some(at) = lying
-                    .get(item)
-                    .ok()
-                    .filter(|(_, _, item)| item.resting)
-                    .map(|(_, at, _)| at.translation())
-                else {
+                let Some(at) = lying.get(item).ok().map(|(_, at, _)| at.translation()) else {
                     collects.0 = Collecting::Seeking;
                     continue;
                 };
@@ -1128,6 +1121,20 @@ fn next_item<T: Copy>(here: Vec3, items: impl IntoIterator<Item = (T, Vec3)>) ->
                 d(a.1).total_cmp(&d(b.1))
             })
         })
+}
+
+/// Whether an item at `at` lies on the layer of the hero's `level`, as the collecting takes the
+/// cells' chains of the hero's layer (`0x4EC560`): the height where it lies, at rest its own and
+/// in flight on `flies_on` the height at which it lands, within [`SAME_LAYER`] of the height that
+/// the hero's level gives at its point.
+fn on_layer(heights: &Heights, level: Level, at: Vec3, flies_on: Option<Level>) -> bool {
+    let lies = flies_on.map_or(Some(at.y), |flies_on| {
+        heights.standing(at.x, at.z, flies_on)
+    });
+    heights
+        .standing(at.x, at.z, level)
+        .zip(lies)
+        .is_some_and(|(layer, lies)| (layer - lies).abs() <= SAME_LAYER)
 }
 
 /// Takes every item of `items` that lies on the 3 × 3 cells about the hero at `here`
@@ -1317,6 +1324,42 @@ mod tests {
         );
         let on_its_cell = [(6, cell(101, 101)), (7, here + Vec3::new(5.0, 0.0, 5.0))];
         assert_eq!(next_item(here, on_its_cell).map(|(item, _)| item), Some(7));
+    }
+
+    #[test]
+    fn an_item_in_flight_lies_on_the_layer_it_lands_on() {
+        use opensacred_data::world::{Cell, SIDE, Sector};
+        let ground = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0x40,
+        };
+        let mut heights = Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![ground; SIDE * SIDE],
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        let centre = paths::centre((10, 10));
+        let at = |height| Vec3::new(centre.x, height, centre.y);
+        // At rest by its own height: on the ground, not 60 over it.
+        assert!(on_layer(&heights, None, at(0.0), None));
+        assert!(!on_layer(&heights, None, at(60.0), None));
+        // In flight 60 over the ground, by the ground it lands on (#1646).
+        assert!(on_layer(&heights, None, at(60.0), Some(None)));
+        // Nothing to stand on: on no layer.
+        let far = Vec3::new(-1000.0, 0.0, -1000.0);
+        assert!(!on_layer(&heights, None, far, Some(None)));
     }
 
     #[test]
