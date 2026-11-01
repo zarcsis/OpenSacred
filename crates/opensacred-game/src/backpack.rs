@@ -47,6 +47,13 @@ pub(crate) const REFUSED_TINT: Color = tinted(0xFF, 0x00, 0x00);
 const ITEMS: usize = 10;
 pub(crate) const AMBIENT: f32 = 600.0;
 pub(crate) const LIGHT: f32 = 3_000.0;
+/// The sockets' icons (`cInventoryEntry_render`): the first of an empty socket's and of a filled
+/// one's, of the kind 1 (bronze), then 2 (silver) and 3 (gold), the kind 4 as 3 (`0x5BE9E0`); how
+/// many of an item's sockets show theirs, and how far over its bottom edge they stand.
+const EMPTY_SOCKET: u32 = 393;
+const FILLED_SOCKET: u32 = 396;
+const ICONS: usize = 4;
+const ICONS_UP: f32 = 2.0;
 
 /// A cell's tint of the colour `(r, g, b)` at the alpha `0x40`.
 pub(crate) const fn tinted(r: u8, g: u8, b: u8) -> Color {
@@ -113,6 +120,19 @@ struct Tint((u8, u8));
 #[derive(Component)]
 struct Model(u32);
 
+/// The container of a grid's sockets' icons, over its items' picture, by the render layer of its
+/// items' models.
+#[derive(Component)]
+pub(crate) struct Icons(pub usize);
+
+/// What a grid's items' models and their sockets' icons are made of: the items' tables, the
+/// interface's images and the assets.
+pub(crate) type Looks<'w> = (
+    Option<Res<'w, Tables>>,
+    Res<'w, UiImages>,
+    Res<'w, AssetServer>,
+);
+
 /// Makes the grid, its cells, the items' camera and their picture as the inventory shows, and
 /// takes them away as it hides.
 #[expect(
@@ -170,8 +190,9 @@ pub(crate) fn screen() -> impl Bundle {
 /// Makes a grid of `columns` × `rows` cells at `origin` of the container `parent` (`0x5DC430`):
 /// each cell the image 165 with its tint over it (`tint` of its column and row), and over them a
 /// picture of the window's pixels (`scale` of the original's) that a camera of the render layer
-/// `layer` draws the items' models into, its light with it, both `scene`: the backpack's grid, a
-/// town stash's (`chest`).
+/// `layer` draws the items' models into, its light with it, both `scene`, and over it the
+/// container of the items' sockets' icons ([`Icons`] of `layer`): the backpack's grid, a town
+/// stash's (`chest`), a merchant's.
 pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
     commands: &mut Commands,
     (images, assets): (&UiImages, &AssetServer),
@@ -205,7 +226,8 @@ pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
             commands.entity(grid).add_child(cell);
         }
     }
-    // The items' picture, of the window's pixels, over the cells.
+    // The items' picture, of the window's pixels, over the cells, and their sockets' icons over
+    // it.
     spawn_picture(
         commands,
         (targets, layers),
@@ -213,6 +235,78 @@ pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
         (grid, size),
         (layer, scene),
     );
+    let icons = commands
+        .spawn((
+            Icons(layer),
+            bar::placed(Vec2::ZERO, size),
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(grid).add_child(icons);
+}
+
+/// The icons of the sockets of the items of a grid (`items` by their keys, `grid` their places)
+/// with their top lefts from the grid's (`cInventoryEntry_render`): the first four sockets of a
+/// kind of each (`kinds` of the item), empty or filled, from its rectangle's left along its
+/// bottom, [`ICONS_UP`] over it, each as wide as its image and as high (`size` of the image).
+fn socket_icons(
+    (items, grid): (&[(u32, Dropped)], &Grid),
+    kinds: impl Fn(&Dropped) -> [u8; opensacred_rules::fight::SOCKETS],
+    size: impl Fn(u32) -> Vec2,
+) -> Vec<(u32, Vec2)> {
+    let mut icons = Vec::new();
+    for placed in &grid.items {
+        let Some((_, dropped)) = items.iter().find(|(key, _)| *key == placed.key) else {
+            continue;
+        };
+        let kinds = kinds(dropped);
+        let sockets = kinds.iter().filter(|&&kind| kind != 0).count();
+        let left = f32::from(placed.at.0) * CELL;
+        let bottom = f32::from(placed.at.1 + placed.size.1) * CELL - ICONS_UP;
+        for (i, &kind) in (0_u8..).zip(&kinds).take(sockets.min(ICONS)) {
+            let step = match kind {
+                1 => 0,
+                2 => 1,
+                3 | 4 => 2,
+                _ => continue,
+            };
+            let first = if usize::from(i) < dropped.socketed.len() {
+                FILLED_SOCKET
+            } else {
+                EMPTY_SOCKET
+            };
+            let side = size(first + step).x;
+            icons.push((
+                first + step,
+                Vec2::new(left + f32::from(i) * side, bottom - side),
+            ));
+        }
+    }
+    icons
+}
+
+/// Lays the sockets' icons of the items of a grid into its container of the render layer
+/// `layer` ([`Icons`]), anew.
+pub(crate) fn lay_icons(
+    commands: &mut Commands,
+    (tables, images, assets): (&Tables, &UiImages, &AssetServer),
+    (items, grid): (&[(u32, Dropped)], &Grid),
+    (containers, layer): (&Query<(Entity, &Icons)>, usize),
+) {
+    let Some((container, _)) = containers.iter().find(|(_, icons)| icons.0 == layer) else {
+        return;
+    };
+    commands.entity(container).despawn_children();
+    let kinds = |dropped: &Dropped| tables.own_values(dropped).sockets;
+    for (index, at) in socket_icons((items, grid), kinds, |index| images.size(index)) {
+        let icon = commands
+            .spawn((
+                bar::piece(images, assets, index, at, Vec2::ZERO),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(container).add_child(icon);
+    }
 }
 
 /// Makes a picture of `size` at the corner of the container `parent`, of the window's pixels
@@ -415,14 +509,15 @@ pub(crate) fn refuses(
 
 /// Lays the items' models out as the pack holds them, while the inventory shows: a model for each
 /// item, made as it comes, taken away as it goes, and moved where the item moves (the sort,
-/// #1321).
+/// #1321); and their sockets' icons over them (#1691).
 fn lay_out(
     mut commands: Commands,
     (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     pack: Res<Pack>,
-    (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
+    (tables, images, assets): Looks,
     mut models: Query<(Entity, &Model, &mut Transform)>,
     added: Query<(), Added<Tint>>,
+    icons: Query<(Entity, &Icons)>,
 ) {
     if !shown.0
         || page.0 != ITEMS_PAGE
@@ -443,6 +538,12 @@ fn lay_out(
         (&pack.items, &pack.grid),
         laid,
         (ITEMS, |key| (Scene, Model(key))),
+    );
+    lay_icons(
+        &mut commands,
+        (&tables, &images, &assets),
+        (&pack.items, &pack.grid),
+        (&icons, ITEMS),
     );
 }
 
@@ -599,5 +700,61 @@ mod tests {
         // A record of the scale 0 leaves the model as it is.
         let none = placement((0, 0), (1, 1), Pose::default());
         assert_eq!(none.scale, Vec3::ONE);
+    }
+
+    #[test]
+    fn an_items_sockets_show_their_icons_along_its_bottom_filled_first() {
+        let dropped = |item, socketed: usize| Dropped {
+            kind: opensacred_rules::drops::Kind::Other,
+            item,
+            level: 0,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: (0..socketed)
+                .map(|_| opensacred_rules::smith::Socketed {
+                    item: dropped_ring(),
+                    values: opensacred_rules::fight::ItemValues::default(),
+                    tier: 0,
+                })
+                .collect(),
+        };
+        let mut grid = Grid::new(COLUMNS, ROWS);
+        assert!(grid.place(1, (2, 0), (1, 3)));
+        assert!(grid.place(2, (4, 1), (2, 2)));
+        let items = [(1, dropped(1712, 1)), (2, dropped(4007, 0))];
+        // The dagger: a silver socket filled, then a gold one of the kind 4 and a bronze, empty;
+        // the helmet five sockets, of which four show.
+        let kinds = |dropped: &Dropped| match dropped.item {
+            1712 => [2, 4, 1, 0, 0, 0, 0, 0],
+            _ => [3, 3, 3, 3, 3, 0, 0, 0],
+        };
+        let icons = socket_icons((&items, &grid), kinds, |_| Vec2::splat(8.0));
+        assert_eq!(
+            icons[..3],
+            [
+                (397, Vec2::new(64.0, 86.0)),
+                (395, Vec2::new(72.0, 86.0)),
+                (393, Vec2::new(80.0, 86.0)),
+            ]
+        );
+        assert_eq!(icons.len(), 3 + 4);
+        assert_eq!(icons[6], (395, Vec2::new(128.0 + 24.0, 86.0)));
+    }
+
+    fn dropped_ring() -> Dropped {
+        Dropped {
+            kind: opensacred_rules::drops::Kind::Other,
+            item: 4876,
+            level: 0,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: Vec::new(),
+        }
     }
 }

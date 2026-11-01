@@ -182,14 +182,16 @@ fn show(
     );
 }
 
-/// Lays the items' models out as the store holds them while the window shows.
+/// Lays the items' models out as the store holds them while the window shows, and their sockets'
+/// icons over them.
 fn lay_out(
     mut commands: Commands,
     (shown, opened): (Res<Shown>, Res<Opened>),
     chest: Res<Chest>,
-    (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
+    (tables, images, assets): backpack::Looks,
     mut models: Query<(Entity, &Model, &mut Transform)>,
     added: Query<(), Added<Tint>>,
+    icons: Query<(Entity, &backpack::Icons)>,
 ) {
     if !showing(&shown, &opened) || !(chest.is_changed() || !added.is_empty()) {
         return;
@@ -207,6 +209,12 @@ fn lay_out(
         (&chest.items, &chest.grid),
         laid,
         (ITEMS, |key| (Scene, Model(key))),
+    );
+    backpack::lay_icons(
+        &mut commands,
+        (&tables, &images, &assets),
+        (&chest.items, &chest.grid),
+        (&icons, ITEMS),
     );
 }
 

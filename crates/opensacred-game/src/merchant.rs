@@ -303,13 +303,14 @@ fn shelf(wares: &Wares, page: Page) -> &stock::Shelf {
     &wares.0.shelves[index]
 }
 
-/// Lays the page's items' models out while the window shows.
+/// Lays the page's items' models out while the window shows, and their sockets' icons over them.
 fn lay_out(
     mut commands: Commands,
     (merchant, showing, wares): (Option<Res<Merchant>>, Res<Showing>, Res<Wares>),
-    (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
+    (tables, images, assets): backpack::Looks,
     mut models: Query<(Entity, &Model, &mut Transform)>,
     added: Query<(), Added<Tint>>,
+    icons: Query<(Entity, &backpack::Icons)>,
 ) {
     if merchant.is_none() || !(wares.is_changed() || showing.is_changed() || !added.is_empty()) {
         return;
@@ -328,6 +329,12 @@ fn lay_out(
         (&shelf.items, &shelf.grid),
         laid,
         (ITEMS, |key| (Scene, Model(key))),
+    );
+    backpack::lay_icons(
+        &mut commands,
+        (&tables, &images, &assets),
+        (&shelf.items, &shelf.grid),
+        (&icons, ITEMS),
     );
 }
 
