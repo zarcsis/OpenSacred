@@ -452,11 +452,12 @@ impl Pack {
     }
 }
 
-/// On a press of the left button that went to no attack, the item lying nearest the cursor's
-/// line of sight, if one is near it, becomes the hero's to take, before a door (the pick's
-/// classes, `0x626C50`: the items 2, the doors 3), else with Alt held the item of the label
-/// under the cursor (`0x6270A0`, `labels`), and the hero walks to it; any press ends the last
-/// such order.
+/// On a press of the left button that went to no attack, the item nearest the cursor's line of
+/// sight, if one is near it, becomes the hero's to take, before a door (the pick's classes,
+/// `0x626C50`: the items 2, the doors 3), else with Alt held the item of the label under the
+/// cursor (`0x6270A0`, `labels`), and the hero walks to it; any press ends the last such order.
+/// An item still in flight is picked where it flies, as the original picks among the rectangles
+/// drawn in the frame (#1647).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -468,7 +469,7 @@ pub(crate) fn pick(
     aim: Res<Aim>,
     labels: Res<crate::labels::Shown>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    items: Query<(Entity, &GlobalTransform, &Lying)>,
+    items: Query<(Entity, &GlobalTransform), With<Lying>>,
     mut heroes: Query<(Entity, &mut Body)>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -488,8 +489,7 @@ pub(crate) fn pick(
     };
     let Some((item, at)) = items
         .iter()
-        .filter(|(_, _, lying)| lying.resting)
-        .map(|(item, at, _)| {
+        .map(|(item, at)| {
             let at = at.translation();
             (item, at, attack::from_line(ray, at))
         })
@@ -500,7 +500,7 @@ pub(crate) fn pick(
             let item = labels
                 .under(cursor)
                 .filter(|_| crate::labels::held(&keys))?;
-            let (item, at, _) = items.get(item).ok()?;
+            let (item, at) = items.get(item).ok()?;
             Some((item, at.translation()))
         })
     else {
@@ -513,8 +513,8 @@ pub(crate) fn pick(
     }
 }
 
-/// Sends the hero to take the item lying nearest it (the command `take`), as a click on it does:
-/// a line of which item.
+/// Sends the hero to take the item nearest it, lying or still in flight (the command `take`), as
+/// a click on it does: a line of which item.
 pub fn take_nearest(world: &mut World) -> Result<String, String> {
     let mut heroes = world.query_filtered::<(Entity, &Transform), With<Body>>();
     let (hero, here) = heroes
@@ -525,13 +525,12 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
     let mut items = world.query::<(Entity, &GlobalTransform, &Lying)>();
     let (item, at, lying) = items
         .iter(world)
-        .filter(|(_, _, lying)| lying.resting)
         .map(|(item, at, lying)| (item, at.translation(), *lying))
         .min_by(|a, b| {
             let d = |at: Vec3| (at - here).xz().length_squared();
             d(a.1).total_cmp(&d(b.1))
         })
-        .ok_or("no item lies on the ground")?;
+        .ok_or("no item lies on the ground or flies")?;
     let mut body = world
         .get_mut::<Body>(hero)
         .ok_or("the hero is not in the world yet")?;

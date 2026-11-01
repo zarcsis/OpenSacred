@@ -4,8 +4,8 @@
 //! the sword, the bow with a bow or a crossbow in a hand, the pistol with a gun (`MOUSE_ATTACK`,
 //! `MOUSE_ATTACKA`, `MOUSE_GUN`); over another creature a trader's sign by its trades, else the
 //! speech bubble where it has a dialogue (`MOUSE_TRADER`, `MOUSE_COMBO`, `MOUSE_BLACKSMITH`,
-//! `MOUSE_HORSETRADER`, `MOUSE_DIALOG04`); the hand over an item lying on the ground and over a
-//! door (`mouse_action`), and over the stairs where a click sends the hero (`0x616AD0`); else,
+//! `MOUSE_HORSETRADER`, `MOUSE_DIALOG04`); the hand over an item, lying on the ground or still in
+//! flight (#1647), and over a door (`mouse_action`), and over the stairs where a click sends the hero (`0x616AD0`); else,
 //! over the interface and outside a game, the arrow (`MOUSE_MAIN`). `hud` puts the picture on the
 //! window. Beside the hand over an item, the item's name.
 //!
@@ -217,7 +217,7 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
 /// The cursor's look at each frame: the arrow outside a game, while a dialogue's window shows and
 /// over the interface; else by what lies nearest the cursor's line of sight, as a click picks it
 /// (`attack::from_line`): a living foe first, then a creature of a dialogue or a trader, then an
-/// item lying on the ground, then a door, then the stairs of the cell a click sends the hero to
+/// item, lying or in flight, then a door, then the stairs of the cell a click sends the hero to
 /// (`pick`).
 #[expect(
     clippy::too_many_arguments,
@@ -327,13 +327,7 @@ fn choose(
             .or_else(|| {
                 let (_, kind, text) = items
                     .iter()
-                    .filter_map(|(at, lying, text)| {
-                        lying
-                            .resting
-                            .then(|| near(at))
-                            .flatten()
-                            .map(|d| (d, lying.dropped, text))
-                    })
+                    .filter_map(|(at, lying, text)| Some((near(at)?, lying.dropped, text)))
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
                 item = Some((Some(kind), text.map(|text| text.0.clone())));
                 Some(Look::Hand)
