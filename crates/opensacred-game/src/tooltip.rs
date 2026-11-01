@@ -164,12 +164,21 @@ impl Weighing<'_, '_> {
         let (bonuses, left) =
             opensacred_rules::smith::shown_bonuses(values.bonuses, &dropped.socketed);
         values.bonuses = bonuses;
-        let made = dropped.values.is_some();
-        // A made item's levels by its own values (`0x5D3AB0` at `0x5D56FA`), another's as its
-        // record holds them: a potion's none, a scroll's level none (seen, #1273); with its
-        // sockets filled, at least theirs, the level asked of it (`0x5C0810`, #1661).
+        // A made item's levels by its own values (`0x5D3AB0` at `0x5D56FA`), and a set's piece's,
+        // whose record holds the level 1 (seen: the set 1's arm protectors 4050 of the level 9 and
+        // 5 asked, #1701); another's as its record holds them: a potion's none, a scroll's level
+        // none (seen, #1273); with its sockets filled, at least theirs, the level asked of it
+        // (`0x5C0810`, #1661). A set's piece's record values take its template's scale, which
+        // the client's estimate of every record's level and the pace's slowing read.
+        let piece = tables.set_name(dropped.item).is_some();
+        let made = dropped.values.is_some() || piece;
+        let mut own = tables.own_values(dropped);
+        if piece && dropped.values.is_none() {
+            own.scale = tables.template_scale(dropped.item);
+            values.scale = own.scale;
+        }
         let own = if made {
-            opensacred_rules::fight::item_level(&tables.own_values(dropped), &self.rules)
+            opensacred_rules::fight::item_level(&own, &self.rules)
         } else {
             u32::from(record.level)
         };
