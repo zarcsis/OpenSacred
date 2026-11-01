@@ -60,6 +60,7 @@ use opensacred_data::world::{
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
+use crate::sectors::Staged;
 use crate::terrain::read_texture;
 use crate::{buildings, files, iso, liquids};
 
@@ -294,13 +295,20 @@ impl Plugin for StaticsPlugin {
 #[derive(Default)]
 pub struct Statics {
     batches: Vec<Batch>,
-    pages: Vec<Image>,
+    pages: Vec<Staged>,
     /// The floors that the quads of the buildings' parts stand on, for the models.
     floors: Vec<Floor>,
     /// The glows over the light sources' miniatures, for [`spawn_glows`].
     pub glows: Vec<Glows>,
     pub objects: usize,
     pub drawn: usize,
+}
+
+impl Statics {
+    /// Its sprites' pages, which may go to the render world ahead of it (`sectors`).
+    pub fn staged(&mut self) -> impl Iterator<Item = &mut Staged> {
+        self.pages.iter_mut()
+    }
 }
 
 /// The glows over the light sources' miniatures of a building's part, or of none.
@@ -1184,8 +1192,8 @@ pub fn build(
     }
     let pages = pages
         .into_iter()
-        .map(|page| -> Result<Image> {
-            Ok(Image::new(
+        .map(|page| -> Result<Staged> {
+            Ok(Staged::Waiting(Image::new(
                 Extent3d {
                     width: u32::try_from(page.width)?,
                     height: u32::try_from(page.height.max(1))?,
@@ -1199,7 +1207,7 @@ pub fn build(
                 },
                 TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
-            ))
+            )))
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Statics {
@@ -1410,7 +1418,11 @@ pub fn spawn(
     materials: &mut Assets<SpriteMaterial>,
     Common { shadows, fade }: Common<'_>,
 ) -> Vec<Entity> {
-    let pages: Vec<Handle<Image>> = statics.pages.into_iter().map(|p| images.add(p)).collect();
+    let pages: Vec<Handle<Image>> = statics
+        .pages
+        .into_iter()
+        .map(|page| page.handle(images))
+        .collect();
     let mut entities: Vec<Entity> = statics
         .floors
         .into_iter()

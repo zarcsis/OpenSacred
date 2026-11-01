@@ -14,11 +14,10 @@ import package::post::post_process;
 /// The slot of every cell of the sector, row by row.
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var cells: texture_2d<u32>;
 
-/// Cells per side of a sector, and the slots' layout (`terrain::SLOT_W`, `SLOT_H`,
-/// `SLOTS_PER_ROW`): a 96 x 48 box and a border of one texel.
+/// Cells per side of a sector, and the slots' layout (`terrain::slot_origin`): diamonds of
+/// 96 x 48 texels laid edge to edge, 64 a row, a row 24 texels below the one before and every
+/// other shifted by 48.
 const SIDE: i32 = 64;
-const SLOT_W: i32 = 98;
-const SLOT_H: i32 = 50;
 const SLOTS_PER_ROW: i32 = 64;
 
 /// sRGB values to linear light.
@@ -33,10 +32,15 @@ fn texel(t: vec2<f32>) -> vec4<f32> {
     let c = clamp(i32(floor((t.x / 48.0 + t.y / 24.0) * 0.5)), 0, SIDE - 1);
     let r = clamp(i32(floor((t.y / 24.0 - t.x / 48.0) * 0.5)), 0, SIDE - 1);
     let slot = i32(textureLoad(cells, vec2(c, r), 0).r);
-    // The texel in the cell's box, whose top left lies at (48 (c - r) - 48, 24 (c + r)).
-    let x = clamp(i32(floor(t.x - f32(48 * (c - r) - 48))), -1, 96);
-    let y = clamp(i32(floor(t.y - f32(24 * (c + r)))), -1, 48);
-    let at = vec2((slot % SLOTS_PER_ROW) * SLOT_W + 1 + x, (slot / SLOTS_PER_ROW) * SLOT_H + 1 + y);
+    // The texel in the cell's box, whose top left lies at (48 (c - r) - 48, 24 (c + r)): within
+    // the sector, one of its diamond's, as the texel lies in the cell. Past the sector's edge the
+    // nearest cell's row is held at the diamond's edge, the texels of the box outside it being
+    // its neighbours' in the atlas: row y of the diamond runs from |2y - 47| to 95 - |2y - 47|.
+    let y = clamp(i32(floor(t.y - f32(24 * (c + r)))), 0, 47);
+    let edge = abs(2 * y - 47);
+    let x = clamp(i32(floor(t.x - f32(48 * (c - r) - 48))), edge, 95 - edge);
+    let row = slot / SLOTS_PER_ROW;
+    let at = vec2((slot % SLOTS_PER_ROW) * 96 + 48 * (row % 2) + x, row * 24 + y);
     return textureLoad(atlas, at, 0);
 }
 
