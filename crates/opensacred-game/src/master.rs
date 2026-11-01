@@ -15,7 +15,9 @@
 //! only where the gold is above the cost (`0x6D26D0`, `0x6D22A0`): the combo set, the gold taken,
 //! the page cleared and the combos page selected (`opensacred_rules::combos`).
 //!
-//! Not followed: the EXCHANGE page (`cUI_MasterLotto`), the window's sounds, the spells page's
+//! The window and its combos page play the combo master's sound as they show (#1722).
+//!
+//! Not followed: the EXCHANGE page (`cUI_MasterLotto`), the buttons' sounds, the spells page's
 //! view under the master (the Vampiress's arts not greyed), and a combo on the page's tooltip.
 
 use bevy::prelude::*;
@@ -125,12 +127,24 @@ pub struct Master {
 #[derive(Component)]
 struct WindowRoot;
 
-/// Shows the master's window for `creature` with the inventory (`0x52AB70`).
+/// The combo master's sound (7110), which the window and its combos page play as they show.
+const SHOW_SOUND: u32 = 7110;
+
+/// Shows the master's window for `creature` with the inventory (`0x52AB70`), with its sounds.
 pub fn open(world: &mut World, creature: Entity) {
     let kind = world
         .get::<crate::ai::Mind>(creature)
         .map_or(0, |mind| mind.creature);
     info!("master: {creature}, a {kind}, shows its window");
+    // The combo master's sound as the window shows (`0x6D1360`: the event (14, 2, `0x20`)) and
+    // again as its combos page shows with it (`0x6D24A0`: (14, 2, `0x21`)), #1722.
+    for _ in 0..2 {
+        world.write_message(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(SHOW_SOUND),
+            at: None,
+            rate: (0.5, crate::sfx::Roll::None),
+        });
+    }
     world.insert_resource(Master {
         creature,
         kind,

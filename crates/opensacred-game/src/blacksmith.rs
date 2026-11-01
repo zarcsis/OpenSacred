@@ -22,8 +22,8 @@
 //! the smith's feet (`0x6A3080`).
 //!
 //! Not followed yet: the Dwarf smithing by his skill 33 (his button of the inventory, the third
-//! button's picture 1606 and his checks), the item's check `0xE`, the window's sounds, the
-//! tooltips of the item, the upgrades and the sockets' items and the waiting item's lines beside
+//! button's picture 1606 and his checks), the item's check `0xE`, the window's sounds but its show's
+//! (#1722), the tooltips of the item, the upgrades and the sockets' items and the waiting item's lines beside
 //! the grid, the right button's press that works too, and a network game's events.
 
 use bevy::camera::visibility::RenderLayers;
@@ -240,8 +240,11 @@ pub(crate) fn holds_upgrade(pack: &Pack, tables: &Tables) -> bool {
         .is_some_and(|held| tables.category(held.dropped.item) == smith::UPGRADES)
 }
 
+/// The smith's sound (7108), which the window plays as it shows.
+const SHOW_SOUND: u32 = 7108;
+
 /// Shows the smith's window for `creature` with the inventory (`0x52AB70`), his tier by his type
-/// and the difficulty.
+/// and the difficulty, with its sound.
 pub fn open(world: &mut World, creature: Entity) {
     let kind = world
         .get::<crate::ai::Mind>(creature)
@@ -252,6 +255,12 @@ pub fn open(world: &mut World, creature: Entity) {
         .unwrap_or_default();
     let tier = Smith::Creature { kind }.tier(u8::try_from(difficulty.index()).unwrap_or(0));
     info!("blacksmith: {creature}, a {kind}, shows its window, of the tier {tier}");
+    // The smith's sound as the window shows (`0x6A41F0`: the event (14, 2, `0x1E`), #1722).
+    world.write_message(crate::sfx::Play {
+        sound: crate::sfx::Of::Id(SHOW_SOUND),
+        at: None,
+        rate: (0.5, crate::sfx::Roll::None),
+    });
     world.insert_resource(Blacksmith {
         creature,
         kind,

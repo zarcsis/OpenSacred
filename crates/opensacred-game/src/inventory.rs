@@ -104,8 +104,9 @@ pub struct Opening(pub Option<u8>);
 #[derive(Component)]
 struct Tab(u8);
 
-/// The sound of the spells' page as it shows (`0x6C1E60`: (14, 2, 2), `UI_CLICK01`).
-const SPELLS_SHOW: u32 = 7000;
+/// The sound of the spells' and the combos' pages as they show (`0x6C1E60`, `0x6BF3F0`: (14, 2,
+/// 2) and (14, 2, 3), `UI_CLICK01`).
+const PAGE_SHOW: u32 = 7000;
 
 /// The container of the windows, the original's screen centred along the window's width.
 #[derive(Component)]
@@ -457,13 +458,12 @@ pub(crate) fn spawn_tabs(
     (tabs, each)
 }
 
-/// A left click on a tab shows its page (`cUI_TabSheet`, `0x729980`), the spells' with its sound.
+/// A left click on a tab shows its page (`cUI_TabSheet`, `0x729980`).
 fn select(
     buttons: Res<ButtonInput<MouseButton>>,
     (shown, mut page): (Res<Shown>, ResMut<Page>),
     (pointer, windows): (Res<Pointer>, Query<&Window>),
     tabs: Query<(&Tab, &ComputedNode, &UiGlobalTransform)>,
-    mut sounds: MessageWriter<sfx::Play>,
 ) {
     if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -484,9 +484,26 @@ fn select(
         return;
     }
     page.0 = tab;
-    if tab == crate::spells_page::PAGE {
+}
+
+/// The pages' sounds as they show, whichever way they come (a tab, a key, the windows shown on
+/// them): the spells' (`0x6C1E60`, (14, 2, 2)) and the combos' (`0x6BF3F0`, (14, 2, 3)),
+/// `UI_CLICK01` both (#1722).
+fn page_sounds(
+    shown: Res<Shown>,
+    page: Res<Page>,
+    mut sounds: MessageWriter<sfx::Play>,
+    mut last: Local<Option<u8>>,
+) {
+    let now = shown.0.then_some(page.0);
+    if *last == now {
+        return;
+    }
+    *last = now;
+    if now.is_some_and(|page| page == crate::spells_page::PAGE || page == crate::combos_page::PAGE)
+    {
         sounds.write(sfx::Play {
-            sound: sfx::Of::Id(SPELLS_SHOW),
+            sound: sfx::Of::Id(PAGE_SHOW),
             at: None,
             rate: (0.5, sfx::Roll::None),
         });
@@ -577,6 +594,7 @@ impl Plugin for InventoryPlugin {
                 (
                     show.in_set(Opened),
                     select.in_set(Opened).after(show),
+                    page_sounds.after(Opened),
                     sort.after(Opened),
                 )
                     .run_if(in_state(AppState::InGame)),

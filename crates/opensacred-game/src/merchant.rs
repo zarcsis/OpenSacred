@@ -18,9 +18,11 @@
 //! adds the price and puts the item onto the page of its category, where the hero may buy it
 //! back at its price as bought.
 //!
+//! The window plays the trader's sound as it shows (14, 2, `0x1F`; #1722).
+//!
 //! Not followed yet: the pieces of the frame (its panel's edges drawn as the master's), the
-//! page's show's sound (14, 2, `0x1F`), the switch of each item to the hero's class's variant as
-//! a page shows (`0x5C7370`), the stock's keeping in the saves, and the trade's sounds.
+//! switch of each item to the hero's class's variant as a page shows (`0x5C7370`), the stock's
+//! keeping in the saves, and the trade's sounds.
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -111,8 +113,11 @@ struct Model(u32);
 #[derive(Component)]
 struct Tab(Page);
 
+/// The trader's sound (7109), which the window plays as it shows.
+const SHOW_SOUND: u32 = 7109;
+
 /// Shows the merchant's window for `creature` with the inventory (`0x52AB70`), its stock made
-/// for it.
+/// for it, with its sound.
 pub fn open(world: &mut World, creature: Entity) {
     let kind = world
         .get::<crate::ai::Mind>(creature)
@@ -121,6 +126,12 @@ pub fn open(world: &mut World, creature: Entity) {
         .get::<crate::fight::Health>(creature)
         .map_or(1, |health| health.level);
     info!("merchant: {creature}, a {kind} of level {level}, shows its window");
+    // The trader's sound as the window shows (the event (14, 2, `0x1F`), #1722).
+    world.write_message(crate::sfx::Play {
+        sound: crate::sfx::Of::Id(SHOW_SOUND),
+        at: None,
+        rate: (0.5, crate::sfx::Roll::None),
+    });
     world.insert_resource(Merchant {
         creature,
         kind,
