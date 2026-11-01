@@ -425,10 +425,18 @@ pub(crate) fn spawn(
     }
     // The slots and the rail come with the level; the housing and the buttons over them, then
     // the belt.
-    let mut top = vec![image(HOUSING.0, HOUSING.1, BAR.min)];
-    top.extend(BUTTONS.map(|(index, at)| image(index, at, BAR.min)));
-    for bundle in top {
-        let child = commands.spawn((bundle, ZIndex(1))).id();
+    let housing = commands
+        .spawn((image(HOUSING.0, HOUSING.1, BAR.min), ZIndex(1)))
+        .id();
+    commands.entity(bar).add_child(housing);
+    for (index, at) in BUTTONS {
+        let child = commands
+            .spawn((
+                image(index, at, BAR.min),
+                ZIndex(1),
+                crate::control_glow::Glows,
+            ))
+            .id();
         commands.entity(bar).add_child(child);
     }
     for (kind, at) in (1..).zip(BELT) {
@@ -437,6 +445,7 @@ pub(crate) fn spawn(
                 crate::belt::Flask::new(kind),
                 image(EMPTY_FLASK, at, BAR.min),
                 ZIndex(2),
+                crate::control_glow::Glows,
             ))
             .id();
         commands.entity(bar).add_child(child);
