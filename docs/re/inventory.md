@@ -85,6 +85,7 @@ Its layout (`0x6C6490`), from the window's corner:
   The turns are radians (the torch 5633: 1.65, −1.52, 0.25, 0; the potions: 2.5 and no turn).
 - Seen in the grid (#1268), the turns about x and z run the other way in the models as `opensacred-convert` writes them (Z up taken to Y up by a turn): the original's frames of the large torch 5633, the Daemonia's arms 1218 and the staff 2666 match only through a mirror of the files' y about the transform (**hypothesis**: the game's frame of the models mirrors their files' y).
   The kite shield 1200 matches the original's frame without the 30°, so what that 30 changes is open.
+- The model's texels pass the alpha test of every model (`cGranny::render`, docs/re/drawing.md, "The models"): the smith's upgrades' token (`verbessern.grn`) shows round, its square texture's corners left out (**seen** in its window's sockets, #1679); the game's windows' models test it too since #1679 (`backpack::layer`), where the converted glTF's material is opaque.
 - The sockets: up to four icons of 8 × 8 along the bottom of the item's rectangle from its left, 2 pixels over its bottom edge, the images 393 to 395 (`GUI_main_icons`) for an empty socket of the kinds 1 to 3 and 396 to 398 for a filled one (`0x5BE9C0` the count, `0x5BE9E0` the kind, `0x5BEAE0` filled).
 - An item whose cell's type disagrees, or that another holds (`+0x30`), is logged and left out of the grid.
 
