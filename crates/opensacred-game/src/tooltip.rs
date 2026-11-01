@@ -293,13 +293,14 @@ struct Root;
 struct Scene;
 
 /// Where the item that a tooltip shows lies: the backpack's grid, a page of a merchant's (#1618),
-/// or a weapon set's slot of the bar (#1689); or the art slot of the bar whose art it shows
-/// (#1694).
+/// a weapon set's slot of the bar (#1689) or a slot of the equipment window (#1704); or the art
+/// slot of the bar whose art it shows (#1694).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Source {
     Backpack,
     Merchant(opensacred_rules::trade::stock::Page),
     WeaponSet,
+    Worn,
     ArtSlot,
     SpellsPage,
 }
@@ -318,6 +319,9 @@ const FROM_ICON: Vec2 = Vec2::new(70.0, 32.0);
 /// A weapon set's slot's item's tooltip's corner from the slot's, as the taskbar shows it
 /// (`0x6E4560`): its middle less 64 along, 128 up.
 const FROM_SLOT: Vec2 = Vec2::new(32.0 - 64.0, -128.0);
+
+/// A worn item's tooltip's corner from its frame's top right (`0x6B7700`, the style `0xA`).
+const FROM_FRAME: f32 = 8.0;
 
 /// The tooltip shown: what it shows (the grid's item by its key), its place on the original's
 /// screen before it is kept within it.
@@ -339,7 +343,8 @@ type Merchant<'w> = (
 /// merchant's page's item with its price as bought (`0x6DAA70`), made as the pointer comes to an
 /// item and taken away as it leaves it (`0x6C1480`); and of a weapon set's slot's item of the
 /// bar, the hand by the half the pointer is on, whether the inventory shows or not (`0x6E4560`,
-/// #1689); and of an art slot's art (`0x5893B0`, #1694).
+/// #1689); of an item worn in the equipment window (`0x6B7700`, #1704); and of an art slot's art
+/// (`0x5893B0`, #1694).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -360,7 +365,10 @@ fn grid(
     (images, assets): (Res<UiImages>, Res<AssetServer>),
     (mut targets, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
     (panels, scenes): (Query<(Entity, &Panel)>, Query<Entity, With<Scene>>),
-    roots: Query<Entity, With<Root>>,
+    (roots, frames): (
+        Query<Entity, With<Root>>,
+        Query<&crate::equipment::SlotFrame>,
+    ),
 ) {
     let shown_page = shown;
     let shown = shown_page.as_ref().is_some_and(|shown| shown.0);
@@ -398,6 +406,18 @@ fn grid(
             Source::Backpack,
             placed.key,
             at_item(GRID, placed),
+            Shows::Item(dropped),
+        ))
+    };
+    // A worn item's at its frame's right edge and 8 and its top (`0x6B7700`).
+    let worn = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let (slot, rect) = crate::equipment::under(frames, at)?;
+        let (key, dropped) = pack.worn.get(usize::from(slot))?.clone()?;
+        Some((
+            Source::Worn,
+            key,
+            Vec2::new(rect.max.x + FROM_FRAME, rect.min.y),
             Shows::Item(dropped),
         ))
     };
@@ -445,7 +465,7 @@ fn grid(
         ))
     };
     let under = shown
-        .then(|| sold().or_else(carried).or_else(on_page))
+        .then(|| sold().or_else(carried).or_else(worn).or_else(on_page))
         .flatten()
         .or_else(held_by_set)
         .or_else(art_in_slot);

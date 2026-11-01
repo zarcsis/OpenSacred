@@ -12,6 +12,9 @@
 //! the first, the old item into the cell it left. The worn items are their 3D models centred in
 //! their frames, drawn by a camera of their own as the grid's are (`backpack`).
 //!
+//! The tooltips (#1704, `0x6B7700`): an empty slot's its control's text ([`tips`]), a worn
+//! item's its lines at the frame's right (`tooltip`).
+//!
 //! The hero's fight takes the worn items' values (#1290, `0x5796A0`): its attack, defence,
 //! damage, resistances and regeneration made anew with them, its effects, at its level, as its
 //! level-up makes them.
@@ -56,7 +59,79 @@ const WORN: usize = 12;
 
 /// A slot's frame, of its slot, and its rectangle in the window.
 #[derive(Component)]
-struct SlotFrame(u8, Rect);
+pub(crate) struct SlotFrame(u8, Rect);
+
+/// The slot whose frame holds the point `at` of the original's screen, and the frame's rectangle
+/// on the screen.
+pub(crate) fn under<'a>(
+    frames: impl IntoIterator<Item = &'a SlotFrame>,
+    at: Vec2,
+) -> Option<(u8, Rect)> {
+    let local = at - EQUIPMENT.min;
+    frames
+        .into_iter()
+        .find(|frame| frame.1.contains(local))
+        .map(|frame| {
+            (
+                frame.0,
+                Rect::from_corners(frame.1.min + EQUIPMENT.min, frame.1.max + EQUIPMENT.min),
+            )
+        })
+}
+
+/// The text of the tooltip of the slot `slot`'s control, which an empty slot shows (the class's
+/// builder, as `0x6B97D0`, `0x7327A0`): every class's ring, amulet and shoulder slots one text
+/// each, the Dwarf's shoulder control's other name among them.
+fn slot_text(slot: u8) -> Option<&'static str> {
+    Some(match slot {
+        0 => "UI_SLOT_HELMET",
+        1 => "UI_SLOT_ARMOR",
+        2 => "UI_SLOT_BELT",
+        3 => "UI_SLOT_BOOTS",
+        4 => "UI_SLOT_GLOVES",
+        5 => "UI_SLOT_BRACERS",
+        6 | 7 => "UI_SLOT_AMULETT",
+        8..=11 => "UI_SLOT_RING",
+        14 => "UI_SLOT_CANON",
+        15 => "UI_SLOT_SHOULDER",
+        16 => "UI_SLOT_GREAVES",
+        17 => "UI_SLOT_WINGS",
+        _ => return None,
+    })
+}
+
+/// An empty slot's tooltip (`0x6B7700`): its control's text after the rest, of the style `0x209`
+/// centred on the frame's top left (seen: the Seraphim's helmet's and cuirass's), taken away as
+/// the pointer leaves it or an item fills it. A worn item's tooltip is the items' (`tooltip`).
+fn tips(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (pack, frames): (Res<Pack>, Query<&SlotFrame>),
+    (assets, texts): (Res<AssetServer>, Option<Res<crate::lines::Texts>>),
+    tips: Query<Entity, With<crate::tooltip::TipRoot>>,
+    mut rest: Local<crate::tooltip::Rest>,
+) {
+    let under = crate::inventory::screen_point(&pointer, &ui_scale, &windows)
+        .and_then(|at| under(frames, at))
+        .filter(|&(slot, _)| {
+            pack.worn
+                .get(usize::from(slot))
+                .is_some_and(Option::is_none)
+        });
+    let (gone, due) = rest.step(under.map(|(slot, _)| u32::from(slot)), time.elapsed_secs());
+    if gone {
+        for tip in &tips {
+            commands.entity(tip).despawn();
+        }
+    }
+    let (Some(_), Some((slot, rect))) = (due, under) else {
+        return;
+    };
+    if let Some(text) = slot_text(slot).and_then(|key| texts.as_deref()?.named(key)) {
+        crate::tooltip::spawn_tip(&mut commands, &assets, text, rect.min);
+    }
+}
 
 /// The worn items' camera, light and models.
 #[derive(Component)]
@@ -366,12 +441,7 @@ fn click(
     let Some(at) = crate::inventory::screen_point(&pointer, &ui_scale, &windows) else {
         return;
     };
-    let local = at - EQUIPMENT.min;
-    let Some(slot) = frames
-        .iter()
-        .find(|frame| frame.1.contains(local))
-        .map(|frame| frame.0)
-    else {
+    let Some((slot, _)) = under(frames, at) else {
         return;
     };
     let worn = pack.worn.get(usize::from(slot)).cloned().flatten();
@@ -559,6 +629,7 @@ impl Plugin for EquipmentPlugin {
                     .after(crate::inventory::Opened)
                     .before(backpack::layer),
                 (refit, dress).after(click),
+                tips.after(click),
             )
                 .run_if(in_state(AppState::InGame)),
         );
@@ -568,6 +639,24 @@ impl Plugin for EquipmentPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_classs_slot_has_its_text_and_is_found_on_the_screen() {
+        for hero in 1..=9 {
+            assert!(
+                frames(hero)
+                    .iter()
+                    .all(|frame| slot_text(frame.slot).is_some())
+            );
+        }
+        assert_eq!(slot_text(12), None);
+        assert_eq!(slot_text(10), Some("UI_SLOT_RING"));
+        // The Seraphim's helmet at (96, 6) of the window, 64 × 64.
+        let helmet = SlotFrame(0, Rect::new(96.0, 6.0, 160.0, 70.0));
+        let rect = Rect::new(752.0, 394.0, 816.0, 458.0);
+        assert_eq!(under([&helmet], Vec2::new(784.0, 425.0)), Some((0, rect)));
+        assert_eq!(under([&helmet], Vec2::new(700.0, 425.0)), None);
+    }
 
     #[test]
     fn the_hero_shows_the_worn_slots_and_the_amulets_but_not_the_rings() {
