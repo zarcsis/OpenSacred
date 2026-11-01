@@ -63,6 +63,7 @@ impl Supply for Fake {
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         })
     }
 }
@@ -286,6 +287,7 @@ fn the_same_merchant_again_keeps_the_stock_in_one_case_of_two() {
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         },
         (2, 2),
     );

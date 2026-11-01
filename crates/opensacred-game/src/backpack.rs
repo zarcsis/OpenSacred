@@ -326,7 +326,7 @@ fn tint(
     if !shown.0 {
         return;
     }
-    let held = pack.held.and_then(|held| {
+    let held = pack.held.as_ref().and_then(|held| {
         let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
         cell_under(at)?;
         let cell = held_at((at.x, at.y), held.size);

@@ -421,7 +421,7 @@ impl Probe<'_, '_> {
                         hero.translation,
                         self.drops
                             .iter()
-                            .map(|(at, lying)| (at.translation, *lying)),
+                            .map(|(at, lying)| (at.translation, lying.clone())),
                         NEAREST_DROPS,
                     )
                 })

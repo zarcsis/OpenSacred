@@ -327,7 +327,7 @@ fn choose(
             .or_else(|| {
                 let (_, kind, text) = items
                     .iter()
-                    .filter_map(|(at, lying, text)| Some((near(at)?, lying.dropped, text)))
+                    .filter_map(|(at, lying, text)| Some((near(at)?, lying.dropped.clone(), text)))
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
                 item = Some((Some(kind), text.map(|text| text.0.clone())));
                 Some(Look::Hand)
@@ -503,6 +503,7 @@ mod tests {
                 amount: 1,
                 values: None,
                 named: None,
+                socketed: Vec::new(),
             };
             Named(Some((Some(dropped), text.map(str::to_owned))))
         };

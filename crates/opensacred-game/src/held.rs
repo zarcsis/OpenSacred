@@ -96,7 +96,7 @@ fn click(
     let Some(cell) = cell_under(at) else {
         return;
     };
-    let Some(held) = pack.held else {
+    let Some(held) = pack.held.clone() else {
         // Shift's press goes to the shops, the stash or the ground (`0x6C0150`, [`drop_shifted`]),
         // never onto the cursor.
         if !keys.pressed(crate::controls::Action::SendItem) && pack.lift(cell) {
@@ -137,14 +137,14 @@ fn show(
     if !pack.is_changed() {
         return;
     }
-    let key = pack.held.map(|held| held.key);
+    let key = pack.held.as_ref().map(|held| held.key);
     if models.iter().map(|model| model.key).next() == key {
         return;
     }
     for view in &views {
         commands.entity(view).despawn();
     }
-    let (Some(held), Some(tables), Some(window)) = (pack.held, tables, window) else {
+    let (Some(held), Some(tables), Some(window)) = (pack.held.as_ref(), tables, window) else {
         return;
     };
     let Some((model, texture, pose)) = tables.look(held.dropped.item) else {

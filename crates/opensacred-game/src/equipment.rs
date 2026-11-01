@@ -264,6 +264,7 @@ fn tint(
     };
     let asks = pack
         .held
+        .as_ref()
         .zip(tables.as_deref())
         .map(|(held, tables)| tables.asks(&held.dropped, &rules));
     for (frame, mut image) in &mut frames {
@@ -329,7 +330,7 @@ fn click(
             .items
             .iter()
             .find(|(key, _)| *key == placed.key)
-            .map(|(_, dropped)| *dropped)
+            .map(|(_, dropped)| dropped.clone())
         else {
             return;
         };
@@ -352,7 +353,7 @@ fn click(
         let old_size = pack
             .worn
             .get(usize::from(slot))
-            .copied()
+            .cloned()
             .flatten()
             .map_or((1, 1), |(_, old)| size(old.item));
         if pack.wear(placed.key, slot, old_size) {
@@ -373,7 +374,7 @@ fn click(
     else {
         return;
     };
-    let worn = pack.worn.get(usize::from(slot)).copied().flatten();
+    let worn = pack.worn.get(usize::from(slot)).cloned().flatten();
     if right {
         if let Some((_, dropped)) = worn
             && pack.unwear(slot, size(dropped.item))
@@ -382,7 +383,7 @@ fn click(
         }
         return;
     }
-    let Some(held) = pack.held else {
+    let Some(held) = pack.held.clone() else {
         if let Some((_, dropped)) = worn
             && pack.take_off(slot, size(dropped.item))
         {
@@ -436,21 +437,32 @@ fn refit(
         ),
         With<Body>,
     >,
-    mut seen: Local<Vec<u32>>,
+    mut seen: Local<Vec<(u32, usize)>>,
 ) {
     let Some(tables) = tables else {
         return;
     };
-    let worn: Vec<u32> = pack.worn.iter().flatten().map(|&(key, _)| key).collect();
+    // The worn items by their keys and their sockets filled, which a change of either makes anew.
+    let worn: Vec<(u32, usize)> = pack
+        .worn
+        .iter()
+        .flatten()
+        .map(|(key, d)| (*key, d.socketed.len()))
+        .collect();
     if *seen == worn {
         return;
     }
     for (entity, base, mut holding, mut combat, mut regenerates, effects, old) in &mut heroes {
+        // Each item's values with its sockets', then the bonus slots of the items in its
+        // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661).
         let values: Vec<fight::ItemValues> = pack
             .worn
             .iter()
             .flatten()
-            .map(|(_, d)| tables.values(d))
+            .flat_map(|(_, d)| {
+                std::iter::once(tables.values(d))
+                    .chain(opensacred_rules::smith::bonuses(&d.socketed))
+            })
             .collect();
         let mut holds = holding.0.clone();
         let arms = holds

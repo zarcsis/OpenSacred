@@ -101,7 +101,7 @@ pub enum Kind {
 }
 
 /// An item that a death drops.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Dropped {
     /// What the pass drew; its item is the dagger 1712 where no type of the kind was found.
     pub kind: Kind,
@@ -123,6 +123,9 @@ pub struct Dropped {
     /// the digit 1 taken where it counts no bonus. `None` for an item that it did not make, which
     /// goes by its type's name.
     pub named: Option<bool>,
+    /// The items in its sockets, in the order the smith put them there (its object's list of
+    /// records, `+0x100`; [`crate::smith::fill`]), none as it drops.
+    pub socketed: Vec<crate::smith::Socketed>,
 }
 
 /// The difficulties, bronze to niobium (the int `0x182EE44`, 0 to 4).
@@ -873,6 +876,7 @@ pub fn gold_pile(amount: u32) -> Dropped {
         amount,
         values: None,
         named: None,
+        socketed: Vec::new(),
     }
 }
 
@@ -1497,6 +1501,7 @@ impl Dropping<'_> {
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         };
         let dead = self.death.dead;
         if GOLD.contains(&item) {
@@ -1558,6 +1563,7 @@ pub fn thrown(
         amount: 1,
         values: None,
         named: None,
+        socketed: Vec::new(),
     };
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
@@ -1605,6 +1611,7 @@ pub fn keyed(
         amount: 1,
         values: None,
         named: None,
+        socketed: Vec::new(),
     };
     if GOLD.contains(&item) || UNMADE.contains(&category) {
         drop.quality = 0;

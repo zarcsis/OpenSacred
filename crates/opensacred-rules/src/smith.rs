@@ -1,8 +1,11 @@
 //! The blacksmith (#1658; docs/re/blacksmith.md): his tier, the upgrades his three buttons give,
 //! what may go into a socket, his price, and what a socket's item adds to an item and takes off
-//! it again as it comes out. The window that does it is `opensacred-game`'s.
+//! it again as it comes out; an item that carries its sockets' items (#1661), their values added
+//! to its own and their bonus slots counted where it is worn. The window that does it is
+//! `opensacred-game`'s.
 
-use crate::fight::{HUNDREDTH, KINDS, stored};
+use crate::drops::Dropped;
+use crate::fight::{HUNDREDTH, ItemValues, KINDS, SOCKETS, stored};
 
 /// The highest tier of a smith.
 pub const TOP_TIER: u8 = 5;
@@ -230,6 +233,112 @@ impl Requirements {
     }
 }
 
+impl Values {
+    /// The values of `values` as an item's record holds them, each a 16-bit word.
+    fn of(values: &ItemValues) -> Self {
+        Self {
+            least: values.damage.map(|[least, _]| word(least)),
+            most: values.damage.map(|[_, most]| word(most)),
+            attack: word(values.attack),
+            defence: word(values.defence),
+            word_30: 0,
+            resistance: values.resistance.map(word),
+        }
+    }
+
+    /// Adds them to `values`.
+    fn onto(self, values: &mut ItemValues) {
+        for (ends, (least, most)) in values
+            .damage
+            .iter_mut()
+            .zip(self.least.into_iter().zip(self.most))
+        {
+            ends[0] += f32::from(least);
+            ends[1] += f32::from(most);
+        }
+        for (value, added) in values.resistance.iter_mut().zip(self.resistance) {
+            *value += f32::from(added);
+        }
+        values.attack += f32::from(self.attack);
+        values.defence += f32::from(self.defence);
+    }
+}
+
+/// An item in a socket of another (`0x5BFF60`): the item as it went in, its values then (its
+/// maker's, else its type's record's), and the tier of the smith who put it there, which its
+/// record keeps (`+0x81`) and by which its values come off again (`0x5C0430`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Socketed {
+    pub item: Dropped,
+    pub values: ItemValues,
+    pub tier: u8,
+}
+
+/// Puts `socket`, an item of category `category` with the values `values`, into the next empty
+/// socket of `item`, whose sockets' kinds are `kinds`, by a smith of tier `tier` (`0x5BFF60`):
+/// `socket` given back where it is refused, every socket of `item` (a kind other than 0) filled
+/// or `socket` going into none ([`socketable`]); none where it went in.
+pub fn fill(
+    item: &mut Dropped,
+    kinds: &[u8; SOCKETS],
+    (socket, values, category): (Dropped, ItemValues, u8),
+    tier: u8,
+) -> Option<Dropped> {
+    let sockets = kinds.iter().filter(|&&kind| kind != 0).count();
+    if item.socketed.len() >= sockets || !socketable(socket.item, category) {
+        return Some(socket);
+    }
+    item.socketed.push(Socketed {
+        item: socket,
+        values,
+        tier,
+    });
+    None
+}
+
+/// Takes the item in the socket `index` of `item` out, as the smith's window's press on a filled
+/// socket does (`0x6A27B0`): every socket of `item` emptied, each item's values off it again
+/// (`0x5C0430`, which clears the list), and the item of `index` given back, the others lost.
+pub fn take_out(item: &mut Dropped, index: usize) -> Option<Dropped> {
+    std::mem::take(&mut item.socketed)
+        .into_iter()
+        .nth(index)
+        .map(|socketed| socketed.item)
+}
+
+/// The values of an item whose own are `own` with what its sockets' items `socketed` add, each
+/// by its socket's kind (`own.sockets`, in order) and its smith's tier (`0x5BFB60` as
+/// `0x5BFF60` calls it).
+pub fn with_sockets(own: &ItemValues, socketed: &[Socketed]) -> ItemValues {
+    let mut values = *own;
+    for (socket, kind) in socketed.iter().zip(own.sockets) {
+        let mut added = Values::default();
+        added.add(&Values::of(&socket.values), kind, socket.tier);
+        added.onto(&mut values);
+    }
+    values
+}
+
+/// What the items in an item's sockets `socketed` count in its wearer's values besides what they
+/// add to the item: their bonus slots alone, which the stats (`0x5796A0`) and the attack record
+/// (`0x568D70`) take after the item's own, of each socket of a kind other than 0.
+pub fn bonuses(socketed: &[Socketed]) -> impl Iterator<Item = ItemValues> + '_ {
+    socketed.iter().map(|socket| ItemValues {
+        bonuses: socket.values.bonuses,
+        ..ItemValues::default()
+    })
+}
+
+/// `value` as a 16-bit word, truncated toward zero as the record stores it.
+fn word(value: f32) -> i16 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "an item's record holds each value as a 16-bit word"
+    )]
+    let word = value as i16;
+    word
+}
+
 /// `value` times `factor`, truncated toward zero as the runtime's `_ftol` does, kept to 16 bits
 /// as the original adds it to a word.
 fn scaled(value: i16, factor: f64) -> i16 {
@@ -375,6 +484,122 @@ mod tests {
         let mut low = Values::default();
         low.take_off(&socket, 3, 2);
         assert_eq!(low, Values::default());
+    }
+
+    /// An item of type `item` as a drop makes it, of `values` where the item maker gave some.
+    fn item(item: u32, values: Option<ItemValues>) -> Dropped {
+        Dropped {
+            kind: crate::drops::Kind::Other,
+            item,
+            level: 0,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values,
+            named: None,
+            socketed: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_item_takes_rings_into_its_sockets_until_they_are_filled_and_gives_one_back() {
+        let kinds = [1, 3, 0, 0, 0, 0, 0, 0];
+        let mut sword = item(7901, None);
+        let ring = item(4876, None);
+        let ring_values = ItemValues {
+            attack: 100.0,
+            ..ItemValues::default()
+        };
+        // A ring into the bronze socket by a smith of tier 2, a rune into the gold one by tier 0.
+        assert_eq!(
+            fill(&mut sword, &kinds, (ring.clone(), ring_values, 8), 2),
+            None
+        );
+        let rune = item(2000, None);
+        assert_eq!(
+            fill(
+                &mut sword,
+                &kinds,
+                (rune.clone(), ItemValues::default(), 28),
+                0
+            ),
+            None
+        );
+        assert_eq!(sword.socketed.len(), 2);
+        assert_eq!((sword.socketed[0].tier, sword.socketed[1].tier), (2, 0));
+        // Every socket filled: refused, the item given back.
+        assert_eq!(
+            fill(&mut sword, &kinds, (ring.clone(), ring_values, 8), 0),
+            Some(ring.clone())
+        );
+        // A weapon goes into no socket.
+        let mut empty = item(7901, None);
+        let dagger = item(1712, None);
+        assert_eq!(
+            fill(
+                &mut empty,
+                &kinds,
+                (dagger.clone(), ItemValues::default(), 5),
+                0
+            ),
+            Some(dagger)
+        );
+        // An item of no sockets takes none.
+        assert_eq!(
+            fill(&mut empty, &[0; SOCKETS], (ring.clone(), ring_values, 8), 0),
+            Some(ring.clone())
+        );
+        // Taking the rune out empties both sockets and gives the rune alone back.
+        assert_eq!(take_out(&mut sword, 1), Some(rune));
+        assert!(sword.socketed.is_empty());
+        assert_eq!(take_out(&mut sword, 0), None);
+    }
+
+    #[test]
+    fn an_items_values_take_its_sockets_items_by_their_kinds_and_tiers() {
+        let own = ItemValues {
+            damage: [[21.0, 23.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            attack: 5.0,
+            defence: 2.0,
+            sockets: [1, 3, 0, 0, 0, 0, 0, 0],
+            ..ItemValues::default()
+        };
+        let ring = ItemValues {
+            damage: [[0.0; 2], [10.0, 20.0], [0.0; 2], [0.0; 2]],
+            attack: 100.0,
+            resistance: [0.0, 0.0, 30.0, 0.0],
+            bonuses: [crate::fight::Bonus {
+                condition: 0,
+                effect: 815,
+                value: 4,
+            }; crate::fight::BONUSES],
+            ..ItemValues::default()
+        };
+        let socketed = |tier| Socketed {
+            item: item(4876, None),
+            values: ring,
+            tier,
+        };
+        // In the bronze socket by tier 0, times 1.01 a little below: 20 stays 20, 100 stays 100.
+        let one = with_sockets(&own, &[socketed(0)]);
+        assert_eq!(one.damage[1], [10.0, 20.0]);
+        assert_eq!((one.attack, one.defence), (105.0, 2.0));
+        assert_eq!(one.resistance[2], 30.0);
+        // A second ring in the gold socket by tier 2: times 1.11, so 100 gives 110 and 30 33.
+        let two = with_sockets(&own, &[socketed(0), socketed(2)]);
+        assert_eq!(two.damage[1], [10.0 + 11.0, 20.0 + 22.0]);
+        assert_eq!(two.attack, 5.0 + 100.0 + 110.0);
+        assert_eq!(two.resistance[2], 30.0 + 33.0);
+        // The item's own damage, its bonuses and its sockets' kinds stay as they were.
+        assert_eq!(two.damage[0], own.damage[0]);
+        assert_eq!((two.bonuses, two.sockets), (own.bonuses, own.sockets));
+        assert_eq!(with_sockets(&own, &[]), own);
+        // Their bonus slots count where the item is worn, their other values not again.
+        let counted: Vec<ItemValues> = bonuses(&[socketed(0), socketed(2)]).collect();
+        assert_eq!(counted.len(), 2);
+        assert!(counted.iter().all(|values| values.bonuses == ring.bonuses
+            && values.attack == 0.0
+            && values.damage == [[0.0; 2]; KINDS]));
     }
 
     #[test]

@@ -604,6 +604,7 @@ fn load(
                     amount: 1,
                     values: Some(fight::ItemValues::of_record(&thrown.words)),
                     named: None,
+                    socketed: Vec::new(),
                 },
                 held,
             }

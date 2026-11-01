@@ -296,9 +296,9 @@ impl Tables {
         self.glittering.contains(&item) || self.glittering.contains(&slot)
     }
 
-    /// The values of `dropped` that its wearer's fight takes (#1290): its maker's where it gave it
-    /// some, else its type's record's, of its type's category.
-    pub fn values(&self, dropped: &Dropped) -> fight::ItemValues {
+    /// The values of `dropped` of its own, its sockets' items' shares left out: its maker's where
+    /// it gave it some, else its type's record's, of its type's category.
+    pub fn own_values(&self, dropped: &Dropped) -> fight::ItemValues {
         let slot = self.catalogue.slot(dropped.item).unwrap_or(dropped.item);
         let record = self
             .records
@@ -312,9 +312,28 @@ impl Tables {
         }
     }
 
+    /// The values of `dropped` that its wearer's fight takes (#1290): its own
+    /// ([`Self::own_values`]) with what the items in its sockets add (#1661, `0x5BFB60`).
+    pub fn values(&self, dropped: &Dropped) -> fight::ItemValues {
+        opensacred_rules::smith::with_sockets(&self.own_values(dropped), &dropped.socketed)
+    }
+
+    /// The highest level of the items in the sockets of `dropped`, each of its values as it went
+    /// in (`0x5D3AB0` with the item's object, which works them out anew of their records); 0
+    /// with its sockets empty. An item's level is at least it (#1661).
+    pub fn sockets_level(&self, dropped: &Dropped, rules: &opensacred_rules::fight::Rules) -> u32 {
+        dropped
+            .socketed
+            .iter()
+            .map(|socket| opensacred_rules::fight::item_level(&socket.values, rules))
+            .max()
+            .unwrap_or(0)
+    }
+
     /// What `dropped` asks of the hero that would use it (#1288): its type's record's classes'
     /// bits and weapon's kind, its category, and the level asked of its own level (`+0x14` of
-    /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's.
+    /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's, at
+    /// least its sockets' items' (#1661).
     pub fn asks(
         &self,
         dropped: &Dropped,
@@ -328,28 +347,34 @@ impl Tables {
             .cloned()
             .unwrap_or_default();
         let values = dropped.values.unwrap_or(values);
+        let level = opensacred_rules::fight::item_level(&values, rules)
+            .max(self.sockets_level(dropped, rules));
         opensacred_rules::equipment::Asks {
             item: dropped.item,
             category: self.category(dropped.item),
             kind,
             classes,
-            level: opensacred_rules::equipment::asked_level(opensacred_rules::fight::item_level(
-                &values, rules,
-            )),
+            level: opensacred_rules::equipment::asked_level(level),
         }
     }
 
-    /// The price of `dropped` that the trade goes by (`0x5BEC70`, #1621): its record's `+0x08`,
-    /// which the item maker sets to a made item's worth by its values (`0x5D3AB0` at `0x5D5702`),
-    /// its quality and its difficulty those of the passes it does not follow, so 0; its type's
-    /// price otherwise, its record's worth.
+    /// The price of `dropped` that the trade goes by (`0x5BEC70`, #1621): its record's `+0x08`
+    /// and its sockets' items' (#1661). Its record's is the worth of its values with its
+    /// sockets' (`0x5D3AB0` as the item maker or the socket's filling `0x5C0810` calls it), a
+    /// made item's quality and difficulty those of the passes it does not follow, so 0; its
+    /// type's price otherwise, its record's worth.
     pub fn trade_price(&self, dropped: &Dropped) -> i64 {
         let record = self.record(dropped.item);
-        if dropped.values.is_none() {
+        let sockets: i64 = dropped
+            .socketed
+            .iter()
+            .map(|socket| self.trade_price(&socket.item))
+            .sum();
+        if dropped.values.is_none() && dropped.socketed.is_empty() {
             return record.price;
         }
         let values = self.values(dropped);
-        opensacred_rules::trade::worth::worth(
+        let own = opensacred_rules::trade::worth::worth(
             &self.worths,
             &opensacred_rules::trade::worth::Item {
                 item: dropped.item,
@@ -358,7 +383,24 @@ impl Tables {
                 flags: record.word & CLASS_BITS,
                 price: record.price,
             },
-        )
+        );
+        own + sockets
+    }
+
+    /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it
+    /// asks with its level raised to the highest of its sockets' items' (`0x5BFF60`, #1661). The
+    /// attributes' bytes that `0x5BFF60` raises too, `0x5D3AB0` clears again as the filling ends
+    /// (`0x5C0810`), and the level asked follows the levels ([`Self::asks`]).
+    pub(crate) fn record_of(&self, dropped: &Dropped) -> Record {
+        let mut record = self.record(dropped.item);
+        for socket in &dropped.socketed {
+            let [.., skill, level] = self.record(socket.item.item).requirements;
+            if level > record.requirements[5] {
+                record.requirements[4] = skill;
+                record.requirements[5] = level;
+            }
+        }
+        record
     }
 
     /// What a tooltip tells of the type `item`'s record, of its derived type's root (#1273).
@@ -529,7 +571,7 @@ impl Played {
 }
 
 /// A drop: what it is, and whether it rests on the ground.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Debug)]
 pub struct Lying {
     pub dropped: Dropped,
     pub resting: bool,
@@ -660,7 +702,7 @@ pub(crate) fn lay_reward(
         (item, made_at, key, 1),
         &mut dice.0,
     )?;
-    let line = listed(&[dropped]);
+    let line = listed(std::slice::from_ref(&dropped));
     let flight = Flight::dropped(at.x, at.z, &mut dice.0);
     lay(commands, (assets, tables), (flight, level, false), dropped);
     Some(line)
@@ -758,7 +800,8 @@ fn lay(
     (flight, level, marked): (Flight, Level, bool),
     dropped: Dropped,
 ) {
-    let upright = drops::upright(dropped.item);
+    let item = dropped.item;
+    let upright = drops::upright(item);
     let mut entity = commands.spawn((
         Transform::from_translation(world(flight.at)).with_scale(Vec3::splat(iso::MODEL_SCALE)),
         Lying {
@@ -775,7 +818,7 @@ fn lay(
     ));
     // A derived type shows its root's model and texture, the items table's entry it holds
     // (#596).
-    let slot = tables.catalogue.slot(dropped.item).unwrap_or(dropped.item);
+    let slot = tables.catalogue.slot(item).unwrap_or(item);
     if let Some((model, texture)) = tables.looks.get(&slot) {
         // An item, of a `Weapon.pak` record, which the original draws under the surface of a
         // liquid cell (`0x434070`).
@@ -1122,7 +1165,7 @@ pub fn throw_item(
         &mut dice.0,
     )
     .ok_or_else(|| format!("item {} is not in the items' table", request.item))?;
-    let line = format!("thrown: {}", listed(&[dropped]));
+    let line = format!("thrown: {}", listed(std::slice::from_ref(&dropped)));
     throw(
         &mut commands,
         &assets,
@@ -1306,6 +1349,7 @@ mod tests {
                 amount,
                 values: None,
                 named: None,
+                socketed: Vec::new(),
             },
             resting: true,
         };

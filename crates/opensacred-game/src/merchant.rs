@@ -442,12 +442,17 @@ pub(crate) fn hovered(
     let cell = backpack::cell_in(at, (COLUMNS, ROWS))?;
     let shelf = shelf(wares, showing.0);
     let placed = *shelf.grid.at(cell)?;
-    let dropped = shelf.items.iter().find(|(k, _)| *k == placed.key)?.1;
+    let dropped = shelf
+        .items
+        .iter()
+        .find(|(k, _)| *k == placed.key)?
+        .1
+        .clone();
     Some((placed, dropped))
 }
 
 /// A purchase or a sale that waits for the purchase window's answer (`+0x3DC`, `+0x3E0`).
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+#[derive(Resource, Clone, Debug, PartialEq)]
 enum Pending {
     /// The item of `key` on the page `page`, at `price`.
     Buy { page: Page, key: u32, price: i64 },
@@ -523,14 +528,15 @@ fn buy(wares: &mut Wares, pack: &mut Pack, (page, key, price): (Page, u32, i64))
     let Some(dropped) = shelf.take(key) else {
         return false;
     };
-    if !pack.take(dropped, placed.size) {
+    let item = dropped.item;
+    if !pack.take(dropped.clone(), placed.size) {
         shelf.put(dropped, placed.size);
         return false;
     }
     pack.gold = u32::try_from(gold - price).unwrap_or(0);
     info!(
         "merchant: the hero buys {} for {price} gold, {} left",
-        dropped.item, pack.gold
+        item, pack.gold
     );
     true
 }
@@ -545,10 +551,11 @@ fn sell(
 ) {
     let gold = i64::from(pack.gold).saturating_add(price.max(0));
     pack.gold = u32::try_from(gold.min(0x7FFF_FFFE)).unwrap_or(pack.gold);
+    let item = dropped.item;
     let kept = page.and_then(|page| wares.0.shelf(page).put(dropped, size));
     info!(
         "merchant: the hero sells {} for {price} gold, {} now{}",
-        dropped.item,
+        item,
         pack.gold,
         if kept.is_some() {
             ""
@@ -590,7 +597,7 @@ fn press_page(
     let Some(cell) = backpack::cell_in(at - GRID, (COLUMNS, ROWS)) else {
         return;
     };
-    if let Some(held) = pack.held {
+    if let Some(held) = pack.held.clone() {
         if !left {
             return;
         }
@@ -615,7 +622,7 @@ fn press_page(
         .items
         .iter()
         .find(|(k, _)| *k == placed.key)
-        .map(|(_, d)| *d)
+        .map(|(_, d)| d.clone())
     else {
         return;
     };
@@ -648,7 +655,7 @@ fn answer(
     trading: Trading,
 ) {
     for answer in answers.read() {
-        let Some(pending) = pending.as_deref().copied() else {
+        let Some(pending) = pending.as_deref().cloned() else {
             continue;
         };
         commands.remove_resource::<Pending>();

@@ -593,6 +593,7 @@ fn a_type_that_drops_nothing_is_drawn_again_and_a_missing_record_five_times() {
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         })
     );
 }
@@ -645,7 +646,7 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
         100, 9999, 180, 999, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 999, 100, 1,
     ]);
     assert_eq!(dagger.len(), 1);
-    let drop = dagger[0];
+    let drop = &dagger[0];
     assert_eq!(
         (drop.kind, drop.item, drop.level, drop.key, drop.quality),
         (Kind::Weapon, DAGGER, 1, 17, 0)
@@ -668,6 +669,7 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
             amount: 20,
             values: None,
             named: None,
+            socketed: Vec::new(),
         }]
     );
     // A failed chance drops nothing.
@@ -1250,6 +1252,7 @@ fn made_name(
         amount: 1,
         values: Some(values),
         named: Some(coin),
+        socketed: Vec::new(),
     };
     name(&dropped, tables, |key| texts.contains(&key))
 }
@@ -1293,6 +1296,7 @@ fn a_made_item_goes_by_the_words_of_its_element_and_its_class() {
         amount: 1,
         values: Some(poison),
         named: None,
+        socketed: Vec::new(),
     };
     assert_eq!(name(&fixed, tables, |_| true), None);
     // The elements by their shares: fire above 50 per cent of the most damage, magic above 40,

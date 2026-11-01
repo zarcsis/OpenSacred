@@ -107,6 +107,7 @@ fn start(mut commands: Commands, starting: Option<Res<Starting>>, tables: Option
             amount: 1,
             values: Some(fight::ItemValues::of_record(&worn.words)),
             named: None,
+            socketed: Vec::new(),
         });
     }
     commands.insert_resource(sets);
@@ -209,9 +210,10 @@ fn origin(corner: Vec2, offset: Vec2, half: usize, both_weapons: bool) -> Vec3 {
 fn models_of(sets: &WeaponSets, shown: usize, tables: &Tables) -> Vec<Model> {
     let mut models = Vec::new();
     for (set, halves) in sets.halves.iter().enumerate().take(shown) {
-        let both_weapons = halves
-            .iter()
-            .all(|half| half.is_some_and(|item| tables.category(item.item) == WEAPON));
+        let both_weapons = halves.iter().all(|half| {
+            half.as_ref()
+                .is_some_and(|item| tables.category(item.item) == WEAPON)
+        });
         let corner = bar::weapon_slot(set, shown);
         for (half, item) in halves.iter().enumerate() {
             let Some(item) = item else {
@@ -385,7 +387,9 @@ fn piece(tables: &Tables, key: u32, item: u32) -> Option<rule::Piece> {
 /// A set's halves as the rule's pieces, keyed by their halves.
 fn pieces(tables: &Tables, halves: &[Option<Dropped>; HALVES]) -> rule::Set {
     [0, 1].map(|half| {
-        halves[half].and_then(|item| piece(tables, u32::try_from(half).unwrap_or(0), item.item))
+        halves[half]
+            .as_ref()
+            .and_then(|item| piece(tables, u32::try_from(half).unwrap_or(0), item.item))
     })
 }
 
@@ -397,7 +401,7 @@ fn item_of(
 ) -> Option<Dropped> {
     match piece.key {
         PUT => put,
-        key => halves[usize::try_from(key).unwrap_or(0).min(HALVES - 1)],
+        key => halves[usize::try_from(key).unwrap_or(0).min(HALVES - 1)].clone(),
     }
 }
 
@@ -407,7 +411,7 @@ fn halves_of(
     halves: &[Option<Dropped>; HALVES],
     put: Option<Dropped>,
 ) -> [Option<Dropped>; HALVES] {
-    set.map(|piece| piece.and_then(|piece| item_of(piece, halves, put)))
+    set.map(|piece| piece.and_then(|piece| item_of(piece, halves, put.clone())))
 }
 
 /// The halves of a slot that a click on its point `at` tries, in order (`0x6E14C0`): the right
@@ -456,8 +460,8 @@ fn edit(
     refusals: &mut MessageWriter<crate::voices::NotMine>,
 ) -> bool {
     let tried = halves_tried(bar::weapon_slot(set, count), at);
-    let halves = sets.halves[set];
-    let Some(held) = pack.held else {
+    let halves = sets.halves[set].clone();
+    let Some(held) = pack.held.clone() else {
         let Some(half) = tried.into_iter().find(|&half| halves[half].is_some()) else {
             return false;
         };
@@ -466,7 +470,7 @@ fn edit(
             return false;
         };
         sets.halves[set] = halves_of(left, &halves, None);
-        pack.hold(taken, tables.size(taken.item));
+        pack.hold(taken.clone(), tables.size(taken.item));
         info!("sets: {} taken out of the set {}", taken.item, set + 1);
         return true;
     };
@@ -480,10 +484,11 @@ fn edit(
         refusals.write(crate::voices::NotMine { level: false });
         return false;
     };
-    sets.halves[set] = halves_of(made, &halves, Some(held.dropped));
+    sets.halves[set] = halves_of(made, &halves, Some(held.dropped.clone()));
     pack.held = None;
     if let Some(replaced) = replaced.and_then(|piece| item_of(piece, &halves, None)) {
-        pack.hold(replaced, tables.size(replaced.item));
+        let size = tables.size(replaced.item);
+        pack.hold(replaced, size);
     }
     info!("sets: {} put into the set {}", held.dropped.item, set + 1);
     true
@@ -540,7 +545,7 @@ fn send(
         .items
         .iter()
         .find(|(key, _)| *key == placed.key)
-        .map(|&(_, dropped)| dropped)
+        .map(|(_, dropped)| dropped.clone())
     else {
         return;
     };
@@ -553,7 +558,7 @@ fn send(
         return;
     }
     let set = sets.selected;
-    let halves = sets.halves[set];
+    let halves = sets.halves[set].clone();
     let made = piece(&tables, PUT, dropped.item)
         .and_then(|piece| rule::drop(pieces(&tables, &halves), 0, piece, false));
     let Some((_, (made, replaced))) = made else {
@@ -563,15 +568,16 @@ fn send(
     let replaced = replaced.and_then(|piece| item_of(piece, &halves, None));
     pack.use_up(placed.key);
     if let Some(replaced) = replaced
-        && !pack.take(replaced, tables.size(replaced.item))
+        && !pack.take(replaced.clone(), tables.size(replaced.item))
     {
         // No room for the item it replaced: nothing moves.
         pack.put(dropped, placed.at, placed.size);
         return;
     }
+    let item = dropped.item;
     sets.halves[set] = halves_of(made, &halves, Some(dropped));
     sounds.write(put_sound());
-    info!("sets: {} sent into the set {}", dropped.item, set + 1);
+    info!("sets: {item} sent into the set {}", set + 1);
 }
 
 /// The halves' glow while the cursor holds an item that a half takes (`0x6E29E0`, docs/re/
@@ -616,9 +622,9 @@ fn glow(
         return;
     };
     let editing = inventory.is_some_and(|inventory| inventory.0);
-    let held = pack.held.filter(|_| editing);
+    let held = pack.held.clone().filter(|_| editing);
     let now = (
-        held.map(|held| held.key),
+        held.as_ref().map(|held| held.key),
         sets.selected,
         shown.0,
         sets.is_changed(),
@@ -686,6 +692,7 @@ fn arm(
     sets: Option<Res<WeaponSets>>,
     maker: Option<Res<crate::arsenal::Maker>>,
     npcs: Option<Res<crate::npcs::Npcs>>,
+    tables: Option<Res<Tables>>,
     mut rearms: MessageWriter<crate::arsenal::Rearm>,
     mut bodies: Query<&mut crate::hero::Body>,
     mut held: Local<Option<([Option<Dropped>; HALVES], u8)>>,
@@ -693,13 +700,17 @@ fn arm(
     let (Some(sets), Some(maker), Some(npcs)) = (sets, maker, npcs) else {
         return;
     };
-    let hands = sets.halves[sets.selected];
+    let hands = sets.halves[sets.selected].clone();
+    // An item with its sockets filled holds its values with theirs (#1661).
     let items: Vec<(u32, Option<fight::ItemValues>)> = hands
         .iter()
         .flatten()
-        .map(|item| (item.item, item.values))
+        .map(|item| match tables.as_deref() {
+            Some(tables) if !item.socketed.is_empty() => (item.item, Some(tables.values(item))),
+            _ => (item.item, item.values),
+        })
         .collect();
-    let Some((before, class)) = *held else {
+    let Some((before, class)) = held.clone() else {
         // The game's start: the hero holds its first set's items as its template does.
         let (class, _) = maker.arms(&npcs, &items);
         *held = Some((hands, class));
@@ -708,7 +719,14 @@ fn arm(
     if before == hands {
         return;
     }
-    let (now, arms) = maker.arms(&npcs, &items);
+    let (now, mut arms) = maker.arms(&npcs, &items);
+    // The bonus slots of the items in their sockets count after the hands' own (`0x5796A0`).
+    arms.holds.items.extend(
+        hands
+            .iter()
+            .flatten()
+            .flat_map(|item| opensacred_rules::smith::bonuses(&item.socketed)),
+    );
     info!(
         "sets: the hero's hands take {:?}, of the class {now}",
         items.iter().map(|&(item, _)| item).collect::<Vec<_>>()
@@ -771,6 +789,7 @@ mod tests {
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         };
         let halves = [None, Some(item(7901))];
         let sword = rule::Piece::weapon(1, 1, 7901);
