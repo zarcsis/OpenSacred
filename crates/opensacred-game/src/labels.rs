@@ -1,6 +1,6 @@
 //! The items' labels while Alt is held (#1409; docs/re/items.md, "On the ground"): over each item
-//! lying in view its name, or for gold its amount and its type's name, white on a dark
-//! translucent panel (`0xCF303030`), laid out so that no two overlap
+//! in view, lying or still in flight (#1647), its name, or for gold its amount and its type's
+//! name, white on a dark translucent panel (`0xCF303030`), laid out so that no two overlap
 //! (`cWorldView_drawOverheadLabels`, `0x627180`, `cLabelLayout`); a left click on a label takes its
 //! item (`0x6270A0`, `pickup::pick`), and with Alt held an item comes before a foe under the
 //! cursor (`attack::aim`).
@@ -107,8 +107,8 @@ fn lay_out(points: &[Vec2], sizes: &[Vec2]) -> Vec<Rect> {
     laid
 }
 
-/// Shows the labels of the items lying in view while Alt is held, and takes them away as it is
-/// let go.
+/// Shows the labels of the items in view, lying or in flight, while Alt is held, and takes them
+/// away as it is let go.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -129,7 +129,6 @@ fn label(
             let size = camera.logical_viewport_size().unwrap_or(Vec2::ZERO);
             items
                 .iter()
-                .filter(|(_, _, lying, _)| lying.resting)
                 .filter_map(|(item, at, lying, name)| {
                     let point = camera.world_to_viewport(view, at.translation()).ok()?;
                     let inside = point.cmpge(Vec2::ZERO).all() && point.cmplt(size).all();

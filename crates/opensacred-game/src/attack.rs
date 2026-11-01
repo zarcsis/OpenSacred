@@ -151,7 +151,7 @@ pub(crate) fn aim(
             (Entity, &GlobalTransform, &Mind, &Health),
             (Without<Dies>, Without<crate::npcs::Talk>),
         >,
-        Query<(&GlobalTransform, &crate::drops::Lying)>,
+        Query<&GlobalTransform, With<crate::drops::Lying>>,
         Res<crate::labels::Shown>,
     ),
     mut heroes: Query<
@@ -184,9 +184,9 @@ pub(crate) fn aim(
     };
     let items_first = crate::labels::held(&keys)
         && (labels.under(cursor).is_some()
-            || items.iter().any(|(at, lying)| {
-                lying.resting && from_line(ray, at.translation()) <= PICKED_WITHIN
-            }));
+            || items
+                .iter()
+                .any(|at| from_line(ray, at.translation()) <= PICKED_WITHIN));
     let picked = creatures
         .iter()
         .filter(|(_, _, mind, health)| !items_first && mind.hostile() && health.current > 0)
