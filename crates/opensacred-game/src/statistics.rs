@@ -8,12 +8,13 @@
 //! raised by the survival bonus with its kinds' icons, the resistances with theirs, and the gold
 //! (`0x6A9F20`); the "+" buttons while points wait, which spend them (`0x6A6110`, #1522): an
 //! attribute point on an attribute, a skill point on a skill below the hero's level, or the
-//! learning mode's list of the skills to learn, one of which a "+" learns.
+//! learning mode's list of the skills to learn, one of which a "+" learns; and a hovered skill's,
+//! skill to learn's or attribute's description in the lower panel's place (#1714).
 //!
-//! Not followed yet: the combat arts' damage, the panels and the tooltips that the hovered lines
-//! show, the button that closes the inventory, the bonus of a set's pieces in the survival bonus,
-//! the items' bonuses of the skills, the player's own name, and the window's following a
-//! follower's portrait. A click on the gold's line drops gold (#1665).
+//! Not followed yet: the combat arts' damage, a skill's level's effects (#1715), the bonus of a
+//! set's pieces in the survival bonus, the items' bonuses of the skills, the player's own name,
+//! and the window's following a follower's portrait. A click on the gold's line drops gold
+//! (#1665).
 
 use bevy::prelude::*;
 
@@ -812,6 +813,55 @@ struct Sheet {
     pace: u32,
     speed: u32,
     survival: u32,
+    /// The skills held and those to learn, by their slots and rows, and the description that a
+    /// hovered row shows in the lower panel's place: its name and its text.
+    skill_ids: Vec<u8>,
+    candidate_ids: Vec<u8>,
+    description: Option<(String, String)>,
+}
+
+/// The attributes' descriptions (`0x6AC14E`).
+const ATTRIBUTE_TEXTS: [&str; 6] = [
+    "UI_ATTRIB_STRENGTH",
+    "UI_ATTRIB_RESISTANCE",
+    "UI_ATTRIB_GESCHICK",
+    "UI_ATTRIB_PHYREG",
+    "UI_ATTRIB_MAGREG",
+    "UI_ATTRIB_CHARISMA",
+];
+/// The description's box in the window, its name's colour and its fill in the lower panel's place
+/// (`0x6ABDC6`).
+const DESCRIPTION: Rect = Rect {
+    min: Vec2::new(8.0, 224.0),
+    max: Vec2::new(242.0, 382.0),
+};
+const DESCRIPTION_NAME: u32 = 0xFFFF_FF80;
+const DESCRIPTION_FILL: Rect = Rect {
+    min: Vec2::new(3.0, 224.0),
+    max: Vec2::new(254.0, 379.0),
+};
+
+/// The description of the row that the mouse is over in `sheet` (`0x6ABDC6`, `0x6AC14E`): a
+/// skill's name, or a skill to learn, its name (9399 + the skill) and its text (9499 + the
+/// skill); an attribute's name (1090 + k) and its `UI_ATTRIB_*` text. A skill's level's effects
+/// wait (#1715).
+fn description(texts: &Texts, sheet: &Sheet) -> Option<(String, String)> {
+    let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
+    let skill = |id: u8| {
+        let id = u32::from(id);
+        (
+            text(&(9399 + id).to_string()),
+            text(&(9499 + id).to_string()),
+        )
+    };
+    match sheet.hover {
+        Hover::SkillName(i) => sheet.skill_ids.get(usize::from(i)).map(|&id| skill(id)),
+        Hover::Learn(i) => sheet.candidate_ids.get(usize::from(i)).map(|&id| skill(id)),
+        Hover::Attribute(k) => ATTRIBUTE_TEXTS
+            .get(usize::from(k))
+            .map(|key| (text(&(1090 + u32::from(k)).to_string()), text(key))),
+        _ => None,
+    }
 }
 
 /// The survival bonus of `minutes` played (`0x6AA062`, `0x565D70(0, m, 120, 50)`):
@@ -882,11 +932,13 @@ fn sheet(
     let skill_name = |id: u8| text(&(9399 + u32::from(id)).to_string());
     let level = experience.level;
     // The skills by their slots at their base levels (the items' bonuses are not kept yet).
-    let skills: Vec<(String, u32, u32)> = opensacred_rules::fight::skills(base, level, true)
-        .into_iter()
-        .map(|(id, at)| (skill_name(id), at, at))
+    let held = opensacred_rules::fight::skills(base, level, true);
+    let skills: Vec<(String, u32, u32)> = held
+        .iter()
+        .map(|&(id, at)| (skill_name(id), at, at))
         .collect();
-    let candidates: Vec<String> = base.learnable_now().into_iter().map(skill_name).collect();
+    let candidate_ids = base.learnable_now();
+    let candidates: Vec<String> = candidate_ids.iter().copied().map(skill_name).collect();
     let pluses = pluses(
         experience,
         (skills.len(), candidates.len()),
@@ -966,6 +1018,9 @@ fn sheet(
         pace: whole(combat.pace),
         speed: whole(combat.speed.min(220.0)),
         survival: per_cent(sb),
+        skill_ids: held.iter().map(|&(id, _)| id).collect(),
+        candidate_ids,
+        description: None,
     }
 }
 
@@ -1068,6 +1123,9 @@ fn show(
             if let Some(at) = screen_point(&pointer, &ui_scale, &screens) {
                 sheet.hover = hover_at(at - WINDOW.min, &sheet);
             }
+            sheet.description = texts
+                .as_deref()
+                .and_then(|texts| description(texts, &sheet));
             sheet
         });
     if *last == current {
@@ -1142,8 +1200,12 @@ fn show(
         None,
         &mut commands,
     );
-    // The separators, a pixel across the window.
-    for y in SEPARATORS {
+    // The separators, a pixel across the window; a description takes the lower panel's.
+    let described = sheet.description.is_some();
+    for y in SEPARATORS
+        .into_iter()
+        .filter(|&y| !described || y <= DESCRIPTION.min.y)
+    {
         let line = commands
             .spawn((
                 bar::placed(Vec2::new(0.0, y), Vec2::new(WINDOW.width(), 1.0)),
@@ -1153,8 +1215,12 @@ fn show(
             .id();
         commands.entity(window).add_child(line);
     }
-    // The hovered fills, under what they light (`0x6A72F0`).
-    for fill in fills(sheet.hover, &sheet) {
+    // The hovered fills, under what they light (`0x6A72F0`), and a description's.
+    let description_fill = described.then_some(DESCRIPTION_FILL);
+    for fill in fills(sheet.hover, &sheet)
+        .into_iter()
+        .chain(description_fill)
+    {
         let quad = commands
             .spawn((
                 bar::placed(fill.min, fill.size()),
@@ -1321,6 +1387,35 @@ fn show(
             );
         }
     }
+    if let Some((name, text)) = &sheet.description {
+        write(
+            name,
+            DESCRIPTION.min,
+            DESCRIPTION.width(),
+            (DESCRIPTION_NAME, left),
+        );
+        let block = commands
+            .spawn((
+                Text::new(text.clone()),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(FONT_SIZE),
+                    ..default()
+                },
+                bevy::text::LineHeight::Px(ROW),
+                TextLayout::new(bevy::text::Justify::Justified, LineBreak::WordBoundary),
+                TextColor(argb(WHITE)),
+                bar::placed(
+                    DESCRIPTION.min + Vec2::new(0.0, ROW),
+                    DESCRIPTION.size() - Vec2::new(0.0, ROW),
+                ),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(window).add_child(block);
+        finish(&mut commands, window, (&images, &assets), &sheet);
+        return;
+    }
     // The lower panel.
     let lines = [
         (
@@ -1455,7 +1550,18 @@ fn show(
             .id();
         commands.entity(window).add_child(child);
     }
-    // The close button glows under the pointer (#1595).
+    finish(&mut commands, window, (&images, &assets), &sheet);
+}
+
+/// The window's last pieces over the rest: the close button, which glows under the pointer
+/// (#1595), and the "+" of `sheet`.
+fn finish(
+    commands: &mut Commands,
+    window: Entity,
+    (images, assets): (&UiImages, &AssetServer),
+    sheet: &Sheet,
+) {
+    let piece = |index: u32, at: Vec2| bar::piece(images, assets, index, at, Vec2::ZERO);
     let close = commands
         .spawn((
             piece(CLOSE.0, CLOSE.1),
@@ -1465,7 +1571,10 @@ fn show(
         .id();
     commands.entity(window).add_child(close);
     for &i in &sheet.pluses {
-        add(piece(PLUS, plus_at(i)), None, &mut commands);
+        let plus = commands
+            .spawn((piece(PLUS, plus_at(i)), Pickable::IGNORE))
+            .id();
+        commands.entity(window).add_child(plus);
     }
 }
 
@@ -1803,6 +1912,44 @@ mod tests {
             Hover::Attribute(1)
         );
         assert_eq!(hover_at(Vec2::new(240.0, 86.0), &attributes), Hover::None);
+    }
+
+    #[test]
+    fn a_hovered_row_describes_its_skill_or_attribute() {
+        let ftl: String = [
+            ("9413", "Magic Lore"),
+            ("9513", "About magic"),
+            ("9410", "Concentration"),
+            ("9510", "About concentration"),
+            ("1090", "Strength"),
+            ("UI_ATTRIB_STRENGTH", "About strength"),
+        ]
+        .iter()
+        .map(|(name, text)| format!("{} = {text}\n", opensacred_data::text::message(name)))
+        .collect();
+        let texts = Texts::of(&ftl);
+        let sheet = |hover| Sheet {
+            hover,
+            skill_ids: vec![14, 13],
+            candidate_ids: vec![12, 11],
+            ..Sheet::default()
+        };
+        let pair = |name: &str, text: &str| Some((name.to_owned(), text.to_owned()));
+        assert_eq!(
+            description(&texts, &sheet(Hover::SkillName(0))),
+            pair("Magic Lore", "About magic")
+        );
+        assert_eq!(
+            description(&texts, &sheet(Hover::Learn(1))),
+            pair("Concentration", "About concentration")
+        );
+        assert_eq!(
+            description(&texts, &sheet(Hover::Attribute(0))),
+            pair("Strength", "About strength")
+        );
+        // A skill's level's effects are not yet described, nor a row past the list.
+        assert_eq!(description(&texts, &sheet(Hover::SkillLevel(1))), None);
+        assert_eq!(description(&texts, &sheet(Hover::SkillName(5))), None);
     }
 
     #[test]
