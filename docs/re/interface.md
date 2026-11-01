@@ -286,7 +286,7 @@ Since #1529 the art slots hold their arts (`art_slots`): a new game's first hold
 **Seen** in the game beside the original's frames: 1070 taken from the spells page with every empty slot green, dropped on the second slot, which took the gold ring; the selected slot cleared to its pale blue orb; the key 6 selecting the first.
 Since #1530 a slot holds a combo too, from the combos page (`combos_page`, docs/re/arts.md): its images 801 to 812 split by its share regenerated, no slot green while the cursor holds one; a slot that holds a combo runs it with the right button since #1531 (`combos`, docs/re/arts.md, "A combo's run").
 Since #1536 the keys F1 to F6 put the arts bound to them into the selected slot (`spells_page`, docs/re/arts.md, "The spells page").
-Not followed for them: the Vampiress's second bank and a slot's tooltip.
+Not followed for them: the Vampiress's second bank; since #1694 a slot shows its art's tooltip (docs/re/arts.md, "The art's tooltip").
 
 Not followed yet: the other buttons' windows and the pressed images, the damage icons in the left slots, the glows, the sparkle of the flag `0x20000000`, the tooltips of the art slots, the bonuses' "+" and the horse (#1594), and the mount's bar.
 

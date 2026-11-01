@@ -225,6 +225,203 @@ Since #1536 the keys F1 to F6 are followed as above (`spells_page`, `opensacred_
 **Seen** in the game beside the original's frame (2026-10-30), the Seraphim's start with 1070 taught: F1 over its icon bound it in both, its word the slot 1 and its mark of new gone (the drivers' `arts`); the label at the same place and of the same height, the original's GDI setting its two letters about two pixels further apart.
 In the game alone: F2 over its art took the label off and the page's next show put it back, F1 with the page hidden put 1070 into the selected slot, F5 then did nothing and F5 with the page open put 1017 there.
 
+## The art's tooltip (`0x5893B0`)
+
+Read 2026-11-01 (#1694) from the disassembly of `0x5893B0`…`0x590088` (Capstone over the GOG `Sacred.exe`, the decompiled text alongside), its two switch tables (`0x5900BC` for the ids 1–67, `0x5901C8` for 1001–1103, 1000 tested apart) and the callees named below; **confirmed** by code unless marked otherwise, nothing seen in the running original.
+Text numbers are given in decimal (the code pushes them in hex: `0x42E` 1070, `0x430` 1072, `0x431` 1073, `0x432` 1074, `0x43B` 1083, `0x43D` 1085, `0x43E` 1086, `0x445` 1093, `0x446` 1094, `0x449` 1097, `0x44A` 1098, `0x44C` 1100, `0x450` 1104, `0x451` 1105, `0x452` 1106, `0x453` 1107, `0x455` 1109, `0x45C` 1116, `0x464` 1124, `0x48D` 1165, `0x48E` 1166, `0x48F` 1167, `0x26C4` 9924).
+`T(n)` below is `0x672C90(n)` on the text manager `0x6725E0()`, `K(KEY)` is `0x672CF0("KEY")`; both answer a pair whose first word is the wide string (`0x7F6A60` just reads that word).
+`0x658400(str, fmt, …)` formats into a 16 K buffer with `vswprintf` and **assigns** the result to the string object `str` (it does not append).
+
+### The parameters and the callers
+
+`0x5893B0` is a `__thiscall` with three stack arguments (`ret 0xC`): `this` is a creature's stats (the creature's `+0x3A8`), the first argument the art's id (its low word), the second the output string object, the third flags, of which bit 0 alone is read.
+`this+4` is the stats' creature; the fields read are listed in §3.
+It returns at once, writing nothing, for the id 0 and for the ids `0x200`…`0x204` (the combos, which `0x581550` describes).
+The output is overwritten by the first line (the name) and everything else is appended.
+
+- The taskbar (`0x6E4560`, the call at `0x6E4BC1`): for a right (art) slot, with the slot's art (`0x5D9460`) mapped by `0x552370(art, 0)` on the hero (the Vampiress's or the Daemon's form), it calls `0x5893B0(art', &str, 0)` on the hero's `+0x3A8`, so **bit 0 clear: no next-level part**, and shows a non-empty result by `0x756F40(x − 0x5C, y − 0x5C, &str, 0, 0x8B, 1)` and `0x75B390`, (x, y) the slot's corner.
+  Before that it tests whether the art may not be made on horseback, `!0x4D1BE0(0x54A2A0(hero))` for a weapon art and `!0x4D25A0(0x54A2A0(hero))` for a spell (§2.1), and whether the hero rides (`0x54FC20`); when both hold it shows instead the horse's own text (`0x552660` → `0x5FE000` → `0x426610` → `0x55C9F0`) with the style `0xB`, or, where that text is empty, `T(9924)` with the style `0x8B` (`ebp` keeps `0x8B` on that path; docs/re/interface.md gives `0xB` for both).
+- The spells page (`0x6C25A0`, the call at `0x6C2AE3`): `0x5893B0(art, 0x17EA068, 1)` on the hero's `+0x3A8`, after clearing the static string `0x17EA068`; bit 0 set, so a held art also shows its next level (§2.3).
+
+### The header
+
+1. **The level `L`.** `0x580A10(art, &L, 0)` on the stats: the level in play, the entry's level with its bonus (docs/re/arts.md); 0 where the hero does not hold the art.
+2. **The bow's arts.** Where `0x54A2A0(creature)` holds (a weapon of category 5, `0x427A40`, of a ranged kind, `0x427ED0`, in the hand `+0x1D4` or `+0x1D8`), the class `Rundum` ids 1057, 1065, 1069, 1073, 1078, 1090 become 1061 and the `Hardhit` ids 1058, 1066, 1070, 1074, 1079, 1091 become 1062 for everything after this (the records, the texts, the switch).
+   `L` was taken before this change.
+3. **The records.** `S = 0x4D2310(id)` (the first table), `W = 0x4D1AF0(id)` (the second).
+   The name's text index is `S+0x04` (`0x4D2690`), else `W+0x04` (`0x4D1D00`); the description's `S+0x08` (`0x4D26A0`), else `W+0x08` (`0x4D1D10`); with neither record both are 0.
+   A description index other than 0 takes **600 more** (the short description).
+   Where `W` names a spell it casts (`0x4D1E10(W)` not 0), `S` becomes that spell's record: the weapon art keeps its own name and description, and every spell value below (`v_j`, the effects, the damages) is the cast spell's.
+4. **The name's colour prefix** (a string of its own), only where the stats' creature exists: `0x658400(prefix, "\%c%x", c, colour)` with the format `\%c%x` at `0x9597F4`: for `L` other than 0, `c` is `'c'` and the colour `0x43C250(creature+0x10)`, the class's: 1 `0xFF87CEFA`, 2 `0xFFE38217`, 3 `0xFF6C4CE5`, 4 `0xFFA020F0`, 5 `0xFF228B22`, 6 and 7 `0xFFB75555`, 8 `0xFF00FFFF`, 9 `0xFFFF6C00`, any other `0xFF000000`; for `L` 0, `c` is `'d'` and the colour `0xFFAFAFAF`.
+   So the prefix is `\c` and eight lowercase hex digits for a held art, `\dffafafaf` for one not held.
+5. **The level line** (a string of its own, the "title"):
+   - `L` 0: `L` is set to **1** for everything after (the values shown are level 1's), and the title is `0x959764` `\n\n%s\n\n%s: %d` with (the short description, `T(1072)`, 1);
+   - `L` not 0 and the global `0x17E7D34` equal to 3: `0x959780` `\n\n%s\n\n\cFFFFFF80%s : %d` with (the short description, `K(AKTUELLE_STUFE)`, `L`);
+   - `L` not 0 otherwise: `0x9597C0` `\n\n%s\n\n\cFFFFFF80%s %s: %d` with (the short description, `T(1109)`, `T(1070)`, `L`).
+   A missing description is the empty string at `0xAB80AC`.
+   (**Hypothesis**: `0x17E7D34` is the language; `loadSettings` writes it at `0x815200`, the fonts read it.)
+6. **The output is assigned** `0x959758` `%s%s` with (the prefix, `T(name)`); a third argument, the title, is pushed but not consumed by the format.
+7. **The restriction line**, from the records' flag bytes (`S+0x90`, `W+0x74`):
+   - `0x4D25A0(b)` (and `0x4D1BE0(b)` for `W`) answers whether the art may be made on horseback: where the flag's bit 1 is clear or `b` is not 0, it answers the flag's bit 0 clear; else 0.
+   - `r = 0`; for `S`: where `0x4D25A0(0)` is 0, `r = 1`, and then 2 where `0x4D25A0(1)` holds; for `W` likewise with `0x4D1BE0`, overriding `r` only where `0x4D1BE0(0)` is 0; then `r = 4` where `W`'s bit 2 is set (`0x4D1BD0`) or `S`'s (`0x4D2590`).
+   - So bit 0 set gives 1, bit 0 clear with bit 1 set gives 2, bit 2 gives 4 over either.
+   - For `r` 1, 2 or 4 it appends `\n` (`0x957120`), `\cFFFF0000` (`0x959740`) and `K(UI_HORSE_CANTCAST)`, `K(UI_HORSE_ONLYWITHBOW)` or `K(UI_STAT_2H_ONLY)`.
+   - The flags are fixed arguments here (0 and 1), not the hero's weapon.
+8. It appends the title and then `\n` (`0x957120`).
+
+So the header reads: the name in the class's colour (grey `0xFFAFAFAF` through `\d` when not held); optionally a red line of the restriction; a blank line; the short description; a blank line; the level line in `0xFFFFFF80` (uncoloured "1072: 1" when not held); then the art's lines start on the next line.
+
+### The art's block
+
+At the head of each pass (`0x589A6E`) it computes, for the level shown `L`:
+
+- **The effects** `e_k = S[+0x44+4k]·L + S[+0x42+4k]` in 16 bits (k 0–12, read where a case needs them; `0x590C80`…`0x590D20` give e4, e5, e8, e7, e6, e9).
+- **The four damages** `D_k` (k 0 physical, 1 fire, 2 magic, 3 poison), only where `S` exists (else they keep their last values, 0 at first): `D_k = ⌊e_k · (m_k + n_k)⌋` as a 16-bit word, `m_k` the stats' `+0x96 + 4k` and `n_k` the spells' second array `+0xB6 + 4k`, but the weapon one `+0xA6 + 4k` for the ids 56 and 1018; the float sum and the product on the x87 unit, truncated (`__ftol`).
+  `D = D0 + D1 + D2 + D3` (the truncated parts summed).
+- **The regeneration time** `t`, divided by the speed `s`: the spells' `+0xEE` for an id below 999 or 1019, else the weapon arts' `+0xF2`.
+  - Bit 0 clear (the bar): the time `+0x0A` of the **first** entry of the id in the stats' list (`+0x102`…`+0x106`, 22 bytes each), over `s`; where the list lacks it, `0x582A20(id, 0, 0) / s`.
+  - Bit 0 set: with `L0` and `b` the level and bonus bytes of the **last** entry of the id (0 without one), `t = 0x582A20(id, L0 + (L > L0 + b ? 1 : 0), b) / s`; then, where `0x580A10(id, &Lp, 0)` finds the art with `Lp` not 0, `te` = the first entry's `+0x0A / s` (or `0x582A20(id, 0, 0) / s`), and `t = te` where `Lp = L`, else `t = te / t0 · t` with `t0 = 0x582A20(id, L0, b) / s` where `t0` is above `1.1920929e−7` (`0x890C9C`).
+  - So the next level's time is the entry's own time (the skills' shortening in it) scaled by the record's growth.
+  - `0x582A20(id, l, b)`: the record's time at `l` (a spell's `0x4D25C0`, a weapon art's `0x4D1C00`, a weapon art that casts a spell the spell's), and with a bonus that adds time, `t(l) + (t(l + b) − t(l))/2`.
+- **A trap factor** `g` (used by 1049, 1050, 1052), computed once before the passes (`0x589737`): `g = (c₂ + c₂₆) · 0.01f + (e2 + a2) / BG + 1`, `c₂` and `c₂₆` the curves of the skills 2 and 26 at the level of the stats' slot holding them (`+0x24`…`+0x2B` the slots' skills, `0x582400(slot, 0)` the level), each `off + 2(w − off)(1 − 1/(1 + (s − 1)/S))` for `s ≥ 1` and 0 otherwise, the skill 2's keys at `0xAD44D0`, `0xAD44D4`, `0xAD44D8` (off, S, w) and the skill 26's at `0xAD45D8`, `0xAD45DC`, `0xAD45E0`; `a2` the stats' `u16 +0x14`, `e2` the byte `+0x1E`, `BG` the float `0xAD5630` (`BalanceGeschick` by docs/re/arts.md); `0.01f` is the float `0x890CB0`, a little below 0.01.
+
+Then the switch writes the art's lines into a line string (§2.4), every format beginning with `%s: %.1fs` filled with `T(1107)` and `t` (one decimal, a literal `s`; text 1146 is not used here).
+Spells 43–54 and 61 and weapon arts 1055, 1056, 1077, 1081, 1088, 1095, 1096 have no case: their line string stays empty, so not even the regeneration line shows; the cases 55–67 write nothing without `S`, and 1082–1087, 1089, 1097–1103 nothing without `W`.
+
+### The next level
+
+- Bit 0 clear, or the art not held (`L` was 0): the line string is appended (`0x590DB0`) and the function ends.
+- Bit 0 set and held: it appends the line string followed by `\n\n\cFFFFFF80` (`0x957E78`), `K(UI_TT_NEXTLEARNEDLEVEL)` and `:\n` (`0x957E58`) (`0x5921D0` concatenates), clears the line string, raises `L` by 1 and runs the pass again (§2.2, from the damages on), whose line string is appended at its end; one extra level only.
+- So the next level's block follows a line in `0xFFFFFF80` naming it, its own lines in the default colour, the time scaled as in §2.2.
+- No item-bonus lines: `0x5C4450` is not called; every line is the switch's own format.
+
+### The art lines by id
+
+Notation: `v_j = 0x4D26B0(j, L)` on `S`, `S[+0x78+4j]·L + S[+0x76+4j]` in 16 bits held at the cap `S[+0x82+2j]` where that is not 0; `r(a, b) = 0x4D26E0(a, b, L)` (`v_a/v_b` truncated, held at `a`'s cap; `v_a` where `v_b` is 0); `H` the stats' level (`u16 +0x56`); `W50 = L·W[+0x54] + W[+0x50]` and `W58 = L·W[+0x5C] + W[+0x58]` (floats on the x87 unit), `W60 = W[+0x64]·L + W[+0x60]` and `W68 = W[+0x6C]·L + W[+0x68]` (whole numbers); `A% = ⌊(0.125·L + 1.3f)·100 − 100⌋`, `1.3f` the float `0x8910C8` (1.2999999523), so 29, 42, 54, 67, 79 for `L` 0 to 4; `P(x) = ⌊100·x − 100 + 0.5⌋` truncated **toward zero** by `__ftol`, so a negative value rounds wrongly (0.80000001 gives −19, not −20); `⌊⌋` everywhere is `__ftol`'s truncation toward zero.
+`DMG` stands for the format piece `%s: %d = %d+\cFFFF5A09%d\cFFFFFFFF+\cFF0977FF%d\cFFFFFFFF+\cFF09FF15%d\cFFFFFFFF` filled with `T(1085)`, `D`, `D0`, `D1`, `D2`, `D3`: the total and the physical part in the line's colour, the fire part in `0xFFFF5A09`, the magic in `0xFF0977FF`, the poison in `0xFF09FF15`, each `+` after a coloured part in `0xFFFFFFFF`.
+`b1 = min(1, (5L + 9)/(H + 9 + 5L + 9))` and `b2 = min(1, 2(5L + 9)/(H + 9 + 2(5L + 9)))` (`5.0` `0x890754`, `9.0` `0x890CB4`).
+Each entry gives the format's address, the format, and its arguments after `T(1107), t`.
+
+The spells (`S` the spell's record):
+
+- 1: `0x9595C4` `%s: %.1fs\n%s: %d` — `T(1083)`, `v0`.
+- 2: `0x95939C` `%s: %.1fs\n%s: %ds\n%s: %+d%%\n%s: %+d\n%s: %+d\n%s: %+d` — `T(1097)`, `v0`; `T(1167)`, `e5`; `K(INVENTAR_RES_PHYSICAL)`, `e6`; `K(INVENTAR_RES_POISON)`, `e9`; `K(INVENTAR_RES_FIRE)`, `e7`.
+- 3: `0x9595C4` — `T(1070)`, `v0`.
+- 4, 6, 9, 10, 16, 18, 19, 25, 36, 40: `0x9596E0` `%s: %.1fs\n%s: %ds` — `T(1097)`, `v0`.
+- 5, 13, 38: `0x959628` `%s: %.1fs\n` + DMG.
+- 7: `0x9595A0` `%s: %.1fs\n%s: +%d` — `T(1073)`, `⌊v0·(1 + 0.01f·c₁₄)⌋`, `c₁₄` the skill 14's curve (keys `0xAD44DC`, `0xAD44E0`, `0xAD44E4`; 0 without the skill).
+- 8: `0x9595E8` `%s: %.1fs\n%s: %ds\n%s: %d\n%s: %d` — `T(1097)`, `v0`; `T(1098)`, `v1`; `T(1083)`, `v2`.
+- 11, 15, 17, 23, 60, 64: `0x959404` `%s: %.1fs\n` + DMG + `\n%s: %ds` — DMG; `T(1097)`, `v0`.
+- 12: `0x9592A0` `%s: %.1fs\n%s: %d\n%s: %d` — `T(1097)`, `v0`; `T(1104)`, `v1`.
+- 14: `0x9592D0` `%s: %.1fs\n%s: %d(%d+%d+%d+%d)\n%s: %d` — `T(1085)`, `D`, `D0`…`D3` (no colours); `T(1105)`, `v0`.
+- 20: `0x9594CC` DMG + `\n%s: %ds\n%s: %d` — DMG; `T(1097)`, `v0`; `T(1104)`, `v1`.
+- 21: `0x959364` `%s: %.1fs\n%s: %ds\n%s: %+d%%` — `T(1097)`, `v0`; `T(1166)`, `e4`.
+- 22: `0x95931C` `%s: %.1fs\n%s: %d%%\n%s: %ds` — `K(CHANCE4BLOCK)`, `⌊100·b2⌋`; `T(1097)`, `v0`.
+- 24: `0x9591B8` `%s: %.1fs\n%s: %d%%\n` + DMG + `\n%s: %ds\n%s: %+d` — `K(CHANCE4BLOCK)`, `⌊100·b1⌋`; DMG; `T(1097)`, `v0`; `K(INVENTAR_RES_FIRE)`, `e7`.
+- 26, 33: `0x9590F4` DMG + `\n%s: %d` — DMG; `T(1105)`, `r(0, 1)` for 26, `v0` for 33.
+- 27, 37: `0x959364` — `T(1097)`, `v0`; `T(1098)`, `e10`.
+- 28: `0x95901C` `%s: %.1fs\n%s: %d%%\n` + DMG + `\n%s: %ds` — `K(CHANCE4BLOCK)`, `⌊100·b1⌋`; DMG; `T(1097)`, `v0`.
+- 29: `0x958F30` DMG + `\n%s: %d\n%s: %d` — DMG; `T(1106)`, `v0`; `K(TOOLTIP_RUECKWURF_MAGE)`, `v1`.
+- 30: `0x958EC8` `%s: %.1fs\n%s: %d%%\n%s: %ds\n%s: %+d\n%s: %+d\n%s: %+d` — `K(CHANCE4BLOCK)`, `⌊100·b1⌋`; `T(1097)`, `v0`; `K(INVENTAR_RES_MAGIC)`, `e8`; `K(INVENTAR_RES_POISON)`, `e9`; `K(INVENTAR_RES_FIRE)`, `e7`.
+- 31: `0x959364` — `T(1097)`, `v0`; `T(1094)`, `e11`.
+- 32: `0x959364` — `T(1097)`, `v0`; `T(1093)`, `e12`.
+- 34: `0x958E04` `%s: %.1fs\n%s: %d\n` + DMG — `T(1106)`, `r(0, 1)`; DMG.
+- 35: `0x958D3C` `%s: %.1fs\n%s: %ds\n` + DMG — `T(1097)`, `v0`; DMG.
+- 39, 41: `0x958C68` DMG + `\n%s: %d\n%s: %ds` — DMG; `T(1105)`, `r(0, 2)`; `T(1097)`, `v1`.
+- 42: `0x9595C4` — `T(1073)`, `⌊v0·(1 + 0.01f·c₁₄)⌋` (as 7, without the `+`).
+- 55: `0x958C0C` `%s: %.1fs\n%s: %+d\n%s: %d%%\n%s: %ds` — `T(1124)`, `v1`; `K(UI_STAT_REDUCE_VW)`, `⌊10000/e5⌋`; `T(1097)`, `v0`.
+- 56: `0x958E04` — `T(1105)`, `r(0, 1)`; DMG with the weapon multipliers `+0xA6`.
+- 57: `0x958B30` `%s: %.1fs\n%s: %+d%%\n` + DMG-format + `\n%s: %ds` — `T(1167)`, `e5`; `T(1086)`, `e6 + e7 + e8 + e9`, `e6`, `e7`, `e8`, `e9` (the resistances in the damage colours); `T(1097)`, `v0`.
+- 58: `0x959404` — `T(1086)`, `e7 + e8 + e9`, 0, `e7`, `e8`, `e9`; `T(1097)`, `v0`.
+- 59: `0x958AE4` `%s: %.1fs\n%s: %+d%%\n%s: %d%%\n%s: %ds` — `T(1166)`, `e4`; `K(UI_STAT_REDUCE_ENEMY_PHY_RES)`, `⌊10000/e6⌋`; `T(1097)`, `v0`.
+- 62: `0x958A9C` `%s: %.1fs\n%s: +%d%%\n%s: %ds` — `K(UI_MAX_DMGBONUS)`, `⌊0.1f·v0 + 0.5⌋` (stored as a float first); `T(1097)`, `v0`.
+- 63: `0x958998` `%s: %.1fs\n%s: %+d%%\n` + DMG + `\n%s: %+d%%\n%s: %ds` — `T(1074)`, `e4`; DMG; `K(UT_FIREDMG_BONUS)`, `v1`; `T(1097)`, `v0`.
+- 65: `0x95889C` DMG + `\n%s: %ds\n%s: %ds` — DMG; `K(UI_DAUER_TENTAKEL)`, `v1`; `K(UI_DAUER_AURA)`, `v0`.
+- 66: `0x9587A0` DMG + `\n%s: %d%% (%d)\n%s: %ds` — DMG; `K(UT_SLOWDOWN_VS_LEVEL)`, `⌊100·q⌋`, `H`; `T(1097)`, `v0`; `q = 0x590D40(0x552230(H, 0), L)`, `0.75·a/(5·L)` held to 0.5…1, `0x552230(a, 0)` the level `a` scaled by the difficulty (`⌊max(1, (1 + 0.01f·T1[e])·a + T2[e] + 0.5)⌋`, `e` the index of `0x182EE44`, the tables at `0xAD5648` and `0xAD5660`).
+- 67: `0x958730` `%s: %.1fs\n%s: %d%%\n%s: %d%%\n%s: %ds` — `K(UI_REDUCED_ATTACK)`, `⌊10000/e4⌋`; `K(UI_REDUCED_DEFENSE)`, `⌊10000/e5⌋`; `T(1097)`, `v0`.
+
+`⌊10000/x⌋` is the float 10000 over the whole `x` (`0x890C3C`); an `x` of 0 would print `−2147483648`.
+
+The weapon arts (`W` the art's record):
+
+- `Rundum` 1000, 1057, 1061, 1065, 1069, 1073, 1078, 1090, and 1038: `0x9586E0` `%s: %.1fs\n%s: %+d%%\n%s: +%d%%\n%s: %+d%%` — `T(1116)`, `P(W50)`; `T(1104)`, `W60 − 100`; `T(1074)`, `A%`.
+- `Hardhit` 1001, 1058, 1062, 1066, 1070, 1074, 1079, `Attacke` 1002, 1059, 1063, 1067, 1071, 1075, 1080, 1092, and 1039, 1040: `0x9586A4` `%s: %.1fs\n%s: %+d%%\n%s: %+d%%` — `T(1116)`, `P(W50)`; `T(1074)`, `A%`.
+- 1003, 1091: `0x95862C` `%s: %.1fs\n%s: %+d%%\n%s (%s) %d%% (%d)` (1003) and `0x958394` the same + `\n%s: %+d%%` (1091) — `T(1116)`, `⌊100·W58 − 99.5⌋` for 1003, `P(W50)` for 1091; `K(UI_STAT_STUNNCHANCE)`, `K(UI_STAT_AGAINST_LEVEL)`, `min(⌊0x4FC9D0(L, creature)⌋, 100)`, `H`; and for 1091 `T(1074)`, `A%`.
+  `0x4FC9D0(L, c)` is the kicks' chance against the stats' **own** creature: 0 for a list of big types, else `100·5L/v`, `v` its level (`+0x3FE`), passed through `0x552230(v, 0)` for a player (an id up to 16), times `0.7692308` for a boss (`+0x1F4` bit `0x80000`) and `0.8333333` where `0x426CB0(type)` holds.
+- 1004, 1012, 1017: `0x9584F0` `%s: %.1fs\n%s: %+d%%` — `T(1116)`, `P(W50)`.
+- 1005: `0x958518` `%s: %.1fs\n%s: %ds\n%s: %d\n%s: %+d%%` — `T(1097)`, `W60`; `T(1105)`, `⌊W50/W58⌋`; `T(1074)`, `A%`.
+- 1006: `0x9592A0` — `T(1105)`, `⌊W60/W68⌋`; `T(1070)`, `min(5L, h)`, `h` the local player's hero's level (`0x603E30` on `0xAD5C40`, its `+0x3FE`).
+- 1007: `0x9595C4` — `K(TOOLTIP_RUECKWURF_HELF)`, `W60`.
+- 1008: `0x95931C` — `T(1116)`, `P(W58)` (no sign); `T(1097)`, `⌊W50⌋`.
+- Kicks 1009, 1060, 1064, 1068, 1072, 1076, 1093: `0x958484` `%s: %.1fs\n%s: %2.2fm\n%s: %+d%%\n%s: %+d%%` — `T(1083)`, `0.02f·W[+0x60]·k`; `T(1116)`, `P(W50)`; `T(1074)`, `A%`; `k = min(1, 5L/H)`, 1 where `H` is 0; `0.02f` the float `0x890E10` (0.0199999996).
+- 1010: `0x9584F0` — `T(1116)`, `⌊10L + 100 − 100 + 0.5⌋` (constants, not the record).
+- 1011: `0x9595C4` `%s: %.1fs\n%s: %d` — `T(1104)` and `r = max(L·W[+0x54] + W[+0x58] + W[+0x50] − W[+0x5C], W[+0x50])` passed as a **double** to `%d`: the original prints the low 32 bits of the double's pattern (0 for a value with few mantissa bits), a defect.
+- 1013, 1054: `0x958458` `%s: %.1fs\n%s: %d - %d` — `T(1085)`, `⌊Σ least_k · W50 + 0.5⌋`, `⌊Σ most_k · W50 + 0.5⌋`: the weapon in the creature's `+0x1D4`, else `+0x1D8` (`0x5FE000`, a dynamic cast to the class at `0x94EBC0`), its record `0x5BEB30(−1)`, and `0x56ACD0(record, 0, buf)` on the stats: `buf[0..3]` each kind's most (record `+0x24`…`+0x2A`), `buf[4..7]` its least (`+0x1C`…`+0x22`), with its bonuses `0x321`…`0x328` and times `1 + 0.01f·c₂' + (e0 + a0)/BG` (`c₂'` the skill 2's curve at its level with bonus, `e0` the byte `+0x1C`, `a0` the `u16 +0x10`); no weapon gives 0 - 0.
+- 1014: `0x9585E4` `%s: %.1fs\n%s: %d\n%s: %2.2fm\n%s: %ds` — `T(1104)`, `⌊W50⌋`; `K(TOOLTIP_RUECKWURF_MAGE)`, `0.02f·((W[+0x64] + 1)·L − W[+0x6C] + W[+0x68] + W[+0x60])`; `T(1097)`, `⌊W58⌋`.
+- 1015: `0x958598` `%s: %.1fs\n%s: %+d%%\n%s: %+d%%\n%s: %ds` — `T(1166)`, `⌊100·W50⌋`; `T(1167)`, the same value; `T(1097)`, `⌊W58⌋`.
+- 1016: `0x958560` `%s: %.1fs\n%s: %d/s\n%s: %ds` — `T(1116)`, `⌊(1 + 0.01f·c₂ + a0/BG)·W50 + 0.5⌋` (the product stored as a float first); `T(1097)`, `⌊W58⌋`.
+- 1018, 1019: `0x959404` — DMG of the cast spell's record (1018 with the weapon multipliers `+0xA6`, 1019 with `+0xB6`); `T(1097)`, `⌊W58⌋`.
+- 1020: `0x958408` `%s: %.1fs\n%s: %+d%%\n%s: %2.2f\n%s: +%d%%` — `T(1116)`, `P(W50)`; `K(TOOLTIP_RUECKWURF_HELF)`, `0.02f·W58`; `T(1104)`, `W60 − 100` (through a float).
+- 1021, 1034: `0x9583F4` `%s: %.1fs` — the time alone.
+- 1022, 1023: `0x9596E0` — `T(1097)`, `⌊W50·f⌋`, `f = 1 + 0.4·d` where the stats' `+0x148` has bit `0x400000` (`d` 1.34, 1.67, 2.0, 2.34 for `0x182EE44` 1 to 4, else 1.0; jump table `0x590364`), else `f = 1`.
+- 1024, 1025: `0x9596E0` — `T(1097)`, `⌊W50⌋`.
+- 1026, 1027: `0x9595C4` — `T(1070)`, `⌊2.5L + ⌊0.4f·H⌋⌋` by day (`0x41BA60` on the renderer `0x417E70`, 05:20 to 20:20), `⌊3L + ⌊0.4f·H⌋⌋` otherwise.
+- 1028, 1029: `0x9582A4` `%s: %.1fs\n%s: %2.2fm` — `T(1083)`, `0.02f·⌊W60⌋`.
+- 1030: `0x9595C4` — `K(TOOLTIP_LEBEN_ABSAUGUNG2)`, `⌊W50⌋`.
+- 1031: `0x9596E0` — `T(1097)`, `⌊W58⌋`.
+- 1032: `0x95835C` `%s: %.1fs\n%s: %2.2fm\n%s: %d` — `T(1104)`, `0.02f·W50`; `T(1085)`, `⌊W58⌋`.
+- 1033: `0x959404` — `T(1085)`, `a`, `a`, 0, 0, 0 (`a = ⌊10·W50⌋`, physical alone); `T(1097)`, `⌊W58⌋`.
+- 1035, 1036, 1037: `0x9595C4` — `T(1105)`, `⌊(34L + 8)/(7L + 35)⌋` (constants compiled in, not the record).
+- 1041: `0x95830C` `%s: %.1fs\n%s: %2.2fm\n%s: %d%%\n%s: %+d%%` — `T(1083)`, `0.02f·W[+0x60]·k` (as the kicks); `T(1116)`, `⌊(0.1f·L + 0.5 + 1)·100 − 100 + 0.5⌋` (constants, `50 + 10L`); `T(1074)`, `A%`.
+- 1042: `0x9582D0` `%s: %.1fs\n%s: %2.2fm\n%s: %ds` — `T(1104)`, `0.02f·W50`; `T(1097)`, `⌊W58⌋`.
+- 1043: `0x9582A4` — `T(1083)`, `0.02f·⌊W50⌋`.
+- 1044: `0x958270` `%s: %.1fs\n%s: +%d\n%s: %ds` — `T(1073)`, `v1`; `T(1097)`, `v0` (of the cast spell).
+- 1045, 1046: `0x958224` `%s: %.1fs\n%s: %d%%\n%s: %ds\n%s: %+d%%` — `K(CHANCE4BLOCK)`, `⌊100·b1⌋`; `T(1097)`, `⌊W50⌋`; `T(1085)`, `⌊100·W58 − 100⌋` (not rounded).
+- 1047: `0x9581D8` `%s: %.1fs\n%s: %ds\n%s: %+d%%\n%s: %+d%%` — `T(1097)`, `W60`; `T(1166)`, `⌊100·W50⌋`; `T(1165)`, `⌊100·W58⌋`.
+- 1048: `0x9581D8` — `T(1097)`, `W60`; `T(1167)`, `⌊100·W50⌋`; `T(1093)`, `⌊100·W58⌋`.
+- 1049: `0x959628` — `T(1085)`, `⌊(D0 + D1 + D2 + D3)·g⌋`, `⌊D0·g⌋`, `⌊D1·g⌋`, `⌊D2·g⌋`, `⌊D3·g⌋` (the cast spell's damages times the trap factor `g` of §2.2; the total from the sum, not the parts).
+- 1050: `0x958104` `%s: %.1fs\n%s: %ds\n%s: %d\n` + DMG — `T(1097)`, `v0`; `T(1070)`, `v1`; DMG times `g` as 1049.
+- 1051, 1053: `0x9596E0` — `T(1097)`, `v0` (of the cast spell).
+- 1052: `0x958D3C` — `T(1097)`, `v0`; DMG times `g` as 1049.
+- 1082: `0x95801C` `%s: %.1fs\n%s: %+d\n%s: %+d%%\n%s: %ds` — `T(1100)`, `⌊W58⌋`; `K(UI_STAT_BERSERK)`, `W[+0x68]·L + W[+0x64]` (`0x590AF0`, the step `+0x68` and the base `+0x64`); `T(1097)`, `⌊W50⌋`.
+- 1083: `0x9586A4` — `T(1116)`, `⌊100·(W58 − 1) + 0.5⌋`; `T(1074)`, `A%`.
+- 1084: `0x9586A4` — `T(1116)`, `⌊100·(W50 − 1)⌋` (`W50` stored as a float, not rounded); `T(1074)`, `A%`.
+- 1085: `0x959404` — `T(1085)`, `F`, 0, `F`, 0, 0 (fire alone); `K(UI_STAT_BURN_TIME)`, `⌊W60/W68⌋` (`0x590B30`, no lower bound of 2 here); `F = ⌊(W58·(m1 + m'1))·γ⌋`, `m1 + m'1` the stats' `+0x9A` and `+0xAA` (through `0x80DB40`, `this + 8`), the product stored as a float, `γ = 0x4D21C0(creature)` the gun factor (`1 + a2/BG + 0.01·c₂` for the type 8, else 1).
+- 1086: `0x959628` — `T(1085)`, `P + Fi`, `P`, `Fi`, 0, 0: `P = ⌊(W50·(m0 + m'0))·γ⌋` (`+0x96`, `+0xA6`), `Fi = ⌊(W58·(m1 + m'1))·γ⌋`.
+- 1087: `0x959628` — `T(1085)`, `⌊P' + Fi'⌋`, `⌊P'⌋`, `⌊Fi'⌋`, 0, 0, `P'` and `Fi'` the same products not truncated (`P'` stored as a float); the tooltip uses the physical and fire multipliers the right way round.
+- 1089: `0x958074` `%s: %.1fs\n%s: %+d%% (%s: %+d%%)\n%s: %+d%% (%s: %+d%%)\n%s: %ds` — `T(1166)`, `⌊100·W50⌋`, `K(UI_STAT_ON_ALLIES)`, `⌊50·W58⌋`; `T(1167)`, `⌊100·W58⌋`, `K(UI_STAT_ON_ALLIES)`, `⌊50·W58⌋`; `T(1097)`, `⌊0.01f·W60⌋` (the allies' share of the attack is taken from `W58` too, as read).
+- 1094: `0x958598` — `T(1167)`, `⌊100·W58⌋`; `T(1098)`, `W60 − 100` (through a float); `T(1097)`, `⌊min(W50, 180)⌋` (`0x8910E0`; the factor of the creature's `+0x4F0` bit `0x8000` is not applied).
+- 1097: `0x957F90` `%s: %.1fs\n%s: %+d%%\n%s %+d%%\n%s %+d\n%s: %d` — `T(1166)`, `⌊100·(0.01f·W68)⌋`; `K(UI_PHY_DMG)`, `⌊100·(0.01f·W60)⌋`; `K(INVENTAR_RES_PHYSICAL)`, `⌊W58⌋`; `T(1097)`, `⌊min(W50, 180)⌋` (`0x590B70`); no colon after the two keys and no `s` after the time; `0.01f` being below 0.01, a whole `W60` such as 20 shows as 19 (**estimate** of the arithmetic, not seen).
+- 1098, 1099, 1100: `0x957F04` `%s: %.1fs\n%s: %d%%\n%s %+d\n%s: %ds` — `K(UI_REDIRECT_PHY2FIRE)`, `K(UI_REDIRECT_PHY2POISON)` or `K(UI_REDIRECT_PHY2MAGIC)`, `⌊100·(1 − (0.001f·W[+0x6C])^L)⌋` (`0x590C40`, the power by `0x849FA0`); `K(INVENTAR_RES_FIRE)`, `K(INVENTAR_RES_POISON)` or `K(INVENTAR_RES_MAGIC)`, `⌊W58⌋`; `T(1097)`, `⌊min(W50, 180)⌋`.
+- 1101: `0x957EC4` `%s: %.1fs\n%s: %d\n%s: %ds` — `K(UI_POI_DMG)`, `⌊W50·μ + 0.5⌋`, `μ = 0x4D2250(creature)` (the stats' `+0xA2` + `+0xB2` for the Daemon, type 9, else 1); `T(1097)`, `⌊0x5537B0(L)⌋` (`W60/W68`, 0 where `W68` is at most `1.19e−7`).
+- 1102: `0x957EC4` — `K(UI_STAT_FEUERHAUCH_DMG)`, `⌊W50·μ + 0.5⌋` with `0x4D2280` (`+0x9A` + `+0xAA`); `K(UI_STAT_FEUERHAUCH_TIME)`, `⌊0x5537B0(L)⌋`.
+- 1103: `0x9590F4` — `T(1085)`, `P + M`, `P`, 0, `M`, 0 (`P = ⌊W50⌋`, `0x4D22E0` being 1.0; `M = ⌊⌊W58⌋·μ + 0.5⌋` with `0x4D22B0`, `+0x9E` + `+0xAE`); `K(UI_NUMBER_FLASHS)`, `2n + 1`, `n = ⌊0x5537B0(L)⌋`.
+
+### What it reads
+
+- Both art tables in full (docs/02 §6.5): the first table's name and description indices, `+0x42`…`+0x75` (the thirteen effects), `+0x76`…`+0x87` (the three values and caps), `+0x3E`/`+0x40` (the time), `+0x90` (the flags); the second table's indices, `+0x40`…`+0x6C` and `+0x74`, and its cast spell (`0x4D1E10`).
+- The hero's stats: the art list (level, bonus, time `+0x0A`), the level `+0x56`, the attributes `+0x10` and `+0x14`, the extra points' bytes `+0x1C` and `+0x1E`, the skill slots `+0x24`…`+0x2B` with their levels, the multipliers `+0x96`…`+0xC2`, the speeds `+0xEE` and `+0xF2`, the flags `+0x148`; the creature's type (`+0x10`), its hands' items, its level `+0x3FE`.
+- The balance values: the skills 2, 14 and 26's curves (`0xAD44D0`…`0xAD44E4`, `0xAD45D8`…`0xAD45E0`), `BalanceGeschick` (`0xAD5630`), the difficulty tables of `0x552230` (`0xAD5648`, `0xAD5660`) and the difficulty `0x182EE44`.
+- The global texts 1070, 1072, 1073, 1074, 1083, 1085, 1086, 1093, 1094, 1097, 1098, 1100, 1104, 1105, 1106, 1107, 1109, 1116, 1124, 1165, 1166, 1167 (and 9924 for the bar) and the keys named above.
+- The single-precision constants of the formulas (`1.3f`, `0.01f`, `0.02f`, `0.1f`, `0.4f`, `0.001f`) and `__ftol`'s truncation toward zero, which decide several shown numbers (`A%` 54 at level 2, a negative `P` off by one).
+
+### Not read
+
+- `0x17E7D34`: only that 3 selects the `AKTUELLE_STUFE` title (language **hypothesis**).
+- The renderer's meaning of `\d` followed by eight hex digits (the prefix of an art not held) was not read; the brief's `\d` is "a default colour".
+- The runtime values of the balance constants (BSS here) and of `0x552230`'s tables were not read; `0x426CB0`'s type flag and the conditions of `0x56ACD0`'s bonuses (`0x568B30`, `0x568C40`) were not followed.
+- `0x552370(art, 0)` with the flag 0 (the bar's mapping) was not read.
+- Whether the arts with an empty line string (43–54, 61, 1055, 1056, 1077, 1081, 1088, 1095, 1096) are ever in a slot, and how 1011's `%d` of a double prints for the real record, were not checked in the running original.
+- The per-art labels' texts were not opened (they are not to be quoted); the label meanings in docs/re/arts.md (1083 range, 1104 radius, 1105 quantity, 1106 size and so on) are not re-checked here.
+
+**Seen** 2026-11-01 at the Seraphim's start over her first art slot (1071 at the level 1, its time 15 s): the name in her class's light blue, the red line of horseback, the short description, the level line in yellow, `Regeneration: 12.3s`, `Damage: -19%` (the factor 0.8 rounded toward zero) and `Attack: +42%`.
+
+### In `opensacred-game`
+
+Since #1694 the bar's art slots show their art's tooltip (`tooltip::art`) at (x − 92, y − 92) of the slot, kept within the screen, as the taskbar's step 9 shows it: the header, the regeneration time over the hero's speed of the latest tick (`arts::HeroArts::speeds`) and the arts' lines above by their ids, at the level 1 of an art not held, the whole in grey.
+**Seen** beside the original's at the Seraphim's start: her 1071 line for line.
+Not followed: the spells page's tooltip with its next level (the flags 1), the horse's text while the hero rides, the combos' (`0x581550`), the second weapon multipliers' array `+0xA6` (the stats' `+0x96` alone taken) of 56, 1018, 1085 to 1087 and 1101 to 1103, the skill 26's curve of the traps 1049, 1050 and 1052 (taken as 0), the difficulty's scaling of the levels of 66, 1003 and 1091 (bronze's), the weapon in hand of 1013 and 1054 (no line), the stats' flag `0x400000` of 1022 and 1023, 1011's defect (its value is shown whole), and `0x17E7D34`'s other level line.
+
 ## A hero's combos
 
 A hero's stats (only for a creature of the heroes' class, `0x426650`) hold its combos as a list of entries of 38 bytes, from `+0x10E` to `+0x112` of the stats (`0x5813D0`): an id at `+0`, four arts' references from `+2` (four bytes each, the art's id in the low word) and their levels from `+0x12` (a `u16` each), the combo's time at `+0x1A`, its regeneration's speed at `+0x1E`, and the time regenerated at `+0x22`, counting up.

@@ -17,6 +17,7 @@
 //! socket's item's model at its centre, which a camera of their own draws into a picture over the
 //! row.
 
+mod art;
 mod lines;
 
 use bevy::camera::visibility::RenderLayers;
@@ -101,9 +102,47 @@ struct Weighing<'w, 's> {
     experience: Res<'w, Experience>,
     potions: Option<Res<'w, crate::belt::Potions>>,
     heroes: Query<'w, 's, &'static Combat, With<Body>>,
+    holding: Query<'w, 's, &'static crate::fight::Holding, With<Body>>,
+    clock: Option<Res<'w, crate::daynight::Clock>>,
 }
 
 impl Weighing<'_, '_> {
+    /// The tooltip's lines of the art `art` of the texts `texts` (`0x5893B0`, #1694).
+    fn art_lines(&self, art: u16, texts: Option<&Texts>) -> Vec<Line> {
+        let (Some(arts), Some(combat)) = (self.arts.as_deref(), self.heroes.iter().next()) else {
+            return Vec::new();
+        };
+        // The day of the original's renderer, 05:20 to 20:20.
+        let day = self
+            .clock
+            .as_deref()
+            .is_none_or(|clock| (320..1220).contains(&clock.minute()));
+        let hero = art::Hero {
+            kind: arts.kind,
+            level: self.experience.0.level,
+            arts: &arts.arts,
+            speeds: arts.speeds,
+            multipliers: combat.multipliers,
+            spells: combat.spells,
+            attributes: combat.attributes,
+            skills: &arts.skills,
+            ranged: self
+                .holding
+                .iter()
+                .next()
+                .is_some_and(|holding| holding.0.ranged),
+            day,
+            rules: &self.rules,
+        };
+        let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
+        let id = |id: u32| texts.and_then(|texts| texts.id(id)).map(str::to_owned);
+        let words = art::Words {
+            text: &text,
+            id: &id,
+        };
+        art::lines(art, &hero, &arts.tables, &words)
+    }
+
     /// The tooltip's lines of `dropped`, named `name`, of the texts `texts`, its price as the hero
     /// would buy it where `buying` (a merchant's, #1618), else as it would sell it.
     fn lines(
@@ -238,13 +277,24 @@ struct Root;
 struct Scene;
 
 /// Where the item that a tooltip shows lies: the backpack's grid, a page of a merchant's (#1618),
-/// or a weapon set's slot of the bar (#1689).
+/// or a weapon set's slot of the bar (#1689); or the art slot of the bar whose art it shows
+/// (#1694).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Source {
     Backpack,
     Merchant(opensacred_rules::trade::stock::Page),
     WeaponSet,
+    ArtSlot,
 }
+
+/// What a tooltip shows: an item, or an art.
+enum Shows {
+    Item(Dropped),
+    Art(u16),
+}
+
+/// An art slot's tooltip's corner from the slot's (`0x6E4560`, the style `0x8B`).
+const FROM_ART_SLOT: Vec2 = Vec2::new(-92.0, -92.0);
 
 /// A weapon set's slot's item's tooltip's corner from the slot's, as the taskbar shows it
 /// (`0x6E4560`): its middle less 64 along, 128 up.
@@ -270,7 +320,7 @@ type Merchant<'w> = (
 /// merchant's page's item with its price as bought (`0x6DAA70`), made as the pointer comes to an
 /// item and taken away as it leaves it (`0x6C1480`); and of a weapon set's slot's item of the
 /// bar, the hand by the half the pointer is on, whether the inventory shows or not (`0x6E4560`,
-/// #1689).
+/// #1689); and of an art slot's art (`0x5893B0`, #1694).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -281,9 +331,10 @@ fn grid(
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
     (pack, (merchant, showing, wares)): (Res<Pack>, Merchant),
-    (sets, slots): (
+    (sets, slots, art_slots): (
         Option<Res<crate::sets::WeaponSets>>,
         Option<Res<bar::Shown>>,
+        Option<Res<crate::art_slots::ArtSlots>>,
     ),
     texts: Option<Res<Texts>>,
     weighing: Weighing,
@@ -311,7 +362,7 @@ fn grid(
             Source::Merchant(showing.0),
             placed.key,
             at_item(crate::merchant::GRID, placed),
-            dropped,
+            Shows::Item(dropped),
         ))
     };
     let carried = || {
@@ -323,19 +374,42 @@ fn grid(
             .find(|(key, _)| *key == placed.key)?
             .1
             .clone();
-        Some((Source::Backpack, placed.key, at_item(GRID, placed), dropped))
+        Some((
+            Source::Backpack,
+            placed.key,
+            at_item(GRID, placed),
+            Shows::Item(dropped),
+        ))
     };
     let held_by_set = || {
         let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
         let count = slots.as_deref()?.0;
         let (set, half, corner, dropped) = crate::sets::hovered(sets.as_deref()?, count, at)?;
         let key = u32::try_from(set * 2 + half).ok()?;
-        Some((Source::WeaponSet, key, corner + FROM_SLOT, dropped))
+        Some((
+            Source::WeaponSet,
+            key,
+            corner + FROM_SLOT,
+            Shows::Item(dropped),
+        ))
+    };
+    let art_in_slot = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let count = slots.as_deref()?.0;
+        let (slot, corner, art) = crate::art_slots::hovered(art_slots.as_deref()?, count, at)?;
+        let key = u32::try_from(slot).ok()? << 16 | u32::from(art);
+        Some((
+            Source::ArtSlot,
+            key,
+            corner + FROM_ART_SLOT,
+            Shows::Art(art),
+        ))
     };
     let under = shown
         .then(|| sold().or_else(carried))
         .flatten()
-        .or_else(held_by_set);
+        .or_else(held_by_set)
+        .or_else(art_in_slot);
     let current = panels.iter().next();
     if current.map(|(_, panel)| (panel.source, panel.key))
         == under.as_ref().map(|(source, key, ..)| (*source, *key))
@@ -348,8 +422,29 @@ fn grid(
     for scene in &scenes {
         commands.entity(scene).despawn();
     }
-    let Some((source, key, corner, dropped)) = under else {
+    let Some((source, key, corner, shows)) = under else {
         return;
+    };
+    let root = roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| commands.spawn(root()).id());
+    let dropped = match shows {
+        Shows::Item(dropped) => dropped,
+        Shows::Art(art) => {
+            let lines = weighing.art_lines(art, texts.as_deref());
+            if lines.is_empty() {
+                return;
+            }
+            let (panel, _) = spawn(&mut commands, (&images, &assets), corner, (&lines, &[]));
+            commands.entity(panel).insert(Panel {
+                source,
+                key,
+                at: corner,
+            });
+            commands.entity(root).add_child(panel);
+            return;
+        }
     };
     let name = texts
         .as_deref()
@@ -357,10 +452,6 @@ fn grid(
         .unwrap_or_default();
     let buying = matches!(source, Source::Merchant(_));
     let lines = weighing.lines(&dropped, name, texts.as_deref(), buying);
-    let root = roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| commands.spawn(root()).id());
     // The sockets' kinds from the first, of a kind other than 0 (`0x5BE9C0`).
     let kinds: Vec<u8> = weighing.tables.as_deref().map_or_else(Vec::new, |tables| {
         let kinds = tables.own_values(&dropped).sockets;

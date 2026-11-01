@@ -13,7 +13,7 @@
 //! into the selected slot (`spells_page`, #1536).
 //!
 //! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`), the
-//! slots kept in the saves, and a slot's tooltip.
+//! slots kept in the saves; a slot's tooltip is `tooltip::art`'s (#1694).
 
 use bevy::prelude::*;
 
@@ -49,6 +49,17 @@ impl ArtSlots {
 /// +0x68`).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HeldArt(pub Option<u16>);
+
+/// The slot of `count` a side under the point `at` of the original's screen that holds an art:
+/// the slot, its corner and its art (`0x6E4560`'s step 9, #1694).
+pub(crate) fn hovered(slots: &ArtSlots, count: usize, at: Vec2) -> Option<(usize, Vec2, u16)> {
+    let slot = slot_at(at, count)?;
+    Some((
+        slot,
+        bar::art_slot(slot),
+        slots.arts.get(slot).copied().flatten()?,
+    ))
+}
 
 /// Whether the art `art` is a spell (the first table) rather than a weapon art or a combo.
 pub(crate) fn is_spell(art: u16) -> bool {

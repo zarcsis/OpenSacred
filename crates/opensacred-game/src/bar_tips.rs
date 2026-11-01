@@ -6,7 +6,7 @@
 //! 9961 with the experience into the level and the level's span, six wide each, centred 24 left of
 //! the bar's corner (`0x6D7B80`).
 //!
-//! Not followed yet (#1594): an art slot's description, the bonuses' "+", the horse's button and
+//! Not followed yet (#1594): the bonuses' "+", the horse's button and
 //! the mount's bar, and the disc's and the compass's texts; the weapon sets' items' tooltips are
 //! #1516's.
 

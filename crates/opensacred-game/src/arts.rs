@@ -12,7 +12,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use opensacred_data::heroes::HeroArt;
 use opensacred_data::tables::{ARTS, Arts as Tables, Balance};
-use opensacred_rules::arts::{Arts, Context, Shortening, Table};
+use opensacred_rules::arts::{Arts, Context, Shortening, Speeds, Table};
 
 use crate::fight::{Base, Experience, Holding};
 use crate::files;
@@ -33,6 +33,9 @@ pub struct HeroArts {
     /// While a combo runs or its mark holds (`combos::ComboRun`), the times of the arts used,
     /// which go to the combos rather than to the arts' own regeneration (`0x562470`).
     pub combo_uses: Option<Vec<f32>>,
+    /// The speeds its arts regenerate at, of the latest tick ([`regenerate`]), over which an
+    /// art's tooltip divides its time (`0x5893B0`, #1694).
+    pub speeds: Speeds,
 }
 
 impl HeroArts {
@@ -65,6 +68,7 @@ impl HeroArts {
             skills,
             shortening: balance.map(Shortening::of).unwrap_or_default(),
             combo_uses: None,
+            speeds: Speeds::default(),
         };
         hero.arts = Arts::new_game(template, &hero.context());
         hero
@@ -188,6 +192,7 @@ fn regenerate(
     let speeds =
         opensacred_rules::fight::arts_speeds_with(base, experience.level, &holds, &effects);
     arts.arts.regenerate(seconds, speeds);
+    arts.speeds = speeds;
 }
 
 /// The hero's arts' regeneration.

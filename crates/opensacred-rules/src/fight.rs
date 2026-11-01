@@ -902,6 +902,21 @@ impl Rules {
             + 1.0
     }
 
+    /// The curve of the skill `skill` at `level` that the arts' tooltip reads (`0x5893B0`): the
+    /// weapon lore's (2), the damage multipliers', and the magic lore's (14); none of another.
+    pub fn lore_curve(&self, skill: u8, level: u32) -> Option<f32> {
+        match skill {
+            2 => Some(curve(self.curves.damage, level)),
+            14 => Some(curve(self.curves.magic, level)),
+            _ => None,
+        }
+    }
+
+    /// The balance's `BalanceGeschick`, over which the attributes add to some arts' factors.
+    pub fn geschick(&self) -> f32 {
+        self.geschick
+    }
+
     /// The factor of each arrow's damage of a shot of `arrows` arrows, the multi-shot's
     /// (`0x56D173`): `Multipfeil` to the power of the number, 1 for a single arrow.
     pub fn multi_shot(&self, arrows: u32) -> f32 {
