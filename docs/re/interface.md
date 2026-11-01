@@ -192,6 +192,8 @@ Read 2026-10-30 (#1273), **confirmed** by code unless marked otherwise; the item
   The grid's items take the style `0xB` (`0x6C1480`).
 - Its layout (`0x6E7AF0`): its width the text's, measured in its font (`+0x158`), and 8; its height the lines times the font's height of `A` and 4; with sockets, 40 more high and at least 40 a socket and 16 wide; an image of its own (`+0x21DC`) widens it by the image's width and 16.
 - Its draw (`0x6E76C0`): the window's panel and border (`cUI_Window2_render`, `0x7277B0`), then the text from 4 pixels in.
+- The style's bit `0x80` breaks the text's long lines as it is set (`0x6E69F0`, read 2026-11-01, #1696): a line breaks at its first space from its 46th character on (the characters counted from the line's start, its colours' codes among them, a byte distance below `0x5B`), the space left out; a line break starts the count again.
+  The arts' tooltips (`0x8B`, `0x408B`) take it, the items' (`0xB`) not: **seen**, an art's short description of more than 46 characters in two lines on the spells page.
 - An item's sockets (`0x5C0A70`, read 2026-11-01, #1691), drawn last where its item has some: a row from 8 pixels in (and the image's width and 16 more with an image of its own) and 40 up from the window's bottom, a square of 32 for each socket of a kind other than 0 from the first, 40 apart.
   Each square is drawn twice over the same rectangle, first untextured in its kind's colour at the alpha `0x8F`, then as the image 171 (`gui_main_05` (96, 64), 32 × 32) tinted by that colour at the alpha `0x5F`; the kinds 1 to 4 `0xB14910`, `0xA1A1A1`, `0xD8AB30` and `0x009F00`, any other white.
   A filled socket's item's model is drawn at its square's centre by `0x40E9C0`, as the grid draws its items.
