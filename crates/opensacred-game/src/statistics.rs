@@ -11,14 +11,15 @@
 //! learning mode's list of the skills to learn, one of which a "+" learns; and a hovered skill's,
 //! skill to learn's or attribute's description in the lower panel's place (#1714).
 //!
-//! The skills' levels take their items' bonuses (#1717), blue where they raise one.
+//! The skills' levels take their items' bonuses (#1717), blue where they raise one, and a hovered
+//! skill's level shows its effects at it and at the next (#1715).
 //!
-//! Not followed yet: the combat arts' damage, a skill's level's effects (#1715), the bonus of a
-//! set's pieces in the survival bonus, the sets' bonuses of the skills, the player's own name,
-//! and the window's following a follower's portrait. A click on the gold's line drops gold
-//! (#1665).
+//! Not followed yet: the combat arts' damage, the bonus of a set's pieces in the survival bonus,
+//! the sets' bonuses of the skills, the player's own name, and the window's following a
+//! follower's portrait. A click on the gold's line drops gold (#1665).
 
 use bevy::prelude::*;
+use opensacred_rules::fight::EffectLine;
 
 use crate::arts::HeroArts;
 use crate::bar::{self, UiImages};
@@ -820,6 +821,10 @@ struct Sheet {
     skill_ids: Vec<u8>,
     candidate_ids: Vec<u8>,
     description: Option<(String, String)>,
+    /// Whether a shield is in the hero's hands, which the parry's effects take (`0x54A660`), and
+    /// the panel of a hovered skill's level: its lines and their colours.
+    shield: bool,
+    effects: Option<Vec<(String, u32)>>,
 }
 
 /// The attributes' descriptions (`0x6AC14E`).
@@ -842,6 +847,58 @@ const DESCRIPTION_FILL: Rect = Rect {
     min: Vec2::new(3.0, 224.0),
     max: Vec2::new(254.0, 379.0),
 };
+
+/// The panel of a hovered skill's level (`0x6A9F20` at `0x6ABF7C`, `\cFFFFFF80%s - %s: %d\n%s\n
+/// \cFFFFFF80%s:\n%s`): its name, text 1070 and its level in yellow, its effects at that level,
+/// text 1072 in yellow and its effects at the next (`0x566070`'s text mode,
+/// `opensacred_rules::fight::skill_effects`), each line with its colour.
+fn effects(texts: &Texts, sheet: &Sheet, rules: &Rules) -> Option<Vec<(String, u32)>> {
+    let Hover::SkillLevel(i) = sheet.hover else {
+        return None;
+    };
+    let i = usize::from(i);
+    let skill = *sheet.skill_ids.get(i)?;
+    let (name, level, _) = sheet.skills.get(i)?;
+    let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
+    let line = |effect: EffectLine| match effect {
+        EffectLine::Text(name) => text(&name),
+        EffectLine::Value(names, value) => {
+            let mut parts: Vec<String> = names.iter().map(|name| text(name)).collect();
+            parts.push(value);
+            parts.join(" ")
+        }
+        EffectLine::Colon(name, value) => format!("{}: {value}", text(&name)),
+    };
+    let at = |level: u32| {
+        opensacred_rules::fight::skill_effects(skill, level, sheet.level, sheet.shield, rules)
+            .into_iter()
+            .map(|effect| (line(effect), WHITE))
+            .collect::<Vec<_>>()
+    };
+    let mut lines = vec![(
+        format!("{name} - {}: {level}", text("1070")),
+        DESCRIPTION_NAME,
+    )];
+    lines.extend(at(*level));
+    lines.push((format!("{}:", text("1072")), DESCRIPTION_NAME));
+    lines.extend(at(level + 1));
+    Some(lines)
+}
+
+/// The panel's lines' step and font's size: the window's where they fit the description's box,
+/// else the smaller font 7's (**estimate** by the original's frame of ten lines in 152 pixels).
+fn effects_lettering(lines: usize) -> (f32, f32) {
+    let rows = f32::from(u8::try_from(lines).unwrap_or(u8::MAX));
+    if rows * ROW <= DESCRIPTION_FILL.height() {
+        (ROW, FONT_SIZE)
+    } else {
+        (SMALL_ROW, SMALL_FONT_SIZE)
+    }
+}
+
+/// The font 7's line and size (**estimate**).
+const SMALL_ROW: f32 = 15.0;
+const SMALL_FONT_SIZE: f32 = 16.0;
 
 /// The description of the row that the mouse is over in `sheet` (`0x6ABDC6`, `0x6AC14E`): a
 /// skill's name, or a skill to learn, its name (9399 + the skill) and its text (9499 + the
@@ -1026,6 +1083,8 @@ fn sheet(
         skill_ids: held.iter().map(|&(id, _)| id).collect(),
         candidate_ids,
         description: None,
+        shield: false,
+        effects: None,
     }
 }
 
@@ -1095,10 +1154,11 @@ fn show(
         Res<LastFoe>,
         Res<crate::drops::Played>,
     ),
-    (attributes, learning, portraits): (
+    (attributes, learning, portraits, rules): (
         Res<Attributes>,
         Res<Learning>,
         Res<crate::talk::Portraits>,
+        Res<Rules>,
     ),
     heroes: Query<(&Base, &Combat, &Health, Option<&Holding>), With<Body>>,
     (pointer, ui_scale, screens): (Res<Pointer>, Res<UiScale>, Query<&Window>),
@@ -1115,7 +1175,8 @@ fn show(
             let class = arts.as_deref().map_or(1, |arts| arts.kind);
             let name = texts.named(&class.to_string()).unwrap_or_default();
             let items = holding.map_or(&[][..], |holding| &holding.0.items);
-            sheet(
+            let shield = holding.is_some_and(|holding| holding.0.shield);
+            let mut sheet = sheet(
                 texts,
                 name,
                 &experience.0,
@@ -1123,7 +1184,9 @@ fn show(
                 (&pack, items),
                 (foe.0, played.minutes()),
                 (attributes.0, learning.0),
-            )
+            );
+            sheet.shield = shield;
+            sheet
         })
         .map(|mut sheet| {
             if let Some(at) = screen_point(&pointer, &ui_scale, &screens) {
@@ -1132,6 +1195,9 @@ fn show(
             sheet.description = texts
                 .as_deref()
                 .and_then(|texts| description(texts, &sheet));
+            sheet.effects = texts
+                .as_deref()
+                .and_then(|texts| effects(texts, &sheet, &rules));
             sheet
         });
     if *last == current {
@@ -1207,7 +1273,7 @@ fn show(
         &mut commands,
     );
     // The separators, a pixel across the window; a description takes the lower panel's.
-    let described = sheet.description.is_some();
+    let described = sheet.description.is_some() || sheet.effects.is_some();
     for y in SEPARATORS
         .into_iter()
         .filter(|&y| !described || y <= DESCRIPTION.min.y)
@@ -1392,6 +1458,35 @@ fn show(
                 (TO_LEARN, right),
             );
         }
+    }
+    // A skill's level's panel, line by line in the box, in the smaller font where they do not fit.
+    if let Some(lines) = &sheet.effects {
+        let (step, size) = effects_lettering(lines.len());
+        for (k, (line, colour)) in (0_u8..).zip(lines) {
+            let child = commands
+                .spawn((
+                    Text::new(line.clone()),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(size),
+                        ..default()
+                    },
+                    TextLayout {
+                        linebreak: LineBreak::NoWrap,
+                        ..default()
+                    },
+                    TextColor(argb(*colour)),
+                    bar::placed(
+                        DESCRIPTION.min + Vec2::new(0.0, step * f32::from(k)),
+                        Vec2::new(DESCRIPTION.width(), step),
+                    ),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(window).add_child(child);
+        }
+        finish(&mut commands, window, (&images, &assets), &sheet);
+        return;
     }
     if let Some((name, text)) = &sheet.description {
         write(
