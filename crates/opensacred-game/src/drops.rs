@@ -542,11 +542,18 @@ pub struct Lying {
 /// hero's marked item (`+0xB0` bit `0x8000000`, which a container's throw `0x5C9BA0` sets),
 /// which lands within the hero's reach.
 #[derive(Component)]
-struct Flying {
+pub(crate) struct Flying {
     flight: Flight,
     level: Level,
     upright: bool,
     marked: bool,
+}
+
+impl Flying {
+    /// The level it flies on, on which it lands.
+    pub(crate) fn level(&self) -> Level {
+        self.level
+    }
 }
 
 /// World units of the height of `height` units of the models' height (`terrain`).
