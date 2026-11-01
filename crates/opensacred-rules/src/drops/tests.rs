@@ -639,9 +639,10 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
     };
     // The chance, the key 17, no potion, no rune, no gold, the ghosts' roll, a weapon of the
     // levels not tested and of any class, none found; the dagger at R(0, 1) twice, its damage's
-    // six rolls and its name's roll.
+    // six rolls, its sockets' (one passed, the second's failed, its kind's on bronze) and its
+    // name's roll.
     let dagger = take(&[
-        100, 9999, 180, 999, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1,
+        100, 9999, 180, 999, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 999, 100, 1,
     ]);
     assert_eq!(dagger.len(), 1);
     let drop = dagger[0];
@@ -650,6 +651,10 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
         (Kind::Weapon, DAGGER, 1, 17, 0)
     );
     assert_eq!(drop.values.map(|v| v.damage[0]), Some([12.0, 15.0]));
+    assert_eq!(
+        drop.values.map(|v| v.sockets),
+        Some([1, 0, 0, 0, 0, 0, 0, 0])
+    );
     // Gold: the key 0 taken to 16, a pile of level 1 and its amount.
     let gold = take(&[100, 0, 180, 999, 299, 5, 3]);
     assert_eq!(
@@ -1000,22 +1005,37 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
     ]);
     let throw = |item, key, rolls: &[u32]| {
         let mut dice = script(rolls);
-        let made = thrown(&catalogue, &templates, (item, 7, key, 250), &mut dice);
+        let made = thrown(
+            (&catalogue, &templates),
+            (&Sockets::default(), Difficulty::Bronze),
+            (item, 7, key, 250),
+            &mut dice,
+        );
         assert!(dice.0.is_empty(), "{:?} left", dice.0);
         made
     };
-    // The dagger at level 7, of the maker's key 6 for the pass's key 10, its damage's rolls and
-    // its name's roll.
-    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0, 1]).unwrap();
+    // The dagger at level 7, of the maker's key 6 for the pass's key 10, its damage's rolls, its
+    // sockets' failed and its name's roll.
+    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0, 999, 1]).unwrap();
     assert_eq!(
         (dagger.kind, dagger.level, dagger.key, dagger.quality),
         (Kind::Weapon, 7, 10, 6)
     );
-    assert!(dagger.values.is_some());
+    assert_eq!(dagger.values.map(|v| v.sockets), Some([0; 8]));
     assert_eq!(dagger.named, Some(true));
     // Plain at the key 16; the key 1 taken as 2.
-    assert_eq!(throw(DAGGER, 16, &[0; 7]).unwrap().quality, 0);
-    assert_eq!(throw(DAGGER, 1, &[0; 7]).unwrap().quality, 14);
+    assert_eq!(
+        throw(DAGGER, 16, &[0, 0, 0, 0, 0, 0, 999, 0])
+            .unwrap()
+            .quality,
+        0
+    );
+    assert_eq!(
+        throw(DAGGER, 1, &[0, 0, 0, 0, 0, 0, 999, 0])
+            .unwrap()
+            .quality,
+        14
+    );
     // Gold of the amount asked, a potion as it is, a rune as it is (#1183).
     let gold = throw(GOLD[2], 16, &[]).unwrap();
     assert_eq!((gold.kind, gold.amount, gold.level), (Kind::Gold, 250, 0));
@@ -1040,22 +1060,44 @@ fn a_keyed_item_takes_the_makers_key_and_level_as_they_are() {
         ..record(0, [1, 1], [0, 0, 0])
     };
     let catalogue = catalogue(&[(DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])), (5171, 9, bare)]);
-    let mut dice = script(&[0, 0, 0, 0, 0, 0, 1]);
-    let dagger = keyed(&catalogue, &templates, (DAGGER, 4, 3), &mut dice).unwrap();
+    // Its damage's rolls, two sockets of the dagger's three (the third's roll failed), their
+    // kinds on bronze, and its name's roll.
+    let mut dice = script(&[0, 0, 0, 0, 0, 0, 0, 0, 999, 250, 0, 1]);
+    let dagger = keyed(
+        (&catalogue, &templates),
+        (&Sockets::default(), Difficulty::Bronze),
+        (DAGGER, 4, 3),
+        &mut dice,
+    )
+    .unwrap();
     assert!(dice.0.is_empty(), "{:?} left", dice.0);
     assert_eq!(
         (dagger.kind, dagger.level, dagger.key, dagger.quality),
         (Kind::Weapon, 4, 13, 3)
     );
-    assert!(dagger.values.is_some());
+    assert_eq!(
+        dagger.values.map(|v| v.sockets),
+        Some([2, 1, 0, 0, 0, 0, 0, 0])
+    );
     // A potion as it is, of no level or quality; a type the table does not hold, none.
-    let potion = keyed(&catalogue, &templates, (5171, 4, 3), &mut script(&[])).unwrap();
+    let potion = keyed(
+        (&catalogue, &templates),
+        (&Sockets::default(), Difficulty::Bronze),
+        (5171, 4, 3),
+        &mut script(&[]),
+    )
+    .unwrap();
     assert_eq!(
         (potion.kind, potion.level, potion.quality, potion.values),
         (Kind::Potion, 0, 0, None)
     );
     assert_eq!(
-        keyed(&catalogue, &templates, (9999, 4, 3), &mut script(&[])),
+        keyed(
+            (&catalogue, &templates),
+            (&Sockets::default(), Difficulty::Bronze),
+            (9999, 4, 3),
+            &mut script(&[]),
+        ),
         None
     );
 }

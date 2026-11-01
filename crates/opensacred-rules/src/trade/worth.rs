@@ -151,17 +151,15 @@ impl Prices {
     }
 }
 
-/// What the worth asks of an item: its type, its category, its values, its record's flags
-/// (`+0x04`: its quality in the bits 16 to 19, its difficulty in 24 to 27), its sockets'
-/// rarities (`+0x0C` to `+0x13`: 1 bronze, 2 silver, 3 gold, 0 none) and its record's price
-/// (`+0x08`).
+/// What the worth asks of an item: its type, its category, its values with its sockets'
+/// rarities ([`ItemValues::sockets`]), its record's flags (`+0x04`: its quality in the bits 16
+/// to 19, its difficulty in 24 to 27) and its record's price (`+0x08`).
 #[derive(Clone, Copy, Debug)]
 pub struct Item<'a> {
     pub item: u32,
     pub category: u8,
     pub values: &'a ItemValues,
     pub flags: u32,
-    pub sockets: [u8; 8],
     pub price: i64,
 }
 
@@ -237,6 +235,7 @@ pub fn worth(prices: &Prices, item: &Item) -> i64 {
     let per_quality = if jewel { 0.5 } else { 0.125 };
     worth = whole((quality * per_quality + 1.0) * to_f64(worth));
     let rarity: f64 = item
+        .values
         .sockets
         .iter()
         .filter_map(|&socket| {
@@ -353,7 +352,6 @@ mod tests {
             category,
             values,
             flags: 0,
-            sockets: [0; 8],
             price: 0,
         }
     }
@@ -382,6 +380,10 @@ mod tests {
     fn the_quality_and_the_sockets_raise_the_worth() {
         let prices = Prices::default();
         let shield = values([[0.0; 2]; KINDS], [3.0, 4.0, 0.0, 0.0]);
+        let socketed = ItemValues {
+            sockets: [1, 3, 0, 0, 0, 0, 0, 0],
+            ..shield
+        };
         let mut fine = item(13, &shield);
         // The quality 4: 750 · 1.5; a ring's: · 3.
         fine.flags = 4 << 16;
@@ -389,10 +391,7 @@ mod tests {
         fine.category = RINGS;
         assert_eq!(worth(&prices, &fine), 2250);
         // Two sockets, a bronze and a gold: · 1.2, a little below.
-        fine.category = 13;
-        fine.flags = 0;
-        fine.sockets = [1, 3, 0, 0, 0, 0, 0, 0];
-        assert_eq!(worth(&prices, &fine), 900);
+        assert_eq!(worth(&prices, &item(13, &socketed)), 900);
     }
 
     #[test]

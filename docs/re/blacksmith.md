@@ -3,7 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra on 2026-11-01 (#1067).
 Status: **confirmed** by code unless marked otherwise; the window **seen** the same day in the running original (the driver of #448) at the smith of 50,44 (the creature 464, type 688, level 4), the Seraphim at level 1: at (0, 0), 640 × 352, its grid at the left, the smith's portrait and the three round buttons at the right, the sockets and the work's button not shown while the grid is empty.
 
-The items' sockets are docs/re/items.md: a record's `+0x0C…+0x13` hold eight sockets' kinds (0 none, 1 bronze, 2 silver, 3 gold), the item maker rolls them, and the worth counts their kinds (`RareSlotBronze`, `RareSlotSilber`, `RareSlotGold`) and their items (`0x5D3AB0`).
+The items' sockets are docs/re/items.md: a record's `+0x0C…+0x13` hold eight sockets' kinds (0 none, 1 bronze, 2 silver, 3 gold), the item maker rolls them ("The sockets"), and the worth counts their kinds (`RareSlotBronze`, `RareSlotSilber`, `RareSlotGold`) and their items (`0x5D3AB0`).
 The talk that opens the traders' windows is docs/re/trade.md and docs/re/arts.md, "The combat master" (`0x52AB70`).
 
 ## Who opens it

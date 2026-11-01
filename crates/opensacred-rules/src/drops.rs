@@ -1,8 +1,8 @@
 //! What a killed creature drops (docs/re/items.md, "Drops"): the calls of the drop that its death
 //! makes and their bonus, each call's chance and passes, a pass's quality key and kind, the type
 //! of its item by the category, the level and the templates, the item's level and key, gold's
-//! amount and pile, and the item's values by the item maker ([`Templates::make`]); the result is a
-//! list of drops. `opensacred-game` makes them in the world; this module is the rules alone, its
+//! amount and pile, and the item's values by the item maker ([`Templates::make`]) with the sockets
+//! its quality pass rolls ([`Sockets`]); the result is a list of drops. `opensacred-game` makes them in the world; this module is the rules alone, its
 //! rolls taken from a [`Dice`].
 //!
 //! The runes come by their own pass (#1183), and the scripts' drops (`SetDrop`) are the game's
@@ -18,8 +18,10 @@ use crate::fight::{self, ItemValues, Rank, Templates};
 use crate::spawning::Dice;
 
 mod names;
+mod sockets;
 pub use names::name;
 pub(crate) use names::{norm, norms};
+pub use sockets::Sockets;
 
 /// The dagger 1712, which a pass drops where it finds no type of its kind.
 pub const DAGGER: u32 = 1712;
@@ -284,6 +286,8 @@ pub struct Rules {
     /// The effects' records of six floats from the image's `+0x9DC` ([`names::NORMS`]), which the
     /// namer weighs a bonus by; none without a balance.
     norms: Vec<[f32; 6]>,
+    /// The rules of the sockets that the item maker rolls.
+    sockets: Sockets,
 }
 
 /// The balance's values of a rune's chance (`0x5598B0`): its chance per mille (`UpgradeDrop`),
@@ -343,6 +347,7 @@ impl Default for Rules {
             offsets: [[1, 9], [3, 14], [5, 19], [8, 25], [0, 0], [0, 0]],
             runes: RuneRules::default(),
             norms: Vec::new(),
+            sockets: Sockets::default(),
         }
     }
 }
@@ -422,7 +427,13 @@ impl Rules {
                 boss: f("RunesPerBoss", default.runes.boss),
             },
             norms: names::norms(&b.image),
+            sockets: Sockets::of(balance),
         }
+    }
+
+    /// The rules of the sockets that the item maker rolls.
+    pub fn sockets(&self) -> &Sockets {
+        &self.sockets
     }
 
     /// A rune's chance per mille in a pass of a creature of level `level`, a boss or a
@@ -847,6 +858,21 @@ pub fn pile_of(amount: u32) -> u32 {
         50..350 => GOLD[1],
         350..1000 => GOLD[2],
         _ => GOLD[3],
+    }
+}
+
+/// `amount` pieces of gold laid by the hero in the pile of their amount ([`pile_of`]): of no
+/// level and the key 16, as a death's gold.
+pub fn gold_pile(amount: u32) -> Dropped {
+    Dropped {
+        kind: Kind::Gold,
+        item: pile_of(amount),
+        level: 0,
+        key: 16,
+        quality: 0,
+        amount,
+        values: None,
+        named: None,
     }
 }
 
@@ -1493,6 +1519,12 @@ impl Dropping<'_> {
         drop.quality = u8::try_from(quality).unwrap_or(0);
         drop.level = u32::try_from(level).unwrap_or(0);
         drop.values = self.templates.make(item, drop.level, dice);
+        socket(
+            &mut drop,
+            (self.catalogue, self.templates),
+            (&self.rules.sockets, self.death.difficulty, false),
+            dice,
+        );
         drop.named = names::roll(drop.values.as_ref(), dice);
         drop
     }
@@ -1503,10 +1535,11 @@ impl Dropping<'_> {
 /// `level` with the pass's quality key `key` as a drop's would be (the key 0 at the maker's key
 /// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); a type of no drop's kind as it is, of the kind
 /// [`Kind::Other`], as the original's driver makes any type (a book, a quest's item, #1358);
-/// `None` for a type that the items' table does not hold.
+/// its sockets rolled by `sockets` on `difficulty`. `None` for a type that the items' table does
+/// not hold.
 pub fn thrown(
-    catalogue: &Catalogue,
-    templates: &Templates,
+    (catalogue, templates): (&Catalogue, &Templates),
+    (sockets, difficulty): (&Sockets, Difficulty),
     (item, level, key, amount): (u32, u32, u8, u32),
     dice: &mut impl Dice,
 ) -> Option<Dropped> {
@@ -1537,6 +1570,12 @@ pub fn thrown(
             };
             drop.level = level.max(1);
             drop.values = templates.make(item, drop.level, dice);
+            socket(
+                &mut drop,
+                (catalogue, templates),
+                (sockets, difficulty, false),
+                dice,
+            );
             drop.named = names::roll(drop.values.as_ref(), dice);
         }
     }
@@ -1546,11 +1585,12 @@ pub fn thrown(
 /// An item of type `item` that the item maker makes at `level` by its own key `key` (`0x5D5080`),
 /// as a merchant's page makes it (`0x6D9DE0`, docs/re/trade.md): gold, potions, runes and the
 /// categories 26, 30 and 31 as they are; another, a type of no drop's kind of [`Kind::Other`], by
-/// the maker at `level`, held at no least, and its name's roll; its pass's key `16 − key`. `None`
-/// for a type that the items table does not hold.
+/// the maker at `level`, held at no least, its sockets rolled by `sockets` on `difficulty` with
+/// the merchant's bonus, and its name's roll; its pass's key `16 − key`. `None` for a type that
+/// the items table does not hold.
 pub fn keyed(
-    catalogue: &Catalogue,
-    templates: &Templates,
+    (catalogue, templates): (&Catalogue, &Templates),
+    (sockets, difficulty): (&Sockets, Difficulty),
     (item, level, key): (u32, u32, u8),
     dice: &mut impl Dice,
 ) -> Option<Dropped> {
@@ -1572,8 +1612,31 @@ pub fn keyed(
     }
     drop.level = level;
     drop.values = templates.make(item, level, dice);
+    socket(
+        &mut drop,
+        (catalogue, templates),
+        (sockets, difficulty, true),
+        dice,
+    );
     drop.named = names::roll(drop.values.as_ref(), dice);
     Some(drop)
+}
+
+/// The sockets that the item maker's quality pass rolls for `drop`, made on `difficulty` for a
+/// merchant's page where `merchant` (`0x5D2E40`, [`Sockets::roll`]), where the maker gave it
+/// values: the pass runs after them and before the name, of its template's family.
+fn socket(
+    drop: &mut Dropped,
+    (catalogue, templates): (&Catalogue, &Templates),
+    (sockets, difficulty, merchant): (&Sockets, Difficulty, bool),
+    dice: &mut impl Dice,
+) {
+    let Some(values) = drop.values.as_mut() else {
+        return;
+    };
+    let family = templates.made_family(drop.item).unwrap_or(u8::MAX);
+    let category = catalogue.category(drop.item).unwrap_or(0);
+    values.sockets = sockets.roll((family, category), difficulty, merchant, dice);
 }
 
 /// The types that never drop (`0x533BA8`): 71 and 75, `small_spider.grn` and `med_spider.grn`

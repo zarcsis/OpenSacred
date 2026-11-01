@@ -76,6 +76,7 @@ struct Laying<'w> {
     assets: Res<'w, AssetServer>,
     arts: Option<Res<'w, crate::arts::HeroArts>>,
     given: ResMut<'w, RunesGiven>,
+    difficulty: Option<Res<'w, crate::game::Difficulty>>,
 }
 
 impl Laying<'_> {
@@ -93,7 +94,12 @@ impl Laying<'_> {
         let before = at + turned * Vec3::X * LAID_BEFORE;
         let laid = crate::drops::lay_reward(
             commands,
-            (&self.assets, tables, &mut self.dice),
+            (
+                &self.assets,
+                tables,
+                &mut self.dice,
+                self.difficulty.as_deref().map(|d| d.0).unwrap_or_default(),
+            ),
             (before, level),
             (item, made_at, quality),
         );

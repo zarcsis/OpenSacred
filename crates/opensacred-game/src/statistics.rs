@@ -1680,7 +1680,7 @@ const GOLD_THROW: (u32, u32) = (20, 31);
 /// A left click on the gold's line drops gold (`0x6A6110`): all of the hero's below 1,000, else a
 /// tenth, none below 10 ([`opensacred_rules::inventory::gold_to_drop`]), taken from the hero and
 /// thrown from it to 20 to 50 units off along each axis of the ground, each to either side at
-/// random, in the pile of its amount (`0x4AEBD0`, [`opensacred_rules::drops::pile_of`]).
+/// random, in the pile of its amount (`0x4AEBD0`, [`opensacred_rules::drops::gold_pile`]).
 fn drop_gold(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -1710,10 +1710,7 @@ fn drop_gold(
     if amount == 0 {
         return;
     }
-    let pile = opensacred_rules::drops::pile_of(amount);
-    let Some(dropped) = crate::drops::contained(&tables, &mut dice, (pile, 0, amount)) else {
-        return;
-    };
+    let dropped = opensacred_rules::drops::gold_pile(amount);
     pack.gold -= amount;
     let mut off = || {
         let far = GOLD_THROW.0 + dice.0.below(GOLD_THROW.1);

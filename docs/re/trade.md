@@ -56,7 +56,7 @@ The best weapon skill's weapon: the balance's lists of the weapon skills' types 
 - None for no type; its size in cells (`0x428D60`) looked for at its first fit column by column (`0x5DABA0`'s mode 0), none where it fits nowhere.
 - The object is made (`0x5FB530`) and placed; gold, a potion (`0x428110`) and the categories 28, 26, 30 and 31 stay as they are, and the add answers that it made nothing.
 - Another item is made by the item maker (`0x5D5080`, docs/re/items.md) at the level `R(⌊0.98·L⌋, ⌊1.1·L⌋)` in one case of two, else `L`, by the floats a little above 0.98 and 1.1, rolled again where the first roll is below 1 (1 then), with the key, the raw key of the maker (not `16 − k` as a drop's); before the level, the maker's fourth argument is rolled (0 in three cases of four, else 1, 3 or 2), which it does not read.
-- While it is made, the balance's `SlotFeasibility` is raised by `SlotProbBonusMerchant` (`0xAD56F0`), the sockets' chance (**hypothesis**: of the quality pass `0x5D2E40`).
+- While it is made, the balance's `SlotFeasibility` is raised by `SlotProbBonusMerchant` (`0xAD56F0`, 0), the first socket's chance of the quality pass `0x5D2E40` (**confirmed** by code 2026-11-01, #1660; docs/re/items.md, "The sockets").
 
 ### The potions
 

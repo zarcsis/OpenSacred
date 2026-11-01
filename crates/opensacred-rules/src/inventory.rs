@@ -420,6 +420,11 @@ mod tests {
             [1, 49, 50, 349, 350, 999, 1000].map(crate::drops::pile_of),
             [5132, 5132, 5133, 5133, 5134, 5134, 5135]
         );
+        let pile = crate::drops::gold_pile(500);
+        assert_eq!(
+            (pile.kind, pile.item, pile.amount, pile.key),
+            (crate::drops::Kind::Gold, 5134, 500, 16)
+        );
     }
 
     #[test]

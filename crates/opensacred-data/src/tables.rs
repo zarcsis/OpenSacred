@@ -350,8 +350,9 @@ pub struct Balance {
     pub variables: Vec<BalanceVariable>,
     /// The image's 1,224 words as stored, the named and the unnamed: each an f32 or an i32.
     pub image: Vec<u32>,
-    /// The tail's first table: 33 lists of records of three words (−1 or effect numbers) by a
-    /// key, 0 to 32; not followed.
+    /// The tail's first table: 33 lists of records of three words (−1 or effect numbers) by the
+    /// item maker's family, 0 to 32, the first `(−1, −1, n)` with the family's most sockets `n`
+    /// (`opensacred_rules::drops::Sockets`); the effects not followed.
     #[serde(default)]
     pub tail_1: Vec<BalanceList>,
     /// The tail's second table: the drops' weights of the quality keys 0 to 17, in their order.

@@ -24,8 +24,9 @@ pub struct Balance {
 /// (docs/02 §6.3, "The tail of `Balance.bin`"), each a `u32` count and its entries.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tail {
-    /// 1: lists of records of three words by a key, 0 to 32, into the map at `0xAD57B0`; not
-    /// followed.
+    /// 1: lists of records of three words by a key, 0 to 32, into the map at `0xAD57B0`: the item
+    /// maker's by the family, the first `(−1, −1, n)` with the family's most sockets `n`, the
+    /// others effects, not followed.
     pub lists: Vec<(u32, Vec<[u32; 3]>)>,
     /// 2: the drops' weight of each quality key, 0 to 17, in the order of the keys.
     pub weights: Vec<(u32, u32)>,

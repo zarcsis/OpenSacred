@@ -183,16 +183,11 @@ impl Tables {
             .map(|(&id, weapon)| {
                 let word = |k: usize| u32::from(weapon.words_84.get(k).copied().unwrap_or(0));
                 let values = fight::ItemValues::of_record(&weapon.words_84);
-                let mut sockets = [0; 8];
-                for (pair, k) in sockets.as_chunks_mut::<2>().0.iter_mut().zip(4..) {
-                    *pair = weapon.words_84.get(k).copied().unwrap_or(0).to_le_bytes();
-                }
                 let item = opensacred_rules::trade::worth::Item {
                     item: id,
                     category: catalogue.category(id).unwrap_or(0),
                     values: &values,
                     flags: word(0) | word(1) << 16,
-                    sockets,
                     price: i64::from(word(2) | word(3) << 16),
                 };
                 (id, opensacred_rules::trade::worth::worth(&worths, &item))
@@ -361,7 +356,6 @@ impl Tables {
                 category: self.category(dropped.item),
                 values: &values,
                 flags: record.word & CLASS_BITS,
-                sockets: [0; 8],
                 price: record.price,
             },
         )
@@ -478,14 +472,17 @@ impl Tables {
     }
 
     /// The items' tables as a merchant's stock takes them (#1618): the catalogue, the templates
-    /// and the items' sizes.
+    /// and the items' sizes, and the sockets' rules with the difficulty `difficulty` (#1660).
     pub(crate) fn supply(
         &self,
+        difficulty: drops::Difficulty,
     ) -> opensacred_rules::trade::stock::Tables<'_, impl Fn(u32) -> (u8, u8) + '_> {
         opensacred_rules::trade::stock::Tables {
             catalogue: &self.catalogue,
             templates: &self.templates,
             size: |item| self.size(item),
+            sockets: self.rules.sockets(),
+            difficulty,
         }
     }
 
@@ -619,12 +616,13 @@ pub(crate) fn throw_to(
 }
 
 /// Makes the item of a container's contents, `item` at `level` (`0x5D57C0` as `FillChest` calls
-/// it, #1381), or gold of `amount` in the pile `item`; none of a type the table does not hold. Its
-/// quality key is a death's pass's of no bonus, held at 5 or above, the item maker's at most 11
-/// (**hypothesis**: the original rolls it by the hero's luck and the time played, not read).
+/// it, #1381) on `difficulty`, or gold of `amount` in the pile `item`; none of a type the table
+/// does not hold. Its quality key is a death's pass's of no bonus, held at 5 or above, the item
+/// maker's at most 11 (**hypothesis**: the original rolls it by the hero's luck and the time
+/// played, not read).
 pub(crate) fn contained(
     tables: &Tables,
-    dice: &mut Dice,
+    (dice, difficulty): (&mut Dice, drops::Difficulty),
     (item, level, amount): (u32, u32, u32),
 ) -> Option<Dropped> {
     let key = tables
@@ -632,8 +630,8 @@ pub(crate) fn contained(
         .key(0, tables.rules.spread(1.0), &mut dice.0)
         .max(CONTAINED_LEAST_KEY);
     drops::thrown(
-        &tables.catalogue,
-        &tables.templates,
+        (&tables.catalogue, &tables.templates),
+        (tables.rules.sockets(), difficulty),
         (item, level, u8::try_from(key).unwrap_or(17), amount),
         &mut dice.0,
     )
@@ -644,11 +642,11 @@ const CONTAINED_LEAST_KEY: u32 = 5;
 
 /// Lays a quest's reward, an item of type `item`, at `at` on `level` (`0x4AC940`, `0x45FC60`:
 /// made beside the hero), rising from 60 over the ground as a dropped item ([`Flight::dropped`]),
-/// its values made at `made_at` of the item maker's key `quality` (`16 − key`, 0 for none); the
-/// line of what it laid, none for a type the table does not hold.
+/// its values made at `made_at` of the item maker's key `quality` (`16 − key`, 0 for none) on
+/// `difficulty`; the line of what it laid, none for a type the table does not hold.
 pub(crate) fn lay_reward(
     commands: &mut Commands,
-    (assets, tables, dice): (&AssetServer, &Tables, &mut Dice),
+    (assets, tables, dice, difficulty): (&AssetServer, &Tables, &mut Dice, drops::Difficulty),
     (at, level): (Vec3, Level),
     (item, made_at, quality): (u32, u32, i64),
 ) -> Option<String> {
@@ -657,8 +655,8 @@ pub(crate) fn lay_reward(
         _ => 16,
     };
     let dropped = drops::thrown(
-        &tables.catalogue,
-        &tables.templates,
+        (&tables.catalogue, &tables.templates),
+        (tables.rules.sockets(), difficulty),
         (item, made_at, key, 1),
         &mut dice.0,
     )?;
@@ -805,12 +803,26 @@ pub(crate) fn drop_at(
     lay(commands, (assets, tables), (flight, level, false), dropped);
 }
 
-/// The line of the log of a creature's drops.
+/// The line of the log of a creature's drops, a made item's sockets' kinds with it.
 fn listed(made: &[Dropped]) -> String {
     made.iter()
         .map(|d| match d.kind {
             Kind::Gold => format!("gold {} x{}", d.item, d.amount),
-            kind => format!("{kind:?} {} level {} key {}", d.item, d.level, d.key).to_lowercase(),
+            kind => {
+                let line = format!("{kind:?} {} level {} key {}", d.item, d.level, d.key);
+                let sockets: Vec<String> = d
+                    .values
+                    .iter()
+                    .flat_map(|values| values.sockets)
+                    .filter(|&socket| socket != 0)
+                    .map(|socket| socket.to_string())
+                    .collect();
+                if sockets.is_empty() {
+                    line.to_lowercase()
+                } else {
+                    format!("{line} sockets {}", sockets.join(" ")).to_lowercase()
+                }
+            }
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -1091,7 +1103,7 @@ pub fn throw_item(
     mut commands: Commands,
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
-    experience: Res<fight::Experience>,
+    (experience, difficulty): (Res<fight::Experience>, Option<Res<crate::game::Difficulty>>),
     assets: Res<AssetServer>,
 ) -> Result<String, String> {
     let tables = tables.ok_or("the drops' tables are not read yet")?;
@@ -1101,8 +1113,11 @@ pub fn throw_item(
         None => tables.rules.gold(level, &mut dice.0),
     };
     let dropped = drops::thrown(
-        &tables.catalogue,
-        &tables.templates,
+        (&tables.catalogue, &tables.templates),
+        (
+            tables.rules.sockets(),
+            difficulty.map(|d| d.0).unwrap_or_default(),
+        ),
         (request.item, level, request.key, amount),
         &mut dice.0,
     )
