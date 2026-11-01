@@ -543,7 +543,7 @@ fn refit(
         holds.items.extend(values.iter().cloned());
         commands.entity(entity).insert(Worn(values));
         let level = experience.level;
-        let skills = fight::skills(base, level, true);
+        let skills = fight::hero_skills(base, level, &holds.items);
         let list = effects.map(Effects::list).unwrap_or_default();
         *combat = Combat(combat_with(
             base,

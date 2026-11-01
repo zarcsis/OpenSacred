@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 pub use opensacred_rules::fight::{
     BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Raise, Rank, Templates, combat, creature_earns,
-    experience_with, fill_level, filled_level, hero_health, hero_health_with, level_start,
-    most_health, regeneration, scripted_level, skills, tagged_level, takes_on,
+    experience_with, fill_level, filled_level, hero_health, hero_health_with, hero_skills,
+    level_start, most_health, regeneration, scripted_level, skills, tagged_level, takes_on,
 };
 use opensacred_rules::fight::{
     Side, art_landed, poisons, range_factor, strike_landed, sure_landed, weapons_factor, weighed,
@@ -698,8 +698,8 @@ fn level_up(
                 rate: (0.5, crate::sfx::Roll::None),
             });
         }
-        let skills = skills(base, level, true);
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+        let skills = hero_skills(base, level, &holds.items);
         *values = Combat(combat(base, level, holds, &skills, &rules));
         let most = hero_health_with(base.attributes, base.extras, level, &skills, &rules);
         *health = Health {

@@ -380,8 +380,8 @@ fn refit_hero(
 ) {
     for (base, holding, effects, mut combat, mut regenerates) in &mut heroes {
         let level = experience.level;
-        let skills = fight::skills(base, level, true);
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+        let skills = fight::hero_skills(base, level, &holds.items);
         let list = effects.list();
         *combat = Combat(combat_with(base, level, holds, &skills, &list, &rules));
         regenerates.value = regeneration_with(base, level, &skills, &list, &rules);

@@ -26,7 +26,8 @@ pub struct HeroArts {
     pub kind: u32,
     /// The arts' two tables.
     pub tables: Arc<Tables>,
-    /// The hero's skills and their levels, in their slots' order (`fight::skills`).
+    /// The hero's skills and their levels with their items' bonuses, in their slots' order
+    /// (`fight::hero_skills`).
     pub skills: Vec<(u8, u32)>,
     /// The curves of the skills that shorten the arts' times.
     pub shortening: Shortening,
@@ -193,6 +194,11 @@ fn regenerate(
         opensacred_rules::fight::arts_speeds_with(base, experience.level, &holds, &effects);
     arts.arts.regenerate(seconds, speeds);
     arts.speeds = speeds;
+    // The skills with the bonuses of the items it holds and wears (#1717), as they change.
+    let skills = crate::fight::hero_skills(base, experience.level, &holds.items);
+    if arts.skills != skills {
+        arts.skills = skills;
+    }
 }
 
 /// The hero's arts' regeneration.
