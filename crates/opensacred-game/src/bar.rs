@@ -73,7 +73,7 @@ pub(crate) const OPTIONS_BUTTON: (u32, Vec2) = (89, Vec2::new(434.0, 729.0));
 pub(crate) const MAP_BUTTON: (u32, Vec2) = (91, Vec2::new(558.0, 729.0));
 /// The book's button (`UI_TB_BOOK`, `quest_book`).
 pub(crate) const BOOK_BUTTON: (u32, Vec2) = (93, Vec2::new(594.0, 705.0));
-const BUTTONS: [(u32, Vec2); 5] = [
+pub(crate) const BUTTONS: [(u32, Vec2); 5] = [
     INVENTORY_BUTTON,
     OPTIONS_BUTTON,
     MAP_BUTTON,
@@ -115,17 +115,17 @@ pub(crate) const RING_Z: i32 = 2;
 /// portrait, the bonuses' "+", and the experience's frame and fill.
 const HEALTH_RED: u32 = 41;
 const HEALTH_GREY: u32 = 42;
-const RING_AT: Vec2 = Vec2::new(932.0, 16.0);
-const RING_SIZE: Vec2 = Vec2::new(96.0, 108.0);
+pub(crate) const RING_AT: Vec2 = Vec2::new(932.0, 16.0);
+pub(crate) const RING_SIZE: Vec2 = Vec2::new(96.0, 108.0);
 const CLASP: f32 = 11.0;
-const PORTRAIT_AT: Vec2 = Vec2::new(941.0, 34.0);
-const PORTRAIT_SIZE: Vec2 = Vec2::new(64.0, 74.0);
+pub(crate) const PORTRAIT_AT: Vec2 = Vec2::new(941.0, 34.0);
+pub(crate) const PORTRAIT_SIZE: Vec2 = Vec2::new(64.0, 74.0);
 const BONUSES: (u32, Vec2) = (110, Vec2::new(1000.0, 34.0));
-const EXPERIENCE_FRAME: (u32, Vec2) = (66, Vec2::new(940.0, 122.0));
+pub(crate) const EXPERIENCE_FRAME: (u32, Vec2) = (66, Vec2::new(940.0, 122.0));
 const EXPERIENCE_FILL: (u32, Vec2) = (67, Vec2::new(940.0, 124.0));
 const EXPERIENCE_WIDTH: f32 = 73.0;
 /// The followers' entries under the hero's, 132 pixels apart, four at most (`0x6D6430`).
-const ENTRY_STEP: f32 = 132.0;
+pub(crate) const ENTRY_STEP: f32 = 132.0;
 const MOST_FOLLOWERS: usize = 4;
 /// An image read as stored, sampled without its smaller levels, as the original's interface
 /// draws its textures (one level): the disc's rings keep their runes as the ellipse shrinks them.
@@ -273,7 +273,7 @@ struct Entry {
 
 /// The followers whose entries the column shows, in their order.
 #[derive(Resource, Default)]
-struct Entries(Vec<Entity>);
+pub(crate) struct Entries(pub Vec<Entity>);
 
 /// An art slot's icon, by its slot: its grey top and its pale or vivid bottom; and its ring.
 #[derive(Component)]

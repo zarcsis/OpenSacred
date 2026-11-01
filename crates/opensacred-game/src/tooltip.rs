@@ -579,10 +579,39 @@ impl Rest {
     }
 }
 
-/// A control's tooltip of `text` on the original's screen, centred along on `centre` with its top
-/// there, a panel of the items' tooltip's look without its border (the style `0x209`), kept 16
+/// Where a control's tooltip stands: on the original's screen centred along the window, as the
+/// bar and the windows lie, or as the portraits' column lies, at the window's right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Frame {
+    Screen,
+    Column,
+}
+
+/// A control's tooltip of `text` on the original's screen centred on `centre` (the style `0x209`,
+/// whose point is its centre), a panel of the items' tooltip's look without its border, kept 16
 /// pixels within the screen by [`centre_tips`].
 pub(crate) fn spawn_tip(commands: &mut Commands, assets: &AssetServer, text: &str, centre: Vec2) {
+    spawn_tip_in(commands, assets, (text, centre), Frame::Screen);
+}
+
+/// [`spawn_tip`] in the frame `frame`, the text's colours' tags ([`coloured`]) followed.
+pub(crate) fn spawn_tip_in(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    (text, centre): (&str, Vec2),
+    frame: Frame,
+) {
+    let font = TextFont {
+        font: assets.load(FONT).into(),
+        font_size: FontSize::Px(FONT_SIZE),
+        ..default()
+    };
+    // A run of spaces draws as one, as the original's padded numbers show ("0/ 300" of
+    // `%6d/%6d`), while the panel keeps the width of the text as written, each space left out
+    // widening it by the original's space (**hypothesis** and **estimate** by the frames of the
+    // health's and the experience's tooltips).
+    let (drawn, left_out) = one_space(text);
+    let widened = INSET + SPACE * f32::from(u16::try_from(left_out).unwrap_or(u16::MAX));
     let panel = commands
         .spawn((
             Tip(centre),
@@ -590,50 +619,143 @@ pub(crate) fn spawn_tip(commands: &mut Commands, assets: &AssetServer, text: &st
                 position_type: PositionType::Absolute,
                 left: Val::Px(centre.x),
                 top: Val::Px(centre.y),
-                padding: UiRect::axes(Val::Px(INSET), Val::Px(INSET / 2.0)),
+                padding: UiRect {
+                    left: Val::Px(INSET),
+                    right: Val::Px(widened),
+                    top: Val::Px(INSET / 2.0),
+                    bottom: Val::Px(INSET / 2.0),
+                },
                 ..default()
             },
             BackgroundColor(PANEL),
             Pickable::IGNORE,
         ))
-        .with_child((
-            Text::new(text),
-            TextFont {
-                font: assets.load(FONT).into(),
-                font_size: FontSize::Px(FONT_SIZE),
-                ..default()
-            },
-            TextLayout {
-                linebreak: LineBreak::NoWrap,
-                ..default()
-            },
-            TextColor(argb(WHITE)),
-            Pickable::IGNORE,
-        ))
+        .with_children(|panel| {
+            panel
+                .spawn((
+                    Text::default(),
+                    font.clone(),
+                    TextLayout {
+                        linebreak: LineBreak::NoWrap,
+                        ..default()
+                    },
+                    TextColor(argb(WHITE)),
+                    Pickable::IGNORE,
+                ))
+                .with_children(|line| {
+                    for (words, colour) in coloured(&drawn) {
+                        line.spawn((TextSpan::new(words), font.clone(), TextColor(argb(colour))));
+                    }
+                });
+        })
         .id();
-    let root = commands
-        .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(2)))
-        .id();
+    let root = match frame {
+        Frame::Screen => commands
+            .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(2)))
+            .id(),
+        Frame::Column => commands
+            .spawn((
+                TipRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    width: Val::Px(bar::SCREEN.x),
+                    height: Val::Px(bar::SCREEN.y),
+                    ..default()
+                },
+                Pickable::IGNORE,
+                DespawnOnExit(AppState::InGame),
+                GlobalZIndex(2),
+            ))
+            .id(),
+    };
     commands.entity(root).add_child(panel);
 }
 
-/// Each control's tooltip centred on its place by its width as laid out, kept 16 pixels within
+/// The width that the original's tooltip measures a space at (**estimate**).
+const SPACE: f32 = 6.5;
+
+/// `text` with each run of spaces as one, and how many spaces it left out.
+fn one_space(text: &str) -> (String, usize) {
+    let mut drawn = String::with_capacity(text.len());
+    let mut left_out = 0;
+    for c in text.chars() {
+        if c == ' ' && drawn.ends_with(' ') {
+            left_out += 1;
+        } else {
+            drawn.push(c);
+        }
+    }
+    (drawn, left_out)
+}
+
+/// A text of `global.res` as its colours' tags paint it: `<colorw=AARRGGBB>` the word after it,
+/// `<color=…>` and `<colorl=…>` the rest of its line, white else; `<n>` a line's break, the other
+/// tags left out.
+pub(crate) fn coloured(text: &str) -> Vec<(String, u32)> {
+    let mut runs: Vec<(String, u32)> = Vec::new();
+    let mut push = |words: &str, colour: u32| {
+        if words.is_empty() {
+            return;
+        }
+        match runs.last_mut() {
+            Some((last, was)) if *was == colour => last.push_str(words),
+            _ => runs.push((words.to_owned(), colour)),
+        }
+    };
+    let (mut word, mut line) = (None, None);
+    let mut rest = text;
+    while !rest.is_empty() {
+        let open = rest.find('<').unwrap_or(rest.len());
+        let mut words = &rest[..open];
+        if let Some(colour) = word.take() {
+            let end = words.find(char::is_whitespace).unwrap_or(words.len());
+            push(&words[..end], colour);
+            words = &words[end..];
+        }
+        push(words, line.unwrap_or(WHITE));
+        let Some(close) = rest[open..].find('>') else {
+            break;
+        };
+        let tag = &rest[open + 1..open + close];
+        rest = &rest[open + close + 1..];
+        let colour = |prefix: &str| {
+            tag.strip_prefix(prefix)
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+        };
+        if tag == "n" {
+            push("\n", WHITE);
+            line = None;
+        } else if let Some(colour) = colour("colorw=") {
+            word = Some(colour);
+        } else if let Some(colour) = colour("colorl=").or_else(|| colour("color=")) {
+            line = Some(colour);
+        }
+    }
+    runs
+}
+
+/// Each control's tooltip centred on its place by its size as laid out, kept 16 pixels within
 /// the screen.
 fn centre_tips(mut tips: Query<(&Tip, &ComputedNode, &mut Node)>) {
     for (tip, computed, mut node) in &mut tips {
-        let width = computed.size().x * computed.inverse_scale_factor();
-        let left = tip_left(tip.0.x, width);
-        if node.left != Val::Px(left) {
-            node.left = Val::Px(left);
+        let size = computed.size() * computed.inverse_scale_factor();
+        let corner = tip_corner(tip.0, size);
+        if node.left != Val::Px(corner.x) {
+            node.left = Val::Px(corner.x);
+        }
+        if node.top != Val::Px(corner.y) {
+            node.top = Val::Px(corner.y);
         }
     }
 }
 
-/// The left of a tooltip of `width` centred on `centre`, kept 16 pixels within the screen.
-fn tip_left(centre: f32, width: f32) -> f32 {
-    (centre - width / 2.0)
-        .min(bar::SCREEN.x - MARGIN - width)
-        .max(MARGIN)
+/// The top left of a tooltip of `size` centred on `centre`, kept 16 pixels within the screen.
+fn tip_corner(centre: Vec2, size: Vec2) -> Vec2 {
+    (centre - size / 2.0)
+        .min(bar::SCREEN - Vec2::splat(MARGIN) - size)
+        .max(Vec2::splat(MARGIN))
 }
 
 /// The items' tooltip.
@@ -656,10 +778,52 @@ mod tests {
 
     #[test]
     fn a_controls_tooltip_is_centred_and_kept_on_the_screen() {
-        assert_eq!(tip_left(400.0, 200.0), 300.0);
+        let line = Vec2::new(200.0, 24.0);
+        assert_eq!(
+            tip_corner(Vec2::new(400.0, 300.0), line),
+            Vec2::new(300.0, 288.0)
+        );
         // The combos page's first symbol's, as wide as the original's line, moved to the margin.
-        assert_eq!(tip_left(80.0, 340.0), 16.0);
-        assert_eq!(tip_left(1000.0, 100.0), 1024.0 - 16.0 - 100.0);
+        assert_eq!(
+            tip_corner(Vec2::new(80.0, 300.0), Vec2::new(340.0, 24.0)),
+            Vec2::new(16.0, 288.0)
+        );
+        // The portrait's health over the top's margin, the experience's off the right.
+        assert_eq!(
+            tip_corner(Vec2::new(868.0, 16.0), line),
+            Vec2::new(768.0, 16.0)
+        );
+        assert_eq!(
+            tip_corner(Vec2::new(916.0, 122.0), line).x,
+            1024.0 - 16.0 - 200.0
+        );
+    }
+
+    #[test]
+    fn a_texts_tags_colour_a_word_or_the_rest_of_its_line() {
+        const YELLOW: u32 = 0xFFFF_FF80;
+        assert_eq!(
+            coloured("<colorw=FFFFFF80>Inventory [I]"),
+            [("Inventory".to_owned(), YELLOW), (" [I]".to_owned(), WHITE)]
+        );
+        assert_eq!(
+            coloured("<colorw=FFFFFF80>Collect <colorw=FFFFFF80>all [A]"),
+            [
+                ("Collect".to_owned(), YELLOW),
+                (" ".to_owned(), WHITE),
+                ("all".to_owned(), YELLOW),
+                (" [A]".to_owned(), WHITE),
+            ]
+        );
+        assert_eq!(
+            coloured("<color=FFFFFF80> Day<n>Night <unknown>x"),
+            [(" Day".to_owned(), YELLOW), ("\nNight x".to_owned(), WHITE)]
+        );
+        assert_eq!(coloured("plain"), [("plain".to_owned(), WHITE)]);
+        assert_eq!(
+            one_space("Experience:      0/   300"),
+            ("Experience: 0/ 300".to_owned(), 7)
+        );
     }
 
     #[test]

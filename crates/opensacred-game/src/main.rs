@@ -17,6 +17,7 @@ mod atmosphere;
 mod attack;
 mod backpack;
 mod bar;
+mod bar_tips;
 mod beams;
 mod belt;
 mod benchmark;
@@ -358,6 +359,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         attack::AttackPlugin,
         backpack::BackpackPlugin,
         bar::BarPlugin,
+        bar_tips::BarTipsPlugin,
         beams::BeamsPlugin,
         belt::BeltPlugin,
         benchmark::BenchmarkPlugin,
