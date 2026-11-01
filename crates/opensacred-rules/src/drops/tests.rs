@@ -1016,6 +1016,35 @@ fn a_test_throws_a_sets_piece_as_its_record_holds_it() {
 }
 
 #[test]
+fn a_test_throws_a_unique_as_its_record_holds_it() {
+    // A unique of the level 30 thrown at the hero's level 14, as the original's forced drop gives
+    // the sword 1712 (seen, #1709).
+    const UNIQUE_SWORD: u32 = 1749;
+    let templates = Templates::new(&[dagger_template()], &[]);
+    let unique = |flags: u32| record(ANY | flags, [30, 22], [1, 0, 0]);
+    let listed = catalogue(&[
+        (UNIQUE_SWORD, 5, unique(0x000F_0000)),
+        (DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])),
+    ]);
+    let mut dice = script(&[]);
+    let made = thrown(
+        (&listed, &templates),
+        (&Sockets::default(), Difficulty::Bronze),
+        (UNIQUE_SWORD, 14, 16, 250),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        (made.kind, made.level, made.quality, made.values, made.named),
+        (Kind::Weapon, 0, 0, None, None)
+    );
+    // A record of some of the quality bits is no unique.
+    let some = catalogue(&[(UNIQUE_SWORD, 5, unique(0x0007_0000))]);
+    assert!(listed.unique(UNIQUE_SWORD) && !listed.unique(DAGGER));
+    assert!(!some.unique(UNIQUE_SWORD));
+}
+
+#[test]
 fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
     let templates = Templates::new(&[dagger_template()], &[]);
     let bare = Record {

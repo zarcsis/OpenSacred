@@ -169,8 +169,11 @@ impl Weighing<'_, '_> {
         // 5 asked, #1701); another's as its record holds them: a potion's none, a scroll's level
         // none (seen, #1273); with its sockets filled, at least theirs, the level asked of it
         // (`0x5C0810`, #1661). A set's piece's record values take its template's scale, which
-        // the client's estimate of every record's level and the pace's slowing read.
-        let piece = tables.set_name(dropped.item).is_some();
+        // the client's estimate of every record's level and the pace's slowing read; a unique's
+        // (its record's quality bits all set) as well (seen: the sword 1712 of the level 30 and
+        // 22 asked, whose record holds the level 10, #1709).
+        let unique = (record.word >> 16) & 0xF == 0xF;
+        let piece = tables.set_name(dropped.item).is_some() || unique;
         let made = dropped.values.is_some() || piece;
         let mut own = tables.own_values(dropped);
         if piece && dropped.values.is_none() {
