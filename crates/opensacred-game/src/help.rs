@@ -93,6 +93,13 @@ pub const KEYS: &[(&str, &[(Row, &str)])] = &[
             (of(&[Action::QuestBook]), "the quest book"),
             (of(&[Action::WorldMap]), "the world map"),
             (of(&[Action::Overview]), "held, the overview map"),
+            (of(&[Action::CombatArts]), "the inventory's combat arts"),
+            (of(&[Action::Combos]), "the inventory's combos"),
+            (
+                of(&[Action::ZoomIn, Action::ZoomOut]),
+                "held, the world closer or farther",
+            ),
+            (of(&[Action::ZoomBack]), "the zoom back to 1"),
             (of(&WEAPON_SETS), "the weapon sets"),
             (of(&ART_SLOTS), "the art slots"),
             (of(&ART_KEYS), "the art of the key into the selected slot"),

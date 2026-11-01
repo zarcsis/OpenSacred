@@ -513,7 +513,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(
         Update,
-        iso::zoom
+        (iso::zoom, iso::zoom_keys)
             .in_set(frame::Step::Zoom)
             .in_set(frame::Unpaused)
             .in_set(frame::Control),
