@@ -10,10 +10,10 @@
 //!
 //! Not followed: the quest's line, the region's factor of
 //! the price, the price of an item that the item maker made (its worth, `0x5D3AB0`), the
-//! multipliers of the bonuses of the condition bits 13 and 14 in the damage's line (the stats'
-//! `+0xA6`) and of the resistances in the protection's (`+0xD6`, 1 here), the opponents' names
-//! but the ranged ones' and the riders', the class's variants in the refusal (`0x43CA20`), the
-//! extra text of the item's `+0xFC`, and the hands of the types that the list of `0x5CECD0` names.
+//! multipliers of the bonuses of the condition's bit 14 in the damage's line (in the stats'
+//! `+0xA6`), the opponents' names but the ranged ones' and the riders', the class's variants in
+//! the refusal (`0x43CA20`), the extra text of the item's `+0xFC`, and the hands of the types
+//! that the list of `0x5CECD0` names.
 
 use opensacred_rules::equipment::{CLASSES, NO_CLASS};
 use opensacred_rules::fight::{Bonus, ItemValues, KINDS};
@@ -110,14 +110,16 @@ const SET_PIECE: u32 = 0xFF15_FF25;
 const SET_NAME: u32 = 0xFFFF_D070;
 
 /// The hero that the tooltip weighs the item for: its creature type, its level, its attributes
-/// with its items' bonuses (the stats' words `+0x10`…), its skills and their levels and its
-/// damage's multipliers (the stats' `+0x96`).
+/// with its items' bonuses (the stats' words `+0x10`…), its skills and their levels, its
+/// damage's multipliers (the stats' `+0x96` and `+0xA6`) and its resistances' factors (the
+/// stats' `+0xD6`).
 pub(crate) struct Hero<'a> {
     pub creature: u32,
     pub level: u32,
     pub attributes: [f32; 6],
     pub skills: &'a [(u8, u32)],
     pub multipliers: [f32; KINDS],
+    pub resistance_factors: [f32; KINDS],
 }
 
 impl Hero<'_> {
@@ -191,8 +193,15 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
             ));
             lines.push(Line(pieces));
         }
+        // Each kind's resistance, a word, times the hero's factor of it, truncated as it is
+        // summed (`0x5C5DA7`).
         if values.resistance.iter().any(|&r| r != 0.0) {
-            let sum: f32 = values.resistance.iter().map(|r| r.trunc()).sum();
+            let sum: f32 = values
+                .resistance
+                .iter()
+                .zip(hero.resistance_factors)
+                .map(|(r, factor)| (r.trunc() * factor).trunc())
+                .sum();
             let mut pieces = shares(&values.resistance);
             pieces.push(Piece::Text(format!("{}: {sum}", words.of("1177")), GREEN));
             lines.push(Line(pieces));
@@ -738,7 +747,44 @@ mod tests {
             attributes: [10.0, 10.0, 10.0, 10.0, 10.0, 15.0],
             skills,
             multipliers: [1.0; KINDS],
+            resistance_factors: [1.0; KINDS],
         }
+    }
+
+    #[test]
+    fn the_expected_protection_takes_the_heros_resistance_factors() {
+        let item = Item {
+            item: 4000,
+            name: "Helmet",
+            category: 17,
+            record: Record::default(),
+            price: 0,
+            buying: false,
+            quality: 0,
+            values: ItemValues {
+                resistance: [27.0, 0.0, 18.0, 0.0],
+                ..ItemValues::default()
+            },
+            level: 20,
+            asked: 14,
+            heals: None,
+            sockets: (0, 0),
+            set: None,
+        };
+        // The Seraphim's factors at her start, as the original's `stats` shows them: 32 and 21
+        // where the original's tooltip shows 53 (seen 2026-11-01, #1706).
+        let hero = Hero {
+            resistance_factors: [1.202_701_4, 1.202_701_4, 1.177_363_8, 1.218_293_9],
+            ..hero(&[])
+        };
+        let shown: Vec<String> = lines(&item, Some(&hero), &words())
+            .iter()
+            .map(texts)
+            .collect();
+        assert!(
+            shown.contains(&"[205][207]<1177>: 53".to_owned()),
+            "{shown:?}"
+        );
     }
 
     #[test]
