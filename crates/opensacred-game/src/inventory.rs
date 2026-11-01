@@ -95,6 +95,11 @@ pub struct Shown(pub bool);
 #[derive(Resource, Default)]
 pub struct Page(pub u8);
 
+/// The page that the windows show on as they next show, the items' page where none (F and C,
+/// #1596).
+#[derive(Resource, Default)]
+pub struct Opening(pub Option<u8>);
+
 /// A tab of the tab sheet, by its page.
 #[derive(Component)]
 struct Tab(u8);
@@ -226,17 +231,43 @@ fn sort(
 }
 
 /// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), and Esc hides
-/// them, with their sounds; the keys taken from the game; not while the world map shows
-/// (`0x757840`).
+/// them, with their sounds; F and C show them on the combat arts' and the combos' pages, the
+/// original's Quickstart's windows, or hide them from those pages (#1596); the keys taken from
+/// the game; not while the world map shows (`0x757840`).
 pub(crate) fn toggle(
     mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     images: Res<UiImages>,
     (mut shown, map): (ResMut<Shown>, Res<crate::world_map::Map>),
+    (mut page, mut opening): (ResMut<Page>, ResMut<Opening>),
     mut sounds: MessageWriter<sfx::Play>,
 ) {
     if map.shown {
+        return;
+    }
+    let wanted = [
+        (
+            crate::controls::Action::CombatArts,
+            crate::spells_page::PAGE,
+        ),
+        (crate::controls::Action::Combos, crate::combos_page::PAGE),
+    ]
+    .into_iter()
+    .find(|&(action, _)| keys.take(action))
+    .map(|(_, page)| page);
+    if let Some(wanted) = wanted {
+        if shown.0 && page.0 != wanted {
+            page.0 = wanted;
+            return;
+        }
+        shown.0 = !shown.0;
+        opening.0 = Some(wanted);
+        sounds.write(sfx::Play {
+            sound: sfx::Of::Id(if shown.0 { OPENS } else { CLOSES }),
+            at: None,
+            rate: (0.5, sfx::Roll::None),
+        });
         return;
     }
     let pressed = keys.take(crate::controls::Action::Inventory);
@@ -276,7 +307,7 @@ pub(crate) fn screen_point(
 /// Makes the windows as they show and takes them away as they hide.
 fn show(
     mut commands: Commands,
-    (shown, mut page): (Res<Shown>, ResMut<Page>),
+    (shown, mut page, mut opening): (Res<Shown>, ResMut<Page>, ResMut<Opening>),
     screens: Query<Entity, With<Screen>>,
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
     mut dice: Local<Option<Rng>>,
@@ -287,10 +318,11 @@ fn show(
     for screen in &screens {
         commands.entity(screen).despawn();
     }
+    let wanted = opening.0.take();
     if !shown.0 {
         return;
     }
-    page.0 = 0;
+    page.0 = wanted.unwrap_or(0);
     let dice = dice.get_or_insert_with(|| crate::seed::dice(1267));
     let anchors = |index| images.anchors(index);
     let size = |index| images.size(index);
@@ -524,6 +556,7 @@ impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shown>()
             .init_resource::<Page>()
+            .init_resource::<Opening>()
             .hold_control(off_the_windows)
             .add_systems(OnEnter(AppState::InGame), hide)
             .add_systems(

@@ -255,6 +255,18 @@ fn key(name: &str) -> Option<(KeyCode, Key, Option<&'static str>)> {
         "Control" | "Ctrl" => Some((KeyCode::ControlLeft, Key::Control, None)),
         "Shift" => Some((KeyCode::ShiftLeft, Key::Shift, None)),
         "Alt" => Some((KeyCode::AltLeft, Key::Alt, None)),
+        // The keypad's zoom (#1596).
+        "NumpadAdd" => Some((KeyCode::NumpadAdd, Key::Character("+".into()), Some("+"))),
+        "NumpadSubtract" => Some((
+            KeyCode::NumpadSubtract,
+            Key::Character("-".into()),
+            Some("-"),
+        )),
+        "NumpadMultiply" => Some((
+            KeyCode::NumpadMultiply,
+            Key::Character("*".into()),
+            Some("*"),
+        )),
         _ => None,
     };
     if named.is_some() {

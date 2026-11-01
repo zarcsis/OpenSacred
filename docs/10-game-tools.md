@@ -255,6 +255,8 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | L | the game | the quest book (#1560); its close button and Esc close it |
 | Tab, middle mouse button | the game | held, the overview map (#1562) |
 | M | the game | the world map, which pauses the game (#1561); its close button and Esc close it, the screen's edges and the right button held scroll it, the left button held shows the lens over the land explored (#1568) |
+| F, C | the game | the inventory's windows on the combat arts' page and on the combos' page, the original's Quickstart's windows, or closed from that page (#1596) |
+| keypad + and −, keypad * | the game | held without Shift, the world closer and farther by 1.5 a second of the game's time; the zoom back to 1 (`0x60DD20`, `0x618090`; the original's settling on 0.5, 1 or 2 left out as the wheel's, #1596) |
 | Space, Shift + Space | the game | drink a healing potion of the belt, the yellow one (#1311, #1313) |
 | Q, W, E, R | the game | drink a purple, blue, green or yellow potion of the belt, again while held (#1536) |
 | B | the game | a healing potion of the belt for the weakest follower (#1536) |

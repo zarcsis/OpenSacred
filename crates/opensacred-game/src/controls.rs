@@ -59,6 +59,11 @@ pub enum Action {
     QuestBook,
     WorldMap,
     Overview,
+    CombatArts,
+    Combos,
+    ZoomIn,
+    ZoomOut,
+    ZoomBack,
     WeaponSet1,
     WeaponSet2,
     WeaponSet3,
@@ -121,7 +126,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 40] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 45] = [
     (
         Action::Walk,
         Section::World,
@@ -170,6 +175,41 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 40] = [
         "overview_map",
         &["Tab"],
         "held, the overview map",
+    ),
+    (
+        Action::CombatArts,
+        Section::World,
+        "combat_arts",
+        &["F"],
+        "the inventory's combat arts' page",
+    ),
+    (
+        Action::Combos,
+        Section::World,
+        "combos",
+        &["C"],
+        "the inventory's combos' page",
+    ),
+    (
+        Action::ZoomIn,
+        Section::World,
+        "zoom_in",
+        &["NumpadAdd"],
+        "held without Shift, the world closer",
+    ),
+    (
+        Action::ZoomOut,
+        Section::World,
+        "zoom_out",
+        &["NumpadSubtract"],
+        "held without Shift, the world farther",
+    ),
+    (
+        Action::ZoomBack,
+        Section::World,
+        "zoom_back",
+        &["NumpadMultiply"],
+        "the zoom back to 1",
     ),
     (
         Action::WeaponSet1,

@@ -183,6 +183,44 @@ pub fn zoom(
     }
 }
 
+/// The keypad's zoom (#1596; `cEngine_handleZoomInput`, `0x60DD20`, and `cEngine_receiveEvent`,
+/// `0x618090`): its `+` held without Shift brings the world closer and its `-` takes it farther,
+/// by 1.5 a second of the game's time, which stands still in a pause; its `*` the zoom back to 1.
+/// The original's zoom then settles on 0.5, 1 or 2, which the game's does not, as its wheel's
+/// does not.
+pub fn zoom_keys(
+    keys: crate::controls::Keys,
+    time: Res<Time<Virtual>>,
+    mut projections: Query<&mut Projection, (With<Camera>, Without<Apart>)>,
+) {
+    let back = keys.just_pressed(crate::controls::Action::ZoomBack);
+    let shift = keys.modifiers().shift;
+    let step = if shift {
+        0.0
+    } else if keys.pressed(crate::controls::Action::ZoomIn) {
+        -KEYS_ZOOM * time.delta_secs()
+    } else if keys.pressed(crate::controls::Action::ZoomOut) {
+        KEYS_ZOOM * time.delta_secs()
+    } else {
+        0.0
+    };
+    if !back && step == 0.0 {
+        return;
+    }
+    for mut projection in &mut projections {
+        if let Projection::Orthographic(ortho) = &mut *projection {
+            ortho.scale = if back {
+                1.0
+            } else {
+                (ortho.scale + step).clamp(*ZOOM.start(), *ZOOM.end())
+            };
+        }
+    }
+}
+
+/// The keypad's zoom a second (`0x60DD20`).
+const KEYS_ZOOM: f32 = 1.5;
+
 /// The camera's transform when it looks at `target`.
 pub fn view_of(target: Vec3) -> Transform {
     Transform::from_translation(target - forward() * DISTANCE).looking_to(forward(), Vec3::Y)
