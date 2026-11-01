@@ -414,6 +414,26 @@ fn halves_of(
     set.map(|piece| piece.and_then(|piece| item_of(piece, halves, put.clone())))
 }
 
+/// The item of the weapon set's slot under the point `at` of the original's screen, of `count`
+/// slots shown (`0x6E4560`, #1689): its set, its half, the slot's corner and the item, the half
+/// as a click tries them ([`halves_tried`]), the first that holds an item.
+pub(crate) fn hovered(
+    sets: &WeaponSets,
+    count: usize,
+    at: Vec2,
+) -> Option<(usize, usize, Vec2, Dropped)> {
+    (0..count.min(SETS)).find_map(|set| {
+        let corner = bar::weapon_slot(set, count);
+        if !Rect::from_corners(corner, corner + Vec2::splat(SLOT)).contains(at) {
+            return None;
+        }
+        halves_tried(corner, at).into_iter().find_map(|half| {
+            let item = sets.halves[set][half].clone()?;
+            Some((set, half, corner, item))
+        })
+    })
+}
+
 /// The halves of a slot that a click on its point `at` tries, in order (`0x6E14C0`): the right
 /// hand's first on the slot's left half, as its model lies there, else the left hand's.
 fn halves_tried(corner: Vec2, at: Vec2) -> [usize; HALVES] {
