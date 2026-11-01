@@ -8,8 +8,10 @@
 //! and of the overworld's about the start, of 2,000 to 3,200 stacks, 20 to 30 MB; a shader that
 //! composes the layers would shrink it further.
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ops::Range;
+use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
@@ -28,6 +30,7 @@ use opensacred_data::texture;
 pub use opensacred_data::texture::Rgba;
 use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 
+use crate::parallel::{self, Spread};
 use crate::sectors::Staged;
 use crate::{buildings, files, iso, liquids};
 
@@ -950,30 +953,76 @@ pub fn read_texture(path: &Path) -> Result<Rgba> {
     texture::read(&data).with_context(|| format!("decoding {}", path.display()))
 }
 
-/// The tile sheets, decoded on first use.
-struct Sheets<'a> {
-    dir: &'a Path,
-    world: &'a World,
-    loaded: HashMap<u32, Rgba>,
+/// The tile sheets decoded for the sectors built together, each once: the four sectors in view of
+/// a hero that arrives on the overworld take some 400, 170 of them distinct (#1654).
+#[derive(Default)]
+pub struct Decoded(Mutex<HashMap<u32, Arc<Once>>>);
+
+/// A tile sheet decoded once, by the first build to ask for it; none where it failed.
+type Once = OnceLock<Option<Arc<Rgba>>>;
+
+impl Decoded {
+    /// Sheet `sheet`, which `decode` decodes unless another build has or is decoding it; that
+    /// one's build then waits for it.
+    fn get(&self, sheet: u32, decode: impl FnOnce() -> Result<Rgba>) -> Result<Arc<Rgba>> {
+        let cell = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("the tile sheets' lock poisoned"))?
+            .entry(sheet)
+            .or_default()
+            .clone();
+        let mut failed = None;
+        let decoded =
+            cell.get_or_init(|| decode().map(Arc::new).map_err(|e| failed = Some(e)).ok());
+        match (decoded, failed) {
+            (Some(decoded), _) => Ok(Arc::clone(decoded)),
+            (None, Some(e)) => Err(e),
+            (None, None) => Err(anyhow::anyhow!(
+                "tile sheet {sheet} did not decode for another sector"
+            )),
+        }
+    }
 }
 
-impl Sheets<'_> {
-    /// Decodes the sheet of tile `tile`, unless it is already.
-    fn load(&mut self, tile: u32) -> Result<()> {
-        let sheet = tile / DIAMONDS;
-        if !self.loaded.contains_key(&sheet) {
-            let name = self
-                .world
-                .sheets
-                .get(usize::try_from(sheet)?)
-                .with_context(|| format!("no tile sheet {sheet}"))?;
-            let image = read_texture(&self.dir.join(name))?;
-            self.loaded.insert(sheet, image);
-        }
-        Ok(())
+/// The tile sheets that a sector's slots take their layers from, decoded.
+struct Sheets {
+    loaded: HashMap<u32, Arc<Rgba>>,
+}
+
+impl Sheets {
+    /// Decodes the sheets of every layer of `stacks` that `decoded` has not, spread as `spread`
+    /// says ([`parallel::map`]): a sector of the overworld takes some 100, which one thread read
+    /// and decoded in some 25 ms.
+    fn read(
+        dir: &Path,
+        world: &World,
+        stacks: &[Layers],
+        spread: Spread,
+        decoded: &Decoded,
+    ) -> Result<Self> {
+        let sheets: BTreeSet<u32> = stacks
+            .iter()
+            .flatten()
+            .flat_map(|&(art, mask)| std::iter::once(art).chain(mask))
+            .map(|tile| tile / DIAMONDS)
+            .collect();
+        let loaded = parallel::map(sheets.into_iter().collect(), spread, |sheet| {
+            let image = decoded.get(sheet, || {
+                let name = world
+                    .sheets
+                    .get(usize::try_from(sheet)?)
+                    .with_context(|| format!("no tile sheet {sheet}"))?;
+                read_texture(&dir.join(name))
+            })?;
+            Ok((sheet, image))
+        });
+        Ok(Self {
+            loaded: loaded.into_iter().collect::<Result<_>>()?,
+        })
     }
 
-    /// Tile `tile`'s diamond box, its sheet decoded ([`Self::load`]).
+    /// Tile `tile`'s diamond box in its sheet.
     fn diamond(&self, tile: u32) -> Result<Diamond<'_>> {
         let sheet = tile / DIAMONDS;
         let sheet = self
@@ -981,7 +1030,7 @@ impl Sheets<'_> {
             .get(&sheet)
             .with_context(|| format!("tile sheet {sheet}"))?;
         Ok(Diamond {
-            sheet,
+            sheet: sheet.as_ref(),
             origin: diamond_origin(tile % DIAMONDS),
         })
     }
@@ -1076,16 +1125,12 @@ fn slot_origin(index: usize) -> (usize, usize) {
 /// while the frame waits (`sectors`, #1650) took some 300 ms over a lookup and a test a pixel.
 fn compose_slot(
     layers: &Layers,
-    sheets: &mut Sheets<'_>,
+    sheets: &Sheets,
     spans: &Spans,
     slot: &mut [[u8; 4]],
 ) -> Result<()> {
     let at = |x: usize, y: usize| y * DIAMOND_W + x;
     for &(art, mask) in layers {
-        sheets.load(art)?;
-        if let Some(mask) = mask {
-            sheets.load(mask)?;
-        }
         let colours = sheets.diamond(art)?;
         let alphas = mask.map(|mask| sheets.diamond(mask)).transpose()?;
         for (y, span) in spans.iter().enumerate() {
@@ -1111,8 +1156,9 @@ fn compose_slot(
     Ok(())
 }
 
-/// Composes the atlas of a sector's cells.
-fn compose(sector: &Sector, sheets: &mut Sheets<'_>) -> Result<Atlas> {
+/// The distinct stacks of layers of a sector's cells in the order the cells first take them, and
+/// the stack of every cell.
+fn stacks(sector: &Sector) -> (Vec<Layers>, Vec<usize>) {
     let mut stacks: HashMap<Layers, usize> = HashMap::new();
     let mut order: Vec<Layers> = Vec::new();
     let slots = sector
@@ -1126,6 +1172,99 @@ fn compose(sector: &Sector, sheets: &mut Sheets<'_>) -> Result<Atlas> {
             })
         })
         .collect();
+    (order, slots)
+}
+
+/// A run of the atlas's rows of slots that one thread composes ([`compose`]).
+struct Band<'a> {
+    /// Its rows of slots.
+    slots: Range<usize>,
+    /// The atlas's texels from the top of its first row of slots to the top of the next band's.
+    own: &'a mut [u8],
+    /// Half a box of rows below its own, where the lower halves of its last row's diamonds lie
+    /// among the upper halves of the next band's first row's; none for the last band, whose own
+    /// rows reach the atlas's end.
+    below: Vec<u8>,
+}
+
+/// Composes a band's slots into its rows ([`compose_slot`]); answers the row of slots after it
+/// and the rows below its own.
+fn compose_band(
+    band: Band<'_>,
+    stacks: &[Layers],
+    sheets: &Sheets,
+    spans: &Spans,
+    width: usize,
+) -> Result<(usize, Vec<u8>)> {
+    let Band {
+        slots,
+        own,
+        mut below,
+    } = band;
+    let top = slots.start * DIAMOND_H / 2;
+    let own_rows = own.len() / (4 * width);
+    let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
+    let (from, to) = (slots.start * SLOTS_PER_ROW, slots.end * SLOTS_PER_ROW);
+    for (index, layers) in stacks.iter().enumerate().take(to).skip(from) {
+        slot.fill([0; 4]);
+        compose_slot(layers, sheets, spans, &mut slot)?;
+        let (sx, sy) = slot_origin(index);
+        for (y, span) in spans.iter().enumerate() {
+            let Some((first, last)) = *span else {
+                continue;
+            };
+            let row = sy + y - top;
+            let (texels, row) = if row < own_rows {
+                (&mut *own, row)
+            } else {
+                (below.as_mut_slice(), row - own_rows)
+            };
+            let at = 4 * (row * width + sx);
+            texels[at + 4 * first..=at + 4 * last + 3]
+                .copy_from_slice(slot[y * DIAMOND_W + first..=y * DIAMOND_W + last].as_flattened());
+        }
+    }
+    Ok((slots.end, below))
+}
+
+/// Composes the atlas of a sector's cells, its sheets taken from `decoded` ([`Sheets::read`]),
+/// spread as `spread` says: a band of the whole atlas alone, else bands of [`BAND`] rows of slots
+/// at once ([`lay`]).
+fn compose(
+    sector: &Sector,
+    dir: &Path,
+    world: &World,
+    spread: Spread,
+    decoded: &Decoded,
+) -> Result<Atlas> {
+    let (order, slots) = stacks(sector);
+    let sheets = Sheets::read(dir, world, &order, spread, decoded)?;
+    let band = match spread {
+        Spread::Alone => order.len(),
+        Spread::Wide => BAND,
+    };
+    let (width, height, pixels) = lay(&order, &sheets, band, spread)?;
+    Ok(Atlas {
+        width,
+        height,
+        pixels,
+        slots,
+    })
+}
+
+/// The rows of slots of a band of an atlas composed at once ([`lay`]): an overworld sector's
+/// atlas has some 45, which make a dozen bands.
+const BAND: usize = 4;
+
+/// Composes the slots of `order` into an atlas, its rows of slots in bands of `band` rows spread
+/// as `spread` says ([`parallel::map`]): a sector of the overworld on one thread took some 30 ms.
+/// Answers its width, its height and its texels.
+fn lay(
+    order: &[Layers],
+    sheets: &Sheets,
+    band: usize,
+    spread: Spread,
+) -> Result<(usize, usize, Vec<u8>)> {
     // The last column's diamonds of the shifted rows reach half a box past the others, and the
     // last row's half a box below.
     let columns = order.len().clamp(1, SLOTS_PER_ROW);
@@ -1135,27 +1274,56 @@ fn compose(sector: &Sector, sheets: &mut Sheets<'_>) -> Result<Atlas> {
         (rows + 1) * DIAMOND_H / 2,
     );
     let mut pixels = vec![0u8; 4 * width * height];
-    let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
+    let row_bytes = 4 * width;
+    let per_band = band.max(1);
+    let mut bands = Vec::new();
+    let mut rest = pixels.as_mut_slice();
+    let mut first = 0;
+    while first < rows {
+        let end = (first + per_band).min(rows);
+        let own_rows = if end == rows {
+            height - first * DIAMOND_H / 2
+        } else {
+            (end - first) * DIAMOND_H / 2
+        };
+        let (own, after) = std::mem::take(&mut rest).split_at_mut(own_rows * row_bytes);
+        rest = after;
+        let below = if end == rows {
+            Vec::new()
+        } else {
+            vec![0; DIAMOND_H / 2 * row_bytes]
+        };
+        bands.push(Band {
+            slots: first..end,
+            own,
+            below,
+        });
+        first = end;
+    }
     let spans = spans();
-    for (index, layers) in order.iter().enumerate() {
-        slot.fill([0; 4]);
-        compose_slot(layers, sheets, &spans, &mut slot)?;
-        let (sx, sy) = slot_origin(index);
-        for (y, span) in spans.iter().enumerate() {
-            let Some((first, last)) = *span else {
-                continue;
-            };
-            let row = 4 * ((sy + y) * width + sx);
-            pixels[row + 4 * first..=row + 4 * last + 3]
-                .copy_from_slice(slot[y * DIAMOND_W + first..=y * DIAMOND_W + last].as_flattened());
+    let belows = parallel::map(bands, spread, |band| {
+        compose_band(band, order, sheets, &spans, width)
+    });
+    // A band's rows below its own laid over the next band's: a texel lies in one diamond at most,
+    // and one in none is left clear.
+    for below in belows {
+        let (end, below) = below?;
+        let at = end * DIAMOND_H / 2 * row_bytes;
+        let Some(rows) = pixels.get_mut(at..at + below.len()) else {
+            continue;
+        };
+        for (out, texel) in rows
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(below.as_chunks::<4>().0)
+        {
+            if texel[3] != 0 {
+                *out = *texel;
+            }
         }
     }
-    Ok(Atlas {
-        width,
-        height,
-        pixels,
-        slots,
-    })
+    Ok((width, height, pixels))
 }
 
 /// The mesh of the cells: a quad per cell over its four corners (left, top, right, bottom), each
@@ -1236,17 +1404,16 @@ impl Ground {
     }
 }
 
-/// The ground of a sector: the image of its diamonds and the mesh of its cells.
-pub fn build(assets: &Path, world: &World, sector: &Sector) -> Result<Ground> {
-    let dir: PathBuf = assets.join("world");
-    let atlas = {
-        let mut sheets = Sheets {
-            dir: &dir,
-            world,
-            loaded: HashMap::new(),
-        };
-        compose(sector, &mut sheets)?
-    };
+/// The ground of a sector: the image of its diamonds and the mesh of its cells, spread as
+/// `spread` says, its tile sheets taken from `decoded` ([`compose`]).
+pub fn build(
+    assets: &Path,
+    world: &World,
+    sector: &Sector,
+    spread: Spread,
+    decoded: &Decoded,
+) -> Result<Ground> {
+    let atlas = compose(sector, &assets.join("world"), world, spread, decoded)?;
     let mesh = mesh(sector);
     let side = u32::try_from(SIDE)?;
     let slots: Vec<u8> = atlas
@@ -2116,23 +2283,18 @@ mod tests {
                 .map(|i| u8::try_from((i * 7 + seed * 13) % 251).unwrap())
                 .collect(),
         };
-        let world = World {
-            sectors: Vec::new(),
-            sheets: Vec::new(),
-            atlases: Vec::new(),
-            assembled_from: Vec::new(),
-        };
         // The second sheet narrower than its diamonds' boxes reach.
-        let mut sheets = Sheets {
-            dir: Path::new(""),
-            world: &world,
-            loaded: HashMap::from([(0, sheet(256, 256, 1)), (1, sheet(150, 100, 2))]),
+        let sheets = Sheets {
+            loaded: HashMap::from([
+                (0, Arc::new(sheet(256, 256, 1))),
+                (1, Arc::new(sheet(150, 100, 2))),
+            ]),
         };
         // A ground tile, an overlay through another tile's mask, and one through its own alpha
         // partly beyond its sheet.
         let layers: Layers = vec![(3, None), (6, Some(DIAMONDS + 2)), (DIAMONDS + 5, None)];
         let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
-        compose_slot(&layers, &mut sheets, &spans(), &mut slot).unwrap();
+        compose_slot(&layers, &sheets, &spans(), &mut slot).unwrap();
 
         let pixel = |tile: u32, x: usize, y: usize| {
             let sheet = &sheets.loaded[&(tile / DIAMONDS)];
@@ -2161,6 +2323,78 @@ mod tests {
             }
         }
         assert_eq!(slot, expected);
+    }
+
+    #[test]
+    fn a_tile_sheet_decodes_once_for_the_sectors_built_together() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let decoded = Decoded::default();
+        let decodes = AtomicUsize::new(0);
+        let sheets = parallel::map((0..64).collect(), Spread::Wide, |_: usize| {
+            decoded
+                .get(7, || {
+                    decodes.fetch_add(1, Ordering::SeqCst);
+                    Ok(texture::Rgba {
+                        width: 1,
+                        height: 1,
+                        pixels: vec![1, 2, 3, 4],
+                    })
+                })
+                .unwrap()
+        });
+        assert_eq!(decodes.load(Ordering::SeqCst), 1);
+        assert!(sheets.iter().all(|sheet| Arc::ptr_eq(sheet, &sheets[0])));
+        // A sheet that does not decode fails every build that asks for it, decoded no more.
+        let error = decoded
+            .get(8, || Err(anyhow::anyhow!("broken")))
+            .unwrap_err();
+        assert_eq!(error.to_string(), "broken");
+        let again = decoded
+            .get(8, || panic!("decoded twice"))
+            .unwrap_err()
+            .to_string();
+        assert!(again.contains("tile sheet 8"), "{again}");
+    }
+
+    #[test]
+    fn an_atlas_laid_in_bands_at_once_is_the_one_laid_slot_by_slot() {
+        let sheet = |seed: usize| texture::Rgba {
+            width: 256,
+            height: 256,
+            pixels: (0..4 * 256 * 256)
+                .map(|i| u8::try_from((i * 5 + seed * 17) % 253).unwrap())
+                .collect(),
+        };
+        let sheets = Sheets {
+            loaded: HashMap::from([(0, Arc::new(sheet(1))), (1, Arc::new(sheet(2)))]),
+        };
+        // Six rows of slots, the last one partly filled, of a tile and an overlay through a mask.
+        let tiles = 2 * DIAMONDS;
+        let order: Vec<Layers> = (0..u32::try_from(5 * SLOTS_PER_ROW + 7).unwrap())
+            .map(|i| vec![(i % tiles, None), (i * 7 % tiles, Some(i * 3 % tiles))])
+            .collect();
+        let (width, height, one) = lay(&order, &sheets, order.len(), Spread::Alone).unwrap();
+        let mut expected = vec![0u8; 4 * width * height];
+        let spans = spans();
+        let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
+        for (index, layers) in order.iter().enumerate() {
+            slot.fill([0; 4]);
+            compose_slot(layers, &sheets, &spans, &mut slot).unwrap();
+            let (sx, sy) = slot_origin(index);
+            for (y, span) in spans.iter().enumerate() {
+                let (first, last) = span.unwrap();
+                for x in first..=last {
+                    let at = 4 * ((sy + y) * width + sx + x);
+                    expected[at..at + 4].copy_from_slice(&slot[y * DIAMOND_W + x]);
+                }
+            }
+        }
+        assert!(one == expected);
+        for band in [1, 2, 4, 5] {
+            let (w, h, banded) = lay(&order, &sheets, band, Spread::Wide).unwrap();
+            assert_eq!((w, h), (width, height));
+            assert!(banded == expected, "bands of {band}");
+        }
     }
 
     #[test]

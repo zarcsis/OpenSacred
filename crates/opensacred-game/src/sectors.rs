@@ -11,13 +11,14 @@ use std::time::Instant;
 use anyhow::Result;
 use bevy::prelude::*;
 use bevy::tasks::futures::check_ready;
-use bevy::tasks::{AsyncComputeTaskPool, ComputeTaskPool, Task, block_on};
+use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
 use opensacred_data::world::{SIDE, Sector, Sprites, World};
 
 use crate::frame::Step;
 use crate::game::AppState;
 use crate::hero::{Body, Hero};
 use crate::liquids::Liquids;
+use crate::parallel::{self, Spread};
 use crate::tables::Tables;
 use crate::terrain::Heights;
 use crate::{blended, daynight, iso, liquids, statics, terrain};
@@ -113,25 +114,38 @@ impl Staged {
     }
 }
 
-/// Builds sector `at`.
-pub fn build(shared: &Shared, at: (u32, u32)) -> Building {
+/// Builds sector `at`, spread as `spread` says: on its thread alone in the background, its
+/// ground and its statics at once over the pool of the frame's wait while a frame waits for it
+/// ([`parallel`]).
+pub fn build(
+    shared: &Shared,
+    at: (u32, u32),
+    spread: Spread,
+    decoded: &terrain::Decoded,
+) -> Building {
     let Some(sector) = terrain::read_sector(&shared.assets, &shared.world, at)? else {
         return Ok(None);
     };
-    let ground = terrain::build(&shared.assets, &shared.world, &sector)?;
+    let (ground, statics) = parallel::join(
+        spread,
+        || terrain::build(&shared.assets, &shared.world, &sector, spread, decoded),
+        || {
+            statics::build(
+                &shared.assets,
+                &shared.world,
+                &shared.sprites,
+                shared.shadows.as_deref(),
+                &sector,
+                spread,
+            )
+        },
+    );
     let liquids = liquids::build(&sector);
-    let statics = statics::build(
-        &shared.assets,
-        &shared.world,
-        &shared.sprites,
-        shared.shadows.as_deref(),
-        &sector,
-    )?;
     Ok(Some(Built {
         sector,
-        ground,
+        ground: ground?,
         liquids,
-        statics,
+        statics: statics?,
     }))
 }
 
@@ -221,7 +235,10 @@ impl Streamer {
     /// Starts building sector `at` in the background.
     fn start(&mut self, at: (u32, u32)) {
         let shared = Arc::clone(&self.shared);
-        let task = AsyncComputeTaskPool::get().spawn(async move { build(&shared, at) });
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            let decoded = terrain::Decoded::default();
+            build(&shared, at, Spread::Alone, &decoded)
+        });
         self.building.insert(at, task);
     }
 
@@ -245,27 +262,21 @@ impl Streamer {
     /// many it waited for. The original's view takes the 3 × 3 about its centre whenever the
     /// centre changes (`0x62A5C0`) through its sector cache (`0x634340`), which reads a sector not
     /// in memory on the spot (`0x637790`), so that its frame waits for them; here a sector's
-    /// ground is a picture to upload, and those out of view follow in the background.
+    /// ground is a picture to upload, and those out of view follow in the background. Those not
+    /// building yet are built at once over the pool of the frame's wait ([`parallel`]).
     fn complete(&mut self, hero: Vec3) -> usize {
         let wanted: Vec<_> = in_view(hero)
             .filter(|&at| !self.holds(at) && !self.ready.iter().any(|(ready, _)| *ready == at))
             .collect();
-        // Half of those not building yet go to the background's pool, the other half to the
-        // systems' pool, idle while the frame waits: twice the threads, half the wait.
         let new: Vec<_> = wanted
             .iter()
             .filter(|at| !self.building.contains_key(at))
             .copied()
             .collect();
-        let (background, now) = new.split_at(new.len() / 2);
-        for &at in background {
-            self.start(at);
-        }
         let shared = &*self.shared;
-        let built = ComputeTaskPool::get().scope(|scope| {
-            for &at in now {
-                scope.spawn(async move { (at, build(shared, at)) });
-            }
+        let decoded = terrain::Decoded::default();
+        let built = parallel::map(new, Spread::Wide, |at| {
+            (at, build(shared, at, Spread::Wide, &decoded))
         });
         for (at, result) in built {
             self.finish(at, result);
@@ -623,7 +634,6 @@ mod tests {
     #[test]
     fn a_hero_that_arrives_waits_for_the_sectors_in_view() {
         AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
-        ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
         let at = |x: f32, y: f32| iso::ground(x * SIDE as f32, y * SIDE as f32);
         // The view takes in the neighbours across the edges of the quarter the hero stands in.
         let corner = at(45.9, 52.2);

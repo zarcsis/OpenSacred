@@ -60,6 +60,7 @@ use opensacred_data::world::{
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
+use crate::parallel::{self, Spread};
 use crate::sectors::Staged;
 use crate::terrain::read_texture;
 use crate::{buildings, files, iso, liquids};
@@ -511,9 +512,10 @@ struct Page {
     pixels: Vec<u8>,
 }
 
-/// Packs the sprites into pages, the tallest first along rows; returns the pages and where each
-/// sprite went: its page and the top-left corner of its image there.
-fn pack(sprites: &BTreeMap<u32, Assembled>) -> (Vec<Page>, Placed) {
+/// Packs the sprites into pages, the tallest first along rows, the pages filled spread as
+/// `spread` says (a town's sector's 3 or 4 took one thread some 20 ms); returns the pages and
+/// where each sprite went: its page and the top-left corner of its image there.
+fn pack(sprites: &BTreeMap<u32, Assembled>, spread: Spread) -> (Vec<Page>, Placed) {
     let mut order: Vec<(&u32, &Assembled)> = sprites.iter().collect();
     order.sort_by_key(|(id, s)| (std::cmp::Reverse(s.height), **id));
     let mut placed = HashMap::new();
@@ -539,24 +541,31 @@ fn pack(sprites: &BTreeMap<u32, Assembled>) -> (Vec<Page>, Placed) {
         row = row.max(h);
         heights[page] = heights[page].max(top + row);
     }
-    let mut pages: Vec<Page> = heights
-        .into_iter()
-        .map(|height| Page {
-            width: PAGE,
-            height,
-            pixels: vec![0; 4 * PAGE * height],
-        })
-        .collect();
-    for (id, &(page, x, y)) in &placed {
-        let sprite = &sprites[id];
-        let page = &mut pages[page];
-        for row in 0..sprite.height {
-            let from = 4 * row * sprite.width;
-            let at = 4 * ((y + row) * page.width + x);
-            page.pixels[at..at + 4 * sprite.width]
-                .copy_from_slice(&sprite.pixels[from..from + 4 * sprite.width]);
-        }
+    let mut on: Vec<Vec<(u32, usize, usize)>> = vec![Vec::new(); heights.len()];
+    for (&id, &(page, x, y)) in &placed {
+        on[page].push((id, x, y));
     }
+    let pages = parallel::map(
+        heights.into_iter().zip(on).collect(),
+        spread,
+        |(height, on)| {
+            let mut page = Page {
+                width: PAGE,
+                height,
+                pixels: vec![0; 4 * PAGE * height],
+            };
+            for (id, x, y) in on {
+                let sprite = &sprites[&id];
+                for row in 0..sprite.height {
+                    let from = 4 * row * sprite.width;
+                    let at = 4 * ((y + row) * page.width + x);
+                    page.pixels[at..at + 4 * sprite.width]
+                        .copy_from_slice(&sprite.pixels[from..from + 4 * sprite.width]);
+                }
+            }
+            page
+        },
+    );
     (pages, placed)
 }
 
@@ -1016,27 +1025,32 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
 }
 
 /// Builds the sprite and miniature quads of `sector`, the shadows of its statics over `shadows`,
-/// the shadow atlas relative to `assets` (none without it), and the pages of its sprites.
+/// the shadow atlas relative to `assets` (none without it), and the pages of its sprites, its
+/// sprites read spread as `spread` says ([`parallel::map`]): the 300 to 350 of a town's sector
+/// took one thread some 70 to 80 ms.
 pub fn build(
     assets: &Path,
     world: &World,
     sprites: &Sprites,
     shadows: Option<&str>,
     sector: &Sector,
+    spread: Spread,
 ) -> Result<Statics> {
     let dir = assets.join("world");
     let mut objects = Vec::new();
     flatten(&sector.statics, &mut objects);
     // Each sprite of the sector read once, then packed into pages.
-    let mut assembled: BTreeMap<u32, Assembled> = BTreeMap::new();
-    for object in &objects {
-        if let Some((id, sprite)) = sprite_of(object, sprites)
-            && !assembled.contains_key(&id)
-        {
-            assembled.insert(id, read_sprite(&dir, id, sprite)?);
-        }
-    }
-    let (pages, placed) = pack(&assembled);
+    let wanted: BTreeMap<u32, &Sprite> = objects
+        .iter()
+        .filter_map(|object| sprite_of(object, sprites))
+        .collect();
+    let assembled: BTreeMap<u32, Assembled> =
+        parallel::map(wanted.into_iter().collect(), spread, |(id, sprite)| {
+            Ok((id, read_sprite(&dir, id, sprite)?))
+        })
+        .into_iter()
+        .collect::<Result<_>>()?;
+    let (pages, placed) = pack(&assembled, spread);
     let shadow_size = shadows
         .map(|path| texture_size(&assets.join(path)))
         .transpose()?;
@@ -1710,7 +1724,7 @@ pub(crate) mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
+        let statics = build(&dir, &world, &sprites, None, &sector, Spread::Alone).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         (statics, h)
     }
@@ -2002,7 +2016,7 @@ pub(crate) mod tests {
                 },
             ),
         ]);
-        let (pages, placed) = pack(&sprites);
+        let (pages, placed) = pack(&sprites, Spread::Wide);
         assert_eq!(pages.len(), 1);
         let (_, x1, y1) = placed[&1];
         let (_, x2, y2) = placed[&2];
@@ -2073,6 +2087,7 @@ pub(crate) mod tests {
             },
             None,
             &sector,
+            Spread::Alone,
         )
         .unwrap();
         fs::remove_dir_all(&dir).unwrap();
@@ -2169,6 +2184,7 @@ pub(crate) mod tests {
                 },
                 None,
                 &sector,
+                Spread::Alone,
             )
             .unwrap();
             // Blended with the liquids' layers on either side of the surfaces.
@@ -2269,7 +2285,7 @@ pub(crate) mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
+        let statics = build(&dir, &world, &sprites, None, &sector, Spread::Alone).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         let batch = &statics.batches[0];
         let anchors: Vec<[f32; 4]> = batch.anchors.iter().step_by(4).copied().collect();
@@ -2395,7 +2411,7 @@ pub(crate) mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
+        let statics = build(&dir, &world, &sprites, None, &sector, Spread::Alone).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         let screens = &statics.batches[0].screens;
         // Corners top-left, top-right, bottom-right, bottom-left: the first's right edge is the
@@ -2510,7 +2526,15 @@ pub(crate) mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, Some("shadows.ktx2"), &sector).unwrap();
+        let statics = build(
+            &dir,
+            &world,
+            &sprites,
+            Some("shadows.ktx2"),
+            &sector,
+            Spread::Alone,
+        )
+        .unwrap();
         fs::remove_dir_all(&dir).unwrap();
         let shadows: Vec<&Batch> = statics
             .batches

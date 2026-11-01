@@ -107,6 +107,10 @@ impl Raw {
 #[derive(Debug)]
 pub struct Archive {
     path: PathBuf,
+    /// The archive's file, open while the archive is: an entry is read at its offset, from any
+    /// thread at once, without opening the file anew, which took some 40 µs a read of the
+    /// hundreds that a sector of the game makes, and did not get faster over threads (#1654).
+    file: File,
     entries: HashMap<String, Entry>,
 }
 
@@ -193,6 +197,7 @@ impl Archive {
         }
         Ok(Self {
             path: path.to_owned(),
+            file,
             entries,
         })
     }
@@ -219,17 +224,14 @@ impl Archive {
 
     /// The data of `entry` as the archive holds it.
     fn compressed(&self, entry: Entry) -> io::Result<Vec<u8>> {
-        let mut file = File::open(&self.path)?;
-        file.seek(SeekFrom::Start(entry.header))?;
         let mut local = [0; 30];
-        file.read_exact(&mut local)?;
+        read_at(&self.file, entry.header, &mut local)?;
         if u32_at(&local, 0)? != LOCAL {
             return Err(invalid("a ZIP entry without its local header"));
         }
-        let skip = i64::from(u16_at(&local, 26)?) + i64::from(u16_at(&local, 28)?);
-        file.seek(SeekFrom::Current(skip))?;
+        let skip = u64::from(u16_at(&local, 26)?) + u64::from(u16_at(&local, 28)?);
         let mut data = vec![0; usize_of(entry.compressed)?];
-        file.read_exact(&mut data)?;
+        read_at(&self.file, entry.header + 30 + skip, &mut data)?;
         Ok(data)
     }
 
@@ -259,6 +261,29 @@ impl Archive {
             crc: entry.crc,
             deflated: entry.deflated,
         }))
+    }
+}
+
+/// Fills `buffer` from `file` at `offset`, whatever the file's cursor, which another thread may
+/// move at once.
+fn read_at(file: &File, offset: u64, buffer: &mut [u8]) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::FileExt::read_exact_at(file, buffer, offset)
+    }
+    #[cfg(windows)]
+    {
+        let mut done = 0;
+        while done < buffer.len() {
+            let at = offset + u64::try_from(done).map_err(|_| too_large())?;
+            match std::os::windows::fs::FileExt::seek_read(file, &mut buffer[done..], at) {
+                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+                Ok(read) => done += read,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -419,6 +444,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn an_archive_reads_its_entries_from_many_threads_at_once() {
+        let dir = scratch("threads");
+        let path = dir.join("a.zip");
+        let entries: Vec<(String, Vec<u8>)> = (0..32u8)
+            .map(|k| (format!("e/{k}.bin"), vec![k; 1000 + usize::from(k) * 37]))
+            .collect();
+        let mut writer = Writer::create(&path).unwrap();
+        for (k, (name, data)) in entries.iter().enumerate() {
+            writer.add(name, data, k % 2 == 0).unwrap();
+        }
+        writer.finish().unwrap();
+        let archive = Archive::open(&path).unwrap();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for (name, data) in entries.iter().rev() {
+                        assert_eq!(&archive.read(name).unwrap().unwrap(), data, "{name}");
+                    }
+                });
+            }
+        });
+        // Its file is open while it is.
+        drop(archive);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -4706,6 +4706,7 @@ dependencies = [
  "opensacred-rules",
  "opensacred-scripts",
  "png",
+ "rayon",
  "rfd",
  "ron",
  "serde",
