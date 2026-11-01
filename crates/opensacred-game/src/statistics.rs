@@ -1455,7 +1455,15 @@ fn show(
             .id();
         commands.entity(window).add_child(child);
     }
-    add(piece(CLOSE.0, CLOSE.1), None, &mut commands);
+    // The close button glows under the pointer (#1595).
+    let close = commands
+        .spawn((
+            piece(CLOSE.0, CLOSE.1),
+            Pickable::IGNORE,
+            crate::control_glow::Glows,
+        ))
+        .id();
+    commands.entity(window).add_child(close);
     for &i in &sheet.pluses {
         add(piece(PLUS, plus_at(i)), None, &mut commands);
     }

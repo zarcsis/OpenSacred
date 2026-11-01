@@ -364,7 +364,11 @@ fn show(
         commands.entity(inventory).add_child(child);
     }
     let sort = commands
-        .spawn((piece(SORT.0, SORT.1), Pickable::IGNORE))
+        .spawn((
+            piece(SORT.0, SORT.1),
+            Pickable::IGNORE,
+            crate::control_glow::Glows,
+        ))
         .id();
     commands.entity(inventory).add_child(sort);
     // The tabs above the window, each its text on the image 108 stretched to it.

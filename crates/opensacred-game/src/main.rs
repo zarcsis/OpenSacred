@@ -36,6 +36,7 @@ mod command;
 mod compass;
 mod console;
 mod containers;
+mod control_glow;
 mod controls;
 mod crowd;
 mod cursors;
@@ -383,6 +384,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         compass::CompassPlugin,
         console::ConsolePlugin,
         containers::ContainersPlugin,
+        control_glow::ControlGlowPlugin,
         controls::ControlsPlugin,
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
