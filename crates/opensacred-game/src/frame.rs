@@ -28,10 +28,11 @@ pub enum Step {
     Buildings,
     /// The footsteps (`sound`).
     Footsteps,
-    /// The camera following the hero (`hero`).
-    Follow,
-    /// The sectors streamed in and out around the hero (`sectors`).
+    /// The sectors streamed in and out around the hero, those in view of a hero that arrives
+    /// somewhere at once (`sectors`).
     Sectors,
+    /// The camera following the hero, which lands first where it arrived (`hero`).
+    Follow,
     /// The scripts' and the fills' NPCs and objects placed, animated and equipped (`npcs`).
     Npcs,
     /// The models' materials and places among the sprites (`models`).
@@ -162,8 +163,8 @@ impl Plugin for FramePlugin {
                     Step::HeroMove,
                     Step::Buildings,
                     Step::Footsteps,
-                    Step::Follow,
                     Step::Sectors,
+                    Step::Follow,
                     Step::Npcs,
                     Step::Models,
                     Step::Shadows,

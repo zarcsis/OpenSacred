@@ -403,6 +403,13 @@ impl Body {
     pub fn landing(&self) -> bool {
         self.landing.is_some()
     }
+
+    /// Whether it arrives somewhere rather than walks there: a teleport, a command or its rise
+    /// put it where it does not stand yet, and the sectors in view about it come in at once
+    /// (`sectors::stream`, #1650).
+    pub fn arriving(&self) -> bool {
+        self.unplaced || self.landing.is_some()
+    }
 }
 
 /// The animation graph of the hero's clips, given to the model's player once it exists.
@@ -1377,7 +1384,9 @@ impl Plugin for HeroPlugin {
                     .chain()
                     .in_set(Step::HeroMove),
             )
-            .add_systems(Update, follow.in_set(Step::Follow));
+            // A hero that arrived in this frame lands before the camera looks at it, the sectors
+            // of its place in by then (#1650).
+            .add_systems(Update, (land, follow).chain().in_set(Step::Follow));
     }
 }
 
