@@ -170,6 +170,9 @@ impl Plugin for DayNightPlugin {
                 Update,
                 (tick, light, glow, shadows)
                     .chain()
+                    // The light of where the hero stands in this frame's picture, a dungeon's from
+                    // the frame it arrives in (#1650).
+                    .after(crate::frame::Step::Follow)
                     .in_set(crate::frame::Playing),
             )
             .add_systems(OnExit(crate::game::AppState::InGame), leave)

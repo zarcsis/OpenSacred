@@ -1,20 +1,22 @@
 //! Sector streaming: the sectors around the hero's are built in the background (ground image,
 //! mesh, liquid surfaces and sprite quads, `terrain`, `liquids` and `statics`) and spawned when
-//! ready; those far away go.
+//! ready; those far away go. A hero that arrives somewhere (the game's start, a teleport, a
+//! command, its rise) finds the sectors in view about it whole: its frame waits for them (#1650).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use bevy::prelude::*;
 use bevy::tasks::futures::check_ready;
-use bevy::tasks::{AsyncComputeTaskPool, Task};
+use bevy::tasks::{AsyncComputeTaskPool, ComputeTaskPool, Task, block_on};
 use opensacred_data::world::{SIDE, Sector, Sprites, World};
 
 use crate::frame::Step;
 use crate::game::AppState;
-use crate::hero::Body;
+use crate::hero::{Body, Hero};
 use crate::liquids::Liquids;
 use crate::tables::Tables;
 use crate::terrain::Heights;
@@ -28,6 +30,11 @@ const KEEP_RADIUS: i64 = 2;
 const GRID: i64 = 100;
 /// Sectors built at once: Bevy compiles its pipelines on the same pool of threads.
 const BUILDING_AT_ONCE: usize = 2;
+/// How near a hero that arrives somewhere a sector comes in with it, along either axis of the
+/// ground: half a sector, 1,717 units, while the view at its widest zoom on a 16:9 screen reaches
+/// 1,621 from the point it looks at (`iso`: 1,079 to the right, 1,214 up the ground). The rest of
+/// the 3 × 3 follows in the background, out of view.
+const VIEW: f32 = (SIDE / 2) as f32 * iso::CELL;
 
 /// What every build reads: the asset directory, the world index, the sprite table and the
 /// shadow atlas, relative to the asset directory, if the converted textures have it; and the
@@ -150,6 +157,72 @@ impl Streamer {
             missing: HashSet::new(),
         }
     }
+
+    /// Whether sector `at` is in place: spawned, or known to be missing.
+    fn holds(&self, at: (u32, u32)) -> bool {
+        self.loaded.contains_key(&at) || self.missing.contains(&at)
+    }
+
+    /// Starts building sector `at` in the background.
+    fn start(&mut self, at: (u32, u32)) {
+        let shared = Arc::clone(&self.shared);
+        let task = AsyncComputeTaskPool::get().spawn(async move { build(&shared, at) });
+        self.building.insert(at, task);
+    }
+
+    /// Takes sector `at` built: ready to spawn, or missing where the grid has none or its build
+    /// failed.
+    fn finish(&mut self, at: (u32, u32), result: Building) {
+        match result {
+            Ok(Some(built)) => self.ready.push((at, built)),
+            Ok(None) => {
+                self.missing.insert(at);
+            }
+            Err(e) => {
+                error!("sector {},{}: {e:#}", at.0, at.1);
+                self.missing.insert(at);
+            }
+        }
+    }
+
+    /// Builds every sector within [`VIEW`] of world point `hero` that is neither in place nor
+    /// ready, all at once, and waits for them, those building already among them; answers how
+    /// many it waited for. The original's view takes the 3 × 3 about its centre whenever the
+    /// centre changes (`0x62A5C0`) through its sector cache (`0x634340`), which reads a sector not
+    /// in memory on the spot (`0x637790`), so that its frame waits for them; here a sector's
+    /// ground is a picture to upload, and those out of view follow in the background.
+    fn complete(&mut self, hero: Vec3) -> usize {
+        let wanted: Vec<_> = in_view(hero)
+            .filter(|&at| !self.holds(at) && !self.ready.iter().any(|(ready, _)| *ready == at))
+            .collect();
+        // Half of those not building yet go to the background's pool, the other half to the
+        // systems' pool, idle while the frame waits: twice the threads, half the wait.
+        let new: Vec<_> = wanted
+            .iter()
+            .filter(|at| !self.building.contains_key(at))
+            .copied()
+            .collect();
+        let (background, now) = new.split_at(new.len() / 2);
+        for &at in background {
+            self.start(at);
+        }
+        let shared = &*self.shared;
+        let built = ComputeTaskPool::get().scope(|scope| {
+            for &at in now {
+                scope.spawn(async move { (at, build(shared, at)) });
+            }
+        });
+        for (at, result) in built {
+            self.finish(at, result);
+        }
+        for &at in &wanted {
+            if let Some(task) = self.building.remove(&at) {
+                let result = block_on(task);
+                self.finish(at, result);
+            }
+        }
+        wanted.len()
+    }
 }
 
 /// The sector that adopted an entity ([`Streamer::adopt`]).
@@ -198,8 +271,19 @@ fn around((x, y): (i64, i64), radius: i64) -> impl Iterator<Item = (u32, u32)> {
         .filter_map(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
 }
 
+/// The sectors within [`VIEW`] of world point `p` along both axes of the ground: its own, and
+/// those across the edges and the corner of the quarter of it that `p` lies in, at most four.
+fn in_view(p: Vec3) -> impl Iterator<Item = (u32, u32)> {
+    let size = iso::CELL * SIDE as f32;
+    let beyond = move |low: f32, at: f32| (low - at).max(at - (low + size));
+    around(sector_of(p), LOAD_RADIUS).filter(move |&(x, y)| {
+        beyond(x as f32 * size, p.x) < VIEW && beyond(y as f32 * size, p.z) < VIEW
+    })
+}
+
 /// Spawns the sectors that are ready, starts building those that come near the hero, and
-/// despawns those far from it.
+/// despawns those far from it; the sectors in view of a hero that arrives somewhere, or of one
+/// near a sector not in yet, come in within the frame.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources one by one"
@@ -207,7 +291,7 @@ fn around((x, y): (i64, i64), radius: i64) -> impl Iterator<Item = (u32, u32)> {
 pub fn stream(
     mut commands: Commands,
     mut streamer: ResMut<Streamer>,
-    bodies: Query<&Transform, With<Body>>,
+    (bodies, hero): (Query<(&Transform, &Body)>, Option<Res<Hero>>),
     roaming: Query<&Transform, With<crate::npcs::Placed>>,
     mut heights: ResMut<Heights>,
     mut liquids: ResMut<Liquids>,
@@ -230,19 +314,47 @@ pub fn stream(
         .collect();
     for (at, result) in finished {
         streamer.building.remove(&at);
-        match result {
-            Ok(Some(built)) => streamer.ready.push((at, built)),
-            Ok(None) => {
-                streamer.missing.insert(at);
-            }
-            Err(e) => {
-                error!("sector {},{}: {e:#}", at.0, at.1);
-                streamer.missing.insert(at);
-            }
+        streamer.finish(at, result);
+    }
+    // Where the hero stands, or starts while its model loads, and whether it arrives there.
+    let (point, arriving) = match (bodies.iter().next(), hero) {
+        (Some((transform, body)), _) => (transform.translation, body.arriving()),
+        (None, Some(hero)) => (hero.position, true),
+        (None, None) => return,
+    };
+    let here = sector_of(point);
+    let near: HashSet<(u32, u32)> = around(here, KEEP_RADIUS).collect();
+    // Built for a place the hero has left.
+    streamer.ready.retain(|(at, _)| near.contains(at));
+    // A hero that arrives somewhere sees its place whole in its frame, as the original's (#1650),
+    // and a walk never shows a sector missing.
+    let whole = arriving || in_view(point).any(|at| !streamer.holds(at));
+    if whole {
+        let started = Instant::now();
+        let waited = streamer.complete(point);
+        if waited > 0 {
+            info!(
+                "sectors: {waited} in view about {},{} built at once in {} ms",
+                here.0,
+                here.1,
+                started.elapsed().as_millis()
+            );
         }
     }
-    // One sector a frame: uploading a ground image takes a few milliseconds.
-    if let Some((at, mut built)) = streamer.ready.pop() {
+    // Those in view at once; the rest one a frame, out of view: uploading a ground image takes a
+    // few milliseconds.
+    let spawning: Vec<_> = if whole {
+        let view: HashSet<(u32, u32)> = in_view(point).collect();
+        let (mut now, mut later): (Vec<_>, Vec<_>) = std::mem::take(&mut streamer.ready)
+            .into_iter()
+            .partition(|(at, _)| view.contains(at));
+        now.extend(later.pop());
+        streamer.ready = later;
+        now
+    } else {
+        streamer.ready.pop().into_iter().collect()
+    };
+    for (at, mut built) in spawning {
         info!(
             "sector {},{}: {} static objects, {} with a sprite",
             at.0, at.1, built.statics.objects, built.statics.drawn
@@ -296,26 +408,18 @@ pub fn stream(
         streamer.loaded.insert(at, entities);
     }
 
-    let Some(hero) = bodies.iter().next() else {
-        return;
-    };
-    let here = sector_of(hero.translation);
     for at in around(here, LOAD_RADIUS) {
         if streamer.building.len() >= BUILDING_AT_ONCE {
             break;
         }
-        if streamer.loaded.contains_key(&at)
+        if streamer.holds(at)
             || streamer.building.contains_key(&at)
             || streamer.ready.iter().any(|(ready, _)| *ready == at)
-            || streamer.missing.contains(&at)
         {
             continue;
         }
-        let shared = Arc::clone(&streamer.shared);
-        let task = AsyncComputeTaskPool::get().spawn(async move { build(&shared, at) });
-        streamer.building.insert(at, task);
+        streamer.start(at);
     }
-    let near: HashSet<(u32, u32)> = around(here, KEEP_RADIUS).collect();
     let far: Vec<(u32, u32)> = streamer
         .loaded
         .keys()
@@ -455,5 +559,29 @@ mod tests {
             streamer.missing.insert(at);
         }
         assert!(streamer.settled(away));
+    }
+
+    #[test]
+    fn a_hero_that_arrives_waits_for_the_sectors_in_view() {
+        AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+        ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
+        let at = |x: f32, y: f32| iso::ground(x * SIDE as f32, y * SIDE as f32);
+        // The view takes in the neighbours across the edges of the quarter the hero stands in.
+        let corner = at(45.9, 52.2);
+        assert_eq!(
+            in_view(corner).collect::<HashSet<_>>(),
+            HashSet::from([(45, 51), (46, 51), (45, 52), (46, 52)])
+        );
+        let mut streamer = Streamer::empty(shared());
+        // One building in the background already, from an earlier frame.
+        streamer.start((46, 51));
+        assert_eq!(streamer.complete(corner), 4);
+        // The grid of the test has no sectors: each is known to be missing as the frame goes on,
+        // the rest of the 3 × 3 not yet asked for.
+        assert!(streamer.building.is_empty());
+        assert_eq!(streamer.missing.len(), 4);
+        assert_eq!(streamer.complete(corner), 0);
+        // At the grid's corner, the one that the grid has.
+        assert_eq!(streamer.complete(at(0.1, 0.1)), 1);
     }
 }

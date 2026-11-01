@@ -960,7 +960,9 @@ struct Sheets<'a> {
 }
 
 impl Sheets<'_> {
-    fn get(&mut self, sheet: u32) -> Result<&Rgba> {
+    /// Decodes the sheet of tile `tile`, unless it is already.
+    fn load(&mut self, tile: u32) -> Result<()> {
+        let sheet = tile / DIAMONDS;
         if !self.loaded.contains_key(&sheet) {
             let name = self
                 .world
@@ -970,24 +972,73 @@ impl Sheets<'_> {
             let image = read_texture(&self.dir.join(name))?;
             self.loaded.insert(sheet, image);
         }
-        self.loaded
-            .get(&sheet)
-            .with_context(|| format!("tile sheet {sheet}"))
+        Ok(())
     }
 
-    /// The colour and alpha of pixel `(x, y)` of tile `tile`'s diamond box.
-    fn pixel(&mut self, tile: u32, x: usize, y: usize) -> Result<[u8; 4]> {
-        let sheet = self.get(tile / DIAMONDS)?;
-        let (ox, oy) = diamond_origin(tile % DIAMONDS);
-        let (sx, sy) = (ox + x, oy + y);
-        if sx >= sheet.width || sy >= sheet.height {
-            return Ok([0; 4]);
-        }
-        let at = 4 * (sy * sheet.width + sx);
-        let mut rgba = [0; 4];
-        rgba.copy_from_slice(&sheet.pixels[at..at + 4]);
-        Ok(rgba)
+    /// Tile `tile`'s diamond box, its sheet decoded ([`Self::load`]).
+    fn diamond(&self, tile: u32) -> Result<Diamond<'_>> {
+        let sheet = tile / DIAMONDS;
+        let sheet = self
+            .loaded
+            .get(&sheet)
+            .with_context(|| format!("tile sheet {sheet}"))?;
+        Ok(Diamond {
+            sheet,
+            origin: diamond_origin(tile % DIAMONDS),
+        })
     }
+}
+
+/// A tile's diamond box in its sheet.
+struct Diamond<'a> {
+    sheet: &'a Rgba,
+    origin: (usize, usize),
+}
+
+impl Diamond<'_> {
+    /// The colours and alphas of row `y` of the box from pixel `first` on, none beyond its sheet.
+    fn row(&self, y: usize, first: usize) -> impl Iterator<Item = [u8; 4]> + '_ {
+        let (sx, sy) = (self.origin.0 + first, self.origin.1 + y);
+        let texels = if sx < self.sheet.width && sy < self.sheet.height {
+            &self.sheet.pixels[4 * (sy * self.sheet.width + sx)..4 * (sy + 1) * self.sheet.width]
+        } else {
+            &[]
+        };
+        texels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .copied()
+            .chain(std::iter::repeat([0; 4]))
+    }
+}
+
+/// Lays `colour` over `out` through `alpha`, which leaves it opaque.
+fn blend(out: &mut [u8; 4], colour: [u8; 4], alpha: u8) {
+    match alpha {
+        u8::MAX => out[..3].copy_from_slice(&colour[..3]),
+        0 => {}
+        alpha => {
+            let a = u16::from(alpha);
+            for k in 0..3 {
+                let blended = (u16::from(colour[k]) * a + u16::from(out[k]) * (255 - a)) / 255;
+                out[k] = u8::try_from(blended).unwrap_or(u8::MAX);
+            }
+        }
+    }
+    out[3] = u8::MAX;
+}
+
+/// The first and the last pixel of each row of a diamond's box inside the diamond ([`inside`]),
+/// where the row has any: the diamond is convex, so the row's pixels inside it are those between.
+type Spans = [Option<(usize, usize)>; DIAMOND_H];
+
+fn spans() -> Spans {
+    std::array::from_fn(|y| {
+        let first = (0..DIAMOND_W).find(|&x| inside(x, y))?;
+        let last = (0..DIAMOND_W).rev().find(|&x| inside(x, y))?;
+        Some((first, last))
+    })
 }
 
 /// The layers of a cell: its ground tile, then each overlay's art and mask.
@@ -1010,38 +1061,45 @@ struct Atlas {
 
 /// Composes a slot: the ground tile, then each overlay's colour through its mask's alpha (or its
 /// own), each clipped to the diamond; then the pixels around the diamond repeat its edge along
-/// each row, and the border repeats the box.
-fn compose_slot(layers: &Layers, sheets: &mut Sheets<'_>, slot: &mut [[u8; 4]]) -> Result<()> {
+/// each row, and the border repeats the box. Each layer's sheets are looked up once, its
+/// pixels walked along the diamond's `spans`: a sector of the 3 × 3 built while the frame waits
+/// (`sectors`, #1650) took some 300 ms over a lookup and a test a pixel.
+fn compose_slot(
+    layers: &Layers,
+    sheets: &mut Sheets<'_>,
+    spans: &Spans,
+    slot: &mut [[u8; 4]],
+) -> Result<()> {
     let at = |x: usize, y: usize| (y + 1) * SLOT_W + x + 1;
     for &(art, mask) in layers {
-        for y in 0..DIAMOND_H {
-            for x in 0..DIAMOND_W {
-                if !inside(x, y) {
-                    continue;
+        sheets.load(art)?;
+        if let Some(mask) = mask {
+            sheets.load(mask)?;
+        }
+        let colours = sheets.diamond(art)?;
+        let alphas = mask.map(|mask| sheets.diamond(mask)).transpose()?;
+        for (y, span) in spans.iter().enumerate() {
+            let Some((first, last)) = *span else {
+                continue;
+            };
+            let row = slot[at(first, y)..=at(last, y)].iter_mut();
+            match &alphas {
+                Some(alphas) => {
+                    let texels = colours.row(y, first).zip(alphas.row(y, first));
+                    for (out, (colour, alpha)) in row.zip(texels) {
+                        blend(out, colour, alpha[3]);
+                    }
                 }
-                let colour = sheets.pixel(art, x, y)?;
-                let alpha = match mask {
-                    Some(mask) => sheets.pixel(mask, x, y)?[3],
-                    None => colour[3],
-                };
-                let out = &mut slot[at(x, y)];
-                let a = u16::from(alpha);
-                for k in 0..3 {
-                    let blended = (u16::from(colour[k]) * a + u16::from(out[k]) * (255 - a)) / 255;
-                    out[k] = u8::try_from(blended).unwrap_or(u8::MAX);
+                None => {
+                    for (out, colour) in row.zip(colours.row(y, first)) {
+                        blend(out, colour, colour[3]);
+                    }
                 }
-                out[3] = 255;
             }
         }
     }
-    for y in 0..DIAMOND_H {
-        let first = (0..DIAMOND_W)
-            .find(|&x| inside(x, y))
-            .unwrap_or(DIAMOND_W / 2);
-        let last = (0..DIAMOND_W)
-            .rev()
-            .find(|&x| inside(x, y))
-            .unwrap_or(DIAMOND_W / 2);
+    for (y, span) in spans.iter().enumerate() {
+        let (first, last) = span.unwrap_or((DIAMOND_W / 2, DIAMOND_W / 2));
         for x in 0..first {
             slot[at(x, y)] = slot[at(first, y)];
         }
@@ -1081,18 +1139,17 @@ fn compose(sector: &Sector, sheets: &mut Sheets<'_>) -> Result<Atlas> {
     let (width, height) = (columns * SLOT_W, rows * SLOT_H);
     let mut pixels = vec![0u8; 4 * width * height];
     let mut slot = vec![[0u8; 4]; SLOT_W * SLOT_H];
+    let spans = spans();
     for (index, layers) in order.iter().enumerate() {
         slot.fill([0; 4]);
-        compose_slot(layers, sheets, &mut slot)?;
+        compose_slot(layers, sheets, &spans, &mut slot)?;
         let (sx, sy) = (
             (index % SLOTS_PER_ROW) * SLOT_W,
             (index / SLOTS_PER_ROW) * SLOT_H,
         );
-        for y in 0..SLOT_H {
+        for (y, line) in slot.as_chunks::<SLOT_W>().0.iter().enumerate() {
             let row = 4 * ((sy + y) * width + sx);
-            for x in 0..SLOT_W {
-                pixels[row + 4 * x..row + 4 * x + 4].copy_from_slice(&slot[y * SLOT_W + x]);
-            }
+            pixels[row..row + 4 * SLOT_W].copy_from_slice(line.as_flattened());
         }
     }
     Ok(Atlas {
@@ -2039,5 +2096,73 @@ mod tests {
         // The ambient loop takes the cell's own nature.
         let p = iso::ground(1.5, 0.5);
         assert_eq!(heights.nature(p.x, p.z), Some(9));
+    }
+
+    #[test]
+    fn a_slot_composes_along_the_diamonds_rows_as_a_test_of_every_pixel_does() {
+        let sheet = |width: usize, height: usize, seed: usize| texture::Rgba {
+            width,
+            height,
+            pixels: (0..4 * width * height)
+                .map(|i| u8::try_from((i * 7 + seed * 13) % 251).unwrap())
+                .collect(),
+        };
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: Vec::new(),
+            assembled_from: Vec::new(),
+        };
+        // The second sheet narrower than its diamonds' boxes reach.
+        let mut sheets = Sheets {
+            dir: Path::new(""),
+            world: &world,
+            loaded: HashMap::from([(0, sheet(256, 256, 1)), (1, sheet(150, 100, 2))]),
+        };
+        // A ground tile, an overlay through another tile's mask, and one through its own alpha
+        // partly beyond its sheet.
+        let layers: Layers = vec![(3, None), (6, Some(DIAMONDS + 2)), (DIAMONDS + 5, None)];
+        let mut slot = vec![[0u8; 4]; SLOT_W * SLOT_H];
+        compose_slot(&layers, &mut sheets, &spans(), &mut slot).unwrap();
+
+        let pixel = |tile: u32, x: usize, y: usize| {
+            let sheet = &sheets.loaded[&(tile / DIAMONDS)];
+            let (ox, oy) = diamond_origin(tile % DIAMONDS);
+            let (sx, sy) = (ox + x, oy + y);
+            if sx >= sheet.width || sy >= sheet.height {
+                return [0; 4];
+            }
+            let at = 4 * (sy * sheet.width + sx);
+            [0, 1, 2, 3].map(|k| sheet.pixels[at + k])
+        };
+        let mut expected = vec![[0u8; 4]; SLOT_W * SLOT_H];
+        for &(art, mask) in &layers {
+            for y in 0..DIAMOND_H {
+                for x in (0..DIAMOND_W).filter(|&x| inside(x, y)) {
+                    let colour = pixel(art, x, y);
+                    let a = u16::from(mask.map_or(colour[3], |mask| pixel(mask, x, y)[3]));
+                    let out = &mut expected[(y + 1) * SLOT_W + x + 1];
+                    for k in 0..3 {
+                        let blended =
+                            (u16::from(colour[k]) * a + u16::from(out[k]) * (255 - a)) / 255;
+                        out[k] = u8::try_from(blended).unwrap();
+                    }
+                    out[3] = 255;
+                }
+            }
+        }
+        for y in 0..DIAMOND_H {
+            let row = (y + 1) * SLOT_W + 1;
+            let inner: Vec<usize> = (0..DIAMOND_W).filter(|&x| inside(x, y)).collect();
+            for &x in &inner {
+                assert_eq!(slot[row + x], expected[row + x], "pixel {x},{y}");
+            }
+            // Outside the diamond, each row repeats its edge.
+            assert_eq!(slot[row], slot[row + inner[0]]);
+            assert_eq!(
+                slot[row + DIAMOND_W - 1],
+                slot[row + inner[inner.len() - 1]]
+            );
+        }
     }
 }

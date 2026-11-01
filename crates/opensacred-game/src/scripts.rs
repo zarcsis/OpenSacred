@@ -2539,7 +2539,8 @@ impl Plugin for ScriptsPlugin {
                 (step_on, timers, share)
                     .chain()
                     .after(Step::HeroMove)
-                    .before(Step::Follow)
+                    // A teleport's place comes in whole in its frame (#1650).
+                    .before(Step::Sectors)
                     .in_set(Playing)
                     .in_set(Unpaused),
             )
