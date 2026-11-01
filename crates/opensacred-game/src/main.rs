@@ -25,6 +25,7 @@ mod blacksmith;
 mod blast;
 mod blended;
 mod bolts;
+mod bonus_list;
 mod breath;
 mod buildings;
 mod burns;
