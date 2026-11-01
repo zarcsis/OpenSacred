@@ -1758,13 +1758,15 @@ pub struct Combat {
     pub pace: f32,
     /// Each kind's damage multiplier (the stats' floats `+0x96`), by which the recomputation
     /// scales its damage's ends and an art or an object of it scales the damages of its record
-    /// (`0x4D2310`; docs/re/arts.md, "The Seraphim's bolts"); the items' bonuses of the condition
-    /// bits `0x2000` and `0x4000`, which only those damages take, are not read.
+    /// (`0x4D2310`; docs/re/arts.md, "The Seraphim's bolts"), with the second multipliers
+    /// (`+0xA6`: the attributes' part, the weapon lore's and the items' bonuses of the
+    /// condition's bit 14, #1712); those of the bit 13 are the spells' alone ([`Self::spells`]).
     pub multipliers: [f32; KINDS],
     /// Each kind's factor of its resistance (the stats' floats `+0xD6`), by which the
-    /// recomputation scales the resistance's own value (`+0x66`): 1, the resistance skill's
-    /// curves over 100 and the attributes' part; the statistics window's bonus of the
-    /// resistances (`0x564250`) compares them.
+    /// recomputation scales the resistance's own value (`+0x66`): 1, the items' bonuses 805 to
+    /// 808 of the condition's bit 15 (#1712), the resistance skill's curves over 100 and the
+    /// attributes' part; the statistics window's bonus of the resistances (`0x564250`) compares
+    /// them.
     pub resistance_factors: [f32; KINDS],
     /// Each kind's multiplier of its spells' damages, the stats' `+0x96` plus `+0xB6` (docs/re/
     /// fight.md, "An NPC's attack, defence and damage"): 1, the items' bonuses of no condition's
@@ -2010,7 +2012,8 @@ pub fn combat_with(
     }
     // The items' own damage, resistances, `A` and `D`, and their bonus slots (`0x5796A0`, #490):
     // 801 to 804 a kind's damage (with the condition's bit 15, its resistance), 805 to 808 a
-    // hundredth to its multiplier, 809 and 810 to those of `A` and `D`, 811 the attack speed, 815
+    // hundredth to one of its multipliers or its resistance's factor, 809 and 810 to those of `A`
+    // and `D`, 811 the attack speed, 815
     // to 820 the attributes, by the attributes before them; the other effects are not followed.
     // `A` and `D` and their multipliers as the recomputation stores them (`+0x5A`, `+0x5E`, `+0xE6`,
     // `+0xEA`): each item's `A` and `D` times the row's 100 per cent, then its bonuses.
@@ -2018,8 +2021,12 @@ pub fn combat_with(
     let (mut attack_times, mut defence_times) = (1.0_f32, 1.0_f32);
     let mut item_multipliers = [0.0_f32; KINDS];
     // The bonuses that only the spells' damages take, of the condition's bit 13 (`+0xB6`,
-    // `0x57A6E0`), after those of the bits 15 and 14.
+    // `0x57A6E0`), after those of the bits 15 and 14; those of the bit 14, which the weapon's
+    // second multipliers take (`+0xA6`, `0x57A6BD`); and those of the bit 15, which the
+    // resistances' factors take (`+0xD6`, `0x57A69A`).
     let mut spell_items = [0.0_f32; KINDS];
+    let mut weapon_items = [0.0_f32; KINDS];
+    let mut resistance_items = [0.0_f32; KINDS];
     let mut speed_bonus = 0.0;
     let (start_speed, mut pace) = base
         .hardened
@@ -2051,14 +2058,17 @@ pub fn combat_with(
                         damage[kind][1] += value;
                     }
                 }
-                805..=808 if bonus.condition & 0xE000 == 0 => {
-                    if let Some(kind) = kind(805) {
-                        item_multipliers[kind] += value / 100.0;
-                    }
-                }
-                805..=808 if bonus.condition & 0xE000 == 0x2000 => {
-                    if let Some(kind) = kind(805) {
-                        spell_items[kind] += value / 100.0;
+                // A hundredth to the array of the first of the condition's bits 15, 14 and 13
+                // that it holds, else to the first multipliers (`0x57A683`).
+                805..=808 => {
+                    let to = match bonus.condition {
+                        c if c & 0x8000 != 0 => &mut resistance_items,
+                        c if c & 0x4000 != 0 => &mut weapon_items,
+                        c if c & 0x2000 != 0 => &mut spell_items,
+                        _ => &mut item_multipliers,
+                    };
+                    if let Some(times) = kind(805).and_then(|kind| to.get_mut(kind)) {
+                        *times += value / 100.0;
                     }
                 }
                 809 => attack_times = raised(attack_times, value),
@@ -2201,6 +2211,7 @@ pub fn combat_with(
     let multipliers: [f32; KINDS] = std::array::from_fn(|kind| {
         (1.0 + damage_skill
             + item_multipliers[kind]
+            + weapon_items[kind]
             + (f * damage_parts[kind] / 10.0 + spent_parts[kind]) / rules.damage_divisors[kind])
             .max(0.0)
     });
@@ -2214,7 +2225,9 @@ pub fn combat_with(
         ((1.0 + item_multipliers[kind]) + (spell_items[kind] + magic_part + magic_lore)).max(0.0)
     });
     let resistance_factors: [f32; KINDS] = std::array::from_fn(|kind| {
-        (1.0 + resistance_skill[kind] + (f * b[1] / 10.0 + e[1]) / rules.resistance_divisors[kind])
+        (1.0 + resistance_items[kind]
+            + resistance_skill[kind]
+            + (f * b[1] / 10.0 + e[1]) / rules.resistance_divisors[kind])
             .max(0.0)
     });
     for (value, factor) in resistance.iter_mut().zip(resistance_factors) {
@@ -4009,6 +4022,58 @@ mod tests {
             ),
             (57.0, 22.0)
         );
+    }
+
+    #[test]
+    fn the_multiplier_bonuses_of_the_bits_14_and_15_go_to_the_weapon_and_the_resistances() {
+        // The bonuses 805 to 808 by the first of the condition's bits 15, 14 and 13 that they
+        // hold (`0x57A683`): the resistance's factor, the weapon's multiplier, the spells'.
+        let mage = Base {
+            id: 3,
+            attributes: [16, 15, 20, 14, 30, 10],
+            ..Base::default()
+        };
+        let staff = |bonuses: &[(u16, u32, i16)]| {
+            let mut staff = ItemValues {
+                damage: [[0.0; 2], [0.0; 2], [14.0, 16.0], [0.0; 2]],
+                ..ItemValues::default()
+            };
+            for (slot, &(condition, effect, value)) in staff.bonuses.iter_mut().zip(bonuses) {
+                *slot = Bonus {
+                    condition,
+                    effect,
+                    value,
+                };
+            }
+            Holds {
+                weapon: true,
+                items: vec![staff],
+                ..Holds::default()
+            }
+        };
+        let rules = Rules::default();
+        let plain = combat(&mage, 1, staff(&[]), &[], &rules);
+        let held = combat(
+            &mage,
+            1,
+            staff(&[(0x4000, 805, 20), (0x8000, 807, 30), (0xC000, 808, 10)]),
+            &[],
+            &rules,
+        );
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        assert!(close(held.multipliers[0], plain.multipliers[0] + 0.2));
+        assert!(close(
+            held.resistance_factors[2],
+            plain.resistance_factors[2] + 0.3
+        ));
+        // The bit 15 before the bit 14.
+        assert!(close(
+            held.resistance_factors[3],
+            plain.resistance_factors[3] + 0.1
+        ));
+        assert!(close(held.multipliers[3], plain.multipliers[3]));
+        // The spells take none of them.
+        assert_eq!(held.spells, plain.spells);
     }
 
     #[test]
