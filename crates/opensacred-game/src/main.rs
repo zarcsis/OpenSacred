@@ -28,6 +28,7 @@ mod bolts;
 mod breath;
 mod buildings;
 mod burns;
+mod busy_dialog;
 mod butterflies;
 mod choice;
 mod combos;
@@ -374,6 +375,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
+        busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
         choice::ChoicePlugin,
     ))

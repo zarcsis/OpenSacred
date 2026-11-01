@@ -87,6 +87,7 @@ pub enum Action {
     YellowPotion,
     FollowerPotion,
     Collect,
+    Pause,
     Back,
     Confirm,
     Next,
@@ -126,7 +127,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 45] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 46] = [
     (
         Action::Walk,
         Section::World,
@@ -371,6 +372,13 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 45] = [
         "collect",
         &["A"],
         "collect the items about the hero, as the bar's Collect button",
+    ),
+    (
+        Action::Pause,
+        Section::World,
+        "pause",
+        &["P"],
+        "pause the game under the pause's window, and again go on",
     ),
     (
         Action::Back,
