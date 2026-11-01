@@ -601,6 +601,7 @@ pub struct Rules {
     /// How the difficulty hardens a creature hostile to the hero.
     hardened: Hardened,
     curves: Curves,
+    effects: EffectCurves,
     level_cap: f32,
     start_levels: [f32; 2],
     skill_levels: [u32; 6],
@@ -629,6 +630,7 @@ impl Default for Rules {
             cap: CAPS[0],
             regeneration: [36.0, 48.0, 128.0],
             curves: Curves::default(),
+            effects: EffectCurves::default(),
             level_cap: 50.0,
             start_levels: [60.0, 100.0],
             skill_levels: [3, 6, 12, 20, 30, 50],
@@ -832,6 +834,7 @@ impl Rules {
                 rates
             },
             curves: Curves::of(b),
+            effects: EffectCurves::of(b),
             // The cap by the difficulty itself, bronze's first, none above gold's (0); the start
             // levels of the fade, bronze's.
             level_cap: match difficulty.index() {
@@ -1804,6 +1807,288 @@ impl Curves {
             fist_speed: triple(["FKoffSP", "FK_s_SP", "FK_w_SP"], default.fist_speed),
         }
     }
+}
+
+/// The balance's triples of the skills' curves that the statistics window lists (`0x566070`'s
+/// text mode, docs/re/character.md, "The skills' effects"), each by its three keys, with the
+/// original's values where the balance lacks them.
+const EFFECT_TRIPLES: [([&str; 3], [f32; 3]); 39] = [
+    (["WKoff", "WK_s", "WK_w"], [12.0, 50.0, 200.0]),
+    (["MKoff", "MK_s", "MK_w"], [12.0, 50.0, 200.0]),
+    (["STKoffAW", "STK_s_AW", "STK_w_AW"], [9.0, 50.0, 150.0]),
+    (["STKoffSP", "STK_s_SP", "STK_w_SP"], [6.0, 50.0, 100.0]),
+    (["SKoffAW", "SK_s_AW", "SK_w_AW"], [9.0, 50.0, 150.0]),
+    (["SKoffSP", "SK_s_SP", "SK_w_SP"], [6.0, 50.0, 100.0]),
+    (["FKoffAW", "FK_s_AW", "FK_w_AW"], [12.0, 50.0, 200.0]),
+    (["FKoffSP", "FK_s_SP", "FK_w_SP"], [6.0, 50.0, 100.0]),
+    (["AKoffAW", "AK_s_AW", "AK_w_AW"], [9.0, 50.0, 150.0]),
+    (["AKoffSP", "AK_s_SP", "AK_w_SP"], [6.0, 50.0, 100.0]),
+    (["BKoffAW", "BK_s_AW", "BK_w_AW"], [12.0, 50.0, 200.0]),
+    (["BKoffSP", "BK_s_SP", "BK_w_SP"], [6.0, 50.0, 100.0]),
+    (["FEKoffAW", "FEK_s_AW", "FEK_w_AW"], [9.0, 50.0, 150.0]),
+    (["FEKoffSP", "FEK_s_SP", "FEK_w_SP"], [6.0, 50.0, 100.0]),
+    (["KKoffAW", "KK_s_AW", "KK_w_AW"], [9.0, 50.0, 150.0]),
+    (["KKoffSP", "KK_s_SP", "KK_w_SP"], [6.0, 50.0, 100.0]),
+    (["WoffAW", "W__sAW", "W__wAW"], [7.0, 50.0, 125.0]),
+    (["WoffVW", "W__sVW", "W__wVW"], [13.0, 50.0, 225.0]),
+    (["Poff", "P__s", "P__w"], [15.0, 50.0, 250.0]),
+    (["PoffS", "P__sS", "P__wS"], [25.0, 50.0, 375.0]),
+    (["HRoffAW", "HR__sAW", "HR__wAW"], [6.0, 50.0, 150.0]),
+    (["HPoffVW", "HP__sVW", "HP__wVW"], [4.0, 50.0, 130.0]),
+    (["RoffPh", "R__sPh", "R__wPh"], [12.0, 50.0, 250.0]),
+    (["RoffFe", "R__sFe", "R__wFe"], [12.0, 50.0, 200.0]),
+    (["RoffMa", "R__sMa", "R__wMa"], [12.0, 50.0, 200.0]),
+    (["RoffGi", "R__sGi", "R__wGi"], [12.0, 50.0, 200.0]),
+    (["RoffSP", "R_s_SP", "R_w_SP"], [1.0, 50.0, 10.0]),
+    (["Medoff", "Med__s", "Med__w"], [12.0, 50.0, 300.0]),
+    (["HMoff", "HM__s", "HM__w"], [6.0, 50.0, 100.0]),
+    (["FMoff", "FM__s", "FM__w"], [6.0, 50.0, 100.0]),
+    (["WMoff", "WM__s", "WM__w"], [6.0, 50.0, 100.0]),
+    (["EMoff", "EM__s", "EM__w"], [6.0, 50.0, 100.0]),
+    (["LMoff", "LM__s", "LM__w"], [6.0, 50.0, 100.0]),
+    (["MMoff", "MM__s", "MM__w"], [6.0, 50.0, 100.0]),
+    (["KOoff", "KO__s", "KO__w"], [12.0, 50.0, 300.0]),
+    (["BAoff", "BA__s", "BA__w"], [6.0, 50.0, 100.0]),
+    (["BLoff", "BL__s", "BL__w"], [6.0, 50.0, 100.0]),
+    (["WToff", "WT__s", "WT__w"], [6.0, 50.0, 100.0]),
+    (["HOMoff", "HOM__s", "HOM__w"], [6.0, 50.0, 100.0]),
+];
+
+/// The values of the skills' effects' lines: each of [`EFFECT_TRIPLES`] in its order, the riding's
+/// integer triple (`ReitenSkOff`, `ReitenSKLev`, `ReitenSKMW`) and the horse's time
+/// (`HorseOverrideTime`).
+#[derive(Clone, Debug, PartialEq)]
+struct EffectCurves {
+    triples: Vec<[f32; 3]>,
+    riding: [f32; 3],
+    horse_time: f32,
+}
+
+impl Default for EffectCurves {
+    /// The original's values.
+    fn default() -> Self {
+        Self {
+            triples: EFFECT_TRIPLES.iter().map(|&(_, values)| values).collect(),
+            riding: [67.0, 30.0, 100.0],
+            horse_time: 10.0,
+        }
+    }
+}
+
+impl EffectCurves {
+    /// The values of `balance`, the original's where it lacks them.
+    fn of(balance: &Balance) -> Self {
+        let default = Self::default();
+        let int = |name: &str, or: f32| {
+            balance
+                .i32(name)
+                .and_then(|value| i16::try_from(value).ok())
+                .map_or(or, f32::from)
+        };
+        Self {
+            triples: EFFECT_TRIPLES
+                .iter()
+                .map(|&(names, or)| {
+                    let mut values = or;
+                    for (value, name) in values.iter_mut().zip(names) {
+                        *value = balance.f32(name).unwrap_or(*value);
+                    }
+                    values
+                })
+                .collect(),
+            riding: [
+                int("ReitenSkOff", default.riding[0]),
+                int("ReitenSKLev", default.riding[1]),
+                int("ReitenSKMW", default.riding[2]),
+            ],
+            horse_time: balance
+                .f32("HorseOverrideTime")
+                .unwrap_or(default.horse_time),
+        }
+    }
+
+    /// The triple whose first key is `first`.
+    fn triple(&self, first: &str) -> [f32; 3] {
+        EFFECT_TRIPLES
+            .iter()
+            .position(|(names, _)| names[0] == first)
+            .and_then(|at| self.triples.get(at))
+            .copied()
+            .unwrap_or_default()
+    }
+}
+
+/// A line of a skill's effects in the statistics window (`0x566070`'s text mode): its texts by
+/// their names, the game's text of a number or a key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EffectLine {
+    /// A text alone.
+    Text(String),
+    /// Texts joined by spaces and a value after a space: `%s %+d%%`, `%s %s %+d%%`, `%s %d%%`.
+    Value(Vec<String>, String),
+    /// A text, a colon, a space and a value: `%s: %d`, `%s: %.1fs`, `%s: %d%%`.
+    Colon(String, String),
+}
+
+/// The lines of the skill `skill`'s effects at level `level` of a hero of level `hero_level`, a
+/// shield in its hands where `shield` (`0x566070`'s text mode, docs/re/character.md, "The skills'
+/// effects"): each value a curve of the balance at the level, truncated; none at level 0 nor of
+/// the skill 30.
+pub fn skill_effects(
+    skill: u8,
+    level: u32,
+    hero_level: u32,
+    shield: bool,
+    rules: &Rules,
+) -> Vec<EffectLine> {
+    if level == 0 {
+        return Vec::new();
+    }
+    let effects = &rules.effects;
+    let at = |first: &str| ftol(curve(effects.triple(first), level));
+    let text = |name: &str| name.to_owned();
+    let signed = |names: &[&str], value: i64| {
+        EffectLine::Value(
+            names.iter().map(|&n| text(n)).collect(),
+            format!("{value:+}%"),
+        )
+    };
+    let pair = |attack: &str, speed: &str| {
+        vec![signed(&["1074"], at(attack)), signed(&["1100"], at(speed))]
+    };
+    let kinds = |first: &str, value: i64| {
+        ["1078", "1080", "1079", "1081"]
+            .iter()
+            .map(|&kind| signed(&[first, kind], value))
+            .collect::<Vec<_>>()
+    };
+    let weapon = |key: &str, attack: &str, speed: &str| {
+        let mut lines = vec![EffectLine::Text(text(key))];
+        lines.extend(pair(attack, speed));
+        lines
+    };
+    // The arts' skills (`0x565DC0`): the per cent their arts' times shorten by, and with the flag
+    // 1 the bow's speed's curve (`FEK…SP`) after it.
+    let arts = |first: &str, name: String, speed: bool| {
+        let mut lines = vec![EffectLine::Value(
+            vec![text("1107"), name],
+            format!("{:+}%", at(first)),
+        )];
+        if speed {
+            lines.push(signed(&["1100"], at("FEKoffSP")));
+        }
+        lines
+    };
+    let own_name = (9399 + u32::from(skill)).to_string();
+    let l = to_f32(level);
+    let h = to_f32(hero_level);
+    match skill {
+        1 => arts("HMoff", own_name, true),
+        2 => kinds("1174", at("WKoff")),
+        3 => pair("STKoffAW", "STKoffSP"),
+        4 => pair("SKoffAW", "SKoffSP"),
+        5 => weapon("EWT_AXT", "AKoffAW", "AKoffSP"),
+        6 => weapon("EWT_2Waffen", "BKoffAW", "BKoffSP"),
+        7 => weapon("EWT_FERNKAMPF", "FEKoffAW", "FEKoffSP"),
+        8 => vec![
+            signed(&["1074"], at("WoffAW")),
+            signed(&["1075"], at("WoffVW")),
+        ],
+        9 => {
+            let first = if shield { "PoffS" } else { "Poff" };
+            vec![EffectLine::Value(
+                vec![text("1075")],
+                format!("{}%", at(first)),
+            )]
+        }
+        10 => vec![
+            signed(&["1073"], at("HPoffVW")),
+            signed(&["1093"], at("HRoffAW")),
+        ],
+        11 => vec![
+            signed(&["INVENTAR_RES_PHYSICAL"], at("RoffPh")),
+            signed(&["INVENTAR_RES_FIRE"], at("RoffFe")),
+            signed(&["INVENTAR_RES_MAGIC"], at("RoffMa")),
+            signed(&["INVENTAR_RES_POISON"], at("RoffGi")),
+            signed(&["1098"], at("RoffSP")),
+        ],
+        12 => vec![signed(&["1094"], at("Medoff"))],
+        13 => weapon("EWT_KLINGENWAFFE", "KKoffAW", "KKoffSP"),
+        // The magic lore's per cent goes through a hundredth of a hundred times it.
+        14 => {
+            let v = curve(effects.triple("MKoff"), level);
+            kinds("1080", ftol(v * 100.0 * 0.01))
+        }
+        15 => arts("FMoff", own_name, true),
+        16 => arts("WMoff", own_name, true),
+        17 => arts("EMoff", own_name, true),
+        18 => arts("LMoff", own_name, true),
+        19 => arts("MMoff", own_name, true),
+        20 | 27 | 31 => arts("KOoff", own_name, false),
+        21 => vec![EffectLine::Text(text("UI_SKILL_MERCHANT"))],
+        22 => {
+            // The riding (`0x552790`, `0x552EF0`): its curve of 1, 100 and 50 at its level.
+            let r = curve([1.0, 100.0, 50.0], level);
+            let cap = 1.25 * h + 0.5;
+            let effective = if l + h > cap {
+                ftol(cap)
+            } else {
+                i64::from(level) + i64::from(hero_level)
+            };
+            let damage = ftol(100.0 * (1.0 + 0.01 * r).powf(1.5) + 0.5);
+            let time = (1.0 + 0.01 * r) * effects.horse_time;
+            let share = ftol(curve(effects.riding, level) + 0.5);
+            vec![
+                EffectLine::Colon(text("UI_EFFECTIVE_UEBERREITEN"), effective.to_string()),
+                EffectLine::Colon(text("UI_SCHADEN_UEBERREITEN"), format!("{damage:+}%")),
+                EffectLine::Colon(text("UI_DAUER_UEBERREITEN"), format!("{time:.1}s")),
+                EffectLine::Colon(text("1166"), format!("{share}%")),
+            ]
+        }
+        23 => {
+            let share = |of: f32| to_f32_i64(ftol(100.0 * 1.1 * l / of)) * 0.01;
+            let (low, high) = (share(h + 1.0), share(h / 3.0 + 1.0));
+            vec![EffectLine::Colon(
+                text("UI_TT_ENTWAFFNEN"),
+                format!("{low:.2}% - {high:.2}%"),
+            )]
+        }
+        24 => pair("FKoffAW", "FKoffSP"),
+        25 => arts("KOoff", "1147".to_owned(), false),
+        26 => arts("BAoff", own_name, true),
+        28 => arts("BLoff", own_name, true),
+        29 => arts("WToff", own_name, true),
+        32 => arts("HOMoff", own_name, false),
+        33 => {
+            let y = (0.025 * l + 1.5).min(5.0);
+            vec![
+                EffectLine::Text(text("UI_TOOLTIP_SCHMIEDEN")),
+                EffectLine::Colon(
+                    text("UI_TOOLTIP_SCHMIEDEN_ITEM"),
+                    ftol(0.25 * l + h).to_string(),
+                ),
+                EffectLine::Colon(
+                    text("UI_TOOLTIP_SCHMIEDEN_NEXT"),
+                    (40 * ftol(y) - 20).to_string(),
+                ),
+                EffectLine::Colon(
+                    text("UI_TOOLTIP_SCHMIEDEN_COST"),
+                    format!("{:5.2}%", 100.0 / (f64::from(level) + 79.0)),
+                ),
+            ]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A float truncated toward zero, as the client's `__ftol` stores a skill's per cent.
+fn ftol(value: f32) -> i64 {
+    truncated(f64::from(value))
+}
+
+/// A small whole number as a float.
+fn to_f32_i64(value: i64) -> f32 {
+    i16::try_from(value).map_or(0.0, f32::from)
 }
 
 /// A creature's attack `A`, defence `D`, each kind's least and most damage and resistance, with
@@ -4807,6 +5092,56 @@ mod tests {
         assert!(!base.raise_skill(0, 3, &mut experience));
         assert_eq!(experience.skill_points, 1);
         assert_eq!(skills(&base, 3, true), [(12, 3), (25, 1)]);
+    }
+
+    #[test]
+    fn a_skills_effects_list_its_curves_at_its_level() {
+        let rules = Rules::default();
+        let value = |names: &[&str], value: &str| {
+            EffectLine::Value(
+                names.iter().map(|&n| n.to_owned()).collect(),
+                value.to_owned(),
+            )
+        };
+        // The Seraphim's Magic Lore at 5 and at 6, as the original's window shows them (seen).
+        assert_eq!(
+            skill_effects(14, 5, 14, false, &rules),
+            [
+                value(&["1080", "1078"], "+39%"),
+                value(&["1080", "1080"], "+39%"),
+                value(&["1080", "1079"], "+39%"),
+                value(&["1080", "1081"], "+39%"),
+            ]
+        );
+        assert_eq!(
+            skill_effects(14, 6, 14, false, &rules)[0],
+            value(&["1080", "1078"], "+46%")
+        );
+        // The parry's by the shield, unsigned; an art's skill and the bow's speed after it.
+        assert_eq!(
+            skill_effects(9, 1, 1, true, &rules),
+            [value(&["1075"], "25%")]
+        );
+        assert_eq!(
+            skill_effects(15, 1, 1, false, &rules),
+            [value(&["1107", "9414"], "+6%"), value(&["1100"], "+6%")]
+        );
+        assert_eq!(
+            skill_effects(25, 1, 1, false, &rules),
+            [value(&["1107", "1147"], "+12%")]
+        );
+        // None at level 0 nor of the skill 30.
+        assert!(skill_effects(14, 0, 14, false, &rules).is_empty());
+        assert!(skill_effects(30, 5, 14, false, &rules).is_empty());
+        // The smithing's lines: its item's level, the next's and the cost.
+        assert_eq!(
+            skill_effects(33, 1, 10, false, &rules)[1..],
+            [
+                EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_ITEM".into(), "10".into()),
+                EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_NEXT".into(), "20".into()),
+                EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_COST".into(), " 1.25%".into()),
+            ]
+        );
     }
 
     #[test]
