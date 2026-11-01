@@ -10,15 +10,23 @@
 //! image 34 (6 × 32) down its left at −4 and its right at W, and the image 55 (38 × 18) at its
 //! corners, the top right's at (W − 24, −11) as stored and the others turned about across, along
 //! or both at (−13, −11), (W − 24, H − 8) and (−13, H − 8).
+//!
+//! An item's sockets (#1691, `0x5C0A70`): the window 40 pixels higher and at least 40 a socket
+//! and 16 wide, and at its bottom left, 8 in and 40 up, a square of 32 for each socket 40 apart,
+//! its kind's colour at the alpha `0x8F` under the image 171 tinted by it at `0x5F`, and a filled
+//! socket's item's model at its centre, which a camera of their own draws into a picture over the
+//! row.
 
 mod lines;
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
 
 use crate::arts::HeroArts;
-use crate::backpack::{CELL, GRID, cell_under, on_grid};
+use crate::backpack::{self, CELL, GRID, cell_under, on_grid};
 use crate::bar::{self, UiImages};
+use crate::choice::Layer;
 use crate::cursors::item_name;
 use crate::drops::Tables;
 use crate::fight::{Combat, Experience, Rules};
@@ -42,6 +50,21 @@ pub(crate) const MARGIN: f32 = 16.0;
 const EDGE_ALONG: u32 = 21;
 const EDGE_DOWN: u32 = 34;
 const CORNER: u32 = 55;
+/// A socket's square in an item's tooltip (`0x5C0A70`): its side, how far apart the squares stand
+/// along their row, the row's corner from the window's bottom left, in and up, and the room the
+/// window grows by for it (`0x6E7AF0`, `0x6E76C0`).
+const SOCKET: f32 = 32.0;
+const SOCKETS_APART: f32 = 40.0;
+const SOCKETS_IN: f32 = 8.0;
+const SOCKETS_ROOM: f32 = 40.0;
+/// The image over a socket's square, the colours of the sockets' kinds 1 to 4 (any other white),
+/// and the alphas of the square and of the image tinted by its colour.
+const SOCKET_IMAGE: u32 = 171;
+const SOCKET_COLOURS: [u32; 4] = [0x00B1_4910, 0x00A1_A1A1, 0x00D8_AB30, 0x0000_9F00];
+const SQUARE_ALPHA: u32 = 0x8F;
+const IMAGE_ALPHA: u32 = 0x5F;
+/// The render layer of the sockets' items' models.
+const MODELS: usize = 19;
 
 /// A colour of an ARGB word, in the frame's sRGB values (`hud`).
 pub(crate) fn argb(colour: u32) -> Color {
@@ -94,7 +117,12 @@ impl Weighing<'_, '_> {
             return vec![Line::of(name, WHITE)];
         };
         let record = tables.record_of(dropped);
-        let values = tables.values(dropped);
+        // Its values with its sockets' items' bonuses merged into its own where they are alike,
+        // and what is left of theirs (`0x5C4220`).
+        let mut values = tables.values(dropped);
+        let (bonuses, left) =
+            opensacred_rules::smith::shown_bonuses(values.bonuses, &dropped.socketed);
+        values.bonuses = bonuses;
         let made = dropped.values.is_some();
         // A made item's levels by its own values (`0x5D3AB0` at `0x5D56FA`), another's as its
         // record holds them: a potion's none, a scroll's level none (seen, #1273); with its
@@ -130,6 +158,7 @@ impl Weighing<'_, '_> {
                 .potions
                 .as_deref()
                 .and_then(|potions| potions.0.heals(dropped.item)),
+            sockets: (dropped.socketed.len(), tables.sockets(dropped)),
         };
         let skills = self.arts.as_deref().map_or(&[][..], |arts| &arts.skills);
         let hero = self.heroes.iter().next().map(|combat| lines::Hero {
@@ -162,7 +191,37 @@ impl Weighing<'_, '_> {
             text: &text,
             art: &art,
         };
-        lines::lines(&item, hero.as_ref(), &words)
+        let mut shown = lines::lines(&item, hero.as_ref(), &words);
+        // Each socket's item's own lines after them: its record's class, its bonuses that were
+        // not merged, its other values and requirements cleared (`0x5C4220`, `0x5C5360`).
+        let Some(hero) = hero else {
+            return shown;
+        };
+        for (socket, bonuses) in dropped.socketed.iter().zip(left) {
+            let kind = socket.item.item;
+            let item = lines::Item {
+                item: kind,
+                name: "",
+                category: tables.category(kind),
+                record: crate::drops::Record {
+                    word: tables.record(kind).word,
+                    ..crate::drops::Record::default()
+                },
+                price: 0,
+                buying: false,
+                quality: 0,
+                values: opensacred_rules::fight::ItemValues {
+                    bonuses,
+                    ..opensacred_rules::fight::ItemValues::default()
+                },
+                level: 0,
+                asked: 0,
+                heals: None,
+                sockets: (0, 0),
+            };
+            shown.extend(lines::socket_lines(&item, &hero, &words));
+        }
+        shown
     }
 }
 
@@ -173,6 +232,10 @@ pub(crate) const WHITE: u32 = 0xFFFF_FFFF;
 /// windows.
 #[derive(Component)]
 struct Root;
+
+/// The camera, the light and the models of a tooltip's sockets' items.
+#[derive(Component, Clone)]
+struct Scene;
 
 /// Where the item that a tooltip shows lies: the backpack's grid, a page of a merchant's (#1618),
 /// or a weapon set's slot of the bar (#1689).
@@ -210,6 +273,7 @@ type Merchant<'w> = (
 /// #1689).
 #[expect(
     clippy::too_many_arguments,
+    clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn grid(
@@ -224,7 +288,8 @@ fn grid(
     texts: Option<Res<Texts>>,
     weighing: Weighing,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
-    panels: Query<(Entity, &Panel)>,
+    (mut targets, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
+    (panels, scenes): (Query<(Entity, &Panel)>, Query<Entity, With<Scene>>),
     roots: Query<Entity, With<Root>>,
 ) {
     let shown = shown.is_some_and(|shown| shown.0);
@@ -280,6 +345,9 @@ fn grid(
     if let Some((entity, _)) = current {
         commands.entity(entity).despawn();
     }
+    for scene in &scenes {
+        commands.entity(scene).despawn();
+    }
     let Some((source, key, corner, dropped)) = under else {
         return;
     };
@@ -293,13 +361,57 @@ fn grid(
         .iter()
         .next()
         .unwrap_or_else(|| commands.spawn(root()).id());
-    let panel = spawn(&mut commands, &images, &assets, corner, &lines);
+    // The sockets' kinds from the first, of a kind other than 0 (`0x5BE9C0`).
+    let kinds: Vec<u8> = weighing.tables.as_deref().map_or_else(Vec::new, |tables| {
+        let kinds = tables.own_values(&dropped).sockets;
+        let count = tables.sockets(&dropped);
+        kinds.into_iter().take(count).collect()
+    });
+    let (panel, row) = spawn(&mut commands, (&images, &assets), corner, (&lines, &kinds));
     commands.entity(panel).insert(Panel {
         source,
         key,
         at: corner,
     });
     commands.entity(root).add_child(panel);
+    // The sockets' items' models at their squares' centres, over the squares.
+    if let (Some(row), Some(tables)) = (row, weighing.tables.as_deref()) {
+        let scale = windows
+            .iter()
+            .next()
+            .map_or(1.0, |window| window.height() / bar::SCREEN.y);
+        backpack::spawn_picture(
+            &mut commands,
+            (&mut targets, &mut layers),
+            scale,
+            (row, sockets_size(kinds.len())),
+            (MODELS, Scene),
+        );
+        for (k, socket) in (0_u8..).zip(&dropped.socketed).take(kinds.len()) {
+            let kind = socket.item.item;
+            let Some((model, texture, pose)) = tables.look(kind) else {
+                continue;
+            };
+            let centre = Vec2::new(f32::from(k) * SOCKETS_APART, 0.0) + Vec2::splat(SOCKET / 2.0);
+            let mut entity = commands.spawn((
+                Scene,
+                backpack::Matte,
+                crate::models::scene(&assets, model),
+                backpack::posed(Vec3::new(centre.x, -centre.y, 0.0), pose),
+                RenderLayers::layer(MODELS),
+                DespawnOnExit(AppState::InGame),
+            ));
+            if let Some(texture) = texture {
+                entity.insert(crate::npcs::Retexture::load(&assets, texture));
+            }
+        }
+    }
+}
+
+/// The size of the row of `count` sockets' squares.
+fn sockets_size(count: usize) -> Vec2 {
+    let count = f32::from(u8::try_from(count).unwrap_or(u8::MAX));
+    Vec2::new(count * SOCKETS_APART - (SOCKETS_APART - SOCKET), SOCKET)
 }
 
 /// The tooltips' container.
@@ -322,15 +434,17 @@ fn root() -> impl Bundle {
 }
 
 /// A tooltip's window of `lines` at `at` of the original's screen: its panel, its lines and its
-/// border.
+/// border; and with the sockets of the kinds `sockets` their row of squares (`0x5C0A70`), the
+/// window [`SOCKETS_ROOM`] higher and at least as wide as the row and twice [`SOCKETS_IN`]
+/// (`0x6E7AF0`). The panel, and the row that the sockets' items' models go into.
 fn spawn(
     commands: &mut Commands,
-    images: &UiImages,
-    assets: &AssetServer,
+    (images, assets): (&UiImages, &AssetServer),
     at: Vec2,
-    lines: &[Line],
-) -> Entity {
+    (lines, sockets): (&[Line], &[u8]),
+) -> (Entity, Option<Entity>) {
     let font = assets.load(FONT);
+    let row_size = sockets_size(sockets.len());
     let panel = commands
         .spawn((
             Node {
@@ -339,6 +453,11 @@ fn spawn(
                 top: Val::Px(at.y),
                 padding: UiRect::axes(Val::Px(INSET), Val::Px(INSET / 2.0)),
                 flex_direction: FlexDirection::Column,
+                min_width: if sockets.is_empty() {
+                    Val::Auto
+                } else {
+                    Val::Px(row_size.x + 2.0 * SOCKETS_IN)
+                },
                 ..default()
             },
             BackgroundColor(PANEL),
@@ -397,8 +516,66 @@ fn spawn(
         }
         commands.entity(panel).add_child(row);
     }
+    let sockets_row = (!sockets.is_empty()).then(|| {
+        // The room below the lines, and the row at the panel's bottom left over it: each socket a
+        // square of its kind's colour, and the image 171 tinted by it.
+        let room = commands
+            .spawn((
+                Node {
+                    height: Val::Px(SOCKETS_ROOM),
+                    ..default()
+                },
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(panel).add_child(room);
+        let row_node = commands
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(SOCKETS_IN),
+                    bottom: Val::Px(SOCKETS_IN),
+                    width: Val::Px(row_size.x),
+                    height: Val::Px(row_size.y),
+                    ..default()
+                },
+                Pickable::IGNORE,
+            ))
+            .id();
+        for (k, &kind) in (0_u8..).zip(sockets) {
+            let colour = usize::from(kind)
+                .checked_sub(1)
+                .and_then(|k| SOCKET_COLOURS.get(k))
+                .copied()
+                .unwrap_or(0x00FF_FFFF);
+            let at = Vec2::new(f32::from(k) * SOCKETS_APART, 0.0);
+            let (image, mut node) = bar::piece(images, assets, SOCKET_IMAGE, at, Vec2::ZERO);
+            node.width = Val::Px(SOCKET);
+            node.height = Val::Px(SOCKET);
+            let square = commands
+                .spawn((
+                    bar::placed(at, Vec2::splat(SOCKET)),
+                    BackgroundColor(argb((SQUARE_ALPHA << 24) | colour)),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            let over = commands
+                .spawn((
+                    ImageNode {
+                        color: argb((IMAGE_ALPHA << 24) | colour),
+                        ..image
+                    },
+                    node,
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(row_node).add_children(&[square, over]);
+        }
+        commands.entity(panel).add_child(row_node);
+        row_node
+    });
     add_border(commands, (images, assets), panel);
-    panel
+    (panel, sockets_row)
 }
 
 /// Puts the tooltip's border about `panel` (`0x727B30`), as the purchase window's too.

@@ -412,13 +412,19 @@ impl Tables {
     }
 
     /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it
-    /// asks with its level raised to the highest of its sockets' items' (`0x5BFF60`, #1661). The
-    /// attributes' bytes that `0x5BFF60` raises too, `0x5D3AB0` clears again as the filling ends
-    /// (`0x5C0810`), and the level asked follows the levels ([`Self::asks`]).
+    /// asks with its level raised to the highest of its sockets' items' (`0x5BFF60`, #1661), and
+    /// each attribute it asks to the highest of theirs, as the tooltip merges their records into
+    /// its own (`0x5C4220`, #1691). The attributes' bytes that `0x5BFF60` raises too, `0x5D3AB0`
+    /// clears again as the filling ends (`0x5C0810`), and the level asked follows the levels
+    /// ([`Self::asks`]).
     pub(crate) fn record_of(&self, dropped: &Dropped) -> Record {
         let mut record = self.record(dropped.item);
         for socket in &dropped.socketed {
-            let [.., skill, level] = self.record(socket.item.item).requirements;
+            let asked = self.record(socket.item.item).requirements;
+            for (own, other) in record.requirements.iter_mut().zip(asked).take(4) {
+                *own = (*own).max(other);
+            }
+            let [.., skill, level] = asked;
             if level > record.requirements[5] {
                 record.requirements[4] = skill;
                 record.requirements[5] = level;

@@ -5,7 +5,7 @@
 //! `opensacred-game`'s.
 
 use crate::drops::Dropped;
-use crate::fight::{HUNDREDTH, ItemValues, KINDS, SOCKETS, stored};
+use crate::fight::{BONUSES, Bonus, HUNDREDTH, ItemValues, KINDS, SOCKETS, stored};
 
 /// The highest tier of a smith.
 pub const TOP_TIER: u8 = 5;
@@ -329,6 +329,48 @@ pub fn bonuses(socketed: &[Socketed]) -> impl Iterator<Item = ItemValues> + '_ {
     })
 }
 
+/// How many of the bonus slots of an item and of its sockets' items its tooltip merges.
+const MERGED: usize = 6;
+
+/// The bonus slots of an item `own` and of its sockets' items `socketed` as its tooltip shows
+/// them (`0x5C4220`): each of a socket's first six added to a slot of the item's first six of the
+/// same condition and effect, then each socket's first six taking the slots of the same condition
+/// and effect that follow it, its own and the later sockets', every slot taken cleared. The
+/// item's slots, then what is left of each socket's, which its own lines show.
+pub fn shown_bonuses(
+    own: [Bonus; BONUSES],
+    socketed: &[Socketed],
+) -> ([Bonus; BONUSES], Vec<[Bonus; BONUSES]>) {
+    let same = |a: Bonus, b: Bonus| a.condition == b.condition && a.effect == b.effect;
+    let mut item = own;
+    let mut sockets: Vec<[Bonus; BONUSES]> = socketed.iter().map(|s| s.values.bonuses).collect();
+    for socket in &mut sockets {
+        for taken in socket.iter_mut().take(MERGED) {
+            for slot in item.iter_mut().take(MERGED) {
+                if same(*slot, *taken) {
+                    slot.value = slot.value.wrapping_add(taken.value);
+                    *taken = Bonus::default();
+                }
+            }
+        }
+    }
+    for a in 0..sockets.len() {
+        for j in 0..MERGED {
+            for b in a..sockets.len() {
+                let from = if b == a { j + 1 } else { 0 };
+                for k in from..MERGED {
+                    let taken = sockets[b][k];
+                    if same(sockets[a][j], taken) {
+                        sockets[a][j].value = sockets[a][j].value.wrapping_add(taken.value);
+                        sockets[b][k] = Bonus::default();
+                    }
+                }
+            }
+        }
+    }
+    (item, sockets)
+}
+
 /// `value` as a 16-bit word, truncated toward zero as the record stores it.
 fn word(value: f32) -> i16 {
     #[expect(
@@ -600,6 +642,54 @@ mod tests {
         assert!(counted.iter().all(|values| values.bonuses == ring.bonuses
             && values.attack == 0.0
             && values.damage == [[0.0; 2]; KINDS]));
+    }
+
+    #[test]
+    fn a_tooltip_merges_the_sockets_bonuses_of_the_same_condition_and_effect() {
+        let bonus = |condition, effect, value| Bonus {
+            condition,
+            effect,
+            value,
+        };
+        let mut own = [Bonus::default(); BONUSES];
+        own[0] = bonus(0, 815, 5);
+        own[1] = bonus(0x80, 841, 10);
+        // The item's seventh slot is not among those merged into.
+        own[6] = bonus(0, 816, 1);
+        let socket = |slots: &[(usize, Bonus)]| {
+            let mut values = ItemValues::default();
+            for &(at, slot) in slots {
+                values.bonuses[at] = slot;
+            }
+            Socketed {
+                item: item(4876, None),
+                values,
+                tier: 0,
+            }
+        };
+        let first = socket(&[
+            (0, bonus(0, 815, 3)),
+            (1, bonus(0, 816, 2)),
+            (2, bonus(0, 817, 4)),
+            (3, bonus(0, 817, 1)),
+            (6, bonus(0, 815, 9)),
+        ]);
+        let second = socket(&[(0, bonus(0x80, 841, 7)), (4, bonus(0, 817, 6))]);
+        let (item, sockets) = shown_bonuses(own, &[first, second]);
+        // The item's 815 and 841 take the sockets' of the same condition, its 816 of the seventh
+        // slot nothing.
+        assert_eq!(item[0], bonus(0, 815, 8));
+        assert_eq!(item[1], bonus(0x80, 841, 17));
+        assert_eq!(item[6], bonus(0, 816, 1));
+        // The first socket's 817 takes its own later one and the second socket's; its 816 and
+        // its seventh slot's 815 stay its own.
+        assert_eq!(sockets[0][0], Bonus::default());
+        assert_eq!(sockets[0][1], bonus(0, 816, 2));
+        assert_eq!(sockets[0][2], bonus(0, 817, 11));
+        assert_eq!(sockets[0][3], Bonus::default());
+        assert_eq!(sockets[0][6], bonus(0, 815, 9));
+        assert!(sockets[1].iter().all(|slot| *slot == Bonus::default()));
+        assert_eq!(shown_bonuses(own, &[]), (own, Vec::new()));
     }
 
     #[test]

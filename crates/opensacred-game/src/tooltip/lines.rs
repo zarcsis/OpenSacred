@@ -1,13 +1,14 @@
 //! The lines of an item's tooltip (#1273; docs/re/inventory.md, §9), as the grid asks for them
 //! (the flags `0x5F`): the name by the item's class (its virtual `+0x44`: a weapon's, an armour's
 //! and a shield's with its difficulty's icon, its colour and its class, a weapon's lore and hands;
-//! a ring's, an amulet's and a rune's; any other plain), then `0x5C5360`'s: the refusal of the
-//! class, the price, the damage and the protection as the hero would deal and take them, the
-//! hands' and the pace's slowing, the item's level, `A` and `D`, each kind of damage with its
-//! bonuses, the requirements red where the hero falls short, the resistances, the other bonuses
-//! (`0x5C4450`) and the hint of its use.
+//! a ring's, an amulet's and a rune's, each with its sockets filled over its sockets; any other
+//! plain), then `0x5C5360`'s: the refusal of the class, the price, the damage and the protection
+//! as the hero would deal and take them, the hands' and the pace's slowing, the item's level, `A`
+//! and `D`, each kind of damage with its bonuses, the requirements red where the hero falls short,
+//! the resistances, the other bonuses (`0x5C4450`) and the hint of its use; then each socket's
+//! item's own lines (#1691).
 //!
-//! Not followed: the set's name and colour, the quest's line, the sockets, the region's factor of
+//! Not followed: the set's name and colour, the quest's line, the region's factor of
 //! the price, the price of an item that the item maker made (its worth, `0x5D3AB0`), the
 //! multipliers of the bonuses of the condition bits 13 and 14 in the damage's line (the stats'
 //! `+0xA6`) and of the resistances in the protection's (`+0xD6`, 1 here), the opponents' names
@@ -85,8 +86,8 @@ const PLAIN: u32 = 0xFFEF_EFEF;
 
 /// What a tooltip tells of an item: its type, its name, its category, its type's record, its
 /// price (its record's, a made item's worth) and whether the hero would buy it (a merchant's), its
-/// quality, its values, its level and the level it asks, and the share of its health that it
-/// heals, of a healing potion.
+/// quality, its values, its level and the level it asks, the share of its health that it heals,
+/// of a healing potion, and its sockets filled and its sockets.
 pub(crate) struct Item<'a> {
     pub item: u32,
     pub name: &'a str,
@@ -99,6 +100,7 @@ pub(crate) struct Item<'a> {
     pub level: u32,
     pub asked: u32,
     pub heals: Option<u32>,
+    pub sockets: (usize, usize),
 }
 
 /// The hero that the tooltip weighs the item for: its creature type, its level, its attributes
@@ -194,6 +196,29 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
             WHITE,
         ));
     }
+    lines.extend(details(item, hero, words));
+    lines.extend(hint(item, words));
+    lines
+}
+
+/// The lines of an item in a socket of the item whose tooltip shows it, after that item's (the
+/// flags `0x30`): its refusal of the hero's class, then its details, of what its socket's
+/// merging left of it (`0x5C4220`), its bonuses alone.
+pub(crate) fn socket_lines(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
+    let mut lines = Vec::new();
+    if refused(item.record.word, hero.creature) {
+        lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
+    }
+    lines.extend(details(item, hero, words));
+    lines
+}
+
+/// An item's details (the flag `0x10`): its `A` and `D`, each kind of damage with its bonuses,
+/// its requirements, its resistances with their bonuses, then its other bonuses in their slots'
+/// order.
+fn details(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
+    let values = &item.values;
+    let mut lines = Vec::new();
     for (value, text) in [(values.attack, "1074"), (values.defence, "1075")] {
         if value != 0.0 {
             lines.push(Line::of(format!("{}: {value}", words.of(text)), WHITE));
@@ -262,7 +287,6 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
         }
     }
     claim(&|_| true, &mut lines);
-    lines.extend(hint(item, words));
     lines
 }
 
@@ -277,13 +301,16 @@ fn name_lines(item: &Item, words: &Words) -> Vec<Line> {
     let icon = Piece::Image(DIFFICULTY_ICONS + difficulty_step(word), WHITE);
     let armoury =
         item.category == WEAPON || item.category == SHIELD || ARMOUR.contains(&item.category);
+    // The sockets filled over the sockets after the name, where it has some (`0x5BE990`,
+    // `0x5BE9C0`).
+    let name = match item.sockets {
+        (_, 0) => item.name.to_owned(),
+        (filled, sockets) => format!("{} ({filled}/{sockets})", item.name),
+    };
     let mut lines = match item.category {
-        _ if armoury => vec![Line(vec![
-            icon,
-            Piece::Text(format!(" {}", item.name), colour),
-        ])],
-        RING => vec![Line(vec![icon, Piece::Text(item.name.to_owned(), colour)])],
-        AMULET | RUNE => vec![Line::of(item.name, colour)],
+        _ if armoury => vec![Line(vec![icon, Piece::Text(format!(" {name}"), colour)])],
+        RING => vec![Line(vec![icon, Piece::Text(name, colour)])],
+        AMULET | RUNE => vec![Line::of(name, colour)],
         _ => return vec![Line::of(item.name, WHITE)],
     };
     if let Some(index) = single_class(word) {
@@ -719,6 +746,7 @@ mod tests {
             level: 0,
             asked: 0,
             heals: Some(100),
+            sockets: (0, 0),
         };
         let lines: Vec<String> = lines(&item, Some(&hero(&[])), &words())
             .iter()
@@ -762,6 +790,7 @@ mod tests {
             level: 3,
             asked: 1,
             heals: None,
+            sockets: (0, 0),
         };
         let lines = lines(&item, Some(&hero(&[])), &words());
         let shown: Vec<String> = lines.iter().map(texts).collect();
@@ -819,6 +848,7 @@ mod tests {
             level: 1,
             asked: 2,
             heals: None,
+            sockets: (0, 0),
         };
         let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words())
             .iter()
@@ -840,6 +870,52 @@ mod tests {
                 "<1100>: +14",
             ]
         );
+    }
+
+    #[test]
+    fn a_socketed_items_name_counts_its_sockets_and_a_sockets_item_shows_its_bonuses() {
+        let item = |name, category, word, sockets| Item {
+            item: 1712,
+            name,
+            category,
+            record: Record {
+                word,
+                ..Record::default()
+            },
+            price: 0,
+            buying: false,
+            quality: 0,
+            values: ItemValues::default(),
+            level: 0,
+            asked: 0,
+            heals: None,
+            sockets,
+        };
+        let name = |item: &Item| texts(&name_lines(item, &words())[0]);
+        assert_eq!(
+            name(&item("Dagger", WEAPON, CLASSES, (1, 2))),
+            "[414] Dagger (1/2)"
+        );
+        assert_eq!(
+            name(&item("Ring", RING, CLASSES, (0, 1))),
+            "[414]Ring (0/1)"
+        );
+        assert_eq!(
+            name(&item("Dagger", WEAPON, CLASSES, (0, 0))),
+            "[414] Dagger"
+        );
+        // A socket's item of no class: its refusal, then what is left of its bonuses.
+        let mut socket = item("Upgrade", 26, 0, (0, 0));
+        socket.values.bonuses[2] = Bonus {
+            condition: 0,
+            effect: 811,
+            value: 7,
+        };
+        let shown: Vec<String> = socket_lines(&socket, &hero(&[]), &words())
+            .iter()
+            .map(texts)
+            .collect();
+        assert_eq!(shown, ["<UI_ITEM_CANTUSE>", "<1100>: +7"]);
     }
 
     #[test]
