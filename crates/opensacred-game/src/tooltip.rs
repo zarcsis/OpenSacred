@@ -17,7 +17,7 @@
 //! socket's item's model at its centre, which a camera of their own draws into a picture over the
 //! row.
 
-mod art;
+pub(crate) mod art;
 mod lines;
 
 use bevy::camera::visibility::RenderLayers;

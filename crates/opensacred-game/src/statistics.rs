@@ -12,10 +12,11 @@
 //! skill to learn's or attribute's description in the lower panel's place (#1714).
 //!
 //! The skills' levels take their items' bonuses (#1717), blue where they raise one, and a hovered
-//! skill's level shows its effects at it and at the next (#1715).
+//! skill's level shows its effects at it and at the next (#1715); the selected art's line shows
+//! its damage and its panel each kind's (#1545).
 //!
-//! Not followed yet: the combat arts' damage, the bonus of a set's pieces in the survival bonus,
-//! the sets' bonuses of the skills, the player's own name, and the window's following a
+//! Not followed yet: the bonus of a set's pieces in the survival bonus, the sets' bonuses of the
+//! skills, the player's own name, and the window's following a
 //! follower's portrait. A click on the gold's line drops gold (#1665).
 
 use bevy::prelude::*;
@@ -81,6 +82,8 @@ const AT_LEVEL: u32 = 0xFFFF_6347;
 const TO_LEARN: u32 = 0xFFFF_FF00;
 /// The kinds' icons of the damage and of the resistances, their places, and the portrait's box.
 const DAMAGE_ICONS: (u32, Vec2) = (205, Vec2::new(154.0, 308.0));
+/// The selected art's line's icons' corner (`0x6ABA79`: `0x6A7140` at (154, 327)).
+const ART_ICONS: Vec2 = Vec2::new(154.0, 327.0);
 const RESISTANCE_ICONS: (u32, Vec2) = (209, Vec2::new(154.0, 347.0));
 const PORTRAIT: Rect = Rect {
     min: Vec2::new(148.0, 264.0),
@@ -639,6 +642,36 @@ fn upper_panel(
             }
             more_lines(sheet, sheet.bonuses.0, "1152", write);
         }
+        // The selected art's panel (`0x6A82F0`): its total, each kind's least and most raised by
+        // half the survival bonus, `-` for none, all four icons, then the weapon's four lines.
+        Some(Block::F) => {
+            let ends = |value: Option<(i64, i64)>| {
+                value.map_or_else(|| "-".to_owned(), |(least, most)| format!("{least}-{most}"))
+            };
+            write(
+                said(sheet, "1089"),
+                Vec2::new(8.0, row(0)),
+                240.0,
+                (WHITE, left),
+            );
+            write(
+                &ends(sheet.art.total),
+                Vec2::new(8.0, row(0)),
+                240.0,
+                (WHITE, right),
+            );
+            for (k, (name, value)) in (0_u8..).zip(kind_texts.iter().zip(sheet.art.rows)) {
+                let y = row(k + 1);
+                write(said(sheet, name), Vec2::new(24.0, y), 216.0, (WHITE, left));
+                write(&ends(value), Vec2::new(8.0, y), 240.0, (WHITE, right));
+                icons.push((
+                    DAMAGE_ICONS.0 + u32::from(k),
+                    Vec2::new(4.0, y + 2.0),
+                    [255, 0, 0, 0],
+                ));
+            }
+            more_lines(sheet, sheet.bonuses.0, "1152", write);
+        }
         Some(Block::G) => {
             write(
                 said(sheet, "1077"),
@@ -825,6 +858,8 @@ struct Sheet {
     /// the panel of a hovered skill's level: its lines and their colours.
     shield: bool,
     effects: Option<Vec<(String, u32)>>,
+    /// The selected art's line and panel.
+    art: ArtValues,
 }
 
 /// The attributes' descriptions (`0x6AC14E`).
@@ -921,6 +956,85 @@ fn description(texts: &Texts, sheet: &Sheet) -> Option<(String, String)> {
             .map(|key| (text(&(1090 + u32::from(k)).to_string()), text(key))),
         _ => None,
     }
+}
+
+/// The selected art's line and panel (`0x6AB808`, `0x6A82F0`, #1545): the line's least and most,
+/// its kinds' alphas and whether its icons show; the panel's rows by kind, none for a kind of no
+/// damage (`-`), and their total.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ArtValues {
+    line: (i64, i64),
+    shares: [u32; 4],
+    icons: bool,
+    rows: [Option<(i64, i64)>; 4],
+    total: Option<(i64, i64)>,
+}
+
+/// The selected art's values of its damage's ends `damage` (zeros where it has none) and the
+/// survival bonus `sb` (`LongivityCombatFactor` 0.5, the set's part not followed): the line's
+/// totals each `T·0.5·SB·0.01 + T + 0.5` stored as a float, its icons below a raised most of
+/// 10,000 at the alphas of the kinds' mosts; the panel's rows each end `0.5·SB·d·0.01 + d`.
+fn art_values(damage: [[f64; 2]; 4], sb: f64) -> ArtValues {
+    let floor = |value: f64| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a shown damage, far below the integers' range, truncated as the client's"
+        )]
+        let whole = value as f32 as i64;
+        whole
+    };
+    let raise = |total: f64| total * 0.5 * sb * 0.01 + total + 0.5;
+    let (least, most) = damage
+        .iter()
+        .fold((0.0, 0.0), |(l, m), &[least, most]| (l + least, m + most));
+    let rows = damage.map(|[least, most]| {
+        let (least, most) = (
+            0.5 * sb * least * 0.01 + least,
+            0.5 * sb * most * 0.01 + most,
+        );
+        (least != 0.0 || most != 0.0).then(|| (floor(least), floor(most)))
+    });
+    let (low, high) = rows
+        .iter()
+        .flatten()
+        .fold((0, 0), |(l, h), &(least, most)| (l + least, h + most));
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a damage's end, far below a float's range"
+    )]
+    let mosts = damage.map(|[_, most]| most as f32);
+    ArtValues {
+        line: (floor(raise(least)), floor(raise(most))),
+        shares: shares(mosts),
+        icons: raise(most) < 10_000.0,
+        rows,
+        total: (low != 0 || high != 0).then_some((low, high)),
+    }
+}
+
+/// The selected art's damage of the hero (`0x6A6550`): the right button's art `selected` at the
+/// hero's level of it, by the arts' tooltip's values (`tooltip::art::window_damage`); none
+/// without one.
+fn art_damage(
+    (arts, selected): (&HeroArts, Option<u16>),
+    (combat, holding): (&Combat, Option<&Holding>),
+    level: u32,
+    rules: &Rules,
+) -> Option<[[f64; 2]; 4]> {
+    let hero = crate::tooltip::art::Hero {
+        kind: arts.kind,
+        level,
+        arts: &arts.arts,
+        speeds: arts.speeds,
+        multipliers: combat.multipliers,
+        spells: combat.spells,
+        attributes: combat.attributes,
+        skills: &arts.skills,
+        ranged: holding.is_some_and(|holding| holding.0.ranged),
+        day: true,
+        rules,
+    };
+    crate::tooltip::art::window_damage(selected?, &hero, &arts.tables, combat.damage)
 }
 
 /// The survival bonus of `minutes` played (`0x6AA062`, `0x565D70(0, m, 120, 50)`):
@@ -1085,6 +1199,7 @@ fn sheet(
         description: None,
         shield: false,
         effects: None,
+        art: ArtValues::default(),
     }
 }
 
@@ -1154,11 +1269,12 @@ fn show(
         Res<LastFoe>,
         Res<crate::drops::Played>,
     ),
-    (attributes, learning, portraits, rules): (
+    (attributes, learning, portraits, rules, selected): (
         Res<Attributes>,
         Res<Learning>,
         Res<crate::talk::Portraits>,
         Res<Rules>,
+        Res<crate::making::Selected>,
     ),
     heroes: Query<(&Base, &Combat, &Health, Option<&Holding>), With<Body>>,
     (pointer, ui_scale, screens): (Res<Pointer>, Res<UiScale>, Query<&Window>),
@@ -1186,6 +1302,15 @@ fn show(
                 (attributes.0, learning.0),
             );
             sheet.shield = shield;
+            let damage = arts.as_deref().and_then(|arts| {
+                art_damage(
+                    (arts, selected.0),
+                    (combat, holding),
+                    experience.0.level,
+                    &rules,
+                )
+            });
+            sheet.art = art_values(damage.unwrap_or_default(), survival(played.minutes()));
             sheet
         })
         .map(|mut sheet| {
@@ -1373,7 +1498,7 @@ fn show(
         (said(&sheet, "1096"), sheet.skill_points)
     };
     let learning = sheet.learning && !attributes;
-    let panel = matches!(block, Some(Block::D | Block::E | Block::G));
+    let panel = matches!(block, Some(Block::D | Block::E | Block::F | Block::G));
     let mut panel_icons: Vec<Icons> = Vec::new();
     if panel {
         upper_panel(&sheet, block, &mut write, &mut panel_icons);
@@ -1534,7 +1659,11 @@ fn show(
             said(&sheet, "1087"),
             format!("{}-{}", sheet.weapon.0, sheet.weapon.1),
         ),
-        (325.0, said(&sheet, "1089"), String::new()),
+        (
+            325.0,
+            said(&sheet, "1089"),
+            format!("{}-{}", sheet.art.line.0, sheet.art.line.1),
+        ),
         (344.0, said(&sheet, "1077"), sheet.resistance.to_string()),
     ];
     for (y, label, value) in lines {
@@ -1585,11 +1714,16 @@ fn show(
     );
     // The kinds' icons, each the next to the left of the last, at its share's alpha; the panel's
     // its image 1 lower.
+    let art_icons = sheet
+        .art
+        .icons
+        .then_some(((DAMAGE_ICONS.0, ART_ICONS), sheet.art.shares));
     let rows = [
         (DAMAGE_ICONS, sheet.damage_shares),
         (RESISTANCE_ICONS, sheet.resistance_shares),
     ]
     .into_iter()
+    .chain(art_icons)
     .chain(
         panel_icons
             .into_iter()
@@ -1655,7 +1789,7 @@ fn show(
 }
 
 /// The window's last pieces over the rest: the close button, which glows under the pointer
-/// (#1595), and the "+" of `sheet`.
+/// (#1595), and the "+" of `sheet`'s list where it shows.
 fn finish(
     commands: &mut Commands,
     window: Entity,
@@ -1671,7 +1805,12 @@ fn finish(
         ))
         .id();
     commands.entity(window).add_child(close);
-    for &i in &sheet.pluses {
+    // The list's `+`, none while a panel takes the upper panel's place (`0x6AA7D2`).
+    let panel = matches!(
+        sheet.hover,
+        Hover::Block(Block::D | Block::E | Block::F | Block::G)
+    );
+    for &i in sheet.pluses.iter().filter(|_| !panel) {
         let plus = commands
             .spawn((piece(PLUS, plus_at(i)), Pickable::IGNORE))
             .id();
@@ -2013,6 +2152,31 @@ mod tests {
             Hover::Attribute(1)
         );
         assert_eq!(hover_at(Vec2::new(240.0, 86.0), &attributes), Hover::None);
+    }
+
+    #[test]
+    fn the_selected_arts_line_raises_its_totals_and_its_panel_its_kinds() {
+        // A weapon art's: each kind's ends `f·d + 0.5`, the kinds of no damage 0.5 each.
+        let weapon = art_values([[10.5, 18.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]], 0.0);
+        assert_eq!(weapon.line, (12, 20));
+        assert_eq!(
+            weapon.rows,
+            [Some((10, 18)), Some((0, 0)), Some((0, 0)), Some((0, 0))]
+        );
+        assert_eq!(weapon.total, Some((10, 18)));
+        assert!(weapon.icons);
+        // A spell's: its kinds of no damage `-`, its line half up.
+        let spell = art_values([[57.0, 57.0], [0.0; 2], [22.0, 22.0], [0.0; 2]], 0.0);
+        assert_eq!(spell.line, (79, 79));
+        assert_eq!(spell.rows, [Some((57, 57)), None, Some((22, 22)), None]);
+        assert_eq!(spell.shares, [255, 0, 98, 0]);
+        // No art: `0-0` on the line, `-` in the panel.
+        let none = art_values([[0.0; 2]; 4], 10.0);
+        assert_eq!((none.line, none.total), ((0, 0), None));
+        // The survival bonus: the line by half of it, the panel by half of it without the half.
+        let raised = art_values([[100.0, 100.0], [0.0; 2], [0.0; 2], [0.0; 2]], 20.0);
+        assert_eq!(raised.line, (110, 110));
+        assert_eq!(raised.rows[0], Some((110, 110)));
     }
 
     #[test]
