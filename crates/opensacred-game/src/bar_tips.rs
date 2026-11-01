@@ -6,7 +6,9 @@
 //! 9961 with the experience into the level and the level's span, six wide each, centred 24 left of
 //! the bar's corner (`0x6D7B80`).
 //!
-//! Not followed yet (#1594): the bonuses' "+", the horse's button and
+//! Since #1698 the column's "+" shows the hero's list of bonuses (`bonus_list`).
+//!
+//! Not followed yet (#1594): the horse's button and
 //! the mount's bar, and the disc's and the compass's texts; the weapon sets' items' tooltips are
 //! #1516's.
 
@@ -43,14 +45,20 @@ const EXPERIENCE: &str = "9961";
 const EXPERIENCE_LEFT: f32 = 24.0;
 
 /// A control whose tooltip the pointer rests on: a button of the bar by its index, a belt's slot,
-/// 1 to 5, a creature's health by its entry in the column, or the hero's experience.
+/// 1 to 5, a creature's health by its entry in the column, the hero's experience, or the column's
+/// "+" of the hero's bonuses (#1698).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Control {
     Button(usize),
     Belt(u8),
     Health(usize),
     Experience,
+    Bonuses,
 }
+
+/// The bonuses' list's place, its centre kept 16 pixels within the screen (`0x6D7B80`, the
+/// style 9).
+const BONUSES_AT: Vec2 = Vec2::new(16.0, 16.0);
 
 impl Control {
     /// The control as a number for the rest's timer.
@@ -61,6 +69,7 @@ impl Control {
             Self::Belt(slot) => 8 + u32::from(slot),
             Self::Health(k) => 16 + index(k),
             Self::Experience => 32,
+            Self::Bonuses => 33,
         }
     }
 }
@@ -81,6 +90,10 @@ fn bar_control(images: &UiImages, at: Vec2) -> Option<Control> {
 /// column's places at the window's right, of `entries` shown (the hero's first): the hero's
 /// experience bar, else an entry's ring or picture (`0x6D7B80`'s order).
 fn column_control(images: &UiImages, at: Vec2, entries: usize) -> Option<Control> {
+    let (plus, at_plus) = bar::BONUSES;
+    if Rect::from_corners(at_plus, at_plus + images.size(plus)).contains(at) {
+        return Some(Control::Bonuses);
+    }
     let (frame, corner) = bar::EXPERIENCE_FRAME;
     if Rect::from_corners(corner, corner + images.size(frame)).contains(at) {
         return Some(Control::Experience);
@@ -130,6 +143,7 @@ fn experience_line(text: &str, experience: &opensacred_rules::fight::Experience)
 /// Shows the tooltip of the control that the pointer rests on, and takes it away as it leaves.
 #[expect(
     clippy::too_many_arguments,
+    clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn tips(
@@ -140,6 +154,11 @@ fn tips(
     (entries, experience): (Option<Res<bar::Entries>>, Res<Experience>),
     bars: Query<(), With<bar::BarRoot>>,
     (heroes, healths): (Query<&Health, With<Body>>, Query<&Health>),
+    (holding, arts, data): (
+        Query<&crate::fight::Holding, With<Body>>,
+        Option<Res<crate::arts::HeroArts>>,
+        Option<Res<crate::game::Data>>,
+    ),
     tips: Query<Entity, With<TipRoot>>,
     mut rest: Local<Rest>,
     mut showing: Local<Option<Control>>,
@@ -209,8 +228,51 @@ fn tips(
                 Frame::Column,
             )
         }
+        Control::Bonuses => {
+            let items = holding
+                .iter()
+                .next()
+                .map_or(&[][..], |holding| &holding.0.items[..]);
+            let list = opensacred_rules::fight::listed_bonuses(items);
+            let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
+            let art = |id: u32| {
+                let arts = arts.as_deref()?;
+                let id = u16::try_from(id).ok()?;
+                let name = arts
+                    .tables
+                    .spells
+                    .iter()
+                    .find(|spell| spell.id == id)
+                    .map(|spell| spell.name)
+                    .or_else(|| {
+                        arts.tables
+                            .weapon_arts
+                            .iter()
+                            .find(|art| art.id == id)
+                            .map(|art| art.name)
+                    })?;
+                texts?.id(name).map(str::to_owned)
+            };
+            let words = crate::bonus_list::Words {
+                text: &text,
+                art: &art,
+            };
+            let balance = data
+                .as_deref()
+                .and_then(|data| data.0.tables.balance().ok());
+            let chances = balance.map_or(&[][..], |balance| &balance.effect_chances[..]);
+            let list = crate::bonus_list::text(&list, &words, chances);
+            if list.is_empty() {
+                return;
+            }
+            (list, BONUSES_AT, Frame::Screen)
+        }
     };
-    spawn_tip_in(&mut commands, &assets, (&text, centre), frame);
+    let panel = spawn_tip_in(&mut commands, &assets, (&text, centre), frame);
+    // The bonuses' list's style 9 has the border that the bar's `0x209` leaves out (seen).
+    if control == Control::Bonuses {
+        crate::tooltip::add_border(&mut commands, (&images, &assets), panel);
+    }
     *showing = Some(control);
 }
 

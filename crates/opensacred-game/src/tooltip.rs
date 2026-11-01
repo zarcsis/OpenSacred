@@ -911,13 +911,14 @@ pub(crate) fn spawn_tip(commands: &mut Commands, assets: &AssetServer, text: &st
     spawn_tip_in(commands, assets, (text, centre), Frame::Screen);
 }
 
-/// [`spawn_tip`] in the frame `frame`, the text's colours' tags ([`coloured`]) followed.
+/// [`spawn_tip`] in the frame `frame`, the text's colours' tags ([`coloured`]) followed: its
+/// panel, to which a style without the bit `0x200` adds the border ([`add_border`]).
 pub(crate) fn spawn_tip_in(
     commands: &mut Commands,
     assets: &AssetServer,
     (text, centre): (&str, Vec2),
     frame: Frame,
-) {
+) -> Entity {
     let font = TextFont {
         font: assets.load(FONT).into(),
         font_size: FontSize::Px(FONT_SIZE),
@@ -988,6 +989,7 @@ pub(crate) fn spawn_tip_in(
             .id(),
     };
     commands.entity(root).add_child(panel);
+    panel
 }
 
 /// The width that the original's tooltip measures a space at (**estimate**).

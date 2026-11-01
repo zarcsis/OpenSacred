@@ -1188,6 +1188,55 @@ pub const BONUSES: usize = 8;
 /// How many sockets an item's record has.
 pub const SOCKETS: usize = 8;
 
+/// An entry of the hero's list of bonuses, which the column's "+" shows (#1698): a condition, an
+/// effect word and the values of the items' slots of them summed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Listed {
+    pub condition: u16,
+    pub effect: u32,
+    pub value: f32,
+}
+
+/// The hero's list of bonuses of the items `items` (`0x5796A0` at `0x57A42D`, sorted by
+/// `0x55E5E0`): each bonus slot's value added to the entry of its condition and effect word, else
+/// a new entry, the conditions of the effects 801 to 804 without their bits 13 and 14; the entries
+/// of the effect 0 left out, the rest by their effects, 800 to 999 first, then those from 1000,
+/// 600 to 799 and those below 200 (the effect's key 1800 more below 600, then 800 more below 800).
+pub fn listed_bonuses(items: &[ItemValues]) -> Vec<Listed> {
+    let mut list: Vec<Listed> = Vec::new();
+    for bonus in items.iter().flat_map(|item| item.bonuses) {
+        let condition = if (801..=804).contains(&(bonus.effect & 0xFFFF)) {
+            bonus.condition & !0x6000
+        } else {
+            bonus.condition
+        };
+        let value = f32::from(bonus.value);
+        match list
+            .iter_mut()
+            .find(|listed| listed.condition == condition && listed.effect == bonus.effect)
+        {
+            Some(listed) => listed.value += value,
+            None => list.push(Listed {
+                condition,
+                effect: bonus.effect,
+                value,
+            }),
+        }
+    }
+    list.retain(|listed| listed.effect & 0xFFFF != 0);
+    list.sort_by_key(|listed| {
+        let mut key = listed.effect & 0xFFFF;
+        if key < 600 {
+            key += 1800;
+        }
+        if key < 800 {
+            key += 800;
+        }
+        key
+    });
+    list
+}
+
 /// A bonus slot of an item's record (docs/re/items.md): its condition word (`+0x3A`), its effect
 /// (`+0x4A`, the effect in the low 16 bits, the attribute that scales it in byte 2) and its value
 /// (`+0x6A`).
@@ -4831,6 +4880,33 @@ mod tests {
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
+    }
+
+    #[test]
+    fn the_heros_bonuses_are_summed_by_condition_and_effect_and_sorted() {
+        let bonus = |condition, effect, value| Bonus {
+            condition,
+            effect,
+            value,
+        };
+        let mut sword = ItemValues::default();
+        sword.bonuses[0] = bonus(0, 1071, 1);
+        sword.bonuses[1] = bonus(0x2000, 801, 10);
+        sword.bonuses[2] = bonus(0, 816, 3);
+        let mut ring = ItemValues::default();
+        ring.bonuses[0] = bonus(0, 816, 2);
+        ring.bonuses[1] = bonus(0, 801, 5);
+        ring.bonuses[2] = bonus(0, 650, 4);
+        let listed: Vec<(u16, u32, f32)> = listed_bonuses(&[sword, ring])
+            .iter()
+            .map(|l| (l.condition, l.effect, l.value))
+            .collect();
+        // The 801s alike without the bit 13, the 816s summed; 800 to 999, then the arts, then
+        // 600 to 799.
+        assert_eq!(
+            listed,
+            [(0, 801, 15.0), (0, 816, 5.0), (0, 1071, 1.0), (0, 650, 4.0)]
+        );
     }
 
     #[test]
