@@ -20,6 +20,7 @@ mod bar;
 mod beams;
 mod belt;
 mod benchmark;
+mod blacksmith;
 mod blast;
 mod blended;
 mod bolts;
@@ -363,6 +364,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         bevy_kira_audio::AudioPlugin,
     ))
     .add_plugins((
+        blacksmith::BlacksmithPlugin,
         blast::BlastPlugin,
         blended::BlendedPlugin,
         bolts::BoltsPlugin,

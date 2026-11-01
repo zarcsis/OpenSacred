@@ -94,11 +94,12 @@ const SHOWS: [i32; 4] = [0, 1, 2, 3];
 struct Notice(f32);
 
 /// What a talk opens (`0x52AB70`): the creature's dialogue by its function's name, or, for a
-/// trader without one (its number below 1 or above 200,000), a merchant's or a combat master's
-/// window.
+/// trader without one (its number below 1 or above 200,000), a smith's, a merchant's or a combat
+/// master's window.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Speech {
     Dialogue(String),
+    Smith,
     Merchant,
     Master,
 }
@@ -107,6 +108,7 @@ impl std::fmt::Display for Speech {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Dialogue(dialogue) => f.write_str(dialogue),
+            Self::Smith => f.write_str("the smith's window"),
             Self::Merchant => f.write_str("the merchant's window"),
             Self::Master => f.write_str("the combat master's window"),
         }
@@ -114,9 +116,10 @@ impl std::fmt::Display for Speech {
 }
 
 /// What the creature of `talk`, `mind` and `trades` opens as the hero speaks to it, of `npcs`:
-/// its dialogue ([`dialogue_of`]), else the merchant's window where it is a merchant (`+0x200`
-/// bit `0x2000`, `quests::MERCHANT`, #1618), else the master's window where it is a combat master
-/// (bit `0x4000`, `quests::WIZARD`); the smiths' window is not followed.
+/// its dialogue ([`dialogue_of`]), else the smith's window where it is a smith (`+0x200` bit
+/// `0x1000`, `quests::SMITH`, #1662), else the merchant's window where it is a merchant (bit
+/// `0x2000`, `quests::MERCHANT`, #1618), else the master's window where it is a combat master
+/// (bit `0x4000`, `quests::WIZARD`).
 pub(crate) fn speech_of(
     talk: Option<&Talk>,
     mind: &Mind,
@@ -127,7 +130,9 @@ pub(crate) fn speech_of(
         .map(Speech::Dialogue)
         .or_else(|| {
             let trades = trades.map_or(0, |trades| trades.0);
-            if trades & opensacred_rules::quests::MERCHANT != 0 {
+            if trades & opensacred_rules::quests::SMITH != 0 {
+                Some(Speech::Smith)
+            } else if trades & opensacred_rules::quests::MERCHANT != 0 {
                 Some(Speech::Merchant)
             } else if trades & opensacred_rules::quests::WIZARD != 0 {
                 Some(Speech::Master)
@@ -407,8 +412,14 @@ fn approach(
             Speech::Dialogue(dialogue) => {
                 commands.queue(move |world: &mut World| open(world, hero, creature, &dialogue));
             }
-            // A merchant or a master shows its window beside the inventory, and the talk ends
-            // at once (`0x52AB70`).
+            // A smith, a merchant or a master shows its window beside the inventory, and the
+            // talk ends at once (`0x52AB70`).
+            Speech::Smith => {
+                commands.queue(move |world: &mut World| {
+                    crate::blacksmith::open(world, creature);
+                    end(world, hero, creature);
+                });
+            }
             Speech::Merchant => {
                 commands.queue(move |world: &mut World| {
                     crate::merchant::open(world, creature);
@@ -1147,7 +1158,7 @@ mod tests {
     fn a_trader_without_a_dialogue_opens_its_window() {
         let trader = Mind::new(Vec3::ZERO, 0, (false, true), None, [70.0, 180.0], (692, 3));
         let speech = |trades| speech_of(None, &trader, Some(&Trades(trades)), None);
-        // The merchant's bit before the master's (`0x52AB70`); a smith's opens nothing here.
+        // The smith's bit before the merchant's, the merchant's before the master's (`0x52AB70`).
         assert_eq!(
             speech(opensacred_rules::quests::MERCHANT),
             Some(Speech::Merchant)
@@ -1160,7 +1171,11 @@ mod tests {
             speech(opensacred_rules::quests::WIZARD),
             Some(Speech::Master)
         );
-        assert_eq!(speech(opensacred_rules::quests::SMITH), None);
+        assert_eq!(speech(opensacred_rules::quests::SMITH), Some(Speech::Smith));
+        assert_eq!(
+            speech(opensacred_rules::quests::SMITH | opensacred_rules::quests::MERCHANT),
+            Some(Speech::Smith)
+        );
         // A dialogue goes first.
         let own = Talk("auftrag10".into());
         assert_eq!(

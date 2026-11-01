@@ -35,7 +35,7 @@ use crate::{attack, hero, paths, pick, sfx};
 
 /// The render layer of the held item's model, and how high its picture lies over the interface.
 const HELD: usize = 11;
-const OVER_ALL: i32 = 1_000;
+pub(crate) const OVER_ALL: i32 = 1_000;
 
 /// The held item's camera, light and picture.
 #[derive(Component)]
@@ -104,6 +104,13 @@ fn click(
         }
         return;
     };
+    // An upgrade (the cursor's kind 5) is no item that the grid takes (#1662).
+    if tables
+        .as_deref()
+        .is_some_and(|tables| crate::blacksmith::holds_upgrade(&pack, tables))
+    {
+        return;
+    }
     let put = pack.put_held(held_at((at.x, at.y), held.size));
     debug!("held: {} put at {cell:?}: {put:?}", held.dropped.item);
     if put == Put::Placed {
@@ -147,6 +154,10 @@ fn show(
     let (Some(held), Some(tables), Some(window)) = (pack.held.as_ref(), tables, window) else {
         return;
     };
+    // An upgrade shows its button's picture (`blacksmith`, the cursor's kind 5).
+    if crate::blacksmith::holds_upgrade(&pack, &tables) {
+        return;
+    }
     let Some((model, texture, pose)) = tables.look(held.dropped.item) else {
         return;
     };
@@ -289,6 +300,10 @@ fn drop_held(
     let (Some(tables), Some((transform, body))) = (tables, heroes.iter().next()) else {
         return;
     };
+    // An upgrade (the cursor's kind 5) is no item to drop (#1662).
+    if crate::blacksmith::holds_upgrade(&pack, &tables) {
+        return;
+    }
     buttons.reset(MouseButton::Left);
     let here = transform.translation;
     let level = body.level();
