@@ -135,7 +135,9 @@ Read 2026-10-30 (#1462), **confirmed** by code unless marked otherwise.
 ### Draw order (`0x6E3D10`)
 
 1. The disc and its alpha ring.
-2. The rail's pieces (`+0x248` list).
+2. The rail's pieces (`+0x248` list), in the order `0x6E01F0` makes them: the left end, the left middle pieces, the right end, the right middle pieces, so that the first right middle piece lies over the right end where it overlaps it by 36 pixels.
+   The `rand()` that chooses each middle piece is the C runtime's, seeded with the time at the start (`initApp`, `cEngine`'s constructor), so the rail differs from game to game (read 2026-10-31, #1642).
+   Every arrangement meets whole: at each joint every piece's tube lies on the rows −2 to 7 about its first anchor's y, which is the bar's line at 756 (measured on the atlas).
 3. The right slots (icons, burn, rings).
 4. The left slots (backgrounds, rings, item models, damage icons).
 5. A control at `+0x160` (not read).
@@ -231,7 +233,7 @@ Done by 2026-10-28: items 1 to 3, the sets' keys and slots of item 4 (#1348), an
 `bar` lays the bar and the hero's entry of the column out from the interface's images' table (`tables/ui_images.ron`, #1160) at the places above, in the interface's units of the 768-pixel-high screen (`hud`, `UiScale`), the bar centred along the bottom of a wider window and the column at its right edge (#1087):
 
 - the disc of day and night turned by the clock, its rings sampled without their smaller levels so that the runes stay sharp as the ellipse shrinks them (the original's textures have one level);
-- the rail's ends and middle pieces for the slots a side, its middle pieces chosen at random once as the slots are made;
+- the rail's ends and middle pieces for the slots a side, its middle pieces chosen at random once as the slots are made, composed in the original's order at 1:1 from `GUI_main_03`'s texels into one picture that the interface scales as a whole, so that the joints meet texel to texel as on the original's screen at any window's size (#1642);
 - the slots, 1 to 5 a side by the hero's level: the weapon sets' at the left, the first selected, and the arts' at the right, the first holding the selected art (`making::Selected`) split by its regeneration, vivid when ready;
 - the housing, the five buttons in their lit images, and the belt's five empty flasks;
 - the health's ring split by the hero's health, the portrait by its type over the ring, the bonuses' "+", and the experience's bar filled by the experience into the level;

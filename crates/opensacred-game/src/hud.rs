@@ -108,7 +108,7 @@ const GLOW_ALPHA: f32 = 8.0 / 255.0;
     clippy::cast_sign_loss,
     reason = "the share is held to 0..=1 first"
 )]
-fn byte(share: f32) -> u8 {
+pub(crate) fn byte(share: f32) -> u8 {
     (share.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 

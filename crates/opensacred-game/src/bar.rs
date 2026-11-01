@@ -24,9 +24,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
+use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use opensacred_data::tables::{UI_IMAGES, UiImage};
+use opensacred_data::texture;
+use opensacred_rules::spawning::Rng;
 
 use crate::ai::Mind;
 use crate::arts::HeroArts;
@@ -138,11 +142,14 @@ fn crisp(assets: &AssetServer, path: String) -> Handle<Image> {
         .load(path)
 }
 
-/// The interface's images (`tables/ui_images.ron`) and their textures' files by their names.
+/// The interface's images (`tables/ui_images.ron`) and their textures' files by their names, and
+/// the texels of the rail's pieces' texture, which [`rebuild`] composes the rail from; none where
+/// its file is not of 8-bit texels (it is, as its alpha is not all 255, docs/02 §12.2).
 #[derive(Resource, Default)]
 pub struct UiImages {
     images: Vec<UiImage>,
     files: HashMap<String, String>,
+    rail_texels: Option<texture::Rgba>,
 }
 
 impl UiImages {
@@ -180,12 +187,22 @@ impl UiImages {
         names.sort_unstable();
         names.dedup();
         let found = hud::find_textures(assets, &names);
-        let files = names
+        let files: HashMap<String, String> = names
             .into_iter()
             .zip(found)
             .filter_map(|(name, file)| Some((name.to_owned(), file?)))
             .collect();
-        Ok(Self { images, files })
+        let rail_texels = usize::try_from(RAIL_LEFT.0)
+            .ok()
+            .and_then(|index| images.get(index))
+            .and_then(|image| files.get(&image.texture))
+            .and_then(|file| crate::files::read(assets.join(file)).ok())
+            .and_then(|data| texture::read(&data).ok());
+        Ok(Self {
+            images,
+            files,
+            rail_texels,
+        })
     }
 
     /// The file of the texture `name`, one of those found beside the images'.
@@ -475,8 +492,8 @@ pub(crate) fn spawn(
 /// The slots and the rail for the hero's level, made again only as a side's count changes
 /// (`0x6DFD60`, `0x6E0070`, `0x6E01F0`): the left's weapon sets, the selected one's orb and ring,
 /// and the right's art slots, the first holding the selected art; the rail's ends at their places
-/// and the middle pieces between, each chosen at random once. A set's choice changes its orbs
-/// alone ([`set_orbs`]).
+/// and the middle pieces between, each chosen at random once ([`rail_pieces`]), composed into one
+/// picture ([`compose`]). A set's choice changes its orbs alone ([`set_orbs`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -486,11 +503,11 @@ fn rebuild(
     mut shown: ResMut<Shown>,
     experience: Res<Experience>,
     images: Res<UiImages>,
-    assets: Res<AssetServer>,
+    (assets, mut targets): (Res<AssetServer>, ResMut<Assets<Image>>),
     bars: Query<Entity, With<BarRoot>>,
     pieces: Query<Entity, With<SlotPiece>>,
     sets: Option<Res<crate::sets::WeaponSets>>,
-    mut dice: Local<Option<opensacred_rules::spawning::Rng>>,
+    mut dice: Local<Option<Rng>>,
 ) {
     let Ok(bar) = bars.single() else {
         return;
@@ -505,7 +522,7 @@ fn rebuild(
     for entity in &pieces {
         commands.entity(entity).despawn();
     }
-    let dice = dice.get_or_insert_with(|| opensacred_rules::spawning::Rng::of(0, 0, 1087));
+    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1087));
     let mut add = |bundle: (ImageNode, Node), marker: Option<(usize, u8)>, z: i32| {
         let mut entity = commands.spawn((SlotPiece, bundle));
         match marker {
@@ -529,28 +546,24 @@ fn rebuild(
     };
     let image = |index: u32, at: Vec2| piece(&images, &assets, index, at, BAR.min);
     let count = i16::try_from(n).unwrap_or(1);
-    let n = f32::from(count);
-    // The rail: the left end, its middle pieces to x 397; the right end, its middle pieces from
-    // x 570 + 64n − 64 leftwards while x passes 532.
-    let left_end = Vec2::new(362.0 - 66.0 * n, RAIL_LEFT.1);
-    add(image(RAIL_LEFT.0, left_end), None, 0);
-    let mut x = left_end.x + images.size(RAIL_LEFT.0).x;
-    while x < 397.0 {
-        let (index, y) = RAIL_LEFT_MIDDLE[usize::from(dice.below(2) == 1)];
-        add(image(index, Vec2::new(x, y)), None, 0);
-        x += images.size(index).x.max(1.0);
+    // The rail as one picture composed at 1:1, else piece by piece.
+    let rail = rail_pieces(&images, f32::from(count), dice);
+    match images
+        .rail_texels
+        .as_ref()
+        .and_then(|texels| compose(&images, texels, &rail))
+        .and_then(|(rect, texels)| Some((rect, rail_image(texels)?)))
+    {
+        Some((rect, picture)) => {
+            let picture = ImageNode::new(targets.add(picture));
+            add((picture, placed(rect.min - BAR.min, rect.size())), None, 0);
+        }
+        None => {
+            for (index, at) in rail {
+                add(image(index, at), None, 0);
+            }
+        }
     }
-    let mut x = 570.0 + 64.0 * n - 64.0;
-    while x > 532.0 {
-        let (index, y) = RAIL_RIGHT_MIDDLE[usize::from(dice.below(2) == 1)];
-        add(image(index, Vec2::new(x, y)), None, 0);
-        x -= images.size(index).x.max(1.0);
-    }
-    add(
-        image(RAIL_RIGHT.0, Vec2::new(570.0 + 64.0 * n, RAIL_RIGHT.1)),
-        None,
-        0,
-    );
     // The art slots at the right, each its art's icon and its ring set at each frame
     // (`art_icon`).
     for i in 0..count {
@@ -582,6 +595,127 @@ fn rebuild(
         commands.entity(orb).insert(SetOrb(set));
         commands.entity(ring).insert(SetRing(set));
     }
+}
+
+/// The rail's pieces for `n` slots a side, each an image at its place, in the original's order of
+/// drawing (`0x6E01F0`, its list `+0x248`): the left end, its middle pieces to x 397; the right end,
+/// its middle pieces from x 570 + 64n − 64 leftwards while x passes 532, the first of them over the
+/// end; each middle piece one of its two by a roll of `dice`.
+fn rail_pieces(images: &UiImages, n: f32, dice: &mut Rng) -> Vec<(u32, Vec2)> {
+    let left_end = Vec2::new(362.0 - 66.0 * n, RAIL_LEFT.1);
+    let mut pieces = vec![(RAIL_LEFT.0, left_end)];
+    let mut x = left_end.x + images.size(RAIL_LEFT.0).x;
+    while x < 397.0 {
+        let (index, y) = RAIL_LEFT_MIDDLE[usize::from(dice.below(2) == 1)];
+        pieces.push((index, Vec2::new(x, y)));
+        x += images.size(index).x.max(1.0);
+    }
+    pieces.push((RAIL_RIGHT.0, Vec2::new(570.0 + 64.0 * n, RAIL_RIGHT.1)));
+    let mut x = 570.0 + 64.0 * n - 64.0;
+    while x > 532.0 {
+        let (index, y) = RAIL_RIGHT_MIDDLE[usize::from(dice.below(2) == 1)];
+        pieces.push((index, Vec2::new(x, y)));
+        x -= images.size(index).x.max(1.0);
+    }
+    pieces
+}
+
+/// The rail of `pieces` composed at 1:1 from `texels`, the texture of their parts, each over those
+/// before it as the original draws them one after another, so that their joints meet texel to
+/// texel however the interface then scales the whole (#1642): its rectangle on the screen and its
+/// texels; none where a piece is not a straight part of that texture.
+fn compose(
+    images: &UiImages,
+    texels: &texture::Rgba,
+    pieces: &[(u32, Vec2)],
+) -> Option<(Rect, texture::Rgba)> {
+    let image = |index: u32| images.images.get(usize::try_from(index).ok()?);
+    let name = &image(pieces.first()?.0)?.texture;
+    let parts = pieces
+        .iter()
+        .map(|&(index, at)| {
+            let image = image(index)?;
+            let [x, y, w, h] = image.rect;
+            (image.texture == *name
+                && image.turned == [false; 2]
+                && usize::from(x) + usize::from(w) <= texels.width
+                && usize::from(y) + usize::from(h) <= texels.height)
+                .then_some((image.rect, at))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let rect = parts.iter().fold(Rect::EMPTY, |rect, &([.., w, h], at)| {
+        rect.union(Rect::from_corners(
+            at,
+            at + Vec2::new(f32::from(w), f32::from(h)),
+        ))
+    });
+    let (width, height) = (whole(rect.width()), whole(rect.height()));
+    let mut composed = vec![0; width * height * 4];
+    for ([x, y, w, h], at) in parts {
+        let (left, top) = (whole(at.x - rect.min.x), whole(at.y - rect.min.y));
+        for row in 0..usize::from(h) {
+            for column in 0..usize::from(w) {
+                let from = ((usize::from(y) + row) * texels.width + usize::from(x) + column) * 4;
+                let to = ((top + row) * width + left + column) * 4;
+                over(
+                    composed.get_mut(to..to + 4)?,
+                    texels.pixels.get(from..from + 4)?,
+                );
+            }
+        }
+    }
+    Some((
+        rect,
+        texture::Rgba {
+            width,
+            height,
+            pixels: composed,
+        },
+    ))
+}
+
+/// A whole number of the original's pixels held as a float, from 0, as a count.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "whole pixels of the 1024 × 768 screen, held to 0 and up first"
+)]
+fn whole(pixels: f32) -> usize {
+    pixels.max(0.0).round() as usize
+}
+
+/// The texel `top` laid over the texel `under`, both of straight alpha, as the original blends a
+/// piece onto the screen.
+fn over(under: &mut [u8], top: &[u8]) {
+    let share = |byte: u8| f32::from(byte) / 255.0;
+    let (alpha_top, alpha_under) = (share(top[3]), share(under[3]));
+    let alpha = alpha_top + alpha_under * (1.0 - alpha_top);
+    for c in 0..3 {
+        under[c] = if alpha > 0.0 {
+            hud::byte(
+                (share(top[c]) * alpha_top + share(under[c]) * alpha_under * (1.0 - alpha_top))
+                    / alpha,
+            )
+        } else {
+            top[c]
+        };
+    }
+    under[3] = hud::byte(alpha);
+}
+
+/// The composed rail as an image read as stored, as the interface's images are ([`hud::image`]).
+fn rail_image(rail: texture::Rgba) -> Option<Image> {
+    Some(Image::new(
+        Extent3d {
+            width: u32::try_from(rail.width).ok()?,
+            height: u32::try_from(rail.height).ok()?,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        rail.pixels,
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    ))
 }
 
 /// The weapon sets' orbs and rings as the selected set changes (`0x6E1690`): the selected one's
@@ -1097,6 +1231,7 @@ mod tests {
                 })
                 .collect(),
             files: HashMap::from([("gui".to_owned(), "gui.png".to_owned())]),
+            rail_texels: None,
         };
         let mut experience = Experience::default();
         experience.0.level = 2;
@@ -1158,6 +1293,122 @@ mod tests {
                 .count(),
             4
         );
+    }
+
+    /// A table of twelve images, `parts` of their textures at their parts by their indices, the
+    /// others a texel of "gui".
+    fn table(parts: &[(u32, &str, [u16; 4])]) -> UiImages {
+        let image = |texture: &str, rect: [u16; 4]| UiImage {
+            texture: texture.to_owned(),
+            rect,
+            turned: [false; 2],
+            anchors: [0; 4],
+        };
+        let mut images = vec![image("gui", [0, 0, 1, 1]); 12];
+        for &(index, texture, rect) in parts {
+            images[usize::try_from(index).unwrap()] = image(texture, rect);
+        }
+        let files = ["gui", "rail", "other"]
+            .map(|name| (name.to_owned(), format!("{name}.png")))
+            .into();
+        UiImages {
+            images,
+            files,
+            rail_texels: None,
+        }
+    }
+
+    #[test]
+    fn the_rail_is_laid_in_the_originals_order() {
+        let images = table(&[
+            (5, "rail", [0, 56, 103, 20]),
+            (6, "rail", [0, 76, 100, 18]),
+            (7, "rail", [0, 94, 100, 17]),
+            (8, "rail", [0, 111, 105, 20]),
+            (9, "rail", [0, 131, 100, 19]),
+            (10, "rail", [0, 150, 100, 19]),
+        ]);
+        let laid = |n: f32| rail_pieces(&images, n, &mut Rng::of(0, 0, 1087));
+        // The middle pieces by the first of their two, and their places along.
+        let along = |pieces: &[(u32, Vec2)]| {
+            pieces
+                .iter()
+                .map(|&(index, at)| {
+                    (
+                        if matches!(index, 7 | 10) {
+                            index - 1
+                        } else {
+                            index
+                        },
+                        at.x,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        // One slot a side: no left middle piece, and one right at x 570 (docs/re/interface.md).
+        assert_eq!(along(&laid(1.0)), [(5, 296.0), (8, 634.0), (9, 570.0)]);
+        // The ends first on each side, the right's middle pieces leftwards from 64 before it.
+        assert_eq!(
+            along(&laid(2.0)),
+            [(5, 230.0), (6, 333.0), (8, 698.0), (9, 634.0), (9, 534.0)]
+        );
+        // Every piece's bottom on the screen's row 767, its tube on the rows of the others.
+        for n in 1..=5_u8 {
+            for (index, at) in laid(f32::from(n)) {
+                assert!((at.y + images.size(index).y - 767.0).abs() < 1e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn the_rails_pieces_are_composed_texel_to_texel_each_over_those_before() {
+        // A texture of two red texels, then a transparent one and a blue one.
+        let texels = texture::Rgba {
+            width: 4,
+            height: 1,
+            pixels: [[255, 0, 0, 255], [255, 0, 0, 255], [0; 4], [0, 0, 255, 255]].concat(),
+        };
+        let images = table(&[
+            (5, "rail", [0, 0, 2, 1]),
+            (6, "rail", [2, 0, 2, 1]),
+            (8, "other", [0, 0, 1, 1]),
+        ]);
+        let red = [255, 0, 0, 255];
+        let blue = [0, 0, 255, 255];
+        // The second piece's transparent texel over the first's red leaves it.
+        let (rect, rail) = compose(
+            &images,
+            &texels,
+            &[(5, Vec2::new(10.0, 747.0)), (6, Vec2::new(11.0, 747.0))],
+        )
+        .unwrap();
+        assert_eq!(rect, Rect::new(10.0, 747.0, 13.0, 748.0));
+        assert_eq!((rail.width, rail.height), (3, 1));
+        assert_eq!(rail.pixels, [red, red, blue].concat());
+        // A later piece covers an earlier one where its texels are opaque.
+        let (_, rail) = compose(
+            &images,
+            &texels,
+            &[(6, Vec2::new(11.0, 747.0)), (5, Vec2::new(11.0, 747.0))],
+        )
+        .unwrap();
+        assert_eq!(rail.pixels, [red, red].concat());
+        // A piece one row lower makes the rail taller, transparent where nothing lies.
+        let (rect, rail) = compose(
+            &images,
+            &texels,
+            &[(5, Vec2::new(10.0, 747.0)), (5, Vec2::new(12.0, 748.0))],
+        )
+        .unwrap();
+        assert_eq!(rect, Rect::new(10.0, 747.0, 14.0, 749.0));
+        assert_eq!(
+            rail.pixels,
+            [red, red, [0; 4], [0; 4], [0; 4], [0; 4], red, red].concat()
+        );
+        // A piece of another texture, or a part off the texture, is not composed.
+        assert!(compose(&images, &texels, &[(5, Vec2::ZERO), (8, Vec2::ZERO)]).is_none());
+        let off = table(&[(5, "rail", [3, 0, 2, 1])]);
+        assert!(compose(&off, &texels, &[(5, Vec2::ZERO)]).is_none());
     }
 
     #[test]
