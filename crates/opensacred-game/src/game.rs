@@ -646,7 +646,7 @@ fn load(
     hero.blade = npcs.hero_blade(&worn);
     hero.held = held;
     let base = fight::Base::of(&record);
-    let skills = fight::skills(&base, fight::HERO_LEVEL, true);
+    let skills = fight::hero_skills(&base, fight::HERO_LEVEL, &holding.0.items);
     // Its template's combat arts that no rune taught, with their records' times shortened by its
     // skills (#506, #507).
     let arts = arts::HeroArts::new_game(

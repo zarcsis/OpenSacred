@@ -1623,6 +1623,70 @@ pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
         .collect()
 }
 
+/// The bonuses of the items `items` to the skills of `base`'s slots at level `level` (the stats'
+/// `+0x34 + i`, cleared as the recomputation starts, `0x5796A0` at `0x57AC6E`): each bonus that
+/// holds for the creature, its value grown by its attribute and truncated, an effect `e` of 600
+/// to 798 to the first slot that holds the skill `e − 599` (`0x5824A0(slot, v, 0)`), the effect
+/// 849 to every slot; each held within 0 and 255.
+pub fn skill_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> [u8; 8] {
+    let level = level.max(1);
+    let attributes = base.attributes.map(u32::from);
+    let grown: [u32; 6] = std::array::from_fn(|i| {
+        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
+    });
+    let mut sums = [0_i64; 8];
+    for bonus in items
+        .iter()
+        .flat_map(|item| item.bonuses)
+        .filter(|bonus| bonus.holds(base.id))
+    {
+        let value = i64::from(whole_signed(bonus.value(grown)));
+        match bonus.effect & 0xFFFF {
+            effect @ 600..=798 => {
+                let skill = u8::try_from(effect - 599).unwrap_or(0);
+                if let Some(slot) = base.skills.iter().position(|&held| held == skill) {
+                    sums[slot] += value;
+                }
+            }
+            849 => {
+                for sum in &mut sums {
+                    *sum += value;
+                }
+            }
+            _ => {}
+        }
+    }
+    sums.map(|sum| u8::try_from(sum.clamp(0, 255)).unwrap_or(0))
+}
+
+/// A value truncated toward zero into an `i32`, as the client's `__ftol` stores a bonus.
+fn whole_signed(value: f32) -> i32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a bonus's value, far within the integers' range"
+    )]
+    let whole = value.trunc() as i32;
+    whole
+}
+
+/// [`skills`] of a hero who holds and wears the items `items`, each skill at its base level and
+/// its items' bonus ([`skill_bonuses`]), as the skills' parts of the recomputation and the
+/// statistics window take them (`0x566070`, `0x582450`), at most 255.
+pub fn hero_skills(base: &Base, level: u32, items: &[ItemValues]) -> Vec<(u8, u32)> {
+    let bonuses = skill_bonuses(base, level, items);
+    skills(base, level, true)
+        .into_iter()
+        .map(|(skill, at)| {
+            let bonus = base
+                .skills
+                .iter()
+                .position(|&held| held == skill)
+                .map_or(0, |slot| u32::from(bonuses[slot]));
+            (skill, (at + bonus).min(255))
+        })
+        .collect()
+}
+
 /// A skill's per cent at level `level` (`0x566070`), of the balance's triple `[off, S, w]`:
 /// `off` at level 1, `w` at level `S + 1`, `off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`; none
 /// below level 1. The world's x87 unit computes it at 53 bits and stores it as a float (#589,
@@ -4775,6 +4839,38 @@ mod tests {
         assert!(experience.add(level_end(3) - experience.points, &rules));
         assert!(unlearnt.add(level_end(3) - unlearnt.points, &rules));
         assert_eq!((experience.skill_points, unlearnt.skill_points), (5, 5));
+    }
+
+    #[test]
+    fn the_items_bonuses_raise_the_skills_they_name_and_849_every_one() {
+        // The Seraphim's Magic Lore (14) and Weapon Lore (2).
+        let mut base = Base::of(&recordless(1));
+        base.skills = [14, 2, 0, 0, 0, 0, 0, 0];
+        base.attributes = [20, 20, 20, 20, 20, 20];
+        let item = |bonuses: &[(u16, u32, i16)]| {
+            let mut values = ItemValues::default();
+            for (slot, &(condition, effect, value)) in values.bonuses.iter_mut().zip(bonuses) {
+                *slot = Bonus {
+                    condition,
+                    effect,
+                    value,
+                };
+            }
+            values
+        };
+        let items = [
+            // Magic Lore +2, a skill not held, and every skill +1.
+            item(&[(0, 613, 2), (0, 620, 5), (0, 849, 1)]),
+            // Weapon Lore +3 for another class does not hold.
+            item(&[(0x0200, 601, 3)]),
+            // Weapon Lore by 10 % of the attribute 1 (`a0` grown to 20 + 2 at level 2): 2.
+            item(&[(0, 601 | 1 << 16, 10)]),
+        ];
+        assert_eq!(skill_bonuses(&base, 2, &items), [3, 3, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(hero_skills(&base, 2, &items), [(14, 4), (2, 4)]);
+        // A loss is held at 0.
+        let cursed = [item(&[(0, 613, -5)])];
+        assert_eq!(hero_skills(&base, 2, &cursed), [(14, 1), (2, 1)]);
     }
 
     #[test]

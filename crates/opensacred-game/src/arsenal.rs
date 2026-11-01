@@ -227,7 +227,7 @@ fn wear(
         }
     }
     let level = experience.level;
-    let skills = fight::skills(base, level, true);
+    let skills = fight::hero_skills(base, level, &holds.items);
     let list = effects.list();
     *combat = Combat(combat_with(
         base,

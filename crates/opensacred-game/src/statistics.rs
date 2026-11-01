@@ -11,8 +11,10 @@
 //! learning mode's list of the skills to learn, one of which a "+" learns; and a hovered skill's,
 //! skill to learn's or attribute's description in the lower panel's place (#1714).
 //!
+//! The skills' levels take their items' bonuses (#1717), blue where they raise one.
+//!
 //! Not followed yet: the combat arts' damage, a skill's level's effects (#1715), the bonus of a
-//! set's pieces in the survival bonus, the items' bonuses of the skills, the player's own name,
+//! set's pieces in the survival bonus, the sets' bonuses of the skills, the player's own name,
 //! and the window's following a follower's portrait. A click on the gold's line drops gold
 //! (#1665).
 
@@ -924,18 +926,21 @@ fn sheet(
     name: &str,
     experience: &opensacred_rules::fight::Experience,
     (base, combat, health): (&Base, &Combat, &Health),
-    pack: &Pack,
+    (pack, items): (&Pack, &[opensacred_rules::fight::ItemValues]),
     (foe, minutes): (Option<Foe>, u32),
     (attributes, learning): (bool, bool),
 ) -> Sheet {
     let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
     let skill_name = |id: u8| text(&(9399 + u32::from(id)).to_string());
     let level = experience.level;
-    // The skills by their slots at their base levels (the items' bonuses are not kept yet).
+    // The skills by their slots, each at its base level and its items' bonus (#1717), its base
+    // kept for its colour.
     let held = opensacred_rules::fight::skills(base, level, true);
+    let totals = opensacred_rules::fight::hero_skills(base, level, items);
     let skills: Vec<(String, u32, u32)> = held
         .iter()
-        .map(|&(id, at)| (skill_name(id), at, at))
+        .zip(&totals)
+        .map(|(&(id, at), &(_, total))| (skill_name(id), total, at))
         .collect();
     let candidate_ids = base.learnable_now();
     let candidates: Vec<String> = candidate_ids.iter().copied().map(skill_name).collect();
@@ -1095,7 +1100,7 @@ fn show(
         Res<Learning>,
         Res<crate::talk::Portraits>,
     ),
-    heroes: Query<(&Base, &Combat, &Health), With<Body>>,
+    heroes: Query<(&Base, &Combat, &Health, Option<&Holding>), With<Body>>,
     (pointer, ui_scale, screens): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     windows: Query<Entity, With<StatsWindow>>,
     mut last: Local<Option<Sheet>>,
@@ -1105,16 +1110,17 @@ fn show(
         .as_deref()
         .zip(heroes.iter().next())
         .filter(|_| on)
-        .map(|(texts, hero)| {
+        .map(|(texts, (base, combat, health, holding))| {
             // The hero's name, its class's by default (the player's own is not kept yet).
             let class = arts.as_deref().map_or(1, |arts| arts.kind);
             let name = texts.named(&class.to_string()).unwrap_or_default();
+            let items = holding.map_or(&[][..], |holding| &holding.0.items);
             sheet(
                 texts,
                 name,
                 &experience.0,
-                hero,
-                &pack,
+                (base, combat, health),
+                (&pack, items),
                 (foe.0, played.minutes()),
                 (attributes.0, learning.0),
             )
@@ -1594,8 +1600,8 @@ fn refit(
     (combat, regenerates, health): (&mut Combat, &mut Regenerates, &mut Health),
     (arts, hero): (Option<&mut HeroArts>, Option<&mut Hero>),
 ) {
-    let skills = opensacred_rules::fight::skills(base, level, true);
     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+    let skills = opensacred_rules::fight::hero_skills(base, level, &holds.items);
     let list = effects.map(Effects::list).unwrap_or_default();
     *combat = Combat(opensacred_rules::fight::combat_with(
         base, level, holds, &skills, &list, rules,
