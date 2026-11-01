@@ -18,8 +18,10 @@
 //! slot as the right press puts one, F1 to F6 while the page shows and F1 to F4 alone while it is
 //! hidden (`0x6C1F30`). The page writes `F%d` on an art of a key (`0x6C25A0`).
 //!
-//! Not followed yet: the hovered art's tooltip (`0x5893B0`) and the master's window's view of the
-//! page (#1540).
+//! The hovered art shows its tooltip with its next level at its icon's (x + 70, y + 32)
+//! (`0x6C25A0`, `tooltip::art`, #1696).
+//!
+//! Not followed yet: the master's window's view of the page (#1540).
 
 use std::collections::HashMap;
 
@@ -295,6 +297,26 @@ fn held_under(arts: &HeroArts, night: bool, at: Vec2) -> Option<u16> {
         })
         .map(|(art, _)| art)
         .filter(|&art| arts.arts.get(art).is_some())
+}
+
+/// The art of the page under the point `at` of the original's screen, held or not, and its icon's
+/// corner, while the page shows (`0x6C25A0`, its tooltip's, #1696).
+pub(crate) fn hovered(
+    (shown, page): (&Shown, &Page),
+    arts: &HeroArts,
+    night: bool,
+    at: Vec2,
+) -> Option<(u16, Vec2)> {
+    if !shown.0 || page.0 != PAGE {
+        return None;
+    }
+    let (_, places) = arts_of(arts.kind, night)?;
+    places.into_iter().find_map(|(art, corner)| {
+        let corner = CORNER + corner;
+        Rect::from_corners(corner, corner + Vec2::splat(ICON))
+            .contains(at)
+            .then_some((art, corner))
+    })
 }
 
 /// A press on the page (`0x6C1F30`): the left with an art on the cursor lets it go; with the

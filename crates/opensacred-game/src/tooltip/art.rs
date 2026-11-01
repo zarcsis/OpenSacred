@@ -5,7 +5,11 @@
 //! description, its level, its regeneration time over the hero's speed, then its own lines by its
 //! id, of its records' values at its level.
 //!
-//! Not followed: the next level's block of the spells page (the flags 1), the language's other
+//! The spells page asks for them with the flags 1 (#1696): a held art's lines end with the next
+//! level's line and its block, its time the entry's scaled by the record's growth.
+//!
+//! Not followed: the first block's time of the flags 1 by the last entry's level and bonus (the
+//! entry's own taken, as the bar's), the language's other
 //! level line (`0x17E7D34` 3), and of some arts a part of their values: the weapon multipliers'
 //! second array (`+0xA6`, the stats' `+0x96` alone taken) of 56, 1018 and 1085 to 1087 and 1101
 //! to 1103, the traps' skill 26 (its curve taken as 0) of 1049, 1050 and 1052, the difficulty's
@@ -257,6 +261,40 @@ impl Values<'_> {
     }
 }
 
+/// The characters of a line of the tooltip's text after which its first space breaks it (the
+/// style's bit `0x80`, `0x6E69F0`).
+const WRAP: usize = 46;
+/// The characters of a colour's code before a line's text (`\c` or `\d` and eight digits), which
+/// the wrap counts.
+const CODE: usize = 10;
+
+/// `text` broken as the tooltip's window breaks a line of its style's bit `0x80`: at the first
+/// space from its 46th character on, the space left out, `code` characters of a colour's code
+/// counted before it.
+fn wrap(text: &str, code: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    let mut count = code;
+    for c in text.chars() {
+        if c == ' ' && count >= WRAP {
+            lines.push(std::mem::take(&mut line));
+            count = 0;
+            continue;
+        }
+        line.push(c);
+        count += 1;
+    }
+    lines.push(line);
+    lines
+}
+
+/// The lines of `text` in `colour` as the window breaks them, after a code of `code` characters.
+fn wrapped(text: &str, code: usize, colour: u32) -> impl Iterator<Item = Line> {
+    wrap(text, code)
+        .into_iter()
+        .map(move |line| Line::of(line, colour))
+}
+
 /// `100·x − 100 + 0.5` truncated toward zero (`P`).
 fn per_cent(x: f64) -> i64 {
     ftol(100.0 * x - 100.0 + 0.5)
@@ -278,8 +316,15 @@ fn damage_line(label: String, total: i64, parts: [i64; KINDS], colour: u32) -> L
     Line(pieces)
 }
 
-/// The tooltip's lines of the art `art` for `hero`; none for no art or a combo's.
-pub(crate) fn lines(art: u16, hero: &Hero, tables: &Tables, words: &Words) -> Vec<Line> {
+/// The tooltip's lines of the art `art` for `hero`, and with `next` (the spells page's flags 1)
+/// a held art's next level; none for no art or a combo's.
+pub(crate) fn lines(
+    art: u16,
+    hero: &Hero,
+    tables: &Tables,
+    words: &Words,
+    next: bool,
+) -> Vec<Line> {
     if art == 0 || (0x200..=0x204).contains(&art) {
         return Vec::new();
     }
@@ -318,34 +363,26 @@ pub(crate) fn lines(art: u16, hero: &Hero, tables: &Tables, words: &Words) -> Ve
             .copied()
             .unwrap_or(CLASS_COLOURS[0])
     };
-    let mut lines = vec![Line::of((words.id)(name).unwrap_or_default(), name_colour)];
+    // Each line as the window breaks it, those after a colour's code counting it.
+    let mut lines: Vec<Line> =
+        wrapped(&(words.id)(name).unwrap_or_default(), CODE, name_colour).collect();
     if let Some(key) = restriction(spell.map(|s| s.flags), weapon.map(|w| w.flags)) {
-        lines.push(Line::of(words.of(key), RED));
+        lines.extend(wrapped(&words.of(key), CODE, RED));
     }
     lines.push(Line::default());
     let description = (words.id)(description).unwrap_or_default();
-    lines.extend(
-        description
-            .split(['\n'])
-            .flat_map(|line| line.split("<n>"))
-            .map(|line| Line::of(line, base)),
-    );
+    for line in description.split(['\n']).flat_map(|line| line.split("<n>")) {
+        lines.extend(wrapped(line, 0, base));
+    }
     lines.push(Line::default());
-    lines.push(if held == 0 {
-        Line::of(format!("{}: 1", words.n(1072)), base)
+    if held == 0 {
+        lines.extend(wrapped(&format!("{}: 1", words.n(1072)), 0, base));
     } else {
-        Line::of(
-            format!("{} {}: {held}", words.n(1109), words.n(1070)),
-            LEVEL,
-        )
-    });
-    let values = Values {
-        level: held.max(1),
-        hero,
-        spell,
-        weapon,
-    };
-    // The regeneration time over its kind's speed: the entry's, else its record's at 0.
+        let level = format!("{} {}: {held}", words.n(1109), words.n(1070));
+        lines.extend(wrapped(&level, CODE, LEVEL));
+    }
+    // The regeneration time over its kind's speed: the entry's, else its record's at 0, or with
+    // `next` at 1, the level its block shows (`0x582A20`).
     let speed = if id < 999 || id == 1019 {
         hero.speeds.spells
     } else {
@@ -357,13 +394,48 @@ pub(crate) fn lines(art: u16, hero: &Hero, tables: &Tables, words: &Words) -> Ve
         .iter()
         .find(|entry| entry.art == art)
         .map(|entry| f64::from(entry.time))
-        .or_else(|| opensacred_rules::arts::time(tables, id, 0))
+        .or_else(|| opensacred_rules::arts::time(tables, id, u32::from(next)))
         .unwrap_or(0.0)
         / f64::from(speed).max(f64::EPSILON);
-    let own = own_lines(id, &values, words, base);
-    if let Some(own) = own {
-        lines.push(Line::of(format!("{}: {time:.1}s", words.n(1107)), base));
-        lines.extend(own);
+    // The block of the level `level`, its time `time`.
+    let block = |level: u32, time: f64| {
+        let values = Values {
+            level,
+            hero,
+            spell,
+            weapon,
+        };
+        own_lines(id, &values, words, base).map(|own| {
+            let mut block = vec![Line::of(format!("{}: {time:.1}s", words.n(1107)), base)];
+            block.extend(own);
+            // A line of one colour broken as the window breaks it; the damage's of several
+            // colours has no space after its 46th character.
+            block
+                .into_iter()
+                .flat_map(|line| match line.0.as_slice() {
+                    [Piece::Text(text, colour)] => wrapped(text, 0, *colour).collect(),
+                    _ => vec![line],
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    lines.extend(block(held.max(1), time).into_iter().flatten());
+    // The spells page's next level of a held art (the flags 1): its line, then its block, its time
+    // the entry's scaled by the record's growth.
+    if next && held != 0 {
+        let growth = match (
+            opensacred_rules::arts::time(tables, id, held),
+            opensacred_rules::arts::time(tables, id, held + 1),
+        ) {
+            (Some(now), Some(then)) if now > f64::from(f32::EPSILON) => then / now,
+            _ => 1.0,
+        };
+        lines.push(Line::default());
+        lines.push(Line::of(
+            format!("{}:", words.of("UI_TT_NEXTLEARNEDLEVEL")),
+            LEVEL,
+        ));
+        lines.extend(block(held + 1, time * growth).into_iter().flatten());
     }
     lines
 }
@@ -943,6 +1015,10 @@ mod tests {
     }
 
     fn shown(art: u16, arts: &Arts, tables: &Tables) -> Vec<String> {
+        shown_next(art, arts, tables, false)
+    }
+
+    fn shown_next(art: u16, arts: &Arts, tables: &Tables, next: bool) -> Vec<String> {
         let rules = opensacred_rules::fight::Rules::default();
         let hero = Hero {
             kind: 1,
@@ -964,10 +1040,57 @@ mod tests {
             text: &|name| Some(format!("<{name}>")),
             id: &|id| Some(format!("#{id}")),
         };
-        lines(art, &hero, tables, &words)
+        lines(art, &hero, tables, &words, next)
             .iter()
             .map(texts)
             .collect()
+    }
+
+    #[test]
+    fn the_spells_page_shows_a_held_arts_next_level() {
+        let mut fire = spell(5);
+        fire.effects[1] = [20, 10];
+        let tables = Tables {
+            spells: vec![fire],
+            weapon_arts: Vec::new(),
+        };
+        let arts = Arts {
+            entries: vec![entry(Table::Spells, 5, 2, 9.0)],
+        };
+        let lines = shown_next(5, &arts, &tables, true);
+        // The level 2's time 4.5 s scaled by the record's 14 s to 16 s, its fire 30 · 1.5.
+        assert_eq!(
+            lines[5..],
+            [
+                "<1107>: 4.5s",
+                "<1085>: 60 = 0+60+0+0",
+                "",
+                "<UI_TT_NEXTLEARNEDLEVEL>:",
+                "<1107>: 5.1s",
+                "<1085>: 75 = 0+75+0+0",
+            ]
+        );
+        // An art not held has no next level.
+        // An art not held has no next level, and the page shows its record's time at the level 1
+        // (12 s over the speed 2), the bar's at 0.
+        let not_held = shown_next(5, &Arts::default(), &tables, true);
+        assert_eq!((not_held.len(), not_held[5].as_str()), (7, "<1107>: 6.0s"));
+        assert_eq!(shown(5, &Arts::default(), &tables)[5], "<1107>: 5.0s");
+    }
+
+    #[test]
+    fn a_line_breaks_at_its_first_space_from_its_46th_character() {
+        let text = "Aura which increases the attacking capabilities of the hero and her friends.";
+        assert_eq!(
+            wrap(text, 0),
+            [
+                "Aura which increases the attacking capabilities",
+                "of the hero and her friends."
+            ]
+        );
+        // A colour's code before it counts.
+        assert_eq!(wrap("a b", 46), ["a", "b"]);
+        assert_eq!(wrap("short", CODE), ["short"]);
     }
 
     #[test]

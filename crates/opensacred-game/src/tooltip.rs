@@ -104,11 +104,13 @@ struct Weighing<'w, 's> {
     heroes: Query<'w, 's, &'static Combat, With<Body>>,
     holding: Query<'w, 's, &'static crate::fight::Holding, With<Body>>,
     clock: Option<Res<'w, crate::daynight::Clock>>,
+    forms: Option<Res<'w, crate::forms::Forms>>,
 }
 
 impl Weighing<'_, '_> {
-    /// The tooltip's lines of the art `art` of the texts `texts` (`0x5893B0`, #1694).
-    fn art_lines(&self, art: u16, texts: Option<&Texts>) -> Vec<Line> {
+    /// The tooltip's lines of the art `art` of the texts `texts` (`0x5893B0`, #1694), and with
+    /// `next` a held art's next level (the spells page's, #1696).
+    fn art_lines(&self, art: u16, texts: Option<&Texts>, next: bool) -> Vec<Line> {
         let (Some(arts), Some(combat)) = (self.arts.as_deref(), self.heroes.iter().next()) else {
             return Vec::new();
         };
@@ -140,7 +142,7 @@ impl Weighing<'_, '_> {
             text: &text,
             id: &id,
         };
-        art::lines(art, &hero, &arts.tables, &words)
+        art::lines(art, &hero, &arts.tables, &words, next)
     }
 
     /// The tooltip's lines of `dropped`, named `name`, of the texts `texts`, its price as the hero
@@ -285,6 +287,7 @@ enum Source {
     Merchant(opensacred_rules::trade::stock::Page),
     WeaponSet,
     ArtSlot,
+    SpellsPage,
 }
 
 /// What a tooltip shows: an item, or an art.
@@ -295,6 +298,8 @@ enum Shows {
 
 /// An art slot's tooltip's corner from the slot's (`0x6E4560`, the style `0x8B`).
 const FROM_ART_SLOT: Vec2 = Vec2::new(-92.0, -92.0);
+/// A spells page's art's tooltip's corner from its icon's (`0x6C25A0`, the style `0x8B`).
+const FROM_ICON: Vec2 = Vec2::new(70.0, 32.0);
 
 /// A weapon set's slot's item's tooltip's corner from the slot's, as the taskbar shows it
 /// (`0x6E4560`): its middle less 64 along, 128 up.
@@ -343,7 +348,8 @@ fn grid(
     (panels, scenes): (Query<(Entity, &Panel)>, Query<Entity, With<Scene>>),
     roots: Query<Entity, With<Root>>,
 ) {
-    let shown = shown.is_some_and(|shown| shown.0);
+    let shown_page = shown;
+    let shown = shown_page.as_ref().is_some_and(|shown| shown.0);
     // Each source's item under the pointer: where it is, its key there, its tooltip's corner.
     let at_item = |origin: Vec2, placed: opensacred_rules::inventory::Placed| {
         origin
@@ -405,8 +411,27 @@ fn grid(
             Shows::Art(art),
         ))
     };
+    let on_page = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let night = weighing
+            .forms
+            .as_deref()
+            .is_some_and(crate::forms::Forms::by_night);
+        let (art, corner) = crate::spells_page::hovered(
+            (shown_page.as_deref()?, &page),
+            weighing.arts.as_deref()?,
+            night,
+            at,
+        )?;
+        Some((
+            Source::SpellsPage,
+            u32::from(art),
+            corner + FROM_ICON,
+            Shows::Art(art),
+        ))
+    };
     let under = shown
-        .then(|| sold().or_else(carried))
+        .then(|| sold().or_else(carried).or_else(on_page))
         .flatten()
         .or_else(held_by_set)
         .or_else(art_in_slot);
@@ -432,7 +457,8 @@ fn grid(
     let dropped = match shows {
         Shows::Item(dropped) => dropped,
         Shows::Art(art) => {
-            let lines = weighing.art_lines(art, texts.as_deref());
+            let next = source == Source::SpellsPage;
+            let lines = weighing.art_lines(art, texts.as_deref(), next);
             if lines.is_empty() {
                 return;
             }
