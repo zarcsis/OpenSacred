@@ -558,6 +558,13 @@ impl Rng {
         Self(u64::from(x) << 40 ^ u64::from(y) << 20 ^ record ^ 0x05EE_D0F5_ACE5)
     }
 
+    /// This generator with `seed` mixed into its state, a run's or a game's (#1644): the same
+    /// for the seed 0.
+    #[must_use]
+    pub fn mixed(self, seed: u64) -> Self {
+        Self(self.0 ^ seed)
+    }
+
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -831,6 +838,15 @@ mod tests {
         assert!(spot((0, 0), 0, &mut rng, &|_| true, &refused, |_| true).is_some());
         let (mut a, mut b) = (Rng::of(5, 6, 7), Rng::of(5, 6, 7));
         assert_eq!(a.below(1000), b.below(1000));
+    }
+
+    #[test]
+    fn a_seed_mixed_in_changes_the_rolls_and_none_leaves_them() {
+        let rolls = |mut rng: Rng| (0..8).map(|_| rng.below(1000)).collect::<Vec<_>>();
+        let constant = Rng::of(0, 0, 415);
+        assert_eq!(rolls(constant.clone().mixed(0)), rolls(constant.clone()));
+        assert_ne!(rolls(constant.clone().mixed(1)), rolls(constant.clone()));
+        assert_ne!(rolls(constant.clone().mixed(1)), rolls(constant.mixed(2)));
     }
 
     /// A sector of origin (0, 0), all walkable, of creatures all of one class.

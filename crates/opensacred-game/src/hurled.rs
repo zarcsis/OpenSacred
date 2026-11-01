@@ -206,13 +206,14 @@ pub struct HurledPlugin;
 
 impl Plugin for HurledPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(Rng::of(0, 0, 1013))).add_systems(
-            Update,
-            (throw, fly)
-                .chain()
-                .after(Step::Npcs)
-                .in_set(Playing)
-                .in_set(Unpaused),
-        );
+        app.insert_resource(Dice(crate::seed::dice(1013)))
+            .add_systems(
+                Update,
+                (throw, fly)
+                    .chain()
+                    .after(Step::Npcs)
+                    .in_set(Playing)
+                    .in_set(Unpaused),
+            );
     }
 }

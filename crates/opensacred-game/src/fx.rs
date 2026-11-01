@@ -275,7 +275,7 @@ fn light(
             }
         });
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
-        let mut dice = Rng::of(0, 0, SEED ^ index);
+        let mut dice = crate::seed::dice(SEED ^ index);
         let geyser = (variant == GEYSER).then(|| (Geyser::new(&mut dice), (**fire).clone()));
         let mut burning = commands.entity(entity);
         burning.insert(Burning {

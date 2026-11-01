@@ -74,7 +74,7 @@ impl Weather {
                     )
                 })
                 .collect(),
-            dice: Rng::of(0, 0, SEED),
+            dice: crate::seed::dice(SEED),
             lightnings: 0,
             quakes: 0,
         }

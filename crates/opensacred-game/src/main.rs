@@ -107,6 +107,7 @@ mod scene_tests;
 mod screenshot;
 mod scripts;
 mod sectors;
+mod seed;
 mod sets;
 mod settings;
 mod sfx;
@@ -209,6 +210,10 @@ struct Cli {
     /// screen, taskbar or Alt-Tab, and draws on and takes its screenshots
     #[arg(long, conflicts_with = "borderless")]
     hidden: bool,
+    /// The seed of the run's rolls, which the log tells of every run, to play one again; the
+    /// clock's by default, as the original seeds its rolls with the time
+    #[arg(long)]
+    seed: Option<u64>,
 }
 
 /// Threads of Bevy's compute pool, which runs the systems in parallel. Bevy gives it every
@@ -280,6 +285,8 @@ fn run(cli: Cli) -> Result<AppExit> {
     let log_file = cli
         .log_file
         .or_else(|| settings::state_dir().map(|dir| dir.join("logs").join("opensacred.log")));
+    // The run's seed, before the plugins make their generators (#1644).
+    seed::init(cli.seed);
     let mut app = App::new();
     // Before Bevy's plugins, whose `LogPlugin` takes the log's layer from it.
     app.insert_resource(journal::Journal::new(log_file));
@@ -443,6 +450,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
+        seed::SeedPlugin,
         sets::SetsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
@@ -453,9 +461,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sound::SoundPlugin,
         sparkles::SparklesPlugin,
         spells::SpellsPlugin,
-        spells_page::SpellsPagePlugin,
     ))
     .add_plugins((
+        spells_page::SpellsPagePlugin,
         srgb::SrgbPlugin,
         stashes::StashesPlugin,
         statics::StaticsPlugin,

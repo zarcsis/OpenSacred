@@ -115,6 +115,9 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * **The log (F12)**: a `tracing` layer keeps the last 1,000 records in a ring with sequence numbers; F12 shows the last 15 at the lower left, warnings yellow and errors red.
   The same records go to `%LOCALAPPDATA%\OpenSacred\logs\opensacred.log` (`$XDG_STATE_HOME` on Linux), a new file each start with the two before kept, so that a crash's log can be read after it; `--log-file` writes another one.
   Done 2026-10-19 (#169): the records are those that Bevy's filter lets through (INFO and above), each line of the file `seconds-since-the-start LEVEL target: message`; the panel takes one line a record, its targets in the game without `opensacred_game::`, and whether it shows is the setting `[debug] log`.
+* **The run's seed**: the rolls that stand for the original's `rand()` take one seed of the run, the clock's as the original's `srand(time())` (docs/re/items.md), which the log's first records tell (`seed: the run's seed is N`) and `--seed N` gives again, so that a run that showed a problem can be played again with the same rolls; each generator mixes it into its own constant, and a game's own rolls (the scripts', the quest book's) the count of the run's games before it too (#1644).
+  The rolls seeded on purpose keep their seeds: the sectors' fills and `CreateNPC`'s levels (docs/decisions/spawning.md) and the containers' (docs/re/containers.md).
+  The tests set no seed, which leaves each generator its constant alone.
 
 ## 6. Commands and scripts (#173)
 
@@ -144,6 +147,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
 | `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F7, F12, F10 and the key under Esc; without a switch, toggles | |
 | `state` | the app's state, the hero, the clock, the frames, the drops nearest the hero (the overlay's values) | |
+| `seed` | the run's seed of its rolls and the game's (#1644) | `--seed` |
 | `creatures [RADIUS]` | the creatures within RADIUS cells of the hero (20), the nearest first: an id, the type, the cell (and the floor inside), the health, the level, hostile or peaceful, awake, fighting, a champion or a boss, dying, a dialogue; as the original's driver lists them (#523) | |
 | `stashes [RADIUS]` | the hidden stashes and the scripts' mouse events within RADIUS cells of the hero (20), the nearest first: each its cell, its function, its text's name, its uses and its look, and their count in all (#1518, #1584) | |
 | `stats [ID]` | a creature's fight values, the hero's by default (`ID` as `creatures` prints it, or its index): the type, the level, the health, the hero's base attributes, A and D, each kind's least and most damage, the resistances, the attack speed, already multiplied where the original's driver prints them raw with their multipliers (#523) | |

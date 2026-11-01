@@ -2481,9 +2481,10 @@ fn off_the_book(
     !(TAKES.contains(at) || on_mark)
 }
 
-/// A new game's book, hidden, its rolls made.
-fn reset(mut commands: Commands) {
-    commands.insert_resource(Book::rolled(&mut Rng::of(0, 0, 1560)));
+/// A new game's book, hidden, its rolls made of the game's seed.
+fn reset(mut commands: Commands, game: Option<Res<crate::seed::Game>>) {
+    let seed = game.map_or_else(crate::seed::Game::default, |game| *game);
+    commands.insert_resource(Book::rolled(&mut seed.dice(1560)));
 }
 
 /// The quest book.

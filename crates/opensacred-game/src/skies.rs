@@ -143,7 +143,7 @@ struct Flakes {
 impl Flakes {
     /// The flakes at random on a screen of `screen` pixels.
     fn new(screen: Vec2, seed: usize) -> Self {
-        let mut dice = Rng::of(0, 0, seed);
+        let mut dice = crate::seed::dice(seed);
         let flakes = (0..MOST_FLAKES).map(|_| flake(&mut dice, screen)).collect();
         Self { flakes, dice }
     }
@@ -475,7 +475,7 @@ fn shake(
     if !quakes && state.jolt <= 0.0 {
         return;
     }
-    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 7));
+    let dice = dice.get_or_insert_with(|| crate::seed::dice(7));
     let mut offset = || {
         let unit = to_f32(dice.below(32_768)) * 3.051_851e-5;
         (state.quake * (2.0 * unit - 1.0)).trunc()

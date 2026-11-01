@@ -388,12 +388,12 @@ fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::Hero
         })
 }
 
-/// Loads the game `game` would start: the hero at its start, the first sector built, the start
-/// script's NPCs and objects, the footsteps, the music.
+/// Loads the game `game` would start, of the seed `seed`: the hero at its start, the first sector
+/// built, the start script's NPCs and objects, the footsteps, the music.
 fn load(
     shared: &sectors::Shared,
     sound: &opensacred_data::sound::Sound,
-    game: &NewGame,
+    (game, seed): (&NewGame, crate::seed::Game),
     speed: f32,
 ) -> Result<Loaded> {
     let assets = &shared.assets;
@@ -416,6 +416,7 @@ fn load(
         (&tree, difficulty_index(game)),
         |at| areas.get(&at).copied(),
         creature_types(tables)?,
+        seed,
     )?;
     let side = u32::try_from(opensacred_data::world::SIDE)?;
     // The sector given, at its centre, or the start script's start cell.
@@ -813,7 +814,12 @@ impl LoadingScreen {
 }
 
 /// Starts loading the requested game, behind the original's loading screen, or a word where
-/// there is none.
+/// there is none; the game's seed the run's, the count of its games before it mixed in
+/// (`seed::Game`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources as arguments"
+)]
 fn begin(
     mut commands: Commands,
     request: Res<Request>,
@@ -822,11 +828,15 @@ fn begin(
     speed: Res<hero::GameSpeed>,
     screen: Res<LoadingScreen>,
     assets: Res<AssetServer>,
+    mut games: Local<u64>,
 ) {
     let (shared, sound) = (Arc::clone(&data.0), Arc::clone(&index.0));
     let (game, speed) = (request.0.clone(), speed.0);
-    let task =
-        AsyncComputeTaskPool::get().spawn(async move { load(&shared, &sound, &game, speed) });
+    let seed = crate::seed::Game::of(*games);
+    *games += 1;
+    commands.insert_resource(seed);
+    let task = AsyncComputeTaskPool::get()
+        .spawn(async move { load(&shared, &sound, (&game, seed), speed) });
     commands.insert_resource(Pending(task));
     let mut root = commands.spawn((
         DespawnOnExit(AppState::Loading),

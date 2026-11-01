@@ -532,7 +532,7 @@ pub struct ArrowsPlugin;
 
 impl Plugin for ArrowsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(opensacred_rules::spawning::Rng::of(0, 0, 3)))
+        app.insert_resource(Dice(crate::seed::dice(3)))
             .add_message::<Loose>()
             .add_systems(
                 Update,

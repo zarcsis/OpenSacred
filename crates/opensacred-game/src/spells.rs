@@ -2946,7 +2946,7 @@ impl Plugin for SpellsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Acts>()
             .add_observer(killed)
-            .insert_resource(Dice(crate::spawning::Rng::of(0, 0, 64)))
+            .insert_resource(Dice(crate::seed::dice(64)))
             .add_systems(Startup, make_looks)
             .add_systems(
                 Update,

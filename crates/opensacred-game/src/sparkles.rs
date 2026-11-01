@@ -239,7 +239,7 @@ fn play(
     mut quads: Query<(&Quad, &mut Node, &mut UiTransform)>,
     mut dice: Local<Option<Rng>>,
 ) {
-    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1272));
+    let dice = dice.get_or_insert_with(|| crate::seed::dice(1272));
     let page = shown.is_some_and(|shown| shown.0);
     for (entity, mut sparkle, children) in &mut sparkles {
         if sparkle.t >= 1.0 || (sparkle.grid && !page) {

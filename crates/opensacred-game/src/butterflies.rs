@@ -103,7 +103,7 @@ fn begin(
     commands.insert_resource(Butterflies {
         wings,
         glow,
-        dice: Rng::of(0, 0, SEED),
+        dice: crate::seed::dice(SEED),
         made: Vec::new(),
     });
 }

@@ -112,7 +112,7 @@ pub struct GlancePlugin;
 
 impl Plugin for GlancePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(Rng::of(0, 0, 4)))
+        app.insert_resource(Dice(crate::seed::dice(4)))
             .add_systems(Update, strike.after(Step::Npcs).in_set(Playing));
     }
 }

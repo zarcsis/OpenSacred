@@ -1209,7 +1209,7 @@ pub struct DropsPlugin;
 
 impl Plugin for DropsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(Rng::of(0, 0, 415)))
+        app.insert_resource(Dice(crate::seed::dice(415)))
             .init_resource::<LastJewel>()
             .init_resource::<Played>()
             .add_observer(dies)

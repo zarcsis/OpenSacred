@@ -130,7 +130,7 @@ impl Sfx {
             named,
             files,
             samples: HashMap::new(),
-            dice: Rng::of(0, 0, 4),
+            dice: crate::seed::dice(4),
         }
     }
 

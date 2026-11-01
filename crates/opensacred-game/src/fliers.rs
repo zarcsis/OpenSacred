@@ -112,7 +112,7 @@ fn begin(mut commands: Commands, data: Option<Res<Data>>) {
     commands.insert_resource(Looks {
         crow,
         bat,
-        dice: Rng::of(0, 0, SEED),
+        dice: crate::seed::dice(SEED),
     });
 }
 

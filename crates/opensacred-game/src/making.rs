@@ -2563,7 +2563,7 @@ pub struct MakingPlugin;
 impl Plugin for MakingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Selected>()
-            .insert_resource(Dice(Rng::of(0, 0, 2)))
+            .insert_resource(Dice(crate::seed::dice(2)))
             .add_systems(
                 Update,
                 (

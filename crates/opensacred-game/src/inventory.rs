@@ -291,7 +291,7 @@ fn show(
         return;
     }
     page.0 = 0;
-    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1267));
+    let dice = dice.get_or_insert_with(|| crate::seed::dice(1267));
     let anchors = |index| images.anchors(index);
     let size = |index| images.size(index);
     let piece = |index: u32, at: Vec2| bar::piece(&images, &assets, index, at, Vec2::ZERO);

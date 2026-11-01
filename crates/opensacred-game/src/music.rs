@@ -31,7 +31,7 @@
 //! music not dipping under it (docs/decisions/sound.md, "Music kept under a fanfare").
 
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use bevy::log::debug;
 use bevy::prelude::{
@@ -109,7 +109,7 @@ pub struct Music {
     sector: Option<(u32, u32)>,
     /// The music that the scripts' `PlayMusic` put on the stream, until the stream turns.
     scripted: Option<u32>,
-    /// The rolls of the fanfares.
+    /// The rolls of the fanfares and of the peace stream's first phase.
     dice: Rng,
     /// The track on the music's channel.
     playing: Option<Playing>,
@@ -155,9 +155,6 @@ impl Music {
             })
             .map(|name| name.id)
             .collect();
-        let roll = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
         Self {
             sectors,
             tracks,
@@ -169,7 +166,7 @@ impl Music {
             spot: false,
             sector: None,
             scripted: None,
-            dice: Rng::of(roll, 0, 0x1243),
+            dice: crate::seed::dice(0x1243),
             playing: None,
             once: None,
         }
@@ -342,10 +339,8 @@ pub fn alternate(
     };
     let now = time.elapsed();
     if music.stream.phase().is_none() {
-        // `rand() & 1` at the first region's event, by the clock.
-        let roll = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos() >> 7);
+        // `rand() & 1` at the first region's event, of the run's rolls.
+        let roll = music.dice.below(2);
         let phase = music.stream.begin(roll);
         debug!("music: the peace stream begins with {phase:?}");
     }

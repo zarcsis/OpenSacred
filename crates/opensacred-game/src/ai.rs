@@ -201,7 +201,7 @@ struct Minds {
 impl Default for Minds {
     fn default() -> Self {
         Self {
-            rng: Rng::of(0, 0, 0),
+            rng: crate::seed::dice(0),
         }
     }
 }
