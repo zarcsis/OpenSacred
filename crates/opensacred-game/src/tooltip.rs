@@ -221,6 +221,7 @@ impl Weighing<'_, '_> {
             attributes: combat.attributes,
             skills,
             multipliers: combat.multipliers,
+            resistance_factors: combat.resistance_factors,
         });
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
         let art = |id: u32| {
