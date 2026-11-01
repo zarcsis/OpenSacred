@@ -8,6 +8,9 @@
 //! radians clockwise, with one of `PARTICLE_SPARK07` tinted `0xBBBBBB` of half that over it, and
 //! 20 sparks the same of the half side `9 sin(πt)` turned a right angle, each at a point of the
 //! rectangle drawn anew at random every frame. The grid's sparkles go as the page hides.
+//!
+//! The statistics window's close button sparkles the same as the hero rises a level (#1720,
+//! `0x57F023`).
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
@@ -94,13 +97,13 @@ struct Materials {
 #[derive(Component)]
 struct Root;
 
-/// A sparkle: its rectangle on the original's screen, its time from 0 to 1, and whether it is the
-/// grid's.
+/// A sparkle: its rectangle on the original's screen, its time from 0 to 1, and whether it goes
+/// as the inventory's windows hide (the grid's and the statistics window's close button's).
 #[derive(Component)]
 struct Sparkle {
     rect: Rect,
     t: f32,
-    grid: bool,
+    windows: bool,
 }
 
 /// A quad of a sparkle, by its place among them: 0 and 1 the glow's, then each spark's two.
@@ -127,105 +130,144 @@ fn tint([r, g, b]: [u8; 3]) -> Vec4 {
     Vec4::new(f32::from(r), f32::from(g), f32::from(b), 255.0) / 255.0
 }
 
+/// What a new sparkle needs: the quads' materials, made as the first sparkle comes, and the
+/// sparkles' container.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Making<'w, 's> {
+    images: Res<'w, UiImages>,
+    assets: Res<'w, AssetServer>,
+    sparks: ResMut<'w, Assets<Spark>>,
+    materials: Option<Res<'w, Materials>>,
+    roots: Query<'w, 's, Entity, With<Root>>,
+}
+
+impl Making<'_, '_> {
+    /// Spawns a sparkle over `rect`, which goes as the inventory's windows hide where `windows`;
+    /// none where the sparks' textures are lacking.
+    fn sparkle(&mut self, commands: &mut Commands, rect: Rect, windows: bool) {
+        let materials = match self.materials.as_deref() {
+            Some(materials) => (materials.spark.clone(), materials.half.clone()),
+            None => {
+                let (Some(spark), Some(half)) =
+                    (self.images.file(SPARK), self.images.file(SPARK_HALF))
+                else {
+                    return;
+                };
+                let made = Materials {
+                    spark: self.sparks.add(Spark {
+                        tint: tint(SPARK_TINT),
+                        picture: hud::image(&self.assets, spark.to_owned()),
+                    }),
+                    half: self.sparks.add(Spark {
+                        tint: tint(HALF_TINT),
+                        picture: hud::image(&self.assets, half.to_owned()),
+                    }),
+                };
+                let pair = (made.spark.clone(), made.half.clone());
+                commands.insert_resource(made);
+                pair
+            }
+        };
+        let root = self.roots.iter().next().unwrap_or_else(|| {
+            commands
+                .spawn((
+                    Root,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(50.0),
+                        top: Val::Px(0.0),
+                        margin: UiRect::left(Val::Px(-bar::SCREEN.x / 2.0)),
+                        width: Val::Px(bar::SCREEN.x),
+                        height: Val::Px(bar::SCREEN.y),
+                        ..default()
+                    },
+                    GlobalZIndex(1),
+                    Pickable::IGNORE,
+                    DespawnOnExit(AppState::InGame),
+                ))
+                .id()
+        });
+        let sparkle = commands
+            .spawn((
+                Sparkle {
+                    rect,
+                    t: 0.0,
+                    windows,
+                },
+                bar::placed(Vec2::ZERO, Vec2::ZERO),
+                Pickable::IGNORE,
+            ))
+            .with_children(|sparkle| {
+                for quad in 0..QUADS {
+                    let material = if quad % 2 == 0 {
+                        materials.0.clone()
+                    } else {
+                        materials.1.clone()
+                    };
+                    sparkle.spawn((
+                        Quad(quad),
+                        bar::placed(Vec2::ZERO, Vec2::ZERO),
+                        UiTransform::IDENTITY,
+                        MaterialNode(material),
+                        Pickable::IGNORE,
+                    ));
+                }
+            })
+            .id();
+        commands.entity(root).add_child(sparkle);
+    }
+}
+
 /// The items used up sparkle where they lay in the grid while the page shows, and the potions on
 /// their kinds' slots of the belt.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
-)]
 fn begin(
     mut commands: Commands,
     mut pack: ResMut<Pack>,
     shown: Option<Res<Shown>>,
-    images: Res<UiImages>,
-    assets: Res<AssetServer>,
-    mut sparks: ResMut<Assets<Spark>>,
-    materials: Option<Res<Materials>>,
-    roots: Query<Entity, With<Root>>,
+    mut making: Making,
 ) {
     if pack.used.is_empty() {
         return;
     }
     let used = std::mem::take(&mut pack.used);
-    let materials = match materials {
-        Some(materials) => (materials.spark.clone(), materials.half.clone()),
-        None => {
-            let (Some(spark), Some(half)) = (images.file(SPARK), images.file(SPARK_HALF)) else {
-                return;
-            };
-            let made = Materials {
-                spark: sparks.add(Spark {
-                    tint: tint(SPARK_TINT),
-                    picture: hud::image(&assets, spark.to_owned()),
-                }),
-                half: sparks.add(Spark {
-                    tint: tint(HALF_TINT),
-                    picture: hud::image(&assets, half.to_owned()),
-                }),
-            };
-            let pair = (made.spark.clone(), made.half.clone());
-            commands.insert_resource(made);
-            pair
-        }
-    };
-    let root = roots.iter().next().unwrap_or_else(|| {
-        commands
-            .spawn((
-                Root,
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Percent(50.0),
-                    top: Val::Px(0.0),
-                    margin: UiRect::left(Val::Px(-bar::SCREEN.x / 2.0)),
-                    width: Val::Px(bar::SCREEN.x),
-                    height: Val::Px(bar::SCREEN.y),
-                    ..default()
-                },
-                GlobalZIndex(1),
-                Pickable::IGNORE,
-                DespawnOnExit(AppState::InGame),
-            ))
-            .id()
-    });
     let page = shown.is_some_and(|shown| shown.0);
     for (placed, item) in used {
-        let mut rects = Vec::new();
         if page {
             let at = Vec2::new(f32::from(placed.at.0), f32::from(placed.at.1)) * CELL;
             let size = Vec2::new(f32::from(placed.size.0), f32::from(placed.size.1)) * CELL;
-            rects.push((Rect::from_corners(GRID + at, GRID + at + size), true));
+            making.sparkle(
+                &mut commands,
+                Rect::from_corners(GRID + at, GRID + at + size),
+                true,
+            );
         }
         if let Some(slot) = opensacred_rules::potions::kind(item)
             .and_then(|kind| bar::BELT.get(usize::from(kind.checked_sub(1)?)))
         {
-            rects.push((Rect::from_corners(*slot, *slot + bar::BELT_SIDE), false));
+            making.sparkle(
+                &mut commands,
+                Rect::from_corners(*slot, *slot + bar::BELT_SIDE),
+                false,
+            );
         }
-        for (rect, grid) in rects {
-            let sparkle = commands
-                .spawn((
-                    Sparkle { rect, t: 0.0, grid },
-                    bar::placed(Vec2::ZERO, Vec2::ZERO),
-                    Pickable::IGNORE,
-                ))
-                .with_children(|sparkle| {
-                    for quad in 0..QUADS {
-                        let material = if quad % 2 == 0 {
-                            materials.0.clone()
-                        } else {
-                            materials.1.clone()
-                        };
-                        sparkle.spawn((
-                            Quad(quad),
-                            bar::placed(Vec2::ZERO, Vec2::ZERO),
-                            UiTransform::IDENTITY,
-                            MaterialNode(material),
-                            Pickable::IGNORE,
-                        ));
-                    }
-                })
-                .id();
-            commands.entity(root).add_child(sparkle);
-        }
+    }
+}
+
+/// The statistics window's close button sparkles a second as the hero rises a level while the
+/// inventory's windows show (`0x57F023`, the button's draw `0x72B700`, #1720).
+fn level_up(
+    mut commands: Commands,
+    experience: Res<crate::fight::Experience>,
+    shown: Option<Res<Shown>>,
+    mut making: Making,
+    mut last: Local<Option<u32>>,
+) {
+    let level = experience.0.level;
+    let risen = last.is_some_and(|was| level > was);
+    *last = Some(level);
+    if risen && shown.is_some_and(|shown| shown.0) {
+        let rect = crate::statistics::close_button(&making.images);
+        making.sparkle(&mut commands, rect, true);
     }
 }
 
@@ -242,7 +284,7 @@ fn play(
     let dice = dice.get_or_insert_with(|| crate::seed::dice(1272));
     let page = shown.is_some_and(|shown| shown.0);
     for (entity, mut sparkle, children) in &mut sparkles {
-        if sparkle.t >= 1.0 || (sparkle.grid && !page) {
+        if sparkle.t >= 1.0 || (sparkle.windows && !page) {
             commands.entity(entity).despawn();
             continue;
         }
@@ -286,7 +328,9 @@ impl Plugin for SparklesPlugin {
         app.add_plugins(UiMaterialPlugin::<Spark>::default())
             .add_systems(
                 Update,
-                (begin, play).chain().run_if(in_state(AppState::InGame)),
+                (begin, level_up, play)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
