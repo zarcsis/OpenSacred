@@ -63,6 +63,9 @@ pub struct Tables {
     /// The balance's lists of the weapon skills' weapons (its tail's sixth table), of which a
     /// merchant offers one (#1618).
     weapon_lists: Vec<(u32, Vec<u32>)>,
+    /// The `global.res` id of the name of each set's piece's set, by the piece's type (`sets.bin`,
+    /// its hash's low 31 bits; #1700).
+    set_names: HashMap<u32, u32>,
 }
 
 /// The classes' bits of a record's word `+0x04`, which a made item keeps of its type's (`0x5D5080`,
@@ -141,6 +144,15 @@ impl Tables {
             Vec::new()
         });
         let catalogue = Catalogue::new(items, weapons, &sets, &templates).with_runes(runes);
+        let set_names = sets
+            .iter()
+            .flat_map(|set| {
+                set.items
+                    .into_iter()
+                    .filter(|&item| item != 0)
+                    .map(move |item| (item, set.hash & 0x7FFF_FFFF))
+            })
+            .collect();
         let models = npcs::model_files(assets)?;
         let textures = npcs::texture_files(assets)?;
         let glittering = items
@@ -272,6 +284,7 @@ impl Tables {
             records: used,
             requirements,
             worths,
+            set_names,
             weapon_lists,
             prices,
             glittering,
@@ -409,6 +422,12 @@ impl Tables {
                 price: record.price,
             },
         )
+    }
+
+    /// The `global.res` id of the name of the set whose piece the type `item` is, none of a type
+    /// of no set (`SetName<n>`, the set's number `n` at its pieces' `Weapon.pak +0x23`; #1700).
+    pub(crate) fn set_name(&self, item: u32) -> Option<u32> {
+        self.set_names.get(&item).copied()
     }
 
     /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it

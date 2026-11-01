@@ -8,7 +8,7 @@
 //! the resistances, the other bonuses (`0x5C4450`) and the hint of its use; then each socket's
 //! item's own lines (#1691).
 //!
-//! Not followed: the set's name and colour, the quest's line, the region's factor of
+//! Not followed: the quest's line, the region's factor of
 //! the price, the price of an item that the item maker made (its worth, `0x5D3AB0`), the
 //! multipliers of the bonuses of the condition bits 13 and 14 in the damage's line (the stats'
 //! `+0xA6`) and of the resistances in the protection's (`+0xD6`, 1 here), the opponents' names
@@ -87,7 +87,8 @@ const PLAIN: u32 = 0xFFEF_EFEF;
 /// What a tooltip tells of an item: its type, its name, its category, its type's record, its
 /// price (its record's, a made item's worth) and whether the hero would buy it (a merchant's), its
 /// quality, its values, its level and the level it asks, the share of its health that it heals,
-/// of a healing potion, and its sockets filled and its sockets.
+/// of a healing potion, its sockets filled and its sockets, and its set's name where it is a set's
+/// piece.
 pub(crate) struct Item<'a> {
     pub item: u32,
     pub name: &'a str,
@@ -101,7 +102,12 @@ pub(crate) struct Item<'a> {
     pub asked: u32,
     pub heals: Option<u32>,
     pub sockets: (usize, usize),
+    pub set: Option<String>,
 }
+
+/// The name's colour of a set's piece, and its set's name's (`0x5C13C0`, `0x5C5360`).
+const SET_PIECE: u32 = 0xFF15_FF25;
+const SET_NAME: u32 = 0xFFFF_D070;
 
 /// The hero that the tooltip weighs the item for: its creature type, its level, its attributes
 /// with its items' bonuses (the stats' words `+0x10`…), its skills and their levels and its
@@ -146,6 +152,9 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
     };
     let word = item.record.word;
     let values = &item.values;
+    if let Some(set) = &item.set {
+        lines.push(Line::of(set.clone(), SET_NAME));
+    }
     if refused(word, hero.creature) {
         lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
     }
@@ -334,9 +343,13 @@ fn name_lines(item: &Item, words: &Words) -> Vec<Line> {
     lines
 }
 
-/// The name's colour (`0x5C13C0`): a rune's its class's, any other's its quality's (the setting
-/// `UNIQUE_COLOR` taken as on): 0 to 4 plain, 5 to 11 blue, 12 to 14 gold and 15 bronze.
+/// The name's colour (`0x5C13C0`): a set's piece's green; else a rune's its class's, any other's
+/// its quality's (the setting `UNIQUE_COLOR` taken as on): 0 to 4 plain, 5 to 11 blue, 12 to 14
+/// gold and 15 bronze.
 fn name_colour(item: &Item) -> u32 {
+    if item.set.is_some() {
+        return SET_PIECE;
+    }
     if item.category == RUNE {
         return class_colour(item.record.word);
     }
@@ -747,6 +760,7 @@ mod tests {
             asked: 0,
             heals: Some(100),
             sockets: (0, 0),
+            set: None,
         };
         let lines: Vec<String> = lines(&item, Some(&hero(&[])), &words())
             .iter()
@@ -791,6 +805,7 @@ mod tests {
             asked: 1,
             heals: None,
             sockets: (0, 0),
+            set: None,
         };
         let lines = lines(&item, Some(&hero(&[])), &words());
         let shown: Vec<String> = lines.iter().map(texts).collect();
@@ -849,6 +864,7 @@ mod tests {
             asked: 2,
             heals: None,
             sockets: (0, 0),
+            set: None,
         };
         let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words())
             .iter()
@@ -890,6 +906,7 @@ mod tests {
             asked: 0,
             heals: None,
             sockets,
+            set: None,
         };
         let name = |item: &Item| texts(&name_lines(item, &words())[0]);
         assert_eq!(
@@ -916,6 +933,32 @@ mod tests {
             .map(texts)
             .collect();
         assert_eq!(shown, ["<UI_ITEM_CANTUSE>", "<1100>: +7"]);
+    }
+
+    #[test]
+    fn a_sets_piece_shows_its_name_in_green_and_its_sets_name_after_it() {
+        let item = Item {
+            item: 1221,
+            name: "Gauntlets",
+            category: 24,
+            record: Record {
+                word: CLASSES,
+                ..Record::default()
+            },
+            price: 0,
+            buying: false,
+            quality: 15,
+            values: ItemValues::default(),
+            level: 0,
+            asked: 0,
+            heals: None,
+            sockets: (0, 0),
+            set: Some("The Set".into()),
+        };
+        let lines = lines(&item, Some(&hero(&[])), &words());
+        // The set's green before the quality's bronze, the set's name after the name.
+        assert_eq!(lines[0].0[1], Piece::Text(" Gauntlets".into(), SET_PIECE));
+        assert_eq!(lines[1], Line::of("The Set", SET_NAME));
     }
 
     #[test]

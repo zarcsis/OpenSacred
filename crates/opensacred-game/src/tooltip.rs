@@ -200,6 +200,10 @@ impl Weighing<'_, '_> {
                 .as_deref()
                 .and_then(|potions| potions.0.heals(dropped.item)),
             sockets: (dropped.socketed.len(), tables.sockets(dropped)),
+            set: tables
+                .set_name(dropped.item)
+                .and_then(|id| texts.and_then(|texts| texts.id(id)))
+                .map(str::to_owned),
         };
         let skills = self.arts.as_deref().map_or(&[][..], |arts| &arts.skills);
         let hero = self.heroes.iter().next().map(|combat| lines::Hero {
@@ -259,6 +263,7 @@ impl Weighing<'_, '_> {
                 asked: 0,
                 heals: None,
                 sockets: (0, 0),
+                set: None,
             };
             shown.extend(lines::socket_lines(&item, &hero, &words));
         }
