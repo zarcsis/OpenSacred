@@ -177,7 +177,7 @@ pub(crate) fn put_into(
     held: &mut Option<Held>,
     at: (i32, i32),
 ) -> Put {
-    let Some(holding) = *held else {
+    let Some(holding) = held.clone() else {
         return Put::Refused;
     };
     // The sizes of the items in the grid, before the put takes one out.
@@ -210,7 +210,7 @@ pub(crate) fn put_into(
 }
 
 /// An item on the cursor: its key in the grid, the item and its size in cells.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Held {
     pub key: u32,
     pub dropped: Dropped,
@@ -380,7 +380,8 @@ impl Pack {
     /// Puts the held item on in `slot` (`sdk_EQUIP`), the item worn there before onto the cursor,
     /// of `size` in the grid: whether it went.
     pub fn put_on(&mut self, slot: u8, size: (u8, u8)) -> bool {
-        let (Some(held), Some(worn)) = (self.held, self.worn.get_mut(usize::from(slot))) else {
+        let (Some(held), Some(worn)) = (self.held.clone(), self.worn.get_mut(usize::from(slot)))
+        else {
             return false;
         };
         let old = worn.replace((held.key, held.dropped));
@@ -391,7 +392,7 @@ impl Pack {
     /// Takes the item worn in `slot`, of `size`, into the grid at its first fit (the right
     /// button, the UI event `0x2C` of the sub-kind 2): whether it went.
     pub fn unwear(&mut self, slot: u8, size: (u8, u8)) -> bool {
-        let Some(&Some((key, dropped))) = self.worn.get(usize::from(slot)) else {
+        let Some(Some((key, dropped))) = self.worn.get(usize::from(slot)).cloned() else {
             return false;
         };
         if self.grid.take(key, size).is_none() {
@@ -525,7 +526,7 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
     let mut items = world.query::<(Entity, &GlobalTransform, &Lying)>();
     let (item, at, lying) = items
         .iter(world)
-        .map(|(item, at, lying)| (item, at.translation(), *lying))
+        .map(|(item, at, lying)| (item, at.translation(), lying.clone()))
         .min_by(|a, b| {
             let d = |at: Vec3| (at - here).xz().length_squared();
             d(a.1).total_cmp(&d(b.1))
@@ -622,7 +623,7 @@ impl Taking<'_, '_> {
                 at: None,
                 rate: (0.4, sfx::Roll::Share(0.2)),
             });
-            self.pack.quest.push(lying.dropped);
+            self.pack.quest.push(lying.dropped.clone());
         // The weapon the hero hurled goes back into its empty hand (`0x54ACC0`, #755).
         } else if self
             .arsenal
@@ -650,10 +651,10 @@ impl Taking<'_, '_> {
             // While the items' page shows, onto the empty cursor (#1269).
             let onto_the_cursor = lying.dropped.kind != Kind::Gold
                 && self.shown.as_deref().is_some_and(|shown| shown.0)
-                && self.pack.hold(lying.dropped, size);
+                && self.pack.hold(lying.dropped.clone(), size);
             // Without room it stays where it lies (the jump of `0x5592B0` not followed), the
             // hero saying so (the event (8, 3), #1324).
-            if !onto_the_cursor && !self.pack.take(lying.dropped, size) {
+            if !onto_the_cursor && !self.pack.take(lying.dropped.clone(), size) {
                 info!(
                     "pickup: no room in the backpack for {} of {size:?}",
                     lying.dropped.item
@@ -720,7 +721,7 @@ fn put_on(
     ) else {
         return false;
     };
-    if !pack.wear_picked(*dropped, slot) {
+    if !pack.wear_picked(dropped.clone(), slot) {
         return false;
     }
     info!("pickup: the hero puts {} on in {slot}", dropped.item);
@@ -1187,6 +1188,7 @@ fn start(
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         };
         if !pack.put(dropped, carried.at, carried.size) {
             warn!(
@@ -1211,6 +1213,7 @@ fn receive(mut given: MessageReader<Given>, mut pack: ResMut<Pack>) {
             amount: 1,
             values: None,
             named: None,
+            socketed: Vec::new(),
         });
     }
 }
@@ -1260,6 +1263,7 @@ mod tests {
             amount,
             values: None,
             named: None,
+            socketed: Vec::new(),
         }
     }
 
@@ -1396,14 +1400,14 @@ mod tests {
     fn an_item_picked_up_goes_on_only_in_an_empty_slot() {
         let mut pack = Pack::default();
         let ring = dropped(Kind::Jewel, 4876, 1);
-        assert!(pack.wear_picked(ring, 8));
-        assert!(!pack.wear_picked(ring, 8));
-        assert!(pack.wear_picked(ring, 9));
-        assert!(!pack.wear_picked(ring, opensacred_rules::equipment::SLOTS));
+        assert!(pack.wear_picked(ring.clone(), 8));
+        assert!(!pack.wear_picked(ring.clone(), 8));
+        assert!(pack.wear_picked(ring.clone(), 9));
+        assert!(!pack.wear_picked(ring.clone(), opensacred_rules::equipment::SLOTS));
         // Each its own key, the backpack untouched.
         assert_ne!(
-            pack.worn[8].map(|(key, _)| key),
-            pack.worn[9].map(|(key, _)| key)
+            pack.worn[8].as_ref().map(|(key, _)| key),
+            pack.worn[9].as_ref().map(|(key, _)| key)
         );
         assert!(pack.items.is_empty());
     }
@@ -1472,7 +1476,9 @@ mod tests {
         assert!(!pack.lift((5, 5)));
         assert!(pack.lift((2, 1)));
         assert_eq!(
-            pack.held.map(|held| (held.dropped.item, held.size)),
+            pack.held
+                .as_ref()
+                .map(|held| (held.dropped.item, held.size)),
             Some((1712, (1, 3)))
         );
         assert_eq!(pack.items.len(), 1);
@@ -1483,7 +1489,9 @@ mod tests {
         assert_eq!(pack.put_held((19, 6)), Put::Refused);
         assert!(matches!(pack.put_held((0, 0)), Put::Swapped(_)));
         assert_eq!(
-            pack.held.map(|held| (held.dropped.item, held.size)),
+            pack.held
+                .as_ref()
+                .map(|held| (held.dropped.item, held.size)),
             Some((5171, (1, 1)))
         );
         assert_eq!(pack.grid.at((0, 2)).map(|placed| placed.size), Some((1, 3)));
@@ -1502,15 +1510,15 @@ mod tests {
         assert!(pack.lift((0, 0)));
         assert!(pack.put_on(0, (2, 2)));
         assert!(pack.held.is_none());
-        assert_eq!(pack.worn[0].map(|(_, d)| d.item), Some(3005));
+        assert_eq!(pack.worn[0].as_ref().map(|(_, d)| d.item), Some(3005));
         // The other worn from the grid in its place: the first back where the second lay.
         let second = pack.grid.at((4, 0)).map(|placed| placed.key).unwrap();
         assert!(pack.wear(second, 0, (2, 2)));
-        assert_eq!(pack.worn[0].map(|(_, d)| d.item), Some(3006));
+        assert_eq!(pack.worn[0].as_ref().map(|(_, d)| d.item), Some(3006));
         assert_eq!(pack.grid.at((4, 0)).map(|placed| placed.size), Some((2, 2)));
         // Taken off onto the cursor, then by the right button into the grid.
         assert!(pack.take_off(0, (2, 2)));
-        assert_eq!(pack.held.map(|held| held.dropped.item), Some(3006));
+        assert_eq!(pack.held.as_ref().map(|held| held.dropped.item), Some(3006));
         assert!(pack.put_on(0, (2, 2)));
         assert!(pack.unwear(0, (2, 2)));
         assert!(pack.worn[0].is_none());

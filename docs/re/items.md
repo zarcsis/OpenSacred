@@ -85,6 +85,8 @@ The most sockets by the family, 0 to 32: 3, 2, 3, 3, 4, 3, 4, 3, 3, 4, 3, 3, 3, 
 ## The bonus slots in the values (`0x5796A0`)
 
 Read 2026-10-22 (#490), the stats' recomputation (docs/re/fight.md, "An NPC's attack, defence and damage") over the equipment slots 0 to 18 (`0x556F50`), each item's own record and those of its sockets: it passes over an item whose `items.pak` record has bit 25 of its first word, bit 1 of its byte `+0x03` (`0x426550`): the seven of `items.pak` with it are cosmetic models, the heroes' hair, the Dwarf's goggles, the Mage's cowl and the Gladiator's belt among them, so that the belt's `D` 5, its resistances and its attributes count for nothing (seen in the original's new game: the Gladiator's `D` 22.6, his attributes his type's).
+Each item's loop takes its own record (the index −1) and then each of its sockets' of a kind other than 0 (`0x5BE9E0`), in order (`0x579DFF` to `0x57AD37`); a socket's record skips the damage, the resistances, `A` and `D` (`0x57A19C`, which its filling added to the item's record already, docs/re/blacksmith.md) and counts its bonus slots as below (re-read 2026-11-01, #1661; **confirmed** by code).
+The attack record (`0x568D70`) takes the bonus slots of the conditions on an opponent's class over the same records.
 After an item's damage, resistances, `A` and `D`, each of its bonus slots counts whose condition's low byte is 0 or 13 (not an opponent's class) and whose condition passes `0x568B30` (its bits 8 to 11 0 or 7, else the holder's type, 6 for the types 6 and 7), its value times, by the effect's byte 2, one of the attributes over 100 (`0x568C40`: 1 `a0`, 2 `a2`, 3 `a1`, 4 `a3`, 5 `a4`, 6 `a5`; the product whole, then times 0.01; the attributes before the items' bonuses), else its value:
 
 - 801 to 804: added to the kind's least and most damage, or with the condition's bit 15 to its resistance (the condition's bits 13 and 14 cleared for them);
@@ -112,7 +114,7 @@ As the client loads the item types (`0x425AEB`, which logs `makeSpawnInfo`, gate
 The item maker writes the level it makes an item at into the item (`0x5D55FE`), but no flags it gives carry bit 31, so that its call of `0x5D3AB0` (`0x5D56FA`) replaces it by the estimate from the damage and the resistances it made; the level it was made at reaches only the bonuses and the quality pass (`0x42BF40` at `0x5D5601`), which run before (**hypothesis**: so a ring without damage or resistances asks the level 1, as 7511 below).
 The sockets' code (`0x5C0430`) takes the level back from `+0x14` the other way, `⌊(+0x14 + 9)/0.8 − 8.5⌋`.
 For example the Seraphim's staff 3809 of 1018 (35 to 42 physical and 8 to 15 magic, its template's scale 113) is worth 50, `100·50/113` 44.25, `(44.25 − 25)·100/250` 7.7, the level 8, and `+0x14` `⌊17·0.8 − 8.5⌋` 5, as #448's driver read in the running original where the file has 10 and 6, which follow the same rule for `+0x14`.
-`opensacred_rules::fight::item_level` works it out so, its sockets left out (#844).
+`opensacred_rules::fight::item_level` works it out so, its sockets left out (#844), and the game raises it to the highest of its sockets' items' levels, each of its values (`drops::Tables::sockets_level`, #1661).
 
 ## The worth of an item (`0x5D3AB0`)
 
@@ -120,7 +122,8 @@ Read 2026-10-31 for #1621 (**confirmed** by code, and on the files: for 4,700 of
 The trade's price of an item is its record's `+0x08` plus its sockets' items' (`0x5BEC70`), which `0x43C350` turns into what it costs and fetches (docs/re/inventory.md, §9 "The price"); the worth is what `0x5D3AB0` writes there, in the balance's `Price…` keys (docs/02-data-formats.md, the balance's image):
 
 1. A potion (category 9) is worth its record's price; a book (category 16) its record's price, else its type's record's, else 600; the gold piles 5132 to 5135 their amount or a roll (not followed).
-2. With the item's object given, each socket's item takes its damage and resistances, scaled by the socket's kind, off the item's sums, and the item's level is at least the highest of its sockets' (the game has no sockets).
+2. With the item's object given, each socket's item takes its least and most damage and its resistances, each times its socket's factor `1 + (k + t)/100` of the socket's kind and its record's tier (`+0x81`) as the filling added them (docs/re/blacksmith.md), off the plain sums of the level's estimate, each held at 0 (`0x5D3E20` to `0x5D4083`); each socket's record is worked out anew, its mark cleared (a call of itself at `0x5D409A`), and the item's level is at least the highest of their levels (re-read 2026-11-01, #1661; **confirmed** by code).
+   The worth below takes the record's values as they are, its sockets' shares in them (`0x5D40F0`).
 3. The damage `d`: half the sum of each kind's least and most (`+0x1C`…`+0x2A`) times its weight (`PriceDPh`, `PriceDFe`, `PriceDMa`, `PriceDGi`: 1, 2, 2 and 1.7, physical, fire, magic and poison); where above 0, the worth `⌊c2·d² + c1·d + c0⌋` by the row `PriceDmg:` (300, 10, 0.4), the polynomial stored as a single float first.
 4. The resistances `r`: each (`+0x32`…`+0x38`) times its weight (`PriceRPh`, `PriceRFe`, `PriceRMa`, `PriceRGi`: 2, 1, 2 and 1.5); where above 0, the worth `⌊worth + (c2·r² + c1·r + c0)⌋` by the row `PriceRes:` (450, 21, 0.9), the polynomial a single float.
 5. `A` (`+0x2C`) and `D` (`+0x2E`) where not 0, each `⌊c2·x² + c1·x + worth + c0⌋` by its three of the row `PriceAwVw:` (`A` 0, 3, 0.4; `D` 0, 4, 0.4).
@@ -133,6 +136,7 @@ So the sword 7901 (21 to 23 physical, `A` 5, `D` 2, the effects 811 of 14 and 81
 The 8 records whose prices are not their worths (1799, 2006, 2302, 3122, 3851, 4065, 7579 and 7741, each with an effect 856 or 866) are worth 5 to 7 % less; the client works their prices out anew as it loads the types, so it trades them by the worths (**hypothesis**: the files' prices of an earlier balance).
 
 Since #1621 the game prices every type by its record's worth as it loads the tables, and a made item by its values' (`drops::Tables::trade_price`), its quality and its difficulty those of the passes it does not follow (#1367), so 0; the tooltip shows a made item's price.
+Since #1661 an item with its sockets filled is priced by the worth of its values with theirs, and its sockets' items' prices added (`0x5BEC70`).
 
 ## The made item's name (`0x5C3130`)
 

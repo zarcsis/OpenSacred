@@ -192,7 +192,7 @@ fn fly(
         if let Some(item) = arsenal.as_deref().and_then(Arsenal::hurled_item) {
             commands.entity(entity).insert((
                 Lying {
-                    dropped: *item,
+                    dropped: item.clone(),
                     resting: true,
                 },
                 models::Sinks,

@@ -112,7 +112,7 @@ fn read(
         .items
         .iter()
         .find(|(key, _)| *key == placed.key)
-        .map(|(_, dropped)| *dropped)
+        .map(|(_, dropped)| dropped.clone())
     else {
         return;
     };

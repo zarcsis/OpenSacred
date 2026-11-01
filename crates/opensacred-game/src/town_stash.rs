@@ -236,7 +236,7 @@ fn tint(
     if !showing(&shown, &opened) {
         return;
     }
-    let held = pack.held.and_then(|held| {
+    let held = pack.held.as_ref().and_then(|held| {
         let at = on_grid(&pointer, &ui_scale, &windows)?;
         backpack::cell_in(at, (COLUMNS, ROWS))?;
         let cell = held_at((at.x, at.y), held.size);
@@ -291,14 +291,14 @@ fn click(
         let Some(index) = chest.items.iter().position(|(key, _)| *key == placed.key) else {
             return;
         };
-        if pack.take(chest.items[index].1, placed.size) {
+        if pack.take(chest.items[index].1.clone(), placed.size) {
             chest.grid.remove(placed.key);
             let (_, dropped) = chest.items.remove(index);
             debug!("town stash: {} into the backpack", dropped.item);
         }
         return;
     }
-    let Some(held) = pack.held else {
+    let Some(held) = pack.held.clone() else {
         if lift_from((&mut chest.items, &mut chest.grid), &mut pack.held, cell) {
             debug!("town stash: the item at {cell:?} onto the cursor");
         }

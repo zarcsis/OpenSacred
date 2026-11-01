@@ -93,9 +93,23 @@ impl Weighing<'_, '_> {
         let Some(tables) = self.tables.as_deref() else {
             return vec![Line::of(name, WHITE)];
         };
-        let record = tables.record(dropped.item);
+        let record = tables.record_of(dropped);
         let values = tables.values(dropped);
         let made = dropped.values.is_some();
+        // A made item's levels by its own values (`0x5D3AB0` at `0x5D56FA`), another's as its
+        // record holds them: a potion's none, a scroll's level none (seen, #1273); with its
+        // sockets filled, at least theirs, the level asked of it (`0x5C0810`, #1661).
+        let own = if made {
+            opensacred_rules::fight::item_level(&tables.own_values(dropped), &self.rules)
+        } else {
+            u32::from(record.level)
+        };
+        let level = own.max(tables.sockets_level(dropped, &self.rules));
+        let asked = if made || !dropped.socketed.is_empty() {
+            opensacred_rules::equipment::asked_level(level)
+        } else {
+            u32::from(record.asked)
+        };
         let quality = if dropped.quality != 0 {
             dropped.quality
         } else {
@@ -110,18 +124,8 @@ impl Weighing<'_, '_> {
             buying,
             quality,
             values,
-            // A made item's levels by its values (`0x5D3AB0` at `0x5D56FA`), another's as its
-            // record holds them: a potion's none, a scroll's level none (seen, #1273).
-            level: if made {
-                opensacred_rules::fight::item_level(&values, &self.rules)
-            } else {
-                u32::from(record.level)
-            },
-            asked: if made {
-                tables.asks(dropped, &self.rules).level
-            } else {
-                u32::from(record.asked)
-            },
+            level,
+            asked,
             heals: self
                 .potions
                 .as_deref()
@@ -227,13 +231,20 @@ fn grid(
     let carried = || {
         let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
         let placed = *pack.grid.at(cell_under(at)?)?;
-        let dropped = pack.items.iter().find(|(key, _)| *key == placed.key)?.1;
+        let dropped = pack
+            .items
+            .iter()
+            .find(|(key, _)| *key == placed.key)?
+            .1
+            .clone();
         Some((Source::Backpack, GRID, placed, dropped))
     };
     let under = shown.then(|| sold().or_else(carried)).flatten();
     let current = panels.iter().next();
     if current.map(|(_, panel)| (panel.source, panel.key))
-        == under.map(|(source, _, placed, _)| (source, placed.key))
+        == under
+            .as_ref()
+            .map(|(source, _, placed, _)| (*source, placed.key))
     {
         return;
     }

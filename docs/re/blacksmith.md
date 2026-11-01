@@ -32,7 +32,8 @@ The grid takes one item, through the inventory's rules of a fit (`0x5DB0D0`):
 Its sockets, the first four at most (`0x5BE9C0` counts those of a kind other than 0), each either filled already (the item's list of its sockets' items, `0x5BEAE0`) or empty:
 
 - A press on an empty socket with an item on the cursor puts it there to wait (the cursor emptied, the socket keeping its id, its type and its picture), where the item may go into a socket (`0x428780`): the rings (category 8), the amulets (20), the blacksmith's upgrades (26), the runes (28), and six quest items (the dragon orbs 6075 and 6076, the dragon scale 6089, the sacred symbols 6112 and 6113, a skeleton warrior's head 5100); a press with the cursor empty takes a waiting item back onto it.
-- A press on a filled socket with the cursor empty takes its item out (`0x6A27B0`), for nothing: an item of another category than 26 is made anew of the socket's record and put onto the cursor, an upgrade is lost; the socket's kind keeps, its record's mark of a filled socket (`+0x04` bit 31) cleared, and the item's worth is made again (`0x5D3AB0`); whatever else waited for the sockets is dropped.
+- A press on a filled socket with the cursor empty takes its item out (`0x6A27B0`), for nothing, and empties every other socket with it (`0x5C0430`, below): the pressed socket's item, of another category than 26, is made anew of its record and put onto the cursor, an upgrade is lost, and so are the items of the other sockets; the sockets' kinds keep; whatever else waited for the sockets is dropped.
+  The record whose mark (`+0x04` bit 31) it then clears and whose worth it works out again (`0x5D3AB0`) is the pressed socket's, already out of the list, so the item's own worth stays what its last filling made it (re-read 2026-11-01, #1661; **confirmed** by code).
 
 The three buttons, with the cursor empty, put onto it an upgrade of the smith's tier `t` (0 to 5), not an object yet but its type alone (the cursor's kind 5), made only as it goes into a socket:
 
@@ -66,16 +67,25 @@ At the x87 unit's 53 bits a price that comes to a whole number in real numbers f
 
 ## A socket filled (`0x5BFF60`)
 
-- Refused where every socket of the item is filled, or the item may not go into a socket (`0x428780`, above); the item put in is destroyed either way.
+- Refused where every socket of the item is filled, or the item may not go into a socket (`0x428780`, above), the item to go in left as it is (what its caller makes of it is not read); else, at the end, the item put in is destroyed (`sdk_DESTROY`), its record kept in the list (below).
 - The first item put into the item keeps the item's requirements as they were (`+0x192…+0x197`, the record's level `+0x14`, its `+0x15…+0x17`, `+0x18`, `+0x1A` and `+0x1B`), to take them back when its sockets empty; then each requirement of the item is raised to the socket's item's where that is higher (the level, the three bytes after it and `+0x18`; the skill `+0x1A` with its level `+0x1B` where the level is higher).
-- The socket's item's record (130 bytes) joins the item's list of its sockets' items, the next socket in order filled.
+- The socket's item's record (130 bytes) joins the item's list of its sockets' items (the object's `+0x100` to `+0x104`), the next socket in order filled, the smith's tier kept in its last byte (`+0x81`, written as the item's object's `+0x199`, its record being at `+0x118`).
 - Its values are added to the item's record (`0x5BFB60`), each times `1 + (k + t)/100` and truncated, `k` 1, 3 or 9 by the socket's kind (bronze, silver, gold; the kind 4 as gold, 0 none) and `t` the smith's tier: the four kinds' least and most damage (`+0x1C…+0x2A`), the four resistances (`+0x32…+0x38`), `A` (`+0x2C`), `D` (`+0x2E`) and `+0x30`.
   The hundredth is the float 0.01 again, so at 53 bits a product that comes to a whole number falls just below it: `A` 100 in a gold socket by a smith of tier 2 adds 110, not 111 (the same **hypothesis** as the price's).
-- The item's values are worked out again (`0x5C0810`), and in a network game the change is sent (the event `0x16C`).
-- Taking an item out (`0x5C0430`) subtracts the same, each held at 0 or more.
+  The `n`-th item in the list goes with the `n`-th socket's kind (`+0x0C + n`), as the item maker writes the kinds from the first on.
+- The item's values are worked out again (`0x5C0810`): its record's price becomes the worth of its values with its sockets' (`0x5D3AB0` with the item's object, docs/re/items.md, "The worth of an item"), and in a network game the change is sent (the event `0x16C`).
+- Taking an item out (`0x5C0430`, re-read 2026-11-01, #1661): every socket's item's values come off the item, the last first, each by its socket's kind and its own record's tier (`+0x81`), each value held at 0 or more; the item's requirements are taken back from `+0x192…`, its level `⌊(+0x192 + 9)/0.8 − 8.5⌋`; the whole list is cleared (`0x5C9480` copying nothing over its start); and the record of the socket asked for is given back.
+  It works no worth out again, so the item keeps the price that its last filling gave it.
 
 ## Not read
 
 - The Dwarf's button of the skill 33 and his checks (`+0x3C`), and the item's check `0xE` (`+0x24`).
-- What the upgrades' records give an item (their values and bonuses, read with the items' table, docs/02 §6.1), and how the sockets' items' bonuses count where the item is worn.
+- What the upgrades' records give an item (their values and bonuses, read with the items' table, docs/02 §6.1).
 - The window's pictures, fonts and hints' texts by their numbers, measured against the running original.
+
+## In `opensacred-game`
+
+Since #1661 an item carries the items in its sockets (`opensacred_rules::drops::Dropped::socketed`), each with its values as it went in and its smith's tier (`opensacred_rules::smith::Socketed`), which `smith::fill` puts in (refused where the sockets are all filled or the item goes into none) and `smith::take_out` takes out, every socket emptied and the pressed one's item given back.
+The item's values are its own with what its sockets' items add (`smith::with_sockets`), which its wearer's fight, the weapon sets and the tooltip take (`drops::Tables::values`); its level is at least its sockets' items' and asks so (`Tables::sockets_level`, `Tables::asks`), its skill asked raised to theirs (`Tables::record_of`); its price is the worth of its values with theirs and their own prices (`Tables::trade_price`); and the hero's values count the bonus slots of the items in the sockets of what it wears and holds after the items' own (`smith::bonuses`, `equipment`, `sets`).
+An emptied item is priced by its own values again (docs/decisions/items.md, "Emptied sockets priced anew").
+The window that fills and empties them is #1662.
