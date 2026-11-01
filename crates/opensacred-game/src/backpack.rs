@@ -206,6 +206,26 @@ pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
         }
     }
     // The items' picture, of the window's pixels, over the cells.
+    spawn_picture(
+        commands,
+        (targets, layers),
+        scale,
+        (grid, size),
+        (layer, scene),
+    );
+}
+
+/// Makes a picture of `size` at the corner of the container `parent`, of the window's pixels
+/// (`scale` of the original's), that a camera of the render layer `layer` draws the items' models
+/// into, a unit of the models a pixel of the original's screen from the picture's top left (the
+/// rows going down), its light with it, both `scene`.
+pub(crate) fn spawn_picture<S: Component + Clone>(
+    commands: &mut Commands,
+    (targets, layers): (&mut Assets<Image>, &mut Assets<Layer>),
+    scale: f32,
+    (parent, size): (Entity, Vec2),
+    (layer, scene): (usize, S),
+) {
     let pixels = (size * scale).round().as_uvec2().max(UVec2::ONE);
     let target = targets.add(Image::new_target_texture(
         pixels.x,
@@ -222,7 +242,7 @@ pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
             Pickable::IGNORE,
         ))
         .id();
-    commands.entity(grid).add_child(picture);
+    commands.entity(parent).add_child(picture);
     commands.spawn((
         scene.clone(),
         Camera3d::default(),

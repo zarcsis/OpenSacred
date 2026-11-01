@@ -210,7 +210,7 @@ pub(crate) fn put_into(
 }
 
 /// An item on the cursor: its key in the grid, the item and its size in cells.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Held {
     pub key: u32,
     pub dropped: Dropped,

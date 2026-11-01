@@ -318,6 +318,25 @@ impl Tables {
         opensacred_rules::smith::with_sockets(&self.own_values(dropped), &dropped.socketed)
     }
 
+    /// Puts `socket` into the next empty socket of `item` by a smith of tier `tier` (`0x5BFF60`,
+    /// #1661): `socket` given back where it is refused, `item`'s sockets all filled or `socket`
+    /// going into none.
+    pub fn fill(&self, item: &mut Dropped, socket: Dropped, tier: u8) -> Option<Dropped> {
+        let kinds = self.own_values(item).sockets;
+        let values = self.values(&socket);
+        let category = self.category(socket.item);
+        opensacred_rules::smith::fill(item, &kinds, (socket, values, category), tier)
+    }
+
+    /// How many sockets `dropped` has, of a kind other than 0 among its eight (`0x5BE9C0`).
+    pub fn sockets(&self, dropped: &Dropped) -> usize {
+        self.own_values(dropped)
+            .sockets
+            .iter()
+            .filter(|&&kind| kind != 0)
+            .count()
+    }
+
     /// The highest level of the items in the sockets of `dropped`, each of its values as it went
     /// in (`0x5D3AB0` with the item's object, which works them out anew of their records); 0
     /// with its sockets empty. An item's level is at least it (#1661).
@@ -359,22 +378,28 @@ impl Tables {
     }
 
     /// The price of `dropped` that the trade goes by (`0x5BEC70`, #1621): its record's `+0x08`
-    /// and its sockets' items' (#1661). Its record's is the worth of its values with its
-    /// sockets' (`0x5D3AB0` as the item maker or the socket's filling `0x5C0810` calls it), a
-    /// made item's quality and difficulty those of the passes it does not follow, so 0; its
-    /// type's price otherwise, its record's worth.
+    /// ([`Self::worth`]) and its sockets' items' (#1661).
     pub fn trade_price(&self, dropped: &Dropped) -> i64 {
-        let record = self.record(dropped.item);
         let sockets: i64 = dropped
             .socketed
             .iter()
             .map(|socket| self.trade_price(&socket.item))
             .sum();
+        self.worth(dropped) + sockets
+    }
+
+    /// The worth of `dropped` that its record keeps (`+0x08`), which the smith's price takes
+    /// (`0x6A2B20`, #1662): the worth of its values with its sockets' (`0x5D3AB0` as the item
+    /// maker or the socket's filling `0x5C0810` calls it), a made item's quality and difficulty
+    /// those of the passes it does not follow, so 0; its type's price otherwise, its record's
+    /// worth.
+    pub fn worth(&self, dropped: &Dropped) -> i64 {
+        let record = self.record(dropped.item);
         if dropped.values.is_none() && dropped.socketed.is_empty() {
             return record.price;
         }
         let values = self.values(dropped);
-        let own = opensacred_rules::trade::worth::worth(
+        opensacred_rules::trade::worth::worth(
             &self.worths,
             &opensacred_rules::trade::worth::Item {
                 item: dropped.item,
@@ -383,8 +408,7 @@ impl Tables {
                 flags: record.word & CLASS_BITS,
                 price: record.price,
             },
-        );
-        own + sockets
+        )
     }
 
     /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it

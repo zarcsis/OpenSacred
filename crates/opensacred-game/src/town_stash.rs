@@ -304,6 +304,13 @@ fn click(
         }
         return;
     };
+    // An upgrade (the cursor's kind 5) is no item that the grid takes (#1662).
+    if tables
+        .as_deref()
+        .is_some_and(|tables| crate::blacksmith::holds_upgrade(&pack, tables))
+    {
+        return;
+    }
     let put = put_into(
         (&mut chest.items, &mut chest.grid),
         &mut pack.held,
