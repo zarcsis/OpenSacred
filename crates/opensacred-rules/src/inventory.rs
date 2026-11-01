@@ -174,6 +174,16 @@ pub fn drop_cell(
     hero
 }
 
+/// The gold that a click on the statistics window's gold drops, of the hero's `gold`
+/// (`0x6A6110`): none below 10, all of it below 1,000, else a tenth, truncated.
+pub fn gold_to_drop(gold: u32) -> u32 {
+    match gold {
+        0..10 => 0,
+        10..1000 => gold,
+        _ => gold / 10,
+    }
+}
+
 /// A grid of `width` × `height` cells and the items in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grid {
@@ -398,6 +408,19 @@ impl Grid {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_statistics_window_drops_the_gold_below_1000_else_a_tenth() {
+        assert_eq!(
+            [0, 9, 10, 999, 1000, 5009].map(gold_to_drop),
+            [0, 0, 10, 999, 100, 500]
+        );
+        // Its pile by the amount.
+        assert_eq!(
+            [1, 49, 50, 349, 350, 999, 1000].map(crate::drops::pile_of),
+            [5132, 5132, 5133, 5133, 5134, 5134, 5135]
+        );
+    }
 
     #[test]
     fn an_item_takes_its_records_size_else_its_categorys() {

@@ -839,6 +839,17 @@ pub fn pile(level: u32, dice: &mut impl Dice) -> u32 {
     }
 }
 
+/// The gold pile of an amount laid by the hero (`0x4AEBD0` with the type `0x7E60`): 5132 below
+/// 50, 5133 below 350, 5134 below 1,000, else 5135.
+pub fn pile_of(amount: u32) -> u32 {
+    match amount {
+        0..50 => GOLD[0],
+        50..350 => GOLD[1],
+        350..1000 => GOLD[2],
+        _ => GOLD[3],
+    }
+}
+
 /// What a pass asks of the type choice ([`Catalogue::choose`]): the category, the dead
 /// creature's level, the class (the hero's type, 0 for any), whether the records' levels go
 /// untested, the quality, `16 − key` for the keys 2 to 15, else 0, and the weapon kind of
