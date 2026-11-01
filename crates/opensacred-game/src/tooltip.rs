@@ -174,12 +174,18 @@ pub(crate) const WHITE: u32 = 0xFFFF_FFFF;
 #[derive(Component)]
 struct Root;
 
-/// The grid whose item a tooltip shows: the backpack's, or a page of a merchant's (#1618).
+/// Where the item that a tooltip shows lies: the backpack's grid, a page of a merchant's (#1618),
+/// or a weapon set's slot of the bar (#1689).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Source {
     Backpack,
     Merchant(opensacred_rules::trade::stock::Page),
+    WeaponSet,
 }
+
+/// A weapon set's slot's item's tooltip's corner from the slot's, as the taskbar shows it
+/// (`0x6E4560`): its middle less 64 along, 128 up.
+const FROM_SLOT: Vec2 = Vec2::new(32.0 - 64.0, -128.0);
 
 /// The tooltip shown: what it shows (the grid's item by its key), its place on the original's
 /// screen before it is kept within it.
@@ -199,7 +205,9 @@ type Merchant<'w> = (
 
 /// The tooltip of the grid's item under the pointer while the items' page shows, or of a
 /// merchant's page's item with its price as bought (`0x6DAA70`), made as the pointer comes to an
-/// item and taken away as it leaves it (`0x6C1480`).
+/// item and taken away as it leaves it (`0x6C1480`); and of a weapon set's slot's item of the
+/// bar, the hand by the half the pointer is on, whether the inventory shows or not (`0x6E4560`,
+/// #1689).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -209,6 +217,10 @@ fn grid(
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
     (pack, (merchant, showing, wares)): (Res<Pack>, Merchant),
+    (sets, slots): (
+        Option<Res<crate::sets::WeaponSets>>,
+        Option<Res<bar::Shown>>,
+    ),
     texts: Option<Res<Texts>>,
     weighing: Weighing,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
@@ -216,6 +228,15 @@ fn grid(
     roots: Query<Entity, With<Root>>,
 ) {
     let shown = shown.is_some_and(|shown| shown.0);
+    // Each source's item under the pointer: where it is, its key there, its tooltip's corner.
+    let at_item = |origin: Vec2, placed: opensacred_rules::inventory::Placed| {
+        origin
+            + Vec2::new(
+                f32::from(placed.at.0 + placed.size.0),
+                f32::from(placed.at.1),
+            ) * CELL
+            + FROM_ITEM
+    };
     let sold = || {
         let (placed, dropped) = crate::merchant::hovered(
             (merchant.as_deref(), &showing, &wares),
@@ -223,8 +244,8 @@ fn grid(
         )?;
         Some((
             Source::Merchant(showing.0),
-            crate::merchant::GRID,
-            placed,
+            placed.key,
+            at_item(crate::merchant::GRID, placed),
             dropped,
         ))
     };
@@ -237,21 +258,29 @@ fn grid(
             .find(|(key, _)| *key == placed.key)?
             .1
             .clone();
-        Some((Source::Backpack, GRID, placed, dropped))
+        Some((Source::Backpack, placed.key, at_item(GRID, placed), dropped))
     };
-    let under = shown.then(|| sold().or_else(carried)).flatten();
+    let held_by_set = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let count = slots.as_deref()?.0;
+        let (set, half, corner, dropped) = crate::sets::hovered(sets.as_deref()?, count, at)?;
+        let key = u32::try_from(set * 2 + half).ok()?;
+        Some((Source::WeaponSet, key, corner + FROM_SLOT, dropped))
+    };
+    let under = shown
+        .then(|| sold().or_else(carried))
+        .flatten()
+        .or_else(held_by_set);
     let current = panels.iter().next();
     if current.map(|(_, panel)| (panel.source, panel.key))
-        == under
-            .as_ref()
-            .map(|(source, _, placed, _)| (*source, placed.key))
+        == under.as_ref().map(|(source, key, ..)| (*source, *key))
     {
         return;
     }
     if let Some((entity, _)) = current {
         commands.entity(entity).despawn();
     }
-    let Some((source, origin, placed, dropped)) = under else {
+    let Some((source, key, corner, dropped)) = under else {
         return;
     };
     let name = texts
@@ -260,12 +289,6 @@ fn grid(
         .unwrap_or_default();
     let buying = matches!(source, Source::Merchant(_));
     let lines = weighing.lines(&dropped, name, texts.as_deref(), buying);
-    let corner = origin
-        + Vec2::new(
-            f32::from(placed.at.0 + placed.size.0),
-            f32::from(placed.at.1),
-        ) * CELL
-        + FROM_ITEM;
     let root = roots
         .iter()
         .next()
@@ -273,7 +296,7 @@ fn grid(
     let panel = spawn(&mut commands, &images, &assets, corner, &lines);
     commands.entity(panel).insert(Panel {
         source,
-        key: placed.key,
+        key,
         at: corner,
     });
     commands.entity(root).add_child(panel);
