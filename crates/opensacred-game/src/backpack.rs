@@ -496,7 +496,9 @@ pub(crate) fn lay_models<B: Bundle>(
 /// Puts each part of the items' models into their camera's layer as their scenes come in, and
 /// gives it a copy of its material that reflects no light (**estimate**): the original lights an
 /// item by its colour alone, where the ambient light's reflection of 4% would lift its darks to a
-/// grey.
+/// grey. The copy tests its texels' alpha as the original's every model (`models::CUTOFF`,
+/// `cGranny::render`), which the converted glTF's opaque material does not (#1679): the
+/// smith's upgrade's round token lies on transparent corners.
 pub(crate) fn layer(
     mut commands: Commands,
     models: Query<(Entity, &RenderLayers), With<Matte>>,
@@ -523,6 +525,7 @@ pub(crate) fn layer(
             } else if let Some(source) = materials.get(id).cloned() {
                 let copy = materials.add(StandardMaterial {
                     reflectance: 0.0,
+                    alpha_mode: AlphaMode::Mask(crate::models::CUTOFF),
                     ..source
                 });
                 matte.insert(id, copy.clone());

@@ -70,7 +70,7 @@ pub(crate) const PLACE: f32 = 24.0;
 /// drawing.md, "The models"). Bevy keeps a texel of alpha at the cutoff or above it, which lies
 /// between 64 and 65 of 255. The same as `CUTOFF` of `standard.wesl`, which tests the texels of
 /// [`Pass::Fringe`].
-const CUTOFF: f32 = 64.5 / 255.0;
+pub(crate) const CUTOFF: f32 = 64.5 / 255.0;
 
 /// The alpha of the opaque texels, which [`Pass::Body`] draws: all of it. The same as `OPAQUE`
 /// of `standard.wesl`, which leaves them out of [`Pass::Fringe`].
