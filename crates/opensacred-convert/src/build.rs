@@ -395,6 +395,9 @@ fn pack(
         }
     }
     writer.finish().with_context(what)?;
+    // The old archive keeps its file open while it is (`Archive`): closed before the new one
+    // takes its place.
+    drop(old);
     fs::rename(&temporary, &target)
         .with_context(|| format!("renaming {} to {}", temporary.display(), target.display()))?;
     Ok((outputs, built))

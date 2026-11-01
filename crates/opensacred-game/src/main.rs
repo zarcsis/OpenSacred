@@ -87,6 +87,7 @@ mod npcs;
 mod opus;
 mod overlay;
 mod overview;
+mod parallel;
 mod paths;
 mod pause;
 mod pick;

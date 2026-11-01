@@ -35,6 +35,7 @@ use opensacred_data::world::{
     Cell, DIAMONDS, SIDE, Sector, SectorEntry, Sprite, Sprites, StaticObject, World, sprite_image,
 };
 
+use crate::parallel::Spread;
 use crate::{blended, iso, liquids, shaders, srgb, statics, terrain};
 
 const WIDTH: u32 = 640;
@@ -406,9 +407,16 @@ fn settled(app: &App) -> bool {
 /// Windows' software adapter (WARP) a second one never arrives.
 fn render(dir: &Path) -> Vec<u8> {
     let (world, sector, sprites) = write_world(dir);
-    let ground = terrain::build(dir, &world, &sector).unwrap();
+    let ground = terrain::build(
+        dir,
+        &world,
+        &sector,
+        Spread::Alone,
+        &terrain::Decoded::default(),
+    )
+    .unwrap();
     let surfaces = liquids::build(&sector);
-    let statics = statics::build(dir, &world, &sprites, None, &sector).unwrap();
+    let statics = statics::build(dir, &world, &sprites, None, &sector, Spread::Alone).unwrap();
     assert_eq!(statics.drawn, 4);
     let look_at = terrain::center(&sector);
 

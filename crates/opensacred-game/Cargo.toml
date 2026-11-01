@@ -26,6 +26,7 @@ opensacred-rules.workspace = true
 # compiler too.
 opensacred-scripts.workspace = true
 png.workspace = true
+rayon.workspace = true
 ron.workspace = true
 serde.workspace = true
 serde_json.workspace = true

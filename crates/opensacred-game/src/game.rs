@@ -437,8 +437,13 @@ fn load(
         Ok((x, y)) => (x / side, y / side),
         Err(sector) => sector,
     };
-    let first =
-        sectors::build(shared, at)?.ok_or_else(|| anyhow!("no sector at {},{}", at.0, at.1))?;
+    let first = sectors::build(
+        shared,
+        at,
+        crate::parallel::Spread::Wide,
+        &terrain::Decoded::default(),
+    )?
+    .ok_or_else(|| anyhow!("no sector at {},{}", at.0, at.1))?;
     let mut heights = terrain::Heights::default();
     heights.add(&first.sector);
     let center = match start {
