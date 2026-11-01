@@ -4,14 +4,14 @@
 //! 10 cells from (0, 20) with the items in it, drawn as the backpack's (`backpack`), and its
 //! clicks (`0x6ACFC0`): the cursor's item put in where it fits or in place of the one item under
 //! it, an item taken onto the empty cursor, and Shift with a click sending an item to the
-//! backpack. Its grid is one for every town stash, kept while the game runs.
+//! backpack; and Shift with a click on the backpack's item sending it here (#1663, `0x6C0150`).
+//! Its grid is one for every town stash, kept while the game runs.
 //!
 //! As the inventory hides, the window hides with it (`0x6ACD80`): the stash is no more emptied
 //! and its lid closes with its sound.
 //!
 //! Not followed yet: the hovered item's tooltip (`0x75B390`), the window's own opening and closing
-//! sounds over the inventory's, the saves (#1095), and Shift with a click on the backpack's item
-//! while the window shows.
+//! sounds over the inventory's, and the saves (#1095).
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -321,6 +321,46 @@ fn click(
     }
 }
 
+/// Shift with a left press on the backpack's item while the window shows sends it into the store
+/// where it fits first (`0x6C0150` with the manager's `UI_WND_CHEST` shown: `0x5DEBC0`,
+/// `0x5DECC0` of the reference `0x11`), before the backpack's own press takes it onto the cursor;
+/// an item that fits nowhere stays.
+fn send_shifted(
+    (shown, opened): (Res<Shown>, Res<Opened>),
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
+    (pointer, ui_scale, page): (Res<Pointer>, Res<UiScale>, Res<crate::inventory::Page>),
+    windows: Query<&Window>,
+    (mut chest, mut pack): (ResMut<Chest>, ResMut<Pack>),
+) {
+    if !showing(&shown, &opened)
+        || pack.held.is_some()
+        || !buttons.just_pressed(MouseButton::Left)
+        || !keys.pressed(crate::controls::Action::SendItem)
+    {
+        return;
+    }
+    let Some(cell) =
+        backpack::on_grid(&pointer, &ui_scale, &windows, &page).and_then(backpack::cell_under)
+    else {
+        return;
+    };
+    let Some(placed) = pack.grid.at(cell).copied() else {
+        return;
+    };
+    if chest.grid.take(placed.key, placed.size).is_none() {
+        return;
+    }
+    match pack.take_out(placed.key) {
+        Some((_, dropped)) => {
+            debug!("town stash: {} from the backpack", dropped.item);
+            chest.items.push((placed.key, dropped));
+        }
+        None => {
+            chest.grid.remove(placed.key);
+        }
+    }
+}
+
 /// The town stash's window.
 pub struct TownStashPlugin;
 
@@ -332,6 +372,13 @@ impl Plugin for TownStashPlugin {
                 Update,
                 (show, lay_out, click, tint)
                     .chain()
+                    .after(crate::inventory::Opened)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                send_shifted
+                    .before(crate::held::Click)
                     .after(crate::inventory::Opened)
                     .run_if(in_state(AppState::InGame)),
             );
