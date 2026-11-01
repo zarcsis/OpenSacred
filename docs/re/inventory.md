@@ -134,7 +134,7 @@ The slots' places in the window, (x, y) of their frames' corners:
 - A worn item is its 3D model centred in its slot (`0x6B75A0` keeps a slot's record), its sockets' icons as in the grid.
 - A slot hovered shows its item's description in the manager's tooltip (`0x75B1E0`) at its right edge and 8, at its top; an empty slot its own text (the style `0x209`).
 - While the hero wears a set's bonus (`+0x1F4` bit 31) the window shows the image 167 (168 hovered; `GUI_main_04`, 45 × 45) at the screen's (678, 400), whose hover lists the set's bonuses (`0x5711F0`) at (512, 256).
-- The Dwarf of the skill 33 has a button (the images 1607 and 1608, or 1609 and 1610) that opens a window like the blacksmith's (not read).
+- The Dwarf of the skill 33 has a button (the images 1607 and 1608, or 1609 and 1610) that opens the blacksmith's window with the hero as the smith (docs/re/blacksmith.md; the button not read).
 
 ### Who may use an item (`0x54ABE0`, `0x5BF810`)
 

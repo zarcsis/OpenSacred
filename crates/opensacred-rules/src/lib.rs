@@ -11,8 +11,8 @@
 //! ([`weather`]), the peace stream's music ([`music`]), the undead that rise again
 //! ([`undead`]), the particle systems ([`particles`]), the backpack's grid ([`inventory`]), the
 //! equipment's slots and who may use an item ([`equipment`]), the land explored ([`explored`]),
-//! the potions and the belt ([`potions`]), the weapon sets ([`sets`]) and the prices
-//! ([`trade`]).
+//! the potions and the belt ([`potions`]), the weapon sets ([`sets`]), the prices ([`trade`]) and
+//! the blacksmith ([`smith`]).
 
 pub mod arrows;
 pub mod arts;
@@ -31,6 +31,7 @@ pub mod quests;
 pub mod regions;
 pub mod rewards;
 pub mod sets;
+pub mod smith;
 pub mod spawning;
 pub mod spells;
 pub mod trade;
