@@ -12,8 +12,8 @@
 //!
 //! Not followed yet: the combat arts' damage, the panels and the tooltips that the hovered lines
 //! show, the button that closes the inventory, the bonus of a set's pieces in the survival bonus,
-//! the items' bonuses of the skills, the player's own name, the window's following a follower's
-//! portrait, and the gold dropped by a click on it.
+//! the items' bonuses of the skills, the player's own name, and the window's following a
+//! follower's portrait. A click on the gold's line drops gold (#1665).
 
 use bevy::prelude::*;
 
@@ -1667,6 +1667,73 @@ fn close(
     }
 }
 
+/// The rectangle on the original's screen of a click that drops gold (`0x6A6110`), within the
+/// window its last row from x 723: the gold's line.
+const GOLD_LINE: Rect = Rect {
+    min: Vec2::new(723.0, 368.0),
+    max: Vec2::new(1567.0, 753.0),
+};
+/// How far the dropped gold flies along either axis of the ground, `20 + R(0, 30)` to either side
+/// (`0x4AEBD0`).
+const GOLD_THROW: (u32, u32) = (20, 31);
+
+/// A left click on the gold's line drops gold (`0x6A6110`): all of the hero's below 1,000, else a
+/// tenth, none below 10 ([`opensacred_rules::inventory::gold_to_drop`]), taken from the hero and
+/// thrown from it to 20 to 50 units off along each axis of the ground, each to either side at
+/// random, in the pile of its amount (`0x4AEBD0`, [`opensacred_rules::drops::pile_of`]).
+fn drop_gold(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    shown: Option<Res<Shown>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    mut pack: ResMut<Pack>,
+    heroes: Query<(&Transform, &Body)>,
+    (assets, tables, mut dice): (
+        Res<AssetServer>,
+        Option<Res<crate::drops::Tables>>,
+        ResMut<crate::drops::Dice>,
+    ),
+) {
+    if !shown.is_some_and(|shown| shown.0) || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
+        return;
+    };
+    if !WINDOW.contains(at) || !GOLD_LINE.contains(at) {
+        return;
+    }
+    let amount = opensacred_rules::inventory::gold_to_drop(pack.gold);
+    let (Some(tables), Some((transform, body))) = (tables, heroes.iter().next()) else {
+        return;
+    };
+    if amount == 0 {
+        return;
+    }
+    let pile = opensacred_rules::drops::pile_of(amount);
+    let Some(dropped) = crate::drops::contained(&tables, &mut dice, (pile, 0, amount)) else {
+        return;
+    };
+    pack.gold -= amount;
+    let mut off = || {
+        let far = GOLD_THROW.0 + dice.0.below(GOLD_THROW.1);
+        let far = f32::from(u16::try_from(far).unwrap_or(u16::MAX));
+        if dice.0.below(2) == 0 { far } else { -far }
+    };
+    let from = transform.translation;
+    let to = from + Vec3::new(off(), 0.0, off());
+    info!(
+        "statistics: {amount} gold dropped of {}",
+        pack.gold + amount
+    );
+    crate::drops::throw_to(
+        &mut commands,
+        (&assets, &tables),
+        (from, to, body.level()),
+        dropped,
+    );
+}
+
 /// The statistics window.
 pub struct StatisticsPlugin;
 
@@ -1682,7 +1749,7 @@ impl Plugin for StatisticsPlugin {
             .add_systems(
                 Update,
                 (
-                    (leave_learning, close, toggle, spend, show).chain(),
+                    (leave_learning, close, toggle, spend, drop_gold, show).chain(),
                     (play, record_levels).in_set(crate::frame::Playing),
                 )
                     .run_if(in_state(AppState::InGame)),

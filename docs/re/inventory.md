@@ -214,7 +214,8 @@ The slots' places in the window, (x, y) of their frames' corners:
 ## 8. The gold
 
 - The inventory window draws no gold: the gold, the stats' `+0x46` (the creature's `+0x3EE`), is the statistics window's (its last line, docs/re/character.md).
-- In that window's input (`0x6A62C0`) a click in a region tested against 723 to 1567 and 368 to 753 (their units not read) drops gold, all of it below 1000, else a tenth, taken by `0x57FD80` and laid at the hero's place by `0x4AEBD0` (**hypothesis**: the gold's line clicked).
+- In that window's input (`0x6A6110`, read again 2026-11-01, #1665) a press within the window, past its controls and its skills' rows, at x 723 to 1567 and y 368 to 753 of the original's screen (the same test takes the skills' button at 680 to 780 by 50 to 70), so on its last row from x 723, the gold's line, drops gold unless the players' trade shows (`0x75AA30`): of the hero's gold `g`, none below 10, all of it below 1,000, else `⌊g/10⌋`, taken by `0x57FD80`.
+- The gold is laid by `0x4AEBD0` with the type `0x7E60`: a pile by the amount, 5132 below 50, 5133 below 350, 5134 below 1,000, else 5135, its amount set (`0x5C7D10`) and thrown from the hero (`0x44DED0`) to a point `20 + rand() % 31` off along each axis of the ground, each to a side at random.
 
 ## 9. The item's tooltip (the item's virtual `+0x44`, `0x5C5360`)
 
