@@ -5,20 +5,21 @@
 //! the menus' letter, the one under the cursor lit (`cUI_EscMenu`, `0x6BBBD0`). Options, Save Game
 //! and Export do nothing yet and are greyed, as the main menu's items without their screens are
 //! (#1096, #1095); Continue goes on, and Quit asks first in the original's dialog
-//! (`DEFAULT_BUSYDLG`): the screen darkened, its framed box, its question and the buttons OK, which
-//! leaves the game for the main menu, and Cancel, which closes the dialog alone. A still frame's
-//! pause (`pause on`) shows none of it.
+//! (`DEFAULT_BUSYDLG`, `busy_dialog`): the screen darkened, its framed box, its question and the
+//! buttons OK, which leaves the game for the main menu, and Cancel, which closes the dialog alone.
+//! A still frame's pause (`pause on`) and the key P's (`busy_dialog`) show none of it.
 
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
 use bevy::prelude::*;
 
 use crate::bar::{self, UiImages};
+use crate::busy_dialog::{self, screen, word};
 use crate::choice::{self, Atlases};
-use crate::game::{AppState, FONT};
+use crate::game::AppState;
 use crate::hud::Pointer;
 use crate::lines::Texts;
 use crate::menu;
-use crate::pause::{Play, Still};
+use crate::pause::{Busy, Play, Still};
 
 /// The window on the original's screen, its framed box, the items' rows from the window's top and
 /// their height (`0x6BBBD0`), the items' size in the menus' letter, as the main menu's, and their
@@ -31,19 +32,6 @@ const ROW: f32 = 32.0;
 const ITEM_SIZE: f32 = 29.0;
 const PALE: Color = Color::linear_rgb(0.89, 0.83, 0.66);
 const LIT: Color = Color::linear_rgb(0.98, 0.98, 0.98);
-/// The dialog's dark box and its framed box, its question's row, and its buttons' middles, their
-/// ends outside them (**estimate**, seen 2026-10-29: OK and Cancel 157 wide from the ends' outer
-/// edges, about the row 440).
-const DIALOG: Rect = Rect::from_corners(Vec2::new(288.0, 288.0), Vec2::new(736.0, 480.0));
-const DIALOG_FRAMED: Rect = Rect::from_corners(Vec2::new(320.0, 320.0), Vec2::new(704.0, 448.0));
-const QUESTION_ROW: f32 = 367.0;
-const QUESTION_SIZE: f32 = 19.0;
-const OK_BUTTON: Rect = Rect::from_corners(Vec2::new(389.0, 422.0), Vec2::new(455.0, 459.0));
-const CANCEL_BUTTON: Rect = Rect::from_corners(Vec2::new(570.0, 422.0), Vec2::new(636.0, 459.0));
-const BUTTON_SIZE: f32 = 18.0;
-/// The darkening of the screen behind the dialog (**estimate**, seen: the world dimmed by about
-/// half).
-const DARKENED: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.5);
 
 /// The window's items, in its order: their words' text names (the texts 1050, 1051, 1049, 1052
 /// and 1053) and the words where the texts lack them.
@@ -99,35 +87,14 @@ struct Window;
 #[derive(Component)]
 struct Dialog;
 
-/// A node of the original's screen, centred along the window's width as the bar is.
-fn screen() -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        left: Val::Percent(50.0),
-        top: Val::Px(0.0),
-        margin: UiRect::left(Val::Px(-bar::SCREEN.x / 2.0)),
-        width: Val::Px(bar::SCREEN.x),
-        height: Val::Px(bar::SCREEN.y),
-        ..default()
-    }
-}
-
-/// The words of the text named `name`, else `word`.
-fn word(texts: Option<&Texts>, (name, word): (&str, &str)) -> String {
-    texts
-        .and_then(|texts| texts.named(name))
-        .unwrap_or(word)
-        .to_owned()
-}
-
-/// Shows the window as the game pauses, unless the pause is a still frame's.
+/// Shows the window as the game pauses, unless the pause is a still frame's or the key P's.
 fn show(
     mut commands: Commands,
-    still: Option<Res<Still>>,
+    (still, busy): (Option<Res<Still>>, Option<Res<Busy>>),
     (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
     mut lit: ResMut<Lit>,
 ) {
-    if still.is_some_and(|still| still.0) {
+    if still.is_some_and(|still| still.0) || busy.is_some_and(|busy| busy.0) {
         return;
     }
     lit.0 = None;
@@ -237,87 +204,27 @@ fn ask(
     assets: &AssetServer,
     texts: Option<&Texts>,
 ) {
-    let atlases = Atlases::load(images, assets);
-    let font: Handle<Font> = assets.load(FONT);
-    let lettering = |size: f32| TextFont {
-        font: font.clone().into(),
-        font_size: FontSize::Px(size),
-        ..default()
-    };
-    commands
-        .spawn((
+    let buttons = busy_dialog::spawn(
+        commands,
+        (images, assets, texts),
+        (
             Dialog,
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
-            },
-            BackgroundColor(DARKENED),
-            GlobalZIndex(21),
-            Pickable::default(),
-            DespawnOnExit(Play::Paused),
-        ))
-        .with_children(|dark| {
-            dark.spawn((screen(), Pickable::IGNORE))
-                .with_children(|picture| {
-                    picture.spawn((
-                        choice::place(DIALOG),
-                        BackgroundColor(choice::SHADE),
-                        Pickable::IGNORE,
-                    ));
-                    choice::frame_about(picture, &atlases, DIALOG_FRAMED);
-                    picture.spawn((
-                        Node {
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            ..choice::place(Rect::new(
-                                DIALOG_FRAMED.min.x,
-                                QUESTION_ROW - QUESTION_SIZE,
-                                DIALOG_FRAMED.max.x,
-                                QUESTION_ROW + QUESTION_SIZE,
-                            ))
-                        },
-                        Pickable::IGNORE,
-                        children![(
-                            Text::new(word(
-                                texts,
-                                ("UI_BUSY_2MAINMENU", "Do you want to quit the game?")
-                            )),
-                            lettering(QUESTION_SIZE),
-                            TextColor(Color::WHITE),
-                            Pickable::IGNORE,
-                        )],
-                    ));
-                    for (answer, rect, text) in [
-                        (Answer::Ok, OK_BUTTON, ("1024", "OK")),
-                        (Answer::Cancel, CANCEL_BUTTON, ("1025", "Cancel")),
-                    ] {
-                        let whole = choice::button_pieces(picture, &atlases, rect);
-                        picture
-                            .spawn((
-                                answer,
-                                Node {
-                                    justify_content: JustifyContent::Center,
-                                    align_items: AlignItems::Center,
-                                    ..choice::place(whole)
-                                },
-                                Pickable::default(),
-                                children![(
-                                    Text::new(word(texts, text)),
-                                    lettering(BUTTON_SIZE),
-                                    TextColor(Color::WHITE),
-                                    Pickable::IGNORE,
-                                )],
-                            ))
-                            .observe(move |click: On<PointerClick>, mut commands: Commands| {
-                                if click.button == PointerButton::Primary {
-                                    commands.run_system_cached_with(answered, answer);
-                                }
-                            });
-                    }
-                });
-        });
+            ("UI_BUSY_2MAINMENU", "Do you want to quit the game?"),
+        ),
+        &[
+            (Answer::Ok, busy_dialog::OK_BESIDE, busy_dialog::OK),
+            (Answer::Cancel, busy_dialog::CANCEL, ("1025", "Cancel")),
+        ],
+    );
+    for (button, answer) in buttons {
+        commands
+            .entity(button)
+            .observe(move |click: On<PointerClick>, mut commands: Commands| {
+                if click.button == PointerButton::Primary {
+                    commands.run_system_cached_with(answered, answer);
+                }
+            });
+    }
 }
 
 /// OK leaves the game for the main menu; Cancel closes the dialog, the menu staying.
@@ -338,7 +245,12 @@ fn answered(
 }
 
 /// Esc while the dialog asks closes it, as Cancel does, before the pause takes the key; and a click
-/// on the taskbar's Options button pauses the game under the menu, or goes on (`UI_TB_OPTIONS`).
+/// on the taskbar's Options button pauses the game under the menu, or goes on (`UI_TB_OPTIONS`),
+/// but under the key P's pause, whose window covers the screen.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn keys(
     mut commands: Commands,
     mut keys: crate::controls::KeysMut,
@@ -346,6 +258,7 @@ fn keys(
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&bevy::window::Window>),
     images: Res<UiImages>,
     (play, mut next): (Res<State<Play>>, ResMut<NextState<Play>>),
+    busy: Res<Busy>,
     dialogs: Query<Entity, With<Dialog>>,
 ) {
     if keys.just_pressed(crate::controls::Action::Back) && !dialogs.is_empty() {
@@ -357,6 +270,7 @@ fn keys(
     }
     let clicked = buttons.just_pressed(MouseButton::Left)
         && dialogs.is_empty()
+        && !busy.0
         && crate::inventory::screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
             let (index, corner) = bar::OPTIONS_BUTTON;
             Rect::from_corners(corner, corner + images.size(index)).contains(at)

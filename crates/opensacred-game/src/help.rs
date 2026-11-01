@@ -134,6 +134,7 @@ pub const KEYS: &[(&str, &[(Row, &str)])] = &[
                 "the stash's to the backpack, a potion to a follower",
             ),
             (words("Wheel"), "zoom in and out"),
+            (of(&[Action::Pause]), "pause, and again go on"),
             (of(&[Action::Back]), "pause: Continue, Main menu, Quit"),
         ],
     ),

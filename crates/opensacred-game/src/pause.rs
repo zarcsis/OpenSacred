@@ -1,5 +1,5 @@
 //! The pause (docs/10 §4): Esc in the game stops it under the original's Esc menu (`esc_menu`), and again goes
-//! on. Bevy's virtual time stops, so that everything on the game's time stands still: the hero,
+//! on; P under the busy dialog's pause window (`busy_dialog`, #1687). Bevy's virtual time stops, so that everything on the game's time stands still: the hero,
 //! the NPCs and their clips, the clock, the liquids. The world takes no keys or clicks
 //! (`frame::Unpaused`), and the sound pauses, fading out, to go on from where it stopped: paused
 //! rather than muted, so that no track runs on unheard.
@@ -26,6 +26,11 @@ pub enum Play {
 #[derive(Resource, Default)]
 pub struct Still(pub bool);
 
+/// A pause under the busy dialog's pause window instead of the menu, the key P's (`busy_dialog`,
+/// #1687), which Esc leaves alone.
+#[derive(Resource, Default)]
+pub struct Busy(pub bool);
+
 /// How long the sound takes to fade out and in.
 const FADE: Duration = Duration::from_millis(200);
 
@@ -37,13 +42,13 @@ type Channels<'w> = (
     Option<Res<'w, Audio>>,
 );
 
-/// Esc pauses the game, and again goes on.
+/// Esc pauses the game, and again goes on, but from the key P's pause.
 pub(crate) fn toggle(
     keys: crate::controls::Keys,
-    play: Res<State<Play>>,
+    (play, busy): (Res<State<Play>>, Res<Busy>),
     mut next: ResMut<NextState<Play>>,
 ) {
-    if keys.just_pressed(crate::controls::Action::Back) {
+    if keys.just_pressed(crate::controls::Action::Back) && !busy.0 {
         next.set(match play.get() {
             Play::Running => Play::Paused,
             Play::Paused => Play::Running,
@@ -86,6 +91,7 @@ impl Plugin for PausePlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<Play>()
             .init_resource::<Still>()
+            .init_resource::<Busy>()
             .configure_sets(Update, Unpaused.run_if(in_state(Play::Running)))
             .add_systems(
                 Update,
@@ -96,7 +102,13 @@ impl Plugin for PausePlugin {
             .add_systems(OnEnter(Play::Paused), pause)
             .add_systems(
                 OnExit(Play::Paused),
-                (resume, |mut still: ResMut<Still>| still.0 = false),
+                (
+                    resume,
+                    |(mut still, mut busy): (ResMut<Still>, ResMut<Busy>)| {
+                        still.0 = false;
+                        busy.0 = false;
+                    },
+                ),
             );
     }
 }

@@ -149,7 +149,20 @@ Seen 2026-10-29 with the driver of #448 (#1410: the Seraphim's new game, its win
 - Options opens `UI_WND_OPTIONS`, Save Game `UI_WND_SAVEGAME` (both through the window's events, `0x6BBBD0`; not followed: the options #1096 and the saves #1095 are not there), Export the character's window (`UI_CHARACTER`, not read), Continue closes the menu, and Quit asks first in `DEFAULT_BUSYDLG` (`cUI_BusyDlg`, the text `UI_BUSY_2MAINMENU`).
 - That dialog darkens the whole screen (`UI_STATIC_BG`, 1024 × 768), lays its dark box (288, 288)–(736, 480) with the same frame about (320, 320)–(704, 448), its question in white in the middle, and two buttons of the choice of the hero's kind under it, OK (the text 1024) and Cancel (1025): OK leaves the game for the main menu, and Cancel closes the dialog alone, the menu staying (**seen**).
 
+## The busy dialog (`DEFAULT_BUSYDLG`)
+
+Read 2026-11-01 (#1687), **confirmed** by code unless marked otherwise, and **seen** with the driver of #448 at the Seraphim's smith of 50,44.
+
+- `cUI_BusyDlg` (its vtable `0x897134`, its input `0x721380`) takes the UI event `0x39`, whose kind 2 sets its mode (`0x7208F0`), its line (a text of the game by its number or name) and the reactions of its two buttons (`+0x2F8` the first's, `+0x2F4` the second's), and shows it; the mode 4 hides it.
+- The modes lay the buttons out against the window's rectangle `(x, y, w, h)` (`0x7208F0`), at the row `y + h − 24`: 1 and 7 the first button (`+0x238`) alone, centred along the window; 2, 5 and 6 the second (`+0x17C`) alone, centred; 3 and 8 the first from `x + 64` and the second ending at `x + w − 64`.
+- A click on the first button hides the dialog and runs its reaction, on the second the second's (`0x7210E0`, the reactions `0x720A80`): 1 the main menu, 2 the game goes on (`0x6413E0(0)`, `0x641720(0)`), 3 leaves the game, 4 sends the engine its event `0x16`, 5 closes the window (`WM_CLOSE`), and the others the network's.
+- The key P outside a network game (`cEngine_receiveEvent`, `0x618090`) pauses a running game (`0x6413E0`, `0x641720`) and shows the dialog in the mode 1 with the line `UI_BUSY_PAUSE` and the reaction 2; over a paused game it hides it in the mode 4.
+  While the first button's reaction is 2, the dialog takes P itself (`0x50` or `0x70`): it hides, logs `busydialog: UNPAUSE` and goes on (`0x721380`).
+- **Seen**: P shows the screen darkened, the box and frame of the quit's question, the line in white about the row 367 and an OK alone under it, centred at x 512 about the row 440; Esc does nothing under it; the OK and P again go on.
+
 ## In `opensacred-game`
 
 The main menu, its submenus and the choices of the hero follow the sections above (`menu`, `choice`, #1118, #1119).
 Since #1410 the menu over a game is the original's (`esc_menu`): Esc and the taskbar's Options button pause the game under the window at its place, its fill and the standard frame drawn with the choice of the hero's pieces (`choice::frame_about`), its items in Carolingia at the main menu's size, pale and lit white under the cursor (seen: the letters (228, 212, 169), the lit (249, 249, 249)); Options, Save Game and Export stand greyed while their screens are not there (#1096, #1095, M9), Continue goes on, and Quit opens the dialog, the screen darkened by half (**estimate**), its box, frame, question and the buttons OK and Cancel at their places (**estimate** to a few pixels), OK leaving for the main menu and Cancel, or Esc, closing it alone.
+Since #1687 the dialog is a module of its own (`busy_dialog`), which the quit's question takes, and the key P (`controls.toml`'s `pause`) pauses a running game under it with the line `UI_BUSY_PAUSE` and an OK alone, the OK or P going on, Esc and the Options button doing nothing under it; P under the menu over a game does nothing.
+Not followed: the dialog's other modes and reactions, which the network's and the loading's waits take.
