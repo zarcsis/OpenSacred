@@ -199,6 +199,13 @@ fn regenerate(
     if arts.skills != skills {
         arts.skills = skills;
     }
+    // The arts' bonuses of the items it holds and wears (#1725), as they change.
+    let bonuses = opensacred_rules::fight::art_bonuses(base, experience.level, &holds.items);
+    let mut raised = arts.arts.clone();
+    raised.set_bonuses(&bonuses);
+    if raised != arts.arts {
+        arts.arts = raised;
+    }
 }
 
 /// The hero's arts' regeneration.

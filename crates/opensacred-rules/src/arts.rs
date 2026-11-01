@@ -119,6 +119,18 @@ const OWN: [(u16, &[u16]); 4] = [
     (1009, &[1093, 1060, 1064, 1068, 1072, 1076, 1041]),
 ];
 
+/// The generic art of a class's own `Rundum`, `Hardhit`, `Attacke` and `Kick` (`0x52DA80`), by
+/// which an item's bonus finds the hero's own: 1000, 1001, 1002 or 1009; any other art itself.
+pub fn generic(art: u16) -> u16 {
+    match art {
+        1057 | 1061 | 1065 | 1069 | 1073 | 1078 | 1090 | 1038 => 1000,
+        1058 | 1062 | 1066 | 1070 | 1074 | 1079 | 1091 | 1094 | 1039 => 1001,
+        1059 | 1063 | 1067 | 1071 | 1075 | 1080 | 1092 | 1097 | 1040 => 1002,
+        1060 | 1064 | 1068 | 1072 | 1076 | 1093 | 1041 => 1009,
+        other => other,
+    }
+}
+
 /// How far beyond the two creatures' reach an `Attacke` strikes (`0x4FF0B0`, `0x5038F0`).
 pub const ATTACKE_BEYOND: u32 = 45;
 /// What is left of its clip, as a part of it, below which the Gladiator's `Rundum` looks for
@@ -3117,6 +3129,28 @@ impl Arts {
                     entry.time = time.max(1.0);
                     entry.remaining = entry.remaining.min(entry.time);
                 }
+            }
+        }
+    }
+
+    /// Gives the entries their bonuses of the items' bonuses `bonuses` (each an art's id and a
+    /// value, [`crate::fight::art_bonuses`]), the old ones cleared (`0x5796A0` at `0x57AC6E`):
+    /// each art taken to its generic one (`0x52DA80`, [`generic`]) and found as `0x581D40` finds
+    /// it ([`Arts::index`]), its value added to that entry's bonus not for good
+    /// (`0x581F80(index, v, 0, 0)`), refused where the bonus would pass 255; the sets' bonuses
+    /// (`0x571710`) are not followed.
+    pub fn set_bonuses(&mut self, bonuses: &[(u16, u16)]) {
+        for entry in &mut self.entries {
+            entry.bonus = 0;
+        }
+        for &(art, value) in bonuses {
+            let Some(index) = self.index(generic(art)) else {
+                continue;
+            };
+            let entry = &mut self.entries[index];
+            let raised = u32::from(entry.bonus) + u32::from(value);
+            if let Ok(bonus) = u8::try_from(raised) {
+                entry.bonus = bonus;
             }
         }
     }

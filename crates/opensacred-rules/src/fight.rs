@@ -1662,6 +1662,32 @@ pub fn skill_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> [u8; 8] {
     sums.map(|sum| u8::try_from(sum.clamp(0, 255)).unwrap_or(0))
 }
 
+/// The bonuses of the items `items` to the combat arts of a creature of `base` at level `level`
+/// (`0x5796A0` at `0x57AC6E`): each bonus that holds for it of an effect below 200 or above 999
+/// (an art's id), its value grown by its attribute and truncated, as a word; a value below 0,
+/// which `0x581F80` would refuse as a word past 255, is left out. Their entries take them by
+/// [`crate::arts::Arts::set_bonuses`].
+pub fn art_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> Vec<(u16, u16)> {
+    let level = level.max(1);
+    let attributes = base.attributes.map(u32::from);
+    let grown: [u32; 6] = std::array::from_fn(|i| {
+        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
+    });
+    items
+        .iter()
+        .flat_map(|item| item.bonuses)
+        .filter(|bonus| bonus.holds(base.id))
+        .filter_map(|bonus| {
+            let effect = u16::try_from(bonus.effect & 0xFFFF).ok()?;
+            if effect == 0 || (200..=999).contains(&effect) {
+                return None;
+            }
+            let value = u16::try_from(whole_signed(bonus.value(grown))).ok()?;
+            Some((effect, value))
+        })
+        .collect()
+}
+
 /// A value truncated toward zero into an `i32`, as the client's `__ftol` stores a bonus.
 fn whole_signed(value: f32) -> i32 {
     #[expect(
