@@ -71,15 +71,15 @@ pub(crate) fn put_sound(category: u8) -> (u32, (f32, sfx::Roll)) {
 pub struct Click;
 
 /// A left click on the grid while the inventory shows (`0x6C0150`): with the cursor empty, the
-/// item under it onto the cursor; with an item, put where it fits, with its sound, or in place of
-/// the one item under it; else nothing, and nothing while the purchase window asks.
+/// item under it onto the cursor, but with Shift; with an item, put where it fits, with its sound,
+/// or in place of the one item under it; else nothing, and nothing while the purchase window asks.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn click(
     (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
-    buttons: Res<ButtonInput<MouseButton>>,
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
     mut pack: ResMut<Pack>,
@@ -97,7 +97,9 @@ fn click(
         return;
     };
     let Some(held) = pack.held else {
-        if pack.lift(cell) {
+        // Shift's press goes to the shops, the stash or the ground (`0x6C0150`, [`drop_shifted`]),
+        // never onto the cursor.
+        if !keys.pressed(crate::controls::Action::SendItem) && pack.lift(cell) {
             debug!("held: the item at {cell:?} onto the cursor");
         }
         return;
@@ -321,6 +323,70 @@ fn drop_held(
     );
 }
 
+/// Shift with a left press on the backpack's item, with the cursor empty and neither a merchant's
+/// window nor the town stash's showing, drops the item beside the hero (`0x6C0150`: the engine's
+/// event `0x14`, `cEngine::dropItem` at the hero's place); a hero who answers its query `0x51`
+/// (more than six pieces of the set 53 worn, **hypothesis**) would sell it there for its value
+/// instead, which the game does not count yet.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn drop_shifted(
+    mut commands: Commands,
+    (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
+    (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
+    windows: Query<&Window>,
+    mut pack: ResMut<Pack>,
+    (merchant, stash): (
+        Option<Res<crate::merchant::Merchant>>,
+        Res<crate::town_stash::Opened>,
+    ),
+    asking: Option<Res<crate::purchase::Asking>>,
+    (heights, heroes): (Res<Heights>, Query<(&Transform, &Body)>),
+    (assets, tables, mut dice): (Res<AssetServer>, Option<Res<Tables>>, ResMut<Dice>),
+) {
+    if !shown.0
+        || asking.is_some()
+        || merchant.is_some()
+        || stash.0.is_some()
+        || pack.held.is_some()
+        || !buttons.just_pressed(MouseButton::Left)
+        || !keys.pressed(crate::controls::Action::SendItem)
+    {
+        return;
+    }
+    let (Some(tables), Some((transform, body))) = (tables, heroes.iter().next()) else {
+        return;
+    };
+    let Some(cell) = on_grid(&pointer, &ui_scale, &windows, &page).and_then(cell_under) else {
+        return;
+    };
+    let Some(key) = pack.grid.at(cell).map(|placed| placed.key) else {
+        return;
+    };
+    let Some((_, dropped)) = pack.take_out(key) else {
+        return;
+    };
+    let here = transform.translation;
+    let level = body.level();
+    let hero_cell = paths::cell_of(here.x, here.z);
+    let cell = drop_cell(hero_cell, hero_cell, |cell| {
+        heights.walkable_at(cell, level)
+    });
+    info!(
+        "held: {} dropped from the backpack at {cell:?}",
+        dropped.item
+    );
+    drops::drop_at(
+        &mut commands,
+        (&assets, &tables, &mut dice),
+        (cell, level),
+        dropped,
+    );
+}
+
 /// The cursor's item.
 pub struct HeldPlugin;
 
@@ -330,6 +396,7 @@ impl Plugin for HeldPlugin {
             Update,
             (
                 click.in_set(Click).before(show),
+                drop_shifted.in_set(Click),
                 (show, follow, cursor)
                     .chain()
                     .before(backpack::layer)
