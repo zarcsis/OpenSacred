@@ -11,9 +11,8 @@
 //! Not followed: the quest's line, the region's factor of
 //! the price, the price of an item that the item maker made (its worth, `0x5D3AB0`), the
 //! multipliers of the bonuses of the condition's bit 14 in the damage's line (in the stats'
-//! `+0xA6`), the opponents' names but the ranged ones' and the riders', the class's variants in
-//! the refusal (`0x43CA20`), the extra text of the item's `+0xFC`, and the hands of the types
-//! that the list of `0x5CECD0` names.
+//! `+0xA6`), the class's variants in the refusal (`0x43CA20`), the extra text of the item's
+//! `+0xFC`, and the hands of the types that the list of `0x5CECD0` names.
 
 use opensacred_rules::equipment::{CLASSES, NO_CLASS};
 use opensacred_rules::fight::{Bonus, ItemValues, KINDS};
@@ -578,6 +577,12 @@ const PER_CENT: [(u32, &str); 17] = [
     (867, "1135"),
 ];
 
+/// The texts of the creatures' classes 1 to 12 that a bonus holds against (`0x8EB79C`, the
+/// records `{index, name, text}` of `CL_HERO` to `CL_ELF`).
+const OPPONENTS: [&str; 12] = [
+    "1184", "1187", "1178", "1196", "1180", "1179", "1185", "1186", "1182", "1181", "1188", "1189",
+];
+
 /// A bonus's line (`0x5C4450`): the class it holds for, in the class's colour, then in the
 /// effect's colour (the kinds' for 801 to 808, gold for 840 to 868 but 854, else blue) the
 /// opponent it holds against and its text by the effect; none for an effect of no text.
@@ -656,10 +661,17 @@ fn bonus_line(bonus: &Bonus, words: &Words) -> Option<Line> {
             CLASS_COLOURS[usize::try_from(class).unwrap_or(0).min(9)],
         )),
     }
+    // The opponent by the condition's low byte: a class of creatures of the table at `0x8EB79C`
+    // (`0x43D0E0`), but 0, `CL_ALLENEMY` and the classes of no text; else the ranged ones and
+    // the riders.
     let opponent = match c & 0xFF {
         0x80 => Some("RES_GEG_FERNK"),
         0x81 => Some("RES_GEG_REITER"),
-        _ => None,
+        low => usize::try_from(low)
+            .ok()
+            .and_then(|low| low.checked_sub(1))
+            .and_then(|k| OPPONENTS.get(k))
+            .copied(),
     };
     if let Some(key) = opponent {
         pieces.push(Piece::Text(
@@ -738,6 +750,35 @@ mod tests {
                 Piece::Image(index, _) => format!("[{index}]"),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_bonus_names_the_class_of_its_opponents() {
+        let line = |condition: u16| {
+            let bonus = Bonus {
+                condition,
+                effect: 805,
+                value: 80,
+            };
+            bonus_line(&bonus, &words()).map(|line| texts(&line))
+        };
+        // The sword 1712's against the monsters (seen 2026-11-01, #1708).
+        assert_eq!(
+            line(2).as_deref(),
+            Some("<1161> <1187> <1078> <1076>: +80%")
+        );
+        assert_eq!(
+            line(12).as_deref(),
+            Some("<1161> <1189> <1078> <1076>: +80%")
+        );
+        // No class, `CL_ALLENEMY` and the classes of no text name none.
+        for condition in [0, 13, 14, 15] {
+            assert_eq!(line(condition).as_deref(), Some("<1078> <1076>: +80%"));
+        }
+        assert_eq!(
+            line(0x80).as_deref(),
+            Some("<1161> <RES_GEG_FERNK> <1078> <1076>: +80%")
+        );
     }
 
     fn hero(skills: &[(u8, u32)]) -> Hero<'_> {
