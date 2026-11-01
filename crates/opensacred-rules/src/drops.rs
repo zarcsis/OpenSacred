@@ -1049,6 +1049,12 @@ impl Catalogue {
         self.slots.get(&item).copied()
     }
 
+    /// Whether the type `item` is a piece of a set (`sets.bin`), which the item maker leaves out
+    /// and which keeps its record as it stands (#1701).
+    pub fn set_piece(&self, item: u32) -> bool {
+        self.records.get(&item).is_some_and(|record| record.set)
+    }
+
     /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour or a
     /// jewel; `None` for a type of any other category (the runes, the blacksmith's upgrades) or
     /// none.
@@ -1540,8 +1546,8 @@ impl Dropping<'_> {
 /// `level` with the pass's quality key `key` as a drop's would be (the key 0 at the maker's key
 /// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); a type of no drop's kind as it is, of the kind
 /// [`Kind::Other`], as the original's driver makes any type (a book, a quest's item, #1358);
-/// its sockets rolled by `sockets` on `difficulty`. `None` for a type that the items' table does
-/// not hold.
+/// its sockets rolled by `sockets` on `difficulty`; a set's piece as its record holds it (#1701).
+/// `None` for a type that the items' table does not hold.
 pub fn thrown(
     (catalogue, templates): (&Catalogue, &Templates),
     (sockets, difficulty): (&Sockets, Difficulty),
@@ -1568,6 +1574,9 @@ pub fn thrown(
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
         Kind::Potion | Kind::Rune | Kind::Other => {}
+        // A set's piece as its record holds it, which the item maker leaves out (seen in the
+        // original's forced drop: its own name, level, bonuses and sockets).
+        Kind::Weapon | Kind::Armour | Kind::Jewel if catalogue.set_piece(item) => {}
         Kind::Weapon | Kind::Armour | Kind::Jewel => {
             drop.quality = match drop.key {
                 0 => 14,

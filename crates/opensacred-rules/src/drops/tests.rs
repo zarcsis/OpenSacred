@@ -992,6 +992,30 @@ fn the_gold_and_the_runes_stay_upright_and_the_small_spiders_drop_nothing() {
 }
 
 #[test]
+fn a_test_throws_a_sets_piece_as_its_record_holds_it() {
+    let templates = Templates::new(&[dagger_template()], &[]);
+    let piece = Record {
+        set: true,
+        ..record(ANY, [1, 1], [1, 0, 0])
+    };
+    let catalogue = catalogue(&[(4050, 24, piece)]);
+    let mut dice = script(&[]);
+    let made = thrown(
+        (&catalogue, &templates),
+        (&Sockets::default(), Difficulty::Bronze),
+        (4050, 7, 10, 250),
+        &mut dice,
+    )
+    .unwrap();
+    // No maker's values, level, quality, name's roll nor sockets' rolls.
+    assert_eq!(
+        (made.kind, made.level, made.quality, made.values, made.named),
+        (Kind::Armour, 0, 0, None, None)
+    );
+    assert!(catalogue.set_piece(4050) && !catalogue.set_piece(DAGGER));
+}
+
+#[test]
 fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
     let templates = Templates::new(&[dagger_template()], &[]);
     let bare = Record {

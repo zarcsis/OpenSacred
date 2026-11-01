@@ -424,6 +424,12 @@ impl Tables {
         )
     }
 
+    /// The scale of the type `item`'s template, 0 without one, which the estimate of its level
+    /// takes (`fight::item_level`, #1701).
+    pub(crate) fn template_scale(&self, item: u32) -> u32 {
+        self.templates.scale(item)
+    }
+
     /// The `global.res` id of the name of the set whose piece the type `item` is, none of a type
     /// of no set (`SetName<n>`, the set's number `n` at its pieces' `Weapon.pak +0x23`; #1700).
     pub(crate) fn set_name(&self, item: u32) -> Option<u32> {
