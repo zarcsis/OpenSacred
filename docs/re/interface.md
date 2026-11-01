@@ -198,6 +198,19 @@ Read 2026-10-30 (#1273), **confirmed** by code unless marked otherwise; the item
   - the image 55 (`gui_main_02` (114, 180), 38 × 18) at the corners: the top right's at (W − 24, −11) as stored, the top left's at (−13, −11) turned about across, the bottom right's at (W − 24, H − 8) turned about along, the bottom left's at (−13, H − 8) both.
 - **Measured** on a potion's tooltip at 1024 × 768: its lines 20 pixels apart, its name's letters 165 pixels wide and 16 high from 4 pixels in.
 
+### The bar's and the column's tooltips
+
+Read 2026-11-01 (#1681, a part of #1594), **confirmed** by code unless marked otherwise, and **seen** in the original's frames at the Seraphim's start:
+
+- The taskbar's step 9 (`0x6E4560`) shows the tooltip of the control under the pointer whose rest is over (`0x727AC0` over the bar's controls, `0x7327B0`: a third of a second, `0x9E52AC`), the bar's buttons and each belt slot's two controls: its text centred on (x + w/2, y − 20) of its rectangle, of the style `0x209`.
+  **Seen**: "Inventory [I]" centred over its button whichever corner of it the pointer stood on.
+- Else a weapon set's slot under the pointer shows its item's tooltip (its lines of the flags `0x5F`) of the style `0xB` at (x + w/2 − 64, y − 128), the half by the pointer's side of the slot; an art slot its art's description (`0x5893B0` of the art, a combo's `0x581550`), of the style `0x8B`, at (x − 92, y − 92) of its corner, or while the hero rides the horse's attack's text or the text `0x26C4`, of the style `0xB`.
+- The portraits' column (`0x6D7B80`, an entry's): over the bonuses' "+" the list of the hero's bonuses at (16, 16), of the style 9, `0x8009` beyond 700 characters; over the horse's button its description at (x − 92, y − 32), `0x209`; over the hero's experience bar the text `0x26E9` (9961) by `"%s: %6d/%6d"` (`0x9E1638`) with the experience into the level and the level's span, centred on (x − 24, y) of the bar; over an entry's portrait or ring the text `0x26E8` (9960) by `"%s: %4d/%4d"` (`0x9E1620`) with the creature's health and its most, centred on (x − 64, y) of the ring, and the event `<notify>` `0x2D` to `UI_WND_MERCENARY`.
+- The style `0x209`'s point is the tooltip's centre (no bit 2), kept 16 pixels within the screen (bit 8): the health's lies along the screen's top at 16, the experience's along its right edge.
+- The texts' colours' tags (the bar's in `global.res`): `<colorw=AARRGGBB>` the word after it, `<color=…>` and `<colorl=…>` the rest of the line, `<n>` a line's break; "Inventory" of "Inventory [I]" in `0xFFFFFF80` and "[I]" white (**seen**).
+- A padded number's spaces draw as one, while the panel keeps the width of the text as written (**hypothesis** by the frames: "0/ 300" of `%6d/%6d`, its panel about 50 pixels wider than its words, about 6.5 a space left out).
+- The disc's and the compass's texts (9915, 9916) did not show under the pointer at the start, nor did the slots' own (9906, 9912) beside their items' and arts' tooltips (**seen**; when they show is not read).
+
 ## What changes with the hero's state
 
 - Level: the slots a side (1, 2, 3, 4, 5 at 1, 2, 8, 16, 30) and with them the rail's length and the bar's mouse area.
@@ -254,10 +267,12 @@ Since #1464 the art slots burn as the Vampiress's form changes (`art_burn`): the
 Since #1465 the portraits come from the column's own table (`portraits.ron`'s `column`, docs/02 §6.7), and up to four of the hero's followers (`followers`) have their entries below the hero's, 132 pixels apart: each its ring split by its health as the hero's and its portrait by its type, none for a type without one.
 Those shown keep their places as others come, the newcomers after them, and a follower's entry goes as it dies or is let go; clicks over the entries do not reach the world.
 **Seen** in the game: the Vampiress's wolf (588) called at her level 16 took the entry under hers, its ring grey down to its 80th row at 60 of its 214, and a second call's wolf took the first's entry as the first went.
-Not followed for them: the order of the hero's list `+0x39C` (not read), their rings' glow, the tooltip and the mount's bar.
+Not followed for them: the order of the hero's list `+0x39C` (not read), their rings' glow and the mount's bar.
 Since #1272 a potion used up sparkles on its kind's slot of the belt as above (`sparkles`), its sparks drawn anew every frame by the game's own dice.
 Since #1522 the points' "+" shows and glows after a level-up, its glow stopped by a point spent in the statistics window and hidden once no points remain, and a click on it opens the inventory (`points`, docs/re/character.md): its glow is the ring's material at a = (sin 6T + 1) · 0.3, and it keeps at (898, 10) by the column, left of it at the right edge of a wider window, where the original has one screen.
 Since #1273 the grid's items have their tooltips in the window above (`tooltip`): the panel, the border's eight pieces, the text 4 pixels in from its corner at the item's right edge and 16 and its top and 16, kept 16 pixels within the screen, its font at 20 pixels so that a line's letters are as wide as the original's (a potion's name 167 pixels to 165; its letters 3 pixels higher), the lines 20 apart.
+Since #1681 the bar's buttons and the column's entries have their tooltips (`bar_tips`, `tooltip::spawn_tip_in`), as above: the five buttons' texts over them, an entry's health left of its ring and the hero's experience left of its bar, each centred on its point and kept 16 pixels within the screen, the texts' tags' colours drawn and a run of spaces as one, the panel widened by 6.5 a space left out; every control's tooltip of the style `0x209` (the master's, the smith's) is centred on its point both ways since.
+**Seen** in the game beside the original's frames: "Inventory [I]" and "Collect all [A]" over their buttons, the health's along the top and the experience's along the right edge within a few pixels of the original's.
 
 Since #1529 the art slots hold their arts (`art_slots`): a new game's first holds the hero's first art, the selected one's art is the right button's, a click selects a slot or, in the edit mode while the inventory shows, takes the art on the cursor or clears the slot, the keys 6 to 9 and 0 select the slots; each slot draws its art split by its regeneration, an empty one its orb (479 selected, 635 not, 533 while the cursor holds a spell or, in the edit mode, a weapon art), its ring 103 selected and 102 not; an art on the cursor shows its vivid picture there.
 **Seen** in the game beside the original's frames: 1070 taken from the spells page with every empty slot green, dropped on the second slot, which took the gold ring; the selected slot cleared to its pale blue orb; the key 6 selecting the first.
@@ -265,7 +280,7 @@ Since #1530 a slot holds a combo too, from the combos page (`combos_page`, docs/
 Since #1536 the keys F1 to F6 put the arts bound to them into the selected slot (`spells_page`, docs/re/arts.md, "The spells page").
 Not followed for them: the Vampiress's second bank and a slot's tooltip.
 
-Not followed yet: the other buttons' windows and the pressed images, the damage icons in the left slots, the glows, the sparkle of the flag `0x20000000`, the tooltips and the mount's bar.
+Not followed yet: the other buttons' windows and the pressed images, the damage icons in the left slots, the glows, the sparkle of the flag `0x20000000`, the tooltips of the art slots, the belt, the bonuses' "+" and the horse (#1594), the weapon sets' items' (#1516), and the mount's bar.
 
 Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, of the running function's quest without a number, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`).
 `compass` draws them on the bar: the needle (image 101) turned about (512, 710) toward the newest main quest's target, the inner pin (image 136) on its ellipse toward the newest side quest's, fading within its radius, the angle φ clockwise from up of the target's place less the hero's as the camera shows them; a cell's target is its centre, a named one the creature of that name in the scripts (`npcs::ScriptName`) where it stands.
