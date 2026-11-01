@@ -440,6 +440,163 @@ pub(crate) fn lines(
     lines
 }
 
+/// The statistics window's damage of the art `art` (`0x6A6550`, docs/re/character.md, "The
+/// combat art's damage"): each kind's least and most at the hero's level of it, a spell's of its
+/// record's effects times its multipliers (the traps' times their factor), a weapon art's of the
+/// weapon's damages `weapon` (or of its own values) times its factor by the art, each end
+/// `f·d + 0.5`; none where the hero holds no such art or neither record is found.
+pub(crate) fn window_damage(
+    art: u16,
+    hero: &Hero,
+    tables: &Tables,
+    weapon: [[f32; 2]; KINDS],
+) -> Option<[[f64; 2]; KINDS]> {
+    let held = hero
+        .arts
+        .entries
+        .iter()
+        .find(|entry| entry.art == art)
+        .map_or(0, |entry| entry.in_play());
+    if held == 0 {
+        return None;
+    }
+    let id = if hero.ranged && RUNDUM.contains(&art) {
+        1061
+    } else if hero.ranged && HARDHIT.contains(&art) {
+        1062
+    } else {
+        art
+    };
+    let weapon_art = tables.weapon_arts.iter().find(|w| w.id == id);
+    let cast = CASTS
+        .iter()
+        .find(|&&(of, _)| weapon_art.is_some() && of == id)
+        .and_then(|&(_, spell)| tables.spells.iter().find(|s| s.id == spell));
+    let spell = cast.or_else(|| tables.spells.iter().find(|s| s.id == id));
+    let values = Values {
+        level: held,
+        hero,
+        spell,
+        weapon: weapon_art,
+    };
+    // A spell's: its damages, the mines' and 1018's by the weapon's multipliers, the traps' times
+    // their factor, both ends alike, with no half added.
+    if spell.is_some() {
+        let mut damages = values.damages(id == 56 || id == 1018);
+        if matches!(id, 1049 | 1050 | 1052) {
+            let factor = values.trap();
+            damages = damages.map(|d| ftol(float(d) * factor));
+        }
+        return Some(damages.map(|d| [float(d), float(d)]));
+    }
+    let weapon_art = weapon_art?;
+    let (w50, w58) = (values.w50(), values.w58());
+    let l = f64::from(held);
+    let m = |k: usize| f64::from(hero.multipliers[k]);
+    // The Daemon's arts' kinds by her multipliers (`0x4D2250` to `0x4D22B0`), 1 of another.
+    let mu = |k: usize| if hero.kind == 9 { m(k) } else { 1.0 };
+    let gamma = values.gun();
+    let own = |d: f64| [d, d];
+    let weapons = weapon.map(|ends| ends.map(f64::from));
+    let mut d = [[0.0; 2]; KINDS];
+    let f = match id {
+        1004 | 1009 | 1060 | 1064 | 1068 | 1072 | 1076 | 1013 | 1054 => {
+            d = weapons;
+            w50
+        }
+        1008 => {
+            d = weapons;
+            w58
+        }
+        1007 => {
+            d = weapons;
+            1.0
+        }
+        1041 => {
+            d = weapons;
+            ((0.1 * l + 0.5 + 1.0) * 100.0 - 100.0 + 0.5) * 0.01
+        }
+        1014 | 1015 | 1031 => 1.0,
+        1030 => {
+            d[0] = own(w50);
+            1.0
+        }
+        1033 => {
+            d[0] = own(10.0 * w50);
+            1.0
+        }
+        1016 => {
+            let lore = 0.01 * hero.curve(2)
+                + f64::from(hero.attributes[0]) / f64::from(hero.rules.geschick());
+            d[0] = own((1.0 + lore) * w50);
+            1.0
+        }
+        1032 => {
+            d[1] = own(w58);
+            1.0
+        }
+        1085 => {
+            d[1] = own(w58 * m(1));
+            gamma
+        }
+        1086 | 1087 => {
+            d[0] = own(w50 * m(0));
+            d[1] = own(w58 * m(1));
+            gamma
+        }
+        1101 => {
+            d[3] = own(mu(3) * w50);
+            1.0
+        }
+        1102 => {
+            d[1] = own(mu(1) * w50);
+            1.0
+        }
+        1103 => {
+            d[0] = own(w50);
+            d[2] = own(mu(2) * w58);
+            1.0
+        }
+        _ => {
+            d = weapons;
+            level_factor(id, l, (w50, w58), weapon_art)
+        }
+    };
+    Some(d.map(|ends| ends.map(|end| f * end + 0.5)))
+}
+
+/// A weapon art's factor of its level (`0x4D1EB0`): `W50` of most, `W58` of 1003 and 1083,
+/// `√L/W5C + W58` of 1024 and 1025, `0.1·L + 1` of 1010, 0 of the rest.
+fn level_factor(id: u16, l: f64, (w50, w58): (f64, f64), weapon: &WeaponArt) -> f64 {
+    match id {
+        1000..=1002
+        | 1012
+        | 1013
+        | 1015..=1017
+        | 1020
+        | 1031
+        | 1033
+        | 1038..=1040
+        | 1054
+        | 1057..=1059
+        | 1061..=1063
+        | 1065..=1067
+        | 1069..=1071
+        | 1073..=1075
+        | 1078..=1080
+        | 1084
+        | 1090..=1092 => w50,
+        1003 | 1083 => w58,
+        1024 | 1025 => {
+            let step = f64::from(weapon.value_58[1]);
+            let root = if step == 0.0 { 0.0 } else { l.sqrt() / step };
+            root + f64::from(weapon.value_58[0])
+        }
+        1010 => 0.1 * l + 1.0,
+        _ => 0.0,
+    }
+}
+
 /// The key of the line of where the art may not be made, from its records' flags (the spell's
 /// `+0x90`, the weapon art's `+0x74`): not on horseback, on horseback only with a bow, or with a
 /// two-handed weapon only.
