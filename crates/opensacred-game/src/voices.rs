@@ -508,7 +508,7 @@ impl Voices {
             commented: None,
             hostile_idle: by_type(idle.hostile),
             peaceful_idle: by_type(idle.peaceful),
-            dice: Rng::of(0, 0, 3),
+            dice: crate::seed::dice(3),
         })
     }
 

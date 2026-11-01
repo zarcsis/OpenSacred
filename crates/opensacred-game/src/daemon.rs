@@ -191,14 +191,15 @@ pub struct DaemonPlugin;
 
 impl Plugin for DaemonPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(Rng::of(0, 0, 11))).add_systems(
-            Update,
-            (towns, ends, drown)
-                .chain()
-                .run_if(crate::frame::ticked)
-                .before(Wears)
-                .in_set(crate::frame::Unpaused)
-                .in_set(Step::Crowd),
-        );
+        app.insert_resource(Dice(crate::seed::dice(11)))
+            .add_systems(
+                Update,
+                (towns, ends, drown)
+                    .chain()
+                    .run_if(crate::frame::ticked)
+                    .before(Wears)
+                    .in_set(crate::frame::Unpaused)
+                    .in_set(Step::Crowd),
+            );
     }
 }

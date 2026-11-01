@@ -163,7 +163,7 @@ impl Footsteps {
                 .map(|&id| sample_file(id))
                 .collect(),
             wings: Vec::new(),
-            dice: Rng::of(0, 0, 12),
+            dice: crate::seed::dice(12),
             next: 0,
             last: None,
             played: None,

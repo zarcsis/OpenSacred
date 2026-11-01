@@ -533,7 +533,7 @@ pub struct AttackPlugin;
 impl Plugin for AttackPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Aim>()
-            .insert_resource(Dice(Rng::of(0, 0, 1)))
+            .insert_resource(Dice(crate::seed::dice(1)))
             .add_systems(
                 Update,
                 (

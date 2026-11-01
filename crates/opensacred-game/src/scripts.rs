@@ -66,7 +66,8 @@ const DAY: u16 = 1_440;
 /// The start script's function in a tree (`opensacred-convert`'s `luau::START`).
 const START: &str = "StartCode";
 
-/// The seed of the scripts' `rand()` in a new game, which `RndVar` draws from.
+/// The constant of the scripts' `rand()` in a new game, which `RndVar` draws from, the game's
+/// seed mixed in (`seed::Game`).
 const SEED: usize = 0x5C;
 
 /// What the scripts ran as a new game loads ([`run`]): their records, which `npcs` places, and
@@ -251,12 +252,14 @@ impl Effects {
 /// function's (`Region<n>Init`) before the first sector of its region, as a tree, and the state
 /// they left; `area` the area of a sector of the world (`world.ron`), which makes its region, and
 /// `creatures` the types of the creatures, the `items.pak` slots of the categories 2, 3 and 32
-/// (`0x426610`), by which `SetDrop` tells its creature from its item.
+/// (`0x426610`), by which `SetDrop` tells its creature from its item; `seed` the game's, which
+/// their `rand()` starts from.
 pub fn run(
     assets: &Path,
     (tree, difficulty): (&str, u8),
     area: impl Fn((u32, u32)) -> Option<u8>,
     creatures: HashSet<u32>,
+    seed: crate::seed::Game,
 ) -> Result<Ran> {
     let started = Instant::now();
     let dir = assets.join("netscript").join(tree);
@@ -282,7 +285,7 @@ pub fn run(
         difficulty,
         ..quests::Scripts::default()
     };
-    let mut rng = Rng::of(0, 0, SEED);
+    let mut rng = seed.dice(SEED);
     let start = records(&runtime, (tree, &creatures), START, 0, &mut state, &mut rng);
     let mut functions = Vec::new();
     let mut regions = 0;

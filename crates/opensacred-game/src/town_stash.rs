@@ -155,7 +155,7 @@ fn show(
         return;
     }
     let root = commands.spawn((Root, backpack::screen())).id();
-    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1411));
+    let dice = dice.get_or_insert_with(|| crate::seed::dice(1411));
     let pieces = frame(
         dice,
         |index| images.anchors(index),

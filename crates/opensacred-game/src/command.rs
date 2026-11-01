@@ -121,6 +121,8 @@ enum Command {
     Keys { on: Option<Switch> },
     /// The state of the process, the game, the hero, the clock and the frames
     State,
+    /// The seed of the run's rolls, which --seed gives again, and the game's
+    Seed,
     /// The creatures within RADIUS cells of the hero (20 by default), the nearest first, as the
     /// original's driver lists them
     Creatures { radius: Option<u32> },
@@ -1507,6 +1509,17 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 wait: None,
             })
         }
+        Command::Seed => {
+            let game = world.get_resource::<crate::seed::Game>().copied();
+            Ok(Outcome::say(match game {
+                Some(game) => format!(
+                    "the run's seed {}, the game's {}",
+                    crate::seed::run(),
+                    game.0
+                ),
+                None => format!("the run's seed {}, no game yet", crate::seed::run()),
+            }))
+        }
         Command::Wait { until } => Ok(Outcome {
             lines: Vec::new(),
             wait: Some(until),
@@ -1819,6 +1832,7 @@ mod tests {
                 "screenshot",
                 "script",
                 "sector",
+                "seed",
                 "setfog",
                 "setquake",
                 "setrain",

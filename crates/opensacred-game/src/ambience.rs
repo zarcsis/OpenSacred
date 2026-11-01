@@ -78,7 +78,7 @@ impl Ambience {
                 .collect(),
             region: 0,
             waits: HashMap::new(),
-            dice: Rng::of(0, 0, SEED),
+            dice: crate::seed::dice(SEED),
             waters: [false; 3],
         }
     }

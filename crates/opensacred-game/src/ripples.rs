@@ -128,7 +128,7 @@ impl Default for Surface {
             speeds: vec![0.0; SIDE * SIDE],
             drop_in: -1.0,
             owed: 0.0,
-            dice: Rng::of(0, 0, 0x85),
+            dice: crate::seed::dice(0x85),
         }
     }
 }

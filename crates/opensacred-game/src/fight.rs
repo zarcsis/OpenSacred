@@ -815,7 +815,7 @@ impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
             .add_message::<Kill>()
-            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .insert_resource(Dice(crate::seed::dice(0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()
             .add_systems(

@@ -182,7 +182,7 @@ impl Default for Remarks {
             sector: None,
             cell: None,
             near: 0,
-            dice: Rng::of(0, 0, 0x1246),
+            dice: crate::seed::dice(0x1246),
         }
     }
 }

@@ -522,7 +522,7 @@ fn rebuild(
     for entity in &pieces {
         commands.entity(entity).despawn();
     }
-    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1087));
+    let dice = dice.get_or_insert_with(|| crate::seed::dice(1087));
     let mut add = |bundle: (ImageNode, Node), marker: Option<(usize, u8)>, z: i32| {
         let mut entity = commands.spawn((SlotPiece, bundle));
         match marker {

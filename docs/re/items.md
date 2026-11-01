@@ -6,6 +6,9 @@ The difficulty is the int `0x182EE44`, 0 bronze to 4 niobium; "truncated" is the
 `R(a, b)` is the game's roll of a whole number between `a` and `b` (`0x443B20` and the same code inline): a negative least becomes 0, a negative most 1, the two swapped when reversed.
 Then, but for equal bounds, which take no roll, it is `low + rand() % (high − low + 1)`, the division signed (**confirmed** by code and by the oracle's vectors, #1433).
 `rand()` is the C library's, linked into `Sacred.exe` at `0x849B40`: the LCG of docs/01 §7 on the state at `+0x14` of the thread's data of the runtime (`0x84EC63`), 0 to 32,767 (**confirmed** by code, #1433).
+`srand` (`0x849B33`) sets that state, and the game seeds it with `time()` (`0x84B68D`) as it starts (`initApp`, `0x815FC7`) and as the engine is made (`cEngine`'s constructor, `0x60ACA9`), so that every run rolls otherwise (**confirmed** by code, 2026-10-31, #1644).
+  It seeds it with the time again in a quest's reward (`0x4AC984`), the scripts' drop of a creature's type (`0x4B073D`), `CreateObj` (`0x486401`), at the end of `FillChest` (`0x4A1440`) and at `0x60AB66`, `0x756A69` and `0x812D64`.
+  It seeds it with a value of its own only where a roll is to repeat: `FillChest` by the hero and the container (`0x4A0705`, docs/re/containers.md), a creature's line of chatter by the creature's id `+0x0C` (`0x549A84`), and `0x425F64` and `0x426128` (not read further).
 The damage kinds 0–3 are physical, fire, magic and poison, as in docs/re/fight.md.
 
 ## The template (`wpmod.bin`)

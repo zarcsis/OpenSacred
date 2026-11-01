@@ -217,7 +217,7 @@ fn drink(
         Some((_, _, health)) => health,
         None => health,
     };
-    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1311));
+    let dice = dice.get_or_insert_with(|| crate::seed::dice(1311));
     let roll = usize::try_from(dice.below(3)).unwrap_or(0);
     let play = |sounds: &mut MessageWriter<sfx::Play>, id: u32| {
         sounds.write(sfx::Play {

@@ -65,7 +65,7 @@ struct Rolls(Rng);
 
 impl Default for Rolls {
     fn default() -> Self {
-        Self(Rng::of(0, 0, 0x0B_EA_A5))
+        Self(crate::seed::dice(0x0B_EA_A5))
     }
 }
 

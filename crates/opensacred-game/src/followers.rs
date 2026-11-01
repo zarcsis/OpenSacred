@@ -86,7 +86,7 @@ struct Dice(Rng);
 
 impl Default for Dice {
     fn default() -> Self {
-        Self(Rng::of(0, 0, 0x100))
+        Self(crate::seed::dice(0x100))
     }
 }
 

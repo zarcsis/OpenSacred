@@ -198,7 +198,7 @@ pub struct BlastPlugin;
 
 impl Plugin for BlastPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(Rng::of(0, 0, 5)))
+        app.insert_resource(Dice(crate::seed::dice(5)))
             .add_systems(Startup, make_look)
             .add_systems(
                 Update,
