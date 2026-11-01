@@ -4,8 +4,9 @@
 //! original draws a cell as a quad of its diamond. The mesh lies `iso::GROUND_BEHIND` back along the line of sight, so that it
 //! never hides an object.
 //!
-//! The atlas of the median sector is 13 MB, a fifth of the sector's image on screen; a shader
-//! that composes the layers would shrink it further.
+//! The atlas of the median sector is 7.7 MB, its diamonds laid edge to edge ([`slot_origin`]),
+//! and of the overworld's about the start, of 2,000 to 3,200 stacks, 20 to 30 MB; a shader that
+//! composes the layers would shrink it further.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -27,16 +28,13 @@ use opensacred_data::texture;
 pub use opensacred_data::texture::Rgba;
 use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 
+use crate::sectors::Staged;
 use crate::{buildings, files, iso, liquids};
 
 /// A diamond's box in a tile sheet and on screen.
 const DIAMOND_W: usize = 96;
 const DIAMOND_H: usize = 48;
-/// A slot of the ground atlas: a diamond's box and a border of one pixel, which repeats the
-/// box's edge so that filtering does not blend in the neighbouring slot.
-const SLOT_W: usize = DIAMOND_W + 2;
-const SLOT_H: usize = DIAMOND_H + 2;
-/// Slots per row of the atlas.
+/// Slots per row of the atlas ([`slot_origin`]).
 const SLOTS_PER_ROW: usize = 64;
 
 /// The corner heights of the cells of the loaded sectors, in world units, the drawn ground's and
@@ -1059,18 +1057,30 @@ struct Atlas {
     slots: Vec<usize>,
 }
 
-/// Composes a slot: the ground tile, then each overlay's colour through its mask's alpha (or its
-/// own), each clipped to the diamond; then the pixels around the diamond repeat its edge along
-/// each row, and the border repeats the box. Each layer's sheets are looked up once, its
-/// pixels walked along the diamond's `spans`: a sector of the 3 × 3 built while the frame waits
-/// (`sectors`, #1650) took some 300 ms over a lookup and a test a pixel.
+/// The top left of slot `index`'s diamond box in the atlas. The slots' diamonds lie edge to edge
+/// as the cells' do on the ground, as a tile sheet lays its tiles: a row of the atlas half a box
+/// below the one before, every other shifted by half a box, so that a diamond fills the gaps
+/// between its neighbours' and the atlas holds the diamonds' texels alone, 2,304 a slot (#1651).
+/// The ground's shader reads no texel of a box outside its diamond (`ground.wesl`).
+fn slot_origin(index: usize) -> (usize, usize) {
+    let (column, row) = (index % SLOTS_PER_ROW, index / SLOTS_PER_ROW);
+    (
+        column * DIAMOND_W + row % 2 * DIAMOND_W / 2,
+        row * DIAMOND_H / 2,
+    )
+}
+
+/// Composes a slot's diamond box, row by row: the ground tile, then each overlay's colour
+/// through its mask's alpha (or its own), each clipped to the diamond. Each layer's sheets are
+/// looked up once, its pixels walked along the diamond's `spans`: a sector of the 3 × 3 built
+/// while the frame waits (`sectors`, #1650) took some 300 ms over a lookup and a test a pixel.
 fn compose_slot(
     layers: &Layers,
     sheets: &mut Sheets<'_>,
     spans: &Spans,
     slot: &mut [[u8; 4]],
 ) -> Result<()> {
-    let at = |x: usize, y: usize| (y + 1) * SLOT_W + x + 1;
+    let at = |x: usize, y: usize| y * DIAMOND_W + x;
     for &(art, mask) in layers {
         sheets.load(art)?;
         if let Some(mask) = mask {
@@ -1098,24 +1108,6 @@ fn compose_slot(
             }
         }
     }
-    for (y, span) in spans.iter().enumerate() {
-        let (first, last) = span.unwrap_or((DIAMOND_W / 2, DIAMOND_W / 2));
-        for x in 0..first {
-            slot[at(x, y)] = slot[at(first, y)];
-        }
-        for x in last + 1..DIAMOND_W {
-            slot[at(x, y)] = slot[at(last, y)];
-        }
-    }
-    for y in 1..=DIAMOND_H {
-        slot[y * SLOT_W] = slot[y * SLOT_W + 1];
-        slot[y * SLOT_W + SLOT_W - 1] = slot[y * SLOT_W + DIAMOND_W];
-    }
-    slot.copy_within(SLOT_W..2 * SLOT_W, 0);
-    slot.copy_within(
-        DIAMOND_H * SLOT_W..(DIAMOND_H + 1) * SLOT_W,
-        (DIAMOND_H + 1) * SLOT_W,
-    );
     Ok(())
 }
 
@@ -1134,22 +1126,28 @@ fn compose(sector: &Sector, sheets: &mut Sheets<'_>) -> Result<Atlas> {
             })
         })
         .collect();
+    // The last column's diamonds of the shifted rows reach half a box past the others, and the
+    // last row's half a box below.
     let columns = order.len().clamp(1, SLOTS_PER_ROW);
     let rows = order.len().div_ceil(SLOTS_PER_ROW).max(1);
-    let (width, height) = (columns * SLOT_W, rows * SLOT_H);
+    let (width, height) = (
+        columns * DIAMOND_W + DIAMOND_W / 2,
+        (rows + 1) * DIAMOND_H / 2,
+    );
     let mut pixels = vec![0u8; 4 * width * height];
-    let mut slot = vec![[0u8; 4]; SLOT_W * SLOT_H];
+    let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
     let spans = spans();
     for (index, layers) in order.iter().enumerate() {
         slot.fill([0; 4]);
         compose_slot(layers, sheets, &spans, &mut slot)?;
-        let (sx, sy) = (
-            (index % SLOTS_PER_ROW) * SLOT_W,
-            (index / SLOTS_PER_ROW) * SLOT_H,
-        );
-        for (y, line) in slot.as_chunks::<SLOT_W>().0.iter().enumerate() {
+        let (sx, sy) = slot_origin(index);
+        for (y, span) in spans.iter().enumerate() {
+            let Some((first, last)) = *span else {
+                continue;
+            };
             let row = 4 * ((sy + y) * width + sx);
-            pixels[row..row + 4 * SLOT_W].copy_from_slice(line.as_flattened());
+            pixels[row + 4 * first..=row + 4 * last + 3]
+                .copy_from_slice(slot[y * DIAMOND_W + first..=y * DIAMOND_W + last].as_flattened());
         }
     }
     Ok(Atlas {
@@ -1226,9 +1224,16 @@ pub fn read_sector(assets: &Path, world: &World, (x, y): (u32, u32)) -> Result<O
 
 /// The ground of a sector, built off the main thread.
 pub struct Ground {
-    image: Image,
+    image: Staged,
     cells: Image,
     mesh: Mesh,
+}
+
+impl Ground {
+    /// Its atlas, which may go to the render world ahead of it (`sectors`).
+    pub fn staged(&mut self) -> impl Iterator<Item = &mut Staged> {
+        std::iter::once(&mut self.image)
+    }
 }
 
 /// The ground of a sector: the image of its diamonds and the mesh of its cells.
@@ -1273,7 +1278,11 @@ pub fn build(assets: &Path, world: &World, sector: &Sector) -> Result<Ground> {
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
-    Ok(Ground { image, cells, mesh })
+    Ok(Ground {
+        image: Staged::Waiting(image),
+        cells,
+        mesh,
+    })
 }
 
 /// The centre of a sector on its ground.
@@ -1371,7 +1380,7 @@ pub fn spawn(
     materials: &mut Assets<GroundMaterial>,
 ) -> Vec<Entity> {
     let material = GroundMaterial {
-        atlas: images.add(ground.image),
+        atlas: ground.image.handle(images),
         cells: images.add(ground.cells),
     };
     vec![
@@ -2122,7 +2131,7 @@ mod tests {
         // A ground tile, an overlay through another tile's mask, and one through its own alpha
         // partly beyond its sheet.
         let layers: Layers = vec![(3, None), (6, Some(DIAMONDS + 2)), (DIAMONDS + 5, None)];
-        let mut slot = vec![[0u8; 4]; SLOT_W * SLOT_H];
+        let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
         compose_slot(&layers, &mut sheets, &spans(), &mut slot).unwrap();
 
         let pixel = |tile: u32, x: usize, y: usize| {
@@ -2135,13 +2144,13 @@ mod tests {
             let at = 4 * (sy * sheet.width + sx);
             [0, 1, 2, 3].map(|k| sheet.pixels[at + k])
         };
-        let mut expected = vec![[0u8; 4]; SLOT_W * SLOT_H];
+        let mut expected = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
         for &(art, mask) in &layers {
             for y in 0..DIAMOND_H {
                 for x in (0..DIAMOND_W).filter(|&x| inside(x, y)) {
                     let colour = pixel(art, x, y);
                     let a = u16::from(mask.map_or(colour[3], |mask| pixel(mask, x, y)[3]));
-                    let out = &mut expected[(y + 1) * SLOT_W + x + 1];
+                    let out = &mut expected[y * DIAMOND_W + x];
                     for k in 0..3 {
                         let blended =
                             (u16::from(colour[k]) * a + u16::from(out[k]) * (255 - a)) / 255;
@@ -2151,17 +2160,36 @@ mod tests {
                 }
             }
         }
-        for y in 0..DIAMOND_H {
-            let row = (y + 1) * SLOT_W + 1;
-            let inner: Vec<usize> = (0..DIAMOND_W).filter(|&x| inside(x, y)).collect();
-            for &x in &inner {
-                assert_eq!(slot[row + x], expected[row + x], "pixel {x},{y}");
+        assert_eq!(slot, expected);
+    }
+
+    #[test]
+    fn the_atlas_lays_the_diamonds_edge_to_edge_as_the_shader_reads_them() {
+        // The row's texels inside the diamond, as `ground.wesl` holds a texel within them.
+        for (y, span) in spans().iter().enumerate() {
+            let edge = (2 * y).abs_diff(47);
+            assert_eq!(*span, Some((edge, 95 - edge)), "row {y}");
+        }
+        // Three rows of slots: every texel of the atlas in one diamond at most, and those of
+        // the middle row's diamonds, which have neighbours all about, leave none between them.
+        let (width, height) = (SLOTS_PER_ROW * DIAMOND_W + DIAMOND_W / 2, 4 * DIAMOND_H / 2);
+        let mut owner = vec![None; width * height];
+        for index in 0..3 * SLOTS_PER_ROW {
+            let (sx, sy) = slot_origin(index);
+            for (y, span) in spans().iter().enumerate() {
+                let (first, last) = span.unwrap();
+                for x in first..=last {
+                    let texel = &mut owner[(sy + y) * width + sx + x];
+                    assert_eq!(*texel, None, "slot {index}, texel {x},{y}");
+                    *texel = Some(index);
+                }
             }
-            // Outside the diamond, each row repeats its edge.
-            assert_eq!(slot[row], slot[row + inner[0]]);
-            assert_eq!(
-                slot[row + DIAMOND_W - 1],
-                slot[row + inner[inner.len() - 1]]
+        }
+        let between = DIAMOND_W..width - DIAMOND_W;
+        for y in DIAMOND_H / 2..3 * DIAMOND_H / 2 {
+            assert!(
+                between.clone().all(|x| owner[y * width + x].is_some()),
+                "row {y}"
             );
         }
     }

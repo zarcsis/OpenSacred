@@ -35,6 +35,11 @@ const BUILDING_AT_ONCE: usize = 2;
 /// 1,621 from the point it looks at (`iso`: 1,079 to the right, 1,214 up the ground). The rest of
 /// the 3 × 3 follows in the background, out of view.
 const VIEW: f32 = (SIDE / 2) as f32 * iso::CELL;
+/// The bytes of a sector's textures that go ahead of it in a frame, and one texture more, while
+/// it comes in out of view ([`Built::stage`]): an overworld sector brings 30 to 110 MB of its
+/// ground's atlas and its sprites' pages, which made the frame it came in some 40 to 70 ms when
+/// they all went at once (#1651).
+const UPLOAD_PER_FRAME: usize = 8 << 20;
 
 /// What every build reads: the asset directory, the world index, the sprite table and the
 /// shadow atlas, relative to the asset directory, if the converted textures have it; and the
@@ -57,6 +62,56 @@ pub struct Built {
 
 /// The outcome of building a sector: `None` where the grid has no sector.
 type Building = Result<Option<Built>>;
+
+impl Built {
+    /// Adds the sector's next textures to `images`, ahead of its entities ([`stage`]); answers
+    /// whether any was left to add, false once its textures are all in.
+    fn stage(&mut self, images: &mut Assets<Image>) -> bool {
+        stage(self.ground.staged().chain(self.statics.staged()), images)
+    }
+}
+
+/// Adds the next of `textures` not added yet to `images`, [`UPLOAD_PER_FRAME`] bytes of them and
+/// one more; answers whether any was left to add.
+fn stage<'a>(textures: impl Iterator<Item = &'a mut Staged>, images: &mut Assets<Image>) -> bool {
+    let mut added = None;
+    for texture in textures {
+        if added.is_some_and(|added| added >= UPLOAD_PER_FRAME) {
+            break;
+        }
+        if let Staged::Waiting(_) = texture {
+            *added.get_or_insert(0) += texture.add(images);
+        }
+    }
+    added.is_some()
+}
+
+/// A sector's texture, added to the assets ahead of its sector's entities ([`Built::stage`]), or
+/// not yet: the render world uploads what is added in the frame it is added.
+pub enum Staged {
+    Waiting(Image),
+    Added(Handle<Image>),
+}
+
+impl Staged {
+    /// Adds it to `images` unless it is already; answers the bytes it added.
+    fn add(&mut self, images: &mut Assets<Image>) -> usize {
+        let Self::Waiting(image) = self else {
+            return 0;
+        };
+        let bytes = image.data.as_ref().map_or(0, Vec::len);
+        *self = Self::Added(images.add(std::mem::take(image)));
+        bytes
+    }
+
+    /// Its handle, added to `images` now if it was not before.
+    pub fn handle(self, images: &mut Assets<Image>) -> Handle<Image> {
+        match self {
+            Self::Waiting(image) => images.add(image),
+            Self::Added(handle) => handle,
+        }
+    }
+}
 
 /// Builds sector `at`.
 pub fn build(shared: &Shared, at: (u32, u32)) -> Building {
@@ -341,19 +396,23 @@ pub fn stream(
             );
         }
     }
-    // Those in view at once; the rest one a frame, out of view: uploading a ground image takes a
-    // few milliseconds.
-    let spawning: Vec<_> = if whole {
+    // Those in view at once. The rest come out of view one at a time, in the order they were
+    // built: the first sends its textures ahead of it over the frames, and comes in the frame
+    // after its last (#1651).
+    let mut spawning = Vec::new();
+    if whole {
         let view: HashSet<(u32, u32)> = in_view(point).collect();
-        let (mut now, mut later): (Vec<_>, Vec<_>) = std::mem::take(&mut streamer.ready)
+        let (now, later) = std::mem::take(&mut streamer.ready)
             .into_iter()
             .partition(|(at, _)| view.contains(at));
-        now.extend(later.pop());
+        spawning = now;
         streamer.ready = later;
-        now
-    } else {
-        streamer.ready.pop().into_iter().collect()
-    };
+    }
+    if let Some((_, built)) = streamer.ready.first_mut()
+        && !built.stage(&mut images)
+    {
+        spawning.push(streamer.ready.remove(0));
+    }
     for (at, mut built) in spawning {
         info!(
             "sector {},{}: {} static objects, {} with a sprite",
@@ -583,5 +642,45 @@ mod tests {
         assert_eq!(streamer.complete(corner), 0);
         // At the grid's corner, the one that the grid has.
         assert_eq!(streamer.complete(at(0.1, 0.1)), 1);
+    }
+
+    #[test]
+    fn a_sectors_textures_go_ahead_of_it_a_frames_share_at_a_time() {
+        let texture = |bytes: usize| {
+            Staged::Waiting(Image {
+                data: Some(vec![0; bytes]),
+                ..Image::default()
+            })
+        };
+        let mib = 1 << 20;
+        let mut textures = vec![
+            texture(6 * mib),
+            texture(4 * mib),
+            texture(4 * mib),
+            texture(1),
+        ];
+        let mut images = Assets::<Image>::default();
+        let added = |textures: &[Staged]| {
+            textures
+                .iter()
+                .filter(|texture| matches!(texture, Staged::Added(_)))
+                .count()
+        };
+        // The first frame adds 10 MiB, the one that passes the 8 crossing it.
+        assert!(stage(textures.iter_mut(), &mut images));
+        assert_eq!(added(&textures), 2);
+        assert!(stage(textures.iter_mut(), &mut images));
+        assert_eq!(added(&textures), 4);
+        // All in: the sector comes in.
+        assert!(!stage(textures.iter_mut(), &mut images));
+        assert_eq!(images.len(), 4);
+        // Its entities take the handles that went ahead.
+        let first = textures.swap_remove(0);
+        let Staged::Added(handle) = &first else {
+            panic!("the first texture went ahead");
+        };
+        let handle = handle.clone();
+        assert_eq!(first.handle(&mut images), handle);
+        assert_eq!(images.len(), 4);
     }
 }
