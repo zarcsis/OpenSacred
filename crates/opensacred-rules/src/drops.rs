@@ -1055,6 +1055,14 @@ impl Catalogue {
         self.records.get(&item).is_some_and(|record| record.set)
     }
 
+    /// Whether the type `item` is a unique, its record's quality bits all set, which a forced
+    /// drop gives as its record holds it (the key 0, #1709).
+    pub fn unique(&self, item: u32) -> bool {
+        self.records
+            .get(&item)
+            .is_some_and(|record| record.flags & UNIQUE == UNIQUE)
+    }
+
     /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour or a
     /// jewel; `None` for a type of any other category (the runes, the blacksmith's upgrades) or
     /// none.
@@ -1546,7 +1554,8 @@ impl Dropping<'_> {
 /// `level` with the pass's quality key `key` as a drop's would be (the key 0 at the maker's key
 /// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); a type of no drop's kind as it is, of the kind
 /// [`Kind::Other`], as the original's driver makes any type (a book, a quest's item, #1358);
-/// its sockets rolled by `sockets` on `difficulty`; a set's piece as its record holds it (#1701).
+/// its sockets rolled by `sockets` on `difficulty`; a set's piece (#1701) and a unique (#1709) as
+/// its record holds it, not raised to a least level (`0x5C29A0`, `0x5C2210`).
 /// `None` for a type that the items' table does not hold.
 pub fn thrown(
     (catalogue, templates): (&Catalogue, &Templates),
@@ -1574,9 +1583,10 @@ pub fn thrown(
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
         Kind::Potion | Kind::Rune | Kind::Other => {}
-        // A set's piece as its record holds it, which the item maker leaves out (seen in the
-        // original's forced drop: its own name, level, bonuses and sockets).
-        Kind::Weapon | Kind::Armour | Kind::Jewel if catalogue.set_piece(item) => {}
+        // A set's piece and a unique as their records hold them, which the item maker leaves out
+        // (seen in the original's forced drop: their own names, levels, bonuses and sockets).
+        Kind::Weapon | Kind::Armour | Kind::Jewel
+            if catalogue.set_piece(item) || catalogue.unique(item) => {}
         Kind::Weapon | Kind::Armour | Kind::Jewel => {
             drop.quality = match drop.key {
                 0 => 14,
