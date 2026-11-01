@@ -5,7 +5,7 @@
 //! topped up; the items chosen by the drops' choice of a type (`0x5C7FA0`) and made by the item
 //! maker. One stock for every merchant: it is the last merchant's.
 
-use crate::drops::{self, Catalogue, Difficulty, Dropped, Hero, Wanted, between};
+use crate::drops::{self, Catalogue, Difficulty, Dropped, Hero, Sockets, Wanted, between};
 use crate::fight::Templates;
 use crate::inventory::Grid;
 use crate::spawning::Dice;
@@ -101,11 +101,14 @@ pub trait Supply {
     fn make(&self, item: u32, level: u32, key: u8, dice: &mut impl Dice) -> Option<Dropped>;
 }
 
-/// The drops' tables as the stock's supply: the catalogue, the templates, and the items' sizes.
+/// The drops' tables as the stock's supply: the catalogue, the templates, the items' sizes, and
+/// the sockets' rules and the difficulty that the item maker rolls the sockets by.
 pub struct Tables<'a, S: Fn(u32) -> (u8, u8)> {
     pub catalogue: &'a Catalogue,
     pub templates: &'a Templates,
     pub size: S,
+    pub sockets: &'a Sockets,
+    pub difficulty: Difficulty,
 }
 
 impl<S: Fn(u32) -> (u8, u8)> Supply for Tables<'_, S> {
@@ -126,7 +129,12 @@ impl<S: Fn(u32) -> (u8, u8)> Supply for Tables<'_, S> {
     }
 
     fn make(&self, item: u32, level: u32, key: u8, dice: &mut impl Dice) -> Option<Dropped> {
-        drops::keyed(self.catalogue, self.templates, (item, level, key), dice)
+        drops::keyed(
+            (self.catalogue, self.templates),
+            (self.sockets, self.difficulty),
+            (item, level, key),
+            dice,
+        )
     }
 }
 

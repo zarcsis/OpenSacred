@@ -1162,10 +1162,16 @@ pub struct ItemValues {
     /// Its record's family (`Weapon.pak +0x85`, the byte `+0x05` of its flags word), by which a
     /// weapon asks its skill ([`weapon_skill`]).
     pub family: u8,
+    /// Its sockets' kinds (`+0x0C…+0x13`: 0 none, 1 bronze, 2 silver, 3 gold), which the item
+    /// maker's quality pass rolls ([`crate::drops::Sockets`]).
+    pub sockets: [u8; SOCKETS],
 }
 
 /// How many bonus slots an item's record has.
 pub const BONUSES: usize = 8;
+
+/// How many sockets an item's record has.
+pub const SOCKETS: usize = 8;
 
 /// A bonus slot of an item's record (docs/re/items.md): its condition word (`+0x3A`), its effect
 /// (`+0x4A`, the effect in the low 16 bits, the attribute that scales it in byte 2) and its value
@@ -1214,12 +1220,21 @@ impl ItemValues {
     /// The values of an item's record, given as its `u16` words from its `+4`, as `Weapon.pak
     /// +0x84` holds a fixed item's and a hero template its items' (docs/re/items.md): each kind's
     /// least damage at `+0x1C`, its most at `+0x24`, `A` at `+0x2C`, `D` at `+0x2E` and the
-    /// resistances at `+0x32`, its bonus slots ([`Bonus`]) and its family (`+0x05`); a word past
-    /// the end is 0. Its class and its template's scale are its type's, not its record's: none
-    /// here.
+    /// resistances at `+0x32`, its bonus slots ([`Bonus`]), its family (`+0x05`) and its sockets
+    /// (`+0x0C`); a word past the end is 0. Its class and its template's scale are its type's,
+    /// not its record's: none here.
     pub fn of_record(words: &[u16]) -> Self {
         let word = |offset: usize| words.get((offset - 4) / 2).copied().unwrap_or(0);
         let at = |offset: usize| f32::from(word(offset));
+        let mut sockets = [0; SOCKETS];
+        for (pair, offset) in sockets
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip((0x0C..).step_by(2))
+        {
+            *pair = word(offset).to_le_bytes();
+        }
         Self {
             damage: std::array::from_fn(|kind| [at(0x1C + 2 * kind), at(0x24 + 2 * kind)]),
             resistance: std::array::from_fn(|kind| at(0x32 + 2 * kind)),
@@ -1233,6 +1248,7 @@ impl ItemValues {
             class: 0,
             scale: 0,
             family: u8::try_from(word(0x04) >> 8).unwrap_or(0),
+            sockets,
         }
     }
 }
@@ -1358,6 +1374,13 @@ impl Templates {
     /// of the made item's flags, which names its family, and its class for the namer.
     pub fn word_38(&self, item: u32) -> Option<i64> {
         self.by_type.get(&item).map(|words| signed(words[38]))
+    }
+
+    /// The low byte of the word 38 of the template that the item maker takes for an item of type
+    /// `item` (through its parents, as [`Self::make`]), the key of its family's list of sockets
+    /// (`0x440470`); none without a template.
+    pub fn made_family(&self, item: u32) -> Option<u8> {
+        self.of(item).map(|words| words[38].to_le_bytes()[0])
     }
 
     /// The words 38 to 40 of the template that the drops' lookup `0x42CA70` finds for an item of
@@ -4699,6 +4722,8 @@ mod tests {
     fn blade() -> Vec<u16> {
         let mut words = vec![0; 63];
         for (offset, value) in [
+            // A bronze socket and a gold one.
+            (0x0C, 0x0301),
             (0x1C, 21),
             (0x24, 23),
             (0x2C, 5),
@@ -4787,6 +4812,7 @@ mod tests {
                 class: 0,
                 scale: 0,
                 family: 0,
+                sockets: [1, 3, 0, 0, 0, 0, 0, 0],
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());

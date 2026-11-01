@@ -274,7 +274,9 @@ fn give(
             debug!("stashes: no item fits a random item's roll");
             continue;
         };
-        let Some(dropped) = crate::drops::contained(tables, &mut dice, (item, made_at, 1)) else {
+        let Some(dropped) =
+            crate::drops::contained(tables, (&mut dice, difficulty), (item, made_at, 1))
+        else {
             continue;
         };
         let mut aside = || {

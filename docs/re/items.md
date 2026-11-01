@@ -65,7 +65,22 @@ The resistances (`0x5D0600`, `0x5D0030`) take the same budget, chances and norma
 An entry is a chance, a bonus word, an effect, a least, a most, a list and two divisors; the maker takes the first entry whose chance passes, one bonus at most.
 Its value is `R(least, most)` times 1.0, 1.34, 1.67, 2.0 or 2.34 by the difficulty, held below that factor times the first float of the effect's record (effects 800–869, 24 bytes each in the balance's image from `+0x9DC`); the effects up to 200 and 600–798 take a value by the level and their divisors instead.
 At the fight (`0x568C40`) the effect's byte 2 scales the value by one of the six attributes over 100; the effects `0x321`…`0x324` add it to a kind's least and most, `0x325`…`0x328` to its multiplier, in the attack record for a bonus word with a condition, and **hypothesis**: in the recomputation `0x5796A0` for one without.
-The quality pass `0x5D2E40` keeps the slot 0 and clears the others when its map gives 0 (the fills' key 0), and rolls the sockets; it leaves the damage, `A` and `D` alone.
+The quality pass `0x5D2E40` keeps the slot 0 and clears the others when its map gives 0 (the fills' key 0), and rolls the sockets (below); it leaves the damage, `A` and `D` alone.
+
+## The sockets
+
+The quality pass (`0x5D2E40`, which the maker calls at `0x5D567E` after the magic bonus and before the name, unless its caller's sixth argument keeps the record, which skips the record's clearing, the magic bonus and the name too) rolls them first; read 2026-11-01 (#1660), **confirmed** by code:
+
+1. A book (category 16, `0x428490`) leaves the pass at once, with no roll.
+2. `rand() % 1000` is taken against `SlotFeasibility` (250), raised by `SlotProbBonusMerchant` (0) while a merchant's page is made (docs/re/trade.md); a ring or an amulet (categories 8 and 20, `0x428540`) takes the roll and no socket.
+3. Where it falls below, the family's list gives the most sockets `n`: the third word of its first record.
+   The list is the item maker's lookup by the low byte of the template's word 38 (`0x440470`): the items database's own map (`+0x5632DC`) first, which the text compiler (`0x42CD50`) fills from `scripts\waffenmod.txt` and which stays empty as the file is not shipped, then the global map `0xAD57B0`, the first table of the tail of `Balance.bin` (docs/02 §6.3); a family in neither has an empty list and no socket.
+4. With `n` above 0 the item has one socket, and one more for each of at most `n − 1` rolls of `rand() % 1000` below `SlotFeasibility2` (333), the first that fails ending them.
+5. Each socket's kind, at `+0x0C` onward, is `t + ⌊(rand() % 251)/100⌋` held to 1 to 3, `t` 0 on bronze, 1 on silver and 2 from gold on (the difficulty `0x182EE44`); each raises the pass's factor of the quality by `RareSlotBronze`, `RareSlotSilber` or `RareSlotGold` (0.1 each).
+
+The most sockets by the family, 0 to 32: 3, 2, 3, 3, 4, 3, 4, 3, 3, 4, 3, 3, 3, 4, 0, 0, 3, 2, 2, 2, 2, 4, 3, 4, 4, 0, 1, 1, 4, 0, 2, 3, 3.
+**Seen** 2026-11-01 in the original (#448's driver, a boss's 360 drops traced at `0x5D2FA6`, `0x5D2FD6` and `0x5D3027`): 42 rolls of sockets in 147 passes, 31 of one socket, 5 of two and 6 of three, and the 17 families met took those maxima.
+`opensacred_rules::drops::Sockets` rolls them for a death's drops, the items a test or a container or a quest's reward makes, and a merchant's stock (#1660).
 
 ## The bonus slots in the values (`0x5796A0`)
 

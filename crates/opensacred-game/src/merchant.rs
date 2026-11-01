@@ -155,15 +155,17 @@ fn visit(
     }
     merchant.visiting = false;
     let hero = crate::drops::hero(base, experience.0.level);
+    let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
     let buyer = Buyer {
         hero: &hero,
-        difficulty: difficulty.map(|d| d.0).unwrap_or_default(),
+        difficulty,
         weapons: tables.weapon_lists(),
     };
     let id = merchant.creature.to_bits();
+    let supply = tables.supply(difficulty);
     wares
         .0
-        .visit(id, merchant.level, &buyer, &tables.supply(), &mut dice.0);
+        .visit(id, merchant.level, &buyer, &supply, &mut dice.0);
     let counts: Vec<usize> = wares.0.shelves.iter().map(|s| s.items.len()).collect();
     info!(
         "merchant: the stock for a merchant of level {}: {counts:?} items",

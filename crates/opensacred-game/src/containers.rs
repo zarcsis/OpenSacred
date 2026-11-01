@@ -319,7 +319,10 @@ fn fill(
         Option<Res<crate::arts::HeroArts>>,
         ResMut<crate::rewards::RunesGiven>,
     ),
-    containers: Query<(&Object, &Container)>,
+    (containers, difficulty): (
+        Query<(&Object, &Container)>,
+        Option<Res<crate::game::Difficulty>>,
+    ),
     heroes: Query<(&Transform, &crate::fight::Base, &Body)>,
     lying: Query<&crate::drops::Lying>,
 ) {
@@ -334,6 +337,7 @@ fn fill(
         return;
     }
     let level = experience.0.level;
+    let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
     let mut hero = crate::drops::hero(base, level);
     crate::drops::carrying(&mut hero, &pack, arts.as_deref(), tables);
     let icon_in_world = lying
@@ -385,7 +389,8 @@ fn fill(
                 continue;
             }
         };
-        let Some(dropped) = crate::drops::contained(tables, &mut dice, (item, level, amount))
+        let Some(dropped) =
+            crate::drops::contained(tables, (&mut dice, difficulty), (item, level, amount))
         else {
             continue;
         };

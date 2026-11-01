@@ -225,6 +225,24 @@ fn the_tail_of_balance_bin_holds_the_drops_tables() {
             (9, 7500)
         ]
     );
+    // Each family's list starts with (−1, −1, n), its most sockets (#1660).
+    assert!(t.lists.iter().map(|(key, _)| *key).eq(0..33));
+    let most: Vec<u32> = t
+        .lists
+        .iter()
+        .map(|(_, records)| {
+            let [a, b, n] = records[0];
+            assert_eq!((a, b), (u32::MAX, u32::MAX));
+            n
+        })
+        .collect();
+    assert_eq!(
+        most,
+        [
+            3, 2, 3, 3, 4, 3, 4, 3, 3, 4, 3, 3, 3, 4, 0, 0, 3, 2, 2, 2, 2, 4, 3, 4, 4, 0, 1, 1, 4,
+            0, 2, 3, 3
+        ]
+    );
     assert!(t.weights.iter().map(|&(key, _)| key).eq(0..18));
     let weights: Vec<u32> = t.weights.iter().map(|&(_, weight)| weight).collect();
     assert_eq!(
