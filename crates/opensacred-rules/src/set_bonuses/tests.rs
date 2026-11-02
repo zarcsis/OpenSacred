@@ -257,6 +257,19 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(64, &wearing(64, 3), Difficulty::Bronze)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
+    // The magic defence: set 41 at 5 adds 15·D, set 44 at 3 10·D, each that holds.
+    assert!(close(
+        stats(&wearing(41, 5), Difficulty::Gold).magic_defence(2.0),
+        2.0 + 15.0 * 1.67
+    ));
+    assert!(close(
+        stats(&wearing(44, 3), Difficulty::Bronze).magic_defence(0.0),
+        10.0
+    ));
+    assert!(close(
+        stats(&wearing(41, 4), Difficulty::Bronze).magic_defence(2.0),
+        2.0
+    ));
     // Six pieces of set 28 raise the creatures' levels by the difficulty's factor truncated.
     assert_eq!(stats(&wearing(28, 6), Difficulty::Gold).played_part(), 1);
     assert_eq!(stats(&wearing(28, 6), Difficulty::Niobium).played_part(), 2);

@@ -468,6 +468,13 @@ pub const WHOLE_DAMAGE: u32 = 0x7C2;
 /// The stats' flag `+0x148` bit `0x200000` (sets 42, 49, 50 and 64), by which the strike grows the
 /// stun's value (M18, `0x56D4D6`; [`Stats::stun`]).
 pub const STUNS: u32 = 0x20_0000;
+/// The stats' flag `+0x148` bit `0x100000` (sets 41, 44, 59 and 65), by which the magic defence
+/// grows (M17, `0x5618A1`; [`Stats::magic_defence`]).
+pub const WARDS: u32 = 0x10_0000;
+
+/// The magic defence's terms while the flag [`WARDS`] holds, each `c·D` where its set reaches
+/// its count, added in turn (M17, `0x561897`–`0x561A68`).
+const WARD_TERMS: [(u8, u8, f32); 4] = [(41, 5, 15.0), (44, 3, 10.0), (59, 3, 15.0), (65, 3, 10.0)];
 
 /// The term by which a set of the flag [`STUNS`] grows the stun's value, times `D` (M18): set 64's
 /// 0.9, sets 49's and 50's 0.15, any other's 0.05.
@@ -705,6 +712,20 @@ impl Stats {
                 Reader::GoldForHealth(c) => value + c * self.factor,
                 _ => value,
             })
+    }
+
+    /// The effect 858's value `value` of the target's own items, the magic defence, grown while
+    /// its flag [`WARDS`] holds by each term whose set reaches its count, in turn (M17,
+    /// `0x561897`–`0x561A68`): `15·D` for set 41 at 5, `10·D` for set 44 at 3, `15·D` for set 59
+    /// at 3 and `10·D` for set 65 at 3.
+    pub fn magic_defence(&self, value: f32) -> f32 {
+        if self.flags & WARDS == 0 {
+            return value;
+        }
+        WARD_TERMS
+            .iter()
+            .filter(|&&(set, pieces, _)| self.worn.count(set) >= pieces)
+            .fold(value, |value, &(_, _, c)| value + c * self.factor)
     }
 
     /// The effect 862's value `value` of the attacker's items, the stun, grown while its flag
