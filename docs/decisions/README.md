@@ -30,7 +30,7 @@ Each file holds one table, a row per decision, sorted by its first column:
 - **Why**: the reason, with "the maintainer's choice (#N)" where the maintainer chose it.
 - **Kind**: one of three:
   - `limitation`: an engine's or a format's limit;
-  - `repair`: the converter mends a defect of the original's data (CLAUDE.md, "Code conventions");
+  - `repair`: the converter mends a defect of the original's data, or the game a text of the original that disagrees with what its code does (CLAUDE.md, "Code conventions");
   - `deviation`: the play or the look differs by choice.
 - **Issues**: the issues and pull requests behind the decision.
 
@@ -40,4 +40,5 @@ A decision is a row in its subsystem's table, put in its place by its name.
 A changed decision is its row edited, and a dropped one its row removed; the history is in git.
 A row says what the game does now, without dates or the steps that led there.
 What the game does not do yet is not a decision: it belongs in its issue and in the "In `opensacred-game`" passages of `docs/re/`.
+A text of the original repaired to tell what its code does is a `repair` row of the subsystem whose window shows it: what the original's text says, what the code does and what the game's text now tells; the code's behaviour stays, and the text's numbers come from the code that applies them (CLAUDE.md, "Code conventions").
 A decision is merged without waiting for the maintainer, who opens an issue for what to change, unless it departs from the original far enough to change the play seriously or carries legal consequences: then it waits (docs/03 §3.6).
