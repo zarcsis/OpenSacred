@@ -166,6 +166,45 @@ pub fn hostile(side: u8, creature: u32, other_side: u8, other: u32) -> bool {
     !friends || spider(creature, other) || spider(other, creature)
 }
 
+/// The side hostile to and from every side, which a script's `Attack` gives one of a pair that
+/// is hostile neither way (`0x4A2B40`; [`FRIENDS`]' row 13 is 0 and no row has its bit).
+pub const AGAINST_EVERY_SIDE: u8 = 13;
+
+/// Which of a script's `Attack`'s attacker and target takes the side [`AGAINST_EVERY_SIDE`]
+/// (`0x4A2B40`, `0x548FB0`; #1830), each a side and a type, the hero for none as the target: none
+/// where either is hostile to the other; else the attacker where it is hostile to the heroes;
+/// else the target, where it is hostile to the heroes, or always where a group attacks a group,
+/// `groups`. A pair that stays friendly fights not.
+pub fn attack_sides(attacker: (u8, u32), target: Option<(u8, u32)>, groups: bool) -> Sided {
+    let (side, creature) = attacker;
+    let either = match target {
+        Some((other_side, other)) => {
+            hostile(side, creature, other_side, other) || hostile(other_side, other, side, creature)
+        }
+        None => hostile_to_heroes(side, creature),
+    };
+    if either {
+        Sided::Neither
+    } else if hostile_to_heroes(side, creature) {
+        Sided::Attacker
+    } else {
+        match target {
+            Some((other_side, other)) if groups || hostile_to_heroes(other_side, other) => {
+                Sided::Target
+            }
+            _ => Sided::Neither,
+        }
+    }
+}
+
+/// Which of an `Attack`'s pair turns against every side ([`attack_sides`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sided {
+    Neither,
+    Attacker,
+    Target,
+}
+
 /// The side that the creature maker gives a creature of `Creature.pak` class `class` and type
 /// `creature` that it makes hostile or peaceful, `hostile` (`0x480D40`, from `0x480F24`, as a
 /// fill's entries ask): its class (`0x43ADC0`, as the constructor gives it); 2 when it is made
@@ -2501,6 +2540,24 @@ mod tests {
     use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
+
+    #[test]
+    fn an_attack_turns_one_of_a_friendly_pair_against_every_side() {
+        let (monster, townsman) = ((2, 33), (3, 688));
+        // Two monsters, friends: the attacker, hostile to the heroes, turns.
+        assert_eq!(attack_sides(monster, Some(monster), false), Sided::Attacker);
+        // Two townsfolk: none, but where a group attacks a group, the target.
+        assert_eq!(
+            attack_sides(townsman, Some(townsman), false),
+            Sided::Neither
+        );
+        assert_eq!(attack_sides(townsman, Some(townsman), true), Sided::Target);
+        // Against the hero: a monster is hostile already, a townsman stays its friend.
+        assert_eq!(attack_sides(monster, None, false), Sided::Neither);
+        assert_eq!(attack_sides(townsman, None, false), Sided::Neither);
+        // The side turned is hostile to and from every side.
+        assert!(hostile(AGAINST_EVERY_SIDE, 33, 2, 33) && hostile(2, 33, AGAINST_EVERY_SIDE, 33));
+    }
 
     fn at(x: f32, y: f32) -> Spot {
         Spot::new(x, y)
