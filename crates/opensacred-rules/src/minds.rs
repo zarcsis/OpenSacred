@@ -1156,8 +1156,9 @@ impl Mind {
 
     /// What a caster of the mark 1 does at a decision of its melee (`0x4D51ED`; #1852,
     /// [`crate::casts`]), before it fights hand to hand ([`Self::pursue`]): none for another type,
-    /// out of the fight, at range or striking; it decides standing or walking. Walking into its
-    /// band, it decides nothing until it stands. It stands facing its target for
+    /// out of the fight, at range, striking or coming on to its target (the melee's sub-state 1,
+    /// which runs no specials); it decides standing or on a run of its own. Walking into its band,
+    /// it decides nothing until it stands. It stands facing its target for
     /// [`casts::STANDS`] decisions after each; it casts the stone at the hero from 400 to 1,500
     /// ([`casts::holds`]); else, on its casting path ([`casts::casting`]), it keeps its band
     /// ([`casts::leaves_band`]), casts its type's spell by a roll with a straight way (`clear`)
@@ -1179,6 +1180,9 @@ impl Mind {
         self.banding &= sight.walk.is_some();
         if self.banding {
             return Some(Pursues::Faces);
+        }
+        if sight.walk.is_some_and(|walk| walk.comes_on) {
+            return None;
         }
         if self.stands > 0 {
             self.stands -= 1;
@@ -2737,6 +2741,19 @@ mod tests {
             skeleton.cast(&walking, &cast, || true, &mut none),
             Some(Pursues::Faces)
         );
+        // Coming on to its target, it decides none of its casts, its stands kept.
+        skeleton.cast_ends();
+        skeleton.stands = 3;
+        let coming = Pursuit {
+            walk: Some(Walking {
+                target: at(200.0, 0.0),
+                comes_on: true,
+                runs: true,
+            }),
+            ..sight(500.0)
+        };
+        assert_eq!(skeleton.cast(&coming, &cast, || true, &mut none), None);
+        assert_eq!(skeleton.stands, 3);
         // Its cast over, it takes its melee up from its start: near, it keeps no band, and its
         // deadline still running, it stands.
         skeleton.cast_ends();
