@@ -210,6 +210,37 @@ It draws every mesh with the model's deformed vertices (`GrannyLockSequenceForRe
 The depth test is on and its write off, the culling on, the lighting and the alpha test off, the blending `SRCALPHA`, `INVSRCALPHA`.
 The engine's state `0x10000` turns the stencil on with the reference 1 and the mask 1 (`0x643470`), over the device's `STENCILFUNC` `NOTEQUAL`, `STENCILPASS` `REPLACE` and `KEEP` otherwise (`0x643190`): a pixel is darkened by the first shadow drawn over it and by no other, until the stencil is cleared (**hypothesis**: once a frame).
 
+## The models' effects
+
+Read 2026-11-02 (#1309) off `Sacred.exe` and the converted files; **confirmed** by code unless marked otherwise.
+
+- The object's draw (`0x44B230`) sets the renderer's texture override (`cGranny +0x34`) to the type's `+0x08` texture where the type has one and none is set, draws through `0x44A9D0`, and clears it after.
+  `0x44A8C0` chooses the renderer by the type: one whose flags (the first word of its record of `items.pak`) have the bit `0x100000` (`0x426450`; `subclass` bit 4) is drawn by `cGranny::renderComplex` (`0x406510`) while `DETAILLEVEL` (`0x182EE78`, 2 in the GOG settings) is not 0, every other by `cGranny::render` (`0x405C90`); at `DETAILLEVEL` 0 the flagged types too are drawn by `render`, their effect left out.
+- `renderComplex` reads the type's effect texture, the word `+0x66` (`0x4262D0`), and its kind 1 to 9, the byte `+0x6E` (`0x426520`); so the effect is the type's, not its model's, and a texture's name plays no part.
+  It turns on the depth test, the culling and the blending and turns the alpha test off, then walks Granny's rendering states and draws each in up to three passes that the kind chooses: the effect pass (the `+0x66` texture moved by a texture matrix, unlit, the depth write off, blended by its alpha), the glow pass (`FX_MULTITEXGLOW01` moved by a second matrix, unlit, added `ONE`, `ONE`) and the main pass (the override texture, lit, the depth written, blended by its alpha without the alpha test).
+- The clock of the matrices is the frame's real time, `t` the performance counter in milliseconds modulo 65,536 (`0x406592`), the same for every object; a matrix moves the texture's coordinates by its third row, `u + _31`, `v + _32`.
+- **The kind 9**, the Seraphim's wings 3111 alone (`SeraWings05`, the effect texture 8636 `serawings05fx01`): the main pass draws every rendering state but the first with the type's texture 8635; a second walk then draws the first state alone with 8636, unlit, white, the depth tested and not written, added to the frame (`ONE`, `ONE`, `0x406EB1`), so the type's texture never reaches it.
+  Its matrix (`0x4068B9`): `r = t mod 2048`; for `r` under 512, `_31 = r / 128` and `_32 = (r / 512)^1.3`; for `r` from 512 to 1,023, `_31 = r / 128` and `_32 = ((r − 512) / 512)^1.3`; else none.
+  So in each cycle of 2,048 ms the texture runs along `v` twice, each run 512 ms long and speeding up, and stands for 1,024 ms; along `u`, a width each 128 ms, which hardly shows on a texture nearly even along `u`.
+- The first rendering state is the first pass of the model's file (**hypothesis**, strong): `SeraWings05.GRN`'s first pass is the material of the effect texture, two mirrored tubes skinned to the bone `blitz_framework` at the wings' join, `v` 0.016 at the tubes' far ends to 0.657 at the join.
+  The texture 8636 is black above its row 160 and holds one soft band, lavender at its core (about `v` 0.85) and violet to dark blue at its edges: as `_32` grows, the band enters the tubes at the join and runs out along them to their ends, a stripe about a fifth of their length.
+- The other kinds (the jump table `0x406FC0`; 57 types carry the flag):
+
+| Kind | Types | Passes and motion |
+|---|---|---|
+| 1 | 48: the Seraphim's 3809 and her gloves, boots, shoulders, belts, wings 01 and windweavers, the Vampiress's `vlady_spa_2` pieces, the zombies 34, 119–123, 711, 712, the spider 601, the element stones 6008–6017 | effect pass with `_31 = _32 = t / 16384`; glow pass with `_31 = _32 = t / 32767`; main pass over them |
+| 2 | 4017 `SeraShield02` | effect with `_32 = t / 2048`, main |
+| 3 | 4018 `SeraWings04` | effect with `_31 = t / 2048`, main |
+| 4 | 1747 `BOW_ELB01` | effect with `_31 = t / 1024`, main |
+| 5 | 53, 94 `BIG_DEMON`, 184 `AnducarGarde` | `render`, then the whole model twice with the effect texture added (`0x40D310`), once white and once grey `(sin(t·π/1024) + 1) · 127.5`: a pulse of 2,048 ms |
+| 6 | 905 `FX_FLYINGSKULL` | effect with `_32 = t / 1024` alone |
+| 7 | none | as 5 without the `render` |
+| 8 | 135 `SERAPHIM_holo` | effect with two fresh `rand() / 32767` offsets at every draw and half its alpha, then the main pass added |
+| 9 | 3111 `SeraWings05` | above |
+
+The choice of the hero's figures (`0x6F1B30`) draws its figures' flagged items by `renderComplex` too, without the `DETAILLEVEL` test; an orthographic item draw (`0x40F270`) has the kinds 1 to 4 alone.
+Nothing else glows for the wings: no FX object (`0x451300` traced 2026-10-28), no light, and no glitter while worn.
+
 ## What the game does with it
 
 `opensacred-game` orders the sprites through the depth buffer instead (docs/decisions/drawing.md, "Sprites ordered through the depth buffer"): each lies at the depth of its cell's centre at height 0, whatever the cell's height, so all the sprites of one cell, and those of the cells of one diagonal, have the same depth.
@@ -255,6 +286,11 @@ It takes its model's anchor and squeeze, in the shadows' layer: over what the or
 For the stencil, its fragments take the depth of the plane in their pixel's row, computed from the row alone, a unit of the model's own depth behind, and write it, drawn only where they are nearer than what lies there: a shadow's own triangles give a pixel the same depth to the bit, and darken it once (docs/decisions/drawing.md, "Models' shadows by depth, not stencil").
 It casts from the hero, from every NPC whose creature has no flag `0x10` and from the scripts' objects of category 4; an NPC's weapons cast none, as the client flattens the creature's own model alone.
 Before, a soft ellipse lay under each character, and the objects had none (#102).
+
+The kind 9 of the models' effects follows since #1309 (`model_effects`; "The models' effects" above): the types' effects are read from `items.pak` (`Item::model_effect`) by their models' files, and a held or worn model of the kind 9, the wings 3111, takes for its first glTF primitive the effect texture, white, unlit and added to the frame in the objects' layer, its depth tested and not written (`models::Pass::Added`), the other primitives the type's texture as before; the texture's offset runs on the real-time clock by the kind's matrix.
+So the band of light runs from the wings' join out along the two tubes twice and then rests for a second, where before the tubes were drawn lit in the wings' texture, the original's look at `DETAILLEVEL` 0 alone; seen in the game, not yet beside the original's.
+By night the band is darkened with the model (**hypothesis**: the original draws it with the model, before its night's pass).
+The other kinds are #1834's.
 
 The miniatures of list 0 in the liquid cells lie between the ground and the liquids' surfaces, 4,600 units back against the surfaces' 4,450 (4,300 before the surfaces lay flat at height 0, #103) and list 0's 4,000, in the order of list 0 among themselves (`statics::UNDER_LIQUIDS_BACK`, #96).
 A sprite is a quad in the plane of the screen while the bed and the surface slope away under it, 1.37 units nearer per pixel down the screen and 1.83 per pixel of height: the margins hold for the tallest of these miniatures, from 68 pixels above their cell's centre to 139 below, over a bed up to 61 pixels off their cell's height, and for the underlays of list 0 beside the water, up to 124 pixels below their cell's centre (counted on the sector files 2026-10-18).

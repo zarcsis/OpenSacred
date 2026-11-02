@@ -843,6 +843,10 @@ pub struct Npcs {
     pools: HashMap<i32, Vec<u32>>,
     rules: HashMap<(u32, u32), Vec<Rule>>,
     gear: HashMap<u32, Gear>,
+    /// The effects that the second model renderer draws on the types' models (`0x406510`;
+    /// #1309), by the model's file: the effect's kind and its texture's file
+    /// ([`Item::model_effect`]).
+    effects: HashMap<String, (u8, String)>,
     slots: HashMap<String, motions::Slots>,
     /// The instruments' models and textures, of [`INSTRUMENTS`].
     instruments: Vec<Option<(String, Option<String>)>>,
@@ -3383,6 +3387,7 @@ impl Npcs {
                 .chain(worn)
                 .chain(weapons.iter().map(|w| &w.id)),
         );
+        let effects = model_effects(&items, (&models, &textures));
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
         for (index, placement) in placements.iter().enumerate() {
@@ -3464,6 +3469,7 @@ impl Npcs {
             rules: rules(tree),
             pools,
             gear,
+            effects,
             slots: model_slots,
             hits: hit_fractions(tables),
             instruments: INSTRUMENTS
@@ -3777,6 +3783,31 @@ fn gear_table<'a>(
             Some((slot, gear))
         })
         .collect()
+}
+
+/// The effects of the types' models ([`Npcs::effects`]): each flagged type's of a model and of an
+/// effect texture that the assets hold, the first type's where several share a model.
+fn model_effects(
+    items: &HashMap<u32, &Item>,
+    (models, textures): (&HashMap<String, String>, &HashMap<u32, String>),
+) -> HashMap<String, (u8, String)> {
+    let mut slots: Vec<&u32> = items.keys().collect();
+    slots.sort_unstable();
+    let mut effects = HashMap::new();
+    for item in slots.into_iter().filter_map(|slot| items.get(slot)) {
+        let Some((kind, texture)) = item.model_effect() else {
+            continue;
+        };
+        if let (Some(model), Some(texture)) = (
+            models.get(&item.name.to_ascii_uppercase()),
+            textures.get(&texture),
+        ) {
+            effects
+                .entry(model.clone())
+                .or_insert((kind, texture.clone()));
+        }
+    }
+    effects
 }
 
 /// A hero's slots of its hands and its back (`0x401AE0`): the right hand's, the left hand's and
@@ -4952,7 +4983,7 @@ fn health_kept(
 
 /// An item's texture, repeated, as a glTF texture without a sampler is: the models' texture
 /// coordinates run past the image (the lid of `chest.grn` from -0.99 to -0.36).
-fn load_texture(assets: &AssetServer, texture: &str) -> Handle<Image> {
+pub(crate) fn load_texture(assets: &AssetServer, texture: &str) -> Handle<Image> {
     assets
         .load_builder()
         .with_settings(|settings: &mut ImageLoaderSettings| {
@@ -5284,20 +5315,48 @@ fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> 
 }
 
 /// Gives the meshes of a placed model that has just spawned its item's texture, each glTF
-/// material copied once per texture with that texture as its base colour.
+/// material copied once per texture with that texture as its base colour; a worn or held item's
+/// model of an effect of the kind 9 its first primitive drawn by its effect instead, which the
+/// type's texture never reaches (`0x406510`, `model_effects`; #1309).
 pub fn retexture(
     ready: On<WorldInstanceReady>,
-    models: Query<&Retexture>,
+    models: Query<(Option<&Retexture>, Option<&Piece>)>,
     children: Query<&Children>,
-    mut meshes: Query<&mut MeshMaterial3d<StandardMaterial>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut retextured: ResMut<Retextured>,
+    mut meshes: Query<(
+        &bevy::prelude::Mesh3d,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
+    (mut materials, mut retextured): (ResMut<Assets<StandardMaterial>>, ResMut<Retextured>),
+    (npcs, assets, mut effects): (
+        Option<Res<Npcs>>,
+        Res<AssetServer>,
+        ResMut<crate::model_effects::Materials>,
+    ),
 ) {
-    let Ok(Retexture(texture)) = models.get(ready.entity) else {
+    let Ok((retexture, piece)) = models.get(ready.entity) else {
         return;
     };
+    let effect = piece
+        .zip(npcs.as_deref())
+        .and_then(|(piece, npcs)| npcs.effects.get(&piece.model))
+        .filter(|(kind, _)| *kind == crate::model_effects::RUNNING_BANDS);
+    if retexture.is_none() && effect.is_none() {
+        return;
+    }
     for entity in children.iter_descendants(ready.entity) {
-        let Ok(mut material) = meshes.get_mut(entity) else {
+        let Ok((mesh, mut material)) = meshes.get_mut(entity) else {
+            continue;
+        };
+        if let Some((_, texture)) = effect
+            && crate::model_effects::first_primitive(&assets, mesh)
+        {
+            let effect = effects.running_bands(&material.0, texture, (&assets, &mut materials));
+            if let Some(effect) = effect {
+                material.0 = effect;
+            }
+            continue;
+        }
+        let Some(Retexture(texture)) = retexture else {
             continue;
         };
         let key = (material.0.id(), texture.id());

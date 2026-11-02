@@ -93,6 +93,10 @@ pub enum Pass {
     /// liquids for a [`Sunk`] model), as the original blends them; their depth tested and
     /// written, as the original's (docs/re/drawing.md, "The models").
     Fringe(Layer),
+    /// All of them added to what lies behind them, as the original adds an effect's texture to the
+    /// frame (`ONE`, `ONE`), in the model's layer of the blended things; their depth tested and not
+    /// written: of a material that draws an effect on a model (`model_effects`, #1309).
+    Added(Layer),
 }
 
 /// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
@@ -285,6 +289,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         Pass::Tested => (AlphaMode::Mask(CUTOFF), base.depth_bias),
         Pass::Body => (AlphaMode::Mask(OPAQUE), base.depth_bias),
         Pass::Fringe(layer) => (AlphaMode::Blend, layer.bias()),
+        Pass::Added(layer) => (AlphaMode::Add, layer.bias()),
     };
     ModelMaterial {
         base: StandardMaterial {
@@ -401,6 +406,13 @@ struct Made {
 /// The model materials made of the glTF ones, by the glTF material.
 #[derive(Resource, Default)]
 pub struct Converted(HashMap<AssetId<StandardMaterial>, Made>);
+
+impl Converted {
+    /// The model material that draws the meshes of the glTF material `material`, once made.
+    pub fn mesh_of(&self, material: AssetId<StandardMaterial>) -> Option<&Handle<ModelMaterial>> {
+        self.0.get(&material).map(|made| &made.mesh)
+    }
+}
 
 /// The models' material, its shader and the buffer of the anchors, and the models' places.
 pub struct ModelsPlugin;
@@ -534,7 +546,8 @@ type ModelMesh = (
 /// slot of the anchors for a tag; and each mesh whose material has translucent texels a
 /// [`Fringe`] copy, the same mesh skinned to the same joints, tagged with the same slot, in its
 /// root's layer; then shows its veiled meshes ([`Veiled`]). A model waits, veiled, for the images
-/// of its materials, whose alpha says which have them.
+/// of its materials, whose alpha says which have them. A material added to the frame, an effect's
+/// (`model_effects`), is drawn so in the objects' layer ([`Pass::Added`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources as arguments"
@@ -572,10 +585,20 @@ pub fn convert(
                 made.push((entity, both.clone()));
                 continue;
             }
+            let added = base.alpha_mode == AlphaMode::Add;
             let Some(translucent) = translucent(base, &images, &server) else {
                 continue 'models;
             };
-            let both = if translucent {
+            let both = if added {
+                Made {
+                    mesh: materials.add(in_order(
+                        base.clone(),
+                        &anchors,
+                        Pass::Added(Layer::Objects),
+                    )),
+                    fringe: None,
+                }
+            } else if translucent {
                 let mut in_layer =
                     |layer| materials.add(in_order(base.clone(), &anchors, Pass::Fringe(layer)));
                 let fringe = Fringe {
@@ -938,8 +961,17 @@ mod tests {
         assert_eq!(fringe.base.alpha_mode, AlphaMode::Blend);
         assert_eq!(fringe.base.depth_bias, Layer::Objects.bias());
         // A sunk model's, under the liquids' surfaces.
-        let wet = in_order(material, &anchors(), Pass::Fringe(Layer::UnderLiquids));
+        let wet = in_order(
+            material.clone(),
+            &anchors(),
+            Pass::Fringe(Layer::UnderLiquids),
+        );
         assert_eq!(wet.base.depth_bias, Layer::UnderLiquids.bias());
+        // An effect's, added to the frame in the objects' layer, its depth not written.
+        let added = in_order(material, &anchors(), Pass::Added(Layer::Objects));
+        assert_eq!(added.base.alpha_mode, AlphaMode::Add);
+        assert_eq!(added.base.depth_bias, Layer::Objects.bias());
+        assert!(!InOrderKey::from(&added.extension).fringe);
         let shader = include_str!("standard.wesl");
         let kept = |alpha: u8| {
             let alpha = f32::from(alpha) / 255.0;

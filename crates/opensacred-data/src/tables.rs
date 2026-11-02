@@ -132,6 +132,15 @@ impl Item {
     pub fn sound(&self) -> u32 {
         self.words_14[4]
     }
+
+    /// The effect that the second model renderer draws on the type's model (`cGranny::renderComplex`
+    /// `0x406510`; #1309): its kind 1 to 9, the byte `+0x6E` (the third byte of `words_58[5]`), and
+    /// its texture's number, the word `+0x66` (the high half of `words_58[3]`), for a type whose
+    /// flags have the bit `0x100000` (`0x426450`, `0x426520`), none for another.
+    pub fn model_effect(&self) -> Option<(u8, u32)> {
+        (self.flags() & 0x10_0000 != 0)
+            .then(|| (self.words_58[5].to_le_bytes()[2], self.words_58[3] >> 16))
+    }
 }
 
 /// The creatures' voices (`0x6852B0`, docs/re/sound.md, "The fight's sounds"), `voices.ron`: the
@@ -661,5 +670,28 @@ mod tests {
         // A hero's, 90.0.
         assert_eq!(item(0x0042_B400).angle(), 90.0);
         assert_eq!(item(0).angle(), 0.0);
+    }
+
+    #[test]
+    fn an_items_model_effect_is_its_kind_and_texture_where_its_flag_is_set() {
+        // The Seraphim's wings 3111: the flags `0x00380502`, `+0x66` 8636, `+0x6E` 9.
+        let mut wings = Item {
+            slot: 3111,
+            kind: 2,
+            class: 5,
+            subclass: 0x38,
+            name: "SeraWings05.GRN".into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [8635, 0],
+            words_14: [0; 8],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0, 0, 0, 0x21BC_0000, 0, 0x0009_0000, 1520, 0, 0, 0],
+        };
+        assert_eq!(wings.model_effect(), Some((9, 8636)));
+        wings.subclass = 0x28;
+        assert_eq!(wings.model_effect(), None);
     }
 }
