@@ -120,9 +120,7 @@ fn glitters(
         .iter()
         .filter(|(stash, _)| stash.look == Look::Sparks)
     {
-        // On its cell's ground, where the original's flat ground stands at the height 0.
-        let ground = at.translation - Vec3::Y * crate::stashes::PICKED_ABOVE;
-        let point = ground - iso::forward() * crate::stashes::TOWARD;
+        let point = crate::stashes::drawn_at(at);
         for spark in &events {
             let [across, along, up] = spark.offset;
             let centre = point + Vec3::new(across, up, along) * SPACE;

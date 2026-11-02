@@ -44,7 +44,7 @@ use crate::terrain::Heights;
 const SEARCHES_WITHIN: f32 = 300.0;
 /// How high above its cell's ground a stash is picked, in world units (**estimate**: about the
 /// middle of a bush).
-pub(crate) const PICKED_ABOVE: f32 = 40.0;
+const PICKED_ABOVE: f32 = 40.0;
 /// How far about the hero a random item lands, along each axis (as a container's, `R(20, 50)`).
 const LANDS_FROM: u32 = 20;
 const LANDS_TO: u32 = 50;
@@ -66,8 +66,6 @@ const BLINK_GREY: [f32; 4] = [187.0 / 255.0, 187.0 / 255.0, 187.0 / 255.0, 1.0];
 /// where the game's ground would hide the half below its centre; the farthest corner below it,
 /// `10 · 2 · √2` units down the screen, lies `√3` times that in front of the ground.
 const BLINK_TOWARD: f32 = 49.0;
-/// How far toward the camera the mouse events' sparks lie, as the blink (`glitter`).
-pub(crate) const TOWARD: f32 = BLINK_TOWARD;
 
 /// A hidden stash or a mouse event in the world: its cell, the name of the text the cursor shows
 /// over it, and how it shows.
@@ -384,13 +382,21 @@ fn blink_at(ms: u128) -> Option<(f32, f32)> {
     Some((BLINK_HALF * (std::f32::consts::PI * s).sin(), 2.0 * s))
 }
 
-/// Lays every stash's blink out at the frame's time: its square at its cell's centre at the
-/// height 0, brought toward the camera, and the grey half square over it, both turned alike.
+/// Where a stash or an event of the place `at` (`place`) draws its blink or its sparks: its
+/// cell's centre on the cell's ground, which the original's flat ground stands at the height 0
+/// (`0x62FF60`; #1788), brought toward the camera.
+pub(crate) fn drawn_at(at: &Transform) -> Vec3 {
+    at.translation - Vec3::Y * PICKED_ABOVE - iso::forward() * BLINK_TOWARD
+}
+
+/// Lays every stash's blink out at the frame's time: its square at its cell's centre on its
+/// ground, brought toward the camera ([`drawn_at`]), and the grey half square over it, both
+/// turned alike.
 fn blink(
     time: Res<Time>,
     mesh: Option<Res<BlinkMesh>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    stashes: Query<&Stash>,
+    stashes: Query<(&Stash, &Transform)>,
 ) {
     let Some(mesh) = mesh else {
         return;
@@ -398,9 +404,11 @@ fn blink(
     let mut quads = Quads::default();
     if let Some((half, angle)) = blink_at(time.elapsed().as_millis()) {
         let whole = (Vec2::ZERO, 1.0);
-        for stash in stashes.iter().filter(|stash| stash.look == Look::Blink) {
-            let point = crate::paths::centre(stash.cell);
-            let centre = Vec3::new(point.x, 0.0, point.y) - iso::forward() * BLINK_TOWARD;
+        for (_, at) in stashes
+            .iter()
+            .filter(|(stash, _)| stash.look == Look::Blink)
+        {
+            let centre = drawn_at(at);
             quads.push(centre, half * BLINK_SPACE, angle, whole, BLINK_TINT);
             quads.push(centre, half * 0.5 * BLINK_SPACE, angle, whole, BLINK_GREY);
         }
@@ -440,6 +448,15 @@ impl Plugin for StashesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blink_lies_on_its_cells_ground() {
+        // A stash placed over the ground at 300 draws on it, toward the camera, not at 0.
+        let at = Transform::from_xyz(100.0, 300.0 + PICKED_ABOVE, 200.0);
+        let drawn = drawn_at(&at);
+        let toward = -iso::forward() * BLINK_TOWARD;
+        assert!((drawn - Vec3::new(100.0, 300.0, 200.0) - toward).length() < 1e-3);
+    }
 
     #[test]
     fn a_stash_blinks_a_second_in_each_eight() {
