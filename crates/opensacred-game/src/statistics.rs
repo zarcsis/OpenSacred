@@ -971,9 +971,11 @@ struct ArtValues {
 }
 
 /// The selected art's values of its damage's ends `damage` (zeros where it has none) and the
-/// survival bonus `sb` (`LongivityCombatFactor` 0.5, the set's part not followed): the line's
-/// totals each `T·0.5·SB·0.01 + T + 0.5` stored as a float, its icons below a raised most of
-/// 10,000 at the alphas of the kinds' mosts; the panel's rows each end `0.5·SB·d·0.01 + d`.
+/// survival bonus's share `sb` of the damage (`survival_share`, the set's part with it): the
+/// line's totals each `T·sb·0.01 + T + 0.5` stored as a float, its icons below a raised most of
+/// 10,000 at the alphas of the kinds' mosts; the panel's rows each end `sb·d·0.01 + d`, the
+/// share the fight takes, where the original's line takes the set's part halved and its panel
+/// whole (#1761).
 fn art_values(damage: [[f64; 2]; 4], sb: f64) -> ArtValues {
     let floor = |value: f64| {
         #[expect(
@@ -983,15 +985,12 @@ fn art_values(damage: [[f64; 2]; 4], sb: f64) -> ArtValues {
         let whole = value as f32 as i64;
         whole
     };
-    let raise = |total: f64| total * 0.5 * sb * 0.01 + total + 0.5;
+    let raise = |total: f64| total * sb * 0.01 + total + 0.5;
     let (least, most) = damage
         .iter()
         .fold((0.0, 0.0), |(l, m), &[least, most]| (l + least, m + most));
     let rows = damage.map(|[least, most]| {
-        let (least, most) = (
-            0.5 * sb * least * 0.01 + least,
-            0.5 * sb * most * 0.01 + most,
-        );
+        let (least, most) = (sb * least * 0.01 + least, sb * most * 0.01 + most);
         (least != 0.0 || most != 0.0).then(|| (floor(least), floor(most)))
     });
     let (low, high) = rows
@@ -1037,28 +1036,22 @@ fn art_damage(
     crate::tooltip::art::window_damage(selected?, &hero, &arts.tables, combat.damage)
 }
 
-/// The survival bonus of `minutes` played (`0x6AA062`, `0x565D70(0, m, 120, 50)`):
-/// `100·(1 − 1/(1 + (m − 1)/120))`, 0 below a minute.
-fn survival(minutes: u32) -> f64 {
-    if minutes < 1 {
-        return 0.0;
-    }
-    100.0 * (1.0 - 1.0 / (1.0 + (f64::from(minutes) - 1.0) / 120.0))
+/// The share in per cent by which the survival bonus raises the hero's damages after `minutes`
+/// played, its sets' part `set` with it: half the curve (`opensacred_rules::fight::LONGEVITY`,
+/// `survival`) and set 28's `10·D`, as the fight takes it (`fight::survival_raise`, #1761).
+fn survival_share(minutes: u32, set: f32) -> f64 {
+    opensacred_rules::fight::LONGEVITY * opensacred_rules::fight::survival(minutes) + f64::from(set)
 }
 
-/// The balance's `LongivityCombatFactor`: the share of the survival bonus that the fight takes
-/// (docs/re/character.md; `0x56A50F`, `0x56C156`).
-const LONGEVITY: f64 = 0.5;
-
-/// A damage `d` raised by the survival bonus `sb` ([`LONGEVITY`]): `⌊d·sb·0.5·0.01 + d + 0.5⌋`
+/// A damage `d` raised by the survival bonus's share `share` of it: `⌊d·share·0.01 + d + 0.5⌋`
 /// stored as a float.
-fn raised(d: f32, sb: f64) -> i64 {
+fn raised(d: f32, share: f64) -> i64 {
     let d = f64::from(d);
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a damage, far below the integers' range"
     )]
-    let raised = (d * sb * LONGEVITY * 0.01 + d + 0.5) as f32;
+    let raised = (d * share * 0.01 + d + 0.5) as f32;
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a damage, far below the integers' range"
@@ -1134,7 +1127,7 @@ fn sheet(
             (text(&(1090 + k).to_string()), value, value > grown)
         })
         .collect();
-    let sb = survival(minutes);
+    let sb = survival_share(minutes, holds.sets.survival);
     let (least, most) = combat.damage.iter().fold((0, 0), |(l, m), &[least, most]| {
         (l + raised(least, sb), m + raised(most, sb))
     });
@@ -1200,7 +1193,7 @@ fn sheet(
         // The share of the damage that the bonus raises, as the fight takes it, where the
         // original's line prints the whole curve (#1759; docs/decisions/interface.md, "Survival
         // bonus at its share of the damage").
-        survival: per_cent(sb * LONGEVITY),
+        survival: per_cent(sb),
         skill_ids: held.iter().map(|&(id, _)| id).collect(),
         candidate_ids,
         description: None,
@@ -1317,7 +1310,11 @@ fn show(
                     &rules,
                 )
             });
-            sheet.art = art_values(damage.unwrap_or_default(), survival(played.minutes()));
+            let set = holding.map_or(0.0, |holding| holding.0.sets.survival);
+            sheet.art = art_values(
+                damage.unwrap_or_default(),
+                survival_share(played.minutes(), set),
+            );
             sheet
         })
         .map(|mut sheet| {
@@ -2180,8 +2177,9 @@ mod tests {
         // No art: `0-0` on the line, `-` in the panel.
         let none = art_values([[0.0; 2]; 4], 10.0);
         assert_eq!((none.line, none.total), ((0, 0), None));
-        // The survival bonus: the line by half of it, the panel by half of it without the half.
-        let raised = art_values([[100.0, 100.0], [0.0; 2], [0.0; 2], [0.0; 2]], 20.0);
+        // The survival bonus's share of the damage, as the fight takes it, on the line and the
+        // panel alike (#1761): a curve of 20 raises by 10.
+        let raised = art_values([[100.0, 100.0], [0.0; 2], [0.0; 2], [0.0; 2]], 10.0);
         assert_eq!(raised.line, (110, 110));
         assert_eq!(raised.rows[0], Some((110, 110)));
     }
@@ -2317,11 +2315,14 @@ mod tests {
 
     #[test]
     fn the_survival_bonus_grows_with_the_minutes_played() {
+        let survival = opensacred_rules::fight::survival;
         assert!(survival(0).abs() < 1e-9);
         assert!(survival(1).abs() < 1e-9);
         assert!((survival(121) - 50.0).abs() < 1e-9);
-        // A damage of 30 after 121 minutes: 30·50·0.5·0.01 + 30 + 0.5.
-        assert_eq!(raised(30.0, survival(121)), 38);
+        // A damage of 30 after 121 minutes: the fight's half of 50, 30·25·0.01 + 30 + 0.5;
+        // with set 28 whole on bronze 10 more.
+        assert_eq!(raised(30.0, survival_share(121, 0.0)), 38);
+        assert_eq!(raised(30.0, survival_share(121, 10.0)), 41);
         assert_eq!(raised(30.0, 0.0), 30);
     }
 
