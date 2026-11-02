@@ -484,9 +484,10 @@ impl Live {
         self.state.regions.ran(quests::region(area))
     }
 
-    /// Whether the areas' entry `area` stands pacified (`0x61DB10`, `RegionFrei`).
-    pub fn pacified(&self, area: u8) -> bool {
-        self.state.pacified.holds(area)
+    /// Whether the areas' table's entry `entry` stands pacified (`0x61DB10`), the number that the
+    /// scripts' `RegionFrei` pacifies: a region's (`opensacred_rules::quests::region`).
+    pub fn pacified(&self, entry: u8) -> bool {
+        self.state.pacified.holds(entry)
     }
 
     /// The value of the scripts' variable `name`, 0 for one never set (`this+0x7550`).
