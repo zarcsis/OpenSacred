@@ -7654,7 +7654,8 @@ fn earn(
             kill.level,
             from,
             rules,
-            bonus,
+            // A creature's count vector is the dummy: no set's share (`0x57DDE3`).
+            (bonus, 0.0),
         ));
         let mut sum = points
             .as_deref()

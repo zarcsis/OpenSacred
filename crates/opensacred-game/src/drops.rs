@@ -838,8 +838,17 @@ fn treasure(
     }
 }
 
+/// The hero's luck without the effect 840, which is not followed: 100, raised by its sets in turn
+/// (`0x564A60`, `set_bonuses::Stats::luck`, #1727).
+const LUCK: f32 = 100.0;
+
+/// The luck of the hero of `holding` ([`LUCK`]).
+fn luck_of(holding: Option<&fight::Holding>) -> f32 {
+    holding.map_or(LUCK, |holding| holding.0.sets.luck(LUCK))
+}
+
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
-/// the time played and its greed's `s`, on the game's difficulty.
+/// the time played, its greed's `s` and its luck, on the game's difficulty.
 fn death(
     entity: Entity,
     mind: &ai::Mind,
@@ -847,7 +856,7 @@ fn death(
     rank: fight::Rank,
     worth: &fight::Worth,
     hero: Hero,
-    (played, treasure, difficulty): (f32, u32, drops::Difficulty),
+    (played, (treasure, luck), difficulty): (f32, (u32, f32), drops::Difficulty),
 ) -> Death {
     Death {
         dead: Dead {
@@ -862,6 +871,7 @@ fn death(
         kill: Kill {
             minutes: played / 60.0,
             treasure,
+            luck,
             ..Kill::default()
         },
         difficulty,
@@ -993,6 +1003,7 @@ fn dies(
             &fight::Base,
             &fight::Health,
             Option<&crate::effects::Effects>,
+            Option<&fight::Holding>,
         ),
         (With<Body>, Without<Dies>),
     >,
@@ -1016,14 +1027,17 @@ fn dies(
         debug!("drops: {} drops nothing: it rises again", died.entity);
         return;
     }
-    let treasure = heroes
+    let treasure = heroes.iter().next().map_or(0, |(_, _, effects, _)| {
+        treasure(effects, hero_arts.as_deref())
+    });
+    let luck = heroes
         .iter()
         .next()
-        .map_or(0, |(_, _, effects)| treasure(effects, hero_arts.as_deref()));
+        .map_or(LUCK, |(.., holding)| luck_of(holding));
     let hero = heroes
         .iter()
         .next()
-        .and_then(|(base, health, _)| hero_of(base, health, experience.level));
+        .and_then(|(base, health, ..)| hero_of(base, health, experience.level));
     if let Some(why) = kept(mind, hero.as_ref()) {
         debug!("drops: {} drops nothing: {why}", died.entity);
         return;
@@ -1041,7 +1055,7 @@ fn dies(
         hero,
         (
             played.0,
-            treasure,
+            (treasure, luck),
             difficulty.map_or_else(Default::default, |difficulty| difficulty.0),
         ),
     );
@@ -1303,10 +1317,18 @@ fn make_nearest(
         ),
         Without<Dies>,
     >,
-    heroes: Query<(&fight::Base, &fight::Health, &Transform), (With<Body>, Without<Dies>)>,
+    heroes: Query<
+        (
+            &fight::Base,
+            &fight::Health,
+            &Transform,
+            Option<&fight::Holding>,
+        ),
+        (With<Body>, Without<Dies>),
+    >,
 ) -> Result<String, String> {
     let tables = tables.ok_or("the drops' tables are not read")?;
-    let (base, hero_health, at) = heroes.iter().next().ok_or("no hero")?;
+    let (base, hero_health, at, holding) = heroes.iter().next().ok_or("no hero")?;
     let hero = hero_of(base, hero_health, experience.level);
     let (entity, mind, health, rank, worth, transform, way) = creatures
         .iter()
@@ -1328,7 +1350,7 @@ fn make_nearest(
         rank.0,
         worth,
         hero,
-        (played.0, 0, difficulty),
+        (played.0, (0, luck_of(holding)), difficulty),
     );
     let mut made = Vec::new();
     for _ in 0..times.0 {

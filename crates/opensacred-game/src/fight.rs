@@ -432,8 +432,10 @@ pub(crate) fn resolve(
                 .map(|effects| effects.list())
                 .unwrap_or_default();
             let banished = potions::banishes(&killer);
+            // The hero's sets cut the rising chance where it kills (`0x532C6F`, #1727).
+            let sets = holding.filter(|_| hero).map(|holding| &holding.0.sets);
             let rises = victim.and_then(|victim| {
-                crate::undead::rolls(&mut dice.0, victim, rank_of, (plain, banished)).inspect(
+                crate::undead::rolls(&mut dice.0, victim, rank_of, (plain, banished), sets).inspect(
                     |_| {
                         crate::undead::drain(
                             &mut commands,
@@ -488,9 +490,11 @@ pub(crate) fn resolve(
                     tally.killed();
                 }
             }
+            // The blue potions' share and the hero's sets' (#1727).
+            let sets = holding.map_or(0.0, |holding| holding.0.sets.experience());
             let worth = worth
                 .filter(|_| hero)
-                .map(|worth| (*worth, rank.copied(), potions::mentored(&killer)));
+                .map(|worth| (*worth, rank.copied(), (potions::mentored(&killer), sets)));
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
@@ -525,7 +529,7 @@ fn fell(
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
     (target, by_creature, rises): (Entity, bool, Option<crate::undead::Rises>),
     health: &Health,
-    worth: Option<(Worth, Option<Ranked>, f32)>,
+    worth: Option<(Worth, Option<Ranked>, (f32, f32))>,
 ) -> u32 {
     let choice = dice.0.below(2);
     let mut dies = if by_creature {
@@ -556,7 +560,7 @@ fn earn(
     rules: &Rules,
     target: Entity,
     health: &Health,
-    worth: Option<(Worth, Option<Ranked>, f32)>,
+    worth: Option<(Worth, Option<Ranked>, (f32, f32))>,
 ) -> u32 {
     let Some((worth, rank, bonus)) = worth else {
         return 0;
@@ -596,6 +600,7 @@ pub fn kill(
             &Transform,
             Option<&crate::effects::Effects>,
             Option<&Combat>,
+            Option<&Holding>,
         ),
         With<Body>,
     >,
@@ -611,13 +616,15 @@ pub fn kill(
         (Without<Dies>, Without<Body>),
     >,
 ) -> Result<Vec<String>, String> {
-    let (at, effects, hero_combat) = hero
+    let (at, effects, hero_combat, holding) = hero
         .iter()
         .next()
         .ok_or("the hero is not in the world yet")?;
     let at = at.translation;
     let effects = effects.map(|effects| effects.list()).unwrap_or_default();
     let (banished, bonus) = (potions::banishes(&effects), potions::mentored(&effects));
+    let sets = holding.map(|holding| &holding.0.sets);
+    let bonus = (bonus, sets.map_or(0.0, |sets| sets.experience()));
     let home = crate::paths::cell_of(at.x, at.z);
     let radius = i32::try_from(radius).unwrap_or(i32::MAX);
     let mut lines = Vec::new();
@@ -633,6 +640,7 @@ pub fn kill(
             mind,
             rank.map_or(Rank::Common, |rank| rank.0),
             (true, banished),
+            sets,
         );
         let worth = worth.map(|worth| (*worth, rank.copied(), bonus));
         let earned = fell(

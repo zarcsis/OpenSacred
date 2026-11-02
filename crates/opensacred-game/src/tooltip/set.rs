@@ -86,6 +86,14 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         Told::WholeDamage(x) => white(format!("{}: {}", n(1076), share(x))),
         Told::Survival(per_cent) => white(format!("{}: {}", n(1159), share(per_cent / 100.0))),
         Told::IntoGold => white(words.of("UI_SET_VERSILBERN")),
+        Told::Luck(x) => white(format!("{}: {}", n(1124), share(x))),
+        // The text holds a space at its end.
+        Told::Exorcism(x) => white(format!(
+            "{}: {}",
+            words.of("UI_RARE_EXORZIST").trim_end(),
+            share(x)
+        )),
+        Told::Experience(x) => white(format!("{}: {}", n(1071), share(x))),
         Told::Bonus(bonus) => match bonus {
             Bonus::Attribute(i, v) => white(format!(
                 "{}: {}",
