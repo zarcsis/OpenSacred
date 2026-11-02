@@ -130,6 +130,7 @@ The window (read 2026-10-30, #1411, **confirmed** by code and **seen** in the ru
 - Its grid is drawn as the backpack's (`cInventoryEntry_render`, docs/re/inventory.md), its cells from (0, 20) (**seen**), and the hovered item's tooltip at the cell's corner and (48, 16) (`0x75B390`, the style `0xB`).
 - Its input (`0x6ACFC0`): the UI event 5 of the kind `0x23` shows it with the value 1, the stash's id kept at `+0x154`, and hides it with 2; a press within its rectangle and 32 below it on a cell of the grid: with Shift and an item there, the item goes to the hero's inventory (`0x5DEBC0`, `0x5DECC0` with `0x11`); with the cursor empty, the item onto the cursor; with an item on the cursor, put where it fits, else in place of the one item under it.
 - Its hide (`0x6ACD80`): the sound event (14, 2) and, for the stash at `+0x154` (`cChest3D`), its bit `0x4000` cleared and the event `0x21`; the inventory's hide hides it (docs/re/inventory.md, §1).
+  The same function shows it, its sound event (14, 2, 24) posted either way with the value shown: `UI_CLICK01` as it shows and as it hides (**seen** 2026-11-02, #1767; docs/re/sound.md, "The interface").
 
 ## The hidden stashes (`MachVersteck`)
 

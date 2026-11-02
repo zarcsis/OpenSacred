@@ -87,16 +87,20 @@ struct Window;
 #[derive(Component)]
 struct Dialog;
 
-/// Shows the window as the game pauses, unless the pause is a still frame's or the key P's.
+/// Shows the window as the game pauses, unless the pause is a still frame's or the key P's, with
+/// its show's (14, 2, 16), `UI_CLICK01` (`0x6BB6C0`); its hide plays nothing, the pause still
+/// holding the sound manager's state (seen, #1767).
 fn show(
     mut commands: Commands,
     (still, busy): (Option<Res<Still>>, Option<Res<Busy>>),
     (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
     mut lit: ResMut<Lit>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     if still.is_some_and(|still| still.0) || busy.is_some_and(|busy| busy.0) {
         return;
     }
+    crate::inventory::play(&mut sounds, crate::inventory::CLICK);
     lit.0 = None;
     let atlases = Atlases::load(&images, &assets);
     let font: Handle<Font> = assets.load(menu::MENU_FONT);
@@ -260,6 +264,7 @@ fn keys(
     (play, mut next): (Res<State<Play>>, ResMut<NextState<Play>>),
     busy: Res<Busy>,
     dialogs: Query<Entity, With<Dialog>>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     if keys.just_pressed(crate::controls::Action::Back) && !dialogs.is_empty() {
         keys.clear(crate::controls::Action::Back);
@@ -276,6 +281,8 @@ fn keys(
             Rect::from_corners(corner, corner + images.size(index)).contains(at)
         });
     if clicked {
+        // The button's click (`UI_TB_OPTIONS`, seen, #1767).
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
         next.set(match play.get() {
             Play::Running => Play::Paused,
             Play::Paused => Play::Running,
@@ -333,7 +340,8 @@ mod tests {
         .init_resource::<choice::Images>()
         .init_resource::<UiImages>()
         .init_resource::<Pointer>()
-        .init_resource::<UiScale>();
+        .init_resource::<UiScale>()
+        .add_message::<crate::sfx::Play>();
         app.update();
         let play = |app: &App| app.world().get_resource::<State<Play>>().map(|s| *s.get());
         let count = |app: &mut App| app.world_mut().query::<&Entry>().iter(app.world()).count();

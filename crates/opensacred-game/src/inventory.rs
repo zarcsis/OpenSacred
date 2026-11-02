@@ -1,8 +1,12 @@
 //! The inventory's windows (#1267; docs/re/inventory.md, §1, §2 and §4): the key `I` and the
 //! bar's inventory button (`UI_TB_INVENTORY`) open the inventory (`cUI_Inventory3`, at (0, 388),
 //! 640 × 256) and the equipment beside it (`cUI_Equipment`, at (656, 388), 256 × 256) together
-//! (`0x6C5A50`), with `UI_INV_OPEN01`, and close them with `UI_INV_CLOSE01`; laid out on the
-//! original's 1024 × 768 screen centred along the window's width, as the bar is (`bar`).
+//! (`0x6C5A50`), and close them; laid out on the original's 1024 × 768 screen centred along the
+//! window's width, as the bar is (`bar`).
+//!
+//! The sounds (#1767, seen in the original's traces): the windows shown play their tab sheet's
+//! pages' shows ([`page_sounds`]), the items page's `UI_INV_CLOSE01` and the others'
+//! `UI_CLICK01`, and the page selected; hidden, nothing; the bar's button its click.
 //!
 //! The inventory's frame is the original's (`0x6C6490`): a top and a bottom edge of ten steps, the
 //! first and the last pieces their own and the others at random, each standing on the window's
@@ -37,9 +41,30 @@ pub(crate) const EQUIPMENT: Rect = Rect {
     min: Vec2::new(656.0, 388.0),
     max: Vec2::new(912.0, 644.0),
 };
-/// The sounds of the window shown and hidden (`(14, 2, 1)`, `UI_INV_OPEN01`, `UI_INV_CLOSE01`).
-pub(crate) const OPENS: u32 = 7111;
-pub(crate) const CLOSES: u32 = 7112;
+/// The items page's sound as it shows: its show (`0x6C00F0`) posts (14, 2, 1) of the value 0,
+/// whose handler plays `UI_INV_CLOSE01` (the value 1's `UI_INV_OPEN01`, 7111, no code posts).
+pub(crate) const ITEMS_PAGE: u32 = 7112;
+/// `UI_CLICK01`: the spells' and the combos' pages as they show (`0x6C1E60`, `0x6BF3F0`: (14, 2,
+/// 2) and (14, 2, 3)), and the bar's buttons' own sound as they are pressed (`cUI_Button2`'s
+/// `+0x18`, `0x72B560`).
+pub(crate) const CLICK: u32 = 7000;
+/// The pages' sounds as the windows show, in the order the original's tab sheet shows them
+/// (seen, #1767): the items', the spells', the combos' and the items' again.
+const SHEET_SHOWS: [u32; 4] = [ITEMS_PAGE, CLICK, CLICK, ITEMS_PAGE];
+
+/// The sound of the page `page` as it shows.
+fn page_sound(page: u8) -> u32 {
+    if page == 0 { ITEMS_PAGE } else { CLICK }
+}
+
+/// Plays the interface's sound `id` in the middle, as the sound event (14, 2) plays it.
+pub(crate) fn play(sounds: &mut MessageWriter<sfx::Play>, id: u32) {
+    sounds.write(sfx::Play {
+        sound: sfx::Of::Id(id),
+        at: None,
+        rate: (0.5, sfx::Roll::None),
+    });
+}
 
 /// The inventory's frame (`0x6C6490`, all of `GUI_main_03`): the top edge's first and last
 /// pieces and the range of the others, the bottom edge's, and the right edge's, which starts 4
@@ -103,10 +128,6 @@ pub struct Opening(pub Option<u8>);
 /// A tab of the tab sheet, by its page.
 #[derive(Component)]
 struct Tab(u8);
-
-/// The sound of the spells' and the combos' pages as they show (`0x6C1E60`, `0x6BF3F0`: (14, 2,
-/// 2) and (14, 2, 3), `UI_CLICK01`).
-const PAGE_SHOW: u32 = 7000;
 
 /// The container of the windows, the original's screen centred along the window's width.
 #[derive(Component)]
@@ -232,9 +253,11 @@ fn sort(
 }
 
 /// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), and Esc hides
-/// them, with their sounds; F and C show them on the combat arts' and the combos' pages, the
-/// original's Quickstart's windows, or hide them from those pages (#1596); the keys taken from
-/// the game; not while the world map shows (`0x757840`).
+/// them; F and C show them on the combat arts' and the combos' pages, the original's
+/// Quickstart's windows, or hide them from those pages (#1596); the keys taken from the game; not
+/// while the world map shows (`0x757840`). The windows shown select their page with its sound
+/// (the items' by `0x729940(0)`), after their tab sheet's ([`page_sounds`]); hidden, they play
+/// nothing; the button plays its click (seen, #1767).
 pub(crate) fn toggle(
     mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -264,11 +287,9 @@ pub(crate) fn toggle(
         }
         shown.0 = !shown.0;
         opening.0 = Some(wanted);
-        sounds.write(sfx::Play {
-            sound: sfx::Of::Id(if shown.0 { OPENS } else { CLOSES }),
-            at: None,
-            rate: (0.5, sfx::Roll::None),
-        });
+        if shown.0 {
+            play(&mut sounds, page_sound(wanted));
+        }
         return;
     }
     let pressed = keys.take(crate::controls::Action::Inventory);
@@ -283,12 +304,13 @@ pub(crate) fn toggle(
     if !(pressed || clicked || escaped) {
         return;
     }
+    if clicked {
+        play(&mut sounds, CLICK);
+    }
     shown.0 = !shown.0;
-    sounds.write(sfx::Play {
-        sound: sfx::Of::Id(if shown.0 { OPENS } else { CLOSES }),
-        at: None,
-        rate: (0.5, sfx::Roll::None),
-    });
+    if shown.0 {
+        play(&mut sounds, ITEMS_PAGE);
+    }
 }
 
 /// The pointer on the original's screen, centred along the window's width as the bar is.
@@ -305,13 +327,16 @@ pub(crate) fn screen_point(
     Some(Vec2::new(at.x - (width - bar::SCREEN.x) / 2.0, at.y))
 }
 
-/// Makes the windows as they show and takes them away as they hide.
+/// Makes the windows as they show, with their tab sheet's pages' sounds in its order, whichever
+/// way they show (a key, the bar's button, a stash's or a trader's window; seen, #1767), and
+/// takes them away as they hide, in silence.
 fn show(
     mut commands: Commands,
     (shown, mut page, mut opening): (Res<Shown>, ResMut<Page>, ResMut<Opening>),
     screens: Query<Entity, With<Screen>>,
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
     mut dice: Local<Option<Rng>>,
+    mut sounds: MessageWriter<sfx::Play>,
 ) {
     if !shown.is_changed() {
         return;
@@ -324,6 +349,9 @@ fn show(
         return;
     }
     page.0 = wanted.unwrap_or(0);
+    for id in SHEET_SHOWS {
+        play(&mut sounds, id);
+    }
     let dice = dice.get_or_insert_with(|| crate::seed::dice(1267));
     let anchors = |index| images.anchors(index);
     let size = |index| images.size(index);
@@ -486,28 +514,25 @@ fn select(
     page.0 = tab;
 }
 
-/// The pages' sounds as they show, whichever way they come (a tab, a key, the windows shown on
-/// them): the spells' (`0x6C1E60`, (14, 2, 2)) and the combos' (`0x6BF3F0`, (14, 2, 3)),
-/// `UI_CLICK01` both (#1722).
+/// The sound of a page that shows while the windows do (a tab, a key; #1722, #1767): the items'
+/// `UI_INV_CLOSE01` (`0x6C00F0`, (14, 2, 1)), the spells' (`0x6C1E60`, (14, 2, 2)) and the
+/// combos' (`0x6BF3F0`, (14, 2, 3)) `UI_CLICK01`. The windows' show plays their tab sheet's
+/// ([`show`]), and their page's select its own ([`toggle`]).
 fn page_sounds(
     shown: Res<Shown>,
     page: Res<Page>,
     mut sounds: MessageWriter<sfx::Play>,
     mut last: Local<Option<u8>>,
 ) {
-    let now = shown.0.then_some(page.0);
-    if *last == now {
+    if shown.is_changed() || !shown.0 {
+        *last = None;
         return;
     }
-    *last = now;
-    if now.is_some_and(|page| page == crate::spells_page::PAGE || page == crate::combos_page::PAGE)
-    {
-        sounds.write(sfx::Play {
-            sound: sfx::Of::Id(PAGE_SHOW),
-            at: None,
-            rate: (0.5, sfx::Roll::None),
-        });
+    match *last {
+        Some(was) if was != page.0 => play(&mut sounds, page_sound(page.0)),
+        _ => {}
     }
+    *last = Some(page.0);
 }
 
 /// The traders' and the stashes' windows that show with the inventory: a town stash's, a combat
@@ -687,6 +712,19 @@ mod tests {
         let last_bottom = pieces[EQUIPMENT_RIGHT + 7];
         assert_eq!(last_top.1.x, last_bottom.1.x + 3.0);
         assert_eq!(last_bottom.0, 61);
+    }
+
+    #[test]
+    fn the_pages_sound_as_the_originals_tab_sheet_shows_them() {
+        // The items page's (14, 2, 1) of the value 0, the others' `UI_CLICK01`.
+        assert_eq!([0, 1, 2].map(page_sound), [ITEMS_PAGE, CLICK, CLICK]);
+        assert_eq!(
+            [crate::spells_page::PAGE, crate::combos_page::PAGE].map(page_sound),
+            [CLICK, CLICK]
+        );
+        // The windows shown by `I`: the sheet's four and the items page's select (seen).
+        let shown: Vec<u32> = SHEET_SHOWS.into_iter().chain([page_sound(0)]).collect();
+        assert_eq!(shown, [7112, 7000, 7000, 7112, 7112]);
     }
 
     #[test]

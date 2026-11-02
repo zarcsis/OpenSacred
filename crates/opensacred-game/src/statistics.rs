@@ -2119,7 +2119,7 @@ pub(crate) fn close_button(images: &UiImages) -> Rect {
 }
 
 /// A left click on the close button (`UI_STAT_BTN_BASE`, `cCommand_onInvClose`, `0x756870`)
-/// closes the inventory's windows, with their sound.
+/// closes the inventory's windows, with the button's click alone (seen, #1767).
 fn close(
     buttons: Res<ButtonInput<MouseButton>>,
     shown: Option<ResMut<Shown>>,
@@ -2136,11 +2136,7 @@ fn close(
     let button = close_button(&images);
     if screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| button.contains(at)) {
         shown.0 = false;
-        sounds.write(crate::sfx::Play {
-            sound: crate::sfx::Of::Id(crate::inventory::CLOSES),
-            at: None,
-            rate: (0.5, crate::sfx::Roll::None),
-        });
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
     }
 }
 

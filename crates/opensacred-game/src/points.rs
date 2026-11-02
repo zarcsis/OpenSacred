@@ -14,7 +14,6 @@ use crate::game::AppState;
 use crate::hud::Pointer;
 use crate::inventory::Shown;
 use crate::low_health::{GLOW_REACH, Glow};
-use crate::sfx;
 
 /// The "+"'s image and its corner on the original's screen (`+0x18C`), left of the column at
 /// x 932.
@@ -138,14 +137,14 @@ fn draw(
     }
 }
 
-/// A left click on the shown "+" opens the inventory's windows, with their sound.
+/// A left click on the shown "+" opens the inventory's windows, whose show plays their sounds
+/// (`inventory`; whether the "+" plays a click of its own is not read).
 fn click(
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     images: Res<UiImages>,
     plus: Res<Plus>,
     mut shown: ResMut<Shown>,
-    mut sounds: MessageWriter<sfx::Play>,
 ) {
     if !plus.shown || !buttons.just_pressed(MouseButton::Left) || shown.0 {
         return;
@@ -157,11 +156,6 @@ fn click(
         return;
     }
     shown.0 = true;
-    sounds.write(sfx::Play {
-        sound: sfx::Of::Id(crate::inventory::OPENS),
-        at: None,
-        rate: (0.5, sfx::Roll::None),
-    });
 }
 
 /// The taskbar's points "+".
