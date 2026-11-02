@@ -1284,12 +1284,12 @@ By the object (its spell, "The spells' executor" above):
 | 867 `FX_BALL` | 53, the Dark Elf's traps | to each hostile target (`0x548FB0`) an event of `0x51CB00` from the caster and an object 786 (`FX_GOBLINIMPACT`) at it, sent to the network (`0x5B7590`) |
 | 871 `FX_CONFUSION` | | to a target neither a boss nor of `+0x2B8` bit `0x40`, without the effects 13 and 14, by a coin the effect 14 or 13 for `3·min(1, 5L/M)` seconds, its whole value the caster's level, and it stops ("The spells' objects" above) |
 | 875 `FX_BFG` | the Seraphim's 1018 | the event, once |
-| 878 `FX_SMALLFIRE` | 50 | an event of `0x51CB00` with the damages 5 and 5, or the caster's (`0x5B79F0`, `0x5B7A00`), to every target from a caster of no hero's class, else to the hostile ones |
+| 878 `FX_SMALLFIRE` | 50 | an event of `0x51CB00` with the damages 5 and 5, or the caster's (`0x5B79F0`, `0x5B7A00`), to every target from a caster of no hero's class, else to the hostile ones; the spell 50's, its caster its own id, gathers none ("The creatures' own spells" below) |
 | 880 `FX_SPIDERPUKE` | | an event of `0x51CB00` with the damages of the event that made it, once |
 | 895 `FX_TRAP03_LASER` | | an event of `0x51CB00` with 200 of the first kind and 100 of the third, once |
 | 905 `FX_FLYINGSKULL` | the Vampiress's 1033 | the effects 2, 1 and 23 for 5 s keyed by 1033, their values from the event's (`0x4EB620`; not followed), and an object 862 at each target |
 | 906 `FX_BUBBLETRAP_EXPLO` | | the event at the factor 2.0, once |
-| 910 `FX_DAEMONFIRE`, 922 `FX_SHADDAR_MAGIC` | 50, 52 | an event of `0x51CB00` from the caster at every run |
+| 910 `FX_DAEMONFIRE`, 922 `FX_SHADDAR_MAGIC` | 50, 52 | an event of `0x51CB00` from the caster, once to each target at its first contact, where it bursts ("The creatures' own spells" below) |
 | 921 `FX_SHADDAR_SLAVE` | | the effect 32 for 5 s to a target of an id up to 16, or it follows the creature of the type 700 |
 | 923 `FX_DRAGON_GROUNDFIRE` | | the event of damages by the caster's skill 2 and the object's level, once |
 | 1005 `FX_HELLDISK` | the Daemon's 60 | an event of `0x51CB00` to its target, once a second, then a new target within a squared 100,000, about 316 |
@@ -1565,6 +1565,62 @@ None gives the effect `0x22`.
 - the fear's five objects at 160 about him, each giving once a second the creatures within 150 and their size that hold none of its effects its effects 1 and 2 for 1 s.
 
 The Daemon of a new game took `A` from 32.5 to 58 under the force of hell; translucent discs stand in for the fear's objects, the tentacles and the hellfire, and an orange disk for the hell disk.
+
+#### The creatures' own spells
+
+Read 2026-11-02 for #1856 in `Sacred.exe`, code only (Ghidra and byte scans of `.text`), nothing run; **confirmed** by code unless marked otherwise.
+The casters are docs/re/ai.md's ("The creatures' spells").
+
+- The executor's switch (`0x522480` at `0x52272B`) takes `spell − 1` up to `0x47` through the one table `0x52947C`, so 69 to 72 go through it too; 44 to 48, 51, 54 and 68 go to its default (`0x5293C4`), which stops the creature (`0x54E6D0(1, 0)`) and logs a wrong spell.
+  Its cases: 43 `0x523220`, 49 `0x5272CC`, 50 `0x5274ED`, 52 `0x527792`, 53 `0x527949`, 69 `0x528B72`, 70 `0x528E97`, 71 `0x528FD9`, 72 `0x529307`.
+- The cast (`0x51E110`) has its own switch with the same default, so those spells play no clip and nothing acts.
+  For 43 it turns the caster to the order's point and makes one sight 791 at the bone 21 of the style 5; for 49, 50, 53, 69, 70 and 71 it turns the caster to the point and makes nothing; for 52 it turns the caster to its target's place (the point without one) and makes two sights 791 at the bones 21 and 22 of the style 12; for 72 it does not turn and makes one sight 791 at the bone 22 of the style 24; none plays a sound.
+- The acts' shares (`0x521D60`, the table `0x521F04`): 43 0.9, 49 0.64, 50 0.78, 52 and 53 0.66, 69 0.44, 70 0.95, 71 0.2, 72 0.5.
+- The objects' hits take each kind's `base + step·L` of the spell's own record times the object's multiplier of the kind and the caster's factor of its spells (`0x56A800`, `MagieAll` at `5L − 2`), truncated and held at 65,534, the record's pairs in the order physical, fire, magic, poison ("The objects' hits" above).
+- A zero damage: the strike's resolution (`0x56B130`, `0x56B1B9`…`0x56B1ED`) sums the event's four whole damages; a sum not 0 goes to the whole damages' path (`0x56C156`, no hit chance), and a sum of 0 rolls the attacker's own attack record (`0x568D70` at `0x56B965`), its damages' rolls and its hit chance (`0x43EEE0`), as an ordinary strike of the attacker.
+  So a spell whose record holds no damage strikes with its caster's own damage and chance: 49 and 50 below.
+- Of these objects only 49's impact (the action 2) and 53's ball ask whether the target turns the spell aside (`0x561860`); 910, 922, 1163, 1164 and 1166 do not.
+- The homing flight (the object update `0x5A6680` under its system's flag `0x10000`, `0x5A7DBF`…`0x5A853E`): the object flies at its system's speed (`+0x98`) toward its target (`+0x60`) while that lives, else toward the nearest creature the caster may fight within a squared 100,000 (`0x600570`), else toward the caster's place jittered by ±50 along each axis; it turns toward its aim by at most `+0xE0` radians a second, 3.0 by default (`0x5A0B30`); each frame it gathers its targets (`0x5AB490`) and hands them to its hits; a cell that may not be walked on ends it.
+
+- **43, the raising** (the black magicians 263 and 264): launch type 3, no damage.
+  The act walks the objects of the caster's own sector (`0x5FEAF0` by its `+0x18`, not the eight about it) and takes the first creature that is not the caster, dead (`0x549080` false), hostile to the hero either way (`0x548FB0`), not of the types 263 or 264, without the scripts' spell 43 (`+0x2B6`), not of the mark 8 and not of `Creature.pak`'s class 10 (`0x426B70`), a caster of the type 312 raising none.
+  That creature takes its most health whole (`+0x4D8` from `+0x4D4`), its AI's and its action's states and sub-states 0 (`+0xFC`, `+0xFE`, `+0x150`, `+0x152`), an object 924 `FX_REANIMATE` at its place (FX event `0x84`, a ring of particles for about 0.63 s and a light of radius 200, a sight alone) and the flags' bit `0x100000` (`+0x1F4`); it keeps its side.
+  One creature a cast; none found, nothing happens.
+  Under the bit `0x100000` its next death gives no experience (`0x534857` sets it to 0; `0x57D860` returns early at `0x57D8A7` for the killed and at `0x57D8D8` for a killer of the bit); nothing clears the bit and the raising does not test it, so a raised creature may rise again.
+- **49, the eye lasers** (the big demons 53, 94): launch type 1, no damage.
+  With the order's target a creature in the world, the act draws two beams from the caster's bones `Left_EyeBone_FX` and `Right_EyeBone_FX` to the target's place by the laser's maker `0x604030`: `⌊√(dx² + dy²)/53.666⌋` steps, at least one, each step's cell tested (`0x636A60`), a segment 901 `FX_LASERBEAM` at each that passes (FX event `0x72`), the first that fails ending the beam.
+  Where either beam reaches the target, one object 909 `FX_LASERBEAM_IMPACT` at the target (FX event `0x79`), following it, whose system (`0x7A68A0`, flags `0x40`, a light of radius 200) runs the action 2 with the data 49 once: the event 5 from the caster with the record 49's damages, none, to the target alone, unless it turns the spell aside; so the laser lands the demon's own strike, its damage and its chance, once, from afar.
+  Each segment's system (`0x7A50B0`) plays `SOUND_FX_SPELL_LASER` (2074) for the style 1.
+- **50, the demon's fire** (the big demons 53, 94): launch type 1, no damage.
+  With the order's target in the world, the act takes the direction from the caster's bone 2 (`Bip01 R Hand`) to the target's place, flattened and made a unit, and makes one object 910 `FX_DAEMONFIRE` at the caster (FX event `0x7A`), following its bone, one object 878 `FX_SMALLFIRE` at its place on the ground (FX event `0x65`) whose caster is its own id, a jolt of the screen of 18 (`0x51CB60` at `0x527716`, the kind 12 of docs/re/weather.md) and the sound `SOUND_FX_VAMP_SPRUNG_HIT` (2084) at the caster.
+  910's system (`0x7A6F50`, `0x7A6AD0`): a charge of 2.5 s held at the caster's bone, then the homing flight at 250 a second toward the order's target for 5 s, then its speed 0 and a fade (**hypothesis**: it strikes what touches it until it goes); its size 70, a light of radius 250.
+  Its hit (`0x5AF3AE`) at the first frame with targets bursts it and sends each of them the event 5 from the caster with 50's damages, none: the demon's own strike, once to each creature it touches then.
+  The small fire's gathering tests the hostility to the object's caster, which answers false where either id is not a creature (`0x423580`): with its own id as its caster it never strikes, a sight at the demon's feet for 8 s.
+- **51** is the record of the Seraphim's railgun's damage (docs/re/arts.md, "The Seraphim's bolts"), and no compiled caster orders it; a script's `+0x2B6` could name it, and the cast's default refuses it.
+- **52, the fire bolt** (Anducar 182, his demon 183, Sharifo 700): launch type 1, 8 + 12·L physical and 10 + 15·L magic.
+  The act is the fireball's: one object 922 `FX_SHADDAR_MAGIC` toward the target's place (the point without one) in three dimensions (FX event `0x82`), kept at the caster's bone 1 (**hypothesis**: where it starts).
+  922's system (`0x7AAC20`, `0x7AAA60`): flags `0x53`, straight on at 150 a second for 2 s, a light of radius 200; its hit (`0x5AF676`) at the first frame with targets (its size 0, so 50) bursts it and strikes each once with 52's damages; no effect, no sound.
+- **53, the goblin mages' ball** (127, 143 and the god 144): launch type 0, 8 + 12·L physical and 2 + 3·L magic.
+  The act throws one ball 867 `FX_BALL` from the caster to the order's point (FX event `0x5B`, its word `+0x3C` 53), the Dark Elf's traps' ball (above): white, `SOUND_FX_DELF_WURFCAST` (2057) as it starts, the traps' arc of 60 over 2/3 s at any distance.
+  Landing, it gathers the creatures alive within its size 20 and theirs (`0x5AB8E0`) and strikes once each that does not turn the spell aside and is hostile to the caster either way, with 53's damages and an object 786 `FX_GOBLINIMPACT` at its place; it makes no trap.
+  A cell that may not be walked on breaks it before it lands (**hypothesis**: then it strikes nothing).
+- **69, the ring of flames** (Anducar's demon 183): launch type 1, 25 + 25·L fire and 25 + 25·L magic.
+  With the order's target in the world, the act makes one object 1163 `FX_ANDUCAR_DEMON` at the target's place and two rings about it, 8 at 160 and 12 at 320 (the angles `i·2π/8` and `i·2π/12`), each only where its point may be walked on (`0x636890`), 21 at most (FX event `0xA7`).
+  Each object's 3, 6 or 10 flames by the detail level (±70 about it) wait their distance from the target's place over 350 seconds, a wave going out at 350 a second, then rise 0.5 s, burn 0.75 s and fade 0.5 s (`0x7C04B0`, `0x7C0150`).
+  Its hit (`0x5B1947`) once a second strikes each creature hostile to the caster within its size 90 and theirs that walks or fights (its action 1, or a target named by `0x4EB890`), sparing one that stands idle; the objects overlap, so a creature may take several.
+- **70, the guard's fire** (Anducar's guard 184, 249): launch type 1, 15 + 15·L fire and 15 + 15·L magic; not a hold, though the guard's specials order it on their hold's path (docs/re/ai.md).
+  The act makes one object 1164 `FX_ANDUCAR_GARDE` at the caster toward the target (FX event `0xA8`), following its bone: `SOUND_FX_TORCH_HIT01` (708) as it starts, a charge of 0.9 s, then the homing flight at 250 a second for 5 s with `SOUND_FX_SPELL_FIRESTRIKE` (2091) as it leaves, its size 50, a light of radius 250 (`0x7BFA90`, `0x7BF720`).
+  Its hit (`0x5B1A3D`) at the first frame with targets bursts it with `SOUND_FX_MAGE_FEUERBALL_HIT` (2001) and strikes each once with 70's damages; no effect.
+- **71, the fan of flames** (the demon prince 185, 250 to 252): launch type 1, 10 + 5·L of each kind.
+  With the order's target a creature in the world, the act lays ten rows `k` from 0 to 9 at `100·k` along the line from the caster to the target, each of the offsets `j` from `−⌊k/3⌋` to `⌊k/3⌋`, the line turned by `0.25·j` radians: 1, 1, 1, 3, 3, 3, 5, 5, 5 and 7 points, 34 in all, out to 900; at each point that may be walked on one object 1166 `FX_DAEMONENFUERST` (FX event `0xAA`) of the colour of the prince's type.
+  Its flames wait their distance from the caster over 550 seconds, then rise 0.5 s, burn 0.5 s and fade 0.5 s (`0x7C0CC0`, `0x7C0960`).
+  Its hit (`0x5B1AF0`) once a second strikes each creature hostile to the caster within its size 70 and theirs with 71's damages of one kind by the prince's type (the byte table `0x5B25BC`): 185 poison, 250 fire, 251 magic, 252 physical, any other all four.
+  The act then plays `SOUND_FX_SPELL_PENTAGRAMMKILLER02` (2095) and `SOUND_FX_HELF_VERWANDLUNG_HIT` (2064) (**hypothesis**: unplaced).
+- **72, the terror sprinters' aura** (the terror sprinter mage 212): launch type 1, no damage; the attack and the defence `300 + 30·L`, the four resistances `10 + 10·L`, value 0 `20 + 6·L`.
+  The act makes one object 1167 `FX_TERRORSPRINTER` following the mage for 8 s (FX event `0xAB`), which gives the mage the effect 35 of 0 for 8 s keyed by 72, the key that keeps it from casting 72 again; the mage takes no bonus.
+  While its cooldown is 0 the aura looks at the creatures within its size 270 and theirs, and gives each terror sprinter (211, 349) that holds no effect keyed by 72 a 1167 of its own, then waits 1 s (`0x5B1C20`).
+  A sprinter's copy follows it, spreads no further, and for `20 + 6·L` seconds gives it the effect 3 of 4.0 keyed by 72 and, by the action 6, the record's effects keyed by 72: the effects 1 and 2 of `(300 + 30·L)/100` and the effects 7 to 10 of `10 + 10·L`.
+- Not read: 909's owner (`+0x39`) and so which machine strikes, the segments' life and the flag `0x40`; the attack record's weapon slot `−1` for 49 and 50, and whether the big demons' models hold the clips 144 and 145; how long 910 and 1164 live after their flight and whether they strike meanwhile; where 922 starts and its flag `0x2`; whether a ball broken before it lands strikes; the raised creature's pose, its old target and group, and its second death's drops; the first eruption's moment by the detail level and whether a striking hero counts as fighting for 69; where 71's sounds play; what the effect 35 does beyond its key, and the effect 3 of 4.0 in a creature's strike.
 
 ## The heroes' starting arts
 
