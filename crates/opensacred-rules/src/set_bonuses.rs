@@ -457,23 +457,118 @@ pub struct Stats {
     /// The survival bonus's part of the whole set 28, `10·D`, which its readers add to the
     /// fight's share of the curve (docs/re/sets.md §4, M12; #1761).
     pub survival: f32,
+    /// The difficulty's factor `D` of these values, which the readers of the counts take
+    /// ([`Self::luck`], [`Self::rising`], [`Self::experience`]).
+    pub factor: f32,
 }
 
 /// The flags of `+0x148` under which a strike's whole damage is times the difficulty's factor:
 /// the last bonuses of the sets 39, 41, 44, 45, 47 and 49.
 pub const WHOLE_DAMAGE: u32 = 0x7C2;
 
-/// The set whose six pieces add to the survival bonus, and from how many pieces (M12).
-const SURVIVAL_SET: (u8, u8) = (28, 6);
+/// A bonus that other code applies by the counts of the sets worn (docs/re/sets.md §4), its
+/// number `c` scaled by `D`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Reader {
+    /// The luck `ℓ` becomes `⌊ℓ·(1 + c·D) + 0.5⌋`, each set in turn (M2, `0x564A60`).
+    Luck(f32),
+    /// The undead's rising chance `p` becomes `⌊p·(100 − 100c·D)·0.01⌋`, at least 0, each set in
+    /// turn (M5, `0x532C6F`, `0x532CD6`).
+    Exorcism(f32),
+    /// A kill's experience times `1 + c·D`, after the levels' weighing (M6, `0x57DDE3`).
+    Experience(f32),
+    /// The survival bonus's part `c·D` (M12).
+    Survival(f32),
+    /// Shift with a left click on a backpack's item turns it into its worth in gold (the query
+    /// `0x51`, `0x55DE75`; M19; docs/re/inventory.md, §3).
+    IntoGold,
+}
 
-/// The set whose seven pieces turn the backpack's items into gold, and from how many pieces (the
-/// query `0x51`, `0x55DE75`; M19).
-const INTO_GOLD_SET: (u8, u8) = (53, 7);
+/// A reader of a set's count, from a count of its pieces on (each tests `count ≥ pieces`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Read {
+    pub set: u8,
+    pub pieces: u8,
+    pub reads: Reader,
+}
 
-/// Whether the wearer of `worn` answers the query `0x51`: Shift with a left click on a backpack's
-/// item turns it into its worth in gold (docs/re/inventory.md, §3).
+const fn read(set: u8, pieces: u8, reads: Reader) -> Read {
+    Read { set, pieces, reads }
+}
+
+/// The readers of the counts that the game follows, each kind in the order its code reads them
+/// (docs/re/sets.md §4); set 21's luck asks six of its five pieces and set 18's exorcism eight of
+/// its seven, so that neither ever holds.
+pub const READERS: &[Read] = &[
+    read(3, 8, Reader::Luck(0.2)),
+    read(9, 7, Reader::Luck(0.2)),
+    read(21, 6, Reader::Luck(0.2)),
+    read(53, 7, Reader::Luck(0.2)),
+    read(1, 6, Reader::Exorcism(0.3)),
+    read(18, 8, Reader::Exorcism(0.3)),
+    read(19, 5, Reader::Experience(0.1)),
+    read(28, 6, Reader::Survival(10.0)),
+    read(53, 7, Reader::IntoGold),
+];
+
+impl Worn {
+    /// The readers of [`READERS`] that the counts reach.
+    pub fn reads(&self) -> impl Iterator<Item = &'static Read> + '_ {
+        READERS
+            .iter()
+            .filter(move |read| self.count(read.set) >= read.pieces)
+    }
+}
+
+/// Whether the wearer of `worn` answers the query `0x51` ([`Reader::IntoGold`]).
 pub fn into_gold(worn: &Worn) -> bool {
-    worn.count(INTO_GOLD_SET.0) >= INTO_GOLD_SET.1
+    worn.reads().any(|read| read.reads == Reader::IntoGold)
+}
+
+impl Stats {
+    /// The luck `luck` of the wearer, raised by its sets in turn ([`Reader::Luck`]).
+    pub fn luck(&self, luck: f32) -> f32 {
+        let d = self.factor;
+        self.worn.reads().fold(luck, |luck, read| match read.reads {
+            Reader::Luck(c) => (luck * (1.0 + c * d) + 0.5).floor(),
+            _ => luck,
+        })
+    }
+
+    /// The undead's rising chance `chance` in per cent where the wearer kills, cut by its sets in
+    /// turn ([`Reader::Exorcism`]).
+    pub fn rising(&self, chance: u32) -> u32 {
+        let d = f64::from(self.factor);
+        self.worn
+            .reads()
+            .fold(chance, |chance, read| match read.reads {
+                Reader::Exorcism(c) => {
+                    let cut = f64::from(chance) * (100.0 - 100.0 * f64::from(c) * d) * 0.01;
+                    u32::try_from(whole_of(cut)).unwrap_or(0)
+                }
+                _ => chance,
+            })
+    }
+
+    /// The share of a kill's experience that the wearer earns more ([`Reader::Experience`]).
+    pub fn experience(&self) -> f32 {
+        self.worn
+            .reads()
+            .map(|read| match read.reads {
+                Reader::Experience(c) => c * self.factor,
+                _ => 0.0,
+            })
+            .sum()
+    }
+}
+
+/// `x` truncated toward zero and held at 0 and above.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a chance in per cent, well within an i64"
+)]
+fn whole_of(x: f64) -> i64 {
+    x.trunc().max(0.0) as i64
 }
 
 /// `⌊c·D⌋`, the float product truncated (`0x55E070`).
@@ -515,14 +610,14 @@ pub fn valued(gives: Give, d: f32) -> Bonus {
     }
 }
 
-/// The survival bonus's part that the set 28 of `worn` adds at the factor `d`, `10·D` of the
-/// whole set, else none.
+/// The survival bonus's part that the sets of `worn` add at the factor `d` ([`Reader::Survival`]).
 fn survival(worn: &Worn, d: f32) -> f32 {
-    if worn.count(SURVIVAL_SET.0) >= SURVIVAL_SET.1 {
-        10.0 * d
-    } else {
-        0.0
-    }
+    worn.reads()
+        .map(|read| match read.reads {
+            Reader::Survival(c) => c * d,
+            _ => 0.0,
+        })
+        .sum()
 }
 
 /// What the sets of `worn` give on the difficulty `difficulty` (`0x571710` over the sets worn).
@@ -530,6 +625,7 @@ pub fn stats(worn: &Worn, difficulty: Difficulty) -> Stats {
     let d = factor(difficulty);
     let mut stats = Stats {
         worn: worn.clone(),
+        factor: d,
         ..Stats::default()
     };
     let add_skill = |stats: &mut Stats, skill: u8, value: u32| match stats
@@ -594,32 +690,47 @@ pub enum Told {
     Survival(f32),
     /// The backpack's items turned into gold ([`into_gold`]).
     IntoGold,
+    /// The luck's share more, `c·D` ([`Reader::Luck`]).
+    Luck(f32),
+    /// The share cut off the undead's rising chance, `c·D` ([`Reader::Exorcism`]).
+    Exorcism(f32),
+    /// A kill's experience's share more, `c·D` ([`Reader::Experience`]).
+    Experience(f32),
 }
 
-/// The lines of the set `set` of `worn` on the difficulty `difficulty`, in its bonuses' order:
-/// each bonus of [`TABLE`] reached, valued as [`stats`] values it; the six sets' flag of the
-/// whole damage as its share more, none on bronze, where `D` changes nothing; no line of a flag
-/// whose readers the game does not follow; set 28's survival bonus and set 53's gold.
+/// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
+/// they ask, a count's bonuses before its readers': each bonus of [`TABLE`] reached, valued as
+/// [`stats`] values it; the six sets' flag of the whole damage as its share more, none on bronze,
+/// where `D` changes nothing; no line of a flag whose readers the game does not follow; and each
+/// reader of [`READERS`] reached.
 pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
     let d = factor(difficulty);
-    let mut lines: Vec<Told> = worn
+    let bonuses = worn
         .reached()
         .filter(|entry| entry.set == set)
-        .filter_map(|entry| match valued(entry.gives, d) {
-            Bonus::Flag(bit) if bit & WHOLE_DAMAGE != 0 => {
-                (d > 1.0).then_some(Told::WholeDamage(d - 1.0))
-            }
-            Bonus::Flag(_) | Bonus::CreatureFlag(_) => None,
-            bonus => Some(Told::Bonus(bonus)),
-        })
-        .collect();
-    if set == SURVIVAL_SET.0 && survival(worn, d) > 0.0 {
-        lines.push(Told::Survival(survival(worn, d)));
-    }
-    if set == INTO_GOLD_SET.0 && into_gold(worn) {
-        lines.push(Told::IntoGold);
-    }
-    lines
+        .filter_map(|entry| {
+            let line = match valued(entry.gives, d) {
+                Bonus::Flag(bit) if bit & WHOLE_DAMAGE != 0 => {
+                    (d > 1.0).then_some(Told::WholeDamage(d - 1.0))?
+                }
+                Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
+                bonus => Told::Bonus(bonus),
+            };
+            Some((entry.pieces, line))
+        });
+    let readers = worn.reads().filter(|read| read.set == set).map(|read| {
+        let line = match read.reads {
+            Reader::Luck(c) => Told::Luck(c * d),
+            Reader::Exorcism(c) => Told::Exorcism(c * d),
+            Reader::Experience(c) => Told::Experience(c * d),
+            Reader::Survival(c) => Told::Survival(c * d),
+            Reader::IntoGold => Told::IntoGold,
+        };
+        (read.pieces, line)
+    });
+    let mut lines: Vec<(u8, Told)> = bonuses.chain(readers).collect();
+    lines.sort_by_key(|&(pieces, _)| pieces);
+    lines.into_iter().map(|(_, line)| line).collect()
 }
 
 #[cfg(test)]

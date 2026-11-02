@@ -101,8 +101,9 @@ pub fn burns_away(kind: u32) -> bool {
 /// a hit of another kind than a plain strike (the strike record's `+0x14`; **hypothesis**: an
 /// art's, a shot's or a throw's); 0 where the killer is `banished`, under a purple potion's effect
 /// (the effect 33 of the whole value 4, its `+0xB0` bit `0x80000`, at `0x532C48`;
-/// `potions::banishes`). The halvings by the record's second damage and `+0x2B7` and the
-/// killer's set pieces are not followed (docs/re/fight.md).
+/// `potions::banishes`). The killer's set pieces cut it after (`set_bonuses::Stats::rising`,
+/// #1727); the halvings by the record's second damage and `+0x2B7` are not followed (docs/re/
+/// fight.md).
 pub fn chance(plain: bool, banished: bool) -> u32 {
     match (banished, plain) {
         (true, _) => 0,

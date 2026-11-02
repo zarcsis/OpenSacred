@@ -417,14 +417,22 @@ impl Bands {
 /// levels the fade of a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of
 /// the killer ([`experience_with`]), bosses or champions.
 pub fn experience_of(worth: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
-    experience_with(worth, level, hero, rules, 0.0)
+    experience_with(worth, level, hero, rules, (0.0, 0.0))
 }
 
 /// [`experience_of`] with the killer's `bonus`, the shares of the kill's base experience that it
 /// earns more, added to the base after `LevelKap`'s cut (`0x57D860` at `0x57DD83`): the values of
 /// its blue potions' effects (the effect 33 of the whole value 5, at `0x57DC62`;
-/// `potions::mentored`). The items' bonus (the effect 843) and the others are not followed.
-pub fn experience_with([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules, bonus: f32) -> u32 {
+/// `potions::mentored`); and its sets' share `sets`, by which the experience grows after the
+/// levels' weighing (`0x57DDE3`, `set_bonuses::Stats::experience`, #1727). The items' bonus (the
+/// effect 843) and the others are not followed.
+pub fn experience_with(
+    [a, b]: [u16; 2],
+    level: u32,
+    hero: u32,
+    rules: &Rules,
+    (bonus, sets): (f32, f32),
+) -> u32 {
     let [share, anteil, voll, upper] = rules.experience;
     let level = rules.on_bronze(level);
     let (e, h) = (to_f32(level), to_f32(hero));
@@ -435,6 +443,9 @@ pub fn experience_with([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules, b
     }
     x = stored(f64::from(x) * f64::from(bonus) + f64::from(x));
     x *= weighing(level, hero, (anteil, voll, upper));
+    if sets > 0.0 {
+        x *= 1.0 + sets;
+    }
     if x <= 0.0 {
         x = 1.0;
     }
@@ -5262,9 +5273,9 @@ mod tests {
         assert_eq!(experience_of(worth, 1, 1, &more), 50);
         // A blue potion's 0.5 adds half the base before the weighing: 25 · 1.5, then 35 · 1.5
         // times 1.1/1.2.
-        assert_eq!(experience_with(worth, 1, 1, &rules, 0.5), 37);
-        assert_eq!(experience_with(worth, 3, 1, &rules, 0.5), 48);
-        assert_eq!(experience_with(worth, 3, 1, &rules, 0.0), 32);
+        assert_eq!(experience_with(worth, 1, 1, &rules, (0.5, 0.0)), 37);
+        assert_eq!(experience_with(worth, 3, 1, &rules, (0.5, 0.0)), 48);
+        assert_eq!(experience_with(worth, 3, 1, &rules, (0.0, 0.0)), 32);
     }
 
     #[test]

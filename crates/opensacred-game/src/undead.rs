@@ -71,19 +71,23 @@ impl Default for Dice {
 /// rise does (`0x532E5A`, `0x532E8D`); a magic skeleton or an undead goblin not risen yet, or a
 /// skeleton warrior that has a part to lose (`0x532E3C`'s cases, #1260; **hypothesis** that the
 /// warriors' bosses and champions do not change either); never where its killer is `banished`,
-/// under a purple potion's effect (#1353).
+/// under a purple potion's effect (#1353); the chance cut by the hero's `sets` where it kills
+/// (`set_bonuses::Stats::rising`, #1727).
 pub fn rolls(
     dice: &mut Rng,
     mind: &Mind,
     rank: Rank,
     (plain, banished): (bool, bool),
+    sets: Option<&opensacred_rules::set_bonuses::Stats>,
 ) -> Option<Rises> {
     let kind = mind.creature;
     let warrior = undead::warrior(kind);
     if rank != Rank::Common || !(warrior || undead::rises(kind) && mind.flags & RISEN == 0) {
         return None;
     }
-    if !undead::rolls(dice.below(101), undead::chance(plain, banished)) {
+    let chance = undead::chance(plain, banished);
+    let chance = sets.map_or(chance, |sets| sets.rising(chance));
+    if !undead::rolls(dice.below(101), chance) {
         return None;
     }
     let into = if warrior {

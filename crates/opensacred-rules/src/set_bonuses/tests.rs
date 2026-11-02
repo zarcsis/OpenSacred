@@ -107,6 +107,7 @@ fn the_flags_and_the_filled_sets_bonuses() {
         stats(&wearing(23, 6), Difficulty::Bronze),
         Stats {
             worn: wearing(23, 6),
+            factor: 1.0,
             ..Stats::default()
         }
     );
@@ -175,4 +176,36 @@ fn the_whole_damage_and_the_survival_tell_their_shares() {
         Some(&Told::IntoGold)
     );
     assert!(!told(53, &wearing(53, 6), Difficulty::Bronze).contains(&Told::IntoGold));
+}
+
+#[test]
+fn the_readers_of_the_counts_take_their_shares() {
+    // Set 19 at 5 on gold: a kill's experience 16.7 % more, its line after its bonuses.
+    let nineteen = stats(&wearing(19, 5), Difficulty::Gold);
+    assert!(close(nineteen.experience(), 0.167));
+    assert!(matches!(
+        told(19, &wearing(19, 5), Difficulty::Gold).last(),
+        Some(&Told::Experience(share)) if close(share, 0.167)
+    ));
+    // Set 1 at 6 on niobium: the rising chance 90 cut to ⌊90·(100 − 70.2)·0.01⌋ = 26.
+    let feac = stats(&wearing(1, 6), Difficulty::Niobium);
+    assert_eq!(feac.rising(90), 26);
+    assert_eq!(stats(&wearing(1, 5), Difficulty::Niobium).rising(90), 90);
+    // Set 3 at 8 on silver: the luck 100 to ⌊100·1.268 + 0.5⌋ = 127; set 21 never reaches its
+    // reader, asking six of its five pieces.
+    assert!(close(
+        stats(&wearing(3, 8), Difficulty::Silver).luck(100.0),
+        127.0
+    ));
+    assert!(close(
+        stats(&wearing(21, 5), Difficulty::Silver).luck(100.0),
+        100.0
+    ));
+    // Two sets of luck in turn, each rounded: 127, then ⌊127·1.268 + 0.5⌋ = 161.
+    let both = Worn::of(
+        (0..8)
+            .map(|i| (7000 + i, 3))
+            .chain((0..7).map(|i| (7100 + i, 9))),
+    );
+    assert!(close(stats(&both, Difficulty::Silver).luck(100.0), 161.0));
 }
