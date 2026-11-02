@@ -1794,6 +1794,7 @@ impl State {
     /// death's functions, its heading, its group or a trader's stock.
     fn restates(&self) -> bool {
         !self.deaths.is_empty()
+            || self.hostile.is_some()
             || self.heading.is_some()
             || self.group.is_some()
             || self.stocked
@@ -7575,6 +7576,10 @@ pub(crate) fn script_records(
                 if state.stocked {
                     mind.dialogue = false;
                 }
+                // Its side by the record's hostility, as its placement's (`0x461540`, #1841).
+                if let Some(hostile) = state.hostile {
+                    mind.side = minds::stated_side(mind.side, mind.creature, state.word, hostile);
+                }
             }
             bevy::log::info!("npcs: the scripts set {name}'s state");
         }
@@ -9363,6 +9368,21 @@ mod tests {
         // Its level alone restates nothing of a creature made before.
         let level = State::of(&[op(LEVEL, Value::I32(7))], &[]);
         assert!(!level.restates());
+        // Its hostility does (#1841): quest 1703's noble turned hostile, his side as his
+        // placement's would be.
+        let hostile = State::of(
+            &[
+                op(0x01, Value::Str("res:17219".into())),
+                op(0x08, Value::Marker),
+                op(0x12, Value::Marker),
+            ],
+            &[],
+        );
+        assert!(hostile.restates() && hostile.hostile == Some(true));
+        assert!(minds::hostile_to_heroes(
+            minds::stated_side(3, 667, hostile.word, true),
+            667
+        ));
     }
 
     #[test]
