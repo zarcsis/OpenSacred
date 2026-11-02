@@ -1124,6 +1124,52 @@ fn dies(
     );
 }
 
+/// A gold pile that a hit makes its defender drop by the attacker's effect 856
+/// (`opensacred_rules::fight::gold_pile`, #1779): the creature struck, the pile's type, and the
+/// most its amount may be.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PileFromHit {
+    pub creature: Entity,
+    pub item: u32,
+    pub most: u32,
+}
+
+/// Throws each pile of [`PileFromHit`] at its creature (`0x559BF0` of a forced type): its amount
+/// the gold drop's at the creature's level (`Rules::gold`), held at the hit's most.
+fn piles_from_hits(
+    mut commands: Commands,
+    mut piles: MessageReader<PileFromHit>,
+    creatures: Query<(&Transform, &fight::Health, Option<&crowd::InTheWay>)>,
+    (assets, tables, mut dice): (Res<AssetServer>, Option<Res<Tables>>, ResMut<Dice>),
+) {
+    let Some(tables) = tables else {
+        piles.clear();
+        return;
+    };
+    for pile in piles.read() {
+        let Ok((transform, health, way)) = creatures.get(pile.creature) else {
+            continue;
+        };
+        let amount = tables.rules.gold(health.level, &mut dice.0).min(pile.most);
+        let dropped = Dropped {
+            item: pile.item,
+            ..drops::gold_pile(amount)
+        };
+        debug!(
+            "drops: a hit makes {} drop {} of {amount} gold",
+            pile.creature, pile.item
+        );
+        throw(
+            &mut commands,
+            &assets,
+            &tables,
+            &mut dice.0,
+            (transform.translation, way.and_then(|way| way.level)),
+            vec![dropped],
+        );
+    }
+}
+
 /// Flies each drop a frame on (`0x44DFE0`): it rises and falls about where it was thrown, its
 /// velocity along the ground turning back at every frame as the original's (#478), and lies at
 /// the height a creature stands at there; the gold piles and the runes stay upright. The hero's
@@ -1412,6 +1458,7 @@ impl Plugin for DropsPlugin {
         app.insert_resource(Dice(crate::seed::dice(415)))
             .init_resource::<LastJewel>()
             .init_resource::<Played>()
+            .add_message::<PileFromHit>()
             .add_observer(dies)
             .add_systems(Startup, begin)
             .add_systems(Update, read)
@@ -1420,7 +1467,7 @@ impl Plugin for DropsPlugin {
             })
             .add_systems(
                 Update,
-                (play, fly)
+                (play, fly, piles_from_hits)
                     .after(Step::Npcs)
                     .in_set(Playing)
                     .in_set(Unpaused),
