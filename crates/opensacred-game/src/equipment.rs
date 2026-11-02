@@ -523,14 +523,25 @@ fn refit(
         .and_then(|sets| sets.halves.get(sets.selected))
         .map(|halves| halves.iter().flatten().map(|d| d.item).collect())
         .unwrap_or_default();
-    // The worn items by their keys and their sockets filled, and the hands' items, which a change
-    // of any makes anew.
+    // Set 23's statues carried in the pack, each once (`0x57AD5B`, #1808).
+    let mut carried: Vec<u32> = pack
+        .items
+        .iter()
+        .map(|(_, d)| d.item)
+        .chain(pack.quest.iter().map(|d| d.item))
+        .filter(|item| set_bonuses::CARRIED.contains(item))
+        .collect();
+    carried.sort_unstable();
+    carried.dedup();
+    // The worn items by their keys and their sockets filled, the hands' items and the statues
+    // carried, which a change of any makes anew.
     let worn: Vec<(u32, usize)> = pack
         .worn
         .iter()
         .flatten()
         .map(|(key, d)| (*key, d.socketed.len()))
         .chain(hands.iter().map(|&item| (item, usize::MAX)))
+        .chain(carried.iter().map(|&item| (item, usize::MAX - 1)))
         .collect();
     if *seen == worn {
         return;
@@ -542,6 +553,7 @@ fn refit(
         .flatten()
         .map(|(_, d)| d.item)
         .chain(hands.iter().copied())
+        .chain(carried.iter().copied())
         .filter_map(|item| Some((item, tables.set_of(item)?)));
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
     let set_stats = set_bonuses::stats(&set_bonuses::Worn::of(pieces), difficulty);

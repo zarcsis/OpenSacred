@@ -3694,6 +3694,22 @@ pub(crate) fn whole_part(x: f32) -> u32 {
     whole_f64(f64::from(x).trunc().max(0.0))
 }
 
+/// How far the steps' small fire reaches beyond a creature's size, and how often it strikes, in
+/// seconds (`0x5AB490`, `0x5AE436`; #1808).
+pub const SMALL_FIRE_REACH: f32 = 30.0;
+pub const SMALL_FIRE_PERIOD: f32 = 1.0;
+
+/// The physical and the fire damage of a strike of the steps' small fire of a caster creature of
+/// the strength `strength` and the dexterity `dexterity` and of the first physical and fire
+/// damage multipliers `[physical, fire]` (`0x5AE44D`–`0x5AE540`): `⌊min(0.2·S·m, 1000)⌋` and
+/// `⌊0.2·min(D·m, 1000)⌋`, each held as the original holds it; the magic and the poison none.
+pub fn small_fire_damages(strength: f32, dexterity: f32, [physical, fire]: [f32; 2]) -> [f32; 4] {
+    let held = |x: f64| x.min(1000.0);
+    let physical = held(f64::from(strength) * f64::from(physical) * f64::from(0.2_f32));
+    let fire = held(f64::from(dexterity) * f64::from(fire)) * f64::from(0.2_f32);
+    [stored(physical.trunc()), stored(fire.trunc()), 0.0, 0.0]
+}
+
 /// The items' effect of the magic defence (`0x35A`), which its bearer's own items give.
 pub const MAGIC_DEFENCE: u32 = 858;
 /// The faces of the magic defence's roll, `rand() % 100` (`0x561B86`, [`warded`]).
@@ -6473,6 +6489,30 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_steps_small_fire_burns_by_the_casters_strength_and_dexterity() {
+        // Strength 100, dexterity 80, the multipliers 1: 20 physical, 16 fire, no more than 1000
+        // and 200.
+        assert_eq!(
+            small_fire_damages(100.0, 80.0, [1.0, 1.0]),
+            [20.0, 16.0, 0.0, 0.0]
+        );
+        assert_eq!(
+            small_fire_damages(9000.0, 9000.0, [1.0, 1.0]),
+            [1000.0, 200.0, 0.0, 0.0]
+        );
+        // Its burnt ground: the frames 4 to 0 over 0.3 s, 0 to 8 s, 0 to 15 over the ninth.
+        use crate::particles::ground_frame;
+        assert_eq!(
+            [0.0, 0.1, 0.3, 4.0, 8.0].map(ground_frame),
+            [Some(4), Some(3), Some(0), Some(0), Some(0)]
+        );
+        assert_eq!(
+            [8.01, 8.5, 8.99, 9.5].map(ground_frame),
+            [Some(0), Some(8), Some(15), None]
+        );
     }
 
     #[test]
