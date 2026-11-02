@@ -281,7 +281,9 @@ Read 2026-11-02 by code (`0x56B130`, `0x570ED0`, `0x5F23A0`), **confirmed** unle
 - **856, the gold pile**: the attacker's 856, plus `10·D` for set 30 at 5 (no test of the local); a roll `rand() % 101` below it makes the defender drop a gold pile (`0x559BF0` of a forced type: 5132 by `rand() % 2`, else 5133 by a second, else 5134 by a third, else 5135) of the gold drop's amount at its level, held at most at the damage and the defender's health before the hit, with the gold's sound; the defender's own gold stays.
 - Not read: the stun 862's consequence, 846's split, `0x5C6EC0`, and whether the poison's and the burning's ticks reach these blocks.
 
-`opensacred-game` follows 859 and 867 since #1779 (`opensacred_rules::fight::item_effect`, `rare_chance`, `critical`, `wounded`, `Rules::rare`; `set_bonuses::Stats::critical` and `wounds`; `fight::resolve`), the wider roll not taken and the flash not drawn; 866 and 856 not yet.
+`opensacred-game` follows 859 and 867 since #1779 (`opensacred_rules::fight::item_effect`, `rare_chance`, `critical`, `wounded`, `Rules::rare`; `set_bonuses::Stats::critical` and `wounds`; `fight::resolve`), the wider roll not taken and the flash not drawn.
+It follows 866 and 856 too (`fight::gold_for_health`, `gold_for_health_cap`, `gold_pile`; `Stats::gold_for_health` and `gold_pile`): the struck hero's gold pays a strike in the strike's `taken` and leaves its pack, the gold's sound twice; a hit's pile is thrown at the struck creature (`drops::PileFromHit`), its amount the gold drop's at the creature's level held at the hit's most, with the gold's sound.
+The creatures carry no gold, so only the hero pays (**hypothesis** for the original's NPCs, above).
 
 ## An NPC's attack, defence and damage
 

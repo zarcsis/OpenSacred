@@ -240,4 +240,27 @@ fn the_readers_of_the_counts_take_their_shares() {
             .chain((0..7).map(|i| (7100 + i, 9))),
     );
     assert!(close(stats(&both, Difficulty::Silver).luck(100.0), 161.0));
+    // Set 16 at 6 adds 30·D to the struck hero's 866, its line held at the difficulty's most;
+    // set 30 at 5 adds 10·D to the 856 of a hit.
+    let gold = wearing(16, 6);
+    assert!(close(
+        stats(&gold, Difficulty::Gold).gold_for_health(5.0),
+        55.1
+    ));
+    assert!(close(
+        stats(&wearing(16, 5), Difficulty::Gold).gold_for_health(5.0),
+        5.0
+    ));
+    assert!(matches!(
+        told(16, &gold, Difficulty::Gold).last(),
+        Some(&Told::GoldForHealth(chance)) if close(chance, 50.1)
+    ));
+    assert!(close(
+        stats(&wearing(30, 5), Difficulty::Silver).gold_pile(2.0),
+        15.4
+    ));
+    assert!(matches!(
+        told(30, &wearing(30, 5), Difficulty::Silver).last(),
+        Some(&Told::GoldPile(chance)) if close(chance, 13.4)
+    ));
 }

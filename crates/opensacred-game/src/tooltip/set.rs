@@ -109,6 +109,9 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         Told::Critical(value) => white(format!("{}: {}", n(1132), tenths(value))),
         // A per cent of the wounds' value: a hundredth's points (#1779).
         Told::Wounds(points) => white(format!("{}: {points:+.2}%", n(1135))),
+        // The per cent chances of the effects 866 and 856, as an item's are worded.
+        Told::GoldForHealth(chance) => white(format!("{}: {}%", n(1134), tenths(chance))),
+        Told::GoldPile(chance) => white(format!("{}: {}%", n(1143), tenths(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
         Told::RangedDefence(x) => white(format!(
             "{} {} {}: {}",
@@ -324,6 +327,8 @@ mod tests {
         let told = |line| texts(&told_lines(line, &wearer, &words()));
         assert_eq!(told(Told::WholeDamage(0.34)), ["<1076>: +34%"]);
         assert_eq!(told(Told::Survival(16.7)), ["<1159>: +16.7%"]);
+        assert_eq!(told(Told::GoldForHealth(50.1)), ["<1134>: +50.1%"]);
+        assert_eq!(told(Told::GoldPile(20.0)), ["<1143>: +20%"]);
         assert_eq!(
             told(Told::Bonus(Bonus::Multiplier(
                 Array::Spells,
