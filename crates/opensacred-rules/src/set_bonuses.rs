@@ -486,6 +486,9 @@ pub enum Reader {
     /// undead, 10 the dragons, 9 the demons; `0x426A80`, `0x426B70`, `0x426B20`) lets these kinds'
     /// damages through its resistances times `1 + c·D` (M1, `0x56CA85`…).
     Against(u8, &'static [usize], f32),
+    /// A drop's call of no type makes a potion in one case of ten (M7, `0x559CA9`;
+    /// `drops::Kill::potions`); the list tells it in no line, the game having no text of it.
+    Potions,
 }
 
 /// The `Creature.pak` classes that the strike's readers test (M1).
@@ -521,6 +524,7 @@ pub const READERS: &[Read] = &[
     read(1, 6, Reader::Exorcism(0.3)),
     read(18, 8, Reader::Exorcism(0.3)),
     read(19, 5, Reader::Experience(0.1)),
+    read(22, 5, Reader::Potions),
     read(28, 6, Reader::Survival(10.0)),
     read(53, 7, Reader::IntoGold),
 ];
@@ -578,6 +582,11 @@ impl Stats {
             }
         }
         times
+    }
+
+    /// Whether the wearer's kills drop potions ([`Reader::Potions`]).
+    pub fn potions(&self) -> bool {
+        self.worn.reads().any(|read| read.reads == Reader::Potions)
     }
 
     /// The share of a kill's experience that the wearer earns more ([`Reader::Experience`]).
@@ -751,17 +760,21 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
             };
             Some((entry.pieces, line))
         });
-    let readers = worn.reads().filter(|read| read.set == set).map(|read| {
-        let line = match read.reads {
-            Reader::Luck(c) => Told::Luck(c * d),
-            Reader::Exorcism(c) => Told::Exorcism(c * d),
-            Reader::Experience(c) => Told::Experience(c * d),
-            Reader::Survival(c) => Told::Survival(c * d),
-            Reader::IntoGold => Told::IntoGold,
-            Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
-        };
-        (read.pieces, line)
-    });
+    let readers = worn
+        .reads()
+        .filter(|read| read.set == set)
+        .filter_map(|read| {
+            let line = match read.reads {
+                Reader::Luck(c) => Told::Luck(c * d),
+                Reader::Exorcism(c) => Told::Exorcism(c * d),
+                Reader::Experience(c) => Told::Experience(c * d),
+                Reader::Survival(c) => Told::Survival(c * d),
+                Reader::IntoGold => Told::IntoGold,
+                Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
+                Reader::Potions => return None,
+            };
+            Some((read.pieces, line))
+        });
     let mut lines: Vec<(u8, Told)> = bonuses.chain(readers).collect();
     lines.sort_by_key(|&(pieces, _)| pieces);
     lines.into_iter().map(|(_, line)| line).collect()

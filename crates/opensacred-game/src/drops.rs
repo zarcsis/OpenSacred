@@ -842,9 +842,11 @@ fn treasure(
 /// (`0x564A60`, `set_bonuses::Stats::luck`, #1727).
 const LUCK: f32 = 100.0;
 
-/// The luck of the hero of `holding` ([`LUCK`]).
-fn luck_of(holding: Option<&fight::Holding>) -> f32 {
-    holding.map_or(LUCK, |holding| holding.0.sets.luck(LUCK))
+/// The luck of the hero of `holding` ([`LUCK`]), and whether its kills drop set 22's potions.
+fn luck_of(holding: Option<&fight::Holding>) -> (f32, bool) {
+    holding.map_or((LUCK, false), |holding| {
+        (holding.0.sets.luck(LUCK), holding.0.sets.potions())
+    })
 }
 
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
@@ -856,7 +858,7 @@ fn death(
     rank: fight::Rank,
     worth: &fight::Worth,
     hero: Hero,
-    (played, (treasure, luck), difficulty): (f32, (u32, f32), drops::Difficulty),
+    (played, (treasure, (luck, potions)), difficulty): (f32, (u32, (f32, bool)), drops::Difficulty),
 ) -> Death {
     Death {
         dead: Dead {
@@ -872,6 +874,7 @@ fn death(
             minutes: played / 60.0,
             treasure,
             luck,
+            potions,
             ..Kill::default()
         },
         difficulty,
@@ -1033,7 +1036,7 @@ fn dies(
     let luck = heroes
         .iter()
         .next()
-        .map_or(LUCK, |(.., holding)| luck_of(holding));
+        .map_or((LUCK, false), |(.., holding)| luck_of(holding));
     let hero = heroes
         .iter()
         .next()
