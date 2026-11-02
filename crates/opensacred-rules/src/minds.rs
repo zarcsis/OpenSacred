@@ -1186,7 +1186,8 @@ impl Mind {
         let dragon = casts::dragon(self.creature);
         let demon = casts::big_demon(self.creature);
         let mage = casts::mark_8(self.creature);
-        if mark_1.is_none() && !dragon && !demon && !mage {
+        let own = casts::own_mark(self.creature);
+        if mark_1.is_none() && !dragon && !demon && !mage && own.is_none() {
             return None;
         }
         if !self.fighting || self.ranged || sight.striking {
@@ -1214,6 +1215,9 @@ impl Mind {
         let (here, target) = (sight.here, sight.hero);
         if mage {
             return Some(self.mage_casts(sight, cast, clear, rng));
+        }
+        if let Some(own) = own {
+            return self.own_casts(own, sight, cast, clear, rng);
         }
         if demon {
             let roll = rng.below(3);
@@ -1293,6 +1297,98 @@ impl Mind {
         let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
         let angle = degrees.to_radians();
         Pursues::Strolls(target + Spot::new(angle.cos(), angle.sin()) * radius)
+    }
+
+    /// A decision of a caster of a mark of its own (`0x4D4E50`, #1855; [`Self::cast`]): none
+    /// where it fights hand to hand.
+    fn own_casts(
+        &mut self,
+        own: casts::OwnMark,
+        sight: &Pursuit,
+        cast: &CastSight,
+        mut clear: impl FnMut() -> bool,
+        rng: &mut impl Dice,
+    ) -> Option<Pursues> {
+        use casts::OwnMark;
+        let (here, target) = (sight.here, sight.hero);
+        let d = (target - here).length();
+        let reach = reach_f32(self.size(), sight.hero_size);
+        let passed = cast.now >= self.cast_deadline;
+        let casts = |spell: u16| Some(Pursues::Casts { spell, variant: 0 });
+        let renew = |mind: &mut Self, roll: u32| {
+            mind.cast_deadline = cast.now.floor()
+                + f64::from(casts::deadline(mind.level, cast.elite, cast.hostiles, roll));
+        };
+        // The plant cage of the mark 8, or the guard's fire on the same path.
+        if matches!(
+            own,
+            OwnMark::IceDruid | OwnMark::PrincesGuard | OwnMark::AnducarsGuard
+        ) && cast.at_hero
+        {
+            let roll = rng.below(4 + cast.hostiles);
+            if casts::cages(
+                self.creature,
+                d,
+                (roll, cast.hostiles),
+                (self.level, cast.hero_level),
+                (cast.held, clear()),
+            ) {
+                renew(self, rng.below(3));
+                return casts(if own == OwnMark::AnducarsGuard {
+                    casts::GUARDS_FIRE
+                } else {
+                    casts::CAGE
+                });
+            }
+        }
+        match own {
+            OwnMark::Blinker => {
+                self.band_moves = self.band_moves.saturating_add(1);
+                if d > casts::BLINKER_FAR && self.band_moves < casts::BAND_MOVES {
+                    if sight.walk.is_some() {
+                        return Some(Pursues::Faces);
+                    }
+                    if casts::band_walks(d, self.creature) {
+                        self.banding = true;
+                        return Some(Pursues::KeepsBand(
+                            target + (here - target).unit() * casts::BAND_POINT,
+                        ));
+                    }
+                }
+                if d < casts::BLINKER_NEAR {
+                    return Some(Pursues::Blinks);
+                }
+                if rng.below(2) == 0 {
+                    return casts(casts::SPLINTERS);
+                }
+                Some(Pursues::Faces)
+            }
+            OwnMark::IceElf => {
+                let roll = rng.below(3);
+                let spell = casts::ice_elf_casts(d, reach, (roll, rng.below(9)), passed)?;
+                renew(self, rng.below(3));
+                casts(spell)
+            }
+            OwnMark::IceDruid => casts::ice_druid_casts(d, reach, rng.below(3)).and_then(casts),
+            OwnMark::GodsChild => {
+                let roll = rng.below(3);
+                casts::gods_child_casts(d, reach, (roll, rng.below(4))).and_then(casts)
+            }
+            OwnMark::Prince => {
+                casts::prince_casts(d, reach, rng.below(2)).then_some(Pursues::Casts {
+                    spell: casts::FAN_OF_FLAMES,
+                    variant: 0,
+                })
+            }
+            OwnMark::AnducarsGuard => {
+                if casts::mage_casts(rng.below(3), clear(), passed, sight.targeted) {
+                    renew(self, rng.below(3));
+                    return casts(casts::GUARDS_FIRE);
+                }
+                None
+            }
+            OwnMark::PrincesGuard => None,
+        }
     }
 
     /// A magician's decision of the mark 8 (`0x4D5F33`; [`Self::cast`]), standing or on its own
@@ -2019,6 +2115,9 @@ pub enum Pursues {
     KeepsBand(Spot),
     /// A caster runs to the point about its target.
     Strolls(Spot),
+    /// A caster blinks away from its target (the black magician 10's, #1855): to the first of
+    /// [`casts::BLINK_TRIES`] points [`casts::BLINK_REACH`] about it that a straight way reaches.
+    Blinks,
     /// At range, too near the hero, it backs off to the point, at a run or not.
     BacksOff { to: Spot, runs: bool },
     /// At range, without a straight line to the hero, it goes round to the point, at a run or

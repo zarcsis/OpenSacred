@@ -3,7 +3,7 @@
 //! their target, their deadline between two casts and the rolls of their decisions. A creature
 //! does not choose from its arts' list, which `Creature.pak` leaves empty: its spells are its
 //! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons
-//! and big demons; the mark 8's magicians.
+//! and big demons; the mark 8's magicians; the casters of marks of their own.
 
 use crate::spawning::Dice;
 use crate::spells::{FIREBALL, WHIRLWIND};
@@ -331,6 +331,113 @@ pub fn sprinter(creature: u32) -> bool {
     matches!(creature, 211 | 349)
 }
 
+/// The casters of marks of their own (`0x4D4E50`; docs/re/ai.md, "The creatures' spells").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnMark {
+    /// The black magician 10 (271, `0x20`): the ice splinters, and a blink away from near.
+    Blinker,
+    /// The ice elf (140, `0x208`): the lightning, the holy light, the holy shield on itself.
+    IceElf,
+    /// The ice druid (141, `0x209`): the plant cage, the blades of light about itself.
+    IceDruid,
+    /// The god's child (145, `0x20B`): the chain lightning or the lightning.
+    GodsChild,
+    /// The demon prince (185, 250 to 252, `0x20C`): its fan of flames (71).
+    Prince,
+    /// Anducar's guard (184, 249, `0x212`): its homing fire (70).
+    AnducarsGuard,
+    /// The prince's guards (187, 205 to 208, 253 to 255, 330 to 332, `0x218`): the plant cage.
+    PrincesGuard,
+}
+
+/// The caster's mark of its own of a creature of type `creature`, if any.
+pub fn own_mark(creature: u32) -> Option<OwnMark> {
+    Some(match creature {
+        271 => OwnMark::Blinker,
+        140 => OwnMark::IceElf,
+        141 => OwnMark::IceDruid,
+        145 => OwnMark::GodsChild,
+        185 | 250..=252 => OwnMark::Prince,
+        184 | 249 => OwnMark::AnducarsGuard,
+        187 | 205..=208 | 253..=255 | 330..=332 => OwnMark::PrincesGuard,
+        _ => return None,
+    })
+}
+
+/// The holy light (15), the blades of light (17), the holy shield (22), the chain lightning (33),
+/// the ice splinters (34), the guard's fire (70) and the prince's fan of flames (71).
+pub const HOLY_LIGHT: u16 = 15;
+pub const BLADES: u16 = 17;
+pub const HOLY_SHIELD: u16 = 22;
+pub const CHAIN: u16 = 33;
+pub const SPLINTERS: u16 = 34;
+pub const GUARDS_FIRE: u16 = 70;
+pub const FAN_OF_FLAMES: u16 = 71;
+
+/// The black magician 10's distances (`0x4D71A5`): its band's walk farther than 350, its blink
+/// nearer than 200, at most 15 tries of a point with a straight way, and how far it blinks
+/// (**estimate**: the tries' geometry is not read).
+pub const BLINKER_FAR: f32 = 350.0;
+pub const BLINKER_NEAR: f32 = 200.0;
+pub const BLINK_TRIES: u32 = 15;
+pub const BLINK_REACH: f32 = 400.0;
+
+/// What a caster of the spell `spell` casts it on: itself (the holy shield, the blades of light),
+/// else its target.
+pub fn on_itself(spell: u16) -> bool {
+    matches!(spell, HOLY_SHIELD | BLADES)
+}
+
+/// Whether the launch test refuses `spell` on a target that holds an effect keyed by it
+/// (`0x51D840`, `0x582B00`): the spells 2, 17 to 22, 24, 25, 27, 28, 30 to 32, 37, 40, 41, 47,
+/// 55 to 59, 62, 63, 65 and 72.
+pub fn refused_while_keyed(spell: u16) -> bool {
+    matches!(
+        spell,
+        2 | 17..=22 | 24 | 25 | 27 | 28 | 30..=32 | 37 | 40 | 41 | 47 | 55..=59 | 62 | 63 | 65 | 72
+    )
+}
+
+/// What the ice elf casts within its reach and 30 (`0x4D4E50`, mark `0x208`), by a roll of 1 in 3
+/// (`roll`, a `R(0, 2)` of 0; **hypothesis** for the value) with its deadline passed: of nine
+/// (`choice`), the lightning at the hero in six, the holy light in two, the holy shield on itself
+/// in one.
+pub fn ice_elf_casts(
+    distance: f32,
+    reach: f32,
+    (roll, choice): (u32, u32),
+    passed: bool,
+) -> Option<u16> {
+    (distance <= reach + 30.0 && roll % 3 == 0 && passed).then_some(match choice % 9 {
+        0..=5 => crate::spells::LIGHTNING,
+        6 | 7 => HOLY_LIGHT,
+        _ => HOLY_SHIELD,
+    })
+}
+
+/// What the ice druid casts within five times its reach (mark `0x209`): the blades of light about
+/// itself in two cases of three (`choice`), else its weapon arts 1018 or 1019 (not spells, none
+/// here).
+pub fn ice_druid_casts(distance: f32, reach: f32, choice: u32) -> Option<u16> {
+    (distance <= 5.0 * reach && choice % 3 < 2).then_some(BLADES)
+}
+
+/// What the god's child casts within its reach and 30 (mark `0x20B`), by a roll of 1 in 3: the
+/// chain lightning at the hero in three cases of four (`choice`), else the lightning.
+pub fn gods_child_casts(distance: f32, reach: f32, (roll, choice): (u32, u32)) -> Option<u16> {
+    (distance <= reach + 30.0 && roll % 3 == 0).then_some(if choice % 4 < 3 {
+        CHAIN
+    } else {
+        crate::spells::LIGHTNING
+    })
+}
+
+/// Whether the demon prince casts its fan of flames (mark `0x20C`): beyond its reach and 30, in one
+/// decision of two (`roll`).
+pub fn prince_casts(distance: f32, reach: f32, roll: u32) -> bool {
+    distance > reach + 30.0 && roll.is_multiple_of(2)
+}
+
 /// The heal and the shields a magician casts on a friend (`0x4D31C0`): `HEILKRAFT` (7), the fire
 /// skin (24) and the stone skin (2).
 pub const HEAL: u16 = 7;
@@ -539,6 +646,31 @@ mod tests {
             mage_spell(697, 0, (false, 0), &mut Script::new(vec![20])),
             None
         );
+    }
+
+    #[test]
+    fn the_casters_of_marks_of_their_own_cast_their_spells() {
+        assert_eq!(own_mark(271), Some(OwnMark::Blinker));
+        assert_eq!(own_mark(251), Some(OwnMark::Prince));
+        assert_eq!(own_mark(266), None);
+        assert_eq!(
+            ice_elf_casts(100.0, 90.0, (0, 5), true),
+            Some(crate::spells::LIGHTNING)
+        );
+        assert_eq!(ice_elf_casts(100.0, 90.0, (0, 7), true), Some(HOLY_LIGHT));
+        assert_eq!(ice_elf_casts(100.0, 90.0, (0, 8), true), Some(HOLY_SHIELD));
+        assert_eq!(ice_elf_casts(100.0, 90.0, (0, 0), false), None);
+        assert_eq!(ice_elf_casts(130.0, 90.0, (0, 0), true), None);
+        assert_eq!(ice_druid_casts(400.0, 90.0, 1), Some(BLADES));
+        assert_eq!(ice_druid_casts(400.0, 90.0, 2), None);
+        assert_eq!(gods_child_casts(100.0, 90.0, (0, 2)), Some(CHAIN));
+        assert_eq!(
+            gods_child_casts(100.0, 90.0, (0, 3)),
+            Some(crate::spells::LIGHTNING)
+        );
+        assert!(prince_casts(200.0, 90.0, 0) && !prince_casts(100.0, 90.0, 0));
+        assert!(refused_while_keyed(17) && refused_while_keyed(40) && !refused_while_keyed(13));
+        assert!(on_itself(BLADES) && !on_itself(CHAIN));
     }
 
     #[test]

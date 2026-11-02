@@ -1215,6 +1215,55 @@ pub(crate) fn skin(
     give(commands, bearer, given);
 }
 
+/// Makes the object of an area's spell (`spells::area`), the hero's or a creature's (#1855): it
+/// strikes about itself at `centre`, or about the bearer it follows, for the record's value 0 in
+/// seconds what is hostile to its caster.
+pub(crate) fn strikes_about(
+    commands: &mut Commands,
+    looks: Option<&Looks>,
+    (record, level): (&opensacred_data::tables::Spell, u32),
+    (caster, follows, on): (Entity, Option<Entity>, Level),
+    centre: Vec3,
+    damages: [f32; 4],
+) {
+    let Some(area) = spells::area(record.id) else {
+        return;
+    };
+    let mut made = commands.spawn((
+        Aura {
+            caster,
+            follows,
+            reach: area.reach,
+            classes: area.classes,
+            damages: Some(damages),
+            gives: Vec::new(),
+            key: record.id,
+            level: on,
+            left: fight_seconds(spells::value(record, 0, level)),
+            cooldown: 0.0,
+            strikes: Strikes::About,
+        },
+        Transform::from_translation(centre),
+        Visibility::Inherited,
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(looks) = looks {
+        let look = match record.id {
+            spells::HOLY_LIGHT => 0,
+            spells::BLADES_OF_LIGHT => 1,
+            FIRE_SKIN => 3,
+            spells::GUST => 4,
+            _ => 2,
+        };
+        made.with_child((
+            Mesh3d(looks.disc.clone()),
+            MeshMaterial3d(looks.discs[look].clone()),
+            Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
+                .with_translation(Vec3::Y * 4.0),
+        ));
+    }
+}
+
 /// The heroes on the level `on` that a creature's object strikes (#1854), alive: each with its
 /// place on the ground.
 fn heroes_on(
@@ -1999,40 +2048,14 @@ fn act(
                     "spells: {spell} strikes within {} for {seconds} s with {damages:?}",
                     area.reach
                 );
-                let aura = Aura {
-                    caster: act.caster,
-                    follows,
-                    reach: area.reach,
-                    classes: area.classes,
-                    damages: Some(damages),
-                    gives: Vec::new(),
-                    key: spell,
-                    level: body.level(),
-                    left: seconds,
-                    cooldown: 0.0,
-                    strikes: Strikes::About,
-                };
-                let mut made = commands.spawn((
-                    aura,
-                    Transform::from_translation(centre),
-                    Visibility::Inherited,
-                    DespawnOnExit(AppState::InGame),
-                ));
-                if let Some(looks) = &looks {
-                    let look = match spell {
-                        spells::HOLY_LIGHT => 0,
-                        spells::BLADES_OF_LIGHT => 1,
-                        FIRE_SKIN => 3,
-                        spells::GUST => 4,
-                        _ => 2,
-                    };
-                    made.with_child((
-                        Mesh3d(looks.disc.clone()),
-                        MeshMaterial3d(looks.discs[look].clone()),
-                        Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
-                            .with_translation(Vec3::Y * 4.0),
-                    ));
-                }
+                strikes_about(
+                    &mut commands,
+                    looks.as_deref(),
+                    (record, act.level),
+                    (act.caster, follows, body.level()),
+                    centre,
+                    damages,
+                );
                 // The fire skin's effects of its record at once, and the turning aside of the
                 // fire skin and the gust.
                 given.extend(spells::turning(record, act.level));
