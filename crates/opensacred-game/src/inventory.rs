@@ -88,8 +88,27 @@ const TAB_TOP: f32 = -43.0;
 const TAB_BAR: f32 = 24.0;
 const TAB_GAP: f32 = 18.0;
 const TAB_FONT: f32 = 15.0;
-/// The sort's button (`cUI_Button2` at `+0x158`), at (−2, 254) of the window.
-const SORT: (u32, Vec2) = (73, Vec2::new(-2.0, 254.0));
+/// The sort's button (`cUI_Button2` at `+0x158`), at (−2, 254) of the window, its picture with
+/// its state clear (the image 71, two arrows to the right), and its picture with its state set,
+/// of the sort by rows (73, an arrow down; seen, #1669).
+const SORT: (u32, Vec2) = (71, Vec2::new(-2.0, 254.0));
+const SORT_BY_ROWS: u32 = 73;
+
+/// The sort's button's state (its flags' bit 4, the window's `+0x168`): set, the sort goes by
+/// rows. Each press turns it before the sort reads it (`0x6C61C0`), so that the sorts go by rows
+/// and by columns in turn, the first by rows (seen, #1669); the window lives as long as the
+/// play, so the state stays from game to game (**hypothesis**).
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SortByRows(pub bool);
+
+/// The sort's button's picture.
+#[derive(Component)]
+struct SortButton;
+
+/// The picture of the sort's button in the state `by_rows`.
+fn sort_image(by_rows: bool) -> u32 {
+    if by_rows { SORT_BY_ROWS } else { SORT.0 }
+}
 /// The equipment's ornament (`GUI_main_ornament`), drawn at an alpha of `0x9F` (`0x6BAC80`).
 const ORNAMENT: u32 = 376;
 const ORNAMENT_ALPHA: f32 = 159.0 / 255.0;
@@ -217,15 +236,15 @@ fn equipment_frame(
 /// The sort's button, its side.
 const SORT_SIDE: f32 = 34.0;
 
-/// A left click on the sort's button while the windows show sorts the backpack's grid
-/// (`cInventoryEntry::autoSortItems`, `0x5DB6B0`, #1321): by the items' categories and areas, at
-/// their first fits by columns, the button's other mode (by rows, its `+0x168` bit 4) not read;
-/// the grid as it was where the sort leaves an item out.
+/// A left click on the sort's button while the windows show turns the button's state and sorts
+/// the backpack's grid in it (`cInventoryEntry::autoSortItems`, `0x5DB6B0`, #1321, #1669): by
+/// the items' categories and areas, at their first fits by rows where the state is set, else by
+/// columns; the grid as it was where the sort leaves an item out.
 fn sort(
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     shown: Res<Shown>,
-    mut pack: ResMut<crate::pickup::Pack>,
+    (mut pack, mut by_rows): (ResMut<crate::pickup::Pack>, ResMut<SortByRows>),
     tables: Option<Res<crate::drops::Tables>>,
 ) {
     if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
@@ -237,18 +256,36 @@ fn sort(
     let Some(tables) = tables.filter(|_| on_button) else {
         return;
     };
+    by_rows.0 = !by_rows.0;
     let category = |key: u32| {
         pack.items
             .iter()
             .find(|(k, _)| *k == key)
             .map_or(0, |(_, dropped)| tables.category(dropped.item))
     };
-    match pack.grid.sorted(category, false) {
+    match pack.grid.sorted(category, by_rows.0) {
         Some(sorted) => {
-            info!("inventory: the backpack sorted");
+            let by = if by_rows.0 { "rows" } else { "columns" };
+            info!("inventory: the backpack sorted by {by}");
             pack.grid = sorted;
         }
         None => info!("inventory: the backpack left as it was: the sort leaves an item out"),
+    }
+}
+
+/// The sort's button's picture by its state, as the state turns.
+fn sort_picture(
+    mut commands: Commands,
+    by_rows: Res<SortByRows>,
+    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    buttons: Query<Entity, With<SortButton>>,
+) {
+    if !by_rows.is_changed() {
+        return;
+    }
+    for button in &buttons {
+        let picture = bar::piece(&images, &assets, sort_image(by_rows.0), SORT.1, Vec2::ZERO);
+        commands.entity(button).insert(picture);
     }
 }
 
@@ -333,7 +370,7 @@ pub(crate) fn screen_point(
 fn show(
     mut commands: Commands,
     (shown, mut page, mut opening): (Res<Shown>, ResMut<Page>, ResMut<Opening>),
-    screens: Query<Entity, With<Screen>>,
+    (screens, by_rows): (Query<Entity, With<Screen>>, Res<SortByRows>),
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
     mut dice: Local<Option<Rng>>,
     mut sounds: MessageWriter<sfx::Play>,
@@ -394,9 +431,10 @@ fn show(
     }
     let sort = commands
         .spawn((
-            piece(SORT.0, SORT.1),
+            piece(sort_image(by_rows.0), SORT.1),
             Pickable::IGNORE,
             crate::control_glow::Glows,
+            SortButton,
         ))
         .id();
     commands.entity(inventory).add_child(sort);
@@ -602,6 +640,7 @@ impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shown>()
             .init_resource::<Page>()
+            .init_resource::<SortByRows>()
             .init_resource::<Opening>()
             .hold_control(off_the_windows)
             .add_systems(OnEnter(AppState::InGame), hide)
@@ -620,7 +659,7 @@ impl Plugin for InventoryPlugin {
                     show.in_set(Opened),
                     select.in_set(Opened).after(show),
                     page_sounds.after(Opened),
-                    sort.after(Opened),
+                    (sort, sort_picture).chain().after(Opened),
                 )
                     .run_if(in_state(AppState::InGame)),
             );
@@ -657,6 +696,14 @@ mod tests {
             61 => Vec2::new(70.0, 18.0),
             _ => Vec2::new(64.0, 20.0),
         }
+    }
+
+    #[test]
+    fn the_sorts_button_shows_its_state() {
+        // Seen in the original: two arrows to the right at a game's start, an arrow down after
+        // a sort by rows.
+        assert_eq!(sort_image(SortByRows::default().0), 71);
+        assert_eq!(sort_image(true), 73);
     }
 
     #[test]
