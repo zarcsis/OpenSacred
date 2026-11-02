@@ -184,6 +184,11 @@ const PLAY_ANIM: u16 = 91;
 const PLAY_SOUND: u16 = 104;
 /// `Morph` (`0x4A15A0`): a creature's type replaced (#1829).
 const MORPH: u16 = 79;
+/// `Attack` (`0x4A2B40`): a creature or a group sent at a creature, the hero or a group (#1830).
+const ATTACK: u16 = 92;
+/// `Attack`'s art or spell by name (`+0xA880`), which #1831 follows; `ECS_NOSPELL` is none.
+const ART: u8 = 0x67;
+const NO_SPELL: &str = "ecs_nospell";
 /// The operand that `npcs` adds to a `Morph` that waited its turn in its creature's queue as it
 /// hands it to the world's records ([`take_steps`]): its level and health kept (the step
 /// `0x59F266`); past the scripts' last tag, beside [`AREA_TURN`].
@@ -7064,6 +7069,81 @@ fn morphs(records: &[Record]) -> Vec<Morph> {
     morphs
 }
 
+/// An `Attack`'s attacker or target (`0x4A2B40`): the hero (`HERO`, case aside), the creature of
+/// a name, or the members of a scripts' group.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Party {
+    Hero,
+    Named(String),
+    Group(u32),
+}
+
+/// A script's `Attack` without an art, which `script_attacks` carries out (#1830): its attacker,
+/// its first `0x01` or `0x11`, and its target, the next.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ScriptAttack {
+    pub attacker: Party,
+    pub target: Party,
+}
+
+/// The `Attack`s without an art that the scripts ran outside the anim mode, in order.
+#[derive(Resource, Default)]
+pub(crate) struct ScriptAttacks(pub Vec<ScriptAttack>);
+
+/// The `Attack`s of `records` that act at once (`0x4A2B40`): outside the anim mode, of no art
+/// (#1831's), each of an attacker and a target in their operands' order (#1835): the first
+/// `0x01` or `0x11` the attacker, the next the target, a later name the target again. The hero
+/// never attacks (no record names it first); under the mode a creature's waits its turn and, of
+/// no art, never fights ([`QUEUED_OTHERS`]).
+fn script_attacks(records: &[Record]) -> Vec<ScriptAttack> {
+    let mut queued = false;
+    let mut attacks = Vec::new();
+    for record in records {
+        match record.kind {
+            SET_ANIM_MODE | SET_CINEMA_MODE => queued = true,
+            SET_PLAY_MODE => queued = false,
+            _ => {}
+        }
+        let Body::Operands(ops) = &record.body else {
+            continue;
+        };
+        if record.kind != ATTACK || queued {
+            continue;
+        }
+        let art = ops.iter().any(|o| {
+            o.tag == ART
+                && !matches!(&o.value, Value::Str(name) if name.eq_ignore_ascii_case(NO_SPELL))
+        });
+        if art {
+            continue;
+        }
+        let mut parties = Vec::new();
+        for op in ops {
+            let party = match (op.tag, &op.value) {
+                (0x01, Value::Str(name)) if name.eq_ignore_ascii_case(HERO) => Party::Hero,
+                (0x01, Value::Str(name)) => Party::Named(name.to_ascii_lowercase()),
+                (0x11, Value::I32(group)) => match u32::try_from(*group) {
+                    Ok(group) => Party::Group(group),
+                    Err(_) => continue,
+                },
+                _ => continue,
+            };
+            if parties.len() < 2 {
+                parties.push(party);
+            } else if let Some(target) = parties.last_mut() {
+                *target = party;
+            }
+        }
+        if let [attacker, target] =
+            <[Party; 2]>::try_from(parties).unwrap_or([Party::Hero, Party::Hero])
+            && attacker != Party::Hero
+        {
+            attacks.push(ScriptAttack { attacker, target });
+        }
+    }
+    attacks
+}
+
 /// The `Morph`s that the scripts ran, which [`morph`] carries out.
 #[derive(Resource, Default)]
 pub(crate) struct Morphs(Vec<Morph>);
@@ -7366,13 +7446,14 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
-    (mut queues, real, sounds, mut lines, mut states, mut morphed): (
+    (mut queues, real, sounds, mut lines, mut states, mut morphed, mut attacks): (
         Query<&mut ScriptQueue>,
         Res<Time<bevy::time::Real>>,
         Option<Res<sfx::Sfx>>,
         MessageWriter<crate::scripts::ScriptLine>,
         Option<ResMut<crate::scripts::ObjStates>>,
         ResMut<Morphs>,
+        ResMut<ScriptAttacks>,
     ),
     dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
 ) {
@@ -7542,6 +7623,7 @@ pub(crate) fn script_records(
         }
     }
     morphed.0.extend(morphs(&records));
+    attacks.0.extend(script_attacks(&records));
     // The steps queued in this run, for the creatures without a queue yet.
     let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
     for moved in npcs.moves(all.as_deref().unwrap_or(&records), real.elapsed_secs_f64()) {
@@ -8840,6 +8922,7 @@ impl Plugin for NpcsPlugin {
         app.init_resource::<Retextured>()
             .init_resource::<AreaChanges>()
             .init_resource::<Morphs>()
+            .init_resource::<ScriptAttacks>()
             .add_observer(retexture)
             .add_observer(equipment_ready)
             .add_observer(keep)
@@ -9997,6 +10080,57 @@ mod tests {
         assert_eq!(
             deferred_objects(&records, |name| name == "res:18237"),
             HashSet::from([2])
+        );
+    }
+
+    #[test]
+    fn an_attacks_attacker_and_target_follow_their_operands_order() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        let group = |n| op(0x11, Value::I32(n));
+        let attack = |ops| Record {
+            kind: ATTACK,
+            body: Body::Operands(ops),
+        };
+        let records = [
+            // `malorka_ok`'s group against the hero, quest 1112's creature against a group and
+            // a group against it, region 3's groups, quest 20's two creatures.
+            attack(vec![group(60000), name("HERO")]),
+            attack(vec![name("res:17127"), group(11121)]),
+            attack(vec![group(11121), name("res:17127")]),
+            attack(vec![group(6000), group(6001)]),
+            attack(vec![name("res:17090"), name("res:17089")]),
+            // An art's is #1831's, `ECS_NOSPELL` none; a record of one party nothing.
+            attack(vec![
+                name("res:17038"),
+                op(0x04, Value::I32x3([-1655, -2409, 0])),
+                op(ART, Value::Str("ECS_TELEPORT".into())),
+            ]),
+            attack(vec![
+                name("res:17309"),
+                name("res:17310"),
+                op(ART, Value::Str("ECS_NOSPELL".into())),
+            ]),
+            attack(vec![name("res:1")]),
+            // Under the mode, quest 1602's waits its turn.
+            Record {
+                kind: SET_ANIM_MODE,
+                body: Body::Operands(Vec::new()),
+            },
+            attack(vec![name("res:17201"), name("res:17205")]),
+        ];
+        let named = |n: &str| Party::Named(n.into());
+        let pair = |attacker, target| ScriptAttack { attacker, target };
+        assert_eq!(
+            script_attacks(&records),
+            [
+                pair(Party::Group(60000), Party::Hero),
+                pair(named("res:17127"), Party::Group(11121)),
+                pair(Party::Group(11121), named("res:17127")),
+                pair(Party::Group(6000), Party::Group(6001)),
+                pair(named("res:17090"), named("res:17089")),
+                pair(named("res:17309"), named("res:17310")),
+            ]
         );
     }
 

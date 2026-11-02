@@ -144,6 +144,16 @@ impl Mind {
         }
         goes
     }
+
+    /// A creature sent at the hero (the event `0x100` of a script's `Attack`, #1830); whether it
+    /// goes.
+    pub fn send_at_hero(&mut self) -> bool {
+        let goes = self.thinks.sent_at();
+        if goes {
+            self.foe = None;
+        }
+        goes
+    }
 }
 
 /// A creature as another sees it for the fights between them (#630): its entity, where it
