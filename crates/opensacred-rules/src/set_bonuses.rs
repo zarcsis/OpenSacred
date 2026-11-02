@@ -529,6 +529,9 @@ pub enum Reader {
     /// The Dark Elf goes unseen by the creatures while it stands, walks or runs out of a fight
     /// (M9, the query `0x54A6D0`; the update `0x5396DB` gives it the effect 63, not followed).
     Unseen,
+    /// A wild animal that would flee from the wearer stands in `⌊c·D⌋` rolls of `R(0, 100)`
+    /// (M16, `0x4E263D`; [`Stats::terror`]).
+    Terror(f32),
     /// The killer's effect 863, the exorcism, grows by `c·D` at an undead's death (M20,
     /// `0x532D77`, `0x532D9F`; `undead::exorcised`): set 61's flag `0x2000000` first, then set 54.
     Exorcist(f32),
@@ -588,6 +591,7 @@ pub const READERS: &[Read] = &[
     read(16, 6, Reader::GoldForHealth(30.0)),
     read(30, 5, Reader::GoldPile(10.0)),
     read(26, 7, Reader::Unseen),
+    read(41, 4, Reader::Terror(20.0)),
     read(61, 4, Reader::Exorcist(0.15)),
     read(54, 7, Reader::Exorcist(0.3)),
     read(31, 5, Reader::OpenWounds(10.0)),
@@ -712,6 +716,21 @@ impl Stats {
                 Reader::GoldForHealth(c) => value + c * self.factor,
                 _ => value,
             })
+    }
+
+    /// The per cent of a wild animal's flights from its wearer in which the animal stands
+    /// instead (M16, `0x4E263D`): `⌊20·D⌋` from four pieces of set 41 (`R(0, 100)` below it),
+    /// where the wearer's own items give no effect 855, which the game does not follow; 0
+    /// without them.
+    pub fn terror(&self) -> u32 {
+        // ⌊20·D⌋: 20, 26, 33, 40, 46 (`0x4E26B6`, the float 20 at `0x890798`).
+        self.worn
+            .reads()
+            .find_map(|read| match read.reads {
+                Reader::Terror(c) => Some(crate::fight::whole_part(c * self.factor)),
+                _ => None,
+            })
+            .unwrap_or(0)
     }
 
     /// The effect 858's value `value` of the target's own items, the magic defence, grown while
@@ -981,6 +1000,9 @@ pub enum Told {
     Stun(f32),
     /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
     Unseen,
+    /// The per cent of a wild animal's flights from the wearer in which it stands
+    /// ([`Reader::Terror`]): the terror's whole chance of the roll's 101 faces.
+    Terror(f32),
     /// The per cent of a slain foe's drops of no type that are a potion ([`Reader::Potions`]).
     Potions(f32),
 }
@@ -1025,6 +1047,10 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
             Reader::GoldPile(c) => Told::GoldPile(c * d),
             Reader::Exorcist(c) => Told::Exorcist(c * d),
             Reader::Unseen => Told::Unseen,
+            Reader::Terror(c) => {
+                let terror = crate::fight::whole_part(c * d);
+                Told::Terror(crate::fight::to_f32(terror) * 100.0 / 101.0)
+            }
             Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
         };
         (read.pieces, line)
