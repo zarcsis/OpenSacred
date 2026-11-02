@@ -205,6 +205,11 @@ pub struct NewGame {
     /// No music and no ambient loops
     #[arg(long)]
     pub no_music: bool,
+    /// Leave the new game's first window and the tutorial's tips open, which the command
+    /// `new-game` otherwise closes by OK and No more Tips, as the original's driver does (#1343);
+    /// the menu's game and the command line's leave them open
+    #[arg(long)]
+    pub leave_open: bool,
     /// Send the hero this many cells along X,Y (screen right-down, left-down) at the start
     #[arg(long, value_parser = parse_offset, allow_hyphen_values = true)]
     pub target: Option<(f32, f32)>,

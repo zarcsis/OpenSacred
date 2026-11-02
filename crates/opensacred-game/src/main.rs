@@ -533,6 +533,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     // A game that the command line names starts at once, as if chosen in the menu; one whose run
     // has nothing else to do (a screenshot, a benchmark) ends the process when it does not load.
     let named = cli.game.named() || fixed;
+    // Its first windows closed as `new-game` closes them, unless left open (#1343).
+    if named && !cli.game.leave_open {
+        app.insert_resource(talk::CloseFirst);
+    }
     app.insert_resource(game::Shows::of(&cli.game));
     app.insert_resource(game::Request(cli.game));
     if named {
