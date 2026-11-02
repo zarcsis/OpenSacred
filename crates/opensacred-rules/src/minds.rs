@@ -115,6 +115,8 @@ const HELD: f32 = 3.0;
 /// The least time a stunned creature is held (`0x4FF0B0` at `0x5009B1`, the float 2.0 at
 /// `0x890750`; [`Mind::stunned`]).
 const STUNNED: f32 = 2.0;
+/// How long a creature that a strike's stun takes is held (`0x56D74B`; [`Mind::shocked`]).
+const SHOCKED: f32 = 0.5;
 
 /// The heroes' side (`+0x1F0`), their types' `Creature.pak` class (`0x43ADC0`).
 pub const HEROES: u8 = 1;
@@ -1056,6 +1058,12 @@ impl Mind {
     /// for `seconds`, at least [`STUNNED`].
     pub fn stunned(&mut self, seconds: f32) {
         self.held_for(seconds.max(STUNNED));
+    }
+
+    /// Stunned by a strike's effect 862 (M18, `0x56D74B`): it leaves its fight and stands, and is
+    /// held for [`SHOCKED`] seconds, which cuts any longer hold short.
+    pub fn shocked(&mut self) {
+        self.held_for(SHOCKED);
     }
 
     /// It leaves its fight and is held, its timer set to fire in `seconds`.

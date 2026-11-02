@@ -344,6 +344,27 @@ pub(crate) fn resolve(
                 blow.gold = Some((value, pack.gold));
             }
         }
+        // The stun's roll of a strike by the hero's weapon, not an art's shot (`0x56D47C`, #1727's
+        // M18): its items' effect 862 and its sets' term. The strikes of fixed damages (the
+        // spells' objects, the effects, the hurled blades, the shells) roll none, and nor do the
+        // creatures, which wear no item of it (**hypothesis** for the blades, the shells and the
+        // creatures' strikes, whose weapons the original tests by their category).
+        if hero
+            && !hit.sure
+            && hit.fixed.is_none()
+            && !(hit.ranged && hit.art.is_some())
+            && let Some(holding) = holding.filter(|holding| holding.0.weapon)
+        {
+            let value = opensacred_rules::fight::item_effect(
+                &holding.0.items,
+                opensacred_rules::fight::STUN,
+                None,
+            );
+            blow.stun = Some((
+                holding.0.sets.stun(value),
+                rules.rare(opensacred_rules::fight::STUN),
+            ));
+        }
         let landed = match (hit.sure, hit.art) {
             (true, _) => Some(sure_landed(&attacker, &defender, blow, &mut dice.0)),
             (false, Some(art)) => art_landed(&attacker, &defender, blow, art, &mut dice.0),
@@ -542,6 +563,17 @@ pub(crate) fn resolve(
                 wound_rolls,
                 &mut dice.0,
             );
+        }
+        // A creature that the strike stuns and that lives through it leaves its swing or its
+        // walk and stands, held for half a second (`0x56D70A`–`0x56D750`); its sparks (816) are
+        // not drawn.
+        if landed.stunned && health.current > 0 && victim.is_some() {
+            debug!("fight: {} stuns {}", hit.attacker, hit.target);
+            let mut stunned = commands.entity(hit.target);
+            stunned.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+            stunned
+                .entry::<crate::ai::Mind>()
+                .and_modify(|mut mind| mind.shocked());
         }
         // The Dwarf's landed strike raises his frenzy while his 1082's effect holds
         // (`0x56DC31`).

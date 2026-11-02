@@ -3150,6 +3150,10 @@ pub struct Blow {
     /// The defender's effect 866 and its gold, which may pay the strike's damage
     /// ([`gold_for_health`], #1779), none where it has neither.
     pub gold: Option<(f32, u32)>,
+    /// The attacker's stun's value and the balance's parameters of 862, which roll whether the
+    /// strike stuns ([`stuns`], M18): none where the strike rolls none, not a weapon's or an art's
+    /// shot.
+    pub stun: Option<(f32, [f32; 3])>,
 }
 
 impl Default for Blow {
@@ -3163,6 +3167,7 @@ impl Default for Blow {
             cap: None,
             kinds: [1.0; KINDS],
             gold: None,
+            stun: None,
         }
     }
 }
@@ -3439,6 +3444,8 @@ pub struct Landed {
     pub damage: u32,
     /// The defender's gold that paid the damage, 0 where none did ([`gold_for_health`]).
     pub paid: u32,
+    /// Whether it stunned its defender ([`stuns`]).
+    pub stunned: bool,
     pub poison: [f32; 3],
     pub rolled: [f32; KINDS],
     pub resistance: [f32; KINDS],
@@ -3511,10 +3518,11 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice)
         })
         .collect();
     let total: f32 = through.iter().sum();
-    let (damage, paid) = taken(total, blow, rng);
+    let (damage, paid, stunned) = taken(total, blow, rng);
     Landed {
         damage,
         paid,
+        stunned,
         poison: [rolled[POISON], defender.resistance[POISON], through[POISON]],
         rolled: std::array::from_fn(|k| rolled.get(k).copied().unwrap_or(0.0)),
         resistance: defender.resistance,
@@ -3598,14 +3606,18 @@ pub fn poison_tick(gathered: u32, value: f32, dt: f32) -> (u32, Option<u32>) {
 /// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
 /// times the factor of the attacker's level, the blow's `weapons` ([`weapons_factor`], at
 /// `0x56D05C`), the product on the x87 unit stored as a float, times the strike's factor, its
-/// `share` ([`scaled`]), at least 1; paid from the defender's gold where its effect 866 holds
-/// ([`gold_for_health`]); held at the blow's `cap` where that is below it (`0x56DA8E`); rounded to
-/// the nearest whole, a half up, as the resolution adds a half before it truncates (`0x56DAA1`;
-/// nothing between the sum and there takes a half off, #1134; the skills' specials and the stun
-/// between are not read). The damage and the gold that paid it.
-fn taken(sum: f32, blow: Blow, rng: &mut impl Dice) -> (u32, u32) {
+/// `share` ([`scaled`]), at least 1; the stun's roll where the blow has one ([`stuns`],
+/// `0x56D685`); paid from the defender's gold where its effect 866 holds ([`gold_for_health`]);
+/// held at the blow's `cap` where that is below it (`0x56DA8E`); rounded to the nearest whole, a
+/// half up, as the resolution adds a half before it truncates (`0x56DAA1`; nothing between the
+/// sum and there takes a half off, #1134; the skills' specials between are not read). The
+/// damage, the gold that paid it, and whether the strike stunned.
+fn taken(sum: f32, blow: Blow, rng: &mut impl Dice) -> (u32, u32, bool) {
     let sum = stored(blow.weapons * f64::from(sum));
     let mut damage = scaled(sum, blow.share).max(1.0);
+    let stunned = blow
+        .stun
+        .is_some_and(|(value, params)| stuns(value, params, rng.below(100)));
     let mut paid = 0;
     if let Some((value, gold)) = blow.gold {
         (damage, paid) = gold_for_health(damage, (value, gold), rng);
@@ -3614,7 +3626,7 @@ fn taken(sum: f32, blow: Blow, rng: &mut impl Dice) -> (u32, u32) {
         Some(cap) if cap < f64::from(damage) => stored(cap),
         _ => damage,
     };
-    (whole_f64(f64::from(damage) + 0.5), paid)
+    (whole_f64(f64::from(damage) + 0.5), paid, stunned)
 }
 
 /// The effect 866 of a defender of the gold `gold` against a strike's float damage `damage`
@@ -3663,6 +3675,18 @@ pub fn gold_pile(value: f32, damage: u32, health: u32, dice: &mut impl Dice) -> 
         5135
     };
     Some((pile, damage.min(health)))
+}
+
+/// The items' effect of the stun (`0x35E`).
+pub const STUN: u32 = 862;
+
+/// Whether a strike stuns its defender (M18, `0x56D47C`–`0x56D805`, the first rare effect of the
+/// strike, before the gold for the health's): `R(0, 99)`, `roll`, drawn for every strike by a
+/// weapon that is not an art's shot, whatever the value, below the chance of the attacker's
+/// stun's value `value` ([`rare_chance`], the balance's parameters `params` for 862,
+/// `(300, 301, 75)`).
+pub fn stuns(value: f32, params: [f32; 3], roll: u32) -> bool {
+    f64::from(roll) < rare_chance(value, params)
 }
 
 /// The items' effect of the open wounds (`0x359`), which wounds the struck one that wears it.
@@ -6355,6 +6379,41 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_strike_stuns_below_its_chance() {
+        // A value of 10 of (300, 301, 75): (1 − 300/311)·100 + 0.5 = 4.04, the rolls 0 to 4.
+        let params = [300.0, 301.0, 75.0];
+        assert!(stuns(10.0, params, 4) && !stuns(10.0, params, 5));
+        assert!(!stuns(0.0, params, 0));
+        assert!(stuns(1e6, params, 74) && !stuns(1e6, params, 75));
+        // The roll comes before the gold for the health's, drawn at a value of 0 too.
+        struct Rolls(Vec<u32>);
+        impl Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let roll = self.0.remove(0);
+                assert!(roll < n, "{roll} below {n}");
+                roll
+            }
+        }
+        let blow = |value| Blow {
+            stun: Some((value, params)),
+            gold: Some((20.0, 100)),
+            ..Blow::default()
+        };
+        assert_eq!(
+            taken(30.0, blow(10.0), &mut Rolls(vec![4, 50])),
+            (30, 0, true)
+        );
+        assert_eq!(
+            taken(30.0, blow(0.0), &mut Rolls(vec![0, 0])),
+            (0, 30, false)
+        );
+        assert_eq!(
+            taken(30.0, Blow::default(), &mut Rolls(Vec::new())),
+            (30, 0, false)
+        );
     }
 
     #[test]
