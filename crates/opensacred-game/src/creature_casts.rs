@@ -4,19 +4,26 @@
 //! at its share of the clip (`npcs::ClipActs`), at the level a creature makes a spell it lacks
 //! (`fight::Rules::creature_spell_level`), its damage times `MagieAll`'s factor
 //! (`fight::Rules::creature_spell_damage`), and whose clip's end gives the creature its melee
-//! again from its start (`opensacred_rules::minds::Mind::cast_ends`). The game follows the magic
-//! skeletons' fireball first: a bolt at the hero as the hero's fireball flies (`bolts`).
+//! again from its start (`opensacred_rules::minds::Mind::cast_ends`). The game follows the mark
+//! 1's spells as the hero's make them, striking the hero: the magic skeletons' fireball and the
+//! mummies' whirlwind (`bolts`), the mummy 03's lightning and the orc shaman's meteors (`spells`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::{casts, spells};
 
 use crate::ai::Mind;
+use crate::crowd::InTheWay;
 use crate::frame::Playing;
 use crate::npcs::{ClipActs, Dies, ScriptClip};
 
 /// The spells of the casts that the game follows.
-const FOLLOWED: [u16; 1] = [spells::FIREBALL];
+const FOLLOWED: [u16; 4] = [
+    spells::FIREBALL,
+    spells::WHIRLWIND,
+    spells::LIGHTNING,
+    spells::METEORS,
+];
 
 /// Whether the game follows a creature's cast of the spell `spell`.
 pub fn follows(spell: u16) -> bool {
@@ -71,8 +78,11 @@ fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind
     }
 }
 
-/// Makes each cast's spell act once its clip passes its share: the fireball a bolt toward its
-/// target's place, at the creature's spell's level, its damage `MagieAll`'s share of the hero's.
+/// Makes each cast's spell act once its clip passes its share, at the creature's spell's level,
+/// its damage `MagieAll`'s share of the hero's, as the hero's spell acts (`spells`): the
+/// fireball a bolt toward its target's place, the whirlwind a fan of bolts along the line to it,
+/// the lightning a strike on its target, the meteors a hail about its target's place as the cast
+/// was ordered.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -84,17 +94,25 @@ fn act(
             Entity,
             &Casting,
             &Transform,
-            &Mind,
+            (&Mind, &InTheWay),
             Option<&crate::fight::Ranked>,
             Option<&crate::fight::Combat>,
         ),
         With<ClipActs>,
     >,
     places: Query<&GlobalTransform>,
-    (arts, rules): (Option<Res<crate::arts::HeroArts>>, Res<crate::fight::Rules>),
-    mut launches: MessageWriter<crate::bolts::Launch>,
+    (arts, rules, looks, mut dice): (
+        Option<Res<crate::arts::HeroArts>>,
+        Res<crate::fight::Rules>,
+        Option<Res<crate::spells::Looks>>,
+        ResMut<crate::spells::Dice>,
+    ),
+    (mut launches, mut hits): (
+        MessageWriter<crate::bolts::Launch>,
+        MessageWriter<crate::fight::Hit>,
+    ),
 ) {
-    for (entity, cast, at, mind, rank, combat) in &acting {
+    for (entity, cast, at, (mind, way), rank, combat) in &acting {
         commands.entity(entity).remove::<ClipActs>();
         let Some(record) = arts
             .as_ref()
@@ -105,26 +123,72 @@ fn act(
         let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
         let level = rules.0.creature_spell_level(mind.level, rank);
         let factor = rules.0.creature_spell_damage(level);
+        let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+        let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers)
+            .map(|damage| scaled(damage, factor));
         let here = at.translation;
-        if cast.spell == spells::FIREBALL {
-            let toward = places
-                .get(cast.target)
-                .map_or(cast.point, GlobalTransform::translation);
-            let direction = (toward - here)
-                .xz()
-                .try_normalize()
-                .unwrap_or_else(|| (at.rotation * Vec3::X).xz().normalize_or(Vec2::X));
-            let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
-            let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers)
-                .map(|damage| scaled(damage, factor));
-            info!("creature_casts: {entity} casts its fireball at {toward} with {damages:?}");
-            launches.write(crate::bolts::Launch {
-                shooter: entity,
-                direction,
-                course: crate::bolts::Course::fireball(level),
-                damages,
-                wait: 0.0,
-            });
+        let target = places.get(cast.target).map(GlobalTransform::translation);
+        let toward = target.unwrap_or(cast.point);
+        let line = (toward - here).xz();
+        let direction = line
+            .try_normalize()
+            .unwrap_or_else(|| (at.rotation * Vec3::X).xz().normalize_or(Vec2::X));
+        info!(
+            "creature_casts: {entity} casts {} at {toward} with {damages:?}",
+            cast.spell
+        );
+        match cast.spell {
+            spells::FIREBALL => {
+                launches.write(crate::bolts::Launch {
+                    shooter: entity,
+                    direction,
+                    course: crate::bolts::Course::fireball(level),
+                    damages,
+                    wait: 0.0,
+                });
+            }
+            spells::WHIRLWIND => {
+                // The hero's fan (`0x524EA2`), without its knockback, which strikes creatures.
+                let course = crate::bolts::Course::passing(spells::WHIRLWIND_COURSE, 4);
+                for angle in spells::fan(cast.spell, spells::count(record, level), line.length()) {
+                    launches.write(crate::bolts::Launch {
+                        shooter: entity,
+                        direction: Vec2::from_angle(angle).rotate(direction),
+                        course,
+                        damages,
+                        wait: 0.0,
+                    });
+                }
+            }
+            spells::LIGHTNING => {
+                let Ok(place) = target else {
+                    continue;
+                };
+                hits.write(crate::fight::Hit {
+                    attacker: entity,
+                    target: cast.target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(damages),
+                    sure: true,
+                    poison: false,
+                });
+                if let Some(looks) = &looks {
+                    crate::spells::lightning(&mut commands, looks, place);
+                }
+            }
+            spells::METEORS => {
+                crate::spells::meteors(
+                    &mut commands,
+                    &mut dice,
+                    (record, level),
+                    (entity, way.level),
+                    cast.point,
+                    damages,
+                );
+            }
+            _ => {}
         }
     }
 }
