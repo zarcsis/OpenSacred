@@ -22,14 +22,16 @@ pub struct Unmade {
     follows: Option<Entity>,
 }
 
-/// Starts `burst` at `at`, following the entity `follows` where given.
-pub fn spawn(commands: &mut Commands, burst: Burst, at: Vec3, follows: Option<Entity>) {
-    commands.spawn((
-        Unmade { burst, follows },
-        Transform::from_translation(at),
-        Visibility::default(),
-        DespawnOnExit(AppState::InGame),
-    ));
+/// Starts `burst` at `at`, following the entity `follows` where given: the burst's entity.
+pub fn spawn(commands: &mut Commands, burst: Burst, at: Vec3, follows: Option<Entity>) -> Entity {
+    commands
+        .spawn((
+            Unmade { burst, follows },
+            Transform::from_translation(at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id()
 }
 
 /// [`spawn`] from a world, as the undead's raising runs (`undead`).
