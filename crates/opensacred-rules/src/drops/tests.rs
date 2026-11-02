@@ -111,6 +111,15 @@ fn weapon(id: u32, parent: u32) -> Weapon {
 }
 
 #[test]
+fn set_22s_potion_comes_in_one_case_of_ten() {
+    // `rand() % 10 + 1` at 10 makes one; its second roll names it.
+    assert_eq!(set_potion(&mut script(&[8])), None);
+    assert_eq!(set_potion(&mut script(&[9, 0])), Some(5137));
+    assert_eq!(set_potion(&mut script(&[9, 3])), Some(5146));
+    assert_eq!(set_potion(&mut script(&[9, 4])), Some(5140));
+}
+
+#[test]
 fn a_derived_type_is_listed_with_its_roots_entry_and_shows_its_model() {
     // The knife 1727 and the hand axe 1741 of the weapons, the gladiator's armour 4053 of the
     // category 21 on file, and the derived types 2029 of 1727, 2114 of 1741, 2100 of 2029, 6600
@@ -249,6 +258,7 @@ fn a_champion_and_a_boss_make_more_calls_with_a_bonus() {
             minutes: 121.0,
             luck: 125.0,
             treasure: 0,
+            potions: false,
         },
         ..of(Rank::Common, 5, 5)
     };

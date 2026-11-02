@@ -244,6 +244,9 @@ pub struct Kill {
     pub luck: f32,
     /// The value `s` of the killer's effect 42 (the combat art 55's), 0 without it.
     pub treasure: u32,
+    /// Whether the local hero wears five pieces of set 22, whose calls of no type then make a
+    /// potion in one case of ten (`0x559CA9`, `set_bonuses::Stats::potions`, #1727).
+    pub potions: bool,
 }
 
 impl Default for Kill {
@@ -254,8 +257,25 @@ impl Default for Kill {
             minutes: 0.0,
             luck: 100.0,
             treasure: 0,
+            potions: false,
         }
     }
+}
+
+/// The potion that a call of no type makes where the local hero wears five pieces of set 22: in
+/// one case of ten (`rand() % 10 + 1` at 10), one of 5137, 5138, 5144 and 5146 by a second
+/// `rand() % 10` of 0 to 3, else 5140 (`0x559CA9`, docs/re/items.md, "One call of the drop").
+fn set_potion(dice: &mut impl Dice) -> Option<u32> {
+    if dice.below(10) + 1 != 10 {
+        return None;
+    }
+    Some(match dice.below(10) {
+        0 => 5137,
+        1 => 5138,
+        2 => 5144,
+        3 => 5146,
+        _ => 5140,
+    })
 }
 
 /// A death, as its drops take it.
@@ -1289,11 +1309,18 @@ pub fn drops<D: Dice>(
         // The scripts' drops of the dead's type (`0x4B06D0`): the client's one entry makes its
         // item when `rand() % 100 + 1` is at most its chance, ours each entry so (#930); the
         // items made so are the call's type at each of its passes, in place of its random ones.
-        let forced: Vec<u32> = scripted
+        let mut forced: Vec<u32> = scripted
             .iter()
             .filter(|&&(_, chance)| dice.below(100) < chance)
             .map(|&(item, _)| item)
             .collect();
+        // Still of no type, set 22's potion (#1727).
+        if forced.is_empty()
+            && death.kill.potions
+            && let Some(potion) = set_potion(dice)
+        {
+            forced.push(potion);
+        }
         let (mut bonus, mut misses, mut p) = (calls.bonus, 0, chance);
         while p > 0 {
             if forced.is_empty() {
