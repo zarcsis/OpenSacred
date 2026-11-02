@@ -73,6 +73,9 @@ pub(crate) struct Hero<'a> {
     pub ranged: bool,
     pub day: bool,
     pub rules: &'a opensacred_rules::fight::Rules,
+    /// Whether its weapon arts' strikes are halved, the hero holding two weapons (its arts'
+    /// clips' `halved`, `0x4EA3F0`).
+    pub halved: bool,
 }
 
 impl Hero<'_> {
@@ -193,6 +196,18 @@ impl Values<'_> {
     fn w50(&self) -> f64 {
         self.weapon.map_or(0.0, |w| {
             self.l() * f64::from(w.factor[1]) + f64::from(w.factor[0])
+        })
+    }
+
+    /// The factor that the art's strike carries (`0x4EA3F0`, `opensacred_rules::arts::held_factor`):
+    /// its `W50`, halved where the hero holds two weapons, where the original's lines take `W50`
+    /// whole (#1742).
+    fn strike(&self) -> f64 {
+        self.weapon.map_or(0.0, |w| {
+            f64::from(arts::held_factor(
+                arts::factor(w, self.level),
+                self.hero.halved,
+            ))
         })
     }
 
@@ -833,13 +848,13 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             duration(),
         ],
         1000 | 1057 | 1061 | 1065 | 1069 | 1073 | 1078 | 1090 | 1038 => vec![
-            signed_pc(n(1116), per_cent(v.w50())),
+            signed_pc(n(1116), per_cent(v.strike())),
             plain(format!("{}: +{}%", n(1104), v.w60() - 100)),
             signed_pc(n(1074), v.attack()),
         ],
         1001 | 1058 | 1062 | 1066 | 1070 | 1074 | 1079 | 1002 | 1059 | 1063 | 1067 | 1071
         | 1075 | 1080 | 1092 | 1039 | 1040 => vec![
-            signed_pc(n(1116), per_cent(v.w50())),
+            signed_pc(n(1116), per_cent(v.strike())),
             signed_pc(n(1074), v.attack()),
         ],
         1003 | 1091 => {
@@ -855,7 +870,7 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
                     if id == 1003 {
                         ftol(100.0 * v.w58() - 99.5)
                     } else {
-                        per_cent(v.w50())
+                        per_cent(v.strike())
                     },
                 ),
                 plain(format!(
@@ -869,7 +884,7 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             }
             lines
         }
-        1004 | 1012 | 1017 => vec![signed_pc(n(1116), per_cent(v.w50()))],
+        1004 | 1012 | 1017 => vec![signed_pc(n(1116), per_cent(v.strike()))],
         1005 => vec![
             seconds(n(1097), v.w60()),
             whole(n(1105), ftol(v.w50() / v.w58())),
@@ -896,7 +911,7 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
                     ftol((f64::from(0.1_f32) * v.l() + 0.5 + 1.0) * 100.0 - 100.0 + 0.5),
                 )
             } else {
-                signed_pc(n(1116), per_cent(v.w50()))
+                signed_pc(n(1116), per_cent(v.strike()))
             };
             vec![reach, strike, signed_pc(n(1074), v.attack())]
         }
@@ -948,7 +963,7 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
         }
         1018 | 1019 => vec![dmg(v.damages(id == 1018)), seconds(n(1097), ftol(v.w58()))],
         1020 => vec![
-            signed_pc(n(1116), per_cent(v.w50())),
+            signed_pc(n(1116), per_cent(v.strike())),
             plain(format!(
                 "{}: {:2.2}",
                 k("TOOLTIP_RUECKWURF_HELF"),
@@ -956,7 +971,17 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             )),
             plain(format!("{}: +{}%", n(1104), v.w60() - 100)),
         ],
-        1022..=1025 | 1031 => vec![seconds(
+        // The changeling's night form as long as it lasts at this time of the day, doubled but
+        // by day (`opensacred_rules::arts::changeling_seconds`), where the original's line shows
+        // the day's alone (#1742).
+        1022 | 1023 => {
+            let w = v.weapon?;
+            vec![seconds(
+                n(1097),
+                ftol(f64::from(arts::changeling_seconds(w, v.level, v.hero.day))),
+            )]
+        }
+        1024 | 1025 | 1031 => vec![seconds(
             n(1097),
             ftol(if id == 1031 { v.w58() } else { v.w50() }),
         )],
@@ -1253,6 +1278,16 @@ mod tests {
     }
 
     fn shown_next(art: u16, arts: &Arts, tables: &Tables, next: bool) -> Vec<String> {
+        shown_halved(art, arts, tables, next, false)
+    }
+
+    fn shown_halved(
+        art: u16,
+        arts: &Arts,
+        tables: &Tables,
+        next: bool,
+        halved: bool,
+    ) -> Vec<String> {
         let rules = opensacred_rules::fight::Rules::default();
         let hero = Hero {
             kind: 1,
@@ -1269,6 +1304,7 @@ mod tests {
             ranged: false,
             day: true,
             rules: &rules,
+            halved,
         };
         let words = Words {
             text: &|name| Some(format!("<{name}>")),
@@ -1419,6 +1455,23 @@ mod tests {
         };
         let lines = shown(43, &arts, &tables);
         assert_eq!(lines.last().map(String::as_str), Some("<1107>: 2.5s"));
+    }
+
+    #[test]
+    fn two_weapons_halve_the_strikes_factor_on_the_line() {
+        let tables = Tables {
+            spells: Vec::new(),
+            weapon_arts: vec![weapon_art(1001)],
+        };
+        let arts = Arts {
+            entries: vec![entry(Table::WeaponArts, 1001, 1, 5.0)],
+        };
+        // Its strike's 1.3 at the level 1: +30 % with one weapon, its half 0.65, −35 %, with two
+        // (#1742), as the strike carries it.
+        let one = shown_halved(1001, &arts, &tables, false, false);
+        let two = shown_halved(1001, &arts, &tables, false, true);
+        assert!(one.contains(&"<1116>: +30%".to_owned()), "{one:?}");
+        assert!(two.contains(&"<1116>: -35%".to_owned()), "{two:?}");
     }
 
     #[test]
