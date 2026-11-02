@@ -358,6 +358,12 @@ impl Body {
         self.order = Some((target, Some(level)));
     }
 
+    /// Orders it to `target`, on `level` where one is given ([`Body::send_onto`]), else on
+    /// whatever level the way reaches it ([`Body::send`]).
+    pub fn send_to(&mut self, target: Vec3, level: Option<Level>) {
+        self.order = Some((target, level));
+    }
+
     /// Stops it where it stands, with any order it has yet to take.
     pub fn stop(&mut self) {
         self.order = None;
@@ -1079,6 +1085,22 @@ pub fn run(
                         onto
                     } else {
                         Some(level_at(paths::cell_of(leg.x, leg.z)))
+                    };
+                    // A cell it may not step into, a container's or a hostile creature's, it
+                    // heads for the neighbour of it nearest itself, round what is between them
+                    // (`0x4F8560`); beside it already, it searches none, and goes straight on.
+                    let at = leg_onto.unwrap_or(level);
+                    let leg = match paths::goal(
+                        paths::cell_of(here.x, here.z),
+                        paths::cell_of(leg.x, leg.z),
+                        |cell| free(cell, at),
+                    ) {
+                        paths::Goal::Cell(cell) if cell != paths::cell_of(leg.x, leg.z) => {
+                            let point = paths::centre(cell);
+                            Vec3::new(point.x, here.y, point.y)
+                        }
+                        paths::Goal::Cell(_) => leg,
+                        paths::Goal::Beside => return None,
                     };
                     paths::course(
                         here,

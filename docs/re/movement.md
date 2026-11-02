@@ -97,6 +97,18 @@ The line counts as clear at the target's cell, or, longer than 5 cells, once two
 Seen 2026-10-25 with #448's driver: on open grass about (3183, 2503) the hero sent 7 cells east and 2 south ran along the line, through (3181, 2500), (3182, 2501) to (3185, 2501), (3186, 2502), not along a way's diagonals; by the barrel of (5938, 404) it walked its way's cells.
 Not read in detail: the search's order, its costs, and the points it keeps.
 
+### The way's goal (`0x4F8560`)
+
+Read 2026-11-01 (#1731, **confirmed** by code): both searches (`0x4F8AF0` at `0x4F8BCC`, `0x4F9410` at `0x4F9532`) first ask `0x4F8560` for the cell they end at, which marks it in the search's grid (`0xABA8F8`, 1; a neighbour that fails, 2).
+- A target cell that the walker's test of a step (`0x4F7E10`, on the target's floor through `0x6354D0`) lets it into is the goal.
+- Else it tries the target's eight neighbours in the order of the offsets at `0x890F70`: (0, −1), (1, 0), (0, 1), (−1, 0), then (−1, −1), (1, −1), (1, 1), (−1, 1).
+- A neighbour that is the walker's own cell ends it at once with no search, setting the bit `0x40000` of the global `0x182EE3C`: the walker stands beside its target already.
+- Of the neighbours that the test of a step lets the walker into, the goal is the one nearest the walker's cell, by the integer square root of the squared distance rounded to the nearest whole (each axis's difference above 32,000 making it 32,000), the first of those as near kept, from a bound of 1,000.
+- With none, the target's own cell stays the goal, which the search does not reach.
+- A walker in the action 1 with the sub-state 4 (`+0xFC`, `+0xFE`) searches none either, its target closed (not read further).
+
+So a creature sent to a chest, whose cell is closed, or to a creature that stops its step, goes round what stands between them to the cell beside it nearest itself.
+
 Seen 2026-10-22 in the original with its driver (#476): at the merchant's house of 50,40, its door open, the hero clicked onto the floor 1 beside the door from (3258, 2584), below the wall, walks to the exit (3257, 2579) and stops there, while from (3255, 2584) or (3254, 2582), left of the door, it comes onto the entrance (3256, 2578) straight up the grid and goes in.
 From that exit the shortest way in is the diagonal onto the entrance past the corner of the wall's cell (3257, 2578) (**hypothesis**: `0x4FABE0` takes such a diagonal, which the walk does not step).
 
@@ -135,7 +147,7 @@ No script opens `chestTrigger` (it is named only by 310 `CreateTrigger`, 49,241 
 The `CreateObj`s that name it are of the dwarves' chests 5195, 9 in the Seraphim's tree, whose `0x29` is `chestTrigger` itself: opening one would open it, freeing every container's cell until another closes it (**hypothesis**, docs/re/containers.md, "The triggers and the locks").
 In the Seraphim's tree, 1,843 of the 1,930 objects of category 4 stand on a cell of `chestTrigger`, 67 book stands on cells of `PanelTrigger` and 4 on their own trigger's; 16 have no patch (5 barrels, 11 chests, coffins or cabinets), which only the rule of `0x4F7E10` keeps the NPCs off, not the hero, as read; yet the hero's way kept off the one such barrel through whose cell a way passes, (5938, 404), both ways along its diagonal (**seen** 2026-10-25, #227, check 2; #981), though the step's test lets it onto the cell (traced 2026-10-25: `0x4F7E10` answered 1 for the hero at (5938, 404) each of the five times the way's search asked); it is its course that keeps it off: the straight line from cell to cell to its target passes the corners of the closed cells beside the barrel, and the way that the search finds instead goes round it, which the hero then walks ("The way" above, and "In `opensacred-game`" below); 413 cells of `chestTrigger` hold no object of their own, the side cells of wide objects; and the signposts (category 15) stand on cells of `WWTrigger` and `WWTriggerMP`, closed as well.
 The same patches close the scripts' other blocking cells (triggers of names such as `nogo…`, `…stopper…`, `Blocker…`), which open as the scripts set their states.
-A click on a closed cell sends the hero to the walkable neighbour of the eight nearest to it (`0x4F8560`), so it stops beside a chest.
+A click on a closed cell sends the hero to the walkable neighbour of the eight nearest to it (`0x4F8560`, "The way's goal" above), so it stops beside a chest.
 (**confirmed** by code and on the trees' listings)
 
 **The creatures in the way** (read 2026-10-20, #157).
@@ -226,6 +238,9 @@ Before #996 the line was tested from where the walker stood at every frame and t
 In a run of 19,684 walks on random 16 × 16 grids, 30% of their cells closed, at the world's coordinates, 3,924 had turned round in a loop and 2,505 stopped short; now the 16,902 that have a way arrive but for 3 that step into a closed cell along a line that starts on a cell's edge.
 The line's two thirds and the radius of `+0x399` are not followed: the line is clear only to its end, and every walker is a cell wide.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
+Since #1731 the hero's way to a target whose cell it may not step into, a container's or a hostile creature's, ends at the neighbour of it that the original's goal takes (`opensacred_rules::ways::goal`, "The way's goal" above), and beside it already, it goes straight on to it, until the step into its cell is refused.
+Before, its search ended in the closed cell itself and found no way: sent to a chest or a creature behind a wall, the hero ran straight into the wall and stopped there, while a click on the ground behind it found the way round.
+The walking NPCs' ways end in their target's cell whoever stands there (#883), and do not ask the goal.
 A click sends the hero to the cell under the cursor and onto its level as the original finds them (`pick`, #208), the way's search ending on that level (`opensacred_rules::ways::path_onto`); the test of nearness is a circle of √1200 · 1.52 world units, not the models' frame's slightly squeezed one, and where nothing is found the hero goes to the point of the cursor's line of sight at its own height.
 The overlay and the remote state show the target's level (`to X,Y inside X,Y:L` or `ground`).
 A hero on a building's mass on the ground is put on its building's floor 1 where its grid holds the cell walkable (a start inside the monastery; the console's `cell` and `sector`, which the client lacks, only in a room that the building's entrances lead to, docs/10, #458), and a hero that steps onto an entrance or an exit goes in or out as the client's does (`terrain::Heights::transition`), the floors read from the world format (version 6: the buildings and their floors, `opensacred-convert world`).

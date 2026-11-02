@@ -510,7 +510,7 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts, corpses): (
+    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts, corpses, ways): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
         Query<&fight::Ranked>,
@@ -519,6 +519,7 @@ fn make(
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::spells::Acts>,
         Query<(&GlobalTransform, &crate::npcs::Corpse)>,
+        Query<&crate::crowd::InTheWay>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -655,7 +656,10 @@ fn make(
                 };
                 let distance = (target - here).with_y(0.0).length();
                 if at > 0.0 && distance > at + within {
-                    body.send(target);
+                    // On the level it stands on, which the hero's way to it is tested on
+                    // (`0x4F8560`).
+                    let onto = ways.get(making.target).ok().map(|way| way.level);
+                    body.send_to(target, onto);
                     continue;
                 }
                 transform.rotation = hero::facing((target - here).with_y(0.0));
