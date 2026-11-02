@@ -14,8 +14,9 @@
 //! (`0x43CA20`), the extra text of the item's `+0xFC`, and the hands of the types that the list
 //! of `0x5CECD0` names.
 
-use opensacred_rules::equipment::{CLASSES, NO_CLASS};
+use opensacred_rules::equipment::{Asks, CLASSES, NO_CLASS};
 use opensacred_rules::fight::{Bonus, ItemValues, KINDS};
+use opensacred_rules::potions::Drink;
 
 use super::{Line, Piece, WHITE};
 use crate::drops::Record;
@@ -85,9 +86,9 @@ const PLAIN: u32 = 0xFFEF_EFEF;
 
 /// What a tooltip tells of an item: its type, its name, its category, its type's record, its
 /// price (its record's, a made item's worth) and whether the hero would buy it (a merchant's), its
-/// quality, its values, its level and the level it asks, the share of its health that it heals,
-/// of a healing potion, its sockets filled and its sockets, and its set's name where it is a set's
-/// piece.
+/// quality, its values, its level and the level it asks, what drinking it does, of a potion (the
+/// rules' own, by which its hint tells it), its sockets filled and its sockets, and its set's
+/// name where it is a set's piece.
 pub(crate) struct Item<'a> {
     pub item: u32,
     pub name: &'a str,
@@ -99,9 +100,23 @@ pub(crate) struct Item<'a> {
     pub values: ItemValues,
     pub level: u32,
     pub asked: u32,
-    pub heals: Option<u32>,
+    pub drink: Option<Drink>,
     pub sockets: (usize, usize),
     pub set: Option<String>,
+}
+
+impl Item<'_> {
+    /// What it asks of the hero that would use it, its level aside: its classes and its weapon's
+    /// kind, as the equipment's slots weigh them.
+    fn asks(&self) -> Asks {
+        Asks {
+            item: self.item,
+            category: self.category,
+            kind: self.record.kind,
+            classes: self.record.word,
+            level: 0,
+        }
+    }
 }
 
 /// The name's colour of a set's piece, and its set's name's (`0x5C13C0`, `0x5C5360`).
@@ -151,12 +166,11 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
     let Some(hero) = hero else {
         return lines;
     };
-    let word = item.record.word;
     let values = &item.values;
     if let Some(set) = &item.set {
         lines.push(Line::of(set.clone(), SET_NAME));
     }
-    if refused(word, hero.creature) {
+    if refused(&item.asks(), hero.creature) {
         lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
     }
     // The price, as the hero would sell it, or buy it from a merchant (`0x59FE80`).
@@ -223,7 +237,7 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
 /// merging left of it (`0x5C4220`), its bonuses alone.
 pub(crate) fn socket_lines(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
     let mut lines = Vec::new();
-    if refused(item.record.word, hero.creature) {
+    if refused(&item.asks(), hero.creature) {
         lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
     }
     lines.extend(details(item, hero, words));
@@ -402,16 +416,13 @@ fn difficulty_step(word: u32) -> u32 {
 }
 
 /// Whether the hero of the creature type `creature` is told that its class may not use an item
-/// of the record's word `word`: one of no class or of the bit 6, or of several classes without
-/// the hero's.
-fn refused(word: u32, creature: u32) -> bool {
-    let classes = word & CLASSES;
-    if word & NO_CLASS != 0 || classes == 0 {
-        return true;
-    }
-    single_class(word).is_none()
-        && classes != CLASSES
-        && classes & opensacred_rules::equipment::class_bit(creature) == 0
+/// that `asks` so: where the equipment's own test of the classes and the weapons' kinds refuses
+/// it, its level aside (`opensacred_rules::equipment::may_use`), so that the line tells what the
+/// slots do. The original's tooltip (`0x5C5360`) names an item of one other class rather than
+/// refusing it, and refuses one of no class's bit, which every class may use
+/// (docs/decisions/interface.md, "Class refusal as the slots refuse").
+fn refused(asks: &Asks, creature: u32) -> bool {
+    !opensacred_rules::equipment::may_use(creature, u32::MAX, asks)
 }
 
 /// The icons of the kinds' shares of `values` (each its value over the greatest, `⌊255·v/m⌋`,
@@ -689,12 +700,22 @@ fn hint(item: &Item, words: &Words) -> Vec<Line> {
     let grey = |text: String| Line::of(text, GREY);
     match item.category {
         POTION => {
-            let effect = match (item.heals, potion_key(item.item)) {
-                (Some(share), _) => {
+            let effect = match (item.drink, potion_key(item.item)) {
+                (Some(Drink::Heals(share)), _) => {
                     Some(format!("{}: {share}%", words.of("POTION_GENERIC_RED_USE")))
                 }
-                (None, Some(key)) => Some(words.of(&key)),
-                (None, None) => None,
+                // A yellow potion's hint by what its cocktail fills (`combos::refilled`), the
+                // large one's where it fills every combo, where the original names its size's,
+                // a quarter or a part for the small and the medium ones, though every cocktail
+                // of the balance fills them all (docs/decisions/interface.md, "Yellow potions'
+                // hint by their fill").
+                (Some(Drink::Refills(factor)), _) => Some(words.of(if factor >= 1.0 {
+                    "POTION_L_YELLOW_USE"
+                } else {
+                    "POTION_M_YELLOW_USE"
+                })),
+                (_, Some(key)) => Some(words.of(&key)),
+                (_, None) => None,
             };
             effect
                 .into_iter()
@@ -808,7 +829,7 @@ mod tests {
             },
             level: 20,
             asked: 14,
-            heals: None,
+            drink: None,
             sockets: (0, 0),
             set: None,
         };
@@ -845,7 +866,7 @@ mod tests {
             values: ItemValues::default(),
             level: 0,
             asked: 0,
-            heals: Some(100),
+            drink: Some(Drink::Heals(100)),
             sockets: (0, 0),
             set: None,
         };
@@ -865,7 +886,46 @@ mod tests {
     }
 
     #[test]
-    fn gloves_of_one_class_show_their_class_protection_slowing_and_bonus() {
+    fn a_yellow_potions_hint_tells_what_its_cocktail_fills() {
+        let potion = |item, drink| Item {
+            item,
+            name: "Potion",
+            category: POTION,
+            record: Record {
+                word: CLASSES,
+                ..Record::default()
+            },
+            price: 0,
+            buying: false,
+            quality: 0,
+            values: ItemValues::default(),
+            level: 0,
+            asked: 0,
+            drink,
+            sockets: (0, 0),
+            set: None,
+        };
+        let hint = |item: &Item| texts(&hint(item, &words())[0]);
+        // The small one's cocktail of the balance fills every combo, as the large one's does
+        // (#1740): the large one's hint, where the original names a quarter.
+        let rules = opensacred_rules::potions::Potions::default();
+        for small_to_large in [5172, 5146, 5141] {
+            let drink = rules.drink(small_to_large);
+            assert!(matches!(drink, Some(Drink::Refills(_))), "{drink:?}");
+            assert_eq!(
+                hint(&potion(small_to_large, drink)),
+                "<POTION_L_YELLOW_USE>"
+            );
+        }
+        // A cocktail short of a combo's time would fill a part of it.
+        assert_eq!(
+            hint(&potion(5172, Some(Drink::Refills(0.5)))),
+            "<POTION_M_YELLOW_USE>"
+        );
+    }
+
+    #[test]
+    fn gloves_of_another_class_show_their_class_refusal_protection_slowing_and_bonus() {
         let mut values = ItemValues {
             resistance: [3.0, 2.0, 0.0, 0.0],
             scale: 15,
@@ -890,7 +950,7 @@ mod tests {
             values,
             level: 3,
             asked: 1,
-            heals: None,
+            drink: None,
             sockets: (0, 0),
             set: None,
         };
@@ -901,6 +961,7 @@ mod tests {
             [
                 "[414] Gauntlets",
                 "<9>",
+                "<UI_ITEM_CANTUSE>",
                 "[205][206]<1177>: 5",
                 "<1168>: -  4.58%",
                 "<1070>: 3",
@@ -909,9 +970,10 @@ mod tests {
                 "<1092>: +3",
             ]
         );
-        // The Daemon's orange, the bonus's blue.
+        // The Daemon's orange, the refusal's red (#1740), the bonus's blue.
         assert_eq!(lines[1].0[0], Piece::Text("<9>".into(), 0xFFFF_6C00));
-        assert!(matches!(lines[7].0[0], Piece::Text(_, BLUE)));
+        assert_eq!(lines[2], Line::of("<UI_ITEM_CANTUSE>", RED));
+        assert!(matches!(lines[8].0[0], Piece::Text(_, BLUE)));
     }
 
     #[test]
@@ -949,7 +1011,7 @@ mod tests {
             values,
             level: 1,
             asked: 2,
-            heals: None,
+            drink: None,
             sockets: (0, 0),
             set: None,
         };
@@ -991,7 +1053,7 @@ mod tests {
             values: ItemValues::default(),
             level: 0,
             asked: 0,
-            heals: None,
+            drink: None,
             sockets,
             set: None,
         };
@@ -1008,7 +1070,8 @@ mod tests {
             name(&item("Dagger", WEAPON, CLASSES, (0, 0))),
             "[414] Dagger"
         );
-        // A socket's item of no class: its refusal, then what is left of its bonuses.
+        // A socket's item of no class's bit, which every class may use: what is left of its
+        // bonuses, with no refusal (#1740), where the original refuses it.
         let mut socket = item("Upgrade", 26, 0, (0, 0));
         socket.values.bonuses[2] = Bonus {
             condition: 0,
@@ -1019,7 +1082,7 @@ mod tests {
             .iter()
             .map(texts)
             .collect();
-        assert_eq!(shown, ["<UI_ITEM_CANTUSE>", "<1100>: +7"]);
+        assert_eq!(shown, ["<1100>: +7"]);
     }
 
     #[test]
@@ -1038,7 +1101,7 @@ mod tests {
             values: ItemValues::default(),
             level: 0,
             asked: 0,
-            heals: None,
+            drink: None,
             sockets: (0, 0),
             set: Some("The Set".into()),
         };
@@ -1049,14 +1112,22 @@ mod tests {
     }
 
     #[test]
-    fn a_rune_takes_its_class_colour_and_a_multi_class_item_refuses_others() {
+    fn a_rune_takes_its_class_colour_and_the_refusal_follows_the_slots() {
         assert_eq!(class_colour(1 << 2), 0xFF6C_4CE5);
         assert_eq!(single_class(1 << 2), Some(3));
         assert_eq!(single_class(0b11), None);
-        assert!(!refused(1 << 23, 1));
-        // One class alone is named rather than refused, as the Daemon's gloves to the Seraphim.
-        assert!(!refused(0b10, 9) && refused(0b110, 1) && !refused(0b11, 1));
-        assert!(refused(NO_CLASS | CLASSES, 1));
+        let asks = |classes, kind| Asks {
+            classes,
+            kind,
+            ..Asks::default()
+        };
+        // One other class's item is refused too, as the slots refuse the Daemon's gloves to the
+        // Seraphim (#1740), and one of no class's bit, which every class may use, is not.
+        assert!(refused(&asks(1 << 23, 0), 1) && refused(&asks(0b10, 0), 9));
+        assert!(refused(&asks(0b110, 0), 1) && !refused(&asks(0b11, 0), 1));
+        assert!(!refused(&asks(0, 0), 1) && refused(&asks(NO_CLASS | CLASSES, 0), 1));
+        // A weapon's kind that the class may not hold: the Daemon's bow.
+        assert!(refused(&asks(CLASSES, 7), 9) && !refused(&asks(CLASSES, 7), 1));
         assert_eq!(difficulty_step(3 << 24), 2);
     }
 }
