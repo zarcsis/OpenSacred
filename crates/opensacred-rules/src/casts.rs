@@ -3,8 +3,9 @@
 //! their target, their deadline between two casts and the rolls of their decisions. A creature
 //! does not choose from its arts' list, which `Creature.pak` leaves empty: its spells are its
 //! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons
-//! and big demons.
+//! and big demons; the mark 8's magicians.
 
+use crate::spawning::Dice;
 use crate::spells::{FIREBALL, WHIRLWIND};
 
 /// `BLITZ_SERA`, the lightning of the mummy 03 (13).
@@ -209,6 +210,176 @@ pub fn holds(
         && way
 }
 
+/// Whether a creature of type `creature` is of the mark 8 (`0x43C540`), a magician: the wood elf
+/// 02 (105), the goblin mages (127, 143) and the god (144), Anducar (182) and his demon (183), the
+/// terror sprinter mage (212), the dryad druid (216), the black magicians (258, 262 to 270), the
+/// priestess (311) and the priest (312), the dark elf M 01 (693), Sharifa (697) and Sharifo (700).
+pub fn mark_8(creature: u32) -> bool {
+    matches!(
+        creature,
+        105 | 127 | 143 | 144 | 182 | 183 | 212 | 216 | 258 | 262
+            ..=270 | 311 | 312 | 693 | 697 | 700
+    )
+}
+
+/// `PLANTCAGE` (40), which the mark 8's magicians hold the hero with.
+pub const CAGE: u16 = 40;
+
+/// Whether a magician of the mark 8 casts the plant cage at the hero (`0x4D5F33`): as the mark 1's
+/// stone ([`holds`]), its level above 7; Anducar (182) and his demon (183) never.
+pub fn cages(
+    creature: u32,
+    distance: f32,
+    (roll, hostiles): (u32, u32),
+    (level, hero_level): (u32, u32),
+    (held, way): (bool, bool),
+) -> bool {
+    !matches!(creature, 182 | 183)
+        && (HOLD_FROM..=HOLD_TO).contains(&distance)
+        && roll % (4 + hostiles) == 2
+        && level > 7
+        && level >= hero_level
+        && !held
+        && way
+}
+
+/// The band a magician of the mark 8 keeps (`0x4D5F33`): it leaves its decision for its band's
+/// walk where it stands nearer than [`MAGE_NEAR`] after it was ordered a cast, or farther than
+/// [`MAGE_FAR`], while its decisions stay below [`MAGE_MOVES`] (`+0x12A`).
+pub const MAGE_NEAR: f32 = 350.0;
+pub const MAGE_FAR: f32 = 600.0;
+pub const MAGE_MOVES: u8 = 20;
+
+/// Whether a magician at `distance` from its target leaves its decision for its band's walk,
+/// `ordered` a cast before, `moves` its decisions in this fight, this one counted.
+pub fn mage_leaves_band(distance: f32, ordered: bool, moves: u8) -> bool {
+    moves < MAGE_MOVES && ((distance < MAGE_NEAR && ordered) || distance > MAGE_FAR)
+}
+
+/// Whether the band's walk (`0x4E0300`'s sub-state 1 in the special mode) walks a caster of type
+/// `creature` at `distance` to [`BAND_POINT`] from its target: nearer than [`BAND_NEAR`], or
+/// farther than [`BAND_FAR`] (800 for Anducar's demon, 183); between them it decides again.
+pub fn band_walks(distance: f32, creature: u32) -> bool {
+    let far = if creature == 183 { 800.0 } else { BAND_FAR };
+    distance < BAND_NEAR || distance > far
+}
+
+/// Whether a magician casts at a decision (`0x4D5F33`): a roll `rand() % 3` of 1, with a straight
+/// way to its target and its deadline passed, or whatever they are where its target fights it.
+pub fn mage_casts(roll: u32, way: bool, passed: bool, fought: bool) -> bool {
+    roll % 3 == 1 && ((way && passed) || fought)
+}
+
+/// Whether a magician that does not cast stays facing its target (`0x4D5F33`): a roll
+/// `rand() % (k + 1)` not 1, `k` 9 while its deadline runs and 1 once it passed, farther than 399
+/// with a straight way; else, standing, it runs about its target.
+pub fn mage_stays(roll: u32, distance: f32, way: bool) -> bool {
+    roll != 1 && distance > 399.0 && way
+}
+
+/// The roll's bound of [`mage_stays`]: `k + 1`.
+pub fn mage_stays_bound(passed: bool) -> u32 {
+    if passed { 2 } else { 10 }
+}
+
+/// How far about its target a magician runs (300; Anducar's demon 700), and the decisions it
+/// stands facing it after (`+0x129`).
+pub fn mage_run(creature: u32) -> f32 {
+    if creature == 183 { 700.0 } else { 300.0 }
+}
+pub const MAGE_RUN_STANDS: u8 = 3;
+
+/// Whether a magician's cast keeps no deadline in effect (`0x4D4670(1)` halved or quartered as an
+/// absolute time): the god (144), Anducar (182) and his demon (183).
+pub fn mage_has_no_deadline(creature: u32) -> bool {
+    matches!(creature, 144 | 182 | 183)
+}
+
+/// The spell a magician of type `creature` casts (the chooser `0x4D31C0`): by its type, a script's
+/// spell (`+0x2B6`, `scripted`) first for the others, `hero_low` whether the hero's health is under
+/// a third of its most (Sharifa's heal of him), `followers` its followers; none, and it stops.
+/// The spells 4, 30, 32 and 33 become 13 and 35 becomes 11; a type of no spell takes 5 in one case
+/// of four, else 3 in one of five, else 34 or 43; the summon (3) while it has followers becomes 5
+/// in four cases of five, else 43. The friends' heals and shields of the others' chance (30, 60
+/// for the priestess and the priest) are not here. Which value of each roll is which is a
+/// **hypothesis**: the first of the pair, or the larger share, the roll's lower values.
+pub fn mage_spell(
+    creature: u32,
+    scripted: u16,
+    (hero_low, followers): (bool, u32),
+    rng: &mut impl Dice,
+) -> Option<u16> {
+    let mut half = |a: u16, b: u16| if rng.below(2) == 0 { a } else { b };
+    let spell = match creature {
+        183 => half(52, 69),
+        127 | 143 | 144 => 53,
+        182 => half(5, 52),
+        212 => 72,
+        697 if hero_low => 7,
+        697 => match rng.below(21) {
+            0..=4 => 5,
+            5..=9 => 34,
+            10..=13 => 40,
+            14..=16 => 13,
+            17..=19 => 39,
+            _ => return None,
+        },
+        _ if scripted != 0 => scripted,
+        267 | 270 => 26,
+        105 => half(38, 34),
+        216 | 265 => 39,
+        258 => 5,
+        262 => 34,
+        263 => {
+            if rng.below(5) < 4 {
+                43
+            } else {
+                3
+            }
+        }
+        264 => {
+            if rng.below(5) < 4 {
+                3
+            } else {
+                43
+            }
+        }
+        266 => {
+            if rng.below(3) < 2 {
+                5
+            } else {
+                40
+            }
+        }
+        268 => 23,
+        269 => 13,
+        311 => half(26, 34),
+        312 => half(23, 34),
+        693 => half(39, 5),
+        700 => 52,
+        _ => 0,
+    };
+    let spell = match spell {
+        4 | 30 | 32 | 33 => 13,
+        35 => 11,
+        1..=72 => spell,
+        _ if rng.below(4) == 0 => 5,
+        _ if rng.below(5) == 0 => 3,
+        _ => {
+            if rng.below(2) == 0 {
+                34
+            } else {
+                43
+            }
+        }
+    };
+    Some(if spell == 3 && (1..100).contains(&followers) {
+        if rng.below(5) < 4 { 5 } else { 43 }
+    } else {
+        spell
+    })
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -247,6 +418,51 @@ mod tests {
         assert_eq!(big_demon_approaches(400.0, 4, 3), Some(DEMON_FIRE));
         assert_eq!(big_demon_approaches(400.0, 4, 4), Some(EYE_LASERS));
         assert_eq!(big_demon_approaches(600.0, 0, 0), Some(EYE_LASERS));
+    }
+
+    #[test]
+    fn the_magicians_choose_their_spells_by_their_types() {
+        use crate::spawning::Script;
+        assert!(mark_8(127) && mark_8(266) && mark_8(312) && !mark_8(271) && !mark_8(48));
+        let mut none = Script::new(Vec::new());
+        assert_eq!(mage_spell(127, 0, (false, 0), &mut none), Some(53));
+        assert_eq!(mage_spell(268, 0, (false, 0), &mut none), Some(23));
+        // A script's spell first, 33 made 13.
+        assert_eq!(mage_spell(268, 33, (false, 0), &mut none), Some(13));
+        // The black magician 266: the fireball in two cases of three, else the cage.
+        assert_eq!(
+            mage_spell(266, 0, (false, 0), &mut Script::new(vec![1])),
+            Some(5)
+        );
+        assert_eq!(
+            mage_spell(266, 0, (false, 0), &mut Script::new(vec![2])),
+            Some(40)
+        );
+        // The 264's summon becomes the fireball while it has a follower.
+        assert_eq!(
+            mage_spell(264, 0, (false, 1), &mut Script::new(vec![0, 0])),
+            Some(5)
+        );
+        // Sharifa heals the hero under a third of his health, else rolls, once for nothing.
+        assert_eq!(mage_spell(697, 0, (true, 0), &mut none), Some(7));
+        assert_eq!(
+            mage_spell(697, 0, (false, 0), &mut Script::new(vec![20])),
+            None
+        );
+    }
+
+    #[test]
+    fn a_magician_keeps_its_band_casts_and_stays() {
+        assert!(mage_leaves_band(650.0, false, 1) && !mage_leaves_band(650.0, false, 20));
+        assert!(mage_leaves_band(300.0, true, 1) && !mage_leaves_band(300.0, false, 1));
+        assert!(band_walks(650.0, 266) && !band_walks(650.0, 183) && !band_walks(270.0, 266));
+        assert!(mage_casts(1, true, true, false) && mage_casts(4, false, false, true));
+        assert!(!mage_casts(1, true, false, false) && !mage_casts(0, true, true, true));
+        assert!(mage_stays(0, 500.0, true) && !mage_stays(1, 500.0, true));
+        assert!(!mage_stays(0, 399.0, true) && !mage_stays(0, 500.0, false));
+        assert!(cages(266, 500.0, (2, 0), (8, 3), (false, true)));
+        assert!(!cages(266, 500.0, (2, 0), (7, 3), (false, true)));
+        assert!(!cages(182, 500.0, (2, 0), (30, 3), (false, true)));
     }
 
     #[test]

@@ -1170,6 +1170,11 @@ impl Mind {
     /// demon casts its eye lasers or its fire as it comes on ([`casts::big_demon_approaches`]) or
     /// standing ([`casts::big_demon_casts`]), and without a straight way runs about its target and
     /// stands facing it after ([`casts::big_demon_runs`]); none of the three keeps a deadline.
+    /// A magician of the mark 8 (`0x4D5F33`, #1854) decides at every tick: the plant cage at the
+    /// hero from 400 to 1,500 ([`casts::cages`]); its band ([`casts::mage_leaves_band`],
+    /// [`casts::band_walks`]); its cast by a roll with a way and its deadline passed, or where its
+    /// target fights it ([`casts::mage_casts`]), the spell its type's ([`casts::mage_spell`]); else
+    /// it stays facing its target ([`casts::mage_stays`]) or, standing, runs about it.
     pub fn cast(
         &mut self,
         sight: &Pursuit,
@@ -1180,7 +1185,8 @@ impl Mind {
         let mark_1 = casts::mark_1(self.creature);
         let dragon = casts::dragon(self.creature);
         let demon = casts::big_demon(self.creature);
-        if mark_1.is_none() && !dragon && !demon {
+        let mage = casts::mark_8(self.creature);
+        if mark_1.is_none() && !dragon && !demon && !mage {
             return None;
         }
         if !self.fighting || self.ranged || sight.striking {
@@ -1206,6 +1212,9 @@ impl Mind {
             return Some(Pursues::Faces);
         }
         let (here, target) = (sight.here, sight.hero);
+        if mage {
+            return Some(self.mage_casts(sight, cast, clear, rng));
+        }
         if demon {
             let roll = rng.below(3);
             let way = clear();
@@ -1276,9 +1285,79 @@ impl Mind {
     /// A caster's run to a point [`casts::STROLL`] about its target at `target`, at a whole degree
     /// of a roll.
     fn runs_about(&self, target: Spot, rng: &mut impl Dice) -> Pursues {
+        Self::runs(target, casts::STROLL, rng)
+    }
+
+    /// A run to a point `radius` about `target` at a whole degree of a roll.
+    fn runs(target: Spot, radius: f32, rng: &mut impl Dice) -> Pursues {
         let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
         let angle = degrees.to_radians();
-        Pursues::Strolls(target + Spot::new(angle.cos(), angle.sin()) * casts::STROLL)
+        Pursues::Strolls(target + Spot::new(angle.cos(), angle.sin()) * radius)
+    }
+
+    /// A magician's decision of the mark 8 (`0x4D5F33`; [`Self::cast`]), standing or on its own
+    /// walk, its stands counted down before.
+    fn mage_casts(
+        &mut self,
+        sight: &Pursuit,
+        cast: &CastSight,
+        mut clear: impl FnMut() -> bool,
+        rng: &mut impl Dice,
+    ) -> Pursues {
+        let (here, target) = (sight.here, sight.hero);
+        let d = (target - here).length();
+        let creature = self.creature;
+        let passed = casts::mage_has_no_deadline(creature) || cast.now >= self.cast_deadline;
+        let renew = |mind: &mut Self, roll: u32| {
+            mind.cast_deadline = cast.now.floor()
+                + f64::from(casts::deadline(mind.level, cast.elite, cast.hostiles, roll));
+        };
+        // The plant cage at the hero, the only target it holds.
+        if cast.at_hero {
+            let roll = rng.below(4 + cast.hostiles);
+            if casts::cages(
+                creature,
+                d,
+                (roll, cast.hostiles),
+                (self.level, cast.hero_level),
+                (cast.held, clear()),
+            ) {
+                renew(self, rng.below(3));
+                return Pursues::Casts {
+                    spell: casts::CAGE,
+                    variant: 0,
+                };
+            }
+        }
+        self.band_moves = self.band_moves.saturating_add(1);
+        if casts::mage_leaves_band(d, self.cast_ordered, self.band_moves) {
+            if sight.walk.is_some() {
+                return Pursues::Faces;
+            }
+            if casts::band_walks(d, creature) {
+                self.banding = true;
+                return Pursues::KeepsBand(target + (here - target).unit() * casts::BAND_POINT);
+            }
+        }
+        if casts::mage_casts(rng.below(3), clear(), passed, sight.targeted) {
+            self.cast_ordered = true;
+            renew(self, rng.below(3));
+            let spell = casts::mage_spell(creature, cast.scripted, (cast.hero_low, 0), rng);
+            return spell.map_or(Pursues::Faces, |spell| Pursues::Casts { spell, variant: 0 });
+        }
+        let bound = casts::mage_stays_bound(passed);
+        if casts::mage_stays(rng.below(bound), d, clear()) {
+            return Pursues::Faces;
+        }
+        // Anducar's demon beyond 400 stays in two cases of three.
+        if creature == 183 && d > 400.0 && rng.below(3) < 2 {
+            return Pursues::Faces;
+        }
+        if sight.walk.is_some() {
+            return Pursues::Faces;
+        }
+        self.stands = casts::MAGE_RUN_STANDS;
+        Self::runs(target, casts::mage_run(creature), rng)
     }
 
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
@@ -1834,6 +1913,10 @@ pub struct CastSight {
     /// Whether the hero has more than one hostile, and whether it is the nearest of them.
     pub crowded: bool,
     pub nearest: bool,
+    /// A magician's: its script's spell (`+0x2B6`, the tag `0x67`; 0 for none), and whether the
+    /// hero's health is under a third of its most.
+    pub scripted: u16,
+    pub hero_low: bool,
 }
 
 /// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
@@ -2745,6 +2828,8 @@ mod tests {
             hostiles: 0,
             crowded: false,
             nearest: true,
+            scripted: 0,
+            hero_low: false,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -2843,6 +2928,8 @@ mod tests {
             hostiles: 0,
             crowded: false,
             nearest: true,
+            scripted: 0,
+            hero_low: false,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -2900,6 +2987,8 @@ mod tests {
             hostiles: 0,
             crowded: false,
             nearest: true,
+            scripted: 0,
+            hero_low: false,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -2938,6 +3027,66 @@ mod tests {
             demon.cast(&sight(200.0, false), &cast, || true, &mut rolls),
             None
         );
+    }
+
+    #[test]
+    fn a_black_magician_casts_keeps_its_band_and_runs_about() {
+        use crate::spawning::Script;
+        let mut mage = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (266, 2));
+        mage.level = 10;
+        assert!(mage.sent_at());
+        let sight = |distance: f32| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(distance, 0.0),
+            walk: None,
+            striking: false,
+            health: None,
+            hero_strikes: false,
+            listed: None,
+            targeted: false,
+            hero_size: SIZE,
+        };
+        let cast = CastSight {
+            now: 50.0,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            elite: false,
+            hostiles: 0,
+            crowded: false,
+            nearest: true,
+            scripted: 0,
+            hero_low: false,
+        };
+        // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
+        let mut rolls = Script::new(vec![0, 1, 0, 1]);
+        assert_eq!(
+            mage.cast(&sight(500.0), &cast, || true, &mut rolls),
+            Some(Pursues::Casts {
+                spell: crate::spells::FIREBALL,
+                variant: 0
+            })
+        );
+        // Near after its cast, it walks back to 270 from its target.
+        let mut rolls = Script::new(vec![0]);
+        assert_eq!(
+            mage.cast(&sight(200.0), &cast, || true, &mut rolls),
+            Some(Pursues::KeepsBand(at(-70.0, 0.0)))
+        );
+        // At 500, its deadline running: no cast (0), it stays by its roll of 0 of 10.
+        let mut rolls = Script::new(vec![0, 0, 0]);
+        assert_eq!(
+            mage.cast(&sight(500.0), &cast, || true, &mut rolls),
+            Some(Pursues::Faces)
+        );
+        // At 300 without a cast it runs to a point 300 about its target, then stands 3 ticks.
+        mage.cast_ordered = false;
+        let mut rolls = Script::new(vec![0, 0, 0, 0]);
+        assert_eq!(
+            mage.cast(&sight(380.0), &cast, || true, &mut rolls),
+            Some(Pursues::Strolls(at(680.0, 0.0)))
+        );
+        assert_eq!(mage.stands, casts::MAGE_RUN_STANDS);
     }
 
     #[test]

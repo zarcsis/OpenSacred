@@ -911,6 +911,8 @@ fn pursue(
                 hostiles: 0,
                 crowded: nearest.hostiles.len() > 1,
                 nearest: nearest.hostiles.first() == Some(&entity),
+                scripted: 0,
+                hero_low: false,
             };
             mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
         });
@@ -1069,6 +1071,11 @@ fn pursue(
                     .entity(entity)
                     .remove::<Walk>()
                     .insert(Rearms::to_melee(weapon));
+            }
+            Pursues::Casts { spell, .. } if !crate::creature_casts::follows(spell) => {
+                // A spell the game does not follow yet: it stands facing its target.
+                debug!("ai: {entity} would cast {spell}, which the game does not follow");
+                transform.rotation = crate::hero::facing(hero - here);
             }
             Pursues::Casts { spell, variant } => {
                 let d = (hero - here).xz().length();
