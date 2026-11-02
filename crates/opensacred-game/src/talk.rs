@@ -276,6 +276,7 @@ fn pick(
         Without<Dies>,
     >,
     mut heroes: Query<(Entity, &mut Body, Option<&Talking>)>,
+    labels: Res<crate::labels::Shown>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -292,18 +293,20 @@ fn pick(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
+    // A creature's label under the cursor picks it (`0x631CEB`).
+    let labelled = labels.labelled(cursor);
     let Some((creature, (at, level), dialogue)) = creatures
         .iter()
         .filter(|(_, _, _, health, ..)| health.current > 0)
         .filter_map(|(entity, at, mind, _, talk, trades, way)| {
             let dialogue = speech_of(talk, mind, trades, npcs.as_deref())?;
             let at = at.translation();
-            Some((
-                entity,
-                (at, way.level),
-                dialogue,
-                attack::from_line(ray, at),
-            ))
+            let distance = if labelled == Some(entity) {
+                0.0
+            } else {
+                attack::from_line(ray, at)
+            };
+            Some((entity, (at, way.level), dialogue, distance))
         })
         .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
         .min_by(|a, b| a.3.total_cmp(&b.3))

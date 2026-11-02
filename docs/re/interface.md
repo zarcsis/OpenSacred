@@ -280,7 +280,8 @@ Read 2026-11-02 for #1425 by code (`0x627180`–`0x6280E5`, `0x6620B0`–`0x6623
 
 `opensacred-game` follows it since #1425 (`labels`): the items', the hero's, the creatures' and the containers' labels in one list, their texts and colours, the original's search, from the top of the screen down.
 Each creature's box is the default type's, set in the screen's pixels by the factors measured beside the original (1.75 across and 0.876 upright of `W` and `H`, over the zoom), and each container's a chest's, both **estimates**.
-Not followed: the types' own sizes, the specials' labels, a click on a creature's or a container's label, the mounts, and set 3's stats.
+Since its second part a click on a creature's or a container's label with Alt held is a click on it, its attack, its talk or its opening (`labels::Shown::labelled`; **seen**: a click on the novice's label, far from her body, opened her talk, and without Alt it did not).
+Not followed: the types' own sizes, the specials' labels, the mounts, and set 3's stats.
 
 ## In `opensacred-game`
 
