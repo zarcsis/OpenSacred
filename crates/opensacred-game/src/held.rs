@@ -405,8 +405,7 @@ fn drop_shifted(
     };
     if holding.is_some_and(|holding| set_bonuses::into_gold(&holding.0.sets.worn)) {
         let worth = tables.worth(&dropped).max(0);
-        let gold = i64::from(pack.gold).saturating_add(worth).min(0x7FFF_FFFE);
-        pack.gold = u32::try_from(gold).unwrap_or(pack.gold);
+        pack.add_gold(worth);
         info!(
             "held: {} turned into {worth} gold, {} now",
             dropped.item, pack.gold

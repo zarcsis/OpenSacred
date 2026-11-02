@@ -47,6 +47,16 @@ const PUT_METAL: u32 = 7005;
 pub const INTO_THE_PACK: u32 = 7103;
 pub const QUESTS_ITEM: u32 = 7117;
 
+/// The most gold the handler keeps (`0x57FD80`).
+const MOST_GOLD: i64 = 0x7FFF_FFFE;
+
+/// Plays the gold's sounds that the gold's changes owe ([`Pack::add_gold`], #1792).
+fn gold_sounds(mut pack: ResMut<Pack>, mut sounds: MessageWriter<sfx::Play>) {
+    for _ in 0..std::mem::take(&mut pack.gold_sounds) {
+        sounds.write(gold_sound());
+    }
+}
+
 /// The gold's sound, as the gold adder plays it (`0x57FD80`, the event (9, `0x83`)): `GOLD01` at a
 /// rate factor of 0.3 + 0.4 `rand()`/32767, not at a place.
 pub(crate) fn gold_sound() -> sfx::Play {
@@ -142,6 +152,8 @@ pub struct Pack {
     /// The items worn in the equipment window's slots, each by its key (#1289); the classes'
     /// default items, which the window does not show, not among them.
     pub worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
+    /// The gold's sounds that its changes owe ([`Pack::add_gold`]).
+    gold_sounds: u32,
     /// The types of the books read, each once, in the order read (the inventory entry's list at
     /// `+0xC`, `0x5DD5D0`; #1358), which the quest book's window shows (#1091).
     pub books: Vec<u32>,
@@ -261,7 +273,7 @@ impl Pack {
     /// did, none without room (`0x5592B0`).
     pub fn take(&mut self, dropped: Dropped, size: (u8, u8)) -> bool {
         if dropped.kind == Kind::Gold {
-            self.gold = self.gold.saturating_add(dropped.amount).min(0x7FFF_FFFE);
+            self.add_gold(i64::from(dropped.amount));
             return true;
         }
         let key = self.next;
@@ -343,6 +355,16 @@ impl Pack {
         *worn = Some((self.next, dropped));
         self.next += 1;
         true
+    }
+
+    /// Adds `amount` to the gold as the gold's handler does (`0x57FD80`): a loss held at the gold
+    /// held, a gain held at `0x7FFF_FFFE`; and the handler's gold's sound for the local hero at
+    /// each call, whatever the amount (the event (9, `0x83`), #1792), which [`gold_sounds`]
+    /// plays.
+    pub fn add_gold(&mut self, amount: i64) {
+        let gold = i64::from(self.gold).saturating_add(amount);
+        self.gold = u32::try_from(gold.clamp(0, MOST_GOLD)).unwrap_or(self.gold);
+        self.gold_sounds += 1;
     }
 
     /// Takes `dropped` of `size` onto the cursor where it holds nothing, as an item picked up
@@ -673,9 +695,8 @@ impl Taking<'_, '_> {
                 self.remarks.write(crate::remarks::Remark::CantCarry);
                 return;
             }
-            if lying.dropped.kind == Kind::Gold {
-                self.sounds.write(gold_sound());
-            } else {
+            // Gold sounds through the gold's handler (`Pack::add_gold`).
+            if lying.dropped.kind != Kind::Gold {
                 self.taken.write(Taken(lying.dropped.item));
                 // A `CreateObj`'s item keeps its use's function in the backpack (#1272).
                 if let Some(function) = script_item.and_then(|item| item.uses.clone()) {
@@ -1288,7 +1309,10 @@ impl Plugin for PickupPlugin {
             .add_message::<TakenPlaced>()
             .add_message::<Given>()
             .add_systems(OnEnter(AppState::InGame), start)
-            .add_systems(Update, receive.run_if(in_state(AppState::InGame)))
+            .add_systems(
+                Update,
+                (receive, gold_sounds).run_if(in_state(AppState::InGame)),
+            )
             .add_systems(
                 Update,
                 (
@@ -1554,6 +1578,11 @@ mod tests {
         pack.gold = 0x7FFF_FFF0;
         assert!(pack.take(dropped(Kind::Gold, 5135, 1000), (1, 1)));
         assert_eq!(pack.gold, 0x7FFF_FFFE);
+        // Through the gold's handler: a loss held at the gold, each change a sound (#1792).
+        let owed = pack.gold_sounds;
+        pack.add_gold(-0x7FFF_FFFF);
+        pack.add_gold(0);
+        assert_eq!((pack.gold, pack.gold_sounds - owed), (0, 2));
         // A full grid takes nothing more.
         let mut full = Pack::default();
         for _ in 0..160 {

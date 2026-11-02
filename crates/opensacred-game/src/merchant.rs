@@ -551,7 +551,7 @@ fn buy(wares: &mut Wares, pack: &mut Pack, (page, key, price): (Page, u32, i64))
         shelf.put(dropped, placed.size);
         return false;
     }
-    pack.gold = u32::try_from(gold - price).unwrap_or(0);
+    pack.add_gold(-price);
     info!(
         "merchant: the hero buys {} for {price} gold, {} left",
         item, pack.gold
@@ -567,8 +567,7 @@ fn sell(
     pack: &mut Pack,
     (dropped, size, price, page): (Dropped, (u8, u8), i64, Option<Page>),
 ) {
-    let gold = i64::from(pack.gold).saturating_add(price.max(0));
-    pack.gold = u32::try_from(gold.min(0x7FFF_FFFE)).unwrap_or(pack.gold);
+    pack.add_gold(price.max(0));
     let item = dropped.item;
     let kept = page.and_then(|page| wares.0.shelf(page).put(dropped, size));
     info!(

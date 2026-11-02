@@ -291,7 +291,7 @@ fn press(
         };
         let steps = master.steps;
         combos.0[index].set(steps, &arts.tables);
-        pack.gold -= cost;
+        pack.add_gold(-i64::from(cost));
         info!(
             "master: combo {} made of {:?} for {cost} gold, {} left",
             index + 1,

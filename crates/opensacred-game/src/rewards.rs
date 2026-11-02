@@ -39,8 +39,6 @@ const NUMBER_TOO: u8 = 0x9F;
 const GOLD_WORD: &str = "1004";
 const GAIN: Color = Color::srgb(1.0, 1.0, 0.5);
 const LOSS: Color = Color::srgb(1.0, 0.25, 0.25);
-/// The most gold the hero holds (`0x57FD80`).
-const MOST_GOLD: i64 = 0x7FFF_FFFE;
 /// The game's word for experience (the text 1071) and its line's colour (`0xFFFFFF20`,
 /// `0x57E160`).
 const EXPERIENCE_WORD: &str = "1071";
@@ -172,8 +170,7 @@ fn reward(
         return;
     };
     let gold = |commands: &mut Commands, pack: &mut Pack, amount: i64| {
-        pack.gold =
-            u32::try_from((i64::from(pack.gold) + amount).clamp(0, MOST_GOLD)).unwrap_or(pack.gold);
+        pack.add_gold(amount);
         let word = texts
             .as_deref()
             .and_then(|texts| texts.named(GOLD_WORD))
