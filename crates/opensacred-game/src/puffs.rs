@@ -96,6 +96,9 @@ fn make(
         let mut system = System::new(burst.particles.len());
         system.particles.clone_from(&burst.particles);
         let mut puff = commands.entity(entity);
+        if burst.light > 0.0 {
+            puff.insert(crate::daynight::Light(burst.light));
+        }
         puff.remove::<Unmade>().insert(Puff {
             burst,
             system,
@@ -134,7 +137,7 @@ fn run(
         if let Some(at) = follows.and_then(|follows| places.get(follows).ok()) {
             transform.translation = at.translation();
         }
-        system.update(dt, std::slice::from_ref(&burst.layer));
+        system.update_over(dt, std::slice::from_ref(&burst.layer), burst.ground);
         if system.particles.is_empty() {
             commands.entity(entity).despawn();
             continue;

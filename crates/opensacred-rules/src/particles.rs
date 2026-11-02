@@ -151,13 +151,20 @@ impl System {
     /// velocity takes that much of the wind, its angle turns by its speed, and its buoyancy, life,
     /// size and angle change by the layer's rates; the dead are dropped.
     pub fn update(&mut self, dt: f32, layers: &[Layer]) {
+        self.update_over(dt, layers, None);
+    }
+
+    /// [`Self::update`], each particle bouncing at the height `ground` of the system's frame
+    /// without loss (`0x7645C0`, the mode 0): its vertical velocity turned about where its place
+    /// lies at or below it, after its move and before its layer's rates.
+    pub fn update_over(&mut self, dt: f32, layers: &[Layer], ground: Option<f32>) {
         self.clock += dt;
         for particle in &mut self.particles {
             let Some(layer) = layers.get(usize::from(particle.layer)) else {
                 particle.life = 0.0;
                 continue;
             };
-            age(particle, dt, layer);
+            age(particle, dt, layer, ground);
         }
         self.particles.retain(Particle::alive);
     }
@@ -196,7 +203,7 @@ impl System {
                     0
                 },
             };
-            age(&mut particle, self.clock - self.last, rates);
+            age(&mut particle, self.clock - self.last, rates, None);
             if particle.alive() {
                 self.particles.push(particle);
             }
@@ -204,8 +211,8 @@ impl System {
     }
 }
 
-/// A particle aged by `dt` seconds under the layer `layer`.
-fn age(particle: &mut Particle, dt: f32, layer: &Layer) {
+/// A particle aged by `dt` seconds under the layer `layer`, bouncing at `ground` where given.
+fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<f32>) {
     for k in 0..3 {
         particle.place[k] += dt * particle.velocity[k];
     }
@@ -215,6 +222,9 @@ fn age(particle: &mut Particle, dt: f32, layer: &Layer) {
         particle.velocity[k] += fall * layer.wind[k];
     }
     particle.angle += dt * particle.spin;
+    if ground.is_some_and(|ground| particle.place[2] <= ground) {
+        particle.velocity[2] = -particle.velocity[2];
+    }
     particle.buoyancy += dt * layer.buoyancy;
     particle.life += dt * layer.life;
     particle.size += dt * layer.size;
@@ -683,6 +693,10 @@ pub struct Burst {
     pub layer: Layer,
     pub ramp: Ramp,
     pub particles: Vec<Particle>,
+    /// The height in its frame at which its particles bounce, where they do ([`System::update_over`]).
+    pub ground: Option<f32>,
+    /// The radius of its light while it lives, 0 for none.
+    pub light: f32,
 }
 
 /// The ring of an undead that rises again (781, `TYPE_FX_PUZZLE_SOLVED_V`, its variant 3,
@@ -725,6 +739,8 @@ pub fn rise_ring() -> Burst {
             ],
         ),
         particles,
+        ground: None,
+        light: 0.0,
     }
 }
 
@@ -786,7 +802,138 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
             &[([bone[0], bone[1], bone[2], 0.0], 256)],
         ),
         particles,
+        ground: None,
+        light: 0.0,
     }
+}
+
+/// The particles of `cParticleSystem_generic` (`0x796150`, 856, `FX_GENERIC`).
+pub const GENERIC_PARTICLES: usize = 500;
+/// The colour of an undead goblin's sparks at its last death (`0x541B95`, the event's `+0x38`).
+pub const BURN_SPARKS: u32 = 0xFFFF_4040;
+
+/// The variant of the 856 that a creature of the type `creature` makes at its last death
+/// (`0x53ECA0`'s cases 3 to 5): 0, the red sparks, for the undead goblins 142 and 143; 7, the
+/// flames, for the fire ghoul 73; 8, the pale flames, for the magic skeletons 48, 80 and 81; none
+/// for another.
+pub fn burn_variant(creature: u32) -> Option<u8> {
+    match creature {
+        142 | 143 => Some(0),
+        73 => Some(7),
+        48 | 80 | 81 => Some(8),
+        _ => None,
+    }
+}
+
+/// The sparks of the generic system's variant 0 in the colour `colour` (`0x796E86`; #1262): up to
+/// [`GENERIC_PARTICLES`] at the points `points` of a body in the system's frame, taken in turn
+/// (the original's every `⌊V/500⌋`th vertex of its model, the game's points), each of a buoyancy of
+/// 150 ± 30, a size of 5 ± 2 that falls by 2 a second, a velocity of ± (3, 3, 0), never ageing
+/// otherwise, bouncing at the ground of the system's frame (0); `PARTICLE_SPARK06` added in the
+/// colour, a light of 100 while they live.
+pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
+    let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    let block = Block {
+        buoyancy: spread(150.0, 30.0),
+        size: spread(5.0, 2.0),
+        velocity: spread([0.0; 3], [3.0, 3.0, 0.0]),
+        ..Block::default()
+    };
+    let particles = if points.is_empty() {
+        Vec::new()
+    } else {
+        (0..GENERIC_PARTICLES)
+            .map(|k| Particle {
+                place: points[k % points.len()],
+                velocity: spread_3(block.velocity, dice),
+                buoyancy: spread_f32(block.buoyancy, dice),
+                size: spread_f32(block.size, dice),
+                life: 255.0,
+                angle: 0.0,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+            })
+            .collect()
+    };
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            size: -2.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new([r, g, b, a], &[([r, g, b, a], 256)]),
+        particles,
+        ground: Some(0.0),
+        light: 100.0,
+    }
+}
+
+/// How long the generic system's variants 7 and 8 emit their flames, in seconds (`0x796660`).
+pub const DEATH_FLAMES_EMIT: f32 = 1.0;
+/// The burning's scorch: its quad's half side in the models' units, how long it holds whole and
+/// how fast its alpha falls after, a second (`0x796A44`, `0x7966EF`).
+pub const SCORCH_HALF: f32 = 50.0;
+pub const SCORCH_HOLDS: f32 = 10.0;
+pub const SCORCH_FADES: f32 = 0.5;
+
+/// The flames of the generic system's variant 7 (the fire ghoul's) or 8 (the magic skeletons')
+/// (`0x797394`, `0x79749F`; #1262): every 0.003 s for [`DEATH_FLAMES_EMIT`], `PARTICLE_CLOUD01`
+/// of a half side of 20, turned at random, shot up at 350 ± 130 (± 15 across) from within 8 of the
+/// place, living 0.34 s (−750 a second), added by their alpha: white to orange to a fading red for
+/// 7, pale cyan to blue for 8; no light; none for another variant.
+pub fn death_flames(variant: u8) -> Option<Fire> {
+    let ramp = match variant {
+        7 => Ramp::new(
+            [1.0, 1.0, 1.0, 1.0],
+            &[([1.0, 0.5, 0.2, 1.0], 60), ([1.0, 0.2, 0.0, 0.0], 196)],
+        ),
+        8 => Ramp::new(
+            [0.7, 1.0, 1.0, 1.0],
+            &[([0.5, 0.8, 1.0, 1.0], 60), ([0.3, 0.6, 1.0, 0.0], 196)],
+        ),
+        _ => return None,
+    };
+    Some(Fire {
+        texture: "particle_cloud01",
+        layers: vec![Layer {
+            life: -750.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            size: spread(20.0, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0, 0.0, 350.0], [15.0, 15.0, 130.0]),
+            offset: spread([0.0; 3], [8.0, 8.0, 0.0]),
+            interval: 0.003,
+            ..Block::default()
+        }],
+        ramps: vec![ramp],
+        blends: vec![Blend::Add],
+        grid: 1,
+        count: GENERIC_PARTICLES,
+        light: 0.0,
+        tinted: false,
+    })
+}
+
+/// The scorch's alpha at the system's clock `t`: whole to [`SCORCH_HOLDS`], then falling by
+/// [`SCORCH_FADES`] a second; none once it is gone, when the system ends.
+pub fn scorch_alpha(t: f32) -> Option<f32> {
+    let alpha = if t <= SCORCH_HOLDS {
+        1.0
+    } else {
+        1.0 - SCORCH_FADES * (t - SCORCH_HOLDS)
+    };
+    (alpha > 0.0).then_some(alpha)
+}
+
+/// The scorch's texture by the coin of its making (`0x796150`'s end): `FX_STREAKS02` where
+/// `rand()` is even, else `FX_STREAKS01`.
+pub fn scorch_texture(even: bool) -> &'static str {
+    if even { "fx_streaks02" } else { "fx_streaks01" }
 }
 
 /// The glitter's numbers (`0x8E808C`), whose sines move its sparks; the mouse events' sparks
@@ -875,6 +1022,42 @@ fn hue_colour(hue: f32, value: f32) -> [f32; 3] {
 mod tests {
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn the_last_burnings_sparks_bounce_and_their_flames_and_scorch_fade() {
+        // The goblins' red sparks, the ghoul's and the skeletons' flames, none for another.
+        assert_eq!(
+            [142, 73, 81, 76].map(burn_variant),
+            [Some(0), Some(7), Some(8), None]
+        );
+        let mut dice = Rng::of(1, 2, 3);
+        let sparks = generic_sparks(&[[0.0, 0.0, 10.0]], BURN_SPARKS, &mut dice);
+        assert_eq!(sparks.particles.len(), GENERIC_PARTICLES);
+        assert_eq!(sparks.ramp.at(255.0)[1], 64.0 / 255.0);
+        // A spark that falls onto the ground bounces back up without loss.
+        let mut system = System::new(1);
+        system.particles.push(Particle {
+            place: [0.0, 0.0, 0.5],
+            velocity: [0.0, 0.0, -10.0],
+            size: 5.0,
+            life: 255.0,
+            buoyancy: 0.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+        });
+        system.update_over(0.1, &[sparks.layer], Some(0.0));
+        assert!(system.particles[0].velocity[2] > 0.0);
+        assert!(
+            death_flames(7).is_some() && death_flames(8).is_some() && death_flames(0).is_none()
+        );
+        // The scorch whole to 10 s, half at 11 s, gone at 12 s; its texture by the coin.
+        assert_eq!(scorch_alpha(9.0), Some(1.0));
+        assert_eq!(scorch_alpha(11.0), Some(0.5));
+        assert_eq!(scorch_alpha(12.0), None);
+        assert_eq!(scorch_texture(true), "fx_streaks02");
+    }
 
     #[test]
     fn the_glitter_wanders_within_ten_its_sparks_in_full_hues() {

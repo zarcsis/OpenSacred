@@ -26,8 +26,9 @@ use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use opensacred_rules::particles::{
-    Blend, Fire, GROUND_GRID, GROUND_HALF, GROUND_TEXTURE, Geyser, Jet, SMALL_FIRE_EMITS, System,
-    fire, ground_frame, small_fire,
+    Blend, DEATH_FLAMES_EMIT, Fire, GROUND_GRID, GROUND_HALF, GROUND_TEXTURE, Geyser, Jet,
+    SCORCH_HALF, SMALL_FIRE_EMITS, System, death_flames, fire, ground_frame, scorch_alpha,
+    scorch_texture, small_fire,
 };
 use opensacred_rules::spawning::Rng;
 
@@ -91,6 +92,155 @@ pub struct StepFire {
 const GROUND_LIFT: f32 = 0.5;
 /// The fires' loop's volume of a step's small fire (`0x690630`, 0.6).
 const STEP_FIRE_VOLUME: f32 = 0.6;
+
+/// The last burnings' flames of the variants 7 and 8 and their materials, and the scorches'
+/// materials of `FX_STREAKS01` and `02` (#1262), made as the game starts.
+#[derive(Resource)]
+struct DeathFires {
+    flames: Vec<(u8, Arc<Fire>)>,
+    flame: Material,
+    scorches: [Material; 2],
+}
+
+/// A last burning to make: its variant, as [`last_burning`] leaves it for [`ignite`].
+#[derive(Component)]
+struct Unburnt(u8);
+
+/// A last burning of the generic system's variant 7 or 8 (#1262): its flames' data, particles and
+/// dice, its flames' mesh and its scorch's.
+#[derive(Component)]
+struct DeathFire {
+    fire: Arc<Fire>,
+    system: System,
+    dice: Rng,
+    flames: Handle<Mesh>,
+    scorch: Option<Handle<Mesh>>,
+}
+
+/// Starts the last burning of the variant `variant` (7 the fire ghoul's, 8 the magic skeletons')
+/// at `at` on the level `layered` (`0x5A5AE2`: put at the event's point, following nothing).
+pub fn last_burning(
+    commands: &mut Commands,
+    variant: u8,
+    at: Vec3,
+    layered: Option<crate::buildings::Layered>,
+) {
+    let mut fire = commands.spawn((
+        Unburnt(variant),
+        Transform::from_translation(at),
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(layered) = layered {
+        fire.insert(layered);
+    }
+}
+
+/// Gives each new last burning its particles, its flames' mesh and its scorch, of `FX_STREAKS02`
+/// or `01` by a coin (`0x796150`'s end), untinted.
+fn ignite(
+    mut commands: Commands,
+    death_fires: Option<Res<DeathFires>>,
+    unburnt: Query<(Entity, &Unburnt)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let Some(death_fires) = death_fires else {
+        return;
+    };
+    for (entity, &Unburnt(variant)) in &unburnt {
+        commands.entity(entity).remove::<Unburnt>();
+        let Some((_, fire)) = death_fires.flames.iter().find(|(v, _)| *v == variant) else {
+            continue;
+        };
+        let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+        let mut dice = crate::seed::dice(SEED ^ index);
+        let scorch_material = death_fires.scorches[usize::from(dice.below(2) == 0)].clone();
+        let flames = meshes.add(empty());
+        let mut scorch = None;
+        let untinted = bevy::camera::visibility::RenderLayers::layer(iso::UNTINTED);
+        commands.entity(entity).with_children(|parts| {
+            if let Some(material) = scorch_material {
+                let mesh = meshes.add(empty());
+                scorch = Some(mesh.clone());
+                parts.spawn((
+                    Mesh3d(mesh),
+                    MeshMaterial3d(material),
+                    Transform::from_translation(Vec3::Y * GROUND_LIFT),
+                    bevy::camera::visibility::NoFrustumCulling,
+                    untinted.clone(),
+                ));
+            }
+            if let Some(material) = death_fires.flame.clone() {
+                parts.spawn((
+                    Mesh3d(flames.clone()),
+                    MeshMaterial3d(material),
+                    Transform::default(),
+                    bevy::camera::visibility::NoFrustumCulling,
+                    untinted,
+                ));
+            }
+        });
+        commands.entity(entity).insert(DeathFire {
+            fire: fire.clone(),
+            system: System::new(fire.count),
+            dice,
+            flames,
+            scorch,
+        });
+    }
+}
+
+/// Runs each last burning a frame on (`0x7962F0`): its flames emitted for [`DEATH_FLAMES_EMIT`]
+/// and aging, its scorch whole for 10 s and fading over 2 (`scorch_alpha`, `0x796A44`); it goes
+/// with its scorch.
+fn burn_on(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut fires: Query<(Entity, &mut DeathFire)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let dt = time.delta_secs().min(0.1);
+    for (entity, mut burning) in &mut fires {
+        let DeathFire {
+            fire,
+            system,
+            dice,
+            flames,
+            scorch,
+        } = &mut *burning;
+        system.update(dt, &fire.layers);
+        if system.clock < DEATH_FLAMES_EMIT {
+            system.emit(&fire.blocks, &fire.layers, fire.count, dice);
+        }
+        let Some(alpha) = scorch_alpha(system.clock) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        if let Some(mut mesh) = meshes.get_mut(&*flames) {
+            layer_quads(fire, system, 0).into_mesh(&mut mesh);
+        }
+        if let Some(mut mesh) = scorch.as_ref().and_then(|handle| meshes.get_mut(handle)) {
+            let half = SCORCH_HALF * iso::MODEL_SCALE;
+            let mut quads = Quads::default();
+            quads.push_corners(
+                [
+                    Vec3::new(-half, 0.0, -half),
+                    Vec3::new(half, 0.0, -half),
+                    Vec3::new(half, 0.0, half),
+                    Vec3::new(-half, 0.0, half),
+                ],
+                [
+                    Vec2::new(0.0, 0.0),
+                    Vec2::new(1.0, 0.0),
+                    Vec2::new(1.0, 1.0),
+                    Vec2::new(0.0, 1.0),
+                ],
+                [1.0, 1.0, 1.0, alpha],
+            );
+            quads.into_mesh(&mut mesh);
+        }
+    }
+}
 
 /// A fire to make: its variant, as `spawn` leaves it for [`light`].
 #[derive(Component)]
@@ -294,6 +444,29 @@ fn begin(
         fire: Arc::new(step),
         layers,
         ground,
+    });
+    // The last burnings: their flames of `PARTICLE_CLOUD01` added, their scorches laid over by
+    // their alpha.
+    let image = |name: &str| {
+        data.as_ref()
+            .and_then(|data| particle_texture(&data.0.assets, &assets, name))
+    };
+    let flames: Vec<(u8, Arc<Fire>)> = [7, 8]
+        .into_iter()
+        .filter_map(|variant| Some((variant, Arc::new(death_flames(variant)?))))
+        .collect();
+    let flame = flames
+        .first()
+        .and_then(|(_, fire)| image(fire.texture))
+        .map(|image| materials.add(particle_material(image, AlphaMode::Add)));
+    let scorches = [false, true].map(|even| {
+        image(scorch_texture(even))
+            .map(|image| materials.add(particle_material(image, AlphaMode::Blend)))
+    });
+    commands.insert_resource(DeathFires {
+        flames,
+        flame,
+        scorches,
     });
     commands.insert_resource(Fires { variants });
 }
@@ -754,6 +927,7 @@ fn end(
 ) {
     commands.remove_resource::<Fires>();
     commands.remove_resource::<StepFires>();
+    commands.remove_resource::<DeathFires>();
     for (_, handle) in crackles.iter().flat_map(|crackles| &crackles.0) {
         if let Some(mut instance) = instances.get_mut(handle) {
             instance.stop(bevy_kira_audio::prelude::AudioTween::default());
@@ -776,7 +950,9 @@ impl Plugin for FxPlugin {
                 (
                     light.run_if(resource_exists::<Fires>),
                     kindle,
+                    ignite,
                     burn,
+                    burn_on,
                     smoulder,
                     scorch,
                     crackle,
