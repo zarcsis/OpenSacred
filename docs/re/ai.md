@@ -316,6 +316,29 @@ Read 2026-10-26 (#657) by the static reading of `Sacred.exe`; **confirmed** by c
 
 Not read: what `0x182EE3C` bit `0x10000` is; what reads a record's kind (0, 1 or 100); `0x6B`'s clearing in the strike's resolution at `0x56B296`; the quests' hook beyond the branches above.
 
+### A hireling's hands
+
+Read 2026-11-02 (#1771) by code, **confirmed** unless marked otherwise.
+The portraits' column (`cUI_Mercenary`) takes a left press on a follower's entry, 1 to 4, in its input `0x6D6C70`.
+Its test `0x6D6B90` sends the press to `0x6D6760` with the cursor empty or holding no item (its kind not 1), with a shield held (the category 13), and with a weapon held (the category 5) whose kind's first attack's slot the follower's model has (`0x956F80` by `Weapon.pak +0x1E`: 79 + 5·kind for the kinds 0 to 12, 241 for 13, 139 for 14; `0x4117B0` on the model of its type `0x426250`).
+Any other press with a potion held (the category 9) uses it (`0x54AA80`; **hypothesis**: the follower drinks it) and empties the cursor; any other item does nothing.
+
+`0x6D6760`:
+
+- **The cursor empty.** The item of the right hand (the slot 13), else of the left (12), comes off (`0x556A30(slot, 1)`) onto the cursor.
+  A creature of no hero's type has no default item in a hand (`0x426580` answers the types 1, 2, 3, 6 and 8 alone), so an emptied hand stays empty.
+- **An item held** that the follower may not use (`0x54ABE0`): the event (8, `0x11`, the follower's id) and nothing else.
+- **An item held that it may use.** Its grip: `0x5CEC00` answers 1 for the kinds 3, 7 and 12, 3 for 0, 1, 5, 6 and 10, else 2, and 2 for the types 4067 to 4072 by their record's parent, else their own (`+0x24`); a shield's is 1; the grips 2 and 3 take the right hand, 1 the left.
+  `0x5CECD0` marks an item of both hands: the kinds 2, 3, 4, 7 and 12 and those six types.
+  - An item of one hand goes into the hand of its grip (`sdk_EQUIP`, `0x555E00`), or, with the follower's skill of two weapons (6, `0x582450`, its level above 0), into the right where the left holds an item or the right none, else into the left.
+    The item the hand held comes off onto the cursor; where it held none, an item of both hands comes off the left, else the right.
+  - An item of both hands goes into the hand of its grip where one hand is empty, the other hand's item first coming off onto the cursor; with both hands full nothing moves and the cursor keeps it.
+  - The remark: the event (8, `0x10`, the follower's id, `⌊100·s⌋`), `s = (v/(v₁₂ + v₁₃) − 1)/2 + 1/2` held between 0 and 1 (`0x6D6660`, the float 100.0 `0x890998`), `v` the item's query 4 and `v₁₂`, `v₁₃` the hands' old items', each at least 1; a weapon's query 4 is the sum of its record's four most damages (`+0x24` to `+0x2A`, `cWeapon3D`'s `0x5CED50`), any other item's 0 (`0x5C70C0`).
+    It is posted after any item held that it may use, also where both hands were full and nothing moved.
+- Who may use (`0x54ABE0`, `0x5BF810` with the follower's type): the rules of docs/re/inventory.md, "Who may use an item", whose class tests a hireling's type passes but for the kind 3; the bit 6 refuses only the types below 32, and the types 1800 to 1804 take it and lose the classes' bits; the classes' bits test the types 132 (the Seraphim's), 133, 319 to 321, 326, 327 and 693 (the Dark Elf's), 105 and 134 (the Wood Elf's) and the heroes', and refuse every other type an item of some classes but not all; then the level, the attributes and the skill asked, of the follower's.
+
+**Seen** 2026-11-02 in the original (the driver of #448, `spawn 322`, `hire`, a traced `sdk_EQUIP` and event): the sword 1711 held over the hireling 322's entry went into its slot 13 with the event (8, 16, its id, 100), its empty hands; a press with the cursor empty took the sword back onto it.
+
 ## Open
 
 The test of the levels in detail; the AI's states 1, 6 and 10 to 14.
@@ -369,6 +392,10 @@ Since #657 the scripts hire too (`followers::Hired`, `npcs::hire_of`): a `Create
 - `0x39` and `0x65` let it go: it leaves the hero's list and stops, its side and home kept.
 - Since #1061 one of the flag 4 steps off from nearer than 150 to the first of ten points 220 from the hero at random that its way reaches, standing where it reaches none (`minds::escort_stepping_off`), and stands while the hero is in danger, a hostile of its look nearer than 300 or the hero fighting, where the hero is farther than 500 from it (`minds::escort_stands`).
 - In the game, `QIS_OnEnter15002` made quest 15002's escort and `Dialog:od_15002` hired it (`script`, the console): it followed the hero, and `btn_ok_dq_15002` let it go, where it stayed.
+
+Since #1771 a follower's entry of the column takes a weapon or a shield from the cursor and gives its hands' items back (`mercenaries`, "A hireling's hands" above; `opensacred_rules::equipment::handed`, `grip`, `may_use` of a creature's type; `npcs::Rearms::handing`): its values, its clips and its fight made anew as an archer's rearming makes them; an item given comes back as it was given, a hand's own item as its maker made it at the follower's level.
+The remarks of the events (8, `0x10`) and (8, `0x11`) wait for #1733; the potion given to drink, the items' bonuses to the skill of two weapons and the attributes and the skill asked are not followed.
+The console's `hire ID` hires a creature as a script's `0x4B` does, and the original's driver's `hire ID` calls `sdk_HIRE` as `SetNPCState` does (#1771).
 
 Not followed: the healers; the hire's levels; `0x71`'s mark in its quest, a quest's release and the quests' hook of the letting go, which serve only the dynamic quests that the release never runs (docs/re/netscript.md, "The dynamic quests").
 In the game, the Vampiress's wolf (a 588 of level 5 at her level 1 and the call's 2) went at a goblin that came at her; with her put 50 cells off, it was put near her and ran up to her; as she attacked one of two goblins beside her, it went at the other.

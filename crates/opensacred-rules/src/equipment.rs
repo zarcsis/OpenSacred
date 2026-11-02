@@ -172,29 +172,51 @@ pub fn asked_level(level: u32) -> u32 {
     asked
 }
 
-/// Whether the hero of the type `hero` and the level `level` may use an item that `asks` so
-/// (`0x54ABE0`): its classes (no bit or every bit any class, the bit 6 none, else the hero's own;
-/// `0x5BF810`), the weapons' kinds (the Dwarf not the kinds 4, 7 and 12 nor the bridles 29, the
-/// Daemon not 7, the kind 3 the Gladiator's and the Dwarf's alone, the types 1800 to 1804 no
-/// hero's), and the level it asks (`0x5BEB30`). A class's variant (`0x43CA20`) and the
-/// attributes' and the skill's requirements are not followed.
-pub fn may_use(hero: u32, level: u32, asks: &Asks) -> bool {
-    let classes = asks.classes & (CLASSES | NO_CLASS);
-    if classes & NO_CLASS != 0 {
-        return false;
+/// The bit among [`CLASSES`] of the class whose items a creature of the type `creature` takes
+/// (`0x5BF810`): a hero's own ([`class_bit`]), the Seraphim's for the type 132, the Dark Elf's
+/// for 133, 319 to 321, 326, 327 and 693, the Wood Elf's for 105 and 134; none for another.
+fn taker_bit(creature: u32) -> u32 {
+    match creature {
+        132 => class_bit(1),
+        133 | 319..=321 | 326 | 327 | 693 => class_bit(4),
+        105 | 134 => class_bit(5),
+        _ => class_bit(creature),
     }
-    let classes = classes & CLASSES;
-    if classes != 0 && classes != CLASSES && classes & class_bit(hero) == 0 {
-        return false;
-    }
-    let dwarf = hero == 8;
+}
+
+/// The types below which the bit 6 of an item's classes refuses its taker, the heroes' among
+/// them (`0x5BF810`): a hireling's type is above.
+const CLASSED_BELOW: u32 = 0x20;
+
+/// Whether a creature of the type `creature` and the level `level` may use an item that `asks`
+/// so (`0x54ABE0`): its classes (no bit or every bit any class; the bit 6, which the types 1800
+/// to 1804 take, none below the type 32 and the classes' bits cleared above it; else the
+/// creature's own, a hero's or that of a type of [`taker_bit`], none for another; `0x5BF810`),
+/// the weapons' kinds (the Dwarf not the kinds 4, 7 and 12 nor the bridles 29, the Daemon not 7,
+/// the kind 3 the Gladiator's and the Dwarf's alone), and the level it asks (`0x5BEB30`). A
+/// class's variant (`0x43CA20`) and the attributes' and the skill's requirements are not
+/// followed.
+pub fn may_use(creature: u32, level: u32, asks: &Asks) -> bool {
+    let dwarf = creature == 8;
     let refused_kind = match asks.kind {
         4 | 12 => dwarf,
-        7 => dwarf || hero == 9,
-        3 => !(hero == 2 || dwarf),
+        7 => dwarf || creature == 9,
+        3 => !(creature == 2 || dwarf),
         _ => false,
     };
-    if refused_kind || (dwarf && asks.category == 29) || (1800..=1804).contains(&asks.item) {
+    if refused_kind || (dwarf && asks.category == 29) {
+        return false;
+    }
+    let no_class = asks.classes & NO_CLASS != 0 || (1800..=1804).contains(&asks.item);
+    if no_class && creature < CLASSED_BELOW {
+        return false;
+    }
+    let classes = if (1800..=1804).contains(&asks.item) {
+        0
+    } else {
+        asks.classes & CLASSES
+    };
+    if classes != 0 && classes != CLASSES && classes & taker_bit(creature) == 0 {
         return false;
     }
     asks.level <= level
@@ -254,6 +276,93 @@ pub fn slot_on_pickup(
     slots
         .into_iter()
         .find(|&slot| takes(slot, asks.category) && empty(slot))
+}
+
+/// The hands' slots, the left's and the right's (`0x556F50`'s 12 and 13).
+pub const LEFT_HAND: u8 = 12;
+pub const RIGHT_HAND: u8 = 13;
+
+/// The types held as two-handed weapons of the right hand whatever their kind, by their record's
+/// parent, else their own type (`0x5CEC00`, `0x5CECD0`).
+const BOTH_HANDS: [u32; 6] = [4067, 4068, 4069, 4070, 4071, 4072];
+
+/// How a creature holds an item: whether it goes into the right hand (`0x5CEC00`'s 2 and 3),
+/// else the left, and whether it takes both hands (`0x5CECD0`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Grip {
+    pub right: bool,
+    pub both: bool,
+}
+
+/// How a creature holds a weapon of the kind `kind` (`Weapon.pak +0x1E`) whose record's parent,
+/// else its own type, is `root` (`0x5CEC00`, `0x5CECD0`): the kinds 3, 7 and 12 in the left hand,
+/// the others in the right; the kinds 2, 3, 4, 7 and 12 and the types of [`BOTH_HANDS`] in both.
+/// A shield goes into the left hand alone (its grip 1, `0x6D6760`): [`Grip::default`].
+pub fn grip(kind: u8, root: u32) -> Grip {
+    if BOTH_HANDS.contains(&root) {
+        return Grip {
+            right: true,
+            both: true,
+        };
+    }
+    Grip {
+        right: !matches!(kind, 3 | 7 | 12),
+        both: matches!(kind, 2 | 3 | 4 | 7 | 12),
+    }
+}
+
+/// What a hireling's hands hold: for each hand, whether it holds an item and whether that item
+/// takes both hands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Hands {
+    pub left: Option<bool>,
+    pub right: Option<bool>,
+}
+
+/// Where an item given to a hireling goes: the hand that takes it, and the hand whose item comes
+/// off onto the cursor, if any.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Handing {
+    pub into: u8,
+    pub off: Option<u8>,
+}
+
+/// Where a hireling of the hands `hands` puts an item of the grip `grip` given through its
+/// portrait (`cUI_Mercenary`, `0x6D6760`), with the skill of two weapons (6, `0x582450`) or not.
+///
+/// An item of one hand goes into the hand of its grip, without the skill; with it, into the
+/// right hand where the left holds an item or the right none, else into the left. The item it
+/// replaces comes off, else an item of both hands in the left, else in the right.
+///
+/// An item of both hands goes into the hand of its grip where one hand is empty, the item of the
+/// other coming off; with both hands full it goes nowhere, and the cursor keeps it.
+pub fn handed(grip: Grip, hands: Hands, two_weapons: bool) -> Option<Handing> {
+    let of_grip = if grip.right { RIGHT_HAND } else { LEFT_HAND };
+    if grip.both {
+        let off = match (hands.left, hands.right) {
+            (None, right) => right.map(|_| RIGHT_HAND),
+            (Some(_), None) => Some(LEFT_HAND),
+            (Some(_), Some(_)) => return None,
+        };
+        return Some(Handing { into: of_grip, off });
+    }
+    let into = match two_weapons {
+        false => of_grip,
+        true if hands.left.is_some() || hands.right.is_none() => RIGHT_HAND,
+        true => LEFT_HAND,
+    };
+    let held = if into == LEFT_HAND {
+        hands.left
+    } else {
+        hands.right
+    };
+    let off = match held {
+        Some(_) => Some(into),
+        None if hands.left == Some(true) => Some(LEFT_HAND),
+        None if hands.right == Some(true) => Some(RIGHT_HAND),
+        None => None,
+    };
+    Some(Handing { into, off })
 }
 
 /// How a slot of the equipment window glows while the cursor holds an item (docs/re/inventory.md,
@@ -351,6 +460,104 @@ mod tests {
                 ..sword
             }
         ));
+    }
+
+    #[test]
+    fn a_hireling_takes_the_items_of_every_class_and_of_none() {
+        let sword = Asks {
+            item: 1712,
+            category: 5,
+            kind: 5,
+            classes: 0x80CF_013F,
+            level: 22,
+        };
+        // A hireling of the type 77: every class's item from the level asked on, no class's
+        // too, a class's own not, nor the kind 3.
+        assert!(may_use(77, 22, &sword) && !may_use(77, 21, &sword));
+        let none = Asks {
+            classes: 0x40,
+            ..sword
+        };
+        assert!(may_use(77, 22, &none) && !may_use(10, 22, &none));
+        let kilt = Asks {
+            classes: 0x800F_1302,
+            ..sword
+        };
+        assert!(!may_use(77, 22, &kilt) && may_use(2, 22, &kilt));
+        assert!(!may_use(77, 22, &Asks { kind: 3, ..sword }));
+        // The types 1800 to 1804: no hero's, a hireling's whatever their classes.
+        let held = Asks { item: 1802, ..kilt };
+        assert!(may_use(77, 22, &held) && !may_use(2, 22, &held));
+        // The type 133 takes the Dark Elf's items.
+        let dark = Asks {
+            classes: 0x8000_0008,
+            ..sword
+        };
+        assert!(may_use(133, 22, &dark) && !may_use(132, 22, &dark));
+    }
+
+    #[test]
+    fn a_hireling_puts_an_item_given_into_the_hand_of_its_grip() {
+        let sword = grip(1, 1712);
+        let bow = grip(7, 1732);
+        let shield = Grip::default();
+        assert_eq!(
+            (sword, bow, grip(2, 1700)),
+            (
+                Grip {
+                    right: true,
+                    both: false
+                },
+                Grip {
+                    right: false,
+                    both: true
+                },
+                Grip {
+                    right: true,
+                    both: true
+                }
+            )
+        );
+        assert_eq!(
+            grip(5, 4069),
+            Grip {
+                right: true,
+                both: true
+            }
+        );
+        let one = Some(false);
+        let two = Some(true);
+        let at = |into, off| Some(Handing { into, off });
+        // A sword for a sword, the old one onto the cursor; into empty hands, nothing off.
+        let swords = Hands {
+            left: None,
+            right: one,
+        };
+        assert_eq!(
+            handed(sword, swords, false),
+            at(RIGHT_HAND, Some(RIGHT_HAND))
+        );
+        assert_eq!(handed(sword, Hands::default(), false), at(RIGHT_HAND, None));
+        // A shield beside the sword; a sword beside a bow takes the bow off.
+        assert_eq!(handed(shield, swords, false), at(LEFT_HAND, None));
+        let archer = Hands {
+            left: two,
+            right: None,
+        };
+        assert_eq!(
+            handed(sword, archer, false),
+            at(RIGHT_HAND, Some(LEFT_HAND))
+        );
+        // With two weapons a second sword goes into the empty left hand.
+        assert_eq!(handed(sword, swords, true), at(LEFT_HAND, None));
+        // A bow for a sword: the sword off, the bow into the left hand; with both hands full the
+        // cursor keeps it.
+        assert_eq!(handed(bow, swords, false), at(LEFT_HAND, Some(RIGHT_HAND)));
+        let full = Hands {
+            left: one,
+            right: one,
+        };
+        assert_eq!(handed(bow, full, false), None);
     }
 
     #[test]
