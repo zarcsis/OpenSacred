@@ -42,6 +42,16 @@ fn share(x: f32) -> String {
     }
 }
 
+/// A value, signed, to a tenth where it is not whole.
+fn tenths(x: f32) -> String {
+    let t = (f64::from(x) * 10.0).round() / 10.0;
+    if t.fract() == 0.0 {
+        format!("{t:+}")
+    } else {
+        format!("{t:+.1}")
+    }
+}
+
 /// A whole value, signed.
 #[expect(
     clippy::cast_possible_truncation,
@@ -95,6 +105,10 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         )),
         Told::Experience(x) => white(format!("{}: {}", n(1071), share(x))),
         Told::Sight(units) => white(format!("{}: {}", n(1130), plus(units))),
+        // The critical hit's value, as an item's effect 859 adds to it, to a tenth.
+        Told::Critical(value) => white(format!("{}: {}", n(1132), tenths(value))),
+        // A per cent of the wounds' value: a hundredth's points (#1779).
+        Told::Wounds(points) => white(format!("{}: {points:+.2}%", n(1135))),
         // Against the ranged fighters, as an item's bonus against them is worded.
         Told::RangedDefence(x) => white(format!(
             "{} {} {}: {}",

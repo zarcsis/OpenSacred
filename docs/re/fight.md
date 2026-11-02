@@ -266,6 +266,23 @@ So an NPC's new level is held as at its making: at its sector's highest plus the
 The setter recomputes the stats (`0x5796A0`) and refills the health to the most, also when the hold keeps the level: an NPC whose experience has passed its held level is healed whole at each kill after (a quirk); its items stay as they are.
 A creature that an NPC killed drops nothing (docs/re/items.md, "Who drops").
 
+### The rare effects (#1779)
+
+Read 2026-11-02 by code (`0x56B130`, `0x570ED0`, `0x5F23A0`), **confirmed** unless marked otherwise; the sets' parts are docs/re/sets.md §4's M3, M4, M10 and M14.
+
+- The getter `0x570ED0(effect, opponent)` sums the creature's items' bonus slots of the effect, a slot whose condition's low byte names a class of opponents counted only against an opponent of that side (`+0x1F0`; `0x80` a ranged holder, `0x81` an owned creature), every slot with the opponent 0; it answers only while the creature's `+0x2B7` bit `0x40` marks it (docs/re/items.md, "The bonus effects that the code reads"), which every effect below sets.
+- `0x5F23A0(effect)` gives the effect's `(a, b, c)` from the balance's tail's fifth table (docs/02 §6.3), `(100, 100, 90)` for an effect it lacks; the chance of a rare effect of the value `v` is `(1 − a/(b + v))·100 + 0.5` on the x87 unit, 0 where `v` is not above `2⁻²³`, at most `c` and at least 0, a roll `rand() % 101` below it holding.
+- The order: 866 on the float damage before the player's cap and the rounding (`0x56D805`); after the rounding, 867 (`0x56E15D`), the knock-down of a player defender, 859 (`0x56E8CC`), the split 846 and 856 (`0x56F679`); then the health's loss and the life leech, of the same damage.
+  So 867 and 859 can take a player's damage above its cap, and a critical hit multiplies the knock-down's damage meant to leave the hero standing.
+- **859, the critical hit**: the attacker's 859 against the defender, plus the sets' M3 terms (each added and stored as a float) while the attacker is local; at 0 nothing, else the roll `rand() % 101` against its chance (859's `(100, 100, 98)`: `100v/(100 + v) + 0.5`, at most 98); holding, the whole damage becomes `⌊m·d/10⌋`, `m = rand() % 11 + 15` (×1.5 to ×2.5), `(rand() & 15) + 15` (to ×3.0) against a defender of both the boss's bit and the champion's mark (**hypothesis**: no maker gives both); an object 856 (`FX_GENERIC`) at the defender with the FX event `0x50` and the colour `0xFFFF2020`, one a creature at a time (`0x5FA150`; **hypothesis**: a red flash); no sound, no voice.
+- **867, the wounds**: the attacker's 867 (every slot), plus `0.1·D` for set 26 at 6 and `0.2·D` for set 62 at 4 (no test of the local), plus the first word of its effect 47 (the Dwarf's berserk's `3L + 27`), a per cent `p`; with `w` the share of its own health lost, `x = w·p·0.01` as a float, the damage becomes `⌊d·(1 + x·TollwutFactor)⌋` (1.0 on file); no roll.
+  The sets' terms add a tenth or a fifth of a point of the per cent, where their lines say 10 % and 20 %.
+- **866, the gold for the health**: the defender's 866, plus `30·D` for set 16 at 6 while the defender is local, held at 40 to 80 by the difficulty; a roll `rand() % 101` below it (drawn with no gold too) pays the whole float damage from the defender's gold `g` (`+0x46`), the damage 0 where `g` holds it and `f − g` where not, through the gold's adder `0x57FD80`, with the gold's sound `(9, 0x83)`, twice for the local hero (**hypothesis**: both play).
+- **856, the gold pile**: the attacker's 856, plus `10·D` for set 30 at 5 (no test of the local); a roll `rand() % 101` below it makes the defender drop a gold pile (`0x559BF0` of a forced type: 5132 by `rand() % 2`, else 5133 by a second, else 5134 by a third, else 5135) of the gold drop's amount at its level, held at most at the damage and the defender's health before the hit, with the gold's sound; the defender's own gold stays.
+- Not read: the stun 862's consequence, 846's split, `0x5C6EC0`, and whether the poison's and the burning's ticks reach these blocks.
+
+`opensacred-game` follows 859 and 867 since #1779 (`opensacred_rules::fight::item_effect`, `rare_chance`, `critical`, `wounded`, `Rules::rare`; `set_bonuses::Stats::critical` and `wounds`; `fight::resolve`), the wider roll not taken and the flash not drawn; 866 and 856 not yet.
+
 ## An NPC's attack, defence and damage
 
 Status: **confirmed** by code (#281) unless marked otherwise.

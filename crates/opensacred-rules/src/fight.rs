@@ -634,6 +634,10 @@ pub struct Rules {
     multi_shot: f32,
     geschick: f32,
     spawn_weapon: [f32; 2],
+    /// The rare effects' parameters `(a, b, c)` of the balance's tail's fifth table, by their
+    /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
+    rare: Vec<(u32, [f32; 3])>,
+    tollwut: f32,
 }
 
 impl Default for Rules {
@@ -663,6 +667,8 @@ impl Default for Rules {
             multi_shot: 0.83,
             geschick: 200.0,
             spawn_weapon: [25.0, 275.0],
+            rare: Vec::new(),
+            tollwut: 1.0,
             hardened: Hardened::No,
         }
     }
@@ -905,8 +911,23 @@ impl Rules {
                 b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
                 b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
             ],
+            rare: b
+                .effect_chances
+                .iter()
+                .map(|chance| (chance.effect, [chance.a, chance.b, chance.most]))
+                .collect(),
+            tollwut: b.f32("TollwutFactor").unwrap_or(default.tollwut),
             hardened,
         }
+    }
+
+    /// The parameters `(a, b, c)` of the rare effect `effect` (`0x5F23A0`): the balance's, else
+    /// `(100, 100, 90)`, which the client appends for an effect its table lacks.
+    pub fn rare(&self, effect: u32) -> [f32; 3] {
+        self.rare
+            .iter()
+            .find(|&&(listed, _)| listed == effect)
+            .map_or(RARE, |&(_, parameters)| parameters)
     }
 
     /// How the difficulty hardens a creature, `hostile` to the hero or not: none that is not.
@@ -1244,6 +1265,96 @@ pub fn marks(effect: u32) -> bool {
         effect,
         840..=843 | 846 | 852..=859 | 861..=863 | 865..=867 | 869
     )
+}
+
+/// The rare effects of the strike: the critical hit and the wounds' damage (#1779).
+pub const CRITICAL: u32 = 859;
+pub const WOUNDS: u32 = 867;
+
+/// The parameters of a rare effect that the balance's table lacks (`0x5F23A0`).
+const RARE: [f32; 3] = [100.0, 100.0, 90.0];
+
+/// The value of the effect `effect` of the items `items` (`0x570ED0`): its bonus slots' values
+/// summed, a slot whose condition names a class of opponents counted only against an opponent
+/// of that side (`against`, its `+0x1F0`), every slot without an opponent. The getter answers
+/// only while the holder is marked ([`marks`]), which an item of one of the rare effects always
+/// makes it.
+pub fn item_effect(items: &[ItemValues], effect: u32, against: Option<u8>) -> f32 {
+    items
+        .iter()
+        .flat_map(|item| item.bonuses)
+        .filter(|bonus| bonus.effect & 0xFFFF == effect)
+        .filter(|bonus| {
+            let class = bonus.condition & 0xFF;
+            class == 0 || class == 13 || against.is_none_or(|side| class == u16::from(side))
+        })
+        .map(|bonus| f32::from(bonus.value))
+        .sum()
+}
+
+/// The chance in per cent of a rare effect of the value `value` and the parameters
+/// `[a, b, c]` (`0x56EE3A`…): `(1 − a/(b + v))·100 + 0.5` on the x87 unit, 0 where the value is
+/// not above `2⁻²³`, held at most at `c` and at least at 0.
+pub fn rare_chance(value: f32, [a, b, c]: [f32; 3]) -> f64 {
+    let p = if value > 2f32.powi(-23) {
+        (1.0 - f64::from(a) / (f64::from(b) + f64::from(value))) * 100.0 + 0.5
+    } else {
+        0.0
+    };
+    p.min(f64::from(c)).max(0.0)
+}
+
+/// A strike's critical hit (the effect 859, `0x56E8CC`–`0x56F011`, #1779): of the value `value`
+/// (none and no roll at 0), a roll of `R(0, 100)` below its chance ([`rare_chance`]) makes the
+/// whole damage `damage` `⌊m·d/10⌋`, `m` of `R(15, 25)`, of `R(15, 30)` where `wider` (a
+/// defender both a boss and of a champion's mark); none where the roll fails.
+pub fn critical(
+    damage: u32,
+    value: f32,
+    (parameters, wider): ([f32; 3], bool),
+    dice: &mut impl Dice,
+) -> Option<u32> {
+    if value == 0.0 {
+        return None;
+    }
+    let roll = dice.below(101);
+    if f64::from(roll) >= rare_chance(value, parameters) {
+        return None;
+    }
+    let m = if wider {
+        dice.below(16) + 15
+    } else {
+        dice.below(11) + 15
+    };
+    u32::try_from(u64::from(m) * u64::from(damage) / 10).ok()
+}
+
+/// A strike's damage raised by its attacker's wounds (the effect 867, `0x56E15D`–`0x56E362`,
+/// #1779): of the value `p`, a per cent, and the attacker's health `(current, most)`, the whole
+/// damage `damage` becomes `⌊d·(1 + w·p·0.01·TollwutFactor)⌋`, `w` the share of its health lost;
+/// as it was where `p` or `w` is 0.
+pub fn wounded(damage: u32, p: f32, (current, most): (u32, u32), rules: &Rules) -> u32 {
+    if p <= 0.0 || most == 0 {
+        return damage;
+    }
+    let lost = to_f32(most.saturating_sub(current));
+    let w = lost / to_f32(most);
+    let x = w * p * 0.01;
+    if x <= 0.0 {
+        return damage;
+    }
+    let raised = f64::from(damage) * (1.0 + f64::from(x) * f64::from(rules.tollwut));
+    whole_u32(raised)
+}
+
+/// `x` truncated toward zero, held within a `u32`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a strike's damage, not negative, held within a u32"
+)]
+fn whole_u32(x: f64) -> u32 {
+    x.clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
 /// The modifier of the hero's sight on the maps' lens (`Far Sight`, the text 1130).
@@ -6042,6 +6153,58 @@ mod tests {
         assert!((1..50).all(|level| takes_on(level, 1, balance)));
         assert!(!takes_on(2, 5, balance) && takes_on(3, 5, balance));
         assert!(!takes_on(15, 20, balance) && takes_on(16, 20, balance));
+    }
+
+    #[test]
+    fn the_rare_effects_raise_a_strikes_damage_as_the_originals() {
+        struct Rolls(Vec<u32>);
+        impl Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let roll = self.0.remove(0);
+                assert!(roll < n, "{roll} below {n}");
+                roll
+            }
+        }
+        // 859's chance at a value of 10 of (100, 100, 98): 100·10/110 + 0.5, the rolls 0 to 9.
+        let parameters = [100.0, 100.0, 98.0];
+        assert!((rare_chance(10.0, parameters) - 9.590_909).abs() < 1e-5);
+        assert!((rare_chance(1e6, parameters) - 98.0).abs() < 1e-9);
+        assert!(rare_chance(0.0, parameters).abs() < f64::EPSILON);
+        // A roll of 9 holds, then `m` 15 + 7: 40 becomes ⌊22·40/10⌋ = 88; a roll of 10 fails.
+        let mut dice = Rolls(vec![9, 7]);
+        assert_eq!(critical(40, 10.0, (parameters, false), &mut dice), Some(88));
+        let mut dice = Rolls(vec![10]);
+        assert_eq!(critical(40, 10.0, (parameters, false), &mut dice), None);
+        // No value, no roll.
+        assert_eq!(
+            critical(40, 0.0, (parameters, false), &mut Rolls(Vec::new())),
+            None
+        );
+        // 867: half the health lost and 50 % make 100 into 125 (the float `x` 0.25); 20 % make
+        // it 109, `x` the float below 0.1; unhurt, as it was.
+        let rules = Rules::default();
+        assert_eq!(wounded(100, 50.0, (50, 100), &rules), 125);
+        assert_eq!(wounded(100, 20.0, (50, 100), &rules), 109);
+        assert_eq!(wounded(100, 20.0, (100, 100), &rules), 100);
+        // The items' 859 against an opponent: a slot of no class counts, one of another side not.
+        let mut bonuses = [Bonus::default(); BONUSES];
+        bonuses[0] = Bonus {
+            condition: 0,
+            effect: CRITICAL,
+            value: 12,
+        };
+        bonuses[1] = Bonus {
+            condition: 7,
+            effect: CRITICAL,
+            value: 30,
+        };
+        let items = [ItemValues {
+            bonuses,
+            ..ItemValues::default()
+        }];
+        assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
+        assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
+        assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
     }
 
     #[test]

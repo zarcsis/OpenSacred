@@ -207,6 +207,11 @@ pub(crate) fn resolve(
     played: Option<Res<crate::drops::Played>>,
 ) {
     for hit in hits.read() {
+        // The attacker's own health, which its wounds' damage takes (`0x549460`).
+        let attacker_health = targets
+            .get(hit.attacker)
+            .ok()
+            .map(|(health, ..)| (health.current, health.most));
         let (
             Ok((attacker, hero, mind, from, (ranked, follower, holding))),
             Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim, guarded))),
@@ -388,6 +393,49 @@ pub(crate) fn resolve(
             debug!("fight: the strike makes the hero comment {comment:?}");
             remarks.write(comment);
         }
+        // The attacker's rare effects on the whole damage (#1779): its wounds' (867, its items',
+        // its sets' and its berserk's per cent; `0x56E15D`), then its critical hit's (859 against
+        // the struck one, the hero's sets' terms; `0x56E8CC`). Its red flash is not followed.
+        let items = holding.map_or(&[][..], |holding| &holding.0.items[..]);
+        let berserk = effects.get(hit.attacker).ok().map_or(0.0, |effects| {
+            effects
+                .list()
+                .into_iter()
+                .find(|effect| effect.id == opensacred_rules::arts::FRENZY)
+                .map_or(0.0, |effect| {
+                    f32::from(u16::try_from(effect.whole.max(0)).unwrap_or(u16::MAX))
+                })
+        });
+        let wounds =
+            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::WOUNDS, None);
+        let wounds = holding.map_or(wounds, |holding| holding.0.sets.wounds(wounds)) + berserk;
+        let damage = match attacker_health {
+            Some(own) => opensacred_rules::fight::wounded(damage, wounds, own, &rules),
+            None => damage,
+        };
+        let critical = opensacred_rules::fight::item_effect(
+            items,
+            opensacred_rules::fight::CRITICAL,
+            victim.map(|victim| victim.side),
+        );
+        let critical = match holding.filter(|_| hero) {
+            Some(holding) => holding.0.sets.critical(critical),
+            None => critical,
+        };
+        // A defender both a boss and of a champion's mark takes the wider roll; the game's
+        // ranks are one or the other (**hypothesis**: never both in the original either).
+        let parameters = (rules.rare(opensacred_rules::fight::CRITICAL), false);
+        let damage =
+            match opensacred_rules::fight::critical(damage, critical, parameters, &mut dice.0) {
+                Some(critical) => {
+                    debug!(
+                        "fight: {} strikes {} critically: {damage} to {critical}",
+                        hit.attacker, hit.target
+                    );
+                    critical
+                }
+                None => damage,
+            };
         if !immortal {
             health.current = health.current.saturating_sub(damage);
         }
