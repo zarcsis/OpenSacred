@@ -259,6 +259,7 @@ fn a_champion_and_a_boss_make_more_calls_with_a_bonus() {
             luck: 125.0,
             treasure: 0,
             potions: false,
+            alchemy: None,
         },
         ..of(Rank::Common, 5, 5)
     };
@@ -334,6 +335,11 @@ fn the_potions_size_follows_the_difficulty() {
     // Else a row of 0 to 4.
     assert_eq!(take(Difficulty::Bronze, &[601, 2]), 5168);
     assert_eq!(take(Difficulty::Niobium, &[999, 4]), 5141);
+    // The alchemy's potion is of the healing row whatever the rolls of the row draw (#1802).
+    let healing =
+        |difficulty, rolls: &[u32]| potion_of(0, Some(HEALING_ROW), difficulty, &mut script(rolls));
+    assert_eq!(healing(Difficulty::Bronze, &[601, 2]), 5171);
+    assert_eq!(healing(Difficulty::Niobium, &[999, 4]), 5140);
 }
 
 #[test]
@@ -684,6 +690,33 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
     );
     // A failed chance drops nothing.
     assert!(take(&[350]).is_empty());
+    // The killer's alchemy after the calls (#1802): a chance of 100 makes the healing potion of
+    // bronze, the small one, whatever the call made; at no chance its roll is drawn all the same.
+    let alchemist = |params| Death {
+        kill: Kill {
+            alchemy: Some((10.0, params)),
+            ..death.kill
+        },
+        ..death.clone()
+    };
+    let mut rng = Rng::of(51, 39, 3);
+    let made = drops(
+        &alchemist([0.0, 1.0, 100.0]),
+        (&rules, &catalogue, &templates),
+        &[],
+        &mut LastJewel::default(),
+        &mut rng,
+    );
+    assert!(made.iter().any(|drop| drop.item == 5171), "{made:?}");
+    let mut dice = script(&[350, 99]);
+    let made = drops(
+        &alchemist([100.0, 100.0, 0.0]),
+        (&rules, &catalogue, &templates),
+        &[],
+        &mut LastJewel::default(),
+        &mut dice,
+    );
+    assert!(made.is_empty() && dice.0.is_empty());
     // A creature of the heroes' class drops nothing.
     let a_hero = Death {
         dead: dead(HEROES, 1, Rank::Common),

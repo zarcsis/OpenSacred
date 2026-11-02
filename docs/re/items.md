@@ -218,6 +218,7 @@ The boss switch is a table of cases compiled into the client; here is its shape,
 - 183 (`Anducar_Demon.grn`) makes six treasures and, in one case of three, one more item (not followed).
 
 After the calls, when the killer has the effect 868 (`0x570ED0`), the creature drops a healing potion (`0x43B1A0` of the row 5, below) when `R(0, 99)` is below `(1 − a/(b + v))·100 + 0.5`, held to `c`, `v` the effect's value and `a`, `b`, `c` the effect's parameters from the balance (`0x5F23A0`; 500, 502 and 25 on file, 100, 100 and 90 for an effect not listed; docs/02 §6.3).
+Read again 2026-11-02 (#1802, **confirmed** by code, `0x5346BC`–`0x53475E`): the roll `0x443B20(0, 99)` is drawn whatever the value; the potion is `0x43B1A0(difficulty, 0, 5)`, whose row's rolls are drawn before the row 5 is taken, and it drops by a call of its type (`0x559BF0`) of no bonus and no greed; `opensacred_rules::drops` follows it for the hero's kills (`Kill::alchemy`).
 
 ### One call of the drop (`0x559BF0`)
 

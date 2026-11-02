@@ -3720,8 +3720,10 @@ pub fn warded(share: f32, roll: u32) -> bool {
     f64::from(roll) < 100.0 * f64::from(share)
 }
 
+/// The items' effect of the alchemy (`0x364`), by which a killer's victim drops a healing potion.
+pub const ALCHEMY: u32 = 868;
 /// The faces of the alchemy's roll, `R(0, 99)` (the effect 868's healing potion at a death,
-/// docs/re/items.md, "Drops"; the drop is not followed yet).
+/// `0x5346F8`; `drops::drops`).
 pub const ALCHEMY_FACES: u32 = 100;
 
 /// The per cent of a rare effect's rolls of `faces` faces, `R(0, faces − 1)`, that fall below its

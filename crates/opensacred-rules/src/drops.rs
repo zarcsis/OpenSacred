@@ -247,6 +247,10 @@ pub struct Kill {
     /// Whether the local hero wears five pieces of set 22, whose calls of no type then make a
     /// potion in one case of ten (`0x559CA9`, `set_bonuses::Stats::potions`, #1727).
     pub potions: bool,
+    /// The killer's alchemy, its items' effect 868, and the balance's parameters of it: after
+    /// the calls a roll below its chance makes a healing potion ([`drops`], #1802); none where
+    /// no roll is drawn.
+    pub alchemy: Option<(f32, [f32; 3])>,
 }
 
 impl Default for Kill {
@@ -258,6 +262,7 @@ impl Default for Kill {
             luck: 100.0,
             treasure: 0,
             potions: false,
+            alchemy: None,
         }
     }
 }
@@ -741,11 +746,22 @@ pub fn potion(difficulty: Difficulty, dice: &mut impl Dice) -> u32 {
 /// The potion of `0x43B1A0` whose second argument makes `least` the least of its rows 0 to 4: 0
 /// for a drop's, 2 for a merchant's (docs/re/trade.md).
 pub fn potion_from(least: i64, difficulty: Difficulty, dice: &mut impl Dice) -> u32 {
-    let row = if dice.below(1000) > 600 {
+    potion_of(least, None, difficulty, dice)
+}
+
+/// The row of the healing potions (5171, 5145, 5140) in `0x43B1A0`'s table.
+const HEALING_ROW: usize = 5;
+
+/// The potion of `0x43B1A0` of the least row `least`, its row `row` where one is given (its
+/// third argument, 0 to 5), which the rolls of the row are drawn before, as the original draws
+/// them; then its column by the difficulty.
+fn potion_of(least: i64, row: Option<usize>, difficulty: Difficulty, dice: &mut impl Dice) -> u32 {
+    let rolled = if dice.below(1000) > 600 {
         usize::try_from(between(least, 4, dice)).unwrap_or(5)
     } else {
-        5
+        HEALING_ROW
     };
+    let row = row.unwrap_or(rolled);
     let column = match difficulty {
         Difficulty::Bronze => 0,
         Difficulty::Silver => dice.below(2),
@@ -1343,6 +1359,20 @@ pub fn drops<D: Dice>(
                 }
             }
             p -= 1000;
+        }
+    }
+    // The killer's alchemy (868, `0x5346BC`–`0x53475E`, #1802): `R(0, 99)`, drawn whatever its
+    // value, below its chance makes a healing potion (`0x43B1A0` of the row 5), dropped by a call
+    // of its type, of no bonus and no greed (`0x559BF0`).
+    if let Some((value, params)) = death.kill.alchemy {
+        let roll = dice.below(crate::fight::ALCHEMY_FACES);
+        if f64::from(roll) < crate::fight::rare_chance(value, params) {
+            let potion = potion_of(0, Some(HEALING_ROW), death.difficulty, dice);
+            let (mut bonus, mut p) = (0, i64::from(rules.chance(death.dead.rank, 0)));
+            while p > 0 {
+                out.push(dropping.forced(potion, &mut bonus, dice));
+                p -= 1000;
+            }
         }
     }
     out
