@@ -72,6 +72,24 @@ const IMAGE_ALPHA: u32 = 0x5F;
 const MODELS: usize = 19;
 
 /// A colour of an ARGB word, in the frame's sRGB values (`hud`).
+/// The colour of `dropped`'s name, as its tooltip's first line and the name beside the cursor
+/// take it (`0x5C13C0`, the item's query 2; #1777): its set's, its rune's class's or its
+/// quality's, its record's quality where it holds none of its own.
+pub(crate) fn name_colour(tables: &Tables, dropped: &Dropped) -> u32 {
+    let record = tables.record_of(dropped);
+    let quality = if dropped.quality != 0 {
+        dropped.quality
+    } else {
+        u8::try_from((record.word >> 16) & 0xF).unwrap_or(0)
+    };
+    lines::name_colour_of(
+        tables.set_name(dropped.item).is_some(),
+        tables.category(dropped.item),
+        record.word,
+        quality,
+    )
+}
+
 pub(crate) fn argb(colour: u32) -> Color {
     let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
     Color::linear_rgba(r, g, b, a)
