@@ -415,21 +415,22 @@ pub(crate) fn lines(
             spell,
             weapon,
         };
-        own_lines(id, &values, words, base).map(|own| {
-            let mut block = vec![Line::of(format!("{}: {time:.1}s", words.n(1107)), base)];
-            block.extend(own);
-            // A line of one colour broken as the window breaks it; the damage's of several
-            // colours has no space after its 46th character.
-            block
-                .into_iter()
-                .flat_map(|line| match line.0.as_slice() {
-                    [Piece::Text(text, colour)] => wrapped(text, 0, *colour).collect(),
-                    _ => vec![line],
-                })
-                .collect::<Vec<_>>()
-        })
+        // An art of no case of its own shows its regeneration alone, which it has, where the
+        // original's shows nothing (#1742).
+        let own = own_lines(id, &values, words, base).unwrap_or_default();
+        let mut block = vec![Line::of(format!("{}: {time:.1}s", words.n(1107)), base)];
+        block.extend(own);
+        // A line of one colour broken as the window breaks it; the damage's of several colours
+        // has no space after its 46th character.
+        block
+            .into_iter()
+            .flat_map(|line| match line.0.as_slice() {
+                [Piece::Text(text, colour)] => wrapped(text, 0, *colour).collect(),
+                _ => vec![line],
+            })
+            .collect::<Vec<_>>()
     };
-    lines.extend(block(held.max(1), time).into_iter().flatten());
+    lines.extend(block(held.max(1), time));
     // The spells page's next level of a held art (the flags 1): its line, then its block, its time
     // the entry's scaled by the record's growth.
     if next && held != 0 {
@@ -445,7 +446,7 @@ pub(crate) fn lines(
             format!("{}:", words.of("UI_TT_NEXTLEARNEDLEVEL")),
             LEVEL,
         ));
-        lines.extend(block(held + 1, time * growth).into_iter().flatten());
+        lines.extend(block(held + 1, time * growth));
     }
     lines
 }
@@ -653,6 +654,34 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
     let spell = v.spell.is_some();
     let weapon = v.weapon.is_some();
     let magic_lore = || ftol(float(v.v(0)) * (1.0 + f64::from(0.01_f32) * v.hero.curve(14)));
+    // The lines of the effects that a spell's objects give by their action 6, of the values that
+    // give them (`opensacred_rules::spells::effects`), each by the game's own text: the attack's
+    // and the defence's per cent, the four resistances, the speed's per cent, the regeneration of
+    // the spells and of the weapon arts, and the regeneration (#1742).
+    let effect_lines = || -> Vec<Line> {
+        let per_cent = |value: f32| ftol((f64::from(value) * 100.0).round());
+        let resistance = |key: &str, value: f32| signed(k(key), ftol(f64::from(value).round()));
+        v.spell
+            .map(|spell| opensacred_rules::spells::effects(spell, v.level))
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|(effect, _)| match effect.id {
+                1 => vec![signed_pc(n(1166), per_cent(effect.value))],
+                2 => vec![signed_pc(n(1167), per_cent(effect.value))],
+                7 => vec![resistance("INVENTAR_RES_PHYSICAL", effect.value)],
+                8 => vec![resistance("INVENTAR_RES_FIRE", effect.value)],
+                9 => vec![resistance("INVENTAR_RES_MAGIC", effect.value)],
+                10 => vec![resistance("INVENTAR_RES_POISON", effect.value)],
+                11 => vec![
+                    signed_pc(n(1148), per_cent(effect.value)),
+                    signed_pc(n(1149), per_cent(effect.value)),
+                ],
+                12 => vec![signed_pc(n(1093), per_cent(effect.value))],
+                28 => vec![signed_pc(n(1098), per_cent(effect.value - 1.0))],
+                _ => Vec::new(),
+            })
+            .collect()
+    };
     let lines = match id {
         // The farthest the teleport takes the caster, `v0 − 1` steps of 10 (`spells::teleport`,
         // `TELEPORT_STEP`) in metres as the other ranges, where the original's line prints the
@@ -695,15 +724,23 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
         20 => vec![dmg(v.damages(false)), duration(), whole(n(1104), v.v(1))],
         21 => vec![duration(), signed_pc(n(1166), v.e(4))],
         22 => vec![pc(k("CHANCE4BLOCK"), v.block(2.0)), duration()],
-        24 => vec![
-            pc(k("CHANCE4BLOCK"), v.block(1.0)),
-            dmg(v.damages(false)),
-            duration(),
-            signed(k("INVENTAR_RES_FIRE"), v.e(7)),
-        ],
+        // The fire skin, the quickening, the speed, the shield wall and the mana's spring: every
+        // effect that their objects' action 6 gives, from what gives it, where the original's
+        // lines leave out the fire skin's defence, the quickening's and the speed's attack and
+        // the shield wall's physical resistance, and name the spring's speed of both kinds of
+        // arts the mental regeneration (#1742).
+        24 => [
+            vec![
+                pc(k("CHANCE4BLOCK"), v.block(1.0)),
+                dmg(v.damages(false)),
+                duration(),
+            ],
+            effect_lines(),
+        ]
+        .concat(),
         26 => vec![dmg(v.damages(false)), whole(n(1105), v.r(0, 1))],
         33 => vec![dmg(v.damages(false)), whole(n(1105), v.v(0))],
-        27 | 37 => vec![duration(), signed_pc(n(1098), v.e(10))],
+        27 | 31 | 37 => [vec![duration()], effect_lines()].concat(),
         28 => vec![
             pc(k("CHANCE4BLOCK"), v.block(1.0)),
             dmg(v.damages(false)),
@@ -714,14 +751,11 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             whole(n(1106), v.v(0)),
             whole(k("TOOLTIP_RUECKWURF_MAGE"), v.v(1)),
         ],
-        30 => vec![
-            pc(k("CHANCE4BLOCK"), v.block(1.0)),
-            duration(),
-            signed(k("INVENTAR_RES_MAGIC"), v.e(8)),
-            signed(k("INVENTAR_RES_POISON"), v.e(9)),
-            signed(k("INVENTAR_RES_FIRE"), v.e(7)),
-        ],
-        31 => vec![duration(), signed_pc(n(1094), v.e(11))],
+        30 => [
+            vec![pc(k("CHANCE4BLOCK"), v.block(1.0)), duration()],
+            effect_lines(),
+        ]
+        .concat(),
         32 => vec![duration(), signed_pc(n(1093), v.e(12))],
         34 => vec![whole(n(1106), v.r(0, 1)), dmg(v.damages(false))],
         35 => vec![duration(), dmg(v.damages(false))],
@@ -937,11 +971,19 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             metres(n(1104), f64::from(0.02_f32) * v.w50()),
             whole(n(1085), ftol(v.w58())),
         ],
+        // The death's kiss: its bleeding a second, the curse of its target's attack and defence,
+        // and how long both hold, as the skull gives them (`opensacred_rules::arts::bleed_value`,
+        // `curse`, `CURSE_SECONDS`), where the original's line shows the bleeding once, leaves the
+        // curse out and gives the skull's flight as the duration (#1742).
         1033 => {
-            let a = ftol(10.0 * v.w50());
+            let w = v.weapon?;
+            let bleeds = ftol(f64::from(arts::bleed_value(w, v.level)));
+            let curse = ftol((f64::from(arts::curse(w, v.level)) * 100.0).round());
             vec![
-                damage_line(n(1085), a, [a, 0, 0, 0], base),
-                seconds(n(1097), ftol(v.w58())),
+                plain(format!("{}: {bleeds}/s", n(1085))),
+                signed_pc(n(1166), curse),
+                signed_pc(n(1167), curse),
+                seconds(n(1097), ftol(f64::from(arts::CURSE_SECONDS))),
             ]
         }
         // The bats that the art keeps, its record's factor (5·L, 2, 2), where the original's
@@ -1331,6 +1373,52 @@ mod tests {
                 "<1074>: +43%"
             ]
         );
+    }
+
+    #[test]
+    fn a_spells_lines_tell_every_effect_its_objects_give() {
+        // The mana's spring: both arts' regeneration speeds of (95 + 5·L)/100, and the shield
+        // wall's physical resistance beside the others (#1742).
+        let mut spring = spell(31);
+        spring.values[0] = [70, 2];
+        spring.effects[11] = [95, 5];
+        let mut wall = spell(30);
+        wall.values[0] = [44, 1];
+        wall.effects[6] = [4, 6];
+        wall.effects[7] = [25, 40];
+        let tables = Tables {
+            spells: vec![spring, wall],
+            weapon_arts: Vec::new(),
+        };
+        let arts = Arts {
+            entries: vec![
+                entry(Table::Spells, 31, 1, 5.0),
+                entry(Table::Spells, 30, 1, 5.0),
+            ],
+        };
+        let lines = shown(31, &arts, &tables);
+        assert_eq!(
+            lines[lines.len() - 3..],
+            ["<1097>: 72s", "<1148>: +100%", "<1149>: +100%"]
+        );
+        let lines = shown(30, &arts, &tables);
+        assert_eq!(
+            lines[lines.len() - 2..],
+            ["<INVENTAR_RES_PHYSICAL>: +10", "<INVENTAR_RES_FIRE>: +65"]
+        );
+    }
+
+    #[test]
+    fn an_art_of_no_case_shows_its_regeneration() {
+        let tables = Tables {
+            spells: vec![spell(43)],
+            weapon_arts: Vec::new(),
+        };
+        let arts = Arts {
+            entries: vec![entry(Table::Spells, 43, 1, 5.0)],
+        };
+        let lines = shown(43, &arts, &tables);
+        assert_eq!(lines.last().map(String::as_str), Some("<1107>: 2.5s"));
     }
 
     #[test]
