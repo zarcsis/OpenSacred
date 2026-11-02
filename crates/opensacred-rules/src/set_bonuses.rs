@@ -731,6 +731,21 @@ impl Stats {
             .any(|read| matches!(read.reads, Reader::Unseen))
     }
 
+    /// The part that six pieces of set 28 add to the time played's per cent of the creatures'
+    /// levels (M12, `0x47D2C3`, `0x48468C`, `0x551126`): the difficulty's factor added to the
+    /// whole per cent and truncated, 1 to gold and 2 above; 0 without them.
+    pub fn played_part(&self) -> u32 {
+        let whole = self
+            .worn
+            .reads()
+            .any(|read| matches!(read.reads, Reader::Survival(_)));
+        match self.factor {
+            _ if !whole => 0,
+            d if d >= 2.0 => 2,
+            _ => 1,
+        }
+    }
+
     /// The effect 863's value `value` of the killer's items, grown by its sets in turn
     /// ([`Reader::Exorcist`]).
     pub fn exorcist(&self, value: f32) -> f32 {

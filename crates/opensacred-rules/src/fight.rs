@@ -198,15 +198,17 @@ impl Rank {
         }
     }
 
-    /// Its level, made at the hero's level `hero` (`0x550E50`): the hero's plus `LevelUpBoss` or
-    /// `LevelUpChamp` (a champion's levelling alone too, which the strike levels as it does a
-    /// champion, `0x56B682`), at least `OffLevel` plus the sector's lowest, and unless its type is
-    /// big at most `LevelKap` plus the sector's highest plus the same; a common creature's
-    /// `level`.
+    /// Its level, made at the hero's level `hero` after the time played `played` (`0x550E50`):
+    /// the hero's plus `LevelUpBoss` or `LevelUpChamp` (a champion's levelling alone too, which
+    /// the strike levels as it does a champion, `0x56B682`), at least `OffLevel` plus the
+    /// sector's lowest, and unless its type is big at most `LevelKap` plus the sector's highest
+    /// plus the same; then through the difficulty's scaling of the levels with the time played
+    /// (`0x5510C5`–`0x55122C`, [`played_level`]), which the original takes where its opponent is a
+    /// player; a common creature's `level`.
     pub fn level(
         self,
         level: u32,
-        hero: u32,
+        (hero, played): (u32, Played),
         values: &SpawnValues,
         big: bool,
         rules: &Rules,
@@ -221,7 +223,11 @@ impl Rank {
         if !big && target > top {
             target = top;
         }
-        target.max(rules.ranks.off + values.lowest).max(1)
+        played_level(
+            target.max(rules.ranks.off + values.lowest).max(1),
+            played,
+            rules,
+        )
     }
 
     /// The level that the level's setter gives a creature of this rank and of type `creature`,
@@ -3767,6 +3773,23 @@ pub fn scaled(total: f32, factor: f32) -> f32 {
     }
 }
 
+/// The time played as the creatures' levels take it (the per cent `x` that `0x47D2C3`,
+/// `0x48468C` and `0x5510C5` give `0x552230`): its whole minutes, and the part of the local
+/// hero's sets (`set_bonuses::Stats::played_part`, M12).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Played {
+    pub minutes: u32,
+    pub sets: u32,
+}
+
+impl Played {
+    /// The per cent by which it raises a level: the tenth of the [`survival`] curve of its
+    /// minutes, truncated, 0 to 9 (the float 0.1 at `0x890D9C`), and the sets' part.
+    pub fn per_cent(self) -> u32 {
+        whole_f64((survival(self.minutes) * f64::from(0.1_f32)).trunc()) + self.sets
+    }
+}
+
 /// The highest level that a fill's run gives its creatures before the level's setter holds them
 /// (`0x47D34B`).
 const FILLS_MOST: u32 = 300;
@@ -3777,12 +3800,12 @@ const FILLS_MOST: u32 = 300;
 /// the lowest is not below it), but not held at the highest; moved once by its band, `r % 2` below
 /// 6, then two rolls averaged, `(r % 4 + r % 4)/2 − 1` below 30, `(r % 6 + r % 6)/2 − 2` below 90
 /// and `(r % 10 + r % 10)/2 − 3` below 250, none from 250; then raised by the time played,
-/// `minutes`, through the difficulty's scaling of the levels (`0x552230`, as `CreateNPC`'s), at
+/// `played`, through the difficulty's scaling of the levels (`0x552230`, as `CreateNPC`'s), at
 /// most 300. Each creature takes it through [`filled_level`].
 pub fn fill_level(
     values: &SpawnValues,
     hero: u32,
-    minutes: u32,
+    played: Played,
     rules: &Rules,
     dice: &mut impl Dice,
 ) -> u32 {
@@ -3799,7 +3822,7 @@ pub fn fill_level(
         90..250 => (level + averaged(10, dice)).saturating_sub(3),
         _ => level,
     };
-    played_level(moved, minutes, rules).min(FILLS_MOST)
+    played_level(moved, played, rules).min(FILLS_MOST)
 }
 
 /// Two rolls below `n` averaged, whole (`(rand() % n + rand() % n)/2`).
@@ -3836,9 +3859,9 @@ pub enum Raise {
     /// A horse (`Creature.pak` class 4, `0x4266F0`): by an eighth of the level of the hero's
     /// skill 22 (`0x582450`; **hypothesis**: riding).
     Horse { riding: u32 },
-    /// Any other creature: by the time played, in whole minutes, through the difficulty's
-    /// scaling of the levels (`0x552230`).
-    Played { minutes: u32 },
+    /// Any other creature: by the time played, through the difficulty's scaling of the levels
+    /// (`0x552230`).
+    Played(Played),
 }
 
 /// The level that `CreateNPC` gives a creature of type `creature` of a record without a level of
@@ -3867,8 +3890,8 @@ pub fn scripted_level(
     };
     match raise {
         Raise::Horse { riding } => held_level(level + riding / 8, values, creature, true, rules),
-        Raise::Played { minutes } => held_level(
-            played_level(level, minutes, rules),
+        Raise::Played(played) => held_level(
+            played_level(level, played, rules),
             values,
             creature,
             false,
@@ -3938,7 +3961,7 @@ pub fn tagged_level(
         0 => None,
         BOSS_TAG => Some(1),
         level => Some(held_level(
-            played_level(level + rules.ranks.off, 0, rules),
+            played_level(level + rules.ranks.off, Played::default(), rules),
             values,
             creature,
             horse,
@@ -3949,19 +3972,12 @@ pub fn tagged_level(
 
 /// A level `level` scaled by the difficulty and raised by the time played (`0x552230`, docs/re/
 /// spawning.md): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the difficulty's
-/// `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze) and `x` the tenth of the curve of the
-/// minutes `m` (`0x565D70`) `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated, 0 to 9:
-/// one more per cent of the level from 15 minutes on, five from 121 minutes. A hero wearing six
-/// or more of one count of `+0x4F8` (its byte `0x1C`; **hypothesis**: the pieces of a set) adds
-/// 1 to 2.34 to `x` by the difficulty; not followed.
-fn played_level(level: u32, minutes: u32, rules: &Rules) -> u32 {
-    let curve = if minutes >= 1 {
-        100.0 * (1.0 - 1.0 / (1.0 + f64::from(minutes - 1) / 120.0))
-    } else {
-        0.0
-    };
+/// `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze) and `x` the per cent of `played`
+/// ([`Played::per_cent`]): one more per cent of the level from 15 minutes on, five from 121
+/// minutes, and the difficulty's factor truncated more where the hero wears six pieces of set 28.
+fn played_level(level: u32, played: Played, rules: &Rules) -> u32 {
     let [offset, per_cent] = rules.scale.map(f64::from);
-    let x = (curve * f64::from(0.1_f32)).trunc();
+    let x = f64::from(played.per_cent());
     let scaled = f64::from(level) * (1.0 + (per_cent + x) * f64::from(0.01_f32)) + offset + 0.5;
     whole_f64(scaled.max(1.0))
 }
@@ -5270,8 +5286,8 @@ mod tests {
             0.0
         );
         // Gold makes a level 10 creature of `⌊10·1.5 + 20 + 0.5⌋` 35, and brings it back to 10.
-        assert_eq!(played_level(10, 0, &bronze), 10);
-        assert_eq!(played_level(10, 0, &gold), 35);
+        assert_eq!(played_level(10, Played::default(), &bronze), 10);
+        assert_eq!(played_level(10, Played::default(), &gold), 35);
         assert_eq!(gold.on_bronze(35), 10);
         assert_eq!(gold.on_bronze(20), 1);
         assert_eq!(bronze.on_bronze(35), 35);
@@ -6281,8 +6297,8 @@ mod tests {
             highest: 7,
         };
         assert_eq!(
-            Rank::Levelled.level(1, 5, &values, false, &rules),
-            Rank::Champion.level(1, 5, &values, false, &rules)
+            Rank::Levelled.level(1, (5, Played::default()), &values, false, &rules),
+            Rank::Champion.level(1, (5, Played::default()), &values, false, &rules)
         );
         assert_eq!(Rank::Levelled.health(343, 2, &rules), 1.0);
         assert_eq!(Rank::Levelled.fight(&rules), [1.0, 1.0]);
@@ -6303,12 +6319,40 @@ mod tests {
             lowest: 4,
             highest: 7,
         };
-        assert_eq!(Rank::Boss.level(5, 1, &values, false, &rules), 4);
-        assert_eq!(Rank::Champion.level(5, 6, &values, false, &rules), 8);
+        assert_eq!(
+            Rank::Boss.level(5, (1, Played::default()), &values, false, &rules),
+            4
+        );
+        assert_eq!(
+            Rank::Champion.level(5, (6, Played::default()), &values, false, &rules),
+            8
+        );
         // At most the sector's highest plus two, but for a big type.
-        assert_eq!(Rank::Boss.level(5, 20, &values, false, &rules), 9);
-        assert_eq!(Rank::Boss.level(5, 20, &values, true, &rules), 22);
-        assert_eq!(Rank::Common.level(5, 20, &values, false, &rules), 5);
+        assert_eq!(
+            Rank::Boss.level(5, (20, Played::default()), &values, false, &rules),
+            9
+        );
+        assert_eq!(
+            Rank::Boss.level(5, (20, Played::default()), &values, true, &rules),
+            22
+        );
+        // Then by the time played (`0x5510C5`): 121 minutes give 5 %, six pieces of set 28 on
+        // niobium 2 more; 42 to 44 and 45.
+        let played = |minutes, sets| Played { minutes, sets };
+        assert_eq!(played(14, 0).per_cent(), 0);
+        assert_eq!(played(15, 0).per_cent(), 1);
+        assert_eq!(
+            Rank::Boss.level(5, (40, played(121, 0)), &values, true, &rules),
+            44
+        );
+        assert_eq!(
+            Rank::Boss.level(5, (40, played(121, 2)), &values, true, &rules),
+            45
+        );
+        assert_eq!(
+            Rank::Common.level(5, (20, Played::default()), &values, false, &rules),
+            5
+        );
         // Its factors.
         assert!((Rank::Boss.health(76, 8, &rules) - 2.5).abs() < 1e-6);
         assert!((Rank::Champion.health(137, 8, &rules) - 6.0).abs() < 1e-6);
@@ -6536,7 +6580,8 @@ mod tests {
         }
         fn fill(values: &SpawnValues, hero: u32, minutes: u32, rolls: &[u32]) -> u32 {
             let mut dice = Rolls(rolls.to_vec());
-            let level = fill_level(values, hero, minutes, &Rules::default(), &mut dice);
+            let played = Played { minutes, sets: 0 };
+            let level = fill_level(values, hero, played, &Rules::default(), &mut dice);
             assert!(dice.0.is_empty(), "rolls left: {:?}", dice.0);
             level
         }
@@ -6617,7 +6662,7 @@ mod tests {
         fn npc(values: Option<&SpawnValues>, hero: u32, raise: Raise, roll: u32) -> u32 {
             scripted_level(values, hero, raise, 688, &Rules::default(), &mut Roll(roll))
         }
-        let start = Raise::Played { minutes: 0 };
+        let start = Raise::Played(Played::default());
         // The blacksmith's plateau of 50,44 (4 to 7) and the trader of 64,41 (29 to 45) for a hero
         // of level 1, read in the original (#530); the start (1 to 4), within its levels.
         let smith = values(4, 7);
@@ -6642,7 +6687,7 @@ mod tests {
         assert_eq!(npc(Some(&smith), 7, horse(17), 1), 10);
         // The time played: no more below 15 minutes, a per cent from 15, five from 121 minutes,
         // up to the sector's highest.
-        let played = |minutes| Raise::Played { minutes };
+        let played = |minutes| Raise::Played(Played { minutes, sets: 0 });
         let high = values(40, 250);
         assert_eq!(npc(Some(&high), 100, played(14), 0), 100);
         assert_eq!(npc(Some(&high), 100, played(15), 0), 101);
@@ -6731,7 +6776,10 @@ mod tests {
             tagged_level(BOSS_TAG, Some(&start), 577, false, &rules),
             Some(1)
         );
-        assert_eq!(Rank::Boss.level(1, 1, &start, false, &rules), 3);
+        assert_eq!(
+            Rank::Boss.level(1, (1, Played::default()), &start, false, &rules),
+            3
+        );
         // Any other: that level, with no hero's level, lowest or time played in it, at most its
         // sector's highest: the goodie 692 of 60,75 (6 to 10) at 6, the guards of the start
         // script's garrison in 52,39 (1 to 4) of the tag 5 at 4.
