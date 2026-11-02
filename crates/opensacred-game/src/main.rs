@@ -113,6 +113,7 @@ mod runes;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
+mod script_particles;
 mod scripts;
 mod sectors;
 mod seed;
@@ -463,6 +464,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         screenshot::ScreenshotPlugin,
+        script_particles::ScriptParticlesPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         seed::SeedPlugin,
@@ -476,9 +478,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         souls::SoulsPlugin,
         sound::SoundPlugin,
         sparkles::SparklesPlugin,
-        spells::SpellsPlugin,
     ))
     .add_plugins((
+        spells::SpellsPlugin,
         spells_page::SpellsPagePlugin,
         srgb::SrgbPlugin,
         stashes::StashesPlugin,

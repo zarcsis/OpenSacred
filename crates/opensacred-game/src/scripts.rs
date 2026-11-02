@@ -146,6 +146,41 @@ pub struct Infos(pub Vec<(i32, String)>);
 #[derive(Resource, Default)]
 pub struct Popups(pub Vec<Begins>);
 
+/// A script's `Partikel` (99, `0x4A8BB0`; #1828): the generic system 856 started by its FX
+/// event `0x50` at the creature of its first `0x01` (`hero` the hero), else at its cell, the first
+/// two of its `0x0B` where both are above 0, in its colour (`0xAARRGGBB`, the alpha forced opaque)
+/// and of its variant, which `script_particles` makes.
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub struct Partikel {
+    pub at: Option<String>,
+    pub cell: Option<(i32, i32)>,
+    pub colour: u32,
+    pub variant: u8,
+}
+
+impl Partikel {
+    /// The `Partikel` of the names `names` and the numbers `numbers` (`0x4A8BB0`): the numbers
+    /// the cell, the colour and the variant, −1, −1, −1 and 0 where they are missing; none of
+    /// fewer than three numbers, whose two-number form (the statues' power-up) and removal by a
+    /// label are not followed.
+    pub fn of(names: &[&str], numbers: &[i32]) -> Option<Self> {
+        if numbers.len() < 3 {
+            return None;
+        }
+        let number = |k: usize, default: i32| numbers.get(k).copied().unwrap_or(default);
+        let (x, y) = (number(0, -1), number(1, -1));
+        Some(Self {
+            at: names
+                .first()
+                .filter(|name| !name.is_empty())
+                .map(|name| name.to_ascii_lowercase()),
+            cell: (x > 0 && y > 0).then_some((x, y)),
+            colour: u32::from_ne_bytes(number(2, -1).to_ne_bytes()) | 0xFF00_0000,
+            variant: number(3, 0).to_le_bytes()[0],
+        })
+    }
+}
+
 /// A sound that a `PlaySound` plays at once as the line by name (104, `0x4A9730` calling
 /// `0x693FE0`; #1826), by the name its record gives, outside a dialogue's window, whose own
 /// sounds play as it opens: the scripts' announcements (`Audio`, the `*_audiomeldungen`), a
@@ -233,6 +268,8 @@ pub struct Effects {
     pub given: Vec<u32>,
     /// The random items that its `CreateObj`s of `0x54` and no type make for the hero (#1518).
     pub random_items: u32,
+    /// The generic systems that its `Partikel`s start (#1828).
+    pub particles: Vec<Partikel>,
     /// The side quests that its `ExitQuest`s won, each of which may give the hero a rune of its
     /// class (`0x46D362`, `rewards`; #1386).
     pub won: Vec<u32>,
@@ -255,6 +292,7 @@ impl Effects {
         self.remarks.extend(other.remarks);
         self.given.extend(other.given);
         self.random_items += other.random_items;
+        self.particles.extend(other.particles);
         self.won.extend(other.won);
     }
 }
@@ -710,6 +748,7 @@ impl Live {
             remarks: recorder.remarks,
             given: recorder.given,
             random_items: recorder.random_items,
+            particles: recorder.particles,
             won: recorder.won,
         };
         (effects, outcome)
@@ -886,6 +925,8 @@ struct Recorder<'a> {
     given: Vec<u32>,
     /// The random items that its `CreateObj`s of `0x54` and no type make ([`Effects::random_items`]).
     random_items: u32,
+    /// The generic systems that its `Partikel`s start ([`Effects::particles`]).
+    particles: Vec<Partikel>,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
     won: Vec<u32>,
     /// Whether the scripts' anim mode is on in the run, from a `SetAnimMode` or a
@@ -938,6 +979,7 @@ impl<'a> Recorder<'a> {
             names: Vec::new(),
             given: Vec::new(),
             random_items: 0,
+            particles: Vec::new(),
             won: Vec::new(),
             anim: false,
         }
@@ -1591,6 +1633,15 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
+            // At once, the anim mode on or not: no record of the Sacred campaign names the second
+            // creature whose queue would take it (`0x4A8E29`).
+            "particles" => {
+                let names = tags.texts("_01");
+                if let Some(particles) = Partikel::of(&names, &tags.numbers("_0B")) {
+                    self.particles.push(particles);
+                }
+                Handled::Done
+            }
             // At once as the line by name, outside the anim mode whatever its second name; under
             // it, a second name of the hero or of a creature waits its turn in that one's queue
             // (the kind 14), which `npcs` follows, playing the line at once where it finds none
@@ -2202,8 +2253,10 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         random_items,
         won,
         window,
+        particles,
         ..
     } = effects;
+    world.write_message_batch(particles);
     world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
@@ -2286,6 +2339,7 @@ struct Queues<'w> {
     remarks: MessageWriter<'w, Remark>,
     given: MessageWriter<'w, crate::pickup::Given>,
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
+    particles: MessageWriter<'w, Partikel>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
 }
 
@@ -2308,6 +2362,7 @@ impl Queues<'_> {
             .write_batch(effects.given.into_iter().map(crate::pickup::Given));
         self.random_items
             .write_batch((0..effects.random_items).map(|_| crate::stashes::RandomItem));
+        self.particles.write_batch(effects.particles);
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
     }
@@ -2569,6 +2624,7 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<Due>()
             .add_message::<ScriptSound>()
             .add_message::<ScriptLine>()
+            .add_message::<Partikel>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -3171,6 +3227,7 @@ mod tests {
             .init_resource::<Due>()
             .add_message::<ScriptSound>()
             .add_message::<ScriptLine>()
+            .add_message::<Partikel>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -3230,6 +3287,7 @@ mod tests {
             .insert_resource(Due(vec!["sprich_15".into()]))
             .add_message::<ScriptSound>()
             .add_message::<ScriptLine>()
+            .add_message::<Partikel>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()

@@ -871,6 +871,65 @@ pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) ->
     }
 }
 
+/// The variant of the generic system that a script's `Partikel` makes most (`0x796E10`, #1828):
+/// a ring of sparks rising about its place.
+pub const RISING_RING: u8 = 1;
+/// The variant of a script's object or creature appearing in tight sparks, with its sound
+/// (`SOUND_FX_SPAWN`).
+pub const SPAWN_RING: u8 = 4;
+/// The sound that the generic system's variant 4 plays as it starts (`0x693510(2050, …)`).
+pub const SPAWN_SOUND: u32 = 2050;
+
+/// The sparks of the generic system's variants 1 and 4 in the colour `colour` (`0x796E10`,
+/// `0x7962F0`; #1828), none for another variant: at its first update a ring about the system's
+/// place, of 150 particles of radius 25 and a size of 20 rising at 2 (variant 1), or of 500 of
+/// radius 10 and a size of 7 rising at 1 (variant 4), each at an angle θ round the ring, of a
+/// buoyancy of −(10 + 80·U) (they rise ever faster) and of a random angle; all living 2.45 s
+/// (−104), shrinking by 8 a second and turning by 3 radians a second, bouncing at the ground of
+/// the system's frame (0); `PARTICLE_SPARK02` added in the colour (the flags `0x05`), a light of
+/// 150, or 100, while they live. The rolls' order within a particle is an **estimate**.
+pub fn generic_ring(variant: u8, colour: u32, dice: &mut impl Dice) -> Option<Burst> {
+    let (count, radius, rise, size, light) = match variant {
+        RISING_RING => (150, 25.0, 2.0, 20.0, 150.0),
+        SPAWN_RING => (GENERIC_PARTICLES, 10.0, 1.0, 7.0, 100.0),
+        _ => return None,
+    };
+    let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    let particles = (0..count)
+        .map(|_| {
+            let theta = share(dice) * std::f32::consts::TAU;
+            let buoyancy = -(10.0 + 80.0 * share(dice));
+            let angle = share(dice) * std::f32::consts::TAU;
+            Particle {
+                place: [theta.cos() * radius, theta.sin() * radius, 0.0],
+                velocity: [0.0, 0.0, rise],
+                buoyancy,
+                size,
+                life: 255.0,
+                angle,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+            }
+        })
+        .collect();
+    Some(Burst {
+        texture: "PARTICLE_SPARK02",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            life: -104.0,
+            size: -8.0,
+            angle: 3.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new([r, g, b, a], &[([r, g, b, a], 256)]),
+        particles,
+        ground: Some(0.0),
+        light,
+    })
+}
+
 /// How long the generic system's variants 7 and 8 emit their flames, in seconds (`0x796660`).
 pub const DEATH_FLAMES_EMIT: f32 = 1.0;
 /// The burning's scorch: its quad's half side in the models' units, how long it holds whole and
@@ -1057,6 +1116,35 @@ mod tests {
         assert_eq!(scorch_alpha(11.0), Some(0.5));
         assert_eq!(scorch_alpha(12.0), None);
         assert_eq!(scorch_texture(true), "fx_streaks02");
+    }
+
+    #[test]
+    fn a_scripts_ring_of_sparks_rises_about_its_place_and_is_gone_in_two_and_a_half_seconds() {
+        let mut dice = Rng::of(4, 5, 6);
+        // The variant 1 in red: 150 on a ring of 25, rising ever faster, in the colour.
+        let ring = generic_ring(RISING_RING, 0xFFFF_0000, &mut dice).unwrap();
+        assert_eq!(ring.particles.len(), 150);
+        assert_eq!(ring.ramp.at(128.0), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(ring.light, 150.0);
+        for particle in &ring.particles {
+            let [x, y, z] = particle.place;
+            assert!(((x * x + y * y).sqrt() - 25.0).abs() < 1e-3 && z == 0.0);
+            assert!((-90.0..=-10.0).contains(&particle.buoyancy));
+        }
+        // The variant 4: 500 tighter and smaller; another variant none.
+        let spawn = generic_ring(SPAWN_RING, 0xFFFF_FFFF, &mut dice).unwrap();
+        assert_eq!(spawn.particles.len(), GENERIC_PARTICLES);
+        assert_eq!(spawn.particles[0].size, 7.0);
+        assert!(generic_ring(10, 0xFFFF_FFFF, &mut dice).is_none());
+        // They live 255 / 104 s.
+        let mut system = System::new(150);
+        system.particles = ring.particles;
+        for _ in 0..24 {
+            system.update_over(0.1, &[ring.layer], ring.ground);
+        }
+        assert!(!system.particles.is_empty());
+        system.update_over(0.1, &[ring.layer], ring.ground);
+        assert!(system.particles.is_empty());
     }
 
     #[test]
