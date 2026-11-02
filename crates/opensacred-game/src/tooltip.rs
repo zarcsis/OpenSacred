@@ -104,6 +104,7 @@ struct Weighing<'w, 's> {
     heroes: Query<'w, 's, &'static Combat, With<Body>>,
     holding: Query<'w, 's, &'static crate::fight::Holding, With<Body>>,
     difficulty: Option<Res<'w, crate::game::Difficulty>>,
+    clips: Option<Res<'w, crate::hero::Clips>>,
     clock: Option<Res<'w, crate::daynight::Clock>>,
     forms: Option<Res<'w, crate::forms::Forms>>,
 }
@@ -136,6 +137,10 @@ impl Weighing<'_, '_> {
                 .is_some_and(|holding| holding.0.ranged),
             day,
             rules: &self.rules,
+            halved: self
+                .clips
+                .as_deref()
+                .is_some_and(|clips| clips.arts.iter().any(|art| art.halved)),
         };
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
         let id = |id: u32| texts.and_then(|texts| texts.id(id)).map(str::to_owned);
