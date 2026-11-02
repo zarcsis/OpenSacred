@@ -5,9 +5,11 @@
 //! from the lens's point; within the hero's sight on both axes, beyond it on an explored cell
 //! unless red, a merchant anywhere once its area's region has run its init.
 //!
+//! The sight grows by the hero's items' modifier 853 and its sets' (`fight::sight_bonus`, #1727).
+//!
 //! Not followed: the ridden horses' colours, the creatures' floors' lift, the interiors' sight of
-//! 300, the sight's bonuses of the modifier 853 and of the sets, the flags `+0x200` `0x100` and
-//! `0x200` among the talkable, the dynamic quests' cyan and the debug toggle's animals.
+//! 300, the flags `+0x200` `0x100` and `0x200` among the talkable, the dynamic quests' cyan and
+//! the debug toggle's animals.
 
 use std::collections::HashMap;
 
@@ -129,7 +131,16 @@ type Seen = (
 #[derive(SystemParam)]
 pub(crate) struct Creatures<'w, 's> {
     creatures: Query<'w, 's, Seen>,
-    heroes: Query<'w, 's, (Entity, &'static GlobalTransform), With<crate::hero::Body>>,
+    heroes: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static GlobalTransform,
+            Option<&'static crate::fight::Holding>,
+        ),
+        With<crate::hero::Body>,
+    >,
     clock: Option<Res<'w, crate::daynight::Clock>>,
     land: Res<'w, crate::explored::Land>,
     streamer: Option<Res<'w, crate::sectors::Streamer>>,
@@ -159,7 +170,7 @@ impl Creatures<'_, '_> {
             );
         }
         let mut marks = Vec::new();
-        let Some((hero_entity, hero)) = self.heroes.iter().next() else {
+        let Some((hero_entity, hero, holding)) = self.heroes.iter().next() else {
             return marks;
         };
         let hero = hero.translation().xz();
@@ -168,7 +179,11 @@ impl Creatures<'_, '_> {
             .clock
             .as_deref()
             .is_some_and(|clock| clock.phase() != crate::daynight::Phase::Day);
-        let sight = if night { NIGHT_SIGHT } else { SIGHT };
+        // The hero's items' and sets' far sight (#1727).
+        let bonus = holding.map_or(0.0, |holding| {
+            opensacred_rules::fight::sight_bonus(&holding.0)
+        });
+        let sight = if night { NIGHT_SIGHT } else { SIGHT } + bonus;
         for (entity, place, mind, health, dies, icon, trades, follower) in &self.creatures {
             let point = place.translation().xz();
             if (point - at).abs().max_element() > reach {

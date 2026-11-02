@@ -1246,6 +1246,23 @@ pub fn marks(effect: u32) -> bool {
     )
 }
 
+/// The modifier of the hero's sight on the maps' lens (`Far Sight`, the text 1130).
+const FAR_SIGHT: u32 = 853;
+
+/// The world units by which the sight on the maps' lens of a hero holding `holds` grows
+/// (`0x6CE9B0`, `0x6CEA26`; docs/re/maps.md): 8 for each point of its items' modifier 853 over
+/// its slots, and its sets' (`set_bonuses::Stats::sight`, #1727).
+pub fn sight_bonus(holds: &Holds) -> f32 {
+    let far: f32 = holds
+        .items
+        .iter()
+        .flat_map(|item| item.bonuses)
+        .filter(|bonus| bonus.effect & 0xFFFF == FAR_SIGHT)
+        .map(|bonus| f32::from(bonus.value))
+        .sum();
+    8.0 * far + holds.sets.sight()
+}
+
 /// How many sockets an item's record has.
 pub const SOCKETS: usize = 8;
 

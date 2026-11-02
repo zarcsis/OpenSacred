@@ -212,6 +212,18 @@ fn the_readers_of_the_counts_take_their_shares() {
         [Told::Against(UNDEAD, &[FIRE], fire), Told::Against(UNDEAD, ALL_KINDS, all)]
             if close(fire, 1.002) && close(all, 0.501)
     ));
+    // The sight: set 29 at 3 and one of sets 52 and 57, once though both hold.
+    let sight = Worn::of(
+        (0..3)
+            .map(|i| (7200 + i, 29))
+            .chain((0..4).map(|i| (7300 + i, 52)))
+            .chain((0..6).map(|i| (7400 + i, 57))),
+    );
+    assert!(close(stats(&sight, Difficulty::Bronze).sight(), 150.0));
+    assert_eq!(
+        told(29, &sight, Difficulty::Gold).last(),
+        Some(&Told::Sight(50.0 * 1.67))
+    );
     // Two sets of luck in turn, each rounded: 127, then ⌊127·1.268 + 0.5⌋ = 161.
     let both = Worn::of(
         (0..8)

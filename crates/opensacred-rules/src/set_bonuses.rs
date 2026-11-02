@@ -489,6 +489,9 @@ pub enum Reader {
     /// A drop's call of no type makes a potion in one case of ten (M7, `0x559CA9`;
     /// `drops::Kill::potions`); the list tells it in no line, the game having no text of it.
     Potions,
+    /// The hero's sight on the maps' lens grows by `c·D` world units, once a group of its
+    /// readers, the first that holds (M13, `0x6CE9B0`, `0x6CEA26`; docs/re/maps.md).
+    Sight(f32, u8),
 }
 
 /// The `Creature.pak` classes that the strike's readers test (M1).
@@ -525,6 +528,9 @@ pub const READERS: &[Read] = &[
     read(18, 8, Reader::Exorcism(0.3)),
     read(19, 5, Reader::Experience(0.1)),
     read(22, 5, Reader::Potions),
+    read(29, 3, Reader::Sight(50.0, 0)),
+    read(52, 4, Reader::Sight(100.0, 1)),
+    read(57, 6, Reader::Sight(100.0, 1)),
     read(28, 6, Reader::Survival(10.0)),
     read(53, 7, Reader::IntoGold),
 ];
@@ -582,6 +588,22 @@ impl Stats {
             }
         }
         times
+    }
+
+    /// The world units that the wearer's sight on the maps' lens grows by ([`Reader::Sight`]),
+    /// each group's first reader that holds.
+    pub fn sight(&self) -> f32 {
+        let mut groups: Vec<u8> = Vec::new();
+        let mut sight = 0.0;
+        for read in self.worn.reads() {
+            if let Reader::Sight(c, group) = read.reads
+                && !groups.contains(&group)
+            {
+                groups.push(group);
+                sight += c * self.factor;
+            }
+        }
+        sight
     }
 
     /// Whether the wearer's kills drop potions ([`Reader::Potions`]).
@@ -738,6 +760,8 @@ pub enum Told {
     /// These kinds' damages' share more, `c·D`, against a creature of the class
     /// ([`Reader::Against`]).
     Against(u8, &'static [usize], f32),
+    /// The sight on the maps' lens's world units more, `c·D` ([`Reader::Sight`]).
+    Sight(f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -772,6 +796,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 Reader::IntoGold => Told::IntoGold,
                 Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
                 Reader::Potions => return None,
+                Reader::Sight(c, _) => Told::Sight(c * d),
             };
             Some((read.pieces, line))
         });
