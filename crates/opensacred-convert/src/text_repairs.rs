@@ -105,8 +105,9 @@ pub struct Added {
 /// scripts' `QuestBook` records name and the file lacks (#687,
 /// docs/decisions/text.md, "Quest log's missing lines written"). The runner makes the fish without
 /// a script (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every
-/// creature of the other such types that they make a name of its own.
-pub const ADDED: [Added; 6] = [
+/// creature of the other such types that they make a name of its own. Then the label of set 22's
+/// potions in the list of the sets, which no string tells (#1823).
+pub const ADDED: [Added; 7] = [
     // `fisc_01.grn`: three small fish and a middle-sized one.
     Added {
         name: "164",
@@ -138,6 +139,13 @@ pub const ADDED: [Added; 6] = [
     Added {
         name: "R09NQ01_Log_Qsieg",
         text: "The women are home again, safe in their village.",
+    },
+    // Set 22's potions at 5 pieces: the share of a slain foe's drops of no type that are a potion
+    // (`opensacred_rules::set_bonuses::Told::Potions`; the maintainer's decision of 2026-11-02,
+    // #1727).
+    Added {
+        name: opensacred_data::text::SET_POTIONS,
+        text: "Chance of a potion in a slain foe's drop",
     },
 ];
 

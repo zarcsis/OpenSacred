@@ -5,6 +5,12 @@
 /// The texts of the game's language, relative to the asset directory.
 pub const GLOBAL: &str = "text/en-US/global.ftl";
 
+/// The name of the project's own label of set 22's potions in a slain foe's drop, which no string
+/// of `global.res` tells: `opensacred-convert text` adds it, and the equipment window's list of the
+/// sets puts the per cent after it (#1823; docs/decisions/interface.md, "Set list of what the code
+/// applies").
+pub const SET_POTIONS: &str = "OPENSACRED_SET_POTIONS";
+
 /// The id of the string named `name` (`FUN_0080E780`, per sacred-sdk, MIT): a hash over the
 /// bytes, ASCII letters upper-cased, with the original's 32-bit overflow and signed remainder
 /// (docs/02 §8). A numeric reference `res:N` hashes the text of `N`.
