@@ -38,7 +38,7 @@ use opensacred_data::netscript::{Body, Operand, Record, Tree, Value};
 
 use crate::flow::{Ending, Stmt, Test, structure};
 
-pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index, MARKS};
+pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index, MARKS, ORDER, ORDERED};
 
 /// The Luau bytecode of `source` (`mlua`'s compiler, Luau's own); an error where it does not
 /// compile.
@@ -153,8 +153,9 @@ fn value(value: &Value) -> Result<String> {
 /// The table of `operands`, keyed by their tags, a tag that repeats a list of its values; and, for
 /// a record of two markers or more, `marks`, the markers' tags in their order (#993): the table's
 /// keys keep none, and `CreateNPC` and `SetNPCState` take the last of their mode's and their
-/// hostility's markers (`0x482510`, `0x4839F6`).
-fn operands_table(operands: &[Operand]) -> Result<String> {
+/// hostility's markers (`0x482510`, `0x4839F6`). Where `ordered` and the valued operands' tags do
+/// not follow one another upwards, `order`, those tags in their order (#1835).
+fn operands_table(operands: &[Operand], ordered: bool) -> Result<String> {
     let mut by_tag: BTreeMap<u8, Vec<String>> = BTreeMap::new();
     for operand in operands {
         by_tag
@@ -179,6 +180,15 @@ fn operands_table(operands: &[Operand]) -> Result<String> {
         .collect();
     if marks.len() > 1 {
         fields.push(format!("{MARKS} = {{ {} }}", marks.join(", ")));
+    }
+    let valued: Vec<u8> = operands
+        .iter()
+        .filter(|operand| operand.value != Value::Marker)
+        .map(|operand| operand.tag)
+        .collect();
+    if ordered && !valued.is_sorted() {
+        let order: Vec<String> = valued.iter().map(|tag| format!("0x{tag:02X}")).collect();
+        fields.push(format!("{ORDER} = {{ {} }}", order.join(", ")));
     }
     Ok(format!("{{ {} }}", fields.join(", ")))
 }
@@ -210,16 +220,20 @@ fn call(record: &Record) -> Result<String> {
             if rest.is_empty() {
                 Ok(format!("call({})", string(name)))
             } else {
-                Ok(format!("call({}, {})", string(name), operands_table(rest)?))
+                Ok(format!(
+                    "call({}, {})",
+                    string(name),
+                    operands_table(rest, false)?
+                ))
             }
         }
         Body::Operands(operands) if matches!(record.kind, IF | ELSEIF) => {
-            Ok(format!("test {}", operands_table(operands)?))
+            Ok(format!("test {}", operands_table(operands, false)?))
         }
         Body::Operands(operands) => Ok(format!(
             "{} {}",
             call_name(record.kind)?,
-            operands_table(operands)?
+            operands_table(operands, ORDERED.contains(&record.kind))?
         )),
         Body::Dialog { name, values } => Ok(format!(
             "dialog_entry {{ name = {}, values = {} }}",
@@ -697,6 +711,23 @@ mod tests {
             call(&captain).unwrap(),
             "create_npc { _04 = \"hauptmann3\", _0E = true, _13 = true, _46 = true, \
              marks = { 0x0E, 0x46, 0x13 } }"
+        );
+        // An `Attack`'s attacker and target in their order beside the keys: `malorka_ok`'s group
+        // attacks the hero (#1835); in the tags' order, or of another record, none.
+        let group = op(0x11, Value::I32(60000));
+        let hero = op(0x01, Value::Str("HERO".into()));
+        assert_eq!(
+            call(&record(92, vec![group.clone(), hero.clone()])).unwrap(),
+            "attack { _01 = \"HERO\", _11 = 60000, order = { 0x11, 0x01 } }"
+        );
+        assert_eq!(
+            call(&record(92, vec![hero.clone(), group.clone()])).unwrap(),
+            "attack { _01 = \"HERO\", _11 = 60000 }"
+        );
+        assert!(
+            !call(&record(1, vec![group, hero]))
+                .unwrap()
+                .contains("order")
         );
         let called = record(
             CALL,

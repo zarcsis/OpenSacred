@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use opensacred_data::luau::{DIALOG, MARKS, kind_of};
+use opensacred_data::luau::{DIALOG, MARKS, ORDER, kind_of};
 use opensacred_data::netscript::{self, Body, Record, Shape, Value, shape};
 
 use crate::Operand;
@@ -55,6 +55,23 @@ pub fn record(name: &str, operands: &[Operand]) -> Option<Record> {
                 out.push(netscript::Operand { tag, value });
             }
         }
+    }
+    // The valued operands in their order where the call lists it (#1835), else by their tags.
+    if let Some(Operand::List(order)) = tags.get(ORDER) {
+        let order: Vec<u8> = order
+            .iter()
+            .map(|tag| match tag {
+                Operand::Number(tag) => u8::try_from(int(*tag)?).ok(),
+                _ => None,
+            })
+            .collect::<Option<_>>()?;
+        let mut rest = out;
+        out = Vec::with_capacity(rest.len());
+        for tag in order {
+            let at = rest.iter().position(|operand| operand.tag == tag)?;
+            out.push(rest.remove(at));
+        }
+        out.append(&mut rest);
     }
     // The markers in their order where the call lists it, else by their tags.
     let order: Option<Vec<u8>> = match tags.get(MARKS) {
@@ -220,6 +237,23 @@ mod tests {
                 op(0x0E, Value::Marker),
                 op(0x46, Value::Marker),
                 op(0x13, Value::Marker),
+            ])
+        );
+        // An `Attack`'s valued operands in their order: a group attacking a creature (#1835).
+        let attack = record(
+            "attack",
+            &tags(vec![
+                ("_01", Operand::Text("res:17127".into())),
+                ("_11", number(11121)),
+                ("order", list(vec![number(0x11), number(0x01)])),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            attack.body,
+            Body::Operands(vec![
+                op(0x11, Value::I32(11121)),
+                op(0x01, Value::Str("res:17127".into())),
             ])
         );
         // `0B` repeating its numbers, `19` its triples, `35` one triple.
