@@ -5650,9 +5650,7 @@ mod tests {
             ..Holds::default()
         };
         let wearing = combat(&seraphim, 1, held, &[], &rules);
-        assert!(
-            (wearing.resistance_factors[1] - plain.resistance_factors[1] - 1.0).abs() < 1e-5
-        );
+        assert!((wearing.resistance_factors[1] - plain.resistance_factors[1] - 1.0).abs() < 1e-5);
         assert!(wearing.resistance[1] > plain.resistance[1] + 30.0);
         assert_eq!(wearing.speed, plain.speed + 20.0);
         assert_eq!(wearing.pace, (plain.pace * 1.15).trunc());
