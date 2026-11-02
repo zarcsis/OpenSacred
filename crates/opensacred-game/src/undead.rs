@@ -72,13 +72,18 @@ impl Default for Dice {
 /// skeleton warrior that has a part to lose (`0x532E3C`'s cases, #1260; **hypothesis** that the
 /// warriors' bosses and champions do not change either); never where its killer is `banished`,
 /// under a purple potion's effect (#1353); the chance cut by the hero's `sets` where it kills
-/// (`set_bonuses::Stats::rising`, #1727).
+/// (`set_bonuses::Stats::rising`, #1727); and never where the killer's exorcism of the value and
+/// the parameters `exorcism` lays it to rest for good first (`undead::exorcised`, a roll of
+/// `R(0, 99)`, #1727's M20).
 pub fn rolls(
     dice: &mut Rng,
     mind: &Mind,
     rank: Rank,
     (plain, banished): (bool, bool),
-    sets: Option<&opensacred_rules::set_bonuses::Stats>,
+    (sets, exorcism): (
+        Option<&opensacred_rules::set_bonuses::Stats>,
+        (f32, [f32; 3]),
+    ),
 ) -> Option<Rises> {
     let kind = mind.creature;
     let warrior = undead::warrior(kind);
@@ -87,6 +92,10 @@ pub fn rolls(
     }
     let chance = undead::chance(plain, banished);
     let chance = sets.map_or(chance, |sets| sets.rising(chance));
+    let (value, params) = exorcism;
+    if undead::exorcised(value, params, dice.below(100)) {
+        return None;
+    }
     if !undead::rolls(dice.below(101), chance) {
         return None;
     }

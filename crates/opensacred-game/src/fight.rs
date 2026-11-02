@@ -599,19 +599,29 @@ pub(crate) fn resolve(
                 .map(|effects| effects.list())
                 .unwrap_or_default();
             let banished = potions::banishes(&killer);
-            // The hero's sets cut the rising chance where it kills (`0x532C6F`, #1727).
+            // The hero's sets cut the rising chance where it kills (`0x532C6F`, #1727), and its
+            // exorcism may lay the undead to rest (`0x532D9F`, M20).
             let sets = holding.filter(|_| hero).map(|holding| &holding.0.sets);
+            let exorcism = (
+                exorcist(holding),
+                rules.rare(opensacred_rules::undead::EXORCISM),
+            );
             let rises = victim.and_then(|victim| {
-                crate::undead::rolls(&mut dice.0, victim, rank_of, (plain, banished), sets).inspect(
-                    |_| {
-                        crate::undead::drain(
-                            &mut commands,
-                            (hit.attacker, hit.target),
-                            (victim.creature, health.level),
-                            level,
-                        );
-                    },
+                crate::undead::rolls(
+                    &mut dice.0,
+                    victim,
+                    rank_of,
+                    (plain, banished),
+                    (sets, exorcism),
                 )
+                .inspect(|_| {
+                    crate::undead::drain(
+                        &mut commands,
+                        (hit.attacker, hit.target),
+                        (victim.creature, health.level),
+                        level,
+                    );
+                })
             });
             if let Some(&worth) = worth.filter(|_| by_creature && rises.is_none()) {
                 kills.write(Kill {
@@ -699,6 +709,22 @@ fn wound(
         .and_modify(move |mut effects| {
             effects.wound(value, seconds, attacker);
         });
+}
+
+/// The exorcism of a killer that holds `holding` (`0x532D39`): its items' effect 863 of no
+/// opponent's class, grown by its sets (`set_bonuses::Stats::exorcist`, #1727's M20); 0 for a
+/// creature, which carries no items.
+fn exorcist(holding: Option<&Holding>) -> f32 {
+    holding.map_or(0.0, |holding| {
+        holding
+            .0
+            .sets
+            .exorcist(opensacred_rules::fight::item_effect(
+                &holding.0.items,
+                opensacred_rules::undead::EXORCISM,
+                Some(0),
+            ))
+    })
 }
 
 /// `damage` times `factor`, taken whole.
@@ -835,7 +861,13 @@ pub fn kill(
             mind,
             rank.map_or(Rank::Common, |rank| rank.0),
             (true, banished),
-            sets,
+            (
+                sets,
+                (
+                    exorcist(holding),
+                    rules.rare(opensacred_rules::undead::EXORCISM),
+                ),
+            ),
         );
         let worth = worth.map(|worth| (*worth, rank.copied(), bonus));
         let earned = fell(
