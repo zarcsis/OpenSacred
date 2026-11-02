@@ -15,9 +15,11 @@
 //! skill's level shows its effects at it and at the next (#1715); the selected art's line shows
 //! its damage and its panel each kind's (#1545).
 //!
-//! Not followed yet: the bonus of a set's pieces in the survival bonus, the sets' bonuses of the
-//! skills, the player's own name, and the window's following a
-//! follower's portrait. A click on the gold's line drops gold (#1665).
+//! A portrait of the column under the mouse shows its creature (#1546, `0x75B340`): a follower's
+//! own values, the list that the header did not choose, and four fills; the hero's own portrait
+//! its values so. A click on the gold's line drops gold (#1665).
+//!
+//! Not followed yet: the player's own name, and a follower's points of the levels it reaches.
 
 use bevy::prelude::*;
 use opensacred_rules::fight::EffectLine;
@@ -413,6 +415,27 @@ enum Hover {
 
 /// The hovered fills' colour (`0x6A72F0`, an untextured quad).
 const FILL: u32 = 0x60FF_FF80;
+/// A follower's portrait's fills' colour, and the four rectangles that a portrait's hover fills:
+/// the upper panel, C, D and E to G as one (`0x6AA5A5`–`0x6AA6D0`, #1546).
+const FOLLOWER_FILL: u32 = 0x605F_FF80;
+const PORTRAIT_FILLS: [Rect; 4] = [
+    Rect {
+        min: Vec2::new(3.0, 50.0),
+        max: Vec2::new(254.0, 221.0),
+    },
+    Rect {
+        min: Vec2::new(3.0, 224.0),
+        max: Vec2::new(254.0, 262.0),
+    },
+    Rect {
+        min: Vec2::new(3.0, 265.0),
+        max: Vec2::new(254.0, 304.0),
+    },
+    Rect {
+        min: Vec2::new(3.0, 307.0),
+        max: Vec2::new(254.0, 364.0),
+    },
+];
 /// The upper panel's fill while a line of the lower panel is under the mouse.
 const UPPER_FILL: Rect = Rect {
     min: Vec2::new(3.0, 50.0),
@@ -860,6 +883,9 @@ struct Sheet {
     effects: Option<Vec<(String, u32)>>,
     /// The selected art's line and panel.
     art: ArtValues,
+    /// While a portrait of the column is under the mouse (`0x75B340`, #1546): whether it is the
+    /// hero's own.
+    portrait: Option<bool>,
 }
 
 /// The attributes' descriptions (`0x6AC14E`).
@@ -1097,15 +1123,23 @@ fn sheet(
     (base, combat, health): (&Base, &Combat, &Health),
     (pack, holds): (&Pack, &opensacred_rules::fight::Holds),
     (foe, minutes): (Option<Foe>, u32),
-    (attributes, learning): (bool, bool),
+    (attributes, learning, hero): (bool, bool, bool),
 ) -> Sheet {
     let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
     let skill_name = |id: u8| text(&(9399 + u32::from(id)).to_string());
     let level = experience.level;
     // The skills by their slots, each at its base level and its items' and sets' bonus (#1717,
-    // #1727), its base kept for its colour.
-    let held = opensacred_rules::fight::skills(base, level, true);
-    let totals = opensacred_rules::fight::hero_skills(base, level, holds);
+    // #1727), its base kept for its colour; a creature that is no hero every slot that holds one
+    // at the level's setter's levels (#1546).
+    let (held, totals) = if hero {
+        (
+            opensacred_rules::fight::skills(base, level, true),
+            opensacred_rules::fight::hero_skills(base, level, holds),
+        )
+    } else {
+        let listed = opensacred_rules::fight::listed_skills(base, level);
+        (listed.clone(), listed)
+    };
     let skills: Vec<(String, u32, u32)> = held
         .iter()
         .zip(&totals)
@@ -1125,7 +1159,8 @@ fn sheet(
             let own = u32::from(base.attributes[k]);
             let grown = own + own * level.saturating_sub(1) / 10 + u32::from(base.extras[k]);
             let value = whole(combat.attributes[k]);
-            (text(&(1090 + k).to_string()), value, value > grown)
+            // A creature that is no hero holds none of the bits (`+0x22`, 0 from `0x586C00`).
+            (text(&(1090 + k).to_string()), value, hero && value > grown)
         })
         .collect();
     let sb = survival_share(minutes, holds.sets.survival);
@@ -1178,7 +1213,8 @@ fn sheet(
         damage_shares: shares(combat.damage.map(|[_, most]| most)),
         resistance,
         resistance_shares: shares(combat.resistance),
-        gold: pack.gold,
+        // A creature that is no hero holds no gold (its `+0x46`, which nothing writes).
+        gold: if hero { pack.gold } else { 0 },
         texts: TEXTS
             .iter()
             .chain(&MORE_TEXTS)
@@ -1201,6 +1237,7 @@ fn sheet(
         shield: false,
         effects: None,
         art: ArtValues::default(),
+        portrait: None,
     }
 }
 
@@ -1221,23 +1258,29 @@ fn pluses(
     (held, candidates): (usize, usize),
     (attributes, learning): (bool, bool),
 ) -> Vec<u8> {
-    let shown = experience.attribute_points > 0 || experience.skill_points > 0 || learning;
+    let points = (
+        experience.attribute_points,
+        experience.skill_points,
+        experience.to_learn(),
+    );
+    pluses_of(points, (held, candidates), (attributes, learning))
+}
+
+/// [`pluses`] of the attribute points, the skill points and the skills to learn `points`.
+fn pluses_of(
+    (attribute_points, skill_points, to_learn): (u32, u32, u32),
+    (held, candidates): (usize, usize),
+    (attributes, learning): (bool, bool),
+) -> Vec<u8> {
+    let shown = attribute_points > 0 || skill_points > 0 || learning;
     let rows = if !shown {
         0
     } else if attributes {
-        if experience.attribute_points > 0 {
-            6
-        } else {
-            0
-        }
+        if attribute_points > 0 { 6 } else { 0 }
     } else if learning {
-        if experience.to_learn() > 0 {
-            candidates
-        } else {
-            0
-        }
+        if to_learn > 0 { candidates } else { 0 }
     } else {
-        held + usize::from(experience.to_learn() > 0 && held < 8)
+        held + usize::from(to_learn > 0 && held < 8)
     };
     (0..8).take(rows).collect()
 }
@@ -1278,49 +1321,111 @@ fn show(
         Res<crate::making::Selected>,
     ),
     heroes: Query<(&Base, &Combat, &Health, Option<&Holding>), With<Body>>,
+    (followers, entries, data): (
+        Query<
+            (
+                &Combat,
+                &Health,
+                &crate::ai::Mind,
+                Option<&crate::fight::Points>,
+            ),
+            Without<Body>,
+        >,
+        Option<Res<bar::Entries>>,
+        Option<Res<crate::game::Data>>,
+    ),
     (pointer, ui_scale, screens): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     windows: Query<Entity, With<StatsWindow>>,
     mut last: Local<Option<Sheet>>,
 ) {
     let on = shown.is_some_and(|shown| shown.0);
-    let current = texts
-        .as_deref()
-        .zip(heroes.iter().next())
+    // The portrait of the column under the mouse, the hero's own first (`0x75B340`, #1546).
+    let entries = entries.as_deref().map_or(&[][..], |entries| &entries.0[..]);
+    let portrait = bar::column_point(&pointer, &ui_scale, &screens)
+        .and_then(|at| bar::entry_under(at, entries.len() + 1));
+    // A follower's: its own values, the player's last foe and none of the hero's own (#1546).
+    let follower = portrait
+        .and_then(|k| entries.get(k.checked_sub(1)?))
+        .and_then(|&entity| followers.get(entity).ok())
+        .zip(texts.as_deref().zip(data.as_deref()))
         .filter(|_| on)
-        .map(|(texts, (base, combat, health, holding))| {
-            // The hero's name, its class's by default (the player's own is not kept yet).
-            let class = arts.as_deref().map_or(1, |arts| arts.kind);
-            let name = texts.named(&class.to_string()).unwrap_or_default();
-            let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
-            let shield = holding.is_some_and(|holding| holding.0.shield);
+        .and_then(|((combat, health, mind, points), (texts, data))| {
+            let record = crate::game::record(&data.0.tables, mind.creature).ok()?;
+            let base = Base::of(&record);
+            let level = health.level;
+            let experience = opensacred_rules::fight::Experience::of_creature(
+                points.map_or_else(|| opensacred_rules::fight::level_start(level), |p| p.0),
+                level,
+            );
+            let name = texts.named(&mind.creature.to_string()).unwrap_or_default();
+            // No survival bonus raises its damages, which the fight raises for the hero alone
+            // (docs/decisions/interface.md, "A follower's damage unraised"), and it has no art.
             let mut sheet = sheet(
                 texts,
                 name,
-                &experience.0,
-                (base, combat, health),
-                (&pack, &holds),
-                (foe.0, played.minutes()),
-                (attributes.0, learning.0),
+                &experience,
+                (&base, combat, health),
+                (&pack, &opensacred_rules::fight::Holds::default()),
+                (foe.0, 0),
+                (attributes.0, false, false),
             );
-            sheet.shield = shield;
-            let damage = arts.as_deref().and_then(|arts| {
-                art_damage(
-                    (arts, selected.0),
-                    (combat, holding),
-                    experience.0.level,
-                    &rules,
-                )
-            });
-            let set = holding.map_or(0.0, |holding| holding.0.sets.survival);
-            sheet.art = art_values(
-                damage.unwrap_or_default(),
-                survival_share(played.minutes(), set),
-            );
-            sheet
+            sheet.art = art_values([[0.0; 2]; 4], 0.0);
+            sheet.portrait = Some(false);
+            Some(sheet)
+        });
+    let current = follower
+        .or_else(|| {
+            texts
+                .as_deref()
+                .zip(heroes.iter().next())
+                .filter(|_| on)
+                .map(|(texts, (base, combat, health, holding))| {
+                    // The hero's name, its class's by default (the player's own is not kept yet).
+                    let class = arts.as_deref().map_or(1, |arts| arts.kind);
+                    let name = texts.named(&class.to_string()).unwrap_or_default();
+                    let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+                    let shield = holding.is_some_and(|holding| holding.0.shield);
+                    let mut sheet = sheet(
+                        texts,
+                        name,
+                        &experience.0,
+                        (base, combat, health),
+                        (&pack, &holds),
+                        (foe.0, played.minutes()),
+                        (attributes.0, learning.0, true),
+                    );
+                    sheet.shield = shield;
+                    if portrait == Some(0) {
+                        sheet.portrait = Some(true);
+                    }
+                    let damage = arts.as_deref().and_then(|arts| {
+                        art_damage(
+                            (arts, selected.0),
+                            (combat, holding),
+                            experience.0.level,
+                            &rules,
+                        )
+                    });
+                    let set = holding.map_or(0.0, |holding| holding.0.sets.survival);
+                    sheet.art = art_values(
+                        damage.unwrap_or_default(),
+                        survival_share(played.minutes(), set),
+                    );
+                    sheet
+                })
         })
         .map(|mut sheet| {
             if let Some(at) = screen_point(&pointer, &ui_scale, &screens) {
                 sheet.hover = hover_at(at - WINDOW.min, &sheet);
+            }
+            // The other list under C or a portrait, out of the learning mode, its "+" by the
+            // shown creature's points (`0x6AAA1C`, `0x6AC310`, #1546).
+            if sheet.hover == Hover::Block(Block::C) || sheet.portrait.is_some() {
+                sheet.pluses = pluses_of(
+                    (sheet.attribute_points, sheet.skill_points, sheet.to_learn),
+                    (sheet.skills.len(), sheet.candidates.len()),
+                    (!sheet.attributes, false),
+                );
             }
             sheet.description = texts
                 .as_deref()
@@ -1419,14 +1524,22 @@ fn show(
     }
     // The hovered fills, under what they light (`0x6A72F0`), and a description's.
     let description_fill = described.then_some(DESCRIPTION_FILL);
-    for fill in fills(sheet.hover, &sheet)
+    // A portrait's hover fills the upper panel, C, D and E to G, the hero's own in the window's
+    // fill and a follower's in its other (`0x6AA5A5`–`0x6AA6D0`, #1546).
+    let portrait_fills = sheet.portrait.map(|own| {
+        let colour = if own { FILL } else { FOLLOWER_FILL };
+        PORTRAIT_FILLS.map(|fill| (fill, colour))
+    });
+    for (fill, colour) in fills(sheet.hover, &sheet)
         .into_iter()
         .chain(description_fill)
+        .map(|fill| (fill, FILL))
+        .chain(portrait_fills.into_iter().flatten())
     {
         let quad = commands
             .spawn((
                 bar::placed(fill.min, fill.size()),
-                BackgroundColor(argb(FILL)),
+                BackgroundColor(argb(colour)),
                 Pickable::IGNORE,
             ))
             .id();
@@ -1436,9 +1549,9 @@ fn show(
         Hover::Block(block) => Some(block),
         _ => None,
     };
-    // The header bar, under its text, but in the learning mode and under a hovered line of the
-    // lower panel (`0x6AA993`).
-    if !sheet.learning && block.is_none() {
+    // The header bar, under its text, but in the learning mode, under a hovered line of the
+    // lower panel and while a portrait is under the mouse (`0x6AA993`).
+    if !sheet.learning && block.is_none() && sheet.portrait.is_none() {
         add(
             piece(
                 if sheet.attributes {
@@ -1494,15 +1607,17 @@ fn show(
         220.0,
         (WHITE, right),
     );
-    // The upper panel: the header and its points, then the list; the attributes' under the
-    // health's and the next level's lines (**seen**).
-    let attributes = sheet.attributes || block == Some(Block::C);
+    // The upper panel: the header and its points, then the list; under the health's and the next
+    // level's lines and under a portrait the list that the header did not choose, out of the
+    // learning mode (`0x6AAA1C`; **seen** with the skills chosen, #1546).
+    let other = block == Some(Block::C) || sheet.portrait.is_some();
+    let attributes = sheet.attributes != other;
     let (header, points) = if attributes {
         (said(&sheet, "1145"), sheet.attribute_points)
     } else {
         (said(&sheet, "1096"), sheet.skill_points)
     };
-    let learning = sheet.learning && !attributes;
+    let learning = sheet.learning && !attributes && !other;
     let panel = matches!(block, Some(Block::D | Block::E | Block::F | Block::G));
     let mut panel_icons: Vec<Icons> = Vec::new();
     if panel {

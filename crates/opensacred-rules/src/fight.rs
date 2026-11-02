@@ -64,6 +64,17 @@ const TOP_LEVEL: u32 = 216;
 
 impl Experience {
     /// The skills it may still learn (`+0x44`).
+    /// The experience of a creature that is no hero, `points` at its level `level`, with no
+    /// points to spend nor skills to learn (the game counts none of those that `addExperience`
+    /// gives it, which it never spends; docs/re/character.md, #1546).
+    pub fn of_creature(points: u64, level: u32) -> Self {
+        Self {
+            points,
+            level,
+            ..Self::default()
+        }
+    }
+
     pub fn to_learn(&self) -> u32 {
         self.to_learn
     }
@@ -1637,28 +1648,50 @@ fn normalised(mut a: [u32; KINDS], p: f64) -> [u32; KINDS] {
 /// each at its base level ([`Base::levels`], at least 1; the stats' `+0x2C`…, #1522).
 pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
     if hero {
-        return base
-            .skills
-            .iter()
-            .zip(base.levels)
-            .enumerate()
-            .filter(|&(slot, (&skill, at))| skill != 0 && (slot < 2 || at > 0))
-            .map(|(_, (&skill, at))| (skill, u32::from(at).max(1)))
-            .collect();
+        return hero_slots(base);
     }
-    let count = match level {
+    let at = level / 3;
+    base.skills
+        .iter()
+        .take(npc_slots(level))
+        .filter(|&&skill| skill != 0)
+        .map(|&skill| (skill, at))
+        .collect()
+}
+
+/// How many of an NPC's first slots the level's setter raises at level `level` (`0x564D60`).
+fn npc_slots(level: u32) -> usize {
+    match level {
         0..3 => 0,
         3..=6 => 1,
         7..=20 => 2,
         21..=35 => 3,
         _ => 8,
-    };
-    let at = level / 3;
+    }
+}
+
+/// A hero's skills: its first two slots and those it learnt, each at its base level.
+fn hero_slots(base: &Base) -> Vec<(u8, u32)> {
     base.skills
         .iter()
-        .take(count)
-        .filter(|&&skill| skill != 0)
-        .map(|&skill| (skill, at))
+        .zip(base.levels)
+        .enumerate()
+        .filter(|&(slot, (&skill, at))| skill != 0 && (slot < 2 || at > 0))
+        .map(|(_, (&skill, at))| (skill, u32::from(at).max(1)))
+        .collect()
+}
+
+/// The skills that the statistics window lists of a creature that is no hero at level `level`
+/// (`0x6A9790` over the stats that `0x586C00` and `0x564D60` made): every slot that holds a
+/// skill, in order, those that the level's setter raises at a third of the level and the others
+/// at 0 (docs/re/character.md, #1546).
+pub fn listed_skills(base: &Base, level: u32) -> Vec<(u8, u32)> {
+    let raised = npc_slots(level);
+    base.skills
+        .iter()
+        .enumerate()
+        .filter(|&(_, &skill)| skill != 0)
+        .map(|(slot, &skill)| (skill, if slot < raised { level / 3 } else { 0 }))
         .collect()
 }
 
@@ -4440,6 +4473,11 @@ mod tests {
         assert_eq!(skills(&wolf, 10, false), [(2, 3), (11, 3)]);
         // A hero its two slots at level 1.
         assert_eq!(skills(&wolf, 10, true), [(2, 1), (11, 1)]);
+        // The statistics window lists every slot that holds a skill, those not raised at 0.
+        assert_eq!(listed_skills(&wolf, 4), [(2, 1), (11, 0)]);
+        assert_eq!(listed_skills(&wolf, 1), [(2, 0), (11, 0)]);
+        let experience = Experience::of_creature(level_start(10), 10);
+        assert_eq!((experience.attribute_points, experience.to_learn()), (0, 0));
     }
 
     #[test]

@@ -1143,6 +1143,18 @@ pub(crate) fn column_point(
     Some(Vec2::new(at.x - window.width() / scale + SCREEN.x, at.y))
 }
 
+/// The entry of the portraits' column under the point `at` of its frame ([`column_point`]), of
+/// `entries` shown (the hero's first): its ring or its picture (`0x6D65D0`, each entry's control
+/// `+0x158`; **hypothesis** that the control spans both).
+pub(crate) fn entry_under(at: Vec2, entries: usize) -> Option<usize> {
+    (0..entries).find(|&k| {
+        let step = Vec2::new(0.0, ENTRY_STEP * f32::from(u8::try_from(k).unwrap_or(0)));
+        let ring = Rect::from_corners(RING_AT + step, RING_AT + step + RING_SIZE);
+        let picture = Rect::from_corners(PORTRAIT_AT + step, PORTRAIT_AT + step + PORTRAIT_SIZE);
+        ring.contains(at) || picture.contains(at)
+    })
+}
+
 /// Whether the pointer is off the bar's and the portraits' areas, where the original's windows
 /// take the mouse (`0x6E1BC0`: x 384 − 80n to 640 + 80n and y from 676 for `n` slots a side; the
 /// hero's portrait and ring, the followers' entries below, and the points' "+" while it shows): a
