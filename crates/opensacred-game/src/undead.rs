@@ -93,7 +93,7 @@ pub fn rolls(
     let chance = undead::chance(plain, banished);
     let chance = sets.map_or(chance, |sets| sets.rising(chance));
     let (value, params) = exorcism;
-    if undead::exorcised(value, params, dice.below(100)) {
+    if undead::exorcised(value, params, dice.below(undead::EXORCISM_FACES)) {
         return None;
     }
     if !undead::rolls(dice.below(101), chance) {
