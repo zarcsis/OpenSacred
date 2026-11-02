@@ -23,10 +23,23 @@ pub const RUNNING_BANDS: u8 = 9;
 /// The kind of the effect and the glow under every texel of the model (`0x406510`'s kind 1,
 /// 48 types; #1834).
 pub const MULTITEX: u8 = 1;
+/// The kinds of an effect alone under every texel (#1848): the shield 4017's, running along `v`,
+/// the wings 4018's and the bow 1747's along `u`.
+pub const ALONG_V: u8 = 2;
+pub const ALONG_U: u8 = 3;
+pub const ALONG_U_FAST: u8 = 4;
 /// How many milliseconds a texture's width takes along both axes under the kind 1: the effect's
-/// (`0x89071C`, 1/16384) and the glow's (`0x890718`, 1/32767).
+/// (`0x89071C`, 1/16384) and the glow's (`0x890718`, 1/32767); along one axis under the kinds 2
+/// and 3 (`0x890714`, 1/2048) and 4 (`0x890710`, 1/1024).
 const EFFECT_DRIFT: f32 = 16_384.0;
 const GLOW_DRIFT: f32 = 32_767.0;
+const ALONG_DRIFT: f32 = 2_048.0;
+const FAST_DRIFT: f32 = 1_024.0;
+
+/// Whether the kind `kind` lays its effect under every texel of the model (the kinds 1 to 4).
+pub fn under(kind: u8) -> bool {
+    (MULTITEX..=ALONG_U_FAST).contains(&kind)
+}
 
 /// The length of the kind 9's cycle in milliseconds, and how long each of its two runs lasts.
 const CYCLE: u16 = 2_048;
@@ -45,9 +58,14 @@ pub struct Materials {
 }
 
 impl Materials {
-    /// The kind 1's effect of the texture `effect` and the glow `glow` (files, loaded repeated
-    /// once), which a model's meshes lie over (`models::Effect`).
-    pub fn multitex(&mut self, effect: &str, glow: &str, assets: &AssetServer) -> Effect {
+    /// The effect of the kind `kind` (1 to 4) of the texture `effect`, and the glow `glow` of the
+    /// kind 1 (files, loaded repeated once), which a model's meshes lie over (`models::Effect`).
+    pub fn under(
+        &mut self,
+        kind: u8,
+        (effect, glow): (&str, Option<&str>),
+        assets: &AssetServer,
+    ) -> Effect {
         let mut load = |file: &str| {
             self.textures
                 .entry(file.to_owned())
@@ -55,8 +73,9 @@ impl Materials {
                 .clone()
         };
         Effect {
+            kind,
             effect: load(effect),
-            glow: load(glow),
+            glow: glow.filter(|_| kind == MULTITEX).map(&mut load),
         }
     }
 
@@ -118,12 +137,24 @@ pub fn running_bands(t: u16) -> Vec2 {
     }
 }
 
-/// The offsets of the kind 1's matrices at the frame's real time `t` in milliseconds, held to 16
-/// bits (`0x406510`'s kind 1): the effect's `_31 = _32 = t / 16384`, the glow's `t / 32767`.
-pub fn multitex(t: u16) -> Vec4 {
-    let effect = f32::from(t) / EFFECT_DRIFT;
-    let glow = f32::from(t) / GLOW_DRIFT;
-    Vec4::new(effect, effect, glow, glow)
+/// The offsets of the kind `kind`'s matrices at the frame's real time `t` in milliseconds, held
+/// to 16 bits (`0x406510`), the effect's in `x` and `y`, the glow's in `z` and `w`: the kind 1's
+/// effect `_31 = _32 = t / 16384` and glow `t / 32767`; the kind 2's `_32 = t / 2048`, the kind
+/// 3's `_31 = t / 2048`, the kind 4's `_31 = t / 1024`.
+pub fn offsets(kind: u8, t: u16) -> Vec4 {
+    let t = f32::from(t);
+    match kind {
+        MULTITEX => Vec4::new(
+            t / EFFECT_DRIFT,
+            t / EFFECT_DRIFT,
+            t / GLOW_DRIFT,
+            t / GLOW_DRIFT,
+        ),
+        ALONG_V => Vec4::new(0.0, t / ALONG_DRIFT, 0.0, 0.0),
+        ALONG_U => Vec4::new(t / ALONG_DRIFT, 0.0, 0.0, 0.0),
+        ALONG_U_FAST => Vec4::new(t / FAST_DRIFT, 0.0, 0.0, 0.0),
+        _ => Vec4::ZERO,
+    }
 }
 
 /// Moves the kind 9's textures by the frame's real time, the original's performance counter
@@ -141,10 +172,9 @@ fn run(
     mut models: ResMut<Assets<crate::models::ModelMaterial>>,
 ) {
     let t = u16::try_from(time.elapsed().as_millis() & 0xFFFF).unwrap_or(0);
-    let offsets = multitex(t);
-    for handle in &under.0 {
+    for (handle, kind) in &under.0 {
         if let Some(mut material) = models.get_mut(handle) {
-            material.extension.offsets = offsets;
+            material.extension.offsets = offsets(*kind, t);
         }
     }
     if effects.running_bands.is_empty() {
@@ -196,12 +226,18 @@ mod tests {
     }
 
     #[test]
-    fn the_kind_1s_effect_and_glow_drift_a_width_in_16_and_33_seconds() {
-        assert_eq!(multitex(0), Vec4::ZERO);
+    fn the_effects_drift_by_their_kinds() {
+        // The kind 1's effect and glow a width in 16 and 33 seconds.
+        assert_eq!(offsets(MULTITEX, 0), Vec4::ZERO);
         assert_eq!(
-            multitex(16_384),
+            offsets(MULTITEX, 16_384),
             Vec4::new(1.0, 1.0, 16_384.0 / 32_767.0, 16_384.0 / 32_767.0)
         );
-        assert!((multitex(u16::MAX).z - 2.0).abs() < 1e-3);
+        assert!((offsets(MULTITEX, u16::MAX).z - 2.0).abs() < 1e-3);
+        // The shield's along `v`, the wings' and the bow's along `u`, the bow's twice as fast.
+        assert_eq!(offsets(ALONG_V, 1_024), Vec4::new(0.0, 0.5, 0.0, 0.0));
+        assert_eq!(offsets(ALONG_U, 1_024), Vec4::new(0.5, 0.0, 0.0, 0.0));
+        assert_eq!(offsets(ALONG_U_FAST, 1_024), Vec4::new(1.0, 0.0, 0.0, 0.0));
+        assert!(under(1) && under(4) && !under(5) && !under(RUNNING_BANDS));
     }
 }
