@@ -189,6 +189,8 @@ const ATTACK: u16 = 92;
 /// `Attack`'s art or spell by name (`+0xA880`), which #1831 follows; `ECS_NOSPELL` is none.
 const ART: u8 = 0x67;
 const NO_SPELL: &str = "ecs_nospell";
+/// The art of an `Attack` that teleports its creature, `PHASEN` (the reader's 1, #1831).
+const TELEPORTS: &str = "ecs_teleport";
 /// The operand that `npcs` adds to a `Morph` that waited its turn in its creature's queue as it
 /// hands it to the world's records ([`take_steps`]): its level and health kept (the step
 /// `0x59F266`); past the scripts' last tag, beside [`AREA_TURN`].
@@ -2209,6 +2211,9 @@ enum Act {
     /// `Morph` under the anim mode: the creature's new type, at its turn (`0x464170`, the kind 10;
     /// #1829).
     Morph(u32),
+    /// `Attack` of `ECS_TELEPORT`: the creature's teleport to the place, at once or at its turn
+    /// (`0x4A2B40`, the event `0x105`; #1831).
+    Phase(Whither),
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -6067,6 +6072,16 @@ impl Npcs {
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
+            if record.kind == ATTACK
+                && let Some((name, whither)) = phased(ops, &self.places)
+            {
+                moves.push(Moved {
+                    name,
+                    act: Act::Phase(whither),
+                    queued,
+                });
+                continue;
+            }
             if let Some(moved) = played(record.kind, ops, queued, now) {
                 moves.push(moved);
                 continue;
@@ -6694,6 +6709,12 @@ enum Queued {
     /// A `Morph` of the creature of the name into the type `creature`, its level and health kept
     /// (the step `0x59F266`), done at once (#1829).
     Morph { name: String, creature: u32 },
+    /// An `Attack`'s teleport (the step `0x59E3D6` sending `0x105`): its cast begun at its turn,
+    /// waited for while it lasts (`script_attacks::Phase`, #1831).
+    Phase {
+        phase: crate::script_attacks::Phase,
+        begun: bool,
+    },
     /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
     /// #1278).
     Call(String),
@@ -6828,7 +6849,11 @@ fn take_steps(
             Option<&mut crowd::InTheWay>,
             Option<&mut buildings::Layered>,
             Has<Walk>,
-            (Has<ScriptClip>, Has<Plays>),
+            (
+                Has<ScriptClip>,
+                Has<Plays>,
+                Has<crate::script_attacks::Phase>,
+            ),
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
@@ -6836,7 +6861,7 @@ fn take_steps(
     if tick.seconds.is_none() {
         return;
     }
-    for (entity, mut queue, mut transform, mind, way, layered, walking, (clip, plays)) in
+    for (entity, mut queue, mut transform, mind, way, layered, walking, (clip, plays, phasing)) in
         &mut creatures
     {
         let here = transform.translation;
@@ -6921,6 +6946,16 @@ fn take_steps(
                 }
                 true
             }
+            // Begun at its turn, and done once the creature stands at its end.
+            Some(Queued::Phase { phase, begun }) => {
+                if *begun {
+                    !phasing
+                } else {
+                    commands.entity(entity).insert(*phase);
+                    *begun = true;
+                    false
+                }
+            }
             // Turned as the scripts' `Morph`s are, its level and health kept ([`morphs`]).
             Some(Queued::Morph { name, creature }) => {
                 if let Some(made) = made.as_deref_mut() {
@@ -6980,6 +7015,23 @@ fn take_steps(
             commands.entity(entity).remove::<ScriptQueue>();
         }
     }
+}
+
+/// The creature that an `Attack` of the operands `ops` teleports, its first name, and where to,
+/// its `0x04`'s cell, `DefPos` or creature's place (`0x4A2B40`, `ECS_TELEPORT`; #1831); none for
+/// another art or none, for the hero, or without a place.
+fn phased(
+    ops: &[opensacred_data::netscript::Operand],
+    places: &HashMap<String, (i32, i32)>,
+) -> Option<(String, Whither)> {
+    let teleports = ops.iter().any(|o| {
+        o.tag == ART && matches!(&o.value, Value::Str(art) if art.eq_ignore_ascii_case(TELEPORTS))
+    });
+    if !teleports {
+        return None;
+    }
+    let name = name_of(ops).filter(|name| !name.is_empty() && name != HERO)?;
+    Some((name, whither(ops, 0x04, places)?))
 }
 
 /// The type that a `Morph` of the operands `ops` turns its creature into, its `0x02`; none for 0.
@@ -7732,6 +7784,52 @@ pub(crate) fn script_records(
                     }
                 } else if let Some(states) = states.as_deref_mut() {
                     states.0.push(act_on(&object, open));
+                }
+                continue;
+            }
+            Act::Phase(whither) => {
+                let to = match whither {
+                    Whither::Cell((x, y, layer)) => {
+                        crate::script_attacks::Phase::to_cell((x, y, layer), &heights)
+                    }
+                    Whither::Creature(None) => heroes
+                        .iter()
+                        .next()
+                        .map(|at| crate::script_attacks::Phase::to(at.translation, None)),
+                    Whither::Creature(Some(name)) => creatures
+                        .iter()
+                        .find(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
+                        .map(|(_, _, _, at, _, way, ..)| {
+                            crate::script_attacks::Phase::to(
+                                at.translation,
+                                way.and_then(|way| way.level),
+                            )
+                        }),
+                };
+                let Some(phase) = to else {
+                    continue;
+                };
+                if let Some((entity, ..)) = creatures
+                    .iter()
+                    .find(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                {
+                    if moved.queued {
+                        let step = Queued::Phase {
+                            phase,
+                            begun: false,
+                        };
+                        match queues.get_mut(entity) {
+                            Ok(mut queue) => queue.0.push_back(step),
+                            Err(_) => queued.entry(entity).or_default().push(step),
+                        }
+                    } else {
+                        commands.entity(entity).insert(phase);
+                    }
+                    bevy::log::info!(
+                        "npcs: the scripts teleport {}{}",
+                        moved.name,
+                        if moved.queued { " in its turn" } else { "" }
+                    );
                 }
                 continue;
             }
@@ -10100,6 +10198,39 @@ mod tests {
         assert_eq!(
             deferred_objects(&records, |name| name == "res:18237"),
             HashSet::from([2])
+        );
+    }
+
+    #[test]
+    fn an_attack_of_ecs_teleport_teleports_its_creature_to_its_place() {
+        let op = |tag, value| Operand { tag, value };
+        let places = HashMap::from([("pos_teleport15031".to_owned(), (3100, 2200))]);
+        let teleport = |place: Value| {
+            vec![
+                op(0x01, Value::Str("Res:17019".into())),
+                op(0x04, place),
+                op(ART, Value::Str("ECS_TELEPORT".into())),
+            ]
+        };
+        // Quest 1503's `DefPos`, quest 1002's cell of negative numbers.
+        assert_eq!(
+            phased(&teleport(Value::Str("pos_teleport15031".into())), &places),
+            Some(("res:17019".into(), Whither::Cell((3100, 2200, 0))))
+        );
+        assert_eq!(
+            phased(&teleport(Value::I32x3([-1655, -2409, 0])), &places),
+            Some(("res:17019".into(), Whither::Cell((-1655, -2409, 0))))
+        );
+        // Another art, no art or no place: none.
+        let meteor = [
+            op(0x01, Value::Str("res:1".into())),
+            op(0x04, Value::I32x3([1, 2, 0])),
+            op(ART, Value::Str("ECS_METEOR".into())),
+        ];
+        assert_eq!(phased(&meteor, &places), None);
+        assert_eq!(
+            phased(&[op(0x01, Value::Str("res:1".into()))], &places),
+            None
         );
     }
 
