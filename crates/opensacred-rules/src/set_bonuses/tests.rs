@@ -257,6 +257,11 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(64, &wearing(64, 3), Difficulty::Bronze)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
+    // Five pieces of set 22 tell their potions' per cent.
+    assert!(matches!(
+        told(22, &wearing(22, 5), Difficulty::Bronze)[..],
+        [.., Told::Potions(per_cent)] if close(per_cent, 10.0)
+    ));
     // Seven pieces of set 26 let the Dark Elf go unseen, six do not.
     assert!(stats(&wearing(26, 7), Difficulty::Bronze).unseen());
     assert!(!stats(&wearing(26, 6), Difficulty::Bronze).unseen());
