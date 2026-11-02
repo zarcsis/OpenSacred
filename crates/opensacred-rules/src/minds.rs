@@ -115,6 +115,9 @@ const HELD: f32 = 3.0;
 /// The least time a stunned creature is held (`0x4FF0B0` at `0x5009B1`, the float 2.0 at
 /// `0x890750`; [`Mind::stunned`]).
 const STUNNED: f32 = 2.0;
+/// The terror of a fearer whose items give the effect 855, which holds every wild animal fleeing
+/// from it (`0x4E2637`, no roll; the game rolls it all the same, a roll of the 101 below 101).
+pub const TERROR_ALWAYS: u32 = 101;
 /// How long a creature that a strike's stun takes is held (`0x56D74B`; [`Mind::shocked`]).
 const SHOCKED: f32 = 0.5;
 
@@ -1412,7 +1415,8 @@ impl Mind {
     /// where another shares its cell, and a guard at the same chance. A wild animal that would
     /// flee from one of a terror stands instead where `R(0, 100)` falls below it, rolled after
     /// its flight's point (`0x4E2666`–`0x4E26C3`, #1727's M16: four pieces of set 41,
-    /// `set_bonuses::Stats::terror`): it stops what it does (`0x54E6D0`) and a flyer lands
+    /// `set_bonuses::Stats::terror`; the items' effect 855 a terror of [`TERROR_ALWAYS`]), its
+    /// place and [`Why::Stands`]: it stops what it does (`0x54E6D0`) and a flyer lands
     /// (`0x44D520`).
     pub fn behaves(
         &self,
@@ -1429,7 +1433,7 @@ impl Mind {
         let chosen = behaviour(self, here, fear.map(|(at, _)| at), (strolls, walking), rng);
         match (chosen, fear) {
             (Some((_, Why::Flees)), Some((_, terror))) if terror > 0 && rng.below(101) < terror => {
-                None
+                Some((here, Why::Stands))
             }
             _ => chosen,
         }
@@ -1845,6 +1849,9 @@ fn about(at: Spot, within: i32, rng: &mut impl Dice) -> Spot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Why {
     Flees,
+    /// A wild animal that would flee stands instead, held by its fearer's terror (`0x4E26C9`:
+    /// set 41's, #1727's M16, or the items' effect 855, #1806); it stops what it does.
+    Stands,
     StepsAway,
     GoesBack,
     Strolls,
@@ -3681,9 +3688,10 @@ mod tests {
         let flights = |terror, rng: &mut Rng| {
             (0..1000)
                 .filter(|_| {
-                    rabbit
-                        .behaves(home, Some((hero, terror)), (false, None), rng)
-                        .is_some()
+                    matches!(
+                        rabbit.behaves(home, Some((hero, terror)), (false, None), rng),
+                        Some((_, Why::Flees))
+                    )
                 })
                 .count()
         };

@@ -1232,6 +1232,10 @@ fn behave(
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
+    (arts, experience): (
+        Option<Res<crate::arts::HeroArts>>,
+        Option<Res<crate::fight::Experience>>,
+    ),
     (followers, queued): (
         Query<(), With<crate::followers::Follower>>,
         Query<
@@ -1247,8 +1251,34 @@ fn behave(
         return;
     };
     let hero = hero.translation;
-    // The animals' terror of the hero's sets (#1727's M16).
-    let terror = holding.map_or(0, |holding| holding.0.sets.terror());
+    // The animals' terror of the hero's sets (#1727's M16), or of its items' effect 855, which
+    // holds every one and may cage it (`0x4E2616`, #1806).
+    let caging = holding.map_or(0.0, |holding| {
+        opensacred_rules::fight::item_effect(
+            &holding.0.items,
+            opensacred_rules::fight::CAGING,
+            None,
+        )
+    });
+    let terror = if caging > 2f32.powi(-23) {
+        minds::TERROR_ALWAYS
+    } else {
+        holding.map_or(0, |holding| holding.0.sets.terror())
+    };
+    // The cage's hold of the spell 40 at a third of the hero's level (`0x4E2790`).
+    let cage_seconds = arts.as_deref().and_then(|arts| {
+        let cage = arts
+            .tables
+            .spells
+            .iter()
+            .find(|spell| spell.id == opensacred_rules::spells::CAGE)?;
+        let level = experience
+            .as_deref()
+            .map_or(1, |experience| experience.level)
+            / 3;
+        let seconds = opensacred_rules::spells::value(cage, 0, level);
+        Some(u16::try_from(seconds).map_or(f32::MAX, f32::from))
+    });
     // Every creature as a guard sees it, for the nearest hostile to it, the hero among them
     // (`0x4EEE40`): the hero of its side 1 and a type of no exception's.
     let others: Vec<Other> = creatures
@@ -1801,6 +1831,33 @@ fn behave(
         else {
             continue;
         };
+        // Held by the hero's terror, it stops; of the effect 855, `R(0, 100)` below its value cages
+        // it, the plant cage's hold (`0x4E26F1`, the objects 849 by the event `0x49`; #1806).
+        if why == Why::Stands {
+            debug!("ai: {entity} stands in the hero's terror");
+            stops.push(entity);
+            let roll = minds.rng.below(101);
+            if caging > 0.0
+                && f64::from(roll) < f64::from(caging)
+                && let Some(seconds) = cage_seconds
+            {
+                debug!("ai: {entity} caged for {seconds} s");
+                let effect = opensacred_rules::fight::Effect {
+                    id: opensacred_rules::spells::HELD,
+                    whole: 0,
+                    value: 0.0,
+                    art: u32::from(opensacred_rules::spells::CAGE),
+                    level: 0,
+                };
+                let mut held = commands.entity(entity);
+                held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                held.entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(move |mut effects| effects.add(effect, seconds));
+                mind.stunned(seconds);
+            }
+            continue;
+        }
         let target = point(target, here.y);
         debug!(
             "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",

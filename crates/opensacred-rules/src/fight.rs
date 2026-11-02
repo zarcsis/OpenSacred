@@ -3654,6 +3654,10 @@ pub fn gold_for_health(damage: f32, (value, gold): (f32, u32), rng: &mut impl Di
     }
 }
 
+/// The items' effect that holds the wild animals fleeing from its bearer and may cage them
+/// (`0x357`, `0x4E2616`; #1806).
+pub const CAGING: u32 = 855;
+
 /// The effects of the gold for the health and of the gold pile from a hit (#1779).
 pub const GOLD_FOR_HEALTH: u32 = 866;
 pub const GOLD_PILE: u32 = 856;
