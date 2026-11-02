@@ -125,10 +125,11 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
             "{}: {value:+.2}",
             words.of("UI_RARE_SCHOCK").trim_end()
         )),
-        // Set 22's potions at 5, which no text of the game tells: the project's own words (the
-        // maintainer's decision of 2026-11-02, #1727).
+        // Set 22's potions at 5, which no text of the game tells: the project's own words that
+        // the converter adds (the maintainer's decision of 2026-11-02, #1727; #1823).
         Told::Potions(per_cent) => white(format!(
-            "Chance of a potion in a slain foe's drop: {per_cent}%"
+            "{}: {per_cent}%",
+            words.of(opensacred_data::text::SET_POTIONS)
         )),
         // The original's own line of set 26 at 7 (`0x571710`), the Dark Elf's stealth.
         Told::Unseen => white(n(783)),
@@ -359,10 +360,7 @@ mod tests {
         assert_eq!(told(Told::Stun(0.0835)), ["<UI_RARE_SCHOCK>: +0.08"]);
         assert_eq!(told(Told::Unseen), ["<783>"]);
         assert_eq!(told(Told::Terror(2000.0 / 101.0)), ["<1150>: +19.8%"]);
-        assert_eq!(
-            told(Told::Potions(10.0)),
-            ["Chance of a potion in a slain foe's drop: 10%"]
-        );
+        assert_eq!(told(Told::Potions(10.0)), ["<OPENSACRED_SET_POTIONS>: 10%"]);
         assert_eq!(
             told(Told::Bonus(Bonus::Multiplier(
                 Array::Spells,
