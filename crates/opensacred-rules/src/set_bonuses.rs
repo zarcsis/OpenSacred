@@ -468,6 +468,9 @@ pub const WHOLE_DAMAGE: u32 = 0x7C2;
 /// The stats' flag `+0x148` bit `0x200000` (sets 42, 49, 50 and 64), by which the strike grows the
 /// stun's value (M18, `0x56D4D6`; [`Stats::stun`]).
 pub const STUNS: u32 = 0x20_0000;
+/// Set 23's pieces, the dragon's six statues, which count carried as well as worn (`0x57AD5B`:
+/// the types 5101 to 5106 searched in the hero's inventory, each once).
+pub const CARRIED: [u32; 6] = [5101, 5102, 5103, 5104, 5105, 5106];
 /// The stats' flag `+0x148` bit `0x100000` (sets 41, 44, 59 and 65), by which the magic defence
 /// grows (M17, `0x5618A1`; [`Stats::magic_defence`]).
 pub const WARDS: u32 = 0x10_0000;
@@ -529,6 +532,9 @@ pub enum Reader {
     /// The Dark Elf goes unseen by the creatures while it stands, walks or runs out of a fight
     /// (M9, the query `0x54A6D0`; the update `0x5396DB` gives it the effect 63, not followed).
     Unseen,
+    /// The wearer's steps leave small fires (M8, the creature's `+0x1FC` bit 1, `0x63918C`;
+    /// [`Stats::fiery_steps`]), which no text of the original's list tells.
+    FierySteps,
     /// A wild animal that would flee from the wearer stands in `⌊c·D⌋` rolls of `R(0, 100)`
     /// (M16, `0x4E263D`; [`Stats::terror`]).
     Terror(f32),
@@ -592,6 +598,7 @@ pub const READERS: &[Read] = &[
     read(30, 5, Reader::GoldPile(10.0)),
     read(26, 7, Reader::Unseen),
     read(41, 4, Reader::Terror(20.0)),
+    read(23, 6, Reader::FierySteps),
     read(61, 4, Reader::Exorcist(0.15)),
     read(54, 7, Reader::Exorcist(0.3)),
     read(31, 5, Reader::OpenWounds(10.0)),
@@ -716,6 +723,13 @@ impl Stats {
                 Reader::GoldForHealth(c) => value + c * self.factor,
                 _ => value,
             })
+    }
+
+    /// Whether the wearer's steps leave small fires: six pieces of set 23 ([`Reader::FierySteps`]).
+    pub fn fiery_steps(&self) -> bool {
+        self.worn
+            .reads()
+            .any(|read| matches!(read.reads, Reader::FierySteps))
     }
 
     /// The per cent of a wild animal's flights from its wearer in which the animal stands
@@ -1028,33 +1042,38 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
             };
             Some((entry.pieces, line))
         });
-    let readers = worn.reads().filter(|read| read.set == set).map(|read| {
-        let line = match read.reads {
-            Reader::Luck(c) => Told::Luck(c * d),
-            Reader::Exorcism(c) => Told::Exorcism(c * d),
-            Reader::Experience(c) => Told::Experience(c * d),
-            Reader::Survival(c) => Told::Survival(c * d),
-            Reader::IntoGold => Told::IntoGold,
-            Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
-            Reader::Potions => Told::Potions(crate::drops::set_potion_chance()),
-            Reader::Sight(c, _) => Told::Sight(c * d),
-            Reader::RangedDefence(c) => Told::RangedDefence(c * d),
-            Reader::Critical(c) => Told::Critical(c * d),
-            Reader::Wounds(c) => Told::Wounds(c * d),
-            Reader::GoldForHealth(c) => {
-                Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
-            }
-            Reader::GoldPile(c) => Told::GoldPile(c * d),
-            Reader::Exorcist(c) => Told::Exorcist(c * d),
-            Reader::Unseen => Told::Unseen,
-            Reader::Terror(c) => {
-                let terror = crate::fight::whole_part(c * d);
-                Told::Terror(crate::fight::to_f32(terror) * 100.0 / 101.0)
-            }
-            Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
-        };
-        (read.pieces, line)
-    });
+    let readers = worn
+        .reads()
+        .filter(|read| read.set == set)
+        .filter_map(|read| {
+            let line = match read.reads {
+                Reader::Luck(c) => Told::Luck(c * d),
+                Reader::Exorcism(c) => Told::Exorcism(c * d),
+                Reader::Experience(c) => Told::Experience(c * d),
+                Reader::Survival(c) => Told::Survival(c * d),
+                Reader::IntoGold => Told::IntoGold,
+                Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
+                Reader::Potions => Told::Potions(crate::drops::set_potion_chance()),
+                Reader::Sight(c, _) => Told::Sight(c * d),
+                Reader::RangedDefence(c) => Told::RangedDefence(c * d),
+                Reader::Critical(c) => Told::Critical(c * d),
+                Reader::Wounds(c) => Told::Wounds(c * d),
+                Reader::GoldForHealth(c) => {
+                    Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
+                }
+                Reader::GoldPile(c) => Told::GoldPile(c * d),
+                Reader::Exorcist(c) => Told::Exorcist(c * d),
+                Reader::Unseen => Told::Unseen,
+                Reader::Terror(c) => {
+                    let terror = crate::fight::whole_part(c * d);
+                    Told::Terror(crate::fight::to_f32(terror) * 100.0 / 101.0)
+                }
+                Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
+                // No text of the game tells the small fires (#1808).
+                Reader::FierySteps => return None,
+            };
+            Some((read.pieces, line))
+        });
     let mut lines: Vec<(u8, Told)> = bonuses.chain(readers).collect();
     lines.sort_by_key(|&(pieces, _)| pieces);
     lines.into_iter().map(|(_, line)| line).collect()

@@ -392,6 +392,68 @@ pub fn fire(variant: u8) -> Option<Fire> {
     })
 }
 
+/// How long the steps' small fire emits, in seconds (`0x890918`; [`small_fire`]), after which it
+/// lives on until its last particle dies.
+pub const SMALL_FIRE_EMITS: f32 = 8.0;
+/// The steps' small fire's burnt ground: its quad's half side in the models' units, its texture's
+/// frames along each side, and the texture (`FX_GROUNDSTEP`, `0x79F7D0`).
+pub const GROUND_HALF: f32 = 50.0;
+pub const GROUND_GRID: u8 = 4;
+pub const GROUND_TEXTURE: &str = "fx_groundstep";
+
+/// The small fire of `cParticleSystem_smallfire` (`0x79F600`, the type 878, `FX_SMALLFIRE`) of the
+/// variant 2, which six pieces of set 23 leave at each of the hero's steps (#1808; docs/re/
+/// effects.md): the smoke class's `FX_FI_SMOKE_L` in its flame, its places spread ± 15 along
+/// both axes of the ground, a shorter smoke that spins ± 2, and a light of 150 (`0x79F970`); it
+/// emits for [`SMALL_FIRE_EMITS`] seconds.
+pub fn small_fire() -> Fire {
+    let block = |buoyancy: Spread<f32>, size: Spread<f32>, spin: f32| Block {
+        buoyancy,
+        size,
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        spin: spread(0.0, spin),
+        velocity: spread([0.0; 3], [0.5; 3]),
+        offset: spread([0.0; 3], [15.0, 15.0, 0.0]),
+        interval: 0.02,
+        ..Block::default()
+    };
+    let layer = |life: f32, size: f32| Layer {
+        life,
+        size,
+        ..Layer::default()
+    };
+    Fire {
+        texture: "particle_fire03",
+        layers: vec![layer(-100.0, 20.0), layer(-180.0, 10.0)],
+        blocks: vec![
+            block(spread(-35.0, 34.0), spread(1.0, 0.5), 0.0),
+            block(spread(-35.0, 5.0), spread(3.0, 1.0), 2.0),
+        ],
+        ramps: vec![flame_ramp(), fire_smoke_ramp(0.996_093_75)],
+        blends: vec![Blend::Add, Blend::Over],
+        grid: 1,
+        count: SMOKE_PARTICLES,
+        light: 150.0,
+        tinted: false,
+    }
+}
+
+/// The frame of the steps' small fire's burnt ground at its clock `t` (`0x79F7D0`), of the
+/// [`GROUND_GRID`]'s 16: the frames 4 to 0 over the first 0.3 s, as it spreads in, then the frame
+/// 0 to 8 s, then the frames 0 to 15 over the ninth second, as it shrinks away; none after.
+pub fn ground_frame(t: f32) -> Option<u8> {
+    let frame = |x: f32| u8::try_from(crate::fight::whole_part(x * 16.0) % 16).unwrap_or(0);
+    if t <= 0.3 {
+        Some(frame(0.3 - t))
+    } else if t <= SMALL_FIRE_EMITS {
+        Some(0)
+    } else if t <= SMALL_FIRE_EMITS + 1.0 {
+        Some(frame(t - 3.0))
+    } else {
+        None
+    }
+}
+
 /// The smokes of the smoke class's variants 1 to 3, the chimneys' `FX_HS_SMOKE_S`, `_M` and `_L`,
 /// a grey of 224 at the alpha of the life (the flags `0x146`), and 8 and 9, the lavas'
 /// `FX_LV_SMOKE_M` and `_L`, ramp B starting opaque (`0x10C`): one layer of `PARTICLE_SMOKE03`'s
