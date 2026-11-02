@@ -15,9 +15,18 @@ use bevy::math::Affine2;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 
+use crate::models::{Effect, EffectMaterials};
+
 /// The kind of the effect whose bands run along the model's first primitive (`0x4068B9`): the
 /// wings 3111's.
 pub const RUNNING_BANDS: u8 = 9;
+/// The kind of the effect and the glow under every texel of the model (`0x406510`'s kind 1,
+/// 48 types; #1834).
+pub const MULTITEX: u8 = 1;
+/// How many milliseconds a texture's width takes along both axes under the kind 1: the effect's
+/// (`0x89071C`, 1/16384) and the glow's (`0x890718`, 1/32767).
+const EFFECT_DRIFT: f32 = 16_384.0;
+const GLOW_DRIFT: f32 = 32_767.0;
 
 /// The length of the kind 9's cycle in milliseconds, and how long each of its two runs lasts.
 const CYCLE: u16 = 2_048;
@@ -36,6 +45,21 @@ pub struct Materials {
 }
 
 impl Materials {
+    /// The kind 1's effect of the texture `effect` and the glow `glow` (files, loaded repeated
+    /// once), which a model's meshes lie over (`models::Effect`).
+    pub fn multitex(&mut self, effect: &str, glow: &str, assets: &AssetServer) -> Effect {
+        let mut load = |file: &str| {
+            self.textures
+                .entry(file.to_owned())
+                .or_insert_with(|| crate::npcs::load_texture(assets, file))
+                .clone()
+        };
+        Effect {
+            effect: load(effect),
+            glow: load(glow),
+        }
+    }
+
     /// The material that the kind 9's pass draws a primitive of the material `original` with: its
     /// copy with the effect texture `texture` (a file, loaded repeated), white, unlit and added to
     /// the frame (the blend `ONE`, `ONE`, the depth write off), made once and shared; none where
@@ -94,20 +118,38 @@ pub fn running_bands(t: u16) -> Vec2 {
     }
 }
 
+/// The offsets of the kind 1's matrices at the frame's real time `t` in milliseconds, held to 16
+/// bits (`0x406510`'s kind 1): the effect's `_31 = _32 = t / 16384`, the glow's `t / 32767`.
+pub fn multitex(t: u16) -> Vec4 {
+    let effect = f32::from(t) / EFFECT_DRIFT;
+    let glow = f32::from(t) / GLOW_DRIFT;
+    Vec4::new(effect, effect, glow, glow)
+}
+
 /// Moves the kind 9's textures by the frame's real time, the original's performance counter
 /// (`0x406592`), which runs on in the pause and at any speed of the game: in the model materials
 /// made of them (`models::Converted`), which draw the meshes, and in them, for those still to be
 /// made.
 fn run(
     time: Res<Time<bevy::time::Real>>,
-    (effects, converted): (Res<Materials>, Res<crate::models::Converted>),
+    (effects, converted, under): (
+        Res<Materials>,
+        Res<crate::models::Converted>,
+        Res<EffectMaterials>,
+    ),
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut models: ResMut<Assets<crate::models::ModelMaterial>>,
 ) {
+    let t = u16::try_from(time.elapsed().as_millis() & 0xFFFF).unwrap_or(0);
+    let offsets = multitex(t);
+    for handle in &under.0 {
+        if let Some(mut material) = models.get_mut(handle) {
+            material.extension.offsets = offsets;
+        }
+    }
     if effects.running_bands.is_empty() {
         return;
     }
-    let t = u16::try_from(time.elapsed().as_millis() & 0xFFFF).unwrap_or(0);
     let offset = Affine2::from_translation(running_bands(t));
     for handle in effects.running_bands.values() {
         if let Some(mut material) = materials.get_mut(handle) {
@@ -151,5 +193,15 @@ mod tests {
         assert_eq!(running_bands(2_048 + 256), middle);
         // The clock's 16 bits are 32 cycles, so its wrap makes no jump.
         assert_eq!(running_bands(u16::MAX), Vec2::ZERO);
+    }
+
+    #[test]
+    fn the_kind_1s_effect_and_glow_drift_a_width_in_16_and_33_seconds() {
+        assert_eq!(multitex(0), Vec4::ZERO);
+        assert_eq!(
+            multitex(16_384),
+            Vec4::new(1.0, 1.0, 16_384.0 / 32_767.0, 16_384.0 / 32_767.0)
+        );
+        assert!((multitex(u16::MAX).z - 2.0).abs() < 1e-3);
     }
 }

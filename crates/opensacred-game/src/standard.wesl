@@ -33,6 +33,19 @@ const CUTOFF: f32 = 64.5 / 255.0;
 @if(LIT_BY_SLOT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var<storage, read> slot_lights: array<vec4<f32>>;
 
+/// The effect's texture and the glow's under a model's texels, and their offsets (`models::Pass::
+/// Effect`, `model_effects`; #1834).
+@if(EFFECT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(103) var effect_texture: texture_2d<f32>;
+@if(EFFECT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(104) var effect_sampler: sampler;
+@if(EFFECT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(105) var glow_texture: texture_2d<f32>;
+@if(EFFECT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(106) var glow_sampler: sampler;
+@if(EFFECT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(107) var<uniform> effect_offsets: vec4<f32>;
+
 /// The ambient share of the original's light of a model not under the cursor (`0x62FDE9`).
 @if(LIT_BY_SLOT)
 const AMBIENT: f32 = 0.8;
@@ -80,6 +93,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     }
 }
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+    // The texture's alpha, over a model's effect, before an opaque pass makes it whole.
+    let over = pbr_input.material.base_color.a;
     pbr_input.material.base_color = alpha_discard(
         pbr_input.material.flags,
         pbr_input.material.alpha_cutoff,
@@ -110,5 +125,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     }
 }
     out.color = encode(main_pass_post_lighting_processing(pbr_input, out.color));
+// Under the texture the effect's colour, the glow's added to it, both unlit, each moved by its
+// offsets, laid in the frame's sRGB values as the original's passes blend them (`0x406510`).
+@if(EFFECT) {
+    let effect = encode(textureSample(effect_texture, effect_sampler, in.uv + effect_offsets.xy));
+    let glow = encode(textureSample(glow_texture, glow_sampler, in.uv + effect_offsets.zw));
+    let under = min(effect.rgb + glow.rgb, vec3(1.0));
+    out.color = vec4(mix(under, out.color.rgb, over), 1.0);
+}
     return out;
 }

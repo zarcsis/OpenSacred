@@ -97,6 +97,10 @@ pub enum Pass {
     /// frame (`ONE`, `ONE`), in the model's layer of the blended things; their depth tested and not
     /// written: of a material that draws an effect on a model (`model_effects`, #1309).
     Added(Layer),
+    /// All of them over the model's effect and its glow, which lie under them (`model_effects`,
+    /// the kind 1, #1834): opaque through the depth buffer, each texel the effect's and the
+    /// glow's colours under the texture's by its alpha, as the original's three passes lay them.
+    Effect,
 }
 
 /// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
@@ -109,6 +113,16 @@ pub struct InOrder {
     floors: Handle<ShaderBuffer>,
     #[storage(102, read_only)]
     lights: Handle<ShaderBuffer>,
+    /// The effect's texture and the glow's under a [`Pass::Effect`]'s texels, and their offsets,
+    /// the effect's in `x` and `y`, the glow's in `z` and `w` (`model_effects`).
+    #[texture(103)]
+    #[sampler(104)]
+    effect: Option<Handle<Image>>,
+    #[texture(105)]
+    #[sampler(106)]
+    glow: Option<Handle<Image>>,
+    #[uniform(107)]
+    pub offsets: Vec4,
     pass: Pass,
 }
 
@@ -116,12 +130,14 @@ pub struct InOrder {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InOrderKey {
     fringe: bool,
+    effect: bool,
 }
 
 impl From<&InOrder> for InOrderKey {
     fn from(extension: &InOrder) -> Self {
         Self {
             fringe: matches!(extension.pass, Pass::Fringe(_)),
+            effect: extension.pass == Pass::Effect,
         }
     }
 }
@@ -178,6 +194,9 @@ impl MaterialExtension for InOrder {
             fragment.shader_defs.push("LIT_BY_SLOT".into());
             if key.bind_group_data.fringe {
                 fragment.shader_defs.push("FRINGE".into());
+            }
+            if key.bind_group_data.effect {
+                fragment.shader_defs.push("EFFECT".into());
             }
         }
         if key.bind_group_data.fringe
@@ -290,6 +309,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         Pass::Body => (AlphaMode::Mask(OPAQUE), base.depth_bias),
         Pass::Fringe(layer) => (AlphaMode::Blend, layer.bias()),
         Pass::Added(layer) => (AlphaMode::Add, layer.bias()),
+        Pass::Effect => (AlphaMode::Opaque, base.depth_bias),
     };
     ModelMaterial {
         base: StandardMaterial {
@@ -301,10 +321,25 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             anchors: anchors.buffer.clone(),
             floors: anchors.floor_buffer.clone(),
             lights: anchors.light_buffer.clone(),
+            effect: None,
+            glow: None,
+            offsets: Vec4::ZERO,
             pass,
         },
     }
 }
+
+/// The effect of the kind 1 that a model's meshes lie over (`model_effects`, #1834): the effect's
+/// texture and the glow's, which [`convert`] puts under each mesh's texels ([`Pass::Effect`]).
+#[derive(Component, Clone, Debug)]
+pub struct Effect {
+    pub effect: Handle<Image>,
+    pub glow: Handle<Image>,
+}
+
+/// The model materials of [`Pass::Effect`], whose offsets `model_effects` moves.
+#[derive(Resource, Default)]
+pub struct EffectMaterials(pub Vec<Handle<ModelMaterial>>);
 
 /// Whether some texels of `base` are translucent, of alpha under 1 and so drawn in two passes:
 /// those of its colour, or of its texture's image (`None` while the image loads; an image that
@@ -405,7 +440,10 @@ struct Made {
 
 /// The model materials made of the glTF ones, by the glTF material.
 #[derive(Resource, Default)]
-pub struct Converted(HashMap<AssetId<StandardMaterial>, Made>);
+pub struct Converted(
+    HashMap<AssetId<StandardMaterial>, Made>,
+    HashMap<AssetId<StandardMaterial>, Made>,
+);
 
 impl Converted {
     /// The model material that draws the meshes of the glTF material `material`, once made.
@@ -425,6 +463,7 @@ impl Plugin for ModelsPlugin {
         app.add_plugins(MaterialPlugin::<ModelMaterial>::default())
             .init_resource::<Anchors>()
             .init_resource::<Converted>()
+            .init_resource::<EffectMaterials>()
             .add_observer(hold)
             .add_observer(release)
             .add_observer(ready)
@@ -539,6 +578,7 @@ type ModelMesh = (
     Option<&'static SkinnedMesh>,
     Has<DynamicSkinnedMeshBounds>,
     Has<NoFrustumCulling>,
+    Option<&'static Effect>,
 );
 
 /// Gives the meshes of each model that has just spawned the model materials of their glTF
@@ -563,7 +603,7 @@ pub fn convert(
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<ModelMaterial>>,
-    mut converted: ResMut<Converted>,
+    (mut converted, mut effects): (ResMut<Converted>, ResMut<EffectMaterials>),
     anchors: Res<Anchors>,
 ) {
     'models: for (model, with) in &models {
@@ -575,12 +615,32 @@ pub fn convert(
         };
         let mut made = Vec::new();
         for entity in children.iter_descendants(model) {
-            let Ok((material, ..)) = meshes.get(entity) else {
+            let Ok((material, .., effect)) = meshes.get(entity) else {
                 continue;
             };
             let Some(base) = standard.get(&material.0) else {
                 continue;
             };
+            // Over its effect: one opaque pass of every texel (#1834).
+            if let Some(effect) = effect {
+                let over = converted
+                    .1
+                    .entry(material.0.id())
+                    .or_insert_with(|| {
+                        let mut over = in_order(base.clone(), &anchors, Pass::Effect);
+                        over.extension.effect = Some(effect.effect.clone());
+                        over.extension.glow = Some(effect.glow.clone());
+                        let over = materials.add(over);
+                        effects.0.push(over.clone());
+                        Made {
+                            mesh: over,
+                            fringe: None,
+                        }
+                    })
+                    .clone();
+                made.push((entity, over));
+                continue;
+            }
             if let Some(both) = converted.0.get(&material.0.id()) {
                 made.push((entity, both.clone()));
                 continue;
@@ -625,7 +685,7 @@ pub fn convert(
                 .entity(entity)
                 .remove::<MeshMaterial3d<StandardMaterial>>()
                 .insert((MeshMaterial3d(own), MeshTag::new(*slot)));
-            let (Some(fringe), Ok((_, mesh, skinned, dynamic, unculled))) =
+            let (Some(fringe), Ok((_, mesh, skinned, dynamic, unculled, _))) =
                 (fringe, meshes.get(entity))
             else {
                 continue;
@@ -839,6 +899,7 @@ mod tests {
         .init_asset::<ShaderBuffer>()
         .init_resource::<Anchors>()
         .init_resource::<Converted>()
+        .init_resource::<EffectMaterials>()
         .add_observer(hold)
         .add_observer(ready)
         .add_systems(Update, convert);
@@ -967,6 +1028,11 @@ mod tests {
             Pass::Fringe(Layer::UnderLiquids),
         );
         assert_eq!(wet.base.depth_bias, Layer::UnderLiquids.bias());
+        // Over the kind 1's effect: every texel opaque, the effect's shader's.
+        let over = in_order(material.clone(), &anchors(), Pass::Effect);
+        assert_eq!(over.base.alpha_mode, AlphaMode::Opaque);
+        let key = InOrderKey::from(&over.extension);
+        assert!(key.effect && !key.fringe);
         // An effect's, added to the frame in the objects' layer, its depth not written.
         let added = in_order(material, &anchors(), Pass::Added(Layer::Objects));
         assert_eq!(added.base.alpha_mode, AlphaMode::Add);
