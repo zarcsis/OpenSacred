@@ -340,6 +340,54 @@ Any other press with a potion held (the category 9) uses it (`0x54AA80`; **hypot
 
 **Seen** 2026-11-02 in the original (the driver of #448, `spawn 322`, `hire`, a traced `sdk_EQUIP` and event): the sword 1711 held over the hireling 322's entry went into its slot 13 with the event (8, 16, its id, 100), its empty hands; a press with the cursor empty took the sword back onto it.
 
+## The creatures' spells
+
+Read 2026-11-02 for #1844 in `Sacred.exe`, code only (Ghidra and byte scans of `.text`); **confirmed** by code unless marked otherwise.
+
+- A creature does not choose its spells from its arts' list, which `Creature.pak` leaves empty (docs/02 §6.2): the casters and their spells are compiled in by the creature's type.
+  `0x43C540` gives each type a mark, kept at `+0x25F` (the creature maker, `Morph`, the scripts' tag `0x73`), and the fight's specials (`0x4D4E50`) switch on it, and inside it on the type, and order a cast by writing the AI's state 6 and its order block `+0x100`…`+0x13F` themselves; no code posts the event `0x105` to its own creature.
+  Every writer of the state 6 (a byte scan): 16 in `0x4D4E50`, one in the melee's approach (`0x4E1FDE`, the big demons) and the followers' healer (`0x4EF4E3`, `0x4F3F0F`).
+- The order block: `+0x100` the target, `+0x104` its sector's word, `+0x108`/`+0x10C` its place, `+0x114` its floor, `+0x110` whom it fights after the cast, `+0x120` the spell, `+0x13C` a variant (the magic skeletons' fireball); the state 6 (`0x51CFD0`) copies it into the action 4 (the spell, `0x51D150`), waits while that runs, and then sets the state 0 and sends the creature the event `0x100` against `+0x110` where that lives and is hostile.
+- The specials run from the melee (`0x4E0300`) alone, at each of its decisions (sub-state 6) while the creature stands or walks; the ranged state 8 calls them for marks that cast nothing.
+  Their answer 0 sends the creature to fight hand to hand, 1 is handled, 2 leaves the melee.
+  A caster keeps a band from its target (the special mode, `+0x128` bit 0; its sub-state 1 walks to 270 from the target where it stands nearer than 240 after a cast or farther than 300, at most 25 moves), stands facing it for `+0x129` decision ticks, and casts by a roll where a straight way (`0x4FCC80`) leads to the target and its own deadline `+0x24D` has passed; else it runs to a point 280 (300) about the target or stands.
+- The deadline `+0x24D` is whole seconds of the real clock (it runs on through a pause): now + `⌊(6 + rand()%3 + k)·(1 − level/300)·b⌋` (`0x4D4670(1)`), `b` 0.8 for a boss or a champion, `k` the hero's hostiles of the marks 8 and `0x200` fighting hand to hand; Anducar (182), his demon (183) and the god (144) halve or quarter the absolute deadline instead, so that in effect they cast without one.
+- The holds on the hero: a caster of the mark 1 (the flesh to stone, 25) or 8 (the plant cage, 40; `FX_ANDUCAR_GARDE`, 70, for Anducar's guard) casts at its target from 400 to 1,500 away by a roll of 1 in `k + 4` (`0x4D4670(2)`), its level above 5 (7) and at least the hero's, the hero not held already (`+0x1F4` bit `0x8000000`) and a way to it.
+- The casters (types of `0x43C540`):
+
+| Types | Mark | Spells |
+|---|---|---|
+| 44, 64, 65 mummies | 1 | 29; 25 on the hero |
+| 66 mummy 03 | 1 | 13; 25 |
+| 48, 80 magic skeletons | 1 | 5; 25 |
+| 67 orc shaman | 1 | 26; 25 |
+| 52, 74, 88, 100 to 103 dragons | 4 | 26 beyond their reach + 500, in one decision of two |
+| 53, 94 big demons | 4 | 49 or 50, also as they approach |
+| 127, 143 goblin mages, 144 the god | 8 | 53; 40 |
+| 105 wood elf 02 | 8 | 38 or 34; 40; heals and shields |
+| 216 dryad druid | 8 | 39; 40; a blink with thorns |
+| 258, 262 to 270 black magicians | 8 | by type: 5, 34, 43 or 3, 39, 5 or 40, 26, 23, 13; 40; heals and shields |
+| 311 priestess, 312 priest | 8 | 26 or 34, 23 or 34; 40; heals and shields more often |
+| 182 Anducar, 183 his demon | 8 | 5 or 52, 52 or 69 |
+| 212 terror sprinter mage | 8 | 72 |
+| 693 dark elf M 01 | 8 | 39 or 5; 40 |
+| 697 Sharifa | 8 | the heal 7 on the hero under a third of his health, else 5, 34, 40, 13, 39 by rolls |
+| 700 Sharifo | 8 | 52 |
+| 271 black magician 10 | `0x20` | 34, and a teleport away within 200 |
+| 140 ice elf | `0x208` | 13, 15, 22 |
+| 141 ice druid | `0x209` | 40, 17 |
+| 145 god's child | `0x20B` | 33, 13 |
+| 185, 250 to 252 the demon prince | `0x20C` | 71 |
+| 184, 249 Anducar's guard | `0x212` | 70 |
+| 187, 205 to 208, 253 to 255, 330 to 332 the prince's guards | `0x218` | 40 |
+
+  The mark 8's chooser (`0x4D31C0`) picks by type, a non-zero `+0x2B6` (the scripts' tag `0x67`) being the spell itself; in one case of 100 below 30 (60 for 311 and 312) it heals a friend under three quarters of its health (7) or shields one that fights (24 or 2) instead, among the hero's hostiles within 700 (**hypothesis** for the friend's choice: the float operands are lost); the spells 4, 30, 32 and 33 become 13, and 35 becomes 11.
+- The cast is the hero's path: the action 4 (`0x51D150`), the cast `0x51E110`, whose launch-type test (`0x51D840`) runs for every creature in the single player's game, so that a creature's cast is refused as the hero's is (a hold not cast again on a held hero, the stone and the cage refused on a target above `0.4·caster's level + 5L`); the clip by spell and type (`0x522030`: 163 for 1, 2, 4, 16, 18, 27, 35; 160 for 3, 8, 14, 42; 155 for 5, 29, 33, 37, 41, 58, 59, 61, 64, 65; 164 for 6; 161 for 7, 12, 36; 156 for 11, 55; 158 for 13, 28, 40, 56, 66; 154 for 15, 23, 43, 52, 57, 60, 62, 63, 67, 69 to 72; 157 for 17, 20 to 22, 25, 26, 30 to 32, 34; 159 for 19, 39; 162 for 24, 38; 144 for 49, 145 for 50, 84 for 53; the ice elf and the god's child 147 for 13, 15, 22, the ice druid 154 for 17, Anducar's demon 154 for 26, Anducar and his demon always 154, the dragons always 81), played at the creature's cast speed (stats `+0x3E`) times its time factor; the act at the spell's share of the clip (docs/re/arts.md, "The spells' cast").
+- The spell's level for a creature lacking it is `⌊level/5⌋ + 1`, ×1.4 for a boss and ×1.2 for a champion (`0x580A10`); its objects' damage is multiplied by `MagieAll` at `5L − 2` (`0x56A800`: 0.60 at L 1, 0.79 at L 5, toward 0.76 above), and they strike what is hostile to the caster.
+  The spells 43 (a dead monster hostile to the hero raised whole), 49, 50, 52, 53 and 69 to 72 are the creatures' own.
+- The cast sets the caster's `+0x200` bit `0x10`, under which it takes no event `0x100`, and the state 6's own `0x100` after it is then ignored; what clears the bit for an ordinary creature is not read (**hypothesis**: it takes up its fight again by its idle state's next look, `0x54427A`).
+- Not read: the float parts of the chooser's friend and of the boss's scaling in `0x51D840`; the executor's cases 49, 50, 52, 53 and 69 to 72; an ordinary creature's `+0x3E`; whether each caster's model holds its spell's clip.
+
 ## Open
 
 The test of the levels in detail; the AI's states 1, 6 and 10 to 14.
