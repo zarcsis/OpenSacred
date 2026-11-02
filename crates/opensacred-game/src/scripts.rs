@@ -159,6 +159,35 @@ pub struct Partikel {
 }
 
 impl Partikel {
+    /// The generic system that a `CreateNPC`'s or a `CreateObj`'s `0x79` starts, its colour and
+    /// its variant, at the place that its `0x04` makes the creature or the object at: a creature's
+    /// (`CPOS:`, the hero's for `CPOS:HERO`), a `DefPos`'s or a cell (`0x48371D`, `0x4878CA`;
+    /// #1838); none without one or of the variant 0.
+    fn made(tags: &Tags, positions: &quests::Positions) -> Option<Self> {
+        let &[colour, variant, ..] = tags.numbers("_79").as_slice() else {
+            return None;
+        };
+        let variant = u8::try_from(variant).ok().filter(|&variant| variant > 0)?;
+        let colour = u32::from_ne_bytes(colour.to_ne_bytes()) | 0xFF00_0000;
+        let creature = tags.texts("_04").first().and_then(|place| {
+            let place = place.to_ascii_lowercase();
+            place.strip_prefix("cpos:").map(str::to_owned)
+        });
+        let (at, cell) = match creature {
+            Some(creature) => (Some(creature), None),
+            None => {
+                let (x, y, _) = tags.spot("_04", positions)?;
+                (None, Some((x, y)))
+            }
+        };
+        Some(Self {
+            at,
+            cell,
+            colour,
+            variant,
+        })
+    }
+
     /// The `Partikel` of the names `names` and the numbers `numbers` (`0x4A8BB0`): the numbers
     /// the cell, the colour and the variant, −1, −1, −1 and 0 where they are missing; none of
     /// fewer than three numbers, whose two-number form (the statues' power-up) and removal by a
@@ -1174,6 +1203,14 @@ impl Host for Recorder<'_> {
         if REWARDS.contains(&name) && !self.rewards() {
             bevy::log::debug!("scripts: {name} inside a finished quest gives nothing");
             return Handled::Done;
+        }
+        // The generic system that its colour and variant start where it makes its creature or
+        // object (`0x48371D`, `0x4878CA`; #1838).
+        if matches!(name, "create_npc" | "create_obj")
+            && ran.is_empty()
+            && let Some(sparks) = Partikel::made(&tags, &self.state.positions)
+        {
+            self.particles.push(sparks);
         }
         // A `CreateObj` that gives its item straight to the hero (#1256).
         if name == "create_obj"
@@ -3086,6 +3123,44 @@ mod tests {
         let window = live.talk("notmage").expect("the dialogue runs").window;
         assert!(window.untalks && window.texts.is_empty());
         assert!(live.talk("no_such").is_none());
+    }
+
+    #[test]
+    fn a_creature_or_object_made_of_a_colour_and_variant_starts_its_sparks() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"grab\"] = function()\n\
+             create_npc { _02 = 32, _04 = \"CPOS:HERO\", _79 = { 16711680, 1 } }\n\
+             create_obj { _04 = \"CPOS:HERO\", _54 = 3, _79 = { 16777215, 4 } }\n\
+             create_obj { _02 = 5171, _04 = { 3236, 2511, 0 }, _79 = { 16777215, 4 } }\n\
+             create_obj { _02 = 5171, _04 = { 3236, 2511, 0 }, _79 = { 16777215, 0 } }\n\
+             create_obj { _02 = 5171, _04 = { 3236, 2511, 0 } }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run_named("grab");
+        // A grave's monster in a red ring at the hero, its random item in white sparks, an
+        // object's at its cell; none of the variant 0 or without a colour.
+        let at = |at: Option<&str>, cell, colour, variant| Partikel {
+            at: at.map(str::to_owned),
+            cell,
+            colour,
+            variant,
+        };
+        assert_eq!(
+            effects.particles,
+            [
+                at(Some("hero"), None, 0xFFFF_0000, 1),
+                at(Some("hero"), None, 0xFFFF_FFFF, 4),
+                at(None, Some((3236, 2511)), 0xFFFF_FFFF, 4),
+            ]
+        );
     }
 
     #[test]
