@@ -201,6 +201,17 @@ fn the_readers_of_the_counts_take_their_shares() {
         stats(&wearing(21, 5), Difficulty::Silver).luck(100.0),
         100.0
     ));
+    // Set 1 at 5 on gold against the undead: fire times 2.002 and 1.501, the others 1.501; none
+    // against a dragon. Its fire's line at 2, its four kinds' at 5.
+    let feac = stats(&wearing(1, 5), Difficulty::Gold);
+    let undead = feac.against(UNDEAD);
+    assert!(close(undead[FIRE], 2.002 * 1.501) && close(undead[PHYSICAL], 1.501));
+    assert_eq!(feac.against(DRAGONS), [1.0; KINDS]);
+    assert!(matches!(
+        told(1, &wearing(1, 5), Difficulty::Gold)[..],
+        [Told::Against(UNDEAD, &[FIRE], fire), Told::Against(UNDEAD, ALL_KINDS, all)]
+            if close(fire, 1.002) && close(all, 0.501)
+    ));
     // Two sets of luck in turn, each rounded: 127, then ⌊127·1.268 + 0.5⌋ = 161.
     let both = Worn::of(
         (0..8)

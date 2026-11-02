@@ -13,7 +13,7 @@
 
 use opensacred_rules::drops::Difficulty;
 use opensacred_rules::fight::{KINDS, Rules, ranged_curves, resistance_curves};
-use opensacred_rules::set_bonuses::{Array, Bonus, Special, Told, Worn, told};
+use opensacred_rules::set_bonuses::{self, Array, Bonus, Special, Told, Worn, told};
 
 use super::art::wrapped;
 use super::lines::{
@@ -94,6 +94,24 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
             share(x)
         )),
         Told::Experience(x) => white(format!("{}: {}", n(1071), share(x))),
+        // Against a class of creatures, as an item's bonus against its opponents is worded.
+        Told::Against(class, kinds, x) => {
+            let opponents = match class {
+                set_bonuses::UNDEAD => n(1180),
+                set_bonuses::DRAGONS => n(1181),
+                _ => n(1182),
+            };
+            let named = if kinds.len() == KINDS {
+                n(1076)
+            } else {
+                kinds
+                    .iter()
+                    .map(|&kind| format!("{} {}", words.of(KIND_TEXTS[kind]), n(1076)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            white(format!("{} {opponents} {named}: {}", n(1161), share(x)))
+        }
         Told::Bonus(bonus) => match bonus {
             Bonus::Attribute(i, v) => white(format!(
                 "{}: {}",
