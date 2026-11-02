@@ -13,7 +13,9 @@
 //! and the mark 1's, the plant cage, which holds the hero, the fire bolt and the goblin mages' ball
 //! ([`Ball`]), the purgatory, the bubble and the thorns, and their heals and shields of their
 //! friends; the black magicians' raising of a dead monster, Anducar's demon's rings of flames
-//! ([`Flame`]) and the terror sprinter mage's aura ([`SprintersAura`]).
+//! ([`Flame`]) and the terror sprinter mage's aura ([`SprintersAura`]); the casters of marks of
+//! their own: the ice elf's holy light and holy shield, the ice druid's blades of light, the god's
+//! child's chain lightning, Anducar's guard's homing fire and the demon prince's fan of flames.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -28,7 +30,13 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 20] = [
+const FOLLOWED: [u16; 26] = [
+    casts::HOLY_LIGHT,
+    casts::BLADES,
+    casts::HOLY_SHIELD,
+    casts::CHAIN,
+    casts::GUARDS_FIRE,
+    casts::FAN_OF_FLAMES,
     casts::RAISING,
     casts::RINGS,
     casts::SPRINTERS_AURA,
@@ -61,9 +69,11 @@ pub fn follows(spell: u16) -> bool {
 }
 
 /// Whether a creature of type `creature` is a caster whose spell the game follows: of the mark 1,
-/// a dragon, a big demon (#1853) or a magician of the mark 8 (#1854).
+/// a dragon, a big demon (#1853), a magician of the mark 8 (#1854) or a caster of a mark of its
+/// own (#1855).
 pub fn casts(creature: u32) -> bool {
-    casts::dragon(creature)
+    casts::own_mark(creature).is_some()
+        || casts::dragon(creature)
         || casts::big_demon(creature)
         || casts::mark_8(creature)
         || casts::mark_1(creature).is_some_and(|(spell, _)| FOLLOWED.contains(&spell))
@@ -327,6 +337,142 @@ fn act(
                     wait: 0.0,
                 });
             }
+            casts::HOLY_LIGHT | casts::BLADES => {
+                // About the target's place, or about the caster it follows, striking the hero; the
+                // blades' key on their caster for their time (`0x582B00`).
+                let follows = (cast.spell == casts::BLADES).then_some(entity);
+                crate::spells::strikes_about(
+                    &mut commands,
+                    looks.as_deref(),
+                    (record, level),
+                    (entity, follows, way.level),
+                    if follows.is_some() { here } else { toward },
+                    damages,
+                );
+                if follows.is_some() {
+                    let key = opensacred_rules::fight::Effect {
+                        id: spells::BORNE,
+                        whole: 0,
+                        value: 0.0,
+                        art: u32::from(cast.spell),
+                        level: 0,
+                    };
+                    let seconds = f32::from(
+                        u16::try_from(spells::value(record, 0, level)).unwrap_or(u16::MAX),
+                    );
+                    commands
+                        .entity(entity)
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| effects.add(key, seconds));
+                }
+            }
+            casts::HOLY_SHIELD => {
+                let (effect, seconds) = spells::holy_shield(record, level);
+                commands
+                    .entity(entity)
+                    .entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(move |mut effects| effects.add(effect, seconds));
+            }
+            casts::CHAIN => {
+                // Its first strike on its target at once (`0x526CAA`); its leaps are not followed.
+                let Ok(place) = target else {
+                    continue;
+                };
+                hits.write(crate::fight::Hit {
+                    attacker: entity,
+                    target: cast.target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(damages),
+                    sure: true,
+                    poison: false,
+                });
+                if let Some(looks) = &looks {
+                    crate::spells::lightning(&mut commands, looks, place);
+                }
+            }
+            casts::GUARDS_FIRE => {
+                // The guard's fire charging at its hand, then homing (`0x528E97`), and its sound
+                // as it starts (`SOUND_FX_TORCH_HIT01`).
+                let mut fire = commands.spawn((
+                    HomingFire {
+                        caster: entity,
+                        target: cast.target,
+                        charge: GUARDS_FIRE_CHARGE,
+                        left: casts::HOMING_FLIGHT,
+                        direction,
+                        size: GUARDS_FIRE_SIZE,
+                        damages,
+                        level: way.level,
+                    },
+                    Transform::from_translation(here + Vec3::Y * crate::bolts::HEIGHT),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some((mesh, material)) = bolt_looks
+                    .as_ref()
+                    .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
+                {
+                    fire.insert((Mesh3d(mesh), MeshMaterial3d(material)));
+                }
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(GUARDS_FIRE_SOUND),
+                    at: Some(entity),
+                    rate: (0.4, crate::sfx::Roll::Share(0.2)),
+                });
+            }
+            casts::FAN_OF_FLAMES => {
+                // Ten rows along the line to the target, widening every third row, each flame
+                // where it may be walked on, bursting as the wave from the prince comes to it
+                // (`0x528FD9`); its strikes of the one kind of the prince's type.
+                let kind = match mind.creature {
+                    185 => Some(3),
+                    250 => Some(1),
+                    251 => Some(2),
+                    252 => Some(0),
+                    _ => None,
+                };
+                let damages = kind.map_or(damages, |kind| {
+                    let mut one = [0.0; 4];
+                    one[kind] = damages[kind];
+                    one
+                });
+                for k in 0..10_u8 {
+                    let side = i8::try_from(k / 3).unwrap_or(0);
+                    for j in -side..=side {
+                        let turned = Vec2::from_angle(0.25 * f32::from(j)).rotate(direction);
+                        let along = f32::from(k) * 100.0;
+                        let at = here + Vec3::new(turned.x, 0.0, turned.y) * along;
+                        if !heights.walkable_on(crate::paths::cell_of(at.x, at.z), way.level) {
+                            continue;
+                        }
+                        let mut flame = commands.spawn((
+                            Flame {
+                                caster: entity,
+                                wait: along / FAN_WAVE,
+                                left: FAN_LIFE,
+                                cooldown: 0.0,
+                                damages,
+                                level: way.level,
+                                size: FAN_SIZE,
+                                moving_only: false,
+                            },
+                            Transform::from_translation(at + Vec3::Y * crate::bolts::HEIGHT),
+                            Visibility::Hidden,
+                            DespawnOnExit(AppState::InGame),
+                        ));
+                        if let Some((mesh, material)) = bolt_looks
+                            .as_ref()
+                            .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
+                        {
+                            flame.insert((Mesh3d(mesh), MeshMaterial3d(material)));
+                        }
+                    }
+                }
+            }
             casts::RAISING => {
                 // The first dead monster of its sector that it may raise stands up whole
                 // (`0x523220`).
@@ -354,6 +500,8 @@ fn act(
                                 cooldown: 0.0,
                                 damages,
                                 level: way.level,
+                                size: casts::FLAMES_SIZE,
+                                moving_only: true,
                             },
                             Transform::from_translation(at + Vec3::Y * crate::bolts::HEIGHT),
                             Visibility::Hidden,
@@ -584,9 +732,10 @@ fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
     }
 }
 
-/// A flame of Anducar's demon's rings (`FX_ANDUCAR_DEMON`, 1163, of the spell 69): it waits for
-/// the wave from the target's place, then for its life strikes once a second the hero within its
-/// size and the hero's, on its level, where the hero walks or fights (`0x5B1947`).
+/// A flame of Anducar's demon's rings (`FX_ANDUCAR_DEMON`, 1163, of the spell 69) or of the demon
+/// prince's fan (`FX_DAEMONENFUERST`, 1166, of 71): it waits for its wave, then for its life
+/// strikes once a second the hero within its size and the hero's, on its level, the rings' only
+/// where the hero walks or fights (`0x5B1947`, `0x5B1AF0`).
 #[derive(Component, Debug)]
 pub struct Flame {
     caster: Entity,
@@ -595,7 +744,18 @@ pub struct Flame {
     cooldown: f32,
     damages: [f32; 4],
     level: Level,
+    size: f32,
+    moving_only: bool,
 }
+
+/// The demon prince's fan's wave, its flames' life (rise, burn, fade) and their size
+/// (`0x7C0CC0`); Anducar's guard's fire's charge, size and sound as it starts (`0x7BFA90`).
+const FAN_WAVE: f32 = 550.0;
+const FAN_LIFE: f32 = 1.5;
+const FAN_SIZE: f32 = 70.0;
+const GUARDS_FIRE_CHARGE: f32 = 0.9;
+const GUARDS_FIRE_SIZE: f32 = 50.0;
+const GUARDS_FIRE_SOUND: u32 = 708;
 
 /// Burns each flame of the rings ([`Flame`]).
 #[expect(
@@ -637,11 +797,11 @@ fn burn(
         }
         for (hero, place, body, health, attacks, strikes) in &heroes {
             let moves = body.moving().is_some() || attacks || strikes;
-            if moves
+            if (moves || !flame.moving_only)
                 && body.level() == flame.level
                 && health.current > 0
                 && (place.translation().xz() - at.translation.xz()).length()
-                    < casts::FLAMES_SIZE + opensacred_rules::arrows::size(0)
+                    < flame.size + opensacred_rules::arrows::size(0)
             {
                 debug!("creature_casts: a flame of {} strikes {hero}", flame.caster);
                 hits.write(crate::fight::Hit {

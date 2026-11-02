@@ -1102,13 +1102,17 @@ fn pursue(
                     .insert(Rearms::to_melee(weapon));
             }
             // The terror sprinter mage's aura while its key holds it, refused (`0x51D840`).
+            // On itself, a spell refused while its key holds the caster (`0x51D840`).
             Pursues::Casts { spell, .. }
                 if !crate::creature_casts::follows(spell)
-                    || (spell == opensacred_rules::casts::SPRINTERS_AURA
+                    || ((spell == opensacred_rules::casts::SPRINTERS_AURA
+                        || opensacred_rules::casts::on_itself(spell))
+                        && opensacred_rules::casts::refused_while_keyed(spell)
                         && effects.is_some_and(|effects| effects.holds_any(&[spell]))) =>
             {
-                // A spell the game does not follow yet: it stands facing its target.
-                debug!("ai: {entity} would cast {spell}, which the game does not follow");
+                // A spell refused, or one the game does not follow yet: it stands facing its
+                // target.
+                debug!("ai: {entity} would cast {spell}, refused or not followed");
                 transform.rotation = crate::hero::facing(hero - here);
             }
             Pursues::Casts { spell, variant } => {
@@ -1120,6 +1124,8 @@ fn pursue(
                 };
                 let (aimed, hero) = if opensacred_rules::casts::on_a_friend(spell) {
                     friend.unwrap_or((entity, here))
+                } else if opensacred_rules::casts::on_itself(spell) {
+                    (entity, here)
                 } else {
                     (aimed, hero)
                 };
@@ -1144,6 +1150,26 @@ fn pursue(
                 commands.entity(entity).insert(
                     Walk::run(point(to, here.y), way.level, mind.run).within(STROLL_WITHIN),
                 );
+            }
+            Pursues::Blinks => {
+                // The first of its tries about it that a straight way reaches (`0x4D71A5`).
+                let level = way.level;
+                let found = (0..opensacred_rules::casts::BLINK_TRIES).find_map(|_| {
+                    let degrees = f32::from(u16::try_from(minds.rng.below(360)).unwrap_or(0));
+                    let angle = degrees.to_radians();
+                    let to = here.xz()
+                        + Vec2::new(angle.cos(), angle.sin())
+                            * opensacred_rules::casts::BLINK_REACH;
+                    let reaches =
+                        paths::straight(here.xz(), to, |cell| heights.walkable_on(cell, level));
+                    let height = heights.standing(to.x, to.y, level)?;
+                    reaches.then_some(Vec3::new(to.x, height, to.y))
+                });
+                if let Some(to) = found {
+                    debug!("ai: {entity} blinks from {here} to {to}");
+                    transform.translation = to;
+                    commands.entity(entity).remove::<Walk>();
+                }
             }
             Pursues::TakesBow(bow) => {
                 let d = (hero - here).xz().length();
