@@ -1191,6 +1191,27 @@ pub struct ItemValues {
 /// How many bonus slots an item's record has.
 pub const BONUSES: usize = 8;
 
+/// The balance's `LongivityCombatFactor`: the share of the survival bonus that the fight takes
+/// (`0xAD56B0`; docs/re/character.md).
+pub const LONGEVITY: f64 = 0.5;
+
+/// The survival bonus of `minutes` played (`0x6AA062`, `0x565D70(0, m, 120, 50)`):
+/// `100·(1 − 1/(1 + (m − 1)/120))`, 0 below a minute.
+pub fn survival(minutes: u32) -> f64 {
+    if minutes < 1 {
+        return 0.0;
+    }
+    100.0 * (1.0 - 1.0 / (1.0 + (f64::from(minutes) - 1.0) / 120.0))
+}
+
+/// The factor by which the local hero's four damages, and its strikes' fixed ones, rise after
+/// `minutes` played (the attack record `0x56A50F`–`0x56A63D`, the strike's resolution
+/// `0x56C156`–`0x56C303`): `1 + (0.5·c + s)/100`, `c` the [`survival`] curve and `s` the sets'
+/// part (`set_bonuses::Stats::survival`, set 28's `10·D`).
+pub fn survival_raise(minutes: u32, set: f32) -> f64 {
+    1.0 + (LONGEVITY * survival(minutes) + f64::from(set)) / 100.0
+}
+
 /// Whether an item's bonus of the effect `effect` marks its wearer by the stats' `+0x2B7` bit
 /// `0x40` (the recomputation's switch, `0x57A5AC`), without which the getter of these effects
 /// (`0x570ED0`) answers nothing: 840 to 843, 846, 852 to 859, 861 to 863, 865 to 867 and 869

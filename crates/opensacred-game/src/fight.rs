@@ -204,6 +204,7 @@ pub(crate) fn resolve(
         ),
         Without<Dies>,
     >,
+    played: Option<Res<crate::drops::Played>>,
 ) {
     for hit in hits.read() {
         let (
@@ -250,6 +251,23 @@ pub(crate) fn resolve(
         }
         if let Some(fixed) = hit.fixed {
             attacker.damage = fixed.map(|damage| [damage; 2]);
+        }
+        // The survival bonus of the time played: the hero's four damages, or its strike's fixed
+        // ones, raised by half its curve and set 28's part (`0x56A50F`, `0x56C156`; #1761).
+        if side == Some(Side::Attacker) {
+            let set = holding.map_or(0.0, |holding| holding.0.sets.survival);
+            let minutes = played.as_deref().map_or(0, crate::drops::Played::minutes);
+            let raise = opensacred_rules::fight::survival_raise(minutes, set);
+            attacker.damage = attacker.damage.map(|ends| {
+                ends.map(|end| {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a damage, stored as the attack record's float"
+                    )]
+                    let raised = (f64::from(end) * raise) as f32;
+                    raised
+                })
+            });
         }
         let ranked = ranked.map_or(Rank::Common, |ranked| ranked.0);
         let factor = weapons_factor(side, level, ranked, &rules);

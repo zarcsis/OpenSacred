@@ -88,6 +88,16 @@ fn the_flags_and_the_filled_sets_bonuses() {
         stats(&wearing(39, 5), Difficulty::Niobium).whole_damage,
         None
     );
+    // The whole set 28 adds 10·D to the survival bonus's share (#1761).
+    assert!(close(
+        stats(&wearing(28, 6), Difficulty::Gold).survival,
+        16.7
+    ));
+    assert_eq!(stats(&wearing(28, 5), Difficulty::Gold).survival, 0.0);
+    assert!(
+        (crate::fight::survival_raise(121, 0.0) - 1.25).abs() < 1e-9,
+        "half of the curve's 50 after 121 minutes"
+    );
     // Set 60's flag only while one of its pieces holds others in its three first sockets.
     assert_eq!(stats(&wearing(60, 4), Difficulty::Bronze).flags, 0);
     let filled = wearing(60, 4).filled(60);
