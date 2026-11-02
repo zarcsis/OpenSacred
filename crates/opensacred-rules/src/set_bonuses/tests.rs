@@ -103,9 +103,76 @@ fn the_flags_and_the_filled_sets_bonuses() {
     let filled = wearing(60, 4).filled(60);
     assert_eq!(stats(&filled, Difficulty::Bronze).flags, 0x100_0000);
     // Set 23 has no case; the specials wait for the wearer's values.
-    assert_eq!(stats(&wearing(23, 6), Difficulty::Bronze), Stats::default());
+    assert_eq!(
+        stats(&wearing(23, 6), Difficulty::Bronze),
+        Stats {
+            worn: wearing(23, 6),
+            ..Stats::default()
+        }
+    );
     assert_eq!(
         stats(&wearing(24, 5), Difficulty::Silver).specials,
         [Special::StrengthPart(53.0)]
     );
+}
+
+#[test]
+fn the_list_tells_the_bonuses_reached_as_they_are_applied() {
+    // Set 2 at 5 on gold, in its bonuses' order: the skill 10 that its text calls a life leech.
+    let worn = wearing(2, 5);
+    assert_eq!(
+        told(2, &worn, Difficulty::Gold),
+        [
+            Told::Bonus(Bonus::Attribute(1, 16.0)),
+            Told::Bonus(Bonus::Attribute(3, 16.0)),
+            Told::Bonus(Bonus::Skill(9, 5)),
+            Told::Bonus(Bonus::Skill(11, 5)),
+            Told::Bonus(Bonus::Skill(10, 3)),
+        ]
+    );
+    // A set's own lines alone.
+    let both = Worn::of((0..5).map(|i| (7000 + i, 2)).chain([(7100, 3), (7101, 3)]));
+    assert_eq!(
+        told(2, &both, Difficulty::Gold),
+        told(2, &worn, Difficulty::Gold)
+    );
+    assert!(told(3, &both, Difficulty::Gold).is_empty());
+    assert!(both.wears(7100) && !both.wears(7102));
+    // Set 3 at 4: its arts, and no line of the flag that nothing reads yet.
+    assert_eq!(
+        told(3, &wearing(3, 4), Difficulty::Bronze),
+        [Told::Bonus(Bonus::Arts(&[1014, 1015, 1016], 2))]
+    );
+}
+
+#[test]
+fn the_whole_damage_and_the_survival_tell_their_shares() {
+    // Set 39 at 6: the whole damage's line none on bronze, +134 % on niobium.
+    let worn = wearing(39, 6);
+    assert!(
+        !told(39, &worn, Difficulty::Bronze)
+            .iter()
+            .any(|line| matches!(line, Told::WholeDamage(_)))
+    );
+    assert!(matches!(
+        told(39, &worn, Difficulty::Niobium).last(),
+        Some(&Told::WholeDamage(share)) if close(share, 1.34)
+    ));
+    // Set 28's survival bonus last, from the six pieces the stats add it at.
+    assert!(matches!(
+        told(28, &wearing(28, 6), Difficulty::Gold).last(),
+        Some(&Told::Survival(share)) if close(share, 16.7)
+    ));
+    assert!(
+        !told(28, &wearing(28, 5), Difficulty::Gold)
+            .iter()
+            .any(|line| matches!(line, Told::Survival(_)))
+    );
+    // Set 53's seven pieces turn the items into gold, its line last.
+    assert!(into_gold(&wearing(53, 7)) && !into_gold(&wearing(53, 6)));
+    assert_eq!(
+        told(53, &wearing(53, 7), Difficulty::Bronze).last(),
+        Some(&Told::IntoGold)
+    );
+    assert!(!told(53, &wearing(53, 6), Difficulty::Bronze).contains(&Told::IntoGold));
 }

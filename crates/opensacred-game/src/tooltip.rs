@@ -16,9 +16,13 @@
 //! its kind's colour at the alpha `0x8F` under the image 171 tinted by it at `0x5F`, and a filled
 //! socket's item's model at its centre, which a camera of their own draws into a picture over the
 //! row.
+//!
+//! The equipment window's set icon under the pointer shows the list of the sets worn (#1670,
+//! `0x6B7F0F`, `set`) with its top left at (512, 256), of the style `0x8B`.
 
 pub(crate) mod art;
 mod lines;
+mod set;
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -110,6 +114,56 @@ struct Weighing<'w, 's> {
 }
 
 impl Weighing<'_, '_> {
+    /// The name of the art `id` of the texts `texts`, a spell's or a weapon art's.
+    fn art_name(&self, texts: Option<&Texts>, id: u32) -> Option<String> {
+        let arts = self.arts.as_deref()?;
+        let id = u16::try_from(id).ok()?;
+        let name = arts
+            .tables
+            .spells
+            .iter()
+            .find(|spell| spell.id == id)
+            .map(|spell| spell.name)
+            .or_else(|| {
+                arts.tables
+                    .weapon_arts
+                    .iter()
+                    .find(|art| art.id == id)
+                    .map(|art| art.name)
+            })?;
+        texts?.id(name).map(str::to_owned)
+    }
+
+    /// The list of the sets that the hero wears, of the texts `texts` (#1670, `0x5711F0`).
+    fn set_lines(&self, texts: Option<&Texts>) -> Vec<Line> {
+        let (Some(tables), Some(holding), Some(combat)) = (
+            self.tables.as_deref(),
+            self.holding.iter().next(),
+            self.heroes.iter().next(),
+        ) else {
+            return Vec::new();
+        };
+        let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
+        let art = |id: u32| self.art_name(texts, id);
+        let words = lines::Words {
+            text: &text,
+            art: &art,
+        };
+        let wearer = set::Wearer {
+            level: self.experience.0.level,
+            attributes: combat.attributes,
+            rules: &self.rules.0,
+        };
+        let difficulty = self.difficulty.as_deref().map(|d| d.0).unwrap_or_default();
+        set::lines(
+            &holding.0.sets.worn,
+            difficulty,
+            &|set| tables.set_pieces(set),
+            &wearer,
+            &words,
+        )
+    }
+
     /// The tooltip's lines of the art `art` of the texts `texts` (`0x5893B0`, #1694), and with
     /// `next` a held art's next level (the spells page's, #1696).
     fn art_lines(&self, art: u16, texts: Option<&Texts>, next: bool) -> Vec<Line> {
@@ -246,24 +300,7 @@ impl Weighing<'_, '_> {
             leech,
         });
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
-        let art = |id: u32| {
-            let arts = self.arts.as_deref()?;
-            let id = u16::try_from(id).ok()?;
-            let name = arts
-                .tables
-                .spells
-                .iter()
-                .find(|spell| spell.id == id)
-                .map(|spell| spell.name)
-                .or_else(|| {
-                    arts.tables
-                        .weapon_arts
-                        .iter()
-                        .find(|art| art.id == id)
-                        .map(|art| art.name)
-                })?;
-            texts?.id(name).map(str::to_owned)
-        };
+        let art = |id: u32| self.art_name(texts, id);
         let words = lines::Words {
             text: &text,
             art: &art,
@@ -326,13 +363,18 @@ enum Source {
     Worn,
     ArtSlot,
     SpellsPage,
+    SetIcon,
 }
 
-/// What a tooltip shows: an item, or an art.
+/// What a tooltip shows: an item, an art, or the sets worn.
 enum Shows {
     Item(Dropped),
     Art(u16),
+    Sets,
 }
+
+/// The list of the sets worn's top left on the original's screen (`0x6B7F0F`, the style `0x8B`).
+const SETS_AT: Vec2 = Vec2::new(512.0, 256.0);
 
 /// An art slot's tooltip's corner from the slot's (`0x6E4560`, the style `0x8B`).
 const FROM_ART_SLOT: Vec2 = Vec2::new(-92.0, -92.0);
@@ -444,6 +486,17 @@ fn grid(
             Shows::Item(dropped),
         ))
     };
+    // The list of the sets worn over the equipment window's set icon (`0x6B7F0F`).
+    let sets_worn = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let holding = weighing.holding.iter().next()?;
+        (crate::set_icon::over(at) && crate::set_icon::shows(holding)).then_some((
+            Source::SetIcon,
+            0,
+            SETS_AT,
+            Shows::Sets,
+        ))
+    };
     let held_by_set = || {
         let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
         let count = slots.as_deref()?.0;
@@ -488,7 +541,13 @@ fn grid(
         ))
     };
     let under = shown
-        .then(|| sold().or_else(carried).or_else(worn).or_else(on_page))
+        .then(|| {
+            sold()
+                .or_else(carried)
+                .or_else(worn)
+                .or_else(sets_worn)
+                .or_else(on_page)
+        })
         .flatten()
         .or_else(held_by_set)
         .or_else(art_in_slot);
@@ -513,9 +572,14 @@ fn grid(
         .unwrap_or_else(|| commands.spawn(root()).id());
     let dropped = match shows {
         Shows::Item(dropped) => dropped,
-        Shows::Art(art) => {
-            let next = source == Source::SpellsPage;
-            let lines = weighing.art_lines(art, texts.as_deref(), next);
+        Shows::Art(_) | Shows::Sets => {
+            let lines = match shows {
+                Shows::Art(art) => {
+                    let next = source == Source::SpellsPage;
+                    weighing.art_lines(art, texts.as_deref(), next)
+                }
+                _ => weighing.set_lines(texts.as_deref()),
+            };
             if lines.is_empty() {
                 return;
             }

@@ -114,6 +114,7 @@ mod screenshot;
 mod scripts;
 mod sectors;
 mod seed;
+mod set_icon;
 mod sets;
 mod settings;
 mod sfx;
@@ -454,13 +455,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
+        runes::RunesPlugin,
     ))
     .add_plugins((
-        runes::RunesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         seed::SeedPlugin,
+        set_icon::SetIconPlugin,
         sets::SetsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,

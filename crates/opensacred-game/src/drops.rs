@@ -69,6 +69,9 @@ pub struct Tables {
     /// The number of each set's piece's set, by the piece's type (`sets.bin`'s byte 1, which the
     /// loader `0x42C3E0` writes to the piece's `Weapon.pak +0x23`; #1727).
     set_numbers: HashMap<u32, u8>,
+    /// Each set's pieces' types by its number, in its record's order, which the list of the sets
+    /// worn names (`0x571710`'s text, #1670).
+    set_pieces: HashMap<u8, Vec<u32>>,
 }
 
 /// The classes' bits of a record's word `+0x04`, which a made item keeps of its type's (`0x5D5080`,
@@ -164,6 +167,14 @@ impl Tables {
                     .into_iter()
                     .filter(|&item| item != 0)
                     .map(move |item| (item, set.bytes[1]))
+            })
+            .collect();
+        let set_pieces = sets
+            .iter()
+            .filter(|set| set.bytes[1] != 0)
+            .map(|set| {
+                let pieces = set.items.into_iter().filter(|&item| item != 0).collect();
+                (set.bytes[1], pieces)
             })
             .collect();
         let models = npcs::model_files(assets)?;
@@ -299,6 +310,7 @@ impl Tables {
             worths,
             set_names,
             set_numbers,
+            set_pieces,
             weapon_lists,
             prices,
             glittering,
@@ -453,6 +465,12 @@ impl Tables {
     /// The number of the set whose piece `item` is, none for an item of no set (#1727).
     pub(crate) fn set_of(&self, item: u32) -> Option<u8> {
         self.set_numbers.get(&item).copied()
+    }
+
+    /// The types of the set `set`'s pieces, in its record's order, none of a set of no record
+    /// (#1670).
+    pub(crate) fn set_pieces(&self, set: u8) -> Vec<u32> {
+        self.set_pieces.get(&set).cloned().unwrap_or_default()
     }
 
     /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it

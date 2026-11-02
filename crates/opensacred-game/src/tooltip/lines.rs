@@ -28,9 +28,9 @@ const PROTECTION: u32 = 0xFF00_7700;
 const GOLD: u32 = 0xFFD8_AB30;
 const BLUE: u32 = 0xFF44_9BEA;
 /// The kinds' colours and texts: physical, fire, magic and poison.
-const KIND_COLOURS: [u32; KINDS] = [0xFFFF_FFA0, 0xFFFF_A0A0, 0xFFA0_A0FF, 0xFFA0_FFA0];
-const KIND_TEXTS: [&str; KINDS] = ["1078", "1079", "1080", "1081"];
-const RESISTANCE_KEYS: [&str; KINDS] = [
+pub(super) const KIND_COLOURS: [u32; KINDS] = [0xFFFF_FFA0, 0xFFFF_A0A0, 0xFFA0_A0FF, 0xFFA0_FFA0];
+pub(super) const KIND_TEXTS: [&str; KINDS] = ["1078", "1079", "1080", "1081"];
+pub(super) const RESISTANCE_KEYS: [&str; KINDS] = [
     "INVENTAR_RES_PHYSICAL",
     "INVENTAR_RES_FIRE",
     "INVENTAR_RES_MAGIC",
@@ -54,7 +54,7 @@ const BRIDLE: u8 = 29;
 const ARMOUR: [u8; 10] = [6, 17, 18, 19, 21, 22, 23, 24, 25, 33];
 /// The skills of the lores' names (`9399 +` the skill) and of the armour's pace, and the
 /// weapons' kinds held in both hands (`0x5CECD0`).
-const SKILL_NAMES: u32 = 9399;
+pub(super) const SKILL_NAMES: u32 = 9399;
 const ARMOUR_LORE: u8 = 11;
 const TWO_HANDED: [u8; 5] = [2, 3, 4, 7, 12];
 /// The classes' bits of a record's word `+0x04` and their indices (`0x43C250`), the index the
@@ -120,8 +120,8 @@ impl Item<'_> {
 }
 
 /// The name's colour of a set's piece, and its set's name's (`0x5C13C0`, `0x5C5360`).
-const SET_PIECE: u32 = 0xFF15_FF25;
-const SET_NAME: u32 = 0xFFFF_D070;
+pub(super) const SET_PIECE: u32 = 0xFF15_FF25;
+pub(super) const SET_NAME: u32 = 0xFFFF_D070;
 
 /// The hero that the tooltip weighs the item for: its creature type, its level, its attributes
 /// with its items' bonuses (the stats' words `+0x10`…), its skills and their levels, its
@@ -159,7 +159,7 @@ pub(crate) struct Words<'a> {
 
 impl Words<'_> {
     /// The text named `name`, empty without it.
-    fn of(&self, name: &str) -> String {
+    pub(super) fn of(&self, name: &str) -> String {
         (self.text)(name).unwrap_or_default()
     }
 }
