@@ -284,9 +284,11 @@ const PICTURE_ROOM: f32 = 264.0;
 /// The picture's point, the iso plane's, from its place's (`0x6B0C33`, `0x89647C`, `0x896478`),
 /// which the minimap shows at the screen's middle: the place stands near the picture's.
 const PICTURE_SHIFT: Vec2 = Vec2::new(-2248.0, 420.0);
-/// The lines' separator (`0x9E086C`) and the most lines an item shows.
+/// The lines' separator (`0x9E086C`) and the most lines an item shows: every line its entry
+/// keeps, where the original's shows nine of the ten (docs/decisions/interface.md, "Quest book
+/// shows every kept line").
 const SEPARATOR: &str = "\n\n";
-const ITEM_LINES: usize = 9;
+const ITEM_LINES: usize = opensacred_rules::quests::LINES;
 /// The sounds of the book shown and hidden, and of a chapter or a tab selected (`(14, 2, 8)`,
 /// `(14, 2, 9)`, `(14, 2, 10)`).
 const CLOSES: u32 = 7104;
@@ -868,7 +870,7 @@ fn said(texts: Option<&Texts>, id: u32) -> String {
 }
 
 /// The text an entry's item pours on the right page (`0x6B07E0`): its first line, then its others
-/// without repeats among them, nine at most, a blank line between each two.
+/// without repeats among them, all that it keeps, a blank line between each two.
 fn item_text(entry: &Entry, texts: Option<&Texts>) -> String {
     let mut lines: Vec<u32> = entry.lines.first().copied().into_iter().collect();
     let mut further: Vec<u32> = Vec::new();
