@@ -644,6 +644,7 @@ fn load(
     hero.floor = floor;
     hero.stance = clips.stance;
     hero.attacks = clips.attacks;
+    hero.bolts = clips.bolts;
     hero.arts = clips.arts;
     hero.size = opensacred_rules::minds::size(class.creature(), held_class != 0);
     hero.creature = class.creature();
@@ -780,27 +781,39 @@ pub fn clips_of(
     let pickup = slots
         .as_ref()
         .and_then(|slots| slots.pickup().map(str::to_owned));
+    let with_fractions = |name: String| {
+        let fractions = hits
+            .get(&name.to_ascii_uppercase())
+            .copied()
+            .unwrap_or_default();
+        (name, fractions)
+    };
+    // The shots of the bolts on foot (`0x4DCB80`; mounted 169, not followed).
+    let bolts = BOLT_SLOTS.map(|slot| {
+        slots
+            .as_ref()
+            .and_then(|slots| slots.slot(slot))
+            .map(|name| with_fractions(name.to_owned()))
+    });
     let attacks = slots
         .map(|slots| slots.attacks(class))
         .unwrap_or_default()
         .into_iter()
-        .map(|name| {
-            let fractions = hits
-                .get(&name.to_ascii_uppercase())
-                .copied()
-                .unwrap_or_default();
-            (name, fractions)
-        })
+        .map(with_fractions)
         .collect();
     forms::Clips {
         moving: [moving[0].clone(), moving[1].clone(), moving[2].clone()],
         stance,
         attacks,
+        bolts,
         arts,
         dying,
         pickup,
     }
 }
+
+/// The slots of the shots of the railgun's and the BFG's bolts on foot (`0x4DCB80`).
+const BOLT_SLOTS: [u16; 2] = [164, 145];
 
 /// The game loading.
 #[derive(Resource)]

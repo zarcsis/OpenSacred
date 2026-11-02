@@ -510,11 +510,21 @@ fn engage(
             attack.phase = Phase::InBand;
             continue;
         }
+        // A shot of bolts plays its own clip, the railgun's slot 164 or the BFG's 145, where the
+        // model has it (`0x4DCB80`, #1371); else one of its attack clips at random.
+        let shot = bolt.and_then(|bolt| match bolt {
+            Bolt::Railgun => clips.bolts[0].as_ref(),
+            Bolt::Bfg => clips.bolts[1].as_ref(),
+        });
+        if let (Some(bolt), Some(_)) = (bolt, shot) {
+            debug!("attack: the hero shoots its {bolt:?} bolts by their own clip");
+        }
         let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
-        let Some((node, clip, fractions)) = usize::try_from(dice.0.below(count))
-            .ok()
-            .and_then(|index| clips.attacks.get(index))
-        else {
+        let Some((node, clip, fractions)) = shot.or_else(|| {
+            usize::try_from(dice.0.below(count))
+                .ok()
+                .and_then(|index| clips.attacks.get(index))
+        }) else {
             commands.entity(hero).remove::<Attack>();
             continue;
         };
