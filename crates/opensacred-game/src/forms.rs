@@ -218,7 +218,7 @@ fn change(
         };
         let level = experience.level;
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
-        let skills = fight::hero_skills(&base, level, &holds.items);
+        let skills = fight::hero_skills(&base, level, &holds);
         *combat = Combat(combat_with(&base, level, holds, &skills, &list, &rules));
         regenerates.value = regeneration_with(&base, level, &skills, &list, &rules);
         let most = hero_health_with(base.attributes, base.extras, level, &skills, &rules);

@@ -3435,6 +3435,7 @@ impl Npcs {
                 .map(|(index, worn)| values(index, worn))
                 .collect(),
             skill: skill_of(class, &in_hands),
+            sets: Default::default(),
         }
     }
 
@@ -7838,6 +7839,8 @@ impl Arms {
                 })
                 .collect(),
             skill: skill_of(class, &self.holding),
+            // A creature not a player's takes no set's bonus (`0x57AE56`).
+            sets: Default::default(),
         };
         let skills = fight::skills(&self.base, grade, self.plain);
         let mut values =

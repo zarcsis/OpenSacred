@@ -157,7 +157,7 @@ fn the_items_bonuses_raise_the_arts_they_name_by_their_generic_ones() {
     };
     // Another class's `Attacke` (1059) finds hers through the generic 1002; an art not held and
     // a bonus that passes 255 count for nothing.
-    held.set_bonuses(&[(1059, 2), (18, 1), (1057, 5), (18, 255)]);
+    held.set_bonuses(&[(1059, 2), (18, 1), (1057, 5), (18, 255)], 0);
     let bonuses: Vec<_> = held.entries.iter().map(|e| (e.art, e.bonus)).collect();
     assert_eq!(bonuses, [(18, 1), (1071, 2)]);
     assert_eq!(held.entries[1].in_play(), 3);

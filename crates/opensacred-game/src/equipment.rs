@@ -34,6 +34,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_rules::equipment::{Glow, Refusal, frames, glow, refusal, slot_for, takes};
 use opensacred_rules::fight::{combat_with, regeneration_with};
+use opensacred_rules::set_bonuses;
 
 use crate::backpack::{self, Matte, cell_under, on_grid};
 use crate::bar::{self, UiImages};
@@ -494,6 +495,10 @@ fn refit(
     mut commands: Commands,
     pack: Res<Pack>,
     (experience, rules, tables): (Res<Experience>, Res<Rules>, Option<Res<Tables>>),
+    (weapon_sets, difficulty): (
+        Option<Res<crate::sets::WeaponSets>>,
+        Option<Res<crate::game::Difficulty>>,
+    ),
     mut hero: Option<ResMut<Hero>>,
     mut heroes: Query<
         (
@@ -512,16 +517,34 @@ fn refit(
     let Some(tables) = tables else {
         return;
     };
-    // The worn items by their keys and their sockets filled, which a change of either makes anew.
+    // The items in the hands, the selected weapon set's halves, whose sets count (#1727).
+    let hands: Vec<u32> = weapon_sets
+        .as_deref()
+        .and_then(|sets| sets.halves.get(sets.selected))
+        .map(|halves| halves.iter().flatten().map(|d| d.item).collect())
+        .unwrap_or_default();
+    // The worn items by their keys and their sockets filled, and the hands' items, which a change
+    // of any makes anew.
     let worn: Vec<(u32, usize)> = pack
         .worn
         .iter()
         .flatten()
         .map(|(key, d)| (*key, d.socketed.len()))
+        .chain(hands.iter().map(|&item| (item, usize::MAX)))
         .collect();
     if *seen == worn {
         return;
     }
+    // What the sets of the pieces worn and held give the hero (`0x5711F0`, `0x571710`).
+    let pieces = pack
+        .worn
+        .iter()
+        .flatten()
+        .map(|(_, d)| d.item)
+        .chain(hands.iter().copied())
+        .filter_map(|item| Some((item, tables.set_of(item)?)));
+    let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
+    let set_stats = set_bonuses::stats(&set_bonuses::Worn::of(pieces), difficulty);
     for (entity, base, mut holding, mut combat, mut regenerates, effects, old) in &mut heroes {
         // Each item's values with its sockets', then the bonus slots of the items in its
         // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661).
@@ -541,9 +564,10 @@ fn refit(
             .saturating_sub(old.map_or(0, |old| old.0.len()));
         holds.items.truncate(arms);
         holds.items.extend(values.iter().cloned());
+        holds.sets = set_stats.clone();
         commands.entity(entity).insert(Worn(values));
         let level = experience.level;
-        let skills = fight::hero_skills(base, level, &holds.items);
+        let skills = fight::hero_skills(base, level, &holds);
         let list = effects.map(Effects::list).unwrap_or_default();
         *combat = Combat(combat_with(
             base,

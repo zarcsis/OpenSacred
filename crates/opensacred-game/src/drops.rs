@@ -66,6 +66,9 @@ pub struct Tables {
     /// The `global.res` id of the name of each set's piece's set, by the piece's type (`sets.bin`,
     /// its hash's low 31 bits; #1700).
     set_names: HashMap<u32, u32>,
+    /// The number of each set's piece's set, by the piece's type (`sets.bin`'s byte 1, which the
+    /// loader `0x42C3E0` writes to the piece's `Weapon.pak +0x23`; #1727).
+    set_numbers: HashMap<u32, u8>,
 }
 
 /// The classes' bits of a record's word `+0x04`, which a made item keeps of its type's (`0x5D5080`,
@@ -151,6 +154,16 @@ impl Tables {
                     .into_iter()
                     .filter(|&item| item != 0)
                     .map(move |item| (item, set.hash & 0x7FFF_FFFF))
+            })
+            .collect();
+        let set_numbers = sets
+            .iter()
+            .filter(|set| set.bytes[1] != 0)
+            .flat_map(|set| {
+                set.items
+                    .into_iter()
+                    .filter(|&item| item != 0)
+                    .map(move |item| (item, set.bytes[1]))
             })
             .collect();
         let models = npcs::model_files(assets)?;
@@ -285,6 +298,7 @@ impl Tables {
             requirements,
             worths,
             set_names,
+            set_numbers,
             weapon_lists,
             prices,
             glittering,
@@ -434,6 +448,11 @@ impl Tables {
     /// of no set (`SetName<n>`, the set's number `n` at its pieces' `Weapon.pak +0x23`; #1700).
     pub(crate) fn set_name(&self, item: u32) -> Option<u32> {
         self.set_names.get(&item).copied()
+    }
+
+    /// The number of the set whose piece `item` is, none for an item of no set (#1727).
+    pub(crate) fn set_of(&self, item: u32) -> Option<u8> {
+        self.set_numbers.get(&item).copied()
     }
 
     /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it

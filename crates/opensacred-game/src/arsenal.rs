@@ -189,6 +189,7 @@ type Wearer<'a> = (
     Mut<'a, Regenerates>,
     Option<Mut<'a, hero::Size>>,
     Option<&'a Worn>,
+    Option<&'a Holding>,
 );
 
 /// Gives the hero `arms`: its items' models and clips, the values of what it holds and of what
@@ -200,12 +201,14 @@ fn wear(
     hero: &mut Hero,
     assets: &AssetServer,
     (experience, rules, speed): (&Experience, &Rules, &GameSpeed),
-    (body, base, effects, mut combat, mut regenerates, size, worn): Wearer,
+    (body, base, effects, mut combat, mut regenerates, size, worn, held): Wearer,
 ) {
     let mut holds = arms.holds;
     holds
         .items
         .extend(worn.into_iter().flat_map(|worn| worn.0.iter().cloned()));
+    // The sets' bonuses kept, which `equipment::refit` makes anew as the hands' items change.
+    holds.sets = held.map(|held| held.0.sets.clone()).unwrap_or_default();
     debug!("arsenal: the hero holds {:?}", arms.held);
     hero.held = arms.held;
     hero.armed = arms.armed;
@@ -227,7 +230,7 @@ fn wear(
         }
     }
     let level = experience.level;
-    let skills = fight::hero_skills(base, level, &holds.items);
+    let skills = fight::hero_skills(base, level, &holds);
     let list = effects.list();
     *combat = Combat(combat_with(
         base,
@@ -264,6 +267,7 @@ fn bear(
             &mut Regenerates,
             Option<&mut hero::Size>,
             Option<&Worn>,
+            Option<&Holding>,
         ),
         (With<Body>, Changed<Effects>),
     >,
@@ -319,6 +323,7 @@ fn throw(
             &mut Regenerates,
             Option<&mut hero::Size>,
             Option<&Worn>,
+            Option<&Holding>,
         ),
         With<Body>,
     >,
@@ -381,6 +386,7 @@ fn rearm(
             &mut Regenerates,
             Option<&mut hero::Size>,
             Option<&Worn>,
+            Option<&Holding>,
         ),
         With<Body>,
     >,
@@ -397,7 +403,7 @@ fn rearm(
                 continue;
             }
         }
-        for (body, base, effects, combat, regenerates, size, worn) in &mut bodies {
+        for (body, base, effects, combat, regenerates, size, worn, holding) in &mut bodies {
             wear(
                 arms.clone(),
                 &mut commands,
@@ -412,6 +418,7 @@ fn rearm(
                     regenerates,
                     size,
                     worn,
+                    holding,
                 ),
             );
         }

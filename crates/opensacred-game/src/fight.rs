@@ -717,7 +717,7 @@ fn level_up(
             });
         }
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
-        let skills = hero_skills(base, level, &holds.items);
+        let skills = hero_skills(base, level, &holds);
         *values = Combat(combat(base, level, holds, &skills, &rules));
         let most = hero_health_with(base.attributes, base.extras, level, &skills, &rules);
         *health = Health {
