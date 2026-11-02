@@ -27,7 +27,7 @@ use crate::{ai, arrows, paths};
 
 /// How high over the ground a bolt flies, in world units (**hypothesis**: about a hand's height,
 /// as the arrows leave a shooter without a hand).
-const HEIGHT: f32 = 80.0;
+pub(crate) const HEIGHT: f32 = 80.0;
 
 /// A shot's bolts leaving their shooter toward `toward` (the FX events of `0x4DCB80`), which the
 /// shot's clip sends at its first hit (`attack`).
@@ -176,7 +176,7 @@ struct Flying {
 /// The stand-ins' meshes and materials: the railgun's, the BFG's, the Daemon's, the fireball's,
 /// the whirlwind's and the ice splinter's.
 #[derive(Resource)]
-struct Looks(Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
+pub(crate) struct Looks(pub(crate) Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
 /// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
 /// the BFG, a violet one for the Daemon's, an orange one for the fireball (**estimate**: the

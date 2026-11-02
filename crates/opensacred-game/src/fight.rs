@@ -220,6 +220,17 @@ pub(crate) fn resolve(
 ) {
     let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
     for hit in hits.read() {
+        // An event of fixed damages whose whole four sum to 0 is its attacker's own strike, its
+        // damages rolled and its hit chance asked (`0x56B130` at `0x56B1B9`; #1856): the big
+        // demons' laser and fire.
+        let hit = &match hit.fixed {
+            Some(fixed) if fixed.iter().all(|damage| damage.trunc() == 0.0) => Hit {
+                fixed: None,
+                sure: false,
+                ..*hit
+            },
+            _ => *hit,
+        };
         // The attacker's own health, which its wounds' damage takes (`0x549460`).
         let attacker_health = targets
             .get(hit.attacker)

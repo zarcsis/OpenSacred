@@ -2,7 +2,8 @@
 //! spells by their marks (`0x43C540`, the fight's specials `0x4D4E50`), the band they keep from
 //! their target, their deadline between two casts and the rolls of their decisions. A creature
 //! does not choose from its arts' list, which `Creature.pak` leaves empty: its spells are its
-//! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons.
+//! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons
+//! and big demons.
 
 use crate::spells::{FIREBALL, WHIRLWIND};
 
@@ -43,6 +44,70 @@ pub const DRAGON_BEYOND: f32 = 500.0;
 pub fn dragon_casts(distance: f32, reach: f32, roll: u32) -> bool {
     distance > reach + DRAGON_BEYOND && roll.is_multiple_of(2)
 }
+
+/// Whether a creature of type `creature` is a big demon (`TYPE_NPC_BIG_DEMON`, 53 and 94), of the
+/// mark 4.
+pub fn big_demon(creature: u32) -> bool {
+    matches!(creature, 53 | 94)
+}
+
+/// The big demons' own spells (docs/re/arts.md, "The creatures' own spells"): the eye lasers
+/// (49), which land the demon's own strike on its target from afar where a straight line of
+/// cells reaches it, and the demon's fire (50), a homing fire whose burst lands its strike on what
+/// it touches; their records hold no damage.
+pub const EYE_LASERS: u16 = 49;
+pub const DEMON_FIRE: u16 = 50;
+
+/// What a big demon casts at a decision of its melee (`0x4D5B95`), standing: in one decision of
+/// three (a roll `rand() % 3` of 0; **hypothesis** for the value) with a straight way to its target
+/// (`way`), the eye lasers in two cases of three (`choice`, a `rand() % 3` below 2) or the fire, with
+/// no deadline; without the way, none: it runs about its target ([`big_demon_runs`]).
+pub fn big_demon_casts(roll: u32, way: bool, choice: u32) -> Option<u16> {
+    (roll.is_multiple_of(3) && way).then_some(if choice % 3 < 2 {
+        EYE_LASERS
+    } else {
+        DEMON_FIRE
+    })
+}
+
+/// Whether a big demon without a straight way runs about its target at a decision (`0x4D5B95`):
+/// in the decision of three that would have cast.
+pub fn big_demon_runs(roll: u32, way: bool) -> bool {
+    roll.is_multiple_of(3) && !way
+}
+
+/// How many decisions a big demon stands facing its target after its run about it (`+0x129`).
+pub const DEMON_STANDS: u8 = 50;
+
+/// The distances of a big demon's casts as it comes on (`0x4E1F73`): from [`APPROACH_FROM`], the
+/// eye lasers beyond [`LASERS_BEYOND`].
+pub const APPROACH_FROM: f32 = 371.0;
+pub const LASERS_BEYOND: f32 = 500.0;
+
+/// What a big demon casts as it comes on to its target on its level (`0x4E0300`'s sub-state 1 at
+/// `0x4E1F73`), at each tick: from [`APPROACH_FROM`] away, by a roll `rand() % 101` below 5, the
+/// eye lasers beyond [`LASERS_BEYOND`], else the fire in four cases of five (`choice`, a
+/// `rand() % 5` below 4) and the lasers in one.
+pub fn big_demon_approaches(distance: f32, roll: u32, choice: u32) -> Option<u16> {
+    (distance >= APPROACH_FROM && roll % 101 < 5).then_some(
+        if distance > LASERS_BEYOND || choice % 5 >= 4 {
+            EYE_LASERS
+        } else {
+            DEMON_FIRE
+        },
+    )
+}
+
+/// The homing fires (docs/re/arts.md, "The creatures' own spells"; the object update's flag
+/// `0x10000`): held at the caster's hand for their charge, then flying at [`HOMING_SPEED`] a second
+/// toward their target for [`HOMING_FLIGHT`] seconds, turning by at most [`HOMING_TURN`] radians a
+/// second; the demon's fire charges [`DEMON_FIRE_CHARGE`] seconds and is of the size
+/// [`DEMON_FIRE_SIZE`].
+pub const HOMING_SPEED: f32 = 250.0;
+pub const HOMING_FLIGHT: f32 = 5.0;
+pub const HOMING_TURN: f32 = 3.0;
+pub const DEMON_FIRE_CHARGE: f32 = 2.5;
+pub const DEMON_FIRE_SIZE: f32 = 70.0;
 
 /// The clip's slot that a creature of type `creature` casts the spell `spell` with, on foot
 /// (`0x522030`): by the spell, a few types their own, the dragons (`dragon`, `Creature.pak`'s
@@ -164,6 +229,24 @@ mod tests {
         assert!(dragon_casts(800.0, 250.0, 0));
         assert!(!dragon_casts(800.0, 250.0, 1));
         assert!(!dragon_casts(750.0, 250.0, 0));
+    }
+
+    #[test]
+    fn a_big_demon_casts_its_lasers_or_its_fire_standing_and_coming_on() {
+        assert!(big_demon(53) && big_demon(94) && !big_demon(52));
+        // Standing: one decision of three with a way, the lasers in two cases of three.
+        assert_eq!(big_demon_casts(0, true, 1), Some(EYE_LASERS));
+        assert_eq!(big_demon_casts(3, true, 2), Some(DEMON_FIRE));
+        assert_eq!(big_demon_casts(1, true, 0), None);
+        assert_eq!(big_demon_casts(0, false, 0), None);
+        assert!(big_demon_runs(0, false) && !big_demon_runs(0, true) && !big_demon_runs(2, false));
+        // Coming on: from 371, by a roll below 5 of 101; beyond 500 the lasers, nearer the fire
+        // in four cases of five.
+        assert_eq!(big_demon_approaches(370.0, 0, 0), None);
+        assert_eq!(big_demon_approaches(400.0, 5, 0), None);
+        assert_eq!(big_demon_approaches(400.0, 4, 3), Some(DEMON_FIRE));
+        assert_eq!(big_demon_approaches(400.0, 4, 4), Some(EYE_LASERS));
+        assert_eq!(big_demon_approaches(600.0, 0, 0), Some(EYE_LASERS));
     }
 
     #[test]
