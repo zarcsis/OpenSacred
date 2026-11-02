@@ -64,14 +64,21 @@ impl Smith {
         }
     }
 
-    /// The factor of the price (`0x6A2B20`): 1 for a creature, `100/(s + 79)` stored as a float
-    /// for the Dwarf of skill value `s`.
+    /// The factor of the price (`0x6A2B20`): 1 for a creature, [`dwarf_price_factor`] for the
+    /// Dwarf.
     fn price_factor(self) -> f64 {
         match self {
             Self::Creature { .. } => 1.0,
-            Self::Dwarf { skill } => f64::from(stored(100.0 / (f64::from(skill) + 79.0))),
+            Self::Dwarf { skill } => dwarf_price_factor(u32::from(skill)),
         }
     }
+}
+
+/// The factor of the price of the Dwarf as the smith of skill value `skill` (`0x6A2B20`):
+/// `100/(s + 79)` stored as a float, 1.27 at 0, 1 at 21, 0.5 at 121; the skill's panel tells it
+/// (`fight::skill_effects`).
+pub fn dwarf_price_factor(skill: u32) -> f64 {
+    f64::from(stored(100.0 / (f64::from(skill) + 79.0)))
 }
 
 /// The smith's three buttons, each giving an upgrade of his tier.

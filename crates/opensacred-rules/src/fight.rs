@@ -2097,9 +2097,12 @@ pub fn skill_effects(
                     text("UI_TOOLTIP_SCHMIEDEN_NEXT"),
                     (40 * ftol(y) - 20).to_string(),
                 ),
+                // The share of the smith's price that the Dwarf asks, from the price's own
+                // factor, where the original prints that factor as a per cent, 1.27 % for 127 %
+                // (docs/decisions/interface.md, "Smithing's cost as a share of the price").
                 EffectLine::Colon(
                     text("UI_TOOLTIP_SCHMIEDEN_COST"),
-                    format!("{:5.2}%", 100.0 / (f64::from(level) + 79.0)),
+                    format!("{:5.2}%", 100.0 * crate::smith::dwarf_price_factor(level)),
                 ),
             ]
         }
@@ -5246,13 +5249,14 @@ mod tests {
         // None at level 0 nor of the skill 30.
         assert!(skill_effects(14, 0, 14, false, &rules).is_empty());
         assert!(skill_effects(30, 5, 14, false, &rules).is_empty());
-        // The smithing's lines: its item's level, the next's and the cost.
+        // The smithing's lines: its item's level, the next's and the cost, 125 % of the smith's
+        // price at the level 1, as the price takes it (#1740), where the original prints 1.25 %.
         assert_eq!(
             skill_effects(33, 1, 10, false, &rules)[1..],
             [
                 EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_ITEM".into(), "10".into()),
                 EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_NEXT".into(), "20".into()),
-                EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_COST".into(), " 1.25%".into()),
+                EffectLine::Colon("UI_TOOLTIP_SCHMIEDEN_COST".into(), "125.00%".into()),
             ]
         );
     }

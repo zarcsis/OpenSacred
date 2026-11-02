@@ -207,10 +207,10 @@ impl Weighing<'_, '_> {
             values,
             level,
             asked,
-            heals: self
+            drink: self
                 .potions
                 .as_deref()
-                .and_then(|potions| potions.0.heals(dropped.item)),
+                .and_then(|potions| potions.0.drink(dropped.item)),
             sockets: (dropped.socketed.len(), tables.sockets(dropped)),
             set: tables
                 .set_name(dropped.item)
@@ -274,7 +274,7 @@ impl Weighing<'_, '_> {
                 },
                 level: 0,
                 asked: 0,
-                heals: None,
+                drink: None,
                 sockets: (0, 0),
                 set: None,
             };
