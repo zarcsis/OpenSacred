@@ -1074,6 +1074,160 @@ pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3)
     ));
 }
 
+/// Makes the thorns about `centre`, the Wood Elf's or a creature's (#1854): the record's count
+/// at the spell's level, each within its scatter where it may stand on the level `on`, else at
+/// the centre, striking about itself for the record's value 1 in seconds what is hostile to its
+/// caster.
+pub(crate) fn thorns(
+    commands: &mut Commands,
+    (dice, heights, looks): (&mut Dice, &crate::terrain::Heights, Option<&Looks>),
+    (record, level): (&opensacred_data::tables::Spell, u32),
+    (caster, on): (Entity, Level),
+    centre: Vec3,
+    damages: [f32; 4],
+) {
+    let seconds = fight_seconds(spells::value(record, 1, level));
+    for _ in 0..spells::count(record, level) {
+        let mut off = || {
+            let span = 2 * spells::THORNS_SCATTER + 1;
+            f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0))
+                - f32::from(u16::try_from(spells::THORNS_SCATTER).unwrap_or(0))
+        };
+        let mut place = centre + Vec3::new(off(), 0.0, off());
+        if !heights.walkable_on(crate::paths::cell_of(place.x, place.z), on) {
+            place = centre;
+        }
+        let mut made = commands.spawn((
+            Aura {
+                caster,
+                follows: None,
+                reach: spells::THORNS_REACH,
+                classes: &[],
+                damages: Some(damages),
+                gives: Vec::new(),
+                key: spells::THORNS,
+                level: on,
+                left: seconds,
+                cooldown: 0.0,
+                strikes: Strikes::About,
+            },
+            Transform::from_translation(place),
+            Visibility::Inherited,
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(looks) = looks {
+            made.with_child((
+                Mesh3d(looks.disc.clone()),
+                MeshMaterial3d(looks.discs[6].clone()),
+                Transform::from_scale(Vec3::new(spells::THORNS_REACH, 2.0, spells::THORNS_REACH))
+                    .with_translation(Vec3::Y * 4.0),
+            ));
+        }
+    }
+}
+
+/// Makes the purgatory's disk at `point`, the Seraphim's or a creature's (#1854): it flies among
+/// what is hostile to its caster on the level `on` for the record's value 0 in seconds, striking
+/// all it touches once a second.
+pub(crate) fn purgatory(
+    commands: &mut Commands,
+    looks: Option<&Looks>,
+    (record, level): (&opensacred_data::tables::Spell, u32),
+    (caster, on): (Entity, Level),
+    point: Vec3,
+    damages: [f32; 4],
+) {
+    let mut made = commands.spawn((
+        Disk {
+            caster,
+            target: None,
+            last: None,
+            damages,
+            level: on,
+            left: fight_seconds(spells::value(record, 0, level)),
+            cooldown: 0.0,
+            speed: spells::PURGATORY_SPEED,
+            reach: spells::DISK_REACH,
+            all: true,
+        },
+        Transform::from_translation(point + Vec3::Y * DISK_HEIGHT),
+        Visibility::Inherited,
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(looks) = looks {
+        made.with_child((
+            Mesh3d(looks.flame.0.clone()),
+            MeshMaterial3d(looks.flame.1.clone()),
+        ));
+    }
+}
+
+/// A creature's shield on its friend `bearer` (#1854), at the spell's level `level`: the stone
+/// skin's effects once its shield's time runs at the caster's cast rate `rate`, or the fire skin
+/// about the friend for the record's value 0 in seconds, striking what is hostile to the caster
+/// (the hero), with the record's effects and its turning aside at once.
+pub(crate) fn skin(
+    commands: &mut Commands,
+    looks: Option<&Looks>,
+    (record, level): (&opensacred_data::tables::Spell, u32),
+    (caster, bearer, on): (Entity, Entity, Level),
+    rate: f32,
+    damages: [f32; 4],
+) {
+    if record.id == STONE_SKIN {
+        commands.entity(bearer).insert(Shielding {
+            left: SHIELD_TIME / rate.max(f32::EPSILON),
+            effects: spells::effects(record, level),
+        });
+        return;
+    }
+    let Some(area) = spells::area(FIRE_SKIN) else {
+        return;
+    };
+    let mut made = commands.spawn((
+        Aura {
+            caster,
+            follows: Some(bearer),
+            reach: area.reach,
+            classes: area.classes,
+            damages: Some(damages),
+            gives: Vec::new(),
+            key: FIRE_SKIN,
+            level: on,
+            left: fight_seconds(spells::value(record, 0, level)),
+            cooldown: 0.0,
+            strikes: Strikes::About,
+        },
+        Transform::default(),
+        Visibility::Inherited,
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(looks) = looks {
+        made.with_child((
+            Mesh3d(looks.disc.clone()),
+            MeshMaterial3d(looks.discs[3].clone()),
+            Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
+                .with_translation(Vec3::Y * 4.0),
+        ));
+    }
+    let mut given = spells::turning(record, level);
+    given.extend(spells::effects(record, level));
+    give(commands, bearer, given);
+}
+
+/// The heroes on the level `on` that a creature's object strikes (#1854), alive: each with its
+/// place on the ground.
+fn heroes_on(
+    heroes: &Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
+    on: Level,
+) -> Vec<(Entity, Vec2)> {
+    heroes
+        .iter()
+        .filter(|(_, _, body, health)| body.level() == on && health.current > 0)
+        .map(|(hero, at, ..)| (hero, at.translation().xz()))
+        .collect()
+}
+
 /// Carries out each spell that acts.
 #[expect(
     clippy::too_many_arguments,
@@ -1235,55 +1389,20 @@ fn act(
                 });
             }
             spells::THORNS => {
-                // About the target's place, else the point, each where it may stand.
+                // About the target's place, else the point.
                 let centre = places
                     .get(act.target)
                     .ok()
                     .filter(|_| act.target != act.caster)
                     .map_or(act.point, GlobalTransform::translation);
-                let damages = bolt_damages(record, level, multipliers);
-                let seconds = fight_seconds(spells::value(record, 1, act.level));
-                for _ in 0..spells::count(record, act.level) {
-                    let mut off = || {
-                        let span = 2 * spells::THORNS_SCATTER + 1;
-                        f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0))
-                            - f32::from(u16::try_from(spells::THORNS_SCATTER).unwrap_or(0))
-                    };
-                    let mut place = centre + Vec3::new(off(), 0.0, off());
-                    if !heights.walkable_on(crate::paths::cell_of(place.x, place.z), body.level()) {
-                        place = centre;
-                    }
-                    let mut made = commands.spawn((
-                        Aura {
-                            caster: act.caster,
-                            follows: None,
-                            reach: spells::THORNS_REACH,
-                            classes: &[],
-                            damages: Some(damages),
-                            gives: Vec::new(),
-                            key: act.spell,
-                            level: body.level(),
-                            left: seconds,
-                            cooldown: 0.0,
-                            strikes: Strikes::About,
-                        },
-                        Transform::from_translation(place),
-                        Visibility::Inherited,
-                        DespawnOnExit(AppState::InGame),
-                    ));
-                    if let Some(looks) = &looks {
-                        made.with_child((
-                            Mesh3d(looks.disc.clone()),
-                            MeshMaterial3d(looks.discs[6].clone()),
-                            Transform::from_scale(Vec3::new(
-                                spells::THORNS_REACH,
-                                2.0,
-                                spells::THORNS_REACH,
-                            ))
-                            .with_translation(Vec3::Y * 4.0),
-                        ));
-                    }
-                }
+                thorns(
+                    &mut commands,
+                    (&mut dice, &heights, looks.as_deref()),
+                    (record, act.level),
+                    (act.caster, body.level()),
+                    centre,
+                    bolt_damages(record, level, multipliers),
+                );
             }
             spells::SOULS => {
                 // Its souls about her, homing, each striking the first it touches once a
@@ -1624,29 +1743,14 @@ fn act(
                 }
             }
             spells::PURGATORY => {
-                let mut made = commands.spawn((
-                    Disk {
-                        caster: act.caster,
-                        target: None,
-                        last: None,
-                        damages: bolt_damages(record, level, multipliers),
-                        level: body.level(),
-                        left: fight_seconds(spells::value(record, 0, act.level)),
-                        cooldown: 0.0,
-                        speed: spells::PURGATORY_SPEED,
-                        reach: spells::DISK_REACH,
-                        all: true,
-                    },
-                    Transform::from_translation(act.point + Vec3::Y * DISK_HEIGHT),
-                    Visibility::Inherited,
-                    DespawnOnExit(AppState::InGame),
-                ));
-                if let Some(looks) = &looks {
-                    made.with_child((
-                        Mesh3d(looks.flame.0.clone()),
-                        MeshMaterial3d(looks.flame.1.clone()),
-                    ));
-                }
+                purgatory(
+                    &mut commands,
+                    looks.as_deref(),
+                    (record, act.level),
+                    (act.caster, body.level()),
+                    act.point,
+                    bolt_damages(record, level, multipliers),
+                );
             }
             spells::DISK => {
                 let damages = bolt_damages(record, level, multipliers);
@@ -1974,6 +2078,7 @@ fn strike(
     heroes: Query<&GlobalTransform, (With<Body>, Without<Aura>)>,
     mut auras: Query<(Entity, &mut Aura, &mut Transform)>,
     bearers: Query<&GlobalTransform, (Without<Aura>, Without<Dies>)>,
+    bodies: Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
     creatures: Query<
         (
             Entity,
@@ -2073,6 +2178,32 @@ fn strike(
                 });
             }
             aura.cooldown = BEAT;
+            continue;
+        }
+        // A creature's (#1854) strikes the hero alone.
+        if !bodies.contains(aura.caster) {
+            let reach = aura.reach + arrows::size(0);
+            let struck: Vec<Entity> = heroes_on(&bodies, aura.level)
+                .into_iter()
+                .filter(|&(_, at)| (at - centre).length() < reach)
+                .map(|(hero, _)| hero)
+                .collect();
+            for target in struck {
+                if let Some(damages) = aura.damages {
+                    debug!("spells: {entity} of {} strikes {target}", aura.caster);
+                    hits.write(fight::Hit {
+                        attacker: aura.caster,
+                        target,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: Some(damages),
+                        sure: true,
+                        poison: false,
+                    });
+                }
+                aura.cooldown = BEAT;
+            }
             continue;
         }
         let only = (aura.strikes == Strikes::Bearer)
@@ -2353,7 +2484,8 @@ fn disk(
     mut commands: Commands,
     time: Res<Time>,
     mut disks: Query<(Entity, &mut Disk, &mut Transform)>,
-    casters: Query<&GlobalTransform, (With<Body>, Without<Disk>)>,
+    casters: Query<&GlobalTransform, Without<Disk>>,
+    bodies: Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
     creatures: Query<
         (
             Entity,
@@ -2377,6 +2509,43 @@ fn disk(
         }
         let here = transform.translation.xz();
         let level = disk.level;
+        // A creature's (#1854) flies at the hero and strikes it alone.
+        if !bodies.contains(disk.caster) {
+            let heroes = heroes_on(&bodies, level);
+            let toward = heroes.first().map(|&(_, at)| at).or_else(|| {
+                casters
+                    .get(disk.caster)
+                    .ok()
+                    .map(|at| at.translation().xz())
+            });
+            if let Some(toward) = toward {
+                let to = toward - here;
+                let step = (disk.speed * dt).min(to.length());
+                let next = here + to.normalize_or_zero() * step;
+                transform.translation = Vec3::new(next.x, transform.translation.y, next.y);
+            }
+            if disk.cooldown > 0.0 {
+                continue;
+            }
+            let here = transform.translation.xz();
+            for (target, at) in heroes {
+                if (at - here).length() < disk.reach + arrows::size(0) {
+                    debug!("spells: {entity} of {} strikes {target}", disk.caster);
+                    hits.write(fight::Hit {
+                        attacker: disk.caster,
+                        target,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: Some(disk.damages),
+                        sure: true,
+                        poison: false,
+                    });
+                    disk.cooldown = BEAT;
+                }
+            }
+            continue;
+        }
         let live = |target: Entity| {
             creatures
                 .get(target)

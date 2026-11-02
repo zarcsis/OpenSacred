@@ -295,6 +295,60 @@ pub fn mage_has_no_deadline(creature: u32) -> bool {
     matches!(creature, 144 | 182 | 183)
 }
 
+/// The heal and the shields a magician casts on a friend (`0x4D31C0`): `HEILKRAFT` (7), the fire
+/// skin (24) and the stone skin (2).
+pub const HEAL: u16 = 7;
+pub const FIRE_SKIN: u16 = 24;
+pub const STONE_SKIN: u16 = 2;
+
+/// Whether `spell` is cast on a friend of the caster's rather than on its target: the heal and the
+/// shields.
+pub fn on_a_friend(spell: u16) -> bool {
+    matches!(spell, HEAL | FIRE_SKIN | STONE_SKIN)
+}
+
+/// How far a magician's friends are that it aids (`0x4D31C0`): the hero's hostiles within 700.
+pub const FRIENDS_WITHIN: f32 = 700.0;
+
+/// The chance of 101 by which a magician of type `creature` aids a friend instead of its type's
+/// spell (`0x4D31C0`): 30, 60 for the priestess (311) and the priest (312); none for the types of a
+/// choice of their own (183, 127, 143, 144, 182, 212, 697).
+pub fn aid_chance(creature: u32) -> Option<u32> {
+    match creature {
+        183 | 127 | 143 | 144 | 182 | 212 | 697 => None,
+        311 | 312 => Some(60),
+        _ => Some(30),
+    }
+}
+
+/// What a magician casts on a friend (`0x4D31C0`), with a roll `rand() % 101` below its chance
+/// ([`aid_chance`]): the heal on a friend under three quarters of its health (`wounded`), else on
+/// one that fights (`fighting`) the fire skin in two cases of three (`shield`, a `rand() % 3` below
+/// 2) or the stone skin; none without such a friend (**hypothesis** for the friends' rule, whose
+/// float operands are lost).
+pub fn aid(roll: u32, chance: u32, (wounded, fighting): (bool, bool), shield: u32) -> Option<u16> {
+    if roll % 101 >= chance {
+        return None;
+    }
+    if wounded {
+        Some(HEAL)
+    } else if fighting {
+        Some(if shield % 3 < 2 {
+            FIRE_SKIN
+        } else {
+            STONE_SKIN
+        })
+    } else {
+        None
+    }
+}
+
+/// Whether a friend at `health` of `most` is wounded enough for a magician's heal: under three
+/// quarters of its most.
+pub fn wounded(health: u32, most: u32) -> bool {
+    u64::from(health) * 4 < u64::from(most) * 3
+}
+
 /// The spell a magician of type `creature` casts (the chooser `0x4D31C0`): by its type, a script's
 /// spell (`+0x2B6`, `scripted`) first for the others, `hero_low` whether the hero's health is under
 /// a third of its most (Sharifa's heal of him), `followers` its followers; none, and it stops.
@@ -449,6 +503,20 @@ mod tests {
             mage_spell(697, 0, (false, 0), &mut Script::new(vec![20])),
             None
         );
+    }
+
+    #[test]
+    fn a_magician_aids_a_wounded_or_fighting_friend_by_its_chance() {
+        assert_eq!(aid_chance(127), None);
+        assert_eq!(aid_chance(312), Some(60));
+        assert_eq!(aid_chance(266), Some(30));
+        assert_eq!(aid(29, 30, (true, true), 0), Some(HEAL));
+        assert_eq!(aid(30, 30, (true, true), 0), None);
+        assert_eq!(aid(0, 30, (false, true), 1), Some(FIRE_SKIN));
+        assert_eq!(aid(0, 30, (false, true), 2), Some(STONE_SKIN));
+        assert_eq!(aid(0, 30, (false, false), 0), None);
+        assert!(wounded(74, 100) && !wounded(75, 100));
+        assert!(on_a_friend(HEAL) && !on_a_friend(5));
     }
 
     #[test]

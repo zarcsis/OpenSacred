@@ -391,28 +391,45 @@ fn fly(
                 bolt.shooter, ground.x, ground.y
             );
             // A bubble bursts at a cell it may not pass, striking about it at its factor.
+            // A creature's (#1854) on the hero alone.
             if let Some((reach, factor)) = course.bursts.filter(|_| bolt.flown < course.life) {
                 let here = transform.translation.xz();
-                for (target, at, way, mind, health, size) in &creatures {
-                    if way.creature
-                        && way.level == bolt.level
-                        && mind.hostile()
-                        && health.current > 0
-                        && (at.translation.xz() - here).length()
-                            < reach + size.map_or(arrows::size(0), |size| size.0)
-                    {
-                        debug!("bolts: {entity} bursts on {target}");
-                        hits.write(fight::Hit {
-                            attacker: bolt.shooter,
-                            target,
-                            share: 1.0,
-                            ranged: false,
-                            art: None,
-                            fixed: Some(bolt.damages.map(|d| (d * factor).trunc())),
-                            sure: true,
-                            poison: false,
-                        });
-                    }
+                let burst: Vec<Entity> = if shooters.contains(bolt.shooter) {
+                    creatures
+                        .iter()
+                        .filter(|(_, at, way, mind, health, size)| {
+                            way.creature
+                                && way.level == bolt.level
+                                && mind.hostile()
+                                && health.current > 0
+                                && (at.translation.xz() - here).length()
+                                    < reach + size.map_or(arrows::size(0), |size| size.0)
+                        })
+                        .map(|(target, ..)| target)
+                        .collect()
+                } else {
+                    heroes
+                        .iter()
+                        .filter(|(_, at, body, health)| {
+                            body.level() == bolt.level
+                                && health.current > 0
+                                && (at.translation.xz() - here).length() < reach + arrows::size(0)
+                        })
+                        .map(|(target, ..)| target)
+                        .collect()
+                };
+                for target in burst {
+                    debug!("bolts: {entity} bursts on {target}");
+                    hits.write(fight::Hit {
+                        attacker: bolt.shooter,
+                        target,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: Some(bolt.damages.map(|d| (d * factor).trunc())),
+                        sure: true,
+                        poison: false,
+                    });
                 }
             }
             commands.entity(entity).despawn();
