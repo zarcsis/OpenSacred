@@ -98,21 +98,7 @@ fn column_control(images: &UiImages, at: Vec2, entries: usize) -> Option<Control
     if Rect::from_corners(corner, corner + images.size(frame)).contains(at) {
         return Some(Control::Experience);
     }
-    (0..entries)
-        .find(|&k| {
-            let step = Vec2::new(
-                0.0,
-                bar::ENTRY_STEP * f32::from(u8::try_from(k).unwrap_or(0)),
-            );
-            let ring =
-                Rect::from_corners(bar::RING_AT + step, bar::RING_AT + step + bar::RING_SIZE);
-            let picture = Rect::from_corners(
-                bar::PORTRAIT_AT + step,
-                bar::PORTRAIT_AT + step + bar::PORTRAIT_SIZE,
-            );
-            ring.contains(at) || picture.contains(at)
-        })
-        .map(Control::Health)
+    bar::entry_under(at, entries).map(Control::Health)
 }
 
 /// A text of `texts` by its name, the name where it has none.
