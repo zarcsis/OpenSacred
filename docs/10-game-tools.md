@@ -265,7 +265,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | P | the game | pause the game under the original's pause window, and again go on, as its OK does (#1687) |
 | 1 to 5 | the game | choose a weapon set (#1348) |
 | 6 to 0 | the game | choose an art slot (#1529) |
-| F1 to F6 | the game | the art bound to the key into the selected slot, F5 and F6 only while the spells page shows; over an art of the spells page, bind the key to it or take it off (#1536) |
+| F1 to F6 | the game | the art bound to the key into the selected slot; over an art of the spells page, bind the key to it or take it off (#1536, #1750) |
 | Wheel | the game | zoom |
 | Esc | the menus, the game, the console | back a screen; in the game, closes the world map, else the quest book, else the inventory's windows (#1592), else the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
