@@ -378,13 +378,19 @@ impl Default for Bands {
 }
 
 impl Bands {
-    /// The rows of `b`, each value the original's where the balance lacks it.
-    fn of(b: &Balance) -> Self {
-        let default = Self::default();
+    /// The factors of the creatures' spells' damage (`MagieAll`), on the same levels (`0x56A800`).
+    fn magic() -> Self {
         Self {
-            factors: std::array::from_fn(|i| {
-                b.row_f32("WaffenAll", i).unwrap_or(default.factors[i])
-            }),
+            factors: [0.58, 0.63, 0.68, 0.76, 0.85],
+            ..Self::default()
+        }
+    }
+
+    /// The rows of `b`, the factors of its row `factors`, each value `default`'s where the
+    /// balance lacks it.
+    fn of(b: &Balance, factors: &str, default: &Self) -> Self {
+        Self {
+            factors: std::array::from_fn(|i| b.row_f32(factors, i).unwrap_or(default.factors[i])),
             levels: std::array::from_fn(|i| b.row_i32("AllOverLv", i).unwrap_or(default.levels[i])),
         }
     }
@@ -583,6 +589,25 @@ pub const IN_FIGHT_WITHIN: f32 = 350.0;
 const ENEMY_NEAR: f32 = 1000.0;
 
 impl Rules {
+    /// The level at which a creature that is no player's and lacks a spell makes it, as every
+    /// creature's spells do (`0x580A10`, docs/re/ai.md, "The creatures' spells"): `⌊level / 5⌋ +
+    /// 1`, times `SpellFakBoss` for a boss and `SpellFakChamp` for a champion, truncated.
+    pub fn creature_spell_level(&self, level: u32, rank: Rank) -> u32 {
+        let factor = match rank {
+            Rank::Boss => self.spell_ranks[0],
+            Rank::Champion => self.spell_ranks[1],
+            Rank::Common | Rank::Levelled => 1.0,
+        };
+        whole_f64(f64::from(level / 5 + 1) * f64::from(factor))
+    }
+
+    /// The factor of the damage of a creature's spell of the level `level` (`0x56A800`):
+    /// `MagieAll` at `5L − 2` by the bands of `AllOverLv`, with the quirk of the weapons' factor
+    /// (`0x56A890`): 0.597 at the level 1, 0.79 at 5, toward 0.76 above.
+    pub fn creature_spell_damage(&self, level: u32) -> f64 {
+        self.magic.factor((5 * level).saturating_sub(2))
+    }
+
     /// The rate of a creature's regeneration (`0x562730`): an NPC's `RegInFight`; the hero's
     /// `RegInFight` in the fight, the nearest hostile of its look (`hostile`, its distance, if one
     /// is found) within [`IN_FIGHT_WITHIN`], `RegEnemyNear` within 1,000, else `RegNoEnemy`.
@@ -637,6 +662,11 @@ pub struct Rules {
     ranks: Ranks,
     range: [f32; 3],
     bands: Bands,
+    /// The factors of the creatures' spells' damage by their levels (`MagieAll`, `0x56A800`).
+    magic: Bands,
+    /// The factors of the level of a spell that a boss and a champion lacking it make
+    /// (`SpellFakBoss`, `SpellFakChamp`, `0x580A10`).
+    spell_ranks: [f32; 2],
     multi_shot: f32,
     geschick: f32,
     spawn_weapon: [f32; 2],
@@ -670,6 +700,8 @@ impl Default for Rules {
             ranks: Ranks::default(),
             range: [250.0, 1000.0, 0.25],
             bands: Bands::default(),
+            magic: Bands::magic(),
+            spell_ranks: [1.4, 1.2],
             multi_shot: 0.83,
             geschick: 200.0,
             spawn_weapon: [25.0, 275.0],
@@ -910,7 +942,12 @@ impl Rules {
                     b.f32("FernAWProz").unwrap_or(share),
                 ]
             },
-            bands: Bands::of(b),
+            bands: Bands::of(b, "WaffenAll", &default.bands),
+            magic: Bands::of(b, "MagieAll", &default.magic),
+            spell_ranks: [
+                b.f32("SpellFakBoss").unwrap_or(default.spell_ranks[0]),
+                b.f32("SpellFakChamp").unwrap_or(default.spell_ranks[1]),
+            ],
             multi_shot: b.f32("Multipfeil").unwrap_or(default.multi_shot),
             geschick: b.f32("BalanceGeschick").unwrap_or(default.geschick),
             spawn_weapon: [
