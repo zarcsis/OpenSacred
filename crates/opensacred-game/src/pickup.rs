@@ -583,6 +583,7 @@ pub(crate) struct Taking<'w, 's> {
     shown: Option<Res<'w, crate::inventory::Shown>>,
     remarks: MessageWriter<'w, crate::remarks::Remark>,
     wearer: Wearer<'w>,
+    sets: Option<ResMut<'w, crate::sets::WeaponSets>>,
 }
 
 impl Taking<'_, '_> {
@@ -647,7 +648,7 @@ impl Taking<'_, '_> {
                 rate: (0.45, sfx::Roll::Share(0.1)),
             });
         } else if put_on(
-            &mut self.pack,
+            (&mut self.pack, self.sets.as_deref_mut()),
             (self.tables.as_deref(), &self.wearer),
             &mut self.sounds,
             &lying.dropped,
@@ -697,13 +698,15 @@ type Wearer<'w> = (
     Res<'w, crate::fight::Rules>,
 );
 
-/// Puts `dropped` on in the first empty slot of the hero's class that takes it, where the hero
-/// may use it (`0x558080`'s branch before the cursor and the grid,
-/// `opensacred_rules::equipment::slot_on_pickup`, #1601), with its category's sound (the event
-/// `(9, 5)`): whether it went. The equipment's `refit` and `dress` make the hero's values and look
-/// anew with it.
+/// Puts `dropped` on where the hero may use it (`0x558080`'s branch before the cursor and the
+/// grid), with its category's sound (the event `(9, 5)`): a weapon into the half of the selected
+/// weapon set of the hand its kind gives (`0x54ACC0`: the bows and the crossbows the left, any
+/// other the right) where both halves are empty (#1608), which the sets' `arm` puts into the
+/// hero's hands; another item in the first empty slot of the hero's class that takes it
+/// (`opensacred_rules::equipment::slot_on_pickup`, #1601), whose put-on the equipment's `refit`
+/// and `dress` make the hero's values and look anew with. Whether it went.
 fn put_on(
-    pack: &mut Pack,
+    (pack, sets): (&mut Pack, Option<&mut crate::sets::WeaponSets>),
     (tables, (hero, experience, rules)): (Option<&crate::drops::Tables>, &Wearer),
     sounds: &mut MessageWriter<sfx::Play>,
     dropped: &Dropped,
@@ -715,6 +718,30 @@ fn put_on(
         return false;
     }
     let asks = tables.asks(dropped, rules);
+    if asks.category == WEAPON {
+        let Some(sets) = sets else {
+            return false;
+        };
+        let half = into_hands(
+            &sets.halves[sets.selected],
+            hero.creature,
+            experience.level,
+            &asks,
+        );
+        let Some(half) = half else {
+            return false;
+        };
+        let selected = sets.selected;
+        sets.halves[selected][half] = Some(dropped.clone());
+        info!("pickup: the hero takes {} into its hand", dropped.item);
+        let (id, rate) = crate::held::put_sound(asks.category);
+        sounds.write(sfx::Play {
+            sound: sfx::Of::Id(id),
+            at: None,
+            rate,
+        });
+        return true;
+    }
     let Some(slot) = opensacred_rules::equipment::slot_on_pickup(
         hero.creature,
         experience.level,
@@ -738,6 +765,27 @@ fn put_on(
         rate,
     });
     true
+}
+
+/// The weapons' category (`items.pak +0x2E`).
+const WEAPON: u8 = 5;
+
+/// The half of the selected weapon set `halves` (the left hand's and the right's) that a weapon
+/// that `asks` so goes into as the hero of the type `hero` and the level `level` picks it up
+/// (`0x558080`'s branch 5, `0x54ACC0`): the left for the bows and the crossbows (the kinds 7 and
+/// 12), the right for any other; none where the hero may not use it or a half holds an item.
+fn into_hands(
+    halves: &[Option<Dropped>],
+    hero: u32,
+    level: u32,
+    asks: &opensacred_rules::equipment::Asks,
+) -> Option<usize> {
+    if halves.iter().any(Option::is_some)
+        || !opensacred_rules::equipment::may_use(hero, level, asks)
+    {
+        return None;
+    }
+    Some(if matches!(asks.kind, 7 | 12) { 0 } else { 1 })
 }
 
 /// The rate of the pick-up's clip of a hero of the attack speed `attack_speed` (`0x584FE0`, the
@@ -1374,6 +1422,41 @@ mod tests {
         // Nothing to stand on: on no layer.
         let far = Vec3::new(-1000.0, 0.0, -1000.0);
         assert!(!on_layer(&heights, None, far, Some(None)));
+    }
+
+    #[test]
+    fn a_weapon_picked_up_goes_into_the_empty_hand_of_its_kind() {
+        let sword = opensacred_rules::equipment::Asks {
+            item: 1711,
+            category: WEAPON,
+            kind: 1,
+            classes: 0,
+            level: 1,
+        };
+        let bow = opensacred_rules::equipment::Asks {
+            item: 1732,
+            kind: 7,
+            ..sword
+        };
+        // Seen in the original: the sword into the slot 13, the bow into 12, each kept by its
+        // set.
+        assert_eq!(into_hands(&[None, None], 1, 1, &sword), Some(1));
+        assert_eq!(into_hands(&[None, None], 1, 1, &bow), Some(0));
+        let held = Dropped {
+            kind: Kind::Weapon,
+            item: 1712,
+            level: 1,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: Vec::new(),
+        };
+        assert_eq!(into_hands(&[Some(held), None], 1, 1, &sword), None);
+        // A level above the hero's keeps it out.
+        let heavy = opensacred_rules::equipment::Asks { level: 5, ..sword };
+        assert_eq!(into_hands(&[None, None], 1, 1, &heavy), None);
     }
 
     #[test]
