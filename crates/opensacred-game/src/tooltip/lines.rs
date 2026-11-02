@@ -8,11 +8,11 @@
 //! the resistances, the other bonuses (`0x5C4450`) and the hint of its use; then each socket's
 //! item's own lines (#1691).
 //!
-//! Not followed: the quest's line, the region's factor of
-//! the price, the price of an item that the item maker made (its worth, `0x5D3AB0`), the
-//! multipliers of the bonuses of the condition's bit 14 in the damage's line (in the stats'
-//! `+0xA6`), the class's variants in the refusal (`0x43CA20`), the extra text of the item's
-//! `+0xFC`, and the hands of the types that the list of `0x5CECD0` names.
+//! The price's place factor is 1.0 offline, which a network game's message alone changes (#1728).
+//!
+//! Not followed: the quest's line (the quest items' page's), the class's variants in the refusal
+//! (`0x43CA20`), the extra text of the item's `+0xFC`, and the hands of the types that the list
+//! of `0x5CECD0` names.
 
 use opensacred_rules::equipment::{CLASSES, NO_CLASS};
 use opensacred_rules::fight::{Bonus, ItemValues, KINDS};
