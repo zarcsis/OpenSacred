@@ -195,14 +195,16 @@ fn regenerate(
     arts.arts.regenerate(seconds, speeds);
     arts.speeds = speeds;
     // The skills with the bonuses of the items it holds and wears (#1717), as they change.
-    let skills = crate::fight::hero_skills(base, experience.level, &holds.items);
+    let skills = crate::fight::hero_skills(base, experience.level, &holds);
     if arts.skills != skills {
         arts.skills = skills;
     }
-    // The arts' bonuses of the items it holds and wears (#1725), as they change.
-    let bonuses = opensacred_rules::fight::art_bonuses(base, experience.level, &holds.items);
+    // The arts' bonuses of the items it holds and wears (#1725) and of its sets (#1727), as they
+    // change.
+    let bonuses = opensacred_rules::fight::art_bonuses(base, experience.level, &holds);
+    let every = u16::try_from(holds.sets.all_arts).unwrap_or(u16::MAX);
     let mut raised = arts.arts.clone();
-    raised.set_bonuses(&bonuses);
+    raised.set_bonuses(&bonuses, every);
     if raised != arts.arts {
         arts.arts = raised;
     }

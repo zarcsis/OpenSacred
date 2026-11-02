@@ -10,6 +10,7 @@ use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
 use crate::arts;
 use crate::drops::Difficulty;
+use crate::set_bonuses::Special;
 use crate::spawning::{Dice, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
@@ -1151,7 +1152,8 @@ impl Base {
 /// a ranged weapon (the kinds 7, 12, 13 and 14, `0x54A2A0`) and among them a gun (the kinds 13
 /// and 14, `0x54A340`, by which the cursor shows a pistol over a foe), the values of the items it
 /// holds and wears that have them (an NPC's in its hands, a hero's of its template too), and the
-/// skill of what it holds ([`weapon_skill`]).
+/// skill of what it holds ([`weapon_skill`]), and what the sets of its pieces give it
+/// ([`crate::set_bonuses::stats`], a hero's alone, #1727).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
@@ -1160,6 +1162,7 @@ pub struct Holds {
     pub gun: bool,
     pub items: Vec<ItemValues>,
     pub skill: u8,
+    pub sets: crate::set_bonuses::Stats,
 }
 
 /// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
@@ -1626,12 +1629,14 @@ pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
         .collect()
 }
 
-/// The bonuses of the items `items` to the skills of `base`'s slots at level `level` (the stats'
-/// `+0x34 + i`, cleared as the recomputation starts, `0x5796A0` at `0x57AC6E`): each bonus that
-/// holds for the creature, its value grown by its attribute and truncated, an effect `e` of 600
-/// to 798 to the first slot that holds the skill `e − 599` (`0x5824A0(slot, v, 0)`), the effect
-/// 849 to every slot; each held within 0 and 255.
-pub fn skill_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> [u8; 8] {
+/// The bonuses of the items and the sets of `holds` to the skills of `base`'s slots at level
+/// `level` (the stats' `+0x34 + i`, cleared as the recomputation starts, `0x5796A0` at
+/// `0x57AC6E`): each bonus that holds for the creature, its value grown by its attribute and
+/// truncated, an effect `e` of 600 to 798 to the first slot that holds the skill `e − 599`
+/// (`0x5824A0(slot, v, 0)`), the effect 849 to every slot; each set's skill to the first slot that
+/// holds it (`0x571710`); each held within 0 and 255.
+pub fn skill_bonuses(base: &Base, level: u32, holds: &Holds) -> [u8; 8] {
+    let items = &holds.items;
     let level = level.max(1);
     let attributes = base.attributes.map(u32::from);
     let grown: [u32; 6] = std::array::from_fn(|i| {
@@ -1659,21 +1664,28 @@ pub fn skill_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> [u8; 8] {
             _ => {}
         }
     }
+    for &(skill, value) in &holds.sets.skills {
+        if let Some(slot) = base.skills.iter().position(|&held| held == skill) {
+            sums[slot] += i64::from(value);
+        }
+    }
     sums.map(|sum| u8::try_from(sum.clamp(0, 255)).unwrap_or(0))
 }
 
-/// The bonuses of the items `items` to the combat arts of a creature of `base` at level `level`
-/// (`0x5796A0` at `0x57AC6E`): each bonus that holds for it of an effect below 200 or above 999
-/// (an art's id), its value grown by its attribute and truncated, as a word; a value below 0,
-/// which `0x581F80` would refuse as a word past 255, is left out. Their entries take them by
-/// [`crate::arts::Arts::set_bonuses`].
-pub fn art_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> Vec<(u16, u16)> {
+/// The bonuses of the items of `holds` to the combat arts of a creature of `base` at level
+/// `level` (`0x5796A0` at `0x57AC6E`): each bonus that holds for it of an effect below 200 or
+/// above 999 (an art's id), its value grown by its attribute and truncated, as a word; a value
+/// below 0, which `0x581F80` would refuse as a word past 255, is left out; then the sets' arts'
+/// (`0x571710`). Their entries take them by [`crate::arts::Arts::set_bonuses`], with the sets'
+/// bonus of every art held.
+pub fn art_bonuses(base: &Base, level: u32, holds: &Holds) -> Vec<(u16, u16)> {
     let level = level.max(1);
     let attributes = base.attributes.map(u32::from);
     let grown: [u32; 6] = std::array::from_fn(|i| {
         attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
     });
-    items
+    holds
+        .items
         .iter()
         .flat_map(|item| item.bonuses)
         .filter(|bonus| bonus.holds(base.id))
@@ -1685,6 +1697,13 @@ pub fn art_bonuses(base: &Base, level: u32, items: &[ItemValues]) -> Vec<(u16, u
             let value = u16::try_from(whole_signed(bonus.value(grown))).ok()?;
             Some((effect, value))
         })
+        .chain(
+            holds
+                .sets
+                .arts
+                .iter()
+                .filter_map(|&(art, value)| Some((art, u16::try_from(value).ok()?))),
+        )
         .collect()
 }
 
@@ -1698,11 +1717,11 @@ fn whole_signed(value: f32) -> i32 {
     whole
 }
 
-/// [`skills`] of a hero who holds and wears the items `items`, each skill at its base level and
-/// its items' bonus ([`skill_bonuses`]), as the skills' parts of the recomputation and the
-/// statistics window take them (`0x566070`, `0x582450`), at most 255.
-pub fn hero_skills(base: &Base, level: u32, items: &[ItemValues]) -> Vec<(u8, u32)> {
-    let bonuses = skill_bonuses(base, level, items);
+/// [`skills`] of a hero who holds and wears what `holds` holds, each skill at its base level and
+/// its items' and sets' bonus ([`skill_bonuses`]), as the skills' parts of the recomputation and
+/// the statistics window take them (`0x566070`, `0x582450`), at most 255.
+pub fn hero_skills(base: &Base, level: u32, holds: &Holds) -> Vec<(u8, u32)> {
+    let bonuses = skill_bonuses(base, level, holds);
     skills(base, level, true)
         .into_iter()
         .map(|(skill, at)| {
@@ -1765,6 +1784,9 @@ struct Curves {
     pace: [f32; 3],
     fist: [f32; 3],
     fist_speed: [f32; 3],
+    /// The ranged combat's (6, `FEK…AW`, `FEK…SP`), which set 48 takes (#1727).
+    ranged: [f32; 3],
+    ranged_speed: [f32; 3],
 }
 
 impl Default for Curves {
@@ -1788,6 +1810,8 @@ impl Default for Curves {
             pace: [1.0, 50.0, 10.0],
             fist: [12.0, 50.0, 200.0],
             fist_speed: [6.0, 50.0, 100.0],
+            ranged: [9.0, 50.0, 150.0],
+            ranged_speed: [6.0, 50.0, 100.0],
         }
     }
 }
@@ -1831,6 +1855,8 @@ impl Curves {
             pace: triple(["RoffSP", "R_s_SP", "R_w_SP"], default.pace),
             fist: triple(["FKoffAW", "FK_s_AW", "FK_w_AW"], default.fist),
             fist_speed: triple(["FKoffSP", "FK_s_SP", "FK_w_SP"], default.fist_speed),
+            ranged: triple(["FEKoffAW", "FEK_s_AW", "FEK_w_AW"], default.ranged),
+            ranged_speed: triple(["FEKoffSP", "FEK_s_SP", "FEK_w_SP"], default.ranged_speed),
         }
     }
 }
@@ -2461,8 +2487,60 @@ pub fn combat_with(
             }
         }
     }
+    // The sets' bonuses (`0x571710`, after the items' loop, #1727): their attributes, the three
+    // arrays of multipliers, the resistances and their factors, the attack speed, `A`'s and
+    // `D`'s multipliers and the pace's factor.
+    let sets = &holds.sets;
+    for (bonus, set) in attribute_bonuses.iter_mut().zip(sets.attributes) {
+        *bonus += set;
+    }
+    for k in 0..KINDS {
+        item_multipliers[k] += sets.damage[k];
+        weapon_items[k] += sets.weapon[k];
+        spell_items[k] += sets.spells[k];
+        resistance_items[k] += sets.resistance_factors[k];
+        resistance[k] += sets.resistances[k];
+    }
+    speed_bonus += sets.attack_speed;
+    attack_times += sets.attack_times;
+    defence_times += sets.defence_times;
+    if let Some(times) = sets.pace_times {
+        pace = (pace * times).trunc();
+    }
     // The items' attributes, held at 0 and above, and the attributes' resistances by them.
     let a: [f32; 6] = std::array::from_fn(|i| (a[i] + attribute_bonuses[i]).max(0.0));
+    // The sets' specials, of the wearer's values (`0x575CA3`, `0x575F32`, `0x565D70`): the sets 33
+    // to 38's damages and resistances of `a0` and `a1` in place of the items', set 24's part of
+    // `a0` to the physical damage, set 46's resistance curves at a quarter of the level and set
+    // 48's ranged curves at a third of it, with a ranged weapon in hand.
+    for special in &sets.specials {
+        match *special {
+            Special::Festive => {
+                for kind in 0..KINDS {
+                    damage[kind] = [(a[0] / 2.0).trunc(), a[0]];
+                    resistance[kind] = a[1];
+                }
+            }
+            Special::StrengthPart(per_cent) => {
+                let part = (a[0] * per_cent / 100.0).trunc();
+                damage[0][0] += part;
+                damage[0][1] += part;
+            }
+            Special::ResistanceCurves => {
+                let at = (level / 4).max(1);
+                for (factor, triple) in resistance_items.iter_mut().zip(rules.curves.resistances) {
+                    *factor += curve(triple, at) / 100.0;
+                }
+                pace = (pace + curve(rules.curves.pace, at)).trunc();
+            }
+            Special::RangedCurves if holds.ranged => {
+                let at = (level / 3).max(1);
+                attack_times += curve(rules.curves.ranged, at) / 100.0;
+                speed_bonus += curve(rules.curves.ranged_speed, at).trunc();
+            }
+            Special::RangedCurves => {}
+        }
+    }
     for (value, of) in resistance.iter_mut().zip([
         (a[3] + a[1]) / rules.resistances[0],
         a[2] / rules.resistances[1],
@@ -2801,8 +2879,9 @@ fn regeneration_values(base: &Base, level: u32, holds: &Holds) -> ([f32; 2], [f3
         let b = u32::from(base.attributes[i]);
         b + b * (level - 1) / 10 + u32::from(base.extras[i])
     });
-    let mut bonuses = [0.0_f32; 2];
-    let mut attribute_bonuses = [0.0_f32; 6];
+    // The sets' spells' regeneration speed, added with the items' 813 (`0x571710`).
+    let mut bonuses = [holds.sets.arts_speed, 0.0_f32];
+    let mut attribute_bonuses = holds.sets.attributes;
     for item in &holds.items {
         for bonus in item.bonuses.iter().filter(|bonus| bonus.holds(base.id)) {
             let value = bonus.value(grown);
@@ -5330,11 +5409,27 @@ mod tests {
             // Weapon Lore by 10 % of the attribute 1 (`a0` grown to 20 + 2 at level 2): 2.
             item(&[(0, 601 | 1 << 16, 10)]),
         ];
-        assert_eq!(skill_bonuses(&base, 2, &items), [3, 3, 1, 1, 1, 1, 1, 1]);
-        assert_eq!(hero_skills(&base, 2, &items), [(14, 4), (2, 4)]);
+        let holding = |items: &[ItemValues]| Holds {
+            items: items.to_vec(),
+            ..Holds::default()
+        };
+        assert_eq!(
+            skill_bonuses(&base, 2, &holding(&items)),
+            [3, 3, 1, 1, 1, 1, 1, 1]
+        );
+        assert_eq!(hero_skills(&base, 2, &holding(&items)), [(14, 4), (2, 4)]);
         // A loss is held at 0.
         let cursed = [item(&[(0, 613, -5)])];
-        assert_eq!(hero_skills(&base, 2, &cursed), [(14, 1), (2, 1)]);
+        assert_eq!(hero_skills(&base, 2, &holding(&cursed)), [(14, 1), (2, 1)]);
+        // A set's skill goes to the slot that holds it, as the items' do (#1727).
+        let set = Holds {
+            sets: crate::set_bonuses::Stats {
+                skills: vec![(2, 3), (20, 5)],
+                ..crate::set_bonuses::Stats::default()
+            },
+            ..holding(&items)
+        };
+        assert_eq!(hero_skills(&base, 2, &set), [(14, 4), (2, 7)]);
     }
 
     #[test]
@@ -5535,6 +5630,35 @@ mod tests {
     }
 
     #[test]
+    fn the_sets_bonuses_count_in_the_values() {
+        let rules = Rules::default();
+        let seraphim = Base {
+            id: 1,
+            ..a_goblin()
+        };
+        let plain = combat(&seraphim, 1, Holds::default(), &[], &rules);
+        // Set 22 at 5 and set 7 at 3 on bronze (#1727): the fire resistance +30 and its factor
+        // +1, the attack speed +20, and set 51's pace times 1.15 at 4.
+        let worn = crate::set_bonuses::Worn::of(
+            (0..5)
+                .map(|i| (7000 + i, 22))
+                .chain((0..3).map(|i| (7100 + i, 7)))
+                .chain((0..4).map(|i| (7200 + i, 51))),
+        );
+        let held = Holds {
+            sets: crate::set_bonuses::stats(&worn, Difficulty::Bronze),
+            ..Holds::default()
+        };
+        let wearing = combat(&seraphim, 1, held, &[], &rules);
+        assert!(
+            (wearing.resistance_factors[1] - plain.resistance_factors[1] - 1.0).abs() < 1e-5
+        );
+        assert!(wearing.resistance[1] > plain.resistance[1] + 30.0);
+        assert_eq!(wearing.speed, plain.speed + 20.0);
+        assert_eq!(wearing.pace, (plain.pace * 1.15).trunc());
+    }
+
+    #[test]
     fn a_creatures_pace_is_130_raised_by_its_items_and_its_skill_11() {
         let rules = Rules::default();
         let held = |items| Holds {
@@ -5544,6 +5668,7 @@ mod tests {
             gun: false,
             items,
             skill: 0,
+            ..Holds::default()
         };
         let nothing = Holds::default;
         // A townsperson 655 at 130: its walk of 60 at `GameSpeed` 1.25 times 1.3, 97.5 units a
@@ -5598,6 +5723,7 @@ mod tests {
             gun: false,
             items,
             skill: 0,
+            ..Holds::default()
         };
         let plain = ItemValues {
             bonuses: [Bonus::default(); BONUSES],
@@ -5675,6 +5801,7 @@ mod tests {
             gun: false,
             items: vec![dagger],
             skill: 0,
+            ..Holds::default()
         };
         let goblin = combat(&a_goblin(), 1, held.clone(), &[], &rules);
         // With a ranged weapon the physical multiplier takes `b2` for `b0` (#492): the goblin's

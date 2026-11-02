@@ -1097,17 +1097,17 @@ fn sheet(
     name: &str,
     experience: &opensacred_rules::fight::Experience,
     (base, combat, health): (&Base, &Combat, &Health),
-    (pack, items): (&Pack, &[opensacred_rules::fight::ItemValues]),
+    (pack, holds): (&Pack, &opensacred_rules::fight::Holds),
     (foe, minutes): (Option<Foe>, u32),
     (attributes, learning): (bool, bool),
 ) -> Sheet {
     let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
     let skill_name = |id: u8| text(&(9399 + u32::from(id)).to_string());
     let level = experience.level;
-    // The skills by their slots, each at its base level and its items' bonus (#1717), its base
-    // kept for its colour.
+    // The skills by their slots, each at its base level and its items' and sets' bonus (#1717,
+    // #1727), its base kept for its colour.
     let held = opensacred_rules::fight::skills(base, level, true);
-    let totals = opensacred_rules::fight::hero_skills(base, level, items);
+    let totals = opensacred_rules::fight::hero_skills(base, level, holds);
     let skills: Vec<(String, u32, u32)> = held
         .iter()
         .zip(&totals)
@@ -1290,14 +1290,14 @@ fn show(
             // The hero's name, its class's by default (the player's own is not kept yet).
             let class = arts.as_deref().map_or(1, |arts| arts.kind);
             let name = texts.named(&class.to_string()).unwrap_or_default();
-            let items = holding.map_or(&[][..], |holding| &holding.0.items);
+            let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
             let shield = holding.is_some_and(|holding| holding.0.shield);
             let mut sheet = sheet(
                 texts,
                 name,
                 &experience.0,
                 (base, combat, health),
-                (&pack, items),
+                (&pack, &holds),
                 (foe.0, played.minutes()),
                 (attributes.0, learning.0),
             );
@@ -1835,7 +1835,7 @@ fn refit(
     (arts, hero): (Option<&mut HeroArts>, Option<&mut Hero>),
 ) {
     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
-    let skills = opensacred_rules::fight::hero_skills(base, level, &holds.items);
+    let skills = opensacred_rules::fight::hero_skills(base, level, &holds);
     let list = effects.map(Effects::list).unwrap_or_default();
     *combat = Combat(opensacred_rules::fight::combat_with(
         base, level, holds, &skills, &list, rules,

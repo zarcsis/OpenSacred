@@ -3137,20 +3137,27 @@ impl Arts {
     /// value, [`crate::fight::art_bonuses`]), the old ones cleared (`0x5796A0` at `0x57AC6E`):
     /// each art taken to its generic one (`0x52DA80`, [`generic`]) and found as `0x581D40` finds
     /// it ([`Arts::index`]), its value added to that entry's bonus not for good
-    /// (`0x581F80(index, v, 0, 0)`), refused where the bonus would pass 255; the sets' bonuses
-    /// (`0x571710`) are not followed.
-    pub fn set_bonuses(&mut self, bonuses: &[(u16, u16)]) {
+    /// (`0x581F80(index, v, 0, 0)`), refused where the bonus would pass 255; then `every`, the
+    /// sets' bonus of every art held (`0x571710`, sets 19 and 47), to each entry so.
+    pub fn set_bonuses(&mut self, bonuses: &[(u16, u16)], every: u16) {
         for entry in &mut self.entries {
             entry.bonus = 0;
         }
+        let raise = |entry: &mut Entry, value: u16| {
+            let raised = u32::from(entry.bonus) + u32::from(value);
+            if let Ok(bonus) = u8::try_from(raised) {
+                entry.bonus = bonus;
+            }
+        };
         for &(art, value) in bonuses {
             let Some(index) = self.index(generic(art)) else {
                 continue;
             };
-            let entry = &mut self.entries[index];
-            let raised = u32::from(entry.bonus) + u32::from(value);
-            if let Ok(bonus) = u8::try_from(raised) {
-                entry.bonus = bonus;
+            raise(&mut self.entries[index], value);
+        }
+        if every > 0 {
+            for entry in &mut self.entries {
+                raise(entry, every);
             }
         }
     }
