@@ -1222,7 +1222,7 @@ fn behave(
     nearest: Res<Nearest>,
     crowd: Res<Crowd>,
     heights: Res<Heights>,
-    hero: Query<(Entity, &Transform), With<Body>>,
+    hero: Query<(Entity, &Transform, Option<&crate::fight::Holding>), With<Body>>,
     cameras: Query<&Projection, crate::iso::Eye>,
     doors: Query<(Entity, &Object, &Door), Without<Mind>>,
     npcs: Option<Res<Npcs>>,
@@ -1243,10 +1243,12 @@ fn behave(
         >,
     ),
 ) {
-    let Some((the_hero, hero)) = hero.iter().next() else {
+    let Some((the_hero, hero, holding)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
+    // The animals' terror of the hero's sets (#1727's M16).
+    let terror = holding.map_or(0, |holding| holding.0.sets.terror());
     // Every creature as a guard sees it, for the nearest hostile to it, the hero among them
     // (`0x4EEE40`): the hero of its side 1 and a type of no exception's.
     let others: Vec<Other> = creatures
@@ -1777,17 +1779,25 @@ fn behave(
             }
             continue;
         }
-        // The nearest it fears in its own sector.
+        // The nearest it fears in its own sector, and its terror: the hero's sets'.
         let fear = feared
             .iter()
             .filter(|&&(other, at)| other != entity && sector(at) == sector(here))
-            .map(|&(_, at)| at)
-            .min_by(|a, b| {
+            .min_by(|(_, a), (_, b)| {
                 let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
                 da.total_cmp(&db)
+            })
+            .map(|&(other, at)| {
+                (
+                    spot(at),
+                    if other == Entity::PLACEHOLDER {
+                        terror
+                    } else {
+                        0
+                    },
+                )
             });
-        let Some((target, why)) =
-            mind.behaves(spot(here), fear.map(spot), (crowded, None), &mut minds.rng)
+        let Some((target, why)) = mind.behaves(spot(here), fear, (crowded, None), &mut minds.rng)
         else {
             continue;
         };

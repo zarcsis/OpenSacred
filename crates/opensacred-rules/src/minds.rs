@@ -1407,13 +1407,17 @@ impl Mind {
     }
 
     /// What it does at this tick of the world by its behaviour, awake at `here`, `crowded` or
-    /// not, walking to `walking` or standing, the nearest it fears at `fear` (`behaviour`): an
-    /// animal strolls in one tick of 101 ([`STROLLS`]), or at once where another shares its cell,
-    /// and a guard at the same chance.
+    /// not, walking to `walking` or standing, the nearest it fears at `fear` with its terror's
+    /// per cent (`behaviour`): an animal strolls in one tick of 101 ([`STROLLS`]), or at once
+    /// where another shares its cell, and a guard at the same chance. A wild animal that would
+    /// flee from one of a terror stands instead where `R(0, 100)` falls below it, rolled after
+    /// its flight's point (`0x4E2666`–`0x4E26C3`, #1727's M16: four pieces of set 41,
+    /// `set_bonuses::Stats::terror`): it stops what it does (`0x54E6D0`) and a flyer lands
+    /// (`0x44D520`).
     pub fn behaves(
         &self,
         here: Spot,
-        fear: Option<Spot>,
+        fear: Option<(Spot, u32)>,
         (crowded, walking): (bool, Option<Spot>),
         rng: &mut impl Dice,
     ) -> Option<(Spot, Why)> {
@@ -1422,7 +1426,13 @@ impl Mind {
             return None;
         }
         let strolls = rng.below(STROLLS) == 0 || (crowded && self.is_animal());
-        behaviour(self, here, fear, (strolls, walking), rng)
+        let chosen = behaviour(self, here, fear.map(|(at, _)| at), (strolls, walking), rng);
+        match (chosen, fear) {
+            (Some((_, Why::Flees)), Some((_, terror))) if terror > 0 && rng.below(101) < terror => {
+                None
+            }
+            _ => chosen,
+        }
     }
 
     /// Where it steps aside to, walking at `here` under an order of its own (its AI's state and
@@ -3662,6 +3672,27 @@ mod tests {
     }
 
     #[test]
+    fn a_wild_animal_stands_in_its_fearers_terror() {
+        let mut rng = Rng::of(48, 39, 2);
+        let home = at(1000.0, 1000.0);
+        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let hero = at(1100.0, 1000.0);
+        // No terror: it always runs; a terror of 101: it always stands; 20 of 101 about a fifth.
+        let flights = |terror, rng: &mut Rng| {
+            (0..1000)
+                .filter(|_| {
+                    rabbit
+                        .behaves(home, Some((hero, terror)), (false, None), rng)
+                        .is_some()
+                })
+                .count()
+        };
+        assert_eq!(flights(0, &mut rng), 1000);
+        assert_eq!(flights(101, &mut rng), 0);
+        assert!((750..850).contains(&flights(20, &mut rng)));
+    }
+
+    #[test]
     fn a_wild_animal_flees_at_a_run_and_a_farm_animal_steps_away() {
         let mut rng = Rng::of(48, 39, 2);
         let home = at(1000.0, 1000.0);
@@ -3963,7 +3994,7 @@ mod tests {
     fn the_waters_crab_and_fish_take_no_behaviour() {
         let mut rng = Rng::of(0, 0, 3);
         let home = at(1000.0, 1000.0);
-        let hero = Some(at(1020.0, 1000.0));
+        let hero = Some((at(1020.0, 1000.0), 0));
         for creature in [163, 164, 165, 166] {
             assert!(still(creature));
             // Made by the waters as by an `Enter` function, of class 6: the loose farm animals'
