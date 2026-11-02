@@ -182,10 +182,16 @@ const PLAY_ANIM: u16 = 91;
 /// `PlaySound` (`0x4A9730`): under the anim mode, its sound waits its turn in the queue of the
 /// creature of its second `0x01` (#1826).
 const PLAY_SOUND: u16 = 104;
+/// `ActObj` (`0x4A4310`): a creature opens or closes an object's door (#1827).
+const ACT_OBJ: u16 = 93;
+/// The tags of an `ActObj` that close the door, the others opening it, as does none
+/// (`0x4A4310`); the last of them counts.
+const CLOSES: [u8; 4] = [0x06, 0x10, 0x27, 0x2C];
+const OPENS: [u8; 4] = [0x07, 0x0F, 0x26, 0x2D];
 /// The other records that wait their turn in a creature's queue under the anim mode, and the
-/// rank of the `0x01` that names the creature: `Wait`, `Attack`, `ActObj` the first, a
-/// `CallFunktion` the second (docs/re/netscript.md, "The other kinds, the waits and the cinema").
-const QUEUED_OTHERS: [(u16, usize); 2] = [(92, 0), (93, 0)];
+/// rank of the `0x01` that names the creature: `Attack` the first (docs/re/netscript.md, "The
+/// other kinds, the waits and the cinema").
+const QUEUED_OTHERS: [(u16, usize); 1] = [(92, 0)];
 /// `Wait` (`0x4A1F20`): the first `0x01` the creature whose queue takes it, the second the other,
 /// one of the tags `0x58` to `0x5F` its condition (#1279).
 const WAIT: u16 = 90;
@@ -2185,6 +2191,9 @@ enum Act {
     /// `CreateObj` whose second `0x01` names the creature, under the anim mode: the record, made
     /// at the creature's turn (`0x486CB2`, the kind 11; #1826).
     Make(Box<Record>),
+    /// `ActObj`: the creature opens or closes the door of the object of the name, at once or at
+    /// its turn (`0x4A4310`, the kind 6; #1827).
+    Obj { object: String, open: bool },
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -2274,6 +2283,35 @@ fn played(
         return queued.then(|| Moved {
             name: name.clone(),
             act: Act::Sound(sound.clone()),
+            queued,
+        });
+    }
+    // An `ActObj`: its creature first, the hero's too, its object second, both needed; at once
+    // outside the mode, where its creature is in the world (`script_records`).
+    if kind == ACT_OBJ {
+        let (name, object) = (names.first()?, names.get(1)?);
+        if name.is_empty() || object.is_empty() {
+            return None;
+        }
+        let open = ops
+            .iter()
+            .rev()
+            .find_map(|o| {
+                if OPENS.contains(&o.tag) {
+                    Some(true)
+                } else if CLOSES.contains(&o.tag) {
+                    Some(false)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(true);
+        return Some(Moved {
+            name: name.clone(),
+            act: Act::Obj {
+                object: object.clone(),
+                open,
+            },
             queued,
         });
     }
@@ -6620,6 +6658,9 @@ enum Queued {
     Sound(u32),
     /// A `CreateObj`'s record, made at its turn (the step `0x59A9EF`), done at once (#1826).
     Make(Box<Record>),
+    /// An `ActObj`'s door of the object of the name opened or closed (the step `0x59E9D5`), done
+    /// at once (#1827).
+    Obj { object: String, open: bool },
     /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
     /// #1278).
     Call(String),
@@ -6728,10 +6769,11 @@ fn take_steps(
     mut commands: Commands,
     tick: Res<WorldTick>,
     (heights, real): (Res<Heights>, Res<Time<bevy::time::Real>>),
-    (mut due, mut sounds, mut made): (
+    (mut due, mut sounds, mut made, mut states): (
         Option<ResMut<crate::scripts::Due>>,
         MessageWriter<sfx::Play>,
         Option<ResMut<crate::scripts::WorldRecords>>,
+        Option<ResMut<crate::scripts::ObjStates>>,
     ),
     others: Query<
         (
@@ -6840,6 +6882,12 @@ fn take_steps(
                 }
                 true
             }
+            Some(Queued::Obj { object, open }) => {
+                if let Some(states) = states.as_deref_mut() {
+                    states.0.push(act_on(object, *open));
+                }
+                true
+            }
             Some(Queued::Call(function)) => {
                 if let Some(due) = due.as_deref_mut() {
                     due.0.push(std::mem::take(function));
@@ -6878,6 +6926,19 @@ fn take_steps(
     }
 }
 
+/// What an `ActObj` does to the trigger of the object `object`'s door, as a `SetObjState` would
+/// (`0x4A4310`, the step `0x59E9D5`; #1827): opening, the trigger's bar (`0x8000`) cleared and its
+/// open bit set, the door swinging open (the object's slot 170); closing, the open bit cleared, the
+/// door swinging shut (171). A mount mounted or left (`0x4266F0`) is not followed: the game has no
+/// mounts yet (#1822).
+fn act_on(object: &str, open: bool) -> crate::scripts::ObjState {
+    crate::scripts::ObjState {
+        name: object.to_owned(),
+        barred: open.then_some(false),
+        open: Some(open),
+    }
+}
+
 /// A queued `PlaySound`'s sound of the id (the step `0x59ED41`): `playSFX` (`0x693510`) in the
 /// middle (the creature −1), at the rate's factor 0.5, its sample's own rate, and the volume 1,
 /// not the line by name (#1826).
@@ -6898,7 +6959,11 @@ fn queued_sound(id: u32) -> sfx::Play {
 /// player. The Sacred campaign queues no other step for the hero. The queue goes once empty.
 fn take_hero_steps(
     mut commands: Commands,
-    (tick, mut plays): (Res<WorldTick>, MessageWriter<sfx::Play>),
+    (tick, mut plays, mut states): (
+        Res<WorldTick>,
+        MessageWriter<sfx::Play>,
+        Option<ResMut<crate::scripts::ObjStates>>,
+    ),
     hero: Option<ResMut<hero::Hero>>,
     mut heroes: Query<(Entity, &mut ScriptQueue, &mut hero::Body, &mut Transform)>,
 ) {
@@ -6951,6 +7016,12 @@ fn take_hero_steps(
             plays.write(queued_sound(id));
             true
         }
+        Some(Queued::Obj { object, open }) => {
+            if let Some(states) = states.as_deref_mut() {
+                states.0.push(act_on(object, *open));
+            }
+            true
+        }
         Some(_) => true,
     };
     if done {
@@ -6992,11 +7063,12 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
-    (mut queues, real, sounds, mut lines): (
+    (mut queues, real, sounds, mut lines, mut states): (
         Query<&mut ScriptQueue>,
         Res<Time<bevy::time::Real>>,
         Option<Res<sfx::Sfx>>,
         MessageWriter<crate::scripts::ScriptLine>,
+        Option<ResMut<crate::scripts::ObjStates>>,
     ),
     dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
 ) {
@@ -7238,6 +7310,37 @@ pub(crate) fn script_records(
                     }
                 }
                 bevy::log::info!("npcs: the scripts play {sound} at {}'s turn", moved.name);
+                continue;
+            }
+            // The hero's or a creature's in the world (`0x464BD0`), none else; under the mode at
+            // its turn, in the queue of the first of its name.
+            Act::Obj { object, open } => {
+                let actor = if moved.name == HERO {
+                    bodies.iter().map(|(entity, _)| entity).next()
+                } else {
+                    creatures
+                        .iter()
+                        .find(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                        .map(|(entity, ..)| entity)
+                };
+                let Some(actor) = actor else {
+                    continue;
+                };
+                bevy::log::info!(
+                    "npcs: {} {} the door of {object}{}",
+                    moved.name,
+                    if open { "opens" } else { "closes" },
+                    if moved.queued { " in its turn" } else { "" }
+                );
+                if moved.queued {
+                    let step = Queued::Obj { object, open };
+                    match queues.get_mut(actor) {
+                        Ok(mut queue) => queue.0.push_back(step),
+                        Err(_) => queued.entry(actor).or_default().push(step),
+                    }
+                } else if let Some(states) = states.as_deref_mut() {
+                    states.0.push(act_on(&object, open));
+                }
                 continue;
             }
             // Made at the turn of the first creature of the name; where none bears it, it was
@@ -9576,6 +9679,56 @@ mod tests {
     }
 
     #[test]
+    fn an_act_obj_opens_or_closes_its_objects_door_at_once_or_in_its_turn() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        // Quest 1602's killer opens the door in its turn, under the mode; opening is the default.
+        let door = [name("res:17201"), name("R16NQ02_Tür_1")];
+        let opens = played(ACT_OBJ, &door, true, 0.0).unwrap();
+        assert_eq!(
+            (opens.name.as_str(), opens.act, opens.queued),
+            (
+                "res:17201",
+                Act::Obj {
+                    object: "r16nq02_tür_1".into(),
+                    open: true
+                },
+                true
+            )
+        );
+        // Outside the mode at once; the last of its tags counts.
+        let closes = played(
+            ACT_OBJ,
+            &[
+                name("HERO"),
+                name("tor"),
+                op(0x0F, Value::Marker),
+                op(0x27, Value::Marker),
+            ],
+            false,
+            0.0,
+        )
+        .unwrap();
+        assert_eq!(
+            (closes.name.as_str(), closes.act, closes.queued),
+            (
+                HERO,
+                Act::Obj {
+                    object: "tor".into(),
+                    open: false
+                },
+                false
+            )
+        );
+        // Both names needed.
+        assert!(played(ACT_OBJ, &[name("res:17201")], true, 0.0).is_none());
+        assert!(played(ACT_OBJ, &[name("res:17201"), name("")], true, 0.0).is_none());
+        // Opening unbars its trigger; closing leaves the bar.
+        assert_eq!(act_on("tor", true).barred, Some(false));
+        assert_eq!(act_on("tor", false).barred, None);
+    }
+
+    #[test]
     fn a_queued_object_is_made_and_a_queued_sound_plays_each_at_its_turn() {
         let mut tick = WorldTick::default();
         tick.gather(0.2);
@@ -9584,6 +9737,7 @@ mod tests {
             .insert_resource(tick)
             .insert_resource(Heights::house())
             .init_resource::<crate::scripts::WorldRecords>()
+            .init_resource::<crate::scripts::ObjStates>()
             .add_message::<sfx::Play>()
             .add_systems(Update, take_steps);
         let object = Record {
@@ -9593,7 +9747,14 @@ mod tests {
                 value: Value::Str("Res:18301".into()),
             }]),
         };
-        let steps = [Queued::Make(Box::new(object.clone())), Queued::Sound(7)];
+        let steps = [
+            Queued::Make(Box::new(object.clone())),
+            Queued::Sound(7),
+            Queued::Obj {
+                object: "tor".into(),
+                open: true,
+            },
+        ];
         let smith = app
             .world_mut()
             .spawn((Transform::default(), ScriptQueue(steps.into())))
@@ -9612,9 +9773,21 @@ mod tests {
             [object]
         );
         assert_eq!(sounds(&app), 0);
-        // Then the sound, in the middle, and the queue goes.
+        // Then the sound, in the middle.
         app.update();
         assert_eq!(sounds(&app), 1);
+        assert!(
+            app.world()
+                .resource::<crate::scripts::ObjStates>()
+                .0
+                .is_empty()
+        );
+        // Then the door, its trigger's state handed on as a `SetObjState`'s, and the queue goes.
+        app.update();
+        assert_eq!(
+            app.world().resource::<crate::scripts::ObjStates>().0,
+            [act_on("tor", true)]
+        );
         app.update();
         assert!(app.world().get::<ScriptQueue>(smith).is_none());
     }
