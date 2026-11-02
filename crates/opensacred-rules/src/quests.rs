@@ -104,6 +104,12 @@ pub fn side_alpha(distance: u32, radius: u32) -> u8 {
 /// The lines of a quest log entry (`+0x28`, ten).
 pub const LINES: usize = 10;
 
+/// Whether the compass's inner pin may follow the side quest `quest`: all but 9000 to 9499,
+/// which the markers' resolver gives none (`sdk_MARKER_RESOLVE`, `0x4A5980`).
+pub fn pinned(quest: u32) -> bool {
+    !(9000..9500).contains(&quest)
+}
+
 /// How a quest log entry stands (`+4`): entered (2, `0x46C160`), won (100) or lost (101), as
 /// `ExitQuest` or `LoseQuest` ends it (`0x46CBE0`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -329,7 +335,7 @@ impl Quests {
     pub fn marker(&self, marker: Marker) -> Option<&Compass> {
         let quest = match marker {
             Marker::Main => self.newest[0],
-            Marker::Side => self.newest[1].filter(|quest| !(9000..9500).contains(quest)),
+            Marker::Side => self.newest[1].filter(|&quest| pinned(quest)),
         }?;
         (self.log.contains(&quest) && self.flags(quest) & FINISHED == 0)
             .then(|| self.compasses.get(&quest))
@@ -387,21 +393,25 @@ impl Quests {
     }
 
     /// The side quest `quest` made the one the inner pin follows, as a click on its row of the
-    /// quest book makes it (`0x49DAB0`, the manager's `+0x3A8`): one in the log, not ended;
-    /// whether it is.
+    /// quest book makes it (`0x49DAB0`, the manager's `+0x3A8`): one in the log, not ended, that
+    /// the pin may follow ([`pinned`]); whether it is. The original's click tracks one of 9000
+    /// to 9499 too, its pin then showing nothing (docs/decisions/interface.md, "Quest book tracks
+    /// what the pin follows").
     pub fn track(&mut self, quest: u32) -> bool {
-        let tracks = self.book.iter().any(|entry| {
-            entry.quest == quest && !entry.main() && entry.standing == Standing::Entered
-        });
+        let tracks = pinned(quest)
+            && self.book.iter().any(|entry| {
+                entry.quest == quest && !entry.main() && entry.standing == Standing::Entered
+            });
         if tracks {
             self.newest[1] = Some(quest);
         }
         tracks
     }
 
-    /// The side quest that the inner pin follows, the newest entered or the one tracked.
+    /// The side quest that the inner pin follows, the newest entered or the one tracked, none of
+    /// one that it may not follow ([`pinned`]).
     pub fn tracked(&self) -> Option<u32> {
-        self.newest[1]
+        self.newest[1].filter(|&quest| pinned(quest))
     }
 
     /// Whether a marker was set anew since the last call, for the bar's sonar.
@@ -1805,10 +1815,14 @@ mod tests {
         quests.set_compass(Some(120), cell(6, 6));
         assert!(!quests.take_fresh());
         assert_eq!(quests.marker(Marker::Side), None);
-        // 9000 to 9499 show no pin, and a finished quest no marker.
+        // 9000 to 9499 show no pin, and a finished quest no marker; the book neither tracks
+        // such a quest nor names it tracked (#1745).
         enter(&mut quests, 9001, &mut ran);
         quests.set_compass(Some(9001), cell(7, 7));
         assert_eq!(quests.marker(Marker::Side), None);
+        assert_eq!(quests.tracked(), None);
+        assert!(!quests.track(9001));
+        assert!(!pinned(9499) && pinned(9500) && pinned(8999));
         quests.exit(1, &mut runtime(&mut ran, true));
         assert_eq!(quests.marker(Marker::Main), None);
         // A compass that waited is gone with the next entry that enters nothing.
