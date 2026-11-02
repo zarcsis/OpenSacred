@@ -186,7 +186,11 @@ pub(crate) fn resolve(
         Has<Body>,
         Option<&crate::ai::Mind>,
         &GlobalTransform,
-        (Option<&Ranked>, Option<&crate::followers::Follower>),
+        (
+            Option<&Ranked>,
+            Option<&crate::followers::Follower>,
+            Option<&Holding>,
+        ),
     )>,
     mut targets: Query<
         (
@@ -203,7 +207,7 @@ pub(crate) fn resolve(
 ) {
     for hit in hits.read() {
         let (
-            Ok((attacker, hero, mind, from, (ranked, follower))),
+            Ok((attacker, hero, mind, from, (ranked, follower, holding))),
             Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim))),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -251,6 +255,11 @@ pub(crate) fn resolve(
         let factor = weapons_factor(side, level, ranked, &rules);
         blow.share = hit.share;
         blow.weapons = factor;
+        // The six sets' last bonuses: the strike's whole damage times the difficulty's factor
+        // (`0x56D0C9`, `set_bonuses::WHOLE_DAMAGE`; #1727).
+        if let Some(times) = holding.and_then(|holding| holding.0.sets.whole_damage) {
+            blow.weapons *= f64::from(times);
+        }
         if side == Some(Side::Defender) {
             debug!(
                 "fight: {} of level {level} strikes {}, its damage times {factor:.4}",
