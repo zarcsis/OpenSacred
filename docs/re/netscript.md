@@ -638,7 +638,7 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
   Repaired: the group's death gives him a death function with no records (docs/decisions/netscript.md, "Quests 2203, 7619 and 5005 end once").
   The same in the 10 Underworld trees and `bin/NetScript`.
 - **5005 (Pony Express)**: at the last leg the mage 17277 takes the dialogue `dlg_zwischenpe`, whose branch on bit 5 runs `exitpe`; `losepe`, which `timepe` starts 5 minutes after a leg's time runs out, writes the failure lines, loses the quest and removes the stations 17763 to 17766, but does not give the mage his dialogue back, which `exitpe` does (`NPC_Dialog_Magician`).
-  So after a failure on the last leg the mage still offers `exitpe`: the win line, `NQ_Log_Qend` and the reward, `ExitQuest` doing nothing to the lost quest (#939).
+  So after a failure on the last leg the mage still offers `exitpe`: the win line and `NQ_Log_Qend`, which `QuestBook` writes whatever the quest's flags (below), while its reward does nothing, `LoseQuest` having set the quest's flag 2 ("The rewards" above), and `ExitQuest` nothing to the lost quest either (#939, #1747).
   Repaired: `losepe` gives the mage his dialogue back (docs/decisions/netscript.md, "Quests 2203, 7619 and 5005 end once").
   The same in all 20 trees.
 - **10255 (Arachnophobia)**: each of its seven spider areas spawns a spider and calls `LoseQuest_10255`, which writes the line `DQ_10255_LOG_LOSE2` and gives the giver the dialogue `dlg_10255_Lost`, but has no `LoseQuest`, so the quest stays entered; its restart (`btn_accept_10255_REstart`) and its win (`btn_ok_10255_sieg`, which exits it) write no line.
