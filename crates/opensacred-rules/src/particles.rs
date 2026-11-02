@@ -727,7 +727,8 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
     }
 }
 
-/// The glitter's numbers (`0x8E808C`), whose sines move its sparks.
+/// The glitter's numbers (`0x8E808C`), whose sines move its sparks; the mouse events' sparks
+/// take the sixteen after them (`0x8E80CC`), which hold the same numbers.
 const GLITTER: [f32; 16] = [
     1.3452, 6.6458, 4.6646, 2.7472, 6.4337, 4.5351, 1.7371, 0.9962, 2.5993, 3.9645, 2.3992, 1.7379,
     2.8925, 0.0085, 6.7786, 5.5555,
@@ -753,20 +754,38 @@ pub struct Spark {
 /// of its `count` sparks wanders within 10 of the point by the sines of [`GLITTER`], its coloured
 /// square turning round the hues in two seconds, its grey square from 1 to 3 across.
 pub fn glitter(t: f32, count: u8) -> Vec<Spark> {
+    sparks(t, count, false)
+}
+
+/// The sparks of a mouse event that neither hides nor blinks, at its time `t` (`0x409D00`, the
+/// cursed gold's; docs/re/containers.md, "The mouse events"): as the glitter's, but each rising
+/// `25 |sin(3t + a[i + 6])|` above the point, its coloured square at half the glitter's value.
+pub fn event_sparks(t: f32, count: u8) -> Vec<Spark> {
+    sparks(t, count, true)
+}
+
+/// The glitter's sparks, or a mouse event's where `event`.
+fn sparks(t: f32, count: u8, event: bool) -> Vec<Spark> {
     let a = |i: i32| GLITTER[usize::try_from(i.rem_euclid(16)).unwrap_or(0)];
     let wave = |i: i32, [p, q, r, s]: [i32; 4]| {
         let first = (t * a(i + p) + a(i + q)).sin();
         (first, first * ((t * a(i + r) + a(i + s)).sin() + 1.0) * 5.0)
     };
+    let value = if event { 125.0 } else { 250.0 } / 255.0;
     (1..=i32::from(count))
         .map(|i| {
             let (_, across) = wave(i, [-6, -7, -5, 0]);
             let (_, along) = wave(i, [7, -8, 5, 1]);
             let (rise, up) = wave(i, [4, 6, 2, 3]);
+            let up = if event {
+                (3.0 * t + a(i + 6)).sin().abs() * 25.0
+            } else {
+                up
+            };
             let hue = (a(i + 4) - t).rem_euclid(1.0);
             Spark {
                 offset: [across, along, up],
-                colour: hue_colour(hue, 250.0 / 255.0),
+                colour: hue_colour(hue, value),
                 half: rise + 2.0,
             }
         })
@@ -818,6 +837,22 @@ mod tests {
         // A spark's hue turns once in two seconds of the game, its time running at half of them.
         let (now, later) = (glitter(3.0, 3), glitter(4.0, 3));
         assert!((now[0].colour[0] - later[0].colour[0]).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_mouse_events_sparks_rise_as_high_as_25_at_half_the_value() {
+        for step in 0..200 {
+            let t = step as f32 * 0.137;
+            let (event, glitter) = (event_sparks(t, 8), glitter(t, 8));
+            for (spark, glint) in event.iter().zip(&glitter) {
+                assert!((0.0..=25.0).contains(&spark.offset[2]));
+                // The same wander across and along, and the same grey square.
+                assert_eq!(spark.offset[..2], glint.offset[..2]);
+                assert!((spark.half - glint.half).abs() < f32::EPSILON);
+                let peak = spark.colour.iter().copied().fold(0.0, f32::max);
+                assert!((peak - 125.0 / 255.0).abs() < 1e-5);
+            }
+        }
     }
 
     #[test]

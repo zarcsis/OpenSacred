@@ -6,16 +6,23 @@
 //! of `PARTICLE_SPARK07`, both added to the frame and not tinted by the night. The sparks of
 //! `DETAILLEVEL` 2, the installation's, and each item's time its object's phase, a hundred
 //! milliseconds a step of its entity's index (**hypothesis**: the original's object's id).
+//!
+//! The mouse events that neither hide nor blink (the cursed gold, #1587) draw the same squares
+//! by `0x409D00` (`opensacred_rules::particles::event_sparks`): at their cell's centre on its
+//! ground (the original's height 0 over its flat ground), brought toward the camera as a stash's
+//! blink is, with no phase.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
-use opensacred_rules::particles::{GLITTER_SPARKS, SPARK_GREY, SPARK_HALF, glitter};
+use opensacred_rules::particles::{GLITTER_SPARKS, SPARK_GREY, SPARK_HALF, event_sparks, glitter};
+use opensacred_rules::quests::Look;
 
 use crate::drops::{Lying, Tables};
 use crate::frame::Playing;
 use crate::fx::{Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
+use crate::stashes::Stash;
 
 /// The textures of a spark's two squares.
 const COLOURED: &str = "particle_spark04";
@@ -65,13 +72,21 @@ fn begin(
     commands.insert_resource(Meshes(handles));
 }
 
-/// Lays each glittering item's sparks out at the frame's time.
+/// Lays each glittering item's sparks out at the frame's time, and each mouse event's of the
+/// sparks.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries as arguments"
+)]
 fn glitters(
     time: Res<Time>,
     handles: Option<Res<Meshes>>,
     tables: Option<Res<Tables>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    items: Query<(Entity, &GlobalTransform, &Lying)>,
+    (items, stashes): (
+        Query<(Entity, &GlobalTransform, &Lying)>,
+        Query<(&Stash, &Transform)>,
+    ),
 ) {
     let (Some(handles), Some(tables)) = (handles, tables) else {
         return;
@@ -87,6 +102,28 @@ fn glitters(
         let point = at.translation();
         for spark in glitter(time.elapsed_secs() * RATE + phase, SPARKS) {
             // The glitter's frame, its third coordinate up, at the world's scale.
+            let [across, along, up] = spark.offset;
+            let centre = point + Vec3::new(across, up, along) * SPACE;
+            let [r, g, b] = spark.colour;
+            coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
+            grey.push(
+                centre,
+                spark.half * SPACE,
+                0.0,
+                whole,
+                [SPARK_GREY, SPARK_GREY, SPARK_GREY, 1.0],
+            );
+        }
+    }
+    let events = event_sparks(time.elapsed_secs() * RATE, SPARKS);
+    for (_, at) in stashes
+        .iter()
+        .filter(|(stash, _)| stash.look == Look::Sparks)
+    {
+        // On its cell's ground, where the original's flat ground stands at the height 0.
+        let ground = at.translation - Vec3::Y * crate::stashes::PICKED_ABOVE;
+        let point = ground - iso::forward() * crate::stashes::TOWARD;
+        for spark in &events {
             let [across, along, up] = spark.offset;
             let centre = point + Vec3::new(across, up, along) * SPACE;
             let [r, g, b] = spark.colour;
