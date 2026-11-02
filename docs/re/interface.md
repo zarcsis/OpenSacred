@@ -68,10 +68,11 @@ The left orb is the weapon set (the left button's attack), the right orb the sel
 ### The compass (`0x6E3F70`)
 
 - Each frame it asks four map markers, `sdk_MARKER_RESOLVE(k, &x, &y, &colour)` for k = 0 to 3, each giving a direction (**hypothesis**: from the hero to the marker), and takes φ = atan2(x, y) + π/2.
-- Marker 0 (red): the sword (image 101) turned by φ about its middle at (512, 710).
-- Marker 1 (green): the pin 136 turned by φ at (512 + 30 sin φ, 710 − 15 cos φ), on an inner ellipse of 30 × 15.
-- Marker 2 (blue): the pin 137 turned by φ at (512 + 58 sin φ, 710 − 29 cos φ), on the outer ellipse of 58 × 29.
-- Marker 3 (white): blinks every 300 ms of real time between the outer pin 137 and the inner pin 136.
+- The colours named below are those the resolver gives the markers, not the pins' own: the image 136 has a blue dot and the image 137 a red one (the table above; #1747).
+- Marker 0 (the resolver's red): the sword (image 101) turned by φ about its middle at (512, 710).
+- Marker 1 (the resolver's green): the pin 136 turned by φ at (512 + 30 sin φ, 710 − 15 cos φ), on an inner ellipse of 30 × 15.
+- Marker 2 (the resolver's blue): the pin 137 turned by φ at (512 + 58 sin φ, 710 − 29 cos φ), on the outer ellipse of 58 × 29.
+- Marker 3 (the resolver's white): blinks every 300 ms of real time between the outer pin 137 and the inner pin 136.
 - All in the texture of image 136 (`GUI_main_01`), filter linear, vertex colour white.
 - A marker newly set (the taskbar's message `0x34` with its number k) starts a "sonar" ring: `FX_SONAREFFECT.TGA` tinted `0xDDCCAA` at (512, 711), from radius r = 10 out to r + 40, r growing 600 pixels a second until 500, its alpha falling (**hypothesis** for the alpha's formula), with the sound event (9, `0x46`); four can run at once.
 

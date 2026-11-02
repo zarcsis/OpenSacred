@@ -346,7 +346,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Interface windows | (14, 2) | 7000, 7104, 7106, 7108–7112 | a window opens or closes | partly (`inventory`) | 7111 and 7112 (#1267) |
 | Inventory | (9, 1, 2, 3, 5), `0x5D8000`, `0x5CAA60` | `UI_INV_*`, 7001/7003/7008, 7006 | an item put, refused, used; a potion drunk | partly (`held`, `belt`) | the put sounds (#1269); 7001, 7003, 7008 and 7006 (#1311) |
 | Runes read | `0x5CD100` → (7, 2) | 7010 (7009, 7011 by 7/3, 7/1) | an art learned | yes (`runes`, #1315) | no |
-| Compass pointer, quest book | (9, `0x46`), (9, `0x81`) | 7027, 7117 | the pointer; a quest's entry written | no | no |
+| Compass pointer, quest book | (9, `0x46`), (9, `0x81`) | 7027, 7117 | the pointer; a quest's item picked up (`cCreature::pickupItem`, below) | no | no |
 | Quest's fanfare | `0x46CBE0` → (9, `0x42`) | 6541 or 6542 (music once) | `ExitQuest` of a side quest | yes (scripts, #1242) | yes (`music`, #1243) |
 | Scripts' music | `PlayMusic` (127, `0x4ADAA0`), `PlayJingle` (128, `0x4ADD60`), `SetScriptSoundControle` (129, `0x6791C0`) | a music by name | as the script runs | yes (scripts) | yes (`music`, #1243) |
 | `InfoPlayer`'s sounds | `0x4AE350` | mode 3: 7000 | a notice | yes (`talk`) | no tree has the mode 3 |
