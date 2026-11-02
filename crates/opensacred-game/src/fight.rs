@@ -11,7 +11,8 @@ pub use opensacred_rules::fight::{
     level_start, most_health, regeneration, scripted_level, skills, tagged_level, takes_on,
 };
 use opensacred_rules::fight::{
-    Side, art_landed, poisons, range_factor, strike_landed, sure_landed, weapons_factor, weighed,
+    Side, armour_comment, art_landed, poisons, range_factor, strike_landed, sure_landed,
+    weapon_comment, weapons_factor, weighed,
 };
 use opensacred_rules::potions;
 
@@ -162,7 +163,10 @@ pub(crate) fn resolve(
     mut hits: MessageReader<Hit>,
     mut kills: MessageWriter<Kill>,
     mut lines: MessageWriter<crate::voices::Speak>,
-    mut blows: MessageWriter<crate::sfx::Blow>,
+    (mut blows, mut remarks): (
+        MessageWriter<crate::sfx::Blow>,
+        MessageWriter<crate::remarks::Remark>,
+    ),
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     (rules, mut last_foe, mut tally, mut records): (
@@ -328,6 +332,20 @@ pub(crate) fn resolve(
         } else {
             damage
         };
+        // The hero's comment on a strike that its armour did not resist or that its weapon's
+        // kind did not drive through (`0x56DE0C`, `0x56DF73`, #1673), by the strike's whole damage.
+        let comment = match side {
+            Some(Side::Defender) => {
+                armour_comment(&landed, damage).map(|kind| crate::remarks::Remark::Armour { kind })
+            }
+            Some(Side::Attacker) => weapon_comment(&landed, damage, health.most)
+                .map(|kind| crate::remarks::Remark::Weapon { kind }),
+            None => None,
+        };
+        if let Some(comment) = comment {
+            debug!("fight: the strike makes the hero comment {comment:?}");
+            remarks.write(comment);
+        }
         if !immortal {
             health.current = health.current.saturating_sub(damage);
         }
@@ -916,6 +934,7 @@ mod tests {
             .add_message::<Kill>()
             .add_message::<crate::voices::Speak>()
             .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()

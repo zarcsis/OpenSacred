@@ -3105,11 +3105,63 @@ pub fn art_attack(attack: f32, level: u32) -> f32 {
 /// What a strike that landed did (`0x56B130`): what it took off the defender's health, and what
 /// its poison may give it ([`poisons`]): the poison's damage as rolled (`[esp + 0xE0]`), the
 /// defender's poison resistance (`[esp + 0x160]`), and what of the poison the resistance and the
-/// damping let through (`[esp + 0x28]`), before the sum's factors.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// damping let through (`[esp + 0x28]`), before the sum's factors; and each kind's damage as
+/// rolled (`[esp + 0xD4]`…), the defender's resistance of it (`[esp + 0x154]`…) and what of it
+/// came through (the hint's words), which the hero's comments weigh ([`armour_comment`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Landed {
     pub damage: u32,
     pub poison: [f32; 3],
+    pub rolled: [f32; KINDS],
+    pub resistance: [f32; KINDS],
+    pub through: [f32; KINDS],
+}
+
+/// The kind of damage, 1 normal, 2 fire, 3 magic or 4 poison, that the hero's comment on a strike
+/// names (`0x56B130` at `0x56DCE0` and `0x56DE47`), the first whose test holds: the physical
+/// where it came through and the strike's whole damage `total` less it stays below half of it,
+/// the fire where twice it passes the physical, the magic and the poison where they came through
+/// and three times the fire passes the physical (the fire, as the original's code reads it, in
+/// both), each where its damage as rolled stands against its resistance as `beats` asks.
+fn comment_kind(landed: &Landed, total: u32, beats: [fn(f32, f32) -> bool; 2]) -> Option<u8> {
+    let [physical, fire, magic, poison] = landed.through;
+    let total = to_f32(total);
+    let against = |k: usize| {
+        let test = if k == 0 { beats[0] } else { beats[1] };
+        test(landed.rolled[k], landed.resistance[k])
+    };
+    if physical != 0.0 && total - physical < physical * 0.5 && against(0) {
+        Some(1)
+    } else if fire != 0.0 && fire * 2.0 > physical && against(1) {
+        Some(2)
+    } else if magic != 0.0 && fire * 3.0 > physical && against(2) {
+        Some(3)
+    } else if poison != 0.0 && fire * 3.0 > physical && against(3) {
+        Some(4)
+    } else {
+        None
+    }
+}
+
+/// The kind of the hero's `NOARMOR` comment on a strike that it took of the whole damage `total`
+/// (the event (9, `0xCA`), `0x56DE0C`): none of a strike of no damage; else as
+/// [`comment_kind`] where a kind's damage as rolled reaches its resistance.
+pub fn armour_comment(landed: &Landed, total: u32) -> Option<u8> {
+    if total == 0 {
+        return None;
+    }
+    comment_kind(landed, total, [|d, r| d >= r, |d, r| d >= r])
+}
+
+/// The kind of the hero's `NOWEAPON` comment on its strike of the whole damage `total` at a
+/// defender of the most health `most` (the event (9, `0xCB`), `0x56DF73`): only where the damage
+/// stays below an eighth of that health; then as [`comment_kind`] where the physical damage as
+/// rolled stays below its resistance, another kind's at most at its resistance.
+pub fn weapon_comment(landed: &Landed, total: u32, most: u32) -> Option<u8> {
+    if total >= most / 8 {
+        return None;
+    }
+    comment_kind(landed, total, [|d, r| d < r, |d, r| d <= r])
 }
 
 /// The kind of the poison's damage, the last of [`KINDS`].
@@ -3131,6 +3183,9 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice)
     Landed {
         damage: taken(total, blow.share, blow.weapons, blow.cap),
         poison: [rolled[POISON], defender.resistance[POISON], through[POISON]],
+        rolled: std::array::from_fn(|k| rolled.get(k).copied().unwrap_or(0.0)),
+        resistance: defender.resistance,
+        through: std::array::from_fn(|k| through.get(k).copied().unwrap_or(0.0)),
     }
 }
 
@@ -3890,6 +3945,7 @@ mod tests {
         let landed = |p, q, through| Landed {
             damage: 1,
             poison: [p, q, through],
+            ..Landed::default()
         };
         let mut rng = Rng::of(50, 39, 0);
         // 150 against 40: by 110, no roll; the share 3.75, slowing by 18 for 3.75 s, its value a
@@ -3906,10 +3962,41 @@ mod tests {
     }
 
     #[test]
+    fn the_heros_comments_name_the_kind_its_armour_or_its_weapon_failed() {
+        let landed = |rolled: [f32; 4], resistance: [f32; 4], through: [f32; 4]| Landed {
+            rolled,
+            resistance,
+            through,
+            ..Landed::default()
+        };
+        // A physical strike through a resistance it beats: the armour's normal comment.
+        let physical = landed([30.0, 0.0, 0.0, 0.0], [5.0; 4], [25.0, 0.0, 0.0, 0.0]);
+        assert_eq!(armour_comment(&physical, 20), Some(1));
+        assert_eq!(armour_comment(&physical, 0), None);
+        // Mostly fire: the physical's share too small, the fire's twice above it.
+        let fire = landed([10.0, 40.0, 0.0, 0.0], [5.0; 4], [6.0, 30.0, 0.0, 0.0]);
+        assert_eq!(armour_comment(&fire, 30), Some(2));
+        // The magic's and the poison's tests weigh the fire, as the original's code does.
+        let magic = landed([0.0, 0.0, 50.0, 0.0], [5.0; 4], [0.0, 0.0, 40.0, 0.0]);
+        assert_eq!(armour_comment(&magic, 30), None);
+        let both = landed([0.0, 4.0, 50.0, 0.0], [5.0; 4], [0.0, 1.0, 40.0, 0.0]);
+        assert_eq!(armour_comment(&both, 30), Some(3));
+        // The weapon's: a weak strike, below an eighth of the most health, rolled below the
+        // resistance; the other kinds at it count too.
+        let weak = landed([4.0, 0.0, 0.0, 0.0], [10.0; 4], [2.0, 0.0, 0.0, 0.0]);
+        assert_eq!(weapon_comment(&weak, 2, 100), Some(1));
+        assert_eq!(weapon_comment(&weak, 20, 100), None);
+        let equal = landed([0.0, 10.0, 0.0, 0.0], [10.0; 4], [0.0, 5.0, 0.0, 0.0]);
+        assert_eq!(weapon_comment(&equal, 3, 100), Some(2));
+        assert_eq!(armour_comment(&equal, 3), Some(2));
+    }
+
+    #[test]
     fn a_poison_passing_its_resistance_a_little_poisons_by_a_roll() {
         let landed = Landed {
             damage: 1,
             poison: [60.0, 10.0, 51.0],
+            ..Landed::default()
         };
         // By 50: poisoned where a roll of 1 to 100 falls below 50, about half the strikes.
         let mut rng = Rng::of(50, 39, 0);

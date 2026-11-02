@@ -517,6 +517,16 @@ impl Voices {
         self.waits.get(&id).is_some_and(|&until| until > now)
     }
 
+    /// The seconds at `now` since the last comment (the clock `+0xB7E8`), endless before any.
+    pub(crate) fn since_comment(&self, now: f64) -> f64 {
+        self.commented.map_or(f64::INFINITY, |at| now - at)
+    }
+
+    /// The comments' clock set back at `now` (`+0xB7E8` to 0).
+    pub(crate) fn clock_back(&mut self, now: f64) {
+        self.commented = Some(now);
+    }
+
     /// A comment of the sound id `id` said at `now`: the comments' clock set back (`+0xB7E8`)
     /// and the id waiting `wait` seconds (`0x679120`).
     pub(crate) fn commented(&mut self, id: u32, now: f64, wait: f64) {

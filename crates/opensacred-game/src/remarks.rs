@@ -21,6 +21,11 @@
 //! holds, so that it posts at every step, `0x593CE0`); its case out of the fight, every post
 //! setting its timer back, speaking past 180 s one time in four (`0x67D1D0`), waiting for silence
 //! and for its line's wait as the settlement's.
+//!
+//! On the strikes (#1673): `NOARMOR<kind>` as the hero takes a strike that its armour did not
+//! resist and `NOWEAPON<kind>` as its weak strike does not get through (`fight`'s resolution,
+//! `0x56DE0C`, `0x56DF73`), lost within 400 s of the last comment, else said with no roll and the
+//! comments' clock set back (`0x67F38B`, `0x67EF8C`).
 
 use std::collections::HashMap;
 
@@ -70,7 +75,19 @@ pub enum Remark {
     CantCarry,
     /// `APPROACHQLOC` (9, `0x3F`): the hero come near the newest quests' places (#1563).
     Approach,
+    /// `NOARMOR<kind>` (9, `0xCA`): a strike that the hero's armour did not resist, of the kind 1
+    /// normal, 2 fire, 3 magic or 4 poison (`0x56DE0C`, #1673).
+    Armour { kind: u8 },
+    /// `NOWEAPON<kind>` (9, `0xCB`): the hero's strike that its weapon's kind did not drive
+    /// through (`0x56DF73`, #1673).
+    Weapon { kind: u8 },
 }
+
+/// The kinds' words of the `NOARMOR` and `NOWEAPON` lines, from the kind 1.
+const KIND_WORDS: [&str; 4] = ["NORMAL", "FIRE", "MAGIC", "POISON"];
+/// The seconds since the last comment below which the strike's comments are lost (`0x67F38B`,
+/// the double 400 at `0x891A50`).
+const DAMAGE_COMMENT_AFTER: f64 = 400.0;
 
 impl Remark {
     /// How many lines a class has, one of which `rand() %` this picks.
@@ -83,6 +100,7 @@ impl Remark {
             Self::Settlement { .. } => 12,
             Self::CantCarry => 11,
             Self::Approach => 6,
+            Self::Armour { .. } | Self::Weapon { .. } => 1,
         }
     }
 
@@ -108,6 +126,16 @@ impl Remark {
             // The Dwarf's table names a tenth and an eleventh that the sound data lacks, silent.
             Self::CantCarry => format!("SOUND_FX_CANTCARRYMORE{n:02}_{class}"),
             Self::Approach => format!("SOUND_FX_APPROACHQLOC{n:02}_{class}"),
+            // One line of each kind for each class (`0x67F38B`, `0x67EF8C`).
+            Self::Armour { kind } | Self::Weapon { kind } => {
+                let word = KIND_WORDS.get(usize::from(kind.checked_sub(1)?))?;
+                let stem = if matches!(self, Self::Armour { .. }) {
+                    "NOARMOR"
+                } else {
+                    "NOWEAPON"
+                };
+                format!("SOUND_FX_{stem}{word}_{class}")
+            }
             // Six of the town, then six of the village, by consecutive ids: the Wood Elf, who
             // lacks her fifth of the village, says her fourth for it.
             Self::Settlement { .. } if n <= 6 => format!("SOUND_FX_COMEINTOTOWN_{n:02}_{class}"),
@@ -427,12 +455,26 @@ fn remark(
     let now = time.elapsed_secs_f64();
     let hero_at = heroes.single().ok().map(|(_, at)| at.translation());
     for &post in posts.read() {
+        // The strike's comments: lost within 400 s of the last comment, else the clock set back
+        // whether a line plays or not, with no roll, no test of the fight and no wait
+        // (`0x67F38B`, `0x67EF8C`).
+        if matches!(post, Remark::Armour { .. } | Remark::Weapon { .. }) {
+            let Some(voices) = voices.as_mut() else {
+                continue;
+            };
+            if voices.since_comment(now) < DAMAGE_COMMENT_AFTER {
+                continue;
+            }
+            voices.clock_back(now);
+        }
         let quiet = post.timer().is_none()
             || matches!(post, Remark::Region { .. })
             || hero_at.is_some_and(|at| calm(at, creatures.iter()));
-        // The roll first, as the cases draw it, but the approach's after its one in four.
+        // The roll first, as the cases draw it, but the approach's after its one in four, and
+        // none for the strike's comments.
         let first = post != Remark::Approach;
-        let mut n = if first {
+        let rolls = !matches!(post, Remark::Armour { .. } | Remark::Weapon { .. });
+        let mut n = if first && rolls {
             remarks.dice.below(post.count())
         } else {
             0
@@ -617,6 +659,20 @@ mod tests {
             Remark::Approach.name(1, 5).as_deref(),
             Some("SOUND_FX_APPROACHQLOC06_SERA")
         );
+    }
+
+    #[test]
+    fn the_strikes_comments_name_their_kinds_lines() {
+        assert_eq!(
+            Remark::Armour { kind: 1 }.name(1, 0).as_deref(),
+            Some("SOUND_FX_NOARMORNORMAL_SERA")
+        );
+        assert_eq!(
+            Remark::Weapon { kind: 4 }.name(2, 0).as_deref(),
+            Some("SOUND_FX_NOWEAPONPOISON_GLAD")
+        );
+        assert_eq!(Remark::Armour { kind: 5 }.name(1, 0), None);
+        assert_eq!(Remark::Weapon { kind: 0 }.name(1, 0), None);
     }
 
     #[test]
