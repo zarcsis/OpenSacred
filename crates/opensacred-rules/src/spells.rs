@@ -848,6 +848,22 @@ pub fn doom_kills(value: f32, word: u16) -> f32 {
     value + (f32::from(word) - 1000.0 * (value - 1.0)) / 3000.0
 }
 
+/// The most that the call of death's value of the word `word` rises to by kills, `1 + w/1000`,
+/// where [`doom_kills`] stands still (+90 % at the level 1, the word 900); the spell's tooltip
+/// tells it.
+pub fn doom_most(word: u16) -> f32 {
+    1.0 + f32::from(word) / 1000.0
+}
+
+/// The time's factor (the effect 15) that the choir's objects give a creature of the level
+/// `target`, the spell at the level `level` (`0x527DA9`, its object's action 9):
+/// `clamp(2M/(15·L), 0.5, 1)`, a boss's level times 1.3 left to the caller; the spell's tooltip
+/// tells it against the hero's own level.
+pub fn choir_slows(target: u32, level: u32) -> f32 {
+    let (m, l) = (f64::from(target), f64::from(level.max(1)));
+    narrow((2.0 * m / (15.0 * l)).clamp(0.5, 1.0))
+}
+
 /// The call of death's value after `seconds`, falling by its whole value over 1000 a second to
 /// no less than 1 (`0x56373E`).
 pub fn doom_fades(value: f32, whole: i32, seconds: f32) -> f32 {
@@ -1139,6 +1155,14 @@ mod tests {
         assert!((doom_kills(once, 900) - 1.5).abs() < 1e-6);
         assert!((doom_fades(1.3, 60, 2.0) - 1.18).abs() < 1e-6);
         assert_eq!(doom_fades(1.03, 60, 1.0), 1.0);
+        // The most the kills raise it to: where a kill adds nothing, 1.9 (#1741).
+        assert!((doom_most(900) - 1.9).abs() < 1e-6);
+        assert!((doom_kills(doom_most(900), 900) - doom_most(900)).abs() < 1e-6);
+        // The choir's slowing: 2M/(15·L) held to 0.5 to 1.
+        assert!((choir_slows(30, 4) - 1.0).abs() < 1e-6);
+        assert!((choir_slows(15, 2) - 1.0).abs() < 1e-6);
+        assert!((choir_slows(12, 2) - 0.8).abs() < 1e-6);
+        assert!((choir_slows(1, 5) - 0.5).abs() < 1e-6);
         // 63: the fire (4, 1), the attack (20, 20), the value 1 25 + 5·L, twice.
         let mut force = record(FORCE, &[(1, [4, 1]), (4, [20, 20])], [29, 1], 90);
         force.values[1] = [25, 5];

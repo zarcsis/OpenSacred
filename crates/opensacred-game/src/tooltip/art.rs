@@ -654,7 +654,15 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
     let weapon = v.weapon.is_some();
     let magic_lore = || ftol(float(v.v(0)) * (1.0 + f64::from(0.01_f32) * v.hero.curve(14)));
     let lines = match id {
-        1 => vec![whole(n(1083), v.v(0))],
+        // The farthest the teleport takes the caster, `v0 − 1` steps of 10 (`spells::teleport`,
+        // `TELEPORT_STEP`) in metres as the other ranges, where the original's line prints the
+        // count of its steps `v0` as the range (#1741).
+        1 => vec![metres(
+            n(1083),
+            f64::from(0.02_f32)
+                * f64::from(opensacred_rules::spells::TELEPORT_STEP)
+                * float((v.v(0) - 1).max(0)),
+        )],
         2 => vec![
             seconds(n(1097), v.v(0)),
             signed_pc(n(1167), v.e(5)),
@@ -746,11 +754,16 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             pc(k("UI_STAT_REDUCE_ENEMY_PHY_RES"), ten_thousandth(v.e(6))),
             duration(),
         ],
+        // The most that the kills raise the strikes' damage to, of its word `v1`
+        // (`spells::doom_most`), where the original's line takes a tenth of the duration `v0`,
+        // +3 % for +90 % at the level 1 (#1741).
         62 if spell => vec![
             plain(format!(
                 "{}: +{}%",
                 k("UI_MAX_DMGBONUS"),
-                ftol(f64::from(stored(f64::from(0.1_f32) * float(v.v(0)))) + 0.5)
+                per_cent(f64::from(opensacred_rules::spells::doom_most(
+                    u16::try_from(v.v(1)).unwrap_or(0)
+                )))
             )),
             duration(),
         ],
@@ -765,9 +778,10 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             seconds(k("UI_DAUER_TENTAKEL"), v.v(1)),
             seconds(k("UI_DAUER_AURA"), v.v(0)),
         ],
+        // The time's factor that the choir's objects give a creature of the hero's level
+        // (`spells::choir_slows`), where the original's line weighs `0.75·a/(5·L)` (#1741).
         66 if spell => {
-            let level = f64::from(v.hero.level);
-            let q = (0.75 * level / (5.0 * v.l())).clamp(0.5, 1.0);
+            let q = f64::from(opensacred_rules::spells::choir_slows(v.hero.level, v.level));
             vec![
                 dmg(v.damages(false)),
                 plain(format!(
@@ -1020,39 +1034,36 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             }
             lines
         }
-        1089 if weapon => {
-            let allies = ftol(50.0 * v.w58());
-            vec![
-                plain(format!(
-                    "{}: {:+}% ({}: {allies:+}%)",
-                    n(1166),
-                    ftol(100.0 * v.w50()),
-                    k("UI_STAT_ON_ALLIES")
-                )),
-                plain(format!(
-                    "{}: {:+}% ({}: {allies:+}%)",
-                    n(1167),
-                    ftol(100.0 * v.w58()),
-                    k("UI_STAT_ON_ALLIES")
-                )),
-                seconds(n(1097), ftol(f64::from(0.01_f32) * float(v.w60()))),
-            ]
-        }
+        // The allies take half of each effect, the attack's of `W50`, and the time is
+        // `W60/100` seconds, where the original's line takes the attack's half of `W58` and the
+        // float 0.01 a little short, a whole time one short (#1741).
+        1089 if weapon => vec![
+            plain(format!(
+                "{}: {:+}% ({}: {:+}%)",
+                n(1166),
+                ftol(100.0 * v.w50()),
+                k("UI_STAT_ON_ALLIES"),
+                ftol(50.0 * v.w50())
+            )),
+            plain(format!(
+                "{}: {:+}% ({}: {:+}%)",
+                n(1167),
+                ftol(100.0 * v.w58()),
+                k("UI_STAT_ON_ALLIES"),
+                ftol(50.0 * v.w58())
+            )),
+            seconds(n(1097), ftol(float(v.w60()) / 100.0)),
+        ],
         1094 if weapon => vec![
             signed_pc(n(1167), ftol(100.0 * v.w58())),
             signed_pc(n(1098), v.w60() - 100),
             seconds(n(1097), ftol(v.w50().min(180.0))),
         ],
+        // The effects 1 and 3 of `W68/100` and `W60/100`, in per cent their whole `W68` and
+        // `W60`, where the original's line takes the float 0.01 a little short, 19 for 20 (#1741).
         1097 if weapon => vec![
-            signed_pc(
-                n(1166),
-                ftol(100.0 * (f64::from(0.01_f32) * float(v.w68()))),
-            ),
-            plain(format!(
-                "{} {:+}%",
-                k("UI_PHY_DMG"),
-                ftol(100.0 * (f64::from(0.01_f32) * float(v.w60())))
-            )),
+            signed_pc(n(1166), v.w68()),
+            plain(format!("{} {:+}%", k("UI_PHY_DMG"), v.w60())),
             plain(format!(
                 "{} {:+}",
                 k("INVENTAR_RES_PHYSICAL"),
