@@ -41,14 +41,14 @@ const SCROLL_SPAN: i64 = 26;
 const GAMEBOXES: i64 = 5150;
 const GAMEBOX_SPAN: i64 = 10;
 
-/// A `FillChest`'s operands: the value (`0x53`), a type (`0x02`), a count of books (`0x86`) and
-/// whether it names its container (`0x01`). The counts of random items (`0x57`) are not
-/// followed: their categories' table (`0x890B60`) is not read.
+/// A `FillChest`'s operands: the value (`0x53`), a type (`0x02`), a count of books (`0x86`), a
+/// count of random items (`0x57`) and whether it names its container (`0x01`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Fill {
     pub value: Option<i32>,
     pub item: Option<u32>,
     pub books: u32,
+    pub randoms: u32,
     pub named: bool,
 }
 
@@ -100,7 +100,7 @@ pub fn seed(hero: (u32, u32, u64), container: (i32, i32, u32)) -> u64 {
 /// type's price (`+0x08`): a value `v + R(0, ⌊v/10⌋ + 1)`, or without a value, books or type the
 /// hero's level times 800; for a value above 0, nothing in [`SPAWN_ITEM`]`[0] + 1` cases of 101 (a
 /// creature raised by a raising container), else the run of items and its gold; then the books;
-/// then the type named, where there is no value.
+/// then the type named, where there is no value; then the random items ([`random_items`]).
 pub fn fill(
     fill: &Fill,
     opening: &mut Opening<'_>,
@@ -139,7 +139,48 @@ pub fn fill(
             level: hero.level,
         });
     }
+    random_items(fill.randoms, hero, catalogue, &mut made, dice);
     made
+}
+
+/// The level of a random item of a `FillChest`'s `0x57` for the hero's level `level` and the roll
+/// `rand()`, `roll`: `⌊rand()/32768·(L − 1) + 1⌋`, 1 to `L`.
+fn random_level(level: u32, roll: u32) -> u32 {
+    let share = f64::from(roll) / 32_768.0;
+    let level = (share * f64::from(level.saturating_sub(1)) + 1.0).floor();
+    u32::try_from(crate::fight::truncated(level)).unwrap_or(1)
+}
+
+/// The random items of a `FillChest`'s `0x57`, `count` of them (#1412; docs/re/containers.md,
+/// "The contents", 7): each of a random category ([`drops::random_category`], `0x43B090(0)`) at
+/// the level `⌊rand()/32768·(L − 1) + 1⌋` of the hero's level `L`, its type of the item maker for
+/// the hero's class (`0x5C7FA0` with the hero's luck and type; **hypothesis**: of the run's quality
+/// and not loose), none of no category or of no type.
+fn random_items(
+    count: u32,
+    hero: &Hero,
+    catalogue: &Catalogue,
+    made: &mut Vec<Content>,
+    dice: &mut impl Dice,
+) {
+    for _ in 0..count {
+        let category = drops::random_category(dice);
+        let level = random_level(hero.level, dice.below(32_768));
+        if category == 0 {
+            continue;
+        }
+        let wanted = Wanted {
+            category,
+            level,
+            class: hero.creature,
+            loose: false,
+            quality: RUN_QUALITY,
+            kind: None,
+        };
+        if let Some(item) = catalogue.choose(wanted, hero, dice) {
+            made.push(Content::Item { item, level });
+        }
+    }
 }
 
 /// The creature that a raising container raises (`0x4A0786`): the ghost in 2 cases of 3, else a
@@ -398,6 +439,14 @@ mod tests {
                 level: 1
             }]
         );
+    }
+
+    #[test]
+    fn a_random_items_level_is_one_to_the_heros() {
+        assert_eq!(random_level(21, 0), 1);
+        assert_eq!(random_level(21, 16_384), 11);
+        assert_eq!(random_level(21, 32_767), 20);
+        assert_eq!(random_level(1, 32_767), 1);
     }
 
     #[test]
