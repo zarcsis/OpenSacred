@@ -239,6 +239,7 @@ In a run of 19,684 walks on random 16 × 16 grids, 30% of their cells closed, at
 The line's two thirds and the radius of `+0x399` are not followed: the line is clear only to its end, and every walker is a cell wide.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
 Since #1731 the hero's way to a target whose cell it may not step into, a container's or a hostile creature's, ends at the neighbour of it that the original's goal takes (`opensacred_rules::ways::goal`, "The way's goal" above), and beside it already, it goes straight on to it, until the step into its cell is refused.
+Its attack's and its art's approaches to a creature name the level the creature stands on, on which the goal is tested, as the original tests it on the target's floor.
 Before, its search ended in the closed cell itself and found no way: sent to a chest or a creature behind a wall, the hero ran straight into the wall and stopped there, while a click on the ground behind it found the way round.
 The walking NPCs' ways end in their target's cell whoever stands there (#883), and do not ask the goal.
 A click sends the hero to the cell under the cursor and onto its level as the original finds them (`pick`, #208), the way's search ending on that level (`opensacred_rules::ways::path_onto`); the test of nearness is a circle of √1200 · 1.52 world units, not the models' frame's slightly squeezed one, and where nothing is found the hero goes to the point of the cursor's line of sight at its own height.
