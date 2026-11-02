@@ -279,7 +279,15 @@ fn engage(
         ),
         Without<Dies>,
     >,
-    targets: Query<(&GlobalTransform, &Health, Option<&crate::ai::Mind>), Without<Dies>>,
+    targets: Query<
+        (
+            &GlobalTransform,
+            &Health,
+            Option<&crate::ai::Mind>,
+            Option<&crate::crowd::InTheWay>,
+        ),
+        Without<Dies>,
+    >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     (mut hits, mut shots, mut bolts): (
         MessageWriter<fight::Hit>,
@@ -313,7 +321,7 @@ fn engage(
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
-            .filter(|(_, health, _)| health.current > 0);
+            .filter(|(_, health, ..)| health.current > 0);
         // With the Seraphim's effect 17, or 16 beyond 200, it shoots bolts (`0x53A170` at
         // `0x53AACE`).
         let bolt = effects.and_then(|effects| {
@@ -330,9 +338,11 @@ fn engage(
         let reach = minds::reach(
             size.map_or(minds::SIZE, |size| size.0),
             target
-                .and_then(|(_, _, mind)| mind)
+                .and_then(|(_, _, mind, _)| mind)
                 .map_or(minds::SIZE, |mind| mind.size()),
         );
+        // The level it stands on, which the hero's way to it is tested on (`0x4F8560`).
+        let onto = target.and_then(|(.., way)| way).map(|way| way.level);
         let target = target.map(|(at, ..)| at.translation());
         let here = transform.translation;
         let Some((mut player, mut transitions)) =
@@ -480,7 +490,7 @@ fn engage(
             minds::hero_comes_on(attack.at_once, distance, reach)
         };
         if comes_on {
-            body.send(aimed);
+            body.send_to(aimed, onto);
             attack.phase = Phase::ComesOn;
             continue;
         }

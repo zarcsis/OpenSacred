@@ -110,6 +110,80 @@ pub fn nearer(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<C
         .find(|&cell| walkable(cell))
 }
 
+/// A cell's eight neighbours in the order the way's search tries them for a target it may not
+/// step into (`0x890F70`): the four sides from the one at `y − 1` clockwise, then the four
+/// corners from the one at `x − 1, y − 1` clockwise.
+const BESIDE: [(i32, i32); 8] = [
+    (0, -1),
+    (1, 0),
+    (0, 1),
+    (-1, 0),
+    (-1, -1),
+    (1, -1),
+    (1, 1),
+    (-1, 1),
+];
+
+/// How far along an axis, in cells, the distance to a neighbour counts (`0x4F8560`): a farther
+/// one is that far.
+const COUNTED_WITHIN: u32 = 32_000;
+/// The distance a neighbour has to come within to be taken (`0x4F8560`'s first bound).
+const TAKEN_WITHIN: u32 = 1_000;
+
+/// Where a way's search ends ([`goal`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Goal {
+    /// The search heads for this cell: the target's own, or a neighbour of it.
+    Cell(Cell),
+    /// The walker stands beside its target already, which it may not step into: no search.
+    Beside,
+}
+
+/// Where a way's search from `from` ends for the target `to` (`0x4F8560`, which both of the
+/// original's searches, `0x4F8AF0` and `0x4F9410`, ask first): the target's own cell where the
+/// walker may step into it (`open`, the step's test `0x4F7E10` on the target's floor); else the
+/// neighbour of it ([`BESIDE`]) that it may step into nearest `from`, the first of those as near,
+/// so that a walker sent to a chest or a creature goes round what is between them to the cell
+/// beside it; [`Goal::Beside`] where `from` is one of the neighbours; and the target's own cell
+/// again where it may step into none, which the search does not reach.
+pub fn goal(from: Cell, to: Cell, open: impl Fn(Cell) -> bool) -> Goal {
+    if open(to) {
+        return Goal::Cell(to);
+    }
+    let mut best = (TAKEN_WITHIN, to);
+    for (dx, dy) in BESIDE {
+        let cell = (to.0 + dx, to.1 + dy);
+        if cell == from {
+            return Goal::Beside;
+        }
+        if !open(cell) {
+            continue;
+        }
+        let distance = distance(from, cell);
+        if distance < best.0 {
+            best = (distance, cell);
+        }
+    }
+    Goal::Cell(best.1)
+}
+
+/// The distance between two cells as `0x4F8560` takes it: the integer square root of the sum of
+/// the squares, rounded to the nearest whole, each axis's difference held at [`COUNTED_WITHIN`];
+/// [`COUNTED_WITHIN`] itself beyond.
+fn distance(a: Cell, b: Cell) -> u32 {
+    let (dx, dy) = ((a.0 - b.0).unsigned_abs(), (a.1 - b.1).unsigned_abs());
+    if dx > COUNTED_WITHIN || dy > COUNTED_WITHIN {
+        return COUNTED_WITHIN;
+    }
+    let squared = dx * dx + dy * dy;
+    let root = squared.isqrt();
+    if squared - root * root > root {
+        root + 1
+    } else {
+        root
+    }
+}
+
 /// A cell's eight neighbours in a ring, clockwise from the one at `y − 1` (`0x955874`).
 const RING: [(i32, i32); 8] = [
     (0, -1),
@@ -681,6 +755,36 @@ mod tests {
         let wall = |cell: Cell| cell.1 < 30;
         assert_eq!(nearer((10, 10), (10, 50), wall), Some((10, 29)));
         assert_eq!(nearer((10, 10), (10, 50), |_| false), None);
+    }
+
+    #[test]
+    fn a_target_it_may_not_step_into_is_left_for_the_neighbour_nearest_the_walker() {
+        let chest = (5, 5);
+        let closed = |cell: Cell| cell != chest;
+        // A target it may step into stays.
+        assert_eq!(goal((0, 0), (5, 6), closed), Goal::Cell((5, 6)));
+        // From the west, the side; from the north-east, the corner, 2.24 away, the sides 2.83
+        // and more.
+        assert_eq!(goal((0, 5), chest, closed), Goal::Cell((4, 5)));
+        assert_eq!(goal((8, 3), chest, closed), Goal::Cell((6, 4)));
+        // Neighbours as near by the rounded root: the first tried. From (0, 10) the corner at
+        // (4, 6) is 5.66 away and the side at (5, 6) 6.40, both rounding to 6: the side.
+        assert_eq!(distance((0, 10), (4, 6)), 6);
+        assert_eq!(distance((0, 10), (5, 6)), 6);
+        assert_eq!(goal((0, 10), chest, closed), Goal::Cell((5, 6)));
+        // The walker beside it: no search, whatever comes before its cell in the order.
+        assert_eq!(goal((6, 6), chest, closed), Goal::Beside);
+        // A wall along x = 4 west of it: the nearest it may step into, round the wall.
+        let walled = |cell: Cell| cell != chest && cell.0 != 4;
+        assert_eq!(goal((0, 5), chest, walled), Goal::Cell((5, 4)));
+        // Walled in: the target itself.
+        assert_eq!(goal((0, 5), chest, |_| false), Goal::Cell(chest));
+        // Far: held at 32,000 along an axis, and not taken past 1,000.
+        assert_eq!(distance((0, 0), (40_000, 0)), COUNTED_WITHIN);
+        assert_eq!(
+            goal((0, 5), (2_000, 5), |cell| cell.0 != 2_000),
+            Goal::Cell((2_000, 5))
+        );
     }
 
     #[test]

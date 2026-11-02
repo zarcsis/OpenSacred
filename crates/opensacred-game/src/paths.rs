@@ -12,7 +12,7 @@ use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use opensacred_rules::ways;
 #[cfg(test)]
 pub use opensacred_rules::ways::path;
-pub use opensacred_rules::ways::{around, path_onto};
+pub use opensacred_rules::ways::{Goal, around, goal, path_onto};
 
 use crate::iso;
 
