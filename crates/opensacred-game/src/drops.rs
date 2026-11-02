@@ -905,6 +905,25 @@ fn luck_of(holding: Option<&fight::Holding>) -> (f32, bool) {
     })
 }
 
+/// The alchemy of the hero of `holding`, its items' effect 868, and the balance's parameters of
+/// it in `rules` (#1802); none without the hero's items or the rules.
+fn alchemy_of(
+    holding: Option<&fight::Holding>,
+    rules: Option<&fight::Rules>,
+) -> Option<(f32, [f32; 3])> {
+    let (holding, rules) = (holding?, rules?);
+    let value = opensacred_rules::fight::item_effect(
+        &holding.0.items,
+        opensacred_rules::fight::ALCHEMY,
+        None,
+    );
+    Some((value, rules.rare(opensacred_rules::fight::ALCHEMY)))
+}
+
+/// The killer's values of a death's drops: its greed's `s`, its luck and set 22's potions, and
+/// its alchemy.
+type Killer = (u32, (f32, bool), Option<(f32, [f32; 3])>);
+
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
 /// the time played, its greed's `s` and its luck, on the game's difficulty.
 fn death(
@@ -914,7 +933,7 @@ fn death(
     rank: fight::Rank,
     worth: &fight::Worth,
     hero: Hero,
-    (played, (treasure, (luck, potions)), difficulty): (f32, (u32, (f32, bool)), drops::Difficulty),
+    (played, (treasure, (luck, potions), alchemy), difficulty): (f32, Killer, drops::Difficulty),
 ) -> Death {
     Death {
         dead: Dead {
@@ -931,6 +950,7 @@ fn death(
             treasure,
             luck,
             potions,
+            alchemy,
             ..Kill::default()
         },
         difficulty,
@@ -1045,7 +1065,11 @@ fn dies(
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
     mut last: ResMut<LastJewel>,
-    (played, difficulty): (Res<Played>, Option<Res<crate::game::Difficulty>>),
+    (played, difficulty, rules): (
+        Res<Played>,
+        Option<Res<crate::game::Difficulty>>,
+        Option<Res<fight::Rules>>,
+    ),
     experience: Res<fight::Experience>,
     assets: Res<AssetServer>,
     creatures: Query<(
@@ -1093,6 +1117,10 @@ fn dies(
         .iter()
         .next()
         .map_or((LUCK, false), |(.., holding)| luck_of(holding));
+    let alchemy = heroes
+        .iter()
+        .next()
+        .and_then(|(.., holding)| alchemy_of(holding, rules.as_deref()));
     let hero = heroes
         .iter()
         .next()
@@ -1114,7 +1142,7 @@ fn dies(
         hero,
         (
             played.0,
-            (treasure, luck),
+            (treasure, luck, alchemy),
             difficulty.map_or_else(Default::default, |difficulty| difficulty.0),
         ),
     );
@@ -1455,7 +1483,7 @@ fn make_nearest(
         rank.0,
         worth,
         hero,
-        (played.0, (0, luck_of(holding)), difficulty),
+        (played.0, (0, luck_of(holding), None), difficulty),
     );
     let mut made = Vec::new();
     for _ in 0..times.0 {
