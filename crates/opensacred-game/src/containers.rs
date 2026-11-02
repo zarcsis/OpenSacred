@@ -219,13 +219,11 @@ fn open(
             // Its window with the inventory, emptied while it shows (`0x6ACFC0`).
             container.emptied = true;
             stash.0.0 = Some(opens.0);
+            // The stash's window's show plays its (14, 2, 24), `UI_CLICK01` (`0x6ACD80`), and the
+            // inventory's its own as it shows with it (#1767).
+            crate::inventory::play(&mut sounds, crate::inventory::CLICK);
             if !stash.1.0 {
                 stash.1.0 = true;
-                sounds.write(sfx::Play {
-                    sound: sfx::Of::Id(crate::inventory::OPENS),
-                    at: None,
-                    rate: (0.5, sfx::Roll::None),
-                });
             }
             continue;
         }
@@ -513,8 +511,9 @@ fn clips(
 const EMPTIED_AT_ONCE: f32 = 1000.0;
 
 /// As the inventory hides with a town stash's window shown, the window hides with it (`0x6ACD80`):
-/// the stash is no more emptied and its trigger closes, its lid with its clip of closing and its
-/// sound (the event `0x21`, `0x416280`, the sound group 3).
+/// its (14, 2, 24), `UI_CLICK01` (seen, #1767); the stash is no more emptied and its trigger
+/// closes, its lid with its clip of closing and its sound (the event `0x21`, `0x416280`, the sound
+/// group 3).
 fn close_stash(
     (shown, mut opened): (Res<Shown>, ResMut<crate::town_stash::Opened>),
     mut containers: Query<&mut Container>,
@@ -526,6 +525,7 @@ fn close_stash(
         return;
     };
     opened.0 = None;
+    crate::inventory::play(&mut sounds, crate::inventory::CLICK);
     let Ok(mut container) = containers.get_mut(stash) else {
         return;
     };

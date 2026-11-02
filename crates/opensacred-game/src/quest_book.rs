@@ -1159,9 +1159,9 @@ fn rebuild(
     play(sounds, TURNS);
 }
 
-/// `L`, the bar's book button and Esc show and hide the book, with their sounds; the book's show
-/// hides the inventory, and the inventory's show the book; neither while the world map shows
-/// (`0x757840`).
+/// `L`, the bar's book button and Esc show and hide the book, with their sounds, the button with
+/// its click; the book's show hides the inventory, and the inventory's show the book; neither
+/// while the world map shows (`0x757840`).
 #[expect(
     clippy::too_many_arguments,
     reason = "the keys, the click, the windows it hides and its sounds"
@@ -1189,13 +1189,19 @@ pub(crate) fn toggle(
     if !(pressed || clicked || escaped) {
         return;
     }
+    // The button's click, then the book's (14, 2, 8) as it shows and hides; shown, its tab's
+    // select builds it once more than its show (each (14, 2, 10)), and the inventory hides in
+    // silence (seen, #1767).
+    if clicked {
+        play(&mut sounds, crate::inventory::CLICK);
+    }
     book.shown = !book.shown;
     play(&mut sounds, CLOSES);
     if book.shown {
         book.stale = true;
+        play(&mut sounds, TURNS);
         if inventory.0 {
             inventory.0 = false;
-            play(&mut sounds, crate::inventory::CLOSES);
         }
     }
 }

@@ -10,8 +10,9 @@
 //! As the inventory hides, the window hides with it (`0x6ACD80`): the stash is no more emptied
 //! and its lid closes with its sound.
 //!
-//! Not followed yet: the hovered item's tooltip (`0x75B390`), the window's own opening and closing
-//! sounds over the inventory's, and the saves (#1095).
+//! The window's show and hide each play its `UI_CLICK01` (`containers`, #1767).
+//!
+//! Not followed yet: the hovered item's tooltip (`0x75B390`) and the saves (#1095).
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
