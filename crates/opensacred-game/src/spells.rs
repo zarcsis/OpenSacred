@@ -904,7 +904,7 @@ struct Teleporting {
 
 /// The dice of the spells' choices at random.
 #[derive(Resource)]
-struct Dice(crate::spawning::Rng);
+pub(crate) struct Dice(crate::spawning::Rng);
 
 /// A sight that goes after its time.
 #[derive(Component, Debug, Clone, Copy)]
@@ -935,7 +935,7 @@ struct Mine {
 /// light and the lightning's;
 /// a mine and its blast; the hell disk, a flame and a lost soul.
 #[derive(Resource)]
-struct Looks {
+pub(crate) struct Looks {
     disc: Handle<Mesh>,
     discs: [Handle<StandardMaterial>; 7],
     column: Handle<Mesh>,
@@ -1008,6 +1008,52 @@ fn make_looks(
         mine,
         blast,
     });
+}
+
+/// Makes a hail of meteors, the hero's or a creature's (#1852): the record's count at the
+/// spell's level `level`, each about `point` within its scatter, falling after a wait at random
+/// (`0x524A83`), striking with `damages` on the level `on` what is hostile to its caster.
+pub(crate) fn meteors(
+    commands: &mut Commands,
+    dice: &mut Dice,
+    (record, level): (&opensacred_data::tables::Spell, u32),
+    (caster, on): (Entity, Level),
+    point: Vec3,
+    damages: [f32; 4],
+) {
+    for _ in 0..spells::count(record, level) {
+        let mut off = || {
+            let span = u32::try_from(2 * spells::METEOR_SCATTER + 1).unwrap_or(1);
+            let roll = i32::try_from(dice.0.below(span)).unwrap_or(0);
+            f32::from(i16::try_from(spells::METEOR_SCATTER - roll).unwrap_or(0))
+        };
+        let (dx, dz) = (off(), off());
+        let wait = fight_seconds(dice.0.below(spells::METEOR_WAIT + 1)) / 1000.0;
+        commands.spawn((
+            Meteor {
+                caster,
+                at: point + Vec3::new(dx, 0.0, dz),
+                damages,
+                level: on,
+                lands: wait + spells::METEOR_FALLS,
+            },
+            Transform::from_translation(point + Vec3::new(dx, 500.0, dz)),
+            Visibility::Hidden,
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
+/// The lightning's column over the place `at` of what it strikes, the hero's or a creature's
+/// (#1852), fading after its time.
+pub(crate) fn lightning(commands: &mut Commands, looks: &Looks, at: Vec3) {
+    commands.spawn((
+        Mesh3d(looks.column.clone()),
+        MeshMaterial3d(looks.lightning.clone()),
+        Transform::from_translation(at + Vec3::Y * 200.0),
+        Fades(LIGHTNING_SHOWS),
+        DespawnOnExit(AppState::InGame),
+    ));
 }
 
 /// Carries out each spell that acts.
@@ -1485,29 +1531,15 @@ fn act(
                 }
             }
             spells::METEORS => {
-                // Each about the point, falling after a wait at random (`0x524A83`).
                 let damages = bolt_damages(record, level, multipliers);
-                for _ in 0..spells::count(record, act.level) {
-                    let mut off = || {
-                        let span = u32::try_from(2 * spells::METEOR_SCATTER + 1).unwrap_or(1);
-                        let roll = i32::try_from(dice.0.below(span)).unwrap_or(0);
-                        f32::from(i16::try_from(spells::METEOR_SCATTER - roll).unwrap_or(0))
-                    };
-                    let (dx, dz) = (off(), off());
-                    let wait = fight_seconds(dice.0.below(spells::METEOR_WAIT + 1)) / 1000.0;
-                    commands.spawn((
-                        Meteor {
-                            caster: act.caster,
-                            at: act.point + Vec3::new(dx, 0.0, dz),
-                            damages,
-                            level: body.level(),
-                            lands: wait + spells::METEOR_FALLS,
-                        },
-                        Transform::from_translation(act.point + Vec3::new(dx, 500.0, dz)),
-                        Visibility::Hidden,
-                        DespawnOnExit(AppState::InGame),
-                    ));
-                }
+                meteors(
+                    &mut commands,
+                    &mut dice,
+                    (record, act.level),
+                    (act.caster, body.level()),
+                    act.point,
+                    damages,
+                );
             }
             spells::CHAIN => {
                 // Its first strike on its target at once, then its leaps (`0x526CAA`).
@@ -1827,13 +1859,7 @@ fn act(
                     poison: false,
                 });
                 if let Some(looks) = &looks {
-                    commands.spawn((
-                        Mesh3d(looks.column.clone()),
-                        MeshMaterial3d(looks.lightning.clone()),
-                        Transform::from_translation(place.translation() + Vec3::Y * 200.0),
-                        Fades(LIGHTNING_SHOWS),
-                        DespawnOnExit(AppState::InGame),
-                    ));
+                    lightning(&mut commands, looks, place.translation());
                 }
             }
             spell => {
@@ -2435,6 +2461,7 @@ fn meteor(
         ),
         (Without<Body>, Without<Meteor>, Without<Dies>),
     >,
+    heroes: Query<(Entity, &GlobalTransform, &Body, &Health), (Without<Meteor>, Without<Dies>)>,
     mut hits: MessageWriter<fight::Hit>,
 ) {
     let dt = time.delta_secs();
@@ -2450,26 +2477,43 @@ fn meteor(
                 meteor.at + Vec3::Y * (meteor.lands / spells::METEOR_FALLS * 500.0);
             continue;
         }
+        // The creatures hostile to the hero, or a creature's meteor (#1852) the hero alone.
         let centre = meteor.at.xz();
-        for (target, at, way, mind, health, size) in &creatures {
-            if way.creature
-                && way.level == meteor.level
-                && mind.hostile()
-                && health.current > 0
-                && (at.translation().xz() - centre).length()
-                    < spells::METEOR_REACH + size.map_or(arrows::size(0), |size| size.0)
-            {
-                hits.write(fight::Hit {
-                    attacker: meteor.caster,
-                    target,
-                    share: 1.0,
-                    ranged: false,
-                    art: None,
-                    fixed: Some(meteor.damages),
-                    sure: true,
-                    poison: false,
-                });
-            }
+        let near = |at: &GlobalTransform, size: f32| {
+            (at.translation().xz() - centre).length() < spells::METEOR_REACH + size
+        };
+        let struck: Vec<Entity> = if heroes.contains(meteor.caster) {
+            creatures
+                .iter()
+                .filter(|(_, at, way, mind, health, size)| {
+                    way.creature
+                        && way.level == meteor.level
+                        && mind.hostile()
+                        && health.current > 0
+                        && near(at, size.map_or(arrows::size(0), |size| size.0))
+                })
+                .map(|(target, ..)| target)
+                .collect()
+        } else {
+            heroes
+                .iter()
+                .filter(|(_, at, body, health)| {
+                    body.level() == meteor.level && health.current > 0 && near(at, arrows::size(0))
+                })
+                .map(|(target, ..)| target)
+                .collect()
+        };
+        for target in struck {
+            hits.write(fight::Hit {
+                attacker: meteor.caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(meteor.damages),
+                sure: true,
+                poison: false,
+            });
         }
         if let Some(looks) = &looks {
             commands.spawn((
