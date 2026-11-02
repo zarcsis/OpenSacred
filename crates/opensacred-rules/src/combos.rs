@@ -165,10 +165,12 @@ pub fn cost(old: &[Step; STEPS], new: &[Step; STEPS]) -> u32 {
     held * changed
 }
 
-/// Whether a master's button may be pressed (`0x6D26D0`): a step holds an art and the gold is the
-/// cost or more.
+/// Whether a master's button lights and its total shows as affordable: a step holds an art and
+/// the master makes the combo at the gold ([`makes`]). The original's (`0x6D26D0`) lights them
+/// with the gold equal to the cost too, where a press makes nothing (docs/decisions/arts.md,
+/// "Combat master's button lit where a press makes the combo").
 pub fn affordable(new: &[Step; STEPS], cost: u32, gold: u32) -> bool {
-    new.iter().any(Option::is_some) && cost <= gold
+    new.iter().any(Option::is_some) && makes(cost, gold)
 }
 
 /// Whether the master makes the combo (`0x6D22A0`): the gold above the cost, strictly, so that
@@ -300,10 +302,12 @@ mod tests {
         // A fourth of the level 2 added: 4 · 200 = 800.
         let more = [new[0], new[1], new[2], Some((1072, 2))];
         assert_eq!(cost(&new, &more), 800);
-        // The button lit at the cost, the make strictly above it (seen).
-        assert!(affordable(&new, 1_800, 1_800));
+        // The make strictly above the cost (seen), and the button lit only where a press makes
+        // the combo (#1743), where the original's lights at the cost too.
         assert!(!makes(1_800, 1_800));
         assert!(makes(1_800, 1_801));
+        assert!(!affordable(&new, 1_800, 1_800));
+        assert!(affordable(&new, 1_800, 1_801));
         assert!(!affordable(&old, 0, 100));
     }
 }

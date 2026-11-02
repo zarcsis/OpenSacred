@@ -3187,6 +3187,16 @@ impl Arts {
         }
     }
 
+    /// Takes the art `art`'s shortcut off, as [`Self::bind`] takes one off the other entries of
+    /// its slot: its word keeps only its four low bits. The original's spells page takes the key
+    /// off its list alone and keeps the entry's, which its next showing puts back
+    /// (docs/decisions/arts.md, "Spells page's key cleared with its binding").
+    pub fn unbind(&mut self, art: u16) {
+        for entry in self.entries.iter_mut().filter(|entry| entry.art == art) {
+            entry.flags &= 0xF;
+        }
+    }
+
     /// The level that `creature` makes `art` at (`0x580A10`): its entry's level and bonus, the
     /// class's own for the generic 1061 and 1062; a creature that is no player's and lacks the
     /// art makes it at `⌊its level / 5⌋ + 1`, a player's not at all.
