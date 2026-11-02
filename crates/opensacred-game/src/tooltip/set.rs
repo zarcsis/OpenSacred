@@ -119,6 +119,8 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
             words.of("UI_RARE_EXORZIST").trim_end(),
             tenths(value)
         )),
+        // The original's own line of set 26 at 7 (`0x571710`), the Dark Elf's stealth.
+        Told::Unseen => white(n(783)),
         // The open wounds' chance of a strike, as the items' effect 857 is worded.
         Told::OpenWounds(chance) => white(format!("{}: {}", n(1151), share(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
@@ -340,6 +342,7 @@ mod tests {
         assert_eq!(told(Told::GoldPile(20.0)), ["<1143>: +20%"]);
         assert_eq!(told(Told::OpenWounds(11.0 / 101.0)), ["<1151>: +10.9%"]);
         assert_eq!(told(Told::Exorcist(0.501)), ["<UI_RARE_EXORZIST>: +0.5"]);
+        assert_eq!(told(Told::Unseen), ["<783>"]);
         assert_eq!(
             told(Told::Bonus(Bonus::Multiplier(
                 Array::Spells,

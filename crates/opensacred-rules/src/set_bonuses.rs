@@ -506,6 +506,9 @@ pub enum Reader {
     GoldForHealth(f32),
     /// The effect 856's value of a hit grows by `c·D` (M14, `0x56F68F`; `fight::gold_pile`).
     GoldPile(f32),
+    /// The Dark Elf goes unseen by the creatures while it stands, walks or runs out of a fight
+    /// (M9, the query `0x54A6D0`; the update `0x5396DB` gives it the effect 63, not followed).
+    Unseen,
     /// The killer's effect 863, the exorcism, grows by `c·D` at an undead's death (M20,
     /// `0x532D77`, `0x532D9F`; `undead::exorcised`): set 61's flag `0x2000000` first, then set 54.
     Exorcist(f32),
@@ -564,6 +567,7 @@ pub const READERS: &[Read] = &[
     read(62, 4, Reader::Wounds(0.2)),
     read(16, 6, Reader::GoldForHealth(30.0)),
     read(30, 5, Reader::GoldPile(10.0)),
+    read(26, 7, Reader::Unseen),
     read(61, 4, Reader::Exorcist(0.15)),
     read(54, 7, Reader::Exorcist(0.3)),
     read(31, 5, Reader::OpenWounds(10.0)),
@@ -688,6 +692,13 @@ impl Stats {
                 Reader::GoldForHealth(c) => value + c * self.factor,
                 _ => value,
             })
+    }
+
+    /// Whether its sets let the Dark Elf go unseen out of a fight ([`Reader::Unseen`]).
+    pub fn unseen(&self) -> bool {
+        self.worn
+            .reads()
+            .any(|read| matches!(read.reads, Reader::Unseen))
     }
 
     /// The effect 863's value `value` of the killer's items, grown by its sets in turn
@@ -899,6 +910,8 @@ pub enum Told {
     OpenWounds(f32),
     /// The effect 863's value more, `c·D` ([`Reader::Exorcist`]).
     Exorcist(f32),
+    /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
+    Unseen,
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -942,6 +955,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 }
                 Reader::GoldPile(c) => Told::GoldPile(c * d),
                 Reader::Exorcist(c) => Told::Exorcist(c * d),
+                Reader::Unseen => Told::Unseen,
                 Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
             };
             Some((read.pieces, line))
