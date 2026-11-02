@@ -322,4 +322,4 @@ Not followed: the quest's line (an item of `+0x14` bit `0x800`, the quest items'
 - `0x43F710` (the cube); whether the reference `0x11`'s fit refuses any item.
 - The cells' mark `0x40`.
 - The combos' fields that the cocktails set (docs/re/arts.md).
-- The tooltip's: who writes the item's `+0xFC`, the record's bit `0x40`, `0x43CA20` and `0x603EA0` in the refusal, the classes of `0x5C95C0`, `0x5C9800`, `0x5CC1F0`, `0x5CC780` and `0x5CCC40`, and `UNIQUE_COLOR`'s default.
+- The tooltip's: who writes the item's `+0xFC`, the record's bit `0x40`, the classes of `0x5C95C0`, `0x5C9800`, `0x5CC1F0`, `0x5CC780` and `0x5CCC40`, and `UNIQUE_COLOR`'s default.
