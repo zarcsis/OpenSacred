@@ -6,7 +6,8 @@
 //! (`fight::Rules::creature_spell_damage`), and whose clip's end gives the creature its melee
 //! again from its start (`opensacred_rules::minds::Mind::cast_ends`). The game follows the mark
 //! 1's spells as the hero's make them, striking the hero: the magic skeletons' fireball and the
-//! mummies' whirlwind (`bolts`), the mummy 03's lightning and the orc shaman's meteors (`spells`).
+//! mummies' whirlwind (`bolts`), the mummy 03's lightning and the orc shaman's meteors (`spells`),
+//! and their flesh to stone, which holds the hero (`hero_held`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -25,14 +26,9 @@ const FOLLOWED: [u16; 4] = [
     spells::METEORS,
 ];
 
-/// Whether the game follows a creature's cast of the spell `spell`.
-pub fn follows(spell: u16) -> bool {
-    FOLLOWED.contains(&spell)
-}
-
 /// Whether a creature of type `creature` is a caster whose spell the game follows.
 pub fn casts(creature: u32) -> bool {
-    casts::mark_1(creature).is_some_and(|(spell, _)| follows(spell))
+    casts::mark_1(creature).is_some_and(|(spell, _)| FOLLOWED.contains(&spell))
 }
 
 /// A creature's cast in course, until its clip ends: its spell and its variant, its target and
@@ -82,7 +78,8 @@ fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind
 /// its damage `MagieAll`'s share of the hero's, as the hero's spell acts (`spells`): the
 /// fireball a bolt toward its target's place, the whirlwind a fan of bolts along the line to it,
 /// the lightning a strike on its target, the meteors a hail about its target's place as the cast
-/// was ordered.
+/// was ordered, the stone the effect 15 on the hero for its value 0 in seconds (`0x52494F`),
+/// refused on a hero that an effect of the stone holds already (`0x582B00`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -101,6 +98,7 @@ fn act(
         With<ClipActs>,
     >,
     places: Query<&GlobalTransform>,
+    held: Query<Option<&crate::effects::Effects>, With<crate::hero::Body>>,
     (arts, rules, looks, mut dice): (
         Option<Res<crate::arts::HeroArts>>,
         Res<crate::fight::Rules>,
@@ -177,6 +175,28 @@ fn act(
                 if let Some(looks) = &looks {
                     crate::spells::lightning(&mut commands, looks, place);
                 }
+            }
+            spells::STONE => {
+                let Ok(effects) = held.get(cast.target) else {
+                    continue;
+                };
+                if effects.is_some_and(|effects| effects.holds_any(&[spells::STONE])) {
+                    continue;
+                }
+                let seconds =
+                    f32::from(u16::try_from(spells::value(record, 0, level)).unwrap_or(u16::MAX));
+                let effect = opensacred_rules::fight::Effect {
+                    id: spells::HELD,
+                    whole: 0,
+                    value: 0.0,
+                    art: u32::from(spells::STONE),
+                    level: 0,
+                };
+                commands
+                    .entity(cast.target)
+                    .entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(move |mut effects| effects.add(effect, seconds));
             }
             spells::METEORS => {
                 crate::spells::meteors(
