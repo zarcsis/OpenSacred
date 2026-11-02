@@ -3,8 +3,9 @@
 //! bonus from a count of the set's pieces on, its value scaled by the difficulty's factor `D`.
 //!
 //! [`TABLE`] holds the bonuses that the switch writes into the stats; the bonuses that other code
-//! applies by the counts (the strike, the luck, the death, docs/re/sets.md §4) and the lines of
-//! the set's tooltip follow in later steps of #1727 and #1670.
+//! applies by the counts (the strike, the luck, the death, docs/re/sets.md §4) follow in later
+//! steps of #1727. [`told`] gives the lines of the equipment window's list of the sets (#1670)
+//! from the same values that [`stats`] applies.
 
 use std::collections::BTreeMap;
 
@@ -320,16 +321,16 @@ pub const TABLE: &[Entry] = &[
 ];
 
 /// The pieces of the sets that a wearer wears (`0x5796A0`'s item loop, `0x5711F0`): by set, the
-/// count of the distinct types of its pieces, and the sets one of whose pieces holds another
-/// piece of the set in each of its three first sockets.
+/// distinct types of its pieces (the list `0xAD4224`), and the sets one of whose pieces holds
+/// another piece of the set in each of its three first sockets.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Worn {
-    counts: BTreeMap<u8, u8>,
+    types: BTreeMap<u8, Vec<u32>>,
     filled: Vec<u8>,
 }
 
 impl Worn {
-    /// The counts of `pieces`, each an item's type and its set's number (`Weapon.pak +0x23`, 0
+    /// The pieces of `pieces`, each an item's type and its set's number (`Weapon.pak +0x23`, 0
     /// for none): the distinct types of each set, as the recomputation lists them once each.
     pub fn of(pieces: impl IntoIterator<Item = (u32, u8)>) -> Self {
         let mut types: BTreeMap<u8, Vec<u32>> = BTreeMap::new();
@@ -339,14 +340,15 @@ impl Worn {
                 of_set.push(item);
             }
         }
-        let counts = types
-            .into_iter()
-            .map(|(set, items)| (set, u8::try_from(items.len()).unwrap_or(u8::MAX)))
-            .collect();
         Self {
-            counts,
+            types,
             filled: Vec::new(),
         }
+    }
+
+    /// Whether a piece of the type `item` is worn, which the list colours (`0x571710`'s text).
+    pub fn wears(&self, item: u32) -> bool {
+        self.types.values().any(|types| types.contains(&item))
     }
 
     /// With the set `set` filled: a piece of it holds another piece of it in each of its three
@@ -360,12 +362,14 @@ impl Worn {
 
     /// How many distinct pieces of the set `set` are worn.
     pub fn count(&self, set: u8) -> u8 {
-        self.counts.get(&set).copied().unwrap_or(0)
+        self.types
+            .get(&set)
+            .map_or(0, |types| u8::try_from(types.len()).unwrap_or(u8::MAX))
     }
 
-    /// The sets worn, each with its count.
+    /// The sets worn, each with its count, by their numbers.
     pub fn sets(&self) -> impl Iterator<Item = (u8, u8)> + '_ {
-        self.counts.iter().map(|(&set, &count)| (set, count))
+        self.types.keys().map(|&set| (set, self.count(set)))
     }
 
     /// The entries of [`TABLE`] that the counts reach, those of a filled set's sockets only
@@ -392,10 +396,34 @@ pub enum Special {
     RangedCurves,
 }
 
+/// A set's bonus valued at the difficulty's factor as the switch values it: a [`Give`] whose
+/// number is `⌊c·D⌋` or `c·D`, both [`stats`] and [`told`] taking it from [`valued`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Bonus {
+    Attribute(usize, f32),
+    Skill(u8, u32),
+    Arts(&'static [u16], u32),
+    AllArts(u32),
+    Multiplier(Array, &'static [usize], f32),
+    ResistanceFactor(usize, f32),
+    Resistance(usize, f32),
+    AttackSpeed(f32),
+    AttackTimes(f32),
+    DefenceTimes(f32),
+    ArtsSpeed(f32),
+    PaceTimes(f32),
+    Flag(u32),
+    CreatureFlag(u32),
+    Special(Special),
+}
+
 /// What the sets worn give the stats, summed over the entries reached, each number scaled by
 /// the difficulty's factor as the switch scales it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Stats {
+    /// The pieces worn, whose counts the readers of the sets test and whose list the equipment
+    /// window's set icon shows (#1670).
+    pub worn: Worn,
     /// The attributes `a0` to `a5`.
     pub attributes: [f32; 6],
     /// The skills' bonuses, by skill.
@@ -438,6 +466,16 @@ pub const WHOLE_DAMAGE: u32 = 0x7C2;
 /// The set whose six pieces add to the survival bonus, and from how many pieces (M12).
 const SURVIVAL_SET: (u8, u8) = (28, 6);
 
+/// The set whose seven pieces turn the backpack's items into gold, and from how many pieces (the
+/// query `0x51`, `0x55DE75`; M19).
+const INTO_GOLD_SET: (u8, u8) = (53, 7);
+
+/// Whether the wearer of `worn` answers the query `0x51`: Shift with a left click on a backpack's
+/// item turns it into its worth in gold (docs/re/inventory.md, §3).
+pub fn into_gold(worn: &Worn) -> bool {
+    worn.count(INTO_GOLD_SET.0) >= INTO_GOLD_SET.1
+}
+
 /// `⌊c·D⌋`, the float product truncated (`0x55E070`).
 fn whole(c: f32, d: f32) -> f32 {
     (c * d).trunc()
@@ -453,10 +491,47 @@ fn count(value: f32) -> u32 {
     value.max(0.0) as u32
 }
 
+/// The bonus that `gives` gives at the difficulty's factor `d`.
+pub fn valued(gives: Give, d: f32) -> Bonus {
+    match gives {
+        Attribute(i, c) => Bonus::Attribute(i, whole(c, d)),
+        Skill(skill, c) => Bonus::Skill(skill, count(whole(c, d))),
+        Give::Arts(arts, c) => Bonus::Arts(arts, count(whole(c, d))),
+        AllArts(c) => Bonus::AllArts(count(whole(c, d))),
+        Multiplier(array, kinds, c) => Bonus::Multiplier(array, kinds, c * d),
+        ResistanceFactor(kind, c) => Bonus::ResistanceFactor(kind, c * d),
+        Resistance(kind, c) => Bonus::Resistance(kind, whole(c, d)),
+        AttackSpeed(c) | AttackSpeedWhenFilled(c) => Bonus::AttackSpeed(whole(c, d)),
+        AttackTimes(c) => Bonus::AttackTimes(c * d),
+        DefenceTimes(c) => Bonus::DefenceTimes(c * d),
+        ArtsSpeed(c) | ArtsSpeedWhenFilled(c) => Bonus::ArtsSpeed(c * d),
+        PaceTimes(c) => Bonus::PaceTimes(c * d),
+        Flag(bit) | FlagWhenFilled(bit) => Bonus::Flag(bit),
+        CreatureFlag(bit) => Bonus::CreatureFlag(bit),
+        Festive => Bonus::Special(Special::Festive),
+        StrengthPart(c) => Bonus::Special(Special::StrengthPart(whole(c, d))),
+        ResistanceCurves => Bonus::Special(Special::ResistanceCurves),
+        RangedCurves => Bonus::Special(Special::RangedCurves),
+    }
+}
+
+/// The survival bonus's part that the set 28 of `worn` adds at the factor `d`, `10·D` of the
+/// whole set, else none.
+fn survival(worn: &Worn, d: f32) -> f32 {
+    if worn.count(SURVIVAL_SET.0) >= SURVIVAL_SET.1 {
+        10.0 * d
+    } else {
+        0.0
+    }
+}
+
 /// What the sets of `worn` give on the difficulty `difficulty` (`0x571710` over the sets worn).
 pub fn stats(worn: &Worn, difficulty: Difficulty) -> Stats {
     let d = factor(difficulty);
-    let mut stats = Stats::default();
+    let mut stats = Stats {
+        worn: worn.clone(),
+        ..Stats::default()
+    };
     let add_skill = |stats: &mut Stats, skill: u8, value: u32| match stats
         .skills
         .iter_mut()
@@ -466,50 +541,85 @@ pub fn stats(worn: &Worn, difficulty: Difficulty) -> Stats {
         None => stats.skills.push((skill, value)),
     };
     for entry in worn.reached() {
-        match entry.gives {
-            Attribute(i, c) => stats.attributes[i] += whole(c, d),
-            Skill(skill, c) => add_skill(&mut stats, skill, count(whole(c, d))),
-            Give::Arts(arts, c) => {
+        match valued(entry.gives, d) {
+            Bonus::Attribute(i, value) => stats.attributes[i] += value,
+            Bonus::Skill(skill, value) => add_skill(&mut stats, skill, value),
+            Bonus::Arts(arts, value) => {
                 for &art in arts {
                     match stats.arts.iter_mut().find(|(id, _)| *id == art) {
-                        Some((_, bonus)) => *bonus += count(whole(c, d)),
-                        None => stats.arts.push((art, count(whole(c, d)))),
+                        Some((_, bonus)) => *bonus += value,
+                        None => stats.arts.push((art, value)),
                     }
                 }
             }
-            AllArts(c) => stats.all_arts += count(whole(c, d)),
-            Multiplier(array, kinds, c) => {
+            Bonus::AllArts(value) => stats.all_arts += value,
+            Bonus::Multiplier(array, kinds, value) => {
                 let to = match array {
                     Damage => &mut stats.damage,
                     Weapon => &mut stats.weapon,
                     Spells => &mut stats.spells,
                 };
                 for &kind in kinds {
-                    to[kind] += c * d;
+                    to[kind] += value;
                 }
             }
-            ResistanceFactor(kind, c) => stats.resistance_factors[kind] += c * d,
-            Resistance(kind, c) => stats.resistances[kind] += whole(c, d),
-            AttackSpeed(c) | AttackSpeedWhenFilled(c) => stats.attack_speed += whole(c, d),
-            AttackTimes(c) => stats.attack_times += c * d,
-            DefenceTimes(c) => stats.defence_times += c * d,
-            ArtsSpeed(c) | ArtsSpeedWhenFilled(c) => stats.arts_speed += c * d,
-            PaceTimes(c) => stats.pace_times = Some(c * d),
-            Flag(bit) | FlagWhenFilled(bit) => stats.flags |= bit,
-            CreatureFlag(bit) => stats.creature_flags |= bit,
-            Festive => stats.specials.push(Special::Festive),
-            StrengthPart(c) => stats.specials.push(Special::StrengthPart(whole(c, d))),
-            ResistanceCurves => stats.specials.push(Special::ResistanceCurves),
-            RangedCurves => stats.specials.push(Special::RangedCurves),
+            Bonus::ResistanceFactor(kind, value) => stats.resistance_factors[kind] += value,
+            Bonus::Resistance(kind, value) => stats.resistances[kind] += value,
+            Bonus::AttackSpeed(value) => stats.attack_speed += value,
+            Bonus::AttackTimes(value) => stats.attack_times += value,
+            Bonus::DefenceTimes(value) => stats.defence_times += value,
+            Bonus::ArtsSpeed(value) => stats.arts_speed += value,
+            Bonus::PaceTimes(times) => stats.pace_times = Some(times),
+            Bonus::Flag(bit) => stats.flags |= bit,
+            Bonus::CreatureFlag(bit) => stats.creature_flags |= bit,
+            Bonus::Special(special) => stats.specials.push(special),
         }
     }
     if stats.flags & WHOLE_DAMAGE != 0 {
         stats.whole_damage = Some(d);
     }
-    if worn.count(SURVIVAL_SET.0) >= SURVIVAL_SET.1 {
-        stats.survival = 10.0 * d;
-    }
+    stats.survival = survival(worn, d);
     stats
+}
+
+/// A line of a set's list in the equipment window's tooltip (#1670): a bonus that its pieces
+/// worn reach, told as the game applies it (the rule of #1737; docs/re/sets.md §8).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Told {
+    /// A bonus of the stats, valued.
+    Bonus(Bonus),
+    /// A strike's whole damage's share more, `D − 1`.
+    WholeDamage(f32),
+    /// The survival bonus's part, in per cent.
+    Survival(f32),
+    /// The backpack's items turned into gold ([`into_gold`]).
+    IntoGold,
+}
+
+/// The lines of the set `set` of `worn` on the difficulty `difficulty`, in its bonuses' order:
+/// each bonus of [`TABLE`] reached, valued as [`stats`] values it; the six sets' flag of the
+/// whole damage as its share more, none on bronze, where `D` changes nothing; no line of a flag
+/// whose readers the game does not follow; set 28's survival bonus and set 53's gold.
+pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
+    let d = factor(difficulty);
+    let mut lines: Vec<Told> = worn
+        .reached()
+        .filter(|entry| entry.set == set)
+        .filter_map(|entry| match valued(entry.gives, d) {
+            Bonus::Flag(bit) if bit & WHOLE_DAMAGE != 0 => {
+                (d > 1.0).then_some(Told::WholeDamage(d - 1.0))
+            }
+            Bonus::Flag(_) | Bonus::CreatureFlag(_) => None,
+            bonus => Some(Told::Bonus(bonus)),
+        })
+        .collect();
+    if set == SURVIVAL_SET.0 && survival(worn, d) > 0.0 {
+        lines.push(Told::Survival(survival(worn, d)));
+    }
+    if set == INTO_GOLD_SET.0 && into_gold(worn) {
+        lines.push(Told::IntoGold);
+    }
+    lines
 }
 
 #[cfg(test)]

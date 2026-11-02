@@ -1776,6 +1776,31 @@ pub(crate) fn curve(triple: [f32; 3], level: u32) -> f32 {
     stored(per_cent(triple, level))
 }
 
+/// Set 46's bonus at the wearer's level `level` (`0x565D70`): the Resistance skill's curves at a
+/// quarter of the level, at least 1, each kind's over 100 to its resistance's factor, and its
+/// pace's curve, which the pace takes added and truncated.
+pub fn resistance_curves(rules: &Rules, level: u32) -> ([f32; KINDS], f32) {
+    let at = (level / 4).max(1);
+    (
+        rules
+            .curves
+            .resistances
+            .map(|triple| curve(triple, at) / 100.0),
+        curve(rules.curves.pace, at),
+    )
+}
+
+/// Set 48's bonus at the wearer's level `level` with a ranged weapon in hand: the Ranged Combat
+/// skill's curves at a third of the level, at least 1, over 100 to `A`'s multiplier, and its
+/// speed's, truncated, to the attack speed.
+pub fn ranged_curves(rules: &Rules, level: u32) -> (f32, f32) {
+    let at = (level / 3).max(1);
+    (
+        curve(rules.curves.ranged, at) / 100.0,
+        curve(rules.curves.ranged_speed, at).trunc(),
+    )
+}
+
 /// A skill's per cent at level `level` as the world's x87 unit computes it at 53 bits, before
 /// it is stored ([`curve`]): the most health's raise keeps it on the unit (`0x5658F0`, #598).
 fn per_cent([off, steps, most]: [f32; 3], level: u32) -> f64 {
@@ -2560,16 +2585,16 @@ pub fn combat_with(
                 damage[0][1] += part;
             }
             Special::ResistanceCurves => {
-                let at = (level / 4).max(1);
-                for (factor, triple) in resistance_items.iter_mut().zip(rules.curves.resistances) {
-                    *factor += curve(triple, at) / 100.0;
+                let (factors, raised) = resistance_curves(rules, level);
+                for (factor, share) in resistance_items.iter_mut().zip(factors) {
+                    *factor += share;
                 }
-                pace = (pace + curve(rules.curves.pace, at)).trunc();
+                pace = (pace + raised).trunc();
             }
             Special::RangedCurves if holds.ranged => {
-                let at = (level / 3).max(1);
-                attack_times += curve(rules.curves.ranged, at) / 100.0;
-                speed_bonus += curve(rules.curves.ranged_speed, at).trunc();
+                let (share, speed) = ranged_curves(rules, level);
+                attack_times += share;
+                speed_bonus += speed;
             }
             Special::RangedCurves => {}
         }

@@ -17,6 +17,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use opensacred_rules::inventory::{Put, drop_cell, held_at};
+use opensacred_rules::set_bonuses;
 
 use crate::backpack::{self, Matte, cell_under, on_grid};
 use crate::buildings::Buildings;
@@ -341,10 +342,12 @@ fn drop_held(
 /// Shift with a left press on the backpack's item, with the cursor empty and neither a merchant's
 /// window nor the town stash's showing, drops the item beside the hero (`0x6C0150`: the engine's
 /// event `0x14`, `cEngine::dropItem` at the hero's place); a hero who answers its query `0x51`
-/// (more than six pieces of the set 53 worn, **hypothesis**) would sell it there for its value
-/// instead, which the game does not count yet.
+/// (seven pieces of the set 53 worn, `set_bonuses::into_gold`, #1670) turns it into its worth in
+/// gold instead, its record's price (its query 3, `0x5BEB30(−1) + 8`), the item destroyed
+/// (`0x5FBDB0`) and the worth added to the gold (`0x57FD80`).
 #[expect(
     clippy::too_many_arguments,
+    clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn drop_shifted(
@@ -359,7 +362,10 @@ fn drop_shifted(
         Res<crate::town_stash::Opened>,
     ),
     asking: Option<Res<crate::purchase::Asking>>,
-    (heights, heroes): (Res<Heights>, Query<(&Transform, &Body)>),
+    (heights, heroes): (
+        Res<Heights>,
+        Query<(&Transform, &Body, Option<&crate::fight::Holding>)>,
+    ),
     (assets, tables, mut dice): (Res<AssetServer>, Option<Res<Tables>>, ResMut<Dice>),
 ) {
     if !shown.0
@@ -372,7 +378,7 @@ fn drop_shifted(
     {
         return;
     }
-    let (Some(tables), Some((transform, body))) = (tables, heroes.iter().next()) else {
+    let (Some(tables), Some((transform, body, holding))) = (tables, heroes.iter().next()) else {
         return;
     };
     let Some(cell) = on_grid(&pointer, &ui_scale, &windows, &page).and_then(cell_under) else {
@@ -384,6 +390,16 @@ fn drop_shifted(
     let Some((_, dropped)) = pack.take_out(key) else {
         return;
     };
+    if holding.is_some_and(|holding| set_bonuses::into_gold(&holding.0.sets.worn)) {
+        let worth = tables.worth(&dropped).max(0);
+        let gold = i64::from(pack.gold).saturating_add(worth).min(0x7FFF_FFFE);
+        pack.gold = u32::try_from(gold).unwrap_or(pack.gold);
+        info!(
+            "held: {} turned into {worth} gold, {} now",
+            dropped.item, pack.gold
+        );
+        return;
+    }
     let here = transform.translation;
     let level = body.level();
     let hero_cell = paths::cell_of(here.x, here.z);

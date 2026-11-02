@@ -296,7 +296,7 @@ fn wrap(text: &str, code: usize) -> Vec<String> {
 }
 
 /// The lines of `text` in `colour` as the window breaks them, after a code of `code` characters.
-fn wrapped(text: &str, code: usize, colour: u32) -> impl Iterator<Item = Line> {
+pub(super) fn wrapped(text: &str, code: usize, colour: u32) -> impl Iterator<Item = Line> {
     wrap(text, code)
         .into_iter()
         .map(move |line| Line::of(line, colour))
