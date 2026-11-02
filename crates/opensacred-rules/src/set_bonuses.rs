@@ -465,6 +465,19 @@ pub struct Stats {
 /// The flags of `+0x148` under which a strike's whole damage is times the difficulty's factor:
 /// the last bonuses of the sets 39, 41, 44, 45, 47 and 49.
 pub const WHOLE_DAMAGE: u32 = 0x7C2;
+/// The stats' flag `+0x148` bit `0x200000` (sets 42, 49, 50 and 64), by which the strike grows the
+/// stun's value (M18, `0x56D4D6`; [`Stats::stun`]).
+pub const STUNS: u32 = 0x20_0000;
+
+/// The term by which a set of the flag [`STUNS`] grows the stun's value, times `D` (M18): set 64's
+/// 0.9, sets 49's and 50's 0.15, any other's 0.05.
+fn stun_term(set: u8) -> f32 {
+    match set {
+        64 => 0.9,
+        49 | 50 => 0.15,
+        _ => 0.05,
+    }
+}
 
 /// A bonus that other code applies by the counts of the sets worn (docs/re/sets.md §4), its
 /// number `c` scaled by `D`.
@@ -690,6 +703,23 @@ impl Stats {
             })
     }
 
+    /// The effect 862's value `value` of the attacker's items, the stun, grown while its flag
+    /// [`STUNS`] holds by one term alone (M18, `0x56D4D6`): `0.9·D` for set 64 at 3, else
+    /// `0.15·D` for set 49 at 4 or set 50 at 5, else `0.05·D`.
+    pub fn stun(&self, value: f32) -> f32 {
+        if self.flags & STUNS == 0 {
+            return value;
+        }
+        let term = if self.worn.count(64) >= 3 {
+            stun_term(64)
+        } else if self.worn.count(49) >= 4 || self.worn.count(50) >= 5 {
+            stun_term(49)
+        } else {
+            stun_term(42)
+        };
+        value + term * self.factor
+    }
+
     /// The effect 863's value `value` of the killer's items, grown by its sets in turn
     /// ([`Reader::Exorcist`]).
     pub fn exorcist(&self, value: f32) -> f32 {
@@ -899,6 +929,9 @@ pub enum Told {
     OpenWounds(f32),
     /// The effect 863's value more, `c·D` ([`Reader::Exorcist`]).
     Exorcist(f32),
+    /// The stun's value more, the set's own term times `D` ([`Stats::stun`]); one set's term
+    /// alone holds where several are worn.
+    Stun(f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -916,6 +949,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 Bonus::Flag(bit) if bit & WHOLE_DAMAGE != 0 => {
                     (d > 1.0).then_some(Told::WholeDamage(d - 1.0))?
                 }
+                Bonus::Flag(STUNS) => Told::Stun(stun_term(entry.set) * d),
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),
             };

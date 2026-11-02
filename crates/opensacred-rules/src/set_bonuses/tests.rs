@@ -240,6 +240,23 @@ fn the_readers_of_the_counts_take_their_shares() {
             .chain((0..7).map(|i| (7100 + i, 9))),
     );
     assert!(close(stats(&both, Difficulty::Silver).luck(100.0), 161.0));
+    // The stun's flag: set 64 at 3 adds 0.9·D, set 42 at 5 0.05·D; one term alone.
+    assert!(close(
+        stats(&wearing(64, 3), Difficulty::Gold).stun(10.0),
+        10.0 + 0.9 * 1.67
+    ));
+    assert!(close(
+        stats(&wearing(42, 5), Difficulty::Bronze).stun(10.0),
+        10.05
+    ));
+    assert!(close(
+        stats(&wearing(42, 4), Difficulty::Bronze).stun(10.0),
+        10.0
+    ));
+    assert!(matches!(
+        told(64, &wearing(64, 3), Difficulty::Bronze)[..],
+        [.., Told::Stun(term)] if close(term, 0.9)
+    ));
     // Set 61 at 4 adds 0.15·D to the killer's exorcism, set 54 at 7 0.3·D after it.
     let both = Worn::of(
         (0..4)

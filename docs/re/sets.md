@@ -348,7 +348,7 @@ Creature kinds: `0x426A80`, `0x426B70`, `0x426B20` test the creature type's `Cre
 | M15 | 31 ≥ 5 or 60 ≥ 3; 40 ≥ 2 or 48 ≥ 4 | a hit (`0x535183`, `0x535261`), the attacker's counts | `R(0, 100)` at most ⌊10·D⌋ (resp. ⌊6·D⌋), one roll a block whichever of its sets holds: the blood fountain `0x4E87E0(100, 1)` (`VIOLENCE` 1 alone) and, where the struck one lacks it, the effect 23 (`0x17`, open wounds) by `0x582D50(0x17, 0, ⌊x/10⌋, 10·D, 0, 1, the attacker's id, 0)`, `x` the strike's whole damage that `0x56B130` returns (0 for a miss); in the struck one's handler `0x52E590` after the strike, while it lives, after the items' 857 roll (docs/re/items.md) | (⌊10·D⌋ + 1)/101, (⌊6·D⌋ + 1)/101 |
 | M16 | 41 ≥ 4 | `0x4E263D` (a hit's handler, not identified) | where the struck one has no effect 855 (`0x357`) of its own: `rand() % 101` below ⌊20·D⌋ takes the same consequence (`0x54E6D0(1, 0)`, `+0x1F4` bit `0x200000` cleared, `0x44D520`; not read further) | ⌊20·D⌋ % |
 | M17 | 41 ≥ 5; 44 ≥ 3; 59 ≥ 3; 65 ≥ 3 | `0x561880` (`0x5618AC`…), while the stats' `+0x148` bit `0x100000` | the effect 858 (`0x35A`, magic defence) + 15·D, + 10·D, + 15·D, + 10·D (each that holds) | as written |
-| M18 | 64 ≥ 3, else 49 ≥ 4 or 50 ≥ 5, else any | the strike (`0x56D4E6`), while the attacker's `+0x4F0` bit `0x200000` | the stun's value (the effect 862's sum, `0x5F23A0(0x35E)`) + 0.9·D, else + 0.15·D, else + 0.05·D (only one) | as written |
+| M18 | 64 ≥ 3, else 49 ≥ 4 or 50 ≥ 5, else any | the strike (`0x56D4D6`), while the attacker's `+0x4F0` bit `0x200000` | the stun's value (the effect 862's sum) + 0.9·D, else + 0.15·D, else + 0.05·D (only one); then `rand() % 100` below its chance by `0x5F23A0(0x35E)` (docs/re/fight.md, "The rare effects"); the bit comes at 50 ≥ 6, so set 50 at 5 counts only with another set's bit | as written |
 | M19 | 53 ≥ 7 | the query `0x51` of `0x55D260` (`0x55DE75`) | answers 1 for a player hero (docs/re/inventory.md; the line `UI_SET_VERSILBERN`) | — |
 | M20 | 54 ≥ 7 | the death (`0x532D9F`) | the killer's effect 863 (`0x35F`, the exorcism, `UI_RARE_EXORZIST`) + 0.3·D, after + 0.15·D for the flag `0x2000000` (set 61); then `rand() % 100` against it (`0x590570`) | 0.3·D |
 
@@ -393,14 +393,14 @@ The flags `+0x148` are cleared at the start of each recomputation for the local 
 ## 6. Where the text and the code disagree
 
 - Thresholds: set 4 (skill 2 shown at 2, applied at 3), 6 (a3 shown at 3, applied at 4), 7 (effect 859 shown at 8, applied at 7), 50 (shown at 5, applied at 4), 53 (luck shown at 6, applied at 7), 54 (shown at 4, applied at 5), 18 and 21 (applied only at a count above their pieces: never).
-- Values: set 1 (fire vs kind 5: 50 % shown, 60 % applied), 3 (luck 25 % shown, 20 % applied), 12 and 13 (skills ⌊3·D⌋ shown, ⌊2·D⌋ applied), 51 (attack speed +⌊15·D⌋ shown, the pace × 1.15·D applied), 60 (open wounds 9 % shown, 10 % applied), 40 (health 4 %·D shown, ×1.04 applied), 39/41/44/45/47/49 (a 6 %·D damage of a kind shown, all damage × D applied).
+- Values: the stun's sets (42: `+5` shown, `0.05·D` applied; 49 and 50: `+15%`, `0.15·D`; 64: `+9`, `0.9·D`), set 1 (fire vs kind 5: 50 % shown, 60 % applied), 3 (luck 25 % shown, 20 % applied), 12 and 13 (skills ⌊3·D⌋ shown, ⌊2·D⌋ applied), 51 (attack speed +⌊15·D⌋ shown, the pace × 1.15·D applied), 60 (open wounds 9 % shown, 10 % applied), 40 (health 4 %·D shown, ×1.04 applied), 39/41/44/45/47/49 (a 6 %·D damage of a kind shown, all damage × D applied).
 - Kinds: set 54 (fire shown, poison applied); set 2 (a life leech shown, skill 10 raised).
 - Shown and applied nowhere: every life leech line (sets 2, 8, 9, 15, 17, 19, 21, 53, 57, 60), set 3's T1143 at 6, 12's T1138, 14's and 43's all arts, 19's T1127, 30's luck, 32's T1138, 45's T1138, 59's T1138.
 - Applied and shown nowhere: set 6's arts at 9, set 22's potion drop (M7).
 
 ## 7. Not read
 
-- The consequences of the effects 855, 859, 862 and 863's rolls, the effect 23's values (`x`), the readers of the flags marked "not found" or "not read", and the creature's `+0xB0` bits `0x800…0x4000` of the dominance bonus.
+- The consequences of the effects 855 and 859's rolls, the effect 23's values (`x`), the readers of the flags marked "not found" or "not read", and the creature's `+0xB0` bits `0x800…0x4000` of the dominance bonus.
 - `0x426550` (an item skipped in the slots), `0x427E80` (M11), the inventory behind `0x5DEBC0`.
 - Whether the floors of `+0x3C`/`+0x40` (80 or 100) apply after the sets' pace (sets 46, 51) in every case.
 
