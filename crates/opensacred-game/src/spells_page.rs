@@ -424,7 +424,8 @@ pub(crate) struct ArtKeys(Option<Keyed>);
 enum Keying {
     /// The key bound to the art, in the list and in the hero's entries.
     Bound(u16),
-    /// The key taken off the art in the list alone.
+    /// The key taken off the art, in the list and in the hero's entries (the original's in the
+    /// list alone).
     Cleared(u16),
     /// The key's art into the bar's selected slot.
     Selected(u16),
@@ -490,7 +491,11 @@ fn press(
             arts.arts.bind(art, key);
             info!("spells page: F{key} bound to {art}");
         }
-        Keying::Cleared(art) => info!("spells page: F{key} taken off {art}"),
+        // The hero's entry too, so that the label taken off tells the binding gone (#1743).
+        Keying::Cleared(art) => {
+            arts.arts.unbind(art);
+            info!("spells page: F{key} taken off {art}");
+        }
         Keying::Selected(art) if !refused(art, night) => {
             let slot = slots.selected;
             if slots.arts[slot] != Some(art) {

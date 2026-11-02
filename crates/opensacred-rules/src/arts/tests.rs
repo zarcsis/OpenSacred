@@ -335,6 +335,10 @@ fn a_key_bound_leaves_every_other_art_and_clears_the_mark_of_new() {
     // Bound again to its own key, the art keeps it.
     held.bind(1071, 2);
     assert_eq!(held.get(1071).map(Entry::slot), Some(2));
+    // Taken off, it holds no key, and the others keep theirs (#1743).
+    held.unbind(1071);
+    assert_eq!(held.get(1071).map(Entry::slot), Some(0));
+    assert_eq!(held.get(1017).map(Entry::slot), Some(3));
 }
 
 /// The two tables of `OriginalGame/Sacred.exe`, as `opensacred-convert tables` writes them but

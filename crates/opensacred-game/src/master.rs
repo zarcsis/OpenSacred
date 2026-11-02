@@ -194,12 +194,12 @@ fn level_of(arts: &HeroArts, art: u16) -> Option<u8> {
     Some(entry.level.saturating_add(entry.bonus))
 }
 
-/// What the cost of `master`'s steps is, whether the button lights, and whether a press makes
-/// the combo, at `gold` (`0x6D23E0`, `0x6D26D0`, `0x6D22A0`).
-fn priced(master: &Master, gold: u32) -> (u32, bool, bool) {
+/// What the cost of `master`'s steps is, and whether the button lights, as a press makes the
+/// combo, at `gold` (`0x6D23E0`, `combos::affordable`).
+fn priced(master: &Master, gold: u32) -> (u32, bool) {
     let cost = combos::cost(&master.old, &master.steps);
     let lit = master.combo.is_some() && combos::affordable(&master.steps, cost, gold);
-    (cost, lit, lit && combos::makes(cost, gold))
+    (cost, lit)
 }
 
 /// Keeps the window with the inventory: the combos page selected as it opens, the master gone
@@ -285,8 +285,8 @@ fn press(
         return;
     }
     if left && BUTTON.contains(at) && held.0.is_none() {
-        let (cost, _, makes) = priced(&master, pack.gold);
-        let Some(index) = master.combo.and_then(combos::index_of).filter(|_| makes) else {
+        let (cost, lit) = priced(&master, pack.gold);
+        let Some(index) = master.combo.and_then(combos::index_of).filter(|_| lit) else {
             return;
         };
         let steps = master.steps;
@@ -499,14 +499,19 @@ fn show(
         }
     }
     // The button, the total and the count.
-    let (cost, lit, _) = priced(master, look.gold);
+    let (cost, lit) = priced(master, look.gold);
     add(
         &mut commands,
         piece(if lit { BUTTON_LIT } else { BUTTON_GREY }, BUTTON.min),
     );
     let held_steps = master.steps.iter().flatten().count();
     if held_steps > 0 {
-        let colour = if cost <= look.gold { YELLOW } else { RED };
+        // Yellow where a press makes the combo, where the original's is yellow at the cost too.
+        let colour = if combos::makes(cost, look.gold) {
+            YELLOW
+        } else {
+            RED
+        };
         write(
             &mut commands,
             (&cost.to_string(), TOTAL_AT, TOTAL_WIDTH),
@@ -606,17 +611,18 @@ mod tests {
     }
 
     #[test]
-    fn the_button_lights_at_the_cost_and_makes_above_it() {
+    fn the_button_lights_where_a_press_makes_the_combo_above_the_cost() {
         let made = master(
             [None; STEPS],
             [Some((1070, 3)), Some((18, 2)), Some((1020, 1)), None],
         );
-        // Three steps, each changed: 3 · (300 + 200 + 100) = 1,800 (seen).
-        assert_eq!(priced(&made, 5_000), (1_800, true, true));
-        assert_eq!(priced(&made, 1_800), (1_800, true, false));
-        assert_eq!(priced(&made, 1_799), (1_800, false, false));
+        // Three steps, each changed: 3 · (300 + 200 + 100) = 1,800 (seen). The gold equal to
+        // the cost makes nothing, so the button stays grey (#1743), where the original's lights.
+        assert_eq!(priced(&made, 5_000), (1_800, true));
+        assert_eq!(priced(&made, 1_801), (1_800, true));
+        assert_eq!(priced(&made, 1_800), (1_800, false));
         let empty = master([None; STEPS], [None; STEPS]);
-        assert_eq!(priced(&empty, 5_000), (0, false, false));
+        assert_eq!(priced(&empty, 5_000), (0, false));
     }
 
     #[test]
