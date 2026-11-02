@@ -212,6 +212,15 @@ fn the_readers_of_the_counts_take_their_shares() {
         [Told::Against(UNDEAD, &[FIRE], fire), Told::Against(UNDEAD, ALL_KINDS, all)]
             if close(fire, 1.002) && close(all, 0.501)
     ));
+    // Set 28 at 4 on niobium: the defence against a shot times 2.17.
+    assert!(close(
+        stats(&wearing(28, 4), Difficulty::Niobium).ranged_defence(),
+        2.17
+    ));
+    assert!(close(
+        stats(&wearing(28, 3), Difficulty::Niobium).ranged_defence(),
+        1.0
+    ));
     // The sight: set 29 at 3 and one of sets 52 and 57, once though both hold.
     let sight = Worn::of(
         (0..3)

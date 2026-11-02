@@ -200,7 +200,7 @@ pub(crate) fn resolve(
             Option<&Worth>,
             Has<Body>,
             Option<&Ranked>,
-            (Has<Immortal>, Option<&crate::ai::Mind>),
+            (Has<Immortal>, Option<&crate::ai::Mind>, Option<&Holding>),
         ),
         Without<Dies>,
     >,
@@ -209,7 +209,7 @@ pub(crate) fn resolve(
     for hit in hits.read() {
         let (
             Ok((attacker, hero, mind, from, (ranked, follower, holding))),
-            Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim))),
+            Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim, guarded))),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -239,6 +239,14 @@ pub(crate) fn resolve(
         });
         if let Some(pierces) = pierces.filter(|&value| value > 0.0) {
             defender.resistance[0] *= 100.0 / pierces;
+        }
+        // The struck hero's sets against a shot: its defence times their factor (`0x56B6D1`,
+        // #1727).
+        if hit.ranged
+            && side == Some(Side::Defender)
+            && let Some(guarded) = guarded
+        {
+            defender.defence *= guarded.0.sets.ranged_defence();
         }
         if hit.ranged {
             let distance = (from.translation() - at.translation()).xz().length();
