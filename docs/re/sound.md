@@ -137,6 +137,8 @@ Before the switch it skips three values of a word in `esi` (`0x22D`, `0x22E`, `0
 
 Read 2026-10-19 (#141, **confirmed** by code): a creature's step, `0x639080`, calls the footstep with the nature of the ground's cell under it, but with `BRIDGE` (`0x70`) on a `WATERA` or `WATERB` cell whose second corner heights (`+0x18`, left, top, right, bottom) differ from its first and lie above 0 at the right or the bottom corner, or at both the left and the top: on a bridge over the water the steps are stone's, as the creature stands on the bridge's deck (docs/re/movement.md, "The height").
 
+The same step makes the footprint, a decal that the ground's nature chooses (`0x6392AE`), and for a player of the creature's `+0x1FC` bit 1 (six pieces of set 23, docs/re/sets.md M8) an object 878 (`FX_SMALLFIRE`) at the foot in its place (`0x63918C`–`0x6392A9`); the footstep's sound follows either way (read 2026-11-02).
+
 `opensacred-game` plays the hero's footsteps by this table (`sound.rs`), with `BRIDGE` on a bridge over a liquid (`terrain::Heights::step_nature`).
 
 ## Footprints
