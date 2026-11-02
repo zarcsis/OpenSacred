@@ -767,9 +767,17 @@ fn pursue(
             &Layered,
             Has<crate::npcs::StrikeEnded>,
             Option<&crate::effects::Effects>,
+            (
+                Option<&crate::fight::Ranked>,
+                Has<crate::creature_casts::Casting>,
+            ),
         ),
         (Without<Body>, Without<crate::making::Knocked>),
     >,
+    (real, experience): (
+        Res<Time<bevy::time::Real>>,
+        Option<Res<crate::fight::Experience>>,
+    ),
 ) {
     let dt = tick.seconds.unwrap_or_default();
     let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding)) = hero.iter().next()
@@ -805,8 +813,23 @@ fn pursue(
         })
         .collect();
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
-    for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended, effects) in
-        &mut creatures
+    let now = real.elapsed_secs_f64();
+    let hero_level = experience
+        .as_deref()
+        .map_or(1, |experience| experience.level);
+    for (
+        entity,
+        mut transform,
+        way,
+        mut mind,
+        walk,
+        striking,
+        health,
+        layered,
+        ended,
+        effects,
+        (rank, casting),
+    ) in &mut creatures
     {
         mind.rest(dt);
         if ended {
@@ -875,7 +898,28 @@ fn pursue(
                 heights.walkable_on(cell, way.level)
             })
         };
-        let Some(pursues) = mind.pursue(&sight, clear, &mut minds.rng) else {
+        // A caster's decision first (#1852), while it casts none; the casts the game follows.
+        let cast = (!casting && crate::creature_casts::casts(mind.creature)).then(|| {
+            let sight_of_cast = opensacred_rules::minds::CastSight {
+                now,
+                at_hero: foe.is_none(),
+                hero_level,
+                // The stone, which the game does not follow yet, held back as on a hero held.
+                held: !crate::creature_casts::follows(opensacred_rules::casts::STONE),
+                elite: rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common),
+                hostiles: 0,
+                crowded: nearest.hostiles.len() > 1,
+                nearest: nearest.hostiles.first() == Some(&entity),
+            };
+            mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
+        });
+        if casting {
+            continue;
+        }
+        let Some(pursues) = cast
+            .flatten()
+            .or_else(|| mind.pursue(&sight, clear, &mut minds.rng))
+        else {
             continue;
         };
         if !mind.fighting() {
@@ -1025,6 +1069,29 @@ fn pursue(
                     .remove::<Walk>()
                     .insert(Rearms::to_melee(weapon));
             }
+            Pursues::Casts { spell, variant } => {
+                let d = (hero - here).xz().length();
+                debug!("ai: {entity} casts {spell} at {aimed} from {d:.0}");
+                transform.rotation = crate::hero::facing(hero - here);
+                commands.entity(entity).remove::<Walk>().insert(
+                    crate::creature_casts::Casting::new(spell, variant, aimed, hero),
+                );
+            }
+            Pursues::Faces => {
+                if walk.is_none() {
+                    transform.rotation = crate::hero::facing(hero - here);
+                }
+            }
+            Pursues::KeepsBand(to) => {
+                commands
+                    .entity(entity)
+                    .insert(Walk::to(point(to, here.y), way.level, mind.speed));
+            }
+            Pursues::Strolls(to) => {
+                commands.entity(entity).insert(
+                    Walk::run(point(to, here.y), way.level, mind.run).within(STROLL_WITHIN),
+                );
+            }
             Pursues::TakesBow(bow) => {
                 let d = (hero - here).xz().length();
                 debug!("ai: {entity} takes the bow {bow} again, the hero at {d:.0}");
@@ -1064,6 +1131,9 @@ fn among(low: i32, high: i32, rng: &mut Rng) -> i32 {
 
 /// How near its door a townsperson going in opens it and walks through (`0x4F0F5E`).
 const OPENS_WITHIN: f32 = 350.0;
+
+/// How near its point a caster's run about its target ends (`0x4D51ED`, #1852).
+const STROLL_WITHIN: f32 = 20.0;
 
 /// The way a townsperson at `here` on the ground goes into a house by the door `door` at `at`
 /// with its `points` (the sub-states 8, 9 and 7, docs/re/ai.md, "Houses and doors", #431):

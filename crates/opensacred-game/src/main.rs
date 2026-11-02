@@ -40,6 +40,7 @@ mod console;
 mod containers;
 mod control_glow;
 mod controls;
+mod creature_casts;
 mod crowd;
 mod cursors;
 mod daemon;
@@ -394,6 +395,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         containers::ContainersPlugin,
         control_glow::ControlGlowPlugin,
         controls::ControlsPlugin,
+        creature_casts::CreatureCastsPlugin,
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
         daemon::DaemonPlugin,

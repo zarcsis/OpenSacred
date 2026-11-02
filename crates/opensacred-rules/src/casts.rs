@@ -28,19 +28,55 @@ pub fn mark_1(creature: u32) -> Option<(u16, u8)> {
     })
 }
 
+/// The clip's slot that a creature of type `creature` casts the spell `spell` with, on foot
+/// (`0x522030`): by the spell, a few types their own, the dragons (`dragon`, `Creature.pak`'s
+/// class 10) always 81, Anducar (182) and his demon (183) always 154.
+pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
+    if dragon {
+        return 81;
+    }
+    if matches!(creature, 182 | 183) {
+        return 154;
+    }
+    let ice = matches!(creature, 140 | 146);
+    match spell {
+        1 | 2 | 4 | 16 | 18 | 27 | 35 => 163,
+        3 | 8 | 14 | 42 => 160,
+        5 | 29 | 33 | 37 | 41 | 58 | 59 | 61 | 64 | 65 => 155,
+        6 => 164,
+        7 | 12 | 36 => 161,
+        11 | 55 => 156,
+        13 | 15 | 22 if ice => 147,
+        13 | 28 | 40 | 56 | 66 => 158,
+        17 if creature == 141 => 154,
+        26 if creature == 183 => 154,
+        17 | 20 | 21 | 22 | 25 | 26 | 30..=32 | 34 => 157,
+        19 | 39 => 159,
+        24 | 38 => 162,
+        49 => 144,
+        50 => 145,
+        53 => 84,
+        _ => 154,
+    }
+}
+
 /// The band a caster of the mark 1 keeps from its target (`0x4E0300`'s sub-state 1): it walks to
 /// [`BAND_POINT`] from its target where it stands nearer than [`BAND_NEAR`] after it was ordered
-/// a cast, or farther than [`BAND_FAR`], at most [`BAND_MOVES`] times.
+/// a cast, or farther than [`BAND_FAR`], while its decisions on its casting path stay below
+/// [`BAND_MOVES`] (`+0x12A`).
 pub const BAND_NEAR: f32 = 240.0;
 pub const BAND_POINT: f32 = 270.0;
 pub const BAND_FAR: f32 = 300.0;
 pub const BAND_MOVES: u8 = 25;
 
 /// Whether a caster at `distance` from its target walks back into its band, `ordered` a cast
-/// before, `moves` the moves it made toward the band.
+/// before, `moves` its decisions on its casting path in this fight, this one counted.
 pub fn leaves_band(distance: f32, ordered: bool, moves: u8) -> bool {
     moves < BAND_MOVES && ((distance < BAND_NEAR && ordered) || distance > BAND_FAR)
 }
+
+/// How far about its target a caster runs to where it neither casts nor keeps its band.
+pub const STROLL: f32 = 280.0;
 
 /// How many world's ticks a caster of the mark 1 stands facing its target after a decision
 /// (`+0x129`), before it decides again.
@@ -114,6 +150,19 @@ mod tests {
         assert_eq!(mark_1(66), Some((LIGHTNING, 0)));
         assert_eq!(mark_1(67), Some((METEORS, 0)));
         assert_eq!(mark_1(33), None);
+    }
+
+    #[test]
+    fn a_creature_casts_with_its_spells_clip() {
+        assert_eq!(clip(FIREBALL, 48, false), 155);
+        assert_eq!(clip(WHIRLWIND, 64, false), 155);
+        assert_eq!(clip(LIGHTNING, 66, false), 158);
+        assert_eq!(clip(LIGHTNING, 140, false), 147);
+        assert_eq!(clip(STONE, 44, false), 157);
+        assert_eq!(clip(METEORS, 67, false), 157);
+        assert_eq!(clip(METEORS, 52, true), 81);
+        assert_eq!(clip(5, 182, false), 154);
+        assert_eq!(clip(53, 127, false), 84);
     }
 
     #[test]

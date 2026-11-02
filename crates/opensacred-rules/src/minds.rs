@@ -19,6 +19,7 @@
 
 use std::ops::{Add, Mul, RangeInclusive, Sub};
 
+use crate::casts;
 use crate::spawning::Dice;
 
 /// A point of the ground in the world's units, the original's (a cell's side is 53.66563,
@@ -616,6 +617,15 @@ pub struct Mind {
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
     fled: bool,
+    /// A caster's (`crate::casts`, #1852): the second of the real clock from which it may cast
+    /// again (`+0x24D`), the decisions it stands facing its target (`+0x129`), its decisions on
+    /// its casting path (`+0x12A`), whether it was ordered a cast in this fight (`+0x12B` 2) and
+    /// whether it walks into its band (the melee's sub-state 1 in the special mode).
+    cast_deadline: f64,
+    stands: u8,
+    band_moves: u8,
+    cast_ordered: bool,
+    banding: bool,
     /// In melee: whether it walks to its place about the hero for this tick (the sub-state 5),
     /// and then at a run.
     placing: Option<bool>,
@@ -704,6 +714,11 @@ impl Mind {
             turned: false,
             fighting: false,
             fled: false,
+            cast_deadline: 0.0,
+            stands: 0,
+            band_moves: 0,
+            cast_ordered: false,
+            banding: false,
             placing: None,
             to_door: false,
             deciding: true,
@@ -1127,6 +1142,96 @@ impl Mind {
         self.fled = false;
         self.placing = None;
         self.shot = false;
+        self.cast_ends();
+    }
+
+    /// A caster takes its melee up again from its start after its cast (the sub-state 0, which
+    /// clears `+0x128` to `+0x12B`; #1852).
+    pub fn cast_ends(&mut self) {
+        self.stands = 0;
+        self.band_moves = 0;
+        self.cast_ordered = false;
+        self.banding = false;
+    }
+
+    /// What a caster of the mark 1 does at a decision of its melee (`0x4D51ED`; #1852,
+    /// [`crate::casts`]), before it fights hand to hand ([`Self::pursue`]): none for another type,
+    /// out of the fight, at range or striking; it decides standing or walking. Walking into its
+    /// band, it decides nothing until it stands. It stands facing its target for
+    /// [`casts::STANDS`] decisions after each; it casts the stone at the hero from 400 to 1,500
+    /// ([`casts::holds`]); else, on its casting path ([`casts::casting`]), it keeps its band
+    /// ([`casts::leaves_band`]), casts its type's spell by a roll with a straight way (`clear`)
+    /// once its deadline has passed ([`casts::casts`], the deadline renewed), or else, in one case
+    /// of three with the deadline passed and standing, runs to a point 280 about its target at a
+    /// whole degree, else stands facing it. Off its path, none: it fights hand to hand.
+    pub fn cast(
+        &mut self,
+        sight: &Pursuit,
+        cast: &CastSight,
+        mut clear: impl FnMut() -> bool,
+        rng: &mut impl Dice,
+    ) -> Option<Pursues> {
+        let (spell, variant) = casts::mark_1(self.creature)?;
+        if !self.fighting || self.ranged || sight.striking {
+            return None;
+        }
+        // Its band's walk (the sub-state 1) it ends before it decides again.
+        self.banding &= sight.walk.is_some();
+        if self.banding {
+            return Some(Pursues::Faces);
+        }
+        if self.stands > 0 {
+            self.stands -= 1;
+            return Some(Pursues::Faces);
+        }
+        let (here, target) = (sight.here, sight.hero);
+        let d = (target - here).length();
+        let passed = cast.now >= self.cast_deadline;
+        let renew = |mind: &mut Self, rng: &mut dyn FnMut(u32) -> u32| {
+            let roll = rng(3);
+            mind.cast_deadline = cast.now.floor()
+                + f64::from(casts::deadline(mind.level, cast.elite, cast.hostiles, roll));
+        };
+        // The stone at the hero, the only target it holds.
+        if cast.at_hero {
+            let roll = rng.below(4 + cast.hostiles);
+            if casts::holds(
+                d,
+                (roll, cast.hostiles),
+                (self.level, cast.hero_level),
+                (cast.held, clear()),
+            ) {
+                self.stands = casts::STANDS;
+                renew(self, &mut |n| rng.below(n));
+                return Some(Pursues::Casts {
+                    spell: casts::STONE,
+                    variant: 0,
+                });
+            }
+        }
+        if !casts::casting(cast.crowded, cast.nearest, rng.below(3)) {
+            return None;
+        }
+        self.stands = casts::STANDS;
+        self.band_moves = self.band_moves.saturating_add(1);
+        if casts::leaves_band(d, self.cast_ordered, self.band_moves) {
+            self.banding = true;
+            let to = target + (here - target).unit() * casts::BAND_POINT;
+            return Some(Pursues::KeepsBand(to));
+        }
+        if casts::casts(rng.below(3), clear(), passed) {
+            self.cast_ordered = true;
+            renew(self, &mut |n| rng.below(n));
+            return Some(Pursues::Casts { spell, variant });
+        }
+        if rng.below(3) == 2 && sight.walk.is_none() && passed {
+            renew(self, &mut |n| rng.below(n));
+            let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
+            let angle = degrees.to_radians();
+            let to = target + Spot::new(angle.cos(), angle.sin()) * casts::STROLL;
+            return Some(Pursues::Strolls(to));
+        }
+        Some(Pursues::Faces)
     }
 
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
@@ -1666,6 +1771,24 @@ pub struct Pursuit {
     pub hero_size: u32,
 }
 
+/// What a caster of the mark 1 sees beyond its [`Pursuit`] ([`Mind::cast`], #1852).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CastSight {
+    /// The real clock's seconds, which a caster's deadline counts (`0x6413E0`).
+    pub now: f64,
+    /// Whether its target is the hero, the hero's level and whether the hero is held already.
+    pub at_hero: bool,
+    pub hero_level: u32,
+    pub held: bool,
+    /// Whether it is a boss or a champion.
+    pub elite: bool,
+    /// The hero's hostiles of the marks 8 and `0x200` fighting hand to hand (`0x4D4670`).
+    pub hostiles: u32,
+    /// Whether the hero has more than one hostile, and whether it is the nearest of them.
+    pub crowded: bool,
+    pub nearest: bool,
+}
+
 /// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
 /// hero's list of hostiles, from 0, whose first stands at `first` (`0x4E1404`, `0x4E224E`): for
 /// the second, third and fourth, nearer than `R − 15` to the first, the point `R − 15` from the
@@ -1741,6 +1864,14 @@ pub enum Pursues {
     /// In the band, turned to the hero, it strikes by the choice of its attack's clip (one of
     /// five), unless it strikes already.
     Strikes(Option<u32>),
+    /// A caster casts its spell of the variant at its target (#1852, [`Mind::cast`]).
+    Casts { spell: u16, variant: u8 },
+    /// A caster stands facing its target, or walks on.
+    Faces,
+    /// A caster walks to the point of its band.
+    KeepsBand(Spot),
+    /// A caster runs to the point about its target.
+    Strolls(Spot),
     /// At range, too near the hero, it backs off to the point, at a run or not.
     BacksOff { to: Spot, runs: bool },
     /// At range, without a straight line to the hero, it goes round to the point, at a run or
@@ -2540,6 +2671,91 @@ mod tests {
     use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
+
+    #[test]
+    fn a_magic_skeleton_casts_its_fireball_in_its_band_and_then_stands() {
+        use crate::spawning::Script;
+        let mut skeleton = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (48, 5));
+        skeleton.level = 10;
+        assert!(skeleton.sent_at());
+        let sight = |distance: f32| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(distance, 0.0),
+            walk: None,
+            striking: false,
+            health: None,
+            hero_strikes: false,
+            listed: None,
+            targeted: false,
+            hero_size: SIZE,
+        };
+        let cast = CastSight {
+            now: 100.4,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            elite: false,
+            hostiles: 0,
+            crowded: false,
+            nearest: true,
+        };
+        // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
+        // roll (0): five seconds from the clock's whole second.
+        let mut rolls = Script::new(vec![0, 1, 2, 0]);
+        assert_eq!(
+            skeleton.cast(&sight(270.0), &cast, || true, &mut rolls),
+            Some(Pursues::Casts {
+                spell: crate::spells::FIREBALL,
+                variant: 1
+            })
+        );
+        assert_eq!(skeleton.cast_deadline, 105.0);
+        // It then stands facing its target for its ten decisions.
+        let mut none = Script::new(Vec::new());
+        for _ in 0..casts::STANDS {
+            assert_eq!(
+                skeleton.cast(&sight(270.0), &cast, || true, &mut none),
+                Some(Pursues::Faces)
+            );
+        }
+        // Nearer than 240 after its cast, it walks back to 270 from its target.
+        let mut rolls = Script::new(vec![0, 1]);
+        assert_eq!(
+            skeleton.cast(&sight(200.0), &cast, || true, &mut rolls),
+            Some(Pursues::KeepsBand(at(-70.0, 0.0)))
+        );
+        // Walking into its band, it decides nothing until it stands.
+        let walking = Pursuit {
+            walk: Some(Walking {
+                target: at(-70.0, 0.0),
+                comes_on: false,
+                runs: false,
+            }),
+            ..sight(200.0)
+        };
+        assert_eq!(
+            skeleton.cast(&walking, &cast, || true, &mut none),
+            Some(Pursues::Faces)
+        );
+        // Its cast over, it takes its melee up from its start: near, it keeps no band, and its
+        // deadline still running, it stands.
+        skeleton.cast_ends();
+        let mut rolls = Script::new(vec![0, 1, 2, 2]);
+        assert_eq!(
+            skeleton.cast(&sight(200.0), &cast, || true, &mut rolls),
+            Some(Pursues::Faces)
+        );
+        // Off its casting path it fights hand to hand; another type never casts.
+        skeleton.stands = 0;
+        let mut rolls = Script::new(vec![0, 0]);
+        assert_eq!(
+            skeleton.cast(&sight(270.0), &cast, || true, &mut rolls),
+            None
+        );
+        let mut goblin = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (76, 2));
+        assert!(goblin.sent_at());
+        assert_eq!(goblin.cast(&sight(270.0), &cast, || true, &mut rolls), None);
+    }
 
     #[test]
     fn an_attack_turns_one_of_a_friendly_pair_against_every_side() {
