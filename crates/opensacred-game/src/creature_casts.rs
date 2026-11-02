@@ -26,9 +26,11 @@ const FOLLOWED: [u16; 4] = [
     spells::METEORS,
 ];
 
-/// Whether a creature of type `creature` is a caster whose spell the game follows.
+/// Whether a creature of type `creature` is a caster whose spell the game follows: of the mark 1,
+/// or a dragon (#1853).
 pub fn casts(creature: u32) -> bool {
-    casts::mark_1(creature).is_some_and(|(spell, _)| FOLLOWED.contains(&spell))
+    casts::dragon(creature)
+        || casts::mark_1(creature).is_some_and(|(spell, _)| FOLLOWED.contains(&spell))
 }
 
 /// A creature's cast in course, until its clip ends: its spell and its variant, its target and
@@ -62,7 +64,7 @@ fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind
             continue;
         }
         cast.begun = true;
-        let slot = casts::clip(cast.spell, mind.creature, false);
+        let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
         let share = spells::share(cast.spell).unwrap_or(1.0);
         debug!(
             "creature_casts: {entity} casts {} (variant {}) by its clip {slot}",

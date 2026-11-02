@@ -2,7 +2,7 @@
 //! spells by their marks (`0x43C540`, the fight's specials `0x4D4E50`), the band they keep from
 //! their target, their deadline between two casts and the rolls of their decisions. A creature
 //! does not choose from its arts' list, which `Creature.pak` leaves empty: its spells are its
-//! type's. The mark 1 first: the mummies, the magic skeletons and the orc shaman.
+//! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons.
 
 use crate::spells::{FIREBALL, WHIRLWIND};
 
@@ -26,6 +26,22 @@ pub fn mark_1(creature: u32) -> Option<(u16, u8)> {
         67 => (METEORS, 0),
         _ => return None,
     })
+}
+
+/// Whether a creature of type `creature` is a dragon (`0x4D5B95`): of the mark 4 and of
+/// `Creature.pak`'s class 10 (`0x426B70`), the types 52, 74, 88 and 100 to 103.
+pub fn dragon(creature: u32) -> bool {
+    matches!(creature, 52 | 74 | 88 | 100..=103)
+}
+
+/// How much farther than its reach a dragon casts its meteors from.
+pub const DRAGON_BEYOND: f32 = 500.0;
+
+/// Whether a dragon casts `METEORITENHAGEL` (26) at a decision (`0x4D5B95`): farther than its
+/// reach `reach` and [`DRAGON_BEYOND`] from its target, by a roll `rand() % 2` of 0 (**hypothesis**
+/// for the value: one decision of two), with no deadline and no test of the way.
+pub fn dragon_casts(distance: f32, reach: f32, roll: u32) -> bool {
+    distance > reach + DRAGON_BEYOND && roll.is_multiple_of(2)
 }
 
 /// The clip's slot that a creature of type `creature` casts the spell `spell` with, on foot
@@ -141,6 +157,14 @@ fn whole(value: f64) -> u32 {
 mod tests {
     use super::*;
     use crate::fight::{Rank, Rules};
+
+    #[test]
+    fn a_dragon_casts_its_meteors_from_beyond_its_reach_and_500_in_one_decision_of_two() {
+        assert!(dragon(52) && dragon(101) && !dragon(53) && !dragon(94));
+        assert!(dragon_casts(800.0, 250.0, 0));
+        assert!(!dragon_casts(800.0, 250.0, 1));
+        assert!(!dragon_casts(750.0, 250.0, 0));
+    }
 
     #[test]
     fn the_mark_1s_casters_cast_their_types_spells() {

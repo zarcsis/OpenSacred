@@ -1165,6 +1165,8 @@ impl Mind {
     /// once its deadline has passed ([`casts::casts`], the deadline renewed), or else, in one case
     /// of three with the deadline passed and standing, runs to a point 280 about its target at a
     /// whole degree, else stands facing it. Off its path, none: it fights hand to hand.
+    /// A dragon (`0x4D5B95`, #1853) casts its meteors farther than its reach and 500 from its
+    /// target in one decision of two ([`casts::dragon_casts`]), and stands facing it after.
     pub fn cast(
         &mut self,
         sight: &Pursuit,
@@ -1172,7 +1174,11 @@ impl Mind {
         mut clear: impl FnMut() -> bool,
         rng: &mut impl Dice,
     ) -> Option<Pursues> {
-        let (spell, variant) = casts::mark_1(self.creature)?;
+        let mark_1 = casts::mark_1(self.creature);
+        let dragon = casts::dragon(self.creature);
+        if mark_1.is_none() && !dragon {
+            return None;
+        }
         if !self.fighting || self.ranged || sight.striking {
             return None;
         }
@@ -1190,6 +1196,18 @@ impl Mind {
         }
         let (here, target) = (sight.here, sight.hero);
         let d = (target - here).length();
+        if dragon {
+            let reach = reach_f32(self.size(), sight.hero_size);
+            if !casts::dragon_casts(d, reach, rng.below(2)) {
+                return None;
+            }
+            self.stands = casts::STANDS;
+            return Some(Pursues::Casts {
+                spell: casts::METEORS,
+                variant: 0,
+            });
+        }
+        let (spell, variant) = mark_1?;
         let passed = cast.now >= self.cast_deadline;
         let renew = |mind: &mut Self, rng: &mut dyn FnMut(u32) -> u32| {
             let roll = rng(3);
@@ -2772,6 +2790,59 @@ mod tests {
         let mut goblin = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (76, 2));
         assert!(goblin.sent_at());
         assert_eq!(goblin.cast(&sight(270.0), &cast, || true, &mut rolls), None);
+    }
+
+    #[test]
+    fn a_dragon_casts_its_meteors_from_beyond_its_reach_and_then_stands() {
+        use crate::spawning::Script;
+        let mut dragon = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (52, 10));
+        dragon.level = 30;
+        assert!(dragon.sent_at());
+        let sight = |distance: f32| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(distance, 0.0),
+            walk: None,
+            striking: false,
+            health: None,
+            hero_strikes: false,
+            listed: None,
+            targeted: false,
+            hero_size: SIZE,
+        };
+        let cast = CastSight {
+            now: 0.0,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            elite: false,
+            hostiles: 0,
+            crowded: false,
+            nearest: true,
+        };
+        let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
+        // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
+        let mut rolls = Script::new(vec![0]);
+        assert_eq!(
+            dragon.cast(&sight(far), &cast, || false, &mut rolls),
+            Some(Pursues::Casts {
+                spell: casts::METEORS,
+                variant: 0
+            })
+        );
+        let mut none = Script::new(Vec::new());
+        for _ in 0..casts::STANDS {
+            assert_eq!(
+                dragon.cast(&sight(far), &cast, || false, &mut none),
+                Some(Pursues::Faces)
+            );
+        }
+        // By its roll of 1, or nearer, it fights hand to hand.
+        let mut rolls = Script::new(vec![1, 0]);
+        assert_eq!(dragon.cast(&sight(far), &cast, || true, &mut rolls), None);
+        assert_eq!(
+            dragon.cast(&sight(far - 2.0), &cast, || true, &mut rolls),
+            None
+        );
     }
 
     #[test]
