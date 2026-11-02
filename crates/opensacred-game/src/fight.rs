@@ -667,11 +667,14 @@ pub(crate) fn resolve(
                     );
                 })
             });
+            // A creature that a raising stood up gives no experience (`0x534857`, #1856).
+            let raised =
+                victim.is_some_and(|victim| victim.flags & opensacred_rules::casts::RAISED != 0);
             if let Some(&worth) = worth.filter(|_| by_creature && rises.is_none()) {
                 kills.write(Kill {
                     killer: hit.attacker,
                     victim: hit.target,
-                    worth,
+                    worth: if raised { Worth([0, 0]) } else { worth },
                     level: health.level,
                     rank: rank.map_or(Rank::Common, |rank| rank.0),
                 });
@@ -714,7 +717,7 @@ pub(crate) fn resolve(
             // The blue potions' share and the hero's sets' (#1727).
             let sets = holding.map_or(0.0, |holding| holding.0.sets.experience());
             let worth = worth
-                .filter(|_| hero)
+                .filter(|_| hero && !raised)
                 .map(|worth| (*worth, rank.copied(), (potions::mentored(&killer), sets)));
             fell(
                 &mut commands,
@@ -913,7 +916,10 @@ pub fn kill(
                 ),
             ),
         );
-        let worth = worth.map(|worth| (*worth, rank.copied(), bonus));
+        // A creature that a raising stood up gives no experience (#1856).
+        let worth = worth
+            .filter(|_| mind.flags & opensacred_rules::casts::RAISED == 0)
+            .map(|worth| (*worth, rank.copied(), bonus));
         let earned = fell(
             &mut commands,
             (&mut dice, &mut experience, &rules),
