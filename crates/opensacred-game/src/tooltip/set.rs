@@ -94,6 +94,7 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
             share(x)
         )),
         Told::Experience(x) => white(format!("{}: {}", n(1071), share(x))),
+        Told::Sight(units) => white(format!("{}: {}", n(1130), plus(units))),
         // Against a class of creatures, as an item's bonus against its opponents is worded.
         Told::Against(class, kinds, x) => {
             let opponents = match class {
