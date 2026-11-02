@@ -79,6 +79,11 @@ impl Container {
         }
     }
 
+    /// Its type, an `items.pak` slot.
+    pub fn kind(&self) -> u32 {
+        self.kind
+    }
+
     /// Whether the hero may open it: not emptied (a town stash only while its window shows).
     pub fn opens(&self) -> bool {
         !self.emptied
