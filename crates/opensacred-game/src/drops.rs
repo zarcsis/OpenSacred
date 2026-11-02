@@ -14,7 +14,9 @@ use anyhow::{Result, anyhow};
 use bevy::prelude::*;
 use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use opensacred_data::tables::{ITEM_SETS, ItemSet, RUNES, WEAPON_MODIFIERS, WeaponModifier};
+use opensacred_data::tables::{
+    ARMOUR_SWITCHES, ITEM_SETS, ItemSet, RUNES, WEAPON_MODIFIERS, WeaponModifier,
+};
 use opensacred_rules::drops::{
     self, Catalogue, Dead, Death, Dropped, Flight, Hero, Kill, Kind, Rules,
 };
@@ -69,6 +71,10 @@ pub struct Tables {
     /// The number of each set's piece's set, by the piece's type (`sets.bin`'s byte 1, which the
     /// loader `0x42C3E0` writes to the piece's `Weapon.pak +0x23`; #1727).
     set_numbers: HashMap<u32, u8>,
+    /// The groups of the items' classes' variants (`bin/Rust.bin`, #1516), and each variant's
+    /// group, the last that lists it, as the loader gives it `+0x74` (`0x42FAB0`).
+    switches: Vec<Vec<[u32; 2]>>,
+    switch_of: HashMap<u32, u16>,
     /// Each set's pieces' types by its number, in its record's order, which the list of the sets
     /// worn names (`0x571710`'s text, #1670).
     set_pieces: HashMap<u8, Vec<u32>>,
@@ -157,6 +163,19 @@ impl Tables {
                     .into_iter()
                     .filter(|&item| item != 0)
                     .map(move |item| (item, set.hash & 0x7FFF_FFFF))
+            })
+            .collect();
+        // The classes' variants (#1516), none from assets made before them.
+        let switches: Vec<Vec<[u32; 2]>> = table(assets, ARMOUR_SWITCHES).unwrap_or_else(|e| {
+            warn!("drops: {e}; no item has a class's variant");
+            Vec::new()
+        });
+        let switch_of = switches
+            .iter()
+            .enumerate()
+            .flat_map(|(group, pairs)| {
+                let group = u16::try_from(group).unwrap_or(0);
+                pairs.iter().map(move |&[_, variant]| (variant, group))
             })
             .collect();
         let set_numbers = sets
@@ -310,6 +329,8 @@ impl Tables {
             worths,
             set_names,
             set_numbers,
+            switches,
+            switch_of,
             set_pieces,
             weapon_lists,
             prices,
@@ -407,9 +428,10 @@ impl Tables {
     }
 
     /// What `dropped` asks of the hero that would use it (#1288): its type's record's classes'
-    /// bits and weapon's kind, its category, and the level asked of its own level (`+0x14` of
+    /// bits and weapon's kind, its category, the level asked of its own level (`+0x14` of
     /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's, at
-    /// least its sockets' items' (#1661).
+    /// least its sockets' items' (#1661), and the group of its class's variants (#1516), a fixed
+    /// item's (the types 2000 to 2999 and 6500 to 7999) its root's (`0x43CA20`).
     pub fn asks(
         &self,
         dropped: &Dropped,
@@ -425,12 +447,19 @@ impl Tables {
         let values = dropped.values.unwrap_or(values);
         let level = opensacred_rules::fight::item_level(&values, rules)
             .max(self.sockets_level(dropped, rules));
+        let fixed = (2000..=2999).contains(&dropped.item) || (6500..=7999).contains(&dropped.item);
+        let switched = if fixed { slot } else { dropped.item };
         opensacred_rules::equipment::Asks {
             item: dropped.item,
             category: self.category(dropped.item),
             kind,
             classes,
             level: opensacred_rules::equipment::asked_level(level),
+            takers: opensacred_rules::equipment::takers_of(
+                self.category(dropped.item),
+                self.switch_of.get(&switched).copied().unwrap_or(0),
+                &self.switches,
+            ),
         }
     }
 

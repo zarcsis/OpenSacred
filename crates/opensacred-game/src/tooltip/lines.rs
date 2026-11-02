@@ -14,6 +14,7 @@
 //! (`0x43CA20`), the extra text of the item's `+0xFC`, and the hands of the types that the list
 //! of `0x5CECD0` names.
 
+use opensacred_rules::equipment::Takers;
 use opensacred_rules::equipment::{Asks, CLASSES, NO_CLASS};
 use opensacred_rules::fight::{Bonus, ItemValues, KINDS};
 use opensacred_rules::potions::Drink;
@@ -103,6 +104,8 @@ pub(crate) struct Item<'a> {
     pub drink: Option<Drink>,
     pub sockets: (usize, usize),
     pub set: Option<String>,
+    /// The takers of its class's variants, where it has some (#1516).
+    pub takers: Option<Takers>,
 }
 
 impl Item<'_> {
@@ -115,6 +118,7 @@ impl Item<'_> {
             kind: self.record.kind,
             classes: self.record.word,
             level: 0,
+            takers: self.takers,
         }
     }
 }
@@ -874,6 +878,7 @@ mod tests {
                 asked: 0,
                 drink: None,
                 sockets: (0, 0),
+                takers: None,
                 set: None,
             }
         };
@@ -941,6 +946,7 @@ mod tests {
             asked: 14,
             drink: None,
             sockets: (0, 0),
+            takers: None,
             set: None,
         };
         // The Seraphim's factors at her start, as the original's `stats` shows them: 32 and 21
@@ -978,6 +984,7 @@ mod tests {
             asked: 0,
             drink: Some(Drink::Heals(100)),
             sockets: (0, 0),
+            takers: None,
             set: None,
         };
         let lines: Vec<String> = lines(&item, Some(&hero(&[])), &words())
@@ -1013,6 +1020,7 @@ mod tests {
             asked: 0,
             drink,
             sockets: (0, 0),
+            takers: None,
             set: None,
         };
         let hint = |item: &Item| texts(&hint(item, &words())[0]);
@@ -1062,6 +1070,7 @@ mod tests {
             asked: 1,
             drink: None,
             sockets: (0, 0),
+            takers: None,
             set: None,
         };
         let lines = lines(&item, Some(&hero(&[])), &words());
@@ -1123,6 +1132,7 @@ mod tests {
             asked: 2,
             drink: None,
             sockets: (0, 0),
+            takers: None,
             set: None,
         };
         let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words())
@@ -1166,6 +1176,7 @@ mod tests {
             drink: None,
             sockets,
             set: None,
+            takers: None,
         };
         let name = |item: &Item| texts(&name_lines(item, &words())[0]);
         assert_eq!(
@@ -1213,6 +1224,7 @@ mod tests {
             asked: 0,
             drink: None,
             sockets: (0, 0),
+            takers: None,
             set: Some("The Set".into()),
         };
         let lines = lines(&item, Some(&hero(&[])), &words());
