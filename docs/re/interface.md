@@ -252,6 +252,36 @@ Done by 2026-10-28: items 1 to 3, the sets' keys and slots of item 4 (#1348), an
 - How the bar scales at the original's other resolutions (the windows' rectangles are fixed at 1024 × 768 here).
 - Whether the compass's sonars fade with the radius as the hero's alarm does, ⌊(1 − r/500) · 255⌋.
 
+## The labels on Alt (`cWorldView_drawOverheadLabels`, `0x627180`)
+
+Read 2026-11-02 for #1425 by code (`0x627180`–`0x6280E5`, `0x6620B0`–`0x66232C`, `0x44CF20`–`0x44D4AC`, `0x62FA80`–`0x62FF40`, `0x631700`–`0x631D40`), **confirmed** unless marked otherwise.
+
+- The world view's render calls it once a frame after the objects are drawn; it reads `GetAsyncKeyState(VK_MENU)` itself into the view's flag `+0x10` bit `0x4000`.
+  With Alt held it lays out and draws one list for every kind, the items' labels (docs/re/items.md, "On the ground") among them; without it, only a network game's name tags (below).
+- **The list** (`+0x96B30`, entries of 28 bytes: the object's id, its box on the 1024 × 768 screen, and the label's place) is filled by the objects' draw in their order.
+  It holds every `cObject3D` whose model is loaded and whose box reaches into the screen with a margin of 200 pixels, but the arrows (category 27).
+  It also holds the stargates 802 and 1180 and the `cObjectFRZ` with boxes of 100 × 200, and the scripts' mouse-over spots (their id with the bit `0x80000000`), which the labels skip.
+- **Which take a label** (`0x627264`–`0x6272C2`): an object whose type lacks the items table's bit 26 (`0x43F5F0`, `items.ron` `byte_03 & 4`) and whose query 10 answers 0, or a mount (`Creature.pak` class 4).
+  The query 10 is 0 for a creature, an item and a special; a container answers its emptied bit (`+0x14` bit `0x4000`), so an emptied container has none.
+  There is no test of distance, of sight, of life or of the screen beyond the margin.
+  So the hero, the NPCs and the hostile creatures, the containers not emptied and the specials take labels; the 46 creature types of the bit (the crabs and fishes, the crows, bats, rabbits, pigs, cows, deer, bulls, sheep, horses and chickens), the 119 doors, the arrows and the chests 1338 to 1341 never do (**derived** from the tables).
+- **The link** (`0x627303`, `0x6276D9`): where the object's query `0x43` names an object (a creature's `+0x1EC`: a follower's owner, a rider's mount, a mount's rider), that object gives the text and the colour, and the label is drawn only where its type lacks the bit 26; a ridden horse shows its rider's name, and a riding hero's own label is laid out and not drawn.
+- **The text** (`0x44A250`, `0x44A200`): the text of the object's key `+0x3C` (the hero's player name, an NPC's script name, an item's made name), else of its type number; gold `"%d %s"`, its amount and its name; nothing more.
+- **The colour** (its query 2, `0x627964`): a creature `0xFFA0A0A0` dead, `0xFFFFA0A0` hostile either way to the local player, else `0xFFFFFFFF`; an item, a container or a special its item's colour (`0x5C13C0`; `0xFFEFEFEF` for the container 1335, **derived**); under the cursor `0xFFFFFF80`, where its point lies within the text's rectangle, edges included.
+- **The box** (`0x44CF20`): a creature's of its type's `W`, `H`, `D` (`0x428850`; 20, 170 and 0 by default, the heroes' among them) about its point, from its height above it to a sixth of it below; any other object's of its model's bounds; at least 35 × 35 about its middle; a ridden mount's halved.
+  The label wants its place 3 left and 1 above the box's top left, as wide as its text and 6, as high as the font's `A`.
+  **Seen** 2026-11-02 at the Seraphim's start: her label's panel 38 left of her feet and 150 above them, the novice's 37 and 127, the chest's 35 left and 57 above its point.
+- **The layout** (`cLabelLayout`, `0x6620F0`): in the list's order, up to 128 tries of the wanted place moved by the table `0x963A2C` (`(−4, 0)`, `(4, 0)`, `(0, −2)`, `(0, 2)`) at the try `k mod 4` times `⌊k/2⌋`: 2 up, 2 down, 8 left, 8 right, 6 up and on; a place touching a laid label is not free; a label of no free place is not drawn; no clamp to the screen.
+  Five labels at one place so stand at 0, 22 up, 22 down, 42 up and 42 down, their left edges together (**derived**, as seen of items).
+- **The panel** is the laid rectangle in `0xCF303030`, the text at its top left moved 2 right and 2 up, for every kind.
+- **The pick**: each laid label's place is written into its entry, which the mouse's pick reads (`0x631CEB`), so with Alt held a labelled creature or container is picked by its label.
+- **Not drawn here**: the townsfolk's activity icons, which `cCreature_render` draws under Alt itself (`0x599F4D`, the table `0x959830` by `+0x261`); set 3's stats of the hostile creature under the cursor (`UI_KNOW_ENEMY`, `+0x4F0` bit `0x80000000`, the format `0x95FBA4`) belongs to this function but to the sets; and in a network game with `SHOW_HEROINFO`, without Alt, the players' heroes' names centred 35 above their boxes in their classes' colours (`0x627D30`).
+- Not read: the order of the objects' draw lists (the layout's priority), what sets the view's flag `0x8000` (the creatures' boxes doubled) and the creature's `+0xB0` bit 2 (its box of its model).
+
+`opensacred-game` follows it since #1425 (`labels`): the items', the hero's, the creatures' and the containers' labels in one list, their texts and colours, the original's search, from the top of the screen down.
+Each creature's box is the default type's, set in the screen's pixels by the factors measured beside the original (1.75 across and 0.876 upright of `W` and `H`, over the zoom), and each container's a chest's, both **estimates**.
+Not followed: the types' own sizes, the specials' labels, a click on a creature's or a container's label, the mounts, and set 3's stats.
+
 ## In `opensacred-game`
 
 `bar` lays the bar and the hero's entry of the column out from the interface's images' table (`tables/ui_images.ron`, #1160) at the places above, in the interface's units of the 768-pixel-high screen (`hud`, `UiScale`), the bar centred along the bottom of a wider window and the column at its right edge (#1087):
