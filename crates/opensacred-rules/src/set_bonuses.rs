@@ -495,6 +495,12 @@ pub enum Reader {
     /// The struck hero's defence `D` (its attack record's `+0x54`) times `1 + c·D` against an
     /// attacker that holds a ranged weapon or shoots (M11, `0x56B6D1`).
     RangedDefence(f32),
+    /// The hero's critical hit's value (the effect 859) grows by `c·D`, each in turn (M3,
+    /// `0x56E8CC`…; `fight::critical`).
+    Critical(f32),
+    /// The wounds' damage's value (the effect 867, a per cent) grows by `c·D` (M10, `0x56E178`,
+    /// `0x56E1F4`; `fight::wounded`).
+    Wounds(f32),
 }
 
 /// The `Creature.pak` classes that the strike's readers test (M1).
@@ -532,6 +538,18 @@ pub const READERS: &[Read] = &[
     read(19, 5, Reader::Experience(0.1)),
     read(22, 5, Reader::Potions),
     read(28, 4, Reader::RangedDefence(0.5)),
+    read(4, 4, Reader::Critical(5.0)),
+    read(44, 4, Reader::Critical(9.0)),
+    read(50, 4, Reader::Critical(15.0)),
+    read(56, 5, Reader::Critical(9.0)),
+    read(61, 3, Reader::Critical(6.0)),
+    read(63, 3, Reader::Critical(6.0)),
+    read(7, 7, Reader::Critical(10.0)),
+    read(20, 4, Reader::Critical(10.0)),
+    read(27, 5, Reader::Critical(5.0)),
+    read(29, 5, Reader::Critical(6.0)),
+    read(26, 6, Reader::Wounds(0.1)),
+    read(62, 4, Reader::Wounds(0.2)),
     read(29, 3, Reader::Sight(50.0, 0)),
     read(52, 4, Reader::Sight(100.0, 1)),
     read(57, 6, Reader::Sight(100.0, 1)),
@@ -617,6 +635,28 @@ impl Stats {
             Reader::RangedDefence(c) => times * (1.0 + c * self.factor),
             _ => times,
         })
+    }
+
+    /// The critical hit's value `value` of the wearer's items, grown by its sets' terms in turn,
+    /// each stored as a float ([`Reader::Critical`]).
+    pub fn critical(&self, value: f32) -> f32 {
+        self.worn
+            .reads()
+            .fold(value, |value, read| match read.reads {
+                Reader::Critical(c) => value + c * self.factor,
+                _ => value,
+            })
+    }
+
+    /// The wounds' value `value` of the wearer's items, grown by its sets' terms
+    /// ([`Reader::Wounds`]).
+    pub fn wounds(&self, value: f32) -> f32 {
+        self.worn
+            .reads()
+            .fold(value, |value, read| match read.reads {
+                Reader::Wounds(c) => value + c * self.factor,
+                _ => value,
+            })
     }
 
     /// Whether the wearer's kills drop potions ([`Reader::Potions`]).
@@ -777,6 +817,10 @@ pub enum Told {
     Sight(f32),
     /// The defence's share more against a ranged attacker, `c·D` ([`Reader::RangedDefence`]).
     RangedDefence(f32),
+    /// The critical hit's value more, `c·D` ([`Reader::Critical`]).
+    Critical(f32),
+    /// The wounds' value's per cent more, `c·D` ([`Reader::Wounds`]).
+    Wounds(f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -813,6 +857,8 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 Reader::Potions => return None,
                 Reader::Sight(c, _) => Told::Sight(c * d),
                 Reader::RangedDefence(c) => Told::RangedDefence(c * d),
+                Reader::Critical(c) => Told::Critical(c * d),
+                Reader::Wounds(c) => Told::Wounds(c * d),
             };
             Some((read.pieces, line))
         });
