@@ -4020,8 +4020,9 @@ fn place_index(
             },
         ));
     }
-    // A lying item of a `res:` name goes by its text (#1360).
-    if (placement.lies || placement.quest.is_some())
+    // A lying item of a `res:` name goes by its text (#1360), and so does a creature, whose click
+    // names it so (#1674).
+    if (placement.lies || placement.quest.is_some() || !placement.object)
         && let Some(name) = placement.key.as_deref().and_then(TextName::of)
     {
         commands.entity(entity).insert(name);
