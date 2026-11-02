@@ -392,12 +392,12 @@ pub(crate) fn resolve(
         if landed.paid > 0
             && let Some(pack) = pack.as_deref_mut()
         {
-            pack.gold = pack.gold.saturating_sub(landed.paid);
+            pack.add_gold(-i64::from(landed.paid));
             debug!(
                 "fight: {} pays {} gold of {} for its health",
                 hit.target, landed.paid, hit.attacker
             );
-            sounds.write_batch([crate::pickup::gold_sound(), crate::pickup::gold_sound()]);
+            sounds.write(crate::pickup::gold_sound());
         }
         // Its poison, where it passes the target's resistance (`0x56DFC8`, #1354); none of the
         // poison's own strikes, of the kind 17.

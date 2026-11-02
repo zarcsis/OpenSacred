@@ -2184,7 +2184,7 @@ fn drop_gold(
         return;
     }
     let dropped = opensacred_rules::drops::gold_pile(amount);
-    pack.gold -= amount;
+    pack.add_gold(-i64::from(amount));
     let mut off = || {
         let far = GOLD_THROW.0 + dice.0.below(GOLD_THROW.1);
         let far = f32::from(u16::try_from(far).unwrap_or(u16::MAX));

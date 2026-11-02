@@ -1339,9 +1339,10 @@ pub fn fall(
         }
         if let Some(pack) = pack.as_deref_mut() {
             let difficulty = difficulty.as_deref().copied().unwrap_or_default();
+            // Through the gold's handler where it pays any (`0x53E52C`).
             let toll = difficulty.0.death_toll(pack.gold);
-            pack.gold -= toll;
             if toll > 0 {
+                pack.add_gold(-i64::from(toll));
                 info!("hero: the hero pays {toll} gold as it rises");
             }
         }

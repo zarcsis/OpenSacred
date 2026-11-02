@@ -542,7 +542,7 @@ fn work(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables) {
     let Some((_, item)) = smith.items.first_mut() else {
         return;
     };
-    pack.gold = u32::try_from(i64::from(pack.gold) - price).unwrap_or(0);
+    pack.add_gold(-price);
     for socket in waiting {
         if let Some(refused) = tables.fill(item, socket, tier) {
             info!("blacksmith: {} refused by the sockets", refused.item);
