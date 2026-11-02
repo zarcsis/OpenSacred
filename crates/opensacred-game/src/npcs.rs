@@ -5399,7 +5399,11 @@ pub fn retexture(
         .map(|((kind, texture), npcs)| {
             effects.under(*kind, (texture, npcs.glow.as_deref()), &assets)
         });
-    if retexture.is_none() && effect.is_none() && under.is_none() {
+    // The kind 5's pulse over every mesh (#1850).
+    let pulse = effects_of
+        .filter(|((kind, _), _)| *kind == crate::model_effects::PULSE)
+        .map(|((_, texture), _)| effects.pulse(texture, &assets));
+    if retexture.is_none() && effect.is_none() && under.is_none() && pulse.is_none() {
         return;
     }
     for entity in children.iter_descendants(ready.entity) {
@@ -5408,6 +5412,9 @@ pub fn retexture(
         };
         if let Some(under) = &under {
             commands.entity(entity).insert(under.clone());
+        }
+        if let Some(pulse) = &pulse {
+            commands.entity(entity).insert(pulse.clone());
         }
         if let Some((_, texture)) = effect
             && crate::model_effects::first_primitive(&assets, mesh)
