@@ -199,6 +199,9 @@ enum Command {
     /// The dialogue's window shown: its button N (from 1) chosen, as a click on it does, or its
     /// lines without N
     Answer { button: Option<usize> },
+    /// Hire the creature ID as the hero's follower, as a script's `0x4B` hires it
+    /// (`sdk_HIRE`); ID as `creatures` prints it
+    Hire { id: String },
     /// A creature's health to its most, or to N (1 to its most), the hero's by default; ID as
     /// `creatures` prints it
     Heal {
@@ -1335,6 +1338,11 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Answer { button } => {
             in_game(world)?;
             Ok(Outcome::say(crate::talk::answer(world, button)?))
+        }
+        Command::Hire { id } => {
+            in_game(world)?;
+            let id = debug::creature(world, &id)?;
+            Ok(Outcome::say(debug::hire(world, id)?))
         }
         Command::Heal { id, to } => {
             in_game(world)?;

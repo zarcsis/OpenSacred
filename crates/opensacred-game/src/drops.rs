@@ -351,6 +351,24 @@ impl Tables {
         }
     }
 
+    /// An item of the type `item` that a creature held in its hand, its values `values` made at
+    /// its level `level` (`npcs::Arms`), as the cursor takes it off a hireling (#1771): of its
+    /// kind, at that level by the item maker's key 0 where it has values, else as its type is.
+    pub fn held_item(&self, item: u32, level: u32, values: Option<fight::ItemValues>) -> Dropped {
+        let made = values.is_some();
+        Dropped {
+            kind: self.catalogue.kind(item).unwrap_or(Kind::Other),
+            item,
+            level: if made { level.max(1) } else { 0 },
+            key: 0,
+            quality: if made { 14 } else { 0 },
+            amount: 1,
+            values,
+            named: None,
+            socketed: Vec::new(),
+        }
+    }
+
     /// The values of `dropped` that its wearer's fight takes (#1290): its own
     /// ([`Self::own_values`]) with what the items in its sockets add (#1661, `0x5BFB60`).
     pub fn values(&self, dropped: &Dropped) -> fight::ItemValues {

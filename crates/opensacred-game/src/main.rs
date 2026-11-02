@@ -83,6 +83,7 @@ mod making;
 mod master;
 mod menu;
 mod menu_sound;
+mod mercenaries;
 mod merchant;
 mod minimap;
 mod models;
@@ -436,6 +437,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         master::MasterPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
+        mercenaries::MercenariesPlugin,
         merchant::MerchantPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,

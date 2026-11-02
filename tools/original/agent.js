@@ -1029,6 +1029,8 @@ const WORLD = {
                                      // than 0 too) when the integrity test 0x590730 passes, else kills the hero for
                                      // good, so the gold is never written directly
   makeObject: ptr('0x5fb530'),       // the object manager: thiscall (manager, type), an object of the type, its id
+  hire: ptr('0x54cf70'),             // sdk_HIRE: thiscall (master, creature, keep byte, network flag), as SetNPCState's
+                                     // 0x4B hires (0x462A63: the keep byte 1)
   slotOf: ptr('0x54acc0'),           // cCreature: thiscall (creature, type), the slot an item of the type goes in
   putInSlot: ptr('0x555e00'),        // cCreature: thiscall (creature, slot, object's id, 1), the object put there, as a
                                      // juggler's roll of 9 takes its instrument (0x4F2A47, docs/re/ai.md)
@@ -1092,6 +1094,7 @@ const setZoom = new NativeFunction(WORLD.setZoom, 'uint32', ['pointer', 'float']
 const setLevel = new NativeFunction(WORLD.setLevel, 'void', ['pointer', 'int', 'int'], 'thiscall');
 const statsLevel = new NativeFunction(WORLD.statsLevel, 'void', ['pointer', 'int', 'int', 'int'], 'thiscall');
 const addExperience = new NativeFunction(WORLD.addExperience, 'void', ['pointer', 'int'], 'thiscall');
+const hire = new NativeFunction(WORLD.hire, 'void', ['pointer', 'pointer', 'uint8', 'uint8'], 'thiscall');
 const runScript = new NativeFunction(WORLD.runScript, 'uint32', ['pointer', 'pointer', 'uint32'], 'mscdecl');
 const makeCreature = new NativeFunction(WORLD.makeCreature, 'pointer',
   ['pointer', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'uint32', 'int'], 'thiscall');
@@ -1685,6 +1688,17 @@ const COMMANDS = {
     }
     addEffect(object.add(STATS), effect, whole, value, seconds, art, 0, 0, 0);
     return readStats(object);
+  },
+  // The creature `id` hired as the hero's follower, as a script's SetNPCState of 0x4B hires it (sdk_HIRE, the keep
+  // byte 1, #1771).
+  hire: (engine, { id }) => {
+    const h = hero();
+    const object = objectById(id);
+    if (h === null || object === null || !isCreature(object)) {
+      throw new Error(h === null ? 'no hero' : `no creature ${id}`);
+    }
+    hire(h, object, 1, 0);
+    return readCreature(object);
   },
   // A creature's health to its most, or to `to` (at most its most), the hero's by default.
   heal: (engine, { id, to }) => {

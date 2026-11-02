@@ -691,6 +691,7 @@ class Host:
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
                 "heal [ID] [--to N]: a creature's health to its most, or to N (at most its most), the hero's by default",
+                "hire ID: the creature hired as the hero's follower, as a script's SetNPCState of 0x4B hires it",
                 "effect EFFECT VALUE [--whole N] [--seconds S] [--art A] [--id ID]: an effect on a creature's stats, the "
                 "hero's by default, through the original's own 0x582D50 (60 s by default); then its stats",
                 "arts [ID]: a creature's combat arts, the hero's by default; arts learn ART [LEVELS]: the hero learns "
@@ -1335,6 +1336,12 @@ class Host:
         c = self.world('heal', {'id': options.id, 'to': options.to})
         return [f"{c['id']} health {c['health']}/{c['most']}"]
 
+    def command_hire(self, rest):
+        if not rest.isdigit():
+            raise ValueError('hire ID')
+        c = self.world('hire', {'id': int(rest)})
+        return [f"{c['id']} is hired"]
+
     def command_level(self, rest):
         if not rest.isdigit():
             raise ValueError('level N')
@@ -1512,7 +1519,7 @@ WORLD_COMMANDS = {
     'point': Host.command_point, 'go': Host.command_go,
     'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause,
     'weather': Host.command_weather, 'arts': Host.command_arts, 'combos': Host.command_combos, 'level': Host.command_level,
-    'experience': Host.command_experience,
+    'experience': Host.command_experience, 'hire': Host.command_hire,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
     'gold': Host.command_gold, 'home': Host.command_home, 'wear': Host.command_wear,
     'script': Host.command_script,

@@ -69,7 +69,7 @@ use opensacred_data::tables::{Creature, Item};
 use opensacred_data::world::SIDE;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::quests::DeathFunctions;
-use opensacred_rules::{minds, quests, ways};
+use opensacred_rules::{equipment, minds, quests, ways};
 
 use crate::files;
 use crate::frame::{Step, WorldTick};
@@ -475,6 +475,17 @@ const ARROWS: [u32; 5] = [arrows::ARROW, 3074, 3075, 3077, 3078];
 enum Hand {
     Left,
     Right,
+}
+
+impl Hand {
+    /// The hand of the equipment's slot `slot`: 12 the left, 13 the right (`0x556F50`).
+    fn of_slot(slot: u8) -> Option<Self> {
+        match slot {
+            equipment::LEFT_HAND => Some(Self::Left),
+            equipment::RIGHT_HAND => Some(Self::Right),
+            _ => None,
+        }
+    }
 }
 
 /// Where an item's model goes on its holder.
@@ -1372,6 +1383,9 @@ fn sectors(tree: &Tree) -> Sectors {
 struct Gear {
     category: u8,
     kind: Option<u8>,
+    /// Its `Weapon.pak` record's parent (`+0x24`), 0 for none: a hireling holds a weapon of a
+    /// few parents in both hands whatever its kind (`opensacred_rules::equipment::grip`).
+    parent: u32,
     model: Option<String>,
     texture: Option<String>,
     /// Whether its values count in its holder's: not where its `items.pak +0x03` has bit 1
@@ -3392,6 +3406,44 @@ impl Npcs {
         self.hero_holds_valued(worn, &[])
     }
 
+    /// How a creature holds an item of the type `item` (`opensacred_rules::equipment::grip`): a
+    /// weapon by its kind and its record's parent, else its own type; a shield in the left hand
+    /// alone; none for another item.
+    pub(crate) fn grip(&self, item: u32) -> Option<equipment::Grip> {
+        let gear = self.gear.get(&item)?;
+        let root = if gear.parent == 0 { item } else { gear.parent };
+        match gear.category {
+            WEAPON => Some(equipment::grip(gear.kind.unwrap_or(0), root)),
+            SHIELD => Some(equipment::Grip::default()),
+            _ => None,
+        }
+    }
+
+    /// Whether a hireling of `arms` takes an item of the type `item` from the cursor through its
+    /// portrait (`0x6D6B90`): a shield, or a weapon whose kind's first attack's slot its model
+    /// has (`0x956F80`: 79 + 5 · kind for the kinds 0 to 12, 241 for 13, 139 for 14;
+    /// `0x4117B0`).
+    pub(crate) fn takes_through_portrait(&self, arms: &Arms, item: u32) -> bool {
+        let Some(gear) = self.gear.get(&item) else {
+            return false;
+        };
+        match gear.category {
+            SHIELD => true,
+            WEAPON => {
+                let slot = match gear.kind.unwrap_or(0) {
+                    kind @ 0..=12 => 79 + 5 * u16::from(kind),
+                    13 => 241,
+                    14 => 139,
+                    _ => return false,
+                };
+                self.slots
+                    .get(&arms.model)
+                    .is_some_and(|slots| slots.slot(slot).is_some())
+            }
+            _ => false,
+        }
+    }
+
     /// As [`Self::hero_holds`], the item at each place of `worn` that `valued` gives values of
     /// taking those in place of its record's: an item that the item maker made, put into a weapon
     /// set (#1349).
@@ -3613,6 +3665,7 @@ fn gear_table<'a>(
             let gear = Gear {
                 category: category(item),
                 kind: kinds.get(&slot).copied(),
+                parent: parents.get(&slot).copied().unwrap_or(0),
                 model: models.get(&item.name.to_ascii_uppercase()).cloned(),
                 texture: match item.words_08[0] {
                     0 | FX_OPAQUE => None,
@@ -7807,6 +7860,24 @@ impl Arms {
         self.fight_with(grade, rank, rules, &[])
     }
 
+    /// The item in the hand of the equipment's slot `slot` (12 the left, 13 the right,
+    /// `0x556F50`) and its values.
+    pub(crate) fn in_hand(&self, slot: u8) -> Option<(u32, Option<fight::ItemValues>)> {
+        let hand = Hand::of_slot(slot)?;
+        self.holding
+            .iter()
+            .find(|(held, _)| held.hand == hand)
+            .map(|&(held, values)| (held.item, values))
+    }
+
+    /// Whether it has the skill of two weapons (6) at the level `grade`, its level in the skill
+    /// above 0 (`0x582450(6)`); the items' bonuses to it are not followed.
+    pub(crate) fn two_weapons(&self, grade: u32) -> bool {
+        fight::skills(&self.base, grade, self.plain)
+            .iter()
+            .any(|&(skill, level)| skill == 6 && level > 0)
+    }
+
     /// [`Self::fight`] with its effects `effects` (#763).
     fn fight_with(
         &self,
@@ -7854,12 +7925,12 @@ impl Arms {
 }
 
 /// An NPC that changes its weapons (#396; docs/re/fight.md, "The archers"): it puts away what
-/// its hand `away` holds, and takes the item `takes`, if any, in its other hand in place of what
-/// that holds.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+/// its hands `away` hold, and takes the item `takes`, if any, in its hand, with its values where
+/// they are given, else made at its level.
+#[derive(Component, Clone, Debug, PartialEq)]
 pub struct Rearms {
-    away: Hand,
-    takes: Option<u32>,
+    away: Vec<Hand>,
+    takes: Option<(u32, Hand, Option<fight::ItemValues>)>,
 }
 
 impl Rearms {
@@ -7867,8 +7938,11 @@ impl Rearms {
     /// `weapon`, if any, in its right (slot 13).
     pub fn to_melee(weapon: Option<u32>) -> Self {
         Self {
-            away: Hand::Left,
-            takes: weapon,
+            away: match weapon {
+                Some(_) => vec![Hand::Left, Hand::Right],
+                None => vec![Hand::Left],
+            },
+            takes: weapon.map(|weapon| (weapon, Hand::Right, None)),
         }
     }
 
@@ -7876,16 +7950,25 @@ impl Rearms {
     /// (slot 12).
     pub fn bow(bow: u32) -> Self {
         Self {
-            away: Hand::Right,
-            takes: Some(bow),
+            away: vec![Hand::Right, Hand::Left],
+            takes: Some((bow, Hand::Left, None)),
         }
     }
 
-    /// The hand that takes the new item.
-    fn other(self) -> Hand {
-        match self.away {
-            Hand::Left => Hand::Right,
-            Hand::Right => Hand::Left,
+    /// A hireling's hands changed through its portrait (`0x6D6760`, #1771): the items of the
+    /// hands' slots `off` (12 the left, 13 the right) taken off, and an item with its values put
+    /// into the slot of `takes`, which empties first.
+    pub(crate) fn handing(off: &[u8], takes: Option<(u32, u8, fight::ItemValues)>) -> Self {
+        let away = off
+            .iter()
+            .copied()
+            .chain(takes.map(|(_, slot, _)| slot))
+            .filter_map(Hand::of_slot)
+            .collect();
+        Self {
+            away,
+            takes: takes
+                .and_then(|(item, slot, values)| Some((item, Hand::of_slot(slot)?, Some(values)))),
         }
     }
 }
@@ -7920,8 +8003,7 @@ fn rearm(
         &mut armed
     {
         commands.entity(entity).remove::<Rearms>();
-        let other = rearms.other();
-        let gone = |hand: Hand| hand == rearms.away || (rearms.takes.is_some() && hand == other);
+        let gone = |hand: Hand| rearms.away.contains(&hand);
         let put_away: Vec<u32> = arms
             .holding
             .iter()
@@ -7941,21 +8023,23 @@ fn rearm(
                 .retain(|item| !item.piece.mount.handed() || !gone(item.piece.hand));
         }
         let grade = mind.level;
-        if let Some(item) = rearms.takes
+        if let Some((item, hand, given)) = rearms.takes
             && let Some(gear) = npcs.gear.get(&item)
         {
-            let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
-            let mut dice = spawning::Rng::of(
-                u32::try_from(x).unwrap_or(0),
-                u32::try_from(y).unwrap_or(0),
-                usize::try_from(item).unwrap_or(0),
-            );
-            let values = npcs.items.make(item, grade, &mut dice);
+            let values = given.or_else(|| {
+                let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
+                let mut dice = spawning::Rng::of(
+                    u32::try_from(x).unwrap_or(0),
+                    u32::try_from(y).unwrap_or(0),
+                    usize::try_from(item).unwrap_or(0),
+                );
+                npcs.items.make(item, grade, &mut dice)
+            });
             let held = InHand {
                 item,
                 category: gear.category,
                 kind: gear.kind,
-                hand: other,
+                hand,
             };
             arms.holding.push((held, values));
             if let Some(model) = &gear.model {
@@ -7963,7 +8047,7 @@ fn rearm(
                     piece: Piece {
                         model: model.clone(),
                         texture: gear.texture.clone(),
-                        hand: other,
+                        hand,
                         mount: Mount::held(gear.category),
                     },
                     gltf: assets.load(model.clone()),
@@ -9405,9 +9489,16 @@ mod tests {
         // The switch to melee puts away the left hand's bow for the right's new weapon; the
         // bow-taking the right hand's weapon for the left's bow.
         let to_melee = Rearms::to_melee(Some(1753));
-        assert_eq!((to_melee.away, to_melee.other()), (Hand::Left, Hand::Right));
+        assert_eq!(to_melee.away, [Hand::Left, Hand::Right]);
+        assert_eq!(to_melee.takes, Some((1753, Hand::Right, None)));
         let bow = Rearms::bow(1732);
-        assert_eq!((bow.away, bow.other()), (Hand::Right, Hand::Left));
+        assert_eq!(bow.away, [Hand::Right, Hand::Left]);
+        assert_eq!(bow.takes, Some((1732, Hand::Left, None)));
+        // A hireling's sword for its bow: the bow off the left hand, the sword into the right.
+        let values = fight::ItemValues::default();
+        let handing = Rearms::handing(&[12], Some((1753, 13, values)));
+        assert_eq!(handing.away, [Hand::Left, Hand::Right]);
+        assert_eq!(handing.takes, Some((1753, Hand::Right, Some(values))));
         let sword = InHand::of([(1753, WEAPON, Some(1))]);
         assert_eq!(class_of(&sword), 1);
         assert!(!ranged_of(&sword));
@@ -9745,6 +9836,7 @@ mod tests {
         let gear = |category, model: &str| Gear {
             category,
             kind: None,
+            parent: 0,
             model: Some(model.to_owned()),
             texture: None,
             counts: false,
@@ -9785,6 +9877,7 @@ mod tests {
         let gear = |category, kind, model: &str| Gear {
             category,
             kind,
+            parent: 0,
             model: Some(model.to_owned()),
             texture: None,
             counts: false,
@@ -9866,6 +9959,7 @@ mod tests {
         let gear = |category, kind| Gear {
             category,
             kind,
+            parent: 0,
             model: Some("m.glb".into()),
             texture: None,
             counts: true,

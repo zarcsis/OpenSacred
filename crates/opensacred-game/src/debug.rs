@@ -353,6 +353,19 @@ pub fn heal(world: &mut World, id: Option<Entity>, to: Option<u32>) -> Result<St
     })
 }
 
+/// Hires the creature `id` as the hero's follower, as a script's `0x4B` hires it
+/// (`followers::Hired`, carried out at the next frame).
+pub fn hire(world: &mut World, id: Entity) -> Result<String, String> {
+    let mut creature = world
+        .get_entity_mut(id)
+        .map_err(|_| format!("{id} is no creature"))?;
+    if creature.contains::<Dies>() {
+        return Err(format!("{id} is dying"));
+    }
+    creature.insert(crate::followers::Hired(crate::followers::Hire::Fights));
+    Ok(format!("{id} is hired"))
+}
+
 /// How far about a cell, in cells along each axis, a summons looks for cells to stand its
 /// creatures on.
 const SPAWN_REACH: i32 = 16;
