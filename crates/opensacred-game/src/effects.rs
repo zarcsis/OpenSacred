@@ -73,6 +73,27 @@ impl Effects {
         true
     }
 
+    /// Whether it bleeds, an effect 23 holding.
+    pub fn bleeds(&self) -> bool {
+        self.0
+            .iter()
+            .any(|timed| timed.effect.id == opensacred_rules::arts::BLEEDS)
+    }
+
+    /// Adds a strike's open wound from `source` (`opensacred_rules::fight::open_wound`, #1727):
+    /// the effect 23 of the value `value` for `seconds`, unless it bleeds already. Whether it went.
+    pub fn wound(&mut self, value: f32, seconds: f32, source: Entity) -> bool {
+        if self.bleeds() {
+            return false;
+        }
+        self.0.push(Timed {
+            effect: Effect::new(opensacred_rules::arts::BLEEDS, value),
+            left: seconds,
+            source: Some(source),
+        });
+        true
+    }
+
     /// Adds a potion's effect 33 for `seconds` as `0x582D50` does (at `0x584328`): one of the
     /// same whole value alone, which keeps its place and value and takes the longer time.
     pub fn add_alone(&mut self, effect: Effect, seconds: f32) {

@@ -112,6 +112,8 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         // The per cent chances of the effects 866 and 856, as an item's are worded.
         Told::GoldForHealth(chance) => white(format!("{}: {}%", n(1134), tenths(chance))),
         Told::GoldPile(chance) => white(format!("{}: {}%", n(1143), tenths(chance))),
+        // The open wounds' chance of a strike, as the items' effect 857 is worded.
+        Told::OpenWounds(chance) => white(format!("{}: {}", n(1151), share(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
         Told::RangedDefence(x) => white(format!(
             "{} {} {}: {}",
@@ -329,6 +331,7 @@ mod tests {
         assert_eq!(told(Told::Survival(16.7)), ["<1159>: +16.7%"]);
         assert_eq!(told(Told::GoldForHealth(50.1)), ["<1134>: +50.1%"]);
         assert_eq!(told(Told::GoldPile(20.0)), ["<1143>: +20%"]);
+        assert_eq!(told(Told::OpenWounds(11.0 / 101.0)), ["<1151>: +10.9%"]);
         assert_eq!(
             told(Told::Bonus(Bonus::Multiplier(
                 Array::Spells,

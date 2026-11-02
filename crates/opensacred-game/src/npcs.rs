@@ -7860,6 +7860,14 @@ impl Arms {
         self.fight_with(grade, rank, rules, &[])
     }
 
+    /// The values of the items in its hands, of those that have some.
+    pub(crate) fn held_values(&self) -> Vec<fight::ItemValues> {
+        self.holding
+            .iter()
+            .filter_map(|&(_, values)| values)
+            .collect()
+    }
+
     /// The item in the hand of the equipment's slot `slot` (12 the left, 13 the right,
     /// `0x556F50`) and its values.
     pub(crate) fn in_hand(&self, slot: u8) -> Option<(u32, Option<fight::ItemValues>)> {
