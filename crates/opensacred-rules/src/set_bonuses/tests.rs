@@ -240,6 +240,13 @@ fn the_readers_of_the_counts_take_their_shares() {
             .chain((0..7).map(|i| (7100 + i, 9))),
     );
     assert!(close(stats(&both, Difficulty::Silver).luck(100.0), 161.0));
+    // Seven pieces of set 26 let the Dark Elf go unseen, six do not.
+    assert!(stats(&wearing(26, 7), Difficulty::Bronze).unseen());
+    assert!(!stats(&wearing(26, 6), Difficulty::Bronze).unseen());
+    assert_eq!(
+        told(26, &wearing(26, 7), Difficulty::Bronze).last(),
+        Some(&Told::Unseen)
+    );
     // Set 61 at 4 adds 0.15·D to the killer's exorcism, set 54 at 7 0.3·D after it.
     let both = Worn::of(
         (0..4)
