@@ -33,6 +33,9 @@ pub struct Clips {
     pub moving: [String; 3],
     pub stance: Option<String>,
     pub attacks: Vec<(String, [f32; 2])>,
+    /// The shots' clips of the bolts, the railgun's (slot 164) and the BFG's (145), with their
+    /// hits' fractions (`0x4DCB80`, #1371).
+    pub bolts: [Option<(String, [f32; 2])>; 2],
     pub arts: Vec<hero::ArtClipName>,
     pub dying: Vec<String>,
     pub pickup: Option<String>,

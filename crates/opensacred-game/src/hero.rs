@@ -86,6 +86,9 @@ pub struct ArtNode {
     pub halved: bool,
 }
 
+/// A strike's clip in the hero's graph: its node, its clip and the fractions at which it hits.
+pub type Strike = (AnimationNodeIndex, Handle<AnimationClip>, [f32; 2]);
+
 /// Which model and clips to show, relative to the asset directory.
 #[derive(Resource)]
 pub struct Hero {
@@ -105,6 +108,9 @@ pub struct Hero {
     /// The model's attack clips for what it holds (`motions::Slots::attacks`) and the fractions
     /// of each at which it hits (`attack`).
     pub attacks: Vec<(String, [f32; 2])>,
+    /// The model's shots of the bolts, the railgun's and the BFG's, and their hits' fractions
+    /// (`forms::Clips::bolts`, #1371).
+    pub bolts: [Option<(String, [f32; 2])>; 2],
     /// The clips of its arts' actions for what it holds (`making`, #509).
     pub arts: Vec<ArtClipName>,
     /// The items in its hands, its template's (`npcs::Npcs::hero_gear`, #488), and their
@@ -170,6 +176,7 @@ impl Hero {
             run,
             stance: None,
             attacks: Vec::new(),
+            bolts: [None, None],
             arts: Vec::new(),
             held: Vec::new(),
             wears: Vec::new(),
@@ -206,6 +213,7 @@ impl Hero {
         [self.idle, self.walk, self.run] = form.clips.moving.clone();
         self.stance.clone_from(&form.clips.stance);
         self.attacks.clone_from(&form.clips.attacks);
+        self.bolts.clone_from(&form.clips.bolts);
         self.arts.clone_from(&form.clips.arts);
         self.dying.clone_from(&form.clips.dying);
         self.pickup.clone_from(&form.clips.pickup);
@@ -428,7 +436,9 @@ pub struct Clips {
     /// The walk and the run clips and their nodes.
     moving: [(Handle<AnimationClip>, AnimationNodeIndex); 2],
     /// The attack clips' nodes, the clips and the fractions at which they hit.
-    pub attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
+    pub attacks: Vec<Strike>,
+    /// The bolts' shots' nodes, clips and fractions, the railgun's and the BFG's (#1371).
+    pub bolts: [Option<Strike>; 2],
     /// The arts' actions' clips (`making`, #509).
     pub arts: Vec<ArtNode>,
     /// The dying clips' nodes.
@@ -523,6 +533,10 @@ pub fn spawn(
             .filter_map(|(name, fractions)| Some((clip(name)?, *fractions)))
             .collect();
         let dying: Vec<_> = hero.dying.iter().filter_map(|name| clip(name)).collect();
+        let bolts = hero
+            .bolts
+            .clone()
+            .map(|bolt| bolt.and_then(|(name, fractions)| Some((clip(&name)?, fractions))));
         let arts: Vec<_> = hero
             .arts
             .iter()
@@ -542,10 +556,17 @@ pub fn spawn(
         clips.extend(dying);
         let dyings = clips.len() - 3 - stances - strikes;
         clips.extend(arts.iter().filter_map(|(_, clip)| clip.clone()));
-        // The pick-up, last.
+        // The bolts' shots, then the pick-up, last.
+        let first_bolt = clips.len();
+        clips.extend(bolts.iter().flatten().map(|(clip, _)| clip.clone()));
         let pickup = hero.pickup.as_ref().and_then(|name| clip(name));
         clips.extend(pickup.clone());
         let (graph, nodes) = AnimationGraph::from_clips(clips);
+        let mut bolt_nodes = nodes[first_bolt..].iter();
+        let bolts = bolts.map(|bolt| {
+            let (clip, fractions) = bolt?;
+            Some((*bolt_nodes.next()?, clip, fractions))
+        });
         let pickup = pickup
             .zip(nodes.last().copied())
             .map(|(clip, node)| (node, clip));
@@ -574,6 +595,7 @@ pub fn spawn(
                 .collect(),
             dying: nodes[3 + stances + strikes..3 + stances + strikes + dyings].to_vec(),
             arts: art_nodes,
+            bolts,
             pickup,
             player: None,
         });
@@ -1522,6 +1544,7 @@ mod tests {
                     (Handle::default(), AnimationNodeIndex::new(2)),
                 ],
                 attacks: Vec::new(),
+                bolts: [None, None],
                 arts: Vec::new(),
                 dying: Vec::new(),
                 pickup: None,
@@ -1578,6 +1601,7 @@ mod tests {
             stance,
             moving: [(Handle::default(), node(2)), (Handle::default(), node(3))],
             attacks: Vec::new(),
+            bolts: [None, None],
             arts: Vec::new(),
             dying: Vec::new(),
             pickup: None,
