@@ -3689,6 +3689,32 @@ pub const STUN: u32 = 862;
 pub const STUN_FACES: u32 = 100;
 /// The faces of the critical hit's roll, `rand() % 101` ([`critical`]).
 pub const CRITICAL_FACES: u32 = 101;
+/// The items' effect of the magic defence (`0x35A`), which its bearer's own items give.
+pub const MAGIC_DEFENCE: u32 = 858;
+/// The faces of the magic defence's roll, `rand() % 100` (`0x561B86`, [`warded`]).
+pub const MAGIC_DEFENCE_FACES: u32 = 100;
+
+/// The share of a spell object's hits that a target of the magic defence's value `value` (its
+/// items' 858 and its sets', `set_bonuses::Stats::magic_defence`) turns aside from a caster
+/// creature of the level `level` whose magic lore gives the per cent `lore` ([`magic_lore`])
+/// (`0x561860`, #1727's M17): `v/(v + X)`, `X = (0.01·c + 1)·L` stored as a float, through the
+/// weight `0x43EEE0` of the exponent 1 ([`hit_chance`]: 0.9999 for `X` within ±0.001); none at a
+/// value not above `2⁻²³`, where no roll is drawn.
+pub fn magic_ward(value: f32, level: u32, lore: f32) -> Option<f32> {
+    if value <= 2f32.powi(-23) {
+        return None;
+    }
+    let x = stored((f64::from(lore) * f64::from(0.01_f32) + 1.0) * f64::from(level));
+    Some(hit_chance(value, x))
+}
+
+/// Whether a spell object's hit is turned aside by the ward `share` ([`magic_ward`]):
+/// `rand() % 100`, `roll`, below `100·w` (`0x561B86`), so `⌈100·w⌉` per cent; before the
+/// effect 26's own test, and nothing of the hit reaches the target.
+pub fn warded(share: f32, roll: u32) -> bool {
+    f64::from(roll) < 100.0 * f64::from(share)
+}
+
 /// The faces of the alchemy's roll, `R(0, 99)` (the effect 868's healing potion at a death,
 /// docs/re/items.md, "Drops"; the drop is not followed yet).
 pub const ALCHEMY_FACES: u32 = 100;
@@ -6440,6 +6466,28 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_magic_defence_turns_aside_by_the_casters_level() {
+        // Set 41's 15 at bronze: 60 % against a caster of level 10 without the magic lore, 43 %
+        // of level 20, 31 % of level 20 with a lore of 50 % (`X` 30); none at 0, and no roll.
+        let ward = |level, lore| magic_ward(15.0, level, lore).expect("a ward");
+        assert!((ward(10, 0.0) - 0.6).abs() < 1e-6);
+        assert!((ward(20, 0.0) - 15.0 / 35.0).abs() < 1e-6);
+        assert!((ward(20, 50.0) - 15.0 / 45.0).abs() < 1e-6);
+        assert_eq!(magic_ward(0.0, 10, 0.0), None);
+        assert!(warded(0.5, 49) && !warded(0.5, 50));
+        // The float 0.6 is a little above it, as the original's stored share: 61 rolls hold.
+        assert!(warded(0.6, 60) && !warded(0.6, 61));
+        // A share not whole holds on `⌈100·w⌉` rolls: 43 of 100 for 0.4286.
+        let share = ward(20, 0.0);
+        assert_eq!(
+            (0..MAGIC_DEFENCE_FACES)
+                .filter(|&roll| warded(share, roll))
+                .count(),
+            43
+        );
     }
 
     #[test]
