@@ -3099,10 +3099,16 @@ pub fn art_landed(
 }
 
 /// The attack that a strike of a combat art of the second table takes into its hit's chance
-/// (`0x56B130`): `A · (1.3 + 0.125·L)`, `L` the art's level in play (the entry's level and bonus,
-/// `0x580A10`), at 53 bits and stored as a float.
+/// (`0x56B130`): `A` times [`art_attack_factor`], at 53 bits and stored as a float.
 pub fn art_attack(attack: f32, level: u32) -> f32 {
-    stored((f64::from(level) * 0.125 + 1.3) * f64::from(attack))
+    stored(art_attack_factor(level) * f64::from(attack))
+}
+
+/// The factor of the attack of a strike of a combat art of the second table (`0x56B130`):
+/// `1.3 + 0.125·L`, `L` the art's level in play (the entry's level and bonus, `0x580A10`); the
+/// art's tooltip tells it.
+pub fn art_attack_factor(level: u32) -> f64 {
+    f64::from(level) * 0.125 + 1.3
 }
 
 /// What a strike that landed did (`0x56B130`): what it took off the defender's health, and what

@@ -18,7 +18,7 @@
 //! which the original prints as the bits of a double.
 
 use opensacred_data::tables::{Arts as Tables, Spell, WeaponArt};
-use opensacred_rules::arts::{Arts, Speeds};
+use opensacred_rules::arts::{self, Arts, Speeds};
 use opensacred_rules::fight::KINDS;
 
 use super::{Line, Piece, WHITE};
@@ -214,17 +214,12 @@ impl Values<'_> {
         })
     }
 
-    /// `W60/W68`, 0 where `W68` is not above about 0 (`0x5537B0`).
-    fn w60_over_w68(&self) -> i64 {
-        match self.w68() {
-            over if over > 0 => ftol(float(self.w60()) / float(over)),
-            _ => 0,
-        }
-    }
-
-    /// The attack's bonus `⌊(0.125·L + 1.3f)·100 − 100⌋`.
+    /// The attack's bonus in per cent, of the factor that the strike takes
+    /// (`opensacred_rules::fight::art_attack_factor`), where the original's
+    /// `⌊(0.125·L + 1.3f)·100 − 100⌋` takes the float 1.3 a little short and truncates, one
+    /// short of the strike's at the level 0 (#1741).
     fn attack(&self) -> i64 {
-        ftol((0.125 * self.l() + f64::from(1.3_f32)) * 100.0 - 100.0)
+        per_cent(opensacred_rules::fight::art_attack_factor(self.level))
     }
 
     /// The chance to block of the level `⌊100·min(1, n(5L + 9)/(H + 9 + n(5L + 9)))⌋`.
@@ -250,11 +245,23 @@ impl Values<'_> {
             + 1.0
     }
 
-    /// The Dwarf's guns' factor `1 + a2/BalanceGeschick + 0.01·c₂` (`0x4D21C0`), 1 of another.
+    /// The Dwarf's guns' factor `1 + a2/BalanceGeschick + 0.01·c₂` (`0x4D21C0`), as his guns
+    /// take it (`opensacred_rules::fight::Rules::glance_factor`), 1 of another.
     fn gun(&self) -> f64 {
         if self.hero.kind == 8 {
-            1.0 + f64::from(self.hero.attributes[2]) / f64::from(self.hero.rules.geschick())
-                + 0.01 * self.hero.curve(2)
+            self.hero
+                .rules
+                .glance_factor(self.hero.skills, self.hero.attributes[2])
+        } else {
+            1.0
+        }
+    }
+
+    /// The Daemon's multiplier of the kind `kind` that his arts of the second table take, 1.0
+    /// for another caster (`0x4D2250`…).
+    fn daemon(&self, kind: usize) -> f32 {
+        if self.hero.kind == 9 {
+            self.hero.multipliers[kind]
         } else {
             1.0
         }
@@ -295,9 +302,12 @@ fn wrapped(text: &str, code: usize, colour: u32) -> impl Iterator<Item = Line> {
         .map(move |line| Line::of(line, colour))
 }
 
-/// `100·x − 100 + 0.5` truncated toward zero (`P`).
+/// The per cent that the factor `x` adds, `100·x − 100` rounded to the nearest, where the
+/// original's `P` adds 0.5 and truncates toward zero, a negative factor's one point short: −19
+/// for the 0.80000001 of 1071 (#1741; docs/decisions/arts.md, "Arts' tooltips' numbers from
+/// their code").
 fn per_cent(x: f64) -> i64 {
-    ftol(100.0 * x - 100.0 + 0.5)
+    ftol((100.0 * x - 100.0).round())
 }
 
 /// The damage's line (`DMG`): `label: total = physical+fire+magic+poison`, the fire, magic and
@@ -644,7 +654,15 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
     let weapon = v.weapon.is_some();
     let magic_lore = || ftol(float(v.v(0)) * (1.0 + f64::from(0.01_f32) * v.hero.curve(14)));
     let lines = match id {
-        1 => vec![whole(n(1083), v.v(0))],
+        // The farthest the teleport takes the caster, `v0 − 1` steps of 10 (`spells::teleport`,
+        // `TELEPORT_STEP`) in metres as the other ranges, where the original's line prints the
+        // count of its steps `v0` as the range (#1741).
+        1 => vec![metres(
+            n(1083),
+            f64::from(0.02_f32)
+                * f64::from(opensacred_rules::spells::TELEPORT_STEP)
+                * float((v.v(0) - 1).max(0)),
+        )],
         2 => vec![
             seconds(n(1097), v.v(0)),
             signed_pc(n(1167), v.e(5)),
@@ -736,11 +754,16 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             pc(k("UI_STAT_REDUCE_ENEMY_PHY_RES"), ten_thousandth(v.e(6))),
             duration(),
         ],
+        // The most that the kills raise the strikes' damage to, of its word `v1`
+        // (`spells::doom_most`), where the original's line takes a tenth of the duration `v0`,
+        // +3 % for +90 % at the level 1 (#1741).
         62 if spell => vec![
             plain(format!(
                 "{}: +{}%",
                 k("UI_MAX_DMGBONUS"),
-                ftol(f64::from(stored(f64::from(0.1_f32) * float(v.v(0)))) + 0.5)
+                per_cent(f64::from(opensacred_rules::spells::doom_most(
+                    u16::try_from(v.v(1)).unwrap_or(0)
+                )))
             )),
             duration(),
         ],
@@ -755,9 +778,10 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             seconds(k("UI_DAUER_TENTAKEL"), v.v(1)),
             seconds(k("UI_DAUER_AURA"), v.v(0)),
         ],
+        // The time's factor that the choir's objects give a creature of the hero's level
+        // (`spells::choir_slows`), where the original's line weighs `0.75·a/(5·L)` (#1741).
         66 if spell => {
-            let level = f64::from(v.hero.level);
-            let q = (0.75 * level / (5.0 * v.l())).clamp(0.5, 1.0);
+            let q = f64::from(opensacred_rules::spells::choir_slows(v.hero.level, v.level));
             vec![
                 dmg(v.damages(false)),
                 plain(format!(
@@ -871,17 +895,20 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             signed_pc(n(1167), ftol(100.0 * v.w50())),
             seconds(n(1097), ftol(v.w58())),
         ],
+        // The strike's whole value as the art gives it, taken whole, where the original's line
+        // rounds it, one above it at times (13 shown for 12 dealt; #1741).
         1016 => {
             let factor = v
                 .hero
                 .rules
                 .glance_factor(v.hero.skills, v.hero.attributes[0]);
+            let strikes = v
+                .weapon
+                .and_then(|w| opensacred_rules::arts::glance(w, v.level, factor))
+                .and_then(|boon| boon.effects.first().map(|(effect, _)| effect.whole))
+                .unwrap_or(0);
             vec![
-                plain(format!(
-                    "{}: {}/s",
-                    n(1116),
-                    ftol(f64::from(stored(factor * v.w50())) + 0.5)
-                )),
+                plain(format!("{}: {strikes}/s", n(1116))),
                 seconds(n(1097), ftol(v.w58())),
             ]
         }
@@ -917,10 +944,14 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
                 seconds(n(1097), ftol(v.w58())),
             ]
         }
-        1035..=1037 => {
-            let l = i64::from(v.level);
-            vec![whole(n(1105), (34 * l + 8) / (7 * l + 35))]
-        }
+        // The bats that the art keeps, its record's factor (5·L, 2, 2), where the original's
+        // line takes constants compiled in, about 1 to 4 (#1741).
+        1035..=1037 => vec![whole(
+            n(1105),
+            v.weapon.map_or(0, |w| {
+                i64::from(opensacred_rules::arts::bats_most(w, v.level))
+            }),
+        )],
         1042 => vec![
             metres(n(1104), f64::from(0.02_f32) * v.w50()),
             seconds(n(1097), ftol(v.w58())),
@@ -973,63 +1004,66 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             signed_pc(n(1116), ftol(100.0 * (f64::from(stored(v.w50())) - 1.0))),
             signed_pc(n(1074), v.attack()),
         ],
+        // The guns' damages and the flames' seconds as the Dwarf's guns deal them
+        // (`opensacred_rules::arts::gun_damage`, `flame_seconds`, `cannon_damages`), where the
+        // original's lines leave out the flames' least of 2 s and pair the cannon's damages with
+        // their own kinds' multipliers, which its shot crosses (#1741).
         1085..=1087 if weapon => {
-            let m = |k: usize| f64::from(v.hero.multipliers[k]) * v.gun();
-            let physical = v.w50() * m(0);
-            let fire = v.w58() * m(1);
-            match id {
-                1085 => {
-                    let f = ftol(f64::from(stored(fire)));
-                    vec![
-                        damage_line(n(1085), f, [0, f, 0, 0], base),
-                        seconds(k("UI_STAT_BURN_TIME"), v.w60_over_w68()),
-                    ]
+            let w = v.weapon?;
+            let m = v.hero.multipliers;
+            let gun = v.gun();
+            let whole = |d: f32| ftol(f64::from(d));
+            let [p, f] = match id {
+                1085 => [0.0, arts::gun_damage(w.value_58, v.level, m[1], gun)],
+                1086 => [
+                    arts::gun_damage(w.factor, v.level, m[0], gun),
+                    arts::gun_damage(w.value_58, v.level, m[1], gun),
+                ],
+                _ => {
+                    let [p, f, ..] = arts::cannon_damages(w, v.level, m, gun, true);
+                    [p, f]
                 }
-                1086 => {
-                    let (p, f) = (ftol(physical), ftol(fire));
-                    vec![damage_line(n(1085), p + f, [p, f, 0, 0], base)]
-                }
-                _ => vec![damage_line(
-                    n(1085),
-                    ftol(physical + fire),
-                    [ftol(physical), ftol(fire), 0, 0],
-                    base,
-                )],
+            };
+            let (p, f) = (whole(p), whole(f));
+            let mut lines = vec![damage_line(n(1085), p + f, [p, f, 0, 0], base)];
+            if id == 1085 {
+                lines.push(seconds(
+                    k("UI_STAT_BURN_TIME"),
+                    i64::from(arts::flame_seconds(w, v.level)),
+                ));
             }
+            lines
         }
-        1089 if weapon => {
-            let allies = ftol(50.0 * v.w58());
-            vec![
-                plain(format!(
-                    "{}: {:+}% ({}: {allies:+}%)",
-                    n(1166),
-                    ftol(100.0 * v.w50()),
-                    k("UI_STAT_ON_ALLIES")
-                )),
-                plain(format!(
-                    "{}: {:+}% ({}: {allies:+}%)",
-                    n(1167),
-                    ftol(100.0 * v.w58()),
-                    k("UI_STAT_ON_ALLIES")
-                )),
-                seconds(n(1097), ftol(f64::from(0.01_f32) * float(v.w60()))),
-            ]
-        }
+        // The allies take half of each effect, the attack's of `W50`, and the time is
+        // `W60/100` seconds, where the original's line takes the attack's half of `W58` and the
+        // float 0.01 a little short, a whole time one short (#1741).
+        1089 if weapon => vec![
+            plain(format!(
+                "{}: {:+}% ({}: {:+}%)",
+                n(1166),
+                ftol(100.0 * v.w50()),
+                k("UI_STAT_ON_ALLIES"),
+                ftol(50.0 * v.w50())
+            )),
+            plain(format!(
+                "{}: {:+}% ({}: {:+}%)",
+                n(1167),
+                ftol(100.0 * v.w58()),
+                k("UI_STAT_ON_ALLIES"),
+                ftol(50.0 * v.w58())
+            )),
+            seconds(n(1097), ftol(float(v.w60()) / 100.0)),
+        ],
         1094 if weapon => vec![
             signed_pc(n(1167), ftol(100.0 * v.w58())),
             signed_pc(n(1098), v.w60() - 100),
             seconds(n(1097), ftol(v.w50().min(180.0))),
         ],
+        // The effects 1 and 3 of `W68/100` and `W60/100`, in per cent their whole `W68` and
+        // `W60`, where the original's line takes the float 0.01 a little short, 19 for 20 (#1741).
         1097 if weapon => vec![
-            signed_pc(
-                n(1166),
-                ftol(100.0 * (f64::from(0.01_f32) * float(v.w68()))),
-            ),
-            plain(format!(
-                "{} {:+}%",
-                k("UI_PHY_DMG"),
-                ftol(100.0 * (f64::from(0.01_f32) * float(v.w60())))
-            )),
+            signed_pc(n(1166), v.w68()),
+            plain(format!("{} {:+}%", k("UI_PHY_DMG"), v.w60())),
             plain(format!(
                 "{} {:+}",
                 k("INVENTAR_RES_PHYSICAL"),
@@ -1053,34 +1087,35 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
                 seconds(n(1097), ftol(v.w50().min(180.0))),
             ]
         }
+        // The Daemon's blows as his objects take them, whole (`opensacred_rules::arts::
+        // ring_poison`, `fan_magic`, `daemon_ratio`), where the original's lines round them, one
+        // above them at times (#1741).
         1101 | 1102 if weapon => {
+            let w = v.weapon?;
             let kind = if id == 1101 { 3 } else { 1 };
-            let mu = if v.hero.kind == 9 {
-                f64::from(v.hero.multipliers[kind])
-            } else {
-                1.0
-            };
             let (damage, time) = if id == 1101 {
                 ("UI_POI_DMG", n(1097))
             } else {
                 ("UI_STAT_FEUERHAUCH_DMG", k("UI_STAT_FEUERHAUCH_TIME"))
             };
             vec![
-                whole(k(damage), ftol(v.w50() * mu + 0.5)),
-                seconds(time, v.w60_over_w68()),
+                whole(
+                    k(damage),
+                    ftol(f64::from(arts::ring_poison(w, v.level, v.daemon(kind)))),
+                ),
+                seconds(time, i64::from(arts::daemon_ratio(w, v.level))),
             ]
         }
         1103 if weapon => {
-            let mu = if v.hero.kind == 9 {
-                f64::from(v.hero.multipliers[2])
-            } else {
-                1.0
-            };
-            let physical = ftol(v.w50());
-            let magic = ftol(float(ftol(v.w58())) * mu + 0.5);
+            let w = v.weapon?;
+            let physical = ftol(f64::from(arts::ring_poison(w, v.level, v.daemon(0))));
+            let magic = ftol(f64::from(arts::fan_magic(w, v.level, v.daemon(2))));
             vec![
                 damage_line(n(1085), physical + magic, [physical, 0, magic, 0], base),
-                whole(k("UI_NUMBER_FLASHS"), 2 * v.w60_over_w68() + 1),
+                whole(
+                    k("UI_NUMBER_FLASHS"),
+                    2 * i64::from(arts::daemon_ratio(w, v.level)) + 1,
+                ),
             ]
         }
         _ => return None,
@@ -1285,20 +1320,21 @@ mod tests {
         };
         let lines = shown(1000, &Arts::default(), &tables);
         assert_eq!(lines[4], "<1072>: 1");
-        // Its time at the level 0 of its record, its strike's 1.3 at 1, its radius and its attack.
+        // Its time at the level 0 of its record, its strike's 1.3 at 1, its radius and its
+        // attack's 1.425 at 1, +42.5 % rounded (#1741).
         assert_eq!(
             lines[5..],
             [
                 "<1107>: 4.0s",
                 "<1116>: +30%",
                 "<1104>: +20%",
-                "<1074>: +42%"
+                "<1074>: +43%"
             ]
         );
     }
 
     #[test]
-    fn the_attack_bonus_takes_the_float_1_3() {
+    fn the_attack_bonus_tells_the_strikes_factor() {
         let tables = Tables {
             spells: Vec::new(),
             weapon_arts: vec![weapon_art(1001)],
@@ -1306,9 +1342,9 @@ mod tests {
         let arts = Arts {
             entries: vec![entry(Table::WeaponArts, 1001, 2, 5.0)],
         };
-        // 0.125·2 + 1.2999999523 gives 54 rather than 55.
+        // The strike's 1.3 + 0.125·2 (#1741), where the original's float 1.2999999523 shows 54.
         let lines = shown(1001, &arts, &tables);
-        assert_eq!(lines.last().map(String::as_str), Some("<1074>: +54%"));
+        assert_eq!(lines.last().map(String::as_str), Some("<1074>: +55%"));
     }
 
     #[test]
@@ -1317,7 +1353,8 @@ mod tests {
         assert_eq!(restriction(Some(2), None), Some("UI_HORSE_ONLYWITHBOW"));
         assert_eq!(restriction(None, Some(5)), Some("UI_STAT_2H_ONLY"));
         assert_eq!(restriction(Some(0), Some(0)), None);
-        // A negative share rounds toward zero, as the original's `_ftol`.
-        assert_eq!(per_cent(0.8_f32.into()), -19);
+        // A negative share rounds to the nearest (#1741), where the original's `_ftol` gives −19.
+        assert_eq!(per_cent(0.8_f32.into()), -20);
+        assert_eq!(per_cent(1.3), 30);
     }
 }
