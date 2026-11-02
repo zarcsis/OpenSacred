@@ -315,7 +315,7 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 46] = [
         Section::World,
         "art_key_5",
         &["F5"],
-        "as art_key_1, only while the spells page shows",
+        "as art_key_1",
     ),
     (
         Action::ArtKey6,

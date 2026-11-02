@@ -15,8 +15,9 @@
 //! the key to it, in the page's list and in the hero's entries (`0x580D00`), and the same key over
 //! the art that holds it clears it in the list alone, which the page's next show reads back from
 //! the entries (`0x6C1E60`, `0x580C80`); elsewhere the key's art goes into the bar's selected
-//! slot as the right press puts one, F1 to F6 while the page shows and F1 to F4 alone while it is
-//! hidden (`0x6C1F30`). The page writes `F%d` on an art of a key (`0x6C25A0`).
+//! slot as the right press puts one, F1 to F6 whether the page shows or not, where the original's
+//! hidden page takes F1 to F4 alone (`0x6C1F30`; docs/decisions/arts.md, "F5 and F6 with the page
+//! hidden"). The page writes `F%d` on an art of a key (`0x6C25A0`).
 //!
 //! The hovered art shows its tooltip with its next level at its icon's (x + 70, y + 32)
 //! (`0x6C25A0`, `tooltip::art`, #1696).
@@ -368,8 +369,6 @@ fn pick(
     }
 }
 
-/// The arts' keys that reach the page while it is hidden: F1 to F4, its test stopping at `0x112`.
-const HIDDEN_KEYS: u8 = 4;
 /// Where a key's name stands on its art's icon, and its font: the interface's font 1, white
 /// (`0x6C25A0`, `0x649BE0`), AntiquaSSK at the size of the foe's panel's (`foe_panel`).
 const KEY_AT: Vec2 = Vec2::new(44.0, 42.0);
@@ -453,7 +452,8 @@ fn keyed(list: &mut Keyed, key: u8, over: Option<u16>) -> Keying {
 
 /// The keys F1 to F6 on their release (`0x6C1F30`, the event of a key's code): over a held art
 /// while the page shows, bound to it or cleared; else the key's art into the bar's selected slot,
-/// as a right press puts one (`0x6C1AE0`), F5 and F6 only while the page shows.
+/// as a right press puts one (`0x6C1AE0`), F5 and F6 too while the page is hidden, which the
+/// original's test of the code stops short of (`0x112`, #1750).
 fn press(
     (keys, console): (crate::controls::Keys, Option<Res<crate::console::Console>>),
     (shown, page): (Res<Shown>, Res<Page>),
@@ -474,7 +474,7 @@ fn press(
         return;
     }
     let on = shown.0 && page.0 == PAGE;
-    let Some(mut arts) = arts.filter(|_| on || key <= HIDDEN_KEYS) else {
+    let Some(mut arts) = arts else {
         return;
     };
     let night = forms.is_some_and(|forms| forms.by_night());

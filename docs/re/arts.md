@@ -224,9 +224,10 @@ In `opensacred-game` since #1528 (`spells_page`, `inventory::Page`): the tabs sh
 **Seen** in the game beside the original at the Seraphim's start: the backgrounds and the seventeen icons at the original's places, 1071 vivid and the rest grey; 1070 taught by the console flashing over its vivid icon, and no more once the page hid.
 Since #1529 the page's presses take a held art onto the cursor, let it go, and put one into the selected slot, the night arts refused by day (`spells_page`, `art_slots`).
 Not followed yet: the tooltips, the master's window's view (#1540).
-Since #1536 the keys F1 to F6 are followed as above (`spells_page`, `opensacred_rules::arts::Arts::bind`): the page's list of keys (`ArtKeys`), made as the page shows and anew for another layout while it shows, the keys bound and cleared over the held arts, the selected slot given the art of a key, F5 and F6 only with the page open, and `F%d` in AntiquaSSK at (44, 42) of the icon; since #1743 a key cleared over its art is taken off the hero's entry too (`Arts::unbind`; docs/decisions/arts.md, "Spells page's key cleared with its binding").
+Since #1536 the keys F1 to F6 are followed as above (`spells_page`, `opensacred_rules::arts::Arts::bind`): the page's list of keys (`ArtKeys`), made as the page shows and anew for another layout while it shows, the keys bound and cleared over the held arts, the selected slot given the art of a key, and `F%d` in AntiquaSSK at (44, 42) of the icon; since #1743 a key cleared over its art is taken off the hero's entry too (`Arts::unbind`; docs/decisions/arts.md, "Spells page's key cleared with its binding").
 **Seen** in the game beside the original's frame (2026-10-30), the Seraphim's start with 1070 taught: F1 over its icon bound it in both, its word the slot 1 and its mark of new gone (the drivers' `arts`); the label at the same place and of the same height, the original's GDI setting its two letters about two pixels further apart.
 In the game alone: F2 over its art took the label off and the page's next show put it back, F1 with the page hidden put 1070 into the selected slot, F5 then did nothing and F5 with the page open put 1017 there.
+Since #1750 F5 and F6 put their arts into the selected slot with the page hidden too, as F1 to F4 do (docs/decisions/arts.md, "F5 and F6 with the page hidden").
 
 ## The art's tooltip (`0x5893B0`)
 
