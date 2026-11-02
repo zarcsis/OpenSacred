@@ -482,7 +482,16 @@ pub enum Reader {
     /// Shift with a left click on a backpack's item turns it into its worth in gold (the query
     /// `0x51`, `0x55DE75`; M19; docs/re/inventory.md, §3).
     IntoGold,
+    /// The hero's strike at a creature of the `Creature.pak` class `class` (its byte `+4`: 5 the
+    /// undead, 10 the dragons, 9 the demons; `0x426A80`, `0x426B70`, `0x426B20`) lets these kinds'
+    /// damages through its resistances times `1 + c·D` (M1, `0x56CA85`…).
+    Against(u8, &'static [usize], f32),
 }
+
+/// The `Creature.pak` classes that the strike's readers test (M1).
+pub const UNDEAD: u8 = 5;
+pub const DEMONS: u8 = 9;
+pub const DRAGONS: u8 = 10;
 
 /// A reader of a set's count, from a count of its pieces on (each tests `count ≥ pieces`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -500,6 +509,11 @@ const fn read(set: u8, pieces: u8, reads: Reader) -> Read {
 /// (docs/re/sets.md §4); set 21's luck asks six of its five pieces and set 18's exorcism eight of
 /// its seven, so that neither ever holds.
 pub const READERS: &[Read] = &[
+    read(1, 2, Reader::Against(UNDEAD, &[FIRE], 0.6)),
+    read(1, 5, Reader::Against(UNDEAD, ALL_KINDS, 0.3)),
+    read(5, 5, Reader::Against(DRAGONS, ALL_KINDS, 0.3)),
+    read(54, 5, Reader::Against(UNDEAD, &[POISON], 0.5)),
+    read(58, 5, Reader::Against(DEMONS, ALL_KINDS, 0.5)),
     read(3, 8, Reader::Luck(0.2)),
     read(9, 7, Reader::Luck(0.2)),
     read(21, 6, Reader::Luck(0.2)),
@@ -548,6 +562,22 @@ impl Stats {
                 }
                 _ => chance,
             })
+    }
+
+    /// The factors of each kind's damage let through the resistances of a creature of the class
+    /// `class` that the wearer strikes ([`Reader::Against`]), 1 where none.
+    pub fn against(&self, class: u8) -> [f32; KINDS] {
+        let mut times = [1.0; KINDS];
+        for read in self.worn.reads() {
+            if let Reader::Against(of, kinds, c) = read.reads
+                && of == class
+            {
+                for &kind in kinds {
+                    times[kind] *= 1.0 + c * self.factor;
+                }
+            }
+        }
+        times
     }
 
     /// The share of a kill's experience that the wearer earns more ([`Reader::Experience`]).
@@ -696,6 +726,9 @@ pub enum Told {
     Exorcism(f32),
     /// A kill's experience's share more, `c·D` ([`Reader::Experience`]).
     Experience(f32),
+    /// These kinds' damages' share more, `c·D`, against a creature of the class
+    /// ([`Reader::Against`]).
+    Against(u8, &'static [usize], f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -725,6 +758,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
             Reader::Experience(c) => Told::Experience(c * d),
             Reader::Survival(c) => Told::Survival(c * d),
             Reader::IntoGold => Told::IntoGold,
+            Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
         };
         (read.pieces, line)
     });

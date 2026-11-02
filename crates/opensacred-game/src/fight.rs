@@ -278,6 +278,13 @@ pub(crate) fn resolve(
         if let Some(times) = holding.and_then(|holding| holding.0.sets.whole_damage) {
             blow.weapons *= f64::from(times);
         }
+        // The hero's sets against the undead, the dragons and the demons: each kind's damage
+        // through the resistances (`0x56CA85`…, #1727).
+        if side == Some(Side::Attacker)
+            && let (Some(holding), Some(victim)) = (holding, victim)
+        {
+            blow.kinds = holding.0.sets.against(victim.class);
+        }
         if side == Some(Side::Defender) {
             debug!(
                 "fight: {} of level {level} strikes {}, its damage times {factor:.4}",

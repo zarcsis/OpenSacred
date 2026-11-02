@@ -3016,6 +3016,9 @@ pub struct Blow {
     /// The most that the strike takes off a player's health: a creature's strike at the hero
     /// ([`Rules::player_cap`]), none else.
     pub cap: Option<f64>,
+    /// The factor of each kind's damage let through its resistance: the hero's sets against the
+    /// kind of the creature struck (`0x56CA85`…, `set_bonuses::Stats::against`, #1727), else 1.
+    pub kinds: [f32; KINDS],
 }
 
 impl Default for Blow {
@@ -3027,6 +3030,7 @@ impl Default for Blow {
             rolled: 1.0,
             weapons: 1.0,
             cap: None,
+            kinds: [1.0; KINDS],
         }
     }
 }
@@ -3367,8 +3371,9 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice)
         .iter()
         .zip(defender.resistance)
         .zip(defender.damping)
-        .map(|((&d, r), damping)| {
-            dealt(d, r, blow.k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
+        .zip(blow.kinds)
+        .map(|(((&d, r), damping), times)| {
+            dealt(d, r, blow.k) * times * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .collect();
     let total: f32 = through.iter().sum();
