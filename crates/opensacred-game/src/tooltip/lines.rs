@@ -391,13 +391,24 @@ fn name_lines(item: &Item, words: &Words) -> Vec<Line> {
 /// its quality's (the setting `UNIQUE_COLOR` taken as on): 0 to 4 plain, 5 to 11 blue, 12 to 14
 /// gold and 15 bronze.
 fn name_colour(item: &Item) -> u32 {
-    if item.set.is_some() {
+    name_colour_of(
+        item.set.is_some(),
+        item.category,
+        item.record.word,
+        item.quality,
+    )
+}
+
+/// [`name_colour`] of an item of a set or not, its category, its record's word and its quality,
+/// which the name beside the cursor takes too (`0x611E70`, the item's query 2; #1777).
+pub(super) fn name_colour_of(set: bool, category: u8, word: u32, quality: u8) -> u32 {
+    if set {
         return SET_PIECE;
     }
-    if item.category == RUNE {
-        return class_colour(item.record.word);
+    if category == RUNE {
+        return class_colour(word);
     }
-    match item.quality {
+    match quality {
         5..=11 => 0xFFA0_A0FF,
         12..=14 => 0xFFF0_E040,
         15 => 0xFFC1_9A33,

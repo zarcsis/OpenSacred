@@ -179,9 +179,11 @@ pub(crate) fn item_name<'a>(
     texts.named(&key).filter(|name| !name.is_empty())
 }
 
-/// The item's name's place from the cursor, in the original's pixels, and its size.
+/// The item's name's place from the cursor, in the original's pixels, and its size: the
+/// tooltips' (seen, #1777: "Uriel's Helm of Faith" 162 pixels wide at 1024 × 768, as the
+/// tooltip's line of the same name).
 const NAME_OFFSET: Vec2 = Vec2::new(24.0, 16.0);
-const NAME_SIZE: f32 = 14.0;
+const NAME_SIZE: f32 = crate::tooltip::FONT_SIZE;
 
 /// The node of the item's name beside the cursor.
 #[derive(Component)]
@@ -393,14 +395,15 @@ fn choose(
 
 /// The item's name beside the cursor while the hand is over it (`0x611E70`, as it draws): its
 /// text of the game's texts by the name the scripts gave it, else by its type ([`Named::shown`]),
-/// white, 24 of the original's pixels right of the cursor and 16 down; none without a name.
+/// in its name's colour (its query 2, as its tooltip's first line, #1777), 24 of the original's
+/// pixels right of the cursor and 16 down; none without a name.
 fn name_tag(
     mut commands: Commands,
     named: Res<Named>,
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
     (texts, tables, assets): (Option<Res<Texts>>, Option<Res<Tables>>, Res<AssetServer>),
-    mut tags: Query<(Entity, &mut Node, &mut Text), With<NameTag>>,
+    mut tags: Query<(Entity, &mut Node, &mut Text, &mut TextColor), With<NameTag>>,
 ) {
     let name = texts
         .as_deref()
@@ -411,13 +414,24 @@ fn name_tag(
         }
         return;
     };
+    let colour = named
+        .0
+        .as_ref()
+        .and_then(|(dropped, _)| dropped.as_ref())
+        .zip(tables.as_deref())
+        .map_or(Color::WHITE, |(dropped, tables)| {
+            crate::tooltip::argb(crate::tooltip::name_colour(tables, dropped))
+        });
     // The window's pixels in the interface's, which `UiScale` scales (`hud::scale`).
     let at = at / ui_scale.0 + NAME_OFFSET;
-    if let Ok((_, mut node, mut text)) = tags.single_mut() {
+    if let Ok((_, mut node, mut text, mut text_colour)) = tags.single_mut() {
         node.left = Val::Px(at.x);
         node.top = Val::Px(at.y);
         if text.0 != name {
             name.clone_into(&mut text.0);
+        }
+        if text_colour.0 != colour {
+            text_colour.0 = colour;
         }
         return;
     }
@@ -435,7 +449,7 @@ fn name_tag(
             font_size: FontSize::Px(NAME_SIZE),
             ..default()
         },
-        TextColor(Color::WHITE),
+        TextColor(colour),
         GlobalZIndex(10),
         Pickable::IGNORE,
         DespawnOnExit(AppState::InGame),
