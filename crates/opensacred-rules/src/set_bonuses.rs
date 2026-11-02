@@ -506,6 +506,10 @@ pub enum Reader {
     GoldForHealth(f32),
     /// The effect 856's value of a hit grows by `c·D` (M14, `0x56F68F`; `fight::gold_pile`).
     GoldPile(f32),
+    /// A struck creature that lives on is wounded (the effect 23) where `R(0, 100)` comes at most
+    /// to `⌊c·D⌋`, one roll for each `c` reached (M15, `0x535183`, `0x535261`;
+    /// `fight::open_wound`).
+    OpenWounds(f32),
 }
 
 /// The `Creature.pak` classes that the strike's readers test (M1).
@@ -557,6 +561,10 @@ pub const READERS: &[Read] = &[
     read(62, 4, Reader::Wounds(0.2)),
     read(16, 6, Reader::GoldForHealth(30.0)),
     read(30, 5, Reader::GoldPile(10.0)),
+    read(31, 5, Reader::OpenWounds(10.0)),
+    read(60, 3, Reader::OpenWounds(10.0)),
+    read(40, 2, Reader::OpenWounds(6.0)),
+    read(48, 4, Reader::OpenWounds(6.0)),
     read(29, 3, Reader::Sight(50.0, 0)),
     read(52, 4, Reader::Sight(100.0, 1)),
     read(57, 6, Reader::Sight(100.0, 1)),
@@ -675,6 +683,19 @@ impl Stats {
                 Reader::GoldForHealth(c) => value + c * self.factor,
                 _ => value,
             })
+    }
+
+    /// The rolls of the open wounds that the wearer's strikes give (M15, [`Reader::OpenWounds`]):
+    /// a bound's factor for each of the two blocks reached, `10` by sets 31 and 60, `6` by sets
+    /// 40 and 48, in that order, each block one roll however many of its sets hold.
+    pub fn open_wounds(&self) -> [Option<f32>; 2] {
+        let reached = |c: f32| {
+            self.worn
+                .reads()
+                .any(|read| matches!(read.reads, Reader::OpenWounds(of) if of == c))
+                .then_some(c)
+        };
+        [reached(10.0), reached(6.0)]
     }
 
     /// The effect 856's value `value` of the wearer's items, grown by its sets
@@ -857,6 +878,9 @@ pub enum Told {
     /// The effect 856's value more, `c·D` ([`Reader::GoldPile`]): the per cent chance that a hit
     /// makes its defender drop a gold pile.
     GoldPile(f32),
+    /// The chance, a share of 1, that a strike wounds the struck one ([`Reader::OpenWounds`]):
+    /// `(⌊c·D⌋ + 1)/101`.
+    OpenWounds(f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -899,6 +923,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                     Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
                 }
                 Reader::GoldPile(c) => Told::GoldPile(c * d),
+                Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
             };
             Some((read.pieces, line))
         });

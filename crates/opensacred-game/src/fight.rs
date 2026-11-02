@@ -200,7 +200,12 @@ pub(crate) fn resolve(
             Option<&Worth>,
             Has<Body>,
             Option<&Ranked>,
-            (Has<Immortal>, Option<&crate::ai::Mind>, Option<&Holding>),
+            (
+                Has<Immortal>,
+                Option<&crate::ai::Mind>,
+                Option<&Holding>,
+                Option<&crate::npcs::Arms>,
+            ),
         ),
         Without<Dies>,
     >,
@@ -221,7 +226,15 @@ pub(crate) fn resolve(
             .map(|(health, ..)| (health.current, health.most));
         let (
             Ok((attacker, hero, mind, from, (ranked, follower, holding))),
-            Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim, guarded))),
+            Ok((
+                mut health,
+                defender,
+                at,
+                worth,
+                hero_hit,
+                rank,
+                (immortal, victim, guarded, arms),
+            )),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -342,8 +355,36 @@ pub(crate) fn resolve(
             target: hit.target,
             landed: landed.is_some_and(|landed| landed.damage > 0),
         });
+        // The open wound's rolls of a strike that the struck one lives through, a miss's too
+        // (#1727, M15): the struck one's own items' effect 857 for the hero's strike, the
+        // attacker's sets' blocks, whether it bleeds already.
+        let wound_rolls = (
+            (
+                arms.map_or(0.0, |arms| {
+                    opensacred_rules::fight::item_effect(
+                        &arms.held_values(),
+                        opensacred_rules::fight::OPEN_WOUNDS,
+                        None,
+                    )
+                }),
+                side == Some(Side::Attacker),
+            ),
+            holding.map_or(([None; 2], 1.0), |holding| {
+                (holding.0.sets.open_wounds(), holding.0.sets.factor)
+            }),
+            effects
+                .get(hit.target)
+                .is_ok_and(crate::effects::Effects::bleeds),
+        );
         let Some(landed) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
+            wound(
+                &mut commands,
+                (hit.target, hit.attacker),
+                0,
+                wound_rolls,
+                &mut dice.0,
+            );
             continue;
         };
         // The gold that paid the strike, through the gold adder, which sounds it, and the strike's
@@ -493,6 +534,15 @@ pub(crate) fn resolve(
         if !immortal {
             health.current = health.current.saturating_sub(damage);
         }
+        if health.current > 0 {
+            wound(
+                &mut commands,
+                (hit.target, hit.attacker),
+                damage,
+                wound_rolls,
+                &mut dice.0,
+            );
+        }
         // The Dwarf's landed strike raises his frenzy while his 1082's effect holds
         // (`0x56DC31`).
         if hero
@@ -621,6 +671,34 @@ pub(crate) fn resolve(
             );
         }
     }
+}
+
+/// Gives `target`, which lives through a strike of `attacker` of the whole damage `damage`, the
+/// open wound that the rolls `rolls` give (`opensacred_rules::fight::open_wound`; #1727, M15):
+/// the effect 23 of the value `⌊damage/10⌋` from the attacker, unless it bleeds by then.
+#[expect(
+    clippy::type_complexity,
+    reason = "the rolls' inputs as `open_wound` takes them"
+)]
+fn wound(
+    commands: &mut Commands,
+    (target, attacker): (Entity, Entity),
+    damage: u32,
+    (items, sets, wounded): ((f32, bool), ([Option<f32>; 2], f32), bool),
+    dice: &mut Rng,
+) {
+    let Some(seconds) = opensacred_rules::fight::open_wound(items, sets, wounded, dice) else {
+        return;
+    };
+    let value = opensacred_rules::fight::wound_value(damage);
+    debug!("fight: {attacker} wounds {target}: {value} for {seconds:.1} s");
+    commands
+        .entity(target)
+        .entry::<crate::effects::Effects>()
+        .or_default()
+        .and_modify(move |mut effects| {
+            effects.wound(value, seconds, attacker);
+        });
 }
 
 /// `damage` times `factor`, taken whole.
