@@ -33,9 +33,9 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseButtonInput, MouseWheel};
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Assets, Commands, CursorMoved, Entity, GlobalTransform, IntoScheduleConfigs,
-    Message, MessageReader, MessageWriter, NonSend, OnEnter, Plugin, Query, Res, ResMut, Resource,
-    Time, Transform, Update, Vec3, With, Without,
+    App, AssetServer, Assets, ButtonInput, Camera, Commands, CursorMoved, Entity, GlobalTransform,
+    IntoScheduleConfigs, Message, MessageReader, MessageWriter, MouseButton, NonSend, OnEnter,
+    Plugin, Query, Res, ResMut, Resource, Single, Time, Transform, Update, Vec3, With, Without,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance};
 use opensacred_rules::quests::Marker;
@@ -81,6 +81,41 @@ pub enum Remark {
     /// `NOWEAPON<kind>` (9, `0xCB`): the hero's strike that its weapon's kind did not drive
     /// through (`0x56DF73`, #1673).
     Weapon { kind: u8 },
+    /// A creature of the type `creature` clicked on (9, `0x5C`, from the mouse handler
+    /// `0x6172C0`, #1674): a hireling's or a companion's click line.
+    Click { creature: u32, entity: Entity },
+}
+
+/// The hirelings whose clicks speak by their types, and the stems of their lines (`0x67E645`).
+const CLICKED_TYPES: [(u32, &str); 3] = [(361, "GARGADUKNQ"), (368, "PRUTUKNQ"), (224, "VILYANQ")];
+/// The companions whose clicks speak by their names' texts, and the stems of their lines, in the
+/// order the case compares them; "Novizin" and "Prinz Valor", German, match no English text.
+const CLICKED_NAMES: [(&str, &str); 9] = [
+    ("Baroness Vilya", "VILYA"),
+    ("Shareefa", "SHAREEFA"),
+    ("Novizin", "NOVIZIN"),
+    ("Laurelinad", "LAURELIN"),
+    ("Maegal", "MAEGAL"),
+    ("Glubba", "GLUBBA"),
+    ("Rocheford", "ROCHEFORD"),
+    ("Prinz Valor", "VALOR"),
+    ("Wilbur", "WILBUR"),
+];
+
+/// The line `n`, from 0, of the four that a click on a creature of the type `creature` and of the
+/// name's text `name` says (`0x67E645`): a hireling's by its type, else a companion's by its name;
+/// none of another. Wilbur's first line's name holds an underscore that his others lack.
+fn click_line(creature: u32, name: Option<&str>, n: u32) -> Option<String> {
+    let n = n + 1;
+    if let Some((_, stem)) = CLICKED_TYPES.iter().find(|&&(kind, _)| kind == creature) {
+        return Some(format!("SOUND_FX_{stem}_HIRELING_ONCLICK{n:02}"));
+    }
+    let (_, stem) = CLICKED_NAMES.iter().find(|&&(of, _)| Some(of) == name)?;
+    Some(if *stem == "WILBUR" && n == 1 {
+        "SOUND_FX_SFX_CLICKMYSH_WILBUR_1".to_owned()
+    } else {
+        format!("SOUND_FX_SFX_CLICKMYSH{stem}_{n}")
+    })
 }
 
 /// The kinds' words of the `NOARMOR` and `NOWEAPON` lines, from the kind 1.
@@ -101,6 +136,7 @@ impl Remark {
             Self::CantCarry => 11,
             Self::Approach => 6,
             Self::Armour { .. } | Self::Weapon { .. } => 1,
+            Self::Click { .. } => 4,
         }
     }
 
@@ -136,6 +172,8 @@ impl Remark {
                 };
                 format!("SOUND_FX_{stem}{word}_{class}")
             }
+            // The clicked creature's own line, of its type or its name ([`click_line`]).
+            Self::Click { .. } => return None,
             // Six of the town, then six of the village, by consecutive ids: the Wood Elf, who
             // lacks her fifth of the village, says her fourth for it.
             Self::Settlement { .. } if n <= 6 => format!("SOUND_FX_COMEINTOTOWN_{n:02}_{class}"),
@@ -439,13 +477,19 @@ fn remark(
     mut posts: MessageReader<Remark>,
     (mut remarks, mut voices, time): (ResMut<Remarks>, Option<ResMut<Voices>>, Res<Time>),
     (hero, mut sfx, heard): (Option<Res<hero::Hero>>, ResMut<Sfx>, Res<sfx::Listener>),
-    heroes: Query<(Entity, &GlobalTransform), With<Body>>,
-    creatures: Query<(&GlobalTransform, &Mind), (Without<Body>, Without<Dies>)>,
+    (heroes, creatures): (
+        Query<(Entity, &GlobalTransform), With<Body>>,
+        Query<(&GlobalTransform, &Mind), (Without<Body>, Without<Dies>)>,
+    ),
     (assets, audio, mut instances, mut named): (
         Res<AssetServer>,
         Res<Audio>,
         ResMut<Assets<AudioInstance>>,
         ResMut<NamedLine>,
+    ),
+    (names, texts): (
+        Query<&crate::npcs::TextName>,
+        Option<Res<crate::lines::Texts>>,
     ),
 ) {
     let seconds = f64::from(time.delta_secs());
@@ -466,6 +510,10 @@ fn remark(
                 continue;
             }
             voices.clock_back(now);
+        }
+        // A click speaks only while no line by name plays, before its roll (`0x67E691`).
+        if matches!(post, Remark::Click { .. }) && named.plays(&audio) {
+            continue;
         }
         let quiet = post.timer().is_none()
             || matches!(post, Remark::Region { .. })
@@ -488,7 +536,19 @@ fn remark(
         let (Some(hero), Ok((entity, at))) = (hero.as_ref(), heroes.single()) else {
             continue;
         };
-        let Some(name) = post.name(hero.creature, n) else {
+        let name = match post {
+            Remark::Click { creature, entity } => {
+                let text = names.get(entity).ok().and_then(|name| {
+                    texts
+                        .as_deref()
+                        .and_then(|texts| texts.named(&name.0))
+                        .map(str::to_owned)
+                });
+                click_line(creature, text.as_deref(), n)
+            }
+            _ => post.name(hero.creature, n),
+        };
+        let Some(name) = name else {
             continue;
         };
         let Some((id, file)) = sfx.named(&name) else {
@@ -524,6 +584,40 @@ fn remark(
     }
 }
 
+/// A press of the left button on a creature alive under the cursor, the nearest to its line of
+/// sight as the clicks take it (`attack::from_line`), posts its click (the mouse handler
+/// `0x6172C0`'s event (9, `0x5C`) with its type, its name and its id, #1674).
+fn clicked(
+    buttons: Res<ButtonInput<MouseButton>>,
+    pointer: Res<crate::hud::Pointer>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
+    creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
+    mut posts: MessageWriter<Remark>,
+) {
+    if !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let (camera, view) = *camera;
+    let Some(ray) = pointer
+        .0
+        .and_then(|cursor| camera.viewport_to_world(view, cursor).ok())
+    else {
+        return;
+    };
+    let picked = creatures
+        .iter()
+        .filter(|(.., health)| health.current > 0)
+        .map(|(entity, at, mind, _)| {
+            let distance = crate::attack::from_line(ray, at.translation());
+            (entity, mind.creature, distance)
+        })
+        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
+        .min_by(|a, b| a.2.total_cmp(&b.2));
+    if let Some((entity, creature, _)) = picked {
+        posts.write(Remark::Click { creature, entity });
+    }
+}
+
 /// The hero's remarks, the idle clock and the land's.
 pub struct RemarksPlugin;
 
@@ -535,7 +629,11 @@ impl Plugin for RemarksPlugin {
             .add_systems(Update, input.in_set(Playing))
             .add_systems(
                 Update,
-                (idle, land, remark).chain().after(input).in_set(Unpaused),
+                (
+                    clicked.in_set(crate::frame::Control),
+                    (idle, land, remark).chain().after(input).after(clicked),
+                )
+                    .in_set(Unpaused),
             );
     }
 }
@@ -659,6 +757,34 @@ mod tests {
             Remark::Approach.name(1, 5).as_deref(),
             Some("SOUND_FX_APPROACHQLOC06_SERA")
         );
+    }
+
+    #[test]
+    fn a_click_names_a_hirelings_line_by_its_type_and_a_companions_by_its_name() {
+        assert_eq!(
+            click_line(361, None, 0).as_deref(),
+            Some("SOUND_FX_GARGADUKNQ_HIRELING_ONCLICK01")
+        );
+        assert_eq!(
+            click_line(224, Some("Anyone"), 3).as_deref(),
+            Some("SOUND_FX_VILYANQ_HIRELING_ONCLICK04")
+        );
+        assert_eq!(
+            click_line(1, Some("Shareefa"), 1).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHSHAREEFA_2")
+        );
+        // Wilbur's first holds an underscore, his others not.
+        assert_eq!(
+            click_line(1, Some("Wilbur"), 0).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSH_WILBUR_1")
+        );
+        assert_eq!(
+            click_line(1, Some("Wilbur"), 2).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHWILBUR_3")
+        );
+        // Another creature says nothing, the English novice among them.
+        assert_eq!(click_line(677, Some("Novice Imue"), 0), None);
+        assert_eq!(click_line(677, None, 0), None);
     }
 
     #[test]
