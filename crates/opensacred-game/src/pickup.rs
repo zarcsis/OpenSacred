@@ -908,12 +908,17 @@ fn send_collecting(
     images: Res<crate::bar::UiImages>,
     heroes: Query<Entity, With<Body>>,
     busy: Query<(), Busy>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let clicked = buttons.just_pressed(MouseButton::Left)
         && crate::inventory::screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
             let (index, corner) = crate::bar::COLLECT_BUTTON;
             Rect::from_corners(corner, corner + images.size(index)).contains(at)
         });
+    if clicked {
+        // The button's click (seen, #1767).
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+    }
     let keyed = keys.just_pressed(crate::controls::Action::Collect)
         && !console.is_some_and(|console| console.is_open());
     if !(clicked || keyed) {

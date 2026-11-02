@@ -926,16 +926,24 @@ fn toggle(
         ResMut<crate::inventory::Shown>,
         ResMut<crate::quest_book::Book>,
     ),
-    heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
+    (heroes, mut sounds): (
+        Query<&GlobalTransform, With<crate::hero::Body>>,
+        MessageWriter<crate::sfx::Play>,
+    ),
     (mut still, mut next): (ResMut<Still>, ResMut<NextState<Play>>),
 ) {
-    let pressed = keys.take(crate::controls::Action::WorldMap)
-        || (!map.shown
-            && buttons.just_pressed(MouseButton::Left)
-            && screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
-                let (_, corner) = bar::MAP_BUTTON;
-                Rect::from_corners(corner, corner + Vec2::splat(BUTTON)).contains(at)
-            }));
+    let clicked = !map.shown
+        && buttons.just_pressed(MouseButton::Left)
+        && screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
+            let (_, corner) = bar::MAP_BUTTON;
+            Rect::from_corners(corner, corner + Vec2::splat(BUTTON)).contains(at)
+        });
+    if clicked {
+        // The button's click; the map's show and hide play nothing, the inventory and the book
+        // hiding under it in silence (seen, #1767).
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+    }
+    let pressed = keys.take(crate::controls::Action::WorldMap) || clicked;
     let escaped = map.shown && keys.take(crate::controls::Action::Back);
     let closed = map.shown
         && buttons.just_pressed(MouseButton::Left)

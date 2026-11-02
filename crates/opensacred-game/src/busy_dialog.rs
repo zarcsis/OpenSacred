@@ -249,7 +249,8 @@ mod tests {
         .init_resource::<choice::Images>()
         .init_resource::<bar::UiImages>()
         .init_resource::<crate::hud::Pointer>()
-        .init_resource::<UiScale>();
+        .init_resource::<UiScale>()
+        .add_message::<crate::sfx::Play>();
         app.update();
         let play = |app: &App| *app.world().resource::<State<Play>>().get();
         let windows = |app: &mut App| {
