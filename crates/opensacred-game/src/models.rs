@@ -123,6 +123,10 @@ pub struct InOrder {
     glow: Option<Handle<Image>>,
     #[uniform(107)]
     pub offsets: Vec4,
+    /// The glow's share of its colour added under the texels: 1 for the kind 1, 0 for the kinds
+    /// that draw no glow (#1848), in `x`.
+    #[uniform(108)]
+    glows: Vec4,
     pass: Pass,
 }
 
@@ -324,22 +328,25 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             effect: None,
             glow: None,
             offsets: Vec4::ZERO,
+            glows: Vec4::ZERO,
             pass,
         },
     }
 }
 
-/// The effect of the kind 1 that a model's meshes lie over (`model_effects`, #1834): the effect's
-/// texture and the glow's, which [`convert`] puts under each mesh's texels ([`Pass::Effect`]).
+/// The effect of the kinds 1 to 4 that a model's meshes lie over (`model_effects`, #1834,
+/// #1848): its kind, the effect's texture and the glow's, the kind 1's alone, which [`convert`]
+/// puts under each mesh's texels ([`Pass::Effect`]).
 #[derive(Component, Clone, Debug)]
 pub struct Effect {
+    pub kind: u8,
     pub effect: Handle<Image>,
-    pub glow: Handle<Image>,
+    pub glow: Option<Handle<Image>>,
 }
 
-/// The model materials of [`Pass::Effect`], whose offsets `model_effects` moves.
+/// The model materials of [`Pass::Effect`] and their kinds, whose offsets `model_effects` moves.
 #[derive(Resource, Default)]
-pub struct EffectMaterials(pub Vec<Handle<ModelMaterial>>);
+pub struct EffectMaterials(pub Vec<(Handle<ModelMaterial>, u8)>);
 
 /// Whether some texels of `base` are translucent, of alpha under 1 and so drawn in two passes:
 /// those of its colour, or of its texture's image (`None` while the image loads; an image that
@@ -629,9 +636,13 @@ pub fn convert(
                     .or_insert_with(|| {
                         let mut over = in_order(base.clone(), &anchors, Pass::Effect);
                         over.extension.effect = Some(effect.effect.clone());
-                        over.extension.glow = Some(effect.glow.clone());
+                        // A kind of no glow adds the effect's texture at no share.
+                        over.extension.glow =
+                            Some(effect.glow.clone().unwrap_or_else(|| effect.effect.clone()));
+                        over.extension.glows =
+                            Vec4::X * if effect.glow.is_some() { 1.0 } else { 0.0 };
                         let over = materials.add(over);
-                        effects.0.push(over.clone());
+                        effects.0.push((over.clone(), effect.kind));
                         Made {
                             mesh: over,
                             fringe: None,

@@ -5393,12 +5393,11 @@ pub fn retexture(
     let effect = effects_of
         .map(|(effect, _)| effect)
         .filter(|(kind, _)| *kind == crate::model_effects::RUNNING_BANDS);
-    // The kind 1's effect and glow under every mesh.
+    // The kinds 1 to 4's effect, and the kind 1's glow, under every mesh.
     let under = effects_of
-        .filter(|((kind, _), _)| *kind == crate::model_effects::MULTITEX)
-        .and_then(|((_, texture), npcs)| {
-            let glow = npcs.glow.as_deref()?;
-            Some(effects.multitex(texture, glow, &assets))
+        .filter(|((kind, _), _)| crate::model_effects::under(*kind))
+        .map(|((kind, texture), npcs)| {
+            effects.under(*kind, (texture, npcs.glow.as_deref()), &assets)
         });
     if retexture.is_none() && effect.is_none() && under.is_none() {
         return;

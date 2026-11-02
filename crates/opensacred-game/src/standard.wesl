@@ -45,6 +45,8 @@ const CUTOFF: f32 = 64.5 / 255.0;
 @group(constants::MATERIAL_BIND_GROUP) @binding(106) var glow_sampler: sampler;
 @if(EFFECT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(107) var<uniform> effect_offsets: vec4<f32>;
+@if(EFFECT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(108) var<uniform> effect_glows: vec4<f32>;
 
 /// The ambient share of the original's light of a model not under the cursor (`0x62FDE9`).
 @if(LIT_BY_SLOT)
@@ -130,7 +132,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
 @if(EFFECT) {
     let effect = encode(textureSample(effect_texture, effect_sampler, in.uv + effect_offsets.xy));
     let glow = encode(textureSample(glow_texture, glow_sampler, in.uv + effect_offsets.zw));
-    let under = min(effect.rgb + glow.rgb, vec3(1.0));
+    let under = min(effect.rgb + glow.rgb * effect_glows.x, vec3(1.0));
     out.color = vec4(mix(under, out.color.rgb, over), 1.0);
 }
     return out;
