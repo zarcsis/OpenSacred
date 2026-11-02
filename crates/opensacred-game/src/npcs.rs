@@ -182,6 +182,12 @@ const PLAY_ANIM: u16 = 91;
 /// `PlaySound` (`0x4A9730`): under the anim mode, its sound waits its turn in the queue of the
 /// creature of its second `0x01` (#1826).
 const PLAY_SOUND: u16 = 104;
+/// `Morph` (`0x4A15A0`): a creature's type replaced (#1829).
+const MORPH: u16 = 79;
+/// The operand that `npcs` adds to a `Morph` that waited its turn in its creature's queue as it
+/// hands it to the world's records ([`take_steps`]): its level and health kept (the step
+/// `0x59F266`); past the scripts' last tag, beside [`AREA_TURN`].
+const QUEUED_MORPH: u8 = 0xF1;
 /// `ActObj` (`0x4A4310`): a creature opens or closes an object's door (#1827).
 const ACT_OBJ: u16 = 93;
 /// The tags of an `ActObj` that close the door, the others opening it, as does none
@@ -2194,6 +2200,9 @@ enum Act {
     /// `ActObj`: the creature opens or closes the door of the object of the name, at once or at
     /// its turn (`0x4A4310`, the kind 6; #1827).
     Obj { object: String, open: bool },
+    /// `Morph` under the anim mode: the creature's new type, at its turn (`0x464170`, the kind 10;
+    /// #1829).
+    Morph(u32),
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -2283,6 +2292,21 @@ fn played(
         return queued.then(|| Moved {
             name: name.clone(),
             act: Act::Sound(sound.clone()),
+            queued,
+        });
+    }
+    // A `Morph` waits its turn under the mode alone; at once it is [`morphs`]'.
+    if kind == MORPH {
+        let name = names
+            .first()
+            .filter(|name| !name.is_empty() && *name != "hero")?;
+        let creature = morphed_type(ops)?;
+        if ops.iter().any(|o| o.tag == QUEUED_MORPH) {
+            return None;
+        }
+        return queued.then(|| Moved {
+            name: name.clone(),
+            act: Act::Morph(creature),
             queued,
         });
     }
@@ -6661,6 +6685,9 @@ enum Queued {
     /// An `ActObj`'s door of the object of the name opened or closed (the step `0x59E9D5`), done
     /// at once (#1827).
     Obj { object: String, open: bool },
+    /// A `Morph` of the creature of the name into the type `creature`, its level and health kept
+    /// (the step `0x59F266`), done at once (#1829).
+    Morph { name: String, creature: u32 },
     /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
     /// #1278).
     Call(String),
@@ -6888,6 +6915,29 @@ fn take_steps(
                 }
                 true
             }
+            // Turned as the scripts' `Morph`s are, its level and health kept ([`morphs`]).
+            Some(Queued::Morph { name, creature }) => {
+                if let Some(made) = made.as_deref_mut() {
+                    made.0.push(Record {
+                        kind: MORPH,
+                        body: Body::Operands(vec![
+                            opensacred_data::netscript::Operand {
+                                tag: 0x01,
+                                value: Value::Str(name.clone()),
+                            },
+                            opensacred_data::netscript::Operand {
+                                tag: 0x02,
+                                value: Value::I32(i32::try_from(*creature).unwrap_or(0)),
+                            },
+                            opensacred_data::netscript::Operand {
+                                tag: QUEUED_MORPH,
+                                value: Value::Marker,
+                            },
+                        ]),
+                    });
+                }
+                true
+            }
             Some(Queued::Call(function)) => {
                 if let Some(due) = due.as_deref_mut() {
                     due.0.push(std::mem::take(function));
@@ -6922,6 +6972,259 @@ fn take_steps(
         }
         if queue.0.is_empty() {
             commands.entity(entity).remove::<ScriptQueue>();
+        }
+    }
+}
+
+/// The type that a `Morph` of the operands `ops` turns its creature into, its `0x02`; none for 0.
+fn morphed_type(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
+    ops.iter()
+        .find_map(|o| match (o.tag, &o.value) {
+            (0x02, Value::I32(n)) => u32::try_from(*n).ok(),
+            (0x02, Value::U16(n)) => Some(u32::from(*n)),
+            _ => None,
+        })
+        .filter(|&creature| creature > 0)
+}
+
+/// A creature that a `Morph` turns into another type ([`morph`]; `0x4A15A0`, #1829), and what
+/// becomes of its level.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Morph {
+    name: String,
+    creature: u32,
+    level: Morphed,
+    /// The operands of the `SetNPCState`s of the same name after it in its run, which `npcs`
+    /// applies to the placements before the `Morph` turns the creature, and which the creature of
+    /// the new type takes again, its side by its new type among them.
+    stated: Vec<Vec<opensacred_data::netscript::Operand>>,
+}
+
+/// The level of a creature that a `Morph` turns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Morphed {
+    /// At once: the level's setter with the level 1 (`0x586C00`, `0x564D60(1, 0, 0)`), as a
+    /// `CreateNPC`'s level tag of 1 makes it, its health whole.
+    Reset,
+    /// At once, a `SetNPCState` of the same run giving it a level after: that level.
+    Stated,
+    /// At its turn in its queue (the step `0x59F266`): its level and health kept.
+    Kept,
+}
+
+/// The `Morph`s of `records` that act now ([`morph`]): those outside the anim mode, and those
+/// whose turn came in their creature's queue ([`QUEUED_MORPH`]); a `Morph` of no name, of the hero
+/// or of no type does nothing (`0x4A15A0`).
+fn morphs(records: &[Record]) -> Vec<Morph> {
+    let mut queued = false;
+    let mut morphs = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        match record.kind {
+            SET_ANIM_MODE | SET_CINEMA_MODE => queued = true,
+            SET_PLAY_MODE => queued = false,
+            _ => {}
+        }
+        let Body::Operands(ops) = &record.body else {
+            continue;
+        };
+        if record.kind != MORPH {
+            continue;
+        }
+        let (Some(name), Some(creature)) =
+            (name_of(ops).filter(|name| name != HERO), morphed_type(ops))
+        else {
+            continue;
+        };
+        let turned = ops.iter().any(|o| o.tag == QUEUED_MORPH);
+        if queued && !turned {
+            continue;
+        }
+        let stated: Vec<Vec<opensacred_data::netscript::Operand>> = records[index + 1..]
+            .iter()
+            .filter(|later| later.kind == SET_NPC_STATE)
+            .filter_map(|later| match &later.body {
+                Body::Operands(ops) if name_of(ops).as_ref() == Some(&name) => Some(ops.clone()),
+                _ => None,
+            })
+            .collect();
+        let level = if turned {
+            Morphed::Kept
+        } else if stated.iter().any(|ops| level_tag(ops) > 0) {
+            Morphed::Stated
+        } else {
+            Morphed::Reset
+        };
+        morphs.push(Morph {
+            name,
+            creature,
+            level,
+            stated,
+        });
+    }
+    morphs
+}
+
+/// The `Morph`s that the scripts ran, which [`morph`] carries out.
+#[derive(Resource, Default)]
+pub(crate) struct Morphs(Vec<Morph>);
+
+/// Carries out the scripts' `Morph`s (`0x464170`, #1829): each creature of the name in the world
+/// is made again of the new type where it stands, on its floor, with its placement's side (a
+/// `SetNPCState` of the same run already in it), its group, its dialogue, its death's functions
+/// and its hire, its sector's still and its placement changed with
+/// it, as a `RegionChange` makes one (#1064); at once at the level that the level's setter gives
+/// the level 1 (or the level that a `SetNPCState` after it gives), its health whole; at its turn
+/// in its queue at its level and its share of health. The original keeps the same object, its
+/// type and model swapped; the creature made again keeps what the game keeps of one
+/// (docs/decisions/netscript.md, "Morph made again"). The hero never changes.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn morph(
+    mut commands: Commands,
+    mut morphs: ResMut<Morphs>,
+    mut npcs: ResMut<Npcs>,
+    mut streamer: ResMut<Streamer>,
+    (heights, states, assets): (Res<Heights>, Res<buildings::Buildings>, Res<AssetServer>),
+    (experience, played, holding): (
+        Res<fight::Experience>,
+        Res<drops::Played>,
+        Query<&fight::Holding, With<hero::Body>>,
+    ),
+    creatures: Query<
+        (
+            Entity,
+            (&ScriptName, &Transform, &crowd::InTheWay),
+            (&fight::Health, &ai::Mind),
+            (
+                Option<&Placed>,
+                Option<&Remakes>,
+                Option<&OnDeath>,
+                Option<&Talk>,
+                Option<&crate::followers::Hired>,
+            ),
+        ),
+        Without<Dies>,
+    >,
+) {
+    if morphs.0.is_empty() {
+        return;
+    }
+    let npcs = &mut *npcs;
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    let hero = experience.level;
+    let time = played.time(holding.iter().next());
+    for morphed in std::mem::take(&mut morphs.0) {
+        for (entity, (named, at, way), (health, mind), (placed, remakes, on_death, talk, hired)) in
+            &creatures
+        {
+            if named.0 != morphed.name {
+                continue;
+            }
+            let placement = match (placed.map(|placed| &placed.source), remakes) {
+                (Some(Source::Kept(index)), _) => npcs.placements.get(*index).cloned(),
+                (Some(Source::Filled(placement)), _) => Some((**placement).clone()),
+                (None, Some(remakes)) => Some((*remakes.0).clone()),
+                (None, None) => None,
+            };
+            let Some(placement) = placement else {
+                bevy::log::debug!("npcs: {} has no placement to morph", morphed.name);
+                continue;
+            };
+            let items = placement.items.clone();
+            let mut placement =
+                match npcs
+                    .makers
+                    .remade(&placement, morphed.creature, &items, &mut npcs.slots)
+                {
+                    Ok(Some(placement)) => placement,
+                    Ok(None) => continue,
+                    Err(e) => {
+                        bevy::log::warn!("npcs: {e:#}");
+                        continue;
+                    }
+                };
+            placement.creature.0 = morphed.creature;
+            if morphed.level == Morphed::Reset {
+                placement.tag = 1;
+            }
+            for ops in &morphed.stated {
+                State::of(ops, &npcs.dialogues).apply(&mut placement);
+            }
+            let (x, y) = paths::cell_of(at.translation.x, at.translation.z);
+            let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+                continue;
+            };
+            if let Some(Source::Kept(index)) = placed.map(|placed| &placed.source)
+                && let Some(kept) = npcs.placements.get_mut(*index)
+            {
+                *kept = placement.clone();
+            }
+            let mut there = placement.clone();
+            there.cell = (x, y);
+            there.layer = heights
+                .floor(way.level)
+                .map_or(0, |(_, floor)| i32::from(floor));
+            there.walk = None;
+            there.health_share = None;
+            there.group = mind.group;
+            there.on_death = on_death
+                .map(|on_death| on_death.0.clone())
+                .unwrap_or_default();
+            there.talk = talk.map(|talk| talk.0.clone());
+            let sector = (x / side, y / side);
+            let level = match morphed.level {
+                Morphed::Kept => health.level,
+                Morphed::Reset | Morphed::Stated => {
+                    let values = npcs.values.get(&sector).copied().unwrap_or_default();
+                    let level = npcs.scripted_level(&there, hero, time);
+                    let big = there.creature.1 & crowd::BIG != 0;
+                    there
+                        .rank
+                        .level(level, (hero, time), &values, big, &npcs.fight)
+                }
+            };
+            bevy::log::info!(
+                "npcs: the scripts morph {}, a {}, into a {} of level {level}",
+                morphed.name,
+                mind.creature,
+                morphed.creature
+            );
+            let made = spawn(
+                &mut commands,
+                &there,
+                &heights,
+                &states,
+                &assets,
+                (level, &npcs.fight, &npcs.items),
+            );
+            if morphed.level == Morphed::Kept {
+                commands
+                    .entity(made)
+                    .insert(health_kept(*health, &there, &npcs.fight));
+            }
+            if let Some(hired) = hired {
+                commands.entity(made).insert(*hired);
+            }
+            match placed {
+                Some(placed) => {
+                    let source = match &placed.source {
+                        Source::Kept(index) => Source::Kept(*index),
+                        Source::Filled(_) => Source::Filled(Box::new(placement)),
+                    };
+                    commands.entity(made).insert(Placed {
+                        at: placed.at,
+                        source,
+                    });
+                }
+                None => {
+                    commands.entity(made).insert(Remakes(Box::new(placement)));
+                }
+            }
+            commands.entity(entity).insert(Remade).despawn();
+            streamer.disown(entity);
+            streamer.adopt(&mut commands, sector, made);
         }
     }
 }
@@ -7063,12 +7366,13 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
-    (mut queues, real, sounds, mut lines, mut states): (
+    (mut queues, real, sounds, mut lines, mut states, mut morphed): (
         Query<&mut ScriptQueue>,
         Res<Time<bevy::time::Real>>,
         Option<Res<sfx::Sfx>>,
         MessageWriter<crate::scripts::ScriptLine>,
         Option<ResMut<crate::scripts::ObjStates>>,
+        ResMut<Morphs>,
     ),
     dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
 ) {
@@ -7237,6 +7541,7 @@ pub(crate) fn script_records(
             Regrouped::Removed(name) => bevy::log::info!("npcs: the scripts remove {name}"),
         }
     }
+    morphed.0.extend(morphs(&records));
     // The steps queued in this run, for the creatures without a queue yet.
     let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
     for moved in npcs.moves(all.as_deref().unwrap_or(&records), real.elapsed_secs_f64()) {
@@ -7340,6 +7645,22 @@ pub(crate) fn script_records(
                     }
                 } else if let Some(states) = states.as_deref_mut() {
                     states.0.push(act_on(&object, open));
+                }
+                continue;
+            }
+            Act::Morph(creature) => {
+                for (entity, ..) in creatures
+                    .iter()
+                    .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                {
+                    let step = Queued::Morph {
+                        name: moved.name.clone(),
+                        creature,
+                    };
+                    match queues.get_mut(entity) {
+                        Ok(mut queue) => queue.0.push_back(step),
+                        Err(_) => queued.entry(entity).or_default().push(step),
+                    }
                 }
                 continue;
             }
@@ -8518,6 +8839,7 @@ impl Plugin for NpcsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Retextured>()
             .init_resource::<AreaChanges>()
+            .init_resource::<Morphs>()
             .add_observer(retexture)
             .add_observer(equipment_ready)
             .add_observer(keep)
@@ -8526,7 +8848,7 @@ impl Plugin for NpcsPlugin {
                 (
                     script_records,
                     taken_items,
-                    region_changes,
+                    (region_changes, morph).chain(),
                     script_states,
                     script_healths,
                     place,
@@ -9676,6 +9998,81 @@ mod tests {
             deferred_objects(&records, |name| name == "res:18237"),
             HashSet::from([2])
         );
+    }
+
+    #[test]
+    fn a_morph_acts_at_once_its_level_reset_or_stated_or_in_its_turn_its_level_kept() {
+        let op = |tag, value| Operand { tag, value };
+        let morph = |name: &str, creature: i32| Record {
+            kind: MORPH,
+            body: Body::Operands(vec![
+                op(0x01, Value::Str(name.into())),
+                op(0x02, Value::I32(creature)),
+            ]),
+        };
+        let mode = |kind| Record {
+            kind,
+            body: Body::Operands(Vec::new()),
+        };
+        let stated = Record {
+            kind: SET_NPC_STATE,
+            body: Body::Operands(vec![
+                op(0x01, Value::Str("res:17127".into())),
+                op(LEVEL, Value::I32(1000)),
+            ]),
+        };
+        // Quest 1112's `postchange1112`: a `SetNPCState` of a level after it; `fettes`' drake none;
+        // the hero and no type nothing; under the mode its turn ([`played`]).
+        let records = [
+            morph("res:17127", 307),
+            stated,
+            morph("res:17482", 52),
+            morph("HERO", 33),
+            morph("res:17482", 0),
+            mode(SET_ANIM_MODE),
+            morph("res:22008", 309),
+            mode(SET_PLAY_MODE),
+        ];
+        assert_eq!(
+            morphs(&records),
+            [
+                Morph {
+                    name: "res:17127".into(),
+                    creature: 307,
+                    level: Morphed::Stated,
+                    stated: vec![vec![
+                        op(0x01, Value::Str("res:17127".into())),
+                        op(LEVEL, Value::I32(1000)),
+                    ]],
+                },
+                Morph {
+                    name: "res:17482".into(),
+                    creature: 52,
+                    level: Morphed::Reset,
+                    stated: Vec::new(),
+                },
+            ]
+        );
+        let Body::Operands(ops) = &records[6].body else {
+            unreachable!()
+        };
+        let turn = played(MORPH, ops, true, 0.0).unwrap();
+        assert_eq!(
+            (turn.name.as_str(), turn.act),
+            ("res:22008", Act::Morph(309))
+        );
+        assert!(played(MORPH, ops, false, 0.0).is_none());
+        // At its turn, handed back with its mark: its level kept.
+        let mut turned = ops.clone();
+        turned.push(op(QUEUED_MORPH, Value::Marker));
+        let back = [
+            mode(SET_ANIM_MODE),
+            Record {
+                kind: MORPH,
+                body: Body::Operands(turned),
+            },
+        ];
+        assert_eq!(morphs(&back)[0].level, Morphed::Kept);
     }
 
     #[test]
