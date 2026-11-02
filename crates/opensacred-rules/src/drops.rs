@@ -155,6 +155,20 @@ impl Difficulty {
         gold / share
     }
 
+    /// The factor of the life leech's value (the effect 841) on this difficulty (the strike's
+    /// resolution, `0x5708D3`; docs/re/items.md, "The bonus effects that the code reads"): 1 on
+    /// bronze, 0.8, 0.7, 0.6 and 0.5 from silver to niobium; the item's line tells the leech so
+    /// (#1759).
+    pub fn leech(self) -> f32 {
+        match self {
+            Self::Bronze => 1.0,
+            Self::Silver => 0.8,
+            Self::Gold => 0.7,
+            Self::Platinum => 0.6,
+            Self::Niobium => 0.5,
+        }
+    }
+
     /// The difficulties, bronze first.
     pub const ALL: [Self; 5] = [
         Self::Bronze,
