@@ -423,7 +423,14 @@ pub struct Stats {
     pub flags: u32,
     pub creature_flags: u32,
     pub specials: Vec<Special>,
+    /// The factor of a strike's whole damage, `D`, where a bit of [`WHOLE_DAMAGE`] is set (the
+    /// strike's resolution `0x56B130`, at `0x56D0C9`; the maintainer's decision keeps it, #1727).
+    pub whole_damage: Option<f32>,
 }
+
+/// The flags of `+0x148` under which a strike's whole damage is times the difficulty's factor:
+/// the last bonuses of the sets 39, 41, 44, 45, 47 and 49.
+pub const WHOLE_DAMAGE: u32 = 0x7C2;
 
 /// `⌊c·D⌋`, the float product truncated (`0x55E070`).
 fn whole(c: f32, d: f32) -> f32 {
@@ -489,6 +496,9 @@ pub fn stats(worn: &Worn, difficulty: Difficulty) -> Stats {
             ResistanceCurves => stats.specials.push(Special::ResistanceCurves),
             RangedCurves => stats.specials.push(Special::RangedCurves),
         }
+    }
+    if stats.flags & WHOLE_DAMAGE != 0 {
+        stats.whole_damage = Some(d);
     }
     stats
 }

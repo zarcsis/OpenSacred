@@ -79,6 +79,15 @@ fn the_flags_and_the_filled_sets_bonuses() {
             bit
         );
     }
+    // Their strikes' whole damage times D: nothing on bronze, 2.34 on niobium (#1727).
+    assert_eq!(
+        stats(&wearing(39, 6), Difficulty::Niobium).whole_damage,
+        Some(2.34)
+    );
+    assert_eq!(
+        stats(&wearing(39, 5), Difficulty::Niobium).whole_damage,
+        None
+    );
     // Set 60's flag only while one of its pieces holds others in its three first sockets.
     assert_eq!(stats(&wearing(60, 4), Difficulty::Bronze).flags, 0);
     let filled = wearing(60, 4).filled(60);
