@@ -121,7 +121,7 @@ fn opening_sound(kind: u32, heads: bool) -> Option<sfx::Of> {
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    pointer: Res<Pointer>,
+    (pointer, labels): (Res<Pointer>, Res<crate::labels::Shown>),
     aim: Res<Aim>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     containers: Query<(Entity, &GlobalTransform, &Container)>,
@@ -143,7 +143,15 @@ pub(crate) fn pick(
     let Some(container) = containers
         .iter()
         .filter(|(_, _, container)| container.opens())
-        .map(|(entity, at, _)| (entity, attack::from_line(ray, at.translation())))
+        .map(|(entity, at, _)| {
+            // A container's label under the cursor picks it (`0x631CEB`).
+            let distance = if labels.labelled(cursor) == Some(entity) {
+                0.0
+            } else {
+                attack::from_line(ray, at.translation())
+            };
+            (entity, distance)
+        })
         .filter(|&(_, distance)| distance <= attack::PICKED_WITHIN)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(entity, _)| entity)

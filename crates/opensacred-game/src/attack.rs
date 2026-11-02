@@ -187,10 +187,19 @@ pub(crate) fn aim(
             || items
                 .iter()
                 .any(|at| from_line(ray, at.translation()) <= PICKED_WITHIN));
+    // A creature's label under the cursor picks it (`0x631CEB`).
+    let labelled = labels.labelled(cursor);
     let picked = creatures
         .iter()
         .filter(|(_, _, mind, health)| !items_first && mind.hostile() && health.current > 0)
-        .map(|(entity, at, ..)| (entity, from_line(ray, at.translation())))
+        .map(|(entity, at, ..)| {
+            let distance = if labelled == Some(entity) {
+                0.0
+            } else {
+                from_line(ray, at.translation())
+            };
+            (entity, distance)
+        })
         .filter(|&(_, distance)| distance <= PICKED_WITHIN)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(entity, _)| entity);

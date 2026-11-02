@@ -17,13 +17,13 @@
 //! 4 more each pair, up before down, a place touching another not free, a label of no free place
 //! left out. The text under the cursor is light yellow. A left click on an item's label takes its
 //! item (`0x6270A0`, `pickup::pick`), and with Alt held an item comes before a foe under the
-//! cursor (`attack::aim`).
+//! cursor (`attack::aim`); a click on a creature's or a container's label is a click on it, its
+//! attack, its talk or its opening (`0x631CEB`).
 //!
 //! Not followed yet: the creatures' boxes of their types' sizes (`0x428850`, the default 20 by
 //! 170 taken for all), the containers' of each model's bounds (a chest's taken for all), the
 //! specials' labels (the
-//! signposts', the quest items'), a click on a creature's or a container's label, the mounts'
-//! labels, set 3's stats of the foe under the cursor (`UI_KNOW_ENEMY`), and the hand over a
+//! signposts', the quest items'), the mounts' labels, set 3's stats of the foe under the cursor (`UI_KNOW_ENEMY`), and the hand over a
 //! label (`cursors`).
 
 use std::collections::{HashMap, HashSet};
@@ -87,18 +87,28 @@ const UNDER_CURSOR: u32 = 0xFFFF_FF80;
 /// The items table's bit of the types that take no label (`0x43F5F0`, the first word's bit 26).
 const NO_LABEL: u32 = 0x0400_0000;
 
-/// The labels shown, each its item and its rectangle in the window's logical pixels, which a click
-/// on one takes (`pickup::pick`).
+/// The labels shown, each what it names, its rectangle in the window's logical pixels and whether
+/// it names an item, which a click on one takes: an item's (`pickup::pick`), and a creature's or a
+/// container's as a click on its body (`attack::aim`, `talk`, `containers`; the pick's rectangles
+/// replaced by the labels', `0x631CEB`).
 #[derive(Resource, Default, Debug)]
-pub struct Shown(Vec<(Entity, Rect)>);
+pub struct Shown(Vec<(Entity, Rect, bool)>);
 
 impl Shown {
     /// The item whose label lies under the point `at` of the window, if any.
     pub fn under(&self, at: Vec2) -> Option<Entity> {
         self.0
             .iter()
-            .find(|(_, rect)| rect.contains(at))
-            .map(|&(item, _)| item)
+            .find(|&&(_, rect, item)| item && rect.contains(at))
+            .map(|&(item, ..)| item)
+    }
+
+    /// The creature or the container whose label lies under the point `at`, if any.
+    pub fn labelled(&self, at: Vec2) -> Option<Entity> {
+        self.0
+            .iter()
+            .find(|&&(_, rect, item)| !item && rect.contains(at))
+            .map(|&(entity, ..)| entity)
     }
 }
 
@@ -429,12 +439,11 @@ fn label(
         let Some(rect) = *rect else {
             continue;
         };
-        if wanted.item {
-            shown.0.push((
-                wanted.entity,
-                Rect::from_corners(rect.min * scale, rect.max * scale),
-            ));
-        }
+        shown.0.push((
+            wanted.entity,
+            Rect::from_corners(rect.min * scale, rect.max * scale),
+            wanted.item,
+        ));
         let under = cursor.is_some_and(|at| at.cmpge(rect.min).all() && at.cmple(rect.max).all());
         let colour = crate::tooltip::argb(if under { UNDER_CURSOR } else { wanted.colour });
         let name = &wanted.text;
@@ -529,8 +538,15 @@ mod tests {
     #[test]
     fn a_click_on_a_label_finds_its_item() {
         let item = Entity::PLACEHOLDER;
-        let shown = Shown(vec![(item, Rect::new(10.0, 10.0, 60.0, 30.0))]);
+        let creature = Entity::from_raw_u32(7).expect("an entity");
+        let shown = Shown(vec![
+            (item, Rect::new(10.0, 10.0, 60.0, 30.0), true),
+            (creature, Rect::new(10.0, 40.0, 60.0, 60.0), false),
+        ]);
         assert_eq!(shown.under(Vec2::new(20.0, 20.0)), Some(item));
         assert_eq!(shown.under(Vec2::new(70.0, 20.0)), None);
+        // A creature's label is no item's, and picks its creature.
+        assert_eq!(shown.under(Vec2::new(20.0, 50.0)), None);
+        assert_eq!(shown.labelled(Vec2::new(20.0, 50.0)), Some(creature));
     }
 }
