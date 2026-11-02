@@ -814,6 +814,20 @@ fn pursue(
             )
         })
         .collect();
+    // The hero's hostiles alive, which a magician aids (#1854): each with its place, whether it
+    // is wounded and whether it fights.
+    let friends: Vec<(Entity, Vec3, bool, bool)> = creatures
+        .iter()
+        .filter(|(_, _, _, mind, _, _, health, ..)| {
+            mind.hostile() && health.is_some_and(|health| health.current > 0)
+        })
+        .map(|(entity, transform, _, mind, _, _, health, ..)| {
+            let wounded = health.is_some_and(|health| {
+                opensacred_rules::casts::wounded(health.current, health.most)
+            });
+            (entity, transform.translation, wounded, mind.fighting())
+        })
+        .collect();
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     let now = real.elapsed_secs_f64();
     let hero_level = experience
@@ -900,6 +914,20 @@ fn pursue(
                 heights.walkable_on(cell, way.level)
             })
         };
+        // A magician's friends within its reach of them, the first wounded and the first that
+        // fights (#1854).
+        let near: Vec<&(Entity, Vec3, bool, bool)> = friends
+            .iter()
+            .filter(|(friend, at, ..)| {
+                *friend != entity
+                    && (*at - here).xz().length() <= opensacred_rules::casts::FRIENDS_WITHIN
+            })
+            .collect();
+        let wounded_friend = near
+            .iter()
+            .find(|(.., wounded, _)| *wounded)
+            .map(|f| (f.0, f.1));
+        let fighting_friend = near.iter().find(|(.., fights)| *fights).map(|f| (f.0, f.1));
         // A caster's decision first (#1852), while it casts none; the casts the game follows.
         let cast = (!casting && crate::creature_casts::casts(mind.creature)).then(|| {
             let sight_of_cast = opensacred_rules::minds::CastSight {
@@ -913,6 +941,7 @@ fn pursue(
                 nearest: nearest.hostiles.first() == Some(&entity),
                 scripted: 0,
                 hero_low: false,
+                friends: (wounded_friend.is_some(), fighting_friend.is_some()),
             };
             mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
         });
@@ -1078,6 +1107,17 @@ fn pursue(
                 transform.rotation = crate::hero::facing(hero - here);
             }
             Pursues::Casts { spell, variant } => {
+                // A heal or a shield on its friend (#1854), else at its target.
+                let friend = if spell == opensacred_rules::casts::HEAL {
+                    wounded_friend
+                } else {
+                    fighting_friend
+                };
+                let (aimed, hero) = if opensacred_rules::casts::on_a_friend(spell) {
+                    friend.unwrap_or((entity, here))
+                } else {
+                    (aimed, hero)
+                };
                 let d = (hero - here).xz().length();
                 debug!("ai: {entity} casts {spell} at {aimed} from {d:.0}");
                 transform.rotation = crate::hero::facing(hero - here);

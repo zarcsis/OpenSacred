@@ -1343,6 +1343,20 @@ impl Mind {
             self.cast_ordered = true;
             renew(self, rng.below(3));
             let spell = casts::mage_spell(creature, cast.scripted, (cast.hero_low, 0), rng);
+            // Its friend's heal or shield by its chance (#1854).
+            let aid = casts::aid_chance(creature).and_then(|chance| {
+                let roll = rng.below(101);
+                casts::aid(roll, chance, cast.friends, rng.below(3))
+            });
+            // On a friend, it needs one of its kind; none, it stops.
+            let spell = aid.or(spell).filter(|&spell| {
+                !casts::on_a_friend(spell)
+                    || if spell == casts::HEAL {
+                        cast.friends.0
+                    } else {
+                        cast.friends.1
+                    }
+            });
             return spell.map_or(Pursues::Faces, |spell| Pursues::Casts { spell, variant: 0 });
         }
         let bound = casts::mage_stays_bound(passed);
@@ -1917,6 +1931,9 @@ pub struct CastSight {
     /// hero's health is under a third of its most.
     pub scripted: u16,
     pub hero_low: bool,
+    /// A magician's friends within [`casts::FRIENDS_WITHIN`]: whether one is wounded
+    /// ([`casts::wounded`]), and whether one fights.
+    pub friends: (bool, bool),
 }
 
 /// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
@@ -2830,6 +2847,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            friends: (false, false),
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -2930,6 +2948,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            friends: (false, false),
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -2989,6 +3008,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            friends: (false, false),
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -3057,6 +3077,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            friends: (false, false),
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);

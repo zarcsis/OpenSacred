@@ -11,7 +11,8 @@
 //! demons' eye lasers and their homing fire ([`HomingFire`]), whose records of no damage land the
 //! demon's own strike (`fight::resolve`); the mark 8's magicians' spells: theirs of the hero's
 //! and the mark 1's, the plant cage, which holds the hero, the fire bolt and the goblin mages' ball
-//! ([`Ball`]).
+//! ([`Ball`]), the purgatory, the bubble and the thorns, and their heals and shields of their
+//! friends.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -26,7 +27,13 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 11] = [
+const FOLLOWED: [u16; 17] = [
+    casts::HEAL,
+    casts::FIRE_SKIN,
+    casts::STONE_SKIN,
+    spells::PURGATORY,
+    spells::BUBBLE,
+    spells::THORNS,
     spells::FIREBALL,
     spells::WHIRLWIND,
     spells::LIGHTNING,
@@ -159,9 +166,10 @@ fn act(
         Option<Res<crate::spells::Looks>>,
         ResMut<crate::spells::Dice>,
     ),
-    (mut launches, mut hits): (
+    (mut launches, mut hits, mut healths): (
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::fight::Hit>,
+        Query<&mut crate::fight::Health>,
     ),
 ) {
     for (entity, cast, at, (mind, way), rank, combat) in &acting {
@@ -258,6 +266,62 @@ fn act(
                     .entry::<crate::effects::Effects>()
                     .or_default()
                     .and_modify(move |mut effects| effects.add(effect, seconds));
+            }
+            casts::HEAL => {
+                // Its friend's health by the record's value 0 at its level (`0x5229EF`; no magic
+                // lore for a creature, **hypothesis**).
+                let health = spells::healing(record, level, 0.0);
+                if let Ok(mut friend) = healths.get_mut(cast.target) {
+                    friend.current = friend.current.saturating_add(health).min(friend.most);
+                    info!(
+                        "creature_casts: {entity} heals {} by {health}, to {}",
+                        cast.target, friend.current
+                    );
+                }
+            }
+            casts::FIRE_SKIN | casts::STONE_SKIN => {
+                let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |combat| combat.cast)
+                    / 100.0;
+                crate::spells::skin(
+                    &mut commands,
+                    looks.as_deref(),
+                    (record, level),
+                    (entity, cast.target, way.level),
+                    rate,
+                    damages,
+                );
+            }
+            spells::PURGATORY => {
+                crate::spells::purgatory(
+                    &mut commands,
+                    looks.as_deref(),
+                    (record, level),
+                    (entity, way.level),
+                    cast.point,
+                    damages,
+                );
+            }
+            spells::THORNS => {
+                crate::spells::thorns(
+                    &mut commands,
+                    (&mut dice, &heights, looks.as_deref()),
+                    (record, level),
+                    (entity, way.level),
+                    toward,
+                    damages,
+                );
+            }
+            spells::BUBBLE => {
+                let mut course = crate::bolts::Course::passing(spells::BUBBLE_COURSE, 6);
+                course.beat = spells::BUBBLE_BEAT;
+                course.bursts = Some(spells::BURST);
+                launches.write(crate::bolts::Launch {
+                    shooter: entity,
+                    direction,
+                    course,
+                    damages,
+                    wait: 0.0,
+                });
             }
             FIRE_BOLT => {
                 launches.write(crate::bolts::Launch {
