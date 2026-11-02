@@ -86,6 +86,7 @@ mod menu_sound;
 mod mercenaries;
 mod merchant;
 mod minimap;
+mod model_effects;
 mod models;
 mod motions;
 mod music;
@@ -439,6 +440,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         menu_sound::MenuSoundPlugin,
         mercenaries::MercenariesPlugin,
         merchant::MerchantPlugin,
+        model_effects::ModelEffectsPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
