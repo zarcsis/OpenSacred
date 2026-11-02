@@ -1056,6 +1056,24 @@ pub(crate) fn lightning(commands: &mut Commands, looks: &Looks, at: Vec3) {
     ));
 }
 
+/// A beam from `from` to `to`, the lightning's column laid along it, fading after the
+/// lightning's time: the stand-in of the big demons' lasers (#1853).
+pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3) {
+    let along = to - from;
+    let Some(direction) = along.try_normalize() else {
+        return;
+    };
+    commands.spawn((
+        Mesh3d(looks.column.clone()),
+        MeshMaterial3d(looks.lightning.clone()),
+        Transform::from_translation((from + to) / 2.0)
+            .with_rotation(Quat::from_rotation_arc(Vec3::Y, direction))
+            .with_scale(Vec3::new(0.5, along.length() / 400.0, 0.5)),
+        Fades(LIGHTNING_SHOWS),
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
 /// Carries out each spell that acts.
 #[expect(
     clippy::too_many_arguments,

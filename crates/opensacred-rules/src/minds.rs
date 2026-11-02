@@ -1166,7 +1166,10 @@ impl Mind {
     /// of three with the deadline passed and standing, runs to a point 280 about its target at a
     /// whole degree, else stands facing it. Off its path, none: it fights hand to hand.
     /// A dragon (`0x4D5B95`, #1853) casts its meteors farther than its reach and 500 from its
-    /// target in one decision of two ([`casts::dragon_casts`]), and stands facing it after.
+    /// target in one decision of two ([`casts::dragon_casts`]), and stands facing it after. A big
+    /// demon casts its eye lasers or its fire as it comes on ([`casts::big_demon_approaches`]) or
+    /// standing ([`casts::big_demon_casts`]), and without a straight way runs about its target and
+    /// stands facing it after ([`casts::big_demon_runs`]); none of the three keeps a deadline.
     pub fn cast(
         &mut self,
         sight: &Pursuit,
@@ -1176,11 +1179,19 @@ impl Mind {
     ) -> Option<Pursues> {
         let mark_1 = casts::mark_1(self.creature);
         let dragon = casts::dragon(self.creature);
-        if mark_1.is_none() && !dragon {
+        let demon = casts::big_demon(self.creature);
+        if mark_1.is_none() && !dragon && !demon {
             return None;
         }
         if !self.fighting || self.ranged || sight.striking {
             return None;
+        }
+        let d = (sight.hero - sight.here).length();
+        // A big demon casts as it comes on too (`0x4E1F73`).
+        if demon && sight.walk.is_some_and(|walk| walk.comes_on) {
+            let roll = rng.below(101);
+            let spell = casts::big_demon_approaches(d, roll, rng.below(5))?;
+            return Some(Pursues::Casts { spell, variant: 0 });
         }
         // Its band's walk (the sub-state 1) it ends before it decides again.
         self.banding &= sight.walk.is_some();
@@ -1195,7 +1206,16 @@ impl Mind {
             return Some(Pursues::Faces);
         }
         let (here, target) = (sight.here, sight.hero);
-        let d = (target - here).length();
+        if demon {
+            let roll = rng.below(3);
+            let way = clear();
+            if casts::big_demon_runs(roll, way) {
+                self.stands = casts::DEMON_STANDS;
+                return Some(self.runs_about(target, rng));
+            }
+            let spell = casts::big_demon_casts(roll, way, rng.below(3))?;
+            return Some(Pursues::Casts { spell, variant: 0 });
+        }
         if dragon {
             let reach = reach_f32(self.size(), sight.hero_size);
             if !casts::dragon_casts(d, reach, rng.below(2)) {
@@ -1248,12 +1268,17 @@ impl Mind {
         }
         if rng.below(3) == 2 && sight.walk.is_none() && passed {
             renew(self, &mut |n| rng.below(n));
-            let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
-            let angle = degrees.to_radians();
-            let to = target + Spot::new(angle.cos(), angle.sin()) * casts::STROLL;
-            return Some(Pursues::Strolls(to));
+            return Some(self.runs_about(target, rng));
         }
         Some(Pursues::Faces)
+    }
+
+    /// A caster's run to a point [`casts::STROLL`] about its target at `target`, at a whole degree
+    /// of a roll.
+    fn runs_about(&self, target: Spot, rng: &mut impl Dice) -> Pursues {
+        let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
+        let angle = degrees.to_radians();
+        Pursues::Strolls(target + Spot::new(angle.cos(), angle.sin()) * casts::STROLL)
     }
 
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
@@ -2841,6 +2866,76 @@ mod tests {
         assert_eq!(dragon.cast(&sight(far), &cast, || true, &mut rolls), None);
         assert_eq!(
             dragon.cast(&sight(far - 2.0), &cast, || true, &mut rolls),
+            None
+        );
+    }
+
+    #[test]
+    fn a_big_demon_casts_coming_on_and_standing_and_runs_about_without_a_way() {
+        use crate::spawning::Script;
+        let mut demon = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (53, 2));
+        demon.level = 40;
+        assert!(demon.sent_at());
+        let sight = |distance: f32, comes_on: bool| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(distance, 0.0),
+            walk: comes_on.then_some(Walking {
+                target: at(distance, 0.0),
+                comes_on: true,
+                runs: true,
+            }),
+            striking: false,
+            health: None,
+            hero_strikes: false,
+            listed: None,
+            targeted: false,
+            hero_size: SIZE,
+        };
+        let cast = CastSight {
+            now: 0.0,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            elite: false,
+            hostiles: 0,
+            crowded: false,
+            nearest: true,
+        };
+        // Coming on from 600, by its roll below 5: the eye lasers.
+        let mut rolls = Script::new(vec![4, 0]);
+        assert_eq!(
+            demon.cast(&sight(600.0, true), &cast, || true, &mut rolls),
+            Some(Pursues::Casts {
+                spell: casts::EYE_LASERS,
+                variant: 0
+            })
+        );
+        // Standing, in its decision of three with a way: the fire by its choice of 2.
+        let mut rolls = Script::new(vec![0, 2]);
+        assert_eq!(
+            demon.cast(&sight(200.0, false), &cast, || true, &mut rolls),
+            Some(Pursues::Casts {
+                spell: casts::DEMON_FIRE,
+                variant: 0
+            })
+        );
+        // Without a way it runs to a point 280 about its target, then stands 50 decisions.
+        let mut rolls = Script::new(vec![0, 0]);
+        assert_eq!(
+            demon.cast(&sight(200.0, false), &cast, || false, &mut rolls),
+            Some(Pursues::Strolls(at(200.0 + casts::STROLL, 0.0)))
+        );
+        let mut none = Script::new(Vec::new());
+        for _ in 0..casts::DEMON_STANDS {
+            assert_eq!(
+                demon.cast(&sight(200.0, false), &cast, || false, &mut none),
+                Some(Pursues::Faces)
+            );
+        }
+        // Its other decisions it fights hand to hand.
+        let mut rolls = Script::new(vec![1]);
+        assert_eq!(
+            demon.cast(&sight(200.0, false), &cast, || true, &mut rolls),
             None
         );
     }

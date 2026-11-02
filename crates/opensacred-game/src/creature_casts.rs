@@ -7,7 +7,9 @@
 //! again from its start (`opensacred_rules::minds::Mind::cast_ends`). The game follows the mark
 //! 1's spells as the hero's make them, striking the hero: the magic skeletons' fireball and the
 //! mummies' whirlwind (`bolts`), the mummy 03's lightning and the orc shaman's meteors (`spells`),
-//! and their flesh to stone, which holds the hero (`hero_held`).
+//! and their flesh to stone, which holds the hero (`hero_held`); the dragons' meteors; the big
+//! demons' eye lasers and their homing fire ([`HomingFire`]), whose records of no damage land the
+//! demon's own strike (`fight::resolve`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -16,7 +18,10 @@ use opensacred_rules::{casts, spells};
 use crate::ai::Mind;
 use crate::crowd::InTheWay;
 use crate::frame::Playing;
+use crate::game::AppState;
+use crate::hero::Body;
 use crate::npcs::{ClipActs, Dies, ScriptClip};
+use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows.
 const FOLLOWED: [u16; 4] = [
@@ -27,10 +32,32 @@ const FOLLOWED: [u16; 4] = [
 ];
 
 /// Whether a creature of type `creature` is a caster whose spell the game follows: of the mark 1,
-/// or a dragon (#1853).
+/// a dragon or a big demon (#1853).
 pub fn casts(creature: u32) -> bool {
     casts::dragon(creature)
+        || casts::big_demon(creature)
         || casts::mark_1(creature).is_some_and(|(spell, _)| FOLLOWED.contains(&spell))
+}
+
+/// The height of a big demon's eyes over its feet, whence its lasers leave (**estimate**: its
+/// bones `Left_EyeBone_FX` and `Right_EyeBone_FX` are not read).
+const EYES: f32 = 250.0;
+
+/// A homing fire of a creature (the big demons' `FX_DAEMONFIRE`, 910, of the spell 50; docs/re/
+/// arts.md, "The creatures' own spells"): held at its caster for its charge, then flying at
+/// [`casts::HOMING_SPEED`] toward its target, turning by at most [`casts::HOMING_TURN`] radians a
+/// second, for [`casts::HOMING_FLIGHT`] seconds; at its first contact with the hero, on its level
+/// and within its size and the hero's, it bursts and strikes it once with its damages.
+#[derive(Component, Debug)]
+pub struct HomingFire {
+    caster: Entity,
+    target: Entity,
+    charge: f32,
+    left: f32,
+    direction: Vec2,
+    size: f32,
+    damages: [f32; 4],
+    level: Level,
 }
 
 /// A creature's cast in course, until its clip ends: its spell and its variant, its target and
@@ -101,6 +128,12 @@ fn act(
     >,
     places: Query<&GlobalTransform>,
     held: Query<Option<&crate::effects::Effects>, With<crate::hero::Body>>,
+    (heights, bolt_looks, mut weather, mut sounds): (
+        Res<Heights>,
+        Option<Res<crate::bolts::Looks>>,
+        Option<ResMut<crate::weather::Weather>>,
+        MessageWriter<crate::sfx::Play>,
+    ),
     (arts, rules, looks, mut dice): (
         Option<Res<crate::arts::HeroArts>>,
         Res<crate::fight::Rules>,
@@ -200,6 +233,68 @@ fn act(
                     .or_default()
                     .and_modify(move |mut effects| effects.add(effect, seconds));
             }
+            casts::EYE_LASERS => {
+                // Its two beams to the target's place, which land the demon's own strike where a
+                // straight line of cells reaches it (`0x604030`).
+                let Ok(place) = target else {
+                    continue;
+                };
+                let reaches = crate::paths::straight(here.xz(), place.xz(), |cell| {
+                    heights.walkable_on(cell, way.level)
+                });
+                if let Some(looks) = &looks {
+                    crate::spells::beam(
+                        &mut commands,
+                        looks,
+                        here + Vec3::Y * EYES,
+                        place + Vec3::Y * crate::bolts::HEIGHT,
+                    );
+                }
+                if reaches {
+                    hits.write(crate::fight::Hit {
+                        attacker: entity,
+                        target: cast.target,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: Some(damages),
+                        sure: true,
+                        poison: false,
+                    });
+                }
+            }
+            casts::DEMON_FIRE => {
+                // Its fire charging at its hand, a jolt of the screen and its sound (`0x5274ED`).
+                let mut fire = commands.spawn((
+                    HomingFire {
+                        caster: entity,
+                        target: cast.target,
+                        charge: casts::DEMON_FIRE_CHARGE,
+                        left: casts::HOMING_FLIGHT,
+                        direction,
+                        size: casts::DEMON_FIRE_SIZE,
+                        damages,
+                        level: way.level,
+                    },
+                    Transform::from_translation(here + Vec3::Y * crate::bolts::HEIGHT),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some((mesh, material)) = bolt_looks
+                    .as_ref()
+                    .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
+                {
+                    fire.insert((Mesh3d(mesh), MeshMaterial3d(material)));
+                }
+                if let Some(weather) = weather.as_mut() {
+                    weather.set(opensacred_rules::weather::Event::Jolt(DEMON_FIRE_JOLT));
+                }
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(DEMON_FIRE_SOUND),
+                    at: Some(entity),
+                    rate: (0.49, crate::sfx::Roll::Share(0.02)),
+                });
+            }
             spells::METEORS => {
                 crate::spells::meteors(
                     &mut commands,
@@ -212,6 +307,86 @@ fn act(
             }
             _ => {}
         }
+    }
+}
+
+/// The look of a homing fire, the fireball's (`bolts`).
+const FIRE_LOOK: usize = 3;
+/// The jolt of the screen as a big demon's fire leaves (`0x527716`) and its sound
+/// (`SOUND_FX_VAMP_SPRUNG_HIT`).
+const DEMON_FIRE_JOLT: u32 = 18;
+const DEMON_FIRE_SOUND: u32 = 2084;
+
+/// Flies each homing fire a frame on (the object update's flag `0x10000`, `0x5A7DBF`): held at its
+/// caster while it charges, then toward its target, turning by at most its turn a second, ending at
+/// its time, at a cell it may not pass, or as it bursts on the hero.
+fn home(
+    mut commands: Commands,
+    time: Res<Time>,
+    heights: Res<Heights>,
+    mut fires: Query<(Entity, &mut HomingFire, &mut Transform)>,
+    places: Query<&GlobalTransform, Without<HomingFire>>,
+    heroes: Query<(Entity, &GlobalTransform, &Body, &crate::fight::Health), Without<Dies>>,
+    mut hits: MessageWriter<crate::fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut fire, mut transform) in &mut fires {
+        if fire.charge > 0.0 {
+            fire.charge -= dt;
+            if let Ok(caster) = places.get(fire.caster) {
+                transform.translation = caster.translation() + Vec3::Y * crate::bolts::HEIGHT;
+            }
+            continue;
+        }
+        fire.left -= dt;
+        let here = transform.translation.xz();
+        if let Ok(target) = places.get(fire.target)
+            && let Some(aim) = (target.translation().xz() - here).try_normalize()
+        {
+            let turn = fire.direction.angle_to(aim);
+            let most = casts::HOMING_TURN * dt;
+            fire.direction = Vec2::from_angle(turn.clamp(-most, most)).rotate(fire.direction);
+        }
+        let ground = here + fire.direction * casts::HOMING_SPEED * dt;
+        let cell = crate::paths::cell_of(ground.x, ground.y);
+        if fire.left <= 0.0 || !heights.walkable_on(cell, fire.level) {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let height = heights
+            .standing(ground.x, ground.y, fire.level)
+            .unwrap_or(transform.translation.y - crate::bolts::HEIGHT);
+        transform.translation = Vec3::new(ground.x, height + crate::bolts::HEIGHT, ground.y);
+        let struck: Vec<Entity> = heroes
+            .iter()
+            .filter(|(_, at, body, health)| {
+                body.level() == fire.level
+                    && health.current > 0
+                    && (at.translation().xz() - ground).length()
+                        < fire.size + opensacred_rules::arrows::size(0)
+            })
+            .map(|(hero, ..)| hero)
+            .collect();
+        if struck.is_empty() {
+            continue;
+        }
+        for target in struck {
+            debug!(
+                "creature_casts: the fire of {} bursts on {target}",
+                fire.caster
+            );
+            hits.write(crate::fight::Hit {
+                attacker: fire.caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(fire.damages),
+                sure: true,
+                poison: false,
+            });
+        }
+        commands.entity(entity).despawn();
     }
 }
 
@@ -243,6 +418,6 @@ pub struct CreatureCastsPlugin;
 
 impl Plugin for CreatureCastsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (begin, act, end).chain().in_set(Playing));
+        app.add_systems(Update, ((begin, act, end).chain(), home).in_set(Playing));
     }
 }
