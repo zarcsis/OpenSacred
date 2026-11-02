@@ -5,9 +5,10 @@
 //! or a weapon whose kind's attack its model has, `0x6D6B90`) and may use (`0x54ABE0`), the item
 //! goes into a hand by `opensacred_rules::equipment::handed`, and the item it replaces onto the
 //! cursor (`0x6D6760`); its values, its clips and its fight are made anew as an archer's rearming
-//! makes them (`npcs::Rearms`). The remarks of a hireling given an item and of one refused (the
-//! events (8, `0x10`) and (8, `0x11`)) are #1733's; a potion held given to a follower to drink
-//! (`0x54AA80`) is not followed.
+//! makes them (`npcs::Rearms`). An item that it may use, put on or not, makes it remark how the
+//! item compares with its hands' old ones (the event (8, `0x10`), `remarks::Remark::Equipment`,
+//! #1733); an item refused posts (8, `0x11`), which no case of the sound manager plays. A potion
+//! held given to a follower to drink (`0x54AA80`) is not followed.
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -20,8 +21,9 @@ use crate::fight::{Health, Rules};
 use crate::followers::Follower;
 use crate::game::AppState;
 use crate::hud::Pointer;
-use crate::npcs::{Arms, Npcs, Rearms};
+use crate::npcs::{Arms, Npcs, Rearms, ScriptName};
 use crate::pickup::Pack;
+use crate::remarks::Remark;
 
 /// The items that the hero gave a follower, by its hands' slots (12 the left, 13 the right), so
 /// that one taken back is the item given, its own values, sockets and name.
@@ -45,9 +47,28 @@ impl Given {
             *hand = Some(dropped);
         }
     }
+
+    /// The item given into the hand of the slot `slot`.
+    fn get(&self, slot: u8) -> Option<&Dropped> {
+        self.0
+            .get(usize::from(slot.checked_sub(LEFT_HAND)?))?
+            .as_ref()
+    }
+}
+
+/// The key of a creature's name (`sdk_REFKEY`, `0x44A1C0`): the number of its `CreateNPC`'s name
+/// of the prefix `res:` (docs/re/netscript.md), else its type.
+fn name_key(name: Option<&ScriptName>, creature: u32) -> u32 {
+    name.and_then(|name| name.0.strip_prefix("res:")?.parse().ok())
+        .unwrap_or(creature)
 }
 
 /// A left click on a follower's entry of the column (`0x6D6C70`'s entries 1 to 4).
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn press(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -55,7 +76,8 @@ fn press(
     entries: Option<Res<Entries>>,
     mut pack: ResMut<Pack>,
     (npcs, tables, rules): (Option<Res<Npcs>>, Option<Res<Tables>>, Res<Rules>),
-    followers: Query<(&Arms, &Mind, &Health, Option<&Given>), With<Follower>>,
+    followers: Query<(&Arms, &Mind, &Health, Option<&Given>, Option<&ScriptName>), With<Follower>>,
+    mut remarks: MessageWriter<Remark>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -71,7 +93,7 @@ fn press(
     let Some(&follower) = k.checked_sub(1).and_then(|k| entries.0.get(k)) else {
         return;
     };
-    let Ok((arms, mind, health, given)) = followers.get(follower) else {
+    let Ok((arms, mind, health, given, name)) = followers.get(follower) else {
         return;
     };
     debug!(
@@ -119,6 +141,27 @@ fn press(
         );
         return;
     }
+    // How it compares with the hands' old items, as the remark tells (`0x6D6660`).
+    let worth = |slot: u8| {
+        let old = given
+            .get(slot)
+            .map(|dropped| tables.values(dropped))
+            .or_else(|| {
+                arms.in_hand(slot).map(|(item, values)| {
+                    tables.values(&tables.held_item(item, health.level, values))
+                })
+            });
+        old.map_or(0, |values| equipment::hand_worth(&values))
+    };
+    let value = equipment::compared(
+        equipment::hand_worth(&tables.values(&held.dropped)),
+        worth(LEFT_HAND),
+        worth(RIGHT_HAND),
+    );
+    remarks.write(Remark::Equipment {
+        key: name_key(name, mind.creature),
+        value,
+    });
     let Some(grip) = npcs.grip(item) else {
         return;
     };
@@ -159,5 +202,19 @@ pub struct MercenariesPlugin;
 impl Plugin for MercenariesPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, press.run_if(in_state(AppState::InGame)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_creatures_name_key_is_its_res_number_else_its_type() {
+        let named = ScriptName("res:17095".to_owned());
+        assert_eq!(name_key(Some(&named), 322), 17095);
+        let scripted = ScriptName("merc_1".to_owned());
+        assert_eq!(name_key(Some(&scripted), 322), 322);
+        assert_eq!(name_key(None, 77), 77);
     }
 }
