@@ -7,9 +7,17 @@
 //! alpha and the smoke laid over it by its alpha, not tinted by the night; and the fire lights
 //! the night by its system's radius (`+0x9C`, docs/re/effects.md, "Lights").
 //!
+//! The small fires of `cParticleSystem_smallfire`'s variant 2 (878, `FX_SMALLFIRE`, #1808) that
+//! six pieces of set 23 leave at each of the hero's steps (`0x63918C`, `sound::HeroStep`): their
+//! flames and smoke as the fires', emitted for 8 s, over a patch of burnt ground (`FX_GROUNDSTEP`'s
+//! frames, added to the frame) for 9 s, a light of 150, the fires' loop at 0.6, and once a second
+//! a strike at each living creature hostile to the hero within their reach of the hero's place at
+//! the step, of the hero's strength and dexterity (`opensacred_rules::fight::small_fire_damages`,
+//! no hit chance, through the resistances).
+//!
 //! Left out: the wind that the smoke class writes into its layers (`+0x68` of the renderer, a
 //! **hypothesis**), the other classes, the spells' among them, for which their modules draw
-//! stand-ins, and the torches' flames.
+//! stand-ins, the torches' flames, and the small fire's variants 0 and 1.
 
 use std::sync::Arc;
 
@@ -17,7 +25,10 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use opensacred_rules::particles::{Blend, Fire, Geyser, Jet, System, fire};
+use opensacred_rules::particles::{
+    Blend, Fire, GROUND_GRID, GROUND_HALF, GROUND_TEXTURE, Geyser, Jet, SMALL_FIRE_EMITS, System,
+    fire, ground_frame, small_fire,
+};
 use opensacred_rules::spawning::Rng;
 
 use crate::frame::{Playing, Unpaused};
@@ -52,6 +63,34 @@ type Material = Option<Handle<StandardMaterial>>;
 /// The smoke class's variants that the game makes: the chimneys', the fire smokes', the lavas'
 /// smokes and the fires (docs/re/effects.md).
 const VARIANTS: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+/// The steps' small fires' data and materials: their flame's and smoke's layers' and their burnt
+/// ground's, made as the game starts.
+#[derive(Resource)]
+struct StepFires {
+    fire: Arc<Fire>,
+    layers: Vec<Material>,
+    ground: Material,
+}
+
+/// A small fire that a step of the hero leaves (#1808): its particles and dice, its layers' meshes
+/// and its ground's, the level of its place, and how long until it may strike again.
+#[derive(Component)]
+pub struct StepFire {
+    system: System,
+    dice: Rng,
+    meshes: Vec<Handle<Mesh>>,
+    ground: Option<Handle<Mesh>>,
+    level: crate::terrain::Level,
+    cooldown: f32,
+}
+
+/// How far above the ground the burnt ground lies, in world units, so that the ground's mesh does
+/// not cover it where the original draws it at the ground's height with its depth test
+/// (docs/decisions/drawing.md, "Small fire's burnt ground lifted").
+const GROUND_LIFT: f32 = 0.5;
+/// The fires' loop's volume of a step's small fire (`0x690630`, 0.6).
+const STEP_FIRE_VOLUME: f32 = 0.6;
 
 /// A fire to make: its variant, as `spawn` leaves it for [`light`].
 #[derive(Component)]
@@ -236,7 +275,270 @@ fn begin(
             .collect();
         variants.push((variant, Arc::new(fire), layers));
     }
+    // The steps' small fire takes the fires' two materials, and its burnt ground one added.
+    let step = small_fire();
+    let layers = step
+        .blends
+        .iter()
+        .map(|&blend| {
+            made.iter()
+                .find(|(key, _)| *key == (step.texture, blend))
+                .and_then(|(_, material)| material.clone())
+        })
+        .collect();
+    let ground = data
+        .as_ref()
+        .and_then(|data| particle_texture(&data.0.assets, &assets, GROUND_TEXTURE))
+        .map(|image| materials.add(particle_material(image, AlphaMode::Add)));
+    commands.insert_resource(StepFires {
+        fire: Arc::new(step),
+        layers,
+        ground,
+    });
     commands.insert_resource(Fires { variants });
+}
+
+/// Leaves a small fire at each step of the hero that wears six pieces of set 23 (`0x63918C`,
+/// #1808), at its place on its level, untinted by the night as the fires.
+fn kindle(
+    mut commands: Commands,
+    mut steps: MessageReader<crate::sound::HeroStep>,
+    step_fires: Option<Res<StepFires>>,
+    heroes: Query<(
+        &crate::hero::Body,
+        Option<&crate::fight::Holding>,
+        Option<&crate::buildings::Layered>,
+    )>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let Some(step_fires) = step_fires else {
+        steps.clear();
+        return;
+    };
+    let Some((body, holding, layered)) = heroes.iter().next() else {
+        steps.clear();
+        return;
+    };
+    let fiery = holding.is_some_and(|holding| holding.0.sets.fiery_steps());
+    for &crate::sound::HeroStep(at) in steps.read() {
+        if !fiery {
+            continue;
+        }
+        let mut handles = Vec::new();
+        let mut ground = None;
+        let mut fire = commands.spawn((
+            Transform::from_translation(at),
+            Visibility::default(),
+            daynight::Light(step_fires.fire.light),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(&layered) = layered {
+            fire.insert(layered);
+        }
+        fire.with_children(|parts| {
+            let untinted = bevy::camera::visibility::RenderLayers::layer(iso::UNTINTED);
+            for material in step_fires.layers.iter().flatten() {
+                let mesh = meshes.add(empty());
+                handles.push(mesh.clone());
+                parts.spawn((
+                    Mesh3d(mesh),
+                    MeshMaterial3d(material.clone()),
+                    Transform::default(),
+                    bevy::camera::visibility::NoFrustumCulling,
+                    untinted.clone(),
+                ));
+            }
+            if let Some(material) = step_fires.ground.clone() {
+                let mesh = meshes.add(empty());
+                ground = Some(mesh.clone());
+                parts.spawn((
+                    Mesh3d(mesh),
+                    MeshMaterial3d(material),
+                    Transform::from_translation(Vec3::Y * GROUND_LIFT),
+                    bevy::camera::visibility::NoFrustumCulling,
+                    untinted,
+                ));
+            }
+        });
+        let index = usize::try_from(fire.id().index_u32()).unwrap_or(0);
+        fire.insert(StepFire {
+            system: System::new(step_fires.fire.count),
+            dice: crate::seed::dice(SEED ^ index),
+            meshes: handles,
+            ground,
+            level: body.level(),
+            cooldown: 0.0,
+        });
+    }
+}
+
+/// The quads of a fire's layer `layer` of its system `system`, facing the camera.
+fn layer_quads(fire: &Fire, system: &System, layer: usize) -> Quads {
+    let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
+    let grid = f32::from(fire.grid.max(1));
+    let mut quads = Quads::default();
+    for particle in system
+        .particles
+        .iter()
+        .filter(|p| usize::from(p.layer) == layer)
+    {
+        // The models' frame, its third coordinate up, at the world's scale.
+        let [x, y, z] = particle.place;
+        // Its frame's square of the texture's grid.
+        let side = fire.grid.max(1);
+        let frame = Vec2::new(
+            f32::from(particle.frame % side),
+            f32::from(particle.frame / side % side),
+        );
+        quads.push(
+            Vec3::new(x, z, y) * iso::MODEL_SCALE,
+            particle.size * iso::MODEL_SCALE,
+            particle.angle,
+            (frame / grid, 1.0 / grid),
+            ramp.at(particle.life),
+        );
+    }
+    quads
+}
+
+/// Runs each step's small fire a frame on (`0x79F6D0`): its particles, emitted while its clock is
+/// below [`SMALL_FIRE_EMITS`], and its burnt ground's frame (`0x79F7D0`, the quad of a half side
+/// of [`GROUND_HALF`] turned by a half turn); it goes once it emits no more and its last particle
+/// and its ground are gone.
+fn smoulder(
+    mut commands: Commands,
+    time: Res<Time>,
+    step_fires: Option<Res<StepFires>>,
+    mut fires: Query<(Entity, &mut StepFire)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let Some(step_fires) = step_fires else {
+        return;
+    };
+    let fire = &*step_fires.fire;
+    let dt = time.delta_secs().min(0.1);
+    for (entity, mut step) in &mut fires {
+        let StepFire {
+            system,
+            dice,
+            meshes: layers,
+            ground,
+            ..
+        } = &mut *step;
+        system.update(dt, &fire.layers);
+        if system.clock < SMALL_FIRE_EMITS {
+            system.emit(&fire.blocks, &fire.layers, fire.count, dice);
+        }
+        let frame = ground_frame(system.clock);
+        if system.clock >= SMALL_FIRE_EMITS && system.particles.is_empty() && frame.is_none() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        for (layer, handle) in layers.iter().enumerate() {
+            if let Some(mut mesh) = meshes.get_mut(handle) {
+                layer_quads(fire, system, layer).into_mesh(&mut mesh);
+            }
+        }
+        if let Some(mut mesh) = ground.as_ref().and_then(|handle| meshes.get_mut(handle)) {
+            let mut quads = Quads::default();
+            if let Some(frame) = frame {
+                let half = GROUND_HALF * iso::MODEL_SCALE;
+                let grid = f32::from(GROUND_GRID);
+                let corner = Vec2::new(
+                    f32::from(frame % GROUND_GRID),
+                    f32::from(frame / GROUND_GRID % GROUND_GRID),
+                ) / grid;
+                let side = 1.0 / grid;
+                // Turned by a half turn: the texture's far corner at the near one.
+                quads.push_corners(
+                    [
+                        Vec3::new(-half, 0.0, -half),
+                        Vec3::new(half, 0.0, -half),
+                        Vec3::new(half, 0.0, half),
+                        Vec3::new(-half, 0.0, half),
+                    ],
+                    [
+                        corner + Vec2::splat(side),
+                        corner + Vec2::new(0.0, side),
+                        corner,
+                        corner + Vec2::new(side, 0.0),
+                    ],
+                    [1.0; 4],
+                );
+            }
+            quads.into_mesh(&mut mesh);
+        }
+    }
+}
+
+/// Strikes from each step's small fire, at most once a second, every living creature hostile to
+/// the hero on its level within [`opensacred_rules::fight::SMALL_FIRE_REACH`] and its size of it
+/// (`0x5AB490`, `0x5AE436`): the hero's strike of the fire's damages of his strength and dexterity,
+/// sure, through the resistances (`0x5AE44D`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn scorch(
+    time: Res<Time>,
+    mut hits: MessageWriter<crate::fight::Hit>,
+    mut fires: Query<(&mut StepFire, &Transform)>,
+    heroes: Query<(Entity, &crate::fight::Combat), With<crate::hero::Body>>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &crate::crowd::InTheWay,
+            &crate::ai::Mind,
+            &crate::fight::Health,
+            Option<&crate::arrows::Size>,
+        ),
+        (Without<crate::hero::Body>, Without<crate::npcs::Dies>),
+    >,
+) {
+    let Some((hero, combat)) = heroes.iter().next() else {
+        return;
+    };
+    let combat = &combat.0;
+    let damages = opensacred_rules::fight::small_fire_damages(
+        combat.attributes[0],
+        combat.attributes[2],
+        [combat.multipliers[0], combat.multipliers[1]],
+    );
+    let dt = time.delta_secs();
+    for (mut step, at) in &mut fires {
+        step.cooldown = (step.cooldown - dt).max(0.0);
+        if step.cooldown > 0.0 {
+            continue;
+        }
+        let here = at.translation.xz();
+        let mut struck = false;
+        for (target, place, way, mind, health, size) in &creatures {
+            let reach = opensacred_rules::fight::SMALL_FIRE_REACH
+                + size.map_or(opensacred_rules::arrows::size(0), |size| size.0);
+            if way.creature
+                && way.level == step.level
+                && mind.hostile()
+                && health.current > 0
+                && (place.translation.xz() - here).length() < reach
+            {
+                hits.write(crate::fight::Hit {
+                    attacker: hero,
+                    target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(damages),
+                    sure: true,
+                    poison: false,
+                });
+                struck = true;
+            }
+        }
+        if struck {
+            step.cooldown = opensacred_rules::fight::SMALL_FIRE_PERIOD;
+        }
+    }
 }
 
 /// Gives each new fire its particles, its layers' meshes and its light.
@@ -319,6 +621,7 @@ fn burn(
             geyser,
             ..
         } = &mut *burning;
+        let fire: &Arc<Fire> = fire;
         let fire: &Fire = match geyser {
             Some((geyser, own)) => {
                 if let Jet::Bursts { sounds: true } = geyser.update(dt, own, &mut latch.0, dice) {
@@ -339,31 +642,7 @@ fn burn(
             let Some(mut mesh) = meshes.get_mut(handle) else {
                 continue;
             };
-            let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
-            let grid = f32::from(fire.grid.max(1));
-            let mut quads = Quads::default();
-            for particle in system
-                .particles
-                .iter()
-                .filter(|p| usize::from(p.layer) == layer)
-            {
-                // The models' frame, its third coordinate up, at the world's scale.
-                let [x, y, z] = particle.place;
-                // Its frame's square of the texture's grid.
-                let side = fire.grid.max(1);
-                let frame = Vec2::new(
-                    f32::from(particle.frame % side),
-                    f32::from(particle.frame / side % side),
-                );
-                quads.push(
-                    Vec3::new(x, z, y) * iso::MODEL_SCALE,
-                    particle.size * iso::MODEL_SCALE,
-                    particle.angle,
-                    (frame / grid, 1.0 / grid),
-                    ramp.at(particle.life),
-                );
-            }
-            quads.into_mesh(&mut mesh);
+            layer_quads(fire, system, layer).into_mesh(&mut mesh);
         }
     }
 }
@@ -385,6 +664,15 @@ fn crackle_volume(variant: u8) -> Option<f32> {
     }
 }
 
+/// The loop's volume of a fire, a world's of its variant ([`crackle_volume`]) or a step's small
+/// fire's ([`STEP_FIRE_VOLUME`]).
+fn volume_of(burning: Option<&Burning>) -> Option<f32> {
+    match burning {
+        Some(burning) => crackle_volume(burning.variant),
+        None => Some(STEP_FIRE_VOLUME),
+    }
+}
+
 /// The fires' loops that play, each at its fire.
 #[derive(Resource, Default)]
 struct Crackles(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
@@ -394,11 +682,12 @@ struct Crackles(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
 /// its fire's place by its volume, and stops when its fire goes or is further than 300.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn crackle(
     mut crackles: ResMut<Crackles>,
-    fires: Query<(Entity, &Burning, &GlobalTransform)>,
+    fires: Query<(Entity, Option<&Burning>, &GlobalTransform), Or<(With<Burning>, With<StepFire>)>>,
     heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
     mut sfx: ResMut<crate::sfx::Sfx>,
     heard: Res<crate::sfx::Listener>,
@@ -428,7 +717,7 @@ fn crackle(
     if crackles.0.len() < LOOPS
         && let Some((fire, _)) = fires
             .iter()
-            .filter(|(_, burning, at)| crackle_volume(burning.variant).is_some() && near(at))
+            .filter(|(_, burning, at)| volume_of(*burning).is_some() && near(at))
             .map(|(fire, _, at)| (fire, crate::sfx::screen_distance(at.translation(), hero)))
             .min_by_key(|&(_, d)| d)
         && let Some((id, file)) = sfx.with_id(FIRE_LOOP)
@@ -452,7 +741,7 @@ fn crackle(
             continue;
         };
         let (volume, pan) = crate::sfx::placed_at(at.translation(), Some(hero), *heard);
-        let volume = volume * crackle_volume(burning.variant).unwrap_or(0.0);
+        let volume = volume * volume_of(burning).unwrap_or(0.0);
         instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
         instance.set_panning(pan, AudioTween::default());
     }
@@ -464,6 +753,7 @@ fn end(
     mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>,
 ) {
     commands.remove_resource::<Fires>();
+    commands.remove_resource::<StepFires>();
     for (_, handle) in crackles.iter().flat_map(|crackles| &crackles.0) {
         if let Some(mut instance) = instances.get_mut(handle) {
             instance.stop(bevy_kira_audio::prelude::AudioTween::default());
@@ -483,7 +773,14 @@ impl Plugin for FxPlugin {
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
                 Update,
-                (light.run_if(resource_exists::<Fires>), burn, crackle)
+                (
+                    light.run_if(resource_exists::<Fires>),
+                    kindle,
+                    burn,
+                    smoulder,
+                    scorch,
+                    crackle,
+                )
                     .chain()
                     .in_set(Playing)
                     .in_set(Unpaused),

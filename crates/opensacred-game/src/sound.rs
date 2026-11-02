@@ -21,8 +21,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    AnimationClip, AnimationPlayer, App, AssetServer, Assets, Handle, IntoScheduleConfigs, OnEnter,
-    Plugin, Query, Res, ResMut, Resource, Time, Transform, Update,
+    AnimationClip, AnimationPlayer, App, AssetServer, Assets, Handle, IntoScheduleConfigs, Message,
+    MessageWriter, OnEnter, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, Vec3,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, PlaybackState};
 use opensacred_data::sound::{EXTENSION, Music, Sound};
@@ -192,7 +192,13 @@ fn passed(last: f32, now: f32, moment: f32) -> bool {
     }
 }
 
-/// Plays a step each time the walk or the run clip passes one of its footstep moments.
+/// A step of the hero at its place, at a footstep moment of its walk or run clip (`0x5941A0`,
+/// `0x639080`), which the small fires of set 23 take (`fx`, #1808).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct HeroStep(pub Vec3);
+
+/// Plays a step each time the walk or the run clip passes one of its footstep moments, and tells
+/// each ([`HeroStep`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources one by one"
@@ -206,6 +212,7 @@ pub fn step(
     animations: Res<Assets<AnimationClip>>,
     audio: Res<Audio>,
     time: Res<Time>,
+    mut steps: MessageWriter<HeroStep>,
 ) {
     let Some((gait, at, winged)) = bodies.iter().find_map(|(body, transform, effects)| {
         let winged = effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::FORMED));
@@ -239,6 +246,16 @@ pub fn step(
         wanted
     };
     let winged = winged && !footsteps.wings.is_empty();
+    // Each step's moment, a sound or not.
+    if let Some((last_gait, last)) = footsteps.last
+        && last_gait == gait
+    {
+        for &moment in &footsteps.moments[moments] {
+            if passed(last, now, moment) {
+                steps.write(HeroStep(at));
+            }
+        }
+    }
     if let Some((last_gait, last)) = footsteps.last
         && last_gait == gait
         && (winged || !footsteps.samples[group].is_empty())
@@ -275,7 +292,8 @@ pub struct SoundPlugin;
 
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), load)
+        app.add_message::<HeroStep>()
+            .add_systems(OnEnter(AppState::InGame), load)
             .add_systems(
                 Update,
                 step.in_set(Step::Footsteps).in_set(crate::frame::Unpaused),

@@ -257,6 +257,9 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(64, &wearing(64, 3), Difficulty::Bronze)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
+    // Six pieces of set 23 leave small fires at the steps, five do not.
+    assert!(stats(&wearing(23, 6), Difficulty::Bronze).fiery_steps());
+    assert!(!stats(&wearing(23, 5), Difficulty::Bronze).fiery_steps());
     // Set 41's terror at 4: ⌊20·D⌋ per cent, none at 3.
     assert_eq!(stats(&wearing(41, 4), Difficulty::Bronze).terror(), 20);
     assert_eq!(stats(&wearing(41, 4), Difficulty::Niobium).terror(), 46);
