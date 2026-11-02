@@ -179,6 +179,9 @@ const SET_PLAY_MODE: u16 = 89;
 const SET_CINEMA_MODE: u16 = 134;
 /// `PlayAnim` (`0x4A2550`): a creature plays a clip of its model's slot (#1277).
 const PLAY_ANIM: u16 = 91;
+/// `PlaySound` (`0x4A9730`): under the anim mode, its sound waits its turn in the queue of the
+/// creature of its second `0x01` (#1826).
+const PLAY_SOUND: u16 = 104;
 /// The other records that wait their turn in a creature's queue under the anim mode, and the
 /// rank of the `0x01` that names the creature: `Wait`, `Attack`, `ActObj` the first, a
 /// `CallFunktion` the second (docs/re/netscript.md, "The other kinds, the waits and the cinema").
@@ -2172,6 +2175,12 @@ enum Act {
     /// `Wait` under the anim mode: the other creature, `None` the hero, and its condition
     /// (#1279).
     Wait(Option<String>, Until),
+    /// `PlaySound` under the anim mode, of the sound of the name (`0x4A9730`, the kind 14;
+    /// #1826).
+    Sound(String),
+    /// `CreateObj` whose second `0x01` names the creature, under the anim mode: the record, made
+    /// at the creature's turn (`0x486CB2`, the kind 11; #1826).
+    Make(Box<Record>),
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -2251,6 +2260,19 @@ fn played(
             queued: true,
         });
     }
+    // A `PlaySound` whose second name is the hero's or a creature's waits its turn under the
+    // mode; outside it, or naming none, it plays at once as the line by name (`scripts`).
+    if kind == PLAY_SOUND {
+        let (sound, name) = (
+            names.first()?,
+            names.get(1).filter(|name| !name.is_empty())?,
+        );
+        return queued.then(|| Moved {
+            name: name.clone(),
+            act: Act::Sound(sound.clone()),
+            queued,
+        });
+    }
     // A `Wait`, which outside the mode does nothing.
     if kind == WAIT {
         let name = names.first().filter(|name| *name != "hero")?;
@@ -2275,6 +2297,45 @@ fn played(
         act: Act::Other(kind),
         queued,
     })
+}
+
+/// The creature that a `CreateObj` names by its second `0x01`, lower case (`0x486CB2`): under
+/// the anim mode its object is made at that creature's turn, where the creature is in the world
+/// (#1826); none for another record or for the hero.
+fn maker(record: &Record) -> Option<String> {
+    let Body::Operands(ops) = &record.body else {
+        return None;
+    };
+    if record.kind != CREATE_OBJ {
+        return None;
+    }
+    ops.iter()
+        .filter_map(|o| match (o.tag, &o.value) {
+            (0x01, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+            _ => None,
+        })
+        .nth(1)
+        .filter(|name| !name.is_empty() && name != HERO)
+}
+
+/// The indices of the `CreateObj`s of `records` that wait their turns in the queues of the
+/// creatures they name ([`maker`]), those between a `SetAnimMode` or a `SetCinemaMode` and a
+/// `SetPlayMode` that name a creature in the world (`present`), as [`Npcs::moves`] queues them:
+/// the others are made at once.
+fn deferred_objects(records: &[Record], present: impl Fn(&str) -> bool) -> HashSet<usize> {
+    let mut queued = false;
+    let mut deferred = HashSet::new();
+    for (index, record) in records.iter().enumerate() {
+        match record.kind {
+            SET_ANIM_MODE | SET_CINEMA_MODE => queued = true,
+            SET_PLAY_MODE => queued = false,
+            _ => {}
+        }
+        if queued && maker(record).is_some_and(|name| present(&name)) {
+            deferred.insert(index);
+        }
+    }
+    deferred
 }
 
 /// Where a record's position of the tag `tag` sends a creature: a cell of its own, a `DefPos`'s
@@ -5883,6 +5944,14 @@ impl Npcs {
                 moves.push(moved);
                 continue;
             }
+            if queued && let Some(name) = maker(record) {
+                moves.push(Moved {
+                    name,
+                    act: Act::Make(Box::new(record.clone())),
+                    queued,
+                });
+                continue;
+            }
             let Some(name) = mover(record.kind, ops, queued) else {
                 continue;
             };
@@ -6487,6 +6556,11 @@ enum Queued {
     Clip { slot: u16 },
     /// Another record's turn, of its kind, done at once (#1277; their own steps #1279 to #1281).
     Other(u16),
+    /// A `PlaySound`'s sound of the id, played once in the middle at its sample's rate and the
+    /// volume 1 (the step `0x59ED41`, `playSFX` `0x693510`), done at once (#1826).
+    Sound(u32),
+    /// A `CreateObj`'s record, made at its turn (the step `0x59A9EF`), done at once (#1826).
+    Make(Box<Record>),
     /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
     /// #1278).
     Call(String),
@@ -6595,7 +6669,11 @@ fn take_steps(
     mut commands: Commands,
     tick: Res<WorldTick>,
     (heights, real): (Res<Heights>, Res<Time<bevy::time::Real>>),
-    mut due: Option<ResMut<crate::scripts::Due>>,
+    (mut due, mut sounds, mut made): (
+        Option<ResMut<crate::scripts::Due>>,
+        MessageWriter<sfx::Play>,
+        Option<ResMut<crate::scripts::WorldRecords>>,
+    ),
     others: Query<
         (
             &ScriptName,
@@ -6692,6 +6770,17 @@ fn take_steps(
                 }
             }
             Some(Queued::Other(_) | Queued::Land { .. }) => true,
+            Some(&mut Queued::Sound(id)) => {
+                sounds.write(queued_sound(id));
+                true
+            }
+            // Made as the scripts' records of the world are, at once now that it is alone.
+            Some(Queued::Make(record)) => {
+                if let Some(made) = made.as_deref_mut() {
+                    made.0.push((**record).clone());
+                }
+                true
+            }
             Some(Queued::Call(function)) => {
                 if let Some(due) = due.as_deref_mut() {
                     due.0.push(std::mem::take(function));
@@ -6730,6 +6819,17 @@ fn take_steps(
     }
 }
 
+/// A queued `PlaySound`'s sound of the id (the step `0x59ED41`): `playSFX` (`0x693510`) in the
+/// middle (the creature −1), at the rate's factor 0.5, its sample's own rate, and the volume 1,
+/// not the line by name (#1826).
+fn queued_sound(id: u32) -> sfx::Play {
+    sfx::Play {
+        sound: sfx::Of::Id(id),
+        at: None,
+        rate: (0.5, sfx::Roll::None),
+    }
+}
+
 /// Takes the first step of the hero's [`ScriptQueue`] at each tick of the world, as the hero's
 /// update steps its queue as a creature's (`0x5375C0` calling `0x59A840` for the local hero, seen
 /// in `annehmen2003`'s run, #1280): a walk orders the hero to its target at a run, the player's
@@ -6739,7 +6839,7 @@ fn take_steps(
 /// player. The Sacred campaign queues no other step for the hero. The queue goes once empty.
 fn take_hero_steps(
     mut commands: Commands,
-    tick: Res<WorldTick>,
+    (tick, mut plays): (Res<WorldTick>, MessageWriter<sfx::Play>),
     hero: Option<ResMut<hero::Hero>>,
     mut heroes: Query<(Entity, &mut ScriptQueue, &mut hero::Body, &mut Transform)>,
 ) {
@@ -6788,6 +6888,10 @@ fn take_hero_steps(
             body.put(&mut transform, to, arrival);
             true
         }
+        Some(&mut Queued::Sound(id)) => {
+            plays.write(queued_sound(id));
+            true
+        }
         Some(_) => true,
     };
     if done {
@@ -6829,7 +6933,12 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
-    (mut queues, real): (Query<&mut ScriptQueue>, Res<Time<bevy::time::Real>>),
+    (mut queues, real, sounds, mut lines): (
+        Query<&mut ScriptQueue>,
+        Res<Time<bevy::time::Real>>,
+        Option<Res<sfx::Sfx>>,
+        MessageWriter<crate::scripts::ScriptLine>,
+    ),
     dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
@@ -6847,6 +6956,21 @@ pub(crate) fn script_records(
     let mut records = std::mem::take(&mut records.0);
     if records.is_empty() {
         return;
+    }
+    // The `CreateObj`s that wait their turns in the queues of the creatures they name, under the
+    // anim mode, which the moves below queue (#1826): the others made at once.
+    let present: HashSet<&str> = creatures
+        .iter()
+        .filter_map(|(_, named, ..)| named.map(|named| named.0.as_str()))
+        .collect();
+    let deferred = deferred_objects(&records, |name| present.contains(name));
+    let all = (!deferred.is_empty()).then(|| records.clone());
+    if !deferred.is_empty() {
+        let mut index = 0;
+        records.retain(|_| {
+            index += 1;
+            !deferred.contains(&(index - 1))
+        });
     }
     // The places of the creatures that the records name (`CPOS:`), the hero's for none, as they
     // stand now: their cells and floors (#1046).
@@ -6984,7 +7108,7 @@ pub(crate) fn script_records(
     }
     // The steps queued in this run, for the creatures without a queue yet.
     let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
-    for moved in npcs.moves(&records, real.elapsed_secs_f64()) {
+    for moved in npcs.moves(all.as_deref().unwrap_or(&records), real.elapsed_secs_f64()) {
         let (whither, walks) = match moved.act {
             Act::Go { whither, walks } => (whither, walks),
             // The hero stopped where its queue is empty (#1280).
@@ -7023,6 +7147,54 @@ pub(crate) fn script_records(
                     moved.name,
                     if moved.queued { " in its turn" } else { "" }
                 );
+                continue;
+            }
+            // A sound of no id plays nothing (`0x676170`); the hero's waits in its queue, a
+            // creature's in each of its name's, and one of a name that none bears plays at once
+            // as the line by name (`0x4A9730`).
+            Act::Sound(sound) => {
+                let Some((id, _)) = sounds
+                    .as_ref()
+                    .and_then(|sounds| sounds.named(&crate::talk::sound_name(&sound)))
+                else {
+                    continue;
+                };
+                let takers: Vec<Entity> = if moved.name == HERO {
+                    bodies.iter().map(|(entity, _)| entity).collect()
+                } else {
+                    creatures
+                        .iter()
+                        .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                        .map(|(entity, ..)| entity)
+                        .collect()
+                };
+                if takers.is_empty() {
+                    lines.write(crate::scripts::ScriptLine(sound));
+                    continue;
+                }
+                for entity in takers {
+                    match queues.get_mut(entity) {
+                        Ok(mut queue) => queue.0.push_back(Queued::Sound(id)),
+                        Err(_) => queued.entry(entity).or_default().push(Queued::Sound(id)),
+                    }
+                }
+                bevy::log::info!("npcs: the scripts play {sound} at {}'s turn", moved.name);
+                continue;
+            }
+            // Made at the turn of the first creature of the name; where none bears it, it was
+            // made at once.
+            Act::Make(record) => {
+                if let Some((entity, ..)) = creatures
+                    .iter()
+                    .find(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                {
+                    let step = Queued::Make(record);
+                    match queues.get_mut(entity) {
+                        Ok(mut queue) => queue.0.push_back(step),
+                        Err(_) => queued.entry(entity).or_default().push(step),
+                    }
+                    bevy::log::info!("npcs: the scripts make an object at {}'s turn", moved.name);
+                }
                 continue;
             }
             act @ (Act::Other(_) | Act::Call(_) | Act::Wait(..)) => {
@@ -9301,6 +9473,91 @@ mod tests {
             seconds.map(|wait| wait.act),
             Some(Act::Wait(None, Until::Time(15.0)))
         );
+    }
+
+    #[test]
+    fn a_creatures_sound_and_object_wait_its_turn_under_the_anim_mode() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        // `grab_uw`'s thunder at its creature waits its turn under the mode alone; one of an
+        // empty name or of none plays at once (`scripts`).
+        let thunder = [name("SOUND_FX_THUNDER01"), name("res:18800")];
+        let sound = played(PLAY_SOUND, &thunder, true, 0.0).unwrap();
+        assert_eq!(
+            (sound.name.as_str(), sound.act),
+            ("res:18800", Act::Sound("sound_fx_thunder01".into()))
+        );
+        assert!(played(PLAY_SOUND, &thunder, false, 0.0).is_none());
+        assert!(played(PLAY_SOUND, &[name("line"), name("")], true, 0.0).is_none());
+        assert!(played(PLAY_SOUND, &[name("line")], true, 0.0).is_none());
+        // Quest 72's objects of the smithy name their smith second; under the mode those of a
+        // creature in the world wait its turns, the others are made at once.
+        let object = |creature: &str| Record {
+            kind: CREATE_OBJ,
+            body: Body::Operands(vec![name("Res:18301"), name(creature)]),
+        };
+        let mode = |kind| Record {
+            kind,
+            body: Body::Operands(Vec::new()),
+        };
+        assert_eq!(maker(&object("Res:18237")).as_deref(), Some("res:18237"));
+        assert_eq!(maker(&object("HERO")), None);
+        let records = [
+            object("Res:18237"),
+            mode(SET_ANIM_MODE),
+            object("Res:18237"),
+            object("res:gone"),
+            mode(SET_PLAY_MODE),
+            object("Res:18237"),
+        ];
+        assert_eq!(
+            deferred_objects(&records, |name| name == "res:18237"),
+            HashSet::from([2])
+        );
+    }
+
+    #[test]
+    fn a_queued_object_is_made_and_a_queued_sound_plays_each_at_its_turn() {
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(Heights::house())
+            .init_resource::<crate::scripts::WorldRecords>()
+            .add_message::<sfx::Play>()
+            .add_systems(Update, take_steps);
+        let object = Record {
+            kind: CREATE_OBJ,
+            body: Body::Operands(vec![Operand {
+                tag: 0x01,
+                value: Value::Str("Res:18301".into()),
+            }]),
+        };
+        let steps = [Queued::Make(Box::new(object.clone())), Queued::Sound(7)];
+        let smith = app
+            .world_mut()
+            .spawn((Transform::default(), ScriptQueue(steps.into())))
+            .id();
+        let sounds = |app: &App| {
+            app.world()
+                .resource::<bevy::ecs::message::Messages<sfx::Play>>()
+                .iter_current_update_messages()
+                .filter(|play| matches!(play.sound, sfx::Of::Id(7)) && play.at.is_none())
+                .count()
+        };
+        // One step a tick: the object handed to the world's records, made as they are.
+        app.update();
+        assert_eq!(
+            app.world().resource::<crate::scripts::WorldRecords>().0,
+            [object]
+        );
+        assert_eq!(sounds(&app), 0);
+        // Then the sound, in the middle, and the queue goes.
+        app.update();
+        assert_eq!(sounds(&app), 1);
+        app.update();
+        assert!(app.world().get::<ScriptQueue>(smith).is_none());
     }
 
     #[test]
