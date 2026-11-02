@@ -257,6 +257,14 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(64, &wearing(64, 3), Difficulty::Bronze)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
+    // Set 41's terror at 4: ⌊20·D⌋ per cent, none at 3.
+    assert_eq!(stats(&wearing(41, 4), Difficulty::Bronze).terror(), 20);
+    assert_eq!(stats(&wearing(41, 4), Difficulty::Niobium).terror(), 46);
+    assert_eq!(stats(&wearing(41, 3), Difficulty::Niobium).terror(), 0);
+    assert!(matches!(
+        told(41, &wearing(41, 4), Difficulty::Bronze)[..],
+        [.., Told::Terror(per_cent)] if close(per_cent, 2000.0 / 101.0)
+    ));
     // The magic defence: set 41 at 5 adds 15·D, set 44 at 3 10·D, each that holds.
     assert!(close(
         stats(&wearing(41, 5), Difficulty::Gold).magic_defence(2.0),

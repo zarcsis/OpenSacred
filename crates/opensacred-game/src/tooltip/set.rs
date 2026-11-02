@@ -132,6 +132,9 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         )),
         // The original's own line of set 26 at 7 (`0x571710`), the Dark Elf's stealth.
         Told::Unseen => white(n(783)),
+        // Set 41's line at 4 (`0x571710`'s `{T1150}: %d%%`), the share of the animals' flights
+        // in which they stand, of the roll's 101 faces.
+        Told::Terror(per_cent) => white(format!("{}: {}", n(1150), share(per_cent / 100.0))),
         // The open wounds' chance of a strike, as the items' effect 857 is worded.
         Told::OpenWounds(chance) => white(format!("{}: {}", n(1151), share(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
@@ -355,6 +358,7 @@ mod tests {
         assert_eq!(told(Told::Exorcist(0.501)), ["<UI_RARE_EXORZIST>: +0.5"]);
         assert_eq!(told(Told::Stun(0.0835)), ["<UI_RARE_SCHOCK>: +0.08"]);
         assert_eq!(told(Told::Unseen), ["<783>"]);
+        assert_eq!(told(Told::Terror(2000.0 / 101.0)), ["<1150>: +19.8%"]);
         assert_eq!(
             told(Told::Potions(10.0)),
             ["Chance of a potion in a slain foe's drop: 10%"]

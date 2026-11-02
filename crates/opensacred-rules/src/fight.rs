@@ -3689,6 +3689,11 @@ pub const STUN: u32 = 862;
 pub const STUN_FACES: u32 = 100;
 /// The faces of the critical hit's roll, `rand() % 101` ([`critical`]).
 pub const CRITICAL_FACES: u32 = 101;
+/// A float's whole part, truncated toward 0 as `__ftol` takes it, at least 0.
+pub(crate) fn whole_part(x: f32) -> u32 {
+    whole_f64(f64::from(x).trunc().max(0.0))
+}
+
 /// The items' effect of the magic defence (`0x35A`), which its bearer's own items give.
 pub const MAGIC_DEFENCE: u32 = 858;
 /// The faces of the magic defence's roll, `rand() % 100` (`0x561B86`, [`warded`]).
