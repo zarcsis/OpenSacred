@@ -1032,6 +1032,7 @@ fn art_damage(
         ranged: holding.is_some_and(|holding| holding.0.ranged),
         day: true,
         rules,
+        halved: false,
     };
     crate::tooltip::art::window_damage(selected?, &hero, &arts.tables, combat.damage)
 }
