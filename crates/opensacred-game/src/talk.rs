@@ -1054,6 +1054,43 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
     Ok(format!("the hero goes to speak to {creature} ({dialogue})"))
 }
 
+/// The new game's first windows that the command `new-game` closes, as the original's driver
+/// does (#1343): the start's `Pre_Tutorial`, which every hero's start script's `Popup` gives, by
+/// its OK (`Tutorial_Trigger`), then the tutorial's first tip by its No more Tips
+/// (`TT_KEINEMEHR`), after which no tip comes.
+#[derive(Resource, Default)]
+pub struct CloseFirst;
+
+/// The functions of the first window's OK and of a tip's No more Tips.
+const FIRST_OK: &str = "Tutorial_Trigger";
+const NO_MORE_TIPS: &str = "TT_KEINEMEHR";
+
+/// Closes the first windows of a new game of the command `new-game` ([`CloseFirst`]): the window
+/// whose button runs [`FIRST_OK`] by it, then the first whose button runs [`NO_MORE_TIPS`] by
+/// it, which ends the closing.
+fn close_first(world: &mut World) {
+    if !world.contains_resource::<CloseFirst>() {
+        return;
+    }
+    let Some(shown) = world.get_resource::<Shown>() else {
+        return;
+    };
+    let position = |name: &str| shown.functions.iter().position(|function| function == name);
+    let (first, tips) = (position(FIRST_OK), position(NO_MORE_TIPS));
+    match (first, tips) {
+        (Some(ok), _) => {
+            info!("talk: the first window closed by its OK");
+            choose(world, ok);
+        }
+        (None, Some(no_more)) => {
+            info!("talk: the tutorial's tips closed by No more Tips");
+            world.remove_resource::<CloseFirst>();
+            choose(world, no_more);
+        }
+        (None, None) => {}
+    }
+}
+
 /// Chooses the shown window's button `button` (from 1), as a click on it does, or tells its
 /// lines without one (the command `answer`).
 pub fn answer(world: &mut World, button: Option<usize>) -> Result<String, String> {
@@ -1114,7 +1151,10 @@ impl Plugin for TalkPlugin {
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
             )
-            .add_systems(Update, (dismiss, notices, fade, popups).in_set(Playing));
+            .add_systems(
+                Update,
+                (dismiss, notices, fade, popups, close_first.after(popups)).in_set(Playing),
+            );
     }
 }
 

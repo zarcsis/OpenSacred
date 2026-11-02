@@ -943,6 +943,12 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
     let side = opensacred_data::world::SIDE as f32;
     match command {
         Command::NewGame(game) => {
+            // The first windows closed as the original's driver closes them, unless left open.
+            if game.leave_open {
+                world.remove_resource::<crate::talk::CloseFirst>();
+            } else {
+                world.insert_resource(crate::talk::CloseFirst);
+            }
             let game = world
                 .get_resource::<Shows>()
                 .copied()

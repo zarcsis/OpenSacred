@@ -89,6 +89,11 @@ pub struct Started {
     done: Vec<String>,
     rng: Rng,
     creatures: HashSet<u32>,
+    /// The talks that the start script's `Popup`s begin and the texts its `InfoPlayer`s show,
+    /// which the play takes on as it begins: the new game's first window (`Dialog:Pre_Tutorial`
+    /// of every hero's start, #1343).
+    begins: Vec<Begins>,
+    infos: Vec<(i32, String)>,
 }
 
 /// The scripts' drops as the scripts last left them, which a death's drops take (`drops`).
@@ -286,7 +291,13 @@ pub fn run(
         ..quests::Scripts::default()
     };
     let mut rng = seed.dice(SEED);
-    let start = records(&runtime, (tree, &creatures), START, 0, &mut state, &mut rng);
+    let (start, begins, infos) = {
+        let mut recorder = Recorder::new((tree, &creatures), runtime.index(), &mut state, &mut rng);
+        if let Err(e) = runtime.call_entry(START, 0, &mut recorder) {
+            bevy::log::warn!("scripts: {e}");
+        }
+        (recorder.records, recorder.popups, recorder.infos)
+    };
     let mut functions = Vec::new();
     let mut regions = 0;
     for (sector, enter, name) in sectors {
@@ -345,6 +356,8 @@ pub fn run(
             done: runtime.done(),
             rng,
             creatures,
+            begins,
+            infos,
         },
     })
 }
@@ -1940,9 +1953,21 @@ fn int(n: f64) -> Option<i32> {
 
 /// Takes on the scripts' state that the load left, on the main thread, as the play starts.
 fn begin(world: &mut World) {
-    let Some(started) = world.remove_resource::<Started>() else {
+    let Some(mut started) = world.remove_resource::<Started>() else {
         return;
     };
+    // The start script's talks and texts, as its run left them: every hero's start ends on the
+    // `Popup` of `Pre_Tutorial`, the new game's first window (#1343).
+    let (begins, infos) = (
+        std::mem::take(&mut started.begins),
+        std::mem::take(&mut started.infos),
+    );
+    if let Some(mut popups) = world.get_resource_mut::<Popups>() {
+        popups.0.extend(begins);
+    }
+    if let Some(mut shown) = world.get_resource_mut::<Infos>() {
+        shown.0.extend(infos);
+    }
     world.insert_resource(HeroHome::default());
     world.insert_resource(ScriptDrops(started.state.drops.clone()));
     world.insert_resource(ScriptReplacements(started.state.replacements.clone()));
@@ -3730,6 +3755,8 @@ mod tests {
             done: runtime.done(),
             rng,
             creatures: HashSet::new(),
+            begins: Vec::new(),
+            infos: Vec::new(),
         };
         let mut live = Live::new(runtime, started);
         // The cave's entrance puts the hero at its target, on the ground.
@@ -3771,6 +3798,8 @@ mod tests {
             done: runtime.done(),
             rng,
             creatures: HashSet::new(),
+            begins: Vec::new(),
+            infos: Vec::new(),
         };
         Live::new(runtime, started)
     }
