@@ -1101,7 +1101,12 @@ fn pursue(
                     .remove::<Walk>()
                     .insert(Rearms::to_melee(weapon));
             }
-            Pursues::Casts { spell, .. } if !crate::creature_casts::follows(spell) => {
+            // The terror sprinter mage's aura while its key holds it, refused (`0x51D840`).
+            Pursues::Casts { spell, .. }
+                if !crate::creature_casts::follows(spell)
+                    || (spell == opensacred_rules::casts::SPRINTERS_AURA
+                        && effects.is_some_and(|effects| effects.holds_any(&[spell]))) =>
+            {
                 // A spell the game does not follow yet: it stands facing its target.
                 debug!("ai: {entity} would cast {spell}, which the game does not follow");
                 transform.rotation = crate::hero::facing(hero - here);

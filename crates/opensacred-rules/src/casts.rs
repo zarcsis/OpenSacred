@@ -295,6 +295,42 @@ pub fn mage_has_no_deadline(creature: u32) -> bool {
     matches!(creature, 144 | 182 | 183)
 }
 
+/// The raising (43) of the black magicians 263 and 264, Anducar's demon's rings of flames (69)
+/// and the terror sprinter mage's aura (72), the creatures' own (docs/re/arts.md, "The creatures'
+/// own spells").
+pub const RAISING: u16 = 43;
+pub const RINGS: u16 = 69;
+pub const SPRINTERS_AURA: u16 = 72;
+
+/// The flags word's bit of a creature that a raising stood up again (`+0x1F4` bit `0x100000`):
+/// its next death gives no experience, and it may rise again.
+pub const RAISED: u32 = 0x10_0000;
+
+/// Whether a dead creature may be raised (`0x523220`): hostile to the hero, not of the black
+/// magicians 263 and 264, not of the mark 8, not of `Creature.pak`'s class 10 (the dragons); a
+/// priest (312) raises none.
+pub fn raisable(caster: u32, (creature, class): (u32, u8), hostile: bool) -> bool {
+    caster != 312 && hostile && !matches!(creature, 263 | 264) && !mark_8(creature) && class != 10
+}
+
+/// Anducar's demon's rings of flames (`0x528B72`): their radii and counts about the target's
+/// place, one at the centre, 8 at 160 and 12 at 320.
+pub const RINGS_OF_FLAMES: [(f32, u16); 3] = [(0.0, 1), (160.0, 8), (320.0, 12)];
+/// How fast the flames' wave goes out from the target's place, how long a flame rises, burns and
+/// fades, and the reach of its strikes, once a second (`0x7C04B0`, `0x5B1947`).
+pub const FLAMES_WAVE: f32 = 350.0;
+pub const FLAMES_LIFE: f32 = 1.75;
+pub const FLAMES_SIZE: f32 = 90.0;
+
+/// The terror sprinter mage's aura (`0x7C1390`): its life, its reach, the sprinters it gives its
+/// copy (211, 349), the effect it gives the mage for its life (35, keyed by 72) and the copy's
+/// physical damage's effect (3 of 4.0).
+pub const SPRINTERS_AURA_LIFE: f32 = 8.0;
+pub const SPRINTERS_AURA_REACH: f32 = 270.0;
+pub fn sprinter(creature: u32) -> bool {
+    matches!(creature, 211 | 349)
+}
+
 /// The heal and the shields a magician casts on a friend (`0x4D31C0`): `HEILKRAFT` (7), the fire
 /// skin (24) and the stone skin (2).
 pub const HEAL: u16 = 7;
@@ -503,6 +539,15 @@ mod tests {
             mage_spell(697, 0, (false, 0), &mut Script::new(vec![20])),
             None
         );
+    }
+
+    #[test]
+    fn a_raising_stands_up_a_hostile_monster_of_no_magician_nor_dragon() {
+        assert!(raisable(263, (36, 5), true));
+        assert!(!raisable(263, (36, 5), false));
+        assert!(!raisable(263, (264, 2), true) && !raisable(263, (266, 2), true));
+        assert!(!raisable(263, (52, 10), true) && !raisable(312, (36, 5), true));
+        assert!(sprinter(211) && sprinter(349) && !sprinter(212));
     }
 
     #[test]

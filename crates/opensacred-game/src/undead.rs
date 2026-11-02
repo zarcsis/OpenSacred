@@ -156,7 +156,7 @@ fn rise(
 /// Makes a creature of the type `kind` and the level `level`, hostile as `hostile`, on the cell
 /// of `old` on the level `on`, with `old`'s names, dialogue, trades and death's functions, and
 /// takes `old` away: the creatures made, none where `old` is gone.
-fn remake(
+pub(crate) fn remake(
     world: &mut World,
     old: Entity,
     (kind, level, hostile): (u32, u32, bool),

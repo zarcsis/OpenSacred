@@ -12,7 +12,8 @@
 //! demon's own strike (`fight::resolve`); the mark 8's magicians' spells: theirs of the hero's
 //! and the mark 1's, the plant cage, which holds the hero, the fire bolt and the goblin mages' ball
 //! ([`Ball`]), the purgatory, the bubble and the thorns, and their heals and shields of their
-//! friends.
+//! friends; the black magicians' raising of a dead monster, Anducar's demon's rings of flames
+//! ([`Flame`]) and the terror sprinter mage's aura ([`SprintersAura`]).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -27,7 +28,10 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 17] = [
+const FOLLOWED: [u16; 20] = [
+    casts::RAISING,
+    casts::RINGS,
+    casts::SPRINTERS_AURA,
     casts::HEAL,
     casts::FIRE_SKIN,
     casts::STONE_SKIN,
@@ -323,6 +327,90 @@ fn act(
                     wait: 0.0,
                 });
             }
+            casts::RAISING => {
+                // The first dead monster of its sector that it may raise stands up whole
+                // (`0x523220`).
+                let caster = mind.creature;
+                commands.queue(move |world: &mut World| raise(world, entity, caster, here));
+            }
+            casts::RINGS => {
+                // Its flames about its target's place on the cells that may be walked on, each
+                // bursting as the wave from that place comes to it (`0x528B72`).
+                let Ok(place) = target else {
+                    continue;
+                };
+                for (radius, count) in casts::RINGS_OF_FLAMES {
+                    for k in 0..count {
+                        let angle = std::f32::consts::TAU * f32::from(k) / f32::from(count);
+                        let at = place + Vec3::new(angle.cos(), 0.0, angle.sin()) * radius;
+                        if !heights.walkable_on(crate::paths::cell_of(at.x, at.z), way.level) {
+                            continue;
+                        }
+                        let mut flame = commands.spawn((
+                            Flame {
+                                caster: entity,
+                                wait: radius / casts::FLAMES_WAVE,
+                                left: casts::FLAMES_LIFE,
+                                cooldown: 0.0,
+                                damages,
+                                level: way.level,
+                            },
+                            Transform::from_translation(at + Vec3::Y * crate::bolts::HEIGHT),
+                            Visibility::Hidden,
+                            DespawnOnExit(AppState::InGame),
+                        ));
+                        if let Some((mesh, material)) = bolt_looks
+                            .as_ref()
+                            .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
+                        {
+                            flame.insert((Mesh3d(mesh), MeshMaterial3d(material)));
+                        }
+                    }
+                }
+            }
+            casts::SPRINTERS_AURA => {
+                // The mage's own key for the aura's life, and the aura that spreads to the
+                // sprinters about it (`0x7C1390`).
+                let effect = opensacred_rules::fight::Effect {
+                    id: SPRINTERS_AURA_KEY,
+                    whole: 0,
+                    value: 0.0,
+                    art: u32::from(cast.spell),
+                    level: 0,
+                };
+                commands
+                    .entity(entity)
+                    .entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(move |mut effects| {
+                        effects.add(effect, casts::SPRINTERS_AURA_LIFE);
+                    });
+                let mut given = spells::effects(record, level);
+                let seconds = given.first().map_or(
+                    f32::from(u16::try_from(spells::value(record, 0, level)).unwrap_or(0)),
+                    |&(_, seconds)| seconds,
+                );
+                given.push((
+                    opensacred_rules::fight::Effect {
+                        id: SPRINTERS_DAMAGE,
+                        whole: 0,
+                        value: SPRINTERS_DAMAGE_VALUE,
+                        art: u32::from(cast.spell),
+                        level: 0,
+                    },
+                    seconds,
+                ));
+                commands.spawn((
+                    SprintersAura {
+                        mage: entity,
+                        left: casts::SPRINTERS_AURA_LIFE,
+                        cooldown: 0.0,
+                        given,
+                    },
+                    Transform::from_translation(here),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
             FIRE_BOLT => {
                 launches.write(crate::bolts::Launch {
                     shooter: entity,
@@ -441,6 +529,208 @@ fn act(
                 );
             }
             _ => {}
+        }
+    }
+}
+
+/// Raises the first dead creature of the caster's sector that it may raise (`0x523220`; #1856):
+/// the nearest of them (**hypothesis**: the sector's list's order is not followed) stands up on
+/// its cell of its type and level, whole, hostile as it was, its flags' [`casts::RAISED`], with a
+/// ring about it (`FX_REANIMATE`, 924's stand-in, the undead's rising ring).
+fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
+    let sector = crate::music::sector_of(here.x, here.z);
+    let mut corpses = world.query::<(Entity, &crate::npcs::Corpse, &Transform)>();
+    let found = corpses
+        .iter(world)
+        .filter(|(_, corpse, at)| {
+            crate::music::sector_of(at.translation.x, at.translation.z) == sector
+                && casts::raisable(kind, (corpse.creature, corpse.class), corpse.hostile)
+        })
+        .min_by(|a, b| {
+            let d = |at: &Transform| (at.translation - here).xz().length();
+            d(a.2).total_cmp(&d(b.2))
+        })
+        .map(|(entity, corpse, _)| (entity, *corpse, corpse.hostile));
+    let Some((corpse, dead, hostile)) = found else {
+        debug!("creature_casts: {caster} finds no dead to raise");
+        return;
+    };
+    let Some(level) = world
+        .get::<crate::fight::Health>(corpse)
+        .map(|health| health.level)
+    else {
+        return;
+    };
+    for raised in crate::undead::remake(world, corpse, (dead.creature, level, hostile), dead.level)
+    {
+        let Ok(mut risen) = world.get_entity_mut(raised) else {
+            continue;
+        };
+        if let Some(mut mind) = risen.get_mut::<Mind>() {
+            mind.flags |= casts::RAISED;
+        }
+        info!(
+            "creature_casts: {caster} raises {corpse}, a {}, as {raised}",
+            dead.creature
+        );
+        if let Some(at) = risen.get::<Transform>().map(|at| at.translation) {
+            crate::puffs::spawn_in(
+                world,
+                opensacred_rules::particles::rise_ring(),
+                at,
+                Some(raised),
+            );
+        }
+    }
+}
+
+/// A flame of Anducar's demon's rings (`FX_ANDUCAR_DEMON`, 1163, of the spell 69): it waits for
+/// the wave from the target's place, then for its life strikes once a second the hero within its
+/// size and the hero's, on its level, where the hero walks or fights (`0x5B1947`).
+#[derive(Component, Debug)]
+pub struct Flame {
+    caster: Entity,
+    wait: f32,
+    left: f32,
+    cooldown: f32,
+    damages: [f32; 4],
+    level: Level,
+}
+
+/// Burns each flame of the rings ([`Flame`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn burn(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut flames: Query<(Entity, &mut Flame, &Transform, &mut Visibility)>,
+    heroes: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &Body,
+            &crate::fight::Health,
+            Has<crate::attack::Attack>,
+            Has<crate::attack::Striking>,
+        ),
+        Without<Dies>,
+    >,
+    mut hits: MessageWriter<crate::fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut flame, at, mut visibility) in &mut flames {
+        if flame.wait > 0.0 {
+            flame.wait -= dt;
+            continue;
+        }
+        *visibility = Visibility::Inherited;
+        flame.left -= dt;
+        if flame.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        flame.cooldown = (flame.cooldown - dt).max(0.0);
+        if flame.cooldown > 0.0 {
+            continue;
+        }
+        for (hero, place, body, health, attacks, strikes) in &heroes {
+            let moves = body.moving().is_some() || attacks || strikes;
+            if moves
+                && body.level() == flame.level
+                && health.current > 0
+                && (place.translation().xz() - at.translation.xz()).length()
+                    < casts::FLAMES_SIZE + opensacred_rules::arrows::size(0)
+            {
+                debug!("creature_casts: a flame of {} strikes {hero}", flame.caster);
+                hits.write(crate::fight::Hit {
+                    attacker: flame.caster,
+                    target: hero,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(flame.damages),
+                    sure: true,
+                    poison: false,
+                });
+                flame.cooldown = 1.0;
+            }
+        }
+    }
+}
+
+/// The terror sprinter mage's aura (`FX_TERRORSPRINTER`, 1167, of the spell 72): it follows the
+/// mage for its life, and once a second gives each terror sprinter within its reach that holds
+/// no effect keyed by 72 the aura's copy: the record's effects and the physical damage's effect,
+/// keyed by 72, for the record's value 0 in seconds (`0x5B1C20`).
+#[derive(Component, Debug)]
+pub struct SprintersAura {
+    mage: Entity,
+    left: f32,
+    cooldown: f32,
+    given: Vec<(opensacred_rules::fight::Effect, f32)>,
+}
+
+/// The effect the aura gives the mage, its key for the aura's life, and the physical damage's
+/// effect of its copy.
+const SPRINTERS_AURA_KEY: u32 = 35;
+const SPRINTERS_DAMAGE: u32 = 3;
+const SPRINTERS_DAMAGE_VALUE: f32 = 4.0;
+
+/// Spreads each sprinters' aura ([`SprintersAura`]).
+fn spread(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut auras: Query<(Entity, &mut SprintersAura, &mut Transform)>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &Mind,
+            Option<&crate::effects::Effects>,
+        ),
+        Without<Dies>,
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut aura, mut transform) in &mut auras {
+        aura.left -= dt;
+        let Ok((_, mage, ..)) = creatures.get(aura.mage) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        if aura.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        transform.translation = mage.translation();
+        aura.cooldown = (aura.cooldown - dt).max(0.0);
+        if aura.cooldown > 0.0 {
+            continue;
+        }
+        let here = transform.translation.xz();
+        for (sprinter, at, mind, effects) in &creatures {
+            if casts::sprinter(mind.creature)
+                && (at.translation().xz() - here).length() < casts::SPRINTERS_AURA_REACH
+                && !effects.is_some_and(|effects| effects.holds_any(&[casts::SPRINTERS_AURA]))
+            {
+                debug!(
+                    "creature_casts: the aura of {} reaches {sprinter}",
+                    aura.mage
+                );
+                let given = aura.given.clone();
+                commands
+                    .entity(sprinter)
+                    .entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(move |mut effects| {
+                        for (effect, seconds) in given {
+                            effects.add(effect, seconds);
+                        }
+                    });
+                aura.cooldown = 1.0;
+            }
         }
     }
 }
@@ -620,7 +910,7 @@ impl Plugin for CreatureCastsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((begin, act, end).chain(), home, throw).in_set(Playing),
+            ((begin, act, end).chain(), home, throw, burn, spread).in_set(Playing),
         );
     }
 }

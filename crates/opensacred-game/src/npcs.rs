@@ -8198,14 +8198,16 @@ impl Dies {
     }
 }
 
-/// What a dead NPC was, which the Vampiress's awakening (1034) raises: its type, its
-/// `Creature.pak` class, whether it had a dialogue, and the level it lies on.
+/// What a dead NPC was, which the Vampiress's awakening (1034) and a black magician's raising
+/// (#1856) raise: its type, its `Creature.pak` class, whether it had a dialogue, the level it lies
+/// on and whether it was hostile to the hero.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Corpse {
     pub creature: u32,
     pub class: u8,
     pub dialogue: bool,
     pub level: Level,
+    pub hostile: bool,
 }
 
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
@@ -8237,6 +8239,7 @@ pub(crate) fn die(
                 class: mind.class,
                 dialogue: mind.dialogue,
                 level: way.level,
+                hostile: mind.hostile(),
             });
         }
         commands
