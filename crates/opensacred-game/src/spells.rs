@@ -904,7 +904,7 @@ struct Teleporting {
 
 /// The dice of the spells' choices at random.
 #[derive(Resource)]
-pub(crate) struct Dice(crate::spawning::Rng);
+pub(crate) struct Dice(pub(crate) crate::spawning::Rng);
 
 /// A sight that goes after its time.
 #[derive(Component, Debug, Clone, Copy)]

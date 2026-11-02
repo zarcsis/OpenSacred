@@ -128,6 +128,24 @@ impl Course {
         }
     }
 
+    /// The course of the fire bolt of Anducar, his demon and Sharifo (the spell 52's
+    /// `FX_SHADDAR_MAGIC`, 922; docs/re/arts.md, "The creatures' own spells"): straight on at 150 a
+    /// second for 2 s, every creature of its first contact, once, its size 0 so 50; the
+    /// fireball's look.
+    pub fn fire_bolt() -> Self {
+        Self {
+            speed: 150.0,
+            slows: 0.0,
+            life: 2.0,
+            strikes: Strikes::All,
+            look: 3,
+            reach: arrows::size(0),
+            beat: 1.0,
+            bursts: None,
+            knocks: None,
+        }
+    }
+
     /// The course of a bolt of the Daemon's 1103 (`cParticleSystem_emperor`).
     pub fn emperor() -> Self {
         let (speed, slows, life) = EMPEROR_COURSE;
