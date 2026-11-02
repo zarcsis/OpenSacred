@@ -397,9 +397,12 @@ const INSTRUMENTS: [(u32, u16); 4] = [(5108, 183), (5109, 180), (5110, 182), (51
 const FUN: u16 = 180;
 
 /// `FX_OPAQUE.TGA`, the texture record 203: 16 × 16 texels of nothing, which the items that the
-/// original draws by their effects name (the Seraphim's 3809, its glow): such an item is drawn
-/// in its model's own material, its effect left out (#754).
+/// original draws by their effects name (the Seraphim's 3809, its glow): such an item takes it
+/// where its effect is drawn (#1834), its effect showing whole, else its model's own material.
 const FX_OPAQUE: u32 = 203;
+/// `FX_MULTITEXGLOW01.TGA`, the texture record 200, the glow of the models of an effect of the
+/// kind 1 (#1834).
+const MULTITEX_GLOW: u32 = 200;
 
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
 const WEAPON: u8 = 5;
@@ -860,6 +863,9 @@ pub struct Npcs {
     /// #1309), by the model's file: the effect's kind and its texture's file
     /// ([`Item::model_effect`]).
     effects: HashMap<String, (u8, String)>,
+    /// The glow's texture under the models of an effect of the kind 1, `FX_MULTITEXGLOW01`
+    /// (`cGranny`'s `+0x98`, `0x401030`).
+    glow: Option<String>,
     slots: HashMap<String, motions::Slots>,
     /// The instruments' models and textures, of [`INSTRUMENTS`].
     instruments: Vec<Option<(String, Option<String>)>>,
@@ -3423,6 +3429,7 @@ impl Npcs {
                 .chain(weapons.iter().map(|w| &w.id)),
         );
         let effects = model_effects(&items, (&models, &textures));
+        let glow = textures.get(&MULTITEX_GLOW).cloned();
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
         for (index, placement) in placements.iter().enumerate() {
@@ -3505,6 +3512,7 @@ impl Npcs {
             pools,
             gear,
             effects,
+            glow,
             slots: model_slots,
             hits: hit_fractions(tables),
             instruments: INSTRUMENTS
@@ -3807,8 +3815,10 @@ fn gear_table<'a>(
                 kind: kinds.get(&slot).copied(),
                 parent: parents.get(&slot).copied().unwrap_or(0),
                 model: models.get(&item.name.to_ascii_uppercase()).cloned(),
+                // `FX_OPAQUE` the texture of a type drawn by its effect (#1834), else left out.
                 texture: match item.words_08[0] {
-                    0 | FX_OPAQUE => None,
+                    0 => None,
+                    FX_OPAQUE if item.model_effect().is_none() => None,
                     number => textures.get(&number).cloned(),
                 },
                 counts: item.byte_03 & 2 == 0,
@@ -5352,10 +5362,13 @@ fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> 
 /// Gives the meshes of a placed model that has just spawned its item's texture, each glTF
 /// material copied once per texture with that texture as its base colour; a worn or held item's
 /// model of an effect of the kind 9 its first primitive drawn by its effect instead, which the
-/// type's texture never reaches (`0x406510`, `model_effects`; #1309).
+/// type's texture never reaches (`0x406510`, `model_effects`; #1309); and the meshes of a model
+/// of an effect of the kind 1, a creature's, an object's or an item's, its effect and its glow
+/// under them (`models::Effect`, #1834).
 pub fn retexture(
     ready: On<WorldInstanceReady>,
-    models: Query<(Option<&Retexture>, Option<&Piece>)>,
+    mut commands: Commands,
+    models: Query<(Option<&Retexture>, Option<&Piece>, Option<&Npc>)>,
     children: Query<&Children>,
     mut meshes: Query<(
         &bevy::prelude::Mesh3d,
@@ -5368,20 +5381,35 @@ pub fn retexture(
         ResMut<crate::model_effects::Materials>,
     ),
 ) {
-    let Ok((retexture, piece)) = models.get(ready.entity) else {
+    let Ok((retexture, piece, npc)) = models.get(ready.entity) else {
         return;
     };
-    let effect = piece
+    let model = piece
+        .map(|piece| piece.model.as_str())
+        .or(npc.map(|npc| npc.model.as_str()));
+    let effects_of = model
         .zip(npcs.as_deref())
-        .and_then(|(piece, npcs)| npcs.effects.get(&piece.model))
+        .and_then(|(model, npcs)| npcs.effects.get(model).map(|effect| (effect, npcs)));
+    let effect = effects_of
+        .map(|(effect, _)| effect)
         .filter(|(kind, _)| *kind == crate::model_effects::RUNNING_BANDS);
-    if retexture.is_none() && effect.is_none() {
+    // The kind 1's effect and glow under every mesh.
+    let under = effects_of
+        .filter(|((kind, _), _)| *kind == crate::model_effects::MULTITEX)
+        .and_then(|((_, texture), npcs)| {
+            let glow = npcs.glow.as_deref()?;
+            Some(effects.multitex(texture, glow, &assets))
+        });
+    if retexture.is_none() && effect.is_none() && under.is_none() {
         return;
     }
     for entity in children.iter_descendants(ready.entity) {
         let Ok((mesh, mut material)) = meshes.get_mut(entity) else {
             continue;
         };
+        if let Some(under) = &under {
+            commands.entity(entity).insert(under.clone());
+        }
         if let Some((_, texture)) = effect
             && crate::model_effects::first_primitive(&assets, mesh)
         {
