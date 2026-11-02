@@ -262,11 +262,23 @@ impl Default for Kill {
     }
 }
 
+/// The one case in so many in which a call of no type makes a potion where the local hero wears
+/// five pieces of set 22 ([`set_potion`]).
+pub const SET_POTION_ONE_IN: u8 = 10;
+
+/// The per cent of the calls of no type that make a potion where the local hero wears five pieces
+/// of set 22 ([`set_potion`]), which the list of the sets tells.
+pub fn set_potion_chance() -> f32 {
+    100.0 / f32::from(SET_POTION_ONE_IN)
+}
+
 /// The potion that a call of no type makes where the local hero wears five pieces of set 22: in
-/// one case of ten (`rand() % 10 + 1` at 10), one of 5137, 5138, 5144 and 5146 by a second
-/// `rand() % 10` of 0 to 3, else 5140 (`0x559CA9`, docs/re/items.md, "One call of the drop").
+/// one case of ten (`rand() % 10 + 1` at 10, [`SET_POTION_ONE_IN`]), one of 5137, 5138, 5144 and
+/// 5146 by a second `rand() % 10` of 0 to 3, else 5140 (`0x559CA9`, docs/re/items.md, "One call
+/// of the drop").
 fn set_potion(dice: &mut impl Dice) -> Option<u32> {
-    if dice.below(10) + 1 != 10 {
+    let one_in = u32::from(SET_POTION_ONE_IN);
+    if dice.below(one_in) + 1 != one_in {
         return None;
     }
     Some(match dice.below(10) {
