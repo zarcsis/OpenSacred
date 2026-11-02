@@ -44,7 +44,7 @@ use crate::terrain::Heights;
 const SEARCHES_WITHIN: f32 = 300.0;
 /// How high above its cell's ground a stash is picked, in world units (**estimate**: about the
 /// middle of a bush).
-pub(crate) const PICKED_ABOVE: f32 = 40.0;
+const PICKED_ABOVE: f32 = 40.0;
 /// How far about the hero a random item lands, along each axis (as a container's, `R(20, 50)`).
 const LANDS_FROM: u32 = 20;
 const LANDS_TO: u32 = 50;
@@ -66,8 +66,6 @@ const BLINK_GREY: [f32; 4] = [187.0 / 255.0, 187.0 / 255.0, 187.0 / 255.0, 1.0];
 /// where the game's ground would hide the half below its centre; the farthest corner below it,
 /// `10 · 2 · √2` units down the screen, lies `√3` times that in front of the ground.
 const BLINK_TOWARD: f32 = 49.0;
-/// How far toward the camera the mouse events' sparks lie, as the blink (`glitter`).
-pub(crate) const TOWARD: f32 = BLINK_TOWARD;
 
 /// A hidden stash or a mouse event in the world: its cell, the name of the text the cursor shows
 /// over it, and how it shows.
