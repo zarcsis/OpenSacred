@@ -38,7 +38,7 @@ use bevy::prelude::{
     Plugin, Query, Res, ResMut, Resource, Single, Time, Transform, Update, Vec3, With, Without,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance};
-use opensacred_rules::quests::Marker;
+use opensacred_rules::quests::{self, Marker};
 use opensacred_rules::spawning::Rng;
 
 use crate::ai::Mind;
@@ -151,10 +151,10 @@ impl Remark {
             Self::RejectsQuest if creature > 7 => return None,
             Self::RejectsQuest => format!("SOUND_FX_REJECTNQ{class}{n:02}"),
             Self::Idles => format!("SOUND_FX_CANCELMYIDLE_{n:02}_{class}"),
-            // The Gladiator's first too weak line is its first too strong one, the two cases'
-            // tails merged (`0x67C9F6`).
+            // The Gladiator's first too weak line is his own, where the original's merged tails
+            // play his first too strong one (`0x67C9F6`; docs/decisions/sound.md, "Gladiator's
+            // first too weak line his own").
             Self::Region { strong } => {
-                let strong = strong || (creature == GLADIATOR && n == 1);
                 let stem = if strong { "STRONG" } else { "WEAK" };
                 format!("SOUND_FX_REGIONTOO{stem}_{n:02}_{class}")
             }
@@ -201,8 +201,7 @@ impl Remark {
     }
 }
 
-/// The types of the Gladiator and of the Wood Elf.
-const GLADIATOR: u32 = 2;
+/// The type of the Wood Elf.
 const WOOD_ELF: u32 = 5;
 /// The cases' timers, by the event's sub-command.
 const REGION: u8 = 0x30;
@@ -366,6 +365,16 @@ fn region(before: u32, after: u32, hero: u32) -> Option<Remark> {
     (before > weak && after < weak).then_some(Remark::Region { strong: false })
 }
 
+/// The areas' table's entry that tells whether the area `area` stands pacified: its region's,
+/// the number that the scripts' `RegionFrei` pacifies, none for an area of no region; the
+/// original's pass looks the table up by the area itself, so that its remark tells another
+/// land's peace (`0x6268B5`; docs/decisions/sound.md, "Pacified land told by its region").
+fn pacified_entry(area: u8) -> Option<u8> {
+    u8::try_from(quests::region(area))
+        .ok()
+        .filter(|&region| region != 0)
+}
+
 /// Asks for the land's remarks as the hero moves (#1247): at a sector of another area, the
 /// region's by the two sectors' levels against the hero's, then the pacified area's where the new
 /// area is pacified and the one before not (`0x6263B0`, the world view's centre sector, here the
@@ -402,7 +411,10 @@ fn land(
             if let Some(remark) = region(level(before), level(sector), hero) {
                 posts.write(remark);
             }
-            let pacified = |area| scripts.as_ref().is_some_and(|live| live.pacified(area));
+            let pacified = |area| {
+                pacified_entry(area)
+                    .is_some_and(|entry| scripts.as_ref().is_some_and(|live| live.pacified(entry)))
+            };
             if pacified(is) && !pacified(was) {
                 posts.write(Remark::Pacified { forced: false });
             }
@@ -669,14 +681,22 @@ mod tests {
         // The Dwarf and the Daemon reject in silence.
         assert_eq!(Remark::RejectsQuest.name(8, 0), None);
         assert_eq!(Remark::RejectsQuest.name(9, 0), None);
-        // The Gladiator's first too weak line, and the Wood Elf's fifth of the village.
+        // An area's peace is told by its region's entry (#1739): the area 5 is the region 7's,
+        // the area 9 the region 111's, the areas 0 and 12 of none.
+        assert_eq!(pacified_entry(5), Some(7));
+        assert_eq!(pacified_entry(9), Some(111));
+        assert_eq!(pacified_entry(0), None);
+        assert_eq!(pacified_entry(12), None);
+        // The Gladiator's first too weak line his own (#1739), and the Wood Elf's fifth of the
+        // village.
+        let gladiator = 2;
         let weak = Remark::Region { strong: false };
         assert_eq!(
-            weak.name(GLADIATOR, 0).as_deref(),
-            Some("SOUND_FX_REGIONTOOSTRONG_01_GLAD")
+            weak.name(gladiator, 0).as_deref(),
+            Some("SOUND_FX_REGIONTOOWEAK_01_GLAD")
         );
         assert_eq!(
-            weak.name(GLADIATOR, 1).as_deref(),
+            weak.name(gladiator, 1).as_deref(),
             Some("SOUND_FX_REGIONTOOWEAK_02_GLAD")
         );
         let village = Remark::Settlement { entering: true };

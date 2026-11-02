@@ -3121,8 +3121,10 @@ pub struct Landed {
 /// names (`0x56B130` at `0x56DCE0` and `0x56DE47`), the first whose test holds: the physical
 /// where it came through and the strike's whole damage `total` less it stays below half of it,
 /// the fire where twice it passes the physical, the magic and the poison where they came through
-/// and three times the fire passes the physical (the fire, as the original's code reads it, in
-/// both), each where its damage as rolled stands against its resistance as `beats` asks.
+/// and three times their own share passes the physical, each where its damage as rolled stands
+/// against its resistance as `beats` asks. The original's code weighs the fire's share for the
+/// magic and the poison too, so that its comment may name a kind that hardly hurt
+/// (docs/decisions/sound.md, "Armour and weapon remarks weigh their own kind").
 fn comment_kind(landed: &Landed, total: u32, beats: [fn(f32, f32) -> bool; 2]) -> Option<u8> {
     let [physical, fire, magic, poison] = landed.through;
     let total = to_f32(total);
@@ -3134,9 +3136,9 @@ fn comment_kind(landed: &Landed, total: u32, beats: [fn(f32, f32) -> bool; 2]) -
         Some(1)
     } else if fire != 0.0 && fire * 2.0 > physical && against(1) {
         Some(2)
-    } else if magic != 0.0 && fire * 3.0 > physical && against(2) {
+    } else if magic != 0.0 && magic * 3.0 > physical && against(2) {
         Some(3)
-    } else if poison != 0.0 && fire * 3.0 > physical && against(3) {
+    } else if poison != 0.0 && poison * 3.0 > physical && against(3) {
         Some(4)
     } else {
         None
@@ -3976,11 +3978,15 @@ mod tests {
         // Mostly fire: the physical's share too small, the fire's twice above it.
         let fire = landed([10.0, 40.0, 0.0, 0.0], [5.0; 4], [6.0, 30.0, 0.0, 0.0]);
         assert_eq!(armour_comment(&fire, 30), Some(2));
-        // The magic's and the poison's tests weigh the fire, as the original's code does.
+        // The magic's and the poison's tests weigh their own shares (#1739), where the
+        // original's weighs the fire's: a strike of magic or of poison alone names its kind, and
+        // a little magic beside the fire is not named.
         let magic = landed([0.0, 0.0, 50.0, 0.0], [5.0; 4], [0.0, 0.0, 40.0, 0.0]);
-        assert_eq!(armour_comment(&magic, 30), None);
-        let both = landed([0.0, 4.0, 50.0, 0.0], [5.0; 4], [0.0, 1.0, 40.0, 0.0]);
-        assert_eq!(armour_comment(&both, 30), Some(3));
+        assert_eq!(armour_comment(&magic, 30), Some(3));
+        let poison = landed([0.0, 0.0, 0.0, 50.0], [5.0; 4], [0.0, 0.0, 0.0, 40.0]);
+        assert_eq!(armour_comment(&poison, 30), Some(4));
+        let little = landed([4.0, 20.0, 6.0, 0.0], [5.0; 4], [10.0, 4.0, 1.0, 0.0]);
+        assert_eq!(armour_comment(&little, 15), None);
         // The weapon's: a weak strike, below an eighth of the most health, rolled below the
         // resistance; the other kinds at it count too.
         let weak = landed([4.0, 0.0, 0.0, 0.0], [10.0; 4], [2.0, 0.0, 0.0, 0.0]);
