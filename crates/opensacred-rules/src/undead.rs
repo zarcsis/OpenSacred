@@ -143,6 +143,8 @@ pub fn risen_health(most: u32, roll: u32) -> u32 {
 
 /// The effect of the exorcism (`0x35F`), whose value the killer's items and sets give.
 pub const EXORCISM: u32 = 863;
+/// The faces of the exorcism's roll, `R(0, 99)` ([`exorcised`]).
+pub const EXORCISM_FACES: u32 = 100;
 
 /// Whether the killer's exorcism of the value `value` (its items' effect 863 and its sets',
 /// `set_bonuses::Stats::exorcist`) lays an undead to rest for good at its death, of the balance's

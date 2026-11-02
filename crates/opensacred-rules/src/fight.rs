@@ -1317,7 +1317,7 @@ pub fn critical(
     if value == 0.0 {
         return None;
     }
-    let roll = dice.below(101);
+    let roll = dice.below(CRITICAL_FACES);
     if f64::from(roll) >= rare_chance(value, parameters) {
         return None;
     }
@@ -3617,7 +3617,7 @@ fn taken(sum: f32, blow: Blow, rng: &mut impl Dice) -> (u32, u32, bool) {
     let mut damage = scaled(sum, blow.share).max(1.0);
     let stunned = blow
         .stun
-        .is_some_and(|(value, params)| stuns(value, params, rng.below(100)));
+        .is_some_and(|(value, params)| stuns(value, params, rng.below(STUN_FACES)));
     let mut paid = 0;
     if let Some((value, gold)) = blow.gold {
         (damage, paid) = gold_for_health(damage, (value, gold), rng);
@@ -3679,6 +3679,23 @@ pub fn gold_pile(value: f32, damage: u32, health: u32, dice: &mut impl Dice) -> 
 
 /// The items' effect of the stun (`0x35E`).
 pub const STUN: u32 = 862;
+/// The faces of the stun's roll, `rand() % 100` (`0x56D685`, [`stuns`]).
+pub const STUN_FACES: u32 = 100;
+/// The faces of the critical hit's roll, `rand() % 101` ([`critical`]).
+pub const CRITICAL_FACES: u32 = 101;
+/// The faces of the alchemy's roll, `R(0, 99)` (the effect 868's healing potion at a death,
+/// docs/re/items.md, "Drops"; the drop is not followed yet).
+pub const ALCHEMY_FACES: u32 = 100;
+
+/// The per cent of a rare effect's rolls of `faces` faces, `R(0, faces − 1)`, that fall below its
+/// chance of the value `value` and the parameters `params` ([`rare_chance`]): the share of the
+/// strikes or the deaths on which it holds, `⌈p⌉` of `faces` for a chance `p` not whole, which the
+/// hero's list of bonuses tells (#1796).
+pub fn rare_odds(value: f32, params: [f32; 3], faces: u32) -> f64 {
+    let p = rare_chance(value, params);
+    let holding = (0..faces).filter(|&roll| f64::from(roll) < p).count();
+    f64::from(u32::try_from(holding).unwrap_or(faces)) * 100.0 / f64::from(faces.max(1))
+}
 
 /// Whether a strike stuns its defender (M18, `0x56D47C`–`0x56D805`, the first rare effect of the
 /// strike, before the gold for the health's): `R(0, 99)`, `roll`, drawn for every strike by a
@@ -6388,6 +6405,13 @@ mod tests {
         assert!(stuns(10.0, params, 4) && !stuns(10.0, params, 5));
         assert!(!stuns(0.0, params, 0));
         assert!(stuns(1e6, params, 74) && !stuns(1e6, params, 75));
+        // The odds that the list tells: 5 of 100 for 4.04; 10 of 101 for 859's 9.59.
+        assert!((rare_odds(10.0, params, STUN_FACES) - 5.0).abs() < 1e-9);
+        assert!(
+            (rare_odds(10.0, [100.0, 100.0, 90.0], CRITICAL_FACES) - 1000.0 / 101.0).abs() < 1e-9
+        );
+        assert!(rare_odds(0.0, params, STUN_FACES).abs() < f64::EPSILON);
+        assert!((rare_odds(1e6, params, STUN_FACES) - 75.0).abs() < 1e-9);
         // The roll comes before the gold for the health's, drawn at a value of 0 too.
         struct Rolls(Vec<u32>);
         impl Dice for Rolls {

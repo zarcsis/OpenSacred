@@ -5,9 +5,15 @@
 //!
 //! Not followed: the opponents' names but the ranged ones' and the riders' (`0x43D0E0`), and the
 //! line of the effect 852 (`SCHRECKEN_NEU`, its share by the difficulty and `0x570ED0`).
+//!
+//! A rare effect's per cent is the share of its rolls that hold, as its code rolls them
+//! (`opensacred_rules::fight::rare_odds`, #1796), where the original's list truncates the chance
+//! of the item's whole value, which tells 4 % for a stun that holds in 5 % of the strikes; the
+//! magic defence's (858) has none, its chance being the caster's, and the stonewall's (861), whose
+//! roll is not read, keeps the original's.
 
 use opensacred_data::tables::EffectChance;
-use opensacred_rules::fight::Listed;
+use opensacred_rules::fight::{self, Listed};
 
 /// The colours: white, the kinds' (physical, fire, magic, poison), the rare effects' gold and the
 /// others' blue.
@@ -92,12 +98,20 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
     .map(|text| words.of(text));
     let kind = |from: u32| usize::try_from(e - from).unwrap_or(0).min(3);
     let named = |number: u32| format!("{}: {v:+}", words.n(number));
-    let per_cent = |number: u32| format!("{}: {v:+}%", words.n(number));
+    let per_cent_of = |number: u32| format!("{}: {v:+}%", words.n(number));
+    let params = chances
+        .iter()
+        .find(|chance| chance.effect == e)
+        .map_or(CHANCE, |chance| (chance.a, chance.b, chance.most));
+    // The share of the effect's rolls of `faces` faces that hold, to a tenth.
+    let odds = |name: String, faces: u32| {
+        let (a, b, most) = params;
+        let odds = fight::rare_odds(listed.value, [a, b, most], faces);
+        format!("{name}: {v:+} ({})", per_cent(odds))
+    };
+    // The original's share, of an effect whose roll is not read (`0x55E5E0`).
     let share = |name: String| {
-        let (a, b, most) = chances
-            .iter()
-            .find(|chance| chance.effect == e)
-            .map_or(CHANCE, |chance| (chance.a, chance.b, chance.most));
+        let (a, b, most) = params;
         let value = f64::from(stored(v));
         let share = if value <= f64::from(f32::EPSILON) {
             0.0
@@ -159,32 +173,36 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
         819 => named(1094),
         820 => named(1095),
         840 => format!("{}: {v:+} ({:+}%)", words.n(1124), v * 100),
-        841 => per_cent(1125),
-        842 => per_cent(1127),
-        843 => per_cent(1128),
+        841 => per_cent_of(1125),
+        842 => per_cent_of(1127),
+        843 => per_cent_of(1128),
         844 => named(1138),
         845 => named(1137),
-        846 => per_cent(1238),
-        847 => per_cent(1139),
-        848 => per_cent(1140),
+        846 => per_cent_of(1238),
+        847 => per_cent_of(1139),
+        848 => per_cent_of(1140),
         849 => named(1136),
-        850 => per_cent(1141),
-        851 => per_cent(1142),
+        850 => per_cent_of(1141),
+        851 => per_cent_of(1142),
         853 => named(1130),
-        855 => per_cent(1150),
-        856 => per_cent(1143),
-        857 => per_cent(1151),
-        858 => share(words.of("UI_RARE_MAGIEABWEHR")),
-        859 => share(words.n(1132)),
+        855 => per_cent_of(1150),
+        856 => per_cent_of(1143),
+        857 => per_cent_of(1151),
+        // The magic defence's chance is its caster's (M17, #1727): the value alone.
+        858 => format!("{}: {v:+}", words.of("UI_RARE_MAGIEABWEHR")),
+        859 => odds(words.n(1132), fight::CRITICAL_FACES),
         860 => format!("{}: {v:+}%", words.of("UI_RARE_SCHADEN")),
         861 => share(words.of("UI_RARE_STONEWALL")),
-        862 => share(words.of("UI_RARE_SCHOCK")),
-        863 => share(words.of("UI_RARE_EXORZIST")),
+        862 => odds(words.of("UI_RARE_SCHOCK"), fight::STUN_FACES),
+        863 => odds(
+            words.of("UI_RARE_EXORZIST"),
+            opensacred_rules::undead::EXORCISM_FACES,
+        ),
         864 => format!("{} ", words.n(1144)),
-        865 => per_cent(1133),
-        866 => per_cent(1134),
-        867 => per_cent(1135),
-        868 => share(words.of("UI_RARE_ALCHEMIE")),
+        865 => per_cent_of(1133),
+        866 => per_cent_of(1134),
+        867 => per_cent_of(1135),
+        868 => odds(words.of("UI_RARE_ALCHEMIE"), fight::ALCHEMY_FACES),
         _ => return None,
     };
     let colour = match e {
@@ -213,6 +231,16 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
     }
     line.push_str(&body);
     Some(line)
+}
+
+/// A per cent signed, to a tenth, whole where the tenth is 0.
+fn per_cent(x: f64) -> String {
+    let tenths = (x * 10.0).round() / 10.0;
+    if tenths.fract() == 0.0 {
+        format!("{tenths:+}%")
+    } else {
+        format!("{tenths:+.1}%")
+    }
 }
 
 /// A whole value as a float.
@@ -246,10 +274,10 @@ mod tests {
     #[test]
     fn each_entry_is_a_line_in_its_effects_colour_and_format() {
         let chances = [EffectChance {
-            effect: 858,
-            a: 50.0,
-            b: 50.0,
-            most: 80.0,
+            effect: 862,
+            a: 300.0,
+            b: 301.0,
+            most: 75.0,
         }];
         let list = [
             listed(0, 801 | 2 << 16, 35.0),
@@ -257,6 +285,8 @@ mod tests {
             listed(0, 813, 25.0),
             listed(0x0300, 816, 3.0),
             listed(0, 858, 50.0),
+            listed(0, 862, 10.0),
+            listed(0, 859, 10.0),
             listed(0, 1071, 1.0),
             listed(0, 854, 5.0),
         ];
@@ -269,8 +299,11 @@ mod tests {
                 "<colorl=FFFFFFA0>[1161] [RES_GEG_FERNK] [1078] [1076]: +80%",
                 "<colorl=FF449BEA>[1148]: +25",
                 "<colorl=FF6C4CE5>[3] <colorl=FF449BEA>[1092]: +3",
-                // The share (1 − 50/(50 + 50))·100 + 0.5, 50.
-                "<colorl=FFD8AB30>[UI_RARE_MAGIEABWEHR]: +50 (+50%)",
+                // The magic defence's value alone; the stun's 4.04 holds on 5 rolls of 100, the
+                // critical hit's 9.59 of the default parameters on 10 of 101.
+                "<colorl=FFD8AB30>[UI_RARE_MAGIEABWEHR]: +50",
+                "<colorl=FFD8AB30>[UI_RARE_SCHOCK]: +10 (+5%)",
+                "<colorl=FFD8AB30>[1132]: +10 (+9.9%)",
                 "<colorl=FF449BEA>[art 1071]: +1",
             ]
         );
