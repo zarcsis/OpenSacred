@@ -557,21 +557,73 @@ pub(crate) fn resource(name: &str) -> &str {
 /// own too (`0x693FE0`, `voices::NamedLine`).
 fn voice(world: &mut World, sounds: &[String]) {
     for sound in sounds {
-        let name = format!("SOUND_FX_{}", sound.to_ascii_uppercase());
-        let Some((id, file)) = world.get_resource::<Sfx>().and_then(|sfx| sfx.named(&name)) else {
-            debug!("talk: no sound {name}");
-            continue;
-        };
         let assets = world.resource::<AssetServer>().clone();
         let Some(mut sfx) = world.get_resource_mut::<Sfx>() else {
             return;
         };
-        let sample = sfx.sample(id, file, &assets);
+        let Some(sample) = line_sample(&mut sfx, sound, &assets) else {
+            continue;
+        };
         let Some(audio) = world.get_resource::<Audio>() else {
             return;
         };
         let instance = audio.play(sample).handle();
         voices::name_line(world, Some(instance));
+    }
+}
+
+/// The name of the sound that a `PlaySound` names `sound` (`0x4A9730`): `SOUND_FX_` put before a
+/// name that does not begin with `SOUND_FX` (its first eight letters, case aside), as a
+/// dialogue's voice-over names its text's key and an announcement its sound's whole name.
+pub(crate) fn sound_name(sound: &str) -> String {
+    let sound = sound.to_ascii_uppercase();
+    if sound.starts_with("SOUND_FX") {
+        sound
+    } else {
+        format!("SOUND_FX_{sound}")
+    }
+}
+
+/// The sample of the sound that a `PlaySound` names `sound` ([`sound_name`]), none for a name
+/// that no sound has (`0x676170`).
+fn line_sample(
+    sfx: &mut Sfx,
+    sound: &str,
+    assets: &AssetServer,
+) -> Option<Handle<bevy_kira_audio::AudioSource>> {
+    let name = sound_name(sound);
+    let Some((id, file)) = sfx.named(&name) else {
+        debug!("talk: no sound {name}");
+        return None;
+    };
+    Some(sfx.sample(id, file, assets))
+}
+
+/// Plays the scripts' sounds of a `PlaySound` outside a dialogue's window, each the line by name
+/// that stops the one before (`0x693FE0`; #1826), as a window's voice-over plays.
+fn lines(
+    mut lines: MessageReader<scripts::ScriptLine>,
+    (assets, audio): (Res<AssetServer>, Option<Res<Audio>>),
+    mut sfx: Option<ResMut<Sfx>>,
+    mut named: Option<ResMut<voices::NamedLine>>,
+    mut instances: Option<ResMut<Assets<bevy_kira_audio::AudioInstance>>>,
+) {
+    let (Some(sfx), Some(audio), Some(named), Some(instances)) = (
+        sfx.as_deref_mut(),
+        audio,
+        named.as_deref_mut(),
+        instances.as_deref_mut(),
+    ) else {
+        lines.clear();
+        return;
+    };
+    for scripts::ScriptLine(sound) in lines.read() {
+        let Some(sample) = line_sample(sfx, sound, &assets) else {
+            continue;
+        };
+        info!("talk: the scripts play {sound}");
+        let instance = audio.play(sample).handle();
+        named.name(instances, Some(instance));
     }
 }
 
@@ -1157,13 +1209,28 @@ impl Plugin for TalkPlugin {
             .add_systems(
                 Update,
                 (dismiss, notices, fade, popups, close_first.after(popups)).in_set(Playing),
-            );
+            )
+            .add_systems(Update, lines.after(Step::Npcs).in_set(Playing));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_play_sounds_name_takes_the_prefix_it_lacks() {
+        // A dialogue's voice-over names its text's key, an announcement its sound's whole name.
+        assert_eq!(
+            sound_name("NPC_Audio_Novizin"),
+            "SOUND_FX_NPC_AUDIO_NOVIZIN"
+        );
+        assert_eq!(
+            sound_name("SOUND_FX_SCSERA_AUDIO_6_3_2"),
+            "SOUND_FX_SCSERA_AUDIO_6_3_2"
+        );
+        assert_eq!(sound_name("sound_fxthunder"), "SOUND_FXTHUNDER");
+    }
 
     #[test]
     fn a_creature_speaks_its_own_dialogue_or_its_types_as_townsfolk() {

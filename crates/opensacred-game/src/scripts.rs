@@ -146,6 +146,13 @@ pub struct Infos(pub Vec<(i32, String)>);
 #[derive(Resource, Default)]
 pub struct Popups(pub Vec<Begins>);
 
+/// A sound that a `PlaySound` plays at once as the line by name (104, `0x4A9730` calling
+/// `0x693FE0`; #1826), by the name its record gives, outside a dialogue's window, whose own
+/// sounds play as it opens: the scripts' announcements (`Audio`, the `*_audiomeldungen`), a
+/// button's function's, which `talk` plays.
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub struct ScriptLine(pub String);
+
 /// What the scripts' records play on the music's streams, in order, which `music` carries out
 /// (#1243, docs/re/sound.md, "Scripts and notices").
 #[derive(Message, Clone, Debug, PartialEq, Eq)]
@@ -1584,8 +1591,15 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
+            // At once as the line by name, outside the anim mode whatever its second name; under
+            // it, a second name of the hero or of a creature waits its turn in that one's queue
+            // (the kind 14), which `npcs` follows, playing the line at once where it finds none
+            // (`0x4A9730`; #1826).
             "play_sound" => {
-                if let Some(sound) = tags.texts("_01").first() {
+                let names = tags.texts("_01");
+                if let Some(sound) = names.first()
+                    && !(self.anim && names.get(1).is_some_and(|name| !name.is_empty()))
+                {
                     self.window.sounds.push((*sound).to_owned());
                 }
                 Handled::Done
@@ -2187,8 +2201,10 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         given,
         random_items,
         won,
+        window,
         ..
     } = effects;
+    world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
     world.write_message_batch(given.into_iter().map(crate::pickup::Given));
@@ -2234,7 +2250,9 @@ pub fn speak(world: &mut World, dialogue: &str) -> Option<Window> {
         live.living = living;
         live.talk(dialogue)?
     };
-    let window = effects.window.clone();
+    // Its sounds play as its window opens (`talk`).
+    let mut effects = effects;
+    let window = std::mem::take(&mut effects.window);
     hand_world(world, effects);
     Some(window)
 }
@@ -2264,6 +2282,7 @@ struct Queues<'w> {
     infos: ResMut<'w, Infos>,
     popups: ResMut<'w, Popups>,
     sounds: MessageWriter<'w, ScriptSound>,
+    lines: MessageWriter<'w, ScriptLine>,
     remarks: MessageWriter<'w, Remark>,
     given: MessageWriter<'w, crate::pickup::Given>,
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
@@ -2281,6 +2300,8 @@ impl Queues<'_> {
         }
         self.infos.0.extend(effects.infos);
         self.popups.0.extend(effects.popups);
+        self.lines
+            .write_batch(effects.window.sounds.into_iter().map(ScriptLine));
         self.sounds.write_batch(effects.sounds);
         self.remarks.write_batch(effects.remarks);
         self.given
@@ -2547,6 +2568,7 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<Popups>()
             .init_resource::<Due>()
             .add_message::<ScriptSound>()
+            .add_message::<ScriptLine>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -3011,6 +3033,43 @@ mod tests {
     }
 
     #[test]
+    fn a_play_sound_plays_at_once_but_a_creatures_under_the_anim_mode() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"audio\"] = function()\n\
+             play_sound { _01 = \"SOUND_FX_SCSERA_AUDIO_6_3_2\" }\n\
+             play_sound { _01 = { \"SOUND_FX_THUNDER01\", \"res:18800\" } }\n\
+             set_anim_mode {}\n\
+             play_sound { _01 = { \"SOUND_FX_THUNDER01\", \"res:18801\" } }\n\
+             play_sound { _01 = { \"line\", \"\" } }\n\
+             set_play_mode {}\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run_named("audio");
+        // Outside the mode a creature's plays at once too; under it, a creature's waits in its
+        // queue (`npcs`), one of an empty name plays at once.
+        assert_eq!(
+            effects.window.sounds,
+            ["SOUND_FX_SCSERA_AUDIO_6_3_2", "SOUND_FX_THUNDER01", "line"]
+        );
+        assert_eq!(
+            effects
+                .records
+                .iter()
+                .filter(|record| record.kind == 104)
+                .count(),
+            4
+        );
+    }
+
+    #[test]
     fn a_function_shows_the_player_its_texts_and_begins_the_heros_own_talks() {
         let runtime = runtime(&[(
             "start.luau",
@@ -3111,6 +3170,7 @@ mod tests {
             .init_resource::<Popups>()
             .init_resource::<Due>()
             .add_message::<ScriptSound>()
+            .add_message::<ScriptLine>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -3169,6 +3229,7 @@ mod tests {
             .init_resource::<Popups>()
             .insert_resource(Due(vec!["sprich_15".into()]))
             .add_message::<ScriptSound>()
+            .add_message::<ScriptLine>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
