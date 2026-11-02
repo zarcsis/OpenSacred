@@ -4533,23 +4533,38 @@ fn spawn(
         (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
         _ => None,
     };
+    // A creature put on the ground on a building's mass goes onto the building's floor 1 where
+    // its grid holds the cell walkable, as the object manager's move puts it (`0x5FCCB0`,
+    // docs/re/movement.md, "Changing layers"), and a walking one ([`walk`]): the garden's
+    // novice of quest 15001 in the monastery, whom the hero's way had sought on the ground
+    // within the walls (#1735).
+    let massed = match (i32::try_from(x), i32::try_from(y), floor) {
+        (Ok(cx), Ok(cy), None) if !placement.object && !heights.walkable((cx, cy)) => {
+            heights.level_of((cx, cy))
+        }
+        _ => None,
+    };
     let level = match (on_floor, floor) {
         (Some(building), Some(floor)) => heights.floor_level(building, floor),
-        _ => None,
+        _ => massed,
     };
     position.y = heights
         .standing(position.x, position.z, level)
         .unwrap_or(0.0);
     // In its layer of the building whose floor or cell it is on, if any.
-    let layered = buildings::Layered::of(
-        heights,
-        on_floor.or_else(|| {
-            heights
-                .building(position.x, position.z)
-                .map(|(building, _)| building)
-        }),
-        placement.layer,
-    );
+    let layered = if massed.is_some() {
+        buildings::Layered::at(heights, position.x, position.z, level)
+    } else {
+        buildings::Layered::of(
+            heights,
+            on_floor.or_else(|| {
+                heights
+                    .building(position.x, position.z)
+                    .map(|(building, _)| building)
+            }),
+            placement.layer,
+        )
+    };
     // Its model where its record draws it, an object's where its `0x20` shows.
     let model = model_position(position, placement.drawn);
     let off = Vec2::new(model.x - position.x, model.z - position.z).length();
