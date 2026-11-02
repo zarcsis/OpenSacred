@@ -134,6 +134,11 @@ pub(crate) struct Hero<'a> {
     pub skills: &'a [(u8, u32)],
     pub multipliers: [f32; KINDS],
     pub resistance_factors: [f32; KINDS],
+    /// Whether what it holds and wears marks it for the special effects' getter
+    /// (`opensacred_rules::fight::marks`), which the alchemy's line asks.
+    pub marked: bool,
+    /// The life leech's factor of the game's difficulty (`Difficulty::leech`).
+    pub leech: f32,
 }
 
 impl Hero<'_> {
@@ -255,18 +260,35 @@ fn details(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
             lines.push(Line::of(format!("{}: {value}", words.of(text)), WHITE));
         }
     }
-    // The bonuses listed, each taken where a line before claims it.
+    // The bonuses listed, each taken where a line before claims it; but the open wounds (857),
+    // which the code reads on the struck creature's own items, and the alchemy (868) where
+    // neither this item nor what the hero wears marks it for the getter, whose lines would tell
+    // what never happens (#1759; docs/decisions/interface.md, "Bonus lines of what the code
+    // applies").
+    let marked = hero.marked
+        || values
+            .bonuses
+            .iter()
+            .any(|bonus| opensacred_rules::fight::marks(bonus.effect & 0xFFFF));
     let mut listed: Vec<Bonus> = values
         .bonuses
         .iter()
         .copied()
-        .filter(|bonus| bonus.effect & 0xFFFF != 0)
+        .filter(|bonus| match bonus.effect & 0xFFFF {
+            0 | 857 => false,
+            868 => marked,
+            _ => true,
+        })
         .collect();
     let mut claim = |test: &dyn Fn(&Bonus) -> bool, lines: &mut Vec<Line>| {
         let (taken, kept): (Vec<Bonus>, Vec<Bonus>) =
             listed.iter().copied().partition(|bonus| test(bonus));
         listed = kept;
-        lines.extend(taken.iter().filter_map(|bonus| bonus_line(bonus, words)));
+        lines.extend(
+            taken
+                .iter()
+                .filter_map(|bonus| bonus_line(bonus, hero.leech, words)),
+        );
     };
     for (k, &[least, most]) in values.damage.iter().enumerate() {
         if most == 0.0 {
@@ -596,8 +618,10 @@ const OPPONENTS: [&str; 12] = [
 
 /// A bonus's line (`0x5C4450`): the class it holds for, in the class's colour, then in the
 /// effect's colour (the kinds' for 801 to 808, gold for 840 to 868 but 854, else blue) the
-/// opponent it holds against and its text by the effect; none for an effect of no text.
-fn bonus_line(bonus: &Bonus, words: &Words) -> Option<Line> {
+/// opponent it holds against and its text by the effect; none for an effect of no text. The
+/// life leech's (841) at the value that the strike takes on the game's difficulty, `leech` its
+/// factor, where the original's shows its face value (#1759).
+fn bonus_line(bonus: &Bonus, leech: f32, words: &Words) -> Option<Line> {
     let (c, e, a) = (
         u32::from(bonus.condition),
         bonus.effect & 0xFFFF,
@@ -648,6 +672,16 @@ fn bonus_line(bonus: &Bonus, words: &Words) -> Option<Line> {
             )
         }
         864 => format!("{} ", words.of("1144")),
+        841 => {
+            // To a tenth, the float factors' last bits aside.
+            let taken = (f64::from(v) * f64::from(leech) * 10.0).round() / 10.0;
+            let shown = if taken.fract() == 0.0 {
+                format!("{taken:+}")
+            } else {
+                format!("{taken:+.1}")
+            };
+            format!("{}: {shown}%", words.of("1125"))
+        }
         _ => {
             if let Some((_, text)) = PLUS.iter().find(|&&(effect, _)| effect == e) {
                 format!("{}: {v:+}", words.of(text))
@@ -781,7 +815,7 @@ mod tests {
                 effect: 805,
                 value: 80,
             };
-            bonus_line(&bonus, &words()).map(|line| texts(&line))
+            bonus_line(&bonus, 1.0, &words()).map(|line| texts(&line))
         };
         // The sword 1712's against the monsters (seen 2026-11-01, #1708).
         assert_eq!(
@@ -802,6 +836,69 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_bonus_lines_tell_what_the_code_applies() {
+        let ring = |bonuses: &[(u32, i16)]| {
+            let mut values = ItemValues::default();
+            for (slot, &(effect, value)) in bonuses.iter().enumerate() {
+                values.bonuses[slot] = Bonus {
+                    condition: 0,
+                    effect,
+                    value,
+                };
+            }
+            Item {
+                item: 7000,
+                name: "Ring",
+                category: RING,
+                record: Record {
+                    word: CLASSES,
+                    ..Record::default()
+                },
+                price: 0,
+                buying: false,
+                quality: 0,
+                values,
+                level: 0,
+                asked: 0,
+                drink: None,
+                sockets: (0, 0),
+                set: None,
+            }
+        };
+        let shown = |item: &Item, hero: &Hero| -> Vec<String> {
+            details(item, hero, &words()).iter().map(texts).collect()
+        };
+        // The open wounds, read on the struck creature's own items, show no line (#1759).
+        assert!(shown(&ring(&[(857, 10)]), &hero(&[])).is_empty());
+        // The alchemy alone, unmarked, none; beside a marked effect, or on a marked hero, its own.
+        assert!(shown(&ring(&[(868, 5)]), &hero(&[])).is_empty());
+        assert_eq!(
+            shown(&ring(&[(868, 5), (843, 4)]), &hero(&[])),
+            ["<UI_RARE_ALCHEMIE>: +5", "<1128>: +4%"]
+        );
+        let marked = Hero {
+            marked: true,
+            ..hero(&[])
+        };
+        assert_eq!(
+            shown(&ring(&[(868, 5)]), &marked),
+            ["<UI_RARE_ALCHEMIE>: +5"]
+        );
+        // The leech at the strike's value on silver, 0.8 of its face.
+        let silver = Hero {
+            leech: 0.8,
+            ..hero(&[])
+        };
+        assert_eq!(shown(&ring(&[(841, 10)]), &silver), ["<1125>: +8%"]);
+        assert_eq!(shown(&ring(&[(841, 5)]), &silver), ["<1125>: +4%"]);
+        let gold = Hero {
+            leech: 0.7,
+            ..hero(&[])
+        };
+        assert_eq!(shown(&ring(&[(841, 5)]), &gold), ["<1125>: +3.5%"]);
+    }
+
     fn hero(skills: &[(u8, u32)]) -> Hero<'_> {
         Hero {
             creature: 1,
@@ -810,6 +907,8 @@ mod tests {
             skills,
             multipliers: [1.0; KINDS],
             resistance_factors: [1.0; KINDS],
+            marked: false,
+            leech: 1.0,
         }
     }
 

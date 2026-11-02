@@ -1046,15 +1046,19 @@ fn survival(minutes: u32) -> f64 {
     100.0 * (1.0 - 1.0 / (1.0 + (f64::from(minutes) - 1.0) / 120.0))
 }
 
-/// A damage `d` raised by the survival bonus `sb` (the balance's `LongivityCombatFactor` 0.5):
-/// `⌊d·sb·0.5·0.01 + d + 0.5⌋` stored as a float.
+/// The balance's `LongivityCombatFactor`: the share of the survival bonus that the fight takes
+/// (docs/re/character.md; `0x56A50F`, `0x56C156`).
+const LONGEVITY: f64 = 0.5;
+
+/// A damage `d` raised by the survival bonus `sb` ([`LONGEVITY`]): `⌊d·sb·0.5·0.01 + d + 0.5⌋`
+/// stored as a float.
 fn raised(d: f32, sb: f64) -> i64 {
     let d = f64::from(d);
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a damage, far below the integers' range"
     )]
-    let raised = (d * sb * 0.5 * 0.01 + d + 0.5) as f32;
+    let raised = (d * sb * LONGEVITY * 0.01 + d + 0.5) as f32;
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a damage, far below the integers' range"
@@ -1193,7 +1197,10 @@ fn sheet(
         bonuses: (damage_bonus(combat), resistance_bonus(combat)),
         pace: whole(combat.pace),
         speed: whole(combat.speed.min(220.0)),
-        survival: per_cent(sb),
+        // The share of the damage that the bonus raises, as the fight takes it, where the
+        // original's line prints the whole curve (#1759; docs/decisions/interface.md, "Survival
+        // bonus at its share of the damage").
+        survival: per_cent(sb * LONGEVITY),
         skill_ids: held.iter().map(|&(id, _)| id).collect(),
         candidate_ids,
         description: None,

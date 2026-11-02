@@ -1191,6 +1191,18 @@ pub struct ItemValues {
 /// How many bonus slots an item's record has.
 pub const BONUSES: usize = 8;
 
+/// Whether an item's bonus of the effect `effect` marks its wearer by the stats' `+0x2B7` bit
+/// `0x40` (the recomputation's switch, `0x57A5AC`), without which the getter of these effects
+/// (`0x570ED0`) answers nothing: 840 to 843, 846, 852 to 859, 861 to 863, 865 to 867 and 869
+/// (docs/re/items.md, "The bonus effects that the code reads"; 868, which the getter reads, is not
+/// among them).
+pub fn marks(effect: u32) -> bool {
+    matches!(
+        effect,
+        840..=843 | 846 | 852..=859 | 861..=863 | 865..=867 | 869
+    )
+}
+
 /// How many sockets an item's record has.
 pub const SOCKETS: usize = 8;
 

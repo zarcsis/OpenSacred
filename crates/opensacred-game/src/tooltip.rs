@@ -103,6 +103,7 @@ struct Weighing<'w, 's> {
     potions: Option<Res<'w, crate::belt::Potions>>,
     heroes: Query<'w, 's, &'static Combat, With<Body>>,
     holding: Query<'w, 's, &'static crate::fight::Holding, With<Body>>,
+    difficulty: Option<Res<'w, crate::game::Difficulty>>,
     clock: Option<Res<'w, crate::daynight::Clock>>,
     forms: Option<Res<'w, crate::forms::Forms>>,
 }
@@ -218,6 +219,17 @@ impl Weighing<'_, '_> {
                 .map(str::to_owned),
         };
         let skills = self.arts.as_deref().map_or(&[][..], |arts| &arts.skills);
+        // Whether what the hero holds and wears marks it for the getter of the special effects
+        // (`fight::marks`), and the life leech's factor of the game's difficulty (#1759).
+        let marked = self.holding.iter().next().is_some_and(|holding| {
+            holding
+                .0
+                .items
+                .iter()
+                .flat_map(|item| item.bonuses)
+                .any(|bonus| opensacred_rules::fight::marks(bonus.effect & 0xFFFF))
+        });
+        let leech = self.difficulty.as_deref().map_or(1.0, |d| d.0.leech());
         let hero = self.heroes.iter().next().map(|combat| lines::Hero {
             creature: self.arts.as_deref().map_or(1, |arts| arts.kind),
             level: self.experience.0.level,
@@ -225,6 +237,8 @@ impl Weighing<'_, '_> {
             skills,
             multipliers: combat.multipliers,
             resistance_factors: combat.resistance_factors,
+            marked,
+            leech,
         });
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
         let art = |id: u32| {
