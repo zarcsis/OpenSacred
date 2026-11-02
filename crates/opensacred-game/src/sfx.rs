@@ -524,7 +524,7 @@ fn blows(
     }
 }
 
-/// Plays the sounds of the world that the modules ask for.
+/// Plays the sounds of the world and of the interface that the modules ask for, in a pause too.
 fn plays(
     mut plays: MessageReader<Play>,
     mut sfx: ResMut<Sfx>,
@@ -621,7 +621,9 @@ impl Plugin for SfxPlugin {
             )
             .add_systems(
                 Update,
-                (listen, (blows, burns_away, plays).in_set(Unpaused)).chain(),
+                // The asked sounds play in a pause too, the interface's alone being asked then:
+                // the menu over a game's click as it shows (#1767).
+                (listen, (blows, burns_away).in_set(Unpaused), plays).chain(),
             );
     }
 }
