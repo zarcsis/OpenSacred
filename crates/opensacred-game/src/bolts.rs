@@ -272,20 +272,26 @@ fn fire(
     }
 }
 
-/// Makes the bolt of each launch where its shooter stands, at [`HEIGHT`], on its level.
+/// Makes the bolt of each launch where its shooter stands, at [`HEIGHT`], on its level: the
+/// hero's, or a creature's that casts (#1852).
 fn launch(
     mut commands: Commands,
     mut launches: MessageReader<Launch>,
     looks: Option<Res<Looks>>,
-    shooters: Query<(&Transform, &Body)>,
+    shooters: Query<(&Transform, Option<&Body>, Option<&InTheWay>)>,
 ) {
     let Some(looks) = looks else {
         launches.clear();
         return;
     };
     for launched in launches.read() {
-        let Ok((at, body)) = shooters.get(launched.shooter) else {
+        let Ok((at, body, way)) = shooters.get(launched.shooter) else {
             continue;
+        };
+        let level = match (body, way) {
+            (Some(body), _) => body.level(),
+            (None, Some(way)) => way.level,
+            (None, None) => None,
         };
         let Some((mesh, material)) = looks.0.get(launched.course.look).cloned() else {
             continue;
@@ -303,7 +309,7 @@ fn launch(
                 course: launched.course,
                 shooter: launched.shooter,
                 direction: launched.direction.normalize_or(Vec2::Y),
-                level: body.level(),
+                level,
                 damages: launched.damages,
                 wait: launched.wait,
                 flown: 0.0,
@@ -326,7 +332,10 @@ fn fly(
     heights: Res<Heights>,
     (mut hits, ranks): (MessageWriter<fight::Hit>, Query<&fight::Ranked>),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
-    shooters: Query<&Transform, (With<Body>, Without<Flying>)>,
+    (shooters, heroes): (
+        Query<&Transform, (With<Body>, Without<Flying>)>,
+        Query<(Entity, &Transform, &Body, &Health), (Without<Flying>, Without<Dies>)>,
+    ),
     creatures: Query<
         (
             Entity,
@@ -399,20 +408,33 @@ fn fly(
         if bolt.spent || bolt.cooldown > 0.0 {
             continue;
         }
-        // The creatures on its level, alive and hostile to the hero, nearer than the two sizes.
+        // The creatures on its level, alive and hostile to the hero, nearer than the two sizes;
+        // a creature's bolt (a cast's, #1852) the hero alone.
         let own = course.reach;
-        let mut struck: Vec<Entity> = creatures
-            .iter()
-            .filter(|(_, at, way, mind, health, size)| {
-                way.creature
-                    && way.level == bolt.level
-                    && mind.hostile()
-                    && health.current > 0
-                    && (at.translation.xz() - ground).length()
-                        < own + size.map_or(arrows::size(0), |size| size.0)
-            })
-            .map(|(e, ..)| e)
-            .collect();
+        let mut struck: Vec<Entity> = if shooters.contains(bolt.shooter) {
+            creatures
+                .iter()
+                .filter(|(_, at, way, mind, health, size)| {
+                    way.creature
+                        && way.level == bolt.level
+                        && mind.hostile()
+                        && health.current > 0
+                        && (at.translation.xz() - ground).length()
+                            < own + size.map_or(arrows::size(0), |size| size.0)
+                })
+                .map(|(e, ..)| e)
+                .collect()
+        } else {
+            heroes
+                .iter()
+                .filter(|(_, at, body, health)| {
+                    body.level() == bolt.level
+                        && health.current > 0
+                        && (at.translation.xz() - ground).length() < own + arrows::size(0)
+                })
+                .map(|(e, ..)| e)
+                .collect()
+        };
         if struck.is_empty() {
             continue;
         }

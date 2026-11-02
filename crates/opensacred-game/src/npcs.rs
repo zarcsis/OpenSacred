@@ -5857,12 +5857,22 @@ fn script_clips(
         };
         if let Some((node, handle)) = &clip.playing {
             let length = clips.get(handle).map_or(0.0, AnimationClip::duration);
+            // A cast's act at its share of the clip, or as it ends.
+            let acts = clip.acts_at.is_some_and(|share| {
+                player.animation(*node).is_none_or(|active| {
+                    active.is_finished() || active.seek_time() >= length * share
+                })
+            });
             let ended = player.animation(*node).is_none_or(|active| {
                 active.is_finished()
                     || (DEFENDING.contains(&clip.slot)
                         && active.completions() + 1 >= clip.loops
                         && active.seek_time() >= length - DEFENDING_BACK)
             });
+            if acts {
+                commands.entity(entity).insert(ClipActs);
+                clip.acts_at = None;
+            }
             if ended {
                 commands.entity(entity).remove::<ScriptClip>();
             }
@@ -5899,6 +5909,10 @@ fn script_clips(
                 "npcs: {entity} has no clip of the slot {} to play",
                 clip.slot
             );
+            // A cast without its clip acts at once (`0x51D150`, #1852).
+            if clip.acts_at.is_some() {
+                commands.entity(entity).insert(ClipActs);
+            }
             commands.entity(entity).remove::<ScriptClip>();
             continue;
         };
@@ -6817,6 +6831,9 @@ pub struct ScriptClip {
     slot: u16,
     loops: u32,
     playing: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
+    /// The share of a creature's cast's clip at which its spell acts (`0x521D60`; #1852), which
+    /// [`ClipActs`] marks once it passes; none for another clip.
+    acts_at: Option<f32>,
 }
 
 impl ScriptClip {
@@ -6825,9 +6842,24 @@ impl ScriptClip {
             slot,
             loops,
             playing: None,
+            acts_at: None,
+        }
+    }
+
+    /// A creature's cast's clip of the slot `slot`, once, its spell acting at the share `share`
+    /// (`creature_casts`, #1852).
+    pub(crate) fn casting(slot: u16, share: f32) -> Self {
+        Self {
+            acts_at: Some(share),
+            ..Self::new(slot, 1)
         }
     }
 }
+
+/// A creature whose cast's clip has passed the share at which its spell acts, or that has no
+/// clip of its cast's slot and so acts at once (`0x51D150`; `creature_casts`, #1852).
+#[derive(Component, Debug)]
+pub struct ClipActs;
 
 /// How near its target, along each axis, a creature stands for its queue's walk to end
 /// (`0x59A885`): less than a cell.
