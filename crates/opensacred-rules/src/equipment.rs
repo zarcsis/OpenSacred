@@ -132,7 +132,7 @@ pub fn frames(hero: u32) -> Vec<Frame> {
 
 /// What an item asks of the hero that would use it: its type, its category (`items.pak +0x2E`),
 /// its weapon's kind (`Weapon.pak +0x1E`, 0 for none), the classes' bits of its record's `+0x04`,
-/// and the level it asks (`+0x14`).
+/// the level it asks (`+0x14`), and the takers of its class's variants where it has some.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Asks {
     pub item: u32,
@@ -140,6 +140,72 @@ pub struct Asks {
     pub kind: u8,
     pub classes: u32,
     pub level: u32,
+    pub takers: Option<Takers>,
+}
+
+/// The most variants of an item's group (`bin/Rust.bin`'s groups hold 13 at most).
+pub const TAKERS_MOST: usize = 16;
+
+/// The keys of the creatures that an item's group of its class's variants lists (`bin/Rust.bin`,
+/// `0x42FAB0`, which gives each variant's type its group's index at `+0x74`): each pair's first,
+/// a creature's key of [`taker_key`], in the group's order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Takers {
+    keys: [u16; TAKERS_MOST],
+    len: u8,
+}
+
+impl Takers {
+    /// The takers of a group's pairs `pairs`, the key first, the first [`TAKERS_MOST`] of them.
+    pub fn of(pairs: &[[u32; 2]]) -> Self {
+        let mut takers = Self::default();
+        for (slot, &[key, _]) in takers.keys.iter_mut().zip(pairs) {
+            *slot = u16::try_from(key).unwrap_or(u16::MAX);
+            takers.len += 1;
+        }
+        takers
+    }
+
+    /// Whether the group lists the key `key`.
+    pub fn lists(&self, key: u32) -> bool {
+        self.keys[..usize::from(self.len)]
+            .iter()
+            .any(|&listed| u32::from(listed) == key)
+    }
+}
+
+/// The key by which a creature of the type `creature` looks up an item's class's variant
+/// (`0x43CA20`): the Vampiress's night form her day's, the types of a hero's class that class's,
+/// a few others a key of their kind; any other type its own.
+pub fn taker_key(creature: u32) -> u32 {
+    match creature {
+        7 => 6,
+        0x28 | 0x4D => 0x27,
+        0x55 | 0x56 | 0x82 => 0x26,
+        0x69 | 0x6C | 0x8D => 5,
+        0x76 | 0x7F..=0x81 | 0x8E | 0x8F => 0x4C,
+        0x85 | 0x8C | 0x92 | 0x13F..=0x141 | 0x146 | 0x147 | 0x2B5 => 4,
+        0x130..=0x132 => 0x13A,
+        0x133 | 0x134 => 0x139,
+        0x142 | 0x2B1 | 0x2B2 => 0x13B,
+        699 => 0x13C,
+        _ => creature,
+    }
+}
+
+/// The group of an item's class's variants that the use's test takes (`0x43CA20`): none for a
+/// ring or an amulet (the categories 8 and 20), else the group of the index `group` (`+0x74`),
+/// none for the index 0.
+pub fn takers_of(category: u8, group: u16, groups: &[Vec<[u32; 2]>]) -> Option<Takers> {
+    if matches!(category, 8 | 20) || group == 0 {
+        return None;
+    }
+    // An index past the groups finds no taker (`0x43CA20` answers `0x7E60`).
+    Some(
+        groups
+            .get(usize::from(group))
+            .map_or_else(Takers::default, |pairs| Takers::of(pairs)),
+    )
 }
 
 /// The classes' bits of the record's `+0x04`: the types 1 to 6 in the bits 0 to 5 (the
@@ -193,9 +259,11 @@ const CLASSED_BELOW: u32 = 0x20;
 /// to 1804 take, none below the type 32 and the classes' bits cleared above it; else the
 /// creature's own, a hero's or that of a type of [`taker_bit`], none for another; `0x5BF810`),
 /// the weapons' kinds (the Dwarf not the kinds 4, 7 and 12 nor the bridles 29, the Daemon not 7,
-/// the kind 3 the Gladiator's and the Dwarf's alone), and the level it asks (`0x5BEB30`). A
-/// class's variant (`0x43CA20`) and the attributes' and the skill's requirements are not
-/// followed.
+/// the kind 3 the Gladiator's and the Dwarf's alone), and the level it asks (`0x5BEB30`). An item
+/// of some classes but not all that has a group of its class's variants (`0x43CA20`) is refused
+/// to a creature whose key ([`taker_key`]) the group does not list, and a creature of a key of
+/// 32 and above that it lists takes it whatever its classes, its variant its own (`0x5BF810`).
+/// The attributes' and the skill's requirements are not followed.
 pub fn may_use(creature: u32, level: u32, asks: &Asks) -> bool {
     let dwarf = creature == 8;
     let refused_kind = match asks.kind {
@@ -216,8 +284,16 @@ pub fn may_use(creature: u32, level: u32, asks: &Asks) -> bool {
     } else {
         asks.classes & CLASSES
     };
-    if classes != 0 && classes != CLASSES && classes & taker_bit(creature) == 0 {
-        return false;
+    if classes != 0 && classes != CLASSES {
+        let key = taker_key(creature);
+        let refused = match asks.takers {
+            Some(takers) if !takers.lists(key) => true,
+            Some(_) if key >= CLASSED_BELOW => false,
+            _ => classes & taker_bit(creature) == 0,
+        };
+        if refused {
+            return false;
+        }
     }
     asks.level <= level
 }
@@ -459,6 +535,7 @@ mod tests {
             kind: 5,
             classes: 0x80CF_013F,
             level: 22,
+            takers: None,
         };
         // Every class's bit: any hero, from the level asked on (seen: 22, #1303).
         assert!(!may_use(9, 21, &sword) && may_use(9, 22, &sword) && may_use(1, 30, &sword));
@@ -501,6 +578,7 @@ mod tests {
             kind: 5,
             classes: 0x80CF_013F,
             level: 22,
+            takers: None,
         };
         // A hireling of the type 77: every class's item from the level asked on, no class's
         // too, a class's own not, nor the kind 3.
@@ -525,6 +603,44 @@ mod tests {
             ..sword
         };
         assert!(may_use(133, 22, &dark) && !may_use(132, 22, &dark));
+    }
+
+    #[test]
+    fn an_items_class_variants_keep_it_to_their_takers() {
+        let groups = vec![
+            vec![[316, 3080], [5, 3100], [4, 3160]],
+            vec![[316, 3081], [5, 3101], [1, 3798], [39, 3150]],
+        ];
+        // The Seraphim's and the Wood Elf's armour of the group 1.
+        let armour = Asks {
+            item: 3798,
+            category: 6,
+            classes: (1 << 0) | (1 << 4),
+            level: 1,
+            takers: takers_of(6, 1, &groups),
+            ..Asks::default()
+        };
+        assert!(may_use(1, 1, &armour) && may_use(5, 1, &armour));
+        // The Wood Elf's night type 105 looks up her key 5.
+        assert!(may_use(105, 1, &armour));
+        // Of the Dark Elf's bit too, the group refuses her: it lists no 4.
+        let dark = Asks {
+            classes: armour.classes | (1 << 3),
+            ..armour
+        };
+        assert!(!may_use(4, 1, &dark) && may_use(1, 1, &dark));
+        // A hireling of the type 77 (its key 39) takes it, its variant its own; the type 83 not.
+        assert!(may_use(77, 1, &armour) && !may_use(83, 1, &armour));
+        // The group 0 and the rings are no group; an index past the groups lists none.
+        assert_eq!(takers_of(6, 0, &groups), None);
+        assert_eq!(takers_of(8, 1, &groups), None);
+        let lost = Asks {
+            takers: takers_of(6, 9, &groups),
+            ..armour
+        };
+        assert!(!may_use(1, 1, &lost));
+        assert_eq!(taker_key(0x141), 4);
+        assert_eq!(taker_key(699), 0x13C);
     }
 
     #[test]

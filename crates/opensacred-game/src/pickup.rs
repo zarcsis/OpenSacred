@@ -1432,6 +1432,7 @@ mod tests {
             kind: 1,
             classes: 0,
             level: 1,
+            takers: None,
         };
         let bow = opensacred_rules::equipment::Asks {
             item: 1732,

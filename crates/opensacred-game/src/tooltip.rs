@@ -294,6 +294,7 @@ impl Weighing<'_, '_> {
                 .set_name(dropped.item)
                 .and_then(|id| texts.and_then(|texts| texts.id(id)))
                 .map(str::to_owned),
+            takers: tables.asks(dropped, &self.rules).takers,
         };
         let skills = self.arts.as_deref().map_or(&[][..], |arts| &arts.skills);
         // Whether what the hero holds and wears marks it for the getter of the special effects
@@ -350,6 +351,7 @@ impl Weighing<'_, '_> {
                 asked: 0,
                 drink: None,
                 sockets: (0, 0),
+                takers: None,
                 set: None,
             };
             shown.extend(lines::socket_lines(&item, &hero, &words));
