@@ -707,6 +707,15 @@ impl Played {
         let minutes = (self.0 / 60.0).floor().max(0.0) as u32;
         minutes
     }
+
+    /// The time played as the creatures' levels take it, with the part of the sets of the hero
+    /// that holds `holding` (`opensacred_rules::fight::Played`, M12).
+    pub(crate) fn time(&self, holding: Option<&crate::fight::Holding>) -> crate::fight::Played {
+        crate::fight::Played {
+            minutes: self.minutes(),
+            sets: holding.map_or(0, |holding| holding.0.sets.played_part()),
+        }
+    }
 }
 
 /// A drop: what it is, and whether it rests on the ground.

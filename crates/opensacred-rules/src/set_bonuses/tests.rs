@@ -257,6 +257,10 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(64, &wearing(64, 3), Difficulty::Bronze)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
+    // Six pieces of set 28 raise the creatures' levels by the difficulty's factor truncated.
+    assert_eq!(stats(&wearing(28, 6), Difficulty::Gold).played_part(), 1);
+    assert_eq!(stats(&wearing(28, 6), Difficulty::Niobium).played_part(), 2);
+    assert_eq!(stats(&wearing(28, 5), Difficulty::Niobium).played_part(), 0);
     // Five pieces of set 22 tell their potions' per cent.
     assert!(matches!(
         told(22, &wearing(22, 5), Difficulty::Bronze)[..],

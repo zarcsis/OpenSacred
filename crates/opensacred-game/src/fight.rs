@@ -6,9 +6,10 @@
 use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 pub use opensacred_rules::fight::{
-    BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Raise, Rank, Templates, combat, creature_earns,
-    experience_with, fill_level, filled_level, hero_health, hero_health_with, hero_skills,
-    level_start, most_health, regeneration, scripted_level, skills, tagged_level, takes_on,
+    BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Played, Raise, Rank, Templates, combat,
+    creature_earns, experience_with, fill_level, filled_level, hero_health, hero_health_with,
+    hero_skills, level_start, most_health, regeneration, scripted_level, skills, tagged_level,
+    takes_on,
 };
 use opensacred_rules::fight::{
     Side, armour_comment, art_landed, poisons, range_factor, strike_landed, sure_landed,
