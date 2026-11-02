@@ -344,7 +344,14 @@ pub struct Effect {
     pub glow: Option<Handle<Image>>,
 }
 
-/// The model materials of [`Pass::Effect`] and their kinds, whose offsets `model_effects` moves.
+/// The effect texture of the kind 5 that a model's meshes are drawn again with, added to the frame
+/// (`model_effects`, #1850): [`convert`] gives each mesh a copy of it, the same mesh skinned to the
+/// same joints, of the effect texture unlit and added ([`Pass::Added`]), whose colour pulses.
+#[derive(Component, Clone, Debug)]
+pub struct Pulse(pub Handle<Image>);
+
+/// The model materials of [`Pass::Effect`] and of the pulses ([`Pulse`]) and their kinds, whose
+/// offsets and colours `model_effects` moves.
 #[derive(Resource, Default)]
 pub struct EffectMaterials(pub Vec<(Handle<ModelMaterial>, u8)>);
 
@@ -445,11 +452,13 @@ struct Made {
     fringe: Option<Fringe>,
 }
 
-/// The model materials made of the glTF ones, by the glTF material.
+/// The model materials made of the glTF ones, by the glTF material: as they are, over their
+/// effects ([`Effect`]), and the pulses' copies by the material and the effect texture ([`Pulse`]).
 #[derive(Resource, Default)]
 pub struct Converted(
     HashMap<AssetId<StandardMaterial>, Made>,
     HashMap<AssetId<StandardMaterial>, Made>,
+    HashMap<(AssetId<StandardMaterial>, AssetId<Image>), Handle<ModelMaterial>>,
 );
 
 impl Converted {
@@ -586,6 +595,7 @@ type ModelMesh = (
     Has<DynamicSkinnedMeshBounds>,
     Has<NoFrustumCulling>,
     Option<&'static Effect>,
+    Option<&'static Pulse>,
 );
 
 /// Gives the meshes of each model that has just spawned the model materials of their glTF
@@ -621,13 +631,33 @@ pub fn convert(
             continue;
         };
         let mut made = Vec::new();
+        let mut pulses = Vec::new();
         for entity in children.iter_descendants(model) {
-            let Ok((material, .., effect)) = meshes.get(entity) else {
+            let Ok((material, .., effect, pulse)) = meshes.get(entity) else {
                 continue;
             };
             let Some(base) = standard.get(&material.0) else {
                 continue;
             };
+            // Its pulse's copy, the effect texture unlit and added over it (#1850).
+            if let Some(Pulse(texture)) = pulse {
+                let added = converted
+                    .2
+                    .entry((material.0.id(), texture.id()))
+                    .or_insert_with(|| {
+                        let mut added = base.clone();
+                        added.base_color = Color::WHITE;
+                        added.base_color_texture = Some(texture.clone());
+                        added.unlit = true;
+                        added.alpha_mode = AlphaMode::Add;
+                        let added =
+                            materials.add(in_order(added, &anchors, Pass::Added(Layer::Objects)));
+                        effects.0.push((added.clone(), crate::model_effects::PULSE));
+                        added
+                    })
+                    .clone();
+                pulses.push((entity, added));
+            }
             // Over its effect: one opaque pass of every texel (#1834).
             if let Some(effect) = effect {
                 let over = converted
@@ -691,12 +721,32 @@ pub fn convert(
         }
         commands.entity(model).remove::<Unplaced>();
         unveil(&mut commands, &children, &veiled, model);
+        for (entity, added) in pulses {
+            let Ok((_, mesh, skinned, dynamic, unculled, ..)) = meshes.get(entity) else {
+                continue;
+            };
+            let mut copy = commands.spawn((
+                Mesh3d(mesh.0.clone()),
+                MeshMaterial3d(added),
+                MeshTag::new(*slot),
+                ChildOf(entity),
+            ));
+            if let Some(skinned) = skinned {
+                copy.insert(skinned.clone());
+            }
+            if dynamic {
+                copy.insert(DynamicSkinnedMeshBounds);
+            }
+            if unculled {
+                copy.insert(NoFrustumCulling);
+            }
+        }
         for (entity, Made { mesh: own, fringe }) in made {
             commands
                 .entity(entity)
                 .remove::<MeshMaterial3d<StandardMaterial>>()
                 .insert((MeshMaterial3d(own), MeshTag::new(*slot)));
-            let (Some(fringe), Ok((_, mesh, skinned, dynamic, unculled, _))) =
+            let (Some(fringe), Ok((_, mesh, skinned, dynamic, unculled, ..))) =
                 (fringe, meshes.get(entity))
             else {
                 continue;

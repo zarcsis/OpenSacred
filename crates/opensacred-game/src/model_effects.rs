@@ -28,6 +28,18 @@ pub const MULTITEX: u8 = 1;
 pub const ALONG_V: u8 = 2;
 pub const ALONG_U: u8 = 3;
 pub const ALONG_U_FAST: u8 = 4;
+/// The kind of the effect texture added twice over the whole model, once white and once in a
+/// grey that pulses (`0x406510`'s kind 5, `0x40D310`): the big demons and Anducar's guard (#1850).
+pub const PULSE: u8 = 5;
+/// The pulse's half period in milliseconds: its grey is `(sin(t·π/1024) + 1)·127.5`.
+const PULSE_HALF: f32 = 1_024.0;
+
+/// The colour of the kind 5's two added passes laid in one at the frame's real time `t` in
+/// milliseconds: the white's 1 and the grey's share, 1 to 2.
+pub fn pulse(t: u16) -> f32 {
+    1.0 + ((f32::from(t) * std::f32::consts::PI / PULSE_HALF).sin() + 1.0) / 2.0
+}
+
 /// How many milliseconds a texture's width takes along both axes under the kind 1: the effect's
 /// (`0x89071C`, 1/16384) and the glow's (`0x890718`, 1/32767); along one axis under the kinds 2
 /// and 3 (`0x890714`, 1/2048) and 4 (`0x890710`, 1/1024).
@@ -58,6 +70,17 @@ pub struct Materials {
 }
 
 impl Materials {
+    /// The effect texture `effect` (a file, loaded repeated once) of the kind 5's pulse
+    /// (`models::Pulse`).
+    pub fn pulse(&mut self, effect: &str, assets: &AssetServer) -> crate::models::Pulse {
+        crate::models::Pulse(
+            self.textures
+                .entry(effect.to_owned())
+                .or_insert_with(|| crate::npcs::load_texture(assets, effect))
+                .clone(),
+        )
+    }
+
     /// The effect of the kind `kind` (1 to 4) of the texture `effect`, and the glow `glow` of the
     /// kind 1 (files, loaded repeated once), which a model's meshes lie over (`models::Effect`).
     pub fn under(
@@ -172,9 +195,14 @@ fn run(
     mut models: ResMut<Assets<crate::models::ModelMaterial>>,
 ) {
     let t = u16::try_from(time.elapsed().as_millis() & 0xFFFF).unwrap_or(0);
+    let pulsed = pulse(t);
     for (handle, kind) in &under.0 {
         if let Some(mut material) = models.get_mut(handle) {
-            material.extension.offsets = offsets(*kind, t);
+            if *kind == PULSE {
+                material.base.base_color = Color::linear_rgb(pulsed, pulsed, pulsed);
+            } else {
+                material.extension.offsets = offsets(*kind, t);
+            }
         }
     }
     if effects.running_bands.is_empty() {
@@ -205,6 +233,14 @@ impl Plugin for ModelEffectsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pulse_runs_from_white_to_twice_white_in_2048_ms() {
+        assert!((pulse(0) - 1.5).abs() < 1e-6);
+        assert!((pulse(512) - 2.0).abs() < 1e-6);
+        assert!((pulse(1_536) - 1.0).abs() < 1e-6);
+        assert!((pulse(2_048) - 1.5).abs() < 1e-4);
+    }
 
     #[test]
     fn the_wings_bands_run_twice_in_a_cycle_and_then_stand() {
