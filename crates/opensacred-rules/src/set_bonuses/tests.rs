@@ -240,6 +240,20 @@ fn the_readers_of_the_counts_take_their_shares() {
             .chain((0..7).map(|i| (7100 + i, 9))),
     );
     assert!(close(stats(&both, Difficulty::Silver).luck(100.0), 161.0));
+    // Set 61 at 4 adds 0.15·D to the killer's exorcism, set 54 at 7 0.3·D after it.
+    let both = Worn::of(
+        (0..4)
+            .map(|i| (7500 + i, 61))
+            .chain((0..7).map(|i| (7600 + i, 54))),
+    );
+    assert!(close(
+        stats(&both, Difficulty::Platinum).exorcist(10.0),
+        10.9
+    ));
+    assert!(close(
+        stats(&wearing(61, 3), Difficulty::Platinum).exorcist(10.0),
+        10.0
+    ));
     // Set 16 at 6 adds 30·D to the struck hero's 866, its line held at the difficulty's most;
     // set 30 at 5 adds 10·D to the 856 of a hit.
     let gold = wearing(16, 6);

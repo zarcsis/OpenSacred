@@ -141,9 +141,28 @@ pub fn risen_health(most: u32, roll: u32) -> u32 {
     most / (roll % 3 + 2)
 }
 
+/// The effect of the exorcism (`0x35F`), whose value the killer's items and sets give.
+pub const EXORCISM: u32 = 863;
+
+/// Whether the killer's exorcism of the value `value` (its items' effect 863 and its sets',
+/// `set_bonuses::Stats::exorcist`) lays an undead to rest for good at its death, of the balance's
+/// parameters `params` (`0x532DEE`): `R(0, 99)`, `roll`, below its chance
+/// (`fight::rare_chance`, `0x590570`); then it neither rises nor changes its type.
+pub fn exorcised(value: f32, params: [f32; 3], roll: u32) -> bool {
+    f64::from(roll) < crate::fight::rare_chance(value, params)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_exorcism_lays_the_undead_to_rest_below_its_chance() {
+        // A value of 10 of (100, 100, 98): 100·10/110 + 0.5, the rolls 0 to 9.
+        let params = [100.0, 100.0, 98.0];
+        assert!(exorcised(10.0, params, 9) && !exorcised(10.0, params, 10));
+        assert!(!exorcised(0.0, params, 0));
+    }
 
     #[test]
     fn the_undead_rise_once_at_their_chance() {
