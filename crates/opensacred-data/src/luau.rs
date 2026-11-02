@@ -35,6 +35,15 @@ pub const BYTECODE: &str = "luauc";
 /// two markers or more (#993): the operands' table keeps no order of its keys.
 pub const MARKS: &str = "marks";
 
+/// The key of a record's operands that lists the tags of its valued operands in their order, a
+/// tag for each, for a record of [`ORDERED`] whose order differs from its tags' (#1835).
+pub const ORDER: &str = "order";
+
+/// The record types whose handlers read their valued operands in their order across tags, so
+/// that their calls keep it ([`ORDER`]): `Attack` (92, `0x4A2B40`), whose first `0x01` or `0x11`
+/// is the attacker and the next the target (#1835).
+pub const ORDERED: [u16; 1] = [92];
+
 /// The record type of the dialogues' table's entries, whose call is [`DIALOG_ENTRY`].
 pub const DIALOG: u16 = 40;
 /// The call of a dialogues' table's entry, `dialog_entry { name = …, values = { … } }`.
