@@ -415,3 +415,4 @@ The maintainer's decision of 2026-11-01 (#1727, the rule of #1737): where a line
 - The flags whose readers are not found or not read (section 5) are read before their lines are repaired.
 
 In `opensacred-game` nothing of the sets is followed yet: the pieces carry their set's number (`drops::Tables::set_name`, #1700), and the counting, the bonuses, their readers and the equipment window's icon and its list (#1670) wait for #1727's later steps.
+Since #1727's second step `opensacred_rules::set_bonuses` holds section 3's bonuses of the stats as a table (`TABLE`), the difficulty's factor, the worn pieces counted by their distinct types (`Worn`) and what the sets reached give the stats (`stats`); the game does not take them yet.
