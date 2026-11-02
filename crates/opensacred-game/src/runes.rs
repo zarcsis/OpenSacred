@@ -2,7 +2,8 @@
 //! a rune of the grid, the cursor empty, teaches the hero the rune's combat art or raises it a
 //! level (`cItemUpgrade`, `0x5CD100`), where the hero may use the rune (`0x54ABE0`: its classes,
 //! its weapon's kind and the level it asks); the rune is then used up, with the sound of an item
-//! used up (`0x5D8000`). A rune the hero may not use, or of no art, is left as it is.
+//! used up (`0x5D8000`). A rune the hero may not use, or of no art, is left as it is; one of a spell
+//! that no record holds or whose classes lack the hero's is left with `UPGRADE_MOVE01` (#1672).
 //!
 //! A book or a scroll (the category 16) read the same way (#1358, the book's handler at
 //! `0x5CBFC0`) joins the hero's books read, once (`pickup::Pack::read`, `0x5DD5D0`), and is used
@@ -14,11 +15,11 @@
 //! the grid (`0x5DA630`), with no sound.
 //!
 //! Not followed: the spells' page told of the art (`UI_TABPAGE_SPELLS`), the taskbar's book button
-//! told of a new book (`UI_TB_BOOK`), the event (7, 2) of an art that neither table holds, and the `Use:` function of an item dropped into the world and taken
+//! told of a new book (`UI_TB_BOOK`), and the `Use:` function of an item dropped into the world and taken
 //! again, or of a quest's item, whose page waits for #1090.
 
 use bevy::prelude::*;
-use opensacred_rules::equipment::may_use;
+use opensacred_rules::equipment::{class_bit, may_use};
 
 use crate::arts::HeroArts;
 use crate::backpack::{cell_under, on_grid};
@@ -34,6 +35,8 @@ use crate::sfx;
 
 /// `UI_INV_USEITEM01`, an item used up (`0x5D8000`).
 const USED_UP: u32 = 7006;
+/// `UPGRADE_MOVE01`, a rune's spell that the hero's class cannot learn (the event (7, 2)).
+const REFUSED: u32 = 7010;
 
 /// The category of the books and the scrolls (`items.pak +0x2E`).
 const BOOK: u8 = 16;
@@ -133,6 +136,28 @@ fn read(
     let asks = tables.asks(&dropped, &rules);
     if !may_use(hero.creature, experience.level, &asks) {
         debug!("runes: the hero may not read {}", dropped.item);
+        return;
+    }
+    // A spell of no record, or of one whose classes (`+0x8C`, `0x4D24C0`) lack the hero's, is
+    // refused with `UPGRADE_MOVE01` and the rune kept (the event (7, 2) at `0x5CD46C`, #1672).
+    let learns = |classes: u32| classes & class_bit(hero.creature) != 0;
+    if art < 1000
+        && !arts
+            .tables
+            .spells
+            .iter()
+            .find(|spell| spell.id == art)
+            .is_some_and(|spell| learns(spell.classes))
+    {
+        sounds.write(sfx::Play {
+            sound: sfx::Of::Id(REFUSED),
+            at: None,
+            rate: (0.5, sfx::Roll::None),
+        });
+        debug!(
+            "runes: the hero's class cannot learn {art} of {}",
+            dropped.item
+        );
         return;
     }
     match arts.learn(art, 1) {

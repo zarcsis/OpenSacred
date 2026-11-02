@@ -50,6 +50,9 @@ struct Model {
     pose: Pose,
 }
 
+/// `UI_INV_PUTFAILED01`, the grid's refusal of what the cursor holds that is no item (`(9, 2)`).
+const PUT_FAILED: u32 = 7004;
+
 /// The sound of an item of the category `category` put into the grid or a slot (`(9, 1)` and
 /// `(9, 5)`, docs/re/sound.md, "Items, gold and levels"), and its rate.
 pub(crate) fn put_sound(category: u8) -> (u32, (f32, sfx::Roll)) {
@@ -74,6 +77,8 @@ pub struct Click;
 /// A left click on the grid while the inventory shows (`0x6C0150`): with the cursor empty, the
 /// item under it onto the cursor, but with Shift; with an item, put where it fits, with its sound,
 /// or in place of the one item under it; else nothing, and nothing while the purchase window asks.
+/// With an art or a combo on the cursor, the refusal's sound alone (the event (9, 2), `0x6C092B`,
+/// #1672).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -83,7 +88,7 @@ fn click(
     (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
-    mut pack: ResMut<Pack>,
+    (mut pack, art): (ResMut<Pack>, Option<Res<crate::art_slots::HeldArt>>),
     tables: Option<Res<Tables>>,
     mut sounds: MessageWriter<sfx::Play>,
     asking: Option<Res<crate::purchase::Asking>>,
@@ -97,6 +102,14 @@ fn click(
     let Some(cell) = cell_under(at) else {
         return;
     };
+    if art.is_some_and(|art| art.0.is_some()) {
+        sounds.write(sfx::Play {
+            sound: sfx::Of::Id(PUT_FAILED),
+            at: None,
+            rate: (0.5, sfx::Roll::None),
+        });
+        return;
+    }
     let Some(held) = pack.held.clone() else {
         // Shift's press goes to the shops, the stash or the ground (`0x6C0150`, [`drop_shifted`]),
         // never onto the cursor.
