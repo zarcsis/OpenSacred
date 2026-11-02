@@ -205,7 +205,14 @@ pub(crate) fn resolve(
         Without<Dies>,
     >,
     played: Option<Res<crate::drops::Played>>,
+    (difficulty, mut pack, mut piles, mut sounds): (
+        Option<Res<crate::game::Difficulty>>,
+        Option<ResMut<crate::pickup::Pack>>,
+        MessageWriter<crate::drops::PileFromHit>,
+        MessageWriter<crate::sfx::Play>,
+    ),
 ) {
+    let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
     for hit in hits.read() {
         // The attacker's own health, which its wounds' damage takes (`0x549460`).
         let attacker_health = targets
@@ -304,6 +311,26 @@ pub(crate) fn resolve(
                 hit.attacker, hit.target
             );
         }
+        // The struck hero's gold for its health: its items' effect 866 and its sets' part, held
+        // at the difficulty's most (`0x56D805`, #1779); the creatures carry no gold.
+        if side == Some(Side::Defender)
+            && let Some(guarded) = guarded
+            && let Some(pack) = pack.as_deref()
+        {
+            let value = opensacred_rules::fight::item_effect(
+                &guarded.0.items,
+                opensacred_rules::fight::GOLD_FOR_HEALTH,
+                None,
+            );
+            let value = guarded
+                .0
+                .sets
+                .gold_for_health(value)
+                .min(opensacred_rules::fight::gold_for_health_cap(difficulty));
+            if value > 0.0 {
+                blow.gold = Some((value, pack.gold));
+            }
+        }
         let landed = match (hit.sure, hit.art) {
             (true, _) => Some(sure_landed(&attacker, &defender, blow, &mut dice.0)),
             (false, Some(art)) => art_landed(&attacker, &defender, blow, art, &mut dice.0),
@@ -319,6 +346,18 @@ pub(crate) fn resolve(
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
+        // The gold that paid the strike, through the gold adder, which sounds it, and the strike's
+        // block sounds it once more (`0x57FD80`, `0x56D9E8`).
+        if landed.paid > 0
+            && let Some(pack) = pack.as_deref_mut()
+        {
+            pack.gold = pack.gold.saturating_sub(landed.paid);
+            debug!(
+                "fight: {} pays {} gold of {} for its health",
+                hit.target, landed.paid, hit.attacker
+            );
+            sounds.write_batch([crate::pickup::gold_sound(), crate::pickup::gold_sound()]);
+        }
         // Its poison, where it passes the target's resistance (`0x56DFC8`, #1354); none of the
         // poison's own strikes, of the kind 17.
         if !hit.poison
@@ -436,6 +475,21 @@ pub(crate) fn resolve(
                 }
                 None => damage,
             };
+        // A gold pile that the hit makes the struck one drop: the attacker's items' effect 856 and
+        // its sets' part, held at the damage and at the health before the hit (`0x56F679`, #1779).
+        let pile =
+            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::GOLD_PILE, None);
+        let pile = holding.map_or(pile, |holding| holding.0.sets.gold_pile(pile));
+        if let Some((item, most)) =
+            opensacred_rules::fight::gold_pile(pile, damage, health.current, &mut dice.0)
+        {
+            piles.write(crate::drops::PileFromHit {
+                creature: hit.target,
+                item,
+                most,
+            });
+            sounds.write(crate::pickup::gold_sound());
+        }
         if !immortal {
             health.current = health.current.saturating_sub(damage);
         }
@@ -1033,6 +1087,8 @@ mod tests {
             .add_message::<crate::voices::Speak>()
             .add_message::<crate::sfx::Blow>()
             .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()

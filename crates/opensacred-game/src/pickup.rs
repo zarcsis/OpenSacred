@@ -47,6 +47,16 @@ const PUT_METAL: u32 = 7005;
 pub const INTO_THE_PACK: u32 = 7103;
 pub const QUESTS_ITEM: u32 = 7117;
 
+/// The gold's sound, as the gold adder plays it (`0x57FD80`, the event (9, `0x83`)): `GOLD01` at a
+/// rate factor of 0.3 + 0.4 `rand()`/32767, not at a place.
+pub(crate) fn gold_sound() -> sfx::Play {
+    sfx::Play {
+        sound: sfx::Of::Id(GOLD),
+        at: None,
+        rate: (0.3, sfx::Roll::Share(0.4)),
+    }
+}
+
 /// The item that the hero was sent to by a click, which it takes as it stands near.
 #[derive(Component)]
 pub struct Picks(Entity);
@@ -663,11 +673,7 @@ impl Taking<'_, '_> {
                 return;
             }
             if lying.dropped.kind == Kind::Gold {
-                self.sounds.write(sfx::Play {
-                    sound: sfx::Of::Id(GOLD),
-                    at: None,
-                    rate: (0.3, sfx::Roll::Share(0.4)),
-                });
+                self.sounds.write(gold_sound());
             } else {
                 self.taken.write(Taken(lying.dropped.item));
                 // A `CreateObj`'s item keeps its use's function in the backpack (#1272).

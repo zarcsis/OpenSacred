@@ -3147,6 +3147,9 @@ pub struct Blow {
     /// The factor of each kind's damage let through its resistance: the hero's sets against the
     /// kind of the creature struck (`0x56CA85`…, `set_bonuses::Stats::against`, #1727), else 1.
     pub kinds: [f32; KINDS],
+    /// The defender's effect 866 and its gold, which may pay the strike's damage
+    /// ([`gold_for_health`], #1779), none where it has neither.
+    pub gold: Option<(f32, u32)>,
 }
 
 impl Default for Blow {
@@ -3159,6 +3162,7 @@ impl Default for Blow {
             weapons: 1.0,
             cap: None,
             kinds: [1.0; KINDS],
+            gold: None,
         }
     }
 }
@@ -3433,6 +3437,8 @@ pub fn art_attack_factor(level: u32) -> f64 {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Landed {
     pub damage: u32,
+    /// The defender's gold that paid the damage, 0 where none did ([`gold_for_health`]).
+    pub paid: u32,
     pub poison: [f32; 3],
     pub rolled: [f32; KINDS],
     pub resistance: [f32; KINDS],
@@ -3505,8 +3511,10 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice)
         })
         .collect();
     let total: f32 = through.iter().sum();
+    let (damage, paid) = taken(total, blow, rng);
     Landed {
-        damage: taken(total, blow.share, blow.weapons, blow.cap),
+        damage,
+        paid,
         poison: [rolled[POISON], defender.resistance[POISON], through[POISON]],
         rolled: std::array::from_fn(|k| rolled.get(k).copied().unwrap_or(0.0)),
         resistance: defender.resistance,
@@ -3588,19 +3596,78 @@ pub fn poison_tick(gathered: u32, value: f32, dt: f32) -> (u32, Option<u32>) {
 }
 
 /// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
-/// times the factor of the attacker's level `weapons` ([`weapons_factor`], at `0x56D05C`), the
-/// product on the x87 unit stored as a float, times the strike's factor `factor` ([`scaled`]),
-/// at least 1; held at `cap` where that is below it (`0x56DA8E`); rounded to the nearest whole, a
-/// half up, as the resolution adds a half before it truncates (`0x56DAA1`; nothing between the sum
-/// and there takes a half off, #1134; the skills' specials and the effects between are not read).
-fn taken(sum: f32, factor: f32, weapons: f64, cap: Option<f64>) -> u32 {
-    let sum = stored(weapons * f64::from(sum));
-    let damage = scaled(sum, factor).max(1.0);
-    let damage = match cap {
+/// times the factor of the attacker's level, the blow's `weapons` ([`weapons_factor`], at
+/// `0x56D05C`), the product on the x87 unit stored as a float, times the strike's factor, its
+/// `share` ([`scaled`]), at least 1; paid from the defender's gold where its effect 866 holds
+/// ([`gold_for_health`]); held at the blow's `cap` where that is below it (`0x56DA8E`); rounded to
+/// the nearest whole, a half up, as the resolution adds a half before it truncates (`0x56DAA1`;
+/// nothing between the sum and there takes a half off, #1134; the skills' specials and the stun
+/// between are not read). The damage and the gold that paid it.
+fn taken(sum: f32, blow: Blow, rng: &mut impl Dice) -> (u32, u32) {
+    let sum = stored(blow.weapons * f64::from(sum));
+    let mut damage = scaled(sum, blow.share).max(1.0);
+    let mut paid = 0;
+    if let Some((value, gold)) = blow.gold {
+        (damage, paid) = gold_for_health(damage, (value, gold), rng);
+    }
+    let damage = match blow.cap {
         Some(cap) if cap < f64::from(damage) => stored(cap),
         _ => damage,
     };
-    whole_f64(f64::from(damage) + 0.5)
+    (whole_f64(f64::from(damage) + 0.5), paid)
+}
+
+/// The effect 866 of a defender of the gold `gold` against a strike's float damage `damage`
+/// (`0x56D805`–`0x56DA00`, #1779): of the value `value` above 0, a roll of `R(0, 100)` below it
+/// pays the whole damage from the gold, the damage 0 and the gold its truncation less where the
+/// gold holds it, else the gold all gone and the damage less it; the damage and the gold paid.
+pub fn gold_for_health(damage: f32, (value, gold): (f32, u32), rng: &mut impl Dice) -> (f32, u32) {
+    if value <= 0.0 {
+        return (damage, 0);
+    }
+    let roll = rng.below(101);
+    if f64::from(roll) >= f64::from(value) || gold == 0 {
+        return (damage, 0);
+    }
+    if f64::from(gold) >= f64::from(damage) {
+        (0.0, whole_u32(f64::from(damage)))
+    } else {
+        (stored(f64::from(damage) - f64::from(gold)), gold)
+    }
+}
+
+/// The effects of the gold for the health and of the gold pile from a hit (#1779).
+pub const GOLD_FOR_HEALTH: u32 = 866;
+pub const GOLD_PILE: u32 = 856;
+
+/// The gold pile that a hit makes its defender drop by the attacker's effect 856
+/// (`0x56F679`–`0x56F843`, #1779): of the value `value` above 0, a roll of `R(0, 100)` below it
+/// makes a pile of the type of coins' flips (5132 in one of two, else 5133 in one of two, else
+/// 5134 in one of two, else 5135), its amount held at most at the whole damage `damage` and at
+/// the defender's health before the hit `health`; the type and that most.
+pub fn gold_pile(value: f32, damage: u32, health: u32, dice: &mut impl Dice) -> Option<(u32, u32)> {
+    if value <= 0.0 {
+        return None;
+    }
+    let roll = dice.below(101);
+    if f64::from(roll) >= f64::from(value) {
+        return None;
+    }
+    let pile = if dice.below(2) != 0 {
+        5132
+    } else if dice.below(2) != 0 {
+        5133
+    } else if dice.below(2) != 0 {
+        5134
+    } else {
+        5135
+    };
+    Some((pile, damage.min(health)))
+}
+
+/// The most of the effect 866's value by the difficulty, 40 to 80 (`0x890974`…).
+pub fn gold_for_health_cap(difficulty: Difficulty) -> f32 {
+    [40.0, 50.0, 60.0, 70.0, 80.0][difficulty.index()]
 }
 
 /// A strike's damage `total` times its factor `factor` (the event's `+0x1C`, `0x56B130`) where the
@@ -4269,6 +4336,7 @@ mod tests {
     fn a_poison_passing_its_resistance_by_more_than_99_poisons_at_once() {
         let landed = |p, q, through| Landed {
             damage: 1,
+            paid: 0,
             poison: [p, q, through],
             ..Landed::default()
         };
@@ -4324,6 +4392,7 @@ mod tests {
     fn a_poison_passing_its_resistance_a_little_poisons_by_a_roll() {
         let landed = Landed {
             damage: 1,
+            paid: 0,
             poison: [60.0, 10.0, 51.0],
             ..Landed::default()
         };
@@ -5166,6 +5235,24 @@ mod tests {
         assert_eq!(negative.bands.factor(1), 1.0);
     }
 
+    /// [`taken`] of a blow of the factor `factor`, the level's factor `weapons` and the cap
+    /// `cap`, of no gold.
+    fn plain(sum: f32, factor: f32, weapons: f64, cap: Option<f64>) -> u32 {
+        struct NoRoll;
+        impl Dice for NoRoll {
+            fn below(&mut self, _: u32) -> u32 {
+                unreachable!("a blow of no gold rolls nothing")
+            }
+        }
+        let blow = Blow {
+            share: factor,
+            weapons,
+            cap,
+            ..Blow::default()
+        };
+        taken(sum, blow, &mut NoRoll).0
+    }
+
     #[test]
     fn a_goblins_strikes_at_the_seraphim_take_what_the_originals_took() {
         // The original's strikes of a goblin warrior (76) of level 1 at the Seraphim of level 1
@@ -5182,13 +5269,13 @@ mod tests {
         for (rolled, through, health) in lost {
             let sum = dealt(rolled, resistance, 1.0);
             assert!((sum - through).abs() < 1e-4, "{rolled}: {sum}");
-            assert_eq!(taken(sum, 1.0, factor, None), health, "{rolled}");
+            assert_eq!(plain(sum, 1.0, factor, None), health, "{rolled}");
             // Without the factor, the 17, 15 and 15 the game took before.
-            assert!(taken(sum, 1.0, 1.0, None) >= 15);
+            assert!(plain(sum, 1.0, 1.0, None) >= 15);
         }
         // Half a strike, and at least 1.
-        assert_eq!(taken(15.384_771, 0.5, factor, None), 5);
-        assert_eq!(taken(0.4, 1.0, factor, None), 1);
+        assert_eq!(plain(15.384_771, 0.5, factor, None), 5);
+        assert_eq!(plain(0.4, 1.0, factor, None), 1);
     }
 
     #[test]
@@ -5205,9 +5292,9 @@ mod tests {
         assert!((niobium.player_cap(1) - 2.0 * cap).abs() < 1e-6);
         // A strike above the cap takes the cap, rounded, one below it is kept, and none is held
         // without it.
-        assert_eq!(taken(500.0, 1.0, 1.0, Some(cap)), 75);
-        assert_eq!(taken(60.0, 1.0, 1.0, Some(cap)), 60);
-        assert_eq!(taken(500.0, 1.0, 1.0, None), 500);
+        assert_eq!(plain(500.0, 1.0, 1.0, Some(cap)), 75);
+        assert_eq!(plain(60.0, 1.0, 1.0, Some(cap)), 60);
+        assert_eq!(plain(500.0, 1.0, 1.0, None), 500);
         // The hero struck by a creature carries the cap; a creature struck by the hero none.
         let combat = combat(&a_wolf(), 1, Holds::default(), &[], &bronze);
         let (_, _, blow) = weighed(combat, combat, Some(Side::Defender), (1, 1), &bronze);
@@ -6205,6 +6292,58 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_gold_pays_a_strike_and_a_hit_drops_a_pile_as_the_originals() {
+        struct Rolls(Vec<u32>);
+        impl Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let roll = self.0.remove(0);
+                assert!(roll < n, "{roll} below {n}");
+                roll
+            }
+        }
+        // 866 at 20: the rolls 0 to 19 of 101 hold. The gold that holds the damage pays its
+        // truncation and the damage is 0; less gold pays all of it and the rest is taken.
+        assert_eq!(
+            gold_for_health(37.8, (20.0, 100), &mut Rolls(vec![19])),
+            (0.0, 37)
+        );
+        assert_eq!(
+            gold_for_health(37.8, (20.0, 10), &mut Rolls(vec![0])),
+            (stored(27.8), 10)
+        );
+        assert_eq!(
+            gold_for_health(37.8, (20.0, 100), &mut Rolls(vec![20])),
+            (37.8, 0)
+        );
+        // The roll is drawn with no gold too; at no value, none.
+        let mut dice = Rolls(vec![3]);
+        assert_eq!(gold_for_health(37.8, (20.0, 0), &mut dice), (37.8, 0));
+        assert!(dice.0.is_empty());
+        assert_eq!(
+            gold_for_health(37.8, (0.0, 100), &mut Rolls(Vec::new())),
+            (37.8, 0)
+        );
+        assert!((gold_for_health_cap(Difficulty::Bronze) - 40.0).abs() < f32::EPSILON);
+        assert!((gold_for_health_cap(Difficulty::Niobium) - 80.0).abs() < f32::EPSILON);
+        // 856 at 10: a roll of 9 holds; the coins 0, 1 make 5133; the pile at most the damage
+        // and the health before the hit.
+        assert_eq!(
+            gold_pile(10.0, 50, 30, &mut Rolls(vec![9, 0, 1])),
+            Some((5133, 30))
+        );
+        assert_eq!(
+            gold_pile(10.0, 50, 300, &mut Rolls(vec![0, 1])),
+            Some((5132, 50))
+        );
+        assert_eq!(
+            gold_pile(10.0, 50, 300, &mut Rolls(vec![0, 0, 0, 0])),
+            Some((5135, 50))
+        );
+        assert_eq!(gold_pile(10.0, 50, 300, &mut Rolls(vec![10])), None);
+        assert_eq!(gold_pile(0.0, 50, 300, &mut Rolls(Vec::new())), None);
     }
 
     #[test]

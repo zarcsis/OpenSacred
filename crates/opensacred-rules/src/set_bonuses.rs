@@ -501,6 +501,11 @@ pub enum Reader {
     /// The wounds' damage's value (the effect 867, a per cent) grows by `c·D` (M10, `0x56E178`,
     /// `0x56E1F4`; `fight::wounded`).
     Wounds(f32),
+    /// The struck hero's effect 866's value grows by `c·D` (M4, `0x56D83F`;
+    /// `fight::gold_for_health`).
+    GoldForHealth(f32),
+    /// The effect 856's value of a hit grows by `c·D` (M14, `0x56F68F`; `fight::gold_pile`).
+    GoldPile(f32),
 }
 
 /// The `Creature.pak` classes that the strike's readers test (M1).
@@ -550,6 +555,8 @@ pub const READERS: &[Read] = &[
     read(29, 5, Reader::Critical(6.0)),
     read(26, 6, Reader::Wounds(0.1)),
     read(62, 4, Reader::Wounds(0.2)),
+    read(16, 6, Reader::GoldForHealth(30.0)),
+    read(30, 5, Reader::GoldPile(10.0)),
     read(29, 3, Reader::Sight(50.0, 0)),
     read(52, 4, Reader::Sight(100.0, 1)),
     read(57, 6, Reader::Sight(100.0, 1)),
@@ -655,6 +662,28 @@ impl Stats {
             .reads()
             .fold(value, |value, read| match read.reads {
                 Reader::Wounds(c) => value + c * self.factor,
+                _ => value,
+            })
+    }
+
+    /// The effect 866's value `value` of the wearer's items, grown by its sets
+    /// ([`Reader::GoldForHealth`]).
+    pub fn gold_for_health(&self, value: f32) -> f32 {
+        self.worn
+            .reads()
+            .fold(value, |value, read| match read.reads {
+                Reader::GoldForHealth(c) => value + c * self.factor,
+                _ => value,
+            })
+    }
+
+    /// The effect 856's value `value` of the wearer's items, grown by its sets
+    /// ([`Reader::GoldPile`]).
+    pub fn gold_pile(&self, value: f32) -> f32 {
+        self.worn
+            .reads()
+            .fold(value, |value, read| match read.reads {
+                Reader::GoldPile(c) => value + c * self.factor,
                 _ => value,
             })
     }
@@ -821,6 +850,13 @@ pub enum Told {
     Critical(f32),
     /// The wounds' value's per cent more, `c·D` ([`Reader::Wounds`]).
     Wounds(f32),
+    /// The effect 866's value more, `c·D` held at the difficulty's most of it
+    /// ([`Reader::GoldForHealth`], `fight::gold_for_health_cap`): the per cent chance that a hit
+    /// is paid from the gold.
+    GoldForHealth(f32),
+    /// The effect 856's value more, `c·D` ([`Reader::GoldPile`]): the per cent chance that a hit
+    /// makes its defender drop a gold pile.
+    GoldPile(f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -859,6 +895,10 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 Reader::RangedDefence(c) => Told::RangedDefence(c * d),
                 Reader::Critical(c) => Told::Critical(c * d),
                 Reader::Wounds(c) => Told::Wounds(c * d),
+                Reader::GoldForHealth(c) => {
+                    Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
+                }
+                Reader::GoldPile(c) => Told::GoldPile(c * d),
             };
             Some((read.pieces, line))
         });
