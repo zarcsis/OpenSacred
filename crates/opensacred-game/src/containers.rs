@@ -263,12 +263,13 @@ fn open(
 }
 
 /// The record of `FillChest` (`0x4A02A0`) and its operands' tags: a container's name, a type, the
-/// value and the count of books.
+/// value, the count of books and the count of random items.
 const FILL_CHEST: u16 = 78;
 const NAME: u8 = 0x01;
 const ITEM: u8 = 0x02;
 const VALUE: u8 = 0x53;
 const BOOKS: u8 = 0x86;
+const RANDOMS: u8 = 0x57;
 /// How far about the hero a container's items land, along each axis (`0x5C9BA0`: `R(20, 50)`).
 const LANDS_FROM: u32 = 20;
 const LANDS_TO: u32 = 50;
@@ -307,6 +308,9 @@ fn fill_of(record: &Record) -> Fill {
         value: number(VALUE),
         item: number(ITEM).and_then(|n| u32::try_from(n).ok()),
         books: number(BOOKS)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0),
+        randoms: number(RANDOMS)
             .and_then(|n| u32::try_from(n).ok())
             .unwrap_or(0),
         named: ops.iter().any(|op| op.tag == NAME),
