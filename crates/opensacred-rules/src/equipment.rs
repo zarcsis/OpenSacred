@@ -365,6 +365,37 @@ pub fn handed(grip: Grip, hands: Hands, two_weapons: bool) -> Option<Handing> {
     Some(Handing { into, off })
 }
 
+/// An item's worth to a hireling that compares it with its hands' (its object's query 4,
+/// `cWeapon3D`'s `0x5CED50`): the sum of its four kinds' most damages, its record's whole numbers
+/// (`+0x24` to `+0x2A`).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a record's damage, a whole number of 16 bits stored as a float"
+)]
+pub fn hand_worth(values: &crate::fight::ItemValues) -> i32 {
+    values.damage.iter().map(|&[_, most]| most as i32).sum()
+}
+
+/// How an item of the worth `given` compares with the items of the worths `left` and `right` that
+/// a hireling's hands held, each at least 1, in hundredths (`0x6D6660`, the event (8, `0x10`)'s
+/// value): `s = (given/(left + right) − 1)/2 + 1/2`, held between 0 and 1, stored as a float, then
+/// times 100 and truncated (`0x6D6AA2`).
+pub fn compared(given: i32, left: i32, right: i32) -> u32 {
+    let held = f64::from(left.max(1)) + f64::from(right.max(1));
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the share stored as the float of the x87 unit's value"
+    )]
+    let s = ((f64::from(given) / held - 1.0) * 0.5 + 0.5).clamp(0.0, 1.0) as f32;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a share of 0 to 1 in hundredths"
+    )]
+    let value = (f64::from(s) * 100.0) as u32;
+    value
+}
+
 /// How a slot of the equipment window glows while the cursor holds an item (docs/re/inventory.md,
 /// §4; seen with a potion held, every slot red): green where it takes the item and the hero may
 /// use it, red otherwise; white with nothing held.
@@ -558,6 +589,24 @@ mod tests {
             right: one,
         };
         assert_eq!(handed(bow, full, false), None);
+    }
+
+    #[test]
+    fn a_hireling_compares_an_item_given_with_its_hands_old_ones() {
+        // Into empty hands, each counted at 1: as good as it gets (seen in the original: 100).
+        assert_eq!(compared(30, 0, 0), 100);
+        // A weapon of 40 for one of 39 and the empty hand's 1: the middle; for one of 40, a
+        // little below it.
+        assert_eq!(compared(40, 39, 0), 50);
+        assert_eq!(compared(40, 40, 0), 48);
+        // Half as good: a quarter; none, a shield's: 0; three times: held at 1.
+        assert_eq!(compared(20, 39, 0), 25);
+        assert_eq!(compared(0, 40, 0), 0);
+        assert_eq!(compared(120, 40, 0), 100);
+        let mut sword = crate::fight::ItemValues::default();
+        sword.damage[0] = [10.0, 25.0];
+        sword.damage[1] = [2.0, 6.0];
+        assert_eq!(hand_worth(&sword), 31);
     }
 
     #[test]

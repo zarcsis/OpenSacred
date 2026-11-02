@@ -342,7 +342,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Hero's comments in the fight | `0x6852B0`, `0x68BEA0` | `KILLENEMY`, `BOSSMOB`, `ENDMOB`, `ENEMYHITME`, `ENEMYTOOSTRONG`, `ENEMYTOOWEAK`, `ENEMYTYPE`, `BREATHING`, `FOE_ON_THE_RUN`, `ENEMYFLEES` | below | yes | all (`voices`, #1175); `ENDMOB` never plays |
 | Hero's comments in the world | (9, `0x30`, `0x35`, `0x3F`, `0x40`, `0xCC`, `0x100`), `0x696060` | `REGIONTOOSTRONG`/`WEAK`, `REGIONPACIFIED`, `APPROACHQLOC`, `GETNQ`, `COMEINTOTOWN`/`VILLAGE`, `CANCELMYIDLE`, `REJECTNQ` | below | partly | all (`remarks`, #1246, #1247, `APPROACHQLOC` #1563) |
 | Hero's comments on items and damage | (8, 1–4), (9, 4, 6, 7, 8, `0xCA`, `0xCB`) | `CM_*`, `NOTMYITEM`, `NOTMYITEMLVL`, `NOARMOR*`, `NOWEAPON*` | below | partly (`equipment`, `sets`) | `NOTMYITEM` and `NOTMYITEMLVL` (#1289) |
-| Companions' click lines, equipment remarks | (9, `0x5C`), (8, `0x10`) | `*_HIRELING_ONCLICK*`, `SFX_CLICKMYSH*`, `*_EQUIPINVALID*`, `SFX_GIVE*` | a click on a companion; its equipment | the clicks (`remarks`, #1674) | no |
+| Companions' click lines, equipment remarks | (9, `0x5C`), (8, `0x10`) | `*_HIRELING_ONCLICK*`, `SFX_CLICKMYSH*`, `*_EQUIPINVALID*`, `SFX_GIVE*` | a click on a companion; its equipment | the clicks (`remarks`, #1674), the equipment's (#1733) | no |
 | Interface windows | (14, 2) | 7000, 7104, 7106, 7108–7112 | a window or a page shows, a bar's button is pressed | yes (`inventory` and the windows', #1767) | 7112 and 7000 as the original's traces play them (#1267, #1722, #1767) |
 | Inventory | (9, 1, 2, 3, 5), `0x5D8000`, `0x5CAA60` | `UI_INV_*`, 7001/7003/7008, 7006 | an item put, refused, used; a potion drunk | partly (`held`, `belt`) | the put sounds (#1269); 7001, 7003, 7008 and 7006 (#1311) |
 | Runes read | `0x5CD100` → (7, 2) | 7010 (7009, 7011 by 7/3, 7/1) | an art learned | yes (`runes`, #1315) | no |
@@ -524,6 +524,25 @@ All are MP3 lines by name (`0x693FE0`), one at a time, `+0xB7E8` the seconds sin
   `opensacred-game` follows them since #1673 (`opensacred_rules::fight::armour_comment`, `weapon_comment`, `remarks`, the clock `voices::Voices::commented`), the magic's and the poison's tests weighing their own shares since #1739 (docs/decisions/sound.md, "Armour and weapon remarks weigh their own kind"); **seen** in the game: a goblin's first strike on the Seraphim made her say `NOARMORNORMAL_SERA`, its next within 400 s nothing.
 - **Found in no code** (no string, no constant): `QUESTSOLVED`, `COMBATBREATH`, `HIT_BY_FOE`, `IDLE_BREATH`, `COMBATSPE`, `REGIONFIRE`/`MAGIC`/`NORMAL`/`POISON`/`UNDEAD`, `NOWEAPONUNDEAD`, `NOTMYHORDE`, `CHARACTER` (**hypothesis**: unused, or named by the scripts' `PlaySound`).
 - The companions: a click on a hireling of the type 361 or on one of nine named companions (by the creature's name, `0x672BA0`) plays one of its four click lines, one in four, when no line plays (9, `0x5C`, from the mouse handler `0x6172C0`; this corrects docs/re/items.md's hypothesis of a click's sound); a hireling's equipment (8, `0x10`, from `0x6D6760`) plays its remark by its type (77, 83, 224, 322, 323, 361) and the event's value, below 41 or from 70, which tells how the item given compares with the hands' old items, not a health's share (docs/re/ai.md, "A hireling's hands").
+  Read 2026-11-02 (#1733, by code): the case of (8, `0x10`) rolls `rand() % 4` first (at `0x681B9B`); then for a value below 41 one of four lines of an item worse, from 70 one of four of an item better, between them none; by the key of the hireling's name that the event carries (`sdk_REFKEY`, `0x44A1C0`: its `CreateNPC` name's number, else its type), the four sound ids in a row from the first:
+
+  | Key | Worse | Better |
+  |---|---|---|
+  | 77 | 19243 | 19271 |
+  | 83 | 19267 | 19295 |
+  | 224 | 20842 | 20846 |
+  | 322 | 19259 | 19287 |
+  | 323 | 19251 | 19279 |
+  | 361 | 20704 | 20708 |
+  | 368 | 20781 | 20785 |
+  | 677 to 679 | 19247 | 19275 |
+  | 697 | 19255 | 19283 |
+  | 699 | 19263 | 19291 |
+
+  Another key says nothing.
+  The line plays only while no line by name plays (`+0xB7E0` −1), by its sound's name (`0x6761C0`, then `0x693FE0`, at the hero as the other comments), and sets the comments' clock `+0xB7E8` and `+0xB7EC` to 0.
+  The switch of the event 8 has the cases 1 to 4 and `0x10` alone, so a hireling's refusal (8, `0x11`) plays nothing, and no code names a `*_EQUIPINVALID*` line (**hypothesis**: unused).
+  `opensacred-game` follows it since #1733 (`remarks::Remark::Equipment`, posted by `mercenaries`); **seen** in the game: the hireling 322 given a sword into empty hands, the value 100 as in the original, said its third line of an item better (19289).
   Read 2026-11-01 (#1674, by code): the case of (9, `0x5C`) (`0x67E645`) returns at once while a line by name plays (`0x67E691`), before its roll of one in four; it names the line by the creature's type first, 361 `GARGADUKNQ`, 368 `PRUTUKNQ` and 224 `VILYANQ` (`SOUND_FX_<stem>_HIRELING_ONCLICK01` to `04`), else by its name's text, compared with nine names in turn (`SOUND_FX_SFX_CLICKMYSH<stem>_1` to `_4`; Wilbur's first is `SFX_CLICKMYSH_WILBUR_1`).
   Two of the nine names are German, "Novizin" and "Prinz Valor", and match no text of the English `global.res`.
   **Seen** in the original (#1674, a trace of the event): a click on quest 1's novice, who has a dialogue, posted the event; a click on a creature of the type 361 spawned without one did not: what `0x6172C0` tests before it posts (its call at `0x617414` among them) is not read.

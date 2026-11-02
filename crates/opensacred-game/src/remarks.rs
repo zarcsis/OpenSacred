@@ -26,6 +26,11 @@
 //! resist and `NOWEAPON<kind>` as its weak strike does not get through (`fight`'s resolution,
 //! `0x56DE0C`, `0x56DF73`), lost within 400 s of the last comment, else said with no roll and the
 //! comments' clock set back (`0x67F38B`, `0x67EF8C`).
+//!
+//! On a hireling's hands (#1733): the hireling given an item through its portrait says one of its
+//! four lines of an item worse than its hands' old ones, or of one better, by its name's key
+//! (`mercenaries`, the event (8, `0x10`)), while no line by name plays, the comments' clock set
+//! back.
 
 use std::collections::HashMap;
 
@@ -84,6 +89,10 @@ pub enum Remark {
     /// A creature of the type `creature` clicked on (9, `0x5C`, from the mouse handler
     /// `0x6172C0`, #1674): a hireling's or a companion's click line.
     Click { creature: u32, entity: Entity },
+    /// A hireling of the name's key `key` (`sdk_REFKEY`) given an item through its portrait,
+    /// which compares with its hands' old ones as `value` hundredths (8, `0x10`, from `0x6D6760`,
+    /// `opensacred_rules::equipment::compared`; #1733).
+    Equipment { key: u32, value: u32 },
 }
 
 /// The hirelings whose clicks speak by their types, and the stems of their lines (`0x67E645`).
@@ -118,6 +127,41 @@ fn click_line(creature: u32, name: Option<&str>, n: u32) -> Option<String> {
     })
 }
 
+/// The hirelings' lines of an item given (the case of (8, `0x10`)): by the keys of their names
+/// from the first to the last, the first sound id of their four lines of an item worse than their
+/// hands' old ones and of their four of one better, each four in a row.
+const EQUIPMENT_LINES: [(u32, u32, u32, u32); 10] = [
+    (77, 77, 19243, 19271),
+    (83, 83, 19267, 19295),
+    (224, 224, 20842, 20846),
+    (322, 322, 19259, 19287),
+    (323, 323, 19251, 19279),
+    (361, 361, 20704, 20708),
+    (368, 368, 20781, 20785),
+    (677, 679, 19247, 19275),
+    (697, 697, 19255, 19283),
+    (699, 699, 19263, 19291),
+];
+/// The values below which an item given is worse, and from which it is better; between them the
+/// hireling says nothing.
+const WORSE_BELOW: u32 = 41;
+const BETTER_FROM: u32 = 70;
+
+/// The sound id of the line `n`, from 0, of the four that a hireling of the name's key `key` says
+/// of an item given that compares as `value` (the case of (8, `0x10`)); none between the bands or
+/// for another key.
+fn equipment_line(key: u32, value: u32, n: u32) -> Option<u32> {
+    let &(.., worse, better) = EQUIPMENT_LINES
+        .iter()
+        .find(|&&(first, last, ..)| (first..=last).contains(&key))?;
+    let first = match value {
+        v if v < WORSE_BELOW => worse,
+        v if v >= BETTER_FROM => better,
+        _ => return None,
+    };
+    Some(first + n)
+}
+
 /// The kinds' words of the `NOARMOR` and `NOWEAPON` lines, from the kind 1.
 const KIND_WORDS: [&str; 4] = ["NORMAL", "FIRE", "MAGIC", "POISON"];
 /// The seconds since the last comment below which the strike's comments are lost (`0x67F38B`,
@@ -136,7 +180,7 @@ impl Remark {
             Self::CantCarry => 11,
             Self::Approach => 6,
             Self::Armour { .. } | Self::Weapon { .. } => 1,
-            Self::Click { .. } => 4,
+            Self::Click { .. } | Self::Equipment { .. } => 4,
         }
     }
 
@@ -172,8 +216,9 @@ impl Remark {
                 };
                 format!("SOUND_FX_{stem}{word}_{class}")
             }
-            // The clicked creature's own line, of its type or its name ([`click_line`]).
-            Self::Click { .. } => return None,
+            // The clicked creature's own line, of its type or its name ([`click_line`]), and the
+            // hireling's by its sound id ([`equipment_line`]).
+            Self::Click { .. } | Self::Equipment { .. } => return None,
             // Six of the town, then six of the village, by consecutive ids: the Wood Elf, who
             // lacks her fifth of the village, says her fourth for it.
             Self::Settlement { .. } if n <= 6 => format!("SOUND_FX_COMEINTOTOWN_{n:02}_{class}"),
@@ -560,11 +605,26 @@ fn remark(
             }
             _ => post.name(hero.creature, n),
         };
-        let Some(name) = name else {
-            continue;
+        let line = match (post, &name) {
+            (_, Some(name)) => sfx.named(name),
+            // A hireling's line, by its sound id, while no line by name plays; the comments' clock
+            // set back as it plays (`0x6821E0`).
+            (Remark::Equipment { key, value }, None) => {
+                let Some(id) = equipment_line(key, value, n) else {
+                    continue;
+                };
+                if named.plays(&audio) {
+                    continue;
+                }
+                if let Some(voices) = voices.as_mut() {
+                    voices.clock_back(now);
+                }
+                sfx.with_id(id)
+            }
+            (_, None) => continue,
         };
-        let Some((id, file)) = sfx.named(&name) else {
-            debug!("remarks: no line {name}");
+        let Some((id, file)) = line else {
+            debug!("remarks: no line {name:?} of {post:?}");
             continue;
         };
         let waits = matches!(post, Remark::Settlement { .. } | Remark::Approach);
@@ -581,7 +641,10 @@ fn remark(
         if volume <= 0.0 {
             continue;
         }
-        debug!("remarks: the hero says {name}");
+        debug!(
+            "remarks: {post:?} says {}",
+            name.as_deref().unwrap_or(&file)
+        );
         let sample = sfx.sample(id, file, &assets);
         let instance = audio
             .play(sample)
@@ -777,6 +840,18 @@ mod tests {
             Remark::Approach.name(1, 5).as_deref(),
             Some("SOUND_FX_APPROACHQLOC06_SERA")
         );
+    }
+
+    #[test]
+    fn a_hireling_given_an_item_says_a_line_of_its_band_by_its_key() {
+        // The hireling 322's fourth line of an item worse, its first of one better; nothing
+        // between the bands nor for a key without lines.
+        assert_eq!(equipment_line(322, 40, 3), Some(19262));
+        assert_eq!(equipment_line(322, 70, 0), Some(19287));
+        assert_eq!(equipment_line(322, 41, 0), None);
+        assert_eq!(equipment_line(322, 69, 0), None);
+        assert_eq!(equipment_line(678, 100, 1), Some(19276));
+        assert_eq!(equipment_line(76, 100, 1), None);
     }
 
     #[test]
