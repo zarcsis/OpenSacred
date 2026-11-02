@@ -751,6 +751,7 @@ fn pursue(
             Option<&crate::hero::Size>,
             Option<&crate::spells::Unseen>,
             Option<&crate::fight::Holding>,
+            Has<crate::hero_held::HeroHeld>,
         ),
         (With<Body>, Without<crate::npcs::Dies>),
     >,
@@ -780,7 +781,8 @@ fn pursue(
     ),
 ) {
     let dt = tick.seconds.unwrap_or_default();
-    let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding)) = hero.iter().next()
+    let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding, hero_held)) =
+        hero.iter().next()
     else {
         return;
     };
@@ -904,8 +906,7 @@ fn pursue(
                 now,
                 at_hero: foe.is_none(),
                 hero_level,
-                // The stone, which the game does not follow yet, held back as on a hero held.
-                held: !crate::creature_casts::follows(opensacred_rules::casts::STONE),
+                held: hero_held,
                 elite: rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common),
                 hostiles: 0,
                 crowded: nearest.hostiles.len() > 1,

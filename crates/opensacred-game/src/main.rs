@@ -68,6 +68,7 @@ mod guns;
 mod held;
 mod help;
 mod hero;
+mod hero_held;
 mod hover;
 mod hud;
 mod hurled;
@@ -426,6 +427,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         held::HeldPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
+        hero_held::HeroHeldPlugin,
         hover::HoverPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
@@ -435,9 +437,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         labels::LabelsPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
-        low_health::LowHealthPlugin,
     ))
     .add_plugins((
+        low_health::LowHealthPlugin,
         making::MakingPlugin,
         master::MasterPlugin,
         menu::MenuPlugin,

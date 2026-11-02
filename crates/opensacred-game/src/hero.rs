@@ -332,6 +332,24 @@ pub enum Arrival {
 }
 
 impl Body {
+    /// A body standing on the ground with no order, for the tests.
+    #[cfg(test)]
+    pub(crate) fn standing() -> Self {
+        Body {
+            order: None,
+            target: None,
+            onto: None,
+            level: None,
+            climbed: false,
+            moving: None,
+            stopping: None,
+            unplaced: false,
+            landing: None,
+            pinned: None,
+            course: None,
+        }
+    }
+
     pub fn moving(&self) -> Option<Gait> {
         self.moving
     }
@@ -964,6 +982,7 @@ pub fn run(
             Has<crate::making::Playing>,
             Has<crate::pickup::Picking>,
             Option<&crate::pickup::Collects>,
+            Has<crate::hero_held::HeroHeld>,
         ),
         Has<Dies>,
         Has<Flies>,
@@ -977,12 +996,16 @@ pub fn run(
         mut transform,
         mut body,
         striking,
-        (making, picking, collects),
+        (making, picking, collects, held),
         dying,
         flies,
         effects,
     ) in &mut bodies
     {
+        // Held, it stands still, its clip too (`hero_held`).
+        if held {
+            continue;
+        }
         let picking = picking || collects.is_some_and(crate::pickup::Collects::picks_up);
         // The Daemon in his form of 1094 wades where the ground is low (`0x4EBCA0` at
         // `0x4EBD62`, an effect keyed by 1094).
