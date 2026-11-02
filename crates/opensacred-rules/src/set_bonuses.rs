@@ -960,6 +960,8 @@ pub enum Told {
     Stun(f32),
     /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
     Unseen,
+    /// The per cent of a slain foe's drops of no type that are a potion ([`Reader::Potions`]).
+    Potions(f32),
 }
 
 /// The lines of the set `set` of `worn` on the difficulty `difficulty`, in the order of the pieces
@@ -983,32 +985,29 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
             };
             Some((entry.pieces, line))
         });
-    let readers = worn
-        .reads()
-        .filter(|read| read.set == set)
-        .filter_map(|read| {
-            let line = match read.reads {
-                Reader::Luck(c) => Told::Luck(c * d),
-                Reader::Exorcism(c) => Told::Exorcism(c * d),
-                Reader::Experience(c) => Told::Experience(c * d),
-                Reader::Survival(c) => Told::Survival(c * d),
-                Reader::IntoGold => Told::IntoGold,
-                Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
-                Reader::Potions => return None,
-                Reader::Sight(c, _) => Told::Sight(c * d),
-                Reader::RangedDefence(c) => Told::RangedDefence(c * d),
-                Reader::Critical(c) => Told::Critical(c * d),
-                Reader::Wounds(c) => Told::Wounds(c * d),
-                Reader::GoldForHealth(c) => {
-                    Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
-                }
-                Reader::GoldPile(c) => Told::GoldPile(c * d),
-                Reader::Exorcist(c) => Told::Exorcist(c * d),
-                Reader::Unseen => Told::Unseen,
-                Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
-            };
-            Some((read.pieces, line))
-        });
+    let readers = worn.reads().filter(|read| read.set == set).map(|read| {
+        let line = match read.reads {
+            Reader::Luck(c) => Told::Luck(c * d),
+            Reader::Exorcism(c) => Told::Exorcism(c * d),
+            Reader::Experience(c) => Told::Experience(c * d),
+            Reader::Survival(c) => Told::Survival(c * d),
+            Reader::IntoGold => Told::IntoGold,
+            Reader::Against(class, kinds, c) => Told::Against(class, kinds, c * d),
+            Reader::Potions => Told::Potions(crate::drops::set_potion_chance()),
+            Reader::Sight(c, _) => Told::Sight(c * d),
+            Reader::RangedDefence(c) => Told::RangedDefence(c * d),
+            Reader::Critical(c) => Told::Critical(c * d),
+            Reader::Wounds(c) => Told::Wounds(c * d),
+            Reader::GoldForHealth(c) => {
+                Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
+            }
+            Reader::GoldPile(c) => Told::GoldPile(c * d),
+            Reader::Exorcist(c) => Told::Exorcist(c * d),
+            Reader::Unseen => Told::Unseen,
+            Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
+        };
+        (read.pieces, line)
+    });
     let mut lines: Vec<(u8, Told)> = bonuses.chain(readers).collect();
     lines.sort_by_key(|&(pieces, _)| pieces);
     lines.into_iter().map(|(_, line)| line).collect()
