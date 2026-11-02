@@ -15,9 +15,8 @@ use std::collections::HashMap;
 
 use bevy::log::debug;
 use bevy::prelude::{
-    Added, App, AssetServer, Camera, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
-    MessageReader, MessageWriter, Plugin, Projection, Query, Res, ResMut, Resource, Update, Vec3,
-    With,
+    App, AssetServer, Camera, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
+    MessageReader, Plugin, Projection, Query, Res, ResMut, Resource, Update, Vec3, With,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
@@ -574,30 +573,10 @@ fn plays(
     }
 }
 
-/// The fire ghoul, which burns away as it dies (`DIEFLAMES`, #1168).
-const FIRE_GHOUL: u32 = 73;
-/// `DIEFLAMES`, the sound of a creature that burns away.
+/// `DIEFLAMES`, the sound of a creature that burns away (`undead`).
 pub(crate) const DIES_IN_FLAMES: u32 = 7029;
 /// `CHAR_SPLASH`, the sound of a creature that bursts (`0x4E8DA0`, `undead`, #1260).
 pub(crate) const SPLASH: u32 = 3000;
-
-/// A fire ghoul dying sounds `DIEFLAMES` at itself (the death's action, `0x53ECA0`, its case of
-/// the type 73 at `0x5416DD`); the magic skeletons and the undead goblins sound it as they burn
-/// away at their last death (`undead`, #1199).
-fn burns_away(
-    dying: Query<(Entity, &crate::ai::Mind), Added<crate::npcs::Dies>>,
-    mut sounds: MessageWriter<Play>,
-) {
-    for (creature, mind) in &dying {
-        if mind.thinks.creature == FIRE_GHOUL {
-            sounds.write(Play {
-                sound: Of::Id(DIES_IN_FLAMES),
-                at: Some(creature),
-                rate: (0.5, Roll::None),
-            });
-        }
-    }
-}
 
 /// The weapons whose miss an animal hears, by the types' names of a new game's tables.
 fn missing(mut commands: bevy::prelude::Commands, data: Option<Res<crate::game::Data>>) {
@@ -623,7 +602,7 @@ impl Plugin for SfxPlugin {
                 Update,
                 // The asked sounds play in a pause too, the interface's alone being asked then:
                 // the menu over a game's click as it shows (#1767).
-                (listen, (blows, burns_away).in_set(Unpaused), plays).chain(),
+                (listen, blows.in_set(Unpaused), plays).chain(),
             );
     }
 }
