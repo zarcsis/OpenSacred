@@ -380,10 +380,17 @@ fn send_shifted(
 /// The town stash's window.
 pub struct TownStashPlugin;
 
+/// Empties the town stash as a game starts, as a new hero's stash starts empty (#1970); a loaded
+/// save's is put back after it (`saves`).
+fn empty(mut chest: ResMut<Chest>) {
+    *chest = Chest::default();
+}
+
 impl Plugin for TownStashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Chest>()
             .init_resource::<Opened>()
+            .add_systems(OnEnter(AppState::InGame), empty)
             .add_systems(
                 Update,
                 (show, lay_out, click, tint)
@@ -424,5 +431,34 @@ mod tests {
                 .all(|&(i, at)| (15..=19).contains(&i) && at.y == 336.0)
         );
         assert!(pieces[20..].iter().all(|&(i, at)| i == 21 && at.y == 12.0));
+    }
+
+    #[test]
+    fn a_new_game_starts_with_an_empty_stash() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .init_state::<AppState>()
+            .init_resource::<Chest>()
+            .add_systems(OnEnter(AppState::InGame), empty);
+        app.update();
+        app.world_mut().resource_mut::<Chest>().items.push((
+            1,
+            Dropped {
+                kind: opensacred_rules::drops::Kind::Weapon,
+                item: 1712,
+                level: 1,
+                key: 16,
+                quality: 0,
+                amount: 1,
+                values: None,
+                named: None,
+                socketed: Vec::new(),
+            },
+        ));
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::InGame);
+        app.update();
+        assert_eq!(*app.world().resource::<Chest>(), Chest::default());
     }
 }
