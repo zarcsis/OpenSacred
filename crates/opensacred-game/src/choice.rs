@@ -45,7 +45,7 @@ use crate::menu::{self, Screen, Words};
 use crate::menu_sound::Introductions;
 use crate::ripples::{self, Pond, Ripples};
 use crate::sfx::{self, Sfx};
-use crate::{files, hud, motions, npcs};
+use crate::{files, hud, model_effects, motions, npcs};
 
 /// The figures' scene, which the main camera does not see.
 const FIGURES: usize = 1;
@@ -228,8 +228,16 @@ struct Figure {
 /// its light changes alone, and whether it stands lit.
 #[derive(Component, Default)]
 struct Shades {
-    materials: Vec<(Handle<StandardMaterial>, Color, f32)>,
+    materials: Vec<(Shaded, Color, f32)>,
     lit: Option<bool>,
+}
+
+/// A figure's own copy of a mesh's material: Bevy's own, or one over its item's effect of the
+/// kinds 1 to 4, which the original draws on the figures as on a game's models (`0x6F1B30`,
+/// `model_effects::ApartMaterial`; #1875).
+enum Shaded {
+    Plain(Handle<StandardMaterial>),
+    Over(Handle<model_effects::ApartMaterial>),
 }
 
 /// A mesh of a figure whose material is the figure's own.
@@ -1574,7 +1582,8 @@ fn dress(
 struct Idle(Handle<AnimationClip>);
 
 /// Puts the figures' scene's entities into the figures' scene, plays a figure's idle clip as its
-/// player comes, and gives its meshes copies of their materials of its own.
+/// player comes, and gives its meshes copies of their materials of its own, over their items'
+/// effects where they have one.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources one by one"
@@ -1585,9 +1594,15 @@ fn settle(
     children: Query<&Children>,
     layered: Query<(), With<RenderLayers>>,
     mut players: Query<&mut AnimationPlayer, Without<AnimationGraphHandle>>,
-    meshes: Query<&MeshMaterial3d<StandardMaterial>, Without<Owned>>,
+    meshes: Query<
+        (
+            &MeshMaterial3d<StandardMaterial>,
+            Option<&crate::models::Effect>,
+        ),
+        Without<Owned>,
+    >,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
+    (mut graphs, mut making): (ResMut<Assets<AnimationGraph>>, model_effects::Making),
 ) {
     for (figure, idle, mut shades) in &mut figures {
         for entity in children.iter_descendants(figure) {
@@ -1601,15 +1616,33 @@ fn settle(
                     .entity(entity)
                     .insert(AnimationGraphHandle(graphs.add(graph)));
             }
-            if let Ok(material) = meshes.get(entity)
-                && let Some(own) = materials.get(&material.0).cloned()
-            {
-                let (colour, reflectance) = (own.base_color, own.reflectance);
+            let Ok((material, effect)) = meshes.get(entity) else {
+                continue;
+            };
+            let Some(own) = materials.get(&material.0).cloned() else {
+                continue;
+            };
+            let (colour, reflectance) = (own.base_color, own.reflectance);
+            // A mesh over an effect waits for its textures, drawn as it is meanwhile.
+            if let Some(effect) = effect {
+                let Some(own) = making.over(own, effect) else {
+                    continue;
+                };
+                shades
+                    .materials
+                    .push((Shaded::Over(own.clone()), colour, reflectance));
+                commands
+                    .entity(entity)
+                    .remove::<MeshMaterial3d<StandardMaterial>>()
+                    .insert((MeshMaterial3d(own), Owned));
+            } else {
                 let own = materials.add(own);
-                shades.materials.push((own.clone(), colour, reflectance));
-                shades.lit = None;
+                shades
+                    .materials
+                    .push((Shaded::Plain(own.clone()), colour, reflectance));
                 commands.entity(entity).insert((MeshMaterial3d(own), Owned));
             }
+            shades.lit = None;
         }
     }
 }
@@ -1670,6 +1703,7 @@ fn shade(
     choice: Res<Choice>,
     mut figures: Query<(&Figure, &mut Shades)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut aparts: ResMut<Assets<model_effects::ApartMaterial>>,
 ) {
     for (figure, mut shades) in &mut figures {
         let lit = choice.hovered == Some(figure.class) || choice.chosen == Some(figure.class);
@@ -1678,13 +1712,21 @@ fn shade(
         }
         shades.lit = Some(lit);
         // A dark figure reflects no light either, which would leave it grey.
+        let shaded = if lit { None } else { Some((DARK, 0.0)) };
         for (handle, colour, reflectance) in &shades.materials {
-            if let Some(mut material) = materials.get_mut(handle) {
-                (material.base_color, material.reflectance) = if lit {
-                    (*colour, *reflectance)
-                } else {
-                    (DARK, 0.0)
-                };
+            let (colour, reflectance) = shaded.unwrap_or((*colour, *reflectance));
+            match handle {
+                Shaded::Plain(handle) => {
+                    if let Some(mut material) = materials.get_mut(handle) {
+                        (material.base_color, material.reflectance) = (colour, reflectance);
+                    }
+                }
+                Shaded::Over(handle) => {
+                    if let Some(mut material) = aparts.get_mut(handle) {
+                        (material.base.base_color, material.base.reflectance) =
+                            (colour, reflectance);
+                    }
+                }
             }
         }
     }

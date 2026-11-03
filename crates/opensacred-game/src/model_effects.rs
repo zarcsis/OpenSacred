@@ -8,14 +8,204 @@
 //! colour added to the frame without writing the depth, its texture running along the tubes twice
 //! in each cycle of 2,048 ms and then standing for 1,024 ms (`0x4068B9`). Every pair of wings
 //! glows in step, as the clock is the frame's. `npcs::retexture` gives the primitive its material.
+//!
+//! A model finds its type's effect by its model's file ([`Table`]), read at the start, so that the
+//! choice of the hero's figures find theirs as a game's models do (#1875). The original draws an
+//! object, an item on the ground among them, and the figures by `renderComplex`, every kind; its
+//! orthographic item draw (`0x40F270`), the interface's, has the kinds 1 to 4 alone. A model drawn
+//! apart from the world, by a camera of its own (the interface's items, the figures), lies over
+//! its effect through an [`ApartMaterial`].
 
 use bevy::asset::AssetId;
+use bevy::ecs::system::SystemParam;
 use bevy::gltf::GltfAssetLabel;
 use bevy::math::Affine2;
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+    MaterialPlugin,
+};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+};
+use bevy::shader::{ShaderDefVal, ShaderRef};
+use opensacred_data::tables::Item;
 
 use crate::models::{Effect, EffectMaterials};
+
+/// `FX_MULTITEXGLOW01.TGA`, the texture record 200, the glow of the models of an effect of the
+/// kind 1 (#1834).
+const MULTITEX_GLOW: u32 = 200;
+
+/// The effects that the second model renderer draws on the types' models (`0x406510`; #1309), by
+/// the models' files, which a model finds its own by (`npcs::retexture`): each flagged type's of
+/// a model and of an effect texture that the assets hold, the first type's where several share a
+/// model, its kind and its texture's file ([`Item::model_effect`]); and the glow's texture under
+/// the models of the kind 1.
+#[derive(Resource, Default)]
+pub struct Table {
+    by_model: HashMap<String, (u8, String)>,
+    glow: Option<String>,
+}
+
+impl Table {
+    /// The effects of the types `items`, the models' files `models` by their upper-case `.GRN`
+    /// names and the textures' files `textures` by their numbers.
+    pub fn new(
+        items: &[Item],
+        (models, textures): (
+            &std::collections::HashMap<String, String>,
+            &std::collections::HashMap<u32, String>,
+        ),
+    ) -> Self {
+        let mut flagged: Vec<(&Item, (u8, u32))> = items
+            .iter()
+            .filter_map(|item| item.model_effect().map(|effect| (item, effect)))
+            .collect();
+        flagged.sort_unstable_by_key(|(item, _)| item.slot);
+        let mut by_model = HashMap::new();
+        for (item, (kind, texture)) in flagged {
+            if let (Some(model), Some(texture)) = (
+                models.get(&item.name.to_ascii_uppercase()),
+                textures.get(&texture),
+            ) {
+                by_model
+                    .entry(model.clone())
+                    .or_insert((kind, texture.clone()));
+            }
+        }
+        Self {
+            by_model,
+            glow: textures.get(&MULTITEX_GLOW).cloned(),
+        }
+    }
+
+    /// The effect of the model of the file `model`: its kind and its texture's file.
+    pub fn of(&self, model: &str) -> Option<(u8, &str)> {
+        self.by_model
+            .get(model)
+            .map(|(kind, texture)| (*kind, texture.as_str()))
+    }
+
+    /// The glow's texture under the models of the kind 1.
+    pub fn glow(&self) -> Option<&str> {
+        self.glow.as_deref()
+    }
+}
+
+/// Reads the [`Table`] off the assets' tables at the start; without them no model has an effect.
+fn read(mut commands: Commands, data: Option<Res<crate::game::Data>>) {
+    let Some(data) = data else {
+        return;
+    };
+    let shared = &data.0;
+    let table = shared.tables.items().and_then(|items| {
+        let models = crate::npcs::model_files(&shared.assets)?;
+        let textures = crate::npcs::texture_files(&shared.assets)?;
+        Ok(Table::new(items, (&models, &textures)))
+    });
+    match table {
+        Ok(table) => commands.insert_resource(table),
+        Err(e) => warn!("model effects: none: {e:#}"),
+    }
+}
+
+/// The material of a mesh of a model drawn apart from the world, by a camera of its own whose
+/// frame takes linear light (the interface's items, the choice of the hero's figures): Bevy's own
+/// over the model's effect of the kinds 1 to 4 and the kind 1's glow, laid in sRGB values as
+/// `models::Pass::Effect` lays them in the world's frame (`standard.wesl`, #1875).
+pub type ApartMaterial = ExtendedMaterial<StandardMaterial, Under>;
+
+/// The effect's texture and the glow's under an [`ApartMaterial`]'s texels, and their offsets,
+/// the effect's in `x` and `y`, the glow's in `z` and `w`.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct Under {
+    #[texture(103)]
+    #[sampler(104)]
+    effect: Handle<Image>,
+    #[texture(105)]
+    #[sampler(106)]
+    glow: Handle<Image>,
+    #[uniform(107)]
+    offsets: Vec4,
+    /// The glow's share of its colour added under the texels: 1 for the kind 1, 0 for the kinds
+    /// that draw no glow, in `x`.
+    #[uniform(108)]
+    glows: Vec4,
+}
+
+impl MaterialExtension for Under {
+    /// The world's models' (`standard.wesl`), in linear light.
+    fn fragment_shader() -> ShaderRef {
+        crate::shaders::STANDARD.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if descriptor
+            .vertex
+            .shader_defs
+            .contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+        {
+            return Ok(());
+        }
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("EFFECT".into());
+            fragment.shader_defs.push("LINEAR".into());
+        }
+        Ok(())
+    }
+}
+
+/// The [`ApartMaterial`]s made, by their kinds, whose offsets [`run`] moves while they last.
+#[derive(Resource, Default)]
+pub struct Apart(Vec<(AssetId<ApartMaterial>, u8)>);
+
+/// What makes the [`ApartMaterial`]s: the effects' textures, which they wait for, the materials and
+/// those made.
+#[derive(SystemParam)]
+pub struct Making<'w> {
+    images: Res<'w, Assets<Image>>,
+    materials: ResMut<'w, Assets<ApartMaterial>>,
+    made: ResMut<'w, Apart>,
+}
+
+impl Making<'_> {
+    /// A material that draws a mesh of `base` over the effect `effect` apart from the world,
+    /// opaque, each texel over the effect by its alpha; none while the effect's textures load, as
+    /// a mesh of it would not be drawn until they are.
+    pub fn over(
+        &mut self,
+        base: StandardMaterial,
+        effect: &Effect,
+    ) -> Option<Handle<ApartMaterial>> {
+        let loaded = |image: &Handle<Image>| self.images.contains(image);
+        if !loaded(&effect.effect) || !effect.glow.as_ref().is_none_or(loaded) {
+            return None;
+        }
+        let handle = self.materials.add(ApartMaterial {
+            base: StandardMaterial {
+                alpha_mode: AlphaMode::Opaque,
+                ..base
+            },
+            extension: Under {
+                effect: effect.effect.clone(),
+                // A kind of no glow adds the effect's texture at no share.
+                glow: effect.glow.clone().unwrap_or_else(|| effect.effect.clone()),
+                offsets: Vec4::ZERO,
+                glows: Vec4::X * if effect.glow.is_some() { 1.0 } else { 0.0 },
+            },
+        });
+        self.made.0.push((handle.id(), effect.kind));
+        Some(handle)
+    }
+}
 
 /// The kind of the effect whose bands run along the model's first primitive (`0x4068B9`): the
 /// wings 3111's.
@@ -183,7 +373,8 @@ pub fn offsets(kind: u8, t: u16) -> Vec4 {
 /// Moves the kind 9's textures by the frame's real time, the original's performance counter
 /// (`0x406592`), which runs on in the pause and at any speed of the game: in the model materials
 /// made of them (`models::Converted`), which draw the meshes, and in them, for those still to be
-/// made.
+/// made; and the effects under the models drawn apart from the world, in theirs ([`Apart`]), as
+/// long as they last.
 fn run(
     time: Res<Time<bevy::time::Real>>,
     (effects, converted, under): (
@@ -193,6 +384,7 @@ fn run(
     ),
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut models: ResMut<Assets<crate::models::ModelMaterial>>,
+    (mut apart, mut aparts): (ResMut<Apart>, ResMut<Assets<ApartMaterial>>),
 ) {
     let t = u16::try_from(time.elapsed().as_millis() & 0xFFFF).unwrap_or(0);
     let pulsed = pulse(t);
@@ -205,6 +397,12 @@ fn run(
             }
         }
     }
+    apart.0.retain(|&(id, kind)| {
+        aparts.get_mut(id).is_some_and(|mut material| {
+            material.extension.offsets = offsets(kind, t);
+            true
+        })
+    });
     if effects.running_bands.is_empty() {
         return;
     }
@@ -226,13 +424,74 @@ pub struct ModelEffectsPlugin;
 
 impl Plugin for ModelEffectsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Materials>().add_systems(Update, run);
+        crate::shaders::embed_standard(app);
+        app.add_plugins(MaterialPlugin::<ApartMaterial>::default())
+            .init_resource::<Materials>()
+            .init_resource::<Apart>()
+            .add_systems(Startup, read)
+            .add_systems(Update, run);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_finds_the_effect_of_its_first_flagged_type() {
+        // A type's effect: the subclass's bit 4 (`0x100000`), its texture the high half of
+        // `words_58[3]`, its kind the third byte of `words_58[5]`.
+        let item = |slot, name: &str, flagged: bool, (kind, texture): (u8, u32)| Item {
+            slot,
+            kind: 0,
+            class: 0,
+            subclass: if flagged { 0x10 } else { 0 },
+            name: name.to_owned(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0; 8],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0, 0, 0, texture << 16, 0, u32::from(kind) << 16, 0, 0, 0, 0],
+        };
+        let items = [
+            item(4018, "SeraWings04.grn", true, (3, 8637)),
+            // A later type of the same model, listed first, and a type of no flag.
+            item(3112, "SeraWings05.GRN", true, (1, 8636)),
+            item(3111, "SeraWings05.GRN", true, (9, 8636)),
+            item(4007, "SeraHair01.grn", false, (1, 8636)),
+        ];
+        let models = [
+            ("SERAWINGS04.GRN", "models/models/1-SeraWings04.glb"),
+            ("SERAWINGS05.GRN", "models/models/2-SeraWings05.glb"),
+            ("SERAHAIR01.GRN", "models/models/3-SeraHair01.glb"),
+        ]
+        .map(|(name, file)| (name.to_owned(), file.to_owned()))
+        .into();
+        let textures = [
+            (8636, "textures/texture/08636-serawings05fx01.ktx2"),
+            (
+                MULTITEX_GLOW,
+                "textures/texture/00200-fx_multitexglow01.ktx2",
+            ),
+        ]
+        .map(|(number, file)| (number, file.to_owned()))
+        .into();
+        let table = Table::new(&items, (&models, &textures));
+        assert_eq!(
+            table.of("models/models/2-SeraWings05.glb"),
+            Some((RUNNING_BANDS, "textures/texture/08636-serawings05fx01.ktx2"))
+        );
+        // An effect texture the assets lack, and a type of no flag, give no effect.
+        assert_eq!(table.of("models/models/1-SeraWings04.glb"), None);
+        assert_eq!(table.of("models/models/3-SeraHair01.glb"), None);
+        assert_eq!(
+            table.glow(),
+            Some("textures/texture/00200-fx_multitexglow01.ktx2")
+        );
+    }
 
     #[test]
     fn the_pulse_runs_from_white_to_twice_white_in_2048_ms() {
