@@ -72,15 +72,34 @@ pub struct Course {
     /// How far it knocks back what it strikes, before its strike, and the level below which
     /// (the Mage's whirlwind's, `opensacred_rules::spells::whirlwind_knocks`).
     pub knocks: Option<(f32, f32)>,
-    /// The sounds its particle system plays as it starts and as it hits, where read (the
-    /// fireball's, #1173).
-    pub sounds: Option<(u32, u32)>,
+    /// The sounds it plays, where read (#1173).
+    pub sounds: Sounds,
+}
+
+/// A bolt's sounds, each at it, at the volume 1 and the sample's own rate: as it leaves, as it
+/// hits, and looping while it flies.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sounds {
+    pub start: Option<u32>,
+    pub hit: Option<u32>,
+    pub looping: Option<u32>,
 }
 
 /// The fireball's system's sounds (`cParticleSystem_firestrike`): `MAGE_FEUERBALL_CAST` as it
-/// starts (`0x76BE80`) and `MAGE_FEUERBALL_HIT` as its object hits (`0x76BBD0`, the flag 2), each
-/// at the object, at the volume 1 and the sample's own rate; its time out plays none.
-const FIREBALL_SOUNDS: (u32, u32) = (2000, 2001);
+/// starts (`0x76BE80`) and `MAGE_FEUERBALL_HIT` as its object hits (`0x76BBD0`, the flag 2); its
+/// time out plays none.
+const FIREBALL_SOUNDS: Sounds = Sounds {
+    start: Some(2000),
+    hit: Some(2001),
+    looping: None,
+};
+/// The railgun's shot's `SERA_PLASMASHOT` (`0x4DDE12`), and the BFG's system's
+/// `SERA_PLASMASHOT_BIG` as it starts (`cParticleSystem_bfg`, `0x77F520`).
+const RAILGUN_SOUND: u32 = 2072;
+const BFG_SOUND: u32 = 2073;
+/// The whirlwind's system's `MAGE_WIRBELWIND_LOOP`, which it starts as it starts and holds
+/// while it lives (`cParticleSystem_twister`, `0x788D90`, its channel at `+0xB0`).
+const WHIRLWIND_LOOP: u32 = 2017;
 
 impl Course {
     /// The course of the Seraphim's bolt `bolt`.
@@ -101,7 +120,26 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
-            sounds: None,
+            sounds: Sounds {
+                start: Some(if bolt.goes() {
+                    RAILGUN_SOUND
+                } else {
+                    BFG_SOUND
+                }),
+                ..Sounds::default()
+            },
+        }
+    }
+
+    /// The course of the Mage's whirlwind (`opensacred_rules::spells::WHIRLWIND_COURSE`), with
+    /// its system's loop ([`WHIRLWIND_LOOP`]).
+    pub fn whirlwind() -> Self {
+        Self {
+            sounds: Sounds {
+                looping: Some(WHIRLWIND_LOOP),
+                ..Sounds::default()
+            },
+            ..Self::passing(opensacred_rules::spells::WHIRLWIND_COURSE, 4)
         }
     }
 
@@ -118,7 +156,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
-            sounds: None,
+            sounds: Sounds::default(),
         }
     }
 
@@ -136,7 +174,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
-            sounds: Some(FIREBALL_SOUNDS),
+            sounds: FIREBALL_SOUNDS,
         }
     }
 
@@ -155,7 +193,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
-            sounds: None,
+            sounds: Sounds::default(),
         }
     }
 
@@ -172,7 +210,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
-            sounds: None,
+            sounds: Sounds::default(),
         }
     }
 }
@@ -351,7 +389,10 @@ fn launch(
             },
             DespawnOnExit(AppState::InGame),
         ));
-        if let Some((start, _)) = launched.course.sounds {
+        // The railgun's once a shot, with its first bolt (`0x4DDE12` after `0x4DDD2A`'s object).
+        if let Some(start) = launched.course.sounds.start
+            && launched.wait <= 0.0
+        {
             sounds.write(crate::sfx::Play {
                 sound: crate::sfx::Of::Id(start),
                 at: Some(bolt.id()),
@@ -503,7 +544,7 @@ fn fly(
             struck.truncate(1);
         }
         // Its system's hit's sound, at the creature it hits first, the bolt going in this frame.
-        if let Some((_, hit)) = course.sounds {
+        if let Some(hit) = course.sounds.hit {
             sounds.write(crate::sfx::Play {
                 sound: crate::sfx::Of::Id(hit),
                 at: struck.first().copied(),
@@ -559,6 +600,74 @@ fn fly(
     }
 }
 
+/// The bolts' loops that play, each at its bolt.
+#[derive(Resource, Default)]
+struct Hums(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
+
+/// Each flying bolt of a loop plays it at its place while it lives (`0x788D90`), stopping as it
+/// goes.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn hum(
+    mut hums: ResMut<Hums>,
+    flying: Query<(Entity, &Flying, &GlobalTransform)>,
+    heroes: Query<&GlobalTransform, With<Body>>,
+    mut sfx: ResMut<crate::sfx::Sfx>,
+    heard: Res<crate::sfx::Listener>,
+    assets: Res<AssetServer>,
+    audio: Res<bevy_kira_audio::Audio>,
+    mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>,
+) {
+    use bevy_kira_audio::prelude::{AudioControl, AudioTween};
+    hums.0.retain(|(bolt, handle)| {
+        let keep = flying.contains(*bolt);
+        if !keep && let Some(mut instance) = instances.get_mut(handle) {
+            instance.stop(AudioTween::default());
+        }
+        keep
+    });
+    for (bolt, flight, _) in &flying {
+        let Some(looping) = flight.course.sounds.looping else {
+            continue;
+        };
+        if flight.wait > 0.0 || hums.0.iter().any(|(humming, _)| *humming == bolt) {
+            continue;
+        }
+        let Some((id, file)) = sfx.with_id(looping) else {
+            continue;
+        };
+        let sample = sfx.sample(id, file, &assets);
+        let handle = audio
+            .play(sample)
+            .looped()
+            .with_volume(crate::sfx::decibels(0.0))
+            .handle();
+        debug!("bolts: {bolt}'s loop {looping} starts");
+        hums.0.push((bolt, handle));
+    }
+    let hero = heroes.iter().next().map(GlobalTransform::translation);
+    for (bolt, handle) in &hums.0 {
+        let (Ok((_, _, at)), Some(mut instance)) = (flying.get(*bolt), instances.get_mut(handle))
+        else {
+            continue;
+        };
+        let (volume, pan) = crate::sfx::placed_at(at.translation(), hero, *heard);
+        instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
+        instance.set_panning(pan, AudioTween::default());
+    }
+}
+
+/// Stops the bolts' loops as the game ends.
+fn hush(mut hums: ResMut<Hums>, mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>) {
+    for (_, handle) in hums.0.drain(..) {
+        if let Some(mut instance) = instances.get_mut(&handle) {
+            instance.stop(bevy_kira_audio::prelude::AudioTween::default());
+        }
+    }
+}
+
 /// The bolts.
 pub struct BoltsPlugin;
 
@@ -566,10 +675,12 @@ impl Plugin for BoltsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Fire>()
             .add_message::<Launch>()
+            .init_resource::<Hums>()
             .add_systems(Startup, make_looks)
+            .add_systems(OnExit(AppState::InGame), hush)
             .add_systems(
                 Update,
-                (fire, launch, fly)
+                (fire, launch, fly, hum)
                     .chain()
                     .after(Step::Npcs)
                     .in_set(Playing),

@@ -305,7 +305,7 @@ fn act(
                 // The hero's fan (`0x524EA2`, `0x5258B5`), the whirlwind's without its knockback,
                 // which strikes creatures.
                 let course = if cast.spell == spells::WHIRLWIND {
-                    crate::bolts::Course::passing(spells::WHIRLWIND_COURSE, 4)
+                    crate::bolts::Course::whirlwind()
                 } else {
                     crate::bolts::Course::passing(spells::SPLINTERS_COURSE, 5)
                 };

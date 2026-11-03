@@ -1698,7 +1698,11 @@ fn act(
                     (spells::SPLINTERS_COURSE, 5)
                 };
                 let damages = bolt_damages(record, level, multipliers);
-                let mut course = crate::bolts::Course::passing(course, look);
+                let mut course = if act.spell == spells::WHIRLWIND {
+                    crate::bolts::Course::whirlwind()
+                } else {
+                    crate::bolts::Course::passing(course, look)
+                };
                 if act.spell == spells::WHIRLWIND {
                     course.knocks = Some(spells::whirlwind_knocks(
                         record,
