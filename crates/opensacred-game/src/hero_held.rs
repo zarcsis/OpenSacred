@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 
-use crate::frame::{Playing, Step};
+use crate::frame::Step;
 use crate::hero::{Body, Clips};
 use crate::npcs::Dies;
 
@@ -80,8 +80,7 @@ impl Plugin for HeroHeldPlugin {
             Update,
             hold.before(crate::hero::take_orders)
                 .after(crate::hero::steer)
-                .in_set(Step::HeroMove)
-                .in_set(Playing),
+                .in_set(Step::HeroMove),
         );
     }
 }
