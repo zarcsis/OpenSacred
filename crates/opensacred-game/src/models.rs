@@ -399,15 +399,10 @@ pub struct OrderedWith(pub Entity);
 /// handle holds is unloaded while its scene stays with the models that show it, and a load of it
 /// again puts a new scene in the old one's place, which Bevy's spawner then makes anew in every
 /// model of it, for a frame as the glTF has it (its own materials, a worn item's skinned meshes on
-/// the item's own skeleton, at the wearer's feet).
+/// the item's own skeleton, at the wearer's feet). Its path names the model's file, by which the
+/// model finds its effect (`npcs::retexture`, #1875).
 #[derive(Component)]
-pub struct Source(
-    #[expect(
-        dead_code,
-        reason = "held, never read: the handle keeps the glTF loaded"
-    )]
-    pub Handle<Gltf>,
-);
+pub struct Source(pub Handle<Gltf>);
 
 /// The scene of the glTF `model` for a model's root, with the glTF it comes from ([`Source`]).
 pub fn scene(assets: &AssetServer, model: &str) -> (WorldAssetRoot, Source) {

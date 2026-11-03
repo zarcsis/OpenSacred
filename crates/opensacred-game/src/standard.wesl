@@ -2,7 +2,9 @@
 // `blended::Sorted`): its colour encoded for the frame, which holds sRGB values (`srgb::Frame`).
 // A model's second pass (`models::Pass::Fringe`) keeps the translucent texels that the original's
 // alpha test keeps (`FRINGE`). A model's fragment (`NEAREST`) takes only the samples over which
-// no model's texel lies nearer (`nearest.wesl`).
+// no model's texel lies nearer (`nearest.wesl`). A model drawn apart from the world by a camera
+// of its own, whose frame takes linear light (`model_effects::ApartMaterial`, `LINEAR`), keeps its
+// colour linear, its effect laid under it in sRGB values all the same.
 //
 // Bevy's own fragment stage (`bevy_pbr::render::pbr`, MIT OR Apache-2.0) but for the encoding,
 // without the meshlets, the decals and the order-independent transparency, which the game does
@@ -15,6 +17,8 @@ import bevy_pbr::render::{
     pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
 };
 import package::post::encode;
+@if(LINEAR)
+import bevy_render::color_operations::{linear_to_srgb, srgb_to_linear};
 @if(LIT_BY_SLOT)
 import bevy_pbr::render::{mesh_functions, mesh_view_bindings::lights};
 @if(NEAREST && DEPTH_PREPASS)
@@ -126,14 +130,24 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         out.color = vec4<f32>(out.color.rgb * lit, out.color.a);
     }
 }
+@if(LINEAR) {
+    out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+}
+@else {
     out.color = encode(main_pass_post_lighting_processing(pbr_input, out.color));
+}
 // Under the texture the effect's colour, the glow's added to it, both unlit, each moved by its
 // offsets, laid in the frame's sRGB values as the original's passes blend them (`0x406510`).
 @if(EFFECT) {
     let effect = encode(textureSample(effect_texture, effect_sampler, in.uv + effect_offsets.xy));
     let glow = encode(textureSample(glow_texture, glow_sampler, in.uv + effect_offsets.zw));
     let under = min(effect.rgb + glow.rgb * effect_glows.x, vec3(1.0));
+@if(LINEAR) {
+    out.color = vec4(srgb_to_linear(mix(under, linear_to_srgb(out.color.rgb), over)), 1.0);
+}
+@else {
     out.color = vec4(mix(under, out.color.rgb, over), 1.0);
+}
 }
     return out;
 }
