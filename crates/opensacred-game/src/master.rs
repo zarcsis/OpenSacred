@@ -66,8 +66,13 @@ const LEFT_PANEL: Rect = Rect {
 const PANEL: Color = Color::srgba(0.0, 0.0, 0.0, 159.0 / 255.0);
 /// The panels' edges (**estimate**, by the original's frames): a grey line of two pixels.
 const EDGE: Color = Color::srgb(0.33, 0.33, 0.31);
-/// The portrait's corner in the right panel, the title's line and colour (`0xFF0050FF`).
-const PORTRAIT: Vec2 = Vec2::new(528.0, 20.0);
+/// The portrait's corner in the right panel (the control `+0x158`, `0x6D1460`; **seen**: the
+/// image 833 there to the pixel), the title's line and colour (`0xFF0050FF`).
+const PORTRAIT: Vec2 = Vec2::new(524.0, 26.0);
+/// The masters' types with an interface image of their own for a portrait (`0x6D1180`): the type
+/// 317's (`TYPE_NPC_WIZARD`) the image 833, a bald old man (`gui_portraitx01`), and the type 84's
+/// (`TYPE_NPC_ORC_CHAMP_2`) 896 (`gui_portraitx17`).
+const OWN_PORTRAITS: [(u32, u32); 2] = [(317, 833), (84, 896)];
 const TITLE: &str = "1198";
 const TITLE_AT: Vec2 = Vec2::new(512.0, 192.0);
 const TITLE_COLOUR: u32 = 0xFF00_50FF;
@@ -734,8 +739,12 @@ fn show(
             .id();
         commands.entity(root).add_child(child);
     }
-    // The master's portrait by its type, and its title.
-    if let Some((file, rect)) = portraits.as_deref().and_then(|p| p.of(master.kind)) {
+    // The master's portrait by its type (`0x6D1180`): an interface image of its own, else its
+    // dialogue's portrait; and its title.
+    if let Some(&(_, index)) = OWN_PORTRAITS.iter().find(|(kind, _)| *kind == master.kind) {
+        let (image, node) = bar::piece(&images, &assets, index, PORTRAIT, Vec2::ZERO);
+        add(&mut commands, (node, image));
+    } else if let Some((file, rect)) = portraits.as_deref().and_then(|p| p.of(master.kind)) {
         let [x, y, w, h] = rect.map(f32::from);
         let mut image = ImageNode::new(crate::hud::image(&assets, file.to_owned()));
         image.rect = Some(Rect::new(x, y, x + w, y + h));
