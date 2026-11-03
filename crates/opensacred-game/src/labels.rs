@@ -23,8 +23,8 @@
 //!
 //! Not followed yet: a creature's box of its model where its `+0xB0` bit 2 asks it, the
 //! containers' of each model's bounds (a chest's taken for all), the specials' labels (the
-//! signposts', the quest items'), the mounts' labels, set 3's stats of the foe under the cursor
-//! (`UI_KNOW_ENEMY`), and the hand over a label (`cursors`).
+//! signposts', the quest items'), the mounts' labels, and set 3's stats of the foe under the
+//! cursor (`UI_KNOW_ENEMY`). The cursor's look over a label is what it names (`cursors`).
 
 use std::collections::{HashMap, HashSet};
 
