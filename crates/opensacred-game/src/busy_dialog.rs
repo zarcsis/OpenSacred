@@ -60,8 +60,8 @@ pub(crate) fn screen() -> Node {
 }
 
 /// Makes the dialog, `marker` on its root, of the line `line` and the buttons `buttons`, each
-/// carrying its answer at its rectangle with its text, while the game is paused: the buttons and
-/// their answers, to observe.
+/// carrying its answer at its rectangle with its text and clicking as it is pressed ([`click`]),
+/// while the game is paused: the buttons and their answers, to observe.
 pub(crate) fn spawn<B: Component + Copy>(
     commands: &mut Commands,
     (images, assets, texts): (&choice::Images, &AssetServer, Option<&Texts>),
@@ -136,12 +136,22 @@ pub(crate) fn spawn<B: Component + Copy>(
                                     Pickable::IGNORE,
                                 )],
                             ))
+                            .observe(click)
                             .id();
                         spawned.push((button, answer));
                     }
                 });
         });
     spawned
+}
+
+/// A button's own click as the left button presses it: each of the dialog's buttons is a
+/// `cUI_Button2`, whose sound (`+0x18`) its makers set to `UI_CLICK01` (`0x72A932`, `0x731C90`)
+/// and whose input plays it (`0x72B560`; seen, the pause's OK and the quit's Cancel, #1671).
+fn click(click: On<PointerClick>, mut sounds: MessageWriter<crate::sfx::Play>) {
+    if click.button == PointerButton::Primary {
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+    }
 }
 
 /// The pause's window, and its OK.

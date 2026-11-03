@@ -236,16 +236,20 @@ fn equipment_frame(
 /// The sort's button, its side.
 const SORT_SIDE: f32 = 34.0;
 
-/// A left click on the sort's button while the windows show turns the button's state and sorts
-/// the backpack's grid in it (`cInventoryEntry::autoSortItems`, `0x5DB6B0`, #1321, #1669): by
-/// the items' categories and areas, at their first fits by rows where the state is set, else by
-/// columns; the grid as it was where the sort leaves an item out.
+/// A left click on the sort's button while the windows show plays its click (a `cUI_Button2`,
+/// seen, #1671), turns the button's state and sorts the backpack's grid in it
+/// (`cInventoryEntry::autoSortItems`, `0x5DB6B0`, #1321, #1669): by the items' categories and
+/// areas, at their first fits by rows where the state is set, else by columns; the grid as it was
+/// where the sort leaves an item out.
 fn sort(
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     shown: Res<Shown>,
     (mut pack, mut by_rows): (ResMut<crate::pickup::Pack>, ResMut<SortByRows>),
-    tables: Option<Res<crate::drops::Tables>>,
+    (tables, mut sounds): (
+        Option<Res<crate::drops::Tables>>,
+        MessageWriter<crate::sfx::Play>,
+    ),
 ) {
     if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -253,6 +257,9 @@ fn sort(
     let corner = INVENTORY.min + SORT.1;
     let on_button = screen_point(&pointer, &ui_scale, &windows)
         .is_some_and(|at| Rect::from_corners(corner, corner + Vec2::splat(SORT_SIDE)).contains(at));
+    if on_button {
+        play(&mut sounds, CLICK);
+    }
     let Some(tables) = tables.filter(|_| on_button) else {
         return;
     };

@@ -423,6 +423,7 @@ fn place_pin(
     mut map: ResMut<Map>,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     if !map.shown {
         return;
@@ -432,6 +433,10 @@ fn place_pin(
     };
     let on_button =
         Rect::from_corners(PIN_BUTTON.1, PIN_BUTTON.1 + Vec2::splat(BUTTON)).contains(at);
+    // The button's click as it is pressed (a `cUI_Button2`, seen, #1671).
+    if buttons.just_pressed(MouseButton::Left) && on_button {
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+    }
     if buttons.just_pressed(MouseButton::Left) && on_button && !map.pin_mode {
         map.pin_mode = true;
         return;
@@ -951,6 +956,10 @@ fn toggle(
             let corner = CLOSE_BUTTON.1;
             Rect::from_corners(corner, corner + Vec2::splat(BUTTON)).contains(at)
         });
+    if closed {
+        // The close button's click (seen, #1671).
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+    }
     if !(pressed || escaped || closed) {
         return;
     }

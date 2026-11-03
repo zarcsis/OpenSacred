@@ -2092,12 +2092,13 @@ fn leave_learning(shown: Option<Res<Shown>>, mut learning: ResMut<Learning>) {
 }
 
 /// A left click on the header bar turns the upper panel between the skills and the attributes
-/// (its flag `0x10`, `0x72B560`).
+/// (its flag `0x10`, `0x72B560`), with the bar's click (seen, #1671).
 fn toggle(
     buttons: Res<ButtonInput<MouseButton>>,
     shown: Option<Res<Shown>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     mut attributes: ResMut<Attributes>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     if !shown.is_some_and(|shown| shown.0) || !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -2108,6 +2109,7 @@ fn toggle(
     let header = Rect::from_corners(WINDOW.min + HEADER.min, WINDOW.min + HEADER.max);
     if header.contains(at) {
         attributes.0 = !attributes.0;
+        crate::inventory::play(&mut sounds, crate::inventory::CLICK);
     }
 }
 
