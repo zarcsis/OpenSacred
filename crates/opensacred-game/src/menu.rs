@@ -1,8 +1,9 @@
 //! The main menu, its submenus and the choice of the hero (docs/10 §4). The main
 //! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving water
 //! (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor with a
-//! glow and fading in as a menu replaces another, and the Multiplayer and Extras submenus; the
-//! items whose screens the game does not have yet stand greyed (#1094, #1095, #1096). The campaigns
+//! glow and fading in as a menu replaces another, and the Multiplayer and Extras submenus, whose
+//! movies play (#1946); the items whose screens the game does not have yet stand greyed (#1095,
+//! #1096, #1110). The campaigns
 //! open their choices of the hero (`choice`); a paused game's menu is the original's Esc menu
 //! (`esc_menu`, #1410). The mouse chooses by pointing and clicking, the keyboard with the arrows
 //! and Enter; Esc goes back a screen.
@@ -13,7 +14,9 @@ use std::path::Path;
 use crate::game::{AppState, FONT};
 use crate::hud;
 use crate::lines::Texts;
+use crate::movies::Show;
 use crate::ripples::{self, Pond, Ripples};
+use crate::settings::{Movies, Settings};
 use bevy::picking::events::{PointerClick, PointerEnter};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
@@ -47,7 +50,9 @@ pub enum Item {
     OpenInternet,
     Credits,
     Intro,
+    Extro,
     UnderworldIntro,
+    UnderworldExtro,
     Back,
 }
 
@@ -68,13 +73,15 @@ impl Item {
             Self::OpenInternet => ("UI_NET_OPENNET", "Open Internet"),
             Self::Credits => ("UI_MAIN_CREDITS", "Credits"),
             Self::Intro => ("UI_MAIN_INTRO", "Intro"),
+            Self::Extro => ("UI_MAIN_EXTRO", "Extro"),
             Self::UnderworldIntro => ("UI_MAIN_INTRO_UW", "Underworld Intro"),
+            Self::UnderworldExtro => ("UI_MAIN_EXTRO_UW", "Underworld Extro"),
             Self::Back => ("UI_NET_BACK", "Back"),
         }
     }
 
     /// Whether it does anything yet: multiplayer waits for M9, the options for #1096, the saves for
-    /// #1095, the credits and the movies for #1094.
+    /// #1095, the credits for #1110.
     fn works(self) -> bool {
         !matches!(
             self,
@@ -84,17 +91,28 @@ impl Item {
                 | Self::ClosedInternet
                 | Self::OpenInternet
                 | Self::Credits
-                | Self::Intro
-                | Self::UnderworldIntro
         )
+    }
+
+    /// The movie it plays, the Extras' (`0x7125B0`).
+    fn movie(self) -> Option<&'static str> {
+        match self {
+            Self::Intro => Some("intro"),
+            Self::Extro => Some("extro"),
+            Self::UnderworldIntro => Some("introuw"),
+            Self::UnderworldExtro => Some("extrouw"),
+            _ => None,
+        }
     }
 }
 
 /// The items of the main menu's screens, each with its row: the rows 32 pixels apart, the row 0's
-/// centre on the row 287 of the original's screen, an empty row before the last item.
-fn rows(screen: Screen) -> &'static [(Item, u8)] {
+/// centre on the row 287 of the original's screen, an empty row before the last item. The Extras
+/// offer each campaign's extro once `movies` says it has played, after the campaign's intro
+/// (`0x713670`).
+fn rows(screen: Screen, movies: &Movies) -> Vec<(Item, u8)> {
     match screen {
-        Screen::Main => &[
+        Screen::Main => vec![
             (Item::Ancaria, 0),
             (Item::Underworld, 1),
             (Item::Multiplayer, 2),
@@ -103,19 +121,26 @@ fn rows(screen: Screen) -> &'static [(Item, u8)] {
             (Item::Extras, 5),
             (Item::Quit, 7),
         ],
-        Screen::Multiplayer => &[
+        Screen::Multiplayer => vec![
             (Item::LocalNetwork, 1),
             (Item::ClosedInternet, 2),
             (Item::OpenInternet, 3),
             (Item::Back, 5),
         ],
-        Screen::Extras => &[
-            (Item::Credits, 0),
-            (Item::Intro, 1),
-            (Item::UnderworldIntro, 2),
-            (Item::Back, 4),
-        ],
-        Screen::Heroes | Screen::Underworld => &[],
+        Screen::Extras => {
+            let items = [
+                Some(Item::Credits),
+                Some(Item::Intro),
+                movies.extro.then_some(Item::Extro),
+                Some(Item::UnderworldIntro),
+                movies.extro_underworld.then_some(Item::UnderworldExtro),
+            ];
+            let mut rows: Vec<(Item, u8)> = items.into_iter().flatten().zip(0..).collect();
+            let back = rows.last().map_or(0, |&(_, row)| row + 2);
+            rows.push((Item::Back, back));
+            rows
+        }
+        Screen::Heroes | Screen::Underworld => Vec::new(),
     }
 }
 
@@ -187,9 +212,19 @@ impl Words {
     /// The words of the menus' items and of the choice of the hero among the texts of `assets`.
     pub fn read(assets: &Path) -> Self {
         let texts = Texts::read(assets);
+        // Every item that any settings show.
+        let all = Movies {
+            show: true,
+            extro: true,
+            extro_underworld: true,
+        };
         let names = [Screen::Main, Screen::Multiplayer, Screen::Extras]
             .into_iter()
-            .flat_map(|screen| rows(screen).iter().map(|&(item, _)| item.text().0))
+            .flat_map(|screen| {
+                rows(screen, &all)
+                    .into_iter()
+                    .map(|(item, _)| item.text().0)
+            })
             .chain(crate::choice::names());
         Self(
             names
@@ -279,9 +314,13 @@ fn main_screen(
     first: Res<FirstShowing>,
     mut ripples: Ripples,
     mut targets: ResMut<Assets<Image>>,
+    settings: Option<Res<Settings>>,
 ) {
     let screen = *screen.get();
-    let items = rows(screen);
+    let items = rows(
+        screen,
+        &settings.map(|s| s.movies.clone()).unwrap_or_default(),
+    );
     chosen.0 = items.iter().position(|(item, _)| item.works()).unwrap_or(0);
     shown.0 = 0.0;
     let height = picture_height(window.map(|window| window.height()));
@@ -451,12 +490,19 @@ fn forget_first_for_game(mut first: ResMut<FirstShowing>) {
     first.0 = false;
 }
 
-/// Does what `item` does; an item that does nothing yet does nothing.
+/// Does what `item` does; an item that does nothing yet does nothing. The Extras' movies play
+/// whatever the settings' `[movies] show` says, as the original's Extras clear its player's flag
+/// while one plays (`0x7125B0`).
 fn act(
     In(item): In<Item>,
     mut screen: ResMut<NextState<Screen>>,
     mut exit: MessageWriter<AppExit>,
+    mut shows: MessageWriter<Show>,
 ) {
+    if let Some(movie) = item.movie() {
+        shows.write(Show::one(movie));
+        return;
+    }
     match item {
         Item::Ancaria => screen.set(Screen::Heroes),
         Item::Underworld => screen.set(Screen::Underworld),
@@ -473,7 +519,9 @@ fn act(
         | Item::OpenInternet
         | Item::Credits
         | Item::Intro
-        | Item::UnderworldIntro => {}
+        | Item::Extro
+        | Item::UnderworldIntro
+        | Item::UnderworldExtro => {}
     }
 }
 
@@ -570,6 +618,7 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<Screen>()
+            .add_message::<Show>()
             .init_resource::<Chosen>()
             .init_resource::<Shown>()
             .init_resource::<Images>()
@@ -696,5 +745,44 @@ mod tests {
         assert_eq!(items(&mut app).last(), Some(&Item::Back));
         press(&mut app, KeyCode::Escape);
         assert_eq!(screen(&app), Screen::Main);
+    }
+
+    #[test]
+    fn the_extras_offer_each_extro_once_seen_after_its_campaigns_intro() {
+        let movies = |extro, extro_underworld| Movies {
+            show: true,
+            extro,
+            extro_underworld,
+        };
+        assert_eq!(
+            rows(Screen::Extras, &movies(false, false)),
+            [
+                (Item::Credits, 0),
+                (Item::Intro, 1),
+                (Item::UnderworldIntro, 2),
+                (Item::Back, 4)
+            ]
+        );
+        assert_eq!(
+            rows(Screen::Extras, &movies(true, false)),
+            [
+                (Item::Credits, 0),
+                (Item::Intro, 1),
+                (Item::Extro, 2),
+                (Item::UnderworldIntro, 3),
+                (Item::Back, 5)
+            ]
+        );
+        assert_eq!(
+            rows(Screen::Extras, &movies(true, true)),
+            [
+                (Item::Credits, 0),
+                (Item::Intro, 1),
+                (Item::Extro, 2),
+                (Item::UnderworldIntro, 3),
+                (Item::UnderworldExtro, 4),
+                (Item::Back, 6)
+            ]
+        );
     }
 }

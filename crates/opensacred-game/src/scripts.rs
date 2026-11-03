@@ -137,10 +137,16 @@ pub struct SetHealth {
 #[derive(Resource, Default)]
 pub struct Healths(pub Vec<SetHealth>);
 
-/// The texts that the scripts' `InfoPlayer`s show the player (132, `0x4AE350`; #1033), by their
-/// mode and their text's name, in order, which `talk` shows.
+/// What the scripts' `InfoPlayer`s show the player (132, `0x4AE350`; #1033), by their mode and
+/// their text's name (none for a mode without one), in order: the texts, which `talk` shows, and
+/// the movies, which `movies` plays, with `GameEnd`'s ([`GAME_END`]).
 #[derive(Resource, Default)]
 pub struct Infos(pub Vec<(i32, String)>);
+
+/// The mode under which a script's `GameEnd` (120) joins the `InfoPlayer`s' [`Infos`]: it shows the
+/// player the extro (`0x475C3A`) and does nothing else, as an `InfoPlayer` of the mode 23 shows the
+/// intro; no `InfoPlayer` has a mode below 0.
+pub const GAME_END: i32 = -120;
 
 /// The talks that the scripts begin, in order, which `talk` runs.
 #[derive(Resource, Default)]
@@ -1753,14 +1759,18 @@ impl Host for Recorder<'_> {
                 Handled::Answer(false)
             }
             "exit_dlg" => Handled::Done,
-            // A text shown to the player: its mode, its first `0x0B`, and its text's name, its
-            // first `0x01` (`0x4AE350`, #1033).
+            // What is shown to the player: its mode, its first `0x0B`, and its text's name, its
+            // first `0x01`, which the modes of a movie have none of (`0x4AE350`, #1033, #1946).
             "info_player" => {
-                if let (Some(&mode), Some(text)) =
-                    (tags.numbers("_0B").first(), tags.texts("_01").first())
-                {
-                    self.infos.push((mode, (*text).to_owned()));
+                if let Some(&mode) = tags.numbers("_0B").first() {
+                    let text = tags.texts("_01").first().copied().unwrap_or_default();
+                    self.infos.push((mode, text.to_owned()));
                 }
+                Handled::Done
+            }
+            // The extro, and nothing else (`0x475C3A`, #1946).
+            "game_end" => {
+                self.infos.push((GAME_END, String::new()));
                 Handled::Done
             }
             // The hero's own talk of the named dialogue (`0x4A7760`, #1033).
@@ -2008,6 +2018,14 @@ impl Tags<'_> {
                     return Handled::Answer(false);
                 }
                 continue;
+            }
+            // `0xA0` holds in a game of one player and `0x91` in a network game (`0x182EBEC`), and
+            // the game is one player's (#1946).
+            if key == "_A0" {
+                continue;
+            }
+            if key == "_91" {
+                return Handled::Answer(false);
             }
             if key == "_52" {
                 match operand {
@@ -2990,6 +3008,7 @@ mod tests {
              if test { _48 = { 2, \"count\" } } then def_pos { _01 = \"d\", _0B = { 1, 1 } } end\n\
              if test { _48 = { 0, \"missing\" } } then def_pos { _01 = \"e\", _0B = { 1, 1 } } end\n\
              if test { _A0 = true } then def_pos { _01 = \"f\", _0B = { 1, 1 } } end\n\
+             if test { _91 = true } then def_pos { _01 = \"i\", _0B = { 1, 1 } } end\n\
              if test { _52 = \"TYPE_NPC_GLADIATOR\" } then def_pos { _01 = \"g\", _0B = { 1, 1 } } end\n\
              if test { _52 = \"TYPE_NPC_SERAPHIM\" } then def_pos { _01 = \"h\", _0B = { 1, 1 } } end\n\
              return true\n\
@@ -3011,8 +3030,8 @@ mod tests {
         // A negative step that would lower it keeps the old value (`0x49C930`).
         assert_eq!(variables.get("count"), Some(2));
         assert!((0..=3).contains(&variables.value("pool")));
-        // `a`, `b` and `d` held, and `g` the hero's tree; `c` a bit cleared, `e` a missing
-        // variable, `f` no meaning yet, `h` another tree.
+        // `a`, `b` and `d` held, `f` a game of one player and `g` the hero's tree; `c` a bit
+        // cleared, `e` a missing variable, `h` another tree, `i` a network game.
         let named: Vec<String> = records
             .iter()
             .filter(|r| r.kind == 23)
@@ -3024,8 +3043,9 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(named, ["a", "b", "d", "g"]);
-        assert_eq!(runtime.unknown(), ["test"]);
+        assert_eq!(named, ["a", "b", "d", "f", "g"]);
+        // Every tag of these tests is known now, `0xA0` and `0x91` too.
+        assert!(runtime.unknown().is_empty(), "{:?}", runtime.unknown());
     }
 
     #[test]
@@ -3247,6 +3267,8 @@ mod tests {
              F[\"exit01\"] = function()\n\
              info_player { _01 = \"res:17631\", _0B = 1 }\n\
              info_player { _0B = 5 }\n\
+             info_player { _0B = 101 }\n\
+             game_end { _0B = 0 }\n\
              popup { _01 = \"Dialog_Stein\" }\n\
              npc_talk_to { _01 = { \"res:17240\", \"HERO\" }, _09 = \"auftrag2002\" }\n\
              npc_talk_to { _01 = \"res:17267\", _09 = \"ziel2303\" }\n\
@@ -3256,7 +3278,16 @@ mod tests {
         )]);
         let mut live = live(runtime);
         let effects = live.run_named("exit01");
-        assert_eq!(effects.infos, [(1, "res:17631".to_owned())]);
+        // The modes without a text, a movie's among them, and `GameEnd`'s extro.
+        assert_eq!(
+            effects.infos,
+            [
+                (1, "res:17631".to_owned()),
+                (5, String::new()),
+                (101, String::new()),
+                (GAME_END, String::new())
+            ]
+        );
         // An `NPC_TalkTo` of one name begins nothing.
         assert_eq!(
             effects.popups,

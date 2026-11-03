@@ -40,7 +40,8 @@ What each item does:
 - Multiplayer: a submenu of Local Network (`UI_MAIN_LAN2`), Closed Internet (`UI_MAIN_INET_CLOSED`), Open Internet (`UI_NET_OPENNET`) and, after an empty row, Back, its rows' tops at 309, 341, 372 and 437.
 - Options: the settings' screen (not looked at here; #1096).
 - Load Game: the list of the saves (`tools/original/host.py` loads through it; #1095).
-- Extras: a submenu of Credits (`UI_MAIN_CREDITS`), Intro (`UI_MAIN_INTRO`), Underworld Intro (`UI_MAIN_INTRO_UW`) and, after an empty row, Back, its rows' tops at 276, 309, 340 and 405; the keys `UI_MAIN_EXTRO` and `UI_MAIN_EXTRO_UW` name the two campaigns' last movies, which this installation's Extras did not show: the menu adds each where `Settings.cfg`'s `SHOWEXTRO` or `SHOWEXTRO_UW` is set, which the extro's own play sets (docs/re/movies.md).
+- Extras: a submenu of Credits (`UI_MAIN_CREDITS`), Intro (`UI_MAIN_INTRO`), Underworld Intro (`UI_MAIN_INTRO_UW`) and, after an empty row, Back, its rows' tops at 276, 309, 340 and 405; the keys `UI_MAIN_EXTRO` and `UI_MAIN_EXTRO_UW` name the two campaigns' last movies, which this installation's Extras did not show: the menu adds each where `Settings.cfg`'s `SHOWEXTRO` or `SHOWEXTRO_UW` is set, which the extro's own play sets, each after its campaign's intro (docs/re/movies.md).
+  Each movie's row plays it (#1946).
 - Quit: the game ends (`UI_BUSY_REALLY_QUIT%d` names a question, not seen: the driver's `quit` closes the window).
 
 The main menu takes no click for a few seconds after it first shows (the driver waits 200 frames and 2 seconds).

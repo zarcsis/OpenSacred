@@ -100,6 +100,9 @@ enum Command {
     /// Play the movie NAME (intro, extro, introuw, extrouw, act1 to act4, ascaron, oem) as the
     /// original's player does: Escape, Space or either mouse button stops it
     Movie { name: String },
+    /// The movies that play by themselves (the start's logos, the scripts', GameEnd's) for this
+    /// run, as the settings' [movies] show, which a driven run leaves off
+    Movies { on: Switch },
     /// Pause the game without the pause's menu, for a still frame, or go on
     Pause { on: Switch },
     /// Save the next frame to FILE (PNG) and go on
@@ -1139,8 +1142,17 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             if !crate::movies::exists(&name) {
                 return Err(format!("no movie {name}"));
             }
-            world.write_message(crate::movies::Show(name));
+            world.write_message(crate::movies::Show::one(&name));
             Ok(Outcome::say("the movie plays"))
+        }
+        Command::Movies { on } => {
+            let on = on == Switch::On;
+            world.insert_resource(crate::movies::Automatic(on));
+            Ok(Outcome::say(if on {
+                "the movies play"
+            } else {
+                "the movies are off"
+            }))
         }
         Command::Pause { on } => {
             in_game(world)?;
