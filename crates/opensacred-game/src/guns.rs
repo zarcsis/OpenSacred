@@ -2,7 +2,8 @@
 //! point (`making`), and [`opensacred_rules::arts::MORTAR_DELAY`] later, whatever the distance, it
 //! strikes every hostile creature alive within [`opensacred_rules::arts::MORTAR_REACH`] and its
 //! size of the point with its damages (the impact 1020's, `0x5B05E3`), the fight's hit of fixed
-//! damages, which lands. The grenade and its blast are not drawn.
+//! damages, which lands, and sounds the impact's `DWARF_MOERSER_EINSCHLAG` there
+//! (`0x7B7622`). The grenade and its blast are not drawn.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{MORTAR_DELAY, MORTAR_REACH};
@@ -15,6 +16,9 @@ use crate::game::AppState;
 use crate::hero::Body;
 use crate::npcs::Dies;
 use crate::terrain::Level;
+
+/// The impact 1020's sound as it starts at the shell's point (`0x7B7622`).
+const IMPACT_SOUND: u32 = 2115;
 
 /// A shell on its way: its thrower, its point, the level it falls on, its damages and how long
 /// until it strikes.
@@ -64,12 +68,18 @@ fn explode(
         (Without<Body>, Without<Dies>),
     >,
     mut hits: MessageWriter<fight::Hit>,
+    mut points: MessageWriter<crate::sfx::PlayAt>,
 ) {
     for (entity, mut shell) in &mut shells {
         shell.left -= time.delta_secs();
         if shell.left > 0.0 {
             continue;
         }
+        points.write(crate::sfx::PlayAt {
+            sound: crate::sfx::Of::Id(IMPACT_SOUND),
+            point: Vec3::new(shell.at.x, 0.0, shell.at.y),
+            rate: (0.5, crate::sfx::Roll::None),
+        });
         for (target, at, way, mind, health, size) in &creatures {
             let size = size.map_or(crate::arrows::size(0), |size| size.0);
             if way.creature
