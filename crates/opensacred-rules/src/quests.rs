@@ -1402,7 +1402,8 @@ pub enum Look {
 
 /// A mouse event of `0x4AB160`: a hidden stash (`MachVersteck`) or a `MouseEvent` record's. Its
 /// cell and floor, the function that a click runs as the hero arrives, the name of the text the
-/// cursor shows over it, its uses left (of [`ENDLESS`] none is spent) and how it shows.
+/// cursor shows over it, its uses left (of [`ENDLESS`] none is spent), how it shows, and its box
+/// where it has one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stash {
     pub cell: (i32, i32),
@@ -1411,6 +1412,11 @@ pub struct Stash {
     pub text: String,
     pub uses: u16,
     pub look: Look,
+    /// Its box (`0x0C` and `0x0D`, the entry's `+8` to `+0xE`): the corners `x0`, `y0`, `x1`,
+    /// `y1` in the original's pixels at the zoom 1 from its cell's point on the screen, edges in,
+    /// by which alone the cursor and the click reach it (`0x62CF20`; docs/re/containers.md).
+    #[serde(default)]
+    pub boxed: Option<[i16; 4]>,
 }
 
 impl Default for Stash {
@@ -1422,6 +1428,7 @@ impl Default for Stash {
             text: String::new(),
             uses: 1,
             look: Look::Blink,
+            boxed: None,
         }
     }
 }
@@ -1453,12 +1460,13 @@ impl Stashes {
     /// `MouseEvent` (94, `0x4A6950`): an event at the cell and floor `at` of the function
     /// `function` and the text `text` (a `res:` name's key, none where empty), of one use where
     /// `once` (`0x66`), else endless; the flags 1 (`0x10`) show nothing, the flags 2 (`0x0F`)
-    /// the stash's blink, neither the sparks.
+    /// the stash's blink, neither the sparks; of the box `boxed` where its first or its third
+    /// number is not 0 (`0x62CF8D`).
     pub fn mouse_event(
         &mut self,
         (x, y, floor): (i32, i32, i32),
         (function, text): (&str, &str),
-        (flags, once): (Option<u8>, bool),
+        (flags, once, boxed): (Option<u8>, bool, [i16; 4]),
     ) {
         if x < 0 || y < 0 || floor < 0 || (function.is_empty() && text.is_empty()) {
             return;
@@ -1475,6 +1483,7 @@ impl Stashes {
             text: text_key(text).to_owned(),
             uses: if once { 1 } else { ENDLESS },
             look,
+            boxed: (boxed[0] != 0 || boxed[2] != 0).then_some(boxed),
         });
     }
 
@@ -2356,12 +2365,24 @@ mod tests {
     #[test]
     fn a_mouse_events_uses_run_out_unless_endless_and_its_flags_choose_its_look() {
         let mut events = Stashes::default();
-        events.mouse_event((5, 6, 0), ("BRUNNEN", "BRUNNENMOUSEOVER"), (Some(1), true));
-        events.mouse_event((7, 8, 0), ("setvar_009", "res:GRABSTEIN"), (Some(1), false));
-        events.mouse_event((9, 9, 0), ("F_Gold", "CURSED_GOLD"), (None, true));
-        events.mouse_event((9, 9, 0), ("other", "OTHER"), (Some(2), true));
-        events.mouse_event((-1, 9, 0), ("none", "NONE"), (Some(1), true));
-        events.mouse_event((3, 3, 0), ("", ""), (Some(1), true));
+        let well = [-53, -47, 52, 50];
+        events.mouse_event(
+            (5, 6, 0),
+            ("BRUNNEN", "BRUNNENMOUSEOVER"),
+            (Some(1), true, well),
+        );
+        let none = [0; 4];
+        events.mouse_event(
+            (7, 8, 0),
+            ("setvar_009", "res:GRABSTEIN"),
+            (Some(1), false, none),
+        );
+        events.mouse_event((9, 9, 0), ("F_Gold", "CURSED_GOLD"), (None, true, none));
+        events.mouse_event((9, 9, 0), ("other", "OTHER"), (Some(2), true, none));
+        events.mouse_event((-1, 9, 0), ("none", "NONE"), (Some(1), true, none));
+        events.mouse_event((3, 3, 0), ("", ""), (Some(1), true, none));
+        assert_eq!(events.0[0].boxed, Some(well));
+        assert_eq!(events.0[1].boxed, None);
         let looks: Vec<_> = events
             .0
             .iter()

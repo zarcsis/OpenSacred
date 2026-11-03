@@ -242,7 +242,11 @@ fn choose(
         Option<Res<crate::world_map::Map>>,
     ),
     (hovered, nodes): (Option<Res<HoverMap>>, Query<(), With<Node>>),
-    (labels, keys): (Res<crate::labels::Shown>, crate::controls::Keys),
+    (labels, keys, boxed): (
+        Res<crate::labels::Shown>,
+        crate::controls::Keys,
+        Res<crate::stashes::BoxedUnder>,
+    ),
     cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (npcs, forms): (Option<Res<Npcs>>, Option<Res<Forms>>),
     creatures: Query<
@@ -365,14 +369,19 @@ fn choose(
                 container_under = Some(entity);
                 Some(Look::Hand)
             })
-            // A hidden stash: the hand and its text (`0x612909`, #1518).
+            // A hidden stash: the hand and its text (`0x612909`, #1518); an event of a box by
+            // its box alone (#1586).
             .or_else(|| {
-                let (_, stash) = stashes
-                    .iter()
-                    .filter_map(|(at, stash)| {
-                        Some((crate::stashes::picked(ray, at.translation())?, stash))
-                    })
-                    .min_by(|a, b| a.0.total_cmp(&b.0))?;
+                let boxed = boxed.0.and_then(|entity| stashes.get(entity).ok());
+                let (_, stash) = boxed.map(|(_, stash)| (0.0, stash)).or_else(|| {
+                    stashes
+                        .iter()
+                        .filter(|(_, stash)| stash.boxed.is_none())
+                        .filter_map(|(at, stash)| {
+                            Some((crate::stashes::picked(ray, at.translation())?, stash))
+                        })
+                        .min_by(|a, b| a.0.total_cmp(&b.0))
+                })?;
                 item = Some((None, Some(stash.text.clone())));
                 Some(Look::Hand)
             })
@@ -486,7 +495,10 @@ impl Plugin for CursorsPlugin {
             .init_resource::<Foe>()
             .init_resource::<Highlit>()
             .init_resource::<Glow>()
-            .add_systems(Update, (choose, name_tag).chain());
+            .add_systems(
+                Update,
+                (choose.after(crate::stashes::boxed_under), name_tag).chain(),
+            );
     }
 }
 
