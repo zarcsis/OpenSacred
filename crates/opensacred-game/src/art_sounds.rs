@@ -114,14 +114,17 @@ pub fn executor(art: u16) -> &'static [u32] {
     }
 }
 
-/// The sounds of the objects 844 (`sera_sm_cast`) that the Seraphim's art `art` makes, each
-/// playing once as it starts by its variant, the art (`0x790CE0`; seen: 1018 and 1019): 1018's
-/// one as it starts (`0x506077`), `HELF_CAST_LANG` (`0x790F5D`), and 1019's two at its point
-/// (`0x504B96`, `0x504C4F`), `SERA_CAST` each (`0x790EAF`).
+/// The sounds of the objects that the art `art` makes as it starts and at its point, each
+/// playing once as it starts: the Seraphim's 844 (`sera_sm_cast`) by its variant, the art
+/// (`0x790CE0`; seen: 1018 and 1019), 1018's one as it starts (`0x506077`), `HELF_CAST_LANG`
+/// (`0x790F5D`), and 1019's two at its point (`0x504B96`, `0x504C4F`), `SERA_CAST` each
+/// (`0x790EAF`); and the Dwarf's war cry's 1023 (`kriegsschrei`) as 1089 starts on foot
+/// (`0x518ADC`), `DWARF_KRIEGSSCHREI` (`0x7B856A`).
 pub fn objects(art: u16) -> (&'static [u32], &'static [u32]) {
     match art {
         1018 => (&[2065], &[]),
         1019 => (&[], &[2071, 2071]),
+        1089 => (&[2105], &[]),
         _ => (&[], &[]),
     }
 }
@@ -210,5 +213,6 @@ mod tests {
         assert_eq!(executor(1103), [2122, 2122]);
         assert_eq!(objects(1018), (&[2065][..], &[][..]));
         assert_eq!(objects(1019).1, [2071, 2071]);
+        assert_eq!(objects(1089).0, [2105]);
     }
 }
