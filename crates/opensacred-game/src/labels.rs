@@ -19,12 +19,13 @@
 //! left out. The text under the cursor is light yellow. A left click on an item's label takes its
 //! item (`0x6270A0`, `pickup::pick`), and with Alt held an item comes before a foe under the
 //! cursor (`attack::aim`); a click on a creature's or a container's label is a click on it, its
-//! attack, its talk or its opening (`0x631CEB`).
+//! attack, its talk or its opening (`0x631CEB`). The cursor's look over a label is what it names
+//! (`cursors`). While the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the
+//! foe that the cursor picks tells its values under its name ([`foe_values`]).
 //!
 //! Not followed yet: a creature's box of its model where its `+0xB0` bit 2 asks it, the
 //! containers' of each model's bounds (a chest's taken for all), the specials' labels (the
-//! signposts', the quest items'), the mounts' labels, and set 3's stats of the foe under the
-//! cursor (`UI_KNOW_ENEMY`). The cursor's look over a label is what it names (`cursors`).
+//! signposts', the quest items') and the mounts' labels.
 
 use std::collections::{HashMap, HashSet};
 
@@ -252,6 +253,37 @@ type Creatures<'w, 's> = Query<
     Without<crate::hero::Body>,
 >;
 
+/// The values that a foe's label tells under its name while the hero's sets know the enemies
+/// (`0x627180`, its format `0x95FBA4`): its health; its attack and defence times the difficulty's
+/// `aw`, as the getters of a creature give them (`0x56AA10`, `0x56AA90`); each kind's mean
+/// damage, `(l·F + m·F)/2` of its multiplier `F` (`0x563FD0` to `0x5641B0`), the halving of a
+/// hand without a weapon not followed; and each resistance times its factor; each cut. The
+/// values of `combat` hold the multipliers and the factors already.
+fn foe_values(health: u32, combat: &opensacred_rules::fight::Combat, aw: f32) -> String {
+    let damage: [i64; 4] = std::array::from_fn(|k| {
+        let [least, most] = combat.damage[k];
+        cut((least + most) * 0.5)
+    });
+    let resistance: [i64; 4] = combat.resistance.map(cut);
+    let [dp, df, dm, dg] = damage;
+    let [rp, rf, rm, rg] = resistance;
+    format!(
+        "HP:{health} AW:{} VW:{}\nDP:{dp} DF:{df} DM:{dm} DG:{dg}\nRP:{rp} RF:{rf} RM:{rm} RG:{rg}",
+        cut(combat.attack * aw),
+        cut(combat.defence * aw)
+    )
+}
+
+/// A value cut toward zero, as the original's `__ftol` stores it.
+fn cut(value: f32) -> i64 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a creature's value, far within an i64"
+    )]
+    let whole = value.trunc() as i64;
+    whole
+}
+
 /// The hero's label's text: its name, the player's where given, else its class's.
 fn hero_name(texts: &Texts, request: Option<&crate::game::Request>, class: u32) -> Option<String> {
     request
@@ -285,6 +317,12 @@ fn label(
     (request, arts): (
         Option<Res<crate::game::Request>>,
         Option<Res<crate::arts::HeroArts>>,
+    ),
+    (foe, holding, fighters, rules): (
+        Res<crate::cursors::Foe>,
+        Query<&crate::fight::Holding, With<crate::hero::Body>>,
+        Query<(&crate::fight::Health, &crate::fight::Combat)>,
+        Res<crate::fight::Rules>,
     ),
     mut labels: Query<(
         Entity,
@@ -366,6 +404,10 @@ fn label(
                 item: false,
             });
         }
+        let knows_enemies = holding
+            .iter()
+            .next()
+            .is_some_and(|holding| holding.0.sets.knows_enemies());
         for (entity, at, mind, key, follower, dies) in &creatures {
             if skipped.contains(&mind.creature) {
                 continue;
@@ -392,9 +434,20 @@ fn label(
                 };
                 (text, colour)
             };
-            let Some(text) = text else {
+            let Some(mut text) = text else {
                 continue;
             };
+            // The living foe that the cursor picks, while the hero's sets know the enemies, tells
+            // its values under its name (`0x62737F`, `0x6279E8`).
+            if foe.0 == Some(entity)
+                && !dies
+                && mind.hostile()
+                && knows_enemies
+                && let Ok((health, combat)) = fighters.get(entity)
+            {
+                text.push('\n');
+                text.push_str(&foe_values(health.current, &combat.0, rules.creatures_aw()));
+            }
             wanted.push(Wanted {
                 entity,
                 corner,
@@ -424,10 +477,13 @@ fn label(
     }
     // The sizes of the labels laid out before, in the original's pixels (the node's inverse scale
     // takes the window's and `UiScale` both); a new one's estimated.
+    // Each laid out a line high, a foe's lines of values below its name's line as they draw
+    // (`0x627180` measures the text's width alone).
     let measured: HashMap<Entity, Vec2> = labels
         .iter()
         .map(|(_, label, _, _, _, computed)| {
-            (label.0, computed.size() * computed.inverse_scale_factor())
+            let size = computed.size() * computed.inverse_scale_factor();
+            (label.0, Vec2::new(size.x, size.y.min(HEIGHT)))
         })
         .collect();
     let corners: Vec<Vec2> = wanted.iter().map(|wanted| wanted.corner).collect();
@@ -527,6 +583,31 @@ impl Plugin for LabelsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_foes_values_are_cut_as_the_original_writes_them() {
+        // The silver wolf of level 4 seen at the smith of 50,44 on bronze (`aw` 0.65): its `A` and
+        // `D`, its damage 3.5 to 5 and resistances 5.218, 1.353, 0, 0.56 times its multipliers
+        // and factors, as its combat holds them (HP:57 AW:10 VW:13, DP:5, RP:5 RF:1).
+        let combat = opensacred_rules::fight::Combat {
+            attack: 16.5,
+            defence: 20.4,
+            damage: [[4.333, 6.19], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [5.824, 1.510, 0.0, 0.630],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.238, 1.312, 1.12, 1.201],
+            resistance_factors: [1.116, 1.116, 1.102, 1.125],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+        };
+        assert_eq!(
+            foe_values(57, &combat, 0.65),
+            "HP:57 AW:10 VW:13\nDP:5 DF:0 DM:0 DG:0\nRP:5 RF:1 RM:0 RG:0"
+        );
+    }
 
     #[test]
     fn a_creatures_box_takes_its_types_size() {

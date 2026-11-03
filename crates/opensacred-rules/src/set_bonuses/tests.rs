@@ -139,11 +139,16 @@ fn the_list_tells_the_bonuses_reached_as_they_are_applied() {
     );
     assert!(told(3, &both, Difficulty::Gold).is_empty());
     assert!(both.wears(7100) && !both.wears(7102));
-    // Set 3 at 4: its arts, and no line of the flag that nothing reads yet.
+    // Set 3 at 4: its arts, and the flag that the foes' labels read (#1425).
     assert_eq!(
         told(3, &wearing(3, 4), Difficulty::Bronze),
-        [Told::Bonus(Bonus::Arts(&[1014, 1015, 1016], 2))]
+        [
+            Told::Bonus(Bonus::Arts(&[1014, 1015, 1016], 2)),
+            Told::KnowEnemy
+        ]
     );
+    assert!(stats(&wearing(3, 4), Difficulty::Bronze).knows_enemies());
+    assert!(!stats(&wearing(3, 3), Difficulty::Bronze).knows_enemies());
 }
 
 #[test]

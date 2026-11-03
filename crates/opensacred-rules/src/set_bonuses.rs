@@ -126,7 +126,7 @@ pub const TABLE: &[Entry] = &[
     at(2, 4, Skill(11, 3.0)),
     at(2, 5, Skill(10, 2.0)),
     at(3, 3, Give::Arts(&[1014, 1015, 1016], 2.0)),
-    at(3, 4, Flag(0x8000_0000)),
+    at(3, 4, Flag(KNOW_ENEMY)),
     at(4, 2, Skill(5, 4.0)),
     at(4, 3, Skill(2, 4.0)),
     at(5, 3, Multiplier(Damage, &[MAGIC], 0.5)),
@@ -468,6 +468,10 @@ pub const WHOLE_DAMAGE: u32 = 0x7C2;
 /// The stats' flag `+0x148` bit `0x200000` (sets 42, 49, 50 and 64), by which the strike grows the
 /// stun's value (M18, `0x56D4D6`; [`Stats::stun`]).
 pub const STUNS: u32 = 0x20_0000;
+/// The stats' flag `+0x148` bit `0x80000000` (set 3 at 4 pieces, `UI_KNOW_ENEMY`), by which the
+/// label of the hostile creature that the cursor picks tells its values while Alt is held
+/// (`0x627180` at `0x62737F` and `0x6279E8`; [`Stats::knows_enemies`]).
+pub const KNOW_ENEMY: u32 = 0x8000_0000;
 /// Set 23's pieces, the dragon's six statues, which count carried as well as worn (`0x57AD5B`:
 /// the types 5101 to 5106 searched in the hero's inventory, each once).
 pub const CARRIED: [u32; 6] = [5101, 5102, 5103, 5104, 5105, 5106];
@@ -747,6 +751,11 @@ impl Stats {
             .unwrap_or(0)
     }
 
+    /// Whether the wearer's flag [`KNOW_ENEMY`] holds, by which a foe's label tells its values.
+    pub fn knows_enemies(&self) -> bool {
+        self.flags & KNOW_ENEMY != 0
+    }
+
     /// The effect 858's value `value` of the target's own items, the magic defence, grown while
     /// its flag [`WARDS`] holds by each term whose set reaches its count, in turn (M17,
     /// `0x561897`–`0x561A68`): `15·D` for set 41 at 5, `10·D` for set 44 at 3, `15·D` for set 59
@@ -1014,6 +1023,8 @@ pub enum Told {
     Stun(f32),
     /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
     Unseen,
+    /// The values of a foe on its label ([`KNOW_ENEMY`]).
+    KnowEnemy,
     /// The per cent of a wild animal's flights from the wearer in which it stands
     /// ([`Reader::Terror`]): the terror's whole chance of the roll's 101 faces.
     Terror(f32),
@@ -1037,6 +1048,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                     (d > 1.0).then_some(Told::WholeDamage(d - 1.0))?
                 }
                 Bonus::Flag(STUNS) => Told::Stun(stun_term(entry.set) * d),
+                Bonus::Flag(KNOW_ENEMY) => Told::KnowEnemy,
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),
             };
