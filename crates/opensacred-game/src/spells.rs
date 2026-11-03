@@ -200,11 +200,31 @@ pub fn throw_trap(
     ));
 }
 
+/// The trap's ball's sounds (`cParticleSystem_ball`, 867): `DELF_WURFCAST` as it is thrown
+/// (`0x79EA50`), and `DELF_SPRENGSATZ` where the explosive charge's lands (`0x79E730`, the art
+/// 1049), each at the volume 1 and the sample's own rate.
+const THROW_SOUND: u32 = 2057;
+const EXPLOSION_SOUND: u32 = 2056;
+/// The pentagram's sounds (`cParticleSystem_pentagrammKiller`, 782): `MAGE_PENTAGRAMM_CAST` as it
+/// starts (`0x773790`), `MAGE_PENTAGRAMM_LOOP` once it is armed, 2 s on, until it goes, and
+/// `MAGE_PENTAGRAMM_HIT` as it bursts (`0x772C40`).
+const PENTAGRAM_CAST: u32 = 2008;
+const PENTAGRAM_HIT: u32 = 2009;
+const PENTAGRAM_LOOP: u32 = 2010;
+/// The other traps' objects: the confusion's `DELF_VERWIRRUNG_LOOP` and the ground poison's
+/// `DELF_GIFTHAUCH_LOOP` from their starts while they live (`cParticleSystem_confusion`, 871,
+/// `0x7792C0`; `cParticleSystem_groundPoison`, 792, `0x778D10`), and each of the fog's four sights'
+/// `DELF_SCHLACHTENNEBEL` as it starts (`cParticleSystem_battlefog`, 868, `0x7709F0`).
+const CONFUSION_LOOP: u32 = 2067;
+const POISON_LOOP: u32 = 2054;
+const FOG_SOUND: u32 = 2055;
+
 /// Flies each trap's ball on its arc to its point in 2/3 s (`0x5A706C`), gone without a trap at
 /// a cell it may not cross, and makes its trap where it lands, of its spell's record at the
 /// trap's level (`0x79E730`, `0x5B2600`'s action 1): the explosion 794 striking once within 80,
 /// the pentagram 782, the confusion 871, the ground's poison 792 striking within 80 once a
-/// second, or the fog's zone with its four sights 868.
+/// second, or the fog's zone with its four sights 868. The ball sounds as it is thrown, and the
+/// explosion's where it lands ([`THROW_SOUND`], [`EXPLOSION_SOUND`]).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -218,7 +238,11 @@ fn balls(
     looks: Option<Res<Looks>>,
     heights: Res<crate::terrain::Heights>,
     experience: Res<fight::Experience>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sounds, mut points): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::sfx::PlayAt>,
+    ),
     mut flying: Query<(Entity, &mut Ball, &mut Transform)>,
     creatures: Query<
         (
@@ -236,6 +260,11 @@ fn balls(
     for (entity, mut ball, mut transform) in &mut flying {
         if !ball.shown {
             ball.shown = true;
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(THROW_SOUND),
+                at: Some(entity),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
             if let Some(looks) = &looks {
                 commands.entity(entity).with_child((
                     Mesh3d(looks.soul.0.clone()),
@@ -283,6 +312,11 @@ fn balls(
         };
         match ball.art {
             1049 => {
+                points.write(crate::sfx::PlayAt {
+                    sound: crate::sfx::Of::Id(EXPLOSION_SOUND),
+                    point: here,
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
                 // The explosion strikes once every hostile creature within 80 and its size.
                 for (target, at, way, mind, health, size) in &creatures {
                     let reach = opensacred_rules::arts::EXPLOSION_REACH
@@ -316,6 +350,11 @@ fn balls(
                 }
             }
             1050 => {
+                points.write(crate::sfx::PlayAt {
+                    sound: crate::sfx::Of::Id(PENTAGRAM_CAST),
+                    point: here,
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
                 let mut made = commands.spawn((
                     Pentagram {
                         caster: ball.caster,
@@ -344,6 +383,7 @@ fn balls(
                     },
                     Transform::from_translation(here),
                     Visibility::Inherited,
+                    crate::hums::Hum(CONFUSION_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
                 if let Some(disc) = disc(opensacred_rules::arts::CONFUSION_REACH, 2) {
@@ -367,6 +407,7 @@ fn balls(
                     },
                     Transform::from_translation(here),
                     Visibility::Inherited,
+                    crate::hums::Hum(POISON_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
                 if let Some(disc) = disc(opensacred_rules::arts::POISON_REACH, 6) {
@@ -386,6 +427,13 @@ fn balls(
                     DespawnOnExit(AppState::InGame),
                 ));
                 let from = opensacred_rules::arts::FOG_FROM;
+                for (x, z) in [(from, from), (from, -from), (-from, from), (-from, -from)] {
+                    points.write(crate::sfx::PlayAt {
+                        sound: crate::sfx::Of::Id(FOG_SOUND),
+                        point: here + Vec3::new(x, 0.0, z),
+                        rate: (0.5, crate::sfx::Roll::None),
+                    });
+                }
                 if let Some(looks) = &looks {
                     made.with_children(|sights| {
                         for (x, z) in [(from, from), (from, -from), (-from, from), (-from, -from)] {
@@ -413,7 +461,7 @@ fn balls(
 fn pentagrams(
     mut commands: Commands,
     time: Res<Time>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sounds): (MessageWriter<fight::Hit>, MessageWriter<crate::sfx::PlayAt>),
     mut pentagrams: Query<(Entity, &mut Pentagram, &Transform)>,
     creatures: Query<
         (
@@ -429,6 +477,7 @@ fn pentagrams(
 ) {
     let dt = time.delta_secs();
     for (entity, mut pentagram, at) in &mut pentagrams {
+        let armed = pentagram.arms <= 0.0;
         pentagram.arms -= dt;
         pentagram.left -= dt;
         if pentagram.left <= 0.0 {
@@ -437,6 +486,12 @@ fn pentagrams(
         }
         if pentagram.arms > 0.0 {
             continue;
+        }
+        // Armed, it loops its sound until it goes (`0x772C40`'s state 1).
+        if !armed {
+            commands
+                .entity(entity)
+                .insert(crate::hums::Hum(PENTAGRAM_LOOP));
         }
         let here = at.translation;
         let near: Vec<(Entity, u32)> = creatures
@@ -459,6 +514,11 @@ fn pentagrams(
             "spells: the pentagram {entity} bursts on {} creatures",
             near.len()
         );
+        sounds.write(crate::sfx::PlayAt {
+            sound: crate::sfx::Of::Id(PENTAGRAM_HIT),
+            point: here,
+            rate: (0.5, crate::sfx::Roll::None),
+        });
         for (target, level) in near {
             // The event 9, the kill, for one at or below its value 1 (**hypothesis**: slain).
             let damages = if level <= pentagram.slays {
