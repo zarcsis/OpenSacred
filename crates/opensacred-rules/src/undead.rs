@@ -86,6 +86,18 @@ pub fn changes(kind: u32, draws: [u32; 2]) -> Option<u32> {
     }
 }
 
+/// The skeleton warrior's head (`Skeleton_warrior_Head.GRN`), an item that goes into a socket,
+/// which a warrior throws off as it loses its head (`0x426DF0` of the types 32 and 112 to 117).
+pub const HEAD: u32 = 5100;
+
+/// Whether a skeleton warrior that changes from the type `from` into `to` loses its head, which
+/// it throws off (`0x550580`'s part 0): the whole one into the headless, and those of one arm
+/// into 114 and 117; an arm lost is a bone (`0x427650`'s part 4 of the gib set 3, the types 926
+/// to 936) that does not stay in the world (**seen**, #1202).
+pub fn loses_head(from: u32, to: u32) -> bool {
+    matches!((from, to), (WARRIOR, HEADLESS) | (113, 114) | (116, 117))
+}
+
 /// Whether a creature of the type `kind` may rise from its death.
 pub fn rises(kind: u32) -> bool {
     SKELETONS.contains(&kind) || GOBLINS.contains(&kind)
@@ -195,6 +207,9 @@ mod tests {
         assert_eq!(changes(115, [0, 0]), None);
         assert_eq!(changes(48, [0, 0]), None);
         assert!(warrior(32) && warrior(115) && !warrior(131) && !warrior(118));
+        // The changes that take the head throw it off; the arms' do not.
+        assert!(loses_head(32, 112) && loses_head(113, 114) && loses_head(116, 117));
+        assert!(!loses_head(32, 113) && !loses_head(112, 114) && !loses_head(114, 115));
     }
 
     #[test]

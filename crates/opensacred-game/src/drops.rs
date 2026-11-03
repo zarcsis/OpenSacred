@@ -999,6 +999,39 @@ fn throw(
     }
 }
 
+/// The quality key of a plain item, of no pass (docs/re/items.md).
+const PLAIN_KEY: u8 = 16;
+
+/// Throws off the item of the type `item` from `at` on `level`, as a skeleton warrior its head
+/// (`0x550580`, [`Flight::flung`]): a plain item of no level (`sdk_OBJ_CREATE_NPOS`), none of a
+/// type the table does not hold.
+pub(crate) fn fling(
+    In((item, at, level)): In<(u32, Vec3, Level)>,
+    mut commands: Commands,
+    tables: Option<Res<Tables>>,
+    mut dice: ResMut<Dice>,
+    assets: Res<AssetServer>,
+) {
+    let Some(tables) = tables else {
+        return;
+    };
+    let Some(dropped) = drops::thrown(
+        (&tables.catalogue, &tables.templates),
+        (tables.rules.sockets(), drops::Difficulty::default()),
+        (item, 0, PLAIN_KEY, 1),
+        &mut dice.0,
+    ) else {
+        return;
+    };
+    let flight = Flight::flung(at.x, at.z, &mut dice.0);
+    lay(
+        &mut commands,
+        (&assets, &tables),
+        (flight, level, false),
+        dropped,
+    );
+}
+
 /// Puts `dropped` into the world on its `flight` on `level`, marked as the hero's or not, its
 /// model, if it was converted, with its texture.
 fn lay(
