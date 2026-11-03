@@ -55,122 +55,131 @@ impl Row {
     }
 }
 
-/// The keys and what they do, by where they work.
-pub const KEYS: &[(&str, &[(Row, &str)])] = &[
-    (
-        "Everywhere",
-        &[
-            (of(&[Action::Help]), "this help"),
-            (of(&[Action::Overlay]), "the debug overlay"),
-            (of(&[Action::Log]), "the log"),
-            (of(&[Action::Window]), "borderless full screen or a window"),
-            (of(&[Action::Console]), "the console (the key under Esc)"),
-        ],
-    ),
-    (
-        "In the game",
-        &[
-            (words("Left button"), "run to the cursor"),
-            (of(&[Action::Walk]), "walk rather than run, while held"),
-            (
-                words("Left button on a foe"),
-                "strike it; hold to strike on",
-            ),
-            (
-                Row {
-                    before: "",
-                    actions: &[Action::StrikeAtOnce],
-                    after: "+left button",
-                },
-                "strike at once",
-            ),
-            (
-                words("Right button on a foe"),
-                "make the selected combat art",
-            ),
-            (of(&[Action::Labels]), "the items' names"),
-            (of(&[Action::Inventory]), "the inventory"),
-            (of(&[Action::QuestBook]), "the quest book"),
-            (of(&[Action::WorldMap]), "the world map"),
-            (of(&[Action::Overview]), "held, the overview map"),
-            (of(&[Action::CombatArts]), "the inventory's combat arts"),
-            (of(&[Action::Combos]), "the inventory's combos"),
-            (
-                of(&[Action::ZoomIn, Action::ZoomOut]),
-                "held, the world closer or farther",
-            ),
-            (of(&[Action::ZoomBack]), "the zoom back to 1"),
-            (of(&WEAPON_SETS), "the weapon sets"),
-            (of(&ART_SLOTS), "the art slots"),
-            (of(&ART_KEYS), "the art of the key into the selected slot"),
-            (
-                words("The same over an art"),
-                "on the spells page: bind the key to it",
-            ),
-            (
-                of(&[Action::BeltPotion]),
-                "a healing potion (with Shift the yellow one)",
-            ),
-            (
-                of(&[
-                    Action::PurplePotion,
-                    Action::BluePotion,
-                    Action::GreenPotion,
-                    Action::YellowPotion,
-                ]),
-                "a purple, blue, green or yellow potion",
-            ),
-            (
-                of(&[Action::FollowerPotion]),
-                "a healing potion for a follower",
-            ),
-            (of(&[Action::Collect]), "collect the items about the hero"),
-            (
-                Row {
-                    before: "",
-                    actions: &[Action::SendItem],
-                    after: "+click on an item",
-                },
-                "the stash's to the backpack, a potion to a follower",
-            ),
-            (words("Wheel"), "zoom in and out"),
-            (of(&[Action::Pause]), "pause, and again go on"),
-            (of(&[Action::Back]), "pause: Continue, Main menu, Quit"),
-        ],
-    ),
-    (
-        "In the menus",
-        &[
-            (
-                Row {
-                    before: "Mouse",
-                    actions: &[Action::Next, Action::Previous],
-                    after: "",
-                },
-                "choose",
-            ),
-            (
-                Row {
-                    before: "Click",
-                    actions: &[Action::Confirm],
-                    after: "",
-                },
-                "do it",
-            ),
-            (of(&[Action::Back]), "back"),
-        ],
-    ),
-    (
-        "In the console",
-        &[
-            (words("Enter"), "run the line (help lists the commands)"),
-            (words("Up, Down"), "the history"),
-            (words("Tab"), "complete"),
-            (words("Ctrl+V, Ctrl+C"), "paste, copy the line"),
-            (words("PageUp, PageDown"), "scroll"),
-            (of(&[Action::Back]), "close"),
-        ],
-    ),
+/// A place's name and its rows: each row's keys and what they do.
+type Place = (&'static str, &'static [(Row, &'static str)]);
+
+/// The keys and what they do, by where they work, the places in two columns side by side, so
+/// that the help keeps within the screen's height (#1952): everywhere and in the game, then in the
+/// menus and in the console.
+pub const KEYS: [&[Place]; 2] = [
+    &[
+        (
+            "Everywhere",
+            &[
+                (of(&[Action::Help]), "this help"),
+                (of(&[Action::Overlay]), "the debug overlay"),
+                (of(&[Action::Log]), "the log"),
+                (of(&[Action::Window]), "borderless full screen or a window"),
+                (of(&[Action::Console]), "the console (the key under Esc)"),
+            ],
+        ),
+        (
+            "In the game",
+            &[
+                (words("Left button"), "run to the cursor"),
+                (of(&[Action::Walk]), "walk rather than run, while held"),
+                (
+                    words("Left button on a foe"),
+                    "strike it; hold to strike on",
+                ),
+                (
+                    Row {
+                        before: "",
+                        actions: &[Action::StrikeAtOnce],
+                        after: "+left button",
+                    },
+                    "strike at once",
+                ),
+                (
+                    words("Right button on a foe"),
+                    "make the selected combat art",
+                ),
+                (of(&[Action::Labels]), "the items' names"),
+                (of(&[Action::Inventory]), "the inventory"),
+                (of(&[Action::QuestBook]), "the quest book"),
+                (of(&[Action::WorldMap]), "the world map"),
+                (of(&[Action::Overview]), "held, the overview map"),
+                (of(&[Action::CombatArts]), "the inventory's combat arts"),
+                (of(&[Action::Combos]), "the inventory's combos"),
+                (
+                    of(&[Action::ZoomIn, Action::ZoomOut]),
+                    "held, the world closer or farther",
+                ),
+                (of(&[Action::ZoomBack]), "the zoom back to 1"),
+                (of(&WEAPON_SETS), "the weapon sets"),
+                (of(&ART_SLOTS), "the art slots"),
+                (of(&ART_KEYS), "the art of the key into the selected slot"),
+                (
+                    words("The same over an art"),
+                    "on the spells page: bind the key to it",
+                ),
+                (
+                    of(&[Action::BeltPotion]),
+                    "a healing potion (with Shift the yellow one)",
+                ),
+                (
+                    of(&[
+                        Action::PurplePotion,
+                        Action::BluePotion,
+                        Action::GreenPotion,
+                        Action::YellowPotion,
+                    ]),
+                    "a purple, blue, green or yellow potion",
+                ),
+                (
+                    of(&[Action::FollowerPotion]),
+                    "a healing potion for a follower",
+                ),
+                (of(&[Action::Collect]), "collect the items about the hero"),
+                (
+                    Row {
+                        before: "",
+                        actions: &[Action::SendItem],
+                        after: "+click on an item",
+                    },
+                    "the stash's to the backpack, a potion to a follower",
+                ),
+                (words("Wheel"), "zoom in and out"),
+                (of(&[Action::Pause]), "pause, and again go on"),
+                (of(&[Action::Back]), "pause: Continue, Main menu, Quit"),
+            ],
+        ),
+    ],
+    &[
+        (
+            "In the menus",
+            &[
+                (
+                    Row {
+                        before: "Mouse",
+                        actions: &[Action::Next, Action::Previous],
+                        after: "",
+                    },
+                    "choose",
+                ),
+                (
+                    Row {
+                        before: "Click",
+                        actions: &[Action::Confirm],
+                        after: "",
+                    },
+                    "do it",
+                ),
+                (of(&[Action::Back]), "back"),
+            ],
+        ),
+        (
+            "In the console",
+            &[
+                (words("Enter"), "run the line (help lists the commands)"),
+                (words("Up, Down"), "the history"),
+                (words("Tab"), "complete"),
+                (words("Ctrl+V, Ctrl+C"), "paste, copy the line"),
+                (words("PageUp, PageDown"), "scroll"),
+                (of(&[Action::Back]), "close"),
+            ],
+        ),
+    ],
 ];
 
 /// The text's size on the original's 768-pixel-high screen (`hud`).
@@ -178,6 +187,12 @@ const TITLE: f32 = 16.0;
 const TEXT: f32 = 11.0;
 /// How wide the keys' column is.
 const KEY_WIDTH: f32 = 170.0;
+/// The panel's padding, the space between its rows, above a place's name and between its two
+/// columns.
+const PADDING: f32 = 14.0;
+const GAP: f32 = 3.0;
+const PLACE_MARGIN: f32 = 8.0;
+const COLUMN_GAP: f32 = 28.0;
 /// The panel's colours, in the frame's sRGB values (`hud`).
 const BACK: Color = Color::linear_rgba(0.02, 0.02, 0.03, 0.9);
 const GOLD: Color = Color::linear_rgb(0.86, 0.74, 0.45);
@@ -227,8 +242,8 @@ fn spawn(mut commands: Commands, controls: Option<Res<Controls>>) {
                 .spawn((
                     Node {
                         flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(14.0)),
-                        row_gap: Val::Px(3.0),
+                        padding: UiRect::all(Val::Px(PADDING)),
+                        row_gap: Val::Px(GAP),
                         border: UiRect::all(Val::Px(1.0)),
                         ..default()
                     },
@@ -237,32 +252,50 @@ fn spawn(mut commands: Commands, controls: Option<Res<Controls>>) {
                 ))
                 .with_children(|panel| {
                     panel.spawn(text(TITLE, GOLD, "Keys"));
-                    for (place, keys) in KEYS {
-                        panel.spawn((
-                            text(TEXT, GOLD, place),
-                            Node {
-                                margin: UiRect::top(Val::Px(8.0)),
-                                ..default()
-                            },
-                        ));
-                        for (key, does) in *keys {
-                            panel
-                                .spawn(Node {
-                                    flex_direction: FlexDirection::Row,
-                                    ..default()
-                                })
-                                .with_children(|row| {
-                                    row.spawn((
-                                        text(TEXT, WORDS, &key.text(controls)),
-                                        Node {
-                                            width: Val::Px(KEY_WIDTH),
-                                            ..default()
-                                        },
-                                    ));
-                                    row.spawn(text(TEXT, WORDS, does));
-                                });
-                        }
-                    }
+                    panel
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(COLUMN_GAP),
+                            ..default()
+                        })
+                        .with_children(|columns| {
+                            for places in KEYS {
+                                columns
+                                    .spawn(Node {
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(GAP),
+                                        ..default()
+                                    })
+                                    .with_children(|column| {
+                                        for (place, keys) in places {
+                                            column.spawn((
+                                                text(TEXT, GOLD, place),
+                                                Node {
+                                                    margin: UiRect::top(Val::Px(PLACE_MARGIN)),
+                                                    ..default()
+                                                },
+                                            ));
+                                            for (key, does) in *keys {
+                                                column
+                                                    .spawn(Node {
+                                                        flex_direction: FlexDirection::Row,
+                                                        ..default()
+                                                    })
+                                                    .with_children(|row| {
+                                                        row.spawn((
+                                                            text(TEXT, WORDS, &key.text(controls)),
+                                                            Node {
+                                                                width: Val::Px(KEY_WIDTH),
+                                                                ..default()
+                                                            },
+                                                        ));
+                                                        row.spawn(text(TEXT, WORDS, does));
+                                                    });
+                                            }
+                                        }
+                                    });
+                            }
+                        });
                 });
         });
 }
@@ -310,16 +343,19 @@ mod tests {
     use super::*;
     use crate::frame::Control;
 
+    /// Every place, the columns' in turn.
+    fn places() -> impl Iterator<Item = &'static Place> {
+        KEYS.iter().flat_map(|column| column.iter())
+    }
+
     #[test]
     fn the_help_names_every_action_by_its_keys() {
         let controls = Controls::default();
-        let rows: Vec<(String, &str)> = KEYS
-            .iter()
+        let rows: Vec<(String, &str)> = places()
             .flat_map(|(_, rows)| rows.iter().map(|(row, does)| (row.text(&controls), *does)))
             .collect();
         // Every action has its row.
-        let shown: Vec<Action> = KEYS
-            .iter()
+        let shown: Vec<Action> = places()
             .flat_map(|(_, rows)| rows.iter().flat_map(|(row, _)| row.actions.iter().copied()))
             .collect();
         for action in Action::all() {
@@ -340,6 +376,22 @@ mod tests {
             ("Ctrl+V, Ctrl+C", "paste, copy the line"),
         ] {
             assert!(rows.contains(&(keys.to_owned(), does)), "{keys}: {rows:#?}");
+        }
+    }
+
+    #[test]
+    fn each_column_keeps_within_the_screens_height() {
+        // A line of Bevy's text is 1.2 of its size high, and the panel's gap follows each.
+        let line = |size: f32| size * 1.2 + GAP;
+        let count = |n: usize| f32::from(u16::try_from(n).unwrap());
+        for places in KEYS {
+            let rows: usize = places.iter().map(|(_, rows)| rows.len()).sum();
+            let height = 2.0 * (PADDING + 1.0)
+                + line(TITLE)
+                + count(places.len()) * (line(TEXT) + PLACE_MARGIN)
+                + count(rows) * line(TEXT);
+            // Room for a few rows more within the screen.
+            assert!(height + 4.0 * line(TEXT) < crate::bar::SCREEN.y, "{height}");
         }
     }
 
