@@ -83,6 +83,7 @@ Movies are not needed to complete the game, so this is a low priority.
 * **Saves:** our own format: a `serde` structure with a version number and migrations.
   RON in debug (human-readable), postcard with zstd compression in release.
   Autosave on a timer, like `AUTOSAVEDELAY` in the original.
+  Since #1957 a save is postcard, its header and then the hero, in `saves/` beside the settings' file (docs/re/saves.md); a save of another version is refused, as no migration is written yet.
 * **Directories:** `%APPDATA%\OpenSacred` on Windows, `$XDG_CONFIG_HOME/OpenSacred` (`~/.config/OpenSacred`) on Linux, app storage on Android.
   Since 2026-10-19 the game takes them from the environment (`APPDATA`, `XDG_CONFIG_HOME`, `HOME`), which needs no crate; `directories` stays the option when Android needs its app storage.
   The log goes to the state directory: `%LOCALAPPDATA%\OpenSacred\logs\` on Windows, `$XDG_STATE_HOME/OpenSacred` (`~/.local/state/OpenSacred`) on Linux (docs/10 §5).

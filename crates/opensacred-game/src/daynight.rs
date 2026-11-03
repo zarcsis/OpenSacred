@@ -82,7 +82,7 @@ pub enum Phase {
 }
 
 /// The game's clock: the seconds of the day.
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Clock {
     seconds: f64,
 }

@@ -116,6 +116,7 @@ mod remote;
 mod rewards;
 mod ripples;
 mod runes;
+mod saves;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
@@ -477,6 +478,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         runes::RunesPlugin,
     ))
     .add_plugins((
+        saves::SavesPlugin,
         screenshot::ScreenshotPlugin,
         script_attacks::ScriptAttacksPlugin,
         script_particles::ScriptParticlesPlugin,

@@ -51,3 +51,8 @@ Which sectors the object manager and the world keep (all the world's, or those v
 
 The game saves its own format (ADR-08), and keeps what the original's save keeps, by its own means: the hero (its values, items, arts, combos, skills, effects, place), the world (the creatures alive and dead by their sectors, the items on the ground, the doors, the containers and the hidden stashes, the followers, the town stash, the explored map), the scripts' state, the calendar and the weather, the difficulty and the campaign.
 #1095 is split into its pull requests on its issue.
+
+Since #1957 the game saves the hero (`saves`): a save is postcard in `saves/<name>.sav` beside the settings' file, its header first (the version, the save's name, the hero's class, name, difficulty and level, the calendar, the computer's time), which the list reads alone, and a save of another version is refused, as the original's load refuses one.
+It keeps the hero's place and floor, its experience, attributes and skills, its health, its effects, its arts, art slots and selected art, its combos, its pack (the gold, the backpack, the items worn, the quests' items, the books read), its weapon sets, its home, its statistics, the time played and the calendar.
+A load starts a game of the save's hero in its sector, as a new game starts, and once the hero stands puts the saved values back after the resets of a game's start, its health at its level so that no level-up fills it, its values made anew with its effects, and the hero where it stood.
+The scripts' state (#1958) and the world (#1959) are not kept yet: a load's start script runs anew.
