@@ -44,6 +44,16 @@ const DOMINATION_LOOP: u32 = 2075;
 const RAISE_SOUND: u32 = 2082;
 /// The soulcatcher's object's loop (869 `FX_SOULCATCHER`, `0x76AA40`).
 const SOULCATCHER_LOOP: u32 = 2068;
+/// The Dark Elf's testosterone and adrenaline, whose two objects 864 (`dark_sm_hit`) loop
+/// `DELF_ADRENALIN_LOOP` from their starts (`0x79503D`).
+const ADRENALINE: [u16; 2] = [1047, 1048];
+const ADRENALINE_LOOP: u32 = 2053;
+/// The Dwarf's frenzy, whose object 1019 (`kriegsrausch`) loops `SERA_LICHTSCHILD_LOOP` from its
+/// start (`0x7B65F1`), with its effect 47, fading in over a second, holding for the effect's time
+/// and fading out over a second (`0x7B5F30`).
+const FRENZY: u16 = 1082;
+const FRENZY_EFFECT: u32 = 47;
+const FRENZY_LOOP: u32 = 2040;
 
 /// The art that the right button makes: the original's right button's slot, at a new game the
 /// hero's first art whose action is read.
@@ -2133,6 +2143,35 @@ fn make(
                             commands.entity(hero).with_child((
                                 crate::hums::Hum(SOULCATCHER_LOOP),
                                 crate::spells::Fades(seconds),
+                                Transform::default(),
+                            ));
+                        }
+                        // The testosterone's and the adrenaline's two objects 864 at him, made
+                        // with their effects (`0x5080F0`, `0x5081CB`; `0x508396`, `0x508471`),
+                        // each living the effects' time (the event's `+0x2C`) and looping its
+                        // sound; their sights are not made.
+                        if ADRENALINE.contains(&making.art)
+                            && let Some(&(_, seconds)) = boon.effects.first()
+                        {
+                            for _ in 0..2 {
+                                commands.entity(hero).with_child((
+                                    crate::hums::Hum(ADRENALINE_LOOP),
+                                    crate::spells::Fades(seconds),
+                                    Transform::default(),
+                                ));
+                            }
+                        }
+                        // The frenzy's object 1019 at him, made with its effect 47 (`0x5160AA`),
+                        // for the effect's time (its event's `+0x30`) and a second's fades.
+                        if making.art == FRENZY
+                            && let Some(&(_, seconds)) = boon
+                                .effects
+                                .iter()
+                                .find(|(effect, _)| effect.id == FRENZY_EFFECT)
+                        {
+                            commands.entity(hero).with_child((
+                                crate::hums::Hum(FRENZY_LOOP),
+                                crate::spells::Fades(seconds + 1.0),
                                 Transform::default(),
                             ));
                         }

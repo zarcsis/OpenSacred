@@ -118,12 +118,15 @@ pub fn executor(art: u16) -> &'static [u32] {
 /// playing once as it starts: the Seraphim's 844 (`sera_sm_cast`) by its variant, the art
 /// (`0x790CE0`; seen: 1018 and 1019), 1018's one as it starts (`0x506077`), `HELF_CAST_LANG`
 /// (`0x790F5D`), and 1019's two at its point (`0x504B96`, `0x504C4F`), `SERA_CAST` each
-/// (`0x790EAF`); and the Dwarf's war cry's 1023 (`kriegsschrei`) as 1089 starts on foot
-/// (`0x518ADC`), `DWARF_KRIEGSSCHREI` (`0x7B856A`).
+/// (`0x790EAF`); the Dwarf's war cry's 1023 (`kriegsschrei`) as 1089 starts on foot
+/// (`0x518ADC`), `DWARF_KRIEGSSCHREI` (`0x7B856A`); and the Dark Elf's 865 (`dark_sm_cast`) as his
+/// testosterone and adrenaline start (`0x50A5E1`), `DELF_CAST` by those two variants
+/// (`0x794418`), his own Rundum, Hardhit and Attacke making it silent.
 pub fn objects(art: u16) -> (&'static [u32], &'static [u32]) {
     match art {
         1018 => (&[2065], &[]),
         1019 => (&[], &[2071, 2071]),
+        1047 | 1048 => (&[2066], &[]),
         1089 => (&[2105], &[]),
         _ => (&[], &[]),
     }
