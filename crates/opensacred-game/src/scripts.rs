@@ -165,11 +165,15 @@ impl Partikel {
     /// The generic system that a `CreateNPC`'s or a `CreateObj`'s `0x79` starts, its colour and
     /// its variant, at the place that its `0x04` makes the creature or the object at: a creature's
     /// (`CPOS:`, the hero's for `CPOS:HERO`), a `DefPos`'s or a cell (`0x48371D`, `0x4878CA`;
-    /// #1838); none without one or of the variant 0.
-    fn made(tags: &Tags, positions: &quests::Positions) -> Option<Self> {
+    /// #1838); none without one or of the variant 0, nor for a `CreateObj` without a random
+    /// item's `0x54`, which the original tests before the system (`0x4878CA`, `0x486FA1`; #1888).
+    fn made(object: bool, tags: &Tags, positions: &quests::Positions) -> Option<Self> {
         let &[colour, variant, ..] = tags.numbers("_79").as_slice() else {
             return None;
         };
+        if object && !tags.numbers("_54").first().is_some_and(|&n| n >= 0) {
+            return None;
+        }
         let variant = u8::try_from(variant).ok().filter(|&variant| variant > 0)?;
         let colour = u32::from_ne_bytes(colour.to_ne_bytes()) | 0xFF00_0000;
         let creature = tags.texts("_04").first().and_then(|place| {
@@ -1222,10 +1226,10 @@ impl Host for Recorder<'_> {
             return Handled::Done;
         }
         // The generic system that its colour and variant start where it makes its creature or
-        // object (`0x48371D`, `0x4878CA`; #1838).
+        // random item (`0x48371D`, `0x4878CA`; #1838, #1888).
         if matches!(name, "create_npc" | "create_obj")
             && ran.is_empty()
-            && let Some(sparks) = Partikel::made(&tags, &self.state.positions)
+            && let Some(sparks) = Partikel::made(name == "create_obj", &tags, &self.state.positions)
         {
             self.particles.push(sparks);
         }
@@ -3153,6 +3157,7 @@ mod tests {
              F[\"grab\"] = function()\n\
              create_npc { _02 = 32, _04 = \"CPOS:HERO\", _79 = { 16711680, 1 } }\n\
              create_obj { _04 = \"CPOS:HERO\", _54 = 3, _79 = { 16777215, 4 } }\n\
+             create_obj { _04 = { 3236, 2511, 0 }, _54 = 0, _79 = { 16777215, 4 } }\n\
              create_obj { _02 = 5171, _04 = { 3236, 2511, 0 }, _79 = { 16777215, 4 } }\n\
              create_obj { _02 = 5171, _04 = { 3236, 2511, 0 }, _79 = { 16777215, 0 } }\n\
              create_obj { _02 = 5171, _04 = { 3236, 2511, 0 } }\n\
@@ -3162,8 +3167,9 @@ mod tests {
         )]);
         let mut live = live(runtime);
         let effects = live.run_named("grab");
-        // A grave's monster in a red ring at the hero, its random item in white sparks, an
-        // object's at its cell; none of the variant 0 or without a colour.
+        // A grave's monster in a red ring at the hero, its random items in white sparks, at the
+        // hero and at a cell; none for an object of a type (`BRUNNEN`'s potion), of the variant 0
+        // or without a colour.
         let at = |at: Option<&str>, cell, colour, variant| Partikel {
             at: at.map(str::to_owned),
             cell,
