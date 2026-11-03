@@ -123,6 +123,85 @@ impl Casting {
     }
 }
 
+/// A cast that a script's `Attack` of a spell's art orders, at once or at its turn (the event
+/// `0x105`; #1871): its spell, its target (`Entity::PLACEHOLDER` for a place) and its target's
+/// place as it was ordered, made a [`Casting`] at its target's place as it comes.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct ScriptCast {
+    spell: u16,
+    target: Entity,
+    point: Vec3,
+}
+
+impl ScriptCast {
+    pub fn new(spell: u16, target: Entity, point: Vec3) -> Self {
+        Self {
+            spell,
+            target,
+            point,
+        }
+    }
+}
+
+/// The scripts' casts at once by creatures that their runs make, which come in a later frame
+/// (#1871): each caster's name, its cast, and how long it still waits.
+#[derive(Resource, Default)]
+pub struct PendingCasts(Vec<(String, ScriptCast, f32)>);
+
+impl PendingCasts {
+    /// Keeps `cast` for the creature of the name `name` until it comes, for [`PENDING`] seconds.
+    pub fn wait(&mut self, name: String, cast: ScriptCast) {
+        self.0.push((name, cast, PENDING));
+    }
+}
+
+/// How long a script's cast waits for its caster to come.
+const PENDING: f32 = 2.0;
+
+/// Gives each pending cast to its caster once it comes, or drops it after its wait.
+fn pending(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut pending: ResMut<PendingCasts>,
+    named: Query<(Entity, &crate::npcs::ScriptName), Without<Dies>>,
+) {
+    if pending.0.is_empty() {
+        return;
+    }
+    let dt = time.delta_secs();
+    pending.0.retain_mut(|(name, cast, left)| {
+        if let Some((caster, _)) = named.iter().find(|(_, named)| named.0 == *name) {
+            debug!("creature_casts: {caster}, {name}, comes for its script's cast");
+            commands.entity(caster).insert(*cast);
+            return false;
+        }
+        *left -= dt;
+        *left > 0.0
+    });
+}
+
+/// Makes each script's cast a [`Casting`] at its target's place, or at its point where the target
+/// is gone or a place.
+fn ordered(
+    mut commands: Commands,
+    casts: Query<(Entity, &ScriptCast), Without<Casting>>,
+    places: Query<&GlobalTransform>,
+) {
+    for (entity, cast) in &casts {
+        let point = places
+            .get(cast.target)
+            .map_or(cast.point, GlobalTransform::translation);
+        debug!(
+            "creature_casts: {entity} casts {} at {} by a script",
+            cast.spell, cast.target
+        );
+        commands
+            .entity(entity)
+            .remove::<ScriptCast>()
+            .insert(Casting::new(cast.spell, 0, cast.target, point));
+    }
+}
+
 /// Begins each cast's clip: its slot by spell and type, its spell acting at the spell's share
 /// (`0x521D60`).
 fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind), Without<Dies>>) {
@@ -1068,9 +1147,16 @@ pub struct CreatureCastsPlugin;
 
 impl Plugin for CreatureCastsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<PendingCasts>().add_systems(
             Update,
-            ((begin, act, end).chain(), home, throw, burn, spread).in_set(Playing),
+            (
+                (pending, ordered, begin, act, end).chain(),
+                home,
+                throw,
+                burn,
+                spread,
+            )
+                .in_set(Playing),
         );
     }
 }
