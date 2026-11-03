@@ -1878,6 +1878,7 @@ mod tests {
                 "setquake",
                 "setrain",
                 "setsnow",
+                "skills",
                 "spawn",
                 "stashes",
                 "state",
