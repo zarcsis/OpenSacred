@@ -1016,6 +1016,15 @@ fn a_drop_rises_and_falls_in_place_after_about_1_6_s() {
 }
 
 #[test]
+fn a_part_thrown_off_flies_faster_and_spins_more() {
+    // The draws of `R(−100, 100)` twice and `R(−15, 15)` three times.
+    let flung = Flight::flung(4.0, 5.0, &mut script(&[200, 0, 30, 15, 0]));
+    assert_eq!(flung.at, [4.0, 5.0, THROWN_AT]);
+    assert_eq!(flung.velocity, [1000.0, -1000.0, 150.0]);
+    assert_eq!(flung.spin, [15.0, 0.0, -15.0]);
+}
+
+#[test]
 fn a_drop_lands_on_a_raised_cell_at_its_height() {
     let (flight, t) = flown(|_, _| 40.0);
     assert!(flight.resting);

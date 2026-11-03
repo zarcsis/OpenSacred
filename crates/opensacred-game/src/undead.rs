@@ -11,8 +11,10 @@
 //! zombies 33 and 34 and the ghouls 36 and 50 burst at once with `CHAR_SPLASH`, and the others
 //! vanish; the fire ghoul burns away once its clip has played (`0x541653`'s cases). Their
 //! bodies are hidden. A ring rises about an undead that stands again and a dust leaves a corpse
-//! that vanishes (781's variants 3 and 4, `puffs`, #1261); the effect 856, the burst's parts and
-//! the warriors' thrown parts are not drawn yet (#1262, #1264).
+//! that vanishes (781's variants 3 and 4, `puffs`, #1261); the burning ones' flames are the
+//! effect 856's (`fx::last_burning`, #1262); a skeleton warrior that loses its head throws it off,
+//! an item that lies where it lands (#1202). The burst's parts and an arm's bone are not drawn
+//! (#1264).
 
 use crate::buildings::Layered;
 use bevy::prelude::*;
@@ -259,8 +261,9 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
 /// Changes the skeleton warrior `fallen`, which falls and `rises`, into the type of the change
 /// (`0x532E3C`'s cases 0 and 2 to 5, #1260): a body of that type, which lacks an arm or the head,
 /// takes its place on its cell and plays its dying clip `choice` (a death at a creature's hands
-/// where `by_creature`), to lie and rise as [`rise`] raises it; the part it throws (`0x550580`) is
-/// not made.
+/// where `by_creature`), to lie and rise as [`rise`] raises it; a head it loses it throws off
+/// as an item (`0x550580`, `undead::HEAD`), from its place (**hypothesis** for its neck's point),
+/// an arm's bone, which does not stay, not made.
 pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creature): (u32, bool)) {
     let Some(into) = rises.into else {
         return;
@@ -272,6 +275,14 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
         return;
     };
     let kind = world.get::<Mind>(fallen).map_or(0, |mind| mind.creature);
+    if undead::loses_head(kind, into)
+        && let Some(at) = world.get::<Transform>(fallen).map(|at| at.translation)
+    {
+        info!("undead: {fallen}, a {kind}, throws off its head");
+        if let Err(e) = world.run_system_cached_with(crate::drops::fling, (undead::HEAD, at, on)) {
+            warn!("undead: no head thrown off: {e}");
+        }
+    }
     for entity in remake(world, fallen, (into, level, rises.hostile), on) {
         let Ok(mut changed) = world.get_entity_mut(entity) else {
             continue;
