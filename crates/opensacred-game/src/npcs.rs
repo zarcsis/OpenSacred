@@ -2210,6 +2210,9 @@ enum Act {
     /// `Attack` of `ECS_TELEPORT`: the creature's teleport to the place, at once or at its turn
     /// (`0x4A2B40`, the event `0x105`; #1831).
     Phase(Whither),
+    /// `Attack` of a spell's art: the creature's cast of the spell at its target, at once or at its
+    /// turn (the event `0x105`; #1871).
+    Cast { spell: u16, at: CastAt },
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -6104,6 +6107,16 @@ impl Npcs {
                 });
                 continue;
             }
+            if record.kind == ATTACK
+                && let Some((name, spell, at)) = cast_by(ops, &self.places)
+            {
+                moves.push(Moved {
+                    name,
+                    act: Act::Cast { spell, at },
+                    queued,
+                });
+                continue;
+            }
             if let Some(moved) = played(record.kind, ops, queued, now) {
                 moves.push(moved);
                 continue;
@@ -6737,6 +6750,12 @@ enum Queued {
         phase: crate::script_attacks::Phase,
         begun: bool,
     },
+    /// An `Attack`'s cast of a spell at its target (the step `0x59E3D6` sending `0x105`): ordered
+    /// at its turn, waited for while it lasts (`creature_casts::ScriptCast`, #1871).
+    Cast {
+        cast: crate::creature_casts::ScriptCast,
+        begun: bool,
+    },
     /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
     /// #1278).
     Call(String),
@@ -6893,6 +6912,10 @@ fn take_steps(
                 Has<ScriptClip>,
                 Has<Plays>,
                 Has<crate::script_attacks::Phase>,
+                (
+                    Has<crate::creature_casts::ScriptCast>,
+                    Has<crate::creature_casts::Casting>,
+                ),
             ),
         ),
         (Without<Dies>, Without<hero::Body>),
@@ -6901,8 +6924,16 @@ fn take_steps(
     if tick.seconds.is_none() {
         return;
     }
-    for (entity, mut queue, mut transform, mind, way, layered, walking, (clip, plays, phasing)) in
-        &mut creatures
+    for (
+        entity,
+        mut queue,
+        mut transform,
+        mind,
+        way,
+        layered,
+        walking,
+        (clip, plays, phasing, (ordered, casting)),
+    ) in &mut creatures
     {
         let here = transform.translation;
         let level = way.as_ref().and_then(|way| way.level);
@@ -6985,6 +7016,16 @@ fn take_steps(
                     states.0.push(act_on(object, *open));
                 }
                 true
+            }
+            // Ordered at its turn, and done once its cast ends (#1871).
+            Some(Queued::Cast { cast, begun }) => {
+                if *begun {
+                    !ordered && !casting
+                } else {
+                    commands.entity(entity).insert(*cast);
+                    *begun = true;
+                    false
+                }
             }
             // Begun at its turn, and done once the creature stands at its end.
             Some(Queued::Phase { phase, begun }) => {
@@ -7070,8 +7111,86 @@ fn phased(
     if !teleports {
         return None;
     }
-    let name = name_of(ops).filter(|name| !name.is_empty() && name != HERO)?;
+    let name =
+        name_of(ops).filter(|name| !name.is_empty() && name != HERO && attack_finds(name))?;
     Some((name, whither(ops, 0x04, places)?))
+}
+
+/// Whether an `Attack` finds the creature of its attacker's name `name` (`0x4A2B40`, #1871): it
+/// takes the name's key (`+0xA880`), the number of a `res:<digits>` or the [`sacred_key`] of the
+/// text after `res:`, as `CreateNPC` keeps the creature by it, only where it is positive as a
+/// signed number; else it looks the name up among the scripts' own names (`0x465070`), which hold
+/// no creature, and the record does nothing (seen: quest 10252's boss, key `0xCF0288D9`). Of the
+/// 20 trees' records, only 133 of `ECS_METEOR`'s 161 name such an attacker (`ENDGEGNER1` of `bum`,
+/// `ENDGEGNER_10252_A`). A name of another form is taken as found.
+///
+/// [`sacred_key`]: opensacred_data::text::sacred_key
+fn attack_finds(name: &str) -> bool {
+    let Some(text) = name.strip_prefix("res:") else {
+        return true;
+    };
+    let key = if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+        text.parse::<u32>().unwrap_or(u32::MAX)
+    } else {
+        opensacred_data::text::sacred_key(text.as_bytes())
+    };
+    key.cast_signed() > 0
+}
+
+/// The spells that the scripts' `Attack`s name by their arts (#1871): `ECS_FIRESTRIKE` the
+/// fireball, `ECS_WINDSTRIKE` the whirlwind, `ECS_METEOR` the meteors and `ECS_FLASH` the chain
+/// lightning (#1844's count of the 20 trees: 16, 9, 161 and 4 records).
+const SCRIPT_SPELLS: [(&str, u16); 4] = [
+    ("ecs_firestrike", 5),
+    ("ecs_windstrike", 29),
+    ("ecs_meteor", 26),
+    ("ecs_flash", 33),
+];
+
+/// Whom or where a script's cast is at (#1871): the hero, a creature of the name, a member of the
+/// group, or a place.
+#[derive(Clone, Debug, PartialEq)]
+enum CastAt {
+    Hero,
+    Named(String),
+    Group(u32),
+    Place(Whither),
+}
+
+/// The creature that an `Attack` of the operands `ops` orders to cast (`0x4A2B40`, the event
+/// `0x105`; #1871), its first name, the spell of its art, and its target: the next name (the hero
+/// for `HERO`), else a group (`0x11`), else a place (`0x04`: a cell, a `DefPos` of `places` or a
+/// creature's place), else the hero; none for another art or none, or for the hero as the caster.
+fn cast_by(
+    ops: &[opensacred_data::netscript::Operand],
+    places: &HashMap<String, (i32, i32)>,
+) -> Option<(String, u16, CastAt)> {
+    let spell = ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (ART, Value::Str(art)) => SCRIPT_SPELLS
+            .iter()
+            .find(|(name, _)| art.eq_ignore_ascii_case(name))
+            .map(|&(_, spell)| spell),
+        _ => None,
+    })?;
+    let mut names = ops.iter().filter_map(|o| match (o.tag, &o.value) {
+        (0x01, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+        _ => None,
+    });
+    let caster = names
+        .next()
+        .filter(|name| !name.is_empty() && name != HERO && attack_finds(name))?;
+    let group = ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (0x11, Value::I32(group)) => u32::try_from(*group).ok(),
+        _ => None,
+    });
+    let at = match (names.next_back(), group, whither(ops, 0x04, places)) {
+        (Some(name), ..) if name == HERO => CastAt::Hero,
+        (Some(name), ..) => CastAt::Named(name),
+        (None, Some(group), _) => CastAt::Group(group),
+        (None, None, Some(place)) => CastAt::Place(place),
+        (None, None, None) => CastAt::Hero,
+    };
+    Some((caster, spell, at))
 }
 
 /// The type that a `Morph` of the operands `ops` turns its creature into, its `0x02`; none for 0.
@@ -7230,6 +7349,7 @@ fn script_attacks(records: &[Record]) -> Vec<ScriptAttack> {
         if let [attacker, target] =
             <[Party; 2]>::try_from(parties).unwrap_or([Party::Hero, Party::Hero])
             && attacker != Party::Hero
+            && !matches!(&attacker, Party::Named(name) if !attack_finds(name))
         {
             attacks.push(ScriptAttack { attacker, target });
         }
@@ -7539,7 +7659,7 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
-    (mut queues, real, sounds, mut lines, mut states, mut morphed, mut attacks): (
+    (mut queues, real, sounds, mut lines, mut states, mut morphed, mut attacks, mut pending): (
         Query<&mut ScriptQueue>,
         Res<Time<bevy::time::Real>>,
         Option<Res<sfx::Sfx>>,
@@ -7547,6 +7667,7 @@ pub(crate) fn script_records(
         Option<ResMut<crate::scripts::ObjStates>>,
         ResMut<Morphs>,
         ResMut<ScriptAttacks>,
+        ResMut<crate::creature_casts::PendingCasts>,
     ),
     dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
 ) {
@@ -7871,6 +7992,67 @@ pub(crate) fn script_records(
                         if moved.queued { " in its turn" } else { "" }
                     );
                 }
+                continue;
+            }
+            Act::Cast { spell, ref at } => {
+                // By the first creature of the name, at its target's creature, a member of its
+                // group, the hero or a place, at once or at its turn (#1871).
+                let named = |name: &str| {
+                    creatures
+                        .iter()
+                        .find(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
+                        .map(|(entity, _, _, at, ..)| (entity, at.translation))
+                };
+                let hero = || {
+                    bodies
+                        .iter()
+                        .next()
+                        .map(|(entity, _)| entity)
+                        .zip(heroes.iter().next().map(|at| at.translation))
+                };
+                let target = match at {
+                    CastAt::Hero => hero(),
+                    CastAt::Named(name) => named(name),
+                    CastAt::Group(group) => creatures
+                        .iter()
+                        .find(|(_, _, _, _, mind, ..)| {
+                            mind.as_ref()
+                                .is_some_and(|mind| mind.group == Some(SCRIPT_GROUP | group))
+                        })
+                        .map(|(entity, _, _, at, ..)| (entity, at.translation)),
+                    CastAt::Place(Whither::Cell((x, y, _))) => {
+                        let centre = crate::paths::centre((*x, *y));
+                        let height = heights.standing(centre.x, centre.y, None).unwrap_or(0.0);
+                        Some((Entity::PLACEHOLDER, Vec3::new(centre.x, height, centre.y)))
+                    }
+                    CastAt::Place(Whither::Creature(None)) => hero(),
+                    CastAt::Place(Whither::Creature(Some(name))) => named(name),
+                };
+                let Some((target, point)) = target else {
+                    continue;
+                };
+                let cast = crate::creature_casts::ScriptCast::new(spell, target, point);
+                // A caster that the run makes comes in a later frame: its cast waits for it.
+                let Some((caster, _)) = named(&moved.name) else {
+                    if !moved.queued {
+                        pending.wait(moved.name.clone(), cast);
+                    }
+                    continue;
+                };
+                if moved.queued {
+                    let step = Queued::Cast { cast, begun: false };
+                    match queues.get_mut(caster) {
+                        Ok(mut queue) => queue.0.push_back(step),
+                        Err(_) => queued.entry(caster).or_default().push(step),
+                    }
+                } else {
+                    commands.entity(caster).insert(cast);
+                }
+                bevy::log::info!(
+                    "npcs: the scripts have {} cast {spell}{}",
+                    moved.name,
+                    if moved.queued { " in its turn" } else { "" }
+                );
                 continue;
             }
             Act::Morph(creature) => {
@@ -10274,6 +10456,81 @@ mod tests {
         assert_eq!(
             phased(&[op(0x01, Value::Str("res:1".into()))], &places),
             None
+        );
+    }
+
+    #[test]
+    fn an_attack_of_a_spells_art_orders_its_creatures_cast_at_its_target() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        let art = |a: &str| op(ART, Value::Str(a.into()));
+        // At the hero, named or not; at a creature.
+        let places = HashMap::from([("pos_trigarea_eck1_10252".to_owned(), (1509, 1216))]);
+        let cast = |ops: &[Operand]| cast_by(ops, &places);
+        assert_eq!(
+            cast(&[name("Res:1"), name("HERO"), art("ECS_METEOR")]),
+            Some(("res:1".into(), 26, CastAt::Hero))
+        );
+        assert_eq!(
+            cast(&[name("res:1"), art("ecs_firestrike")]),
+            Some(("res:1".into(), 5, CastAt::Hero))
+        );
+        assert_eq!(
+            cast(&[name("res:1"), name("res:2"), art("ECS_FLASH")]),
+            Some(("res:1".into(), 33, CastAt::Named("res:2".into())))
+        );
+        // Quest 74's demon at a group, quest 10252's boss at a `DefPos`.
+        assert_eq!(
+            cast(&[name("res:1"), op(0x11, Value::I32(73)), art("ECS_METEOR")]),
+            Some(("res:1".into(), 26, CastAt::Group(73)))
+        );
+        assert_eq!(
+            cast(&[
+                name("res:1"),
+                op(0x04, Value::Str("pos_TrigArea_Eck1_10252".into())),
+                art("ECS_METEOR")
+            ]),
+            Some((
+                "res:1".into(),
+                26,
+                CastAt::Place(Whither::Cell((1509, 1216, 0)))
+            ))
+        );
+        // Quest 10252's own boss, whose name's key is negative, is never found: none.
+        assert_eq!(
+            cast(&[
+                name("res:ENDGEGNER_10252_A"),
+                op(0x04, Value::Str("pos_TrigArea_Eck1_10252".into())),
+                art("ECS_METEOR")
+            ]),
+            None
+        );
+        // The teleport, no art or the hero as the caster: none.
+        assert_eq!(cast(&[name("res:1"), art("ECS_TELEPORT")]), None);
+        assert_eq!(cast(&[name("res:1"), name("res:2")]), None);
+        assert_eq!(cast(&[name("HERO"), art("ECS_WINDSTRIKE")]), None);
+    }
+
+    #[test]
+    fn an_attack_finds_a_name_of_a_positive_key_alone() {
+        // A number's key is the number; a word's its hash, of the top bit set for these two.
+        assert!(attack_finds("res:17810"));
+        assert!(attack_finds("res:endgegner1") == attack_finds("res:ENDGEGNER1"));
+        assert!(!attack_finds("res:endgegner_10252_a"));
+        assert!(!attack_finds("res:endgegner1"));
+        assert!(attack_finds("machet1703"));
+        // `bum`'s boss at the hero by meteors: none; no `Attack` without an art by it either.
+        let op = |tag, value| Operand { tag, value };
+        let ops = [
+            op(0x01, Value::Str("res:ENDGEGNER1".into())),
+            op(0x01, Value::Str("res:17217".into())),
+        ];
+        assert!(
+            script_attacks(&[Record {
+                kind: ATTACK,
+                body: Body::Operands(ops.to_vec()),
+            }])
+            .is_empty()
         );
     }
 
