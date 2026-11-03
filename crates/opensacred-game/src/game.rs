@@ -396,12 +396,14 @@ fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::Hero
 }
 
 /// Loads the game `game` would start, of the seed `seed`: the hero at its start, the first sector
-/// built, the start script's NPCs and objects, the footsteps, the music.
+/// built, the start script's NPCs and objects, the footsteps, the music; of a loaded save, its
+/// scripts and what their play placed in place of the start's (`resume`, #1958).
 fn load(
     shared: &sectors::Shared,
     sound: &opensacred_data::sound::Sound,
     (game, seed): (&NewGame, crate::seed::Game),
     speed: f32,
+    resume: Option<crate::saves::Scripts>,
 ) -> Result<Loaded> {
     let assets = &shared.assets;
     let tables = &shared.tables;
@@ -417,7 +419,7 @@ fn load(
         .collect();
     let scripts::Ran {
         tree: scripts,
-        started,
+        mut started,
     } = scripts::run(
         assets,
         (&tree, difficulty_index(game)),
@@ -425,6 +427,12 @@ fn load(
         creature_types(tables)?,
         seed,
     )?;
+    // A loaded save's start, of its seed, made the saved game's tree and placements again; its
+    // scripts take the save's state, and its placements the play's changes (`Npcs::resume`).
+    let (resumed, played) = resume.map(|resume| (resume.scripts, resume.npcs)).unzip();
+    if let Some(saved) = resumed {
+        started.resume(saved);
+    }
     let side = u32::try_from(opensacred_data::world::SIDE)?;
     // The sector given, at its centre, or the start script's start cell.
     let start = match game.sector {
@@ -484,7 +492,10 @@ fn load(
         .chain(seraphim.then_some(opensacred_rules::arts::BFG_ITEM))
         .collect();
     let difficulty = game.difficulty.unwrap_or_default();
-    let npcs = npcs::Npcs::read(shared, &scripts, &items, difficulty)?;
+    let mut npcs = npcs::Npcs::read(shared, &scripts, &items, difficulty)?;
+    if let Some(saved) = played {
+        npcs.resume(saved, |at| areas.get(&at).copied());
+    }
     let holding = fight::Holding(npcs.hero_holds(&worn));
     // Its first weapon set, the template's items in its hands (#1347).
     let sets = crate::sets::Starting(
@@ -841,7 +852,7 @@ impl LoadingScreen {
 
 /// Starts loading the requested game, behind the original's loading screen, or a word where
 /// there is none; the game's seed the run's, the count of its games before it mixed in
-/// (`seed::Game`).
+/// (`seed::Game`), a loaded save's its own, with its scripts (`saves::Resume`, #1958).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources as arguments"
@@ -849,6 +860,7 @@ impl LoadingScreen {
 fn begin(
     mut commands: Commands,
     request: Res<Request>,
+    resume: Option<Res<crate::saves::Resume>>,
     data: Res<Data>,
     index: Res<sound::Index>,
     speed: Res<hero::GameSpeed>,
@@ -858,11 +870,16 @@ fn begin(
 ) {
     let (shared, sound) = (Arc::clone(&data.0), Arc::clone(&index.0));
     let (game, speed) = (request.0.clone(), speed.0);
-    let seed = crate::seed::Game::of(*games);
+    let resume = resume.map(|resume| resume.0.clone());
+    commands.remove_resource::<crate::saves::Resume>();
+    let seed = resume.as_ref().map_or_else(
+        || crate::seed::Game::of(*games),
+        |resume| crate::seed::Game(resume.seed),
+    );
     *games += 1;
     commands.insert_resource(seed);
     let task = AsyncComputeTaskPool::get()
-        .spawn(async move { load(&shared, &sound, (&game, seed), speed) });
+        .spawn(async move { load(&shared, &sound, (&game, seed), speed, resume) });
     commands.insert_resource(Pending(task));
     let mut root = commands.spawn((
         DespawnOnExit(AppState::Loading),

@@ -1,14 +1,20 @@
 //! The saves (#1095; docs/re/saves.md): a game kept in a file of its own and given back, as the
 //! original's `cEngine::save` keeps its game in `SAVE/GAMEnn.PAK`, in the game's own versioned
 //! format (PLAN.md ADR-08). A save is postcard: its [`Header`], which the saves' list reads alone,
-//! then its [`Hero`]; a save of another version is refused, as the original's load refuses one
-//! (`0x61B6F0`). The saves lie in `saves/` beside the settings' file.
+//! then its [`Hero`] and its [`Scripts`]; a save of another version is refused, as the original's
+//! load refuses one (`0x61B6F0`). The saves lie in `saves/` beside the settings' file.
 //!
 //! The first part (#1957) keeps the hero: its class, name, difficulty, values, items, arts,
 //! combos, effects, statistics and place, and the calendar. A load starts a game of the save's
 //! hero as a new game starts, then puts the saved values back once the hero stands, after the
-//! resets of a game's start (`OnEnter(InGame)`), the hero where it stood. The scripts' state
-//! (#1958) and the world (#1959) are later parts: a load's start script runs anew.
+//! resets of a game's start (`OnEnter(InGame)`), the hero where it stood.
+//!
+//! The second (#1958) keeps the scripts: the game's seed, their state, the functions done and
+//! their `rand()`, and what their play changed of the placements. A load's start runs of the
+//! save's seed, making the saved game's tree and placements again, and takes the save's scripts
+//! in place of its run's, none of its windows shown again ([`crate::scripts::Started::resume`]),
+//! and the play's records of the world placed again ([`crate::npcs::Npcs::resume`]). The world
+//! (#1959) is a later part.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,8 +22,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use bevy::prelude::{
-    App, Entity, IntoScheduleConfigs, NextState, Plugin, Query, Res, ResMut, Resource, Transform,
-    Update, Vec3, With, World, in_state, info, resource_exists, warn,
+    App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Query, Res, ResMut,
+    Resource, Transform, Update, Vec3, With, World, in_state, info, resource_exists, warn,
 };
 use opensacred_rules::arts::Arts;
 use opensacred_rules::drops::Difficulty;
@@ -41,7 +47,7 @@ use crate::terrain::Heights;
 use crate::{arts, drops, making};
 
 /// The saves' version: a save of another is refused.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -88,6 +94,16 @@ pub struct Hero {
     pub clock: Clock,
 }
 
+/// The scripts as a save keeps them (#1958; the original's quests, `sdk_SAVELOAD_SERIAL`): the
+/// game's seed (`seed::Game`), whose start makes the saved game's tree and placements again, the
+/// scripts' state, functions done and `rand()`, and what their play changed of the placements.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Scripts {
+    pub seed: u64,
+    pub scripts: crate::scripts::Saved,
+    pub npcs: crate::npcs::Saved,
+}
+
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
 /// directory.
 fn directory(settings: Option<&SettingsFile>) -> Option<PathBuf> {
@@ -112,10 +128,11 @@ fn file(dir: &Path, name: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{name}.{EXTENSION}")))
 }
 
-/// Writes a save of `header` and `hero` at `path`.
-pub fn write(path: &Path, header: &Header, hero: &Hero) -> Result<()> {
+/// Writes a save of `header`, `hero` and `scripts` at `path`.
+pub fn write(path: &Path, header: &Header, hero: &Hero, scripts: &Scripts) -> Result<()> {
     let mut bytes = postcard::to_stdvec(header).context("writing the header")?;
     bytes.extend(postcard::to_stdvec(hero).context("writing the hero")?);
+    bytes.extend(postcard::to_stdvec(scripts).context("writing the scripts")?);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
     }
@@ -136,12 +153,14 @@ fn header(bytes: &[u8]) -> Result<(Header, &[u8])> {
 }
 
 /// Reads the save at `path`.
-pub fn read(path: &Path) -> Result<(Header, Hero)> {
+pub fn read(path: &Path) -> Result<(Header, Hero, Scripts)> {
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let (header, rest) = header(&bytes).with_context(|| path.display().to_string())?;
-    let hero = postcard::from_bytes(rest)
+    let (hero, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the hero", path.display()))?;
-    Ok((header, hero))
+    let scripts = postcard::from_bytes(rest)
+        .with_context(|| format!("{}: reading the scripts", path.display()))?;
+    Ok((header, hero, scripts))
 }
 
 /// The saves in `dir`, each its file's name and its header, the newest first; a file that does
@@ -180,6 +199,8 @@ fn gather(world: &mut World, name: &str) -> Result<(Header, Hero)> {
     ), With<Body>>();
     let (transform, body, base, health, effects) =
         heroes.iter(world).next().context("no hero to save")?;
+    // A dead hero, which rises at its home, is not saved: its save would load it dead.
+    ensure!(health.current > 0, "the hero is dead");
     let floor = world
         .get_resource::<Heights>()
         .and_then(|heights| heights.floor(body.level()))
@@ -257,12 +278,30 @@ fn gather(world: &mut World, name: &str) -> Result<(Header, Hero)> {
     Ok((header, hero))
 }
 
+/// The scripts as they stand, to save.
+fn scripts(world: &World) -> Result<Scripts> {
+    let seed = world
+        .get_resource::<crate::seed::Game>()
+        .context("no game's seed to save")?;
+    let live = world
+        .get_non_send::<crate::scripts::Live>()
+        .context("the scripts do not run")?;
+    let npcs = world
+        .get_resource::<crate::npcs::Npcs>()
+        .context("no NPCs to save")?;
+    Ok(Scripts {
+        seed: seed.0,
+        scripts: live.saved(),
+        npcs: npcs.saved(),
+    })
+}
+
 /// Saves the game as `name`: where its file went.
 pub fn save(world: &mut World, name: &str) -> Result<PathBuf> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
     let path = file(&dir, name)?;
     let (header, hero) = gather(world, name)?;
-    write(&path, &header, &hero)?;
+    write(&path, &header, &hero, &scripts(world)?)?;
     info!("saves: {} saved in {}", header.name, path.display());
     Ok(path)
 }
@@ -278,10 +317,15 @@ pub fn saves(world: &World) -> Vec<(String, Header)> {
 #[derive(Resource)]
 pub struct Restore(pub Box<Hero>);
 
-/// Loads the save `name`: a game of its hero starts, whose values [`restore`] puts back.
+/// A loaded save's scripts, which its game's load takes ([`crate::game`]'s `begin`).
+#[derive(Resource)]
+pub struct Resume(pub Scripts);
+
+/// Loads the save `name`: a game of its hero starts of its scripts, whose values [`restore`]
+/// puts back.
 pub fn load(world: &mut World, name: &str) -> Result<Header> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
-    let (header, hero) = read(&file(&dir, name)?)?;
+    let (header, hero, scripts) = read(&file(&dir, name)?)?;
     // The game starts in the hero's sector, which [`restore`] puts it back in.
     let cell = crate::paths::cell_of(hero.at.0, hero.at.1);
     let side = i32::try_from(opensacred_data::world::SIDE).unwrap_or(64);
@@ -298,9 +342,11 @@ pub fn load(world: &mut World, name: &str) -> Result<Header> {
         .copied()
         .unwrap_or_default()
         .fill(game);
-    world.insert_resource(crate::talk::CloseFirst);
+    // Its start shows no window, and the saved game's are left to the player.
+    world.remove_resource::<crate::talk::CloseFirst>();
     world.insert_resource(crate::game::Request(game));
     world.insert_resource(Restore(Box::new(hero)));
+    world.insert_resource(Resume(scripts));
     world
         .resource_mut::<NextState<AppState>>()
         .set(AppState::Loading);
@@ -348,6 +394,10 @@ fn restore(world: &mut World) {
     world.insert_resource(hero.history);
     world.insert_resource(drops::Played::of(hero.played));
     world.insert_resource(hero.clock);
+    // The scripts' timers count on from the clock put back, not the minutes across its change.
+    if let Some(mut live) = world.get_non_send_mut::<crate::scripts::Live>() {
+        live.clock_set();
+    }
     if let Err(e) = world.run_system_cached(refit) {
         warn!("saves: making the hero's values anew: {e}");
     }
@@ -395,19 +445,27 @@ fn refit(
     }
 }
 
+/// Forgets a load that did not get as far as its game (the menu again before its hero stood), so
+/// that no later game takes its hero or its scripts.
+fn forget(mut commands: Commands) {
+    commands.remove_resource::<Restore>();
+    commands.remove_resource::<Resume>();
+}
+
 /// The saves' restoring of a loaded game's hero.
 pub struct SavesPlugin;
 
 impl Plugin for SavesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            restore
-                .after(Step::HeroSpawn)
-                .run_if(in_state(AppState::InGame))
-                .run_if(resource_exists::<Restore>)
-                .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
-        );
+        app.add_systems(OnEnter(AppState::Menu), forget)
+            .add_systems(
+                Update,
+                restore
+                    .after(Step::HeroSpawn)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(resource_exists::<Restore>)
+                    .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
+            );
     }
 }
 
@@ -464,23 +522,67 @@ mod tests {
         }
     }
 
+    /// The scripts of a game in the middle of its quests: a variable, a quest set up, a timer, a
+    /// function done, the `rand()` on, two batches of the play's records of the world, a trigger
+    /// opened and a quest's item taken.
+    fn saved_scripts() -> Scripts {
+        use opensacred_data::netscript::{Body, Operand, Record, Value};
+        let mut state = opensacred_rules::quests::Scripts::default();
+        state.variables.set("played", 3);
+        state.quests.set_up(1202, &mut |_| true);
+        state.timers.set(7, "zeit1202", 4320);
+        let record = |kind, name: &str| Record {
+            kind,
+            body: Body::Operands(vec![Operand {
+                tag: 0x01,
+                value: Value::Str(name.to_owned()),
+            }]),
+        };
+        Scripts {
+            seed: 0x5EED,
+            scripts: crate::scripts::Saved {
+                state,
+                done: vec!["Region3Init".to_owned()],
+                rng: opensacred_rules::spawning::Rng::of(1, 2, 3),
+            },
+            npcs: crate::npcs::Saved {
+                records: vec![
+                    vec![record(1, "res:giver"), record(3, "chest")],
+                    vec![record(5, "res:giver")],
+                ],
+                opened: ["gate".to_owned()].into(),
+                taken: [12].into(),
+                ..crate::npcs::Saved::default()
+            },
+        }
+    }
+
     #[test]
     fn a_save_reads_back_as_written_and_lists_the_newest_first() {
         let dir = scratch("round");
-        write(&file(&dir, "first").unwrap(), &header("first", 10), &hero()).unwrap();
+        write(
+            &file(&dir, "first").unwrap(),
+            &header("first", 10),
+            &hero(),
+            &saved_scripts(),
+        )
+        .unwrap();
         write(
             &file(&dir, "second one").unwrap(),
             &header("second one", 20),
             &hero(),
+            &saved_scripts(),
         )
         .unwrap();
-        let (read_header, read_hero) = read(&file(&dir, "first").unwrap()).unwrap();
+        let (read_header, read_hero, read_scripts) = read(&file(&dir, "first").unwrap()).unwrap();
         assert_eq!(read_header, header("first", 10));
         assert_eq!(read_hero.at, (1234.5, 6789.0));
         assert_eq!((read_hero.floor, read_hero.health), (1, 99));
         assert_eq!(read_hero.selected, Some(1078));
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
         assert!((read_hero.clock.minutes() - (21.0 * 60.0 + 30.0)).abs() < 1e-6);
+        // The scripts whole: their state, the functions done, the `rand()` and the placements'.
+        assert_eq!(read_scripts, saved_scripts());
         let names: Vec<String> = list(&dir).into_iter().map(|(name, _)| name).collect();
         assert_eq!(names, ["second one", "first"]);
         fs::remove_dir_all(&dir).unwrap();
@@ -493,7 +595,7 @@ mod tests {
             version: VERSION + 1,
             ..header("old", 1)
         };
-        write(&file(&dir, "old").unwrap(), &old, &hero()).unwrap();
+        write(&file(&dir, "old").unwrap(), &old, &hero(), &saved_scripts()).unwrap();
         let error = format!("{:#}", read(&file(&dir, "old").unwrap()).unwrap_err());
         assert!(error.contains("version"), "{error}");
         assert!(list(&dir).is_empty());
