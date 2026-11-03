@@ -58,6 +58,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * The overlays add `[debug] overlay` and `[debug] log` (§5); the keys are in `controls.toml` beside the settings (§9, #1553); the rest of docs/06 §6 (sound, gameplay) comes with M6.
 * `[interface] enemy_info` (on by default, as the installation's `SHOW_ENEMYINFO`) shows the foe's panel at the bottom while the cursor is over a foe (#1459).
 * `[interface] warning_level` (25 by default, as the installation's `WARNING_LEVEL`) is the percentage of the most health below which the hero's falling health raises the red alarm about its portrait (#1463).
+* `[movies] show` (on by default, as the original's `SHOWMOVIE`) plays the movies that play by themselves: the start's logos, the scripts' and `GameEnd`'s; `[movies] extro` and `extro_underworld`, the original's `SHOWEXTRO` and `SHOWEXTRO_UW`, are written as a campaign's extro plays, and the Extras offer it from then on (#1946).
+  A run with `--remote`, `--exec`, `--script`, `--screenshot`, `--record` or `--benchmark` plays none by itself whatever `show` says, as a logo or the intro would stand in its way; `movies on|off` sets it for the run.
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 
@@ -142,6 +144,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `setrain N`, `setfog N`, `setsnow N` | starts the rain, the fog or the snow of the intensity N (1 to 100), or stops it with 0, as the original's console (docs/re/weather.md) | |
 | `setquake N` | shakes the screen by a third of N pixels (1 to 100), falling by 10 a second, as the original's console | |
 | `music on\|off` | the music and the ambient loops | `--no-music` |
+| `movies on\|off` | the movies that play by themselves (the start's logos, the scripts', `GameEnd`'s) for this run; a driven run starts with them off (§3, #1946) | |
 | `movie NAME` | plays the movie NAME (`intro`, `extro`, `introuw`, `extrouw`, `act1` to `act4`, `ascaron`, `oem`) as the original's player does: over everything, the game standing, until it ends or Escape, Space or either mouse button stops it; `state` names it while it plays (#1945) | |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
 | `record DIR N` | saves N frames | `--record`, `--record-frames` |

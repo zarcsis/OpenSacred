@@ -91,7 +91,7 @@ const SHOWS: [i32; 4] = [0, 1, 2, 3];
 
 /// An `InfoPlayer`'s text on the screen, and how long it still shows.
 #[derive(Component)]
-struct Notice(f32);
+pub(crate) struct Notice(f32);
 
 /// What a talk opens (`0x52AB70`): the creature's dialogue by its function's name, or, for a
 /// trader without one (its number below 1 or above 200,000), a smith's, a merchant's or a combat
@@ -939,7 +939,7 @@ fn dismiss(
 /// Shows the scripts' `InfoPlayer`s' texts (#1033): of a mode that shows one, the last of the
 /// frame's, in place of the one before, across the screen's upper part, for 5 s; the other modes
 /// (an image, an event, the interface's states) are not followed.
-fn notices(
+pub(crate) fn notices(
     mut commands: Commands,
     mut infos: ResMut<scripts::Infos>,
     texts: Option<Res<Texts>>,

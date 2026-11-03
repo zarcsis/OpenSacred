@@ -9,12 +9,17 @@
 //! A game stands under a movie, its time and its sound, as under the pause without its menu
 //! (`pause::Still`; **hypothesis**: the player's event `(0xC, 8, 1)` stops the music); in the
 //! menus their music and sounds pause.
+//! The movies play where the original's do (#1946): the start's logos before the main menu, the
+//! scripts' `InfoPlayer`s and `GameEnd`, unless the settings' `[movies] show` is off, and the
+//! Extras' and the console's `movie` whatever it says; an extro played is kept in the settings,
+//! for the Extras to offer it.
 //!
 //! A thread of its own reads the file through Symphonia's Matroska demuxer: the sound first,
 //! decoded whole by libopus as the game's other sound is (`opus`), then the frames one by one by
 //! rav1d, each turned from its YUV into RGBA and handed over a short queue, from which each frame of
 //! the game shows the newest whose time has come on the movie's clock.
 
+use std::collections::VecDeque;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
@@ -26,9 +31,9 @@ use bevy::asset::RenderAssetUsages;
 use bevy::input::InputSystems;
 use bevy::prelude::{
     App, Assets, BackgroundColor, ButtonInput, ChildOf, Color, Commands, Entity, GlobalZIndex,
-    Handle, Image, ImageNode, IntoScheduleConfigs, KeyCode, Message, MessageReader, MouseButton,
-    NextState, Node, Plugin, PositionType, PreUpdate, Real, Res, ResMut, Resource, State, Time,
-    UVec2, UiRect, Update, Val, default, info, resource_exists, warn,
+    Handle, Image, ImageNode, IntoScheduleConfigs, KeyCode, Message, MessageReader, MessageWriter,
+    MouseButton, NextState, Node, OnEnter, Plugin, PositionType, PreUpdate, Real, Res, ResMut,
+    Resource, State, Time, UVec2, UiRect, Update, Val, default, info, resource_exists, warn,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_kira_audio::prelude::{Audio, AudioApp, AudioChannel, AudioControl, AudioSource};
@@ -46,7 +51,8 @@ use crate::controls::{Action, Keys};
 use crate::frame::{Hold, HoldsControl};
 use crate::game::AppState;
 use crate::pause::{Play, Still};
-use crate::{bar, files, music, opus};
+use crate::settings::{Settings, SettingsFile};
+use crate::{bar, files, music, opus, scripts, talk};
 
 /// The directory of the movies in the assets.
 const DIR: &str = "video";
@@ -64,9 +70,17 @@ const LAYER: i32 = i32::MAX - 3;
 /// (`0x6A0EA0`).
 const STOP_BUTTONS: [MouseButton; 2] = [MouseButton::Left, MouseButton::Right];
 
-/// A movie asked for by its name (`intro`, `act1`, …): played unless one plays already.
+/// Movies asked for by their names (`intro`, `act1`, …), to play in turn, those not there
+/// skipped: played unless one plays already.
 #[derive(Message, Debug, Clone)]
-pub struct Show(pub String);
+pub struct Show(pub Vec<String>);
+
+impl Show {
+    /// The movie `name` alone.
+    pub fn one(name: &str) -> Self {
+        Self(vec![name.to_owned()])
+    }
+}
 
 /// The movies' sound channel, apart from the game's, which stands under a movie.
 #[derive(Resource)]
@@ -382,11 +396,11 @@ fn rgba(picture: &rav1d::Picture) -> Result<Vec<u8>> {
 
 /// Where a movie is.
 enum Stage {
-    /// The wait before it.
-    Before,
+    /// The wait before it: half a second before a request's first movie, none before the next.
+    Before(f64),
     /// Its frames shown, its sound playing.
     Showing,
-    /// The wait after it.
+    /// The wait after it, or for the request's next movie while a key that stopped it is held.
     After,
 }
 
@@ -410,19 +424,45 @@ enum Stood {
     Nothing,
 }
 
-/// The movie that plays, from its request to the end of the wait after it.
+/// A movie's thread's queues, which a resource holds behind a lock.
+struct Reading {
+    opened: Mutex<Receiver<Result<Opened, String>>>,
+    pictures: Mutex<Receiver<Picture>>,
+}
+
+/// Starts the thread that reads the movie `name`.
+fn reading(name: &str) -> Option<Reading> {
+    let path = path(name);
+    let (opened, opened_here) = mpsc::channel();
+    let (pictures, pictures_here) = mpsc::sync_channel(AHEAD);
+    let spawned = thread::Builder::new()
+        .name(format!("movie {name}"))
+        .spawn(move || read(&path, &opened, &pictures));
+    match spawned {
+        Ok(_) => Some(Reading {
+            opened: Mutex::new(opened_here),
+            pictures: Mutex::new(pictures_here),
+        }),
+        Err(e) => {
+            warn!("the movie {name}: {e}");
+            None
+        }
+    }
+}
+
+/// The movie that plays, from its request to the end of the wait after the request's last.
 #[derive(Resource)]
 pub struct Movie {
     /// Its name.
     pub name: String,
+    /// The request's movies after it, which play in turn (`0x6A16E0`'s number 13).
+    queue: VecDeque<String>,
     stage: Stage,
     /// The real time at which its stage began, in seconds.
     since: f64,
     /// Its sound and its size, once its thread has read them.
     read: Option<Opened>,
-    /// The thread's queues, which a resource holds behind a lock.
-    opened: Mutex<Receiver<Result<Opened, String>>>,
-    pictures: Mutex<Receiver<Picture>>,
+    reading: Reading,
     /// The next frame, taken from the queue before its time.
     next: Option<Picture>,
     /// The screen over everything, which takes the pointer from all under it as the original's
@@ -439,9 +479,137 @@ impl Movie {
         self.stage = Stage::After;
         self.since = now;
     }
+
+    /// Goes on to the request's next movie that reads, at once; false where none is left.
+    fn next_movie(&mut self, now: f64) -> bool {
+        while let Some(name) = self.queue.pop_front() {
+            if let Some(reading) = reading(&name) {
+                info!("the movie {name}");
+                self.name = name;
+                self.reading = reading;
+                self.stage = Stage::Before(0.0);
+                self.since = now;
+                self.read = None;
+                self.next = None;
+                self.length = 0.0;
+                return true;
+            }
+        }
+        false
+    }
 }
 
-/// Starts the movie asked for, unless one plays: its thread, its screen, and what it stands.
+/// Whether the movies that play by themselves play: the start's logos, the scripts' and
+/// `GameEnd`'s, as the settings' `[movies] show` says (the original's `SHOWMOVIE`), but in a run
+/// driven by a script, from afar or for a frame, where they would stand in its way (docs/10 §3);
+/// the console's `movies on|off` sets it for the run. The Extras and the console's `movie` play
+/// theirs whatever it says, as the original's Extras do (`0x7125B0`).
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Automatic(pub bool);
+
+/// The start's logos still to play, once the first menu shows: a run that starts in the main
+/// menu has them, one that starts a game at once has not.
+#[derive(Resource)]
+pub struct Logos;
+
+/// The start's logos, as the original's `initApp` plays them before its main menu (`0x816D6C`, the
+/// player's number 13): Ascaron's, the publisher's (`take2` where it is there, else `publisher`;
+/// neither shipped) and `oem`.
+fn logos(
+    mut commands: Commands,
+    logos: Option<Res<Logos>>,
+    automatic: Res<Automatic>,
+    mut shows: MessageWriter<Show>,
+) {
+    if logos.is_none() {
+        return;
+    }
+    commands.remove_resource::<Logos>();
+    if automatic.0 {
+        let publisher = if exists("take2") {
+            "take2"
+        } else {
+            "publisher"
+        };
+        shows.write(Show(
+            ["ascaron", publisher, "oem"].map(str::to_owned).to_vec(),
+        ));
+    }
+}
+
+/// The movie that a script's `InfoPlayer` of `mode` plays (`0x4AE350`): 23 the intro, 24 the
+/// Underworld's intro, 25 its extro and 100 to 107 the chapters' `act1` to `act8`; and `GameEnd`'s
+/// extro (`scripts::GAME_END`, `0x475C3A`).
+fn scripted(mode: i32) -> Option<String> {
+    match mode {
+        23 => Some("intro".to_owned()),
+        24 => Some("introuw".to_owned()),
+        25 => Some("extrouw".to_owned()),
+        100..=107 => Some(format!("act{}", mode - 99)),
+        scripts::GAME_END => Some("extro".to_owned()),
+        _ => None,
+    }
+}
+
+/// Takes the scripts' movies from their `InfoPlayer`s and `GameEnd`s before the texts are shown,
+/// and plays them where the movies that play by themselves do.
+fn from_scripts(
+    mut infos: ResMut<scripts::Infos>,
+    automatic: Res<Automatic>,
+    mut shows: MessageWriter<Show>,
+) {
+    let mut names = Vec::new();
+    infos.0.retain(|(mode, _)| match scripted(*mode) {
+        Some(name) => {
+            names.push(name);
+            false
+        }
+        None => true,
+    });
+    if names.is_empty() {
+        return;
+    }
+    if automatic.0 {
+        shows.write(Show(names));
+    } else {
+        info!("the scripts' movies {names:?}: the movies are off");
+    }
+}
+
+/// Marks the campaigns' extros seen as their play is asked for, which the original writes into
+/// `Settings.cfg` before it looks for the file (`0x81A840`, `0x81AA90`): the Extras offer them
+/// from then on.
+fn extros_seen(
+    mut shows: MessageReader<Show>,
+    mut settings: ResMut<Settings>,
+    mut file: ResMut<SettingsFile>,
+) {
+    let mut seen = Vec::new();
+    for Show(names) in shows.read() {
+        for name in names {
+            let (flag, key) = match name.as_str() {
+                "extro" => (&mut settings.movies.extro, "movies.extro"),
+                "extrouw" => (
+                    &mut settings.movies.extro_underworld,
+                    "movies.extro_underworld",
+                ),
+                _ => continue,
+            };
+            if !*flag {
+                *flag = true;
+                seen.push(key);
+            }
+        }
+    }
+    if !seen.is_empty()
+        && let Err(e) = file.save(&settings, &seen)
+    {
+        warn!("movies: keeping the extros seen: {e:#}");
+    }
+}
+
+/// Starts the movies asked for, unless one plays: the first's thread, the others queued, its
+/// screen, and what it stands.
 fn start(
     mut shows: MessageReader<Show>,
     movie: Option<Res<Movie>>,
@@ -451,26 +619,32 @@ fn start(
     (play, mut next_play): Plays,
     (music, effects): Sounds,
 ) {
-    let Some(Show(name)) = shows.read().last().cloned() else {
+    let Some(Show(names)) = shows.read().last().cloned() else {
         return;
     };
     if movie.is_some() {
         return;
     }
-    let path = path(&name);
-    if !files::exists(&path) {
-        info!("the movie {name}: not there, skipped");
-        return;
+    let mut queue: VecDeque<String> = names
+        .into_iter()
+        .filter(|name| {
+            let there = exists(name);
+            if !there {
+                info!("the movie {name}: not there, skipped");
+            }
+            there
+        })
+        .collect();
+    let mut first = None;
+    while let Some(name) = queue.pop_front() {
+        if let Some(reading) = reading(&name) {
+            first = Some((name, reading));
+            break;
+        }
     }
-    let (opened, opened_here) = mpsc::channel();
-    let (pictures, pictures_here) = mpsc::sync_channel(AHEAD);
-    let spawned = thread::Builder::new()
-        .name(format!("movie {name}"))
-        .spawn(move || read(&path, &opened, &pictures));
-    if let Err(e) = spawned {
-        warn!("the movie {name}: {e}");
+    let Some((name, reading)) = first else {
         return;
-    }
+    };
     let stood = match (app.get(), play.as_deref().map(State::get)) {
         (AppState::InGame, Some(Play::Running)) => {
             if let Some(still) = &mut still {
@@ -506,11 +680,11 @@ fn start(
     info!("the movie {name}");
     commands.insert_resource(Movie {
         name,
-        stage: Stage::Before,
+        queue,
+        stage: Stage::Before(BEFORE),
         since: time.elapsed_secs_f64(),
         read: None,
-        opened: Mutex::new(opened_here),
-        pictures: Mutex::new(pictures_here),
+        reading,
         next: None,
         root,
         image: None,
@@ -549,7 +723,7 @@ fn swallow(
 }
 
 /// Plays the movie: the wait before it, then its frames at their times and its sound, until its
-/// end; and as it stops, its screen black no more.
+/// end; and as it stops, its frames gone, and its screen black no more after the request's last.
 fn advance(
     mut commands: Commands,
     mut movie: ResMut<Movie>,
@@ -560,9 +734,10 @@ fn advance(
     let now = time.elapsed_secs_f64();
     let movie = &mut *movie;
     match movie.stage {
-        Stage::Before => {
+        Stage::Before(wait) => {
             if movie.read.is_none() {
                 let received = movie
+                    .reading
                     .opened
                     .get_mut()
                     .unwrap_or_else(PoisonError::into_inner)
@@ -582,7 +757,7 @@ fn advance(
                     Err(TryRecvError::Empty) => {}
                 }
             }
-            if now - movie.since < BEFORE {
+            if now - movie.since < wait {
                 return;
             }
             let Some(read) = movie.read.take() else {
@@ -629,6 +804,7 @@ fn advance(
         Stage::Showing => {
             let clock = now - movie.since;
             let pictures = movie
+                .reading
                 .pictures
                 .get_mut()
                 .unwrap_or_else(PoisonError::into_inner);
@@ -658,28 +834,34 @@ fn advance(
             if let Some((frame, _)) = movie.image.take() {
                 channel.stop();
                 commands.entity(frame).despawn();
-                commands
-                    .entity(movie.root)
-                    .insert(BackgroundColor(Color::NONE));
+                if movie.queue.is_empty() {
+                    commands
+                        .entity(movie.root)
+                        .insert(BackgroundColor(Color::NONE));
+                }
             }
         }
     }
 }
 
-/// Ends the wait after a movie, once the keys of `Action::SkipMovie` are up: its screen gone and
-/// what it stood going on.
+/// Once the keys of `Action::SkipMovie` are up after a movie: the request's next movie, or, a
+/// quarter of a second after the last, the end, its screen gone and what it stood going on.
 fn end(
     mut commands: Commands,
-    movie: Res<Movie>,
+    mut movie: ResMut<Movie>,
     time: Res<Time<Real>>,
     keys: Keys,
     (play, mut next_play): Plays,
     (music, effects): Sounds,
 ) {
-    if !matches!(movie.stage, Stage::After)
-        || time.elapsed_secs_f64() - movie.since < AFTER
-        || keys.pressed(Action::SkipMovie)
-    {
+    let now = time.elapsed_secs_f64();
+    if !matches!(movie.stage, Stage::After) || keys.pressed(Action::SkipMovie) {
+        return;
+    }
+    if movie.next_movie(now) {
+        return;
+    }
+    if now - movie.since < AFTER {
         return;
     }
     commands.entity(movie.root).despawn();
@@ -704,14 +886,16 @@ fn end(
     }
 }
 
-/// The movies: their requests, their play, their keys, and the world's controls held back while
-/// one plays.
+/// The movies: their requests, the start's logos, the scripts', their play, their keys, and the
+/// world's controls held back while one plays.
 pub struct MoviesPlugin;
 
 impl Plugin for MoviesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Show>()
             .add_audio_channel::<Channel>()
+            .insert_resource(Automatic(true))
+            .add_systems(OnEnter(AppState::Menu), logos)
             .add_systems(
                 PreUpdate,
                 (stop, swallow).chain().after(InputSystems).before(Hold),
@@ -719,7 +903,13 @@ impl Plugin for MoviesPlugin {
             .add_systems(
                 Update,
                 (
-                    start,
+                    from_scripts.before(talk::notices),
+                    (
+                        extros_seen
+                            .run_if(resource_exists::<Settings>)
+                            .run_if(resource_exists::<SettingsFile>),
+                        start,
+                    ),
                     (advance, end).chain().run_if(resource_exists::<Movie>),
                 )
                     .chain(),
@@ -730,6 +920,9 @@ impl Plugin for MoviesPlugin {
 
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::system::ScheduleSystem;
+    use bevy::prelude::Messages;
+
     use super::*;
 
     #[test]
@@ -792,5 +985,85 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(0);
         drop(receiver);
         video.decode(&sender).unwrap();
+    }
+
+    #[test]
+    fn the_scripts_modes_name_their_movies() {
+        let named = |mode| scripted(mode);
+        assert_eq!(named(23).as_deref(), Some("intro"));
+        assert_eq!(named(24).as_deref(), Some("introuw"));
+        assert_eq!(named(25).as_deref(), Some("extrouw"));
+        assert_eq!(named(100).as_deref(), Some("act1"));
+        assert_eq!(named(107).as_deref(), Some("act8"));
+        assert_eq!(named(scripts::GAME_END).as_deref(), Some("extro"));
+        for mode in [0, 1, 5, 22, 26, 99, 108] {
+            assert_eq!(named(mode), None, "{mode}");
+        }
+    }
+
+    /// The movies asked for in an app of `system` alone, run once.
+    fn shown<M>(
+        app: &mut App,
+        system: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> Vec<Vec<String>> {
+        app.add_message::<Show>().add_systems(Update, system);
+        app.update();
+        app.world_mut()
+            .resource_mut::<Messages<Show>>()
+            .drain()
+            .map(|Show(names)| names)
+            .collect()
+    }
+
+    #[test]
+    fn the_scripts_movies_play_by_themselves_and_leave_their_texts() {
+        for on in [true, false] {
+            let mut app = App::new();
+            app.insert_resource(scripts::Infos(vec![
+                (1, "res:17631".to_owned()),
+                (101, String::new()),
+                (scripts::GAME_END, String::new()),
+            ]))
+            .insert_resource(Automatic(on));
+            let shows = shown(&mut app, from_scripts);
+            assert_eq!(
+                app.world().resource::<scripts::Infos>().0,
+                [(1, "res:17631".to_owned())]
+            );
+            let wanted = if on {
+                vec![vec!["act2".to_owned(), "extro".to_owned()]]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(shows, wanted, "{on}");
+        }
+    }
+
+    #[test]
+    fn the_start_shows_its_logos_once_unless_the_movies_are_off() {
+        for on in [true, false] {
+            let mut app = App::new();
+            app.insert_resource(Logos).insert_resource(Automatic(on));
+            let shows = shown(&mut app, logos);
+            let wanted = if on {
+                vec![vec![
+                    "ascaron".to_owned(),
+                    "publisher".to_owned(),
+                    "oem".to_owned(),
+                ]]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(shows, wanted, "{on}");
+            assert!(!app.world().contains_resource::<Logos>());
+            app.update();
+            assert!(
+                app.world_mut()
+                    .resource_mut::<Messages<Show>>()
+                    .drain()
+                    .next()
+                    .is_none()
+            );
+        }
     }
 }
