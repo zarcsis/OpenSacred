@@ -985,7 +985,7 @@ pub(crate) struct Dice(pub(crate) crate::spawning::Rng);
 
 /// A sight that goes after its time.
 #[derive(Component, Debug, Clone, Copy)]
-struct Fades(f32);
+pub(crate) struct Fades(pub(crate) f32);
 
 /// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries, its
 /// cooldown, the mines' damages and its level.
