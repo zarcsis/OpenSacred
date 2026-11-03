@@ -1126,9 +1126,19 @@ pub(crate) fn thorns(
     }
 }
 
+/// The Mage's objects' loops while they live: the purgatory's `MAGE_HELLFIRE_LOOP`
+/// (`cParticleSystem_hellFire`, 820, `0x776860`) and the fire spiral's `MAGE_FIRECIRCLE_LOOP`,
+/// which the first of its five flames alone starts (`cParticleSystem_fireCircle`, 790, `0x775DF0`,
+/// the event's `+0x38` 0).
+const HELLFIRE_LOOP: u32 = 2006;
+const FIRE_CIRCLE_LOOP: u32 = 2019;
+/// The healing's object's `MAGE_HEALING` as it starts, at its target (`cParticleSystem_healing`,
+/// 784, `0x774330`), besides the cast's `SPELL_HEALING`.
+const HEALING_SOUND: u32 = 2020;
+
 /// Makes the purgatory's disk at `point`, the Seraphim's or a creature's (#1854): it flies among
 /// what is hostile to its caster on the level `on` for the record's value 0 in seconds, striking
-/// all it touches once a second.
+/// all it touches once a second, its loop at it ([`HELLFIRE_LOOP`]).
 pub(crate) fn purgatory(
     commands: &mut Commands,
     looks: Option<&Looks>,
@@ -1152,6 +1162,7 @@ pub(crate) fn purgatory(
         },
         Transform::from_translation(point + Vec3::Y * DISK_HEIGHT),
         Visibility::Inherited,
+        crate::hums::Hum(HELLFIRE_LOOP),
         DespawnOnExit(AppState::InGame),
     ));
     if let Some(looks) = looks {
@@ -1297,7 +1308,10 @@ fn act(
     casters: Query<(&Transform, &Body, Option<&Combat>)>,
     places: Query<&GlobalTransform>,
     mut targets: Query<(&mut Health, Option<&ai::Mind>, Option<&fight::Ranked>)>,
-    mut launches: MessageWriter<crate::bolts::Launch>,
+    (mut launches, mut sounds): (
+        MessageWriter<crate::bolts::Launch>,
+        MessageWriter<crate::sfx::Play>,
+    ),
     (mut hits, mut dice, heights): (
         MessageWriter<fight::Hit>,
         ResMut<Dice>,
@@ -1787,6 +1801,9 @@ fn act(
                         Visibility::Inherited,
                         DespawnOnExit(AppState::InGame),
                     ));
+                    if index == 0 {
+                        made.insert(crate::hums::Hum(FIRE_CIRCLE_LOOP));
+                    }
                     if let Some(looks) = &looks {
                         made.with_child((
                             Mesh3d(looks.flame.0.clone()),
@@ -2011,6 +2028,12 @@ fn act(
                     bearer.current = bearer.current.saturating_add(health).min(bearer.most);
                     info!("spells: the healing gives {health}, to {}", bearer.current);
                 }
+                // Its object's sound as it starts, at the target it follows.
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(HEALING_SOUND),
+                    at: Some(act.target),
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
             }
             LIGHTNING => {
                 // Its object at its target strikes it alone at its first frame, of the record's

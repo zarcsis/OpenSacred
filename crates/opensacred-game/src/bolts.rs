@@ -367,7 +367,7 @@ fn launch(
         let Some((mesh, material)) = looks.0.get(launched.course.look).cloned() else {
             continue;
         };
-        let bolt = commands.spawn((
+        let mut bolt = commands.spawn((
             Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::from_translation(at.translation + Vec3::Y * HEIGHT),
@@ -389,6 +389,10 @@ fn launch(
             },
             DespawnOnExit(AppState::InGame),
         ));
+        // Its system's loop while it flies (`crate::hums`).
+        if let Some(looping) = launched.course.sounds.looping {
+            bolt.insert(crate::hums::Hum(looping));
+        }
         // The railgun's once a shot, with its first bolt (`0x4DDE12` after `0x4DDD2A`'s object).
         if let Some(start) = launched.course.sounds.start
             && launched.wait <= 0.0
@@ -600,74 +604,6 @@ fn fly(
     }
 }
 
-/// The bolts' loops that play, each at its bolt.
-#[derive(Resource, Default)]
-struct Hums(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
-
-/// Each flying bolt of a loop plays it at its place while it lives (`0x788D90`), stopping as it
-/// goes.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
-)]
-fn hum(
-    mut hums: ResMut<Hums>,
-    flying: Query<(Entity, &Flying, &GlobalTransform)>,
-    heroes: Query<&GlobalTransform, With<Body>>,
-    mut sfx: ResMut<crate::sfx::Sfx>,
-    heard: Res<crate::sfx::Listener>,
-    assets: Res<AssetServer>,
-    audio: Res<bevy_kira_audio::Audio>,
-    mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>,
-) {
-    use bevy_kira_audio::prelude::{AudioControl, AudioTween};
-    hums.0.retain(|(bolt, handle)| {
-        let keep = flying.contains(*bolt);
-        if !keep && let Some(mut instance) = instances.get_mut(handle) {
-            instance.stop(AudioTween::default());
-        }
-        keep
-    });
-    for (bolt, flight, _) in &flying {
-        let Some(looping) = flight.course.sounds.looping else {
-            continue;
-        };
-        if flight.wait > 0.0 || hums.0.iter().any(|(humming, _)| *humming == bolt) {
-            continue;
-        }
-        let Some((id, file)) = sfx.with_id(looping) else {
-            continue;
-        };
-        let sample = sfx.sample(id, file, &assets);
-        let handle = audio
-            .play(sample)
-            .looped()
-            .with_volume(crate::sfx::decibels(0.0))
-            .handle();
-        debug!("bolts: {bolt}'s loop {looping} starts");
-        hums.0.push((bolt, handle));
-    }
-    let hero = heroes.iter().next().map(GlobalTransform::translation);
-    for (bolt, handle) in &hums.0 {
-        let (Ok((_, _, at)), Some(mut instance)) = (flying.get(*bolt), instances.get_mut(handle))
-        else {
-            continue;
-        };
-        let (volume, pan) = crate::sfx::placed_at(at.translation(), hero, *heard);
-        instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
-        instance.set_panning(pan, AudioTween::default());
-    }
-}
-
-/// Stops the bolts' loops as the game ends.
-fn hush(mut hums: ResMut<Hums>, mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>) {
-    for (_, handle) in hums.0.drain(..) {
-        if let Some(mut instance) = instances.get_mut(&handle) {
-            instance.stop(bevy_kira_audio::prelude::AudioTween::default());
-        }
-    }
-}
-
 /// The bolts.
 pub struct BoltsPlugin;
 
@@ -675,12 +611,10 @@ impl Plugin for BoltsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Fire>()
             .add_message::<Launch>()
-            .init_resource::<Hums>()
             .add_systems(Startup, make_looks)
-            .add_systems(OnExit(AppState::InGame), hush)
             .add_systems(
                 Update,
-                (fire, launch, fly, hum)
+                (fire, launch, fly)
                     .chain()
                     .after(Step::Npcs)
                     .in_set(Playing),
