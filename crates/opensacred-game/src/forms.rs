@@ -24,6 +24,9 @@ const NIGHT_MODEL: &str = "VLADY_N.GRN";
 const NIGHT_CLIPS: [&str; 3] = ["VMPN_IDLE_BH", "VMPN_WALK_BH", "VMPN_RUN_BH"];
 /// What the Vampiress fights with by night: her claws, the class 0 (docs/re/motions.md).
 const CLAWS: u8 = 0;
+/// The sound of her change's object 781 of the variant 2 (`cParticleSystem_puzzleSolved_v`,
+/// `0x76D45B`'s case), played once at her as it starts (#1173).
+const CHANGE_SOUND: u32 = 2085;
 
 /// The clips of a hero's model for what it holds: its idle, walk and run, its fight stance, its
 /// attacks with the fractions at which they hit, its arts' actions, its dying clips and its
@@ -162,6 +165,7 @@ fn change(
         ),
         With<Body>,
     >,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let Some(mut forms) = forms else {
         return;
@@ -192,6 +196,13 @@ fn change(
     for (body, mut base, mut health, mut combat, mut regenerates, mut size, holding, effects) in
         &mut bodies
     {
+        // The change's event (0x115 of the ring's flag, `0x51285A`) makes the object 781 of the
+        // variant 2 at her, whose sight is not made: `0x76D545` plays its sound once.
+        sounds.write(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(CHANGE_SOUND),
+            at: Some(body),
+            rate: (0.5, crate::sfx::Roll::None),
+        });
         // The form's attributes, the points spent and the skills learnt kept (#1522).
         *base = Base(opensacred_rules::fight::Base {
             attributes: form.base.attributes,
