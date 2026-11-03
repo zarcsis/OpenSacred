@@ -133,6 +133,8 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         )),
         // The original's own line of set 26 at 7 (`0x571710`), the Dark Elf's stealth.
         Told::Unseen => white(n(783)),
+        // Set 3's line at 4 (`0x571710`'s `{K:UI_KNOW_ENEMY}`), the foes' values on their labels.
+        Told::KnowEnemy => white(words.of("UI_KNOW_ENEMY")),
         // Set 41's line at 4 (`0x571710`'s `{T1150}: %d%%`), the share of the animals' flights
         // in which they stand, of the roll's 101 faces.
         Told::Terror(per_cent) => white(format!("{}: {}", n(1150), share(per_cent / 100.0))),

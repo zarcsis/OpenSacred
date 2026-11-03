@@ -383,7 +383,7 @@ Creature kinds: `0x426A80`, `0x426B70`, `0x426B20` test the creature type's `Cre
 | `0x10000000` | 63 ≥ 4 | `UI_SET_DURCHBOHREN` | `0x5BBD87` (not read) |
 | `0x20000000` | 64 ≥ 4 with `+0x194` = 7 | T861 | `0x535560` (not read) |
 | `0x40000000` | 55 ≥ 10 | T8299 | `0x563C29`; its loss removes the effects keyed 1097 (`0x57C1B3`) |
-| `0x80000000` | 3 ≥ 4 | `UI_KNOW_ENEMY` | `0x62737F`, `0x62759D`, `0x6279E8` (the interface; not read) |
+| `0x80000000` | 3 ≥ 4 | `UI_KNOW_ENEMY` | `0x62737F`, `0x62759D`, `0x6279E8`: the values of the foe that the mouse picks on its label while Alt is held (docs/re/interface.md, "The labels on Alt"; #1425) |
 | creature `+0x1FC` 1 | 23 = 6 | — | `0x63918C`, the step's small fires (M8); `0x57AEE4` is the writer's own test |
 | creature `+0x1FC` 4 | 27 ≥ 6, 31 ≥ 5 | T788 | `0x56E0A4` (the strike; not read) |
 | creature `+0x1FC` 8 | 32 ≥ 7 | T835 | `0x57AF1E` (the Mage's effect 40), `0x586EBC` |
