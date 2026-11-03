@@ -999,7 +999,7 @@ fn rate(roll: f32, higher: f32) -> f32 {
 /// the walk, the run and the strike (`MOTION_IDLE` 0, `WALK` 1, `RUN` 2, `ATTACK` 4), and where it
 /// stood at the last.
 #[derive(Component, Default)]
-struct Motions {
+pub(crate) struct Motions {
     classes: [u8; 16],
     at: usize,
     last: Option<Vec3>,
@@ -1026,6 +1026,13 @@ impl Motions {
     fn share(&self, class: u8) -> usize {
         100 * self.classes.iter().filter(|&&c| c == class).count() / self.classes.len()
     }
+
+    /// The shares of the stand, the walk, the run and the strike, per cent (`+0x5A` to
+    /// `+0x62` of the sound manager's record).
+    pub(crate) fn shares(&self) -> [u32; 4] {
+        [STANDS, WALKS, RUNS, STRIKES]
+            .map(|class| u32::try_from(self.share(class)).unwrap_or(u32::MAX))
+    }
 }
 
 /// How near the foes stand that the hero counts in its fight, and that it sees flee, in the
@@ -1035,6 +1042,11 @@ const FLEES_WITHIN: i32 = 500;
 
 /// The hero's fight as its comments on the foes on the run see it (`0x68BEA0`): its motions, the
 /// counts of the foes engaged over the last five updates (`+0xD96`, `+0xD98`).
+/// The most foes engaged over the last five updates (`+0xD96`), which the fights' music
+/// weighs (`music`).
+#[derive(Resource, Default)]
+pub(crate) struct Engaged(pub(crate) usize);
+
 #[derive(Default)]
 struct Flight {
     hero: Motions,
@@ -1107,7 +1119,7 @@ fn flight(
         (Without<Body>, Without<Dies>),
     >,
     (assets, audio, mut named_line): (Res<AssetServer>, Res<Audio>, ResMut<NamedLine>),
-    time: Res<Time>,
+    (time, mut most_engaged): (Res<Time>, ResMut<Engaged>),
 ) {
     let (Some(hero), Ok((entity, body, at, health, striking))) = (hero, heroes.single()) else {
         return;
@@ -1162,6 +1174,7 @@ fn flight(
     state.engaged[at_now] = engaged;
     state.at = (at_now + 1) % state.engaged.len();
     let most = state.engaged.iter().copied().max().unwrap_or(0);
+    most_engaged.0 = most;
     let clock = voices.commented.map_or(f64::INFINITY, |at| now - at);
     // More flee than 0.6 of the most engaged: `fleeing > 0.6·most`, in whole numbers.
     if fleeing == 0 || 10 * fleeing <= 6 * most || clock <= 20.0 || voices.dice.below(5) != 0 {
@@ -1470,6 +1483,7 @@ impl Plugin for VoicesPlugin {
                     .in_set(Unpaused)
                     .run_if(crate::frame::ticked),
             )
+            .init_resource::<Engaged>()
             .add_systems(Update, (breathe, flight).after(speak).in_set(Unpaused));
     }
 }

@@ -244,7 +244,7 @@ So the sieges' and the world changes' music follows the campaign's quests, which
 `opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`) in the peace stream's music phase since #1177 ("The peace stream's alternation" below): entering a sector of another music crossfades to it, a sector without music gives the stream to the ambient loop.
 Since #55 the sieges' and the world change's music follow the scripts' variables `RegionChange` and `Globalchange1` as the handler overrides it (`music::music_of`), whenever the hero's sector's music is chosen, so that a quest's siege changes the music of the sector the hero stands in at once (**hypothesis**: the original's pass posts the music at each of its runs).
 In the game, the quest 58's `Init58` (the console's `quest set-up 58`, `script Init58`), which sets the bits 1 and 6, gave the start's sector `MUSIC_VILLAGE_SIEGE_UNDEAD`.
-Not in the game: the world changes' creatures (`RegionChange` and `ReplaceSpawn`, #55) and the fights' music (#1093).
+Not in the game: the world changes' creatures (`RegionChange` and `ReplaceSpawn`, #55).
 
 ### The peace stream's alternation
 
@@ -271,7 +271,7 @@ Read 2026-10-27 for #1211 in `Sacred.exe`, code only (**confirmed** by code unle
   The target is the id's factor (`+0x6B4`) times the effects' volume (`+0x78`) for a name that starts with `ATMO`, else the music's volume (`+0x7C`).
   The same id already playing is left alone; the immediate path (a fight's music, a music forced by the scripts) stops the current track at once and starts the new one at its target.
   The levels the crossfade weighs are the streams' own, read back from Miles at each frame (`_AIL_stream_volume_pan` at `0x69C4F4` and `0x69C529`), not values the manager keeps.
-- **A fight's music** (`0x695E70`, not in the game yet) cuts in at once at full volume, unless 10 s after the last fight's end (`+0xAF70`), at the indoor arena, at a music volume of 0.001 or less or while the once-stream plays: `MUSIC_FIGHT_NUKNUK` and `_KARIBIK` in their regions, `MUSIC_FIGHT05`–`10` by `rand() % 6` in `MUSIC_DESERT01`, else by the fight's kind and `rand() % 9`; the cycle stands meanwhile while the timer counts on by day.
+- **A fight's music** (`0x695E70`, "The fights' music and jingles" below) cuts in at once at full volume, unless 10 s after the last fight's end (`+0xAF70`), at the indoor arena, at a music volume of 0.001 or less or while the once-stream plays: `MUSIC_FIGHT_NUKNUK` and `_KARIBIK` in their regions, `MUSIC_FIGHT05`–`10` by `rand() % 6` in `MUSIC_DESERT01`, else by the fight's kind and `rand() % 9`; the cycle stands meanwhile while the timer counts on by day.
   Out of the fight (`0x678F80`: no hostile record within 800 and none attacking) a timer past 180 s is set to 120 s, and `0x697710` ends the fight's music (above), the next fight's music held off for 10 s.
 
 - **Seen** 2026-10-27 with the driver of #448 (the Seraphim's new game at 08:00, the region's music `MUSIC_WOOD01`, 6560, a trace of `0x694510` and probes of the manager at `0x69B770`):
@@ -280,6 +280,32 @@ Read 2026-10-27 for #1211 in `Sacred.exe`, code only (**confirmed** by code unle
   - With the mute reading a stream's volume back as the game asked (#1213), the crossfade's bit cleared within 7 s, and the stream turned `ATMO_WOOD` at 19.9 s, `MUSIC_WOOD01` at 200.0 s and `ATMO_WOOD` at 380.0 s, 180 s each, the hero standing in the chapel of 50,39 by day.
 
 `opensacred-game` follows it since #1177 (`opensacred_rules::music::Stream`, `music::alternate`): the timer by day and dawn, the switch past 180 s or after 20 s taken off in a crossfade (since #1243, any crossfade of the music's channel), the first phase rolled, the dusk, the night, the hero's death and a sector without music asking for the ambient loop, the cemetery's and the arenas' sectors holding the turns; the music and the ambient loop on two channels that cross over the same 7 s, linear, the tracks looping, the loops at the effects' level (docs/decisions/sound.md, "Peace stream's ambient and spot loops"; the music's volume waits for #1096, the fights' music for #1093).
+
+### The fights' music and jingles
+
+Read 2026-11-03 for #1948 in `Sacred.exe`, code only (**confirmed** by code unless marked otherwise).
+The sound manager's update weighs the fight about the hero at each tick (`0x68BEA0`, called from `0x69B770` at `0x69BCCA` in the phases 2 and 3), over the first list's records ("The idle noises" above), and plays the jingles of the `music` profile's groups 3 (`JINGLE_DANGER`), 4 (`JINGLE_FIGHT_NORMAL`), 5 (`JINGLE_FIGHT_HARD`) and 7 (`JINGLE_FIGHT_EASY`) or cuts in a fight's music.
+
+- **Its values.** Over the records within 700 of the place's pixels but the hero's: their highest level (`+0xD50`) and their mean level (`+0xD40`); the measure `m` is that mean less the hero's level (0 without such records).
+  The foes engaged `n` (`+0xD96`) are the most of the last five updates' counts, counted as for `FOE_ON_THE_RUN` ("Comments", below).
+  A record's motions are its shares of the last 16 updates in per cent (`0x679040`): standing (`+0x5A`), walking (`+0x5C`), running (`+0x5E`) and striking (`+0x62`); its flags' bit 0 marks it hostile and alive (**hypothesis**, as for the fight's end).
+- **Its timers**, seconds that fall by each frame's time while above 0 (`0x69BC16`): the danger's and the easy fight's jingle `+0xAF58`, the normal fight's `+0xAF60`, the hard fight's `+0xAF68`, and the fight's music held off `+0xAF70`; the quiet `+0xB7C0` counts the time with no foe engaged.
+- **The calm** `+0xAF24`: 1 at the reset (`0x676EC4`) and at the end of every update out of the fight (`0x678F80`), which also ends a fight's music that plays (`0x697710`); 0 at the sound event (1, 2), which the engine posts at its own event (`0x20`, 16) of the value 1 (`0x613210`; **hypothesis**: a fade of the screen, its time the event's value).
+- **A jingle** is a variant of its group in the profile 1 (`music`) or 2 (`jingle_extension`, eight more of each), rolled at even odds at each update (`1 + (rand() & 1)`), played once on the once-stream (`0x694FE0(id, 0, 0)`), and none while one plays there (`0x679260`).
+  Where the stream is in the music's phase it first sets the alternation's timer to 200 s, the music giving way to the ambient loop.
+- **After a quiet minute**: as foes engage after more than 60 s without any, in the ambient phase, without a fight's music, and unless the region's music is `MUSIC_VILLAGE_SIEGE_MILITARY`: one foe plays the easy fight's jingle (its timer 30 s), two or three the normal (45 s), more the hard (60 s); the quiet starts again at each update with foes engaged.
+- **Once a second** (`+0xD68`), without a fight's music:
+  - Where the highest level is at least the hero's and 4, with foes engaged, each hostile record within 700 of that level: walking or standing above 50, in the ambient phase, its timer out and calm, the danger jingle (45 s); else running above 50 or striking above 30: in the ambient phase and calm, the hard jingle at its timer (45 s); in the music's phase and calm, unless under the military siege, the danger jingle (its timer 5 s) and the watch below; not calm, the record within 500 and the highest level above the hero's and 5, a fight's music of the kind 2 at once, the hold-off cleared.
+  - With foes engaged and a music's volume above 0.001: one or two with `|m|` at most 1, in the ambient phase at the danger's timer, the danger jingle where calm, else the easy one (45 s each); one or two with `|m|` above 1, the level's test where `m` is above 10, else nothing.
+  - Three to five with `m` at most 2: a fight's music of the kind 0 for an even roll (`rand() & 1`) with four or five, else the normal fight's jingle in the ambient phase at its timer (60 s), or in the music's phase, unless under the military siege, the danger jingle (its timer 4 s) and the watch below.
+  - Three to five with `m` above 2 and at most 10: the kind 1 for an odd roll, else as the normal fight's jingle just above; six or seven with `m` at most 10: the kind 1 for an even roll, else in the ambient phase the hard jingle at its timer (60 s), or the kind 2 with the hold-off cleared; more than seven: the kind 2; three to seven with `m` above 10: the level's test.
+  - **The level's test**: the hold-off cleared, and where the foes' mean level stands above the hero's by more than the difficulty allows (bronze 10, silver 15, gold 20, platinum 25, niobium 30; `0x182EE44`), `MUSIC_WRONGLEVEL` (6569) by a crossfade (`playMusic(6569, 0, 0)`), which counts as a fight's music where it opens; within, the kind 2.
+    With the manager's `+0x8A` set (by the engine's sound event (12, 7) at `0x60EBB9`, its moment not read) the kind 2 at once.
+- **The watch** (`+0xAF80`): after a danger jingle in the music's phase, every 10 s (`+0xAF78`) the test of the fight's end, and once out of the fight, in the ambient phase, the alternation's timer to 200 s, so that the music comes back.
+- **A fight's music of a kind** (`0x695E70(kind, 0)`): `MUSIC_FIGHT_NUKNUK` in `MUSIC_NUKNUK`'s sectors and `MUSIC_FIGHT_KARIBIK` in `MUSIC_KARIBIK`'s, in `MUSIC_DESERT01`'s one of `MUSIC_FIGHT05` to `10` by `rand() % 6`, else by the kind and the parity of `rand() % 9` (the table at `0x9DF15C`): the kind 0 `MUSIC_FIGHT01` odd and `05` even, 1 `04` and `06`, 2 `02` and `03`.
+  It cuts in at once at the music's level (`playMusic(id, 1, 0)`), taking the place of the region's music and the ambient loop, and refuses as "The peace stream's alternation" above tells.
+
+`opensacred-game` follows it since #1948 (`opensacred_rules::music::Fight`, `music::fight`): the foes engaged as `voices` counts them, the hostile creatures within 700 of the place's pixels for the measure and the highest level, their motions as `voices` keeps them; the fight's music on the music's channel, cut in at once, and its end as `0x697710` ends it.
 
 ## The sources: what plays, and what `opensacred-game` does not yet
 
@@ -308,7 +334,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 - **Objects** (602–611): only `OPEN` (1) and `CLOSE` (3) hold samples, picked by `0x695800`; `USE` (0) is the potion's alone (600: `DRINK_POTION02`, `LEVELUP01`, `DRINK_POTION01`, `UI_INV_PUTFAILED01`), picked by no call found (**hypothesis**: unused, the potions and the level-up play their ids directly); `KNOCK` (2) is empty everywhere.
 - **Generic** (`SOUND00`–`07`): **hypothesis** the names of the groups of the slots 10, 100 and 101; 100 `death` (`CHAR_SPLASH`, `THUNDER02`–`05`) is picked by no call, 101 `rain` by the rain's loop (`0x41A4F0`, played), 10 `atmospot_waterfall` by `0x425EC0` for the event 13 (a music's id, silent, docs/re/sound.md).
 - **Footsteps** (102–114): the hero's (102, 103) are played; 104–114 are the other creatures' (below).
-- **Music** (1, 2): `PEACE` is played, the jingles wait for the fights' music; `jingle_extension` (2) is picked by no constant call (**hypothesis**: `0x697710` picks the group 6 of a profile it holds in a register, 1 or 2).
+- **Music** (1, 2): `PEACE` is played, the jingles wait for the fights' music; `jingle_extension` (2) is the fights' jingles' second profile, rolled against the first at even odds (`0x68BEA0`, "The fights' music and jingles").
 - **Creatures and heroes** (1000–2146): played by `voices` (lines and idle noises); the Vampiress's 1012 `realvamp` is not.
 
 ### The sources

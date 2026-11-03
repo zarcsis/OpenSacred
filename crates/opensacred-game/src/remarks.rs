@@ -511,7 +511,7 @@ fn land(
 /// Whether the hero at `at` stands out of the fight (`0x678F80`): no living creature hostile to it
 /// within [`FIGHT_WITHIN`], nor one that fights, wherever it stands (**hypothesis** for the
 /// states 1, 3 and 4 of the sound manager's records, and the foes engaged within them).
-fn calm<'a>(
+pub(crate) fn calm<'a>(
     at: Vec3,
     creatures: impl IntoIterator<Item = (&'a GlobalTransform, &'a Mind)>,
 ) -> bool {
