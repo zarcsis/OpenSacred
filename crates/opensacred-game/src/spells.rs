@@ -1226,9 +1226,22 @@ pub(crate) fn skin(
     give(commands, bearer, given);
 }
 
+/// The loops of the areas' objects while they live, by their spells: the holy light's
+/// `SERA_HEILIGES_LICHT_LOOP` (804, `0x7816A0`), the blades of light's `SERA_KLINGENWALL_LOOP`
+/// (814, `0x784C90`) and the gust's twister's `MAGE_WIRBELWIND_LOOP` (826, `0x788D90`); the light's
+/// (817) and the fire skin's (821) objects play none.
+fn area_loop(spell: u16) -> Option<u32> {
+    match spell {
+        spells::HOLY_LIGHT => Some(2031),
+        spells::BLADES_OF_LIGHT => Some(2036),
+        spells::GUST => Some(2017),
+        _ => None,
+    }
+}
+
 /// Makes the object of an area's spell (`spells::area`), the hero's or a creature's (#1855): it
 /// strikes about itself at `centre`, or about the bearer it follows, for the record's value 0 in
-/// seconds what is hostile to its caster.
+/// seconds what is hostile to its caster, its loop at it ([`area_loop`]).
 pub(crate) fn strikes_about(
     commands: &mut Commands,
     looks: Option<&Looks>,
@@ -1258,6 +1271,9 @@ pub(crate) fn strikes_about(
         Visibility::Inherited,
         DespawnOnExit(AppState::InGame),
     ));
+    if let Some(sound) = area_loop(record.id) {
+        made.insert(crate::hums::Hum(sound));
+    }
     if let Some(looks) = looks {
         let look = match record.id {
             spells::HOLY_LIGHT => 0,
@@ -1712,11 +1728,7 @@ fn act(
                     (spells::SPLINTERS_COURSE, 5)
                 };
                 let damages = bolt_damages(record, level, multipliers);
-                let mut course = if act.spell == spells::WHIRLWIND {
-                    crate::bolts::Course::whirlwind()
-                } else {
-                    crate::bolts::Course::passing(course, look)
-                };
+                let mut course = crate::bolts::Course::passing(course, look);
                 if act.spell == spells::WHIRLWIND {
                     course.knocks = Some(spells::whirlwind_knocks(
                         record,

@@ -97,9 +97,6 @@ const FIREBALL_SOUNDS: Sounds = Sounds {
 /// `SERA_PLASMASHOT_BIG` as it starts (`cParticleSystem_bfg`, `0x77F520`).
 const RAILGUN_SOUND: u32 = 2072;
 const BFG_SOUND: u32 = 2073;
-/// The whirlwind's system's `MAGE_WIRBELWIND_LOOP`, which it starts as it starts and holds
-/// while it lives (`cParticleSystem_twister`, `0x788D90`, its channel at `+0xB0`).
-const WHIRLWIND_LOOP: u32 = 2017;
 
 impl Course {
     /// The course of the Seraphim's bolt `bolt`.
@@ -128,18 +125,6 @@ impl Course {
                 }),
                 ..Sounds::default()
             },
-        }
-    }
-
-    /// The course of the Mage's whirlwind (`opensacred_rules::spells::WHIRLWIND_COURSE`), with
-    /// its system's loop ([`WHIRLWIND_LOOP`]).
-    pub fn whirlwind() -> Self {
-        Self {
-            sounds: Sounds {
-                looping: Some(WHIRLWIND_LOOP),
-                ..Sounds::default()
-            },
-            ..Self::passing(opensacred_rules::spells::WHIRLWIND_COURSE, 4)
         }
     }
 
