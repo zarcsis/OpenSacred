@@ -11,8 +11,9 @@
 //! - a container not emptied its type's name in its records' colour (`0xFFEFEFEF`).
 //!
 //! Each wants its place 3 left and 1 above its box's top left corner, the box a creature's of its
-//! height about its feet, a container's of its model about its point, an item's the 35 × 35
-//! square about its point (the least box of `0x44CF20`); they are laid out in turn from the top of the screen by the
+//! type's width and height about its feet (`0x428850`), a container's of its model about its
+//! point, an item's the 35 × 35 square about its point (the least box of `0x44CF20`); they are
+//! laid out in turn from the top of the screen by the
 //! original's search (`cLabelLayout`, `0x6620F0`): up to 128 tries, sideways by 8 and upright by
 //! 4 more each pair, up before down, a place touching another not free, a label of no free place
 //! left out. The text under the cursor is light yellow. A left click on an item's label takes its
@@ -20,11 +21,10 @@
 //! cursor (`attack::aim`); a click on a creature's or a container's label is a click on it, its
 //! attack, its talk or its opening (`0x631CEB`).
 //!
-//! Not followed yet: the creatures' boxes of their types' sizes (`0x428850`, the default 20 by
-//! 170 taken for all), the containers' of each model's bounds (a chest's taken for all), the
-//! specials' labels (the
-//! signposts', the quest items'), the mounts' labels, set 3's stats of the foe under the cursor (`UI_KNOW_ENEMY`), and the hand over a
-//! label (`cursors`).
+//! Not followed yet: a creature's box of its model where its `+0xB0` bit 2 asks it, the
+//! containers' of each model's bounds (a chest's taken for all), the specials' labels (the
+//! signposts', the quest items'), the mounts' labels, set 3's stats of the foe under the cursor
+//! (`UI_KNOW_ENEMY`), and the hand over a label (`cursors`).
 
 use std::collections::{HashMap, HashSet};
 
@@ -53,15 +53,39 @@ const FROM_BOX: Vec2 = Vec2::new(-3.0, -1.0);
 /// The least side of a box, about its middle (`0x44D3BB`).
 const LEAST_BOX: f32 = 35.0;
 /// A creature's box about its feet on the screen, of its type's half width and height
-/// (`0x428850`'s default 20 and 170, taken for every type) in the original's pixels at the zoom
-/// 1 by the factors across and upright that the original's frame gives (**estimate**, measured
-/// 2026-11-02 beside the original at the Seraphim's start: her label's panel 38 left of her feet
-/// and 150 above them): from `HEIGHT_DOWN` of its height below its feet to its height above them.
-const CREATURE_HALF_WIDTH: f32 = 20.0;
-const CREATURE_HEIGHT: f32 = 170.0;
+/// ([`creature_size`]) in the original's pixels at the zoom 1 by the factors across and upright
+/// that the original's frame gives (**estimate**, measured 2026-11-02 beside the original at the
+/// Seraphim's start, of the default 20 and 170: her label's panel 38 left of her feet and 150
+/// above them): from `HEIGHT_DOWN` of its height below its feet to its height above them.
 const HEIGHT_DOWN: f32 = 1.0 / 6.0;
 const ACROSS: f32 = 1.75;
 const UPRIGHT: f32 = 0.876;
+
+/// The half width and the height of a creature of the type `kind`, its box's about its point
+/// (`0x428850`, docs/re/interface.md, "The labels on Alt"): the sizes the code gives some types,
+/// else 20 and 170.
+fn creature_size(kind: u32) -> (f32, f32) {
+    let (half, height): (u16, u16) = match kind {
+        35 | 56..=59 => (60, 110),
+        37 | 41..=43 | 67 => (25, 180),
+        39 | 40 | 182 | 185 | 187 | 189 | 250..=252 => (30, 195),
+        45 | 60..=62 | 68 => (25, 190),
+        49 | 51 | 137 => (30, 230),
+        52 | 74 | 88 | 100..=103 | 247 | 336 | 354 => (100, 280),
+        53 | 94 | 183 => (30, 430),
+        54 | 167 => (40, 230),
+        55 => (75, 280),
+        69 | 191 | 195 => (30, 70),
+        71 | 513..=516 | 560..=563 | 565 | 566 | 589 | 590 | 594..=596 => (20, 20),
+        72 | 261 | 523..=528 | 530..=533 | 536..=538 | 540 | 541 | 550..=558 => (60, 160),
+        75 => (40, 40),
+        190 => (60, 70),
+        193 | 335 | 512 | 520..=522 | 543..=545 | 567..=570 => (50, 80),
+        1249 => (15, 50),
+        _ => (20, 170),
+    };
+    (f32::from(half), f32::from(height))
+}
 /// A container's box about its point on the screen at the zoom 1, which the original takes of its
 /// model's bounds (`+0xD8` to `+0xEC`): half its width and its height above its point
 /// (**estimate**, measured 2026-11-02 beside the original at the Seraphim's start's chest).
@@ -293,11 +317,12 @@ fn label(
             let point = project(at).filter(|&point| near(point))? / scale;
             Some(corner_of(point, point))
         };
-        // A creature's box: its half width across and its height up from below its feet.
-        let tall = |at: Vec3| {
+        // A creature's box: its type's half width across and its height up from below its feet.
+        let tall = |at: Vec3, kind: u32| {
             let feet = project(at).filter(|&point| near(point))? / scale;
-            let half = CREATURE_HALF_WIDTH * ACROSS / zoom;
-            let height = CREATURE_HEIGHT * UPRIGHT / zoom;
+            let (half, height) = creature_size(kind);
+            let half = half * ACROSS / zoom;
+            let height = height * UPRIGHT / zoom;
             let low = feet - Vec2::new(half, height);
             let high = feet + Vec2::new(half, height * HEIGHT_DOWN);
             Some(corner_of(low, high))
@@ -331,7 +356,7 @@ fn label(
         let hero = heroes.iter().next();
         let hero_text = hero_name(texts, request.as_deref(), class);
         if let (Some((entity, at)), Some(text)) = (hero, hero_text.clone())
-            && let Some(corner) = tall(at.translation())
+            && let Some(corner) = tall(at.translation(), class)
         {
             wanted.push(Wanted {
                 entity,
@@ -345,7 +370,7 @@ fn label(
             if skipped.contains(&mind.creature) {
                 continue;
             }
-            let Some(corner) = tall(at.translation()) else {
+            let Some(corner) = tall(at.translation(), mind.creature) else {
                 continue;
             };
             // A follower's label is its master's, the hero's (its `+0x1EC`, `0x627303`).
@@ -502,6 +527,20 @@ impl Plugin for LabelsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_creatures_box_takes_its_types_size() {
+        // The smith and the heroes the default; the dragon, the wolf and the chickens their own.
+        assert_eq!(creature_size(688), (20.0, 170.0));
+        assert_eq!(creature_size(1), (20.0, 170.0));
+        assert_eq!(creature_size(52), (100.0, 280.0));
+        assert_eq!(creature_size(512), (50.0, 80.0));
+        assert_eq!(
+            [560, 565, 566, 564].map(creature_size)[..3],
+            [(20.0, 20.0); 3]
+        );
+        assert_eq!(creature_size(564), (20.0, 170.0));
+    }
 
     #[test]
     fn labels_of_one_spot_stand_in_a_column_up_and_down_and_others_stay_where_they_are() {
