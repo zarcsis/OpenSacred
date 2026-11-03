@@ -21,6 +21,7 @@ pub mod combos;
 pub mod containers;
 pub mod drops;
 pub mod equipment;
+pub mod exchange;
 pub mod explored;
 pub mod fight;
 pub mod inventory;

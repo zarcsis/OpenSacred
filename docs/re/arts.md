@@ -510,7 +510,26 @@ Read 2026-10-30 for #1090 (#1540, **confirmed** by code and **seen** in the runn
 In `opensacred-game` since #1540 (`master`, `talk::Speech`): the talk of a creature of `quests::WIZARD` without a dialogue shows the inventory and the window, the combos page selected, and ends; the window's panels, the creature's portrait from the dialogues' table, the title and the two tabs as the inventory's are drawn, and its COMBO page as above, its flow, prices, total, count, button and tooltips; the inventory's hide takes it away.
 Since #1743 the button lights and the total shows yellow only where a press makes the combo, the gold above the cost (docs/decisions/arts.md, "Combat master's button lit where a press makes the combo").
 **Seen** in the game at the Seraphim's level 8 at the master of type 317: a combo of three steps priced 200, 200 and 100 and 1,500 in all, `x3`, the total red without gold and yellow at 1,500, the button lit at 1,500 and making nothing, and at 1,801 the combo made, 1,500 taken, the page cleared and the combos page showing it.
-Not followed: the master's own portrait (above), the smiths' window (the merchants' since #1618, docs/re/trade.md), the EXCHANGE page, the window's sounds and the spells page's view under the master.
+Not followed: the master's own portrait (above), the smiths' window (the merchants' since #1618, docs/re/trade.md), the window's sounds and the spells page's view under the master.
+
+### The combat master's exchange
+
+Read 2026-11-03 for #1895 (**confirmed** by code and **seen** in the running original at the Gladiator's level 1 at the master of type 317 at 3258,2851, muted, `playSFX` traced).
+
+- The page (`cUI_MasterLotto`: its constructor `0x6D3C80`, its layout `0x6D5B80`, its show `0x6D5570` with (14, 2, `0x22`), its input `0x6D5760`, its draw `0x6D49A0`), its tab `UI_MASTER_LOTTO`: its title, the text 9970, where the COMBO page's stands; four slots of 89 × 88 from (16, 92), 16 apart, the image 247 empty and 246 holding a rune; the result's slot (246) at (168, 200), and either side of it, centred down it, the arrows 357 (its right edge at 169) and 358 (at the slot's width and 167), shown while four runes wait and no rune is made; the COMBO page's button at (432, 212), 253 lit and 255 grey; each rune drawn as its model at its slot's centre, 1.5 times its size.
+- The tab plays the combo master's 7110 and selects the inventory's items page, whose 7112 follows (**seen**); the master's window's show plays its sounds as on the COMBO page.
+- A left press on a slot with a rune on the cursor (its kind 1, the category `0x1C`) puts it there and takes what the slot held onto the cursor; with the cursor empty it takes the slot's rune onto it.
+- The price (`0xAD4B2C`'s word by the count of runes in the slots): 0 for none and one, the balance's `lotto2` (100), `lotto3` (500) and `lotto4` (2,000) for two to four; drawn, where it is not 0, as the text 1082 and the price under it, centred left of the button (**measured**: their letters from 229 and 248, about 346 along), `0xFFFFFF80`, or `0xFFFF0020` where the gold falls short.
+- The button lights (`0x6D4610`) where no rune is made, two runes or more wait and the gold pays the price; its press (`0x6D4520`) takes the price through the gold's handler (`0x57FD80`, its 7100 **seen**, also for 0 below two runes), and by the count makes a rune: two, one drawn of every class's list (`0x6D4400`: `rand()` times the list's length); three, one drawn of the hero's class's list; four, the one that the arrows chose; the slots' runes destroyed, the rune made (`sdk_OBJ_CREATE_NPOS`) waiting in the result's slot.
+- The lists (`0x6D4160`): the types `0x14FF` to `0x1696` (5375 to 5782) in their order whose rune names an art (`0x43AF10`), every class's, or for a class those whose art is one of the class's spells (`0x4D1B20`) or else of its weapon arts (`0x4D24C0`); an empty list's pick gives 5767.
+- The arrows (`0x6D4250`): an index into the hero's class's list kept in a global (`0x17EA250`), which the right arrow raises and the left lowers, each round the list's ends; the preview of the rune chosen sits in the result's slot (**seen**: `doLottoSelect` from 5553 to 5554 and 5555 and back to 5554 in the game's log, the arrows' order).
+- A press on the result's slot with the cursor empty: the left button takes the rune made onto the cursor, the right puts it into the backpack (`0x5DABA0`, `0x5D9F00`; **seen**).
+- As the window hides, the slots' runes and the rune made go back into the backpack (**seen**).
+- The hints, of the style `0x209`: an empty slot's 9974, the button's 9975 and the empty result's slot's 9976 (**seen**: each centred 256 along and 108 below its control's corner, kept within the screen); a slot's rune's and the result's tooltip are the item's of the flags `0x5F`, at the slot's corner and 92 along, 16 down.
+- **Seen**: two runes made the Dark Elf's rune of 1003 for 100, four the Gladiator's rune chosen for 2,000; the gold taken exactly.
+
+Since #1895 the game makes the page so (`master::press_exchange`, `show_exchange`, `opensacred_rules::exchange`, `fight::Rules::exchange_price`), its runes' tooltips by `tooltip`'s `Source::Master`.
+Not followed: a press on a slot with another item on the cursor (not read), and a network game's events.
 
 ## An art in a strike
 
