@@ -1022,6 +1022,16 @@ fn a_part_thrown_off_flies_faster_and_spins_more() {
     assert_eq!(flung.at, [4.0, 5.0, THROWN_AT]);
     assert_eq!(flung.velocity, [1000.0, -1000.0, 150.0]);
     assert_eq!(flung.spin, [15.0, 0.0, -15.0]);
+    // Its velocity does not turn back, so it lands some 2 cells off, where a drop lands within a
+    // unit of where it left (seen, #1932).
+    let mut flung = flung;
+    let mut t = 0.0;
+    while !flung.resting && t < 5.0 {
+        flung.step(1.0 / 60.0, |_, _| 0.0);
+        t += 1.0 / 60.0;
+    }
+    let off = (flung.at[0] - 4.0).hypot(flung.at[1] - 5.0);
+    assert!((150.0..200.0).contains(&off), "{off}");
 }
 
 #[test]
