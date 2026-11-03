@@ -220,6 +220,8 @@ Read 2026-11-01 (#1681, a part of #1594), **confirmed** by code unless marked ot
 - The style `0x209`'s point is the tooltip's centre (no bit 2), kept 16 pixels within the screen (bit 8): the health's lies along the screen's top at 16, the experience's along its right edge.
 - The texts' colours' tags (the bar's in `global.res`): `<colorw=AARRGGBB>` the word after it, `<color=…>` and `<colorl=…>` the rest of the line, `<n>` a line's break; "Inventory" of "Inventory [I]" in `0xFFFFFF80` and "[I]" white (**seen**).
 - A padded number's spaces draw as one, while the panel keeps the width of the text as written (**hypothesis** by the frames: "0/ 300" of `%6d/%6d`, its panel about 50 pixels wider than its words, about 6.5 a space left out).
+  An item's tooltip's lines alike (#1909): a bonus of the effect 809 or 810 is written `+%d%% %s%s %s %s` (`0x95714C`, `0x5C4450`) with a space (`0x957170`) and the attribute's name, or two empty strings, before the texts 1110 and 1074 or 1075, so two spaces follow its per cent, or come before its attribute's name; the original shows one gap there (**seen**: the upgrade 8000's `+12% to Attack` in the smith's window, #1821).
+  Since #1909 the game draws a run of spaces as one in the items' tooltips' lines too (`tooltip::line_row`), each row as wide as its line as written.
 - The disc's and the compass's texts (9915, 9916) did not show under the pointer at the start, nor did the slots' own (9906, 9912) beside their items' and arts' tooltips (**seen**; when they show is not read).
 
 ## What changes with the hero's state
