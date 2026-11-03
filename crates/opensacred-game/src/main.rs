@@ -63,6 +63,7 @@ mod forge;
 mod forms;
 mod frame;
 mod fx;
+mod fx_loops;
 mod game;
 mod glance;
 mod glitter;
@@ -424,6 +425,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         forms::FormsPlugin,
         frame::FramePlugin,
         fx::FxPlugin,
+        fx_loops::FxLoopsPlugin,
         game::GamePlugin,
         glance::GlancePlugin,
     ))
