@@ -1131,33 +1131,41 @@ pub fn run(
                     } else {
                         Some(level_at(paths::cell_of(leg.x, leg.z)))
                     };
+                    let neighbours = |place| {
+                        let mut next = heights.neighbours_by(place, open);
+                        next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
+                        next
+                    };
                     // A cell it may not step into, a container's or a hostile creature's, it
-                    // heads for the neighbour of it nearest itself, round what is between them
-                    // (`0x4F8560`); beside it already, it searches none, and goes straight on.
+                    // goes round what is between them to the first cell beside it that its way
+                    // reaches (`0x4F8560`, `0x4F8AF0`, #1877); beside it already, it searches
+                    // none, and goes straight on.
                     let at = leg_onto.unwrap_or(level);
-                    let leg = match paths::goal(
+                    match paths::goal(
                         paths::cell_of(here.x, here.z),
                         paths::cell_of(leg.x, leg.z),
                         |cell| free(cell, at),
                     ) {
-                        paths::Goal::Cell(cell) if cell != paths::cell_of(leg.x, leg.z) => {
-                            let point = paths::centre(cell);
-                            Vec3::new(point.x, here.y, point.y)
+                        paths::Goal::Cell(_) => {}
+                        paths::Goal::Around(_) => {
+                            return paths::course_beside(
+                                here,
+                                (level, false),
+                                leg,
+                                leg_onto,
+                                neighbours,
+                                |(at, _)| at,
+                            );
                         }
-                        paths::Goal::Cell(_) => leg,
                         paths::Goal::Beside => return None,
-                    };
+                    }
                     paths::course(
                         here,
                         (level, false),
                         leg,
                         leg_onto,
                         |cell, (at, _)| free(cell, at),
-                        |place| {
-                            let mut next = heights.neighbours_by(place, open);
-                            next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
-                            next
-                        },
+                        neighbours,
                         |(at, _)| at,
                     )
                     .map(|course| (leg, course))

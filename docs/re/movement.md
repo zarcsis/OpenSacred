@@ -103,11 +103,14 @@ Read 2026-11-01 (#1731, **confirmed** by code): both searches (`0x4F8AF0` at `0x
 - A target cell that the walker's test of a step (`0x4F7E10`, on the target's floor through `0x6354D0`) lets it into is the goal.
 - Else it tries the target's eight neighbours in the order of the offsets at `0x890F70`: (0, −1), (1, 0), (0, 1), (−1, 0), then (−1, −1), (1, −1), (1, 1), (−1, 1).
 - A neighbour that is the walker's own cell ends it at once with no search, setting the bit `0x40000` of the global `0x182EE3C`: the walker stands beside its target already.
-- Of the neighbours that the test of a step lets the walker into, the goal is the one nearest the walker's cell, by the integer square root of the squared distance rounded to the nearest whole (each axis's difference above 32,000 making it 32,000), the first of those as near kept, from a bound of 1,000.
-- With none, the target's own cell stays the goal, which the search does not reach.
+- Each neighbour that the test of a step lets the walker into it marks passable in the grid (1), each other closed (2); of those it lets in, it finds the one nearest the walker's cell (by the integer square root of the squared distance rounded to the nearest whole, each axis's difference above 32,000 making it 32,000, the first of those as near kept, from a bound of 1,000) and marks it passable again, which changes nothing: the target's coordinates, which the search reads, stay the target's.
+  With none, the target's own cell is the one marked passable.
+- It then sets the byte `0xAD3BA5`, which the search reads: a place it reaches on the target's layer within a cell of the target along each axis ends the search there, taken as the target (`0x4F8AF0`, read 2026-11-03 for #1877, **confirmed** by code).
+  So the search ends at the first cell beside the target that its way reaches, not at the neighbour nearest the walker.
 - A walker in the action 1 with the sub-state 4 (`+0xFC`, `+0xFE`) searches none either, its target closed (not read further).
 
-So a creature sent to a chest, whose cell is closed, or to a creature that stops its step, goes round what stands between them to the cell beside it nearest itself.
+So a creature sent to a chest, whose cell is closed, or to a creature that stops its step, goes round what stands between them to the first cell beside it that its way reaches.
+Seen 2026-11-03 in the running original (#1877): the Seraphim on the pond's shore at 3221,2536, clicking the book stand at 3221,2544 under the gazebo on its island, goes round the pond, over the bridge, and stands at 3222,2545 beside it; the stand's neighbour 3221,2543, nearest her by the distance, lies on the island's side that the stand cuts off, and a click on that cell's ground runs her a cell into the pond and stops.
 
 Seen 2026-10-22 in the original with its driver (#476): at the merchant's house of 50,40, its door open, the hero clicked onto the floor 1 beside the door from (3258, 2584), below the wall, walks to the exit (3257, 2579) and stops there, while from (3255, 2584) or (3254, 2582), left of the door, it comes onto the entrance (3256, 2578) straight up the grid and goes in.
 From that exit the shortest way in is the diagonal onto the entrance past the corner of the wall's cell (3257, 2578) (**hypothesis**: `0x4FABE0` takes such a diagonal, which the walk does not step).
@@ -238,7 +241,8 @@ Before #996 the line was tested from where the walker stood at every frame and t
 In a run of 19,684 walks on random 16 × 16 grids, 30% of their cells closed, at the world's coordinates, 3,924 had turned round in a loop and 2,505 stopped short; now the 16,902 that have a way arrive but for 3 that step into a closed cell along a line that starts on a cell's edge.
 The line's two thirds and the radius of `+0x399` are not followed: the line is clear only to its end, and every walker is a cell wide.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
-Since #1731 the hero's way to a target whose cell it may not step into, a container's or a hostile creature's, ends at the neighbour of it that the original's goal takes (`opensacred_rules::ways::goal`, "The way's goal" above), and beside it already, it goes straight on to it, until the step into its cell is refused.
+Since #1731 the hero's way to a target whose cell it may not step into, a container's or a hostile creature's, ends beside it (`opensacred_rules::ways::goal`, "The way's goal" above), and beside it already, it goes straight on to it, until the step into its cell is refused.
+Since #1877 that way ends at the first cell beside the target that the search reaches (`ways::path_beside`, `paths::course_beside`), where #1731 took the neighbour nearest the hero by the distance, which a cell cut off from the hero's side made unreachable: sent to the start's book stand from the pond's shore, she ran into the pond.
 Its attack's and its art's approaches to a creature name the level the creature stands on, on which the goal is tested, as the original tests it on the target's floor.
 Before, its search ended in the closed cell itself and found no way: sent to a chest or a creature behind a wall, the hero ran straight into the wall and stopped there, while a click on the ground behind it found the way round.
 The walking NPCs' ways end in their target's cell whoever stands there (#883), and do not ask the goal.

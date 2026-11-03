@@ -12,7 +12,7 @@ use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 use opensacred_rules::ways;
 #[cfg(test)]
 pub use opensacred_rules::ways::path;
-pub use opensacred_rules::ways::{Goal, around, goal, path_onto};
+pub use opensacred_rules::ways::{Goal, around, goal, path_beside, path_onto};
 
 use crate::iso;
 
@@ -157,6 +157,33 @@ pub fn course<L: Copy + Eq + Hash, K: PartialEq>(
         neighbours,
     )
     .map(|way| Course::Way(way, None))
+}
+
+/// The course of a walker at `position` on `layer` ordered to `target`, whose cell it may not
+/// step into ([`Goal::Around`]), on level `onto` when given: the way to the first place that the
+/// search reaches beside the target's cell ([`path_beside`]), with the centre of that place's cell
+/// at the walker's height, which it heads for; `None` when it reaches none.
+pub fn course_beside<L: Copy + Eq + Hash, K: PartialEq>(
+    position: Vec3,
+    layer: L,
+    target: Vec3,
+    onto: Option<K>,
+    neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+    level: impl Fn(L) -> K,
+) -> Option<(Vec3, Course<L>)> {
+    let arrives = |at: L| onto.as_ref().is_none_or(|onto| level(at) == *onto);
+    let way = path_beside(
+        (cell_of(position.x, position.z), layer),
+        cell_of(target.x, target.z),
+        arrives,
+        neighbours,
+    )?;
+    let end = way.last()?.0;
+    let point = centre(end);
+    Some((
+        Vec3::new(point.x, position.y, point.y),
+        Course::Way(way, None),
+    ))
 }
 
 /// What a walker at `position` on `layer` does next on its `course` to `target`: straight on;

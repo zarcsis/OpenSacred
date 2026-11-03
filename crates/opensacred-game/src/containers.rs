@@ -10,8 +10,10 @@
 //! `opensacred_rules::containers`) make what it holds, seeded by the hero and the container, which
 //! it throws along arcs to the hero's feet (#1381).
 //!
-//! As the doors, the game picks the container nearest the cursor's line of sight and the hero
-//! walks where the click sends it, beside the container's closed cell (`hero::steer`).
+//! As the doors, the game picks the container nearest the cursor's line of sight; the hero walks
+//! to the container's own point, its way ending beside the container's closed cell, rather than
+//! where the click's ground lies (#1877): the cursor on a tall container's model, the book stand
+//! under the start's gazebo, finds the ground in the pond behind it.
 //!
 //! A town stash (5200) opens as the others, but its window shows with the inventory instead of a
 //! fill (`town_stash`, #1411): emptied only while the window shows, it closes with its clip of the
@@ -117,20 +119,22 @@ fn opening_sound(kind: u32, heads: bool) -> Option<sfx::Of> {
 
 /// On a press of the left button that went to no attack, the container that the hero may open
 /// whose model is nearest the cursor's line of sight, if one is near it, becomes the hero's to
-/// open; any press ends the last such order.
+/// open, and the hero goes to its own point (`0x53A170`), or stands where it is within 100 of it
+/// (`0x53A856`), in place of the click's ground (`hero::steer`); any press ends the last such
+/// order.
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, labels): (Res<Pointer>, Res<crate::labels::Shown>),
     aim: Res<Aim>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    containers: Query<(Entity, &GlobalTransform, &Container)>,
-    heroes: Query<Entity, With<Body>>,
+    containers: Query<(Entity, &GlobalTransform, &Container, &Object)>,
+    mut heroes: Query<(Entity, &Transform, &mut Body)>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    for hero in &heroes {
+    for (hero, ..) in &heroes {
         commands.entity(hero).remove::<Opens>();
     }
     let Some(cursor) = pointer.0 else {
@@ -140,28 +144,39 @@ pub(crate) fn pick(
     let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
         return;
     };
-    let Some(container) = containers
+    let Some((container, point)) = containers
         .iter()
-        .filter(|(_, _, container)| container.opens())
-        .map(|(entity, at, _)| {
+        .filter(|(_, _, container, _)| container.opens())
+        .map(|(entity, at, _, object)| {
             // A container's label under the cursor picks it (`0x631CEB`).
             let distance = if labels.labelled(cursor) == Some(entity) {
                 0.0
             } else {
                 attack::from_line(ray, at.translation())
             };
-            (entity, distance)
+            (entity, object.at, distance)
         })
-        .filter(|&(_, distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(entity, _)| entity)
+        .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(entity, point, _)| (entity, point))
     else {
         return;
     };
-    for hero in &heroes {
+    for (hero, transform, mut body) in &mut heroes {
         debug!("containers: the hero goes to open {container}");
+        if walks_to(transform.translation, point) {
+            body.send(point);
+        } else {
+            body.stop();
+        }
         commands.entity(hero).insert(Opens(container, false, 0));
     }
+}
+
+/// Whether the hero at `hero` walks to a container at `container` to open it: farther than 100
+/// from it (`0x53A856`).
+fn walks_to(hero: Vec3, container: Vec3) -> bool {
+    (container - hero).xz().length() > NO_WALK_WITHIN
 }
 
 /// The hero that stands, once its way to a container it was sent to ends: within 300 of the
@@ -197,7 +212,7 @@ fn open(
             continue;
         };
         // Farther than 100, it walks there first (`0x53A856`).
-        let near = (at.at - transform.translation).xz().length() <= NO_WALK_WITHIN;
+        let near = !walks_to(transform.translation, at.at);
         if !opens.1 && !near && opens.2 < WALK_BEGINS_WITHIN {
             opens.2 += 1;
             continue;
@@ -573,7 +588,12 @@ impl Plugin for ContainersPlugin {
         app.add_systems(
             Update,
             (
-                pick.in_set(Control).after(attack::aim).before(hero::steer),
+                // After the click's walk, which it replaces, and before the items', which take
+                // the click from it (`pickup::pick`).
+                pick.in_set(Control)
+                    .after(attack::aim)
+                    .after(hero::steer)
+                    .before(crate::pickup::pick),
                 open.after(hero::run),
             )
                 .in_set(Unpaused)
@@ -592,6 +612,13 @@ impl Plugin for ContainersPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hero_walks_to_a_container_farther_than_100() {
+        let container = Vec3::new(1000.0, 0.0, 1000.0);
+        assert!(!walks_to(Vec3::new(1060.0, 50.0, 1080.0), container));
+        assert!(walks_to(Vec3::new(1060.0, 0.0, 1081.0), container));
+    }
 
     #[test]
     fn the_hero_opens_a_container_it_stands_within_300_of() {
