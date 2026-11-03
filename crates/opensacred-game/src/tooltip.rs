@@ -873,7 +873,10 @@ fn spawn(
 }
 
 /// A row of `line`'s texts and images, `height` high, its texts in `font` of `size`: an image as
-/// wide as it is and as high as the line at most.
+/// wide as it is and as high as the line at most; a run of spaces draws as one across its texts,
+/// as the control's tooltips' ([`spawn_tip_in`]), the row keeping the width of the line as
+/// written (#1909: the bonus lines of 809 and 810, whose format writes two spaces where the
+/// original shows one gap).
 pub(crate) fn line_row(
     commands: &mut Commands,
     (images, assets): (&UiImages, &AssetServer),
@@ -881,18 +884,22 @@ pub(crate) fn line_row(
     line: &Line,
     (height, size): (f32, f32),
 ) -> Entity {
+    let (pieces, left_out) = one_space_pieces(line);
     let row = commands
         .spawn((
             Node {
                 height: Val::Px(height),
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
+                padding: UiRect::right(Val::Px(
+                    SPACE * f32::from(u16::try_from(left_out).unwrap_or(u16::MAX)),
+                )),
                 ..default()
             },
             Pickable::IGNORE,
         ))
         .id();
-    for piece in &line.0 {
+    for piece in &pieces {
         let child = match piece {
             Piece::Text(text, colour) => commands
                 .spawn((
@@ -1230,6 +1237,36 @@ pub(crate) fn spawn_tip_in(
 /// The width that the original's tooltip measures a space at (**estimate**).
 const SPACE: f32 = 6.5;
 
+/// The pieces of `line` with each run of spaces as one, across its texts, an image ending a run,
+/// and how many spaces it left out.
+fn one_space_pieces(line: &Line) -> (Vec<Piece>, usize) {
+    let mut left_out = 0;
+    let mut after_space = false;
+    let pieces = line
+        .0
+        .iter()
+        .map(|piece| match piece {
+            Piece::Text(text, colour) => {
+                let mut drawn = String::with_capacity(text.len());
+                for c in text.chars() {
+                    if c == ' ' && after_space {
+                        left_out += 1;
+                    } else {
+                        drawn.push(c);
+                        after_space = c == ' ';
+                    }
+                }
+                Piece::Text(drawn, *colour)
+            }
+            Piece::Image(..) => {
+                after_space = false;
+                piece.clone()
+            }
+        })
+        .collect();
+    (pieces, left_out)
+}
+
 /// `text` with each run of spaces as one, and how many spaces it left out.
 fn one_space(text: &str) -> (String, usize) {
     let mut drawn = String::with_capacity(text.len());
@@ -1379,6 +1416,30 @@ mod tests {
             ("Experience: 0/ 300".to_owned(), 7)
         );
     }
+
+    #[test]
+    fn an_items_line_draws_a_run_of_spaces_as_one_across_its_texts() {
+        // The bonus of 809 without an attribute, `+%d%% %s%s %s %s` of two empty strings (#1909).
+        let line = Line(vec![
+            Piece::Text("+12%  to Attack ".into(), WHITE),
+            Piece::Text(" more".into(), RED_TEST),
+            Piece::Image(205, WHITE),
+            Piece::Text(" x".into(), WHITE),
+        ]);
+        let (pieces, left_out) = one_space_pieces(&line);
+        assert_eq!(
+            pieces,
+            [
+                Piece::Text("+12% to Attack ".into(), WHITE),
+                Piece::Text("more".into(), RED_TEST),
+                Piece::Image(205, WHITE),
+                Piece::Text(" x".into(), WHITE),
+            ]
+        );
+        assert_eq!(left_out, 2);
+    }
+
+    const RED_TEST: u32 = 0xFFFF_0000;
 
     #[test]
     fn a_tooltip_shows_once_after_its_rest() {
