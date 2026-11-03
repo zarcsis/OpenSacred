@@ -3,7 +3,8 @@
 //! dust of a corpse that vanishes, the variants 3 and 4 of 781 (`TYPE_FX_PUZZLE_SOLVED_V`,
 //! `opensacred_rules::particles::{rise_ring, dust}`), drawn as the fires' billboards (`fx`): a
 //! quad of each particle facing the camera, of its ramp's colour at its life, not tinted by the
-//! night. A ring follows the creature it rises about; the dust stays where the corpse lay.
+//! night unless the light at it tints it (a script's smoke, `Burst::tinted`). A ring follows the
+//! creature it rises about; the dust stays where the corpse lay.
 
 use std::collections::HashMap;
 
@@ -60,7 +61,7 @@ struct Puff {
 struct Materials(HashMap<(&'static str, Blend), Option<Handle<StandardMaterial>>>);
 
 /// Gives each new burst its particles, its mesh and its material, in the camera that draws after
-/// the night's pass, as the untinted effects (#1191).
+/// the night's pass, as the untinted effects (#1191), unless the light at it tints it.
 fn make(
     mut commands: Commands,
     unmade: Query<(Entity, &Unmade)>,
@@ -95,6 +96,7 @@ fn make(
             })
             .clone();
         let mesh = meshes.add(empty());
+        let tinted = burst.tinted;
         let mut system = System::new(burst.particles.len());
         system.particles.clone_from(&burst.particles);
         let mut puff = commands.entity(entity);
@@ -108,13 +110,19 @@ fn make(
             mesh: mesh.clone(),
         });
         if let Some(material) = material {
-            puff.with_child((
-                Mesh3d(mesh),
-                MeshMaterial3d(material),
-                Transform::default(),
-                bevy::camera::visibility::NoFrustumCulling,
-                bevy::camera::visibility::RenderLayers::layer(iso::UNTINTED),
-            ));
+            puff.with_children(|parts| {
+                parts
+                    .spawn((
+                        Mesh3d(mesh),
+                        MeshMaterial3d(material),
+                        Transform::default(),
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ))
+                    .insert_if(
+                        bevy::camera::visibility::RenderLayers::layer(iso::UNTINTED),
+                        || !tinted,
+                    );
+            });
         }
     }
 }

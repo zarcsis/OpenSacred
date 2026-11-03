@@ -188,26 +188,32 @@ impl System {
             let (Some(block), Some(rates)) = (blocks.get(layer), layers.get(layer)) else {
                 continue;
             };
-            let mut particle = Particle {
-                place: spread_3(block.offset, dice),
-                velocity: spread_3(block.velocity, dice),
-                buoyancy: spread_f32(block.buoyancy, dice),
-                size: spread_f32(block.size, dice),
-                life: 255.0,
-                angle: spread_f32(block.angle, dice),
-                spin: spread_f32(block.spin, dice),
-                layer: u8::try_from(layer).unwrap_or(0),
-                frame: if block.frames > 1 {
-                    u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0)
-                } else {
-                    0
-                },
-            };
+            let mut particle = born(block, layer, dice);
             age(&mut particle, self.clock - self.last, rates, None);
             if particle.alive() {
                 self.particles.push(particle);
             }
         }
+    }
+}
+
+/// A particle of the block `block` of the layer `layer`, at its offset from the system's place,
+/// each value rolled about its spread (`0x764760`).
+fn born(block: &Block, layer: usize, dice: &mut impl Dice) -> Particle {
+    Particle {
+        place: spread_3(block.offset, dice),
+        velocity: spread_3(block.velocity, dice),
+        buoyancy: spread_f32(block.buoyancy, dice),
+        size: spread_f32(block.size, dice),
+        life: 255.0,
+        angle: spread_f32(block.angle, dice),
+        spin: spread_f32(block.spin, dice),
+        layer: u8::try_from(layer).unwrap_or(0),
+        frame: if block.frames > 1 {
+            u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0)
+        } else {
+            0
+        },
     }
 }
 
@@ -697,6 +703,8 @@ pub struct Burst {
     pub ground: Option<f32>,
     /// The radius of its light while it lives, 0 for none.
     pub light: f32,
+    /// Whether the light at it tints it (the draw's flag `0x40`), so that it darkens by night.
+    pub tinted: bool,
 }
 
 /// The ring of an undead that rises again (781, `TYPE_FX_PUZZLE_SOLVED_V`, its variant 3,
@@ -741,6 +749,7 @@ pub fn rise_ring() -> Burst {
         particles,
         ground: None,
         light: 0.0,
+        tinted: false,
     }
 }
 
@@ -804,6 +813,7 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
         particles,
         ground: None,
         light: 0.0,
+        tinted: false,
     }
 }
 
@@ -868,6 +878,7 @@ pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) ->
         particles,
         ground: Some(0.0),
         light: 100.0,
+        tinted: false,
     }
 }
 
@@ -950,7 +961,51 @@ pub fn generic_ring(variant: u8, colour: u32, dice: &mut impl Dice) -> Option<Bu
         particles,
         ground: Some(0.0),
         light,
+        tinted: false,
     })
+}
+
+/// The variant of the generic system that puffs a smoke (`0x796E10`'s case 10; #1846), quests
+/// 10251's and 10252's.
+pub const SMOKE_PUFFS: u8 = 10;
+/// The particles of the variant 10's burst (`+0x5C` of its block).
+const PUFFS: u8 = 25;
+
+/// The smoke of the generic system's variant 10 in the colour `colour` (`0x796E10`'s case 10,
+/// `0x7962F0`; #1846): at its clock's 0 a burst of 25 particles (`0x764760` of the interval 0)
+/// within ± (15, 15, 4) of the system's place, each of a velocity of (0, 0, 5) ± (15, 15, 0), a
+/// buoyancy of −60 ± 10 (they rise ever faster), a size of 8 ± 1 that grows by 10 a second and
+/// an angle of π ± π, living 1.275 s (−200); `PARTICLE_SMOKE04` laid over by its alpha and turned,
+/// in the colour (its bytes over 256) from an alpha of 0.996 through 0.39 over 60 entries to 0
+/// over 196, tinted by the light at it (the flags `0x4C`), with no light of its own.
+pub fn generic_smoke(colour: u32, dice: &mut impl Dice) -> Burst {
+    let [_, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 256.0);
+    let block = Block {
+        buoyancy: spread(-60.0, 10.0),
+        size: spread(8.0, 1.0),
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        velocity: spread([0.0, 0.0, 5.0], [15.0, 15.0, 0.0]),
+        offset: spread([0.0; 3], [15.0, 15.0, 4.0]),
+        ..Block::default()
+    };
+    Burst {
+        texture: "PARTICLE_SMOKE04",
+        grid: 1,
+        blend: Blend::Over,
+        layer: Layer {
+            life: -200.0,
+            size: 10.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(
+            [r, g, b, 0.996],
+            &[([r, g, b, 0.390_625], 60), ([r, g, b, 0.0], 196)],
+        ),
+        particles: (0..PUFFS).map(|_| born(&block, 0, dice)).collect(),
+        ground: None,
+        light: 0.0,
+        tinted: true,
+    }
 }
 
 /// How long the generic system's variants 7 and 8 emit their flames, in seconds (`0x796660`).
@@ -1167,6 +1222,35 @@ mod tests {
         }
         assert!(!system.particles.is_empty());
         system.update_over(0.1, &[ring.layer], ring.ground);
+        assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_scripts_smoke_puffs_rise_ever_faster_tinted_and_are_gone_in_1_275_seconds() {
+        let mut dice = Rng::of(7, 8, 9);
+        // The variant 10 in a grey: 25 about the place, of the colour's bytes over 256, tinted.
+        let smoke = generic_smoke(0xFF80_8080, &mut dice);
+        assert_eq!(smoke.particles.len(), 25);
+        assert_eq!(smoke.ramp.at(255.0), [0.5, 0.5, 0.5, 0.996]);
+        assert_eq!(smoke.ramp.at(0.0)[3], 0.0);
+        assert!(smoke.tinted && smoke.light == 0.0 && smoke.blend == Blend::Over);
+        for particle in &smoke.particles {
+            let [x, y, z] = particle.place;
+            assert!(x.abs() <= 15.0 && y.abs() <= 15.0 && z.abs() <= 4.0);
+            assert!((-70.0..=-50.0).contains(&particle.buoyancy));
+            assert!((7.0..=9.0).contains(&particle.size));
+            assert_eq!(particle.velocity[2], 5.0);
+        }
+        // They rise, grow by 10 a second and live 255 / 200 s.
+        let mut system = System::new(25);
+        system.particles.clone_from(&smoke.particles);
+        for _ in 0..12 {
+            system.update(0.1, &[smoke.layer]);
+        }
+        let first = (smoke.particles[0], system.particles[0]);
+        assert!(first.1.place[2] > first.0.place[2] + 30.0);
+        assert!((first.1.size - first.0.size - 12.0).abs() < 1e-3);
+        system.update(0.1, &[smoke.layer]);
         assert!(system.particles.is_empty());
     }
 

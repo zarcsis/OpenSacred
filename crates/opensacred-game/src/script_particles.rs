@@ -3,7 +3,8 @@
 //! of its variant, at the creature that its first name names (`hero` the hero), else at the centre
 //! of its cell on the ground, else nowhere. The game makes the variants 1 and 4, a ring of sparks
 //! rising about the place, the variant 4 with `SOUND_FX_SPAWN` (`opensacred_rules::particles::
-//! generic_ring`), drawn as the other bursts (`puffs`); at a creature the ring stands where it
+//! generic_ring`), and the variant 10, puffs of smoke that the night darkens (`particles::
+//! generic_smoke`), drawn as the other bursts (`puffs`); at a creature the burst stands where it
 //! stood, as the original places the system once at the creature's root.
 //!
 //! The statues' power-up (`statue_ok`, `Partikel`'s two numbers and no name, `0x4A9502`; #1846)
@@ -15,7 +16,7 @@
 //! damage factor from 1 to 1.5.
 
 use bevy::prelude::*;
-use opensacred_rules::particles::{self, SPAWN_RING, SPAWN_SOUND};
+use opensacred_rules::particles::{self, SMOKE_PUFFS, SPAWN_RING, SPAWN_SOUND};
 use opensacred_rules::spawning::Rng;
 
 use crate::frame::Playing;
@@ -25,7 +26,7 @@ use crate::scripts::Partikel;
 use crate::sfx::{Of, Play, Roll};
 use crate::terrain::Heights;
 
-/// The dice of the rings' sparks.
+/// The dice of the bursts' particles.
 #[derive(Resource)]
 struct Dice(Rng);
 
@@ -89,8 +90,12 @@ fn make(
             debug!("script_particles: {partikel:?} finds no place");
             continue;
         };
-        let Some(burst) = particles::generic_ring(partikel.variant, partikel.colour, &mut dice.0)
-        else {
+        let burst = if partikel.variant == SMOKE_PUFFS {
+            Some(particles::generic_smoke(partikel.colour, &mut dice.0))
+        } else {
+            particles::generic_ring(partikel.variant, partikel.colour, &mut dice.0)
+        };
+        let Some(burst) = burst else {
             debug!(
                 "script_particles: the variant {} is not followed",
                 partikel.variant
