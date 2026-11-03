@@ -13,8 +13,9 @@
 //! bodies are hidden. A ring rises about an undead that stands again and a dust leaves a corpse
 //! that vanishes (781's variants 3 and 4, `puffs`, #1261); the burning ones' flames are the
 //! effect 856's (`fx::last_burning`, #1262); a skeleton warrior that loses its head throws it off,
-//! an item that lies where it lands (#1202). The burst's parts and an arm's bone are not drawn
-//! (#1264).
+//! an item that lies where it lands (#1202). A burst makes its cloud in its gib set's colour
+//! (#1264); its parts and an arm's bone, which the original makes only under `VIOLENCE`, are not
+//! drawn.
 
 use crate::buildings::Layered;
 use bevy::prelude::*;
@@ -330,6 +331,15 @@ fn last(
             }
             End::Bursts => {
                 debug!("undead: {entity}, a {}, bursts", corpse.creature);
+                // Its cloud in its gib set's colour (809, `0x4E8DA0`); the body parts and the
+                // blood decal, which the original makes only under `VIOLENCE` 1, are not made.
+                let colour = particles::burst_colour(undead::gib_set(corpse.creature));
+                crate::puffs::spawn(
+                    &mut commands,
+                    particles::burst_cloud(colour),
+                    at.translation(),
+                    None,
+                );
                 sounds.write(Play {
                     sound: Of::Id(SPLASH),
                     at: Some(entity),

@@ -98,6 +98,22 @@ pub fn loses_head(from: u32, to: u32) -> bool {
     matches!((from, to), (WARRIOR, HEADLESS) | (113, 114) | (116, 117))
 }
 
+/// The gib set of an undead of the type `kind` (`items.pak +0x6F`, `0x427630`), which colours its
+/// burst (`particles::burst_colour`): 3 the bones of the skeleton warriors, 1 green the zombies
+/// and the ghouls (33, 34, 36, 50), 2 black the mummy 44, 0 red the others (read with #1202 off
+/// the table; the byte is not converted).
+pub fn gib_set(kind: u32) -> u8 {
+    if warrior(kind) {
+        3
+    } else if BURSTING.contains(&kind) {
+        1
+    } else if kind == 44 {
+        2
+    } else {
+        0
+    }
+}
+
 /// Whether a creature of the type `kind` may rise from its death.
 pub fn rises(kind: u32) -> bool {
     SKELETONS.contains(&kind) || GOBLINS.contains(&kind)
@@ -214,6 +230,8 @@ mod tests {
 
     #[test]
     fn the_class_5_bursts_burns_or_vanishes_at_its_last_death() {
+        // The burst's colour by the gib set: the warriors' bones, the zombies' green.
+        assert_eq!([32, 115, 36, 44, 48].map(gib_set), [3, 3, 1, 2, 0]);
         assert_eq!(end(32), End::Bursts);
         assert_eq!(end(115), End::Bursts);
         assert_eq!(end(36), End::Bursts);
