@@ -883,6 +883,9 @@ pub struct Npcs {
     /// The placements that the play's records made, which live wherever they stand from then on
     /// ([`Self::living_groups`]).
     played: HashSet<usize>,
+    /// The play's records of the world in the batches that [`script_records`] placed, in order,
+    /// which a save keeps and its load places again ([`Self::resume`], #1958).
+    records: Vec<Vec<Record>>,
     /// The placements of the quests' items that the hero took, which their sectors do not place
     /// again ([`QuestItem`], #1256).
     taken: HashSet<usize>,
@@ -2790,6 +2793,20 @@ pub struct Added {
     pub changes: Vec<quests::AreaChange>,
 }
 
+/// What the play changed of the scripts' placements and triggers, as a save keeps it (#1958):
+/// the play's records of the world in the batches that [`script_records`] placed, in order, which
+/// a load places again ([`Npcs::resume`]); the triggers open, those a hero turned and those
+/// locked; the placements of the quests' items taken and of the containers emptied.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Saved {
+    pub records: Vec<Vec<Record>>,
+    pub opened: HashSet<String>,
+    pub marked: HashSet<String>,
+    pub locked: HashSet<String>,
+    pub taken: HashSet<usize>,
+    pub emptied: HashSet<usize>,
+}
+
 /// Where a record ran: in a sector's `Enter`, whose creatures and objects are made again at each
 /// coming, and in the start, whose creatures take their levels as the game starts.
 #[derive(Clone, Copy, Debug, Default)]
@@ -3564,6 +3581,7 @@ impl Npcs {
             places: positions,
             pending: Vec::new(),
             played: HashSet::new(),
+            records: Vec::new(),
             taken: HashSet::new(),
             emptied: HashSet::new(),
             dialogues,
@@ -6112,6 +6130,46 @@ impl Npcs {
         })
     }
 
+    /// What the play changed of the scripts' placements and triggers, as a save keeps it.
+    pub fn saved(&self) -> Saved {
+        Saved {
+            records: self.records.clone(),
+            opened: self.opened.clone(),
+            marked: self.marked.clone(),
+            locked: self.locked.clone(),
+            taken: self.taken.clone(),
+            emptied: self.emptied.clone(),
+        }
+    }
+
+    /// Puts back what the play of a loaded save changed, on the placements of its start made
+    /// again of its seed (#1958): its records of the world placed again batch by batch, as
+    /// [`script_records`] placed them on the placements (their creatures and objects, places,
+    /// objects' triggers, icons, states, groups and moves), none in the world yet, their
+    /// creatures placed as their sectors come in (`area` the area of a sector); then the triggers
+    /// open, marked and locked, the quests' items taken and the containers emptied as they stood.
+    pub fn resume(&mut self, saved: Saved, area: impl Fn((u32, u32)) -> Option<u8>) {
+        for records in &saved.records {
+            if let Err(e) = self.add(records, &area) {
+                bevy::log::warn!("npcs: the save's records of the world: {e:#}");
+            }
+            reicon(&self.dialogues, &mut self.icons, set_icons(records));
+            self.restate(records);
+            self.regroup(records);
+            self.moves(records, 0.0);
+        }
+        bevy::log::info!(
+            "npcs: the save's {} batches of records of the world placed again",
+            saved.records.len()
+        );
+        self.records = saved.records;
+        self.opened = saved.opened;
+        self.marked = saved.marked;
+        self.locked = saved.locked;
+        self.taken = saved.taken;
+        self.emptied = saved.emptied;
+    }
+
     /// Changes the creatures that the `RegionChange` `change` reaches away from the world
     /// (`0x4ABFE0`, #1064), each of its area where it stands (`area` the area of a sector): the
     /// start's, the `Init`s' and the play's placements that are not in the world, where they
@@ -7855,6 +7913,10 @@ pub(crate) fn script_records(
             changes.0.extend(added.changes);
         }
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
+    }
+    // Kept for a save, whose load places them again (`Npcs::resume`, #1958).
+    if !records.is_empty() {
+        npcs.records.push(records.clone());
     }
     let icons = set_icons(&records);
     let npcs = &mut *npcs;
