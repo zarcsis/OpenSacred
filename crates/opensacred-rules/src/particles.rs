@@ -891,7 +891,7 @@ pub const STATUE_COLOUR: u32 = 0xFFD0_A527;
 /// to [`GENERIC_PARTICLES`] at the points `points` of a body in the system's frame, taken in turn,
 /// still, of a size of 7 ± 3 that falls by 5 a second, so that they are gone within two seconds,
 /// with no buoyancy, no velocity and no light; `PARTICLE_SPARK06` added in the colour, as the
-/// variant 0's (**estimate**: the variant's texture is not read).
+/// variant 0's (`+0x2578`, which `0x796150` loads).
 pub fn statue_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
     let mut burst = generic_sparks(points, colour, dice);
     let size = spread(7.0, 3.0);
@@ -1005,6 +1005,116 @@ pub fn generic_smoke(colour: u32, dice: &mut impl Dice) -> Burst {
         ground: None,
         light: 0.0,
         tinted: true,
+    }
+}
+
+/// The variant of the generic system that marks a place with a gold arrow (`0x796E10`'s case 3;
+/// #1846): the Gladiator's quest 30's two teleports.
+pub const GOLD_ARROW: u8 = 3;
+/// The arrow's model and texture and the helix's texture (`0x796150`).
+pub const ARROW_MODEL: &str = "ARROW2.GRN";
+pub const ARROW_TEXTURE: &str = "ARROW2_GOLD";
+pub const HELIX_TEXTURE: &str = "FX_HELIX01";
+/// The helix's segments, its radius, its half width, and its rise and turn a segment (`0x762C30`
+/// of the parameters at `+0x252C`).
+const HELIX_SEGMENTS: u8 = 50;
+const HELIX_RADIUS: f32 = 17.0;
+const HELIX_HALF: f32 = 2.0;
+const HELIX_RISE: f32 = 0.25;
+const HELIX_TURN: f32 = 0.2;
+/// The helix's height over the system's place (`+0x254C`), and the arrow's (`+0x2560` less 5).
+const HELIX_HEIGHT: f32 = 50.0;
+const ARROW_HEIGHT: f32 = 45.0;
+
+/// A ribbon of the helix: each segment's two edges, its texture's `u` running along it and its `v`
+/// 0 at the first edge and 1 at the second.
+pub type Ribbon = Vec<[[f32; 3]; 2]>;
+
+/// The gold arrow of the generic system's variant 3 (`0x796E10`'s case 3, its update `0x7962F0`,
+/// drawn by `0x7967B0`; #1846): [`ARROW_MODEL`] in [`ARROW_TEXTURE`], lit with its specular
+/// highlights (the state `0x80`), standing 45 over the system's place and bobbing by 10 at 7.5
+/// radians a second, turning about the upright at 2 radians a second; about it a helix of
+/// [`HELIX_TEXTURE`] in the colour, added by its alpha (`0x762C30`), which climbs and turns once
+/// in 3.33 s, its alpha `sin(πs)` over the cycle's share `s`, each cycle at a new angle; and a
+/// light of `100 + 75 sin 5t` (`+0x9C`). It never ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Beacon {
+    clock: f32,
+    spin: f32,
+    bob: f32,
+    cycle: f32,
+    turn: f32,
+    alpha: f32,
+}
+
+impl Beacon {
+    /// A beacon at its start, its helix at an angle at random (`+0x2540`).
+    pub fn new(dice: &mut impl Dice) -> Self {
+        Self {
+            clock: 0.0,
+            spin: 0.0,
+            bob: 0.0,
+            cycle: 0.0,
+            turn: share(dice) * std::f32::consts::TAU,
+            alpha: 0.0,
+        }
+    }
+
+    /// A frame of `dt` seconds on: the arrow turns and bobs, and the helix's cycle runs, a new
+    /// angle at random as it ends, its alpha at the cycle's share otherwise.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.spin += 2.0 * dt;
+        self.bob += 7.5 * dt;
+        self.cycle += 0.3 * dt;
+        if self.cycle < 1.0 {
+            self.alpha = ((self.cycle * std::f32::consts::PI).sin() * 255.0).trunc() / 255.0;
+        } else {
+            self.cycle = 0.0;
+            self.turn = share(dice) * std::f32::consts::TAU;
+        }
+        self.clock += dt;
+    }
+
+    /// The radius of its light, in the pixels of the original's screen.
+    pub fn light(&self) -> f32 {
+        ((5.0 * self.clock).sin() * 75.0 + 100.0).trunc()
+    }
+
+    /// The arrow's turn about the upright, in radians, and its height over the system's place.
+    pub fn arrow(&self) -> (f32, f32) {
+        (self.spin, ARROW_HEIGHT + self.bob.sin() * 10.0)
+    }
+
+    /// The helix's alpha, 0 to 1.
+    pub fn alpha(&self) -> f32 {
+        self.alpha
+    }
+
+    /// The helix's two ribbons in the system's frame: one flat, from the radius less the half
+    /// width to the radius plus it, one upright, from the half width above to it below; both
+    /// starting at the cycle's height and angle (a hundredth of the cycle a quarter of a unit up
+    /// and a fifth of a radian on).
+    pub fn helix(&self) -> [Ribbon; 2] {
+        let t = self.cycle * 100.0;
+        let mut z = t * HELIX_RISE + HELIX_HEIGHT;
+        let mut angle = t * HELIX_TURN + self.turn;
+        let mut flat = Vec::with_capacity(usize::from(HELIX_SEGMENTS));
+        let mut upright = Vec::with_capacity(usize::from(HELIX_SEGMENTS));
+        for _ in 0..HELIX_SEGMENTS {
+            let (sin, cos) = angle.sin_cos();
+            let at = |radius: f32, height: f32| [cos * radius, sin * radius, height];
+            flat.push([
+                at(HELIX_RADIUS - HELIX_HALF, z),
+                at(HELIX_RADIUS + HELIX_HALF, z),
+            ]);
+            upright.push([
+                at(HELIX_RADIUS, z + HELIX_HALF),
+                at(HELIX_RADIUS, z - HELIX_HALF),
+            ]);
+            z += HELIX_RISE;
+            angle += HELIX_TURN;
+        }
+        [flat, upright]
     }
 }
 
@@ -1252,6 +1362,35 @@ mod tests {
         assert!((first.1.size - first.0.size - 12.0).abs() < 1e-3);
         system.update(0.1, &[smoke.layer]);
         assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_gold_arrow_bobs_and_turns_under_a_helix_that_fades_in_and_out() {
+        let mut dice = Rng::of(1, 2, 3);
+        let mut beacon = Beacon::new(&mut dice);
+        assert_eq!(beacon.arrow(), (0.0, 45.0));
+        assert_eq!(beacon.light(), 100.0);
+        // Half a cycle on (1.6 s): the helix whole, the arrow turned by 3.2 radians.
+        for _ in 0..16 {
+            beacon.update(0.1, &mut dice);
+        }
+        assert!(beacon.alpha() > 0.99);
+        let (spin, height) = beacon.arrow();
+        assert!((spin - 3.2).abs() < 1e-3 && (35.0..=55.0).contains(&height));
+        // The ribbons: 50 segments each, a fifth of a radian and a quarter of a unit apart.
+        let [flat, upright] = beacon.helix();
+        assert_eq!((flat.len(), upright.len()), (50, 50));
+        let [inner, outer] = flat[0];
+        let radius = |[x, y, _]: [f32; 3]| x.hypot(y);
+        assert!((radius(inner) - 15.0).abs() < 1e-3 && (radius(outer) - 19.0).abs() < 1e-3);
+        assert!((upright[0][0][2] - upright[0][1][2] - 4.0).abs() < 1e-3);
+        assert!((flat[1][0][2] - flat[0][0][2] - 0.25).abs() < 1e-4);
+        // The cycle ends at 3.33 s, the helix starting again at its foot, 50 over the place.
+        for _ in 0..18 {
+            beacon.update(0.1, &mut dice);
+        }
+        assert!((beacon.helix()[0][0][0][2] - 50.0).abs() < 1.0);
+        assert!((25.0..=175.0).contains(&beacon.light()));
     }
 
     #[test]

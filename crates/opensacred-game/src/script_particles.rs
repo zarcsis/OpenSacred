@@ -4,8 +4,9 @@
 //! of its cell on the ground, else nowhere. The game makes the variants 1 and 4, a ring of sparks
 //! rising about the place, the variant 4 with `SOUND_FX_SPAWN` (`opensacred_rules::particles::
 //! generic_ring`), and the variant 10, puffs of smoke that the night darkens (`particles::
-//! generic_smoke`), drawn as the other bursts (`puffs`); at a creature the burst stands where it
-//! stood, as the original places the system once at the creature's root.
+//! generic_smoke`), drawn as the other bursts (`puffs`), and the variant 3, a gold arrow that
+//! marks the place for good (`beacons`); at a creature the system stands where it stood, as the
+//! original places it once at the creature's root.
 //!
 //! The statues' power-up (`statue_ok`, `Partikel`'s two numbers and no name, `0x4A9502`; #1846)
 //! gives the hero the effect 33 of the whole value of the first number for the seconds of the
@@ -16,7 +17,7 @@
 //! damage factor from 1 to 1.5.
 
 use bevy::prelude::*;
-use opensacred_rules::particles::{self, SMOKE_PUFFS, SPAWN_RING, SPAWN_SOUND};
+use opensacred_rules::particles::{self, GOLD_ARROW, SMOKE_PUFFS, SPAWN_RING, SPAWN_SOUND};
 use opensacred_rules::spawning::Rng;
 
 use crate::frame::Playing;
@@ -90,6 +91,10 @@ fn make(
             debug!("script_particles: {partikel:?} finds no place");
             continue;
         };
+        if partikel.variant == GOLD_ARROW {
+            crate::beacons::spawn(&mut commands, at, partikel.colour);
+            continue;
+        }
         let burst = if partikel.variant == SMOKE_PUFFS {
             Some(particles::generic_smoke(partikel.colour, &mut dice.0))
         } else {

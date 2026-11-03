@@ -263,6 +263,20 @@ pub fn spawn(
         .id()
 }
 
+/// The path of the `texture.pak` texture of `name`, its case aside, relative to the asset
+/// directory (`textures/texture/<number>-<name>.<extension>`).
+pub(crate) fn texture_path(assets: &std::path::Path, name: &str) -> Option<String> {
+    let dir = assets.join("textures").join("texture");
+    let entries = crate::files::read_dir(&dir).ok()?;
+    entries.into_iter().find_map(|entry| {
+        let file = entry.file_name()?.to_string_lossy().into_owned();
+        let (_, rest) = file.split_once('-')?;
+        let (stem, _) = rest.rsplit_once('.')?;
+        stem.eq_ignore_ascii_case(name)
+            .then(|| format!("textures/texture/{file}"))
+    })
+}
+
 /// The particles' texture of `name` (`textures/texture/<number>-<name>.<extension>`), sampled
 /// without its smaller levels, as the original's textures have one: the quads are small, and the
 /// smaller levels' averaged alpha would dim what they add up to.
@@ -271,15 +285,7 @@ pub(crate) fn particle_texture(
     server: &AssetServer,
     name: &str,
 ) -> Option<Handle<Image>> {
-    let dir = assets.join("textures").join("texture");
-    let entries = crate::files::read_dir(&dir).ok()?;
-    let path = entries.into_iter().find_map(|entry| {
-        let file = entry.file_name()?.to_string_lossy().into_owned();
-        let (_, rest) = file.split_once('-')?;
-        let (stem, _) = rest.rsplit_once('.')?;
-        stem.eq_ignore_ascii_case(name)
-            .then(|| format!("textures/texture/{file}"))
-    })?;
+    let path = texture_path(assets, name)?;
     Some(
         server
             .load_builder()
