@@ -76,8 +76,8 @@ const STOP_BUTTONS: [MouseButton; 2] = [MouseButton::Left, MouseButton::Right];
 pub struct Show {
     pub names: Vec<String>,
     /// Whether their screen is black from the request to their end: the start's logos play
-    /// before anything shows (`initApp`), the others over what they stand, which shows through
-    /// the wait before them.
+    /// before anything shows (`initApp`), and a new game's intro before its world, the others
+    /// over what they stand, which shows through the wait before them.
     pub black: bool,
 }
 
@@ -593,11 +593,13 @@ fn scripted(mode: i32) -> Option<String> {
 }
 
 /// Takes the scripts' movies from their `InfoPlayer`s and `GameEnd`s before the texts are shown,
-/// and plays them where the movies that play by themselves do.
-fn from_scripts(
-    mut infos: ResMut<scripts::Infos>,
-    automatic: Res<Automatic>,
-    mut shows: MessageWriter<Show>,
+/// and plays them where the movies that play by themselves do, black from the request where
+/// `black`.
+fn take_scripted(
+    infos: &mut scripts::Infos,
+    automatic: Automatic,
+    shows: &mut MessageWriter<Show>,
+    black: bool,
 ) {
     let mut names = Vec::new();
     infos.0.retain(|(mode, _)| match scripted(*mode) {
@@ -611,10 +613,29 @@ fn from_scripts(
         return;
     }
     if automatic.0 {
-        shows.write(Show::of(names));
+        shows.write(Show { names, black });
     } else {
         info!("the scripts' movies {names:?}: the movies are off");
     }
+}
+
+/// The scripts' movies as they run, over the game, which shows through the wait before them.
+fn from_scripts(
+    mut infos: ResMut<scripts::Infos>,
+    automatic: Res<Automatic>,
+    mut shows: MessageWriter<Show>,
+) {
+    take_scripted(&mut infos, *automatic, &mut shows, false);
+}
+
+/// The start script's movies, which its run left, as the game begins (`scripts::begin`): a new
+/// game's intro, black from its request, so that it plays before the world first shows (#1976).
+fn from_start(
+    mut infos: ResMut<scripts::Infos>,
+    automatic: Res<Automatic>,
+    mut shows: MessageWriter<Show>,
+) {
+    take_scripted(&mut infos, *automatic, &mut shows, true);
 }
 
 /// Marks the campaigns' extros seen as their play is asked for, which the original writes into
@@ -941,6 +962,7 @@ impl Plugin for MoviesPlugin {
             .add_audio_channel::<Channel>()
             .insert_resource(Automatic(true))
             .add_systems(OnEnter(AppState::Menu), logos)
+            .add_systems(OnEnter(AppState::InGame), from_start.after(scripts::begin))
             .add_systems(
                 PreUpdate,
                 (stop, swallow).chain().after(InputSystems).before(Hold),
@@ -1078,6 +1100,28 @@ mod tests {
             };
             assert_eq!(shows, wanted, "{on}");
         }
+    }
+
+    #[test]
+    fn a_new_games_intro_plays_black_before_its_world() {
+        let mut app = App::new();
+        app.insert_resource(scripts::Infos(vec![
+            (23, String::new()),
+            (1, "res:17631".to_owned()),
+        ]))
+        .insert_resource(Automatic(true));
+        let shows = shown(&mut app, from_start);
+        assert_eq!(
+            app.world().resource::<scripts::Infos>().0,
+            [(1, "res:17631".to_owned())]
+        );
+        assert_eq!(
+            shows,
+            [Show {
+                names: vec!["intro".to_owned()],
+                black: true,
+            }]
+        );
     }
 
     #[test]
