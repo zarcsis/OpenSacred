@@ -698,6 +698,10 @@ class Host:
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
                 "ready at once; arts use ART: the hero's art starts its regeneration as a use of it does, its time "
                 'added to every art of its kind',
+                "skills [ID]: a creature's skill slots (each one's skill, base and the items' bonus), its skill "
+                "points and skills to learn, the hero's by default; skills learn SKILL [BASE]: the hero learns the "
+                "skill as the statistics window does, if it holds it not, and its base rises to BASE (1) as the "
+                "window's + raises it, the points they take added first",
                 "combos: the hero's combos, the combo that runs and its step; combos set INDEX ART:LEVEL...: a combo "
                 "of up to four steps, as the combat master makes it; combos select INDEX: the combo on the right "
                 'button; combos ready: every combo regenerated',
@@ -1286,6 +1290,26 @@ class Host:
                 + f" time {a['time']:.1f} s, factor {a['factor']:g}, to run {a['remaining']:.1f} s"
                 for a in arts]
 
+    def command_skills(self, rest):
+        # A creature's skills, the hero's by default (#1925); `skills learn SKILL [BASE]` gives the hero the skill.
+        words = rest.split()
+        params = {'id': None, 'learn': None, 'base': 1}
+        if words and words[0] == 'learn':
+            if not 2 <= len(words) <= 3 or not all(w.isdigit() for w in words[1:]):
+                raise ValueError('skills learn SKILL [BASE]')
+            params['learn'] = int(words[1])
+            params['base'] = int(words[2]) if len(words) > 2 else 1
+            if not 1 <= params['learn'] <= 33 or not 1 <= params['base'] <= 255:
+                raise ValueError('skills learn: SKILL 1 to 33, BASE 1 to 255')
+        elif len(words) == 1 and words[0].isdigit():
+            params['id'] = int(words[0])
+        elif words:
+            raise ValueError('skills [ID] or skills learn SKILL [BASE]')
+        skills = self.world('skills', params)
+        return ([f"slot {i}: skill {s['skill']} base {s['base']}" + (f"+{s['bonus']}" if s['bonus'] else '')
+                 for i, s in enumerate(skills['slots']) if s['skill']]
+                + [f"skill points {skills['points']}, skills to learn {skills['toLearn']}"])
+
     def command_combos(self, rest):
         # The hero's combos (#1531): `combos set INDEX ART:LEVEL...` makes one of up to four steps, `combos select
         # INDEX` puts it on the right button, `combos ready` fills every combo's regeneration.
@@ -1518,7 +1542,8 @@ WORLD_COMMANDS = {
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
     'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause,
-    'weather': Host.command_weather, 'arts': Host.command_arts, 'combos': Host.command_combos, 'level': Host.command_level,
+    'weather': Host.command_weather, 'arts': Host.command_arts, 'combos': Host.command_combos,
+    'skills': Host.command_skills, 'level': Host.command_level,
     'experience': Host.command_experience, 'hire': Host.command_hire,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
     'gold': Host.command_gold, 'home': Host.command_home, 'wear': Host.command_wear,

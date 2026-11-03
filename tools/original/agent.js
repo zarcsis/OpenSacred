@@ -1023,6 +1023,11 @@ const WORLD = {
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   setCombo: ptr('0x5813d0'),         // the stats: thiscall (stats, index, four arts as dwords, four levels as words, id)
+  learnSkill: ptr('0x581120'),       // the stats: thiscall (stats, skill), into the first empty slot at the base 1, a
+                                     // skill to learn (+0x44) taken, the stats made anew
+  raiseSkill: ptr('0x5824a0'),       // the stats: thiscall (stats, slot, amount, 1), the slot's base raised by the
+                                     // amount where that many skill points (+0x42) are left, they taken, the stats made
+                                     // anew; else (or with 0 for 1) its bonus raised
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
   addEffect: ptr('0x582d50'),        // the stats: thiscall (stats, id, whole, value, seconds, art, 0, 0, 0), an effect
   addGold: ptr('0x57fd80'),          // the stats: thiscall (stats, amount), the gold's handler: adds the amount (less
@@ -1084,7 +1089,11 @@ const STAT = {
   attackMultiplier: 0xe6, defenceMultiplier: 0xea, mostHealth: 0x12c, health: 0x130,
   // The gold, which the gold's handler 0x57FD80 adds to and holds below 0x7FFFFFFF.
   gold: 0x46,
+  // The eight skill slots (docs/re/character.md): their skills, bases and the items' bonuses, bytes each, the skill
+  // points left and the skills to learn, words.
+  skills: 0x24, skillBases: 0x2c, skillBonuses: 0x34, skillPoints: 0x42, toLearn: 0x44,
 };
+const SKILL_SLOTS = 8;
 const MOST_GOLD = 0x7ffffffe;
 const VIEW_ZOOM = 0xb60;
 const VIEW_SCREEN_TO_WORLD = 6;      // the view's virtual function: thiscall (view, x, y, position*)
@@ -1104,6 +1113,8 @@ const artIndex = new NativeFunction(WORLD.artIndex, 'uint32', ['pointer', 'uint3
 const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'],
   'thiscall');
 const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float', 'uint32', 'uint32'], 'thiscall');
+const learnSkill = new NativeFunction(WORLD.learnSkill, 'void', ['pointer', 'uint32'], 'thiscall');
+const raiseSkill = new NativeFunction(WORLD.raiseSkill, 'void', ['pointer', 'int32', 'int32', 'uint32'], 'thiscall');
 const setCombo = new NativeFunction(WORLD.setCombo, 'void', ['pointer', 'uint32', 'pointer', 'pointer', 'uint32'],
   'thiscall');
 // A hero's combos (docs/re/arts.md, "A hero's combos"): entries of 38 bytes between the stats' pointers at +0x10E and
@@ -1677,6 +1688,44 @@ const COMMANDS = {
         time: e.add(COMBO.time).readFloat(), speed: e.add(COMBO.speed).readFloat(),
         regenerated: e.add(COMBO.regenerated).readFloat(),
       })),
+    };
+  },
+  // A creature's skills, the hero's by default (#1925): each slot's skill, base and the items' bonus, the skill points
+  // left and the skills to learn; `learn` gives the hero a skill as the statistics window's learning mode does
+  // (0x581120), then raises its base to `base` as the window's "+" does (0x5824A0), the points those calls take added
+  // first, so that the hero's own stay as they were (docs/re/character.md, "Spending the points").
+  skills: (engine, { id, learn, base }) => {
+    const object = id ? objectById(id) : hero();
+    if (object === null || !isCreature(object)) {
+      throw new Error(id ? `no creature ${id}` : 'no hero');
+    }
+    const stats = object.add(STATS);
+    const slots = [...Array(SKILL_SLOTS).keys()];
+    const holding = (skill) => slots.find((i) => stats.add(STAT.skills + i).readU8() === skill);
+    if (learn) {
+      let slot = holding(learn);
+      if (slot === undefined) {
+        if (holding(0) === undefined) {
+          throw new Error(`no empty skill slot for the skill ${learn}`);
+        }
+        const toLearn = stats.add(STAT.toLearn);
+        toLearn.writeU16(toLearn.readU16() + 1);
+        learnSkill(stats, learn);
+        slot = holding(learn);
+      }
+      const more = base - stats.add(STAT.skillBases + slot).readU8();
+      if (more > 0) {
+        const points = stats.add(STAT.skillPoints);
+        points.writeU16(points.readU16() + more);
+        raiseSkill(stats, slot, more, 1);
+      }
+    }
+    return {
+      slots: slots.map((i) => ({
+        skill: stats.add(STAT.skills + i).readU8(), base: stats.add(STAT.skillBases + i).readU8(),
+        bonus: stats.add(STAT.skillBonuses + i).readU8(),
+      })),
+      points: stats.add(STAT.skillPoints).readU16(), toLearn: stats.add(STAT.toLearn).readU16(),
     };
   },
   // An effect on a creature's stats, the hero's by default, through the original's own 0x582D50 (#651, docs/re/arts.md,

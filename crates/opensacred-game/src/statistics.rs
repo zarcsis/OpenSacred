@@ -2084,6 +2084,75 @@ fn spend(
     );
 }
 
+/// The console's `skills` (#1925), as the original's driver answers it: the hero's skill slots
+/// that hold one, each one's skill, base and the items' bonus, then its skill points and skills
+/// to learn; with `give`, the skill given first at its base whatever the points and the level
+/// (`Base::give_skill`) and the hero's values made anew.
+pub(crate) fn skills_command(
+    world: &mut World,
+    give: Option<(u8, u8)>,
+) -> Result<Vec<String>, String> {
+    let mut state = bevy::ecs::system::SystemState::<(
+        Option<ResMut<Experience>>,
+        Option<Res<Rules>>,
+        Option<ResMut<HeroArts>>,
+        Option<ResMut<Hero>>,
+        Query<
+            (
+                &mut Base,
+                Option<&Holding>,
+                Option<&Effects>,
+                &mut Combat,
+                &mut Regenerates,
+                &mut Health,
+            ),
+            With<Body>,
+        >,
+    )>::new(world);
+    let (experience, rules, mut arts, mut hero, mut heroes) = state
+        .get_mut(world)
+        .map_err(|error| format!("the hero's values: {error}"))?;
+    let (Some(mut experience), Some(rules)) = (experience, rules) else {
+        return Err("no game is played".into());
+    };
+    let (mut base, holding, effects, mut combat, mut regenerates, mut health) =
+        heroes.iter_mut().next().ok_or("no hero")?;
+    if let Some((skill, at)) = give {
+        if !base.0.give_skill(skill, at, &mut experience.0) {
+            return Err(format!("no empty skill slot for the skill {skill}"));
+        }
+        refit(
+            experience.level,
+            &rules,
+            (&base, holding, effects),
+            (&mut combat, &mut regenerates, &mut health),
+            (arts.as_deref_mut(), hero.as_deref_mut()),
+        );
+    }
+    let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+    let bonuses = opensacred_rules::fight::skill_bonuses(&base, experience.level, &holds);
+    let mut lines: Vec<String> = (0..8)
+        .filter(|&slot| base.skills[slot] != 0)
+        .map(|slot| {
+            let bonus = match bonuses[slot] {
+                0 => String::new(),
+                bonus => format!("+{bonus}"),
+            };
+            format!(
+                "slot {slot}: skill {} base {}{bonus}",
+                base.skills[slot],
+                base.levels[slot].max(1)
+            )
+        })
+        .collect();
+    lines.push(format!(
+        "skill points {}, skills to learn {}",
+        experience.skill_points,
+        experience.to_learn()
+    ));
+    Ok(lines)
+}
+
 /// The learning mode left as the window shows (`0x6A5FA0`).
 fn leave_learning(shown: Option<Res<Shown>>, mut learning: ResMut<Learning>) {
     if shown.is_some_and(|shown| shown.is_changed() && shown.0) {

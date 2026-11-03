@@ -252,6 +252,12 @@ enum Command {
         #[command(subcommand)]
         action: Option<ArtsAction>,
     },
+    /// The hero's skills, as the original's driver lists them: each slot's skill, base and the
+    /// items' bonus, the skill points and the skills to learn
+    Skills {
+        #[command(subcommand)]
+        action: Option<SkillsAction>,
+    },
     /// The hero's four combos: each one's steps, its time, its speed and what of it has
     /// regenerated, and the time its tooltip gives
     Combos {
@@ -287,6 +293,19 @@ enum ArtsAction {
     /// The hero makes ART, the selected by default, on the hostile creature nearest it, as a
     /// right click on it does
     Make { art: Option<u16> },
+}
+
+/// What `skills` does before it lists the hero's skills.
+#[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
+enum SkillsAction {
+    /// The hero learns SKILL into the first empty slot unless it holds it, and its base rises to
+    /// BASE (1), whatever its points and level, as the original's driver gives it
+    Learn {
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=33))]
+        skill: u8,
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        base: Option<u8>,
+    },
 }
 
 /// What `combos` does before it lists the hero's combos.
@@ -1473,6 +1492,14 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 lines.push(format!("selected {art}"));
             }
             Ok(Outcome { lines, wait: None })
+        }
+        Command::Skills { action } => {
+            in_game(world)?;
+            let give = action.map(|SkillsAction::Learn { skill, base }| (skill, base.unwrap_or(1)));
+            Ok(Outcome {
+                lines: crate::statistics::skills_command(world, give)?,
+                wait: None,
+            })
         }
         Command::Combos { action } => {
             in_game(world)?;
