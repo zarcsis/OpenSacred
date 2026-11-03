@@ -11,17 +11,24 @@ pub const GLOBAL: &str = "text/en-US/global.ftl";
 /// applies").
 pub const SET_POTIONS: &str = "OPENSACRED_SET_POTIONS";
 
-/// The id of the string named `name` (`FUN_0080E780`, per sacred-sdk, MIT): a hash over the
-/// bytes, ASCII letters upper-cased, with the original's 32-bit overflow and signed remainder
-/// (docs/02 §8). A numeric reference `res:N` hashes the text of `N`.
+/// The id of the string named `name` (`FUN_0080E780`, per sacred-sdk, MIT): its [`sacred_key`]
+/// without the top bit (docs/02 §8). A numeric reference `res:N` hashes the text of `N`.
 pub fn sacred_hash(name: &[u8]) -> u32 {
+    sacred_key(name) & 0x7FFF_FFFF
+}
+
+/// The hash over the bytes of `name`, ASCII letters upper-cased, with the original's 32-bit
+/// overflow and signed remainder, its top bit kept: the key that the scripts keep a creature's
+/// name `res:<name>` by (`CreateNPC`'s, docs/re/netscript.md, "`Attack`"), whose top bit is set
+/// for about half of the names.
+pub fn sacred_key(name: &[u8]) -> u32 {
     let mut h: u32 = 0;
     for &b in name {
         let c = u32::from(b.to_ascii_uppercase());
         let v = h.wrapping_mul(113).wrapping_add(c).cast_signed() % 999_999_991;
         h = v.cast_unsigned();
     }
-    h & 0x7FFF_FFFF
+    h
 }
 
 /// The Fluent message of the string named `name`: `id-N`, `N` its [`sacred_hash`].
@@ -39,5 +46,8 @@ mod tests {
         assert_eq!(sacred_hash(b"1024"), 71_320_567);
         assert_eq!(sacred_hash(b"seraphim"), sacred_hash(b"SERAPHIM"));
         assert_eq!(message("1"), "id-49");
+        // Quest 10252's boss, its key as `CreateNPC` logs it (seen 2026-11-03), and its id.
+        assert_eq!(sacred_key(b"ENDGEGNER_10252_A"), 0xCF02_88D9);
+        assert_eq!(sacred_hash(b"ENDGEGNER_10252_A"), 0x4F02_88D9);
     }
 }

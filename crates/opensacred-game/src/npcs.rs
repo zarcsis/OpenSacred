@@ -7137,8 +7137,30 @@ fn phased(
     if !teleports {
         return None;
     }
-    let name = name_of(ops).filter(|name| !name.is_empty() && name != HERO)?;
+    let name =
+        name_of(ops).filter(|name| !name.is_empty() && name != HERO && attack_finds(name))?;
     Some((name, whither(ops, 0x04, places)?))
+}
+
+/// Whether an `Attack` finds the creature of its attacker's name `name` (`0x4A2B40`, #1871): it
+/// takes the name's key (`+0xA880`), the number of a `res:<digits>` or the [`sacred_key`] of the
+/// text after `res:`, as `CreateNPC` keeps the creature by it, only where it is positive as a
+/// signed number; else it looks the name up among the scripts' own names (`0x465070`), which hold
+/// no creature, and the record does nothing (seen: quest 10252's boss, key `0xCF0288D9`). Of the
+/// 20 trees' records, only 133 of `ECS_METEOR`'s 161 name such an attacker (`ENDGEGNER1` of `bum`,
+/// `ENDGEGNER_10252_A`). A name of another form is taken as found.
+///
+/// [`sacred_key`]: opensacred_data::text::sacred_key
+fn attack_finds(name: &str) -> bool {
+    let Some(text) = name.strip_prefix("res:") else {
+        return true;
+    };
+    let key = if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+        text.parse::<u32>().unwrap_or(u32::MAX)
+    } else {
+        opensacred_data::text::sacred_key(text.as_bytes())
+    };
+    key.cast_signed() > 0
 }
 
 /// The spells that the scripts' `Attack`s name by their arts (#1871): `ECS_FIRESTRIKE` the
@@ -7182,7 +7204,7 @@ fn cast_by(
     });
     let caster = names
         .next()
-        .filter(|name| !name.is_empty() && name != HERO)?;
+        .filter(|name| !name.is_empty() && name != HERO && attack_finds(name))?;
     let group = ops.iter().find_map(|o| match (o.tag, &o.value) {
         (0x11, Value::I32(group)) => u32::try_from(*group).ok(),
         _ => None,
@@ -7353,6 +7375,7 @@ fn script_attacks(records: &[Record]) -> Vec<ScriptAttack> {
         if let [attacker, target] =
             <[Party; 2]>::try_from(parties).unwrap_or([Party::Hero, Party::Hero])
             && attacker != Party::Hero
+            && !matches!(&attacker, Party::Named(name) if !attack_finds(name))
         {
             attacks.push(ScriptAttack { attacker, target });
         }
@@ -10499,10 +10522,42 @@ mod tests {
                 CastAt::Place(Whither::Cell((1509, 1216, 0)))
             ))
         );
+        // Quest 10252's own boss, whose name's key is negative, is never found: none.
+        assert_eq!(
+            cast(&[
+                name("res:ENDGEGNER_10252_A"),
+                op(0x04, Value::Str("pos_TrigArea_Eck1_10252".into())),
+                art("ECS_METEOR")
+            ]),
+            None
+        );
         // The teleport, no art or the hero as the caster: none.
         assert_eq!(cast(&[name("res:1"), art("ECS_TELEPORT")]), None);
         assert_eq!(cast(&[name("res:1"), name("res:2")]), None);
         assert_eq!(cast(&[name("HERO"), art("ECS_WINDSTRIKE")]), None);
+    }
+
+    #[test]
+    fn an_attack_finds_a_name_of_a_positive_key_alone() {
+        // A number's key is the number; a word's its hash, of the top bit set for these two.
+        assert!(attack_finds("res:17810"));
+        assert!(attack_finds("res:endgegner1") == attack_finds("res:ENDGEGNER1"));
+        assert!(!attack_finds("res:endgegner_10252_a"));
+        assert!(!attack_finds("res:endgegner1"));
+        assert!(attack_finds("machet1703"));
+        // `bum`'s boss at the hero by meteors: none; no `Attack` without an art by it either.
+        let op = |tag, value| Operand { tag, value };
+        let ops = [
+            op(0x01, Value::Str("res:ENDGEGNER1".into())),
+            op(0x01, Value::Str("res:17217".into())),
+        ];
+        assert!(
+            script_attacks(&[Record {
+                kind: ATTACK,
+                body: Body::Operands(ops.to_vec()),
+            }])
+            .is_empty()
+        );
     }
 
     #[test]
