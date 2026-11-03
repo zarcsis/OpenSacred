@@ -10,7 +10,7 @@ The talk that opens the traders' windows is docs/re/trade.md and docs/re/arts.md
 
 - A creature of `+0x200` bit `0x1000` (the tag `0x23`, docs/re/ai.md; the cursor's hammer, docs/re/cursor.md) that the hero talks to and that has no dialogue of its own shows the inventory (the UI event `0x11` of `UI_WND_INVENTORY`) and `UI_WND_BLACKSMITH`, and sends the window the UI event `0x30` of the sub-kind 8 with its level (`+0x3FE`) and its id (`0x52AB70`), as the merchants' `0x2000` and the masters' `0x4000` do with theirs.
 - The script's `PlayAnim` of the name `schmiede` opens it too (docs/re/netscript.md).
-- The Dwarf's skill 33 has a button of the inventory that opens the same window with the hero as the smith (docs/re/inventory.md; the button not read): the window tells the two apart by its smith's id, a hero's below 17, and its smith's class (`+0x10`), 8 the Dwarf.
+- The Dwarf's skill 33 has a button of the equipment window that opens the same window with the hero as the smith (below, "The Dwarf's smithing"): the window tells the two apart by its smith's id, a hero's below 17, and its smith's class (`+0x10`), 8 the Dwarf.
 - Its show (`0x6A41F0`) sends the event `0x32` of `UI_TABSHEET_INVENTORY`, plays the smith's window's sound (`0x6770E0(0xE, 2, 0x1E, …)`, docs/re/sound.md: the window 30, `7108`) and passes the smith and the hero to the inventory entries (`0x5DEBC0`, `0x5DEE10`), as the merchant's does.
 - Its hide (`0x6A3080`) puts the items of its grid back into the hero's backpack (the inventory entry 18), then those that wait for the sockets, an upgrade among them lost, each that finds no room dropped at the smith's feet (`0x5FCCB0`), and empties a cursor that holds an upgrade (the cursor's kind 5, below).
 - The inventory's hide hides it (docs/re/inventory.md, §2).
@@ -52,7 +52,7 @@ The three buttons, with the cursor empty, put onto it an upgrade of the smith's 
 The types 8010 to 8015 (`KERBEN`, notching) and 8036 to 8041 (`HAERTEN_R`) are of the category 26 too, but no button gives them.
 
 The work's button, where something waits and the hero has the price (the hero's gold, `+0x3EE`), takes the price from it (`0x57FD80`) and puts every waiting item into its socket in order (`0x5BFF60`, below, with the smith's tier), plays the smith's sound again, and shows the item's sockets as they now are (`0x6A2470`).
-The Dwarf as the smith may work only an item and socket items that his check allows (their virtual `+0x3C` with his level and his skill 33; **hypothesis**: their requirements against them), else the work's button does nothing and the item's tooltip shows in red.
+The Dwarf as the smith may work only an item and socket items that his check allows (below, "The Dwarf's smithing"), else the work's button does nothing and the item's tooltip shows its level red.
 
 ## The smith's tier (`0x6A2230`)
 
@@ -83,9 +83,22 @@ At the x87 unit's 53 bits a price that comes to a whole number in real numbers f
 - Taking an item out (`0x5C0430`, re-read 2026-11-01, #1661): every socket's item's values come off the item, the last first, each by its socket's kind and its own record's tier (`+0x81`), each value held at 0 or more; the item's requirements are taken back from `+0x192…`, its level `⌊(+0x192 + 9)/0.8 − 8.5⌋`; the whole list is cleared (`0x5C9480` copying nothing over its start); and the record of the socket asked for is given back.
   It works no worth out again, so the item keeps the price that its last filling gave it.
 
+## The Dwarf's smithing
+
+Read 2026-11-03 for #1820, **confirmed** by code and **seen** in the original under its driver, a Dwarf at level 1 given the skill 33 at 5 (`skills learn 33 5`, #1925).
+
+- The button: the equipment window's layout (`cUI_Equipment`, `0x6BAC80`) makes a control at (190, 105) of the window, its pictures the interface's images 1607 and 1608 (`GUI_main_11`, 31 × 30 at (224, 191) and (224, 224)), and 1609 and 1610 greyed (at (191, 74) and (224, 74)); its tooltip `UI_TOOLTIP_SCHMIEDEN`.
+- Its draw (`0x6B7700`, from `0x6B7F8A`): only for a hero of class 8 (`+0x10`) whose skill 33's value (`0x582450(0x21)`) is not 0; the pictures 1607 and 1608 where the smith's window shows and its smith is of class 8 (`0x75AA50`, `0x75AA70`: the interface manager's `+0x8C`, `UI_WND_BLACKSMITH`, shown, its `+0x158` a creature of class 8, `0x6A21F0`), or where none of the windows of `0x75ADB0` shows, else 1609 and 1610; its flag `0x10` cleared where the smith's window shows (`0x7325C0`) and set else (`0x732550`), so the first picture of the two with the window hidden and the second with it shown (**seen**: the button darker as the window shows).
+- `0x75ADB0(0)`: whether none of the interface manager's `+0x90` (`UI_WND_MERCHANT`, made by `0x6DB9B0`), `+0x8C` (the smith's, `0x6A1FD0`), `+0xB8` (`UI_WND_MASTER`, `0x6D1070`), `+0xC0` (`UI_WND_CHEST`, the town stash) and `+0xD8` (`UI_WND_TRADE`, the players' trade) shows, nor any window of its list at `+0x124` (not read).
+- Its tooltip, the control rested on (`0x7327B0`): `%s\n%s: %d\n%s: %d\n%s: %5.2f%%` (`0x9574C0`) of `UI_TOOLTIP_SCHMIEDEN`, `_ITEM` with `⌊0.25·s + L⌋` (`L` the hero's level), `_NEXT` with `40·⌊min(0.025·s + 1.5, 5)⌋ − 20` and `_COST` with `100/(s + 79)`, the skill's panel's lines (docs/re/character.md), of the style `0x209` centred 48 along and 16 above the control's corner (**seen**: the lines 2, 20 and 1.19 at the skill 5, the panel's middle there).
+- Its press (the input `0x6B6690`, from `0x6B6890`): a left press in it, the hero of class 8 holding the skill 33; where none of the windows of `0x75ADB0` shows, `UI_WND_BLACKSMITH` takes the UI event `0x11` (shown) and `0x30` of the sub-kind 8 with the hero's id, the hero the smith (its show's sounds as a creature's); else, where the smith's window shows as the Dwarf's (`0x6B6E71`: `0x75AA70` and `0x75AA50`), it takes the event `0x12` (hidden), its hide sending its items back as above, the inventory staying; else nothing.
+  **Seen**: the window shown with the Dwarf's own portrait and his third button's picture 1606, and hidden by the second press, the inventory open.
+- His check (`0x6A2DF0`, whether anything waits, which the price, the work's button's light and the work ask): with a smith of class 8, the grid's item and each object waiting for a socket must pass the items' virtual `+0x3C` (`0x5C8E90`, of every item class's table) with the smith's level (`+0x3FE`) and his skill 33's value `s`: the item's level (`+0x131`, its record's `+0x19`) at most `L + ⌊s/4⌋`, the `_ITEM` of the tooltip; else nothing waits, so no price, the work's button dark and the work refused, and the grid's item's tooltip shows its level red (`0x15F`).
+  An upgrade's object passes where its level is 0 (**hypothesis**: the object made of its type, `sdk_OBJ_CREATE_NPOS`, holds its record's level, not read).
+
 ## Not read
 
-- The Dwarf's button of the skill 33 and his checks (`+0x3C`).
+- The windows of the interface manager's list at `+0x124`, which `0x75ADB0` takes as shown too.
 - What the upgrades' records give an item (their values and bonuses, read with the items' table, docs/02 §6.1).
 - The window's pictures, fonts and hints' texts by their numbers, measured against the running original.
 
@@ -113,4 +126,5 @@ The tooltips and the lines of what waits (read 2026-11-03 for #1821 in the draw 
 - The lines of what waits: each waiting object's text of the flags `0x11` (no name's lines, no price, no damage's or protection's line, no hint) in the sockets' order, one text; measured in the font 7, up to seven lines drawn in the font 1 from (124, 58) of the window (the rectangle 160 high), more in the font 7, as many as the rectangle holds there and the rest 180 along; **seen**: the waiting upgrade's five lines, 20 apart, their letters from 66.
 Since #1821 the game shows them so (`blacksmith::hovered`, `blacksmith::waiting`, the tooltips' `Source::Smith` and `Weighing::waiting_lines`; `tooltip::lines` takes the flags 2, 4 and 8); the font 7's line (15) and size (16) are the statistics window's **estimate**.
 Since #1821 the game's grid takes only an item with a socket (`smith::worked` with `drops::Tables::sockets`).
-Not followed yet: the Dwarf's smithing by his skill 33.
+Since #1820 the Dwarf's smithing as above (`forge`): the button drawn in the equipment window while the Dwarf holds the skill 33, its pictures by the windows of the merchant, the combat master, the town stash and the smith (the game has no players' trade), its tooltip of the skill's lines (`opensacred_rules::fight::skill_effects`, the cost as the panel's repair tells it, docs/decisions/interface.md), its press showing the smith's window with the hero as the smith (`blacksmith::open_own`, `opensacred_rules::smith::Smith::Dwarf`: his tier, his price's factor, his third button 1606 and its upgrades 8042 and on) or hiding it; his check of the grid's item and of the items that wait (`Smith::allows`, each item's level by `drops::Tables::item_level`, the tooltip's), the grid's item's level red where it refuses it.
+**Seen** in the game beside the original, a Dwarf at level 1 with the skill 33 at 5: the button, its tooltip's lines (the cost 119.05 %), the window with his portrait and his third button, hidden by the second press; an axe of the level 10 with a socket in his grid, its level red.

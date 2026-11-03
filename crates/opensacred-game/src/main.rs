@@ -59,6 +59,7 @@ mod first_start;
 mod fliers;
 mod foe_panel;
 mod followers;
+mod forge;
 mod forms;
 mod frame;
 mod fx;
@@ -419,6 +420,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         fliers::FliersPlugin,
         foe_panel::FoePanelPlugin,
         followers::FollowersPlugin,
+        forge::ForgePlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
         fx::FxPlugin,

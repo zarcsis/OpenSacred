@@ -72,6 +72,17 @@ impl Smith {
             Self::Dwarf { skill } => dwarf_price_factor(u32::from(skill)),
         }
     }
+
+    /// Whether the smith works an item of level `item` in his grid or puts it into a socket
+    /// (`0x6A2DF0`): a creature any; the Dwarf, at his level `level`, one of a level at most his
+    /// level and a quarter of his skill's value, truncated (the items' virtual `+0x3C`,
+    /// `0x5C8E90`: the item's `+0x131` against `level + s/4`).
+    pub fn allows(self, item: u32, level: u32) -> bool {
+        match self {
+            Self::Creature { .. } => true,
+            Self::Dwarf { skill } => item <= level + u32::from(skill) / 4,
+        }
+    }
 }
 
 /// The factor of the price of the Dwarf as the smith of skill value `skill` (`0x6A2B20`):
@@ -442,6 +453,17 @@ mod tests {
         );
         assert_eq!(Smith::of(8, 0, 60), Smith::Dwarf { skill: 60 });
         assert_eq!(Smith::of(2, 688, 60), SMITH);
+    }
+
+    #[test]
+    fn the_dwarf_works_items_up_to_his_level_and_a_quarter_of_his_skill() {
+        // The Dwarf of level 1 and skill 5, whose button tells the most item level 2 (seen).
+        let dwarf = Smith::Dwarf { skill: 5 };
+        assert!(dwarf.allows(2, 1));
+        assert!(!dwarf.allows(3, 1));
+        assert!(Smith::Dwarf { skill: 7 }.allows(2, 1));
+        assert!(Smith::Dwarf { skill: 8 }.allows(3, 1));
+        assert!(SMITH.allows(200, 1));
     }
 
     #[test]

@@ -27,12 +27,18 @@
 //! pointer, which the tooltips show ([`hovered`]); and beside the grid the lines of what waits
 //! ([`waiting`]).
 //!
-//! Not followed yet: the Dwarf smithing by his skill 33 (his button of the inventory, the third
-//! button's picture 1606 and his checks), and a network game's events.
+//! The Dwarf smiths by his skill 33 (#1820): his button of the equipment window (`forge`) shows
+//! the window with him as the smith ([`open_own`]), of his tier and his price's factor, his third
+//! button's picture 1606 and its upgrades; his check of the levels refuses an item above his
+//! level and a quarter of his skill (`opensacred_rules::smith::Smith::allows`), so that nothing
+//! waits for its work, and the grid's refused item's tooltip shows its level red.
+//!
+//! Not followed yet: a network game's events.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use opensacred_rules::drops::{Dropped, Kind};
+use opensacred_rules::fight::Rules;
 use opensacred_rules::inventory::{Grid, held_at};
 use opensacred_rules::smith::{self, Button, Smith, Waiting};
 
@@ -143,8 +149,14 @@ pub struct Blacksmith {
     pub creature: Entity,
     /// Its creature type, whose portrait the window shows (the event `0x30` (8, id)).
     kind: u32,
+    /// Who smiths: the creature, or the Dwarf hero by his skill 33.
+    smith: Smith,
+    /// The smith's level (`+0x3FE`), which the Dwarf's check of the items takes.
+    level: u32,
     /// Its tier (`0x6A2230`), 0 to 5.
     tier: u8,
+    /// Whether the Dwarf's button hides the window (the UI event `0x12`), the inventory staying.
+    pub(crate) closing: bool,
     items: Vec<(u32, Dropped)>,
     grid: Grid,
     waiting: [Option<Wait>; SOCKETS],
@@ -159,20 +171,46 @@ impl Blacksmith {
         self.items.first().map(|(_, dropped)| dropped)
     }
 
-    /// The smith, a creature of its type.
-    fn smith(&self) -> Smith {
-        Smith::Creature { kind: self.kind }
+    /// Who smiths.
+    pub(crate) fn smith(&self) -> Smith {
+        self.smith
     }
 
-    /// Whether anything waits for the sockets (`0x6A2DF0`).
-    fn waits(&self) -> bool {
-        self.waiting.iter().any(Option::is_some)
+    /// Whether the smith works the grid's item (`0x6A2DF0`): the Dwarf's check of its level, each
+    /// item's by `level_of` (`drops::Tables::item_level`).
+    pub(crate) fn allows_item(&self, level_of: impl Fn(&Dropped) -> u32) -> bool {
+        self.item()
+            .is_none_or(|item| self.smith.allows(level_of(item), self.level))
+    }
+
+    /// Whether anything waits for the sockets (`0x6A2DF0`), the Dwarf's check allowing the grid's
+    /// item and every item that waits (an upgrade passes, **hypothesis**: the object made of its
+    /// type has the level 0).
+    fn waits(&self, level_of: impl Fn(&Dropped) -> u32) -> bool {
+        let allowed = self.allows_item(&level_of)
+            && self.waiting.iter().flatten().all(|wait| match wait {
+                Wait::Item(held) => self.smith.allows(level_of(&held.dropped), self.level),
+                Wait::Upgrade(_) => true,
+            });
+        allowed && self.waiting.iter().any(Option::is_some)
+    }
+
+    /// The three buttons with their pictures, the Dwarf's third his own (`0xA0DDA8`, the event
+    /// `0x30` 8 of a smith of class 8).
+    fn buttons(&self) -> [(Button, Vec2, u32); 3] {
+        let mut buttons = BUTTONS;
+        if matches!(self.smith, Smith::Dwarf { .. }) {
+            buttons[2].2 = DWARF_REFINING;
+        }
+        buttons
     }
 
     /// The price of putting what waits into the item's sockets (`0x6A2B20`), none where nothing
     /// waits or the grid is empty.
-    fn price(&self, tables: &Tables) -> Option<i64> {
-        let item = self.item().filter(|_| self.waits())?;
+    fn price(&self, (tables, rules): (&Tables, &Rules)) -> Option<i64> {
+        let item = self
+            .item()
+            .filter(|_| self.waits(|dropped| tables.item_level(dropped, rules)))?;
         let waiting: Vec<Waiting> = self
             .waiting
             .iter()
@@ -199,10 +237,10 @@ impl Blacksmith {
 
     /// Whether the work's button lights (`0x6A33A0`): the item has a socket, something waits and
     /// the hero has its price.
-    fn lit(&self, tables: &Tables, gold: u32) -> bool {
+    fn lit(&self, (tables, rules): (&Tables, &Rules), gold: u32) -> bool {
         self.shown(tables) > 0
             && self
-                .price(tables)
+                .price((tables, rules))
                 .is_some_and(|price| price <= i64::from(gold))
     }
 
@@ -253,12 +291,25 @@ pub fn open(world: &mut World, creature: Entity) {
     let kind = world
         .get::<crate::ai::Mind>(creature)
         .map_or(0, |mind| mind.creature);
+    show_window(world, creature, kind, (Smith::Creature { kind }, 0));
+}
+
+/// Shows the smith's window with the Dwarf hero `hero` of type `kind` and level `level` as the
+/// smith by his skill 33's value `skill` (his button of the equipment window, `0x6B6890`: the UI
+/// events `0x11` and `0x30` 8 with his id).
+pub(crate) fn open_own(world: &mut World, hero: Entity, kind: u32, (skill, level): (u8, u32)) {
+    show_window(world, hero, kind, (Smith::Dwarf { skill }, level));
+}
+
+/// Shows the window of the smith `creature` of type `kind`, who smiths as `smith` at the level
+/// `level`, with its sounds.
+fn show_window(world: &mut World, creature: Entity, kind: u32, (smith, level): (Smith, u32)) {
     let difficulty = world
         .get_resource::<crate::game::Difficulty>()
         .map(|d| d.0)
         .unwrap_or_default();
-    let tier = Smith::Creature { kind }.tier(u8::try_from(difficulty.index()).unwrap_or(0));
-    info!("blacksmith: {creature}, a {kind}, shows its window, of the tier {tier}");
+    let tier = smith.tier(u8::try_from(difficulty.index()).unwrap_or(0));
+    info!("blacksmith: {creature}, a {kind}, shows its window as {smith:?}, of the tier {tier}");
     // The window's show (`0x6A41F0`) selects the items page of the inventory's tab sheet (its
     // event `0x32`), whose show plays its own sound, then plays the smith's (the event (14, 2,
     // `0x1E`), #1722); seen so after the inventory's own four (#1821).
@@ -272,7 +323,10 @@ pub fn open(world: &mut World, creature: Entity) {
     world.insert_resource(Blacksmith {
         creature,
         kind,
+        smith,
+        level,
         tier,
+        closing: false,
         items: Vec::new(),
         grid: Grid::new(COLUMNS, ROWS),
         waiting: [const { None }; SOCKETS],
@@ -317,7 +371,7 @@ fn follow(
     let (Some(mut smith), Some(tables)) = (smith, tables) else {
         return;
     };
-    if !shown.0 {
+    if !shown.0 || smith.closing {
         let smith = &mut *smith;
         let mut back: Vec<Held> = std::mem::take(&mut smith.items)
             .into_iter()
@@ -393,7 +447,7 @@ pub(crate) fn hovered(
     at: Vec2,
 ) -> Option<Hovered> {
     if let Some((b, &(button, corner, _))) = (0_u32..)
-        .zip(&BUTTONS)
+        .zip(&smith.buttons())
         .find(|(_, (_, corner, index))| control(images, *index, *corner).contains(at))
     {
         return Some(Hovered {
@@ -459,7 +513,10 @@ fn press(
         Option<Res<Tables>>,
         Res<UiImages>,
     ),
-    asking: Option<Res<crate::purchase::Asking>>,
+    (asking, rules): (
+        Option<Res<crate::purchase::Asking>>,
+        Res<crate::fight::Rules>,
+    ),
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let (Some(mut smith), Some(tables)) = (smith, tables) else {
@@ -480,10 +537,10 @@ fn press(
     if !left {
         if control(&images, WORK_DARK, WORK).contains(at)
             && smith
-                .price(&tables)
+                .price((&tables, &rules.0))
                 .is_some_and(|price| price <= i64::from(pack.gold))
         {
-            work(smith, &mut pack, &tables, &mut sounds);
+            work(smith, &mut pack, (&tables, &rules.0), &mut sounds);
         }
         return;
     }
@@ -495,7 +552,8 @@ fn press(
         press_socket(smith, &mut pack, &tables, k);
         return;
     }
-    if let Some(&(button, ..)) = BUTTONS
+    if let Some(&(button, ..)) = smith
+        .buttons()
         .iter()
         .find(|(_, corner, index)| control(&images, *index, *corner).contains(at))
     {
@@ -511,10 +569,10 @@ fn press(
     }
     if control(&images, WORK_DARK, WORK).contains(at) {
         if smith
-            .price(&tables)
+            .price((&tables, &rules.0))
             .is_some_and(|price| price <= i64::from(pack.gold))
         {
-            work(smith, &mut pack, &tables, &mut sounds);
+            work(smith, &mut pack, (&tables, &rules.0), &mut sounds);
         }
     } else if holds_upgrade(&pack, &tables) {
         // A press on the window's ground drops the upgrade off the cursor.
@@ -630,10 +688,10 @@ fn press_socket(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables, k: usi
 fn work(
     smith: &mut Blacksmith,
     pack: &mut Pack,
-    tables: &Tables,
+    (tables, rules): (&Tables, &Rules),
     sounds: &mut MessageWriter<crate::sfx::Play>,
 ) {
-    let Some(price) = smith.price(tables) else {
+    let Some(price) = smith.price((tables, rules)) else {
         return;
     };
     let waiting: Vec<Dropped> = smith
@@ -869,7 +927,7 @@ fn show(
         }
         None => add(&mut commands, PORTRAIT_DEFAULT, PORTRAIT),
     }
-    for (_, at, index) in BUTTONS {
+    for (_, at, index) in smith.buttons() {
         add(&mut commands, index, at);
     }
     // The grid's picture and its cells' tints.
@@ -905,10 +963,10 @@ fn show(
     }
     // The work's button with an item in the grid alone.
     if smith.item().is_some() {
-        let lit = smith.lit(&tables, look.gold);
+        let lit = smith.lit((&tables, weighing.rules()), look.gold);
         add(&mut commands, if lit { WORK_LIT } else { WORK_DARK }, WORK);
     }
-    if let Some(price) = smith.price(&tables) {
+    if let Some(price) = smith.price((&tables, weighing.rules())) {
         let colour = if price <= i64::from(look.gold) {
             YELLOW
         } else {
@@ -1204,6 +1262,48 @@ impl Plugin for BlacksmithPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dwarf_works_what_his_level_and_skill_allow() {
+        let item = |level| Dropped {
+            level,
+            ..upgrade_item(1)
+        };
+        let dwarf = |grid: u32, waiting: u32| Blacksmith {
+            creature: Entity::PLACEHOLDER,
+            kind: 8,
+            smith: Smith::Dwarf { skill: 5 },
+            level: 1,
+            tier: 0,
+            closing: false,
+            items: vec![(0, item(grid))],
+            grid: Grid::new(COLUMNS, ROWS),
+            waiting: [
+                Some(Wait::Upgrade(8000)),
+                Some(Wait::Item(Held {
+                    key: 1,
+                    dropped: item(waiting),
+                    size: (1, 1),
+                })),
+                None,
+                None,
+            ],
+            fallen: Vec::new(),
+        };
+        // At level 1 with the skill 5 the most is 2 (`1 + 5/4`), for the grid's item and those
+        // that wait.
+        let level = |dropped: &Dropped| dropped.level;
+        assert!(dwarf(2, 2).waits(level));
+        assert!(!dwarf(3, 2).waits(level));
+        assert!(!dwarf(3, 2).allows_item(level));
+        assert!(!dwarf(2, 3).waits(level));
+        assert!(dwarf(2, 3).allows_item(level));
+        let mut smith = dwarf(3, 3);
+        smith.smith = Smith::Creature { kind: 688 };
+        assert!(smith.waits(level));
+        assert_eq!(dwarf(2, 2).buttons()[2].2, DWARF_REFINING);
+        assert_eq!(smith.buttons()[2].2, 261);
+    }
 
     #[test]
     fn the_frame_runs_round_the_window_and_down_its_divider() {
