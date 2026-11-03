@@ -638,6 +638,32 @@ pub fn aid(roll: u32, chance: u32, (wounded, fighting): (bool, bool), shield: u3
     }
 }
 
+/// Sharifa (697), whose heal goes to the hero under a third of his health (`0x4D31C0`).
+pub const SHARIFA: u32 = 697;
+
+/// Whether the local hero at `health` of `most` is low enough for Sharifa's heal (`0x4D31C0`):
+/// his health under a third of his most, whole.
+pub fn hero_low(health: u32, most: u32) -> bool {
+    health < most / 3
+}
+
+/// The friend of the least share of health for the heal of a magician's type's choice
+/// (`0x4D3580`…`0x4D36CD`): of `candidates`, each its health and its most, the first of the
+/// least share, the caster's own first in the list; none of an empty list.
+pub fn least_share<T: Copy>(candidates: &[(T, u32, u32)]) -> Option<T> {
+    let share = |health: u32, most: u32| f64::from(health) / f64::from(most.max(1));
+    candidates
+        .iter()
+        .fold(None, |least: Option<(T, f64)>, &(who, health, most)| {
+            let this = share(health, most);
+            match least {
+                Some((_, low)) if this >= low => least,
+                _ => Some((who, this)),
+            }
+        })
+        .map(|(who, _)| who)
+}
+
 /// Whether a friend at `health` of `most` is wounded enough for a magician's heal: under three
 /// quarters of its most.
 pub fn wounded(health: u32, most: u32) -> bool {
@@ -990,5 +1016,18 @@ mod tests {
         let ((x, y), _) = groups[2];
         assert!((x.hypot(y) - DRUID_RING).abs() < 1e-3);
         assert!((y.atan2(x).to_degrees() - 72.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sharifas_heal_takes_the_least_share_once_the_hero_is_under_a_third() {
+        assert!(hero_low(99, 300) && !hero_low(100, 300));
+        // Sharifa at 90 of 100, the hero at 40 of 150, a follower at 50 of 60.
+        assert_eq!(
+            least_share(&[(0, 90, 100), (1, 40, 150), (2, 50, 60)]),
+            Some(1)
+        );
+        // None below the caster's own: herself.
+        assert_eq!(least_share(&[(0, 10, 100), (1, 40, 150)]), Some(0));
+        assert_eq!(least_share::<u8>(&[]), None);
     }
 }

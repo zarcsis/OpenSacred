@@ -1469,11 +1469,13 @@ impl Mind {
                 let roll = rng.below(101);
                 casts::aid(roll, chance, cast.friends, rng.below(3))
             });
-            // On a friend, it needs one of its kind; none, it stops.
+            // On a friend, it needs one of its kind; none, it stops. Sharifa's heal of the hero
+            // goes to her friend of the least share of health, herself where none is below her,
+            // so that it always has one (#1883).
             let spell = aid.or(spell).filter(|&spell| {
                 !casts::on_a_friend(spell)
                     || if spell == casts::HEAL {
-                        cast.friends.0
+                        cast.friends.0 || (creature == casts::SHARIFA && cast.hero_low)
                     } else {
                         cast.friends.1
                     }
