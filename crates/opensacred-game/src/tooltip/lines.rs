@@ -179,6 +179,9 @@ pub(crate) const HINT: u16 = 8;
 /// (`0x11`, `0x6A33A0`).
 pub(crate) const GRID_ASK: u16 = 0x5F;
 pub(crate) const WAITING_ASK: u16 = 0x11;
+/// The level's line red (`0x100`): the smith's grid's item that the Dwarf's check refuses
+/// (`0x15F`, `0x6A33A0`).
+pub(crate) const LEVEL_RED: u16 = 0x100;
 
 /// The tooltip's lines of `item` for `hero` (none: the name alone, as the original without a
 /// hero), of those that `flags` asks; a potion's class adds its price (`0x5CBA30`).
@@ -209,7 +212,7 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words, flags: u16)
     if item.level != 0 {
         lines.push(Line::of(
             format!("{}: {}", words.of("1070"), item.level),
-            WHITE,
+            if flags & LEVEL_RED != 0 { RED } else { WHITE },
         ));
     }
     lines.extend(details(item, hero, words));

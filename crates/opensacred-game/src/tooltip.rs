@@ -132,6 +132,11 @@ pub(crate) struct Weighing<'w, 's> {
 }
 
 impl Weighing<'_, '_> {
+    /// The fight's rules, by which an item's level goes (`drops::Tables::item_level`).
+    pub(crate) fn rules(&self) -> &opensacred_rules::fight::Rules {
+        &self.rules.0
+    }
+
     /// The name of the art `id` of the texts `texts`, a spell's or a weapon art's.
     fn art_name(&self, texts: Option<&Texts>, id: u32) -> Option<String> {
         let arts = self.arts.as_deref()?;
@@ -272,28 +277,20 @@ impl Weighing<'_, '_> {
         let (bonuses, left) =
             opensacred_rules::smith::shown_bonuses(values.bonuses, &dropped.socketed);
         values.bonuses = bonuses;
-        // A made item's levels by its own values (`0x5D3AB0` at `0x5D56FA`), and a set's piece's,
-        // whose record holds the level 1 (seen: the set 1's arm protectors 4050 of the level 9 and
-        // 5 asked, #1701); another's as its record holds them: a potion's none, a scroll's level
-        // none (seen, #1273); with its sockets filled, at least theirs, the level asked of it
-        // (`0x5C0810`, #1661). A set's piece's record values take its template's scale, which
-        // the client's estimate of every record's level and the pace's slowing read; a unique's
-        // (its record's quality bits all set) as well (seen: the sword 1712 of the level 30 and
-        // 22 asked, whose record holds the level 10, #1709).
+        // Its level (`drops::Tables::item_level`) and the level asked of it: a made item's and a
+        // set's piece's of its level, another's as its record holds it, a potion's none, a
+        // scroll's level none (seen, #1273); with its sockets filled, of its level (`0x5C0810`,
+        // #1661). A set's piece's record values take its template's scale, which the client's
+        // estimate of every record's level and the pace's slowing read; a unique's (its record's
+        // quality bits all set) as well (seen: the sword 1712 of the level 30 and 22 asked, whose
+        // record holds the level 10, #1709).
         let unique = (record.word >> 16) & 0xF == 0xF;
         let piece = tables.set_name(dropped.item).is_some() || unique;
         let made = dropped.values.is_some() || piece;
-        let mut own = tables.own_values(dropped);
         if piece && dropped.values.is_none() {
-            own.scale = tables.template_scale(dropped.item);
-            values.scale = own.scale;
+            values.scale = tables.template_scale(dropped.item);
         }
-        let own = if made {
-            opensacred_rules::fight::item_level(&own, &self.rules)
-        } else {
-            u32::from(record.level)
-        };
-        let level = own.max(tables.sockets_level(dropped, &self.rules));
+        let level = tables.item_level(dropped, &self.rules);
         let asked = if made || !dropped.socketed.is_empty() {
             opensacred_rules::equipment::asked_level(level)
         } else {
@@ -712,8 +709,17 @@ fn grid(
         })
         .unwrap_or_default();
     let buying = matches!(source, Source::Merchant(_));
+    // The smith's grid's item that the Dwarf's check refuses shows its level red (`0x15F`).
+    let refused = source == Source::Smith
+        && key < 0x100
+        && smith
+            .as_deref()
+            .zip(weighing.tables.as_deref())
+            .is_some_and(|(smith, tables)| {
+                !smith.allows_item(|dropped| tables.item_level(dropped, weighing.rules()))
+            });
     let ask = Ask {
-        flags: lines::GRID_ASK,
+        flags: lines::GRID_ASK | if refused { lines::LEVEL_RED } else { 0 },
         view,
     };
     let lines = weighing.lines(&dropped, name, texts.as_deref(), (buying, ask));

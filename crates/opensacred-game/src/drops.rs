@@ -427,6 +427,32 @@ impl Tables {
             .unwrap_or(0)
     }
 
+    /// The level of `dropped`, its object's `+0x131` (its record's `+0x19`), which its tooltip
+    /// tells and the Dwarf's check of the smithing takes (`0x5C8E90`): a made item's by its own
+    /// values (`0x5D3AB0` at `0x5D56FA`), and a set's piece's or a unique's by its record's values
+    /// at its template's scale (seen: the set 1's arm protectors 4050 of the level 9, #1701; the
+    /// sword 1712 of the level 30, #1709); another's as its record holds it; with its sockets
+    /// filled, at least theirs (`0x5C0810`, #1661).
+    pub(crate) fn item_level(
+        &self,
+        dropped: &Dropped,
+        rules: &opensacred_rules::fight::Rules,
+    ) -> u32 {
+        let record = self.record_of(dropped);
+        let unique = (record.word >> 16) & 0xF == 0xF;
+        let piece = self.set_name(dropped.item).is_some() || unique;
+        let own = if dropped.values.is_some() || piece {
+            let mut values = self.own_values(dropped);
+            if piece && dropped.values.is_none() {
+                values.scale = self.template_scale(dropped.item);
+            }
+            opensacred_rules::fight::item_level(&values, rules)
+        } else {
+            u32::from(record.level)
+        };
+        own.max(self.sockets_level(dropped, rules))
+    }
+
     /// What `dropped` asks of the hero that would use it (#1288): its type's record's classes'
     /// bits and weapon's kind, its category, the level asked of its own level (`+0x14` of
     /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's, at
