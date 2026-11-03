@@ -16,7 +16,7 @@ use crate::npcs::{self, Arms, Npc};
 
 /// An effect, the seconds it still holds, and the creature that gave it where that counts: a
 /// poison's (the adder's eighth argument, first in the entry's list at `+0x08`).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Timed {
     pub effect: Effect,
     pub left: f32,
@@ -24,7 +24,7 @@ pub struct Timed {
 }
 
 /// A creature's effects, in the order they were added.
-#[derive(Component, Clone, Debug, Default, PartialEq)]
+#[derive(Component, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Effects(Vec<Timed>);
 
 impl Effects {

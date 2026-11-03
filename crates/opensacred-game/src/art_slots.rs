@@ -31,7 +31,7 @@ const ON_CURSOR: f32 = 64.0;
 
 /// The slots' arts, each slot's art if it holds one, the slot selected, and whether a new game's
 /// first slot took the hero's first art.
-#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtSlots {
     pub arts: [Option<u16>; SLOTS],
     pub selected: usize,

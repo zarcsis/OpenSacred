@@ -37,7 +37,9 @@ pub enum AppState {
 
 /// The heroes whose models have their own clips: the model, the clips of standing, walking and
 /// running and the footstep profile of each.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum, serde::Serialize, serde::Deserialize,
+)]
 pub enum Class {
     #[default]
     Seraphim,

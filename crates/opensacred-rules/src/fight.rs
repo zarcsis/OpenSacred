@@ -33,7 +33,7 @@ const DEFENCE: [f32; 3] = [20.0, 80.0, 100.0];
 /// The hero's experience, which its kills earn (`0x57D860`), its level by it (`0x57F8D0`), the
 /// attribute and skill points its levels gave (`0x57E160`), which [`Base::raise_attribute`] and
 /// [`Base::raise_skill`] spend, and the skills it may still learn ([`Base::learn`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Experience {
     pub points: u64,
     pub level: u32,
@@ -721,7 +721,7 @@ impl Default for Rules {
 /// niobium its attribute 3 is 1.5 and 2 times its type's, its attack speed and its pace start from
 /// 170 and 160, and 200 and 190, and its regeneration value is 1.5 and 1 times its attribute 3,
 /// in place of twice.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Hardened {
     #[default]
     No,
@@ -1133,7 +1133,7 @@ pub fn recordless(id: u32) -> Creature {
 /// (`+0x0C`), its six bonuses (`+0x2A`: a kind and a target; their values `+0x36` and the
 /// opponents' classes `+0x3C`), the per cent of each kind's damage that it takes off on each
 /// difficulty (`+0x42`), and its experience (`+0x08`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Base {
     /// Its type, the record's id.
     pub id: u32,
@@ -1303,7 +1303,7 @@ pub struct Holds {
 
 /// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
 /// resistances, its `A` and `D`.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ItemValues {
     pub damage: [[f32; 2]; KINDS],
     pub resistance: [f32; KINDS],
@@ -1522,7 +1522,7 @@ pub fn listed_bonuses(items: &[ItemValues]) -> Vec<Listed> {
 /// A bonus slot of an item's record (docs/re/items.md): its condition word (`+0x3A`), its effect
 /// (`+0x4A`, the effect in the low 16 bits, the attribute that scales it in byte 2) and its value
 /// (`+0x6A`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Bonus {
     pub condition: u16,
     pub effect: u32,
@@ -2559,7 +2559,7 @@ pub fn pace(id: u32) -> f32 {
 /// (`+0x04`), a value as a float (`+0x14`), the art that keys it (`+0x1C`), and the level its
 /// adder's eighth argument puts first in the entry's list at `+0x08` (the arrowproof's, which
 /// the deflection reads, `0x561090`; 0 for none).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Effect {
     pub id: u32,
     pub whole: i32,

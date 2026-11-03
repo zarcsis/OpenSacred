@@ -535,7 +535,7 @@ pub struct Live {
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Teleport {
     pub cell: (i32, i32),
     pub layer: u8,

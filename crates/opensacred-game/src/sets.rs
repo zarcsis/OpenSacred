@@ -63,7 +63,7 @@ pub struct Starting(pub [Option<Worn>; HALVES]);
 
 /// The hero's weapon sets: each set's two halves, the left hand's and the right's, and the set
 /// selected (`0x5D9BA0(0)`).
-#[derive(Resource, Default, Clone, Debug)]
+#[derive(Resource, Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct WeaponSets {
     pub halves: [[Option<Dropped>; HALVES]; SETS],
     pub selected: usize,
