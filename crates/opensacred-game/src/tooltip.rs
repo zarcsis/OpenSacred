@@ -117,7 +117,7 @@ impl Line {
 /// What the tooltip weighs an item against: the hero's arts' table and skills, its level and its
 /// fight's values, the items' tables, the fight's rules and the potions.
 #[derive(bevy::ecs::system::SystemParam)]
-struct Weighing<'w, 's> {
+pub(crate) struct Weighing<'w, 's> {
     tables: Option<Res<'w, Tables>>,
     rules: Res<'w, Rules>,
     arts: Option<Res<'w, HeroArts>>,
@@ -223,18 +223,48 @@ impl Weighing<'_, '_> {
         art::lines(art, &hero, &arts.tables, &words, next)
     }
 
-    /// The tooltip's lines of `dropped`, named `name`, of the texts `texts`, its price as the hero
-    /// would buy it where `buying` (a merchant's, #1618), else as it would sell it.
+    /// The lines of what waits for the smith's sockets, of the texts `texts` (`0x6A33A0`): each
+    /// item's text of the flags `0x11` in turn, an upgrade's as the smith's view of it tells it.
+    pub(crate) fn waiting_lines(
+        &self,
+        waiting: &[(Dropped, bool)],
+        texts: Option<&Texts>,
+    ) -> Vec<Line> {
+        waiting
+            .iter()
+            .flat_map(|(dropped, view)| {
+                let ask = Ask {
+                    flags: lines::WAITING_ASK,
+                    view: *view,
+                };
+                self.lines(dropped, "", texts, (false, ask))
+            })
+            .collect()
+    }
+
+    /// The tooltip's lines of `dropped`, named `name`, of the texts `texts`, those that `ask`
+    /// asks for, its price as the hero would buy it where `buying` (a merchant's, #1618), else as
+    /// it would sell it.
     fn lines(
         &self,
         dropped: &Dropped,
         name: &str,
         texts: Option<&Texts>,
-        buying: bool,
+        (buying, ask): (bool, Ask),
     ) -> Vec<Line> {
         let Some(tables) = self.tables.as_deref() else {
             return vec![Line::of(name, WHITE)];
         };
+        // The smith's view of an item, and an upgrade, of the view's class (`cBsItem3D`,
+        // `0x5C95C0`): its name plain on a line of its own, then the item's lines without the
+        // flag 4, the price and the damage's and the protection's lines.
+        let view = ask.view || tables.category(dropped.item) == opensacred_rules::smith::UPGRADES;
+        let flags = if view {
+            ask.flags & !(lines::NAME | lines::PRICE)
+        } else {
+            ask.flags
+        };
+        let named = (view && ask.flags & lines::NAME != 0).then(|| Line::of(name, WHITE));
         let record = tables.record_of(dropped);
         // Its values with its sockets' items' bonuses merged into its own where they are alike,
         // and what is left of theirs (`0x5C4220`).
@@ -324,7 +354,10 @@ impl Weighing<'_, '_> {
             text: &text,
             art: &art,
         };
-        let mut shown = lines::lines(&item, hero.as_ref(), &words);
+        let mut shown: Vec<Line> = named
+            .into_iter()
+            .chain(lines::lines(&item, hero.as_ref(), &words, flags))
+            .collect();
         // Each socket's item's own lines after them: its record's class, its bonuses that were
         // not merged, its other values and requirements cleared (`0x5C4220`, `0x5C5360`).
         let Some(hero) = hero else {
@@ -384,13 +417,24 @@ enum Source {
     ArtSlot,
     SpellsPage,
     SetIcon,
+    Smith,
 }
 
-/// What a tooltip shows: an item, an art, or the sets worn.
+/// What a tooltip shows: an item, as its own class or the smith's view of it tells it, an art, or
+/// the sets worn.
 enum Shows {
     Item(Dropped),
+    Viewed(Dropped),
     Art(u16),
     Sets,
+}
+
+/// How a tooltip asks for an item's lines: their flags (`lines::GRID_ASK`, …), and whether the
+/// smith's view of an item tells them (`cBsItem3D`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Ask {
+    flags: u16,
+    view: bool,
 }
 
 /// The list of the sets worn's top left on the original's screen (`0x6B7F0F`, the style `0x8B`).
@@ -428,8 +472,9 @@ type Merchant<'w> = (
 /// merchant's page's item with its price as bought (`0x6DAA70`), made as the pointer comes to an
 /// item and taken away as it leaves it (`0x6C1480`); and of a weapon set's slot's item of the
 /// bar, the hand by the half the pointer is on, whether the inventory shows or not (`0x6E4560`,
-/// #1689); of an item worn in the equipment window (`0x6B7700`, #1704); and of an art slot's art
-/// (`0x5893B0`, #1694).
+/// #1689); of an item worn in the equipment window (`0x6B7700`, #1704); of an art slot's art
+/// (`0x5893B0`, #1694); and of the smith's window's grid's item, buttons' upgrades and sockets'
+/// items (`0x6A33A0`, #1821).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -439,7 +484,11 @@ fn grid(
     mut commands: Commands,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
-    (pack, (merchant, showing, wares)): (Res<Pack>, Merchant),
+    (pack, (merchant, showing, wares), smith): (
+        Res<Pack>,
+        Merchant,
+        Option<Res<crate::blacksmith::Blacksmith>>,
+    ),
     (sets, slots, art_slots): (
         Option<Res<crate::sets::WeaponSets>>,
         Option<Res<bar::Shown>>,
@@ -477,6 +526,21 @@ fn grid(
             at_item(crate::merchant::GRID, placed),
             Shows::Item(dropped),
         ))
+    };
+    let smithed = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let hovered = crate::blacksmith::hovered(
+            smith.as_deref()?,
+            weighing.tables.as_deref()?,
+            &images,
+            at,
+        )?;
+        let shows = if hovered.view {
+            Shows::Viewed(hovered.dropped)
+        } else {
+            Shows::Item(hovered.dropped)
+        };
+        Some((Source::Smith, hovered.key, hovered.corner, shows))
     };
     let carried = || {
         let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
@@ -562,7 +626,8 @@ fn grid(
     };
     let under = shown
         .then(|| {
-            sold()
+            smithed()
+                .or_else(sold)
                 .or_else(carried)
                 .or_else(worn)
                 .or_else(sets_worn)
@@ -590,8 +655,9 @@ fn grid(
         .iter()
         .next()
         .unwrap_or_else(|| commands.spawn(root()).id());
-    let dropped = match shows {
-        Shows::Item(dropped) => dropped,
+    let (dropped, view) = match shows {
+        Shows::Item(dropped) => (dropped, false),
+        Shows::Viewed(dropped) => (dropped, true),
         Shows::Art(_) | Shows::Sets => {
             let lines = match shows {
                 Shows::Art(art) => {
@@ -613,18 +679,36 @@ fn grid(
             return;
         }
     };
+    // The smith's view's name is the text of its type's number, its key unset (`0x44A250`; seen
+    // empty for the upgrades, **hypothesis** for the other items in a socket).
     let name = texts
         .as_deref()
-        .and_then(|texts| item_name(texts, weighing.tables.as_deref(), &dropped, None))
+        .and_then(|texts| {
+            if view {
+                texts.id(dropped.item)
+            } else {
+                item_name(texts, weighing.tables.as_deref(), &dropped, None)
+            }
+        })
         .unwrap_or_default();
     let buying = matches!(source, Source::Merchant(_));
-    let lines = weighing.lines(&dropped, name, texts.as_deref(), buying);
-    // The sockets' kinds from the first, of a kind other than 0 (`0x5BE9C0`).
-    let kinds: Vec<u8> = weighing.tables.as_deref().map_or_else(Vec::new, |tables| {
-        let kinds = tables.own_values(&dropped).sockets;
-        let count = tables.sockets(&dropped);
-        kinds.into_iter().take(count).collect()
-    });
+    let ask = Ask {
+        flags: lines::GRID_ASK,
+        view,
+    };
+    let lines = weighing.lines(&dropped, name, texts.as_deref(), (buying, ask));
+    // The sockets' kinds from the first, of a kind other than 0 (`0x5BE9C0`); none of the smith's
+    // view, whose tooltip names no item (`0x6A33A0`).
+    let kinds: Vec<u8> =
+        weighing
+            .tables
+            .as_deref()
+            .filter(|_| !view)
+            .map_or_else(Vec::new, |tables| {
+                let kinds = tables.own_values(&dropped).sockets;
+                let count = tables.sockets(&dropped);
+                kinds.into_iter().take(count).collect()
+            });
     let (panel, row) = spawn(&mut commands, (&images, &assets), corner, (&lines, &kinds));
     commands.entity(panel).insert(Panel {
         source,
@@ -722,56 +806,8 @@ fn spawn(
             Pickable::IGNORE,
         ))
         .id();
-    // Each line a row of its texts and its images, an image as wide as it is and as high as the
-    // line at most.
     for line in lines {
-        let row = commands
-            .spawn((
-                Node {
-                    height: Val::Px(LINE),
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                Pickable::IGNORE,
-            ))
-            .id();
-        for piece in &line.0 {
-            let child = match piece {
-                Piece::Text(text, colour) => commands
-                    .spawn((
-                        Text::new(text.clone()),
-                        TextFont {
-                            font: font.clone().into(),
-                            font_size: FontSize::Px(FONT_SIZE),
-                            ..default()
-                        },
-                        TextLayout {
-                            linebreak: LineBreak::NoWrap,
-                            ..default()
-                        },
-                        TextColor(argb(*colour)),
-                        Pickable::IGNORE,
-                    ))
-                    .id(),
-                Piece::Image(index, colour) => {
-                    let (image, mut node) =
-                        bar::piece(images, assets, *index, Vec2::ZERO, Vec2::ZERO);
-                    node.position_type = PositionType::Relative;
-                    commands
-                        .spawn((
-                            ImageNode {
-                                color: argb(*colour),
-                                ..image
-                            },
-                            node,
-                            Pickable::IGNORE,
-                        ))
-                        .id()
-                }
-            };
-            commands.entity(row).add_child(child);
-        }
+        let row = line_row(commands, (images, assets), &font, line, (LINE, FONT_SIZE));
         commands.entity(panel).add_child(row);
     }
     let sockets_row = (!sockets.is_empty()).then(|| {
@@ -834,6 +870,64 @@ fn spawn(
     });
     add_border(commands, (images, assets), panel);
     (panel, sockets_row)
+}
+
+/// A row of `line`'s texts and images, `height` high, its texts in `font` of `size`: an image as
+/// wide as it is and as high as the line at most.
+pub(crate) fn line_row(
+    commands: &mut Commands,
+    (images, assets): (&UiImages, &AssetServer),
+    font: &Handle<Font>,
+    line: &Line,
+    (height, size): (f32, f32),
+) -> Entity {
+    let row = commands
+        .spawn((
+            Node {
+                height: Val::Px(height),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .id();
+    for piece in &line.0 {
+        let child = match piece {
+            Piece::Text(text, colour) => commands
+                .spawn((
+                    Text::new(text.clone()),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(size),
+                        ..default()
+                    },
+                    TextLayout {
+                        linebreak: LineBreak::NoWrap,
+                        ..default()
+                    },
+                    TextColor(argb(*colour)),
+                    Pickable::IGNORE,
+                ))
+                .id(),
+            Piece::Image(index, colour) => {
+                let (image, mut node) = bar::piece(images, assets, *index, Vec2::ZERO, Vec2::ZERO);
+                node.position_type = PositionType::Relative;
+                commands
+                    .spawn((
+                        ImageNode {
+                            color: argb(*colour),
+                            ..image
+                        },
+                        node,
+                        Pickable::IGNORE,
+                    ))
+                    .id()
+            }
+        };
+        commands.entity(row).add_child(child);
+    }
+    row
 }
 
 /// Puts the tooltip's border about `panel` (`0x727B30`), as the purchase window's too.

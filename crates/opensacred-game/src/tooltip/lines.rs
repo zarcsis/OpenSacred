@@ -1,5 +1,6 @@
 //! The lines of an item's tooltip (#1273; docs/re/inventory.md, §9), as the grid asks for them
-//! (the flags `0x5F`): the name by the item's class (its virtual `+0x44`: a weapon's, an armour's
+//! (the flags `0x5F`, or fewer, [`NAME`], [`PRICE`] and [`HINT`] each kept where it is asked):
+//! the name by the item's class (its virtual `+0x44`: a weapon's, an armour's
 //! and a shield's with its difficulty's icon, its colour and its class, a weapon's lore and hands;
 //! a ring's, an amulet's and a rune's, each with its sockets filled over its sockets; any other
 //! plain), then `0x5C5360`'s: the refusal of the class, the price, the damage and the protection
@@ -168,21 +169,62 @@ impl Words<'_> {
     }
 }
 
+/// The flags of an item's text that its tooltip asks for (the virtual `+0x44`'s): 2 its name's
+/// lines, 4 its price and its damage's and protection's lines, 8 the hint of its use; each ask
+/// here has the details too (`0x10`).
+pub(crate) const NAME: u16 = 2;
+pub(crate) const PRICE: u16 = 4;
+pub(crate) const HINT: u16 = 8;
+/// The grid's ask (`0x5F`), and the smith's window's of the lines of what waits for the sockets
+/// (`0x11`, `0x6A33A0`).
+pub(crate) const GRID_ASK: u16 = 0x5F;
+pub(crate) const WAITING_ASK: u16 = 0x11;
+
 /// The tooltip's lines of `item` for `hero` (none: the name alone, as the original without a
-/// hero).
-pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line> {
-    let mut lines = name_lines(item, words);
+/// hero), of those that `flags` asks; a potion's class adds its price (`0x5CBA30`).
+pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words, flags: u16) -> Vec<Line> {
+    let flags = if item.category == POTION {
+        flags | PRICE
+    } else {
+        flags
+    };
+    let mut lines = if flags & NAME != 0 {
+        name_lines(item, words)
+    } else {
+        Vec::new()
+    };
     let Some(hero) = hero else {
         return lines;
     };
-    let values = &item.values;
     if let Some(set) = &item.set {
         lines.push(Line::of(set.clone(), SET_NAME));
     }
     if refused(&item.asks(), hero.creature) {
         lines.push(Line::of(words.of("UI_ITEM_CANTUSE"), RED));
     }
-    // The price, as the hero would sell it, or buy it from a merchant (`0x59FE80`).
+    if flags & PRICE != 0 {
+        lines.extend(price_lines(item, hero, words));
+    }
+    lines.extend(slowing(item, hero, words));
+    if item.level != 0 {
+        lines.push(Line::of(
+            format!("{}: {}", words.of("1070"), item.level),
+            WHITE,
+        ));
+    }
+    lines.extend(details(item, hero, words));
+    if flags & HINT != 0 {
+        lines.extend(hint(item, words));
+    }
+    lines
+}
+
+/// The price's line, as the hero would sell it, or buy it from a merchant (`0x59FE80`), then,
+/// but of an upgrade, the damage's and the protection's as the hero would deal and take them
+/// (the flag 4).
+fn price_lines(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
+    let values = &item.values;
+    let mut lines = Vec::new();
     if item.price > 0 {
         let trading = hero.skill(opensacred_rules::trade::TRADING);
         let price = opensacred_rules::trade::shown(
@@ -229,15 +271,6 @@ pub(crate) fn lines(item: &Item, hero: Option<&Hero>, words: &Words) -> Vec<Line
             lines.push(Line(pieces));
         }
     }
-    lines.extend(slowing(item, hero, words));
-    if item.level != 0 {
-        lines.push(Line::of(
-            format!("{}: {}", words.of("1070"), item.level),
-            WHITE,
-        ));
-    }
-    lines.extend(details(item, hero, words));
-    lines.extend(hint(item, words));
     lines
 }
 
@@ -955,7 +988,7 @@ mod tests {
             resistance_factors: [1.202_701_4, 1.202_701_4, 1.177_363_8, 1.218_293_9],
             ..hero(&[])
         };
-        let shown: Vec<String> = lines(&item, Some(&hero), &words())
+        let shown: Vec<String> = lines(&item, Some(&hero), &words(), GRID_ASK)
             .iter()
             .map(texts)
             .collect();
@@ -987,7 +1020,7 @@ mod tests {
             takers: None,
             set: None,
         };
-        let lines: Vec<String> = lines(&item, Some(&hero(&[])), &words())
+        let lines: Vec<String> = lines(&item, Some(&hero(&[])), &words(), GRID_ASK)
             .iter()
             .map(texts)
             .collect();
@@ -1073,7 +1106,7 @@ mod tests {
             takers: None,
             set: None,
         };
-        let lines = lines(&item, Some(&hero(&[])), &words());
+        let lines = lines(&item, Some(&hero(&[])), &words(), GRID_ASK);
         let shown: Vec<String> = lines.iter().map(texts).collect();
         assert_eq!(
             shown,
@@ -1135,7 +1168,7 @@ mod tests {
             takers: None,
             set: None,
         };
-        let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words())
+        let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words(), GRID_ASK)
             .iter()
             .map(texts)
             .collect();
@@ -1155,6 +1188,40 @@ mod tests {
                 "<1100>: +14",
             ]
         );
+        // The smith's lines of what waits (`0x11`): no name's lines, no price, no damage's line.
+        let waiting: Vec<String> = lines(&item, Some(&hero(&[])), &words(), WAITING_ASK)
+            .iter()
+            .map(texts)
+            .collect();
+        assert_eq!(waiting, shown[4..]);
+    }
+
+    #[test]
+    fn a_potion_shows_its_price_whatever_is_asked() {
+        let item = Item {
+            item: 5171,
+            name: "Potion",
+            category: POTION,
+            record: Record {
+                word: CLASSES,
+                ..Record::default()
+            },
+            price: 400,
+            buying: false,
+            quality: 0,
+            values: ItemValues::default(),
+            level: 0,
+            asked: 0,
+            drink: None,
+            sockets: (0, 0),
+            takers: None,
+            set: None,
+        };
+        let shown: Vec<String> = lines(&item, Some(&hero(&[])), &words(), WAITING_ASK)
+            .iter()
+            .map(texts)
+            .collect();
+        assert_eq!(shown, ["<1055>: 125"]);
     }
 
     #[test]
@@ -1227,7 +1294,7 @@ mod tests {
             takers: None,
             set: Some("The Set".into()),
         };
-        let lines = lines(&item, Some(&hero(&[])), &words());
+        let lines = lines(&item, Some(&hero(&[])), &words(), GRID_ASK);
         // The set's green before the quality's bronze, the set's name after the name.
         assert_eq!(lines[0].0[1], Piece::Text(" Gauntlets".into(), SET_PIECE));
         assert_eq!(lines[1], Line::of("The Set", SET_NAME));

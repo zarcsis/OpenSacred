@@ -22,10 +22,12 @@
 //! and what waits go back into the backpack, those without room dropped at the smith's feet
 //! (`0x6A3080`).
 //!
+//! Its tooltips (#1821): a button's upgrade's, a socket's item's and the grid's item's under the
+//! pointer, which the tooltips show ([`hovered`]); and beside the grid the lines of what waits
+//! ([`waiting`]).
+//!
 //! Not followed yet: the Dwarf smithing by his skill 33 (his button of the inventory, the third
-//! button's picture 1606 and his checks), the item's check `0xE`, the tooltips of the item, the
-//! upgrades and the sockets' items and the waiting item's lines beside the grid, and a network
-//! game's events.
+//! button's picture 1606 and his checks), the item's check `0xE`, and a network game's events.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -42,7 +44,7 @@ use crate::hud::Pointer;
 use crate::inventory::{Shown, screen_point};
 use crate::lines::Texts;
 use crate::pickup::{Held, Pack};
-use crate::tooltip::{Rest, TipRoot, argb, spawn_tip};
+use crate::tooltip::{Line, Rest, TipRoot, argb, spawn_tip};
 
 /// The window on the original's screen, whose presses do not reach the world.
 pub(crate) const WINDOW: Rect = Rect {
@@ -365,6 +367,81 @@ fn socket_under(images: &UiImages, at: Vec2, shown: usize) -> Option<usize> {
     (0..shown).find(|&k| control(images, EMPTY, socket_at(k)).contains(at))
 }
 
+/// An item's tooltip's corner from its control's, or from the grid's cell under the pointer
+/// (`0x6A33A0`: 48 along and 16 down, the style `0xB`).
+const TIP_FROM: Vec2 = Vec2::new(48.0, 16.0);
+
+/// An item whose tooltip the window shows under the pointer: which control's (a grid's cell, a
+/// socket, a button), its tooltip's corner, the item, and whether the window's view of an item
+/// tells it (`cBsItem3D`) rather than the item's own class, with no row of sockets.
+pub(crate) struct Hovered {
+    pub key: u32,
+    pub corner: Vec2,
+    pub dropped: Dropped,
+    pub view: bool,
+}
+
+/// The item under the point `at` whose tooltip the window shows (`0x6A33A0`): a button's upgrade
+/// of the smith's tier, as the view of its type; a filled socket's item, as the view of its type
+/// with that socket's values; a waiting item's own, an upgrade's as its view; the grid's item's
+/// own with its sockets, at the cell under the pointer.
+pub(crate) fn hovered(
+    smith: &Blacksmith,
+    tables: &Tables,
+    images: &UiImages,
+    at: Vec2,
+) -> Option<Hovered> {
+    if let Some((b, &(button, corner, _))) = (0_u32..)
+        .zip(&BUTTONS)
+        .find(|(_, (_, corner, index))| control(images, *index, *corner).contains(at))
+    {
+        return Some(Hovered {
+            key: 0x200 + b,
+            corner: corner + TIP_FROM,
+            dropped: upgrade_item(smith::upgrade(button, smith.tier, smith.smith())),
+            view: true,
+        });
+    }
+    if let Some(k) = socket_under(images, at, smith.shown(tables)) {
+        let filled = smith.item().and_then(|item| item.socketed.get(k));
+        let (dropped, view) = match (filled, &smith.waiting[k]) {
+            (Some(socket), _) => (socket.item.clone(), true),
+            (None, Some(Wait::Item(held))) => (held.dropped.clone(), false),
+            (None, Some(Wait::Upgrade(kind))) => (upgrade_item(*kind), true),
+            (None, None) => return None,
+        };
+        return Some(Hovered {
+            key: 0x100 + u32::try_from(k).ok()?,
+            corner: socket_at(k) + TIP_FROM,
+            dropped,
+            view,
+        });
+    }
+    let (column, row) = backpack::cell_in(at - GRID, (COLUMNS, ROWS))?;
+    let placed = smith.grid.at((column, row))?;
+    let (_, dropped) = smith.items.iter().find(|(key, _)| *key == placed.key)?;
+    Some(Hovered {
+        key: u32::from(row) * u32::from(COLUMNS) + u32::from(column),
+        corner: GRID + Vec2::new(f32::from(column), f32::from(row)) * backpack::CELL + TIP_FROM,
+        dropped: dropped.clone(),
+        view: false,
+    })
+}
+
+/// What waits for the sockets, in their order, each with whether the window's view of an item
+/// tells it (an upgrade), whose lines the window shows beside the grid.
+pub(crate) fn waiting(smith: &Blacksmith) -> Vec<(Dropped, bool)> {
+    smith
+        .waiting
+        .iter()
+        .flatten()
+        .map(|wait| match wait {
+            Wait::Item(held) => (held.dropped.clone(), false),
+            Wait::Upgrade(kind) => (upgrade_item(*kind), true),
+        })
+        .collect()
+}
+
 /// The presses on the window (`0x6A4380`), in its order: the grid, the sockets, the buttons, the
 /// work's button, the window's ground; the right button's press does the work alone, on the work's
 /// button, where the gold pays its price (`0x6A4D76`).
@@ -598,11 +675,47 @@ struct Scene;
 #[derive(Component)]
 struct Tint((u8, u8));
 
-/// What the window shows, made again as it changes.
+/// What the window shows, made again as it changes: the lines of what waits too.
 #[derive(Clone, Debug, PartialEq)]
 struct Look {
     smith: Blacksmith,
     gold: u32,
+    waiting: Vec<Line>,
+}
+
+/// The lines of what waits beside the grid (`0x6A33A0`): from (124, 58) in a rectangle 160 high,
+/// up to seven in the font 1, more in the font 7 in two columns 180 apart, the first as many as
+/// the rectangle holds. The font 1's lines step 20 (seen), its text as the title's in its
+/// rectangle; the font 7's line and size are the statistics window's **estimate**.
+const WAITING_AT: Vec2 = Vec2::new(124.0, 58.0);
+const WAITING_HIGH: f32 = 160.0;
+const WAITING_APART: f32 = 180.0;
+const WAITING_IN_FONT_1: usize = 7;
+const WAITING_LINE: f32 = 20.0;
+const WAITING_SMALL: (f32, f32) = (15.0, 16.0);
+
+/// Where each of `count` lines of what waits goes from the corner of the lines, and their font's
+/// size: one column in the font 1, or two in the font 7, the second's lines those that the
+/// rectangle's height leaves to it.
+fn waiting_places(count: usize) -> (Vec<Vec2>, f32) {
+    let (step, size) = if count <= WAITING_IN_FONT_1 {
+        (WAITING_LINE, FONT_SIZE)
+    } else {
+        WAITING_SMALL
+    };
+    let held = (WAITING_HIGH / step).floor();
+    let places = (0_u16..)
+        .take(count)
+        .map(f32::from)
+        .map(|k| {
+            if k < held || count <= WAITING_IN_FONT_1 {
+                Vec2::new(0.0, k * step)
+            } else {
+                Vec2::new(WAITING_APART, (k - held) * step)
+            }
+        })
+        .collect();
+    (places, size)
 }
 
 /// The images and places of the window's frame (`0x6A4F30`), by `anchors` and `size` of an image.
@@ -650,13 +763,14 @@ fn show(
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
     portraits: Option<Res<crate::talk::Portraits>>,
     (mut targets, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
-    window: Option<Single<&Window>>,
+    (window, weighing): (Option<Single<&Window>>, crate::tooltip::Weighing),
     olds: Query<Entity, Or<(With<Root>, With<Scene>)>>,
     mut was: Local<Option<Look>>,
 ) {
     let now = smith.as_deref().map(|smith| Look {
         smith: smith.clone(),
         gold: pack.gold,
+        waiting: weighing.waiting_lines(&waiting(smith), texts.as_deref()),
     });
     if *was == now {
         return;
@@ -801,6 +915,22 @@ fn show(
             (&price.to_string(), PRICE),
             (colour, SMALL, JustifyContent::Center),
         );
+    }
+    // The lines of what waits, each in a row as high as the title's rectangle, so that its text
+    // stands in it as the title's does.
+    let (places, size) = waiting_places(look.waiting.len());
+    let high = TITLE.height();
+    for (line, at) in look.waiting.iter().zip(places) {
+        let place = commands
+            .spawn((
+                bar::placed(WAITING_AT + at, Vec2::new(WAITING_APART, high)),
+                Pickable::IGNORE,
+            ))
+            .id();
+        let row =
+            crate::tooltip::line_row(&mut commands, (&images, &assets), &font, line, (high, size));
+        commands.entity(place).add_child(row);
+        commands.entity(root).add_child(place);
     }
     // The items' picture over the whole window.
     let scale = window.map_or(1.0, |window| window.height() / bar::SCREEN.y);
@@ -1074,6 +1204,19 @@ mod tests {
     fn the_sockets_stand_88_apart() {
         assert_eq!(socket_at(0), Vec2::new(16.0, 232.0));
         assert_eq!(socket_at(3), Vec2::new(280.0, 232.0));
+    }
+
+    #[test]
+    fn up_to_seven_lines_wait_in_one_column_more_in_two() {
+        let (places, size) = waiting_places(5);
+        assert_eq!(size, FONT_SIZE);
+        assert_eq!(places[4], Vec2::new(0.0, 80.0));
+        // The font 7's ten lines in 160 pixels, the rest 180 along.
+        let (places, size) = waiting_places(12);
+        assert_eq!(size, 16.0);
+        assert_eq!(places[9], Vec2::new(0.0, 135.0));
+        assert_eq!(places[10], Vec2::new(180.0, 0.0));
+        assert_eq!(places[11], Vec2::new(180.0, 15.0));
     }
 
     #[test]
