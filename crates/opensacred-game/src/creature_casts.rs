@@ -734,6 +734,11 @@ fn act(
                         place + Vec3::Y * crate::bolts::HEIGHT,
                     );
                 }
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(LASER_SOUND),
+                    at: Some(entity),
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
                 if reaches {
                     hits.write(crate::fight::Hit {
                         attacker: entity,
@@ -1100,6 +1105,10 @@ const FIRE_LOOK: usize = 3;
 const BALL_LOOK: usize = 0;
 /// The ball's sound as it starts (`SOUND_FX_DELF_WURFCAST`).
 const BALL_SOUND: u32 = 2057;
+/// The laser's beam's sound as it starts: its segment's (901 `FX_LASERBEAM`, `0x7A50B0`) of the
+/// variant 1, `SOUND_FX_SPELL_LASER` (the variant 0's `SOUND_FX_VAMP_BLUTBISS` the Vampiress's
+/// bite's, **hypothesis** by their names), once for the two beams.
+const LASER_SOUND: u32 = 2074;
 
 /// A goblin mage's ball (the spell 53's `FX_BALL`, 867; docs/re/arts.md, "The creatures' own
 /// spells"): it flies the traps' arc from its caster to its point over 2/3 s, and landing strikes
