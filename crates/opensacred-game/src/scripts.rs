@@ -2147,7 +2147,7 @@ fn int(n: f64) -> Option<i32> {
 }
 
 /// Takes on the scripts' state that the load left, on the main thread, as the play starts.
-fn begin(world: &mut World) {
+pub(crate) fn begin(world: &mut World) {
     let Some(mut started) = world.remove_resource::<Started>() else {
         return;
     };
