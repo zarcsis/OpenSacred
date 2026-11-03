@@ -18,6 +18,10 @@
 //! `Globalchange1`, whose bit 1 the evil's turn of the quest 45 sets, give the villages' and
 //! Mascarell's music the military siege's, and any music of a sieged region the undead siege's.
 //!
+//! The fights' music and jingles (#1948, [`fight`]): the foes about the hero weighed once a
+//! second play a jingle once over the stream, or cut in a fight's music on the music's
+//! channel, which the fight's end gives back to the stream (`opensacred_rules::music::Fight`).
+//!
 //! The hero's death plays `MUSIC_DEATH` once over the stream, on a channel of its own
 //! (`0x694FE0`, the once-stream `+0x60C`, #734), at once and unfaded, and turns the stream to the
 //! ambient loop (`0x6853F7`).
@@ -35,15 +39,16 @@ use std::time::Duration;
 
 use bevy::log::debug;
 use bevy::prelude::{
-    Added, App, AssetServer, Assets, Handle, IntoScheduleConfigs, MessageReader, NonSend, OnExit,
-    Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, With, resource_exists,
+    Added, App, AssetServer, Assets, GlobalTransform, Handle, IntoScheduleConfigs, MessageReader,
+    NonSend, OnExit, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, With, Without,
+    resource_exists,
 };
 use bevy_kira_audio::prelude::{
     AudioChannel, AudioControl, AudioInstance, AudioSource, AudioTween, Decibels,
 };
 use opensacred_data::sound::Sound;
 use opensacred_data::world::{SIDE, World};
-use opensacred_rules::music::{CROSSFADE, Phase, Stream};
+use opensacred_rules::music::{CROSSFADE, Cue, Fight, Foe, Phase, Scene, Stream};
 use opensacred_rules::spawning::Rng;
 
 use crate::daynight::{self, Clock};
@@ -115,6 +120,15 @@ pub struct Music {
     playing: Option<Playing>,
     /// The death's music, held while it plays.
     once: Option<Handle<AudioSource>>,
+    /// The music of the hero's sector, its overrides applied (`+0x692`).
+    region: Option<u32>,
+    /// The fights' weighing, the fight's music that takes the channel, and whether it cuts in
+    /// at once.
+    fight: Fight,
+    fighting: Option<u32>,
+    cut: bool,
+    /// The groups of the jingles' profiles, `music` (1) and `jingle_extension` (2).
+    jingles: HashMap<u32, Vec<Vec<u32>>>,
 }
 
 struct Playing {
@@ -169,12 +183,46 @@ impl Music {
             dice: crate::seed::dice(0x1243),
             playing: None,
             once: None,
+            region: None,
+            fight: Fight::default(),
+            fighting: None,
+            cut: false,
+            jingles: sound
+                .profiles
+                .iter()
+                .filter(|profile| matches!(profile.slot, 1 | 2))
+                .map(|profile| (profile.slot, profile.groups.clone()))
+                .collect(),
         }
     }
 
     /// Whether the ambient loop of the place takes the stream now (`atmosphere`).
     pub fn ambient(&self) -> bool {
-        !self.spot && self.scripted.is_none() && self.stream.phase() == Some(Phase::Ambient)
+        !self.spot
+            && self.scripted.is_none()
+            && self.fighting.is_none()
+            && self.stream.phase() == Some(Phase::Ambient)
+    }
+
+    /// A jingle of the profile `profile`'s group `group` once on the once-stream: a slot of 8
+    /// at random, the group's variants repeating over them (`0x4261D0`).
+    fn jingle(
+        &mut self,
+        (profile, group): (u32, u8),
+        once: &AudioChannel<Once>,
+        assets: &AssetServer,
+    ) {
+        let Some(variants) = self
+            .jingles
+            .get(&profile)
+            .and_then(|groups| groups.get(usize::from(group)))
+            .filter(|variants| !variants.is_empty())
+        else {
+            return;
+        };
+        let slot = usize::try_from(self.dice.below(8)).unwrap_or(0);
+        let id = variants[slot % variants.len()];
+        self.once(id, once, assets);
     }
 
     /// Whether the scripts hold the stream, so that the ambient loop does not change either.
@@ -252,6 +300,9 @@ pub fn sector_of(x: f32, z: f32) -> (u32, u32) {
 /// What the music's channel plays where the hero stands: a sector's spot loop, held whatever
 /// the phase, else in the music's phase the sector's music, none without one.
 fn wanted(music: &Music, id: Option<u32>) -> Option<u32> {
+    if music.fighting.is_some() {
+        return music.fighting;
+    }
     if music.scripted.is_some() {
         return music.scripted;
     }
@@ -372,6 +423,7 @@ pub fn alternate(
         music.scripted = None;
     }
     music.sector = Some(sector);
+    music.region = id;
     music.spot = id.is_some_and(|id| SPOTS.contains(&id));
     let has_music = !music.spot && id.is_some_and(|id| music.tracks.contains_key(&id));
     // The dusk's and the night's events ask for the ambient loop (`0x691310`), and a music that
@@ -386,7 +438,8 @@ pub fn alternate(
     music.dark = dark;
     let crossfading = now < music.fading;
     let seconds = f64::from(time.delta_secs());
-    let holds = music.spot;
+    // A fight's music holds the cycle, its timer counting on (`+0xAF28`).
+    let holds = music.spot || music.fighting.is_some();
     if let Some(phase) = music
         .stream
         .frame(seconds, (!dark, holds), (crossfading, has_music))
@@ -431,8 +484,14 @@ pub fn play(
     if music.playing.as_ref().map(|p| &p.file) == file.as_ref() {
         return;
     }
+    // A fight's music cuts in at once, the track before stopped (`playMusic(id, 1, 0)`).
+    let cut = std::mem::take(&mut music.cut) && music.fighting.is_some();
     music.fading = time.elapsed() + FADE;
-    let fade = AudioTween::linear(Duration::from_secs_f32(CROSSFADE));
+    let fade = if cut {
+        AudioTween::default()
+    } else {
+        AudioTween::linear(Duration::from_secs_f32(CROSSFADE))
+    };
     if let Some(playing) = music.playing.take()
         && let Some(mut instance) = instances.get_mut(&playing.instance)
     {
@@ -450,17 +509,141 @@ pub fn play(
     } else {
         VOLUME
     };
-    let instance = audio
-        .play(track.clone())
-        .looped()
-        .with_volume(volume)
-        .fade_in(fade)
-        .handle();
+    let mut playing = audio.play(track.clone());
+    playing.looped().with_volume(volume);
+    if !cut {
+        playing.fade_in(fade);
+    }
+    let instance = playing.handle();
     music.playing = Some(Playing {
         _track: track,
         instance,
         file,
     });
+}
+
+/// The foes that the fights' weighing hears, within the sound manager's first list's reach in
+/// the place's pixels (`+0xB790`).
+const HEARD_WITHIN: i32 = 1200;
+/// The group of the fight's end's jingle, `JINGLE_FIGHT_OVER` (`0x697710`).
+const FIGHT_OVER: u8 = 6;
+
+/// Weighs the fight about the hero at each frame (`0x68BEA0`; docs/re/sound.md, "The fights'
+/// music and jingles"; #1948) and carries out what it asks: a jingle once over the stream, a
+/// fight's music cut in on the music's channel (`MUSIC_WRONGLEVEL` crossfaded), the stream's
+/// timer, and the fight's end (`0x697710`), which gives the channel back to the stream, sets a
+/// timer past 180 s to 120 s, and, unless the music's phase takes it back by day, plays the
+/// end's jingle half of the time (**hypothesis**: the profile 0 that the other half rolls names
+/// none). The hostile creatures alive within the first list's reach are the foes, their levels
+/// and motions as `voices` keeps them, the foes engaged its count.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their \
+              filters"
+)]
+pub fn fight(
+    mut music: ResMut<Music>,
+    (time, clock, difficulty, engaged): (
+        Res<Time>,
+        Res<Clock>,
+        Option<Res<crate::game::Difficulty>>,
+        Option<Res<crate::voices::Engaged>>,
+    ),
+    heroes: Query<(&GlobalTransform, &crate::fight::Health), With<hero::Body>>,
+    creatures: Query<
+        (
+            &GlobalTransform,
+            &crate::ai::Mind,
+            &crate::fight::Health,
+            Option<&crate::voices::Motions>,
+        ),
+        (Without<hero::Body>, Without<Dies>),
+    >,
+    (once, assets): (Res<AudioChannel<Once>>, Res<AssetServer>),
+) {
+    let Ok((at, health)) = heroes.single() else {
+        return;
+    };
+    let Some(phase) = music.stream.phase() else {
+        return;
+    };
+    let hero_at = at.translation();
+    let foes: Vec<Foe> = creatures
+        .iter()
+        .filter(|(_, mind, of, _)| mind.hostile() && of.current > 0)
+        .map(|(place, _, of, motions)| {
+            let [stands, walks, runs, strikes] =
+                motions.map_or([0; 4], crate::voices::Motions::shares);
+            Foe {
+                distance: crate::sfx::screen_distance(place.translation(), hero_at),
+                level: of.level,
+                stands,
+                walks,
+                runs,
+                strikes,
+            }
+        })
+        .filter(|foe| foe.distance < HEARD_WITHIN)
+        .collect();
+    let engaged = engaged.map_or(0, |engaged| engaged.0);
+    let calm = engaged == 0
+        && crate::remarks::calm(
+            hero_at,
+            creatures.iter().map(|(place, mind, ..)| (place, mind)),
+        );
+    let scene = Scene {
+        foes: &foes,
+        hero: health.level,
+        engaged,
+        phase,
+        once: once.is_playing_sound(),
+        siege: music.region == Some(SIEGE_MILITARY),
+        difficulty: difficulty.map_or(0, |difficulty| difficulty.0.index()),
+        calm,
+    };
+    // A fight's music is refused in the indoor arena and under the scripts' control
+    // (`0x695E70`).
+    let refused = music.region == Some(ARENA_INDOOR) || music.stream.controlled();
+    let seconds = f64::from(time.delta_secs());
+    let mut dice = music.dice.clone();
+    let cues = music.fight.update(seconds, &scene, refused, &mut dice);
+    music.dice = dice;
+    for cue in cues {
+        match cue {
+            Cue::Jingle(jingle, profile) => {
+                debug!("music: the fight's jingle {jingle:?} of the profile {profile}");
+                music.jingle((u32::from(profile), jingle.group()), &once, &assets);
+            }
+            Cue::Fight(kind) => {
+                let region = music.region.unwrap_or(0);
+                let (roll6, roll9) = (music.dice.below(6), music.dice.below(9));
+                let track = opensacred_rules::music::fight_track(kind, region, roll6, roll9);
+                debug!("music: a fight's music of the kind {kind}, {track}");
+                music.fighting = Some(track);
+                music.cut = true;
+            }
+            Cue::WrongLevel => {
+                debug!("music: the foes stand far above the hero");
+                music.fighting = Some(opensacred_rules::music::WRONG_LEVEL_MUSIC);
+                music.cut = false;
+            }
+            Cue::Now => music.stream.now(),
+            Cue::Back => music.stream.back(),
+            Cue::End => {
+                debug!("music: the fight's music ends");
+                music.fighting = None;
+                music.stream.after_fight();
+                let dark = matches!(
+                    clock.phase(),
+                    daynight::Phase::Dusk | daynight::Phase::Night
+                );
+                let back = music.stream.phase() == Some(Phase::Music) && !dark;
+                if !back && music.dice.below(2) == 1 {
+                    music.jingle((1, FIGHT_OVER), &once, &assets);
+                }
+            }
+        }
+    }
 }
 
 /// Stops the music of the game left, at once.
@@ -478,7 +661,7 @@ impl Plugin for MusicPlugin {
             .add_audio_channel::<Once>()
             .add_systems(
                 Update,
-                (scripted, alternate, play)
+                (scripted, alternate, fight, play)
                     .chain()
                     .in_set(frame::Playing)
                     .in_set(frame::Unpaused)
