@@ -45,7 +45,10 @@ Which sectors the object manager and the world keep (all the world's, or those v
 - **Save Game** in the menu over a game opens the saves' list (`UI_WND_SAVEGAME`), which saves into the row chosen, its name typed into the row (docs/re/window.md); it asks before it overwrites a save.
 - **The quick save** (F9, and Control+Z): where the interface allows it (`0x75ADB0`, false while a merchant's, a smith's, a combat master's or a stash's window is open), `cEngine_receiveEvent` names the save `QUICKSAVE` (`0x618E3A`) and sets the engine's request to save (its `+0x54` bit `0x40`), which the engine's loop carries out; F8 (and Control+X) loads it outside a network game.
 - **The autosave**: an event of the engine with the save's slot, its name and an autosave's flag (`0x618FA0`); where the interface does not allow a save it is refused with `AUTOSAVE [not allowed now!]`.
-  The options hold an autosave's switch (`UI_CFG_AUTOSAVE`, `UI_BTN_AUTOSAVE`, `AUTOSAVE` of `Settings.cfg`; docs/06 §6 names an `AUTOSAVEDELAY`); what posts the event, and how often, is not read.
+  The options hold an autosave's switch (`UI_CFG_AUTOSAVE`, `UI_BTN_AUTOSAVE`, `AUTOSAVE` of `Settings.cfg`, which `0x81B6F0` reads).
+  The scripts post it, not a timer (#1961): the record `AutoSave` (121, `0x4AC740`) takes its number (its tag `0x16`, `0x1D` or `0x1E`) and, where the number is not 0, outside a network game (`0x182EBEC`) and with `AUTOSAVE` set, posts the engine two events, `(0xF, 3)` and then `(0xF, 2)` with the slot −1 and the number, the second 100 later (**hypothesis**: milliseconds); which file the slot −1 takes and the name it gives the save (**hypothesis**: the number's text) are not read.
+  The numbers are 30000 to 30027 (texts of `global.res`); the Seraphim's tree holds 26 records, in the sections of its quests' exits (`QIS_OnExit11`, `QIS_OnExit22`, `QIS_OnExit41`, …) and a few functions of the quests 9, 11, 22, 41 to 45, 50 to 59, 61, 65, 71 to 74, 81 and 670, so that the original autosaves as the main quests are done.
+  docs/06 §6's `AUTOSAVEDELAY` is no key of this release's (no string of `Sacred.exe` names it).
 
 ## For `opensacred-game`
 
