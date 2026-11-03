@@ -3092,9 +3092,12 @@ fn banish(
     }
 }
 
+/// `HELF_VERWANDLUNG_HIT`, which the changeling's object plays as it starts (845, `0x795E20`).
+const CHANGE_SOUND: u32 = 2064;
+
 /// Changes `original` into an `animal` for `seconds` (the effect 20's adder, `0x5848A8`): an
 /// animal of its level and health where it stands, it hidden, its mind and its place in the way
-/// kept.
+/// kept, with the changeling's sound there ([`CHANGE_SOUND`]).
 fn change(world: &mut World, original: Entity, animal: u32, seconds: f32) {
     let (Some(at), Some(mind), Some(way), Some(health)) = (
         world.get::<Transform>(original).map(|at| at.translation),
@@ -3139,6 +3142,13 @@ fn change(world: &mut World, original: Entity, animal: u32, seconds: f32) {
         return;
     };
     info!("spells: {original} changes into {made}, a {animal}, for {seconds} s");
+    // The changeling's object's sound as it starts, where the creature stands
+    // (`cParticleSystem_changeling`, 845, `0x795E20`: `HELF_VERWANDLUNG_HIT`).
+    world.write_message(crate::sfx::PlayAt {
+        sound: crate::sfx::Of::Id(CHANGE_SOUND),
+        point: at,
+        rate: (0.5, crate::sfx::Roll::None),
+    });
     world.entity_mut(made).insert((
         health,
         Changeling {
