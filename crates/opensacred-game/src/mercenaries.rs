@@ -27,7 +27,7 @@ use crate::remarks::Remark;
 
 /// The items that the hero gave a follower, by its hands' slots (12 the left, 13 the right), so
 /// that one taken back is the item given, its own values, sockets and name.
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Given([Option<Dropped>; 2]);
 
 impl Given {

@@ -35,7 +35,7 @@ const DWARF: u32 = 8;
 const GUNS: [u8; 2] = [13, 14];
 
 /// A page of the merchant's window (`UI_TABPAGE_WEAPONS`, `_ARMORS`, `_VARIOUS`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Page {
     Weapons,
     Armour,
@@ -171,7 +171,7 @@ impl Buyer<'_> {
 
 /// A page's items, each by its key, and its grid (the page's inventory entry, `0x5DEC90` of the
 /// entries 20 to 22).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Shelf {
     pub page: Page,
     pub items: Vec<(u32, Dropped)>,
@@ -412,7 +412,7 @@ impl Shelf {
 }
 
 /// The merchant's window's pages and the merchant they were filled for (each page's `+0x3E8`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Stock {
     pub shelves: [Shelf; 3],
     pub merchant: Option<u64>,

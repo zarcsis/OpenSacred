@@ -3,8 +3,8 @@
 //! drop becomes its item's model with its texture (`items.pak +0x70`, `+0x08`), thrown from the
 //! creature's place at the height 60 and flying by the rules (`opensacred_rules::drops::Flight`)
 //! until it lies on the ground, where it stays until the hero picks it up (`pickup`, #911) or the
-//! game ends (docs/decisions/items.md, "Drops lie until the game ends"); the labels on Alt come
-//! later. The `state` command lists the nearest drops, and the command `drop` makes the nearest
+//! game ends (docs/decisions/items.md, "Drops lie until the game ends"), and its saves keep it
+//! (#1959); the labels on Alt come later. The `state` command lists the nearest drops, and the command `drop` makes the nearest
 //! hostile creature drop.
 
 use std::collections::HashMap;
@@ -1050,22 +1050,32 @@ fn lay(
     (flight, level, marked): (Flight, Level, bool),
     dropped: Dropped,
 ) {
-    let item = dropped.item;
-    let upright = drops::upright(item);
-    let mut entity = commands.spawn((
-        Transform::from_translation(world(flight.at)).with_scale(Vec3::splat(iso::MODEL_SCALE)),
-        Lying {
-            dropped,
-            resting: false,
-        },
-        Flying {
-            flight,
-            level,
-            upright,
-            marked,
-        },
-        DespawnOnExit(AppState::InGame),
-    ));
+    let upright = drops::upright(dropped.item);
+    let transform =
+        Transform::from_translation(world(flight.at)).with_scale(Vec3::splat(iso::MODEL_SCALE));
+    let lying = Lying {
+        dropped,
+        resting: false,
+    };
+    let entity = put(commands, (assets, tables), transform, lying);
+    commands.entity(entity).insert(Flying {
+        flight,
+        level,
+        upright,
+        marked,
+    });
+}
+
+/// Puts the drop `lying` into the world at `transform`, its model, if it was converted, with its
+/// texture.
+fn put(
+    commands: &mut Commands,
+    (assets, tables): (&AssetServer, &Tables),
+    transform: Transform,
+    lying: Lying,
+) -> Entity {
+    let item = lying.dropped.item;
+    let mut entity = commands.spawn((transform, lying, DespawnOnExit(AppState::InGame)));
     // A derived type shows its root's model and texture, the items table's entry it holds
     // (#596).
     let slot = tables.catalogue.slot(item).unwrap_or(item);
@@ -1081,6 +1091,99 @@ fn lay(
             entity.insert(Retexture::load(assets, texture));
         }
     }
+    entity.id()
+}
+
+/// A drop as a save keeps it (#1959; the original's object manager keeps the items lying,
+/// `0x602300`): what it is, where it is and how it is turned, and, flying still, its flight, its
+/// floor and whether it is the hero's marked item.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Laid {
+    dropped: Dropped,
+    at: Vec3,
+    turn: Quat,
+    flight: Option<(Flight, u8, bool)>,
+}
+
+/// The drops as a save keeps them ([`Laid`]), but the scripts' items, which their placements lay
+/// again (`npcs::QuestItem`, `npcs::ScriptItem`).
+pub fn laid(world: &mut World) -> Vec<Laid> {
+    let mut drops = world.query_filtered::<
+        (&Transform, &Lying, Option<&Flying>),
+        (Without<npcs::QuestItem>, Without<npcs::ScriptItem>),
+    >();
+    let world = &*world;
+    let heights = world.get_resource::<Heights>();
+    drops
+        .iter(world)
+        .map(|(transform, lying, flying)| Laid {
+            dropped: lying.dropped.clone(),
+            at: transform.translation,
+            turn: transform.rotation,
+            flight: flying.map(|flying| {
+                let floor = heights.and_then(|heights| heights.floor(flying.level));
+                (
+                    flying.flight,
+                    floor.map_or(0, |(_, floor)| floor),
+                    flying.marked,
+                )
+            }),
+        })
+        .collect()
+}
+
+/// A loaded save's drops, which [`lay_again`] lays once the tables are read.
+#[derive(Resource)]
+pub struct Again(pub Vec<Laid>);
+
+/// Lays a loaded save's drops again (#1959): each where it lay, turned as it was, its model as a
+/// drop's ([`put`]); one that flew flies on from where it was, on its floor's level.
+fn lay_again(
+    mut commands: Commands,
+    again: Option<Res<Again>>,
+    tables: Option<Res<Tables>>,
+    heights: Option<Res<Heights>>,
+    assets: Res<AssetServer>,
+) {
+    let (Some(again), Some(tables)) = (again, tables) else {
+        return;
+    };
+    commands.remove_resource::<Again>();
+    for laid in &again.0 {
+        let transform = Transform::from_translation(laid.at)
+            .with_rotation(laid.turn)
+            .with_scale(Vec3::splat(iso::MODEL_SCALE));
+        let lying = Lying {
+            dropped: laid.dropped.clone(),
+            resting: laid.flight.is_none(),
+        };
+        let entity = put(&mut commands, (&assets, &tables), transform, lying);
+        if let Some((flight, floor, marked)) = laid.flight {
+            let level = heights
+                .as_deref()
+                .and_then(|heights| level_on(heights, laid.at, floor));
+            commands.entity(entity).insert(Flying {
+                flight,
+                level,
+                upright: drops::upright(laid.dropped.item),
+                marked,
+            });
+        }
+    }
+    info!("drops: the save's {} drops laid again", again.0.len());
+}
+
+/// The level of the floor `floor` at `at`: the ground's for 0, else the floor of the building that
+/// holds its cell, as the hero lands on one (`hero`).
+fn level_on(heights: &Heights, at: Vec3, floor: u8) -> Level {
+    if floor == 0 {
+        return None;
+    }
+    let cell = crate::paths::cell_of(at.x, at.z);
+    let floor = usize::from(floor);
+    heights
+        .building_on_floor(cell, floor)
+        .and_then(|building| heights.floor_level(building, floor))
 }
 
 /// Drops `dropped` off the cursor at the centre of the cell `cell` on `level`
@@ -1597,6 +1700,12 @@ impl Plugin for DropsPlugin {
             .add_observer(dies)
             .add_systems(Startup, begin)
             .add_systems(Update, read)
+            .add_systems(
+                Update,
+                lay_again
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(resource_exists::<Again>),
+            )
             .add_systems(OnEnter(AppState::InGame), |mut played: ResMut<Played>| {
                 played.0 = 0.0
             })
@@ -1623,6 +1732,25 @@ mod tests {
             [70.0, 180.0],
             (creature, 3),
         )
+    }
+
+    #[test]
+    fn a_drop_reads_back_from_a_save_as_it_lay_or_flew() {
+        let lying = Laid {
+            dropped: drops::gold_pile(40),
+            at: Vec3::new(100.0, 5.0, 30.0),
+            turn: Quat::from_rotation_y(1.0),
+            flight: None,
+        };
+        let flight = Flight::dropped(100.0, 30.0, &mut Rng::of(1, 2, 3));
+        let flying = Laid {
+            flight: Some((flight, 1, true)),
+            ..lying.clone()
+        };
+        for laid in [lying, flying] {
+            let bytes = postcard::to_stdvec(&laid).unwrap();
+            assert_eq!(postcard::from_bytes::<Laid>(&bytes).unwrap(), laid);
+        }
     }
 
     #[test]

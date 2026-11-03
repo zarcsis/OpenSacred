@@ -150,7 +150,7 @@ pub fn creature_earns(points: &mut u64, level: u32, earned: u64) -> Option<u32> 
 /// A creature's rank (docs/re/fight.md, "Bosses and champions"): a boss (`+0x1F4` bit
 /// `0x80000`), a champion (`+0x2B8` bit `0x40`, with a champion's levelling, `+0xB0` bit
 /// `0x400`), a champion's levelling alone, or neither.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Rank {
     #[default]
     Common,

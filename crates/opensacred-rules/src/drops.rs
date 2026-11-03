@@ -1782,7 +1782,7 @@ const ALONG: f32 = 0.1;
 /// A drop's flight (`0x44DED0`, `0x44DFE0`): where it is, a point of the ground in world units
 /// and a height in units of the models' height; its velocity; its angles about the axes and
 /// their spin, in radians and radians a second; and whether it rests on the ground.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Flight {
     pub at: [f32; 3],
     pub velocity: [f32; 3],
@@ -1799,7 +1799,7 @@ pub struct Flight {
 /// A flight to a point (`0x44DED0` with −1000, `0x44DFE0`): from where it left to where it lands,
 /// along the ground in `seconds`, its height over the ground `peak·(1 − 4(s − ½)²)` at the share
 /// `s` of the time, and the time flown.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Arc {
     pub from: [f32; 2],
     pub to: [f32; 2],

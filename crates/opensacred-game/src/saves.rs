@@ -1,8 +1,9 @@
 //! The saves (#1095; docs/re/saves.md): a game kept in a file of its own and given back, as the
 //! original's `cEngine::save` keeps its game in `SAVE/GAMEnn.PAK`, in the game's own versioned
 //! format (PLAN.md ADR-08). A save is postcard: its [`Header`], which the saves' list reads alone,
-//! then its [`Hero`] and its [`Scripts`]; a save of another version is refused, as the original's
-//! load refuses one (`0x61B6F0`). The saves lie in `saves/` beside the settings' file.
+//! then its [`Hero`], its [`Scripts`] and its [`World`]; a save of another version is refused, as
+//! the original's load refuses one (`0x61B6F0`). The saves lie in `saves/` beside the settings'
+//! file.
 //!
 //! The first part (#1957) keeps the hero: its class, name, difficulty, values, items, arts,
 //! combos, effects, statistics and place, and the calendar. A load starts a game of the save's
@@ -13,8 +14,12 @@
 //! their `rand()`, and what their play changed of the placements. A load's start runs of the
 //! save's seed, making the saved game's tree and placements again, and takes the save's scripts
 //! in place of its run's, none of its windows shown again ([`crate::scripts::Started::resume`]),
-//! and the play's records of the world placed again ([`crate::npcs::Npcs::resume`]). The world
-//! (#1959) is a later part.
+//! and the play's records of the world placed again ([`crate::npcs::Npcs::resume`]).
+//!
+//! The third (#1959) keeps the world: the creatures that the sectors keep, those of the sectors in
+//! the world gone as their sectors keep them going, which a load's sectors put back as they come
+//! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; the drops; the
+//! town stash; the merchants' stock; the land explored and the map's pin; and the weather.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,32 +27,39 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use bevy::prelude::{
-    App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Query, Res, ResMut,
-    Resource, Transform, Update, Vec3, With, World, in_state, info, resource_exists, warn,
+    App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Query, Real, Res,
+    ResMut, Resource, Time, Transform, Update, Vec2, Vec3, With, in_state, info, resource_exists,
+    warn,
 };
 use opensacred_rules::arts::Arts;
 use opensacred_rules::drops::Difficulty;
+use opensacred_rules::explored::{Explored, Sectors};
 use opensacred_rules::fight::Experience;
+use opensacred_rules::trade::stock::Stock;
 use serde::{Deserialize, Serialize};
 
 use crate::art_slots::ArtSlots;
 use crate::combos::HeroCombos;
 use crate::daynight::Clock;
 use crate::effects::Effects;
+use crate::explored::{Land, MapSectors};
 use crate::fight::Health;
 use crate::frame::Step;
 use crate::game::{AppState, Class, NewGame};
 use crate::hero::{Arrival, Body};
+use crate::merchant::Wares;
 use crate::pickup::{self, Pack};
 use crate::scripts::{HeroHome, Teleport};
 use crate::sets::WeaponSets;
 use crate::settings::SettingsFile;
 use crate::statistics::{History, Kills, Tally};
 use crate::terrain::Heights;
+use crate::town_stash::Chest;
+use crate::world_map::Map;
 use crate::{arts, drops, making};
 
 /// The saves' version: a save of another is refused.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -104,6 +116,24 @@ pub struct Scripts {
     pub npcs: crate::npcs::Saved,
 }
 
+/// The world as a save keeps it (#1959; the original's object manager, its weather and its map,
+/// docs/re/saves.md): the creatures that the sectors keep, those of the sectors in the world gone
+/// as their sectors keep them going (`npcs::Creatures`), the hero's followers, the drops lying
+/// and flying, the town stash, the merchants' stock, the land explored and the sectors entered,
+/// the world map's pin, and the weather, its timers of real time from the save's.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct World {
+    pub creatures: crate::npcs::Creatures,
+    pub followers: Vec<crate::npcs::Following>,
+    pub drops: Vec<drops::Laid>,
+    pub stash: Chest,
+    pub wares: Stock,
+    pub land: Explored,
+    pub sectors: Sectors,
+    pub pin: Option<(Vec2, Vec2)>,
+    pub weather: Option<opensacred_rules::weather::Weather>,
+}
+
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
 /// directory.
 fn directory(settings: Option<&SettingsFile>) -> Option<PathBuf> {
@@ -128,11 +158,16 @@ fn file(dir: &Path, name: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{name}.{EXTENSION}")))
 }
 
-/// Writes a save of `header`, `hero` and `scripts` at `path`.
-pub fn write(path: &Path, header: &Header, hero: &Hero, scripts: &Scripts) -> Result<()> {
+/// Writes a save of `header`, `hero`, `scripts` and `world` at `path`.
+pub fn write(
+    path: &Path,
+    header: &Header,
+    (hero, scripts, world): (&Hero, &Scripts, &World),
+) -> Result<()> {
     let mut bytes = postcard::to_stdvec(header).context("writing the header")?;
     bytes.extend(postcard::to_stdvec(hero).context("writing the hero")?);
     bytes.extend(postcard::to_stdvec(scripts).context("writing the scripts")?);
+    bytes.extend(postcard::to_stdvec(world).context("writing the world")?);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
     }
@@ -153,14 +188,16 @@ fn header(bytes: &[u8]) -> Result<(Header, &[u8])> {
 }
 
 /// Reads the save at `path`.
-pub fn read(path: &Path) -> Result<(Header, Hero, Scripts)> {
+pub fn read(path: &Path) -> Result<(Header, Hero, Scripts, World)> {
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let (header, rest) = header(&bytes).with_context(|| path.display().to_string())?;
     let (hero, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the hero", path.display()))?;
-    let scripts = postcard::from_bytes(rest)
+    let (scripts, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the scripts", path.display()))?;
-    Ok((header, hero, scripts))
+    let world = postcard::from_bytes(rest)
+        .with_context(|| format!("{}: reading the world", path.display()))?;
+    Ok((header, hero, scripts, world))
 }
 
 /// The saves in `dir`, each its file's name and its header, the newest first; a file that does
@@ -185,7 +222,7 @@ pub fn list(dir: &Path) -> Vec<(String, Header)> {
 }
 
 /// The hero and the game as they stand, to save as `name`.
-fn gather(world: &mut World, name: &str) -> Result<(Header, Hero)> {
+fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)> {
     let request = world
         .get_resource::<crate::game::Request>()
         .map(|request| request.0.clone())
@@ -279,7 +316,7 @@ fn gather(world: &mut World, name: &str) -> Result<(Header, Hero)> {
 }
 
 /// The scripts as they stand, to save.
-fn scripts(world: &World) -> Result<Scripts> {
+fn scripts(world: &bevy::prelude::World) -> Result<Scripts> {
     let seed = world
         .get_resource::<crate::seed::Game>()
         .context("no game's seed to save")?;
@@ -296,36 +333,77 @@ fn scripts(world: &World) -> Result<Scripts> {
     })
 }
 
+/// The world as it stands, to save.
+fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
+    let creatures = crate::npcs::creatures(world).context("no NPCs to save")?;
+    let followers = crate::npcs::following(world);
+    let drops = drops::laid(world);
+    // The weather's timers from the save's time of real time, which a load's run starts anew.
+    let now = world
+        .get_resource::<Time<Real>>()
+        .map_or(0.0, |time| time.elapsed_secs_f64() * 1_000.0);
+    let weather = world
+        .get_resource::<crate::weather::Weather>()
+        .map(|weather| {
+            let mut state = weather.state.clone();
+            state.rebase(-now);
+            state
+        });
+    Ok(World {
+        creatures,
+        followers,
+        drops,
+        stash: world.get_resource::<Chest>().cloned().unwrap_or_default(),
+        wares: world
+            .get_resource::<Wares>()
+            .map(|wares| wares.0.clone())
+            .unwrap_or_default(),
+        land: world
+            .get_resource::<Land>()
+            .map(|land| land.0.clone())
+            .unwrap_or_default(),
+        sectors: world
+            .get_resource::<MapSectors>()
+            .map(|sectors| sectors.0.clone())
+            .unwrap_or_default(),
+        pin: world.get_resource::<Map>().and_then(Map::pinned),
+        weather,
+    })
+}
+
 /// Saves the game as `name`: where its file went.
-pub fn save(world: &mut World, name: &str) -> Result<PathBuf> {
+pub fn save(world: &mut bevy::prelude::World, name: &str) -> Result<PathBuf> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
     let path = file(&dir, name)?;
     let (header, hero) = gather(world, name)?;
-    write(&path, &header, &hero, &scripts(world)?)?;
+    let scripts = scripts(world)?;
+    let kept = world_of(world)?;
+    write(&path, &header, (&hero, &scripts, &kept))?;
     info!("saves: {} saved in {}", header.name, path.display());
     Ok(path)
 }
 
 /// The saves of this run's directory.
-pub fn saves(world: &World) -> Vec<(String, Header)> {
+pub fn saves(world: &bevy::prelude::World) -> Vec<(String, Header)> {
     directory(world.get_resource::<SettingsFile>())
         .map(|dir| list(&dir))
         .unwrap_or_default()
 }
 
-/// A saved hero to put back once the loaded game's hero stands.
+/// A saved hero and world to put back once the loaded game's hero stands.
 #[derive(Resource)]
-pub struct Restore(pub Box<Hero>);
+pub struct Restore(pub Box<Hero>, pub Box<World>);
 
-/// A loaded save's scripts, which its game's load takes ([`crate::game`]'s `begin`).
+/// A loaded save's scripts and what its sectors kept of their creatures, which its game's load
+/// takes ([`crate::game`]'s `begin`).
 #[derive(Resource)]
-pub struct Resume(pub Scripts);
+pub struct Resume(pub Scripts, pub crate::npcs::Creatures);
 
-/// Loads the save `name`: a game of its hero starts of its scripts, whose values [`restore`]
-/// puts back.
-pub fn load(world: &mut World, name: &str) -> Result<Header> {
+/// Loads the save `name`: a game of its hero starts of its scripts and its sectors' creatures,
+/// whose hero and world [`restore`] puts back.
+pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
-    let (header, hero, scripts) = read(&file(&dir, name)?)?;
+    let (header, hero, scripts, mut kept) = read(&file(&dir, name)?)?;
     // The game starts in the hero's sector, which [`restore`] puts it back in.
     let cell = crate::paths::cell_of(hero.at.0, hero.at.1);
     let side = i32::try_from(opensacred_data::world::SIDE).unwrap_or(64);
@@ -345,8 +423,9 @@ pub fn load(world: &mut World, name: &str) -> Result<Header> {
     // Its start shows no window, and the saved game's are left to the player.
     world.remove_resource::<crate::talk::CloseFirst>();
     world.insert_resource(crate::game::Request(game));
-    world.insert_resource(Restore(Box::new(hero)));
-    world.insert_resource(Resume(scripts));
+    let creatures = std::mem::take(&mut kept.creatures);
+    world.insert_resource(Restore(Box::new(hero), Box::new(kept)));
+    world.insert_resource(Resume(scripts, creatures));
     world
         .resource_mut::<NextState<AppState>>()
         .set(AppState::Loading);
@@ -356,13 +435,14 @@ pub fn load(world: &mut World, name: &str) -> Result<Header> {
 
 /// Puts a loaded save's hero back, once its hero stands in place and animates (`hero::Ready`),
 /// its values made at its spawn: its values, items, arts, combos, statistics and the calendar,
-/// after the resets of a game's start, and the hero where it stood.
-fn restore(world: &mut World) {
+/// after the resets of a game's start, and the hero where it stood; then its world
+/// ([`restore_world`]).
+fn restore(world: &mut bevy::prelude::World) {
     let mut heroes = world.query_filtered::<Entity, With<Body>>();
     let Some(entity) = heroes.iter(world).next() else {
         return;
     };
-    let Some(Restore(hero)) = world.remove_resource::<Restore>() else {
+    let Some(Restore(hero, kept)) = world.remove_resource::<Restore>() else {
         return;
     };
     let hero = *hero;
@@ -406,6 +486,44 @@ fn restore(world: &mut World) {
         warn!("saves: putting the hero back: {e}");
     }
     info!("saves: the hero is back");
+    restore_world(world, *kept);
+}
+
+/// Puts a loaded save's world back after the resets of a game's start, its sectors' creatures put
+/// back as they come in (`npcs::Npcs::remember`): the town stash, the merchants' stock, the land
+/// explored, the map's pin and the weather, its timers on this run's real time; the drops, laid
+/// once the tables are read (`drops::Again`); and the hero's followers beside it.
+fn restore_world(world: &mut bevy::prelude::World, kept: World) {
+    let World {
+        creatures: _,
+        followers,
+        drops: laid,
+        stash,
+        wares,
+        land,
+        sectors,
+        pin,
+        weather,
+    } = kept;
+    world.insert_resource(stash);
+    world.insert_resource(Wares(wares));
+    world.insert_resource(Land(land));
+    world.insert_resource(MapSectors(sectors));
+    if let Some(mut map) = world.get_resource_mut::<Map>() {
+        map.pin_again(pin);
+    }
+    let now = world
+        .get_resource::<Time<Real>>()
+        .map_or(0.0, |time| time.elapsed_secs_f64() * 1_000.0);
+    if let (Some(mut state), Some(mut weather)) =
+        (weather, world.get_resource_mut::<crate::weather::Weather>())
+    {
+        state.rebase(now);
+        weather.state = state;
+    }
+    world.insert_resource(drops::Again(laid));
+    crate::npcs::follow_again(world, followers);
+    info!("saves: the world is back");
 }
 
 /// The loaded hero's values made anew at its level with its effects, as a point spent makes them
@@ -450,6 +568,7 @@ fn refit(
 fn forget(mut commands: Commands) {
     commands.remove_resource::<Restore>();
     commands.remove_resource::<Resume>();
+    commands.remove_resource::<drops::Again>();
 }
 
 /// The saves' restoring of a loaded game's hero.
@@ -557,24 +676,34 @@ mod tests {
         }
     }
 
+    /// The world of a game played a while: gold in the town stash, the land about a cell explored
+    /// and its sector entered, the map's pin and the weather (the creatures', the followers' and
+    /// the drops' parts are `npcs`' and `drops`' tests').
+    fn saved_world() -> World {
+        let mut world = World::default();
+        let gold = opensacred_rules::drops::gold_pile(250);
+        world.stash.items.push((1, gold));
+        let stamp = opensacred_rules::explored::Stamp::at(600, false);
+        world.land.stamp((3200, 2500), stamp);
+        world.sectors.enter((50, 39));
+        world.pin = Some((Vec2::new(10.0, 20.0), Vec2::new(3200.0, 2500.0)));
+        world.weather = Some(opensacred_rules::weather::Weather::default());
+        world
+    }
+
     #[test]
     fn a_save_reads_back_as_written_and_lists_the_newest_first() {
         let dir = scratch("round");
-        write(
-            &file(&dir, "first").unwrap(),
-            &header("first", 10),
-            &hero(),
-            &saved_scripts(),
-        )
-        .unwrap();
+        let parts = (&hero(), &saved_scripts(), &saved_world());
+        write(&file(&dir, "first").unwrap(), &header("first", 10), parts).unwrap();
         write(
             &file(&dir, "second one").unwrap(),
             &header("second one", 20),
-            &hero(),
-            &saved_scripts(),
+            parts,
         )
         .unwrap();
-        let (read_header, read_hero, read_scripts) = read(&file(&dir, "first").unwrap()).unwrap();
+        let (read_header, read_hero, read_scripts, read_world) =
+            read(&file(&dir, "first").unwrap()).unwrap();
         assert_eq!(read_header, header("first", 10));
         assert_eq!(read_hero.at, (1234.5, 6789.0));
         assert_eq!((read_hero.floor, read_hero.health), (1, 99));
@@ -583,6 +712,10 @@ mod tests {
         assert!((read_hero.clock.minutes() - (21.0 * 60.0 + 30.0)).abs() < 1e-6);
         // The scripts whole: their state, the functions done, the `rand()` and the placements'.
         assert_eq!(read_scripts, saved_scripts());
+        // The world whole: the stash's gold, the land and the sectors, the pin, the weather.
+        assert_eq!(read_world, saved_world());
+        assert!(read_world.land.explored((3200, 2500)));
+        assert!(read_world.sectors.entered((50, 39)));
         let names: Vec<String> = list(&dir).into_iter().map(|(name, _)| name).collect();
         assert_eq!(names, ["second one", "first"]);
         fs::remove_dir_all(&dir).unwrap();
@@ -595,7 +728,8 @@ mod tests {
             version: VERSION + 1,
             ..header("old", 1)
         };
-        write(&file(&dir, "old").unwrap(), &old, &hero(), &saved_scripts()).unwrap();
+        let parts = (&hero(), &saved_scripts(), &World::default());
+        write(&file(&dir, "old").unwrap(), &old, parts).unwrap();
         let error = format!("{:#}", read(&file(&dir, "old").unwrap()).unwrap_err());
         assert!(error.contains("version"), "{error}");
         assert!(list(&dir).is_empty());

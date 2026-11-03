@@ -129,7 +129,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 |---|---|---|
 | `new-game [--class C] [--sector X,Y] [--leave-open] […]` | ends the game, if any, and starts a new one; its first window and the first tip closed by OK and No more Tips, as the original's driver closes them, unless `--leave-open` (#1343) | the same options |
 | `menu`, `quit` | back to the main menu; end the process | |
-| `save NAME`, `load NAME`, `saves` | saves the game as NAME into `saves/` beside the settings' file; loads one, a game of its hero starting where it was saved, its scripts as they stood (#1958); lists them, the newest first (#1957, docs/re/saves.md; the world is not kept yet) | |
+| `save NAME`, `load NAME`, `saves` | saves the game as NAME into `saves/` beside the settings' file; loads one, a game of its hero starting where it was saved, its scripts as they stood (#1958), its world as it stood: the creatures, the followers, the drops, the town stash, the merchants' stock, the map and the weather (#1959); lists them, the newest first (#1957, docs/re/saves.md) | |
 | `pause on\|off` | pauses the game without the pause menu, for a still frame | |
 | `sector X,Y` | puts the hero at a sector's centre, on the ground or in a room of a building, else on the ground nearest it (#458); the sectors stream around it | `--sector` |
 | `cell X,Y [FLOOR]`, `cell +DX,+DY [FLOOR]` | puts the hero on the cell itself, whatever it is (#522): on the ground, or on a building's floor `FLOOR` there, 0 the ground even within its walls | |
