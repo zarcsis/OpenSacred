@@ -1136,6 +1136,13 @@ impl Mind {
         self.held
     }
 
+    /// A script's queued entry done with more of them waiting sets its AI's state to 0
+    /// (`0x59F368`; #1874): it leaves its fight, which an entry that waits for no fight (a sound,
+    /// a call, a teleport) may end. A caster's (the states 6 and 11) the caller leaves alone.
+    pub fn queue_goes_on(&mut self) {
+        self.leaves_fight();
+    }
+
     /// It leaves its fight with the hero.
     fn leaves_fight(&mut self) {
         self.fighting = false;

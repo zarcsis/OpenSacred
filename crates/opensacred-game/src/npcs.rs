@@ -6944,7 +6944,9 @@ const QUEUED_MOVED: f32 = 1.0;
 /// (`0x5375C0` calling `0x59A840`): a walk runs to its target, waiting while the creature fights
 /// or moves, and ends once it stands within 40 of the target along each axis on the walk's
 /// level, or once it was ordered more than five times without the creature moving; a teleport
-/// puts the creature there at once. The queue goes once empty.
+/// puts the creature there at once. An entry done with more waiting leaves the creature's fight,
+/// unless it casts (`0x59F34A`, the AI's state 0 but in the states 6 and 11; #1874). The queue
+/// goes once empty.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -7162,6 +7164,19 @@ fn take_steps(
         };
         if done {
             queue.0.pop_front();
+            if !queue.0.is_empty()
+                && mind.is_some_and(|mind| mind.fighting())
+                && !ordered
+                && !casting
+            {
+                commands
+                    .entity(entity)
+                    .queue(|mut creature: bevy::ecs::world::EntityWorldMut| {
+                        if let Some(mut mind) = creature.get_mut::<ai::Mind>() {
+                            mind.queue_goes_on();
+                        }
+                    });
+            }
         }
         if queue.0.is_empty() {
             commands.entity(entity).remove::<ScriptQueue>();
@@ -10859,6 +10874,38 @@ mod tests {
         );
         app.update();
         assert!(app.world().get::<ScriptQueue>(smith).is_none());
+    }
+
+    #[test]
+    fn a_queued_entry_done_with_more_waiting_ends_its_creatures_fight() {
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(Heights::house())
+            .add_message::<sfx::Play>()
+            .add_systems(Update, take_steps);
+        let mut mind = ai::Mind::new(Vec3::ZERO, 0x1, (true, false), None, [70.0, 140.0], (76, 2));
+        assert!(mind.sent_at());
+        let steps = [Queued::Sound(7), Queued::Sound(8), Queued::Sound(9)];
+        let guard = app
+            .world_mut()
+            .spawn((Transform::default(), mind, ScriptQueue(steps.into())))
+            .id();
+        let fights = |app: &App| app.world().get::<ai::Mind>(guard).unwrap().fighting();
+        // A sound waits for no fight; done with two more waiting, the fight ends.
+        app.update();
+        assert!(!fights(&app));
+        // The last entry done leaves the state as it is.
+        app.update();
+        app.world_mut()
+            .get_mut::<ai::Mind>(guard)
+            .unwrap()
+            .sent_at();
+        app.update();
+        assert!(fights(&app));
+        assert!(app.world().get::<ScriptQueue>(guard).is_none());
     }
 
     #[test]
