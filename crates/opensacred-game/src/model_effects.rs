@@ -221,6 +221,10 @@ pub const ALONG_U_FAST: u8 = 4;
 /// The kind of the effect texture added twice over the whole model, once white and once in a
 /// grey that pulses (`0x406510`'s kind 5, `0x40D310`): the big demons and Anducar's guard (#1850).
 pub const PULSE: u8 = 5;
+/// The kind of the effect texture blended at half its alpha, its offsets drawn anew at every
+/// draw, with the model's own texture added over it (`0x406510`'s kind 8): `SERAPHIM_holo`,
+/// the Seraphim's hologram 135 of the class's quest 50 (#1850).
+pub const HOLOGRAM: u8 = 8;
 /// The pulse's half period in milliseconds: its grey is `(sin(t·π/1024) + 1)·127.5`.
 const PULSE_HALF: f32 = 1_024.0;
 
@@ -241,6 +245,12 @@ const FAST_DRIFT: f32 = 1_024.0;
 /// Whether the kind `kind` lays its effect under every texel of the model (the kinds 1 to 4).
 pub fn under(kind: u8) -> bool {
     (MULTITEX..=ALONG_U_FAST).contains(&kind)
+}
+
+/// The kind 8's offsets of a draw (`0x406510`): two fresh `rand() / 32767`, the rolls
+/// `rolls`, below 32,768 each.
+pub fn hologram((u, v): (u16, u16)) -> Vec4 {
+    Vec4::new(f32::from(u) / 32_767.0, f32::from(v) / 32_767.0, 0.0, 0.0)
 }
 
 /// The length of the kind 9's cycle in milliseconds, and how long each of its two runs lasts.
@@ -384,7 +394,11 @@ fn run(
     ),
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut models: ResMut<Assets<crate::models::ModelMaterial>>,
-    (mut apart, mut aparts): (ResMut<Apart>, ResMut<Assets<ApartMaterial>>),
+    (mut apart, mut aparts, mut dice): (
+        ResMut<Apart>,
+        ResMut<Assets<ApartMaterial>>,
+        Local<Option<crate::spawning::Rng>>,
+    ),
 ) {
     let t = u16::try_from(time.elapsed().as_millis() & 0xFFFF).unwrap_or(0);
     let pulsed = pulse(t);
@@ -392,6 +406,10 @@ fn run(
         if let Some(mut material) = models.get_mut(handle) {
             if *kind == PULSE {
                 material.base.base_color = Color::linear_rgb(pulsed, pulsed, pulsed);
+            } else if *kind == HOLOGRAM {
+                let dice = dice.get_or_insert_with(|| crate::seed::dice(0x1850));
+                let mut roll = || u16::try_from(dice.below(32_768)).unwrap_or(0);
+                material.extension.offsets = hologram((roll(), roll()));
             } else {
                 material.extension.offsets = offsets(*kind, t);
             }
@@ -491,6 +509,13 @@ mod tests {
             table.glow(),
             Some("textures/texture/00200-fx_multitexglow01.ktx2")
         );
+    }
+
+    #[test]
+    fn the_holograms_offsets_are_its_rolls_over_32767() {
+        assert_eq!(hologram((0, 0)), Vec4::ZERO);
+        assert_eq!(hologram((32_767, 16_383)).x, 1.0);
+        assert!((hologram((32_767, 16_383)).y - 0.5).abs() < 1e-4);
     }
 
     #[test]
