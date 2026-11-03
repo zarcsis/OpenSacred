@@ -266,7 +266,7 @@ const WAIT: u16 = 90;
 const DEFENDING: std::ops::RangeInclusive<u16> = 53..=65;
 
 /// An NPC or an object to place.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Placement {
     /// The model, relative to the asset directory.
     model: String,
@@ -412,7 +412,7 @@ impl Placement {
 /// The clips an NPC plays, by name (`motions`): standing, walking where a script sends it,
 /// running where it flees, and its fight stance where its model has one
 /// (`motions::Slots::stance`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct ClipNames {
     stand: Option<String>,
     walk: Option<String>,
@@ -552,7 +552,7 @@ const RANGED: [u8; 4] = [BOW, CROSSBOW, GUNS[0], GUNS[1]];
 const ARROWS: [u32; 5] = [arrows::ARROW, 3074, 3075, 3077, 3078];
 
 /// A hand of an NPC's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Hand {
     Left,
     Right,
@@ -570,7 +570,7 @@ impl Hand {
 }
 
 /// Where an item's model goes on its holder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Mount {
     /// In its hand ([`bones`]).
     Hand,
@@ -603,7 +603,7 @@ impl Mount {
 }
 
 /// An item an NPC or the hero holds.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Held {
     /// The model, relative to the asset directory.
     pub(crate) model: String,
@@ -663,7 +663,7 @@ pub struct Piece {
 
 /// An item in an NPC's hand, whose values it fights with: its type, its category, its weapon's
 /// kind, and the hand.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct InHand {
     item: u32,
     category: u8,
@@ -947,6 +947,12 @@ pub struct Placed {
     source: Source,
 }
 
+/// The placement a creature was placed of, by its index, which a loaded save's start makes again
+/// at the same index (#1958): by it the merchants' stock knows its merchant again after a load
+/// (`merchant`, #1959), where its entity is another.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlacementIndex(pub usize);
+
 #[derive(Clone)]
 enum Source {
     /// A `CreateNPC` of the start script or of a sector's `Init`, the placement of that index:
@@ -959,7 +965,7 @@ enum Source {
 }
 
 /// Where a creature that went with its sector stood, on which floor, and its health.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Stood {
     cell: (u32, u32),
     layer: i32,
@@ -967,7 +973,7 @@ struct Stood {
 }
 
 /// What became of the placed creatures ([`Placed`]) that went with their sectors.
-#[derive(Default)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Kept {
     /// The kept placements that went, by index: where each stood, or `None` once killed.
     went: HashMap<usize, Option<Stood>>,
@@ -1069,6 +1075,19 @@ impl Kept {
                 }
             }
         }
+    }
+
+    /// What it keeps once the creatures `standing` went, each where it stood or killed, as their
+    /// sectors keep them going ([`Self::gone`]): a save keeps the sectors in the world so (#1959).
+    fn with_gone<'a>(
+        &self,
+        standing: impl IntoIterator<Item = (&'a Placed, Option<Stood>)>,
+    ) -> Self {
+        let mut kept = self.clone();
+        for (placed, stood) in standing {
+            kept.gone(placed, stood);
+        }
+        kept
     }
 }
 
@@ -4054,6 +4073,31 @@ impl Npcs {
         Ok(made)
     }
 
+    /// What a creature of `request` is placed as ([`spawn_creatures`]): its type's template
+    /// ([`Self::template`]) as `CreateNPC` makes it, on the request's floor, of its rank.
+    fn requested(&mut self, request: &Spawn, assets: &Path) -> Result<Placement, String> {
+        let creature = request.creature;
+        let mut placement = self.template(creature, assets)?;
+        let critter = crowd::constructed(creature, placement.creature.1);
+        // Hostile or peaceful by its class's side, as the creature maker makes it for neither
+        // (`0x480D40`'s −1 asks `0x549000` whether it is hostile to the local hero, at
+        // `0x480FD5`).
+        let hostile = request
+            .hostile
+            .unwrap_or_else(|| minds::hostile_to_heroes(placement.class, creature));
+        placement.made = (false, true);
+        placement.layer = request.floor;
+        placement.rank = request.rank;
+        placement.creature.2 = critter
+            | if hostile {
+                crowd::HOSTILE
+            } else {
+                ai::of_type(creature)
+            };
+        placement.side = minds::made_side(placement.class, creature, hostile);
+        Ok(placement)
+    }
+
     /// The middle of the levels' range of the sector of global cell `cell`, where its record
     /// bounds them (`sdk_HIRE`'s level of a follower).
     pub fn middle(&self, (x, y): (u32, u32)) -> Option<u32> {
@@ -4110,24 +4154,7 @@ pub fn spawn_creatures(
     (played, holding): (Res<drops::Played>, Query<&fight::Holding, With<hero::Body>>),
 ) -> Result<Vec<Entity>, String> {
     let npcs = &mut *npcs;
-    let creature = request.creature;
-    let mut placement = npcs.template(creature, &data.0.assets)?;
-    let critter = crowd::constructed(creature, placement.creature.1);
-    // Hostile or peaceful by its class's side, as the creature maker makes it for neither
-    // (`0x480D40`'s −1 asks `0x549000` whether it is hostile to the local hero, at `0x480FD5`).
-    let hostile = request
-        .hostile
-        .unwrap_or_else(|| minds::hostile_to_heroes(placement.class, creature));
-    placement.made = (false, true);
-    placement.layer = request.floor;
-    placement.rank = request.rank;
-    placement.creature.2 = critter
-        | if hostile {
-            crowd::HOSTILE
-        } else {
-            ai::of_type(creature)
-        };
-    placement.side = minds::made_side(placement.class, creature, hostile);
+    let mut placement = npcs.requested(&request, &data.0.assets)?;
     let hero = experience.level;
     let side = u32::try_from(SIDE).unwrap_or(64);
     let mut made = Vec::new();
@@ -4320,6 +4347,9 @@ fn place_index(
         && let Some(name) = placement.key.as_deref().and_then(TextName::of)
     {
         commands.entity(entity).insert(name);
+    }
+    if !placement.object {
+        commands.entity(entity).insert(PlacementIndex(index));
     }
     // An `Enter`'s creature keeps what it was made of, which a `RegionChange` changes (#1064).
     if placement.made.0 && !placement.object {
@@ -4786,25 +4816,334 @@ fn keep(
             .map(|on_death| on_death.0.clone())
             .unwrap_or_default();
     }
-    let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
-    let layer = heights
-        .as_deref()
-        .and_then(|heights| heights.floor(way.level))
-        .map_or(0, |(_, floor)| i32::from(floor));
-    let stood = match (u32::try_from(x), u32::try_from(y), health) {
-        (Ok(x), Ok(y), Some(&health)) if !dies && health.current > 0 => Some(Stood {
-            cell: (x, y),
-            layer,
-            health,
-        }),
-        _ => None,
-    };
+    let stood = stood_of((transform, way), health, dies, heights.as_deref());
     bevy::log::debug!(
         "npcs: {} of {:?} goes, {stood:?}",
         removed.entity,
         placed.at
     );
     npcs.kept.gone(placed, stood);
+}
+
+/// Where a creature at `transform` in the others' `way` stands as it goes, on its floor with its
+/// `health`; none once killed or dying.
+fn stood_of(
+    (transform, way): (&Transform, &crowd::InTheWay),
+    health: Option<&fight::Health>,
+    dies: bool,
+    heights: Option<&Heights>,
+) -> Option<Stood> {
+    let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
+    let layer = heights
+        .and_then(|heights| heights.floor(way.level))
+        .map_or(0, |(_, floor)| i32::from(floor));
+    match (u32::try_from(x), u32::try_from(y), health) {
+        (Ok(x), Ok(y), Some(&health)) if !dies && health.current > 0 => Some(Stood {
+            cell: (x, y),
+            layer,
+            health,
+        }),
+        _ => None,
+    }
+}
+
+/// What the sectors keep of their creatures as a save keeps it (#1959; the original's object
+/// manager keeps every creature, alive and dead, `0x602300`): [`Kept`] with the creatures of the
+/// sectors in the world gone as [`keep`] notes them going with their sectors, so that a load puts
+/// them back as their sectors come in, but for the hero's followers, which go with the hero
+/// ([`Following`]); and the placements of the living kept ones as the play left them (a weapon
+/// chosen anew, the death's functions left, a `RegionChange`'s type), by index.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Creatures {
+    kept: Kept,
+    placements: Vec<(usize, Placement)>,
+}
+
+/// The creatures as a save keeps them ([`Creatures`]); none without the NPCs.
+pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
+    let mut standing = world.query_filtered::<(
+        &Placed,
+        (&Transform, &crowd::InTheWay),
+        Option<&fight::Health>,
+        Has<Dies>,
+        Option<&OnDeath>,
+        Has<crate::followers::Follower>,
+    ), Without<Remade>>();
+    let world = &*world;
+    let npcs = world.get_resource::<Npcs>()?;
+    let heights = world.get_resource::<Heights>();
+    let mut placements: HashMap<usize, Placement> = HashMap::new();
+    let mut gone = Vec::new();
+    for (placed, at, health, dies, on_death, follows) in standing.iter(world) {
+        let stood = stood_of(at, health, dies, heights);
+        // A living kept one leaves the death's functions it still has, as [`keep`] notes them.
+        if let Source::Kept(index) = placed.source
+            && let Some(placement) = npcs.placements.get(index)
+            && stood.is_some()
+        {
+            let on_death = on_death.map(|on_death| on_death.0.clone());
+            let placement = Placement {
+                on_death: on_death.unwrap_or_default(),
+                ..placement.clone()
+            };
+            placements.insert(index, placement);
+        }
+        // A living follower goes with the hero ([`following`]), its placement kept out.
+        if follows && stood.is_some() {
+            continue;
+        }
+        gone.push((placed, stood));
+    }
+    let kept = npcs.kept.with_gone(gone);
+    // The placements of those that went living before; a killed one's comes back no more.
+    for (&index, went) in &kept.went {
+        if let (Some(_), Some(placement)) = (went, npcs.placements.get(index)) {
+            placements.entry(index).or_insert_with(|| placement.clone());
+        }
+    }
+    let mut placements: Vec<(usize, Placement)> = placements.into_iter().collect();
+    placements.sort_by_key(|&(index, _)| index);
+    Some(Creatures { kept, placements })
+}
+
+/// A follower of the hero as a save keeps it (#1959): what it is made of, where it stands on which
+/// floor with its health, its flags word, side and stand in the others' way as its hiring and its
+/// summoning left them, whether it is of the flag 4, its hands' items with their values, the items
+/// the hero gave it (`mercenaries`), and its effects.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Following {
+    made: Made,
+    stood: Stood,
+    flags: u32,
+    side: u8,
+    stands: ways::InTheWay,
+    escorted: bool,
+    hands: Vec<(u32, Hand, Option<fight::ItemValues>)>,
+    given: Option<crate::mercenaries::Given>,
+    effects: Option<crate::effects::Effects>,
+}
+
+/// What a saved follower is made of: a kept placement of its sector, a fill's placement of its
+/// sector, or a creature of its type and rank that no sector keeps (a summoned, called or raised
+/// one, `followers`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum Made {
+    Kept((u32, u32), usize),
+    Filled((u32, u32), Box<Placement>),
+    Roams { creature: u32, rank: fight::Rank },
+}
+
+/// The hero's living followers as a save keeps them ([`Following`]), in the order of their
+/// entries in the portraits' column.
+pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
+    let mut heroes = world.query_filtered::<Entity, With<hero::Body>>();
+    let Some(hero) = heroes.iter(world).next() else {
+        return Vec::new();
+    };
+    let mut followers = world.query_filtered::<(
+        (Entity, &crate::followers::Follower, Option<&Placed>),
+        (&Transform, &crowd::InTheWay, Option<&fight::Health>),
+        (&ai::Mind, &Arms, Option<&fight::Ranked>),
+        (
+            Option<&crate::mercenaries::Given>,
+            Option<&crate::effects::Effects>,
+        ),
+    ), Without<Dies>>();
+    let world = &*world;
+    let heights = world.get_resource::<Heights>();
+    let order = world
+        .get_resource::<crate::bar::Entries>()
+        .map(|entries| entries.0.clone())
+        .unwrap_or_default();
+    let mut kept: Vec<(usize, Following)> = followers
+        .iter(world)
+        .filter(|((_, follower, _), ..)| follower.master == hero)
+        .filter_map(
+            |(
+                (entity, follower, placed),
+                (transform, way, health),
+                (mind, arms, ranked),
+                extra,
+            )| {
+                let stood = stood_of((transform, way), health, false, heights)?;
+                let made = match placed {
+                    Some(Placed {
+                        at,
+                        source: Source::Kept(index),
+                    }) => Made::Kept(*at, *index),
+                    Some(Placed {
+                        at,
+                        source: Source::Filled(placement),
+                    }) => Made::Filled(*at, placement.clone()),
+                    None => Made::Roams {
+                        creature: mind.creature,
+                        rank: ranked.map_or(fight::Rank::Common, |ranked| ranked.0),
+                    },
+                };
+                let entry = order.iter().position(|&shown| shown == entity);
+                let following = Following {
+                    made,
+                    stood,
+                    flags: mind.flags,
+                    side: mind.side,
+                    stands: way.stands,
+                    escorted: follower.escorted(),
+                    hands: arms
+                        .holding
+                        .iter()
+                        .map(|(held, values)| (held.item, held.hand, *values))
+                        .collect(),
+                    given: extra.0.cloned(),
+                    effects: extra.1.cloned(),
+                };
+                Some((entry.unwrap_or(usize::MAX), following))
+            },
+        )
+        .collect();
+    kept.sort_by_key(|&(entry, _)| entry);
+    kept.into_iter().map(|(_, following)| following).collect()
+}
+
+/// What a follower made of a placement whose hands hold `made` changes to hold `hands` again
+/// (#1959): each hand whose item differs emptied, and the item it held taken with its values;
+/// none where they are the same.
+fn rearms_for(hands: &[(u32, Hand, Option<fight::ItemValues>)], made: &[InHand]) -> Option<Rearms> {
+    let mut rearms = Rearms {
+        away: Vec::new(),
+        takes: Vec::new(),
+    };
+    for hand in [Hand::Left, Hand::Right] {
+        let held = hands.iter().find(|&&(_, held, _)| held == hand);
+        let item = made
+            .iter()
+            .find(|held| held.hand == hand)
+            .map(|held| held.item);
+        if held.map(|&(item, ..)| item) == item {
+            continue;
+        }
+        rearms.away.push(hand);
+        rearms.takes.extend(held.copied());
+    }
+    (!rearms.away.is_empty()).then_some(rearms)
+}
+
+/// Spawns a saved follower where it stood ([`follow_again`]), as a sector puts a creature back
+/// ([`respawn`]): of its kept placement, its fill's or its type's, with its hands' items, the
+/// items given and its effects, going with the game alone as a hired one does.
+fn respawn_following(
+    In(following): In<Following>,
+    mut commands: Commands,
+    mut npcs: ResMut<Npcs>,
+    heights: Res<Heights>,
+    states: Res<buildings::Buildings>,
+    assets: Res<AssetServer>,
+    data: Res<crate::game::Data>,
+) -> Result<Entity, String> {
+    let npcs = &mut *npcs;
+    let Following {
+        made,
+        stood,
+        hands,
+        given,
+        effects,
+        ..
+    } = following;
+    let (placement, placed) = match made {
+        Made::Kept(at, index) => {
+            let placement = npcs
+                .placements
+                .get(index)
+                .cloned()
+                .ok_or_else(|| format!("no placement {index}"))?;
+            let source = Source::Kept(index);
+            (placement, Some(Placed { at, source }))
+        }
+        Made::Filled(at, placement) => {
+            let made = (*placement).clone();
+            let source = Source::Filled(placement);
+            (made, Some(Placed { at, source }))
+        }
+        Made::Roams { creature, rank } => {
+            let request = Spawn {
+                creature,
+                cells: Vec::new(),
+                floor: stood.layer,
+                level: None,
+                rank,
+                hostile: Some(false),
+                immortal: false,
+                roams: true,
+            };
+            (npcs.requested(&request, &data.0.assets)?, None)
+        }
+    };
+    let entity = respawn(
+        &mut commands,
+        &placement,
+        stood,
+        (&heights, &states, &assets),
+        (&npcs.fight, &npcs.items),
+    );
+    let mut creature = commands.entity(entity);
+    creature.insert(bevy::prelude::DespawnOnExit(crate::game::AppState::InGame));
+    if let Some(rearms) = rearms_for(&hands, &placement.holding) {
+        creature.insert(rearms);
+    }
+    if let Some(given) = given {
+        creature.insert(given);
+    }
+    if let Some(effects) = effects {
+        creature.insert(effects);
+    }
+    if let Some(placed) = placed {
+        npcs.kept.spawned(&placed);
+        creature.insert(placed);
+    }
+    Ok(entity)
+}
+
+/// Puts a loaded save's followers back beside the hero once it stands (#1959): each made as it was
+/// ([`Following`]) where it stood, hired by the hero again with the flags word, side and stand in
+/// the others' way that its hiring left it, not by its placement's hire again
+/// (`followers::take_hires`); its kept placement stays out of its sector ([`Npcs::remember`]).
+pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>) {
+    let mut heroes = world.query_filtered::<Entity, With<hero::Body>>();
+    let Some(master) = heroes.iter(world).next() else {
+        return;
+    };
+    let count = followers.len();
+    for following in followers {
+        let (flags, side, stands, escorted) = (
+            following.flags,
+            following.side,
+            following.stands,
+            following.escorted,
+        );
+        let entity = match world.run_system_cached_with(respawn_following, following) {
+            Ok(Ok(entity)) => entity,
+            Ok(Err(e)) => {
+                bevy::log::warn!("npcs: a saved follower is not made: {e}");
+                continue;
+            }
+            Err(e) => {
+                bevy::log::warn!("npcs: a saved follower is not made: {e}");
+                continue;
+            }
+        };
+        let Ok(mut creature) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        creature.remove::<(crate::followers::Hired, fight::Unfought)>();
+        crate::followers::rehire(world, entity, master, escorted);
+        if let Some(mut mind) = world.get_mut::<ai::Mind>(entity) {
+            mind.flags = flags;
+            mind.side = side;
+        }
+        if let Some(mut way) = world.get_mut::<crowd::InTheWay>(entity) {
+            way.stands = stands;
+        }
+    }
+    bevy::log::info!("npcs: the save's {count} followers back beside the hero");
 }
 
 /// Spawns the NPC or the object of `placement`: its model on its cell and level, an object's at
@@ -6168,6 +6507,27 @@ impl Npcs {
         self.locked = saved.locked;
         self.taken = saved.taken;
         self.emptied = saved.emptied;
+    }
+
+    /// Puts back what the sectors of a loaded save kept of their creatures (#1959), on the
+    /// placements of its start made again ([`Self::resume`]): the kept placements as the play left
+    /// them, and where each creature stood or that it was killed, none in the world yet, so that
+    /// each comes back as its sector comes in; the followers' placements stay out, which the save
+    /// puts back beside the hero ([`follow_again`]).
+    pub fn remember(&mut self, creatures: Creatures) {
+        for (index, placement) in creatures.placements {
+            if let Some(kept) = self.placements.get_mut(index) {
+                *kept = placement;
+            }
+        }
+        let killed = creatures.kept.went.values().filter(|went| went.is_none());
+        bevy::log::info!(
+            "npcs: the save's {} kept creatures, {} killed, and the fills' of {} sectors",
+            creatures.kept.went.len(),
+            killed.count(),
+            creatures.kept.filled.len()
+        );
+        self.kept = creatures.kept;
     }
 
     /// Changes the creatures that the `RegionChange` `change` reaches away from the world
@@ -9181,12 +9541,12 @@ impl Arms {
 }
 
 /// An NPC that changes its weapons (#396; docs/re/fight.md, "The archers"): it puts away what
-/// its hands `away` hold, and takes the item `takes`, if any, in its hand, with its values where
+/// its hands `away` hold, and takes the items `takes`, each in its hand, with its values where
 /// they are given, else made at its level.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Rearms {
     away: Vec<Hand>,
-    takes: Option<(u32, Hand, Option<fight::ItemValues>)>,
+    takes: Vec<(u32, Hand, Option<fight::ItemValues>)>,
 }
 
 impl Rearms {
@@ -9198,7 +9558,10 @@ impl Rearms {
                 Some(_) => vec![Hand::Left, Hand::Right],
                 None => vec![Hand::Left],
             },
-            takes: weapon.map(|weapon| (weapon, Hand::Right, None)),
+            takes: weapon
+                .map(|weapon| (weapon, Hand::Right, None))
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -9207,7 +9570,7 @@ impl Rearms {
     pub fn bow(bow: u32) -> Self {
         Self {
             away: vec![Hand::Right, Hand::Left],
-            takes: Some((bow, Hand::Left, None)),
+            takes: vec![(bow, Hand::Left, None)],
         }
     }
 
@@ -9224,7 +9587,9 @@ impl Rearms {
         Self {
             away,
             takes: takes
-                .and_then(|(item, slot, values)| Some((item, Hand::of_slot(slot)?, Some(values)))),
+                .and_then(|(item, slot, values)| Some((item, Hand::of_slot(slot)?, Some(values))))
+                .into_iter()
+                .collect(),
         }
     }
 }
@@ -9279,9 +9644,11 @@ fn rearm(
                 .retain(|item| !item.piece.mount.handed() || !gone(item.piece.hand));
         }
         let grade = mind.level;
-        if let Some((item, hand, given)) = rearms.takes
-            && let Some(gear) = npcs.gear.get(&item)
-        {
+        let mut equips = Vec::new();
+        for &(item, hand, given) in &rearms.takes {
+            let Some(gear) = npcs.gear.get(&item) else {
+                continue;
+            };
             let values = given.or_else(|| {
                 let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
                 let mut dice = spawning::Rng::of(
@@ -9299,7 +9666,7 @@ fn rearm(
             };
             arms.holding.push((held, values));
             if let Some(model) = &gear.model {
-                let equip = Equip {
+                equips.push(Equip {
                     piece: Piece {
                         model: model.clone(),
                         texture: gear.texture.clone(),
@@ -9310,14 +9677,15 @@ fn rearm(
                     texture: gear.texture.as_ref().map(|t| load_texture(&assets, t)),
                     ready: true,
                     waits: 0,
-                };
-                match equipment {
-                    Some(mut equipment) => equipment.0.push(equip),
-                    None => {
-                        commands.entity(entity).insert(Equipment(vec![equip]));
-                    }
-                }
+                });
             }
+        }
+        match equipment {
+            Some(mut equipment) => equipment.0.extend(equips),
+            None if !equips.is_empty() => {
+                commands.entity(entity).insert(Equipment(equips));
+            }
+            None => {}
         }
         let (values, share) = arms.fight(grade, rank.0, &npcs.fight);
         // Its pace by what it holds now, and its walk and run by it.
@@ -10500,6 +10868,133 @@ mod tests {
     }
 
     #[test]
+    fn a_save_keeps_the_creatures_of_the_sectors_in_the_world_as_they_would_go() {
+        let stood = |x, current| Stood {
+            cell: (x, 2518),
+            layer: 0,
+            health: fight::Health {
+                current,
+                most: 72,
+                level: 3,
+            },
+        };
+        let kept_one = |index| Placed {
+            at: (51, 39),
+            source: Source::Kept(index),
+        };
+        let (goblin, killed, follower) = (kept_one(7), kept_one(8), kept_one(9));
+        let rabbit = Placed {
+            at: (51, 39),
+            source: Source::Filled(Box::new(Placement {
+                model: "rabbit".to_owned(),
+                ..Placement::default()
+            })),
+        };
+        // The sector came in and filled; its creatures stand in the world.
+        let mut kept = Kept::default();
+        assert!(kept.enter((51, 39), Some(2), |_| 2).fill);
+        for placed in [&goblin, &killed, &follower, &rabbit] {
+            kept.spawned(placed);
+        }
+        // Saved: the goblin and the rabbit stand, the other was killed, and the follower goes
+        // with the hero; the game goes on with its own.
+        let saved = kept.with_gone([
+            (&goblin, Some(stood(3300, 40))),
+            (&killed, None),
+            (&rabbit, Some(stood(3310, 12))),
+        ]);
+        assert_eq!(kept.again(7), Again::Not);
+        let goblin_made = Placement {
+            model: "goblin".to_owned(),
+            on_death: DeathFunctions::default(),
+            ..Placement::default()
+        };
+        let creatures = Creatures {
+            kept: saved,
+            placements: vec![(7, goblin_made)],
+        };
+        // Through the save's bytes, as a load puts them back.
+        let bytes = postcard::to_stdvec(&creatures).unwrap();
+        let mut loaded: Creatures = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(loaded, creatures);
+        let kept = &mut loaded.kept;
+        assert_eq!(kept.again(7), Again::AtStood(stood(3300, 40)));
+        assert_eq!(kept.again(8), Again::Not);
+        // The follower stays out of its sector: the save puts it beside the hero.
+        assert_eq!(kept.again(9), Again::Not);
+        // The rabbit comes back with its sector, which fills nothing then.
+        let entered = kept.enter((51, 39), Some(2), |_| 2);
+        assert!(!entered.fill);
+        assert_eq!(entered.back.len(), 1);
+        assert_eq!(entered.back[0].0.model, "rabbit");
+        assert_eq!(entered.back[0].1, stood(3310, 12));
+    }
+
+    #[test]
+    fn a_saved_follower_holds_again_what_it_held() {
+        let values = fight::ItemValues::default();
+        let bow = InHand {
+            item: 1732,
+            category: WEAPON,
+            kind: Some(BOW),
+            hand: Hand::Left,
+        };
+        // Holding what it was made with, it changes nothing.
+        let hands = [(1732, Hand::Left, Some(values))];
+        assert_eq!(rearms_for(&hands, &[bow]), None);
+        // A sword given into its right hand: that hand takes it, with its values.
+        let given = [(1732, Hand::Left, None), (1753, Hand::Right, Some(values))];
+        let rearms = rearms_for(&given, &[bow]).unwrap();
+        assert_eq!(rearms.away, [Hand::Right]);
+        assert_eq!(rearms.takes, [(1753, Hand::Right, Some(values))]);
+        // Its bow taken back: the left hand emptied.
+        let rearms = rearms_for(&[], &[bow]).unwrap();
+        assert_eq!((rearms.away, rearms.takes), (vec![Hand::Left], Vec::new()));
+        // Its save reads back as written.
+        let following = Following {
+            made: Made::Filled(
+                (51, 39),
+                Box::new(Placement {
+                    model: "thief".to_owned(),
+                    holding: vec![bow],
+                    ..Placement::default()
+                }),
+            ),
+            stood: Stood {
+                cell: (3300, 2518),
+                layer: 1,
+                health: fight::Health {
+                    current: 30,
+                    most: 50,
+                    level: 4,
+                },
+            },
+            flags: minds::FOLLOWS,
+            side: 3,
+            stands: ways::InTheWay {
+                stops: true,
+                hostile: false,
+                creature: true,
+            },
+            escorted: true,
+            hands: given.to_vec(),
+            given: Some(crate::mercenaries::Given::default()),
+            effects: None,
+        };
+        let bytes = postcard::to_stdvec(&following).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<Following>(&bytes).unwrap(),
+            following
+        );
+        let summoned = Made::Roams {
+            creature: 1026,
+            rank: fight::Rank::Common,
+        };
+        let bytes = postcard::to_stdvec(&summoned).unwrap();
+        assert_eq!(postcard::from_bytes::<Made>(&bytes).unwrap(), summoned);
+    }
+
+    #[test]
     fn a_play_anim_names_its_creature_and_slot_and_the_others_take_their_turns() {
         let op = |tag, value| Operand { tag, value };
         let name = |n: &str| op(0x01, Value::Str(n.into()));
@@ -11200,15 +11695,15 @@ mod tests {
         // bow-taking the right hand's weapon for the left's bow.
         let to_melee = Rearms::to_melee(Some(1753));
         assert_eq!(to_melee.away, [Hand::Left, Hand::Right]);
-        assert_eq!(to_melee.takes, Some((1753, Hand::Right, None)));
+        assert_eq!(to_melee.takes, [(1753, Hand::Right, None)]);
         let bow = Rearms::bow(1732);
         assert_eq!(bow.away, [Hand::Right, Hand::Left]);
-        assert_eq!(bow.takes, Some((1732, Hand::Left, None)));
+        assert_eq!(bow.takes, [(1732, Hand::Left, None)]);
         // A hireling's sword for its bow: the bow off the left hand, the sword into the right.
         let values = fight::ItemValues::default();
         let handing = Rearms::handing(&[12], Some((1753, 13, values)));
         assert_eq!(handing.away, [Hand::Left, Hand::Right]);
-        assert_eq!(handing.takes, Some((1753, Hand::Right, Some(values))));
+        assert_eq!(handing.takes, [(1753, Hand::Right, Some(values))]);
         let sword = InHand::of([(1753, WEAPON, Some(1))]);
         assert_eq!(class_of(&sword), 1);
         assert!(!ranged_of(&sword));

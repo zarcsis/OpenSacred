@@ -482,7 +482,7 @@ const CRITTER_RECORD: u8 = 0x20;
 /// from their constructor, [`constructed`]); and it stops the hero, of id 1,
 /// only when its flags word has bit 0 or 1 (`CreateNPC`'s tags `0x12` and `0x13`: the monsters,
 /// the start's captain), every other creature, of an id above 16, whatever its flags.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InTheWay {
     /// Whether it stops the others' steps: not big, not a critter.
     pub stops: bool,

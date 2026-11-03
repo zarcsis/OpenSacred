@@ -397,13 +397,14 @@ fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::Hero
 
 /// Loads the game `game` would start, of the seed `seed`: the hero at its start, the first sector
 /// built, the start script's NPCs and objects, the footsteps, the music; of a loaded save, its
-/// scripts and what their play placed in place of the start's (`resume`, #1958).
+/// scripts and what their play placed in place of the start's (`resume`, #1958), and what its
+/// sectors kept of their creatures (#1959).
 fn load(
     shared: &sectors::Shared,
     sound: &opensacred_data::sound::Sound,
     (game, seed): (&NewGame, crate::seed::Game),
     speed: f32,
-    resume: Option<crate::saves::Scripts>,
+    resume: Option<(crate::saves::Scripts, npcs::Creatures)>,
 ) -> Result<Loaded> {
     let assets = &shared.assets;
     let tables = &shared.tables;
@@ -428,7 +429,9 @@ fn load(
         seed,
     )?;
     // A loaded save's start, of its seed, made the saved game's tree and placements again; its
-    // scripts take the save's state, and its placements the play's changes (`Npcs::resume`).
+    // scripts take the save's state, and its placements the play's changes (`Npcs::resume`) and
+    // its sectors' creatures (`Npcs::remember`).
+    let (resume, creatures) = resume.unzip();
     let (resumed, played) = resume.map(|resume| (resume.scripts, resume.npcs)).unzip();
     if let Some(saved) = resumed {
         started.resume(saved);
@@ -495,6 +498,9 @@ fn load(
     let mut npcs = npcs::Npcs::read(shared, &scripts, &items, difficulty)?;
     if let Some(saved) = played {
         npcs.resume(saved, |at| areas.get(&at).copied());
+    }
+    if let Some(creatures) = creatures {
+        npcs.remember(creatures);
     }
     let holding = fight::Holding(npcs.hero_holds(&worn));
     // Its first weapon set, the template's items in its hands (#1347).
@@ -870,11 +876,11 @@ fn begin(
 ) {
     let (shared, sound) = (Arc::clone(&data.0), Arc::clone(&index.0));
     let (game, speed) = (request.0.clone(), speed.0);
-    let resume = resume.map(|resume| resume.0.clone());
+    let resume = resume.map(|resume| (resume.0.clone(), resume.1.clone()));
     commands.remove_resource::<crate::saves::Resume>();
     let seed = resume.as_ref().map_or_else(
         || crate::seed::Game::of(*games),
-        |resume| crate::seed::Game(resume.seed),
+        |(scripts, _)| crate::seed::Game(scripts.seed),
     );
     *games += 1;
     commands.insert_resource(seed);

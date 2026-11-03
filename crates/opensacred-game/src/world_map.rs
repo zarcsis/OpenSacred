@@ -143,6 +143,17 @@ impl Map {
     pub fn pin_target(&self) -> Option<Vec2> {
         self.pin_world
     }
+
+    /// The pin as a save keeps it (#1959): its place on the map and its world point.
+    pub fn pinned(&self) -> Option<(Vec2, Vec2)> {
+        self.pin.zip(self.pin_world)
+    }
+
+    /// Puts a loaded save's pin back.
+    pub fn pin_again(&mut self, pinned: Option<(Vec2, Vec2)>) {
+        self.pin = pinned.map(|(at, _)| at);
+        self.pin_world = pinned.map(|(_, world)| world);
+    }
 }
 
 /// The pin's picture, which its mode's cursor and its mark show (`MOUSE_PUSHPIN`), the mark's

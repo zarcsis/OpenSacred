@@ -48,7 +48,7 @@ const QUAKE_FALLS: f32 = 10.0;
 const JOLT_FALLS: f32 = 40.0;
 
 /// A level of the weather: what the choice wants and what it is now.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Level {
     pub wanted: u32,
     pub now: u32,
@@ -87,7 +87,7 @@ pub enum Event {
 }
 
 /// The weather as the renderer keeps it.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Weather {
     /// The flags ([`RAIN`], [`FOG`], [`STORM`], [`SNOW`]).
     pub flags: u32,
@@ -231,6 +231,17 @@ impl Weather {
             0x10 => Some(CROW),
             0x80 => Some(BAT),
             _ => None,
+        }
+    }
+
+    /// Its timers of real time moved on by `ms` milliseconds: a save keeps them from its own time
+    /// and a load puts them on the time of its run, whose real time starts anew (#1959).
+    pub fn rebase(&mut self, ms: f64) {
+        for deadline in self.deadlines.iter_mut().flatten() {
+            *deadline += ms;
+        }
+        if let Some(due) = self.fliers.as_mut() {
+            *due += ms / 1_000.0;
         }
     }
 
@@ -382,6 +393,22 @@ mod tests {
         assert_eq!(weather.fliers(60.0, 0x30, &rolls), None);
         assert_eq!(weather.fliers, Some(83.0));
         assert_eq!(weather.fliers(90.0, 0x80, &rolls), Some(BAT));
+    }
+
+    #[test]
+    fn a_rebase_keeps_what_is_left_of_the_timers() {
+        let rolls: Vec<u8> = (0..=255).collect();
+        let mut weather = Weather::default();
+        weather.choose(1_000.0, 2579, &[rain()], &rolls, &mut Rolls(vec![0]));
+        weather.fliers(1.0, 0x10, &rolls);
+        let (deadline, due) = (weather.deadlines[0], weather.fliers);
+        assert!(deadline.is_some() && due.is_some());
+        // Saved at 1.5 s of a run, loaded at 0.5 s of another.
+        weather.rebase(-1_500.0);
+        weather.rebase(500.0);
+        assert_eq!(weather.deadlines[0], deadline.map(|d| d - 1_000.0));
+        assert_eq!(weather.fliers, due.map(|d| d - 1.0));
+        assert_eq!(weather.deadlines[1], None);
     }
 
     /// Dice that roll their numbers in turn.

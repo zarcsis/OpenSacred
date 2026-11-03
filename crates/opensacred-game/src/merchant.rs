@@ -20,9 +20,12 @@
 //!
 //! The window plays the trader's sound as it shows (14, 2, `0x1F`; #1722).
 //!
+//! A save keeps the stock (#1959), its merchant known by its placement (`npcs::PlacementIndex`),
+//! which a load makes again, rather than by its entity, which a load does not keep.
+//!
 //! Not followed yet: the pieces of the frame (its panel's edges drawn as the master's), the
-//! switch of each item to the hero's class's variant as a page shows (`0x5C7370`), the stock's
-//! keeping in the saves, and the trade's sounds.
+//! switch of each item to the hero's class's variant as a page shows (`0x5C7370`), and the
+//! trade's sounds.
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -69,10 +72,12 @@ const DEAR_TINT: Color = backpack::tinted(0xFF, 0xFF, 0x00);
 /// The render layer of the items' models.
 const ITEMS: usize = 17;
 
-/// The merchant whose window shows: its creature, its type (its portrait's) and its level.
+/// The merchant whose window shows: its creature, its stock's key ([`key_of`]), its type (its
+/// portrait's) and its level.
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct Merchant {
     pub creature: Entity,
+    key: u64,
     kind: u32,
     level: u32,
     /// Whether its stock waits to be made for it.
@@ -116,6 +121,20 @@ struct Tab(Page);
 /// The trader's sound (7109), which the window plays as it shows.
 const SHOW_SOUND: u32 = 7109;
 
+/// The mark of a stock's key that is a merchant's placement ([`key_of`]), apart from the
+/// entities' bits.
+const PLACED: u64 = 1 << 63;
+
+/// The key of the stock of the merchant `creature` (`Stock::merchant`, each page's `+0x3E8`): its
+/// placement's, the same in a loaded save's game, else its entity's, which a load does not keep
+/// (#1959).
+fn key_of(world: &World, creature: Entity) -> u64 {
+    world
+        .get::<crate::npcs::PlacementIndex>(creature)
+        .and_then(|placed| u64::try_from(placed.0).ok())
+        .map_or_else(|| creature.to_bits(), |index| PLACED | index)
+}
+
 /// Shows the merchant's window for `creature` with the inventory (`0x52AB70`), its stock made
 /// for it, with its sound.
 pub fn open(world: &mut World, creature: Entity) {
@@ -132,8 +151,10 @@ pub fn open(world: &mut World, creature: Entity) {
         at: None,
         rate: (0.5, crate::sfx::Roll::None),
     });
+    let key = key_of(world, creature);
     world.insert_resource(Merchant {
         creature,
+        key,
         kind,
         level,
         visiting: true,
@@ -172,11 +193,10 @@ fn visit(
         difficulty,
         weapons: tables.weapon_lists(),
     };
-    let id = merchant.creature.to_bits();
     let supply = tables.supply(difficulty);
     wares
         .0
-        .visit(id, merchant.level, &buyer, &supply, &mut dice.0);
+        .visit(merchant.key, merchant.level, &buyer, &supply, &mut dice.0);
     let counts: Vec<usize> = wares.0.shelves.iter().map(|s| s.items.len()).collect();
     info!(
         "merchant: the stock for a merchant of level {}: {counts:?} items",

@@ -5,14 +5,14 @@
 //! clicks (`0x6ACFC0`): the cursor's item put in where it fits or in place of the one item under
 //! it, an item taken onto the empty cursor, and Shift with a click sending an item to the
 //! backpack; and Shift with a click on the backpack's item sending it here (#1663, `0x6C0150`).
-//! Its grid is one for every town stash, kept while the game runs.
+//! Its grid is one for every town stash, kept while the game runs and by its saves (#1959).
 //!
 //! As the inventory hides, the window hides with it (`0x6ACD80`): the stash is no more emptied
 //! and its lid closes with its sound.
 //!
 //! The window's show and hide each play its `UI_CLICK01` (`containers`, #1767).
 //!
-//! Not followed yet: the hovered item's tooltip (`0x75B390`) and the saves (#1095).
+//! Not followed yet: the hovered item's tooltip (`0x75B390`).
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -58,7 +58,7 @@ const ITEMS: usize = 14;
 
 /// The items in the town stashes, one store for all of them (the window's own inventory entry,
 /// `0x6ACB40`): each by its key and its place in the grid.
-#[derive(Resource)]
+#[derive(Resource, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Chest {
     pub items: Vec<(u32, Dropped)>,
     pub grid: Grid,

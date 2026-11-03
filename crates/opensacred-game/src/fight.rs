@@ -73,7 +73,18 @@ impl Rules {
 
 /// A creature type's values of `Creature.pak` that its fight takes
 /// (`opensacred_rules::fight::Base`), a component of the hero's, which its level-up takes.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Deref)]
+#[derive(
+    Component,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Deref,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Base(pub opensacred_rules::fight::Base);
 
 impl Base {

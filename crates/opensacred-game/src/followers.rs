@@ -38,10 +38,17 @@ pub struct Follower {
     escorted: bool,
 }
 
+impl Follower {
+    /// Whether it is of the flag 4, which never fights.
+    pub fn escorted(&self) -> bool {
+        self.escorted
+    }
+}
+
 /// What a script's `CreateNPC` or `SetNPCState` does to its creature (#657): hires it as the
 /// hero's follower (`0x4B`), or as one of the flag 4 (`0x37`, `0x71`), or lets it go (`0x39`,
 /// `0x65`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Hire {
     Fights,
     Escorts,
@@ -233,6 +240,15 @@ fn hire(world: &mut World, entity: Entity, master: Entity) {
         escorted: false,
     });
     info!("followers: {master} hires {entity}");
+}
+
+/// Hires a loaded save's follower `entity` by `master` again (#1959, `npcs::follow_again`), as
+/// [`hire`] does, of the flag 4 where it was `escorted`.
+pub(crate) fn rehire(world: &mut World, entity: Entity, master: Entity, escorted: bool) {
+    hire(world, entity, master);
+    if let Some(mut follower) = world.get_mut::<Follower>(entity) {
+        follower.escorted = escorted;
+    }
 }
 
 /// Carries out the scripts' hires and lettings go (#657): a hire by the local hero
