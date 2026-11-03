@@ -294,6 +294,9 @@ fn run(cli: Cli) -> Result<AppExit> {
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
     // frames do not depend on the monitor.
     let fixed = cli.screenshot.is_some() || cli.record.is_some() || cli.benchmark.is_some();
+    // A run driven by a script, from afar or for a frame plays no movie by itself (#1946).
+    let driven = fixed || cli.remote.is_some() || cli.exec.is_some() || cli.script.is_some();
+    let movies = movies::Automatic(settings.movies.show && !driven);
     if cli.windowed || cli.hidden || fixed {
         settings.display.mode = settings::Mode::Windowed;
     }
@@ -565,8 +568,12 @@ fn run(cli: Cli) -> Result<AppExit> {
     }
     app.insert_resource(game::Shows::of(&cli.game));
     app.insert_resource(game::Request(cli.game));
+    app.insert_resource(movies);
     if named {
         app.insert_state(game::AppState::Loading);
+    } else {
+        // The start's logos before the main menu (#1946).
+        app.insert_resource(movies::Logos);
     }
     if fixed {
         app.insert_resource(game::QuitOnFailure);

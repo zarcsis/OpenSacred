@@ -106,12 +106,36 @@ impl Default for Interface {
     }
 }
 
+/// `[movies]`: whether the movies play, and the campaigns' extros seen (`movies`, #1946).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Movies {
+    /// Whether the start's logos and the scripts' movies play, the original's `SHOWMOVIE` of
+    /// `Settings.cfg`, on as its default (`0x81C6C0`); the Extras play theirs whatever it says.
+    pub show: bool,
+    /// Whether the Ancaria campaign's and the Underworld's extros have played, the original's
+    /// `SHOWEXTRO` and `SHOWEXTRO_UW` (`0x81A840`, `0x81AA90`): the Extras offer each once it has.
+    pub extro: bool,
+    pub extro_underworld: bool,
+}
+
+impl Default for Movies {
+    fn default() -> Self {
+        Self {
+            show: true,
+            extro: false,
+            extro_underworld: false,
+        }
+    }
+}
+
 /// The settings in force: the file's, with the command line's for this run.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub display: Display,
     pub interface: Interface,
+    pub movies: Movies,
     pub debug: Panels,
 }
 
@@ -407,6 +431,11 @@ mod tests {
                 enemy_info: false,
                 warning_level: 40,
             },
+            movies: Movies {
+                show: false,
+                extro: true,
+                extro_underworld: true,
+            },
             debug: Panels {
                 overlay: true,
                 log: true,
@@ -420,6 +449,9 @@ mod tests {
                 "display.height",
                 "interface.enemy_info",
                 "interface.warning_level",
+                "movies.show",
+                "movies.extro",
+                "movies.extro_underworld",
                 "debug.overlay",
                 "debug.log",
             ],

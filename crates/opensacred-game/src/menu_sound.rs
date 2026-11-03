@@ -174,7 +174,9 @@ impl Plugin for MenuSoundPlugin {
                 Update,
                 (drip, murmur)
                     .run_if(in_state(AppState::Menu))
-                    .run_if(resource_exists::<Sfx>),
+                    .run_if(resource_exists::<Sfx>)
+                    // None under a movie, whose channels stand (`movies`).
+                    .run_if(not(resource_exists::<crate::movies::Movie>)),
             );
     }
 }
