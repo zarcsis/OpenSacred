@@ -99,6 +99,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     }
 }
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+@if(HOLOGRAM) {
+    // The kind 8's texture is added whole, whatever its alpha (`ONE`, `ONE`).
+    pbr_input.material.base_color.a = 1.0;
+}
     // The texture's alpha, over a model's effect, before an opaque pass makes it whole.
     let over = pbr_input.material.base_color.a;
     pbr_input.material.base_color = alpha_discard(
@@ -142,11 +146,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     let effect = encode(textureSample(effect_texture, effect_sampler, in.uv + effect_offsets.xy));
     let glow = encode(textureSample(glow_texture, glow_sampler, in.uv + effect_offsets.zw));
     let under = min(effect.rgb + glow.rgb * effect_glows.x, vec3(1.0));
+@if(HOLOGRAM) {
+    // The kind 8's: the effect blended at half its alpha, the texture added over it, laid as one
+    // premultiplied colour (`models::Pass::Hologram`).
+    let half = effect.a * 0.5;
+    out.color = vec4(min(effect.rgb * half + out.color.rgb, vec3(1.0)), half);
+}
+@else {
 @if(LINEAR) {
     out.color = vec4(srgb_to_linear(mix(under, linear_to_srgb(out.color.rgb), over)), 1.0);
 }
 @else {
     out.color = vec4(mix(under, out.color.rgb, over), 1.0);
+}
 }
 }
     return out;

@@ -101,6 +101,12 @@ pub enum Pass {
     /// the kind 1, #1834): opaque through the depth buffer, each texel the effect's and the
     /// glow's colours under the texture's by its alpha, as the original's three passes lay them.
     Effect,
+    /// All of them added over the model's effect, which lies under them blended at half its
+    /// alpha (`model_effects`, the kind 8, #1850), in the objects' layer of the blended things,
+    /// their depth tested and not written: the original's effect pass and its main pass added
+    /// (`ONE`, `ONE`) laid in one, its colour the effect's by its half alpha plus the texture's,
+    /// over what lies behind by the rest (premultiplied).
+    Hologram,
 }
 
 /// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
@@ -135,13 +141,15 @@ pub struct InOrder {
 pub struct InOrderKey {
     fringe: bool,
     effect: bool,
+    hologram: bool,
 }
 
 impl From<&InOrder> for InOrderKey {
     fn from(extension: &InOrder) -> Self {
         Self {
             fringe: matches!(extension.pass, Pass::Fringe(_)),
-            effect: extension.pass == Pass::Effect,
+            effect: matches!(extension.pass, Pass::Effect | Pass::Hologram),
+            hologram: extension.pass == Pass::Hologram,
         }
     }
 }
@@ -201,6 +209,9 @@ impl MaterialExtension for InOrder {
             }
             if key.bind_group_data.effect {
                 fragment.shader_defs.push("EFFECT".into());
+            }
+            if key.bind_group_data.hologram {
+                fragment.shader_defs.push("HOLOGRAM".into());
             }
         }
         if key.bind_group_data.fringe
@@ -314,6 +325,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         Pass::Fringe(layer) => (AlphaMode::Blend, layer.bias()),
         Pass::Added(layer) => (AlphaMode::Add, layer.bias()),
         Pass::Effect => (AlphaMode::Opaque, base.depth_bias),
+        Pass::Hologram => (AlphaMode::Premultiplied, Layer::Objects.bias()),
     };
     ModelMaterial {
         base: StandardMaterial {
@@ -659,7 +671,12 @@ pub fn convert(
                     .1
                     .entry(material.0.id())
                     .or_insert_with(|| {
-                        let mut over = in_order(base.clone(), &anchors, Pass::Effect);
+                        let pass = if effect.kind == crate::model_effects::HOLOGRAM {
+                            Pass::Hologram
+                        } else {
+                            Pass::Effect
+                        };
+                        let mut over = in_order(base.clone(), &anchors, pass);
                         over.extension.effect = Some(effect.effect.clone());
                         // A kind of no glow adds the effect's texture at no share.
                         over.extension.glow =

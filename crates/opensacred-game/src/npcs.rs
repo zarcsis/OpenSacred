@@ -5443,7 +5443,9 @@ pub fn retexture(
         .filter(|&(kind, _)| !flat && kind == crate::model_effects::RUNNING_BANDS);
     // The kinds 1 to 4's effect, and the kind 1's glow, under every mesh.
     let under = effects_of
-        .filter(|&((kind, _), _)| crate::model_effects::under(kind))
+        .filter(|&((kind, _), _)| {
+            crate::model_effects::under(kind) || (!flat && kind == crate::model_effects::HOLOGRAM)
+        })
         .map(|((kind, texture), table)| effects.under(kind, (texture, table.glow()), &assets));
     // The kind 5's pulse over every mesh (#1850).
     let pulse = effects_of
