@@ -41,7 +41,7 @@ pub fn size(item: u32, record: [u8; 2], category: u8) -> (u8, u8) {
 }
 
 /// An item in the grid: its key in the hero's pack, its top left cell and its size.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Placed {
     pub key: u32,
     pub at: (u8, u8),
@@ -185,7 +185,7 @@ pub fn gold_to_drop(gold: u32) -> u32 {
 }
 
 /// A grid of `width` × `height` cells and the items in it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Grid {
     pub width: u8,
     pub height: u8,

@@ -28,7 +28,7 @@ use crate::npcs::Dies;
 const FIRST_IMAGE: u32 = 801;
 
 /// The hero's combos.
-#[derive(Resource, Clone, Debug, PartialEq)]
+#[derive(Resource, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HeroCombos(pub [Combo; COMBOS]);
 
 impl Default for HeroCombos {

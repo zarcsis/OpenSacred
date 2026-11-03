@@ -1208,7 +1208,7 @@ fn calm(
 }
 
 /// A creature's health, its most, and its level.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Health {
     pub current: u32,
     pub most: u32,

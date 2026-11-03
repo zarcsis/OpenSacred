@@ -286,7 +286,7 @@ impl Values {
 /// An item in a socket of another (`0x5BFF60`): the item as it went in, its values then (its
 /// maker's, else its type's record's), and the tier of the smith who put it there, which its
 /// record keeps (`+0x81`) and by which its values come off again (`0x5C0430`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Socketed {
     pub item: Dropped,
     pub values: ItemValues,

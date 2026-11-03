@@ -23,7 +23,7 @@ const PRICE_PER_LEVEL: u32 = 100;
 pub type Step = Option<(u16, u8)>;
 
 /// A hero's combo (the stats' list at `+0x10E`, entries of 38 bytes).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Combo {
     /// Its id, `0x200` and its index (`+0`).
     pub id: u16,

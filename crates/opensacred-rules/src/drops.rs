@@ -87,7 +87,7 @@ const TRIES: u32 = 6;
 const MISSES: u32 = 5;
 
 /// What a pass drew (docs/re/items.md, "A pass: what it makes").
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     Potion,
     Gold,
@@ -101,7 +101,7 @@ pub enum Kind {
 }
 
 /// An item that a death drops.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Dropped {
     /// What the pass drew; its item is the dagger 1712 where no type of the kind was found.
     pub kind: Kind,
@@ -129,7 +129,7 @@ pub struct Dropped {
 }
 
 /// The difficulties, bronze to niobium (the int `0x182EE44`, 0 to 4).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Difficulty {
     #[default]
     Bronze,

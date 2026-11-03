@@ -44,6 +44,12 @@ enum Command {
     NewGame(NewGame),
     /// Back to the main menu
     Menu,
+    /// Save the game as NAME, in the saves beside the settings (#1957)
+    Save { name: String },
+    /// Load the save NAME: a game of its hero starts, the hero where it was saved
+    Load { name: String },
+    /// The saves, the newest first: each its name, its hero, class, level and difficulty
+    Saves,
     /// End the process
     Quit,
     /// Put the hero at the centre of sector X,Y of the 100 x 100 grid, or on the ground nearest
@@ -513,7 +519,11 @@ fn set_state(world: &mut World, state: AppState) {
 
 /// Puts the hero at world point `position`: it lands on the cell there as `arrival` says once
 /// the sectors about it are in (`hero::land`).
-fn teleport(world: &mut World, mut position: Vec3, arrival: Arrival) -> Result<(), String> {
+pub(crate) fn teleport(
+    world: &mut World,
+    mut position: Vec3,
+    arrival: Arrival,
+) -> Result<(), String> {
     in_game(world)?;
     if let Some(y) = world
         .get_resource::<Heights>()
@@ -983,6 +993,39 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Menu => {
             set_state(world, AppState::Menu);
             Ok(Outcome::say("to the main menu"))
+        }
+        Command::Save { name } => {
+            in_game(world)?;
+            let path = crate::saves::save(world, &name).map_err(|e| format!("{e:#}"))?;
+            Ok(Outcome::say(format!("saved in {}", path.display())))
+        }
+        Command::Load { name } => {
+            let header = crate::saves::load(world, &name).map_err(|e| format!("{e:#}"))?;
+            Ok(Outcome::say(format!(
+                "{} loads: {} the {}, level {}",
+                header.name,
+                header.hero,
+                header.class.name(),
+                header.level
+            )))
+        }
+        Command::Saves => {
+            let lines: Vec<String> = crate::saves::saves(world)
+                .into_iter()
+                .map(|(file, header)| {
+                    format!(
+                        "{file}: {} the {}, level {}, {:?}",
+                        header.hero,
+                        header.class.name(),
+                        header.level,
+                        header.difficulty
+                    )
+                })
+                .collect();
+            if lines.is_empty() {
+                return Ok(Outcome::say("no saves"));
+            }
+            Ok(Outcome { lines, wait: None })
         }
         Command::Quit => {
             world.write_message(AppExit::Success);
@@ -1880,6 +1923,8 @@ mod tests {
         assert_eq!(
             complete("s"),
             [
+                "save",
+                "saves",
                 "screenshot",
                 "script",
                 "sector",
