@@ -18,6 +18,7 @@ Its sub-state 0 chooses by the target's category (`0x426220`; the jump table `0x
 - The walk's layer is taken as for the items (`0x635240`, `0x6354D0`, `0x635E50`, `0x634150`), and the AI takes its sub-state 2.
   The container's cell is closed (docs/re/movement.md, "The chests' cells"), so the way ends at the first cell beside it that the search reaches (docs/re/movement.md, "The way's goal"; **seen** 2026-11-03, #1877: the start's book stand on the pond's island, reached over the bridge).
   The game sends the hero to the container's own point since #1877, rather than to the ground under the cursor, which a tall container's model put in the pond behind the stand.
+  Since #1978 it sends it onto the container's level too, the search's target layer: sent with none, the way was sought on the hero's level, and from the chapel's floor at the Seraphim's start the chest behind its wall, whose cell the floor's grid holds walkable, was the way's goal on the floor, which no way reaches, so that she ran into the wall; she now goes out through the chapel's door and round to it.
 
 The sub-state 2 (`0x53BD9D`, the doors' too) waits while the creature moves; a creature target or one on another layer (the layers 0 and 1 counting as one) goes idle (`0x54E6D0`).
 Farther than 300 from the container (`0x53BE8C`), or for a container without a straight line of walkable cells to it (`0x4FCC80`, `0x53BEDC`), the order ends without opening.

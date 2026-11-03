@@ -1104,6 +1104,9 @@ type Spot = (i32, i32, i32);
 #[derive(Component)]
 pub struct Object {
     pub at: Vec3,
+    /// The level it stands on: the ground, or a building's floor, which a walk to it goes onto
+    /// (`containers::pick`, #1978).
+    pub level: Level,
 }
 
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
@@ -5248,7 +5251,10 @@ fn spawn(
         entity.insert(shadows::Casts);
     }
     if placement.object {
-        entity.insert(Object { at: position });
+        entity.insert(Object {
+            at: position,
+            level,
+        });
         if placement.blocks {
             entity.insert(crowd::InTheWay::object(level));
         }
