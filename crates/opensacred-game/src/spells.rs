@@ -218,6 +218,12 @@ const PENTAGRAM_LOOP: u32 = 2010;
 const CONFUSION_LOOP: u32 = 2067;
 const POISON_LOOP: u32 = 2054;
 const FOG_SOUND: u32 = 2055;
+/// The Daemon's objects' loops from their starts while they live: the hell disk's
+/// `DEMON_HOELLENDISK_LOOP` (1005, `0x7AE040`), the demon fire's `DEMON_HOELLENFEUER` (1015,
+/// `0x7B3110`) and the tentacles' `DEMON_TENTAKEL_LOOP` (1013, `0x7B1990`).
+const HELL_DISK_LOOP: u32 = 2119;
+const DEMON_FIRE_LOOP: u32 = 2124;
+const TENTACLES_LOOP: u32 = 2123;
 
 /// Flies each trap's ball on its arc to its point in 2/3 s (`0x5A706C`), gone without a trap at
 /// a cell it may not cross, and makes its trap where it lands, of its spell's record at the
@@ -1911,6 +1917,7 @@ fn act(
                     },
                     Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
                     Visibility::Inherited,
+                    crate::hums::Hum(HELL_DISK_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
                 if let Some(looks) = &looks {
@@ -1937,6 +1944,7 @@ fn act(
                     },
                     Transform::from_translation(act.point),
                     Visibility::Inherited,
+                    crate::hums::Hum(DEMON_FIRE_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
                 if let Some(looks) = &looks {
@@ -2561,6 +2569,7 @@ fn killed(
         },
         Transform::from_translation(at.translation()),
         Visibility::Inherited,
+        crate::hums::Hum(TENTACLES_LOOP),
         DespawnOnExit(AppState::InGame),
     ));
     if let Some(looks) = &looks {
