@@ -1479,7 +1479,8 @@ impl Host for Recorder<'_> {
             }
             // A mouse event (`MouseEvent`, 94, `0x4A6950`; #1584): a cell and floor, the function a
             // click runs as the hero arrives, the text the cursor shows (`0x1D`, `0x1E`), the
-            // flags 1 (`0x10`) or 2 (`0x0F`), one use with `0x66`.
+            // flags 1 (`0x10`) or 2 (`0x0F`), one use with `0x66`, a box's corners (`0x0C`,
+            // `0x0D`; #1586).
             "mouse_event" => {
                 let has = |key: &str| matches!(tags.values(key).first(), Some(Operand::Bool(true)));
                 let text = tags
@@ -1497,10 +1498,21 @@ impl Host for Recorder<'_> {
                 if let [x, y, ref rest @ ..] = tags.numbers("_04")[..] {
                     let floor = rest.first().copied().unwrap_or(0);
                     let function = tags.texts("_41").first().copied().unwrap_or_default();
+                    let corner = |key: &str| {
+                        let numbers = tags.numbers(key);
+                        let word = |k: usize| {
+                            numbers
+                                .get(k)
+                                .and_then(|&n| i16::try_from(n).ok())
+                                .unwrap_or(0)
+                        };
+                        [word(0), word(1)]
+                    };
+                    let ([x0, y0], [x1, y1]) = (corner("_0C"), corner("_0D"));
                     self.state.stashes.mouse_event(
                         (x, y, floor),
                         (function, text.unwrap_or_default()),
-                        (flags, has("_66")),
+                        (flags, has("_66"), [x0, y0, x1, y1]),
                     );
                 }
                 Handled::Done

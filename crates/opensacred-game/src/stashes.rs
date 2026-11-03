@@ -16,8 +16,12 @@
 //! `0x66` (the well) have one, the others never run out; those of the flags 1, every `MouseEvent`
 //! of `0x10`, do not blink.
 //!
+//! An event of a box (`0x0C`, `0x0D`; #1586) is reached by it alone: the cursor in the box about
+//! its cell's point on the screen, in the original's pixels at the zoom 1 and smaller as the view
+//! shows more (`0x62CF20`, [`BoxedUnder`]); one without is picked as a creature is.
+//!
 //! Not followed: the static object's mark (the stash stands at its cell's centre on the ground,
-//! whatever its floor, picked as a creature is), the events' boxes (`0x0C`, `0x0D`), the sparks
+//! whatever its floor), the sparks
 //! of the events of neither flag (`0x409D00`), the arrival's straight way, the item maker's use of
 //! the `CreateObj`'s `0x79`, and the hero's walk of the order 7 (the click's own walk takes it
 //! there).
@@ -74,6 +78,51 @@ pub struct Stash {
     pub cell: (i32, i32),
     pub text: String,
     pub look: Look,
+    /// Its box, by which alone it is reached (`opensacred_rules::quests::Stash::boxed`).
+    pub boxed: Option<[i16; 4]>,
+}
+
+/// The event of a box under the cursor in this frame, which the cursor and the click take in
+/// place of the line of sight's (`0x62CF20`: the world view lays each such event's box at its
+/// static's point into the list that the mouse picks from, its id with the bit `0x80000000`).
+#[derive(Resource, Default)]
+pub(crate) struct BoxedUnder(pub(crate) Option<Entity>);
+
+/// Whether the cursor at `cursor` lies in the box `boxed` about the point `point`, both in the
+/// original's pixels on the screen, at the view's zoom `zoom` (2 shows twice the world): the box's
+/// corners in pixels at the zoom 1, edges in (**seen**: the well at the Seraphim's start, its box
+/// (−53, −47) to (52, 50), the hand from 53 left to 52 right of its cell's point and from 47 above
+/// to 50 below, not a pixel beyond).
+pub(crate) fn inside(cursor: Vec2, point: Vec2, boxed: [i16; 4], zoom: f32) -> bool {
+    let at = (cursor - point) * zoom;
+    let [x0, y0, x1, y1] = boxed.map(f32::from);
+    (x0..=x1).contains(&at.x) && (y0..=y1).contains(&at.y)
+}
+
+/// Finds the event of a box under the cursor, the first of them (`0x62CF20`).
+pub(crate) fn boxed_under(
+    mut under: ResMut<BoxedUnder>,
+    (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
+    camera: Single<(&Camera, &GlobalTransform, &Projection), crate::iso::Eye<With<Camera>>>,
+    stashes: Query<(Entity, &GlobalTransform, &Stash)>,
+) {
+    under.0 = None;
+    let Some(cursor) = pointer.0 else {
+        return;
+    };
+    let (camera, view, projection) = *camera;
+    let zoom = match projection {
+        Projection::Orthographic(ortho) => ortho.scale.max(0.01),
+        _ => 1.0,
+    };
+    let scale = ui_scale.0.max(0.01);
+    under.0 = stashes.iter().find_map(|(entity, at, stash)| {
+        let boxed = stash.boxed?;
+        // Its cell's point on the ground, below where it is placed.
+        let ground = at.translation() - Vec3::Y * PICKED_ABOVE;
+        let point = camera.world_to_viewport(view, ground).ok()?;
+        inside(cursor / scale, point / scale, boxed, zoom).then_some(entity)
+    });
 }
 
 /// One random item that a `CreateObj` of `0x54` and no type makes for the hero (`scripts`).
@@ -128,6 +177,7 @@ fn place(
                 cell: listed.cell,
                 text: listed.text.clone(),
                 look: listed.look,
+                boxed: listed.boxed,
             },
             Transform::from_xyz(point.x, ground + PICKED_ABOVE, point.y),
             Visibility::Hidden,
@@ -136,16 +186,16 @@ fn place(
     }
 }
 
-/// On a press of the left button that went to no attack, the stash nearest the cursor's line of
-/// sight, if one is near it, becomes the hero's to search (`0x617A5B`); any press ends the last
-/// such order.
+/// On a press of the left button that went to no attack, the event of a box under the cursor, else
+/// the stash without one nearest the cursor's line of sight, if one is near it, becomes the hero's
+/// to search (`0x617A5B`); any press ends the last such order.
 fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<Pointer>,
     aim: Res<Aim>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    stashes: Query<(Entity, &GlobalTransform), With<Stash>>,
+    (stashes, boxed): (Query<(Entity, &GlobalTransform, &Stash)>, Res<BoxedUnder>),
     heroes: Query<Entity, With<Body>>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -161,12 +211,14 @@ fn pick(
     let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
         return;
     };
-    let Some(stash) = stashes
-        .iter()
-        .filter_map(|(entity, at)| Some((entity, picked(ray, at.translation())?)))
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(entity, _)| entity)
-    else {
+    let Some(stash) = boxed.0.or_else(|| {
+        stashes
+            .iter()
+            .filter(|(_, _, stash)| stash.boxed.is_none())
+            .filter_map(|(entity, at, _)| Some((entity, picked(ray, at.translation())?)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(entity, _)| entity)
+    }) else {
         return;
     };
     for hero in &heroes {
@@ -424,6 +476,7 @@ pub struct StashesPlugin;
 impl Plugin for StashesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<RandomItem>()
+            .init_resource::<BoxedUnder>()
             .add_systems(OnEnter(AppState::InGame), begin_blink)
             .add_systems(Update, blink.in_set(Playing))
             .add_systems(
@@ -431,12 +484,16 @@ impl Plugin for StashesPlugin {
                 (
                     place.run_if(in_state(AppState::InGame)),
                     give.run_if(in_state(AppState::InGame)),
+                    boxed_under.run_if(in_state(AppState::InGame)),
                 ),
             )
             .add_systems(
                 Update,
                 (
-                    pick.in_set(Control).after(attack::aim).before(hero::steer),
+                    pick.in_set(Control)
+                        .after(attack::aim)
+                        .after(boxed_under)
+                        .before(hero::steer),
                     search.after(hero::run),
                 )
                     .in_set(Unpaused)
@@ -448,6 +505,20 @@ impl Plugin for StashesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_event_of_a_box_is_under_the_cursor_within_it() {
+        // The well at the Seraphim's start, its cell's point at (560, 505): the hand from 507 to
+        // 612 across and from 458 to 555 down, as seen in the original.
+        let (well, point) = ([-53, -47, 52, 50], Vec2::new(560.0, 505.0));
+        let at = |x: f32, y: f32, zoom: f32| inside(Vec2::new(x, y), point, well, zoom);
+        assert!(at(507.0, 500.0, 1.0) && at(612.0, 500.0, 1.0));
+        assert!(!at(505.0, 500.0, 1.0) && !at(614.0, 500.0, 1.0));
+        assert!(at(560.0, 458.0, 1.0) && at(560.0, 555.0, 1.0));
+        assert!(!at(560.0, 456.0, 1.0) && !at(560.0, 557.0, 1.0));
+        // Showing twice the world, the box is half as large on the screen.
+        assert!(at(534.0, 500.0, 2.0) && !at(532.0, 500.0, 2.0));
+    }
 
     #[test]
     fn a_blink_lies_on_its_cells_ground() {
