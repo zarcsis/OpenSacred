@@ -365,6 +365,16 @@ pub struct Play {
     pub rate: (f32, Roll),
 }
 
+/// A sound of the world at a point rather than at an entity, as [`Play`] plays one: an object's
+/// that goes as it sounds, a trap's explosion (#1173).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PlayAt {
+    pub sound: Of,
+    pub point: Vec3,
+    /// The rate's factor: a base, and what a roll adds to it.
+    pub rate: (f32, Roll),
+}
+
 /// What a [`Play`] plays.
 #[derive(Clone, Copy, Debug)]
 pub enum Of {
@@ -525,7 +535,7 @@ fn blows(
 
 /// Plays the sounds of the world and of the interface that the modules ask for, in a pause too.
 fn plays(
-    mut plays: MessageReader<Play>,
+    (mut plays, mut points): (MessageReader<Play>, MessageReader<PlayAt>),
     mut sfx: ResMut<Sfx>,
     places: Query<&GlobalTransform>,
     (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
@@ -533,27 +543,38 @@ fn plays(
     audio: Res<Audio>,
 ) {
     let listener = listeners.iter().next().map(GlobalTransform::translation);
-    for play in plays.read() {
-        let (volume, pan) = match play.at {
-            Some(at) => {
-                let Ok(place) = places.get(at) else {
-                    continue;
-                };
-                placed_at(place.translation(), listener, *volume)
-            }
+    // Each sound at its place, an entity's that is gone dropped, or in the middle.
+    let asked: Vec<(Of, Option<Vec3>, (f32, Roll))> = plays
+        .read()
+        .filter_map(|play| match play.at {
+            Some(at) => places
+                .get(at)
+                .ok()
+                .map(|place| (play.sound, Some(place.translation()), play.rate)),
+            None => Some((play.sound, None, play.rate)),
+        })
+        .chain(
+            points
+                .read()
+                .map(|play| (play.sound, Some(play.point), play.rate)),
+        )
+        .collect();
+    for (sound, place, rate) in asked {
+        let (volume, pan) = match place {
+            Some(at) => placed_at(at, listener, *volume),
             None => placed(0, 0, *volume),
         };
         if volume <= 0.0 {
             continue;
         }
-        let picked = match play.sound {
+        let picked = match sound {
             Of::Profile(profile, group) => sfx.pick(profile, group),
             Of::Id(id) => sfx.with_id(id),
         };
         let Some((id, file)) = picked else {
             continue;
         };
-        let (base, roll) = play.rate;
+        let (base, roll) = rate;
         let rate =
             base + match roll {
                 Roll::None => 0.0,
@@ -566,10 +587,7 @@ fn plays(
             .with_volume(decibels(volume))
             .with_panning(pan)
             .with_playback_rate(f64::from(rate));
-        debug!(
-            "sfx: {:?} ({id}) at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}",
-            play.sound
-        );
+        debug!("sfx: {sound:?} ({id}) at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}");
     }
 }
 
@@ -593,6 +611,7 @@ impl Plugin for SfxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Blow>()
             .add_message::<Play>()
+            .add_message::<PlayAt>()
             .init_resource::<Listener>()
             .add_systems(
                 bevy::prelude::OnEnter(crate::game::AppState::InGame),
