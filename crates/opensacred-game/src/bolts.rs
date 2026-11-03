@@ -72,7 +72,15 @@ pub struct Course {
     /// How far it knocks back what it strikes, before its strike, and the level below which
     /// (the Mage's whirlwind's, `opensacred_rules::spells::whirlwind_knocks`).
     pub knocks: Option<(f32, f32)>,
+    /// The sounds its particle system plays as it starts and as it hits, where read (the
+    /// fireball's, #1173).
+    pub sounds: Option<(u32, u32)>,
 }
+
+/// The fireball's system's sounds (`cParticleSystem_firestrike`): `MAGE_FEUERBALL_CAST` as it
+/// starts (`0x76BE80`) and `MAGE_FEUERBALL_HIT` as its object hits (`0x76BBD0`, the flag 2), each
+/// at the object, at the volume 1 and the sample's own rate; its time out plays none.
+const FIREBALL_SOUNDS: (u32, u32) = (2000, 2001);
 
 impl Course {
     /// The course of the Seraphim's bolt `bolt`.
@@ -93,6 +101,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
+            sounds: None,
         }
     }
 
@@ -109,11 +118,13 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
+            sounds: None,
         }
     }
 
     /// The course of the Mage's fireball at the level `level` (the object 778, `0x76BE80`): every
-    /// creature of its first contact, once, and it goes (`0x5ABD80` at `0x5AC015`).
+    /// creature of its first contact, once, and it goes (`0x5ABD80` at `0x5AC015`), with its
+    /// system's sounds ([`FIREBALL_SOUNDS`]).
     pub fn fireball(level: u32) -> Self {
         Self {
             speed: opensacred_rules::spells::fireball_speed(level),
@@ -125,6 +136,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
+            sounds: Some(FIREBALL_SOUNDS),
         }
     }
 
@@ -143,6 +155,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
+            sounds: None,
         }
     }
 
@@ -159,6 +172,7 @@ impl Course {
             beat: 1.0,
             bursts: None,
             knocks: None,
+            sounds: None,
         }
     }
 }
@@ -291,12 +305,13 @@ fn fire(
 }
 
 /// Makes the bolt of each launch where its shooter stands, at [`HEIGHT`], on its level: the
-/// hero's, or a creature's that casts (#1852).
+/// hero's, or a creature's that casts (#1852); its system's start's sound at it, where it has one.
 fn launch(
     mut commands: Commands,
     mut launches: MessageReader<Launch>,
     looks: Option<Res<Looks>>,
     shooters: Query<(&Transform, Option<&Body>, Option<&InTheWay>)>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let Some(looks) = looks else {
         launches.clear();
@@ -314,7 +329,7 @@ fn launch(
         let Some((mesh, material)) = looks.0.get(launched.course.look).cloned() else {
             continue;
         };
-        commands.spawn((
+        let bolt = commands.spawn((
             Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::from_translation(at.translation + Vec3::Y * HEIGHT),
@@ -336,6 +351,13 @@ fn launch(
             },
             DespawnOnExit(AppState::InGame),
         ));
+        if let Some((start, _)) = launched.course.sounds {
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(start),
+                at: Some(bolt.id()),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
+        }
     }
 }
 
@@ -348,7 +370,11 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    (mut hits, ranks): (MessageWriter<fight::Hit>, Query<&fight::Ranked>),
+    (mut hits, ranks, mut sounds): (
+        MessageWriter<fight::Hit>,
+        Query<&fight::Ranked>,
+        MessageWriter<crate::sfx::Play>,
+    ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
     (shooters, heroes): (
         Query<&Transform, (With<Body>, Without<Flying>)>,
@@ -475,6 +501,14 @@ fn fly(
         }
         if course.strikes == Strikes::First {
             struck.truncate(1);
+        }
+        // Its system's hit's sound, at the creature it hits first, the bolt going in this frame.
+        if let Some((_, hit)) = course.sounds {
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(hit),
+                at: struck.first().copied(),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
         }
         // The whirlwind's knockback first, on each of no big type below its level (`0x5AD135`).
         if let Some((left, below)) = course.knocks {
