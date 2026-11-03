@@ -367,7 +367,10 @@ pub fn stream(
     mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
     mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
-    light_types: Res<daynight::LightTypes>,
+    (light_types, fall_types): (
+        Res<daynight::LightTypes>,
+        Option<Res<crate::waterfalls::Types>>,
+    ),
     glow: Option<Res<statics::Glow>>,
     shadows: Option<Res<statics::StaticShadows>>,
     fade: Res<statics::Fade>,
@@ -431,6 +434,10 @@ pub fn stream(
         );
         heights.add(&built.sector);
         let lights = daynight::sources(&built.sector, &light_types);
+        let falls = fall_types
+            .as_deref()
+            .map(|types| crate::waterfalls::sources(&built.sector, types))
+            .unwrap_or_default();
         let mut entities = terrain::spawn(
             &mut commands,
             built.ground,
@@ -472,6 +479,14 @@ pub fn stream(
                 .spawn((
                     Transform::from_translation(position),
                     daynight::Light(radius),
+                ))
+                .id()
+        }));
+        entities.extend(falls.into_iter().map(|position| {
+            commands
+                .spawn((
+                    Transform::from_translation(position),
+                    crate::waterfalls::Fall,
                 ))
                 .id()
         }));

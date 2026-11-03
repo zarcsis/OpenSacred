@@ -145,6 +145,7 @@ mod tooltip;
 mod town_stash;
 mod undead;
 mod voices;
+mod waterfalls;
 mod weather;
 mod world_map;
 
@@ -500,6 +501,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         town_stash::TownStashPlugin,
         undead::UndeadPlugin,
         voices::VoicesPlugin,
+    ))
+    .add_plugins((
+        waterfalls::WaterfallsPlugin,
         weather::WeatherPlugin,
         world_map::WorldMapPlugin,
     ))
@@ -509,6 +513,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(controls)
     .insert_resource(controls::Warnings(control_warnings))
     .insert_resource(daynight::LightTypes::read(&shared.tables)?)
+    .insert_resource(waterfalls::Types::read(&shared.tables)?)
     .insert_resource(dungeons)
     .insert_resource(hero::GameSpeed::read(&shared.tables)?)
     .insert_resource(statics::TreeFade::read(&shared.tables)?)
