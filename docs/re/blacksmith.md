@@ -30,7 +30,7 @@ The talk that opens the traders' windows is docs/re/trade.md and docs/re/arts.md
 
 The grid takes one item, through the inventory's rules of a fit (`0x5DB0D0`):
 
-- of the categories 5, 6, 13, 17, 18, 19, 21, 22, 23, 24, 25 or 33 (the weapons, the shields and the armour's pieces), for which the item's check `0xE` (its virtual `+0x24`) answers other than 0 (**hypothesis**: one that may be worked);
+- of the categories 5, 6, 13, 17, 18, 19, 21, 22, 23, 24, 25 or 33 (the weapons, the shields and the armour's pieces), for which the item's query `0xE` (its virtual `+0x24`, `cItemBase`'s `0x5C70C0`, which the weapons' class passes it on to, `0x5CED50`, and the armour's, the shields', the rings' and the amulets' classes take as theirs) answers other than 0: the count of its sockets' kinds other than 0 among its eight (`+0x124`), so an item with a socket (read 2026-11-03 for #1821, **confirmed** by code and **seen**: below);
 - an item put in goes to the cell under the pointer where it fits there (`0x5DB0D0`) and takes the place of the one there, which goes onto the cursor; a press on the grid with nothing on the cursor takes the item onto it; either way what waits for the sockets goes back as the window's hide sends it (`0x6A3080`, below).
 - The buttons put their upgrade onto a cursor that holds nothing or another upgrade (the old one let go first); a press on the window off its controls lets an upgrade on the cursor go.
 
@@ -85,7 +85,7 @@ At the x87 unit's 53 bits a price that comes to a whole number in real numbers f
 
 ## Not read
 
-- The Dwarf's button of the skill 33 and his checks (`+0x3C`), and the item's check `0xE` (`+0x24`).
+- The Dwarf's button of the skill 33 and his checks (`+0x3C`).
 - What the upgrades' records give an item (their values and bonuses, read with the items' table, docs/02 §6.1).
 - The window's pictures, fonts and hints' texts by their numbers, measured against the running original.
 
@@ -102,7 +102,7 @@ The window's sounds (read 2026-11-03 for #1821, **confirmed** by code and **seen
 - The show, by a click on the smith: the inventory's four (7112, 7000, 7000, 7112), then the smith's show's event `0x32` selecting the items page, its 7112, then the smith's 7108, all in one frame; three times alike.
 - The work, of an upgrade waiting for the one socket of a sword: the gold's 7100 (`0x57FD80`, docs/re/sound.md) and the smith's 7108.
 - Silent: an item into the grid and out of it onto the cursor, an upgrade's button, a second button with an upgrade held, a press on the window's ground that drops it, an upgrade into an empty socket, a press on the filled socket.
-- The grid refused the Seraphim a bow (1732) and her wings (2149), the grid and the equipment's slots tinted red as she held them, and took her sword (7901): **hypothesis** that the item's check `0xE` is whether the hero may use the item.
+- The grid refused the Seraphim a bow (1732) and her wings (2149), the grid and the equipment's slots tinted red as she held them, and took her sword (7901): the query `0xE`, its sockets, as above: the bow and the wings have none, the sword one.
 Since #1821 the game plays them so (`blacksmith::open`, `blacksmith::work`).
 The tooltips and the lines of what waits (read 2026-11-03 for #1821 in the draw `0x6A33A0`, **confirmed** by code, and **seen** in the original at the smith of 50,44, the Seraphim at level 1, a sword of one socket in the grid and the button 0's upgrade waiting for it):
 - A button under the pointer shows the tooltip of its upgrade of the smith's tier: the window's view of an item (`cBsItem3D`, the global at `0x17E9FCC`) takes the upgrade's type and works its values out again (`0x5C0A40`), and its text of the flags `0x5F` goes to the manager's tooltip of the style `0xB` at the button's corner and 48 along, 16 down, with no item's id, so no row of sockets.
@@ -112,4 +112,5 @@ The tooltips and the lines of what waits (read 2026-11-03 for #1821 in the draw 
 - The grid's item under the pointer: its own tooltip of the flags `0x5F` (`0x15F`, the level red, where the Dwarf's check refuses it), with its id, so with its row of sockets, at the corner of the grid's cell under the pointer (`0x5D9D60`, `0x5DD570`) and 48 along, 16 down; **seen** at (96, 144) with the pointer in the cell (1, 2).
 - The lines of what waits: each waiting object's text of the flags `0x11` (no name's lines, no price, no damage's or protection's line, no hint) in the sockets' order, one text; measured in the font 7, up to seven lines drawn in the font 1 from (124, 58) of the window (the rectangle 160 high), more in the font 7, as many as the rectangle holds there and the rest 180 along; **seen**: the waiting upgrade's five lines, 20 apart, their letters from 66.
 Since #1821 the game shows them so (`blacksmith::hovered`, `blacksmith::waiting`, the tooltips' `Source::Smith` and `Weighing::waiting_lines`; `tooltip::lines` takes the flags 2, 4 and 8); the font 7's line (15) and size (16) are the statistics window's **estimate**.
-Not followed yet: the Dwarf's smithing by his skill 33 and the item's check `0xE`.
+Since #1821 the game's grid takes only an item with a socket (`smith::worked` with `drops::Tables::sockets`).
+Not followed yet: the Dwarf's smithing by his skill 33.

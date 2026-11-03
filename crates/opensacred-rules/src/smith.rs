@@ -109,10 +109,11 @@ pub fn socketable(kind: u32, category: u8) -> bool {
     matches!(category, RINGS | AMULETS | UPGRADES | RUNES) || SOCKETED_QUEST_ITEMS.contains(&kind)
 }
 
-/// Whether the smith works an item of category `category` (`0x6A4380`; the item's own check
-/// `0xE` not followed).
-pub fn worked(category: u8) -> bool {
-    WORKED.contains(&category)
+/// Whether the smith works an item of category `category` with `sockets` sockets (`0x6A4380`):
+/// one of [`WORKED`]'s, whose query `0xE` (`cItemBase`'s `0x5C70C0`: its sockets of a kind other
+/// than 0 among its eight) answers other than 0, an item with a socket.
+pub fn worked(category: u8, sockets: usize) -> bool {
+    WORKED.contains(&category) && sockets > 0
 }
 
 /// Something that waits for an empty socket of the item: a rune, or another item or upgrade of
@@ -464,7 +465,9 @@ mod tests {
         assert!(!socketable(1, 9));
         assert!(socketable(6112, 15));
         assert!(!socketable(6114, 15));
-        assert!(worked(5) && worked(33) && !worked(8) && !worked(9));
+        assert!(worked(5, 1) && worked(33, 2) && !worked(8, 1) && !worked(9, 1));
+        // Seen 2026-11-03: the grid refused a bow and wings of no socket, took a sword of one.
+        assert!(!worked(5, 0) && !worked(6, 0));
     }
 
     #[test]

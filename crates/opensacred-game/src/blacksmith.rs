@@ -8,8 +8,9 @@
 //! with the items in them or waiting for them as their models, an upgrade's 1.9 times its size,
 //! the work's button (258, 256 lit) and the price under it, red where the gold falls short.
 //!
-//! Its presses (`0x6A4380`): an item of the cursor that the smith works goes into the grid at the
-//! cell under it, the item there before onto the cursor; the grid's item onto the empty cursor;
+//! Its presses (`0x6A4380`): an item of the cursor that the smith works, a weapon, a shield or a
+//! piece of armour with a socket (`smith::worked`, #1821), goes into the grid at the cell under
+//! it, the item there before onto the cursor; the grid's item onto the empty cursor;
 //! either way what waited for the sockets goes back into the backpack, an upgrade lost (`0x6A3080`).
 //! A button puts an upgrade of the smith's tier onto a cursor that holds nothing or another upgrade
 //! (`opensacred_rules::smith::upgrade`), which no grid takes and a press on the window's ground
@@ -27,7 +28,7 @@
 //! ([`waiting`]).
 //!
 //! Not followed yet: the Dwarf smithing by his skill 33 (his button of the inventory, the third
-//! button's picture 1606 and his checks), the item's check `0xE`, and a network game's events.
+//! button's picture 1606 and his checks), and a network game's events.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -544,7 +545,10 @@ fn press_grid(
         }
         return;
     };
-    if !smith::worked(tables.category(held.dropped.item)) {
+    if !smith::worked(
+        tables.category(held.dropped.item),
+        tables.sockets(&held.dropped),
+    ) {
         return;
     }
     let (column, row) = held_at((at.x, at.y), held.size);
@@ -1003,14 +1007,17 @@ fn show(
     }
 }
 
-/// Tints the grid's cells as the backpack's: under an item blue, or red where the hero may not
-/// use it.
+/// Tints the grid's cells as the backpack's (`0x5DC430`): under an item held over the grid by
+/// where it would go, green, purple, or red where it would not or the smith works no such item
+/// (seen: a torch and a bow of no socket red under the pointer, #1821); else under an item blue,
+/// or red where the hero may not use it.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn tint(
-    smith: Option<Res<Blacksmith>>,
+    (smith, pack): (Option<Res<Blacksmith>>, Res<Pack>),
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (hero, experience, rules, tables): (
         Option<Res<crate::hero::Hero>>,
         Res<crate::fight::Experience>,
@@ -1022,6 +1029,23 @@ fn tint(
     let Some(smith) = smith else {
         return;
     };
+    let held = pack.held.as_ref().and_then(|held| {
+        let at = screen_point(&pointer, &ui_scale, &windows)? - GRID;
+        backpack::cell_in(at, (COLUMNS, ROWS))?;
+        let cell = held_at((at.x, at.y), held.size);
+        let worked = tables.as_deref().is_some_and(|tables| {
+            smith::worked(
+                tables.category(held.dropped.item),
+                tables.sockets(&held.dropped),
+            )
+        });
+        let highlight = if worked {
+            smith.grid.highlight(cell, held.size)
+        } else {
+            opensacred_rules::inventory::Highlight::Refused
+        };
+        Some((cell, held.size, highlight))
+    });
     let refused = |key: u32| {
         smith
             .items
@@ -1035,7 +1059,7 @@ fn tint(
             })
     };
     for (tint, mut colour) in &mut tints {
-        let wanted = backpack::cell_tint(&smith.grid, None, tint.0, refused);
+        let wanted = backpack::cell_tint(&smith.grid, held, tint.0, refused);
         colour.set_if_neq(BackgroundColor(wanted));
     }
 }
