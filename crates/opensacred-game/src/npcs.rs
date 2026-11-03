@@ -191,6 +191,59 @@ const ART: u8 = 0x67;
 const NO_SPELL: &str = "ecs_nospell";
 /// The art of an `Attack` that teleports its creature, `PHASEN` (the reader's 1, #1831).
 const TELEPORTS: &str = "ecs_teleport";
+
+/// The spells that the records' reader gives the names of [`ART`] (`0x473306` on), each name
+/// whole and case aside; `ECS_NOSPELL` is −1, whose low byte a creature keeps (#1869).
+const SPELL_NAMES: [(&str, u8); 27] = [
+    ("ecs_teleport", 1),
+    ("ecs_superfluid", 4),
+    ("ecs_firestrike", 5),
+    ("ecs_pentagrammkiller", 6),
+    ("ecs_kugelblitz", 8),
+    ("ecs_firecircle", 11),
+    ("ecs_groundpoison", 12),
+    ("ecs_lightning_strike", 13),
+    ("ecs_freeze", 14),
+    ("ecs_holylight", 15),
+    ("ecs_holyshield", 22),
+    ("ecs_meteor", 26),
+    ("ecs_twister", 28),
+    ("ecs_windstrike", 29),
+    ("ecs_flash", 33),
+    ("ecs_icebullets", 34),
+    ("ecs_circleofice", 35),
+    ("ecs_changeling", 36),
+    ("ecs_bubbletrap", 38),
+    ("ecs_killerplants", 39),
+    ("ecs_plantcage", 40),
+    ("ecs_lostsouls", 41),
+    ("ecs_naturehealing", 42),
+    ("ecs_reanimate", 43),
+    ("ecs_healing", 7),
+    ("ecs_fireskin", 24),
+    (NO_SPELL, u8::MAX),
+];
+/// The summon's name, which the reader takes by its first 13 letters, a type after a space
+/// kept apart (`+0x261`): the spell 3.
+const SUMMONS: &str = "ecs_bigsummon";
+/// What the reader gives a name it does not know, which it starts from (`0x4732B0`).
+const UNKNOWN_SPELL: u8 = 0xFF;
+
+/// The spell that a creature keeps of a `CreateNPC`'s [`ART`] named `name` (`+0x2B6`, the low
+/// byte of the reader's value, `0x483D0A`): [`SPELL_NAMES`]', the summon's 3, else 255, which a
+/// magician's chooser takes for a spell of none (`casts::mage_spell`).
+fn script_spell(name: &str) -> u8 {
+    if name
+        .get(..SUMMONS.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(SUMMONS))
+    {
+        return 3;
+    }
+    SPELL_NAMES
+        .iter()
+        .find(|(known, _)| name.eq_ignore_ascii_case(known))
+        .map_or(UNKNOWN_SPELL, |&(_, spell)| spell)
+}
 /// The operand that `npcs` adds to a `Morph` that waited its turn in its creature's queue as it
 /// hands it to the world's records ([`take_steps`]): its level and health kept (the step
 /// `0x59F266`); past the scripts' last tag, beside [`AREA_TURN`].
@@ -332,6 +385,9 @@ struct Placement {
     /// An object's item's `Use:` function, its `CreateObj`'s [`ON_USE`], which the right button
     /// runs on it in the backpack (#1272).
     uses: Option<String>,
+    /// An NPC's script's spell, its `CreateNPC`'s last [`ART`] ([`script_spell`], `+0x2B6`), which
+    /// a magician's chooser takes first (`0x4D31C0`, #1869); 0 for none.
+    spell: u8,
 }
 
 impl Placement {
@@ -794,6 +850,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         lies: false,
         container: None,
         uses: None,
+        spell: 0,
     }
 }
 
@@ -2965,6 +3022,17 @@ impl Makers {
                     })
                 })
                 .flatten(),
+            spell: if record.kind == CREATE_NPC {
+                ops.iter()
+                    .rev()
+                    .find_map(|o| match (o.tag, &o.value) {
+                        (ART, Value::Str(name)) => Some(script_spell(name)),
+                        _ => None,
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            },
         }))
     }
 
@@ -4836,6 +4904,7 @@ fn spawn(
             (creature, placement.class),
         );
         mind.hold(placement.dialogue, placement.trades != 0, placement.kept);
+        mind.spell = placement.spell;
         if placement.trades != 0 {
             entity.insert(Trades(placement.trades));
         }
@@ -10509,6 +10578,22 @@ mod tests {
         assert_eq!(cast(&[name("res:1"), art("ECS_TELEPORT")]), None);
         assert_eq!(cast(&[name("res:1"), name("res:2")]), None);
         assert_eq!(cast(&[name("HERO"), art("ECS_WINDSTRIKE")]), None);
+    }
+
+    #[test]
+    fn a_createnpcs_spell_is_the_readers_number_of_its_name() {
+        // Quest 13's priests and black magician, `undweiter`'s priests, quest 6's dark elf.
+        assert_eq!(script_spell("ECS_FIRESTRIKE"), 5);
+        assert_eq!(script_spell("ECS_METEOR"), 26);
+        assert_eq!(script_spell("ecs_firecircle"), 11);
+        assert_eq!(script_spell("ECS_ICEBULLETS"), 34);
+        assert_eq!(script_spell("ECS_FIRESKIN"), 24);
+        // The summon by its first letters, a type after it.
+        assert_eq!(script_spell("ECS_BIGSUMMON"), 3);
+        assert_eq!(script_spell("ECS_BIGSUMMON 264"), 3);
+        // A name the reader does not know, the black magician 08's hellfire, and none.
+        assert_eq!(script_spell("ECS_HELLFIRE"), 255);
+        assert_eq!(script_spell("ECS_NOSPELL"), 255);
     }
 
     #[test]

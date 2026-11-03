@@ -98,6 +98,9 @@ pub struct Mind {
     /// The creature it fights, its target (`+0x104`), while it fights one rather than the hero
     /// (#630).
     foe: Option<Entity>,
+    /// Its script's spell (`+0x2B6`, its `CreateNPC`'s `0x67`), which a magician's chooser takes
+    /// first (`0x4D31C0`, #1869); 0 for none.
+    pub spell: u8,
 }
 
 impl Mind {
@@ -121,6 +124,7 @@ impl Mind {
             opening: None,
             entering: None,
             foe: None,
+            spell: 0,
         }
     }
 
@@ -939,7 +943,7 @@ fn pursue(
                 hostiles: 0,
                 crowded: nearest.hostiles.len() > 1,
                 nearest: nearest.hostiles.first() == Some(&entity),
-                scripted: 0,
+                scripted: u16::from(mind.spell),
                 hero_low: false,
                 friends: (wounded_friend.is_some(), fighting_friend.is_some()),
             };
