@@ -2559,6 +2559,9 @@ pub mod effects {
     /// physical; or the kind of the whole value, 0 to 3.
     pub const DAMAGE: u32 = 3;
     pub const DAMAGE_OF: u32 = 33;
+    /// The value that the adder gives an effect [`DAMAGE_OF`] added of none, the statues'
+    /// power-ups (`0x5842D5`), which also heals its bearer whole and readies its arts.
+    pub const DAMAGE_OF_GIVEN: f32 = 0.5;
     /// The four kinds' resistances (`+0x66` to `+0x72`), plus the value, from the physical.
     pub const RESISTANCE: u32 = 7;
     /// Both regeneration speeds of the arts, the spells' (`+0xEE`) and the weapon arts' (`+0xF2`).

@@ -916,6 +916,52 @@ fn play_pickup(
     Some((node, length))
 }
 
+/// A hero that plays its pick-up's clip with no item to take, a statue's power-up (the clip 172
+/// that `Partikel`'s two-number form orders, `0x4A9560`; #1846).
+#[derive(Component)]
+pub(crate) struct Kneels;
+
+/// Plays each [`Kneels`] hero's pick-up as [`take`] plays it, with nothing to take: unless it
+/// moves or picks something up already, it stops and plays the clip, which [`picking`] ends.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+pub(crate) fn kneel(
+    mut commands: Commands,
+    (clips, speed, animations): (
+        Option<Res<hero::Clips>>,
+        Res<hero::GameSpeed>,
+        Res<Assets<AnimationClip>>,
+    ),
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    mut heroes: Query<
+        (
+            Entity,
+            &mut Body,
+            Option<&fight::Combat>,
+            Option<&fight::Frenzy>,
+        ),
+        (With<Kneels>, Without<Picking>),
+    >,
+) {
+    for (hero, mut body, combat, frenzy) in &mut heroes {
+        commands.entity(hero).remove::<Kneels>();
+        body.stop();
+        let rate = hero_rate(combat, frenzy);
+        if let Some((node, length)) =
+            play_pickup(clips.as_deref(), &mut players, &animations, (speed.0, rate))
+        {
+            commands.entity(hero).insert(Picking {
+                item: Entity::PLACEHOLDER,
+                node,
+                length,
+                taken: true,
+            });
+        }
+    }
+}
+
 /// Where the clip of `node` stands while it is the main one: its time, and whether it ended.
 fn playing(
     player: &AnimationPlayer,
@@ -1322,6 +1368,7 @@ impl Plugin for PickupPlugin {
                         .after(crate::doors::pick),
                     take.after(hero::run),
                     picking.after(take),
+                    kneel.after(take).before(picking),
                     send_collecting.before(collect),
                     collect.after(picking),
                 )

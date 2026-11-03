@@ -871,6 +871,29 @@ pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) ->
     }
 }
 
+/// The variant of the generic system that a statue's power-up makes on the hero (`0x4A95B4`,
+/// #1846), and its colour, a gold.
+pub const STATUE_SPARKS: u8 = 2;
+pub const STATUE_COLOUR: u32 = 0xFFD0_A527;
+
+/// The sparks of the generic system's variant 2 in the colour `colour` (`0x796E10`'s case 2; #1846): up
+/// to [`GENERIC_PARTICLES`] at the points `points` of a body in the system's frame, taken in turn,
+/// still, of a size of 7 ± 3 that falls by 5 a second, so that they are gone within two seconds,
+/// with no buoyancy, no velocity and no light; `PARTICLE_SPARK06` added in the colour, as the
+/// variant 0's (**estimate**: the variant's texture is not read).
+pub fn statue_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
+    let mut burst = generic_sparks(points, colour, dice);
+    let size = spread(7.0, 3.0);
+    for particle in &mut burst.particles {
+        particle.velocity = [0.0; 3];
+        particle.buoyancy = 0.0;
+        particle.size = spread_f32(size, dice);
+    }
+    burst.layer.size = -5.0;
+    burst.light = 0.0;
+    burst
+}
+
 /// The variant of the generic system that a script's `Partikel` makes most (`0x796E10`, #1828):
 /// a ring of sparks rising about its place.
 pub const RISING_RING: u8 = 1;

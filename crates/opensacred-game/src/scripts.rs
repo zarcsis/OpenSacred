@@ -156,6 +156,9 @@ pub struct Partikel {
     pub cell: Option<(i32, i32)>,
     pub colour: u32,
     pub variant: u8,
+    /// The statues' power-up of the record's two numbers and no name: the hero's effect 33 of
+    /// the whole value of the first for the seconds of the second (#1846).
+    pub power_up: Option<(i32, i32)>,
 }
 
 impl Partikel {
@@ -185,14 +188,27 @@ impl Partikel {
             cell,
             colour,
             variant,
+            power_up: None,
         })
     }
 
     /// The `Partikel` of the names `names` and the numbers `numbers` (`0x4A8BB0`): the numbers
-    /// the cell, the colour and the variant, −1, −1, −1 and 0 where they are missing; none of
-    /// fewer than three numbers, whose two-number form (the statues' power-up) and removal by a
-    /// label are not followed.
+    /// the cell, the colour and the variant, −1, −1, −1 and 0 where they are missing. Of fewer
+    /// than three numbers only two and no name do anything, the statues' power-up (`statue_ok`,
+    /// `0x4A9502`): the gold sparks of the variant 2 on the hero with its effect 33 (#1846);
+    /// the removal by a label is not followed.
     pub fn of(names: &[&str], numbers: &[i32]) -> Option<Self> {
+        if let &[whole, seconds] = numbers
+            && names.iter().all(|name| name.is_empty())
+        {
+            return Some(Self {
+                at: Some("hero".to_owned()),
+                cell: None,
+                colour: opensacred_rules::particles::STATUE_COLOUR,
+                variant: opensacred_rules::particles::STATUE_SPARKS,
+                power_up: Some((whole, seconds)),
+            });
+        }
         if numbers.len() < 3 {
             return None;
         }
@@ -206,6 +222,7 @@ impl Partikel {
             cell: (x > 0 && y > 0).then_some((x, y)),
             colour: u32::from_ne_bytes(number(2, -1).to_ne_bytes()) | 0xFF00_0000,
             variant: number(3, 0).to_le_bytes()[0],
+            power_up: None,
         })
     }
 }
@@ -3152,6 +3169,7 @@ mod tests {
             cell,
             colour,
             variant,
+            power_up: None,
         };
         assert_eq!(
             effects.particles,
