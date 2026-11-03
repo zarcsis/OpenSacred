@@ -222,6 +222,9 @@ const FOG_SOUND: u32 = 2055;
 /// `DEMON_HOELLENDISK_LOOP` (1005, `0x7AE040`), the demon fire's `DEMON_HOELLENFEUER` (1015,
 /// `0x7B3110`) and the tentacles' `DEMON_TENTAKEL_LOOP` (1013, `0x7B1990`).
 const HELL_DISK_LOOP: u32 = 2119;
+/// The flying skull's hit's object's loop (862 `FX_VAMP_SM_HIT`, its class's start at `0x793D52`):
+/// `VAMP_BEHERRSCHUNG_LOOP`, as the domination's object's.
+const SKULL_HIT_LOOP: u32 = 2075;
 const DEMON_FIRE_LOOP: u32 = 2124;
 const TENTACLES_LOOP: u32 = 2123;
 
@@ -874,6 +877,14 @@ fn skulls(
         for target in touched {
             debug!("spells: the skull {entity} curses {target}");
             give(&mut commands, target, curse.to_vec());
+            // Its object 862 (`FX_VAMP_SM_HIT`) at the target, whose sight is not made, looping
+            // `VAMP_BEHERRSCHUNG_LOOP` while it lives, for the curse's time (**hypothesis** for its
+            // life).
+            commands.entity(target).with_child((
+                crate::hums::Hum(SKULL_HIT_LOOP),
+                Fades(opensacred_rules::arts::CURSE_SECONDS),
+                Transform::default(),
+            ));
             given.push(target);
         }
         // On to the nearest uncursed hostile creature within 1,000, else it ends.
@@ -974,7 +985,7 @@ pub(crate) struct Dice(pub(crate) crate::spawning::Rng);
 
 /// A sight that goes after its time.
 #[derive(Component, Debug, Clone, Copy)]
-struct Fades(f32);
+pub(crate) struct Fades(pub(crate) f32);
 
 /// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries, its
 /// cooldown, the mines' damages and its level.
