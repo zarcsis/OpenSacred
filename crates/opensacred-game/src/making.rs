@@ -40,6 +40,8 @@ const HAND_BONE: &str = "Bip01 R Hand";
 /// The domination's object's loop (857, `cParticleSystem` at `0x79DBF0`'s start):
 /// `VAMP_BEHERRSCHUNG_LOOP`.
 const DOMINATION_LOOP: u32 = 2075;
+/// The raising's object's sound as it starts (866, `0x79E5D0`): `VAMP_PENTA`.
+const RAISE_SOUND: u32 = 2082;
 
 /// The art that the right button makes: the original's right button's slot, at a new game the
 /// hero's first art whose action is read.
@@ -513,7 +515,7 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts, corpses, ways): (
+    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts, corpses, ways, mut points): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
         Query<&fight::Ranked>,
@@ -523,6 +525,7 @@ fn make(
         MessageWriter<crate::spells::Acts>,
         Query<(&GlobalTransform, &crate::npcs::Corpse)>,
         Query<&crate::crowd::InTheWay>,
+        MessageWriter<crate::sfx::PlayAt>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -1163,8 +1166,15 @@ fn make(
                 arts.start(making.art);
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                 if let Some(record) = record
-                    && corpses.contains(playing.target)
+                    && let Ok((corpse, _)) = corpses.get(playing.target)
                 {
+                    // Its object 866 at the corpse (`0x51127E`), whose sight is not made: its
+                    // `VAMP_PENTA` as it starts (`0x79E5D0`).
+                    points.write(crate::sfx::PlayAt {
+                        sound: crate::sfx::Of::Id(RAISE_SOUND),
+                        point: corpse.translation(),
+                        rate: (0.5, crate::sfx::Roll::None),
+                    });
                     crate::followers::raise(
                         &mut commands,
                         hero,
