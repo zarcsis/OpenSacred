@@ -218,6 +218,10 @@ const PENTAGRAM_LOOP: u32 = 2010;
 const CONFUSION_LOOP: u32 = 2067;
 const POISON_LOOP: u32 = 2054;
 const FOG_SOUND: u32 = 2055;
+/// The homing souls' loop, `HELF_AHNEN_LOOP` from each one's start while it flies: the lost
+/// souls' (850 `FX_LOSTSOULS`, `0x79D36C`) and the death's kiss's skull's (905
+/// `FX_FLYINGSKULL`, `0x7A6399`).
+const SOULS_LOOP: u32 = 2058;
 /// The Daemon's objects' loops from their starts while they live: the hell disk's
 /// `DEMON_HOELLENDISK_LOOP` (1005, `0x7AE040`), the demon fire's `DEMON_HOELLENFEUER` (1015,
 /// `0x7B3110`) and the tentacles' `DEMON_TENTAKEL_LOOP` (1013, `0x7B1990`).
@@ -728,6 +732,7 @@ pub fn kiss(
         },
         Transform::from_translation(from),
         Visibility::Inherited,
+        crate::hums::Hum(SOULS_LOOP),
         DespawnOnExit(AppState::InGame),
     ));
 }
@@ -1627,6 +1632,7 @@ fn act(
                         },
                         Transform::from_translation(place + Vec3::Y * DISK_HEIGHT),
                         Visibility::Inherited,
+                        crate::hums::Hum(SOULS_LOOP),
                         DespawnOnExit(AppState::InGame),
                     ));
                     if let Some(looks) = &looks {
