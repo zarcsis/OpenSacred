@@ -2388,11 +2388,19 @@ fn strike(
     }
 }
 
+/// The mines' sounds: the sign's `DWARF_TELLERMINE_LEGEN` as it lays one, at a rate's factor of
+/// 0.45 and a tenth at random (`cParticleSystem_dwarf_mine_sign`, 1154, `0x7BA610`), and the
+/// mine's `DWARF_TELLERMINE_EXPLOSION` as it goes off, of 0.3 and up to 0.4 more
+/// (`cParticleSystem_dwarf_mine`, 1153, `0x7BAD70`).
+const MINE_LAID: u32 = 2110;
+const MINE_BLAST: u32 = 2111;
+
 /// Each sign of mines goes with its Dwarf and lays a mine where it stands once a second, unless
 /// another lies within [`spells::MINES_APART`], until it carries none (`0x5B0719`); each mine goes
 /// off as a hostile creature comes within its reach while its Dwarf is gone or stands
 /// [`spells::MINE_SAFE`] or more off, or after [`spells::MINE_LIFE`] by itself, striking once the
-/// hostile creatures within [`spells::BLAST_REACH`] and their size (`0x5B094A`, the object 794).
+/// hostile creatures within [`spells::BLAST_REACH`] and their size (`0x5B094A`, the object 794);
+/// each laying and each blast with its sound ([`MINE_LAID`], [`MINE_BLAST`]).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -2416,7 +2424,11 @@ fn mine(
         ),
         (Without<Body>, Without<Dies>),
     >,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sounds, mut points): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::sfx::PlayAt>,
+    ),
 ) {
     let dt = time.delta_secs();
     let laid: Vec<Vec3> = mines.iter().map(|(_, _, at)| at.translation).collect();
@@ -2451,6 +2463,11 @@ fn mine(
                 MeshMaterial3d(looks.mine.1.clone()),
             ));
         }
+        sounds.write(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(MINE_LAID),
+            at: Some(entity),
+            rate: (0.45, crate::sfx::Roll::Share(0.1)),
+        });
         sign.left = sign.left.saturating_sub(1);
         sign.cooldown = BEAT;
         if sign.left == 0 {
@@ -2486,6 +2503,11 @@ fn mine(
             continue;
         }
         debug!("spells: a mine of {} goes off", mine.caster);
+        points.write(crate::sfx::PlayAt {
+            sound: crate::sfx::Of::Id(MINE_BLAST),
+            point: at.translation,
+            rate: (0.3, crate::sfx::Roll::Share(0.4)),
+        });
         for target in near(mine.level, centre, spells::BLAST_REACH) {
             hits.write(fight::Hit {
                 attacker: mine.caster,
