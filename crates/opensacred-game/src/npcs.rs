@@ -307,6 +307,9 @@ struct Placement {
     /// A fire of the FX objects (`items.pak` category 12), its variant of the smoke class and its
     /// height in the models' units, the record's `0x7E` (`fx`, #1092).
     fx: Option<(u8, f32)>,
+    /// An FX object that loops a sound of its own near the hero, an element stone or a stargate
+    /// (`fx_loops`, #1170), which has no model.
+    fx_loop: Option<u32>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -826,6 +829,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         blocks: false,
         door: false,
         fx: None,
+        fx_loop: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
@@ -2845,11 +2849,16 @@ impl Makers {
                 });
                 (variant, height.unwrap_or(0.0))
             });
+        // An element stone or a stargate of the FX objects, which loops its sound and has no
+        // model.
+        let fx_loop = (record.kind == CREATE_OBJ && category(item) == FX)
+            .then(|| crate::fx_loops::sound_of(creature))
+            .flatten();
         let empty = String::new();
         let Some(model) = self
             .models
             .get(&item.name.to_ascii_uppercase())
-            .or(fx.is_some().then_some(&empty))
+            .or((fx.is_some() || fx_loop.is_some()).then_some(&empty))
         else {
             return Ok(None);
         };
@@ -2949,6 +2958,7 @@ impl Makers {
             blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
             door: record.kind == CREATE_OBJ && category(item) == DOOR,
             fx,
+            fx_loop,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
                     ops.iter().find_map(|o| match (o.tag, &o.value) {
@@ -4851,6 +4861,16 @@ fn spawn(
             Vec3::new(model.x, height * iso::MODEL_SCALE, model.z),
             (layered, layered.visibility(states)),
         );
+    }
+    if let Some(sound) = placement.fx_loop {
+        return commands
+            .spawn((
+                crate::fx_loops::FxLoop(sound),
+                Transform::from_translation(model),
+                layered,
+                layered.visibility(states),
+            ))
+            .id();
     }
     let mut entity = commands.spawn((
         models::scene(assets, &placement.model),
