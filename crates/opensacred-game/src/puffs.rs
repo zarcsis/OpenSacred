@@ -4,7 +4,8 @@
 //! `opensacred_rules::particles::{rise_ring, dust}`), drawn as the fires' billboards (`fx`): a
 //! quad of each particle facing the camera, of its ramp's colour at its life, not tinted by the
 //! night unless the light at it tints it (a script's smoke, `Burst::tinted`). A ring follows the
-//! creature it rises about; the dust stays where the corpse lay.
+//! creature it rises about; the dust stays where the corpse lay. A burst that streams emits on
+//! from its start for its time (`Burst::stream`, the cloud of a creature's burst, #1264).
 
 use std::collections::HashMap;
 
@@ -46,14 +47,18 @@ pub fn spawn_in(world: &mut World, burst: Burst, at: Vec3, follows: Option<Entit
 }
 
 /// A burst that lives: its texture's grid, its layer, its ramp, its particles, the entity it
-/// follows and the mesh its quads go into.
+/// follows, the mesh its quads go into and the dice of what it streams.
 #[derive(Component)]
 struct Puff {
     burst: Burst,
     system: System,
     follows: Option<Entity>,
     mesh: Handle<Mesh>,
+    dice: opensacred_rules::spawning::Rng,
 }
+
+/// The seed of the streams' `rand()` (**estimate**: any).
+const SEED: usize = 0x329;
 
 /// The bursts' materials by their texture and blend, made as they are first asked; none where the
 /// texture is missing.
@@ -97,8 +102,13 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         let tinted = burst.tinted;
-        let mut system = System::new(burst.particles.len());
+        let count = burst
+            .stream
+            .map_or(0, |stream| stream.count)
+            .max(burst.particles.len());
+        let mut system = System::new(count);
         system.particles.clone_from(&burst.particles);
+        let index = usize::try_from(entity.index_u32()).unwrap_or(0);
         let mut puff = commands.entity(entity);
         if burst.light > 0.0 {
             puff.insert(crate::daynight::Light(burst.light));
@@ -108,6 +118,7 @@ fn make(
             system,
             follows: unmade.follows,
             mesh: mesh.clone(),
+            dice: crate::seed::dice(SEED ^ index),
         });
         if let Some(material) = material {
             puff.with_children(|parts| {
@@ -127,8 +138,9 @@ fn make(
     }
 }
 
-/// Ages each burst's particles a frame on by its layer, keeps it at the entity it follows, and
-/// lays its quads out facing the camera; a burst whose particles are all gone goes.
+/// Ages each burst's particles a frame on by its layer, emits on those it streams while its time
+/// lasts, keeps it at the entity it follows, and lays its quads out facing the camera; a burst
+/// whose particles are all gone, its stream over, goes.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -143,12 +155,23 @@ fn run(
             system,
             follows,
             mesh,
+            dice,
         } = &mut *puff;
         if let Some(at) = follows.and_then(|follows| places.get(follows).ok()) {
             transform.translation = at.translation();
         }
-        system.update_over(dt, std::slice::from_ref(&burst.layer), burst.ground);
-        if system.particles.is_empty() {
+        let layers = std::slice::from_ref(&burst.layer);
+        system.update_over(dt, layers, burst.ground);
+        let streaming = burst.stream.filter(|stream| system.clock < stream.until);
+        if let Some(stream) = streaming {
+            system.emit(
+                std::slice::from_ref(&stream.block),
+                layers,
+                stream.count,
+                dice,
+            );
+        }
+        if system.particles.is_empty() && streaming.is_none() {
             commands.entity(entity).despawn();
             continue;
         }

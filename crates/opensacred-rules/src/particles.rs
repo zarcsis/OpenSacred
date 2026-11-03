@@ -705,6 +705,69 @@ pub struct Burst {
     pub light: f32,
     /// Whether the light at it tints it (the draw's flag `0x40`), so that it darkens by night.
     pub tinted: bool,
+    /// Particles it emits on from its start, where it does ([`Stream`]).
+    pub stream: Option<Stream>,
+}
+
+/// A burst's emission from its start (`0x764760` of an interval above 0): its block, for how long
+/// it emits, and how many of its particles may live at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stream {
+    pub block: Block,
+    pub until: f32,
+    pub count: usize,
+}
+
+/// The colour of a creature's burst by its gib set (`0x427160`, `items.pak +0x6F`): 0 red, 1
+/// green, 2 black, 3 the bones' brown, 4 a translucent pale blue; another set black.
+pub fn burst_colour(set: u8) -> u32 {
+    match set {
+        0 => 0xFFAA_0000,
+        1 => 0xFF00_AA00,
+        2 => 0xFF11_1111,
+        3 => 0xFF73_5623,
+        4 => 0x80AB_BECD,
+        _ => 0xFF00_0000,
+    }
+}
+
+/// The cloud of a creature's burst (809, `FX_CLOUD`, `cParticleSystem_cloud`, its start
+/// `0x784220` and update `0x783F70`; #1264), in the colour `colour` (the FX event's `+0x38`, the
+/// set's): for 1 s, a particle every 0.02 s (the `DETAILLEVEL` 2's; 1.5 and 2.2 times that below),
+/// up to 100, within (10, 10, 25) of 50 over the place, of a velocity of ± 2 along each axis, a
+/// buoyancy of 40 (they sink), a size of 10 ± 4 that grows by 20 a second and an angle of π ± π,
+/// living 1.275 s (−200); `PARTICLE_CLOUD01` laid over the frame by its alpha and turned, of the
+/// colour at the alpha of its life, tinted by the light at it (the flags `0x46`).
+pub fn burst_cloud(colour: u32) -> Burst {
+    let [_, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    Burst {
+        texture: "PARTICLE_CLOUD01",
+        grid: 1,
+        blend: Blend::Over,
+        layer: Layer {
+            life: -200.0,
+            size: 20.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new([r, g, b, 1.0], &[([r, g, b, 0.0], 256)]),
+        particles: Vec::new(),
+        ground: None,
+        light: 0.0,
+        tinted: true,
+        stream: Some(Stream {
+            block: Block {
+                buoyancy: spread(40.0, 0.0),
+                size: spread(10.0, 4.0),
+                angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+                velocity: spread([0.0; 3], [2.0, 2.0, 2.0]),
+                offset: spread([0.0, 0.0, 50.0], [10.0, 10.0, 25.0]),
+                interval: 0.02,
+                ..Block::default()
+            },
+            until: 1.0,
+            count: 100,
+        }),
+    }
 }
 
 /// The ring of an undead that rises again (781, `TYPE_FX_PUZZLE_SOLVED_V`, its variant 3,
@@ -750,6 +813,7 @@ pub fn rise_ring() -> Burst {
         ground: None,
         light: 0.0,
         tinted: false,
+        stream: None,
     }
 }
 
@@ -814,6 +878,7 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
         ground: None,
         light: 0.0,
         tinted: false,
+        stream: None,
     }
 }
 
@@ -879,6 +944,7 @@ pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) ->
         ground: Some(0.0),
         light: 100.0,
         tinted: false,
+        stream: None,
     }
 }
 
@@ -962,6 +1028,7 @@ pub fn generic_ring(variant: u8, colour: u32, dice: &mut impl Dice) -> Option<Bu
         ground: Some(0.0),
         light,
         tinted: false,
+        stream: None,
     })
 }
 
@@ -1005,6 +1072,7 @@ pub fn generic_smoke(colour: u32, dice: &mut impl Dice) -> Burst {
         ground: None,
         light: 0.0,
         tinted: true,
+        stream: None,
     }
 }
 
@@ -1269,6 +1337,48 @@ fn hue_colour(hue: f32, value: f32) -> [f32; 3] {
 mod tests {
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_burst_clouds_in_its_sets_colour_for_a_second() {
+        assert_eq!(
+            [0, 1, 2, 3, 4, 9].map(burst_colour),
+            [
+                0xFFAA_0000,
+                0xFF00_AA00,
+                0xFF11_1111,
+                0xFF73_5623,
+                0x80AB_BECD,
+                0xFF00_0000
+            ]
+        );
+        let cloud = burst_cloud(0xFF00_AA00);
+        // Green at its birth, gone at its death.
+        assert_eq!(cloud.ramp.at(255.0), [0.0, 170.0 / 255.0, 0.0, 1.0]);
+        assert!(cloud.ramp.at(0.0)[3] < 0.01);
+        let stream = cloud.stream.expect("a stream");
+        let mut system = System::new(stream.count);
+        let mut dice = Rng::of(1, 2, 3);
+        let layers = std::slice::from_ref(&cloud.layer);
+        let mut most = 0;
+        for _ in 0..60 {
+            system.update(1.0 / 60.0, layers);
+            if system.clock < stream.until {
+                system.emit(
+                    std::slice::from_ref(&stream.block),
+                    layers,
+                    stream.count,
+                    &mut dice,
+                );
+            }
+            most = most.max(system.particles.len());
+        }
+        // A particle each 0.02 s for a second, none dying before 1.275 s.
+        assert!((48..=50).contains(&most), "{most}");
+        for _ in 0..90 {
+            system.update(1.0 / 60.0, layers);
+        }
+        assert!(system.particles.is_empty());
+    }
 
     #[test]
     fn the_last_burnings_sparks_bounce_and_their_flames_and_scorch_fade() {
