@@ -2088,6 +2088,13 @@ fn make(
                         .is_some_and(|&point| due(point, done))
                 {
                     playing.struck = 1;
+                    for &id in crate::art_sounds::objects(making.art).1 {
+                        points.write(crate::sfx::PlayAt {
+                            sound: crate::sfx::Of::Id(id),
+                            point: transform.translation,
+                            rate: (0.5, crate::sfx::Roll::None),
+                        });
+                    }
                     let boon = arts
                         .tables
                         .weapon_arts
