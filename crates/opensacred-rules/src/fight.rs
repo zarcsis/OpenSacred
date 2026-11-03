@@ -1259,6 +1259,29 @@ impl Base {
         self.levels[slot] = 1;
         true
     }
+
+    /// Gives the hero `skill` at the base level `base` whatever its points and level, as the
+    /// original's driver gives it (#1925: `0x581120` and `0x5824A0` with the points they take
+    /// added first): learnt into the first empty slot unless it holds it, then its base raised
+    /// to `base`; whether it holds the skill now.
+    pub fn give_skill(&mut self, skill: u8, base: u8, experience: &mut Experience) -> bool {
+        if skill == 0 {
+            return false;
+        }
+        let slot = match self.skills.iter().position(|&s| s == skill) {
+            Some(slot) => slot,
+            None => {
+                let Some(slot) = self.skills.iter().position(|&s| s == 0) else {
+                    return false;
+                };
+                experience.learnt += 1;
+                self.skills[slot] = skill;
+                slot
+            }
+        };
+        self.levels[slot] = self.levels[slot].max(base).max(1);
+        true
+    }
 }
 
 /// What a creature holds, as its values take it: a weapon (`0x546F80`), a shield (`0x54A660`),
@@ -5959,6 +5982,29 @@ mod tests {
         assert!(experience.add(level_end(3) - experience.points, &rules));
         assert!(unlearnt.add(level_end(3) - unlearnt.points, &rules));
         assert_eq!((experience.skill_points, unlearnt.skill_points), (5, 5));
+    }
+
+    #[test]
+    fn a_skill_given_takes_no_points_and_counts_as_learnt() {
+        let rules = Rules::default();
+        let mut experience = Experience::default();
+        let mut base = Base::of(&recordless(163));
+        base.skills = [2, 10, 0, 0, 0, 0, 0, 0];
+        // The Dwarf's smithing at 5, Constitution raised to 3, at level 1 with no points.
+        assert!(base.give_skill(33, 5, &mut experience));
+        assert!(base.give_skill(10, 3, &mut experience));
+        assert!(!base.give_skill(0, 1, &mut experience));
+        assert_eq!(base.skills, [2, 10, 33, 0, 0, 0, 0, 0]);
+        assert_eq!(skills(&base, 1, true), [(2, 1), (10, 3), (33, 5)]);
+        assert_eq!((experience.skill_points, experience.to_learn()), (0, 0));
+        // A base asked below the slot's keeps it.
+        assert!(base.give_skill(33, 2, &mut experience));
+        assert_eq!(skills(&base, 1, true)[2], (33, 5));
+        // The given slot counts in the points as a learnt one: ⌈3/2⌉ at level 2.
+        assert!(experience.add(level_end(1), &rules));
+        assert_eq!(experience.skill_points, 2);
+        base.skills = [2, 10, 33, 1, 3, 4, 5, 6];
+        assert!(!base.give_skill(7, 1, &mut experience));
     }
 
     #[test]
