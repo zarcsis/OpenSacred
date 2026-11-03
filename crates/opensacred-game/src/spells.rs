@@ -1447,6 +1447,26 @@ fn act(
         if spells::lasts(act.spell) && act.spell != spells::SOULS {
             given.push(spells::lasting(record, act.level));
         }
+        // The sound of the spell's object at its target, whose sight the game does not make: a
+        // loop for the spell's time (**hypothesis** for the object's life), or once.
+        match object_sound(act.spell) {
+            Some((sound, true)) => {
+                let (_, seconds) = spells::lasting(record, act.level);
+                commands.entity(act.target).with_child((
+                    crate::hums::Hum(sound),
+                    Fades(seconds),
+                    Transform::default(),
+                ));
+            }
+            Some((sound, false)) => {
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(sound),
+                    at: Some(act.target),
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
+            }
+            None => {}
+        }
         match act.spell {
             FIREBALL => {
                 // For its target's place, or the point where it is gone (`0x522480`).
@@ -2210,6 +2230,21 @@ fn act(
 }
 
 /// A whole number of seconds as a float.
+/// The sound of the object of the spell `spell` that the game does not draw, and whether it loops
+/// (docs/re/sound.md, "Spells and arts"): the holy shield's 819 (`0x785DE0`) loops
+/// `SERA_LICHTSCHILD_LOOP` (2040), the shield wall's 834 (`0x78B040`) `MAGE_MAGIESCHILD_LOOP`
+/// (2022) and the mana's spring's 835 (`0x78B4B0`) 2028 from their starts while they live, and
+/// the regeneration's 836 (`0x78B900`) plays 2042 once as it starts.
+fn object_sound(spell: u16) -> Option<(u32, bool)> {
+    match spell {
+        HOLY_SHIELD => Some((2040, true)),
+        SHIELD_WALL => Some((2022, true)),
+        SPRING => Some((2028, true)),
+        REIKI => Some((2042, false)),
+        _ => None,
+    }
+}
+
 fn fight_seconds(seconds: u32) -> f32 {
     u16::try_from(seconds).map_or(f32::MAX, f32::from)
 }
