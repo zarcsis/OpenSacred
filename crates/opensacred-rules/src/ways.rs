@@ -57,6 +57,32 @@ pub fn path_onto<L: Copy + Eq + Hash>(
     arrives: impl Fn(L) -> bool,
     neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
 ) -> Option<Vec<(Cell, L)>> {
+    search(from, to, |cell| cell == to, arrives, neighbours)
+}
+
+/// As [`path_onto`], to the first place that the search reaches within a cell of `to` along each
+/// axis, on a layer that `arrives` takes ([`Goal::Around`]): the target's cell, which the walker
+/// may not step into, is reached beside it (`0x4F8AF0`, its test of `0xAD3BA5`).
+pub fn path_beside<L: Copy + Eq + Hash>(
+    from: (Cell, L),
+    to: Cell,
+    arrives: impl Fn(L) -> bool,
+    neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+) -> Option<Vec<(Cell, L)>> {
+    let beside = |cell: Cell| (cell.0 - to.0).abs() <= 1 && (cell.1 - to.1).abs() <= 1;
+    search(from, to, beside, arrives, neighbours)
+}
+
+/// The places from `from` to the first place in a cell that `ends` takes on a layer that `arrives`
+/// takes, of the fewest steps, within the window around `from`'s cell; `None` where `to` lies
+/// outside the window or none is reached.
+fn search<L: Copy + Eq + Hash>(
+    from: (Cell, L),
+    to: Cell,
+    ends: impl Fn(Cell) -> bool,
+    arrives: impl Fn(L) -> bool,
+    neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+) -> Option<Vec<(Cell, L)>> {
     let inside = |cell: Cell| {
         let (x, y) = (
             cell.0 - from.0.0 + WINDOW / 2,
@@ -71,7 +97,7 @@ pub fn path_onto<L: Copy + Eq + Hash>(
     let mut came = HashMap::from([(from, from)]);
     let mut queue = VecDeque::from([from]);
     while let Some(place) = queue.pop_front() {
-        if place.0 == to && arrives(place.1) {
+        if ends(place.0) && arrives(place.1) {
             let mut way = vec![place];
             let mut at = place;
             while at != from {
@@ -124,64 +150,37 @@ const BESIDE: [(i32, i32); 8] = [
     (-1, 1),
 ];
 
-/// How far along an axis, in cells, the distance to a neighbour counts (`0x4F8560`): a farther
-/// one is that far.
-const COUNTED_WITHIN: u32 = 32_000;
-/// The distance a neighbour has to come within to be taken (`0x4F8560`'s first bound).
-const TAKEN_WITHIN: u32 = 1_000;
-
 /// Where a way's search ends ([`goal`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Goal {
-    /// The search heads for this cell: the target's own, or a neighbour of it.
+    /// The search heads for the target's own cell, which the walker may step into.
     Cell(Cell),
+    /// The search ends at the first place it reaches within a cell of the target, which the
+    /// walker may not step into ([`path_beside`]).
+    Around(Cell),
     /// The walker stands beside its target already, which it may not step into: no search.
     Beside,
 }
 
 /// Where a way's search from `from` ends for the target `to` (`0x4F8560`, which both of the
 /// original's searches, `0x4F8AF0` and `0x4F9410`, ask first): the target's own cell where the
-/// walker may step into it (`open`, the step's test `0x4F7E10` on the target's floor); else the
-/// neighbour of it ([`BESIDE`]) that it may step into nearest `from`, the first of those as near,
-/// so that a walker sent to a chest or a creature goes round what is between them to the cell
-/// beside it; [`Goal::Beside`] where `from` is one of the neighbours; and the target's own cell
-/// again where it may step into none, which the search does not reach.
+/// walker may step into it (`open`, the step's test `0x4F7E10` on the target's floor);
+/// [`Goal::Beside`] where `from` is one of its neighbours ([`BESIDE`], tried in that order);
+/// else [`Goal::Around`], the search ending at the first place it reaches beside the target
+/// (`0xAD3BA5`, read in `0x4F8AF0`), so that a walker sent to a chest or a creature goes round
+/// what is between them to the nearest cell beside it by its way, not by the straight distance:
+/// sent from a pond's shore to a book stand on its island, over the bridge (#1877).
 pub fn goal(from: Cell, to: Cell, open: impl Fn(Cell) -> bool) -> Goal {
     if open(to) {
         return Goal::Cell(to);
     }
-    let mut best = (TAKEN_WITHIN, to);
-    for (dx, dy) in BESIDE {
-        let cell = (to.0 + dx, to.1 + dy);
-        if cell == from {
-            return Goal::Beside;
-        }
-        if !open(cell) {
-            continue;
-        }
-        let distance = distance(from, cell);
-        if distance < best.0 {
-            best = (distance, cell);
-        }
+    if BESIDE
+        .iter()
+        .any(|&(dx, dy)| (to.0 + dx, to.1 + dy) == from)
+    {
+        return Goal::Beside;
     }
-    Goal::Cell(best.1)
-}
-
-/// The distance between two cells as `0x4F8560` takes it: the integer square root of the sum of
-/// the squares, rounded to the nearest whole, each axis's difference held at [`COUNTED_WITHIN`];
-/// [`COUNTED_WITHIN`] itself beyond.
-fn distance(a: Cell, b: Cell) -> u32 {
-    let (dx, dy) = ((a.0 - b.0).unsigned_abs(), (a.1 - b.1).unsigned_abs());
-    if dx > COUNTED_WITHIN || dy > COUNTED_WITHIN {
-        return COUNTED_WITHIN;
-    }
-    let squared = dx * dx + dy * dy;
-    let root = squared.isqrt();
-    if squared - root * root > root {
-        root + 1
-    } else {
-        root
-    }
+    Goal::Around(to)
 }
 
 /// A cell's eight neighbours in a ring, clockwise from the one at `y − 1` (`0x955874`).
@@ -758,33 +757,44 @@ mod tests {
     }
 
     #[test]
-    fn a_target_it_may_not_step_into_is_left_for_the_neighbour_nearest_the_walker() {
+    fn a_target_it_may_not_step_into_is_reached_beside_it() {
         let chest = (5, 5);
         let closed = |cell: Cell| cell != chest;
         // A target it may step into stays.
         assert_eq!(goal((0, 0), (5, 6), closed), Goal::Cell((5, 6)));
-        // From the west, the side; from the north-east, the corner, 2.24 away, the sides 2.83
-        // and more.
-        assert_eq!(goal((0, 5), chest, closed), Goal::Cell((4, 5)));
-        assert_eq!(goal((8, 3), chest, closed), Goal::Cell((6, 4)));
-        // Neighbours as near by the rounded root: the first tried. From (0, 10) the corner at
-        // (4, 6) is 5.66 away and the side at (5, 6) 6.40, both rounding to 6: the side.
-        assert_eq!(distance((0, 10), (4, 6)), 6);
-        assert_eq!(distance((0, 10), (5, 6)), 6);
-        assert_eq!(goal((0, 10), chest, closed), Goal::Cell((5, 6)));
+        // A closed one is reached beside it, whichever side the way comes to first.
+        assert_eq!(goal((0, 5), chest, closed), Goal::Around(chest));
+        assert_eq!(goal((0, 5), chest, |_| false), Goal::Around(chest));
         // The walker beside it: no search, whatever comes before its cell in the order.
         assert_eq!(goal((6, 6), chest, closed), Goal::Beside);
-        // A wall along x = 4 west of it: the nearest it may step into, round the wall.
-        let walled = |cell: Cell| cell != chest && cell.0 != 4;
-        assert_eq!(goal((0, 5), chest, walled), Goal::Cell((5, 4)));
-        // Walled in: the target itself.
-        assert_eq!(goal((0, 5), chest, |_| false), Goal::Cell(chest));
-        // Far: held at 32,000 along an axis, and not taken past 1,000.
-        assert_eq!(distance((0, 0), (40_000, 0)), COUNTED_WITHIN);
-        assert_eq!(
-            goal((0, 5), (2_000, 5), |cell| cell.0 != 2_000),
-            Goal::Cell((2_000, 5))
-        );
+        assert_eq!(goal((4, 4), chest, closed), Goal::Beside);
+    }
+
+    #[test]
+    fn a_way_beside_a_closed_target_ends_where_the_search_first_comes_beside_it() {
+        // The start's book stand: a pond between the shore and the stand's island, whose near
+        // side is cut off by the stand itself; a bridge leads from the shore to the far side.
+        // The nearest neighbour by distance, (5, 4), lies on the cut-off side.
+        let stand = (5, 5);
+        let open = |cell: Cell| match cell {
+            (_, y) if y <= 0 => true,    // the shore
+            (8, 1..=5) => true,          // the bridge
+            (5..=7, 6) | (5, 4) => true, // the island's sides
+            _ => false,
+        };
+        let neighbours = |(cell, ()): (Cell, ())| {
+            STEPS
+                .iter()
+                .map(|&(dx, dy)| (cell.0 + dx, cell.1 + dy))
+                .filter(|&next| open(next))
+                .map(|next| (next, ()))
+                .collect::<Vec<_>>()
+        };
+        let way = path_beside(((5, 0), ()), stand, |()| true, neighbours).unwrap_or_default();
+        assert_eq!(way.last().map(|place| place.0), Some((6, 6)));
+        assert!(way.iter().any(|place| place.0 == (8, 3)));
+        // To the cut-off cell itself, no way.
+        assert_eq!(path(((5, 0), ()), (5, 4), neighbours), None);
     }
 
     #[test]

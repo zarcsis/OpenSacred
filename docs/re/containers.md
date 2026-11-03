@@ -16,7 +16,8 @@ Its sub-state 0 chooses by the target's category (`0x426220`; the jump table `0x
 - A container already emptied (`+0x14` bit `0x4000`, `0x53A863`), but a town stash (the type 5200, `0x428760`), ends the branch: the hero stands until its next order.
 - Unless the creature stands within 100 of the container already (the integer square root rounded up, `0x4B2710`), it walks to the container's own point (`+0x150` 1, `+0x174` 1, the stop distance `+0x176` 20, the target `+0x158`, `+0x15C`, `+0x164` 0), not the items' point 25 aside with their stop of 50; a creature busy with another action is first put to its standing (`0x5467A0`).
 - The walk's layer is taken as for the items (`0x635240`, `0x6354D0`, `0x635E50`, `0x634150`), and the AI takes its sub-state 2.
-  The container's cell is closed (docs/re/movement.md, "The chests' cells"), so the way ends beside it (**hypothesis**).
+  The container's cell is closed (docs/re/movement.md, "The chests' cells"), so the way ends at the first cell beside it that the search reaches (docs/re/movement.md, "The way's goal"; **seen** 2026-11-03, #1877: the start's book stand on the pond's island, reached over the bridge).
+  The game sends the hero to the container's own point since #1877, rather than to the ground under the cursor, which a tall container's model put in the pond behind the stand.
 
 The sub-state 2 (`0x53BD9D`, the doors' too) waits while the creature moves; a creature target or one on another layer (the layers 0 and 1 counting as one) goes idle (`0x54E6D0`).
 Farther than 300 from the container (`0x53BE8C`), or for a container without a straight line of walkable cells to it (`0x4FCC80`, `0x53BEDC`), the order ends without opening.
