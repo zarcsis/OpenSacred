@@ -205,6 +205,9 @@ Read off the client with Ghidra 2026-10-25 (#943, #951) by a subagent of the ses
 
 - The scripts' variables are a vector of the interpreter (`+0x7550`, entries of 0x24 bytes), found by name without regard to case (`0x859690`) and of equal length.
 - `SetVarBit` (68, `0x49B840`) ORs `1 << (n mod 32)` into the variable for each `0x0B`, bits counted from 0; a missing variable is created with the mask.
+  Its first `0x01` is the variable; a second `0x01` beginning with `res` names a creature, and `HERO` the local hero, else a variable whose number's bit it ORs in too (read 2026-11-03 for #1873, **confirmed** by code).
+  Under the anim bit, with a creature found, the variable existing and a bit, it queues the kind 7 for that creature with the variable's index and the bit, and changes nothing at once; `HeroQBit` sets the hero's quest bit instead.
+  No `SetVarBit` or `UnsetVarBit` of the 20 trees names a creature (counted 2026-11-03 in the Luau: 15,780 `SetVarBit`s, 40 of them under the anim mode, and 1,934 `UnsetVarBit`s, each of one name), so the kinds 7 and 8 never queue and the game sets and clears the bits at once.
   The name `HeroQBit` sets a hero's quest bit of the difficulty instead (`0x424DA0`); a second `0x01` names either a creature (`res:`) or a variable whose value is the bit.
 - `UnsetVarBit` (69, `0x49C160`) clears the bit of its last `0x0B`, and does nothing to a missing variable.
 - `IncVar` (75, `0x49C930`) adds the last `0x0B`, or a named variable's value, keeping the old value where the sum is smaller (a negative increment, an overflow); a missing variable is created with the increment.
