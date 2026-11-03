@@ -5,6 +5,8 @@
 //! with the effect 30 for 1 s (`opensacred_rules::arts::soul_speed`, `soul_heals`); a soul ends at
 //! a cell that may not be walked on or without him. A glowing ball stands in for its particles,
 //! as the Seraphim's bolts' (#1092).
+//! A soul that reaches him fades and, once its particles are gone, signals his soulcatcher's
+//! object, which plays `DELF_SOULCATCHER_ABSORP` (#1173; [`ABSORBED_AFTER`]).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{SOUL_REACH, SOUL_SIZE, SOULCATCHER, soul_heals, soul_speed};
@@ -24,6 +26,14 @@ use crate::{arrows, paths};
 /// chest, his bone 1).
 const HEIGHT: f32 = 90.0;
 
+/// How long after a soul reaches him the soulcatcher's object plays its absorption, in seconds:
+/// the soul's particles fade at 250 of their alpha's 255 a second (its state 2, `0x5AE42C`), and
+/// once none is left it asks the object for its action 8 (`0x76CA78`, `0x5B5653`), which plays
+/// `DELF_SOULCATCHER_ABSORP` once (`0x76A8F7`). **Hypothesis**: the request and the soul's end fall
+/// in one update on another thread, so that the original may not always sound it.
+const ABSORBED_AFTER: f32 = 255.0 / 250.0;
+const ABSORBED: u32 = 2069;
+
 /// A soul on its way to the Dark Elf: his entity, its level, its age in seconds and the health it
 /// gives him.
 #[derive(Component)]
@@ -32,6 +42,14 @@ struct Soul {
     level: Level,
     age: f32,
     heals: u32,
+}
+
+/// A soul that reached the Dark Elf, fading: his entity, and the seconds until his soulcatcher
+/// absorbs it.
+#[derive(Component)]
+struct Fading {
+    to: Entity,
+    left: f32,
 }
 
 /// The souls' look.
@@ -154,6 +172,13 @@ fn home(
                 soul.to, soul.heals, health.current, health.most
             );
             commands.entity(entity).despawn();
+            commands.spawn((
+                Fading {
+                    to: soul.to,
+                    left: ABSORBED_AFTER,
+                },
+                DespawnOnExit(AppState::InGame),
+            ));
             continue;
         }
         let step = (soul_speed(soul.age) * dt).min(offset.length());
@@ -169,6 +194,33 @@ fn home(
     }
 }
 
+/// The soulcatcher's absorption of each soul faded out, at the Dark Elf while its effect holds.
+fn absorb(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut fading: Query<(Entity, &mut Fading)>,
+    heroes: Query<&Effects, With<Body>>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
+) {
+    for (entity, mut soul) in &mut fading {
+        soul.left -= time.delta_secs();
+        if soul.left > 0.0 {
+            continue;
+        }
+        commands.entity(entity).despawn();
+        if heroes
+            .get(soul.to)
+            .is_ok_and(|effects| effects.holds(SOULCATCHER))
+        {
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(ABSORBED),
+                at: Some(soul.to),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
+        }
+    }
+}
+
 /// The Dark Elf's souls.
 pub struct SoulsPlugin;
 
@@ -176,7 +228,10 @@ impl Plugin for SoulsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, make_look).add_systems(
             Update,
-            (catch, home).chain().after(Step::Npcs).in_set(Playing),
+            (catch, home, absorb)
+                .chain()
+                .after(Step::Npcs)
+                .in_set(Playing),
         );
     }
 }

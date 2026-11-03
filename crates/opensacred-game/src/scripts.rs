@@ -31,6 +31,11 @@
 //! function runs and adding to it once a function it called has ended (`0x4ABFE0`), which the later
 //! `CreateNPC`s of the area that carry `0x6B` of 0 take (`npcs::AREA_TURN`, [`ScriptAreaTypes`],
 //! #1063, #1102).
+//!
+//! A save keeps the scripts as they stand ([`Saved`], #1958; the original's `sdk_SAVELOAD_SERIAL`,
+//! docs/re/saves.md): a load runs the saved game's start again, of its seed, for the tree and the
+//! placements it made, and its state, its functions done and its `rand()` are the save's
+//! ([`Started::resume`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -94,6 +99,28 @@ pub struct Started {
     /// of every hero's start, #1343).
     begins: Vec<Begins>,
     infos: Vec<(i32, String)>,
+}
+
+impl Started {
+    /// The scripts as a loaded save left them, in place of the start's run (#1958): its state, its
+    /// functions done and its `rand()`, and none of the start's talks and texts, which the saved
+    /// game showed as it began.
+    pub fn resume(&mut self, saved: Saved) {
+        self.state = saved.state;
+        self.done = saved.done;
+        self.rng = saved.rng;
+        self.begins.clear();
+        self.infos.clear();
+    }
+}
+
+/// The scripts as a save keeps them (#1958): their state, the functions marked done and their
+/// `rand()`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Saved {
+    pub state: quests::Scripts,
+    pub done: Vec<String>,
+    pub rng: Rng,
 }
 
 /// The scripts' drops as the scripts last left them, which a death's drops take (`drops`).
@@ -541,7 +568,7 @@ pub struct Live {
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Teleport {
     pub cell: (i32, i32),
     pub layer: u8,
@@ -602,6 +629,21 @@ impl Live {
     /// scripts' `RegionFrei` pacifies: a region's (`opensacred_rules::quests::region`).
     pub fn pacified(&self, entry: u8) -> bool {
         self.state.pacified.holds(entry)
+    }
+
+    /// The scripts as a save keeps them ([`Saved`]).
+    pub fn saved(&self) -> Saved {
+        Saved {
+            state: self.state.clone(),
+            done: self.runtime.done(),
+            rng: self.rng.clone(),
+        }
+    }
+
+    /// The clock put back, as a loaded save puts it ([`Self::clock`]): its next minute is the
+    /// last seen, and none between counts on the timers.
+    pub fn clock_set(&mut self) {
+        self.minute = None;
     }
 
     /// The value of the scripts' variable `name`, 0 for one never set (`this+0x7550`).
@@ -4037,6 +4079,59 @@ mod tests {
         // A trigger taken out runs nothing, and a cell of none neither.
         assert!(live.step_on((4083, 83), 0).teleports.is_empty());
         assert!(live.step_on((3048, 2893), 0).teleports.is_empty());
+    }
+
+    #[test]
+    fn a_loaded_start_takes_the_saves_scripts_and_none_of_its_windows() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             set_var { _01 = \"started\", _0B = 1 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
+        let mut started = Started {
+            assets: PathBuf::new(),
+            tree: "TEST".into(),
+            index: runtime.index().clone(),
+            state,
+            done: runtime.done(),
+            rng,
+            creatures: HashSet::new(),
+            // The new game's first window and a text, as the start leaves them.
+            begins: vec![Begins::Own("Pre_Tutorial".into())],
+            infos: vec![(1, "a tip".into())],
+        };
+        // The save's: a variable and a quest of its play, a function done, its `rand()` on.
+        let mut played = quests::Scripts::default();
+        played.variables.set("played", 3);
+        played.quests.set_up(1202, &mut |_| true);
+        played.timers.set(7, "zeit1202", 4320);
+        let saved = Saved {
+            state: played,
+            done: vec!["Region3Init".into()],
+            rng: Rng::of(1, 2, 3),
+        };
+        started.resume(saved.clone());
+        assert!(started.begins.is_empty());
+        assert!(started.infos.is_empty());
+        // The play takes it on whole, and a save of it keeps it as it was.
+        let live = Live::new(runtime, started);
+        assert_eq!(live.variable("started"), 0);
+        assert_eq!(live.variable("played"), 3);
+        assert_eq!(live.saved(), saved);
     }
 
     /// The scripts of `runtime` as they go on after its start script ran.

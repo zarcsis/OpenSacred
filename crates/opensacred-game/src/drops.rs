@@ -722,6 +722,16 @@ struct LastJewel(drops::LastJewel);
 pub(crate) struct Played(f32);
 
 impl Played {
+    /// The time played of a save (`saves`), in seconds.
+    pub(crate) fn of(seconds: f32) -> Self {
+        Self(seconds)
+    }
+
+    /// The seconds played, as a save keeps them.
+    pub(crate) fn seconds(&self) -> f32 {
+        self.0
+    }
+
     /// The whole minutes played, as the original counts them for a script's creature's level
     /// (`0x424650`, its seconds over 60, at `0x48463A`).
     pub(crate) fn minutes(&self) -> u32 {

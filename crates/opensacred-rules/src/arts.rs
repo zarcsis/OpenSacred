@@ -2754,7 +2754,7 @@ impl Blast {
 }
 
 /// The table an art is of.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Table {
     /// The first, the spells.
     Spells,
@@ -2782,7 +2782,7 @@ impl Table {
 }
 
 /// An entry of a creature's list of arts (the stats' `+0x102`, 22 bytes each).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub table: Table,
     pub art: u16,
@@ -3086,7 +3086,7 @@ pub enum Refusal {
 }
 
 /// A creature's list of arts.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Arts {
     pub entries: Vec<Entry>,
 }

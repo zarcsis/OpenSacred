@@ -103,7 +103,9 @@ pub(crate) struct LastFoe(pub Option<Foe>);
 /// record (`0x424250`); its resurrections (`0x4246D0`); and the seconds played, which the render
 /// thread adds at each frame (`0x424A60`; here the game's time, which stands while it is paused,
 /// **hypothesis**). Each count stops at `0x7FFFFFFF`.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Tally {
     pub kills: u32,
     pub rises: u32,
@@ -146,7 +148,7 @@ impl Tally {
 /// `+0x30A4` and its counts by type from `+0`, `0x424250`, #1612): the latest foes, the newest
 /// last, and by each type below 768 the kills, the highest level killed and the two hit chances
 /// at its first kill of that level.
-#[derive(Resource, Clone, Debug, Default, PartialEq)]
+#[derive(Resource, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Kills {
     latest: std::collections::VecDeque<Foe>,
     types: std::collections::BTreeMap<u32, Kind>,
@@ -154,7 +156,7 @@ pub struct Kills {
 
 /// A type's kills: their count, the highest level killed, and the hero's chance to hit it and its
 /// chance to hit the hero at that level's first kill, in per cent.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Kind {
     pub count: u32,
     pub level: u32,
@@ -214,7 +216,7 @@ impl Kills {
 
 /// A level's record of the game's history (`0x424CA0`, 36 bytes, #1613): the gold, each damage
 /// kind's mean and each resistance, whole.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LevelRecord {
     pub gold: u32,
     pub damages: [u32; 4],
@@ -250,7 +252,7 @@ impl LevelRecord {
 /// The game's history (the statistics object's records from `+0x32E4`, one a level from 1, and
 /// `+0x56E8` the highest kept, #1613): as the hero rises, the record of the moment for each level
 /// it passes, from its old level up to the new one less 1 (`0x424CA0`).
-#[derive(Resource, Clone, Debug, Default, PartialEq)]
+#[derive(Resource, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct History {
     levels: Vec<LevelRecord>,
     /// The hero's level last seen, none before the game's first.
@@ -331,7 +333,7 @@ fn start(mut tally: ResMut<Tally>, mut kills: ResMut<Kills>, mut history: ResMut
 /// `+0x30A4`): its type, level and health, its attack and defence, its damage (`0x564800`: each
 /// kind's most, or its least where the most is 0) and its resistances' sum (`0x553A00`), and each
 /// kind's share of those times 255 (`0x564470`, `0x564740`), the icons' alphas.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Foe {
     pub creature: u32,
     pub level: u32,
@@ -1947,7 +1949,7 @@ fn plus_at(i: u8) -> Vec2 {
 /// effects' change makes them (`effects::refit_hero`): its attack, defence, damage and
 /// resistances, its regeneration, its pace, its most health with its health held below it, and
 /// its arts' skills.
-fn refit(
+pub(crate) fn refit(
     level: u32,
     rules: &Rules,
     (base, holding, effects): (&Base, Option<&Holding>, Option<&Effects>),

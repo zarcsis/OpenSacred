@@ -547,8 +547,9 @@ pub enum Step {
     Ranged,
 }
 
-/// A small generator of the game's own (SplitMix64), seeded by a sector and a record.
-#[derive(Clone, Debug)]
+/// A small generator of the game's own (SplitMix64), seeded by a sector and a record; a save
+/// keeps the scripts' as it stands (#1958).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Rng(u64);
 
 impl Rng {

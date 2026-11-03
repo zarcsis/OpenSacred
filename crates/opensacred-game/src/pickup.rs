@@ -165,6 +165,51 @@ pub struct Pack {
     pub used: Vec<(Placed, u32)>,
 }
 
+/// What a save keeps of the pack (`saves`, #1957): the gold, the backpack's items and grid and
+/// its next key, the quests' items, the items worn, the books read and the laid items' functions;
+/// the item on the cursor goes back into the backpack as the save is made, where it fits.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Kept {
+    gold: u32,
+    items: Vec<(u32, Dropped)>,
+    grid: Grid,
+    next: u32,
+    quest: Vec<Dropped>,
+    worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
+    books: Vec<u32>,
+    uses: Vec<(u32, String)>,
+}
+
+impl Pack {
+    /// What a save keeps of it.
+    pub fn kept(&self) -> Kept {
+        Kept {
+            gold: self.gold,
+            items: self.items.clone(),
+            grid: self.grid.clone(),
+            next: self.next,
+            quest: self.quest.clone(),
+            worn: self.worn.clone(),
+            books: self.books.clone(),
+            uses: self.uses.clone(),
+        }
+    }
+
+    /// The pack of a save, in place of this one.
+    pub fn restore(&mut self, kept: Kept) {
+        self.gold = kept.gold;
+        self.items = kept.items;
+        self.grid = kept.grid;
+        self.next = kept.next;
+        self.quest = kept.quest;
+        self.held = None;
+        self.worn = kept.worn;
+        self.books = kept.books;
+        self.uses = kept.uses;
+        self.used.clear();
+    }
+}
+
 /// Takes the item over the cell `cell` of a grid and its items onto the cursor `held` where it
 /// holds nothing (`0x5DA3D0`): whether one went. The backpack's and a town stash's alike.
 pub(crate) fn lift_from(

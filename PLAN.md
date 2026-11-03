@@ -330,8 +330,8 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K | 30–60 | 15–30 |
 | M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23); closed 2026-10-26, the estimates standing until the recomputation of §9 | 120–240 | 40–80 |
 | M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26); closed 2026-10-26 | 60–120 | 25–50 |
-| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies | 50–100 | 20–40 |
-| M6 Version 1.0 for Windows 11 | saves, settings, gamepad, 4K and HiDPI, polish, campaign playthroughs | 40–80 | 100–200 |
+| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies, saves (from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns can be played through and checked) | 50–100 | 20–40 |
+| M6 Version 1.0 for Windows 11 | settings, gamepad, 4K and HiDPI, polish, campaign playthroughs; the add-on's script forms and the difficulty's remaining AI chances, which wait for M6's Underworld campaign and bosses (from M5, 2026-11-03) | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
 | M7 HD assets | upscaling, HD packs, built by stage B | 15–30 | 10–30 |
 | M8 Platforms | Linux 5–10; Android 25–50 | 30–60 | 10–20 |
