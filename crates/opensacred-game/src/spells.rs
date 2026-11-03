@@ -231,6 +231,10 @@ const HELL_DISK_LOOP: u32 = 2119;
 const SKULL_HIT_LOOP: u32 = 2075;
 const DEMON_FIRE_LOOP: u32 = 2124;
 const TENTACLES_LOOP: u32 = 2123;
+/// The call of death's object at each kill (1010, the particle system `callofdeath`, made at the
+/// corpse at `0x533ABD`), whose sight is not made: its `VAMP_SHORTCAST` once as it starts
+/// (`0x7AFD9E`).
+const DOOM_KILL_SOUND: u32 = 2078;
 
 /// Flies each trap's ball on its arc to its point in 2/3 s (`0x5A706C`), gone without a trap at
 /// a cell it may not cross, and makes its trap where it lands, of its spell's record at the
@@ -2601,7 +2605,7 @@ fn mine(
 /// Each creature that the hero kills (its fall not a creature's) while the hero holds the
 /// tentacles' effect raises a tentacle at its corpse, which strikes about itself once a second for
 /// the record's value 1, 10 s (`0x533818`); while it holds the call of death's, it raises its
-/// value (`0x5339F3`).
+/// value and the object 1010 sounds at the corpse (`0x5339F3`).
 fn killed(
     died: On<Insert<Dies>>,
     mut commands: Commands,
@@ -2609,6 +2613,7 @@ fn killed(
     looks: Option<Res<Looks>>,
     dead: Query<(&Dies, &GlobalTransform, Option<&InTheWay>), Without<Body>>,
     mut heroes: Query<(Entity, &mut Effects, Option<&Combat>), With<Body>>,
+    mut points: MessageWriter<crate::sfx::PlayAt>,
 ) {
     let Ok((dies, at, way)) = dead.get(died.entity) else {
         return;
@@ -2619,9 +2624,15 @@ fn killed(
     let Some((hero, mut effects, combat)) = heroes.iter_mut().next() else {
         return;
     };
-    effects.change(spells::DOOMED, |doom| {
+    if effects.change(spells::DOOMED, |doom| {
         doom.value = spells::doom_kills(doom.value, doom.level);
-    });
+    }) {
+        points.write(crate::sfx::PlayAt {
+            sound: crate::sfx::Of::Id(DOOM_KILL_SOUND),
+            point: at.translation(),
+            rate: (0.5, crate::sfx::Roll::None),
+        });
+    }
     let tentacles = effects
         .timed()
         .iter()
