@@ -680,14 +680,17 @@ fn act(
             }
             BALL => {
                 // Thrown to the order's point in the traps' arc (`0x527949`), the goblin mage
-                // 127's jittered by up to 100 along each axis.
+                // 127's jittered by up to 100 along each axis, onto a point a creature may stand
+                // on (#1869).
                 let mut to = cast.point;
                 if mind.creature == 127 {
-                    let mut jitter = || {
-                        let roll = i16::try_from(dice.0.below(201)).unwrap_or(100);
-                        f32::from(roll - 100)
+                    let mut jitter = || i16::try_from(dice.0.below(201)).unwrap_or(100) - 100;
+                    let jitter = (jitter(), jitter());
+                    let stands = |(x, z): (f32, f32)| {
+                        heights.walkable_on(crate::paths::cell_of(x, z), way.level)
                     };
-                    to += Vec3::new(jitter(), 0.0, jitter());
+                    let (x, z) = casts::goblin_point((to.x, to.z), jitter, stands);
+                    to = Vec3::new(x, to.y, z);
                 }
                 let mut ball = commands.spawn((
                     Ball {

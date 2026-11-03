@@ -306,6 +306,33 @@ pub const SPRINTERS_AURA: u16 = 72;
 /// its next death gives no experience, and it may rise again.
 pub const RAISED: u32 = 0x10_0000;
 
+/// Where the goblin mage 127 throws its ball at a target at `target` (the chooser `0x4D31C0`):
+/// the target's point moved by `jitter`, two whole numbers from −100 to 100 (`rand() % 201 −
+/// 100`), where `stands` lets a creature stand on it; else the first of five points about the
+/// target that it lets stand on, 10 aside along `x`, one side and the other, and from 10 short to
+/// 10 beyond along `y` by fives; else, untested, the sixth, 10 aside and 15 beyond.
+pub fn goblin_point(
+    target: (f32, f32),
+    jitter: (i16, i16),
+    stands: impl Fn((f32, f32)) -> bool,
+) -> (f32, f32) {
+    let jittered = (
+        target.0 + f32::from(jitter.0),
+        target.1 + f32::from(jitter.1),
+    );
+    if stands(jittered) {
+        return jittered;
+    }
+    let about = |k: u8| {
+        let side = if k.is_multiple_of(2) { -10.0 } else { 10.0 };
+        (target.0 + side, target.1 + f32::from(k) * 5.0 - 10.0)
+    };
+    (0..5)
+        .map(about)
+        .find(|&point| stands(point))
+        .unwrap_or_else(|| about(5))
+}
+
 /// The summon (`SUMMONBEAR`, 3).
 pub const SUMMON: u16 = 3;
 
@@ -664,6 +691,22 @@ fn whole(value: f64) -> u32 {
 mod tests {
     use super::*;
     use crate::fight::{Rank, Rules};
+
+    #[test]
+    fn the_goblin_mages_ball_lands_where_a_creature_may_stand() {
+        let target = (1000.0, 2000.0);
+        assert_eq!(goblin_point(target, (-100, 40), |_| true), (900.0, 2040.0));
+        // The jittered point not stood on: the first of the five about the target.
+        let not_jittered = |point: (f32, f32)| point != (900.0, 2040.0);
+        assert_eq!(
+            goblin_point(target, (-100, 40), not_jittered),
+            (990.0, 1990.0)
+        );
+        let east = |point: (f32, f32)| point.0 > 1000.0 && point.1 > 2000.0;
+        assert_eq!(goblin_point(target, (-100, 40), east), (1010.0, 2005.0));
+        // None stood on: the sixth, untested.
+        assert_eq!(goblin_point(target, (0, 0), |_| false), (1010.0, 2015.0));
+    }
 
     #[test]
     fn a_summon_makes_its_casters_creature_about_the_target_at_its_distance() {
