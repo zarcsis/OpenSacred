@@ -220,7 +220,8 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
 /// over the interface; else by what lies nearest the cursor's line of sight, as a click picks it
 /// (`attack::from_line`): a living foe first, then a creature of a dialogue or a trader, then an
 /// item, lying or in flight, then a door, then the stairs of the cell a click sends the hero to
-/// (`pick`).
+/// (`pick`). With Alt held a label under the cursor picks what it names, as a click does
+/// (`0x6270A0`, `0x631CEB`, #1425), and an item or its label comes before a foe (`attack::aim`).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -241,6 +242,7 @@ fn choose(
         Option<Res<crate::world_map::Map>>,
     ),
     (hovered, nodes): (Option<Res<HoverMap>>, Query<(), With<Node>>),
+    (labels, keys): (Res<crate::labels::Shown>, crate::controls::Keys),
     cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (npcs, forms): (Option<Res<Npcs>>, Option<Res<Forms>>),
     creatures: Query<
@@ -255,7 +257,7 @@ fn choose(
         Without<Dies>,
     >,
     (items, doors, containers, stashes): (
-        Query<(&GlobalTransform, &Lying, Option<&TextName>)>,
+        Query<(Entity, &GlobalTransform, &Lying, Option<&TextName>)>,
         Query<&GlobalTransform, With<Door>>,
         Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
         Query<(&GlobalTransform, &crate::stashes::Stash)>,
@@ -299,6 +301,25 @@ fn choose(
                     .min_by(|a, b| a.0.total_cmp(&b.0))
                     .map(|(_, look)| look)
             };
+            // A label under the cursor, which Alt shows, picks what it names at no distance.
+            let (label_item, labelled) = pointer
+                .0
+                .map_or((None, None), |at| (labels.under(at), labels.labelled(at)));
+            let picked = |entity: Entity, at: &GlobalTransform| {
+                if label_item == Some(entity) || labelled == Some(entity) {
+                    Some(0.0)
+                } else {
+                    near(at)
+                }
+            };
+            let lying = items
+                .iter()
+                .filter_map(|(entity, at, lying, text)| {
+                    Some((picked(entity, at)?, lying.dropped.clone(), text))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, kind, text)| (Some(kind), text.map(|text| text.0.clone())));
+            let items_first = crate::labels::held(&keys) && lying.is_some();
             // A foe as `attack::aim` takes one: alive, hostile and of no dialogue.
             let is_foe = |mind: &Mind, talk: Option<&Talk>| talk.is_none() && mind.hostile();
             let alive = || {
@@ -310,28 +331,27 @@ fn choose(
             let hero = heroes.iter().next();
             let holding = hero.and_then(|(holding, ..)| holding);
             foe_under = alive()
-                .filter(|(_, _, mind, _, talk, _)| is_foe(mind, *talk))
-                .filter_map(|(entity, at, ..)| Some((near(at)?, entity)))
+                .filter(|(_, _, mind, _, talk, _)| !items_first && is_foe(mind, *talk))
+                .filter_map(|(entity, at, ..)| Some((picked(entity, at)?, entity)))
                 .min_by(|a, b| a.0.total_cmp(&b.0))
                 .map(|(_, entity)| entity);
             let foe = foe_under.map(|_| foe_look(holding.map(|holding| &holding.0), by_night));
             foe.or_else(|| {
-                nearest(&mut alive().filter_map(|(_, at, mind, _, talk, trades)| {
-                    let distance = near(at)?;
-                    if is_foe(mind, talk) {
-                        return None;
-                    }
-                    let dialogue = crate::talk::dialogue_of(talk, mind, npcs.as_deref()).is_some();
-                    let look = creature_look(trades.map_or(0, |trades| trades.0), dialogue)?;
-                    Some((distance, look))
-                }))
+                nearest(
+                    &mut alive().filter_map(|(entity, at, mind, _, talk, trades)| {
+                        let distance = picked(entity, at)?;
+                        if is_foe(mind, talk) {
+                            return None;
+                        }
+                        let dialogue =
+                            crate::talk::dialogue_of(talk, mind, npcs.as_deref()).is_some();
+                        let look = creature_look(trades.map_or(0, |trades| trades.0), dialogue)?;
+                        Some((distance, look))
+                    }),
+                )
             })
             .or_else(|| {
-                let (_, kind, text) = items
-                    .iter()
-                    .filter_map(|(at, lying, text)| Some((near(at)?, lying.dropped.clone(), text)))
-                    .min_by(|a, b| a.0.total_cmp(&b.0))?;
-                item = Some((Some(kind), text.map(|text| text.0.clone())));
+                item = Some(lying?);
                 Some(Look::Hand)
             })
             .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
@@ -339,8 +359,8 @@ fn choose(
             .or_else(|| {
                 let (_, entity) = containers
                     .iter()
-                    .filter(|(_, at, container)| container.opens() && near(at).is_some())
-                    .filter_map(|(entity, at, _)| Some((near(at)?, entity)))
+                    .filter(|(_, _, container)| container.opens())
+                    .filter_map(|(entity, at, _)| Some((picked(entity, at)?, entity)))
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
                 container_under = Some(entity);
                 Some(Look::Hand)
