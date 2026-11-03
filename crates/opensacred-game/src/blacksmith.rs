@@ -17,14 +17,15 @@
 //! into a socket; a press on a filled one with the cursor empty takes its item out onto the cursor,
 //! every socket emptied and what waited forgotten (`0x6A27B0`, `smith::take_out`). The work's
 //! button, where something waits and the hero has the price, takes the gold and puts each waiting
-//! item into the next socket by the smith's tier (`0x6A2660`, `smith::fill`). As the inventory
-//! hides, the grid's item and what waits go back into the backpack, those without room dropped at
-//! the smith's feet (`0x6A3080`).
+//! item into the next socket by the smith's tier (`0x6A2660`, `smith::fill`), with the smith's
+//! sound; the window's other presses are silent (#1821). As the inventory hides, the grid's item
+//! and what waits go back into the backpack, those without room dropped at the smith's feet
+//! (`0x6A3080`).
 //!
 //! Not followed yet: the Dwarf smithing by his skill 33 (his button of the inventory, the third
-//! button's picture 1606 and his checks), the item's check `0xE`, the window's sounds but its show's
-//! (#1722), the tooltips of the item, the upgrades and the sockets' items and the waiting item's lines beside
-//! the grid, and a network game's events.
+//! button's picture 1606 and his checks), the item's check `0xE`, the tooltips of the item, the
+//! upgrades and the sockets' items and the waiting item's lines beside the grid, and a network
+//! game's events.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -240,11 +241,11 @@ pub(crate) fn holds_upgrade(pack: &Pack, tables: &Tables) -> bool {
         .is_some_and(|held| tables.category(held.dropped.item) == smith::UPGRADES)
 }
 
-/// The smith's sound (7108), which the window plays as it shows.
-const SHOW_SOUND: u32 = 7108;
+/// The smith's sound (7108), which the window plays as it shows and as the work is done.
+const SMITH_SOUND: u32 = 7108;
 
 /// Shows the smith's window for `creature` with the inventory (`0x52AB70`), his tier by his type
-/// and the difficulty, with its sound.
+/// and the difficulty, with its sounds.
 pub fn open(world: &mut World, creature: Entity) {
     let kind = world
         .get::<crate::ai::Mind>(creature)
@@ -255,12 +256,16 @@ pub fn open(world: &mut World, creature: Entity) {
         .unwrap_or_default();
     let tier = Smith::Creature { kind }.tier(u8::try_from(difficulty.index()).unwrap_or(0));
     info!("blacksmith: {creature}, a {kind}, shows its window, of the tier {tier}");
-    // The smith's sound as the window shows (`0x6A41F0`: the event (14, 2, `0x1E`), #1722).
-    world.write_message(crate::sfx::Play {
-        sound: crate::sfx::Of::Id(SHOW_SOUND),
-        at: None,
-        rate: (0.5, crate::sfx::Roll::None),
-    });
+    // The window's show (`0x6A41F0`) selects the items page of the inventory's tab sheet (its
+    // event `0x32`), whose show plays its own sound, then plays the smith's (the event (14, 2,
+    // `0x1E`), #1722); seen so after the inventory's own four (#1821).
+    for sound in [crate::inventory::ITEMS_PAGE, SMITH_SOUND] {
+        world.write_message(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(sound),
+            at: None,
+            rate: (0.5, crate::sfx::Roll::None),
+        });
+    }
     world.insert_resource(Blacksmith {
         creature,
         kind,
@@ -377,6 +382,7 @@ fn press(
         Res<UiImages>,
     ),
     asking: Option<Res<crate::purchase::Asking>>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let (Some(mut smith), Some(tables)) = (smith, tables) else {
         return;
@@ -399,7 +405,7 @@ fn press(
                 .price(&tables)
                 .is_some_and(|price| price <= i64::from(pack.gold))
         {
-            work(smith, &mut pack, &tables);
+            work(smith, &mut pack, &tables, &mut sounds);
         }
         return;
     }
@@ -430,7 +436,7 @@ fn press(
             .price(&tables)
             .is_some_and(|price| price <= i64::from(pack.gold))
         {
-            work(smith, &mut pack, &tables);
+            work(smith, &mut pack, &tables, &mut sounds);
         }
     } else if holds_upgrade(&pack, &tables) {
         // A press on the window's ground drops the upgrade off the cursor.
@@ -539,8 +545,13 @@ fn press_socket(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables, k: usi
 }
 
 /// The work (`0x6A2660`): the price taken, each waiting item into the item's next socket by the
-/// smith's tier.
-fn work(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables) {
+/// smith's tier, then the smith's sound (the event (14, 2, `0x1E`), `0x6A2789`).
+fn work(
+    smith: &mut Blacksmith,
+    pack: &mut Pack,
+    tables: &Tables,
+    sounds: &mut MessageWriter<crate::sfx::Play>,
+) {
     let Some(price) = smith.price(tables) else {
         return;
     };
@@ -572,6 +583,7 @@ fn work(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables) {
             .map(|socket| socket.item.item)
             .collect::<Vec<_>>()
     );
+    crate::inventory::play(sounds, SMITH_SOUND);
 }
 
 /// The window's container.
@@ -1062,5 +1074,26 @@ mod tests {
     fn the_sockets_stand_88_apart() {
         assert_eq!(socket_at(0), Vec2::new(16.0, 232.0));
         assert_eq!(socket_at(3), Vec2::new(280.0, 232.0));
+    }
+
+    #[test]
+    fn the_window_selects_the_items_page_then_sounds_the_smith() {
+        let mut world = World::new();
+        world.init_resource::<bevy::ecs::message::Messages<crate::sfx::Play>>();
+        world.init_resource::<Shown>();
+        let creature = world.spawn_empty().id();
+        open(&mut world, creature);
+        let played: Vec<u32> = world
+            .resource::<bevy::ecs::message::Messages<crate::sfx::Play>>()
+            .iter_current_update_messages()
+            .filter_map(|play| match play.sound {
+                crate::sfx::Of::Id(id) => Some(id),
+                _ => None,
+            })
+            .collect();
+        // Seen after the inventory's own four, which its show plays as the windows show.
+        assert_eq!(played, [7112, 7108]);
+        assert!(world.resource::<Shown>().0);
+        assert!(world.contains_resource::<Blacksmith>());
     }
 }
