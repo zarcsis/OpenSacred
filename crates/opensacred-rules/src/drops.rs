@@ -1791,6 +1791,9 @@ pub struct Flight {
     pub resting: bool,
     /// A flight to a point ([`Flight::to_point`]) in place of the velocity's.
     pub arc: Option<Arc>,
+    /// Whether its velocity along the ground turns back at every frame ([`Flight::step`]): a
+    /// drop's, not a part's thrown off ([`Flight::flung`]).
+    pub turns: bool,
 }
 
 /// A flight to a point (`0x44DED0` with −1000, `0x44DFE0`): from where it left to where it lands,
@@ -1819,6 +1822,7 @@ impl Flight {
             spin,
             resting: false,
             arc: None,
+            turns: true,
         }
     }
 
@@ -1836,6 +1840,7 @@ impl Flight {
             spin,
             resting: false,
             arc: None,
+            turns: false,
         }
     }
 
@@ -1856,6 +1861,7 @@ impl Flight {
                 seconds: ARC_SECONDS,
                 flown: 0.0,
             }),
+            turns: true,
         }
     }
 
@@ -1873,16 +1879,19 @@ impl Flight {
             spin,
             resting: false,
             arc: None,
+            turns: true,
         }
     }
 
     /// The flight's frame of `dt` seconds (`0x44DFE0`): the angles grow by the spin, the point by
     /// a tenth of the velocity along the ground and the height by the vertical velocity, each
     /// times `dt`; the velocity loses a tenth of itself along the ground and 290.81 along the
-    /// height, times `dt`. Its velocity along the ground then turns back, as the client's test of
-    /// the cell it moves to (`0x636890`) has it at every frame of a drop's flight (seen in the
-    /// original, #478; **hypothesis**: the test takes the flight's offset for the place), so that
-    /// the drop rises and falls within a unit of where it was thrown; below the height its point
+    /// height, times `dt`. Its velocity along the ground then turns back where the client's test
+    /// of the cell it moves to (`0x636890`) fails, which it does at every frame of a drop's flight
+    /// (seen in the original, #478; **seen**, #1932: the test answered 0 at every frame of a
+    /// death's drops and 1 at those of a warrior's heads thrown off, why not read), so that the
+    /// drop rises and falls within a unit of where it was thrown while a part thrown off flies on
+    /// ([`Flight::turns`]); below the height its point
     /// stands at (`ground`, `0x449950`) it lies there without a velocity; it rests once each
     /// velocity is below 1 and it lies within 1 of the ground.
     pub fn step(&mut self, dt: f32, ground: impl Fn(f32, f32) -> f32) {
@@ -1905,9 +1914,10 @@ impl Flight {
         for (angle, spin) in self.angles.iter_mut().zip(self.spin) {
             *angle += spin * dt;
         }
+        let turn = if self.turns { -1.0 } else { 1.0 };
         self.velocity = [
-            -(vx - DRAG * vx * dt),
-            -(vy - DRAG * vy * dt),
+            turn * (vx - DRAG * vx * dt),
+            turn * (vy - DRAG * vy * dt),
             vz - GRAVITY * dt,
         ];
         let [x, y, z] = self.at;
