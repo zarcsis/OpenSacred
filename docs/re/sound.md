@@ -434,7 +434,80 @@ The executors' (by their jump tables; the branch inside a case not read): the Gl
 The Vampiress's form posts (9, `0x49`, 1 or 0), which sets `+0xAF48`, under which her battle cries are `BATTLECRY_nn_REALVAMP` (the strings at `0x9D7B44`).
 
 The spells' and arts' objects play from their own functions (the particle systems' classes, `0x76A440`–`0x7C3AC0`); by the sound, with the function: `MAGE_FEUERBALL_CAST` and `_HIT` (`0x76BE80`, `0x76BBD0`, `0x7BFA90`), `MAGE_WILDSCHWEIN` (`0x76A440`), `DELF_SOULCATCHER_ABSORP` (`0x76A860`) and `_LOOP` (`0x76AA40`), `VAMP_VAMPIRISMUS_EX` (`0x76D260`), `WATERFOUNTAIN01`/`02` (`0x76E2D0`), `DELF_SCHLACHTENNEBEL` (`0x7709F0`), `MAGE_PENTAGRAMM_HIT`, `_CAST`, `_LOOP` (`0x772C40`, `0x773790`, `0x79AB70`), `MAGE_HEALING` (`0x774330`), `TORCHFIRE_LOOP` (`0x7752B0`), `MAGE_FIRECIRCLE_LOOP` (`0x775DF0`), `MAGE_HELLFIRE_LOOP` (`0x776860`), `DELF_GIFTHAUCH_LOOP` (`0x778D10`), `DELF_VERWIRRUNG_LOOP` (`0x7792C0`), `FIREGHUL_FLAMEBREATH` (`0x77AE90`), `SPIDER_PUKE04`, `_PUKEIMPACT04` (`0x77B180`, `0x77B700`, `0x7C2320`, `0x7C2590`), `BLEEDING02` (`0x77BD60`), `SERA_PLASMASHOT_BIG` (`0x77F520`), `SERA_HEILIGES_LICHT_LOOP` (`0x7816A0`), `SERA_KLINGENWALL_LOOP` (`0x784C90`), `SERA_LICHTSCHILD_LOOP` (`0x785DE0`, `0x7B64D0`), `MAGE_METEOREINSCHLAG01`/`02` (`0x7866C0`), `MAGE_WIRBELWIND_LOOP` (`0x788D90`), `MAGE_MAGIESCHILD_LOOP` (`0x78B040`), `SPELL_AUE` (`0x78B4B0`), `SPELL_REIKI` (`0x78B900`), `HELF_CAST_LANG` (`0x790CE0`), `VAMP_BEHERRSCHUNG_LOOP` (`0x7938D0`, `0x79DBF0`), `DELF_CAST` (`0x794300`), `DELF_ADRENALIN_LOOP` (`0x794CE0`), `HELF_VERWANDLUNG_HIT` (`0x795E20`), `SPAWN` (`0x796E10`), `SPELL_BANNKREIS` (`0x79CC80`), `HELF_AHNEN_LOOP` (`0x79D310`, `0x7A6370`, `0x7BF3A0`), `VAMP_PENTA` (`0x79E5D0`), `DELF_SPRENGSATZ` (`0x79E730`), `DELF_WURFCAST` (`0x79EA50`), `LAVABURST` (`0x79F160`), `VAMP_BLUTBISS` and `SPELL_LASER` (`0x7A50B0`), `SPELL_BIGSUMMON` (`0x7A8430`), `DEMON_HOELLENDISK_LOOP` (`0x7AE040`), `VAMP_SHORTCAST` (`0x7AFD70`), `DEMON_TENTAKEL_LOOP` (`0x7B1990`, `0x7BEBF0`), `DEMON_CAST` (`0x7B27D0`), `DEMON_HOELLENFEUER` loop (`0x7B3110`), `DWARF_FLAMMENWERFER` (`0x7B3870`), `DWARF_KANONE_ABSCHUSS` (`0x7B4480`), `DWARF_MOERSER_ABSCHUSS` and `_EINSCHLAG` (`0x7B50F0`, `0x7B70A0`), `DWARF_KRIEGSSCHREI` (`0x7B8300`), `DWARF_TELLERMINE_LEGEN` and `_EXPLOSION` (`0x7BA610`, `0x7BAD70`), `PONG` (`0x7BCBC0`), `SPELL_FIRESTRIKE` (`0x7BF720`), `TORCH_HIT01` (`0x7BFA90`), `DWARF_PISTOL` (`0x7C3AC0`).
-Which object type each class is (`0x5A0C50`'s byte table `0x5A3270`, docs/re/arts.md "The objects' systems") is not read; the names make most of them plain.
+Which object types each class makes (read 2026-11-03 for #1173, **confirmed** by code): `0x5A0C50` switches on the type less 768 (768 to 1181) through the bytes at `0x5A3570` and the cases at `0x5A3294`, each case allocating its class and calling its constructor; a class's functions follow its constructor, so each function above belongs to the nearest constructor below it:
+
+| Function | Object types |
+|---|---|
+| `0x76A440` | 777 |
+| `0x76A860` | 869 |
+| `0x76AA40` | 869 |
+| `0x76BBD0` | 778 |
+| `0x76BE80` | 778 |
+| `0x76D260` | 781 |
+| `0x76E2D0` | 771, 810, 811, 812, 813, 876, 879, 881, 882, 884, 885, 886, 904 |
+| `0x7709F0` | 868 |
+| `0x772C40` | 782 |
+| `0x773790` | 782 |
+| `0x774330` | 784 |
+| `0x7752B0` | 787 |
+| `0x775DF0` | 790 |
+| `0x776860` | 820 |
+| `0x778D10` | 792 |
+| `0x7792C0` | 871 |
+| `0x77AE90` | 852 |
+| `0x77B180` | 880 |
+| `0x77B700` | 880 |
+| `0x77BD60` | 908 |
+| `0x77F520` | 875 |
+| `0x7816A0` | 804 |
+| `0x784C90` | 814 |
+| `0x785DE0` | 819 |
+| `0x7866C0` | 823 |
+| `0x788D90` | 826 |
+| `0x78B040` | 834 |
+| `0x78B4B0` | 835 |
+| `0x78B900` | 836 |
+| `0x790CE0` | 844 |
+| `0x7938D0` | 862 |
+| `0x794300` | 865 |
+| `0x794CE0` | 864 |
+| `0x795E20` | 845 |
+| `0x796E10` | 856 |
+| `0x79AB70` | 846 |
+| `0x79CC80` | 854 |
+| `0x79D310` | 850 |
+| `0x79DBF0` | 857 |
+| `0x79E5D0` | 866 |
+| `0x79E730` | 867 |
+| `0x79EA50` | 867 |
+| `0x79F160` | 877 |
+| `0x7A50B0` | 901 |
+| `0x7A6370` | 905 |
+| `0x7A8430` | 916 |
+| `0x7AE040` | 1005 |
+| `0x7AFD70` | 1010 |
+| `0x7B1990` | 1013 |
+| `0x7B27D0` | 1014 |
+| `0x7B3110` | 1015 |
+| `0x7B3870` | 1016 |
+| `0x7B4480` | 1017 |
+| `0x7B50F0` | 1018 |
+| `0x7B64D0` | 1019 |
+| `0x7B70A0` | 1020 |
+| `0x7B8300` | 1023 |
+| `0x7BA610` | 1154 |
+| `0x7BAD70` | 1153 |
+| `0x7BCBC0` | 1156, 1158 |
+| `0x7BEBF0` | 1161 |
+| `0x7BF3A0` | 1162 |
+| `0x7BF720` | 1164 |
+| `0x7BFA90` | 1164 |
+| `0x7C2320` | 1170 |
+| `0x7C2590` | 1170 |
+| `0x7C3AC0` | 1172 |
+
+The Mage's objects (read the same day, **confirmed** by code): the healing's (784, `0x774330`) plays `MAGE_HEALING` (2020) once as it starts, at its object, which follows the target; the fire spiral's (790, `0x775DF0`) loops `MAGE_FIRECIRCLE_LOOP` (2019) from the first of its five flames alone (the event's `+0x38` 0); the purgatory's (820, `0x776860`) loops `MAGE_HELLFIRE_LOOP` (2006), the shield wall's (834, `0x78B040`) `MAGE_MAGIESCHILD_LOOP` (2022), each from its start while it lives, its channel at `+0xB0`.
+  `opensacred-game` plays them so since #1173 (`hums::Hum` on an object's entity, the whirlwind's too; `spells`): the healing's at its target, the spiral's at its first flame, the purgatory's at its disk; the shield wall's is not followed yet, its object not made.
 The fireball's system (`cParticleSystem_firestrike`, the object 778; read 2026-11-03 for #1173, **confirmed** by code): its start plays `MAGE_FEUERBALL_CAST` (2000) at its object (`0x76BE80`), besides the cast's at the caster, and its object's hit (the flag 2 of `+0x74`) `MAGE_FEUERBALL_HIT` (2001) at it as its explosion begins (`0x76BBD0`), both at the volume 1 and the sample's own rate; a ball whose time runs out fades with no sound.
   `opensacred-game` plays them so since #1173 (`bolts`, the fireball's course): the start at the ball as it leaves, the hit at the creature it hits first, the ball going in that frame.
 The Seraphim's bolts and the Mage's whirlwind (read 2026-11-03 for #1173, **confirmed** by code): the shot that makes her two railgun objects plays `SERA_PLASMASHOT` (2072) once, after the first object's making (`0x4DDE12` after `0x4DDD2A`; the one push of 2072); the BFG's system `SERA_PLASMASHOT_BIG` (2073) as it starts (`cParticleSystem_bfg`, `0x77F520`); the whirlwind's system starts `MAGE_WIRBELWIND_LOOP` (2017) as it starts and keeps its channel (`cParticleSystem_twister`, `0x788D90`, `+0xB0`), a loop for each whirlwind; each at its object, at the volume 1 and the sample's own rate.
