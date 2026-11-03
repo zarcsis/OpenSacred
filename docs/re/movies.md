@@ -37,4 +37,7 @@ The keys' and the mouse's messages are thrown away at each frame.
 
 ## In `opensacred-game`
 
-Not yet played (#1094).
+The player (`movies`, #1945) follows the one above: a movie asked for by its name waits half a second, then plays over everything, its frames filling the interface's 4:3 screen and the rest of a wider window black, until it ends or Escape, Space or either mouse button held stops it; a quarter of a second after it, and while Escape or Space is still held, it still takes the keys and the clicks, which reach neither the game nor the menus.
+A game stands under a movie as under the pause without its menu, its time and its sound; in the menus their music and sounds pause.
+A movie whose file is not there is skipped.
+The console's `movie NAME` plays one; the places where the original plays them are #1946.

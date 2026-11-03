@@ -16,3 +16,7 @@ accepted = [
     "Unicode-3.0",
     "Zlib",
 ]
+
+# to_method under rav1d (#1945): CC0 1.0, which deny.toml allows for that crate alone.
+[to_method]
+accepted = ["CC0-1.0"]

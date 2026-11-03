@@ -27,6 +27,7 @@ opensacred-rules.workspace = true
 opensacred-scripts.workspace = true
 png.workspace = true
 postcard.workspace = true
+rav1d.workspace = true
 rayon.workspace = true
 ron.workspace = true
 serde.workspace = true

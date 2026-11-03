@@ -2,7 +2,8 @@
 //! own decoders do not read. A file is decoded whole, as Kira decodes its static sounds, by
 //! Symphonia with libopus registered (`symphonia-adapter-libopus`), into the sound that
 //! `bevy_kira_audio` plays; the Ogg demuxer and the decoder drop the encoder's delay at the start
-//! and the padding at the end, so that a sound keeps its length.
+//! and the padding at the end, so that a sound keeps its length. The movies' sound takes the same
+//! decoder ([`Sound`]).
 
 use std::io::{self, Cursor};
 
@@ -12,10 +13,12 @@ use bevy::prelude::*;
 use bevy_kira_audio::AudioSource;
 use kira::Frame;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
+use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoder};
 use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::formats::TrackType;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
+use symphonia::core::packet::Packet;
 use symphonia_adapter_libopus::OpusDecoder;
 
 /// The loader of the `.opus` files.
@@ -48,8 +51,6 @@ impl AssetLoader for OpusLoader {
 /// The frames of an Ogg Opus file, at its sample rate; a mono file's in both channels, as Kira
 /// gives a mono file's.
 pub fn decode(bytes: Vec<u8>) -> io::Result<StaticSoundData> {
-    let mut codecs = CodecRegistry::new();
-    codecs.register_audio_decoder::<OpusDecoder>();
     let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
     hint.with_extension("ogg");
@@ -62,29 +63,65 @@ pub fn decode(bytes: Vec<u8>) -> io::Result<StaticSoundData> {
         .and_then(|params| params.audio())
         .cloned()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no audio track"))?;
-    let mut decoder = codecs
-        .make_audio_decoder(&params, &Default::default())
-        .map_err(io::Error::other)?;
-    let mut sample_rate = 48_000;
-    let mut frames = Vec::new();
-    let mut samples = Vec::new();
+    let mut sound = Sound::new(&params)?;
     while let Some(packet) = format.next_packet().map_err(io::Error::other)? {
-        let decoded = decoder.decode(&packet).map_err(io::Error::other)?;
-        sample_rate = decoded.spec().rate();
+        sound.decode(&packet)?;
+    }
+    Ok(sound.data())
+}
+
+/// A track's Opus packets decoded one by one into Kira's frames: an Ogg Opus file's, or a movie's
+/// sound (`movies`).
+pub struct Sound {
+    decoder: Box<dyn AudioDecoder>,
+    sample_rate: u32,
+    frames: Vec<Frame>,
+    samples: Vec<f32>,
+}
+
+impl Sound {
+    /// The decoder of the track of `params`, libopus registered.
+    pub fn new(params: &AudioCodecParameters) -> io::Result<Self> {
+        let mut codecs = CodecRegistry::new();
+        codecs.register_audio_decoder::<OpusDecoder>();
+        let decoder = codecs
+            .make_audio_decoder(params, &Default::default())
+            .map_err(io::Error::other)?;
+        Ok(Self {
+            decoder,
+            sample_rate: 48_000,
+            frames: Vec::new(),
+            samples: Vec::new(),
+        })
+    }
+
+    /// Decodes the track's next `packet`.
+    pub fn decode(&mut self, packet: &Packet) -> io::Result<()> {
+        let decoded = self.decoder.decode(packet).map_err(io::Error::other)?;
+        self.sample_rate = decoded.spec().rate();
         let channels = decoded.spec().channels().count();
-        samples.resize(decoded.samples_interleaved(), 0.0f32);
-        decoded.copy_to_slice_interleaved(&mut samples);
+        self.samples.resize(decoded.samples_interleaved(), 0.0f32);
+        decoded.copy_to_slice_interleaved(&mut self.samples);
         match channels {
-            1 => frames.extend(samples.iter().map(|&s| Frame::from_mono(s))),
-            n => frames.extend(samples.chunks_exact(n).map(|c| Frame::new(c[0], c[1]))),
+            1 => self
+                .frames
+                .extend(self.samples.iter().map(|&s| Frame::from_mono(s))),
+            n => self
+                .frames
+                .extend(self.samples.chunks_exact(n).map(|c| Frame::new(c[0], c[1]))),
+        }
+        Ok(())
+    }
+
+    /// The frames decoded, at the track's sample rate.
+    pub fn data(self) -> StaticSoundData {
+        StaticSoundData {
+            sample_rate: self.sample_rate,
+            frames: self.frames.into(),
+            settings: StaticSoundSettings::default(),
+            slice: None,
         }
     }
-    Ok(StaticSoundData {
-        sample_rate,
-        frames: frames.into(),
-        settings: StaticSoundSettings::default(),
-        slice: None,
-    })
 }
 
 /// Registers the loader of the `.opus` files.

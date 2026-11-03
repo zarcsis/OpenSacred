@@ -247,8 +247,8 @@ Versions as of 2026-10-16.
 | Task | Crate | Version | License |
 |---|---|---|---|
 | Input with remapping | leafwing-input-manager (not used: the game's own `controls`, #1553) | 0.22.0 | MIT or Apache-2.0 |
-| AV1 video | rav1d | 1.1.0 | BSD-2-Clause |
-| WebM container | matroska-demuxer or webm-iterable | 0.8.1 / 0.7.1 | Zlib, MIT or Apache-2.0 / MIT |
+| AV1 video | rav1d (upstream's main at a pinned commit for its safe Rust API, which 1.1.0 lacks; #1945) | 1.1.1 | BSD-2-Clause |
+| WebM container | symphonia's Matroska demuxer, which the sound's Ogg one is beside (#1945); matroska-demuxer and webm-iterable not needed | 0.6.1 | MPL-2.0 |
 | Tests | insta, proptest | 1.49.0, 1.12.0 | Apache-2.0; MIT or Apache-2.0 |
 | Upscaling through ONNX (M7, optional) | ort | 2.0.0-rc.14 | MIT or Apache-2.0 |
 

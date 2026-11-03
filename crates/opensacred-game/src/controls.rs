@@ -2,7 +2,8 @@
 //! `controls.toml` beside `settings.toml`, the defaults the original's (its Quickstart's list and
 //! `cEngine_receiveEvent`, `0x618090`), the game's own tools on the keys it leaves free (#1536).
 //!
-//! The file has a section for each place the keys work, `[world]`, `[interface]` and `[tools]`,
+//! The file has a section for each place the keys work, `[world]`, `[interface]`, `[tools]` and
+//! `[movie]`,
 //! and in it an action to the list of its keys, each a key by its place on the keyboard (`I`, `1`,
 //! `F1`, `Space`, `NumpadEnter`, …) with the modifiers held with it (`Shift+Space`). A key with
 //! modifiers asks for them and lets the others be held too, but a key of more modifiers that are
@@ -35,16 +36,19 @@ pub enum Section {
     Interface,
     /// The game's own tools, everywhere.
     Tools,
+    /// A movie that plays (`movies`).
+    Movie,
 }
 
 impl Section {
-    const ALL: [Self; 3] = [Self::World, Self::Interface, Self::Tools];
+    const ALL: [Self; 4] = [Self::World, Self::Interface, Self::Tools, Self::Movie];
 
     fn name(self) -> &'static str {
         match self {
             Self::World => "world",
             Self::Interface => "interface",
             Self::Tools => "tools",
+            Self::Movie => "movie",
         }
     }
 }
@@ -98,6 +102,7 @@ pub enum Action {
     Log,
     Window,
     Console,
+    SkipMovie,
 }
 
 /// The weapon sets' actions, the first to the fifth.
@@ -127,7 +132,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 46] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 47] = [
     (
         Action::Walk,
         Section::World,
@@ -443,6 +448,13 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 46] = [
         "console",
         &["Backquote"],
         "the console (the key under Esc)",
+    ),
+    (
+        Action::SkipMovie,
+        Section::Movie,
+        "skip",
+        &["Escape", "Space"],
+        "held, stop the movie, as either mouse button does (the original's player, 0x6A0EA0)",
     ),
 ];
 

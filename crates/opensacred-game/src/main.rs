@@ -95,6 +95,7 @@ mod minimap;
 mod model_effects;
 mod models;
 mod motions;
+mod movies;
 mod music;
 mod npcs;
 mod opus;
@@ -458,6 +459,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         merchant::MerchantPlugin,
         model_effects::ModelEffectsPlugin,
         models::ModelsPlugin,
+        movies::MoviesPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,

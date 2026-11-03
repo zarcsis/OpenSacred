@@ -63,7 +63,7 @@ Estimate: 6–12 agent-hours.
 | Step | Decision |
 |---|---|
 | Conversion | FFmpeg as an external program: WMV → FFV1 (video) + FLAC (audio) in Matroska as the master (#698), built into AV1 (video) + Opus (audio) in WebM for the game; the original resolution and frame rate (640×480, 25 fps); the source audio is WMAv2 or WMA Pro, both decoded by FFmpeg |
-| Playback | a WebM demuxer (`matroska-demuxer`) + the rav1d AV1 decoder → a Bevy texture; audio through Kira |
+| Playback | symphonia's WebM demuxer + the rav1d AV1 decoder on a thread of its own → a Bevy texture; the Opus sound decoded whole by libopus, as the game's other sound, played through Kira (#1945) |
 | Controls | skip with a key; a "do not show movies" setting |
 
 Estimate: 6–12 agent-hours (M5).

@@ -97,6 +97,8 @@ pub struct Snapshot {
     pub version: &'static str,
     /// `menu`, `loading`, `game` or `paused`.
     pub state: &'static str,
+    /// The movie that plays (`movies`), its name.
+    pub movie: Option<String>,
     pub fps: f32,
     pub frame_ms: f32,
     pub slowest_ms: f32,
@@ -171,8 +173,13 @@ impl Snapshot {
             head.push_str(&format!(" | {width}x{height} {mode}"));
         }
         lines.push(head);
+        let movie = self
+            .movie
+            .as_ref()
+            .map(|movie| format!("  movie {movie}"))
+            .unwrap_or_default();
         lines.push(format!(
-            "{:6.1} fps {:6.2} ms  slowest {:6.2} ms  {}",
+            "{:6.1} fps {:6.2} ms  slowest {:6.2} ms  {}{movie}",
             self.fps, self.frame_ms, self.slowest_ms, self.state
         ));
         if let Some(hero) = &self.hero {
@@ -302,6 +309,7 @@ pub struct Probe<'w, 's> {
     weather: Option<Res<'w, crate::weather::Weather>>,
     cursor: Option<Res<'w, crate::cursors::Shown>>,
     glow: Option<Res<'w, crate::cursors::Glow>>,
+    movie: Option<Res<'w, crate::movies::Movie>>,
 }
 
 impl Probe<'_, '_> {
@@ -378,6 +386,7 @@ impl Probe<'_, '_> {
         Snapshot {
             version: env!("OPENSACRED_VERSION"),
             state,
+            movie: self.movie.as_deref().map(|movie| movie.name.clone()),
             fps,
             frame_ms,
             slowest_ms,

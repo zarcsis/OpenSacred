@@ -103,6 +103,9 @@ enum Command {
     Setquake { value: u32 },
     /// The music and the ambient loops
     Music { on: Switch },
+    /// Play the movie NAME (intro, extro, introuw, extrouw, act1 to act4, ascaron, oem) as the
+    /// original's player does: Escape, Space or either mouse button stops it
+    Movie { name: String },
     /// Pause the game without the pause's menu, for a still frame, or go on
     Pause { on: Switch },
     /// Save the next frame to FILE (PNG) and go on
@@ -1174,6 +1177,13 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     Ok(Outcome::say("the music is off"))
                 }
             }
+        }
+        Command::Movie { name } => {
+            if !crate::movies::exists(&name) {
+                return Err(format!("no movie {name}"));
+            }
+            world.write_message(crate::movies::Show(name));
+            Ok(Outcome::say("the movie plays"))
         }
         Command::Pause { on } => {
             in_game(world)?;
