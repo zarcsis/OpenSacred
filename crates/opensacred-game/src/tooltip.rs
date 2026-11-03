@@ -418,6 +418,7 @@ enum Source {
     SpellsPage,
     SetIcon,
     Smith,
+    Master,
 }
 
 /// What a tooltip shows: an item, as its own class or the smith's view of it tells it, an art, or
@@ -474,7 +475,7 @@ type Merchant<'w> = (
 /// bar, the hand by the half the pointer is on, whether the inventory shows or not (`0x6E4560`,
 /// #1689); of an item worn in the equipment window (`0x6B7700`, #1704); of an art slot's art
 /// (`0x5893B0`, #1694); and of the smith's window's grid's item, buttons' upgrades and sockets'
-/// items (`0x6A33A0`, #1821).
+/// items (`0x6A33A0`, #1821); and of the combat master's EXCHANGE page's runes (`0x6D49A0`, #1895).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -484,10 +485,14 @@ fn grid(
     mut commands: Commands,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
-    (pack, (merchant, showing, wares), smith): (
+    (pack, (merchant, showing, wares), (smith, master, choice)): (
         Res<Pack>,
         Merchant,
-        Option<Res<crate::blacksmith::Blacksmith>>,
+        (
+            Option<Res<crate::blacksmith::Blacksmith>>,
+            Option<Res<crate::master::Master>>,
+            Res<crate::master::RuneChoice>,
+        ),
     ),
     (sets, slots, art_slots): (
         Option<Res<crate::sets::WeaponSets>>,
@@ -541,6 +546,20 @@ fn grid(
             Shows::Item(hovered.dropped)
         };
         Some((Source::Smith, hovered.key, hovered.corner, shows))
+    };
+    let exchanged = || {
+        let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows)?;
+        let (key, corner, dropped) = crate::master::hovered(
+            master.as_deref()?,
+            (
+                weighing.tables.as_deref()?,
+                weighing.arts.as_deref()?,
+                &choice,
+            ),
+            &images,
+            at,
+        )?;
+        Some((Source::Master, key, corner, Shows::Item(dropped)))
     };
     let carried = || {
         let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
@@ -627,6 +646,7 @@ fn grid(
     let under = shown
         .then(|| {
             smithed()
+                .or_else(exchanged)
                 .or_else(sold)
                 .or_else(carried)
                 .or_else(worn)

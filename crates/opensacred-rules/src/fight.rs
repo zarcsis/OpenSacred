@@ -674,6 +674,9 @@ pub struct Rules {
     /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
     rare: Vec<(u32, [f32; 3])>,
     tollwut: f32,
+    /// The combat master's exchange's prices of two, three and four runes (`lotto2` to `lotto4`,
+    /// the words from `0xAD4B34`; [`Rules::exchange_price`]).
+    exchange: [u32; 3],
 }
 
 impl Default for Rules {
@@ -707,6 +710,7 @@ impl Default for Rules {
             spawn_weapon: [25.0, 275.0],
             rare: Vec::new(),
             tollwut: 1.0,
+            exchange: [100, 500, 2_000],
             hardened: Hardened::No,
         }
     }
@@ -960,8 +964,31 @@ impl Rules {
                 .map(|chance| (chance.effect, [chance.a, chance.b, chance.most]))
                 .collect(),
             tollwut: b.f32("TollwutFactor").unwrap_or(default.tollwut),
+            exchange: {
+                let mut prices = default.exchange;
+                for (k, price) in prices.iter_mut().enumerate() {
+                    if let Some(value) = b
+                        .i32(&format!("lotto{}", k + 2))
+                        .and_then(|v| u32::try_from(v).ok())
+                    {
+                        *price = value;
+                    }
+                }
+                prices
+            },
             hardened,
         }
+    }
+
+    /// The combat master's exchange's price of `runes` runes (`0xAD4B2C`'s word by the count): 0
+    /// below two, which the button does not light for, the balance's `lotto2` to `lotto4` for two
+    /// to four.
+    pub fn exchange_price(&self, runes: usize) -> u32 {
+        runes
+            .checked_sub(2)
+            .and_then(|k| self.exchange.get(k))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// The parameters `(a, b, c)` of the rare effect `effect` (`0x5F23A0`): the balance's, else
@@ -4207,6 +4234,16 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn the_exchange_costs_nothing_below_two_runes_and_the_balances_price_above() {
+        // `lotto2` to `lotto4` of GOG 2.28's balance (seen: 100 and 2,000 taken).
+        let rules = Rules::default();
+        assert_eq!(
+            [0, 1, 2, 3, 4, 5].map(|n| rules.exchange_price(n)),
+            [0, 0, 100, 500, 2_000, 0]
+        );
+    }
 
     #[test]
     fn a_type_without_a_record_is_made_as_the_originals_crab() {
