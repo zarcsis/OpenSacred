@@ -284,6 +284,7 @@ mod tests {
             InTheWay::object(None),
             Object {
                 at: crate::iso::ground(6.5, 6.5),
+                level: None,
             },
         ));
         let walker = app.world_mut().spawn_empty().id();

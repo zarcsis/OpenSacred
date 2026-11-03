@@ -119,9 +119,9 @@ fn opening_sound(kind: u32, heads: bool) -> Option<sfx::Of> {
 
 /// On a press of the left button that went to no attack, the container that the hero may open
 /// whose model is nearest the cursor's line of sight, if one is near it, becomes the hero's to
-/// open, and the hero goes to its own point (`0x53A170`), or stands where it is within 100 of it
-/// (`0x53A856`), in place of the click's ground (`hero::steer`); any press ends the last such
-/// order.
+/// open, and the hero goes to its own point (`0x53A170`) on its level, as from a building's floor
+/// out to a chest behind its wall (#1978), or stands where it is within 100 of it (`0x53A856`), in
+/// place of the click's ground (`hero::steer`); any press ends the last such order.
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -144,7 +144,7 @@ pub(crate) fn pick(
     let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
         return;
     };
-    let Some((container, point)) = containers
+    let Some((container, (point, level))) = containers
         .iter()
         .filter(|(_, _, container, _)| container.opens())
         .map(|(entity, at, _, object)| {
@@ -154,7 +154,7 @@ pub(crate) fn pick(
             } else {
                 attack::from_line(ray, at.translation())
             };
-            (entity, object.at, distance)
+            (entity, (object.at, object.level), distance)
         })
         .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
         .min_by(|a, b| a.2.total_cmp(&b.2))
@@ -165,7 +165,7 @@ pub(crate) fn pick(
     for (hero, transform, mut body) in &mut heroes {
         debug!("containers: the hero goes to open {container}");
         if walks_to(transform.translation, point) {
-            body.send(point);
+            body.send_onto(point, level);
         } else {
             body.stop();
         }
