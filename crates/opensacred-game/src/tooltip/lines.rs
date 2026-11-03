@@ -10,10 +10,10 @@
 //! item's own lines (#1691).
 //!
 //! The price's place factor is 1.0 offline, which a network game's message alone changes (#1728).
+//! The extra text of the item's `+0xFC` after a weapon's name is never written but 0 (#1819).
 //!
 //! Not followed: the quest's line (the quest items' page's), the class's variants in the refusal
-//! (`0x43CA20`), the extra text of the item's `+0xFC`, and the hands of the types that the list
-//! of `0x5CECD0` names.
+//! (`0x43CA20`), and the hands of the types that the list of `0x5CECD0` names.
 
 use opensacred_rules::equipment::Takers;
 use opensacred_rules::equipment::{Asks, CLASSES, NO_CLASS};
