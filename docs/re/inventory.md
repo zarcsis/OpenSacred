@@ -250,6 +250,11 @@ The name's lines are the item's class's own, written before `0x5C5360` runs:
 - a ring's (`0x5CBC20`) the same with no space after the icon, and (**hypothesis** of `0x5CC780`) an amulet's and a rune's the name in its colour, the sockets after it, and the class's line, with no icon;
 - the name's colour (`0x5C13C0`): `0xFF15FF25` of a set's item; else, but of a rune, by the quality, the record's bits 16 to 19 (0 to 4 `0xFFEFEFEF`, 5 to 11 `0xFFA0A0FF`, 12 to 14 `0xFFF0E040`, 15 `0xFFC19A33`), where the setting `UNIQUE_COLOR` holds (**hypothesis**: it holds without the setting); else the class's: `0xFFEFEFEF` of every class, else the last class's bit's (the bits 0 to 5, 22 and 23 the classes 1 to 6, 8 and 9, the class's index also its name's text): `0xFF87CEFA`, `0xFFE38217`, `0xFF6C4CE5`, `0xFFA020F0`, `0xFF228B22`, `0xFFB75555`, `0xFF00FFFF` and `0xFFFF6C00` (`0x43C250`).
 
+The weapon's name's line ends, after its sockets, with the text of the item's `+0xFC` and a line's break where that is not 0 (`0x5CED90`, its format `%s%s %s %s %s%s%s`), and two other classes read it alike (`0x5CC56B`, `0x5CCFA1`).
+Read 2026-11-03 for #1819 (**confirmed** by code, as far as the scans reach): no item ever carries it.
+`cItemBase`'s constructor writes it 0 (`0x5BE16B`, with `+0x100` and `+0x104`), and nothing else in the items' code (`0x5B0000` to `0x5E0000`) writes it, nor takes its address; every other store to a `+0xFC` in `Sacred.exe` (a scan of the `mov` and the arithmetic forms of a 32-bit displacement, with and without an index, 252 places) is a creature's AI state (docs/re/ai.md), a window's field or the scripts' compiler's own records, and the getter of a `+0xFC` (`0x5B7B30`) serves the creatures' AI and the network's creature messages.
+So the text shows in no tooltip, and the game shows none either.
+
 Then `0x5C5360`'s lines in order, each in the default colour (white) unless named:
 
 1. with `0x10` and without `0x20` the set's name, `SetName<n>` of the type's `Weapon.pak +0x23`, in `0xFFFFD070`;
@@ -325,4 +330,4 @@ Not followed: the quest's line (an item of `+0x14` bit `0x800`, the quest items'
 - `0x43F710` (the cube); whether the reference `0x11`'s fit refuses any item.
 - The cells' mark `0x40`.
 - The combos' fields that the cocktails set (docs/re/arts.md).
-- The tooltip's: who writes the item's `+0xFC`, the record's bit `0x40`, the classes of `0x5C95C0`, `0x5C9800`, `0x5CC1F0`, `0x5CC780` and `0x5CCC40`, and `UNIQUE_COLOR`'s default.
+- The tooltip's: the record's bit `0x40`, the classes of `0x5C9800`, `0x5CC1F0`, `0x5CC780` and `0x5CCC40`, and `UNIQUE_COLOR`'s default (`0x5C95C0` is the smith's view's, docs/re/blacksmith.md).
