@@ -72,13 +72,27 @@ const STOP_BUTTONS: [MouseButton; 2] = [MouseButton::Left, MouseButton::Right];
 
 /// Movies asked for by their names (`intro`, `act1`, …), to play in turn, those not there
 /// skipped: played unless one plays already.
-#[derive(Message, Debug, Clone)]
-pub struct Show(pub Vec<String>);
+#[derive(Message, Debug, Clone, PartialEq)]
+pub struct Show {
+    pub names: Vec<String>,
+    /// Whether their screen is black from the request to their end: the start's logos play
+    /// before anything shows (`initApp`), the others over what they stand, which shows through
+    /// the wait before them.
+    pub black: bool,
+}
 
 impl Show {
+    /// The movies `names`, over what they stand.
+    pub fn of(names: Vec<String>) -> Self {
+        Self {
+            names,
+            black: false,
+        }
+    }
+
     /// The movie `name` alone.
     pub fn one(name: &str) -> Self {
-        Self(vec![name.to_owned()])
+        Self::of(vec![name.to_owned()])
     }
 }
 
@@ -471,6 +485,8 @@ pub struct Movie {
     image: Option<(Entity, Handle<Image>)>,
     length: f64,
     stood: Stood,
+    /// Whether the screen is black from the request to the end (`Show::black`).
+    black: bool,
 }
 
 impl Movie {
@@ -496,6 +512,30 @@ impl Movie {
             }
         }
         false
+    }
+
+    /// A movie whose thread has ended before it showed, on the screen `root`, standing nothing.
+    #[cfg(test)]
+    pub(crate) fn still(root: Entity, black: bool) -> Self {
+        let (_, opened) = mpsc::channel();
+        let (_, pictures) = mpsc::sync_channel(AHEAD);
+        Self {
+            name: String::new(),
+            queue: VecDeque::new(),
+            stage: Stage::Before(BEFORE),
+            since: 0.0,
+            read: None,
+            reading: Reading {
+                opened: Mutex::new(opened),
+                pictures: Mutex::new(pictures),
+            },
+            next: None,
+            root,
+            image: None,
+            length: 0.0,
+            stood: Stood::Nothing,
+            black,
+        }
     }
 }
 
@@ -531,9 +571,10 @@ fn logos(
         } else {
             "publisher"
         };
-        shows.write(Show(
-            ["ascaron", publisher, "oem"].map(str::to_owned).to_vec(),
-        ));
+        shows.write(Show {
+            names: ["ascaron", publisher, "oem"].map(str::to_owned).to_vec(),
+            black: true,
+        });
     }
 }
 
@@ -570,7 +611,7 @@ fn from_scripts(
         return;
     }
     if automatic.0 {
-        shows.write(Show(names));
+        shows.write(Show::of(names));
     } else {
         info!("the scripts' movies {names:?}: the movies are off");
     }
@@ -585,7 +626,7 @@ fn extros_seen(
     mut file: ResMut<SettingsFile>,
 ) {
     let mut seen = Vec::new();
-    for Show(names) in shows.read() {
+    for Show { names, .. } in shows.read() {
         for name in names {
             let (flag, key) = match name.as_str() {
                 "extro" => (&mut settings.movies.extro, "movies.extro"),
@@ -619,7 +660,7 @@ fn start(
     (play, mut next_play): Plays,
     (music, effects): Sounds,
 ) {
-    let Some(Show(names)) = shows.read().last().cloned() else {
+    let Some(Show { names, black }) = shows.read().last().cloned() else {
         return;
     };
     if movie.is_some() {
@@ -666,6 +707,7 @@ fn start(
             Stood::Sound
         }
     };
+    let screen = if black { Color::BLACK } else { Color::NONE };
     let root = commands
         .spawn((
             Node {
@@ -674,6 +716,7 @@ fn start(
                 height: Val::Percent(100.0),
                 ..default()
             },
+            BackgroundColor(screen),
             GlobalZIndex(LAYER),
         ))
         .id();
@@ -690,6 +733,7 @@ fn start(
         image: None,
         length: 0.0,
         stood,
+        black,
     });
 }
 
@@ -723,7 +767,8 @@ fn swallow(
 }
 
 /// Plays the movie: the wait before it, then its frames at their times and its sound, until its
-/// end; and as it stops, its frames gone, and its screen black no more after the request's last.
+/// end; and as it stops, its frames gone, and its screen black no more after the request's last,
+/// unless it is black to the end (`Show::black`).
 fn advance(
     mut commands: Commands,
     mut movie: ResMut<Movie>,
@@ -834,7 +879,7 @@ fn advance(
             if let Some((frame, _)) = movie.image.take() {
                 channel.stop();
                 commands.entity(frame).despawn();
-                if movie.queue.is_empty() {
+                if movie.queue.is_empty() && !movie.black {
                     commands
                         .entity(movie.root)
                         .insert(BackgroundColor(Color::NONE));
@@ -1002,16 +1047,12 @@ mod tests {
     }
 
     /// The movies asked for in an app of `system` alone, run once.
-    fn shown<M>(
-        app: &mut App,
-        system: impl IntoScheduleConfigs<ScheduleSystem, M>,
-    ) -> Vec<Vec<String>> {
+    fn shown<M>(app: &mut App, system: impl IntoScheduleConfigs<ScheduleSystem, M>) -> Vec<Show> {
         app.add_message::<Show>().add_systems(Update, system);
         app.update();
         app.world_mut()
             .resource_mut::<Messages<Show>>()
             .drain()
-            .map(|Show(names)| names)
             .collect()
     }
 
@@ -1031,7 +1072,7 @@ mod tests {
                 [(1, "res:17631".to_owned())]
             );
             let wanted = if on {
-                vec![vec!["act2".to_owned(), "extro".to_owned()]]
+                vec![Show::of(vec!["act2".to_owned(), "extro".to_owned()])]
             } else {
                 Vec::new()
             };
@@ -1045,12 +1086,16 @@ mod tests {
             let mut app = App::new();
             app.insert_resource(Logos).insert_resource(Automatic(on));
             let shows = shown(&mut app, logos);
+            // Black from the request, as nothing shows before them.
             let wanted = if on {
-                vec![vec![
-                    "ascaron".to_owned(),
-                    "publisher".to_owned(),
-                    "oem".to_owned(),
-                ]]
+                vec![Show {
+                    names: vec![
+                        "ascaron".to_owned(),
+                        "publisher".to_owned(),
+                        "oem".to_owned(),
+                    ],
+                    black: true,
+                }]
             } else {
                 Vec::new()
             };
@@ -1064,6 +1109,29 @@ mod tests {
                     .next()
                     .is_none()
             );
+        }
+    }
+
+    #[test]
+    fn a_black_requests_screen_stays_black_after_its_last_movie() {
+        for black in [true, false] {
+            let mut app = App::new();
+            app.add_plugins(bevy::MinimalPlugins)
+                .init_resource::<Assets<Image>>()
+                .init_resource::<Assets<AudioSource>>()
+                .init_resource::<AudioChannel<Channel>>()
+                .add_systems(Update, advance);
+            let root = app.world_mut().spawn(BackgroundColor(Color::BLACK)).id();
+            let frame = app.world_mut().spawn(ChildOf(root)).id();
+            let mut movie = Movie::still(root, black);
+            movie.stage = Stage::After;
+            movie.image = Some((frame, Handle::default()));
+            app.insert_resource(movie);
+            app.update();
+            assert!(app.world().get_entity(frame).is_err(), "{black}");
+            let screen = app.world().get::<BackgroundColor>(root).map(|c| c.0);
+            let wanted = if black { Color::BLACK } else { Color::NONE };
+            assert_eq!(screen, Some(wanted), "{black}");
         }
     }
 }
