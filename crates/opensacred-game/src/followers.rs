@@ -90,10 +90,26 @@ impl Default for Dice {
     }
 }
 
+/// The summoning's object's sound as it starts (`cParticleSystem_bigsummon`, 777, `0x76A440`),
+/// once at its place.
+const SUMMON_SOUND: u32 = 2002;
+
+/// Plays a summoning's sound at `at`, as its object 777 starts there (#1173).
+pub(crate) fn summoning_sound(commands: &mut Commands, at: Vec3) {
+    commands.queue(move |world: &mut World| {
+        world.write_message(crate::sfx::PlayAt {
+            sound: crate::sfx::Of::Id(SUMMON_SOUND),
+            point: at,
+            rate: (0.5, crate::sfx::Roll::None),
+        });
+    });
+}
+
 /// Starts a summoning at `at` for `master` that makes `creature` of `level`, at most 250, some
-/// 1.5 s later.
+/// 1.5 s later, with its sound.
 pub fn summon(commands: &mut Commands, master: Entity, creature: u32, level: u32, at: Vec3) {
     info!("followers: {master} summons a {creature} of level {level} at {at}");
+    summoning_sound(commands, at);
     commands.spawn((
         Summoning {
             master,
