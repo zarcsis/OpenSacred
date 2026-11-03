@@ -30,7 +30,7 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 26] = [
+const FOLLOWED: [u16; 27] = [
     casts::HOLY_LIGHT,
     casts::BLADES,
     casts::HOLY_SHIELD,
@@ -51,6 +51,7 @@ const FOLLOWED: [u16; 26] = [
     spells::LIGHTNING,
     spells::METEORS,
     spells::STONE,
+    casts::SUMMON,
     casts::EYE_LASERS,
     casts::DEMON_FIRE,
     spells::SPLINTERS,
@@ -552,6 +553,36 @@ fn act(
                     }
                 }
             }
+            casts::SUMMON => {
+                // About its target at its own distance from it, the first point a creature may
+                // stand on; some 1.5 s later its type's creature stands there (#1869).
+                let Ok(place) = target else {
+                    continue;
+                };
+                let distance = (place - here).xz().length().round();
+                let start = u16::try_from(dice.0.below(361)).unwrap_or(0);
+                let stands = |(x, z): (f32, f32)| {
+                    heights.walkable_on(crate::paths::cell_of(x, z), way.level)
+                };
+                let Some((x, z)) = casts::summon_point((place.x, place.z), distance, start, stands)
+                else {
+                    debug!("creature_casts: {entity} finds no place to summon at");
+                    continue;
+                };
+                let creature = casts::summoned(mind.creature, dice.0.below(2));
+                commands.spawn((
+                    Summoning {
+                        caster: entity,
+                        creature,
+                        level: mind.level,
+                        side: mind.side,
+                        floor: way.level,
+                        left: SUMMONS,
+                    },
+                    Transform::from_xyz(x, here.y, z),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
             casts::RAISING => {
                 // The first dead monster of its sector that it may raise stands up whole
                 // (`0x523220`).
@@ -808,6 +839,93 @@ fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
                 Some(raised),
             );
         }
+    }
+}
+
+/// A creature's summoning (the object 777, `FX_BIGSUMMON`, of the spell 3): its caster, the
+/// creature it makes, of the caster's level and side, on the caster's level, and the time until
+/// it makes it (seen in the original, #1869: the black magician 264 of level 30 and the side 14
+/// summoned a 567 of level 30 and the side 14, hostile, not hired; the level the caster's is a
+/// **hypothesis** of that one case).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Summoning {
+    caster: Entity,
+    creature: u32,
+    level: u32,
+    side: u8,
+    floor: Level,
+    left: f32,
+}
+
+/// How long a summoning takes to make its creature: its phase, at 2 a second, passing 3.0, as the
+/// heroes' (`followers`).
+const SUMMONS: f32 = 1.5;
+
+/// A creature that a creature's summon made, its caster's while it lives: a magician with one
+/// summons none (`casts::mage_spell`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Summoned(pub Entity);
+
+/// Makes the creature of each summoning whose time is up.
+fn summon(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut summonings: Query<(Entity, &mut Summoning, &Transform)>,
+) {
+    for (entity, mut summoning, at) in &mut summonings {
+        summoning.left -= time.delta_secs();
+        if summoning.left > 0.0 {
+            continue;
+        }
+        commands.entity(entity).despawn();
+        let (summoning, at) = (*summoning, at.translation);
+        commands.queue(move |world: &mut World| make_summoned(world, summoning, at));
+    }
+}
+
+/// Makes `summoning`'s creature at `at`, hostile, of its caster's level and side.
+fn make_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
+    let floor = world
+        .get_resource::<Heights>()
+        .and_then(|heights| heights.floor(summoning.floor))
+        .map_or(0, |(_, floor)| i32::from(floor));
+    let (x, y) = crate::paths::cell_of(at.x, at.z);
+    let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+        return;
+    };
+    let request = crate::npcs::Spawn {
+        creature: summoning.creature,
+        cells: vec![(x, y)],
+        floor,
+        level: Some(summoning.level),
+        rank: crate::fight::Rank::Common,
+        hostile: Some(true),
+        immortal: false,
+        roams: false,
+    };
+    let made = match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
+        Ok(Ok(made)) => made,
+        Ok(Err(e)) => {
+            warn!("creature_casts: no {} is summoned: {e}", summoning.creature);
+            return;
+        }
+        Err(e) => {
+            warn!("creature_casts: no {} is summoned: {e}", summoning.creature);
+            return;
+        }
+    };
+    for entity in made {
+        info!(
+            "creature_casts: {} summons {entity}, a {} of level {}",
+            summoning.caster, summoning.creature, summoning.level
+        );
+        let Ok(mut creature) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        if let Some(mut mind) = creature.get_mut::<Mind>() {
+            mind.side = summoning.side;
+        }
+        creature.insert(Summoned(summoning.caster));
     }
 }
 
@@ -1151,6 +1269,7 @@ impl Plugin for CreatureCastsPlugin {
             Update,
             (
                 (pending, ordered, begin, act, end).chain(),
+                summon,
                 home,
                 throw,
                 burn,
