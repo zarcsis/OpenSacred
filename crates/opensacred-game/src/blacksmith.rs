@@ -24,7 +24,7 @@
 //! Not followed yet: the Dwarf smithing by his skill 33 (his button of the inventory, the third
 //! button's picture 1606 and his checks), the item's check `0xE`, the window's sounds but its show's
 //! (#1722), the tooltips of the item, the upgrades and the sockets' items and the waiting item's lines beside
-//! the grid, the right button's press that works too, and a network game's events.
+//! the grid, and a network game's events.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -361,7 +361,8 @@ fn socket_under(images: &UiImages, at: Vec2, shown: usize) -> Option<usize> {
 }
 
 /// The presses on the window (`0x6A4380`), in its order: the grid, the sockets, the buttons, the
-/// work's button, the window's ground.
+/// work's button, the window's ground; the right button's press does the work alone, on the work's
+/// button, where the gold pays its price (`0x6A4D76`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -380,7 +381,11 @@ fn press(
     let (Some(mut smith), Some(tables)) = (smith, tables) else {
         return;
     };
-    if asking.is_some() || !buttons.just_pressed(MouseButton::Left) {
+    let (left, right) = (
+        buttons.just_pressed(MouseButton::Left),
+        buttons.just_pressed(MouseButton::Right),
+    );
+    if asking.is_some() || !(left || right) {
         return;
     }
     let Some(at) = screen_point(&pointer, &ui_scale, &windows).filter(|&at| WINDOW.contains(at))
@@ -388,6 +393,16 @@ fn press(
         return;
     };
     let smith = &mut *smith;
+    if !left {
+        if control(&images, WORK_DARK, WORK).contains(at)
+            && smith
+                .price(&tables)
+                .is_some_and(|price| price <= i64::from(pack.gold))
+        {
+            work(smith, &mut pack, &tables);
+        }
+        return;
+    }
     if let Some(cell) = backpack::cell_in(at - GRID, (COLUMNS, ROWS)) {
         press_grid(smith, &mut pack, &tables, (at - GRID, cell));
         return;
