@@ -42,6 +42,8 @@ const HAND_BONE: &str = "Bip01 R Hand";
 const DOMINATION_LOOP: u32 = 2075;
 /// The raising's object's sound as it starts (866, `0x79E5D0`): `VAMP_PENTA`.
 const RAISE_SOUND: u32 = 2082;
+/// The soulcatcher's object's loop (869 `FX_SOULCATCHER`, `0x76AA40`).
+const SOULCATCHER_LOOP: u32 = 2068;
 
 /// The art that the right button makes: the original's right button's slot, at a new game the
 /// hero's first art whose action is read.
@@ -2112,6 +2114,20 @@ fn make(
                     let ends = boon.as_ref().is_some_and(|boon| boon.ends);
                     if let Some(boon) = boon {
                         info!("making: {} gives the hero {:?}", making.art, boon.effects);
+                        // The soulcatcher's object 869 hangs at him for its effect's time,
+                        // looping `DELF_SOULCATCHER_LOOP` from its start (`0x76AC5F`); its
+                        // sight is not made.
+                        if let Some(&(_, seconds)) = boon
+                            .effects
+                            .iter()
+                            .find(|(effect, _)| effect.id == arts::SOULCATCHER)
+                        {
+                            commands.entity(hero).with_child((
+                                crate::hums::Hum(SOULCATCHER_LOOP),
+                                crate::spells::Fades(seconds),
+                                Transform::default(),
+                            ));
+                        }
                         commands
                             .entity(hero)
                             .entry::<crate::effects::Effects>()
