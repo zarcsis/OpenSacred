@@ -2239,7 +2239,6 @@ fn act(
     }
 }
 
-/// A whole number of seconds as a float.
 /// The sound of the object of the spell `spell` that the game does not draw, and whether it loops
 /// (docs/re/sound.md, "Spells and arts"): the holy shield's 819 (`0x785DE0`) loops
 /// `SERA_LICHTSCHILD_LOOP` (2040), the shield wall's 834 (`0x78B040`) `MAGE_MAGIESCHILD_LOOP`
@@ -2255,6 +2254,7 @@ fn object_sound(spell: u16) -> Option<(u32, bool)> {
     }
 }
 
+/// A whole number of seconds as a float.
 fn fight_seconds(seconds: u32) -> f32 {
     u16::try_from(seconds).map_or(f32::MAX, f32::from)
 }
