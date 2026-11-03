@@ -2757,8 +2757,13 @@ fn disk(
     }
 }
 
+/// A meteor's sounds as it starts to fall (`cParticleSystem_meteor`, 823, `0x7866C0`'s state 0):
+/// `MAGE_METEOREINSCHLAG02` where a coin is even, else `01`, at a rate's factor of
+/// `0.4 + (rand() % 10) / 45`, rolled first.
+const METEOR_SOUNDS: [u32; 2] = [2025, 2024];
+
 /// Lands each meteor after its wait, striking once the creatures within its reach and their
-/// size (`0x5ACDC6`).
+/// size (`0x5ACDC6`); it sounds as it starts to fall ([`METEOR_SOUNDS`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -2780,13 +2785,26 @@ fn meteor(
         (Without<Body>, Without<Meteor>, Without<Dies>),
     >,
     heroes: Query<(Entity, &GlobalTransform, &Body, &Health), (Without<Meteor>, Without<Dies>)>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sounds, mut dice): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::sfx::Play>,
+        ResMut<Dice>,
+    ),
 ) {
     let dt = time.delta_secs();
     for (entity, mut meteor, mut transform, mut visibility) in &mut meteors {
         meteor.lands -= dt;
         if meteor.lands > spells::METEOR_FALLS {
             continue;
+        }
+        if meteor.lands + dt > spells::METEOR_FALLS {
+            let tenths = f32::from(u16::try_from(dice.0.below(10)).unwrap_or(0));
+            let coin = usize::try_from(dice.0.below(2)).unwrap_or(0);
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(METEOR_SOUNDS[coin]),
+                at: Some(entity),
+                rate: (0.4 + tenths / 45.0, crate::sfx::Roll::None),
+            });
         }
         if meteor.lands > 0.0 {
             // Falling from 500 at 800 a second.
