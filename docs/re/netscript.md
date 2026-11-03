@@ -985,7 +985,7 @@ Since #1827 an `ActObj` of the hero or of a creature in the world opens or close
 Seen in both games: the Daemon's `btn_Deamonstart` leaves the hero and Anducar where they stand, and `annehmen2003` from open grass sends the hero running toward its far target, its teleport waiting behind the walk.
 Since #1874 an entry done with more waiting ends its creature's fight unless it casts (`npcs::take_steps`, `minds::Mind::queue_goes_on`).
 No record of the 20 trees names a creature in `SetPlayMode` (1,160 of none), so its queued end is not followed; and `NPC_Goto`'s walk with `0x66` and a place (`res:17801`'s two walks), like the modes kept on past their run, belong to the add-on's trees alone, the cinema mode's per-tick stop of the hero, its refusal of the mouse and the interface's flag with them (#1892).
-Not followed yet: what `Attack` does at once and in its turn (#1830, #1831), and the queues saved with the creatures, which wait for the saves (#1095).
+Not followed yet: the queues saved with the creatures, which wait for the saves (#1095).
 The first window of a new game, the Daemon's Skip Tutorial among its buttons, is not shown in `opensacred-game` yet.
 
 ## Differences from the openheilig table
