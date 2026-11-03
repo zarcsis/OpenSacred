@@ -48,6 +48,8 @@ A movie whose file is not there is skipped.
 The console's `movie NAME` plays one.
 
 They play where the original's do (#1946): the start's logos before the main menu, in one request whose movies play in turn (the publisher's skipped, as neither of its files is shipped), each stopped alone by a key; the scripts' `InfoPlayer`s of the modes above and `GameEnd`'s extro; and the Extras' rows, the extros' among them once played.
+The start's logos are asked for as the main menu is entered, and their screen is black from the request to their end, the wait before them too, so that nothing of the menu shows before them; the menu's items fade in once they end, as the menu's time stands while a movie plays (#1972).
+The other movies' wait shows what they stand.
 The settings' `[movies] show` is `SHOWMOVIE`, and `[movies] extro` and `extro_underworld` are `SHOWEXTRO` and `SHOWEXTRO_UW`, written as an extro's play is asked for.
 A run driven by a script, from afar or for a frame plays none by itself, as it would stand in the run's way (docs/10 §3); the console's `movies on|off` sets that for the run.
 The script runner's bit 8 of `+0xA45C`, which the modes 23 to 25 set, is not read.

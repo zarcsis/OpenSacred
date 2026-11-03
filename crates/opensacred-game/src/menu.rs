@@ -577,14 +577,19 @@ type Gilt = (
 );
 
 /// Lights the item chosen: a main menu's in near white with a glow behind it, the others gold
-/// and the ones that do nothing yet grey, all fading in as their screen shows.
+/// and the ones that do nothing yet grey, all fading in as their screen shows. The fade stands
+/// while a movie plays, so that the menu's first showing follows the start's logos, as the
+/// original makes it after them (`initApp`, docs/re/movies.md).
 fn light(
     time: Res<Time>,
     chosen: Res<Chosen>,
     mut shown: ResMut<Shown>,
+    movie: Option<Res<crate::movies::Movie>>,
     mut gilded: Query<Gilt, With<Gilded>>,
 ) {
-    shown.0 += time.delta_secs();
+    if movie.is_none() {
+        shown.0 += time.delta_secs();
+    }
     let alpha = (shown.0 / FADE).clamp(0.0, 1.0);
     for (item, place, mut text, mut outline, mut glow) in &mut gilded {
         let on = place.0 == chosen.0 && item.works();
@@ -708,6 +713,25 @@ mod tests {
         assert_eq!(screen(&app), Screen::Heroes);
         press(&mut app, KeyCode::Escape);
         assert_eq!(screen(&app), Screen::Main);
+    }
+
+    #[test]
+    fn the_items_fade_in_after_the_movie_that_plays() {
+        let mut app = menu_app();
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(100),
+        ));
+        let root = app.world_mut().spawn_empty().id();
+        app.insert_resource(crate::movies::Movie::still(root, true));
+        app.world_mut().resource_mut::<Shown>().0 = 0.0;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(app.world().resource::<Shown>().0, 0.0);
+        app.world_mut().remove_resource::<crate::movies::Movie>();
+        app.update();
+        app.update();
+        assert!(app.world().resource::<Shown>().0 > 0.0);
     }
 
     #[test]
