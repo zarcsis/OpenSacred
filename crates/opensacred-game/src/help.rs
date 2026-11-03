@@ -65,6 +65,10 @@ pub const KEYS: &[(&str, &[(Row, &str)])] = &[
             (of(&[Action::Log]), "the log"),
             (of(&[Action::Window]), "borderless full screen or a window"),
             (of(&[Action::Console]), "the console (the key under Esc)"),
+            (
+                of(&[Action::SkipMovie]),
+                "held, as either button, stop a movie",
+            ),
         ],
     ),
     (
@@ -338,6 +342,7 @@ mod tests {
             ("Mouse, ArrowDown, ArrowUp", "choose"),
             ("Click, Enter, NumpadEnter", "do it"),
             ("Ctrl+V, Ctrl+C", "paste, copy the line"),
+            ("Escape, Space", "held, as either button, stop a movie"),
         ] {
             assert!(rows.contains(&(keys.to_owned(), does)), "{keys}: {rows:#?}");
         }

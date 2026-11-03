@@ -141,6 +141,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `setrain N`, `setfog N`, `setsnow N` | starts the rain, the fog or the snow of the intensity N (1 to 100), or stops it with 0, as the original's console (docs/re/weather.md) | |
 | `setquake N` | shakes the screen by a third of N pixels (1 to 100), falling by 10 a second, as the original's console | |
 | `music on\|off` | the music and the ambient loops | `--no-music` |
+| `movie NAME` | plays the movie NAME (`intro`, `extro`, `introuw`, `extrouw`, `act1` to `act4`, `ascaron`, `oem`) as the original's player does: over everything, the game standing, until it ends or Escape, Space or either mouse button stops it; `state` names it while it plays (#1945) | |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
 | `record DIR N` | saves N frames | `--record`, `--record-frames` |
 | `benchmark SECONDS` | measures and prints | `--benchmark` |
@@ -274,11 +275,12 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | F10 | everywhere | the keys' help (#196); Esc hides it too |
 | F11 | everywhere | borderless or windowed |
 | F12 | everywhere | the log |
+| Esc, Space, either mouse button | a movie | held, stop it, as the original's player (#1945) |
 
 The game's keys are the original's (#1536): its F1 to F6 bind the combat arts, F8 and F9 load and save the quick save, and Shift held walks, so the game's own tools take the keys it leaves free, F7, F10, F11 and F12, and the key under Esc, which opens the original's console too.
 Every key is in a file of its own, `controls.toml` beside `settings.toml` (#1553, the module `controls`), and the table gives the defaults:
 
-* An action of the game to the list of its keys, in a section for each place they work: `[world]`, `[interface]` and `[tools]`.
+* An action of the game to the list of its keys, in a section for each place they work: `[world]`, `[interface]`, `[tools]` and `[movie]`.
   A key by its place on the keyboard, so that `I` is `I` on any layout: a letter, a digit, `F1` to `F24`, `Space`, `Escape`, `Enter`, `Backquote`, the arrows, the keypad's (`NumpadEnter`, `NumpadAdd`, …), `Shift`, `Control`, `Alt`, and the modifiers held with a key before it (`Shift+Space`).
   A key asks for its modifiers and lets the others be held too (Q drinks while Shift walks), but a key of more modifiers that are held wins over it in its section.
 * The game writes the file with the defaults, each action under a comment of what it does, where there is none: beside the file `--settings` names, else in the configuration directory.

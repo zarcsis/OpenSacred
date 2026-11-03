@@ -13,6 +13,9 @@ ignore = [
     { id = "RUSTSEC-2026-0391", reason = "zstd 0.13's `with_context`, which bevy_image does not call (#1070)" },
     { id = "RUSTSEC-2026-0398", reason = "zstd-safe 7's `seekable`, a feature nothing enables (#1070)" },
     { id = "RUSTSEC-2026-0403", reason = "a legacy zstd frame failing, and none is decoded: ours and Bevy's are zstd 1 frames (#1070)" },
+    # rav1d (#1945) generates names with `paste`, a procedural macro whose repository is archived:
+    # it runs in the build alone, and nothing of it is in the game.
+    { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained, a procedural macro of rav1d that runs in the build alone (#1945)" },
 ]
 
 [licenses]
@@ -46,6 +49,9 @@ confidence-threshold = 0.8
 exceptions = [
     { crate = "unicorn-engine", allow = ["GPL-2.0"] },
     { crate = "unicorn-engine-sys", allow = ["GPL-2.0"] },
+    # to_method, a one-trait helper of rav1d (#1945), is dedicated to the public domain by CC0 1.0,
+    # which asks nothing of a user; allowed for that crate alone, as CC0 grants no patents.
+    { crate = "to_method", allow = ["CC0-1.0"] },
 ]
 
 [bans]
@@ -71,3 +77,7 @@ allow-wildcard-paths = true
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# rav1d, the AV1 decoder of the game's movies (#1945): upstream's main at a pinned commit, whose
+# safe Rust API no release carries yet; the maintainer's decision of 2026-11-03. It goes back to
+# crates.io once a release carries the API, and this entry with it.
+allow-git = ["https://github.com/memorysafety/rav1d"]

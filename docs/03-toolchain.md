@@ -255,6 +255,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
 * **License checks:** our crates are MIT OR Apache-2.0; `cargo deny check licenses` allows MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0 (the Windows backend of Bevy's system clipboard, #189), ISC, Zlib, MPL-2.0 and Unicode-3.0 (Unicode data in `unicode-ident`).
   `opensacred-oracle` (#363) links Unicorn (GPL-2.0), which cannot be combined with the Apache-2.0 option: it is a separate development-only crate, a binary without a library, so the converter and the game cannot depend on it; `deny.toml` allows GPL-2.0 for `unicorn-engine` and `unicorn-engine-sys` alone (`licenses.exceptions`) and denies them anywhere but under the oracle (`bans.deny` with `wrappers`).
   Our code in it stays MIT OR Apache-2.0; the oracle built with the emulator is GPL-2.0 as a whole (by the MIT option) and is never distributed.
+  `to_method`, a helper of rav1d, the movies' AV1 decoder (#1945), is dedicated to the public domain by CC0-1.0, which `deny.toml` allows for that crate alone, and `release/about.toml` with it.
   Configuration: `deny.toml`.
 * **Tests that need the game files** are marked and run only locally: CI has no game files.
 

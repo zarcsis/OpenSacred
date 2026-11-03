@@ -97,6 +97,11 @@ proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # The open formats' types made at random for their round trips (#1434), a dev-dependency of
 # opensacred-data.
 proptest-derive = "0.9.0"
+# The AV1 decoder of the game's movies (#1945): upstream's main at a pinned commit, for its safe
+# Rust API (`rav1d::Decoder`), which no release carries yet (1.1.0 exports dav1d's C API alone);
+# crates.io once one does. Without its assembly, which needs NASM, and at 8 bits alone, as the
+# converter's movies are.
+rav1d = { git = "https://github.com/memorysafety/rav1d", rev = "2e7216c20ac2a75de204d6c8d7268b75a45959b4", default-features = false, features = ["bitdepth_8"] }
 rayon = "1.12.0"
 # The packaged game's folder dialog at its first start on Windows (#1498), on the windows-sys
 # and raw-window-handle that the tree holds.
@@ -108,9 +113,9 @@ sha2 = "0.11.1"
 # The glyphs of the world map's places' names, written on arcs into images of their own (#1577):
 # the outlines' scaler that Bevy's text already builds on, through parley.
 swash = { version = "0.2.10", default-features = false, features = ["scale"] }
-# The Ogg demuxer of the game's Opus (#701), and the Opus decoder for it, over the C libopus that
-# its `opusic-sys` builds with CMake.
-symphonia = { version = "0.6.1", default-features = false, features = ["ogg"] }
+# The Ogg demuxer of the game's Opus (#701), the WebM one of its movies' AV1 and Opus (#1945), and
+# the Opus decoder for both, over the C libopus that its `opusic-sys` builds with CMake.
+symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "ogg"] }
 symphonia-adapter-libopus = "0.3.0"
 thiserror = "2.0.21"
 # The game's settings file (docs/10 §3): read through serde, written key by key keeping the

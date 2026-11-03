@@ -168,6 +168,15 @@ fn layers() -> Option<&'static Layers> {
     LAYERS.get()
 }
 
+/// The path of `relative` in the assets: under their root once [`init`] opened them, else as it
+/// is.
+pub fn path(relative: impl AsRef<Path>) -> PathBuf {
+    match layers() {
+        Some(layers) => layers.root.join(relative),
+        None => relative.as_ref().to_owned(),
+    }
+}
+
 /// The data of the asset file at `path`.
 pub fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     match layers() {
