@@ -756,6 +756,7 @@ fn pursue(
             Option<&crate::spells::Unseen>,
             Option<&crate::fight::Holding>,
             Has<crate::hero_held::HeroHeld>,
+            Option<&crate::fight::Health>,
         ),
         (With<Body>, Without<crate::npcs::Dies>),
     >,
@@ -787,11 +788,12 @@ fn pursue(
     ),
 ) {
     let dt = tick.seconds.unwrap_or_default();
-    let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding, hero_held)) =
+    let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding, hero_held, hero_health)) =
         hero.iter().next()
     else {
         return;
     };
+    let hero_health = hero_health.map(|health| (health.current, health.most));
     let attacking = hero_strikes || attack.and_then(crate::attack::Attack::target).is_some();
     let unseen = unseen.is_some_and(|unseen| unseen.holds())
         || shadowed(
@@ -833,6 +835,21 @@ fn pursue(
             });
             (entity, transform.translation, wounded, mind.fighting())
         })
+        .collect();
+    // The creatures not hostile to the hero alive, with their places and their health: the
+    // friends of a caster not hostile to him, the hero among them (Sharifa's heal, #1883).
+    let allies: Vec<(Entity, Vec3, u32, u32)> = creatures
+        .iter()
+        .filter_map(|(entity, transform, _, mind, _, _, health, ..)| {
+            let health = health.filter(|health| health.current > 0)?;
+            (!mind.hostile()).then_some((
+                entity,
+                transform.translation,
+                health.current,
+                health.most,
+            ))
+        })
+        .chain(hero_health.map(|(current, most)| (the_hero, hero, current, most)))
         .collect();
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     // The living creatures that each caster's summons made (#1869).
@@ -965,7 +982,10 @@ fn pursue(
                 crowded: nearest.hostiles.len() > 1,
                 nearest: nearest.hostiles.first() == Some(&entity),
                 scripted: u16::from(mind.spell),
-                hero_low: false,
+                hero_low: mind.creature == opensacred_rules::casts::SHARIFA
+                    && hero_health.is_some_and(|(current, most)| {
+                        opensacred_rules::casts::hero_low(current, most)
+                    }),
                 followers: summoned.get(&entity).copied().unwrap_or(0),
                 friends: (wounded_friend.is_some(), fighting_friend.is_some()),
             };
@@ -1142,8 +1162,23 @@ fn pursue(
                 transform.rotation = crate::hero::facing(hero - here);
             }
             Pursues::Casts { spell, variant } => {
-                // A heal or a shield on its friend (#1854), else at its target.
-                let friend = if spell == opensacred_rules::casts::HEAL {
+                // A heal or a shield on its friend (#1854), else at its target; Sharifa's heal on
+                // the friend of the least share of health within 700, herself first (#1883).
+                let friend = if spell == opensacred_rules::casts::HEAL
+                    && mind.creature == opensacred_rules::casts::SHARIFA
+                {
+                    let own = health.map(|health| (entity, here, health.current, health.most));
+                    let candidates: Vec<((Entity, Vec3), u32, u32)> = own
+                        .into_iter()
+                        .chain(allies.iter().copied().filter(|&(ally, at, ..)| {
+                            ally != entity
+                                && (at - here).xz().length()
+                                    < opensacred_rules::casts::FRIENDS_WITHIN
+                        }))
+                        .map(|(who, at, current, most)| ((who, at), current, most))
+                        .collect();
+                    opensacred_rules::casts::least_share(&candidates)
+                } else if spell == opensacred_rules::casts::HEAL {
                     wounded_friend
                 } else {
                     fighting_friend
