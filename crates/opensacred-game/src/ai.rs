@@ -1203,6 +1203,25 @@ fn pursue(
                     commands.entity(entity).remove::<Walk>();
                 }
             }
+            Pursues::DruidBlinks { to, level } => {
+                // The blink where it may stand there (`0x54D9D0`), else nothing.
+                let at = point(to, here.y);
+                let Some(height) = heights.standing(at.x, at.z, way.level) else {
+                    continue;
+                };
+                let to = Vec3::new(at.x, height, at.z);
+                debug!("ai: {entity} blinks from {here} to {to} and sets thorns at {hero}");
+                transform.translation = to;
+                transform.rotation = crate::hero::facing(hero - to);
+                commands.entity(entity).remove::<Walk>().insert(
+                    crate::creature_casts::DruidThorns {
+                        from: here,
+                        to,
+                        target: hero,
+                        level,
+                    },
+                );
+            }
             Pursues::TakesBow(bow) => {
                 let d = (hero - here).xz().length();
                 debug!("ai: {entity} takes the bow {bow} again, the hero at {d:.0}");

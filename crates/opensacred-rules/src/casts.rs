@@ -493,6 +493,47 @@ pub const BLINKER_NEAR: f32 = 200.0;
 pub const BLINK_TRIES: u32 = 15;
 pub const BLINK_REACH: f32 = 400.0;
 
+/// The dryad druid (216), whose decision of the mark 8 blinks about its target and sets thorns
+/// (`0x4D6396`…`0x4D6824`, #1883).
+pub const DRYAD_DRUID: u32 = 216;
+
+/// Whether the dryad druid blinks at a decision (`0x4D5F33` at `0x4D6350`): a roll `rand() % 6` of
+/// 0, with a straight way to its target (`0x4FCC80`), where its target fights it (`0x4EB890`).
+pub fn druid_blinks(roll: u32, way: bool, fought: bool) -> bool {
+    roll == 0 && way && fought
+}
+
+/// Where the dryad druid blinks: `angle_roll` (`rand() % 361`) degrees about its target, three
+/// times the reach of the two (`0x4DBC60`) from it, as an offset from its target's point.
+pub fn druid_blink(angle_roll: u32, reach: f32) -> (f32, f32) {
+    let angle = f32::from(u16::try_from(angle_roll % 361).unwrap_or(0)).to_radians();
+    let far = 3.0 * reach;
+    (far * angle.cos(), far * angle.sin())
+}
+
+/// The thorns that the dryad druid sets as it blinks (`0x4D2E10`): a group at its target's point
+/// at the spell's level `L/5 + 1` of its own level `L`, and five about it, 100 from it at 0, 72,
+/// 144, 216 and 288 degrees, at `L/7 + 1`; each an offset of its centre and its spell's level.
+pub fn druid_thorns(level: u32) -> Vec<((f32, f32), u32)> {
+    let mut groups = vec![((0.0, 0.0), level / 5 + 1)];
+    groups.extend((0_u16..5).map(|k| {
+        let angle = f32::from(k * 72).to_radians();
+        (
+            (DRUID_RING * angle.cos(), DRUID_RING * angle.sin()),
+            level / 7 + 1,
+        )
+    }));
+    groups
+}
+
+/// How far the dryad druid's ring of thorns stands from its target (the double at `0x890EB8`).
+pub const DRUID_RING: f32 = 100.0;
+/// Its deadline after a blink: the real clock's whole seconds and 2 (`0x4D6760`).
+pub const DRUID_DEADLINE: f64 = 2.0;
+/// The thorns' scatter of a creature's `0x4D2E10`: each `rand() % 101` beyond its centre along
+/// both axes, where it may stand, else at the centre.
+pub const DRUID_SCATTER: (f32, u32) = (0.0, 101);
+
 /// What a caster of the spell `spell` casts it on: itself (the holy shield, the blades of light),
 /// else its target.
 pub fn on_itself(spell: u16) -> bool {
@@ -928,5 +969,26 @@ mod tests {
             [1, 2, 3, 4, 5, 6, 7].map(damage),
             [597.0, 642.0, 707.0, 690.0, 790.0, 771.0, 767.0]
         );
+    }
+
+    #[test]
+    fn the_dryad_druid_blinks_three_reaches_off_and_sets_six_groups_of_thorns() {
+        // One roll of six, a straight way, its target fighting it.
+        assert!(druid_blinks(0, true, true));
+        assert!(!druid_blinks(1, true, true) && !druid_blinks(0, false, true));
+        assert!(!druid_blinks(0, true, false));
+        // At 0 and 90 degrees, the reach 100: 300 off.
+        let (x, y) = druid_blink(0, 100.0);
+        assert!((x - 300.0).abs() < 1e-3 && y.abs() < 1e-3);
+        let (x, y) = druid_blink(90, 100.0);
+        assert!(x.abs() < 1e-3 && (y - 300.0).abs() < 1e-3);
+        // A druid of level 21: the centre's at 5, the ring's five at 4, 100 off at 72 degrees.
+        let groups = druid_thorns(21);
+        assert_eq!(groups.len(), 6);
+        assert_eq!(groups[0], ((0.0, 0.0), 5));
+        assert!(groups[1..].iter().all(|&(_, level)| level == 4));
+        let ((x, y), _) = groups[2];
+        assert!((x.hypot(y) - DRUID_RING).abs() < 1e-3);
+        assert!((y.atan2(x).to_degrees() - 72.0).abs() < 1e-3);
     }
 }

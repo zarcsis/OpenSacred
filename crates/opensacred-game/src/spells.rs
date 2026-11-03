@@ -1140,25 +1140,38 @@ pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3)
     ));
 }
 
+/// A puff of the battle fog (868) at `at` for `seconds`, as the fog's sights look: the dryad
+/// druid's blink's (#1883).
+pub(crate) fn puff(commands: &mut Commands, looks: &Looks, at: Vec3, seconds: f32) {
+    commands.spawn((
+        Mesh3d(looks.disc.clone()),
+        MeshMaterial3d(looks.discs[4].clone()),
+        Transform::from_translation(at + Vec3::Y * 4.0).with_scale(Vec3::new(65.0, 2.0, 65.0)),
+        Fades(seconds),
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
+/// The scatter of the thorns about their centre along each axis: the first offset and how many
+/// whole offsets from it, the Wood Elf's or a creature's cast of the spell (`0x5260CB`).
+/// (`spells::THORNS_SCATTER` either way).
+pub(crate) const THORNS_SCATTER: (f32, u32) = (-75.0, 2 * spells::THORNS_SCATTER + 1);
+
 /// Makes the thorns about `centre`, the Wood Elf's or a creature's (#1854): the record's count
-/// at the spell's level, each within its scatter where it may stand on the level `on`, else at
-/// the centre, striking about itself for the record's value 1 in seconds what is hostile to its
-/// caster.
+/// at the spell's level, each within its scatter (`from` and `span` whole offsets from it along
+/// each axis) where it may stand on the level `on`, else at the centre, striking about itself
+/// for the record's value 1 in seconds what is hostile to its caster.
 pub(crate) fn thorns(
     commands: &mut Commands,
     (dice, heights, looks): (&mut Dice, &crate::terrain::Heights, Option<&Looks>),
     (record, level): (&opensacred_data::tables::Spell, u32),
     (caster, on): (Entity, Level),
-    centre: Vec3,
+    (centre, (from, span)): (Vec3, (f32, u32)),
     damages: [f32; 4],
 ) {
     let seconds = fight_seconds(spells::value(record, 1, level));
     for _ in 0..spells::count(record, level) {
-        let mut off = || {
-            let span = 2 * spells::THORNS_SCATTER + 1;
-            f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0))
-                - f32::from(u16::try_from(spells::THORNS_SCATTER).unwrap_or(0))
-        };
+        let mut off = || from + f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0));
         let mut place = centre + Vec3::new(off(), 0.0, off());
         if !heights.walkable_on(crate::paths::cell_of(place.x, place.z), on) {
             place = centre;
@@ -1545,7 +1558,7 @@ fn act(
                     (&mut dice, &heights, looks.as_deref()),
                     (record, act.level),
                     (act.caster, body.level()),
-                    centre,
+                    (centre, THORNS_SCATTER),
                     bolt_damages(record, level, multipliers),
                 );
             }

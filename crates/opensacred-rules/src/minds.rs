@@ -1442,6 +1442,19 @@ impl Mind {
                 return Pursues::KeepsBand(target + (here - target).unit() * casts::BAND_POINT);
             }
         }
+        // The dryad druid blinks about its target where it fights it, and sets thorns there
+        // (`0x4D6350`): it decides again 2 s after.
+        if creature == casts::DRYAD_DRUID
+            && casts::druid_blinks(rng.below(6), clear(), sight.targeted)
+        {
+            let reach = reach_f32(self.size(), sight.hero_size);
+            let (x, y) = casts::druid_blink(rng.below(361), reach);
+            self.cast_deadline = cast.now.floor() + casts::DRUID_DEADLINE;
+            return Pursues::DruidBlinks {
+                to: target + Spot::new(x, y),
+                level: self.level,
+            };
+        }
         if casts::mage_casts(rng.below(3), clear(), passed, sight.targeted) {
             self.cast_ordered = true;
             renew(self, rng.below(3));
@@ -2133,6 +2146,9 @@ pub enum Pursues {
     /// A caster blinks away from its target (the black magician 10's, #1855): to the first of
     /// [`casts::BLINK_TRIES`] points [`casts::BLINK_REACH`] about it that a straight way reaches.
     Blinks,
+    /// The dryad druid blinks to the point about its target and sets thorns about the target
+    /// ([`casts::druid_thorns`] of its level), where it may stand there (#1883).
+    DruidBlinks { to: Spot, level: u32 },
     /// At range, too near the hero, it backs off to the point, at a run or not.
     BacksOff { to: Spot, runs: bool },
     /// At range, without a straight line to the hero, it goes round to the point, at a run or

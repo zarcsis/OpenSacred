@@ -401,7 +401,7 @@ fn act(
                     (&mut dice, &heights, looks.as_deref()),
                     (record, level),
                     (entity, way.level),
-                    toward,
+                    (toward, crate::spells::THORNS_SCATTER),
                     damages,
                 );
             }
@@ -1263,6 +1263,92 @@ fn scaled(damage: f32, factor: f64) -> f32 {
     (f64::from(damage) * factor) as f32
 }
 
+/// The dryad druid's blink just done (#1883): from where and to where it blinked, its target's
+/// place and its level, by which it sets its thorns ([`druid_thorns`]).
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct DruidThorns {
+    pub from: Vec3,
+    pub to: Vec3,
+    pub target: Vec3,
+    pub level: u32,
+}
+
+/// The battle fog's sight (868) at each end of the dryad druid's blink, with its sound
+/// (`DELF_SCHLACHTENNEBEL`, `0x7709F0`), its disc as the fog's sights' for a second (its time not
+/// read, **estimate**).
+const BLINK_SOUND: u32 = 2055;
+const BLINK_PUFF: f32 = 1.0;
+/// The thorns' sound at every fifth of a group (`0x4D3091`: `DRYADE_DORNEN`'s id 2061, by the
+/// spell's own, `art_sounds`).
+const THORNS_SOUND: u32 = 2061;
+
+/// Sets the dryad druid's thorns after its blink (`0x4D2E10`): a puff of the battle fog at each
+/// end, then each group of `casts::druid_thorns` about its target's place, of the thorns'
+/// record at the group's spell's level, their damage `MagieAll`'s share at that level (as its
+/// casts', **hypothesis** for this path), scattered 0 to 100 beyond each centre where they may
+/// stand, the thorns' sound at every fifth.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
+fn druid_thorns(
+    mut commands: Commands,
+    druids: Query<(
+        Entity,
+        &DruidThorns,
+        &InTheWay,
+        Option<&crate::fight::Combat>,
+    )>,
+    (heights, arts, rules, looks, mut dice): (
+        Res<Heights>,
+        Option<Res<crate::arts::HeroArts>>,
+        Res<crate::fight::Rules>,
+        Option<Res<crate::spells::Looks>>,
+        ResMut<crate::spells::Dice>,
+    ),
+    mut points: MessageWriter<crate::sfx::PlayAt>,
+) {
+    for (entity, blink, way, combat) in &druids {
+        commands.entity(entity).remove::<DruidThorns>();
+        for at in [blink.from, blink.to] {
+            points.write(crate::sfx::PlayAt {
+                sound: crate::sfx::Of::Id(BLINK_SOUND),
+                point: at,
+                rate: (0.5, crate::sfx::Roll::None),
+            });
+            if let Some(looks) = looks.as_deref() {
+                crate::spells::puff(&mut commands, looks, at, BLINK_PUFF);
+            }
+        }
+        let Some(record) = arts
+            .as_ref()
+            .and_then(|arts| arts.tables.spells.iter().find(|s| s.id == spells::THORNS))
+        else {
+            continue;
+        };
+        let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+        for ((x, y), level) in casts::druid_thorns(blink.level) {
+            let factor = rules.0.creature_spell_damage(level);
+            let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers)
+                .map(|damage| scaled(damage, factor));
+            let centre = blink.target + Vec3::new(x, 0.0, y);
+            points.write(crate::sfx::PlayAt {
+                sound: crate::sfx::Of::Id(THORNS_SOUND),
+                point: centre,
+                rate: (0.5, crate::sfx::Roll::None),
+            });
+            crate::spells::thorns(
+                &mut commands,
+                (&mut dice, &heights, looks.as_deref()),
+                (record, level),
+                (entity, way.level),
+                (centre, casts::DRUID_SCATTER),
+                damages,
+            );
+        }
+    }
+}
+
 /// The creatures' casts.
 pub struct CreatureCastsPlugin;
 
@@ -1277,6 +1363,7 @@ impl Plugin for CreatureCastsPlugin {
                 throw,
                 burn,
                 spread,
+                druid_thorns,
             )
                 .in_set(Playing),
         );
