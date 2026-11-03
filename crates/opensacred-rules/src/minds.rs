@@ -1438,7 +1438,12 @@ impl Mind {
         if casts::mage_casts(rng.below(3), clear(), passed, sight.targeted) {
             self.cast_ordered = true;
             renew(self, rng.below(3));
-            let spell = casts::mage_spell(creature, cast.scripted, (cast.hero_low, 0), rng);
+            let spell = casts::mage_spell(
+                creature,
+                cast.scripted,
+                (cast.hero_low, cast.followers),
+                rng,
+            );
             // Its friend's heal or shield by its chance (#1854).
             let aid = casts::aid_chance(creature).and_then(|chance| {
                 let roll = rng.below(101);
@@ -2027,6 +2032,9 @@ pub struct CastSight {
     /// hero's health is under a third of its most.
     pub scripted: u16,
     pub hero_low: bool,
+    /// The living creatures that its summons made (its list `+0x39C`; **hypothesis**: those that
+    /// a creature's summon makes, which it does not hire), by which a summon becomes another.
+    pub followers: u32,
     /// A magician's friends within [`casts::FRIENDS_WITHIN`]: whether one is wounded
     /// ([`casts::wounded`]), and whether one fights.
     pub friends: (bool, bool),
@@ -2946,6 +2954,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            followers: 0,
             friends: (false, false),
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
@@ -3047,6 +3056,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            followers: 0,
             friends: (false, false),
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
@@ -3107,6 +3117,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            followers: 0,
             friends: (false, false),
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
@@ -3176,6 +3187,7 @@ mod tests {
             nearest: true,
             scripted: 0,
             hero_low: false,
+            followers: 0,
             friends: (false, false),
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).

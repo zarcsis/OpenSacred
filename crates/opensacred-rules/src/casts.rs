@@ -333,6 +333,80 @@ pub fn goblin_point(
         .unwrap_or_else(|| about(5))
 }
 
+/// The summon (`SUMMONBEAR`, 3).
+pub const SUMMON: u16 = 3;
+
+/// The creature that a summon by a creature of type `creature` makes (`0x426F60`), `coin` a
+/// `rand()` that chooses between two: the Wood Elf's unicorn 72, the Vampiress's wolf 588; for a
+/// creature, by its type, 543 or 567 for the black magicians 258 and 262 to 271, 68 or 70 for the
+/// priest 312, 76 or 118 for the goblin mage 127, 587 for the wood elf 02 (105) and 325, 142 for
+/// 143 and 145 for the god (144), 545 for any other.
+pub fn summoned(creature: u32, coin: u32) -> u32 {
+    let odd = !coin.is_multiple_of(2);
+    match creature {
+        5 => 72,
+        6 | 7 => 588,
+        105 | 325 => 587,
+        127 => {
+            if odd {
+                76
+            } else {
+                118
+            }
+        }
+        143 => 142,
+        144 => 145,
+        258 | 262..=271 => {
+            if odd {
+                543
+            } else {
+                567
+            }
+        }
+        312 => {
+            if odd {
+                68
+            } else {
+                70
+            }
+        }
+        _ => 545,
+    }
+}
+
+/// Where a creature's summon makes its creature (the chooser `0x4D31C0`'s spell 3): about its
+/// target at `target` at the caster's distance `distance` from it, the whole units of the rounded
+/// root, at the first of the angles from `start + 1` degrees on, a degree at a time and round
+/// once, `start` a `rand() % 361`, whose point `stands` lets a creature stand on; none where none
+/// does, and it casts none. Its π is the original's 3.1415.
+pub fn summon_point(
+    target: (f32, f32),
+    distance: f32,
+    start: u16,
+    stands: impl Fn((f32, f32)) -> bool,
+) -> Option<(f32, f32)> {
+    let mut angle = start + 1;
+    for _ in 0..360 {
+        let radians = f32::from(angle) * SUMMON_PI / 180.0;
+        let point = (
+            target.0 + distance * radians.cos(),
+            target.1 + distance * radians.sin(),
+        );
+        if stands(point) {
+            return Some(point);
+        }
+        angle = (angle + 1) % 360;
+    }
+    None
+}
+
+/// The π of the summon's angles (the chooser `0x4D31C0`'s), short of the true one.
+#[expect(
+    clippy::approx_constant,
+    reason = "the original's own approximation, which turns its angles so"
+)]
+const SUMMON_PI: f32 = 3.1415;
+
 /// Whether a dead creature may be raised (`0x523220`): hostile to the hero, not of the black
 /// magicians 263 and 264, not of the mark 8, not of `Creature.pak`'s class 10 (the dragons); a
 /// priest (312) raises none.
@@ -632,6 +706,25 @@ mod tests {
         assert_eq!(goblin_point(target, (-100, 40), east), (1010.0, 2005.0));
         // None stood on: the sixth, untested.
         assert_eq!(goblin_point(target, (0, 0), |_| false), (1010.0, 2015.0));
+    }
+
+    #[test]
+    fn a_summon_makes_its_casters_creature_about_the_target_at_its_distance() {
+        // The black magician 264 of level 30 made a 567 (seen in the original).
+        assert_eq!(summoned(264, 0), 567);
+        assert_eq!(summoned(264, 1), 543);
+        assert_eq!(summoned(312, 1), 68);
+        assert_eq!(summoned(311, 0), 545);
+        assert_eq!(summoned(5, 0), 72);
+        // The first point that stands, a degree on from the start.
+        let all = |_| true;
+        let (x, y) = summon_point((1000.0, 1000.0), 200.0, 359, all).unwrap_or_default();
+        assert!((x - 1200.0).abs() < 0.1 && (y - 1000.0).abs() < 0.1);
+        // Nothing stands on the side y above 1000: it turns on to the first that does.
+        let below = |(_, y): (f32, f32)| y <= 1000.0;
+        let (_, y) = summon_point((1000.0, 1000.0), 200.0, 0, below).unwrap_or_default();
+        assert!(y <= 1000.0);
+        assert_eq!(summon_point((0.0, 0.0), 100.0, 0, |_| false), None);
     }
 
     #[test]

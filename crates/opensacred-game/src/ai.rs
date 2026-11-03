@@ -775,6 +775,7 @@ fn pursue(
             (
                 Option<&crate::fight::Ranked>,
                 Has<crate::creature_casts::Casting>,
+                Option<&crate::creature_casts::Summoned>,
             ),
         ),
         (Without<Body>, Without<crate::making::Knocked>),
@@ -833,6 +834,15 @@ fn pursue(
         })
         .collect();
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
+    // The living creatures that each caster's summons made (#1869).
+    let mut summoned: std::collections::HashMap<Entity, u32> = std::collections::HashMap::new();
+    for (.., health, _, _, _, (_, _, by)) in &creatures {
+        if let Some(by) = by
+            && health.is_some_and(|health| health.current > 0)
+        {
+            *summoned.entry(by.0).or_default() += 1;
+        }
+    }
     let now = real.elapsed_secs_f64();
     let hero_level = experience
         .as_deref()
@@ -848,7 +858,7 @@ fn pursue(
         layered,
         ended,
         effects,
-        (rank, casting),
+        (rank, casting, _),
     ) in &mut creatures
     {
         mind.rest(dt);
@@ -945,6 +955,7 @@ fn pursue(
                 nearest: nearest.hostiles.first() == Some(&entity),
                 scripted: u16::from(mind.spell),
                 hero_low: false,
+                followers: summoned.get(&entity).copied().unwrap_or(0),
                 friends: (wounded_friend.is_some(), fighting_friend.is_some()),
             };
             mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
