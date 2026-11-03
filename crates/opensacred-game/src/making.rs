@@ -37,6 +37,9 @@ const BLEND: Duration = Duration::from_millis(200);
 /// (`0x44CA30`).
 const WEAPON_BONES: [&str; 2] = ["weapon_fx01", "Weapon_fx01"];
 const HAND_BONE: &str = "Bip01 R Hand";
+/// The domination's object's loop (857, `cParticleSystem` at `0x79DBF0`'s start):
+/// `VAMP_BEHERRSCHUNG_LOOP`.
+const DOMINATION_LOOP: u32 = 2075;
 
 /// The art that the right button makes: the original's right button's slot, at a new game the
 /// hero's first art whose action is read.
@@ -1039,6 +1042,14 @@ fn make(
                         .entry::<crate::effects::Effects>()
                         .or_default()
                         .and_modify(move |mut effects| effects.add(effect, seconds));
+                    // Its object 857 at it (`0x5124CE`), whose sight is not made, looping
+                    // `VAMP_BEHERRSCHUNG_LOOP` while it lives, for the effect's time
+                    // (**hypothesis** for its life).
+                    dominated.with_child((
+                        crate::hums::Hum(DOMINATION_LOOP),
+                        crate::spells::Fades(seconds),
+                        Transform::default(),
+                    ));
                     info!(
                         "making: {} dominates {} for {seconds} s",
                         making.art, playing.target
