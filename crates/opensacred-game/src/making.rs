@@ -1612,6 +1612,7 @@ fn make(
                         if playing.struck == 0 && due(first, done) {
                             playing.struck = 1;
                             arts.start(making.art);
+                            gun_sound(&mut points, FLAMER_SOUND, here);
                         }
                         let left = 1.0 - done;
                         if left < arts::FLAMES[1] || finished {
@@ -1671,6 +1672,7 @@ fn make(
                             "making: {} throws a shell to {at:?} of {damages:?}",
                             making.art
                         );
+                        gun_sound(&mut points, MORTAR_SOUND, here);
                         commands.spawn(crate::guns::Shell::thrown(
                             hero,
                             Vec2::from(at),
@@ -1685,6 +1687,12 @@ fn make(
                         // his target; then the shot along the line to it, to the first cell
                         // that stops it, strikes every hostile creature on it and may knock it
                         // back; its regeneration starts and it ends (`0x5174E7`).
+                        // Its flash 1017 once what is left of its clip falls below
+                        // `1 − h₀ + 0.05·r` (`0x5172F0`).
+                        if playing.struck == 0 && due(first - 0.05 * arts::GUN_RATE, done) {
+                            playing.struck = 1;
+                            gun_sound(&mut points, CANNON_SOUND, here);
+                        }
                         let aim = target.unwrap_or(playing.point);
                         let line = (aim - here).xz();
                         if !due(1.0 - arts::cannon_left(line.length()), done) {
@@ -2585,6 +2593,23 @@ fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
 }
 
 /// A whole number of world units as a float.
+/// The sounds of the Dwarf's guns' objects at him, each once as it starts: the flames' 1016
+/// `DWARF_FLAMMENWERFER` (`0x516C36`, `0x7B3EFB`), the mortar's grenade's 1018
+/// `DWARF_MOERSER_ABSCHUSS` (`0x516A4A`, `0x7B577E`) and the cannon's flash's 1017
+/// `DWARF_KANONE_ABSCHUSS` (`0x5172F0`, `0x7B4AD8`); their sights are not made.
+const FLAMER_SOUND: u32 = 2113;
+const MORTAR_SOUND: u32 = 2114;
+const CANNON_SOUND: u32 = 2116;
+
+/// A gun's object's sound at `at`.
+fn gun_sound(points: &mut MessageWriter<crate::sfx::PlayAt>, sound: u32, at: Vec3) {
+    points.write(crate::sfx::PlayAt {
+        sound: crate::sfx::Of::Id(sound),
+        point: at,
+        rate: (0.5, crate::sfx::Roll::None),
+    });
+}
+
 fn to_f32(value: u32) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
