@@ -776,6 +776,7 @@ fn pursue(
                 Option<&crate::fight::Ranked>,
                 Has<crate::creature_casts::Casting>,
                 Option<&crate::creature_casts::Summoned>,
+                Option<&crate::followers::Follower>,
             ),
         ),
         (Without<Body>, Without<crate::making::Knocked>),
@@ -836,13 +837,21 @@ fn pursue(
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     // The living creatures that each caster's summons made (#1869).
     let mut summoned: std::collections::HashMap<Entity, u32> = std::collections::HashMap::new();
-    for (.., health, _, _, _, (_, _, by)) in &creatures {
+    for (.., health, _, _, _, (_, _, by, _)) in &creatures {
         if let Some(by) = by
             && health.is_some_and(|health| health.current > 0)
         {
             *summoned.entry(by.0).or_default() += 1;
         }
     }
+    // The hero's followers, which a magician's cast takes for the hero (#1869).
+    let hero_followers: std::collections::HashSet<Entity> = creatures
+        .iter()
+        .filter(|(.., (_, _, _, follower))| {
+            follower.is_some_and(|follower| follower.master == the_hero)
+        })
+        .map(|(entity, ..)| entity)
+        .collect();
     let now = real.elapsed_secs_f64();
     let hero_level = experience
         .as_deref()
@@ -858,7 +867,7 @@ fn pursue(
         layered,
         ended,
         effects,
-        (rank, casting, _),
+        (rank, casting, _, _),
     ) in &mut creatures
     {
         mind.rest(dt);
@@ -921,6 +930,8 @@ fn pursue(
             targeted,
             hero_size: target_size,
         };
+        // The hero itself, which a magician casts at in place of its follower (#1869).
+        let heros_place = hero;
         let hero = target;
         // A straight line of walkable cells to its target, asked again below (`0x4FCC80`).
         let clear = || {
@@ -1141,6 +1152,12 @@ fn pursue(
                     friend.unwrap_or((entity, here))
                 } else if opensacred_rules::casts::on_itself(spell) {
                     (entity, here)
+                } else if opensacred_rules::casts::mark_8(mind.creature)
+                    && hero_followers.contains(&aimed)
+                    && opensacred_rules::casts::at_the_hero((heros_place - here).xz().length())
+                {
+                    // A follower of the hero within 750 of the hero: at the hero (`0x4D6939`).
+                    (the_hero, heros_place)
                 } else {
                     (aimed, hero)
                 };
