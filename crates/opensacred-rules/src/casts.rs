@@ -333,6 +333,16 @@ pub fn goblin_point(
         .unwrap_or_else(|| about(5))
 }
 
+/// How near the hero a magician of the mark 8 stands for its cast at the hero's follower to be at
+/// the hero instead (`0x4D695B`, the float `0x890EB0`).
+const AT_THE_HERO_WITHIN: f32 = 750.0;
+
+/// Whether a magician of the mark 8 that casts at a follower of the local hero casts at the hero
+/// instead (`0x4D6939`), the hero at `distance` from it: nearer than 750 (`0x5370B0`).
+pub fn at_the_hero(distance: f32) -> bool {
+    distance < AT_THE_HERO_WITHIN
+}
+
 /// The summon (`SUMMONBEAR`, 3).
 pub const SUMMON: u16 = 3;
 
@@ -706,6 +716,12 @@ mod tests {
         assert_eq!(goblin_point(target, (-100, 40), east), (1010.0, 2005.0));
         // None stood on: the sixth, untested.
         assert_eq!(goblin_point(target, (0, 0), |_| false), (1010.0, 2015.0));
+    }
+
+    #[test]
+    fn a_cast_at_the_heros_follower_is_at_the_hero_within_750() {
+        assert!(at_the_hero(749.0));
+        assert!(!at_the_hero(750.0));
     }
 
     #[test]
