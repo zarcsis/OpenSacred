@@ -270,7 +270,11 @@ fn run(
     mut looks: Query<(Entity, &mut Look, &mut Visibility)>,
     bolts: Query<(&Transform, &Visibility), (Without<Look>, Without<Lamp>)>,
     mut lamps: Query<&mut Transform, With<Lamp>>,
-    (children, bones): (Query<&Children>, Query<(&Name, &GlobalTransform)>),
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     mut meshes: ResMut<Assets<Mesh>>,
     mut rolls: ResMut<Rolls>,
 ) {
@@ -294,7 +298,7 @@ fn run(
                 continue;
             }
         } else if let Some(target) = look.follows
-            && let Some(neck) = crate::making::bone(target, &NECK, &children, &bones)
+            && let Some(neck) = crate::making::bone(target, &NECK, &children, (&bones, &worn))
         {
             look.place = neck;
         }

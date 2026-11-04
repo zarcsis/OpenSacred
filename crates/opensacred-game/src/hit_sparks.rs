@@ -54,7 +54,11 @@ fn burst(
     mut sparks: MessageReader<Spark>,
     hero: Option<Res<crate::hero::Hero>>,
     places: Query<&GlobalTransform>,
-    (children, bones): (Query<&Children>, Query<(&Name, &GlobalTransform)>),
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     mut rolls: ResMut<Rolls>,
 ) {
     let gun = hero.is_some_and(|hero| hero.armed.gun);
@@ -71,7 +75,7 @@ fn burst(
             SparksAt::RightFoot => (spark.by, &RIGHT_FOOT),
             SparksAt::LeftFoot => (spark.by, &LEFT_FOOT),
         };
-        let Some(point) = crate::making::bone(whom, names, &children, &bones)
+        let Some(point) = crate::making::bone(whom, names, &children, (&bones, &worn))
             .or_else(|| places.get(whom).ok().map(GlobalTransform::translation))
         else {
             continue;
