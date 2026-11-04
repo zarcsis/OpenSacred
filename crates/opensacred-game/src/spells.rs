@@ -1204,18 +1204,19 @@ const FIRE_CIRCLE_LOOP: u32 = 2019;
 /// 784, `0x774330`), besides the cast's `SPELL_HEALING`.
 const HEALING_SOUND: u32 = 2020;
 
-/// Makes the purgatory's disk at `point`, the Seraphim's or a creature's (#1854): it flies among
-/// what is hostile to its caster on the level `on` for the record's value 0 in seconds, striking
-/// all it touches once a second, its loop at it ([`HELLFIRE_LOOP`]).
+/// Makes the purgatory's disk at `point`, the Mage's (`hero`) or a creature's (#1854): it flies
+/// among what is hostile to its caster on the level `on` for the record's value 0 in seconds,
+/// striking all it touches once a second, its loop at it ([`HELLFIRE_LOOP`]), its look its system's
+/// on the ground under it (`purgatories`).
 pub(crate) fn purgatory(
     commands: &mut Commands,
-    looks: Option<&Looks>,
+    hero: bool,
     (record, level): (&opensacred_data::tables::Spell, u32),
     (caster, on): (Entity, Level),
     point: Vec3,
     damages: [f32; 4],
 ) {
-    let mut made = commands.spawn((
+    commands.spawn((
         Disk {
             caster,
             target: None,
@@ -1228,17 +1229,12 @@ pub(crate) fn purgatory(
             reach: spells::DISK_REACH,
             all: true,
         },
-        Transform::from_translation(point + Vec3::Y * DISK_HEIGHT),
+        Transform::from_translation(point),
         Visibility::Inherited,
         crate::hums::Hum(HELLFIRE_LOOP),
+        crate::purgatories::Look { hero, level: on },
         DespawnOnExit(AppState::InGame),
     ));
-    if let Some(looks) = looks {
-        made.with_child((
-            Mesh3d(looks.flame.0.clone()),
-            MeshMaterial3d(looks.flame.1.clone()),
-        ));
-    }
 }
 
 /// A creature's shield on its friend `bearer` (#1854), at the spell's level `level`: the stone
@@ -1913,7 +1909,7 @@ fn act(
             spells::PURGATORY => {
                 purgatory(
                     &mut commands,
-                    looks.as_deref(),
+                    true,
                     (record, act.level),
                     (act.caster, body.level()),
                     act.point,

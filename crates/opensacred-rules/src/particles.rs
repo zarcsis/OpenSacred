@@ -1895,7 +1895,7 @@ pub const HOLY_LIGHT_LIGHT: f32 = 200.0;
 /// 1,000, white at its foot and (160, 160, 255) at its top, and two bands across it from 7 out
 /// to 17.5 along x, fading to nothing at their outer edges; its alphas, the cylinder's foot's
 /// and the bands' inner foot's, its pulse times 112 and 128, the tops' 112 and 128.
-pub const HOLY_COLUMN: HolyColumn = HolyColumn {
+pub const HOLY_COLUMN: Column = Column {
     radius: 7.0,
     height: 1_000.0,
     segments: 12,
@@ -1903,6 +1903,7 @@ pub const HOLY_COLUMN: HolyColumn = HolyColumn {
     foot: [1.0, 1.0, 1.0],
     top: [160.0 / 255.0, 160.0 / 255.0, 1.0],
     alphas: [112.0, 128.0],
+    tops: [112.0, 128.0],
 };
 /// The ground symbol's texture, half side, grey and turn a second (`FX_GROUNDSYMBOL01`), and the
 /// glow's texture, half side and colour, both flat quads added whole.
@@ -1916,9 +1917,13 @@ pub const HOLY_GLOW_COLOUR: [f32; 4] = [75.0 / 255.0, 233.0 / 255.0, 247.0 / 255
 /// The sparks' colour (`+0x2134`, `0x708080F0`), added whole (the flags `0x31`).
 pub const HOLY_SPARK_COLOUR: [f32; 4] = [128.0 / 255.0, 128.0 / 255.0, 240.0 / 255.0, 1.0];
 
-/// The holy light's column's measures ([`HOLY_COLUMN`]).
+/// A column of light's measures, the holy light's ([`HOLY_COLUMN`]) and the purgatory's
+/// ([`hellfire_column`]): a cylinder of its segments of its radius and height, and two bands
+/// across it from its edge out to `band` along x, fading to nothing at their outer edges; its
+/// colours at its foot and its top, and its alphas at its foot and its top (out of 255), the
+/// cylinder's and the bands' inner edges'.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HolyColumn {
+pub struct Column {
     pub radius: f32,
     pub height: f32,
     pub segments: u16,
@@ -1926,6 +1931,7 @@ pub struct HolyColumn {
     pub foot: [f32; 3],
     pub top: [f32; 3],
     pub alphas: [f32; 2],
+    pub tops: [f32; 2],
 }
 
 /// The holy light's pulse at its clock `t` (`+0x20AC`): `0.8 + 0.1 sin 4t`, which its column's
@@ -2268,6 +2274,68 @@ pub fn fire_circle() -> Fire {
 
 /// The fire spiral's flame's particles at most (`0x5A0C50`'s count for the type 790).
 const FIRE_CIRCLE_COUNT: usize = 100;
+
+/// The look of the purgatory 23, `cParticleSystem_hellFire` (820, its start `0x776860`, its run
+/// `0x7762D0` and its draw `0x776390`; docs/re/effects.md, "The purgatory"), which goes with its
+/// object for its seconds: its flames as the fire spiral's ([`fire_circle`]) but within 25 of its
+/// place, a creature's white of `PARTICLE_FIRE09` (`+0xA9`); and while it burns its column of light
+/// ([`hellfire_column`]) and its glow on the ground ([`HELLFIRE_GLOW_HALF`]) in its colour
+/// ([`HELLFIRE_COLOURS`]). Its light is 200.
+pub fn hellfire(hero: bool) -> Fire {
+    let colour = |alpha: f32| {
+        if hero {
+            [1.0, 0.7, 0.5, alpha]
+        } else {
+            [1.0, 1.0, 1.0, alpha]
+        }
+    };
+    Fire {
+        texture: FIRE_SKIN_TEXTURES[usize::from(!hero)],
+        blocks: vec![Block {
+            size: spread(40.0, 20.0),
+            offset: spread([0.0; 3], [25.0, 25.0, 0.0]),
+            interval: 0.01,
+            ..Block::default()
+        }],
+        ramps: vec![Ramp::new(
+            colour(0.0),
+            &[(colour(1.0), 32), (colour(1.0), 224)],
+        )],
+        count: HELLFIRE_COUNT,
+        light: 200.0,
+        ..fire_circle()
+    }
+}
+
+/// The purgatory's particles at most (`0x5A0C50`'s count for the type 820).
+const HELLFIRE_COUNT: usize = 100;
+/// The purgatory's colour (`+0x24C0`), its column's and its glow's: a hero's (255, 192, 1), a
+/// creature's (64, 64, 255).
+pub const HELLFIRE_COLOURS: [[f32; 3]; 2] = [
+    [1.0, 192.0 / 255.0, 1.0 / 255.0],
+    [64.0 / 255.0, 64.0 / 255.0, 1.0],
+];
+/// Its glow (`0x7631E0`): `PARTICLE_GLOW03` of a half side of 75, flat on the ground, added whole.
+pub const HELLFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const HELLFIRE_GLOW_HALF: f32 = 75.0;
+
+/// The purgatory's column of light (`+0x254C`, `+0x288C`; [`Column`]), of no texture, added by its
+/// alpha (`SRCALPHA`, `ONE`) with no faces culled: a cylinder of 12 segments of the radius 7 and the
+/// height 200, and its bands from 7 out to 17.5; all in its colour, of the alphas 160 at the
+/// cylinder's foot and 128 at the bands', fading to nothing at their tops.
+pub fn hellfire_column(hero: bool) -> Column {
+    let colour = HELLFIRE_COLOURS[usize::from(!hero)];
+    Column {
+        radius: 7.0,
+        height: 200.0,
+        segments: 12,
+        band: 17.5,
+        foot: colour,
+        top: colour,
+        alphas: [160.0, 128.0],
+        tops: [0.0, 0.0],
+    }
+}
 
 /// The colours of the grounds by their nature (the cell's `+0x1F` high nibble), in the
 /// renderer's table at `+0x9DC8` (`0x418EF3`, read by `0x41BA00`): the dust that the gust raises
@@ -3029,6 +3097,36 @@ mod tests {
         assert_eq!(circle.ramps[0].at(255.0)[3], 0.0);
         assert_eq!(circle.ramps[0].at(224.0), orange);
         assert_eq!(circle.ramps[0].at(0.0), orange);
+    }
+
+    #[test]
+    fn the_purgatory_burns_wider_under_its_column_a_creatures_white() {
+        let mut dice = Rng::of(17, 0x334, 5);
+        let fire = hellfire(true);
+        assert_eq!(fire.light, 200.0);
+        assert_eq!(fire.layers, fire_circle().layers);
+        let mut flames = System::new(fire.count);
+        for _ in 0..40 {
+            flames.update(0.025, &fire.layers);
+            flames.emit(&fire.blocks, &fire.layers, fire.count, &mut dice);
+        }
+        assert!(
+            flames
+                .particles
+                .iter()
+                .all(|p| p.place[0].abs() <= 25.0 && p.place[1].abs() <= 25.0 && p.place[2] == 0.0)
+        );
+        assert!(flames.particles.iter().any(|p| p.place[0].abs() > 7.0));
+        let creatures = hellfire(false);
+        assert_eq!(creatures.texture, "PARTICLE_FIRE09");
+        assert_eq!(creatures.ramps[0].at(0.0), [1.0; 4]);
+        // Its column fades from its foot to nothing at its top, in its colour.
+        let column = hellfire_column(false);
+        assert_eq!(column.foot, [64.0 / 255.0, 64.0 / 255.0, 1.0]);
+        assert_eq!(
+            (column.height, column.alphas, column.tops),
+            (200.0, [160.0, 128.0], [0.0; 2])
+        );
     }
 
     #[test]

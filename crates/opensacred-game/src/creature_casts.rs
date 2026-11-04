@@ -385,7 +385,7 @@ fn act(
             spells::PURGATORY => {
                 crate::spells::purgatory(
                     &mut commands,
-                    looks.as_deref(),
+                    false,
                     (record, level),
                     (entity, way.level),
                     cast.point,

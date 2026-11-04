@@ -121,6 +121,7 @@ mod points;
 mod poison_rings;
 mod puffs;
 mod purchase;
+mod purgatories;
 mod quest_book;
 mod regions;
 mod remarks;
@@ -502,14 +503,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         poison_rings::PoisonRingsPlugin,
         puffs::PuffsPlugin,
         purchase::PurchasePlugin,
+        purgatories::PurgatoriesPlugin,
         quest_book::QuestBookPlugin,
         regions::RegionsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
-        runes::RunesPlugin,
     ))
     .add_plugins((
+        runes::RunesPlugin,
         save_picture::SavePicturePlugin,
         saves::SavesPlugin,
         saves_window::SavesWindowPlugin,
@@ -524,9 +526,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
-        shadows::ShadowsPlugin,
     ))
     .add_plugins((
+        shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,

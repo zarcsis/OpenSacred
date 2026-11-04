@@ -818,6 +818,25 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Mage's start: the five flames' fires merged into a white-hot blob about her at first, then a ring of fire about her as they spread, alike in size.
 The original's frames under the driver show the flames gathered in tall columns at a few places at times, a hitch's step of the object between two frames by **hypothesis**, as the screenshots stall it.
 
+## The purgatory
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 23 at the level 5 at a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The purgatory 23 | 820 | `cParticleSystem_hellFire` (`0x897BC8`) | `0x775F80`, `0x776390`, `0x7762D0`, `0x776860` |
+
+- Its constructor loads `PARTICLE_FIRE02` (`+0x298C`), `PARTICLE_FIRE09` (`+0x2990`) and `PARTICLE_GLOW03` (`+0x2994`) and makes its column's vertices (`D3DFVF_LVERTEX`): a strip of 13 pairs (`+0x254C`), at the angles `k·π/6` on a circle of the radius 7, each at the height 0 and 200; and a strip of 8 (`+0x288C`), across x at −17.5, −7, 7 and 17.5, each at the height 0 and 200; 100 particles.
+- Its start (`0x776860`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20A4`); its colour (`+0x24C0`) (255, 192, 1) for a hero's (`+0xA9` 0), (64, 64, 255) else; its ramp (`+0x20C0`) from a transparent (255, 178, 127), a creature's white, to the same opaque over 32 entries, held over 224; one layer (the life −350 a second, the size −70) and one block (the size 40 ± 20, the place ± (25, 25, 0), every 0.01 s, times 1.5 and 2.2 at the detail levels 1 and 0); its speed `+0x98` 40, its flags `0x420`, its loop 2006 (`0x7D6`), its light 200.
+- Its run (`0x7762D0`): its particles aged, and emitted until its seconds are over, when its flags are cleared and it ends with its last particle; at its object's end (`+0x74` bit 1) it ends at once.
+- Its draw (`0x776390`), while it burns: the states of the depth test on, its write off, the lighting off, the blending `SRCALPHA` and `ONE`, the linear filter and no faces culled; its vertices' colours its colour, of the alphas 160 at the cylinder's foot and 128 at the bands' inner feet, 0 elsewhere; no texture, the world transform the identity; the cylinder (26 vertices) and the bands' outer halves (from 7 to 17.5 on either side, 4 vertices each) as triangle strips; then a flat quad (`0x7631E0`) of `PARTICLE_GLOW03` of a half side of 75 in its colour, added (`ONE`, `ONE`).
+  Then, burning or not, its particles as billboards of the flags `0x89` (the ramp's colour, standing on their feet, added by their alpha), its 4 × 4 frames by their age, of `PARTICLE_FIRE02` (a creature's `09`).
+- The object's run (`0x5A780B`, the flag `0x20`) moves it at its speed toward its target's place along the unit vector between them in three dimensions.
+
+`opensacred-game` draws it since #1092 (`purgatories`, `opensacred_rules::particles::{hellfire, hellfire_column}`, the column by `holy_lights::column_quads`, the flames by `breath::wall_quads`): the object that `spells` makes, the Mage's or a creature's (#1854) in blue, gets a look of its own on the ground under it, its flames, its column of light and its glow while it lives, untinted by the night, its light of 200, its flames burning out after.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start: a golden column of light rising out of the frame from a fire, alike in breadth and place, as it goes from the goblin to the Mage.
+In the original the Mage shows inside the fire where it stands on her, as if drawn over its flames; in `opensacred-game` its flames in front of her cover her.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -869,7 +888,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes and the fire spiral ("The bolts" to "The fire spiral" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral and the purgatory ("The bolts" to "The purgatory" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
