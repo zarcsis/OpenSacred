@@ -631,6 +631,26 @@ The wall's flames and the glow are added whole (`fx::whole_material`: the partic
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the breath an orange plume with a dark smoke where it stops, and the wall a row of tall flames that run together into a white and yellow sheet, alike in size; the original's smoke drifts and spreads more.
 Not followed: the layers' wind (as the world's smokes'), the detail's factor of the intervals, and the steps' small fire of the variant 1 that the wall's end makes ("The steps' small fire" below).
 
+## The ring of poison
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game at 352,1722, his form 1099 and its ring 1101 among three goblins).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The Daemon's ring of poison 1101 | 1008 | `cParticleSystem_ringofpoison` (`0x898B1C`) | `0x7AF490`, `0x7AF650`, `0x7AF550`, `0x7AF840` |
+
+- Its constructor loads `fx_ringofpoison01` (`+0x252C`), `PARTICLE_SPARK06` (`+0x2530`) and `Fx_twirl_rays` (`+0x2534`); 150 particles.
+- Its start (`0x7AF840`): one layer (the life −170 a second, the size −6) and one block, a burst of all its particles (the interval 0, the count the particles'): buoyancy 180 ± 40, size 7 ± 2, angle π ± π, velocity (0, 0, 150) ± 40 along each axis, place ± (7, 7, 0); its ramp white (254) for 100 entries and to black over 156, its alpha 0 throughout; its flags `0x400` (its hits), its light 200.
+- Its run (`0x7AF550`): at its clock's 0 the burst and a weather event of the kind 7 and the value 30, the screen's quake (docs/re/weather.md); then its particles aged; past 3 s it ends.
+- Its draw (`0x7AF650`), by its clock `t`:
+  - below 0.75 s a ring (`0x763530`) of 50 segments flat at its place on the ground (its height less `+0xA4`), between the radii `150 t` and 40 more, of `fx_ringofpoison01` (each segment the texture's width along it, its height from the inner radius out), added (`ONE`, `ONE`), of the colour (34, 128, 34) times a share that holds 1 to 0.45 s and falls to 0 at 0.75 s, each byte taken whole;
+  - below 3 s two flat quads (`0x7631E0`) at its place of `Fx_twirl_rays`, of the half sides `100 (1 − (t/3)²)` and `90 (1 − (t/3)²)`, turned by `−1.7 t` and `−1.3 t` radians, of the colour (65, 255, 66), added (`ONE`, `ONE`), their depth tested;
+  - its particles as billboards of the flags `0x19` (`ONE`, `ONE`, the ramp's colour, not turned) of `PARTICLE_SPARK06`.
+- `Fx_twirl_rays`' texels carry their brightness in their alpha as well, which the source `ONE` leaves out.
+
+`opensacred-game` makes it since #1092 (`poison_rings`, `opensacred_rules::particles::{poison_ring, poison_twirls, ring_sparks}`): where the Daemon's 1101 burns about him, its sparks (`puffs`), its quake of 30 (`weather`), its ring and twirls on the ground added whole and untinted by the night, and its light of 200 at it, for 3 s.
+**Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the green twirls shrinking at his feet, the white fountain of sparks over him, and the green ring spreading past the twirls, alike in size; the original's ring a darker green.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -682,7 +702,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts and the Daemon's breath ("The bolts" and "The breath of fire" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts and the Daemon's breath and ring ("The bolts", "The breath of fire" and "The ring of poison" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
