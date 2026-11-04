@@ -26,9 +26,47 @@ use crate::npcs::Dies;
 use crate::terrain::{Heights, Level};
 use crate::{ai, arrows, iso, paths};
 
-/// How high over the ground a bolt flies, in world units (**hypothesis**: about a hand's height,
-/// as the arrows leave a shooter without a hand).
+/// How high over the ground a bolt of no system's look flies, in world units, and one whose
+/// shooter has not the bone it leaves from (**hypothesis**: about a hand's height, as the arrows
+/// leave a shooter without a hand).
 pub(crate) const HEIGHT: f32 = 80.0;
+
+/// The bones that a bolt of a system's look leaves from, which it keeps the height of (the FX
+/// handler's cases `0x5A52C3`, `0x5A52F1`, `0x5A49D3` and `0x5A5900`, the system flag `0x40`
+/// placing it once at the bone, #2018): the railgun's and the Daemon's bolt the shooter's right
+/// hand (bone 2), the fireball the left (bone 1), the BFG the staff's `weapon_fx01` (bone 15).
+fn bone_of(kind: crate::bolt_looks::Kind) -> &'static [&'static str] {
+    use crate::bolt_looks::Kind;
+    match kind {
+        Kind::Railgun | Kind::Emperor => &["Bip01 R Hand"],
+        Kind::Fireball => &["Bip01 L Hand"],
+        Kind::Bfg => &["weapon_fx01"],
+    }
+}
+
+/// Whether a bolt of the kind `kind` ends as it goes under the ground (the system flag `0x01`,
+/// `0x5AA3CE`): the fireball's (`0x51`) and the Daemon's (`0x53`), not the railgun's or the BFG's
+/// (`0x50`).
+fn ends_underground(kind: crate::bolt_looks::Kind) -> bool {
+    use crate::bolt_looks::Kind;
+    matches!(kind, Kind::Fireball | Kind::Emperor)
+}
+
+/// Where a bolt leaves its shooter `shooter` standing at `at`: at the bone of its system's look,
+/// at whose height it flies on, else [`HEIGHT`] over its place, following the ground.
+fn leaving(
+    shooter: Entity,
+    at: Vec3,
+    kind: Option<crate::bolt_looks::Kind>,
+    (children, bones, worn): (
+        &Query<&Children>,
+        &Query<(&Name, &GlobalTransform)>,
+        &crate::making::Worn,
+    ),
+) -> (Vec3, Option<f32>) {
+    kind.and_then(|kind| crate::making::bone(shooter, bone_of(kind), children, (bones, worn)))
+        .map_or((at + Vec3::Y * HEIGHT, None), |bone| (bone, Some(bone.y)))
+}
 
 /// A shot's bolts leaving their shooter toward `toward` (the FX events of `0x4DCB80`), which the
 /// shot's clip sends at its first hit (`attack`).
@@ -227,6 +265,9 @@ struct Flying {
     spent: bool,
     /// How long until it strikes again, one passing through (`+0x11C`).
     cooldown: f32,
+    /// Its system's look, and the height it flies level at where it left from its bone.
+    kind: Option<crate::bolt_looks::Kind>,
+    level_at: Option<f32>,
 }
 
 /// The stand-ins' meshes and materials, by the course's look: the railgun's, the BFG's, the
@@ -345,13 +386,19 @@ fn fire(
     }
 }
 
-/// Makes the bolt of each launch where its shooter stands, at [`HEIGHT`], on its level: the
-/// hero's, or a creature's that casts (#1852); its system's start's sound at it, where it has one.
+/// Makes the bolt of each launch where its shooter stands, on its level, at its bone or at
+/// [`HEIGHT`] ([`leaving`]): the hero's, or a creature's that casts (#1852); its system's start's
+/// sound at it, where it has one.
 fn launch(
     mut commands: Commands,
     mut launches: MessageReader<Launch>,
     looks: Option<Res<Looks>>,
     shooters: Query<(&Transform, Option<&Body>, Option<&InTheWay>)>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let Some(looks) = looks else {
@@ -372,8 +419,18 @@ fn launch(
         if system.is_none() && stand_in.is_none() {
             continue;
         }
+        let (start, level_at) = leaving(
+            launched.shooter,
+            at.translation,
+            system,
+            (&children, &bones, &worn),
+        );
+        debug!(
+            "bolts: {:?} of {} leaves at {start}, its shooter at {}",
+            system, launched.shooter, at.translation
+        );
         let mut bolt = commands.spawn((
-            Transform::from_translation(at.translation + Vec3::Y * HEIGHT),
+            Transform::from_translation(start),
             if launched.wait > 0.0 {
                 Visibility::Hidden
             } else {
@@ -389,6 +446,8 @@ fn launch(
                 flown: 0.0,
                 spent: false,
                 cooldown: 0.0,
+                kind: system,
+                level_at,
             },
             DespawnOnExit(AppState::InGame),
         ));
@@ -457,9 +516,12 @@ fn fly(
         MessageWriter<crate::bolt_looks::Ended>,
     ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
-    (shooters, heroes): (
+    (shooters, heroes, children, bones, worn): (
         Query<&Transform, (With<Body>, Without<Flying>)>,
         Query<(Entity, &Transform, &Body, &Health), (Without<Flying>, Without<Dies>)>,
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
     ),
     creatures: Query<
         (
@@ -479,7 +541,14 @@ fn fly(
         if bolt.wait > 0.0 {
             bolt.wait -= dt;
             if let Ok(shooter) = shooters.get(bolt.shooter) {
-                transform.translation = shooter.translation + Vec3::Y * HEIGHT;
+                let (start, level_at) = leaving(
+                    bolt.shooter,
+                    shooter.translation,
+                    bolt.kind,
+                    (&children, &bones, &worn),
+                );
+                transform.translation = start;
+                bolt.level_at = level_at;
             }
             if bolt.wait <= 0.0 {
                 *visibility = Visibility::Inherited;
@@ -493,6 +562,28 @@ fn fly(
         let step = bolt.direction * speed * dt;
         let ground = transform.translation.xz() + step;
         let cell = paths::cell_of(ground.x, ground.y);
+        let standing = heights.standing(ground.x, ground.y, bolt.level);
+        // A fireball or the Daemon's bolt under the ground ends at once (`+0x74` 1).
+        let under = bolt.kind.is_some_and(ends_underground)
+            && bolt
+                .level_at
+                .zip(standing)
+                .is_some_and(|(flies, ground)| flies < ground);
+        if under {
+            debug!(
+                "bolts: {entity} goes under the ground and ends, at {:?} over {standing:?}",
+                bolt.level_at
+            );
+            ends.write(crate::bolt_looks::Ended {
+                bolt: entity,
+                at: transform.translation,
+                hit: None,
+                timed: false,
+                at_once: true,
+            });
+            commands.entity(entity).despawn();
+            continue;
+        }
         if bolt.flown >= course.life || !heights.walkable_on(cell, bolt.level) {
             debug!(
                 "bolts: {entity} of {} ends at {:.0},{:.0}",
@@ -545,14 +636,15 @@ fn fly(
                 at: transform.translation,
                 hit: None,
                 timed: bolt.flown >= course.life,
+                at_once: false,
             });
             commands.entity(entity).despawn();
             continue;
         }
-        let height = heights
-            .standing(ground.x, ground.y, bolt.level)
-            .unwrap_or(transform.translation.y - HEIGHT);
-        transform.translation = Vec3::new(ground.x, height + HEIGHT, ground.y);
+        let height = bolt
+            .level_at
+            .unwrap_or_else(|| standing.unwrap_or(transform.translation.y - HEIGHT) + HEIGHT);
+        transform.translation = Vec3::new(ground.x, height, ground.y);
         bolt.cooldown = (bolt.cooldown - dt).max(0.0);
         if bolt.spent || bolt.cooldown > 0.0 {
             continue;
@@ -648,6 +740,7 @@ fn fly(
                     at: transform.translation,
                     hit: struck.first().copied(),
                     timed: false,
+                    at_once: false,
                 });
                 commands.entity(entity).despawn();
             }
@@ -681,6 +774,18 @@ impl Plugin for BoltsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bolts_leave_from_their_systems_bones() {
+        use crate::bolt_looks::Kind;
+        assert_eq!(bone_of(Kind::Railgun), ["Bip01 R Hand"]);
+        assert_eq!(bone_of(Kind::Emperor), ["Bip01 R Hand"]);
+        assert_eq!(bone_of(Kind::Fireball), ["Bip01 L Hand"]);
+        assert_eq!(bone_of(Kind::Bfg), ["weapon_fx01"]);
+        // The flag 0x01: the fireball's and the Daemon's end under the ground.
+        assert!(ends_underground(Kind::Fireball) && ends_underground(Kind::Emperor));
+        assert!(!ends_underground(Kind::Railgun) && !ends_underground(Kind::Bfg));
+    }
 
     #[test]
     fn a_bolt_flies_faster_across_the_screen_than_up_it() {
