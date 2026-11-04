@@ -473,6 +473,8 @@ fn restore(world: &mut bevy::prelude::World) {
         }
         entity.insert(hero.effects);
     }
+    // The taskbar's "+" as the hero's points left it (`0x585260`, #1992).
+    world.insert_resource(crate::points::Plus::loaded(&hero.experience));
     world.insert_resource(crate::fight::Experience(hero.experience));
     if let Some(mut arts) = world.get_resource_mut::<arts::HeroArts>() {
         arts.arts = hero.arts;
