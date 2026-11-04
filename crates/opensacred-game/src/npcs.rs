@@ -3848,6 +3848,12 @@ impl Npcs {
             class: class_of(holding),
             weapon: weapon.map(|(_, sound)| sound),
             kind: weapon.map(|(kind, _)| kind),
+            // A gun in the right hand, which the shot's maker asks (`0x4DCB80`, #1963).
+            gun: holding.iter().any(|held| {
+                held.hand == Hand::Right
+                    && held.category == WEAPON
+                    && held.kind.is_some_and(|kind| GUNS.contains(&kind))
+            }),
         }
     }
 
@@ -9056,7 +9062,10 @@ fn strike(
     speed: Res<hero::GameSpeed>,
     mut hits: MessageWriter<fight::Hit>,
     mut shots: MessageWriter<arrows::Loose>,
-    mut blows: MessageWriter<crate::sfx::Blow>,
+    (mut blows, mut fires): (
+        MessageWriter<crate::sfx::Blow>,
+        MessageWriter<crate::sfx::Gunfire>,
+    ),
 ) {
     for (entity, npc, mut strikes, walking, at, combat, mind) in &mut strikers {
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
@@ -9080,6 +9089,10 @@ fn strike(
                 .play(&mut player, *node, BLEND)
                 .set_speed(speed.0 * attack * chain);
             strikes.playing = Some((*node, length.max(0.01), *fractions));
+            // A shot's clip that starts fires a gun held (`0x4DD1FE`, `0x4DF442`; #1963).
+            if strikes.shot.is_some() {
+                fires.write(crate::sfx::Gunfire { shooter: entity });
+            }
             continue;
         };
         let Some(active) = player.animation(node) else {

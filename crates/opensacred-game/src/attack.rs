@@ -304,7 +304,10 @@ fn engage(
         MessageWriter<crate::bolts::Fire>,
     ),
     mut lines: MessageWriter<crate::voices::Speak>,
-    mut blows: MessageWriter<crate::sfx::Blow>,
+    (mut blows, mut fires): (
+        MessageWriter<crate::sfx::Blow>,
+        MessageWriter<crate::sfx::Gunfire>,
+    ),
 ) {
     let Some(clips) = clips else {
         return;
@@ -545,6 +548,10 @@ fn engage(
                 speaker: hero,
                 group: crate::voices::ATTACK,
             });
+        }
+        // A shot's clip that starts fires a gun held (`0x4DD1FE`, `0x4DF442`; #1963).
+        if ranged && bolt.is_none() {
+            fires.write(crate::sfx::Gunfire { shooter: hero });
         }
         commands.entity(hero).insert(Striking {
             node: *node,

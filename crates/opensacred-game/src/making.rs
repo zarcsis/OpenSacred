@@ -86,6 +86,8 @@ pub struct Playing {
     point: Vec3,
     points: Vec<f32>,
     struck: usize,
+    /// How many of its hit points a `Rundum` of a gun has fired at (#1963).
+    fired: usize,
     target: Entity,
     last: Option<Entity>,
     level: u32,
@@ -539,8 +541,11 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    nearest: Res<crate::crowd::Nearest>,
-    heights: Res<crate::terrain::Heights>,
+    (nearest, heights, mut fires): (
+        Res<crate::crowd::Nearest>,
+        Res<crate::terrain::Heights>,
+        MessageWriter<crate::sfx::Gunfire>,
+    ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
@@ -624,6 +629,7 @@ fn make(
                     point,
                     points: vec![1.0 - share],
                     struck: 0,
+                    fired: 0,
                     target: making.target,
                     last: None,
                     level,
@@ -942,6 +948,7 @@ fn make(
                 point,
                 points,
                 struck: 0,
+                fired: 0,
                 target: making.target,
                 last: None,
                 level,
@@ -2206,6 +2213,10 @@ fn make(
                     }
                     continue;
                 }
+                // The Dwarf's with a gun fires at each point, at any distance (`0x514E8F`).
+                if making.art == arts::DWARF_ATTACKE {
+                    fires.write(crate::sfx::Gunfire { shooter: hero });
+                }
                 // Its target, else the first hostile creature within the reach and 45.
                 let mut found: Vec<(Entity, Candidate)> = Vec::new();
                 let candidate =
@@ -2279,6 +2290,10 @@ fn make(
             }
             Style::Hardhit => {
                 if due(hardhit_point(&playing.points), done) {
+                    // The Dwarf's fires a gun held at its point (`0x515298`).
+                    if making.art == arts::DWARF_HARDHIT {
+                        fires.write(crate::sfx::Gunfire { shooter: hero });
+                    }
                     if creatures.get(playing.target).is_ok() {
                         hits.write(hit(playing.target, &playing));
                     }
@@ -2289,6 +2304,17 @@ fn make(
                 }
             }
             Style::Rundum | Style::Whirl => {
+                // The Dwarf's fires a gun held at each of its clip's hit points (`0x515E27`).
+                if making.art == arts::DWARF_RUNDUM {
+                    while playing
+                        .points
+                        .get(playing.fired)
+                        .is_some_and(|&point| due(point, done))
+                    {
+                        fires.write(crate::sfx::Gunfire { shooter: hero });
+                        playing.fired += 1;
+                    }
+                }
                 if finished {
                     end(&mut commands);
                     continue;

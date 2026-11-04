@@ -16,7 +16,8 @@ use std::collections::HashMap;
 use bevy::log::debug;
 use bevy::prelude::{
     App, AssetServer, Camera, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
-    MessageReader, Plugin, Projection, Query, Res, ResMut, Resource, Update, Vec3, With,
+    MessageReader, MessageWriter, Plugin, Projection, Query, Res, ResMut, Resource, Update, Vec3,
+    With,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
@@ -404,6 +405,9 @@ pub struct Armed {
     pub weapon: Option<u32>,
     /// The weapon's type, an `items.pak` slot.
     pub kind: Option<u32>,
+    /// Whether it holds a gun in its right hand (the weapon kinds 13 and 14), whose shots fire
+    /// ([`Gunfire`]).
+    pub gun: bool,
 }
 
 impl Armed {
@@ -428,6 +432,58 @@ pub enum Blow {
     Shot {
         shooter: Entity,
     },
+}
+
+/// A shot's clip that starts, or a gun art's shot (`0x4DCB80`, the Dwarf's executor): the gun's
+/// fire where its shooter holds a gun ([`gunfire`], #1963).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Gunfire {
+    pub shooter: Entity,
+}
+
+/// The gun's fire's samples: `DWARF_PISTOL` for the guns 1855 and 1857, `DWARF_RIFLE` for 1856
+/// and every other (`0x7C3AC0`, its event's `+0x38`).
+const PISTOL: u32 = 2126;
+const RIFLE: u32 = 2127;
+const PISTOLS: [u32; 2] = [1855, 1857];
+
+/// The gun's fire's sound (1172 `gunfire`, its start `0x7C3AC0`): its sample by the gun at the
+/// shooter, the rate's factor 0.4 and up to 0.2 more (`rand()` / 32767 · 0.2), so 0.9 to 1.1
+/// times the sample's; its volume's argument 5.0 is not followed, the sound manager's treatment
+/// of one above 1 not read.
+fn gun_sample(kind: Option<u32>) -> u32 {
+    if kind.is_some_and(|kind| PISTOLS.contains(&kind)) {
+        PISTOL
+    } else {
+        RIFLE
+    }
+}
+
+/// Sounds the gun's fire of each [`Gunfire`] whose shooter holds a gun.
+fn gunfire(
+    mut fires: MessageReader<Gunfire>,
+    hero: Option<Res<hero::Hero>>,
+    npcs: Option<Res<crate::npcs::Npcs>>,
+    (heroes, arms, places): (
+        Query<(), With<Body>>,
+        Query<&crate::npcs::Arms>,
+        Query<&GlobalTransform>,
+    ),
+    mut points: MessageWriter<PlayAt>,
+) {
+    for &Gunfire { shooter } in fires.read() {
+        let armed = armed_of(shooter, hero.as_deref(), &heroes, &arms, npcs.as_deref());
+        let Ok(place) = places.get(shooter) else {
+            continue;
+        };
+        if armed.gun {
+            points.write(PlayAt {
+                sound: Of::Id(gun_sample(armed.kind)),
+                point: place.translation(),
+                rate: (0.4, Roll::Share(0.2)),
+            });
+        }
+    }
 }
 
 /// What a creature holds, by its arms (`npcs::Arms`) or the hero's.
@@ -610,6 +666,7 @@ pub struct SfxPlugin;
 impl Plugin for SfxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Blow>()
+            .add_message::<Gunfire>()
             .add_message::<Play>()
             .add_message::<PlayAt>()
             .init_resource::<Listener>()
@@ -621,7 +678,7 @@ impl Plugin for SfxPlugin {
                 Update,
                 // The asked sounds play in a pause too, the interface's alone being asked then:
                 // the menu over a game's click as it shows (#1767).
-                (listen, blows.in_set(Unpaused), plays).chain(),
+                (listen, (blows, gunfire).in_set(Unpaused), plays).chain(),
             );
     }
 }
@@ -698,6 +755,7 @@ mod tests {
             class: 1,
             weapon: Some(500),
             kind: Some(1712),
+            gun: false,
         };
         assert_eq!(sword.at_target(), 500);
         // A starting weapon without a profile of its own is silent at the target.
@@ -705,8 +763,18 @@ mod tests {
             class: 1,
             weapon: Some(0),
             kind: None,
+            gun: false,
         };
         assert_eq!(starting.at_target(), 0);
+    }
+
+    #[test]
+    fn a_guns_fire_is_the_pistols_for_its_two_pistols_and_the_rifles_else() {
+        assert_eq!(gun_sample(Some(1855)), PISTOL);
+        assert_eq!(gun_sample(Some(1857)), PISTOL);
+        assert_eq!(gun_sample(Some(1856)), RIFLE);
+        assert_eq!(gun_sample(Some(5000)), RIFLE);
+        assert_eq!(gun_sample(None), RIFLE);
     }
 
     #[test]
