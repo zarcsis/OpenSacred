@@ -35,6 +35,7 @@ mod buildings;
 mod burns;
 mod busy_dialog;
 mod butterflies;
+mod chain_bolts;
 mod choice;
 mod combos;
 mod combos_page;
@@ -417,6 +418,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         burns::BurnsPlugin,
         busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
+        chain_bolts::ChainBoltsPlugin,
         choice::ChoicePlugin,
     ))
     .add_plugins((
