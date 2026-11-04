@@ -23,8 +23,15 @@ use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+};
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+};
+use bevy::shader::ShaderRef;
 use opensacred_rules::particles::{
     Blend, DEATH_FLAMES_EMIT, Fire, GROUND_GRID, GROUND_HALF, GROUND_TEXTURE, Geyser, Jet,
     SCORCH_HALF, SMALL_FIRE_EMITS, System, death_flames, fire, ground_frame, scorch_alpha,
@@ -59,7 +66,7 @@ struct Fires {
 }
 
 /// A layer's material, none without its texture.
-type Material = Option<Handle<StandardMaterial>>;
+type Material = Option<Handle<Effect>>;
 
 /// The smoke class's variants that the game makes: the chimneys', the fire smokes', the lavas'
 /// smokes and the fires (docs/re/effects.md).
@@ -299,17 +306,57 @@ pub(crate) fn particle_texture(
     )
 }
 
-/// A particles' material of the texture `image`, unlit, added to the frame by its alpha or laid
-/// over it by its alpha.
-pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> StandardMaterial {
-    StandardMaterial {
-        base_color_texture: Some(image),
-        unlit: true,
-        alpha_mode,
-        double_sided: true,
-        cull_mode: None,
-        ..default()
+/// The particles' material (#2017): Bevy's own, its colour encoded for the frame of sRGB values
+/// before an added one is premultiplied by its alpha (`standard.wesl`'s `PARTICLES`), so that
+/// the texels' and the colours' values are laid over the frame or added to it as they are, as
+/// the original's device blends them (docs/re/effects.md, "Drawing and blending"); Bevy's own
+/// writes linear light, which the frame takes for its values, its middle tones dark.
+pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
+
+/// The extension of [`Effect`].
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
+pub(crate) struct Particles {}
+
+impl MaterialExtension for Particles {
+    fn fragment_shader() -> ShaderRef {
+        crate::shaders::STANDARD.into()
     }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("PARTICLES".into());
+        }
+        Ok(())
+    }
+}
+
+/// A particles' material of the texture `image`, unlit, added to the frame by its alpha or laid
+/// over it by its alpha ([`Effect`]).
+pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> Effect {
+    Effect {
+        base: StandardMaterial {
+            base_color_texture: Some(image),
+            unlit: true,
+            alpha_mode,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        },
+        extension: Particles {},
+    }
+}
+
+/// A colour of the frame's values in linear light, as the vertices of an [`Effect`] take it: its
+/// texels are decoded, multiplied by it and encoded again, so that the frame takes their values'
+/// product.
+fn linear([r, g, b, a]: [f32; 4]) -> [f32; 4] {
+    let linear = Color::srgba(r, g, b, a).to_linear();
+    [linear.red, linear.green, linear.blue, linear.alpha]
 }
 
 /// A mesh of no quads, which a system fills each frame ([`Quads::into_mesh`]).
@@ -324,9 +371,8 @@ pub(crate) fn empty() -> Mesh {
 
 /// Quads facing the camera, as the original's billboards (`0x761B00`), each of a centre about
 /// its entity, a half side in world units, an angle in the screen's plane, a square of the texture
-/// (its corner and its side, in shares of the texture) and a colour of the frame's values: Bevy's
-/// own material writes them unchanged into the frame of sRGB values (`srgb`), as the original's
-/// device does.
+/// (its corner and its side, in shares of the texture) and a colour of the frame's values, which
+/// an [`Effect`] multiplies the texels' values by, as the original's device does.
 #[derive(Default)]
 pub(crate) struct Quads {
     positions: Vec<[f32; 3]>,
@@ -359,7 +405,7 @@ impl Quads {
         ] {
             self.positions.push((centre + offset).to_array());
             self.uvs.push([corner.x + s * side, corner.y + t * side]);
-            self.colours.push(colour);
+            self.colours.push(linear(colour));
         }
         self.indices
             .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -403,7 +449,7 @@ impl Quads {
         self.positions
             .extend(corners.map(|corner| corner.to_array()));
         self.uvs.extend(uvs.map(|uv| uv.to_array()));
-        self.colours.extend([colour; 4]);
+        self.colours.extend([linear(colour); 4]);
         self.indices
             .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
     }
@@ -426,7 +472,7 @@ fn begin(
     mut commands: Commands,
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<Effect>>,
 ) {
     let mut made: Vec<((&'static str, Blend), Material)> = Vec::new();
     let mut variants = Vec::new();
@@ -976,7 +1022,9 @@ pub struct FxPlugin;
 
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Crackles>()
+        crate::shaders::embed_standard(app);
+        app.add_plugins(MaterialPlugin::<Effect>::default())
+            .init_resource::<Crackles>()
             .init_resource::<GeyserLatch>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)

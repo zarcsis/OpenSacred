@@ -134,11 +134,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         out.color = vec4<f32>(out.color.rgb * lit, out.color.a);
     }
 }
+@if(PARTICLES) {
+    // A particle's colour in the frame's values, then times its alpha where Bevy's last steps
+    // premultiply an added one: the texel's and the colour's values laid or added as they are,
+    // as the original's device blends its particles (`SRCALPHA` with `INVSRCALPHA` or `ONE`,
+    // `fx::Particles`).
+    out.color = main_pass_post_lighting_processing(pbr_input, encode(out.color));
+}
+@else {
 @if(LINEAR) {
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 }
 @else {
     out.color = encode(main_pass_post_lighting_processing(pbr_input, out.color));
+}
 }
 // Under the texture the effect's colour, the glow's added to it, both unlit, each moved by its
 // offsets, laid in the frame's sRGB values as the original's passes blend them (`0x406510`).

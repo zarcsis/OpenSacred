@@ -63,7 +63,7 @@ const SEED: usize = 0x329;
 /// The bursts' materials by their texture and blend, made as they are first asked; none where the
 /// texture is missing.
 #[derive(Resource, Default)]
-struct Materials(HashMap<(&'static str, Blend), Option<Handle<StandardMaterial>>>);
+struct Materials(HashMap<(&'static str, Blend), Option<Handle<crate::fx::Effect>>>);
 
 /// Gives each new burst its particles, its mesh and its material, in the camera that draws after
 /// the night's pass, as the untinted effects (#1191), unless the light at it tints it.
@@ -74,7 +74,7 @@ fn make(
     assets: Res<AssetServer>,
     (mut made, mut materials, mut meshes): (
         ResMut<Materials>,
-        ResMut<Assets<StandardMaterial>>,
+        ResMut<Assets<crate::fx::Effect>>,
         ResMut<Assets<Mesh>>,
     ),
 ) {

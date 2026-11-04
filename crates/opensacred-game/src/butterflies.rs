@@ -70,8 +70,8 @@ struct Fly {
 /// The swarms' materials and dice, and the sectors whose swarms are made.
 #[derive(Resource)]
 struct Butterflies {
-    wings: Option<Handle<StandardMaterial>>,
-    glow: Option<Handle<StandardMaterial>>,
+    wings: Option<Handle<crate::fx::Effect>>,
+    glow: Option<Handle<crate::fx::Effect>>,
     dice: Rng,
     made: Vec<(u32, u32)>,
 }
@@ -91,7 +91,7 @@ fn begin(
     mut commands: Commands,
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<crate::fx::Effect>>,
 ) {
     let mut material = |name: &str, alpha_mode| {
         let data = data.as_ref()?;
