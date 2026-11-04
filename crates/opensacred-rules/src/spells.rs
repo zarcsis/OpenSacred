@@ -112,8 +112,8 @@ pub const BURST: (f32, f32) = (300.0, 2.0);
 /// The thorns about their centre along each axis, and their reach (`0x5260CB`, `0x5ADBCF`).
 pub const THORNS_SCATTER: u32 = 75;
 pub const THORNS_REACH: f32 = 50.0;
-/// The souls about the Wood Elf, their first angle, their speed and reach (`0x5268E5`,
-/// `0x79D310`, `0x5AEAC4`).
+/// The souls about the Wood Elf, along the world's sin and cos of their angles, their first
+/// angle, their speed and reach (`0x5268E5`, `0x79D310`, `0x5AEAC4`).
 pub const SOULS_FROM: f32 = 50.0;
 pub const SOULS_ANGLE: f32 = 2.6416;
 pub const SOULS_SPEED: f32 = 150.0;

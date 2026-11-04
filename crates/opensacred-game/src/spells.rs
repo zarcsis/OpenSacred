@@ -1593,8 +1593,18 @@ fn act(
                 for i in 0..n {
                     let angle = std::f32::consts::TAU * fight_seconds(i) / fight_seconds(n)
                         + spells::SOULS_ANGLE;
+                    // 50 off along the world's sin and cos, only where a creature may stand, on
+                    // the ground there (`0x5268E5`, `0x636890`; #2056).
                     let place =
-                        here + Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::SOULS_FROM;
+                        here + Vec3::new(angle.sin(), 0.0, angle.cos()) * spells::SOULS_FROM;
+                    let cell = crate::paths::cell_of(place.x, place.z);
+                    let Some(ground) = heights
+                        .standing(place.x, place.z, body.level())
+                        .filter(|_| heights.walkable_at(cell, body.level()))
+                    else {
+                        continue;
+                    };
+                    let place = place.with_y(ground);
                     let mut made = commands.spawn((
                         Disk {
                             caster: act.caster,
