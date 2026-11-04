@@ -552,6 +552,12 @@ pub fn bolt_damages(spell: &Spell, level: i32, multipliers: [f32; 4]) -> [f32; 4
 /// arts' own keys.
 pub const DAEMON_FORM: u32 = 0x4321;
 
+/// The Dwarf's own `Rundum`, `Hardhit` and `Attacke` (1078, 1079 and 1080, of the families 1000
+/// to 1002), whose executor fires a gun he holds (`0x515E27`, `0x515298`, `0x514E8F`; #1963).
+pub const DWARF_RUNDUM: u16 = 1078;
+pub const DWARF_HARDHIT: u16 = 1079;
+pub const DWARF_ATTACKE: u16 = 1080;
+
 /// The Daemon's art of his form, 1094, and its effect, keyed by it (`0x584B16`, docs/re/arts.md,
 /// "The effects", 50).
 pub const FORM: u16 = 1094;
