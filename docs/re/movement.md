@@ -158,7 +158,7 @@ Why the Seraphim's `annehmen2003` stood at the chapel's west exit (#1344; read 2
 - So it is the original's rules that strand it (the floor 0 taken as the walker's floor, with the search's floor numbers), not its data; a click on the ground outside, of the floor 0, would take the changes and leave by the south door (**hypothesis**).
 - **Seen** 2026-11-04 with the driver of #448 (a trace of `0x4F7710` and a probe at `0x4F5EFF`, `script annehmen2003` at the Seraphim's start): at every tick the action's target `+0x158`, `+0x15C` was the far target 213938,97322 and the kept one `+0x391`, `+0x395` the leg, 174708,133815 at first (3255,2493) and moving on with her, each search answering −1, its last argument 1 after the first; on the exit her floor byte `+0x24` turned from 1 to 0 and the search answered 0; then 21 searches of the last argument 0 failed, two an order (the order's and its try at ±50), and the teleport put her at 3432,5455.
 
-`opensacred-game` follows none of these four sections yet: the leg's rule (#2011), the queue's steering (#2012), the search over floor numbers (#2013, which waits for the maintainer as it would strand the hero as the original does), the searches again and the search's own shapes (#2014).
+`opensacred-game` follows the leg's rule since #2011 (`opensacred_rules::ways::nearer`, the hero's and the creatures' legs tested on the target's floor), not yet the rest: the queue's steering (#2012), the search over floor numbers (#2013, which waits for the maintainer as it would strand the hero as the original does), the searches again and the search's own shapes (#2014).
 
 ### The way's goal (`0x4F8560`)
 

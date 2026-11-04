@@ -1113,15 +1113,8 @@ pub fn run(
                 // the target's floor of the building there, else on the ground (`0x4FABE0`'s test
                 // `0x4EBCA0` of `0x6354D0`'s floor, #1344): from a building's floor its way so
                 // leaves the building rather than ending at its wall.
-                let floor = heights
-                    .floor(onto.unwrap_or(level))
-                    .map_or(0, |(_, floor)| usize::from(floor));
-                let level_at = |cell| match floor {
-                    0 => None,
-                    floor => heights
-                        .building_on_floor(cell, floor)
-                        .and_then(|building| heights.floor_level(building, floor)),
-                };
+                let floor = heights.floor_number(onto.unwrap_or(level));
+                let level_at = |cell| heights.on_floor(cell, floor);
                 let plan = |here: Vec3| {
                     let leg = paths::leg(here, target, |cell| {
                         heights.walkable_on(cell, level_at(cell))

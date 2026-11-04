@@ -119,21 +119,40 @@ fn search<L: Copy + Eq + Hash>(
 
 /// How far along an axis a creature's way's search takes its target as it is (`0x4FABE0`).
 const NEARER_THAN: i32 = 25;
+/// The steps along the line that the leg is tried at, from the farthest (`0x4FABE0`).
+const LEG_STEPS: std::ops::RangeInclusive<i32> = 2..=27;
 
-/// The cell that a creature's way's search from `from` heads for, its target `to` (`0x4FABE0`):
-/// a target farther than 25 cells along an axis it first brings nearer along the line, to the
-/// farthest cell of the line within 25 along each axis that it may stand on (`walkable`, the
-/// test of `0x4EBCA0`); `None` when none of them is, the start's own cell aside.
-pub fn nearer(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<Cell> {
+/// The cell that a creature's way's search from `from` heads for, its target `to` (`0x4FABE0`,
+/// docs/re/movement.md, "The way"): a target farther than 25 cells along an axis it first brings
+/// nearer along the line to a leg, the first of the cells `from + ⌊span · k / d⌋` for `k` from
+/// 27 down to 2 that it may stand on (`walkable`, the test of `0x4EBCA0` on the target's floor),
+/// `d` the distance in cells rounded to the nearest, plus 1; where none may be, the cell of `k`
+/// 2 all the same.
+pub fn nearer(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Cell {
     let (dx, dy) = (to.0 - from.0, to.1 - from.1);
-    let far = dx.abs().max(dy.abs());
-    if far <= NEARER_THAN {
-        return Some(to);
+    if dx.abs().max(dy.abs()) <= NEARER_THAN {
+        return to;
     }
-    (1..=NEARER_THAN)
+    let d = rounded_root(i64::from(dx).pow(2) + i64::from(dy).pow(2)) + 1;
+    let at = |k: i32| {
+        let along = |span: i32| i32::try_from(i64::from(span) * i64::from(k) / d).unwrap_or(span);
+        (from.0 + along(dx), from.1 + along(dy))
+    };
+    LEG_STEPS
         .rev()
-        .map(|k| (from.0 + dx * k / far, from.1 + dy * k / far))
+        .map(at)
         .find(|&cell| walkable(cell))
+        .unwrap_or_else(|| at(*LEG_STEPS.start()))
+}
+
+/// The square root of `n` rounded to the nearest whole number.
+fn rounded_root(n: i64) -> i64 {
+    let root = n.isqrt();
+    if n - root * root > root {
+        root + 1
+    } else {
+        root
+    }
 }
 
 /// A cell's eight neighbours in the order the way's search tries them for a target it may not
@@ -746,14 +765,23 @@ mod tests {
     #[test]
     fn a_far_target_is_brought_nearer_along_the_line() {
         let open = |_: Cell| true;
-        // Within 25 along each axis, as it is; farther, 25 along the longer axis.
-        assert_eq!(nearer((10, 10), (35, -15), open), Some((35, -15)));
-        assert_eq!(nearer((10, 10), (10, 50), open), Some((10, 35)));
-        assert_eq!(nearer((0, 0), (-60, 30), open), Some((-25, 12)));
-        // The farthest of the line that may be stood on; none, none.
+        // Within 25 along each axis, as it is.
+        assert_eq!(nearer((10, 10), (35, -15), open), (35, -15));
+        // Farther, 27 steps of the distance plus 1 along the line: 40 cells off, 26 of them.
+        assert_eq!(nearer((10, 10), (10, 50), open), (10, 36));
+        assert_eq!(nearer((0, 0), (-60, 30), open), (-23, 11));
+        // The chapel's walk of #1344, as the original took it.
+        assert_eq!(nearer((3236, 2511), (3986, 1813), open), (3255, 2493));
+        // The farthest of the line that may be stood on; none, the cell of 2 steps all the same.
         let wall = |cell: Cell| cell.1 < 30;
-        assert_eq!(nearer((10, 10), (10, 50), wall), Some((10, 29)));
-        assert_eq!(nearer((10, 10), (10, 50), |_| false), None);
+        assert_eq!(nearer((10, 10), (10, 50), wall), (10, 29));
+        assert_eq!(nearer((10, 10), (10, 50), |_| false), (10, 11));
+    }
+
+    #[test]
+    fn a_root_rounds_to_the_nearest() {
+        let roots = [0, 1, 2, 3, 4, 6, 7, 1_049_704].map(rounded_root);
+        assert_eq!(roots, [0, 1, 1, 2, 2, 2, 3, 1_025]);
     }
 
     #[test]

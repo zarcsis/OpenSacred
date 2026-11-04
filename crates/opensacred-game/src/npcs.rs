@@ -6086,10 +6086,20 @@ pub fn walk(
         let free =
             |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
         // Its leg and its course there, found as it sets out on the leg, anew off it (a stair's
-        // landing) and at the leg's end short of its target.
+        // landing) and at the leg's end short of its target. The leg is tested on the target's
+        // floor of the building there, else on the ground (`0x4FABE0`'s test `0x4EBCA0` of
+        // `0x6354D0`'s floor), as the hero's (`hero::run`, #1344, #2011).
+        let floor = heights.floor_number(onto.unwrap_or(level));
         let plan = |here: Vec3| {
-            let leg = paths::leg(here, target, |cell| heights.walkable_on(cell, level));
+            let leg = paths::leg(here, target, |cell| {
+                heights.walkable_on(cell, heights.on_floor(cell, floor))
+            });
             let end = paths::cell_of(leg.x, leg.z);
+            let onto = if leg == target {
+                onto
+            } else {
+                Some(heights.on_floor(end, floor))
+            };
             let course = paths::course(
                 here,
                 (level, false),
