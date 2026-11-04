@@ -56,6 +56,7 @@ mod esc_menu;
 mod explored;
 mod fight;
 mod files;
+mod fire_skins;
 mod first_start;
 mod fliers;
 mod foe_panel;
@@ -435,6 +436,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         explored::ExploredPlugin,
         fight::FightPlugin,
+        fire_skins::FireSkinsPlugin,
         fliers::FliersPlugin,
         foe_panel::FoePanelPlugin,
         followers::FollowersPlugin,

@@ -349,7 +349,7 @@ fn glow(
 
 /// The quads of a wall's fire's flames about its foot, standing on their feet in its ramp, each
 /// its frame of the 4 × 4 by its age (`0x7AEBF0`, the flags `0x99`).
-fn wall_quads(fire: &particles::Fire, flames: &System) -> Quads {
+pub(crate) fn wall_quads(fire: &particles::Fire, flames: &System) -> Quads {
     let grid = fire.grid.max(1);
     let side = 1.0 / f32::from(grid);
     let mut quads = Quads::default();

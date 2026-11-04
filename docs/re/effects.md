@@ -725,6 +725,23 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`magic_lights`, `opensacred_rules::particles::maglite_slices`): the object that `spells` puts on the light's bearer gets its ball at the bearer's head at each frame, untinted by the night, and its light of the spell's second value at its level (525 at the level 5) at its place on the ground.
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: a pale blue-white glow about her head and raised arms, alike in size.
 
+## The fire skin
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 24 at the level 5 on herself).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The fire skin 24 | 821 | `cParticleSystem_fireskin` | `0x78B9D0`, `0x78BBA0`, `0x78BB00`, `0x78BE10` |
+
+- Its constructor makes its ramp (`+0x20C0`): from a transparent white to white over 32 entries, to black over 224; and loads `PARTICLE_FIRE02` (`+0x254C`), `PARTICLE_FIRE09` (`+0x2550`) and `PARTICLE_GLOW03` (`+0x2554`); 100 particles.
+- Its start (`0x78BE10`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20A4`); its glow's colour (255, 192, 1) for a hero's (`+0xA9` 0), (64, 64, 255) else (`+0x24C0`); the effect 25 on its bearer for its seconds; one layer (the life −350 a second, the size −50) and one block (the size 20 ± 10, the place ± (15, 15, 0), every 0.01 s, times 1.5 and 2.2 at the detail levels 1 and 0); the action 6 of `A_LAVA00` (`+0x80` 6, `+0x84` 10, `+0x88` the texture); its flags `0x600`, its light 200.
+- Its run (`0x78BB00`): its particles aged, and emitted until its seconds are over, when its flags are cleared and it ends with its last particle.
+- Its draw (`0x78BBA0`): while it burns, a flat quad (`0x7631E0`) of `PARTICLE_GLOW03` of a half side of 60 in its glow's colour, added (`ONE`, `ONE`), its depth tested; then its particles as billboards of the flags `0x89` (the ramp's colour, standing on their feet, added by their alpha), its 4 × 4 frames by their age, of `PARTICLE_FIRE02` (a creature's `09`).
+
+`opensacred-game` draws it since #1092 (`fire_skins`, `opensacred_rules::particles::fire_skin`, the flames by `breath::wall_quads`): the object that `spells` puts on the Mage, and on a creature that casts it (#1852) in blue, gets a look of its own that leaves its flames about its bearer while it burns, its glow under it and its light of 200, its flames burning out after, untinted by the night.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start: flames rising about her feet over an orange glow, alike in size.
+Not followed: its bearer's skin of lava (the action 6 of `A_LAVA00`), by which the original's Mage glows orange all over.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -776,7 +793,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring and the Seraphim's lightning, holy light, blades of light and light ("The bolts" to "The light" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, and the fire skin ("The bolts" to "The fire skin" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
