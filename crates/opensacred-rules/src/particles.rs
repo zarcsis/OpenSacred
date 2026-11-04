@@ -2232,6 +2232,43 @@ pub const FIRE_SKIN_GLOW_COLOURS: [[f32; 4]; 2] = [
     [64.0 / 255.0, 64.0 / 255.0, 1.0, 1.0],
 ];
 
+/// The look of a flame of the fire spiral 11, `cParticleSystem_fireCircle` (790, its start
+/// `0x775DF0`, its run `0x775A70` and its draw `0x775BC0`; docs/re/effects.md, "The fire
+/// spiral"), which goes with its object about the caster's place: a flame every 0.01 s within 7
+/// of its place along x and y, of a half side of 40 ± 20 shrinking by 70 a second, standing on its
+/// foot, living 0.73 s and playing its 4 × 4 frames once over it, an orange (255, 178, 127) coming
+/// up over its first 32 entries and holding to its death, added by its alpha (`0x761B00`'s flags
+/// `0x89`), of `PARTICLE_FIRE02` (a creature's `PARTICLE_FIRE09`, `+0xA9`). Its light is 300.
+pub fn fire_circle() -> Fire {
+    let orange = |alpha: f32| [1.0, 0.7, 0.5, alpha];
+    Fire {
+        texture: FIRE_SKIN_TEXTURES[0],
+        layers: vec![Layer {
+            life: -350.0,
+            size: -70.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            size: spread(40.0, 20.0),
+            offset: spread([0.0; 3], [7.0, 7.0, 0.0]),
+            interval: 0.01,
+            ..Block::default()
+        }],
+        ramps: vec![Ramp::new(
+            orange(0.0),
+            &[(orange(1.0), 32), (orange(1.0), 224)],
+        )],
+        blends: vec![Blend::Add],
+        grid: 4,
+        count: FIRE_CIRCLE_COUNT,
+        light: 300.0,
+        tinted: false,
+    }
+}
+
+/// The fire spiral's flame's particles at most (`0x5A0C50`'s count for the type 790).
+const FIRE_CIRCLE_COUNT: usize = 100;
+
 /// The colours of the grounds by their nature (the cell's `+0x1F` high nibble), in the
 /// renderer's table at `+0x9DC8` (`0x418EF3`, read by `0x41BA00`): the dust that the gust raises
 /// takes the colour of the ground its bearer stands on; the nature 0's entry is left 0, and a
@@ -2967,6 +3004,31 @@ mod tests {
         assert_eq!(skin.ramps[0].at(255.0)[3], 0.0);
         assert_eq!(skin.ramps[0].at(224.0), [1.0, 1.0, 1.0, 1.0]);
         assert_eq!(skin.ramps[0].at(0.0), [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_fire_spirals_flame_burns_wide_and_orange_to_its_end() {
+        let mut dice = Rng::of(16, 0x316, 4);
+        let circle = fire_circle();
+        assert_eq!(circle.texture, "PARTICLE_FIRE02");
+        assert_eq!(circle.light, 300.0);
+        let mut flames = System::new(circle.count);
+        for _ in 0..40 {
+            flames.update(0.025, &circle.layers);
+            flames.emit(&circle.blocks, &circle.layers, circle.count, &mut dice);
+        }
+        // A flame every 0.01 s, of 20 to 60 shrinking at 70 a second: the smallest out by 0.29 s.
+        let alive = flames.particles.len();
+        assert!((25..=73).contains(&alive), "{alive}");
+        assert!(flames.particles.iter().all(|p| p.place[0].abs() <= 7.0
+            && p.place[1].abs() <= 7.0
+            && p.place[2] == 0.0
+            && p.size <= 60.0));
+        // Born transparent, its orange whole 32 entries on and to its death.
+        let orange = [1.0, 0.7, 0.5, 1.0];
+        assert_eq!(circle.ramps[0].at(255.0)[3], 0.0);
+        assert_eq!(circle.ramps[0].at(224.0), orange);
+        assert_eq!(circle.ramps[0].at(0.0), orange);
     }
 
     #[test]

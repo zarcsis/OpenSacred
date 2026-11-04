@@ -1281,7 +1281,7 @@ pub(crate) fn skin(
         DespawnOnExit(AppState::InGame),
     ));
     // A creature's fire skin looks as its system's, in blue (`fire_skins`).
-    made.insert(crate::fire_skins::Look { hero: false });
+    made.insert(crate::fire_skins::Look::Skin { hero: false });
     let mut given = spells::turning(record, level);
     given.extend(spells::effects(record, level));
     give(commands, bearer, given);
@@ -1344,7 +1344,7 @@ pub(crate) fn strikes_about(
     } else if record.id == spells::BLADES_OF_LIGHT {
         made.insert(crate::light_blades::Look(caster));
     } else if record.id == FIRE_SKIN {
-        made.insert(crate::fire_skins::Look { hero: true });
+        made.insert(crate::fire_skins::Look::Skin { hero: true });
     } else if record.id == spells::LIGHT {
         // Its light at night its second value (`0x7850D0`, the caster's factor 1.0 a hero's).
         made.insert(crate::magic_lights::Look {
@@ -1898,18 +1898,15 @@ fn act(
                             left: fight_seconds(spells::value(record, 0, act.level)),
                             cooldown: 0.0,
                         },
-                        Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
+                        // At the height of the caster's place as it goes (`0x5A6B1E`), its
+                        // flames as its system's (`fire_skins`).
+                        Transform::from_translation(here),
                         Visibility::Inherited,
+                        crate::fire_skins::Look::Spiral,
                         DespawnOnExit(AppState::InGame),
                     ));
                     if index == 0 {
                         made.insert(crate::hums::Hum(FIRE_CIRCLE_LOOP));
-                    }
-                    if let Some(looks) = &looks {
-                        made.with_child((
-                            Mesh3d(looks.flame.0.clone()),
-                            MeshMaterial3d(looks.flame.1.clone()),
-                        ));
                     }
                 }
             }
