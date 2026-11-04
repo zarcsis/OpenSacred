@@ -94,6 +94,7 @@ mod light_blades;
 mod lightning_strikes;
 mod lines;
 mod liquids;
+mod lost_souls;
 mod low_health;
 mod magic_lights;
 mod making;
@@ -482,6 +483,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
+        lost_souls::LostSoulsPlugin,
         low_health::LowHealthPlugin,
         magic_lights::MagicLightsPlugin,
         making::MakingPlugin,

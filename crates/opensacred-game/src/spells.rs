@@ -1605,7 +1605,7 @@ fn act(
                         continue;
                     };
                     let place = place.with_y(ground);
-                    let mut made = commands.spawn((
+                    commands.spawn((
                         Disk {
                             caster: act.caster,
                             target: None,
@@ -1621,14 +1621,10 @@ fn act(
                         Transform::from_translation(place + Vec3::Y * DISK_HEIGHT),
                         Visibility::Inherited,
                         crate::hums::Hum(SOULS_LOOP),
+                        // It looks as its system (`lost_souls`).
+                        crate::lost_souls::Look(seconds),
                         DespawnOnExit(AppState::InGame),
                     ));
-                    if let Some(looks) = &looks {
-                        made.with_child((
-                            Mesh3d(looks.soul.0.clone()),
-                            MeshMaterial3d(looks.soul.1.clone()),
-                        ));
-                    }
                 }
             }
             spells::TELEPORT => {
