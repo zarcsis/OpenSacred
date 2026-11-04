@@ -127,9 +127,9 @@ pub const TELEPORT_STEP: f32 = 10.0;
 pub const TELEPORT_TIME: f32 = 3.35;
 /// The water form's overlay: the 2 s of its state 3 after its value 0 (`0x44A520`).
 pub const WATER_AFTER: f32 = 2.0;
-/// The ring of frost's eight objects about the caster: their distance, the first's angle off π
-/// and the steps between them, their reach with the creature's size, and their life
-/// (`0x52555A`, `0x5ACA87`).
+/// The ring of frost's eight objects about the caster: their distance along the world's sin and
+/// cos of their angles, the first's angle off π and the steps between them, their reach with the
+/// creature's size, and their life (`0x52555A`, `0x5ACA87`).
 pub const FROST_FROM: f32 = 170.0;
 pub const FROST_ANGLE: f32 = std::f32::consts::PI - 0.5;
 pub const FROST_STEP: f32 = std::f32::consts::FRAC_PI_4;
