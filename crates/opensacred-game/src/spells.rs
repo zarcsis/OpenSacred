@@ -1860,15 +1860,8 @@ fn act(
                     sure: true,
                     poison: false,
                 });
-                if let (Some(looks), Ok(place)) = (&looks, places.get(act.target)) {
-                    commands.spawn((
-                        Mesh3d(looks.column.clone()),
-                        MeshMaterial3d(looks.lightning.clone()),
-                        Transform::from_translation(place.translation() + Vec3::Y * 200.0),
-                        Fades(LIGHTNING_SHOWS),
-                        DespawnOnExit(AppState::InGame),
-                    ));
-                }
+                // Its bolt from his hand to the target's, as its system's (`chain_bolts`).
+                crate::chain_bolts::bolt(&mut commands, act.caster, act.target);
                 commands.spawn((
                     Chain {
                         caster: act.caster,
@@ -2924,7 +2917,6 @@ fn meteor(
 fn chain(
     mut commands: Commands,
     time: Res<Time>,
-    looks: Option<Res<Looks>>,
     mut chains: Query<(Entity, &mut Chain)>,
     creatures: Query<
         (Entity, &GlobalTransform, &InTheWay, &ai::Mind, &Health),
@@ -2957,7 +2949,7 @@ fn chain(
                 let d = |at: &GlobalTransform| (at.translation() - from).xz().length();
                 d(a.1).total_cmp(&d(b.1))
             });
-        let Some((target, at, ..)) = (chain.left > 0).then_some(next).flatten() else {
+        let Some((target, ..)) = (chain.left > 0).then_some(next).flatten() else {
             commands.entity(entity).despawn();
             continue;
         };
@@ -2972,15 +2964,7 @@ fn chain(
             sure: true,
             poison: false,
         });
-        if let Some(looks) = &looks {
-            commands.spawn((
-                Mesh3d(looks.column.clone()),
-                MeshMaterial3d(looks.lightning.clone()),
-                Transform::from_translation(at.translation() + Vec3::Y * 200.0),
-                Fades(LIGHTNING_SHOWS),
-                DespawnOnExit(AppState::InGame),
-            ));
-        }
+        crate::chain_bolts::bolt(&mut commands, chain.last, target);
         chain.last = target;
         chain.left -= 1;
         chain.leaps = spells::CHAIN_LEAPS;

@@ -882,6 +882,31 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: white strikes of light flickering down at the objects' places, then white icebergs standing there over a glow, alike in size and place.
 Not followed: its strike over all else (its depth test off).
 
+## The chain lightning
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 33 at the level 5 at two goblins on open ground, by day).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| A segment of the chain lightning 33 | 799 | `cParticleSystem_freeze` | `0x77D770`, `0x77DB20`, `0x77DAC0`, `0x77DE80` |
+| The impact at its end | 872 | `cParticleSystem_freeze_impact` (`0x897E00`) | `0x77E1C0`, `0x77E3A0`, `0x77E2A0`, `0x77E630` |
+
+- The executor (`0x526CAA`) takes the line from the caster's `Bip01 L Hand` (`0x44CBB0` of the bone 1) to the target's (`0x44CA30` by the name `0x401000(1)`), its length `T` and its unit vector, and lays segments along it from the hand: at most 19, each 30 long, the last its rest rounded down, while any of it is left.
+  Each segment's cell must be walked on (`0x636A60`), else the spell ends there, with no strike.
+  Each end of a segment is offset across it by a vector `(0, y, z)` of its own frame, each of `y` and `z` `16 · rand() / 32767 − 8` (the `z` rolled first, `0x63FDE0`), times `sin(π l / T)`, `l` what is left of the line from that end; a segment's far offset is rolled anew, its near one its predecessor's far one, so that the bolt bulges at its middle.
+  Each is an object 799 kept in the caster's array (`+0x263`), given the FX event `0x20` of its index, its length and its two offsets; then an object 872 at the target.
+- A segment's constructor makes its 12 vertices (`+0x20F0`, `D3DFVF_LVERTEX`, a triangle list): two quads from 0 to 30 along its `x`, one from −50 to 50 along its `y` and one along its `z`, grey (128, 128, 128); and loads `FX_LIGHTNING01` (`+0x2270`).
+- Its start (`0x77DE80`): its world matrix (`+0x20A8`) turns its `x` onto the line (`0x642690`); its far vertices at its length; the texture's `u` from `30 k / 300` to `(30 k + L) / 300` on the first quad and `0.02` of the same on the second, `k` its index, `L` its length; its offsets added to its ends' `y` and `z`; its fade (`+0x20EC`) 1; the first segment a Direct3D light of (0.7, 0.7, 1.0).
+- Its run (`0x77DAC0`): after 0.4 s its fade falls by 20 a second; at 0 it ends.
+- Its draw (`0x77DB20`): its vertices' colour the grey of half of `⌊255 f⌋`, `f` its fade; the first segment a glow (`0x762E10`) of the style 6 (`PARTICLE_GLOW06`) of a half side of 20 at its place in the grey `⌊255 f⌋`; its light `150 f` for the first, `100 f` for the others; the depth tested and not written, the lighting off, added (`ONE`, `ONE`), no faces culled; the quads in its world matrix at its place.
+- The impact's start (`0x77E630`): a burst of all its 15 particles (`PARTICLE_SPARK06`): the buoyancy 50 ± 40, the size 4 ± 1, the velocity 0 ± 150 along each axis, the place ± 3; one layer, the life −400 a second and the pull 150 (`+0x1C`, by which `0x7640C0` turns each particle's velocity toward the system's place); its ramp (`+0x2130`) of `(k/2, k/2, k)` at the entry `k`; its action 2 (`+0x80`, `+0x84` `0x21`), by which its object strikes its target; and its leaps left, the event's `+0x38` less 1 (`+0x2531`).
+- Its run (`0x77E2A0`): its burst at its clock's 0; its particles aged; past 0.2 s, with leaps left, its action 4 with them, by which the chain leaps on (`0x5B46CA`); past 0.4 s its fade (`+0x20A8`) falls by 20 a second; it ends with its last particle.
+- Its draw (`0x77E3A0`): its Direct3D light; its light `200 f`; its particles as billboards of the flags `0x19` (the ramp's colour, `ONE`, `ONE`); a glow of the style 6 of a half side of 30 in the grey `⌊255 f⌋`.
+
+`opensacred-game` draws it since #1092 (`chain_bolts`, `opensacred_rules::particles::{ChainBolt, ChainImpact}`): each strike's bolt that `spells` makes, its first from the Mage's left hand and each leap from the last target's, to the target's left hand (80 over its place where it has none, **estimate**), its segments' crossed quads in world space along the line, its glow, its segments' lights, and its impact at its end; all untinted by the night.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start by day: a thin bright bolt from her hand to the goblin between a glow at her hand and a bright glow and sparks at the goblin, alike in place and size.
+Not followed: the bolt's end at a cell that may not be walked on, which in the original ends the spell with no strike (the goblins under a pine at the start took none), and the Direct3D lights on the models.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -933,7 +958,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors and the ring of frost ("The bolts" to "The ring of frost" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost and the chain lightning ("The bolts" to "The chain lightning" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

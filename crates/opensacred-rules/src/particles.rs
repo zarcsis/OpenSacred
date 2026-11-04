@@ -2175,6 +2175,207 @@ pub fn lightning_sparks(colour: [f32; 4], dice: &mut impl Dice) -> Burst {
 /// The lightning's particles (`0x5A0C50`'s count for the type 798), all of its burst.
 const LIGHTNING_SPARKS: usize = 150;
 
+/// A bolt of the chain lightning 33 (docs/re/effects.md, "The chain lightning"): its segments of
+/// `cParticleSystem_freeze` (799, its start `0x77DE80`, its run `0x77DAC0` and its draw
+/// `0x77DB20`) along the line from its start to its end, each 30 long but the last, which the
+/// executor (`0x526CAA`) lays one after the other, at most 19; and their fade, whole for 0.4 s,
+/// then falling by 20 a second, so that the bolt shows for 0.45 s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainBolt {
+    pub segments: Vec<ChainSegment>,
+    pub fade: f32,
+    clock: f32,
+}
+
+/// A segment of a chain lightning's bolt: its index along the bolt, its length, and its ends'
+/// offsets across it (`+0x4C`, `+0x50` and `+0x58`, `+0x5C` of its event), along its frame's `y`
+/// and `z`, its `x` along the bolt.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChainSegment {
+    pub index: u16,
+    pub length: f32,
+    pub near: [f32; 2],
+    pub far: [f32; 2],
+}
+
+/// A segment's step along the bolt, its segments at most, its quads' half breadth (`+0x20F0`: one
+/// in its frame's `x`–`y` plane, one in its `x`–`z`, each from −50 to 50 across), the texture's
+/// `u` a unit along the bolt on each quad (`+0x2108`), the texture, the first segment's glow's
+/// texture and half side (the style 6), and the lights of the first and the others.
+pub const CHAIN_STEP: f32 = 30.0;
+const CHAIN_SEGMENTS: u16 = 19;
+pub const CHAIN_HALF: f32 = 50.0;
+pub const CHAIN_U: [f32; 2] = [1.0 / 300.0, 0.02];
+pub const CHAIN_TEXTURE: &str = "FX_LIGHTNING01";
+pub const CHAIN_GLOW_TEXTURE: &str = "PARTICLE_GLOW06";
+pub const CHAIN_GLOW_HALF: f32 = 20.0;
+pub const CHAIN_LIGHTS: [f32; 2] = [150.0, 100.0];
+
+/// An offset across a segment's end (`0x63FDE0`): along `y` and `z`, each 16 times a share at
+/// random less 8, the `z` rolled first.
+fn chain_offset(dice: &mut impl Dice) -> [f32; 2] {
+    let z = share(dice) * 16.0 - 8.0;
+    let y = share(dice) * 16.0 - 8.0;
+    [y, z]
+}
+
+impl ChainBolt {
+    /// A bolt over `total` (`0x526CAA`): segments of 30 while any of it is left, the last of its
+    /// rest rounded down; each end's offset across it the offset rolled for it times
+    /// `sin(π l / total)`, `l` what is left of the bolt from it, so that the bolt bulges at its
+    /// middle and none at its ends; a segment's far offset rolled anew for each, its near one its
+    /// predecessor's far one.
+    pub fn new(total: f32, dice: &mut impl Dice) -> Self {
+        let mut near = chain_offset(dice);
+        let mut far = chain_offset(dice);
+        let mut segments = Vec::new();
+        let mut left = total;
+        let mut index = 0;
+        let bulge = |l: f32| {
+            if total > 0.0 {
+                (std::f32::consts::PI * l / total).sin()
+            } else {
+                0.0
+            }
+        };
+        while left > 0.0 && index < CHAIN_SEGMENTS {
+            segments.push(ChainSegment {
+                index,
+                length: if left < CHAIN_STEP {
+                    left.trunc()
+                } else {
+                    CHAIN_STEP
+                },
+                near: near.map(|offset| offset * bulge(left)),
+                far: far.map(|offset| offset * bulge(left - CHAIN_STEP)),
+            });
+            near = far;
+            far = chain_offset(dice);
+            left -= CHAIN_STEP;
+            index += 1;
+        }
+        Self {
+            segments,
+            fade: 1.0,
+            clock: 0.0,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x77DAC0`).
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock > 0.4 {
+            self.fade = (self.fade - 20.0 * dt).max(0.0);
+        }
+    }
+
+    /// Its segments' grey (`0x77DB20`): half of `⌊255 f⌋`, `f` its fade.
+    pub fn grey(&self) -> f32 {
+        (255.0 * self.fade).trunc() / 2.0 / 255.0
+    }
+
+    /// Whether it ended: faded out.
+    pub fn done(&self) -> bool {
+        self.clock > 0.4 && self.fade <= 0.0
+    }
+}
+
+/// The impact of a chain lightning's bolt at its end, `cParticleSystem_freeze_impact` (872, its
+/// start `0x77E630`, its run `0x77E2A0` and its draw `0x77E3A0`): a burst of 15 sparks of
+/// `PARTICLE_SPARK06` at its start, within 3 of its place, of a half side of 4 ± 1, flying off
+/// at up to 150 along each axis and drawn back toward its place by 150 a second, falling by
+/// 50 ± 40 a second, living 0.64 s, from (127, 127, 255) to black, added whole; and a glow of the
+/// half side 30 at its place, in the grey of its fade, which falls as the bolt's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChainImpact {
+    pub sparks: System,
+    pub fade: f32,
+    clock: f32,
+}
+
+/// The impact's sparks' texture, their pull toward its place (its layer's `+0x1C`), its glow's
+/// half side, and its light times its fade (`0x77E3BD`).
+pub const IMPACT_TEXTURE: &str = "PARTICLE_SPARK06";
+const IMPACT_PULL: f32 = 150.0;
+pub const IMPACT_GLOW_HALF: f32 = 30.0;
+pub const IMPACT_LIGHT: f32 = 200.0;
+/// Its sparks (`0x5A0C50`'s count for the type 872), all of its burst.
+const IMPACT_SPARKS: usize = 15;
+
+impl ChainImpact {
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let block = Block {
+            buoyancy: spread(50.0, 40.0),
+            size: spread(4.0, 1.0),
+            velocity: spread([0.0; 3], [150.0; 3]),
+            offset: spread([0.0; 3], [3.0; 3]),
+            ..Block::default()
+        };
+        let mut sparks = System::new(IMPACT_SPARKS);
+        sparks.particles = (0..IMPACT_SPARKS).map(|_| born(&block, 0, dice)).collect();
+        Self {
+            sparks,
+            fade: 1.0,
+            clock: 0.0,
+        }
+    }
+
+    /// Its sparks' layer (`+0x20AC`): the life −400 a second.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -400.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its sparks' ramp (`+0x2130`): the entry `k` of `(k/2, k/2, k)`, from (127, 127, 255) at
+    /// their birth to black.
+    pub fn ramp() -> Ramp {
+        Ramp(std::array::from_fn(|k| {
+            let k = f32::from(u8::try_from(k).unwrap_or(u8::MAX));
+            [
+                (k / 2.0).trunc() / 255.0,
+                (k / 2.0).trunc() / 255.0,
+                k / 255.0,
+                0.0,
+            ]
+        }))
+    }
+
+    /// A run of `dt` seconds (`0x77E2A0`, `0x7640C0`): its sparks age, each drawn toward its place
+    /// by the pull, and after 0.4 s its fade falls by 20 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.sparks.update(dt, &[Self::layer()]);
+        for spark in &mut self.sparks.particles {
+            let length = spark
+                .place
+                .iter()
+                .map(|axis| axis * axis)
+                .sum::<f32>()
+                .sqrt();
+            if length >= 1e-7 {
+                for (velocity, axis) in spark.velocity.iter_mut().zip(spark.place) {
+                    *velocity -= dt * IMPACT_PULL * axis / length;
+                }
+            }
+        }
+        if self.clock > 0.4 {
+            self.fade = (self.fade - 20.0 * dt).max(0.0);
+        }
+    }
+
+    /// Its glow's grey: `⌊255 f⌋`, `f` its fade.
+    pub fn grey(&self) -> f32 {
+        (255.0 * self.fade).trunc() / 255.0
+    }
+
+    /// Whether it ended: its last spark gone (`0x7640C0`'s answer).
+    pub fn done(&self) -> bool {
+        self.sparks.particles.is_empty()
+    }
+}
+
 /// The look of the light 20, `cParticleSystem_maglite` (817, its start `0x7850D0` and its draw
 /// `0x784E90`; docs/re/effects.md, "The light"), which goes with its caster for its seconds: a
 /// ball of light of the radius 55 about its place, of 21 flat slices of `PARTICLE_GLOW03`
@@ -3412,6 +3613,65 @@ mod tests {
         let [a, b] = blades.sparks(50.0);
         assert!((a[0] + b[0]).abs() < 1e-3 && (a[1] + b[1]).abs() < 1e-3);
         assert_eq!(a[2], blades.height);
+    }
+
+    #[test]
+    fn a_chain_lightnings_bolt_bulges_between_its_ends_and_its_impact_draws_its_sparks_back() {
+        let mut dice = Rng::of(20, 0x31F, 8);
+        let mut bolt = ChainBolt::new(100.0, &mut dice);
+        let lengths: Vec<f32> = bolt.segments.iter().map(|s| s.length).collect();
+        assert_eq!(lengths, [30.0, 30.0, 30.0, 10.0]);
+        // Its start lies on its line; each segment's far end is the next's near end.
+        assert!(bolt.segments[0].near.iter().all(|o| o.abs() < 1e-5));
+        for pair in bolt.segments.windows(2) {
+            let s =
+                (std::f32::consts::PI * (100.0 - 30.0 * f32::from(pair[1].index)) / 100.0).sin();
+            let t = (std::f32::consts::PI * (100.0 - 30.0 * f32::from(pair[0].index) - 30.0)
+                / 100.0)
+                .sin();
+            for k in 0..2 {
+                assert!((pair[1].near[k] * t - pair[0].far[k] * s).abs() < 1e-4);
+            }
+        }
+        assert!(
+            bolt.segments
+                .iter()
+                .all(|s| s.far.iter().all(|o| o.abs() <= 8.0))
+        );
+        assert_eq!(ChainBolt::new(1_000.0, &mut dice).segments.len(), 19);
+        // Whole for 0.4 s, gone 0.05 s after.
+        for _ in 0..15 {
+            bolt.update(0.025);
+        }
+        assert_eq!((bolt.fade, bolt.grey()), (1.0, 127.5 / 255.0));
+        for _ in 0..4 {
+            bolt.update(0.025);
+        }
+        assert!(bolt.done());
+        let mut impact = ChainImpact::new(&mut dice);
+        assert_eq!(impact.sparks.particles.len(), 15);
+        // Its sparks fly off and the pull draws them back: nearer than without it.
+        let mut free = impact.sparks.clone();
+        for _ in 0..12 {
+            impact.update(0.025);
+            free.update(0.025, &[ChainImpact::layer()]);
+        }
+        let reach = |sparks: &System| {
+            sparks
+                .particles
+                .iter()
+                .map(|p| p.place.iter().map(|a| a * a).sum::<f32>().sqrt())
+                .sum::<f32>()
+        };
+        assert!(reach(&impact.sparks) < reach(&free));
+        for _ in 0..16 {
+            impact.update(0.025);
+        }
+        assert!(impact.done());
+        assert_eq!(
+            ChainImpact::ramp().at(255.0),
+            [127.0 / 255.0, 127.0 / 255.0, 1.0, 0.0]
+        );
     }
 
     #[test]
