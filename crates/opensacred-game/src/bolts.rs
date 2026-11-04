@@ -24,7 +24,7 @@ use crate::game::AppState;
 use crate::hero::Body;
 use crate::npcs::Dies;
 use crate::terrain::{Heights, Level};
-use crate::{ai, arrows, paths};
+use crate::{ai, arrows, iso, paths};
 
 /// How high over the ground a bolt flies, in world units (**hypothesis**: about a hand's height,
 /// as the arrows leave a shooter without a hand).
@@ -425,6 +425,21 @@ fn launch(
     }
 }
 
+/// How many world units a bolt goes along the world's unit heading `heading` on the ground for
+/// each unit of its speed (#2018; docs/re/effects.md, "Their flight"): its system flies in a frame
+/// whose axes lie along the screen's horizontal and vertical on the ground, the one of
+/// `MODEL_SCALE` world units a unit, the other foreshortened by the camera's tilt, `2/√5` of that
+/// (`0x5AA330` taking the system's place to the ground by `0x623AD0`): 1.43 along a world axis,
+/// 1.52 across the screen, 1.36 up and down it (**seen**: the railgun of 400 going 570 a second
+/// along the world's x and along its y).
+fn flight_scale(heading: Vec2) -> f32 {
+    let across = iso::right().xz().normalize_or(Vec2::X);
+    let up = Vec2::new(across.y, -across.x);
+    let (a, b) = (heading.dot(across), heading.dot(up));
+    let (x, y) = (iso::MODEL_SCALE, iso::MODEL_SCALE * 2.0 / 5.0_f32.sqrt());
+    1.0 / ((a / x).powi(2) + (b / y).powi(2)).sqrt().max(f32::EPSILON)
+}
+
 /// Flies each bolt a frame on (`0x5A6680`) and hits what it comes on (`0x5AB490`, `0x5ABD80`),
 /// telling its look of its end (`bolt_looks::Ended`).
 #[expect(
@@ -472,7 +487,8 @@ fn fly(
             continue;
         }
         let course = bolt.course;
-        let speed = (course.speed - course.slows * bolt.flown).max(0.0);
+        let speed =
+            (course.speed - course.slows * bolt.flown).max(0.0) * flight_scale(bolt.direction);
         bolt.flown += dt;
         let step = bolt.direction * speed * dt;
         let ground = transform.translation.xz() + step;
@@ -659,5 +675,26 @@ impl Plugin for BoltsPlugin {
                     .in_set(Playing)
                     .in_set(Flown),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bolt_flies_faster_across_the_screen_than_up_it() {
+        // Along a world axis, as the railgun of 400 went 570 a second (#2018).
+        assert!(
+            (flight_scale(Vec2::X) - 1.429).abs() < 0.002,
+            "{}",
+            flight_scale(Vec2::X)
+        );
+        assert!((flight_scale(Vec2::Y) - 1.429).abs() < 0.002);
+        let across = iso::right().xz().normalize();
+        assert!((flight_scale(across) - iso::MODEL_SCALE).abs() < 1e-4);
+        let up = Vec2::new(across.y, -across.x);
+        let tilted = iso::MODEL_SCALE * 2.0 / 5.0_f32.sqrt();
+        assert!((flight_scale(up) - tilted).abs() < 1e-4);
     }
 }
