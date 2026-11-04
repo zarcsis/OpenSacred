@@ -58,9 +58,13 @@ fn leaving(
     shooter: Entity,
     at: Vec3,
     kind: Option<crate::bolt_looks::Kind>,
-    (children, bones): (&Query<&Children>, &Query<(&Name, &GlobalTransform)>),
+    (children, bones, worn): (
+        &Query<&Children>,
+        &Query<(&Name, &GlobalTransform)>,
+        &crate::making::Worn,
+    ),
 ) -> (Vec3, Option<f32>) {
-    kind.and_then(|kind| crate::making::bone(shooter, bone_of(kind), children, bones))
+    kind.and_then(|kind| crate::making::bone(shooter, bone_of(kind), children, (bones, worn)))
         .map_or((at + Vec3::Y * HEIGHT, None), |bone| (bone, Some(bone.y)))
 }
 
@@ -390,7 +394,11 @@ fn launch(
     mut launches: MessageReader<Launch>,
     looks: Option<Res<Looks>>,
     shooters: Query<(&Transform, Option<&Body>, Option<&InTheWay>)>,
-    (children, bones): (Query<&Children>, Query<(&Name, &GlobalTransform)>),
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let Some(looks) = looks else {
@@ -415,7 +423,7 @@ fn launch(
             launched.shooter,
             at.translation,
             system,
-            (&children, &bones),
+            (&children, &bones, &worn),
         );
         debug!(
             "bolts: {:?} of {} leaves at {start}, its shooter at {}",
@@ -508,11 +516,12 @@ fn fly(
         MessageWriter<crate::bolt_looks::Ended>,
     ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
-    (shooters, heroes, children, bones): (
+    (shooters, heroes, children, bones, worn): (
         Query<&Transform, (With<Body>, Without<Flying>)>,
         Query<(Entity, &Transform, &Body, &Health), (Without<Flying>, Without<Dies>)>,
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
     ),
     creatures: Query<
         (
@@ -536,7 +545,7 @@ fn fly(
                     bolt.shooter,
                     shooter.translation,
                     bolt.kind,
-                    (&children, &bones),
+                    (&children, &bones, &worn),
                 );
                 transform.translation = start;
                 bolt.level_at = level_at;
