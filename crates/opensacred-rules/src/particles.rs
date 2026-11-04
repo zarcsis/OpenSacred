@@ -2381,6 +2381,54 @@ impl Twister {
     }
 }
 
+/// The look of the battle fog, `cParticleSystem_battlefog` (868, its start `0x7709F0`, its run
+/// `0x770700` and its draw `0x7707D0`; docs/re/effects.md, "The battle fog"), for its seconds: a
+/// puff of `PARTICLE_SMOKE03` every 0.3 s within (30, 80) of its place and 50 above it, give or
+/// take 50, of a half side of 60 ± 20, turned at random and spinning by up to 0.3 radians a
+/// second, a frame of the 2 × 2 at random, living 5.1 s in its ramp, laid over by its alpha and
+/// tinted by the light at it; its seconds over, its puffs live out. Its ramp's start by its
+/// event's variant (`+0x3C`): 1 a warm grey, 2 a cool one, else a grey of 120 at no alpha.
+pub fn battle_fog(variant: u32) -> Fire {
+    let c = |r: u32, g: u32, b: u32, a: u32| {
+        [r, g, b, a].map(|v| f32::from(u16::try_from(v).unwrap_or(0)) / 256.0)
+    };
+    let start = match variant {
+        1 => c(193, 183, 173, 150),
+        2 => c(173, 183, 193, 150),
+        _ => c(120, 120, 120, 0),
+    };
+    let pi = std::f32::consts::PI;
+    Fire {
+        texture: "PARTICLE_SMOKE03",
+        layers: vec![Layer {
+            life: -50.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            buoyancy: spread(0.0, 3.0),
+            size: spread(60.0, 20.0),
+            angle: spread(pi, pi),
+            spin: spread(0.0, 0.3),
+            offset: spread([0.0, 0.0, 50.0], [30.0, 80.0, 50.0]),
+            interval: 0.3,
+            frames: 4,
+            ..Block::default()
+        }],
+        ramps: vec![Ramp::new(
+            start,
+            &[(c(193, 193, 193, 150), 64), (c(150, 150, 150, 0), 192)],
+        )],
+        blends: vec![Blend::Over],
+        grid: 2,
+        count: BATTLE_FOG_COUNT,
+        light: 0.0,
+        tinted: true,
+    }
+}
+
+/// The battle fog's particles (`0x5A0C50`'s count for the type 868).
+const BATTLE_FOG_COUNT: usize = 100;
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2870,6 +2918,32 @@ mod tests {
             turn: 0.0,
         };
         assert_eq!(puff.at(100.0), ([48.0, 0.0, 100.0], 21.0));
+    }
+
+    #[test]
+    fn the_battle_fog_puffs_for_its_seconds_and_lives_out() {
+        let fog = battle_fog(0);
+        assert_eq!(fog.ramps[0].at(255.0)[3], 0.0);
+        assert_eq!(battle_fog(1).ramps[0].at(255.0)[0], 193.0 / 256.0);
+        let mut dice = Rng::of(16, 0x364, 4);
+        let mut puffs = System::new(fog.count);
+        for _ in 0..400 {
+            puffs.update(0.025, &fog.layers);
+            puffs.emit(&fog.blocks, &fog.layers, fog.count, &mut dice);
+        }
+        // A puff every 0.3 s living 5.1 s: 17 alive, each a frame of the four.
+        let alive = puffs.particles.len();
+        assert!((16..=18).contains(&alive), "{alive}");
+        assert!(
+            puffs
+                .particles
+                .iter()
+                .all(|p| p.frame < 4 && p.place[1].abs() <= 80.0)
+        );
+        for _ in 0..210 {
+            puffs.update(0.025, &fog.layers);
+        }
+        assert!(puffs.particles.is_empty());
     }
 
     #[test]

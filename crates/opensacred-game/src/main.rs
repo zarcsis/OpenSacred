@@ -18,6 +18,7 @@ mod attack;
 mod backpack;
 mod bar;
 mod bar_tips;
+mod battle_fogs;
 mod beacons;
 mod beams;
 mod belt;
@@ -393,6 +394,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         backpack::BackpackPlugin,
         bar::BarPlugin,
         bar_tips::BarTipsPlugin,
+        battle_fogs::BattleFogsPlugin,
         beacons::BeaconsPlugin,
         beams::BeamsPlugin,
         belt::BeltPlugin,
