@@ -12,11 +12,11 @@ While it saves, the game's timer stands (`0x6413E0`), and a loading screen shows
 
 Before it saves, it compares a few of the hero's values (three numbers at its `+0x3B4`, `+0x3EE` and `+0x3FE`, its attributes' bases and bonuses, its skills' levels) with a copy kept in a write-protected page, and where they differ it marks the hero a cheater and takes those values away (`Cheater detected`); the game has no such check (its console and its commands change the hero openly).
 
-The file begins with a header of 256 bytes, then a table of its parts of 768 bytes, then the parts:
+The file begins with a header of 256 bytes, then a table of its parts, 64 entries of 12 bytes (the part's id, its offset and its size; the header's `+4` holds 64), then the parts (corrected 2026-11-04 for #1990 and #1991, **confirmed** by code and seen in the original's files):
 
-- **the header**: the letters `AMS`, the version 27 (`---SAVING (%c%c%c) v%d #%d`), the hero's type and its creature, the campaign (2 Ancaria, 3 the Underworld, `0x182EE48`), whether the game is a network one (`0x182EBEC`), the difficulty (`0x182EE44`), the hero's level reached on each of the five difficulties, the game's calendar (its day, hour and minute), the computer's date and time, and the sums of the bytes after it;
-- **a descriptor** (`0x83`): the line `Date dd.mm.yyyy Time hh:mm` of the game's calendar, for the saves' list;
-- the save's **name**, 64 bytes, which the saves' list and the quick save (`QUICKSAVE`) and the autosave (`AutoSave`) give;
+- **the header**: the letters `AMS`, the version 27 (`---SAVING (%c%c%c) v%d #%d`), the hero's type (`+0x14`, 1 the Seraphim) and a colour of it (`+0x18`, `0x43C250`), the campaign (`+0x24`: 2 Ancaria, 3 the Underworld, `0x182EE48`), whether the game is a network one (`+0x2C`, `0x182EBEC`), the difficulty (`0x182EE44`), the hero's level reached on each of the five difficulties, the game's calendar (its day, hour and minute), the computer's date and time (`+0x5C` to `+0x78`, a `SYSTEMTIME` as words of four bytes), `0xBAADF00D` at `+0x7C`, and the sums of the bytes after it;
+- **a descriptor** (`0x95`, 256 bytes of UTF-16): the line `Date[dd/mm/yyyy] Time[hh.mm]` of the game's calendar and a line feed, which the saves' list shows where the header holds no computer's date;
+- the save's **name** (`0x83`, 64 bytes), which the saves' window, the quick save (`QUICKSAVE`) and the autosave (its number's text) give;
 - **the engine** (`0x80`): a few of its values (not read);
 - **the mouse** (`0x98`): the mouse's state;
 - **the triggers** (`0x81`): the world's sectors (`0x63B580`, the same function loads them: `cWorld::load() sectors: #world[%d] #saved[%d]`, the sectors of the world and those it keeps a state of; each sector's record not read);
@@ -30,7 +30,7 @@ The file begins with a header of 256 bytes, then a table of its parts of 768 byt
 - `0x82`: the engine's sixteen players, each that is there saving itself (the hero's player among them);
 - **the weather** (`0x92`, `0x41BBA0`);
 - **the quests** (`0x91`): the scripts' state (`sdk_SAVELOAD_SERIAL`: the quests, their flags, the variables, the timers);
-- **the picture** (`0x93`): the frame shown in the saves' list, 32 KiB;
+- **the picture** (`0x93`): the frame shown in the saves' window ("The picture", below), listed 0x6000 bytes long in the table but written 0x8000 long and followed by `0xDEADC0DE`;
 - **the stats** (`0x9B`): the hero's player's values (`0x424E10`);
 - `0x9C`: two of the interface's states (`0x75A970`, `0x75A990`), and `0x9D`, 1 KiB of zeros;
 - **the hero** (`0xC3`, 556 bytes): the hero's name and the values that the saves' list and the choice of a campaign's hero show (`0x604300`).
@@ -52,6 +52,16 @@ Which sectors the object manager and the world keep (all the world's, or those v
   `cEngine::save` (`0x619BF0`) names a save whose number is not 0 by the number's text (the game's texts by their numbers, made narrow, 63 characters at most) and clears the number, which the header keeps too: each autosave goes into a slot of its own, named by its quest's text.
   The numbers are 30000 to 30027 (texts of `global.res`); the Seraphim's tree holds 26 records, in the sections of its quests' exits (`QIS_OnExit11`, `QIS_OnExit22`, `QIS_OnExit41`, …) and a few functions of the quests 9, 11, 22, 41 to 45, 50 to 59, 61, 65, 71 to 74, 81 and 670, so that the original autosaves as the main quests are done.
   docs/06 §6's `AUTOSAVEDELAY` is no key of this release's (no string of `Sacred.exe` names it).
+
+## The picture
+
+Read 2026-11-04 for #1991 (**confirmed** by code; the pictures of three saves decoded and compared with the frames taken just before them in the running original, a mean difference of 0.03 to 0.1 of 255).
+
+- `cEngine_captureInternal` (`0x613670`) locks the 1024 × 768 back buffer, copies it to the engine's `+0x1A0`, makes it ARGB4444 of alpha 15 in place (from 32 bits each channel's top four bits, `0x6609A0`; from 16 bits through 555, `0x660940`, `0x660A60`) and scales it to 128 × 96 into `+0x1A4` (`0x660AD0`, its filter on), 0x8000 bytes.
+- The scale: the pixel (x, y) is each channel's whole mean of the four bits of the screen's pixels at (8x − 8, 8y − 8), (8x, 8y − 8), (8x − 8, 8y) and (8x, 8y), those left of or above the screen left out: a sparse sample rather than a box, about a picture's pixel right of and below a centred one, of the whole screen, the interface with it.
+- When: the engine's `(0x13, 5, 1)` (`0x613370`), which the menu over a game sends as it opens (`0x6BB6C0`, at `0x6BB795`) and the key S before it opens the saves' window; F9 and Control+Z before the quick save; an autosave's `(0xF, 3)` before its save. A save through the saves' window takes none, so it keeps the frame from before Escape or S.
+- In the file: little-endian ARGB4444 words, rows from the top, 256 bytes a row.
+- The saves' window draws it through one texture of 128 × 128 (`ui_sl_rendertarget.tga`), filled before each row, as a 128 × 96 quad at a texel a pixel (`0x71DE70`, `0x71DFA0`); an empty row's is filled with `0x5555`, a translucent grey.
 
 ## For `opensacred-game`
 
@@ -80,3 +90,4 @@ Since #1988 F9 and Control+Z save the game as `QUICKSAVE` where the interface al
 Since #1989 a script's `AutoSave` saves the game where `[gameplay] autosave` of `settings.toml` is on, off by default (docs/decisions/interface.md, "Autosave off from the first test"): into the first free slot from `GAME01`, named by its number's text, whatever windows show.
 A save's file and its name are apart: the console's `save NAME` writes `NAME.sav`, its name the same.
 The load of the hero's stats (`0x585260`, its reading branch) tells the taskbar its "+" as the points leave it, the message 8 (shown, glowing) where attribute or skill points or skills to learn wait, else 7 with 1 (hidden); since #1992 a loaded game's hero sets the "+" so (`points::Plus::loaded`).
+Since #1991 a save keeps a picture after its header (the saves' version 4; a save of the version 3 still reads, without one): the window's frame as the menu over a game opens, which shows the menu a frame later, and right before a quick save and an autosave, which wait for it (30 frames at most, then save with the last taken), sampled as the original does of the frame's middle of its screen's shape (`save_picture`; docs/decisions/interface.md, "Save's picture of the screen's middle"), kept as the original's ARGB4444 words.
