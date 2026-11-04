@@ -48,6 +48,8 @@ help-send-item = the stash's to the backpack, a potion to a follower
 help-wheel = Wheel
 help-zoom-wheel = zoom in and out
 help-pause = pause, and again go on
+help-quick-save = the quick save
+help-quick-load = load the quick save
 help-pause-menu = pause: Continue, Main menu, Quit
 
 ## In the menus
