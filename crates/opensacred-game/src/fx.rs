@@ -488,8 +488,35 @@ impl Quads {
         );
     }
 
+    /// A quad facing the camera about `centre`, of the half side `size`, the whole texture, its
+    /// corners' colours `colours` from the bottom left, the top left, the bottom right and the top
+    /// right (the blades of light's dots, `light_blades`).
+    pub(crate) fn push_facing(&mut self, centre: Vec3, size: f32, colours: [[f32; 4]; 4]) {
+        let (r, u) = (iso::right() * size, iso::up() * size);
+        let Ok(first) = u32::try_from(self.positions.len()) else {
+            return;
+        };
+        let [bottom_left, top_left, bottom_right, top_right] = colours;
+        for (offset, uv, colour) in [
+            (-r - u, [0.0, 1.0], bottom_left),
+            (r - u, [1.0, 1.0], bottom_right),
+            (r + u, [1.0, 0.0], top_right),
+            (-r + u, [0.0, 0.0], top_left),
+        ] {
+            self.positions.push((centre + offset).to_array());
+            self.uvs.push(uv);
+            self.colours.push(linear(colour));
+        }
+        // Split from its top left to its bottom right, as the original's strip of the bottom
+        // left, the top left, the bottom right and the top right is: the colour at its middle,
+        // where its texture is brightest, is the mean of those two corners'.
+        self.indices
+            .extend([0, 3, 1, 3, 2, 1].map(|index| first + index));
+    }
+
     /// A quad of the four corners `corners`, in order about it, each its own colour of `colours`
-    /// (the holy light's column, `holy_lights`).
+    /// (the holy light's column, `holy_lights`), split from its second corner to its fourth, as
+    /// the original's strips are.
     pub(crate) fn push_shaded(&mut self, corners: [Vec3; 4], colours: [[f32; 4]; 4]) {
         let Ok(first) = u32::try_from(self.positions.len()) else {
             return;
@@ -499,7 +526,7 @@ impl Quads {
         self.uvs.extend([[0.0, 0.0]; 4]);
         self.colours.extend(colours.map(linear));
         self.indices
-            .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
+            .extend([0, 1, 3, 1, 2, 3].map(|index| first + index));
     }
 
     /// A quad of the four corners `corners`, in order about it, with the texture's points `uvs`

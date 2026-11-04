@@ -140,8 +140,7 @@ fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<
         // The systems' frame, its x along the screen's horizontal on the ground (docs/re/
         // effects.md, "Their flight"), scaled by the fade across (`0x653A80`), at the world's
         // scale: its bands face the camera.
-        let across = iso::right().with_y(0.0).normalize_or(Vec3::X);
-        let depth = Vec3::Y.cross(across);
+        let (across, depth) = iso::fx_axes();
         let at = |x: f32, y: f32, z: f32| (across * x * fade + depth * y * fade + Vec3::Y * z) * s;
         let colour = |rgb: [f32; 3], alpha: f32| [rgb[0], rgb[1], rgb[2], alpha / 255.0];
         let mut column = Quads::default();

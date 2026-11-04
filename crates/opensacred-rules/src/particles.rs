@@ -1992,6 +1992,82 @@ impl HolyLight {
     }
 }
 
+/// The look of the Seraphim's blades of light, `cParticleSystem_holywall` (814, its start
+/// `0x784C90`, its run `0x784630` and its draw `0x7846C0`; docs/re/effects.md, "The blades of
+/// light"), which goes with its caster for its seconds: a glow under it ([`BLADES_DISC_TEXTURE`]),
+/// a ring of dots of light at its size about it and two spirals of them climbing from the ring
+/// and turning ([`Blades`]), and a spark at each spiral's top.
+pub const BLADES_DISC_TEXTURE: &str = "PARTICLE_GLOW01";
+/// The glow under it: a flat quad of a half side 20 beyond its radius, of (175, 175, 255), laid
+/// over by its alpha.
+pub const BLADES_DISC_BEYOND: f32 = 20.0;
+pub const BLADES_DISC_COLOUR: [f32; 4] = [175.0 / 255.0, 175.0 / 255.0, 1.0, 1.0];
+/// Its dots (`+0x20B8`): quads facing the camera of `PARTICLE_GLOW03`, of a half side of 4, their
+/// corners' colours (0, 0, 128), (64, 64, 128), (0, 64, 128) and (64, 0, 128) from the bottom
+/// left, the top left, the bottom right and the top right, added whole.
+pub const BLADES_DOT_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const BLADES_DOT_HALF: f32 = 4.0;
+pub const BLADES_DOT_COLOURS: [[f32; 4]; 4] = [
+    [0.0, 0.0, 128.0 / 255.0, 1.0],
+    [64.0 / 255.0, 64.0 / 255.0, 128.0 / 255.0, 1.0],
+    [0.0, 64.0 / 255.0, 128.0 / 255.0, 1.0],
+    [64.0 / 255.0, 0.0, 128.0 / 255.0, 1.0],
+];
+/// Its sparks (`+0x2138`): white quads facing the camera of `PARTICLE_SPARK06`, of a half side of
+/// 15 and up to 10 more at random at each draw, added whole.
+pub const BLADES_SPARK_TEXTURE: &str = "PARTICLE_SPARK06";
+pub const BLADES_SPARK_HALF: (f32, f32) = (15.0, 10.0);
+
+/// The blades of light's turn and height (`+0x20A8`, `+0x20AC`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Blades {
+    pub angle: f32,
+    pub height: f32,
+}
+
+impl Blades {
+    /// A run of `dt` seconds (`0x784630`): its turn on by 5 radians a second, its height up by 33
+    /// a second to 100.
+    pub fn update(&mut self, dt: f32) {
+        self.angle = (self.angle + 5.0 * dt) % std::f32::consts::TAU;
+        if self.height < 100.0 {
+            self.height += 33.0 * dt;
+        }
+    }
+
+    /// Its dots about its place at the radius `radius`, in its frame, the third coordinate up: 100
+    /// on the ring, every 1/50 of a turn (each place twice), then each spiral's 200, from a
+    /// quarter turn either side of its turn round twice, one up, one down, to its height.
+    pub fn dots(&self, radius: f32) -> Vec<[f32; 3]> {
+        let at = |angle: f32, height: f32| [angle.sin() * radius, angle.cos() * radius, height];
+        let step = |k: u16| f32::from(k) * 0.005;
+        let quarter = std::f32::consts::FRAC_PI_2;
+        let turns = 4.0 * std::f32::consts::PI;
+        let ring = (0..100_u16).map(|k| at(f32::from(k) * std::f32::consts::TAU / 50.0, 0.0));
+        let up = (0..200_u16).map(|k| {
+            at(
+                step(k) * turns + self.angle + quarter,
+                step(k) * self.height,
+            )
+        });
+        let down = (0..200_u16).map(|k| {
+            at(
+                self.angle - step(k) * turns - quarter,
+                step(k) * self.height,
+            )
+        });
+        ring.chain(up).chain(down).collect()
+    }
+
+    /// Its two sparks about its place at the radius `radius`: a quarter turn either side of its
+    /// turn, at its height.
+    pub fn sparks(&self, radius: f32) -> [[f32; 3]; 2] {
+        let quarter = std::f32::consts::FRAC_PI_2;
+        [self.angle + quarter, self.angle - quarter]
+            .map(|angle| [angle.sin() * radius, angle.cos() * radius, self.height])
+    }
+}
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2356,6 +2432,34 @@ mod tests {
             light.update(0.025, &mut dice);
         }
         assert!(light.done());
+    }
+
+    #[test]
+    fn the_blades_of_light_climb_in_two_turning_spirals_over_a_ring() {
+        let mut blades = Blades::default();
+        // Three seconds: 99 high and turned by 15 radians less two whole turns.
+        for _ in 0..120 {
+            blades.update(0.025);
+        }
+        assert!((blades.height - 99.0).abs() < 0.1, "{}", blades.height);
+        let turned = 15.0 - 2.0 * std::f32::consts::TAU;
+        assert!((blades.angle - turned).abs() < 1e-3, "{}", blades.angle);
+        // It rises no higher than 100 and a step more.
+        for _ in 0..40 {
+            blades.update(0.025);
+        }
+        assert!(blades.height < 101.0);
+        let dots = blades.dots(50.0);
+        assert_eq!(dots.len(), 500);
+        // The ring on the ground at the radius, the spirals rising to under the height.
+        assert!(dots[..100].iter().all(|d| d[2] == 0.0));
+        assert!(dots.iter().all(|d| (d[0].hypot(d[1]) - 50.0).abs() < 1e-3));
+        let top = dots[100..].iter().map(|d| d[2]).fold(0.0, f32::max);
+        assert!(top < blades.height && top > 0.99 * blades.height);
+        // The sparks at the spirals' tops, on either side.
+        let [a, b] = blades.sparks(50.0);
+        assert!((a[0] + b[0]).abs() < 1e-3 && (a[1] + b[1]).abs() < 1e-3);
+        assert_eq!(a[2], blades.height);
     }
 
     #[test]
