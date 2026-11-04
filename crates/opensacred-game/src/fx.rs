@@ -313,9 +313,29 @@ pub(crate) fn particle_texture(
 /// writes linear light, which the frame takes for its values, its middle tones dark.
 pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 
-/// The extension of [`Effect`].
+/// The extension of [`Effect`]: whether an added particle takes its colour whole, its alpha
+/// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
+/// 3), where Bevy's premultiplies it by its alpha: the texels of `PARTICLE_FIRE02` and of some
+/// glows carry an alpha as their brightness, which that would take twice (#1092).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
-pub(crate) struct Particles {}
+#[bind_group_data(ParticlesKey)]
+pub(crate) struct Particles {
+    whole: bool,
+}
+
+/// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ParticlesKey {
+    whole: bool,
+}
+
+impl From<&Particles> for ParticlesKey {
+    fn from(extension: &Particles) -> Self {
+        Self {
+            whole: extension.whole,
+        }
+    }
+}
 
 impl MaterialExtension for Particles {
     fn fragment_shader() -> ShaderRef {
@@ -326,10 +346,13 @@ impl MaterialExtension for Particles {
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader_defs.push("PARTICLES".into());
+            if key.bind_group_data.whole {
+                fragment.shader_defs.push("WHOLE".into());
+            }
         }
         Ok(())
     }
@@ -347,7 +370,16 @@ pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> 
             cull_mode: None,
             ..default()
         },
-        extension: Particles {},
+        extension: Particles::default(),
+    }
+}
+
+/// A particles' material of the texture `image` added to the frame whole, its alpha unused
+/// (`ONE`, `ONE`, [`Particles`]).
+pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
+    Effect {
+        extension: Particles { whole: true },
+        ..particle_material(image, AlphaMode::Add)
     }
 }
 
@@ -627,7 +659,7 @@ fn kindle(
 }
 
 /// The quads of a fire's layer `layer` of its system `system`, facing the camera.
-fn layer_quads(fire: &Fire, system: &System, layer: usize) -> Quads {
+pub(crate) fn layer_quads(fire: &Fire, system: &System, layer: usize) -> Quads {
     let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
     let grid = f32::from(fire.grid.max(1));
     let mut quads = Quads::default();

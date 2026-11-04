@@ -1068,7 +1068,7 @@ The Daemon's executor (`0x5192E0`) has cases for 1091 to 1094 and 1097 to 1103 (
     - its regeneration starts and it ends.
 
     On the Daemon of the art's level in play 2 the ring burned five goblins for 40 a second (30 times his poison multiplier 1.33) and the fan sent three bolts of 45 magic.
-    The casts, the ring's, the bolts' and the breath's particles (balls and flames of one colour stand in), the weather event, the 9-cell search's reach, the breath's bounces' calls and the fires' test of the effect `0x26` are left out.
+    The casts' and the ring's particles (balls and flames of one colour stand in; the bolts' and the breath's follow since #1092, docs/re/effects.md), the weather event, the 9-cell search's reach, the breath's bounces' calls and the fires' test of the effect `0x26` are left out.
   - **The effect 62**, the burn of 1101, 1102 and 1085 (the adder at `0x584DDB`): refused where an entry of the caster's already holds that target's id as its whole value (so neither stacks nor renews on one target), with the fire kind `FX_BURNING_BONE` on up to 50 of the target's bones; at each of the caster's stats' updates (`0x562730` at `0x563786`), unless the target is gone or of `+0x14` bit `0x10`, its value takes the frame's time and, above 1.0 (at once at its first update), where the target is a creature alive and the caster the local player's, the target takes the event 5 from the caster of the damage (at most 65,534) in the entry's kind, the hit's kind 18 and the factor 1.0, the value back to 0: about a blow a second for `S` seconds (with the poison an object 856 at the target, a sight).
 
 ## The effects

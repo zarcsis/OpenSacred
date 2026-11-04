@@ -138,7 +138,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     // A particle's colour in the frame's values, then times its alpha where Bevy's last steps
     // premultiply an added one: the texel's and the colour's values laid or added as they are,
     // as the original's device blends its particles (`SRCALPHA` with `INVSRCALPHA` or `ONE`,
-    // `fx::Particles`).
+    // `fx::Particles`); one added whole takes no alpha (`ONE`, `ONE`).
+@if(WHOLE) {
+    out.color = vec4<f32>(out.color.rgb, 1.0);
+}
     out.color = main_pass_post_lighting_processing(pbr_input, encode(out.color));
 }
 @else {

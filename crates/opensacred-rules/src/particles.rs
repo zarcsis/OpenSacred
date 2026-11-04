@@ -1741,6 +1741,92 @@ impl Default for Torchsmoke {
     }
 }
 
+/// The particles of the Daemon's breath and of its wall's fires (`0x5A0C50`'s count for the types
+/// 1006 and 1007).
+const WALLOFFIRE_COUNT: usize = 250;
+
+/// The look of the Daemon's breath of fire 1102, `cParticleSystem_walloffire` (`FX_WALLOFFIRE`,
+/// 1006, its start `0x7AE5A0` and its run `0x7AE290`; docs/re/effects.md, "The breath of fire"):
+/// a fire of the smoke class's make that it leaves along its way while it flies, a flame of
+/// `PARTICLE_FIRE03` every 0.01 s, one in five a smoke, both rising at 35 within 9 of its place
+/// along x, the flame of a half side of 5 growing by 12 a second for 2.55 s in the fires' ramp
+/// ([`fire`]'s), added, the smoke of 3 growing by 15 for 1.96 s in their smoke's, laid over, both
+/// turned at random and untinted; stopped, it makes no more. Its light is 100, and its glow
+/// ([`WALLOFFIRE_GLOW_TEXTURE`]) lies at its place while it lives.
+pub fn walloffire() -> Fire {
+    let pi = std::f32::consts::PI;
+    let layer = |life: f32, size: f32| Layer {
+        life,
+        size,
+        ..Layer::default()
+    };
+    let block = |buoyancy: Spread<f32>, size: Spread<f32>, spin: f32| Block {
+        buoyancy,
+        size,
+        angle: spread(pi, pi),
+        spin: spread(0.0, spin),
+        velocity: spread([0.0; 3], [0.5; 3]),
+        offset: spread([0.0; 3], [9.0, 0.0, 0.0]),
+        interval: 0.01,
+        frames: 0,
+    };
+    Fire {
+        texture: "particle_fire03",
+        layers: vec![layer(-100.0, 12.0), layer(-130.0, 15.0)],
+        blocks: vec![
+            block(spread(-35.0, 34.0), spread(5.0, 0.5), 0.0),
+            block(spread(-35.0, 5.0), spread(3.0, 1.0), 2.0),
+        ],
+        ramps: vec![flame_ramp(), fire_smoke_ramp(1.0)],
+        blends: vec![Blend::Add, Blend::Over],
+        grid: 1,
+        count: WALLOFFIRE_COUNT,
+        light: 100.0,
+        tinted: false,
+    }
+}
+
+/// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
+/// added whole (the style 5, `ONE`, `ONE`), its depth tested.
+pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const WALLOFFIRE_GLOW_HALF: f32 = 20.0;
+
+/// The look of a fire of the breath's wall, `cParticleSystem_walloffire_line`
+/// (`FX_WALLOFFIRE_LINE`, 1007, its start `0x7AEC60` and its run `0x7AEB80`): a flame of
+/// `PARTICLE_FIRE02` every 0.08 s within 40 of its place on the ground along each axis, of a half
+/// side of 40 ± 10 shrinking by 17 a second, standing on its foot, living 2.55 s and playing its
+/// 4 × 4 frames once over it, in a grey of 199 that comes up over its first 10 entries and goes
+/// over its last 46, added whole (`0x761B00`'s flags `0x99`: `ONE`, `ONE`), untinted; it makes
+/// them for the seconds of its event (`+0x48`, 10: the art's [`crate::arts::WALL_BURNS`]) and
+/// ends with its last. Its light is 200.
+pub fn walloffire_line() -> Fire {
+    let grey = |g: f32| [g / 255.0, g / 255.0, g / 255.0, 1.0];
+    Fire {
+        texture: "particle_fire02",
+        layers: vec![Layer {
+            life: -100.0,
+            size: -17.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            size: spread(40.0, 10.0),
+            offset: spread([0.0; 3], [40.0, 40.0, 0.0]),
+            interval: 0.08,
+            ..Block::default()
+        }],
+        // The ramp's alpha is 0 in the original's, which its source `ONE` does not take.
+        ramps: vec![Ramp::new(
+            grey(0.0),
+            &[(grey(199.0), 10), (grey(199.0), 200), (grey(0.0), 46)],
+        )],
+        blends: vec![Blend::Add],
+        grid: 4,
+        count: WALLOFFIRE_COUNT,
+        light: 200.0,
+        tinted: false,
+    }
+}
+
 /// The combat arts' hit sparks (docs/re/effects.md, "The hit sparks"): the five classes of the
 /// heroes' strikes, `FX_GLAD_SM_HIT` (842), `FX_SERA_SM_HIT` (843), `FX_ELVE_SM_HIT` (860),
 /// `FX_VAMP_SM_HIT` (862) and `FX_DARK_SM_HIT` (864), which differ in their count, their colour and
@@ -1952,6 +2038,64 @@ mod tests {
             torch.update(0.025, ([0.0; 3], [0.0; 3]), &mut dice);
         }
         assert!(torch.done());
+    }
+
+    #[test]
+    fn the_breath_leaves_flames_and_smoke_along_its_way_and_its_wall_burns_its_seconds() {
+        let mut dice = Rng::of(10, 0x6, 2);
+        let breath = walloffire();
+        let mut system = System::new(breath.count);
+        // A second's flight at 150 a second along x: a particle every 0.01 s, one in five smoke,
+        // laid along the way it flew.
+        for step in 0..40 {
+            let from = [
+                150.0 * 0.025 * f32::from(u8::try_from(step).unwrap_or(0)),
+                0.0,
+                80.0,
+            ];
+            let to = [from[0] + 150.0 * 0.025, 0.0, 80.0];
+            system.update(0.025, &breath.layers);
+            system.emit_along(
+                &breath.blocks,
+                &breath.layers,
+                breath.count,
+                (from, to),
+                0.025,
+                &mut dice,
+            );
+        }
+        let alive = system.particles.len();
+        assert!((95..=101).contains(&alive), "{alive}");
+        let smoke = system.particles.iter().filter(|p| p.layer == 1).count();
+        assert!((10..=30).contains(&smoke), "{smoke}");
+        let reach = system
+            .particles
+            .iter()
+            .map(|p| p.place[0])
+            .fold(f32::MIN, f32::max);
+        assert!((140.0..=160.0).contains(&reach), "{reach}");
+        // Born yellow-white at an alpha of 90, the smoke a transparent grey.
+        assert_eq!(breath.ramps[0].at(255.0)[3], 90.0 / 255.0);
+        assert_eq!(breath.ramps[1].at(255.0)[3], 0.0);
+        // A wall's fire: a flame every 0.08 s for its 10 s, each living 2.55 s, then none.
+        let wall = walloffire_line();
+        let mut fire = System::new(wall.count);
+        for _ in 0..400 {
+            fire.update(0.025, &wall.layers);
+            if fire.clock < crate::arts::WALL_BURNS {
+                fire.emit(&wall.blocks, &wall.layers, wall.count, &mut dice);
+            }
+        }
+        let burning = fire.particles.len();
+        assert!((24..=33).contains(&burning), "{burning}");
+        assert!(fire.particles.iter().all(|p| p.place[2] == 0.0));
+        for _ in 0..110 {
+            fire.update(0.025, &wall.layers);
+        }
+        assert!(fire.particles.is_empty());
+        // Its grey up over its first entries, held, and gone at its death.
+        assert!((wall.ramps[0].at(200.0)[0] - 199.0 / 255.0).abs() < 1e-6);
+        assert_eq!(wall.ramps[0].at(0.0)[0], 0.0);
     }
 
     #[test]
