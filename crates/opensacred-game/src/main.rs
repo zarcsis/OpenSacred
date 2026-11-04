@@ -86,6 +86,7 @@ mod journal;
 mod labels;
 mod lens_creatures;
 mod light_blades;
+mod lightning_strikes;
 mod lines;
 mod liquids;
 mod low_health;
@@ -464,6 +465,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         labels::LabelsPlugin,
         light_blades::LightBladesPlugin,
+        lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         low_health::LowHealthPlugin,

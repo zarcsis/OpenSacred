@@ -1131,18 +1131,6 @@ pub(crate) fn meteors(
     }
 }
 
-/// The lightning's column over the place `at` of what it strikes, the hero's or a creature's
-/// (#1852), fading after its time.
-pub(crate) fn lightning(commands: &mut Commands, looks: &Looks, at: Vec3) {
-    commands.spawn((
-        Mesh3d(looks.column.clone()),
-        MeshMaterial3d(looks.lightning.clone()),
-        Transform::from_translation(at + Vec3::Y * 200.0),
-        Fades(LIGHTNING_SHOWS),
-        DespawnOnExit(AppState::InGame),
-    ));
-}
-
 /// A beam from `from` to `to`, the lightning's column laid along it, fading after the
 /// lightning's time: the stand-in of the big demons' lasers (#1853).
 pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3) {
@@ -2197,9 +2185,7 @@ fn act(
                     sure: true,
                     poison: false,
                 });
-                if let Some(looks) = &looks {
-                    lightning(&mut commands, looks, place.translation());
-                }
+                crate::lightning_strikes::strike(&mut commands, place.translation(), true);
             }
             spell => {
                 let Some(area) = spells::area(spell) else {
