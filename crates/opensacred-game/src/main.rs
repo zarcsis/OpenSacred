@@ -151,6 +151,7 @@ mod tables;
 mod talk;
 mod terrain;
 mod tooltip;
+mod torches;
 mod town_stash;
 mod undead;
 mod voices;
@@ -521,6 +522,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         talk::TalkPlugin,
         terrain::GroundPlugin,
         tooltip::TooltipPlugin,
+        torches::TorchesPlugin,
         town_stash::TownStashPlugin,
         undead::UndeadPlugin,
         voices::VoicesPlugin,

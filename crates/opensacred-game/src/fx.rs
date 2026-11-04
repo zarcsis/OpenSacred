@@ -17,7 +17,7 @@
 //!
 //! Left out: the wind that the smoke class writes into its layers (`+0x68` of the renderer, a
 //! **hypothesis**), the other classes, the spells' among them, for which their modules draw
-//! stand-ins, the torches' flames, and the small fire's variants 0 and 1.
+//! stand-ins, and the small fire's variants 0 and 1; the torches' flames are `torches`'s.
 
 use std::sync::Arc;
 

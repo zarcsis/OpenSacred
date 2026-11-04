@@ -1,8 +1,8 @@
 //! The loops that the spells' and arts' objects hold while they live (#1173; docs/re/sound.md,
 //! "Spells and arts"): an object's particle system starts its loop as it starts (`0x6934E0`),
-//! keeps its channel (`+0xB0`) and stops it as it ends; each at the object, at the volume 1 and
-//! the sample's own rate. An entity that carries a [`Hum`] loops its sound at its place, panned and
-//! fading by it, until it goes or the hum is taken from it.
+//! keeps its channel (`+0xB0`) and stops it as it ends; each at the object, at the volume 1 (a
+//! torch's 0.4, [`Loudness`]) and the sample's own rate. An entity that carries a [`Hum`] loops
+//! its sound at its place, panned and fading by it, until it goes or the hum is taken from it.
 
 use bevy::prelude::*;
 
@@ -13,6 +13,10 @@ use crate::hero::Body;
 /// A loop, of a sound id, at its entity while it carries it.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Hum(pub u32);
+
+/// A hum's volume where it is not 1: the torches' 0.4 (`torches`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Loudness(pub f32);
 
 /// The loops that play, each at its entity.
 #[derive(Resource, Default)]
@@ -26,7 +30,7 @@ struct Hums(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
 )]
 fn hum(
     mut hums: ResMut<Hums>,
-    humming: Query<(Entity, &Hum, &GlobalTransform)>,
+    humming: Query<(Entity, &Hum, &GlobalTransform, Option<&Loudness>)>,
     heroes: Query<&GlobalTransform, With<Body>>,
     mut sfx: ResMut<crate::sfx::Sfx>,
     heard: Res<crate::sfx::Listener>,
@@ -42,7 +46,7 @@ fn hum(
         }
         keep
     });
-    for (entity, &Hum(sound), _) in &humming {
+    for (entity, &Hum(sound), _, _) in &humming {
         if hums.0.iter().any(|(playing, _)| *playing == entity) {
             continue;
         }
@@ -60,12 +64,13 @@ fn hum(
     }
     let hero = heroes.iter().next().map(GlobalTransform::translation);
     for (entity, handle) in &hums.0 {
-        let (Ok((_, _, at)), Some(mut instance)) =
+        let (Ok((_, _, at, loudness)), Some(mut instance)) =
             (humming.get(*entity), instances.get_mut(handle))
         else {
             continue;
         };
         let (volume, pan) = crate::sfx::placed_at(at.translation(), hero, *heard);
+        let volume = volume * loudness.map_or(1.0, |&Loudness(loudness)| loudness);
         instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
         instance.set_panning(pan, AudioTween::default());
     }

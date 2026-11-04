@@ -87,7 +87,7 @@ Then the handler sets `+0x48` bit 2, the object started, which its draw requires
 - **The tick** (`0x5A6210`): while the object is started and its system alive, `0x5A6680` with the frame's time and 0; when the system is no longer alive (its virtual `+0x0C`, or its word `+0x74` bit 1, which `0x7CBA10(…, 1)` sets to end it), the system is destroyed (`0x7CB960`) and the object with it (`sdk_DESTROY`).
 - **The update** (`0x5A6680`): runs the system (`0x7CC080`, virtual `+0x08` with the frame's time), counts the hits' cooldown down, sets the system's tint `+0xA0` to the light's colour at the object's place (`0x41B4A0`, which `0x41B510` computes, docs/re/daynight.md) and `+0xA4` to a height above the ground (`0x7CBBE0`, `0x7CBC20`), runs the action the system asks for (`0x7CBD90`, `0x5B2600`), and the flagged behaviours of the system's flags (`+0x7C`): the targets and the hits (`0x400`, docs/re/arts.md), the wandering (`0x8000`, "The butterflies" below), and others (`0x8`, `0x10`, `0x20`, `0x800`, `0x4000`, `0x10000`, `0x20000`, `0x40000`, `0x80000`, `0x200000`; not read).
 - **The draw** (`0x5A9C50`, virtual `+0x14`): the object is an entry of the draw lists (below) and draws itself in its place.
-  By the system's flags it first places the system: `0x40` once at the followed object's bone (`+0x70`) with the bone's orientation (`0x7CBB50`), `0x100` once keeps the bone's point at the object's `+0xB8` (the followed creature's place where the bone is not found), `0x200` at each frame at the bone plus an offset (`+0x90` … `+0x98`; for 788 `FX_BURNING_BONE` from Granny's bone state), `0x400000` and `0x1000` three bones' points into the system's points (`+0x72` … `+0x76` into `0x7CBB90`), `4` the system's coordinates made relative to the object's world place, `2` the origin `+0x5C` at the position.
+  By the system's flags it first places the system: `0x40` once at the followed object's bone (`+0x70`) with the bone's orientation (`0x7CBB50`), `0x100` once keeps the bone's point at the object's `+0xB8` (the followed creature's place where the bone is not found), `0x200` at each frame at the bone plus an offset (`+0x90` … `+0x98`; for 788 `FX_BURNING_BONE` from Granny's bone state), `0x400000` and `0x1000` three bones' points into the system's points (`+0x72` … `+0x76` into `0x7CBB90`), `4` the system's origin at the object's world place on the ground (its `+0x1C`, `+0x20` in the models' frame at the height 0, `0x7CBC60`) and its position and three points made relative to it (`0x5AA134`), so that its particles ride with the object, `2` the origin `+0x5C` at the position.
   A followed object gone or in another sector ends the system.
   Then it runs `0x5A6680` with the frame's time and 1, adds the light ("Lights"), and has the manager draw the system (`0x7CB770`, the system's virtual `+0x04` with the device and the display's matrix at `sdk_DXDISPLAY + 0x250`, which turns the quads to the camera, **hypothesis** on what the matrix is).
 
@@ -254,6 +254,7 @@ Distances in the models' units, the intervals at the detail 2 (multiply by 1.5 o
 ### The torches' flames: `cParticleSystem_torchsmoke`
 
 787 `FX_TORCHSMOKE`, 200 particles (constructor `0x774F00`, start `0x7752B0`, update `0x774FE0`, draw `0x775050`), made and ended by the torch's `cWeapon3D` (above), following the torch's bone 15 `weapon_fx01` at each frame (system flags `0x204`).
+Its frame's origin is the holder's place on the ground (the flag `4`), so that its flames ride with the holder and trail only the bone's swing about it.
 
 - One layer: the life −800 a second (0.32 s), no growth.
 - One block: a size of 7, a random angle, the velocity (0, 0, 50) ± 10 on each axis, the place ± 1.5 on each axis, every 0.03 s.
@@ -262,6 +263,10 @@ Distances in the models' units, the intervals at the detail 2 (multiply by 1.5 o
 - An end sent by the off switch (`+0x20A8` 1) stops the emission; the system dies when its last flame does.
 - No light of its own (above).
 - **Seen** 2026-10-27: with `TORCH_SMALL_ON` in the Seraphim's left hand by night, a bright yellow-white ball of flame at the torch's head, with the scene lit about the hero.
+  **Seen** 2026-11-04 with `TORCH_LARGE_ON` in her right hand: as she runs, the flame stays a ball at the torch with a short streak down her arm, no trail behind her.
+
+`opensacred-game` follows the flame since #1092 (`torches`, `opensacred_rules::particles::Torchsmoke`): a torch's model in a hand of the hero or an NPC, `torch_small_on` or `torch_large_on`, burns at its bone as above, its flames in its holder's frame, untinted by the night, with its loop at 0.4; the torch gone, its flames burn out.
+**Seen** 2026-11-04 beside the original at the Seraphim's start by night (the start's torch in her right hand): the flame of the same size and place standing, the original's a little more orange, and the same streak down her arm as she runs.
 
 The world's wall torches and fire pits are statics (`DUN_torch1` to `4`, `TORCH001`, `Firepit 1`, `firepit002` to `5`, `FIREPIT06`, `3S_FIRE`, `UW_FIRE_01`, `02`: type 9 sprites); their flames are the scripts' FX objects placed with them (`FX_FIRE_L`, `FX_FI_SMOKE_S`, at their heights `0x7E`; **hypothesis** for which goes with which).
 
@@ -302,12 +307,12 @@ The families, by what they need beyond the machinery:
 1. **The machinery** (one module): the FX object made from a category-12 record and an FX event (its kind and variant), a system per type by `0x5A3570`'s table, particles, layers, blocks, ramps and the update and emission of `0x7640C0` and `0x764760`; the billboards of `0x761B00` with the three blend modes (`SRCALPHA`/`INVSRCALPHA`, `SRCALPHA`/`ONE`, `ONE`/`ONE`), the atlases' frames and the per-layer switch; the glows of `0x762E10`; the light by `+0x9C`; the tint by the light at the object; the entries in the draw lists (list 4, 0 or 3 by the type's flags) under the night pass.
 2. **The world's fires and smokes** (the smoke class, 13 types, some 3,650 objects in the Seraphim's tree): already placed by the scripts' `CreateObj` with their heights; the variants are data (the table above), one texture each, no actions, and their lights their systems' radii (`fx`, #1189).
    The simplest first: the variants 10 to 12 (`FX_FIRE_L`), then 4 to 6 (with the hit of 5 and 6 already a rule), 1 to 3, 8 and 9, 7 (its timer and sound), 13.
-3. **The torches' flame** (787): a flip-book and a glow following the bone `weapon_fx01` of the item in hand; the game has the bones (docs/re/arts.md uses them for the `Rundum` strikes).
+3. **The torches' flame** (787): a flip-book and a glow following the bone `weapon_fx01` of the item in hand, riding with its holder.
 4. **The butterflies** (873, #1073): the wander, the 8 × 8 flip-book with the alpha of the life, the fireflies' glows by the night's level.
 5. **The hit sparks**: `FX_SERA_SM_HIT` (843, 151 particles: a burst at once, buoyancy +180 ± 40, a size of 6 ± 1 shrinking by 4 a second, the velocity (0, 0, 60) ± 40, the place ± 10, a life of 1.275 s, `SPARK06` additive with a ramp from (127, 127, 255) at the birth to black, a light of 200, the system flag `0x40`: placed once at the bone the event names), and its kin `FX_ELVE_SM_HIT` (860), `FX_DARK_SM_HIT` (864), `FX_VAMP_SM_HIT` (862), `FX_GLAD_SM_HIT` (842, 600 particles with rings and floops), all `SPARK06` with the flags `0x19`; the art 1003's event value shakes the screen (kind 7, 30) and changes the burst.
 6. **The spells' and the arts' objects**, a class each (docs/re/arts.md has their rules): the bolts first ("The bolts" below: the railgun's, the BFG's, the fireball's, 778's `FIRE01` flip-book, and the Daemon's), then the rings, the decals, the helices, the beams and the models' effects.
 
-The families 1 and 2 are done (`fx`, #1189), and so is 4 (`butterflies`, #1073), and of 6 the bolts (`bolt_looks`, #1092).
+The families 1 and 2 are done (`fx`, #1189), and so are 3 (`torches`, #1092) and 4 (`butterflies`, #1073), and of 6 the bolts (`bolt_looks`, #1092).
 
 ## The catalogue
 
@@ -617,7 +622,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts ("The bolts" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches burn without a flame (#1092, #61).
+The spells and the arts but the bolts ("The bolts" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

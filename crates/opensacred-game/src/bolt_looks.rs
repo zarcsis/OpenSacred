@@ -275,7 +275,14 @@ fn run(
             }
             System::Fireball(fireball) => {
                 fireball.update(dt, (models(before), models(look.place)), &mut rolls.0);
-                flames(fireball, &mut quads);
+                if let Some(part) = quads.first_mut() {
+                    flames(
+                        &fireball.system,
+                        particles::FIRESTRIKE_GRID,
+                        Vec3::ZERO,
+                        part,
+                    );
+                }
                 fireball.done()
             }
             System::Emperor(emperor) => {
@@ -299,13 +306,13 @@ fn run(
 }
 
 /// A world point in the models' frame, its third coordinate up.
-fn models(point: Vec3) -> [f32; 3] {
+pub(crate) fn models(point: Vec3) -> [f32; 3] {
     let s = iso::MODEL_SCALE;
     [point.x / s, point.z / s, point.y / s]
 }
 
 /// A point of the models' frame in the world.
-fn world([x, y, z]: [f32; 3]) -> Vec3 {
+pub(crate) fn world([x, y, z]: [f32; 3]) -> Vec3 {
     Vec3::new(x, z, y) * iso::MODEL_SCALE
 }
 
@@ -390,19 +397,16 @@ fn bfg(place: Vec3, clock: f32, quads: &mut [Quads]) {
 /// faces do not cut it.
 const GROUND_LIFT: f32 = 0.5;
 
-/// The fireball's flames where they lie in the world (`0x76BDD0`): white, turned, each its frame
-/// of the 4 × 4 by its age.
-fn flames(fireball: &Firestrike, quads: &mut [Quads]) {
-    let Some(part) = quads.first_mut() else {
-        return;
-    };
-    let grid = particles::FIRESTRIKE_GRID;
+/// The flames of `system` about the world point `origin` of its frame (`0x76BDD0`, `0x775050`):
+/// white, turned, each its frame of the `grid` × `grid` by its age; the fireball's, in the world,
+/// and the torches' (`torches`).
+pub(crate) fn flames(system: &particles::System, grid: u8, origin: Vec3, part: &mut Quads) {
     let side = 1.0 / f32::from(grid);
-    for flame in &fireball.system.particles {
+    for flame in &system.particles {
         let frame = particles::age_frame(flame.life, grid);
         let corner = Vec2::new(f32::from(frame % grid), f32::from(frame / grid)) * side;
         part.push(
-            world(flame.place),
+            origin + world(flame.place),
             flame.size * iso::MODEL_SCALE,
             flame.angle,
             (corner, side),

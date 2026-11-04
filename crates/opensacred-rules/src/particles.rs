@@ -1651,9 +1651,10 @@ impl Default for Emperor {
 /// A lit torch's flame (787 `FX_TORCHSMOKE`, `cParticleSystem_torchsmoke`, `0x774F00`;
 /// docs/re/effects.md, "The torches' flames"), which the torch's `cWeapon3D` makes and ends: a
 /// flame of `PARTICLE_FIRE01` every 0.03 s at its bone, of a half side of 7, turned at random,
-/// rising at 50 ± 10 within 1.5 of the bone and living 0.32 s, left in the world as the torch
-/// moves on (its flags `0x204` hold no 2), added and turned, its 4 × 4 frames played once over
-/// its life ([`age_frame`]); and a glow of `PARTICLE_GLOW01` at the bone ([`TORCH_GLOW_HALF`],
+/// rising at 50 ± 10 within 1.5 of the bone and living 0.32 s, riding with the torch's holder
+/// (its flags `0x204`: the system's frame has its origin at the holder's place on the ground, so
+/// that its flames trail the bone's swing about the holder alone), added and turned, its 4 × 4
+/// frames played once over its life ([`age_frame`]); and a glow of `PARTICLE_GLOW01` at the bone ([`TORCH_GLOW_HALF`],
 /// [`TORCH_GLOW_COLOUR`]), added by its alpha. Put out, it makes no more and ends with its last
 /// flame.
 #[derive(Clone, Debug, PartialEq)]
@@ -1703,8 +1704,9 @@ impl Torchsmoke {
         }
     }
 
-    /// A run of `dt` seconds, its bone gone from `from` to `to` in the models' frame
-    /// (`0x774FE0`): its flames age and, while it burns, it leaves new ones along the way.
+    /// A run of `dt` seconds, its bone gone from `from` to `to` in its frame, the models' about
+    /// its holder's place (`0x774FE0`): its flames age and, while it burns, it leaves new ones
+    /// along the way.
     pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
         let layers = [Self::layer()];
         self.system.update(dt, &layers);
