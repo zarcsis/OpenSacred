@@ -115,6 +115,9 @@ pub const THORNS_REACH: f32 = 50.0;
 /// The souls about the Wood Elf, along the world's sin and cos of their angles, their first
 /// angle, their speed and reach (`0x5268E5`, `0x79D310`, `0x5AEAC4`).
 pub const SOULS_FROM: f32 = 50.0;
+/// How fast a soul's heading turns toward its target, in radians a second (`+0xE0`, `0x5A8204`);
+/// it heads straight up at its start (the FX event `0x4A`, `0x5A4D2D`).
+pub const SOULS_TURN: f32 = 3.0;
 pub const SOULS_ANGLE: f32 = 2.6416;
 pub const SOULS_SPEED: f32 = 150.0;
 pub const SOULS_REACH: f32 = 20.0;

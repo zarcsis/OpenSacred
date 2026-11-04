@@ -79,10 +79,15 @@ enum Strikes {
     OneAtRandom,
 }
 
+/// The bone a soul turns toward, its target's or its caster's (`0x44CBB0` of the bone 1).
+const SOUL_HAND: [&str; 1] = ["Bip01 L Hand"];
+
 /// The Daemon's hell disk, the Mage's purgatory or a lost soul of the Wood Elf's: its caster, the
 /// creature it homes on, the one it struck last, its damages, its level, its time left, its
-/// cooldown, its speed, how near it strikes a creature with the creature's size, and whether it
-/// strikes every creature within its reach rather than the first it touches (the purgatory's).
+/// cooldown, its speed, how near it strikes a creature with the creature's size, whether it
+/// strikes every creature within its reach rather than the first it touches (the purgatory's),
+/// and a soul's heading in three dimensions and its turn a second (#2058), the others homing at
+/// once.
 #[derive(Component, Debug, Clone)]
 struct Disk {
     caster: Entity,
@@ -95,6 +100,8 @@ struct Disk {
     speed: f32,
     reach: f32,
     all: bool,
+    heading: Option<Vec3>,
+    turn: f32,
 }
 
 /// A zone of the banishing circle (the kind 2, `0xAD2530`): its centre and cell, its level, and
@@ -1230,6 +1237,8 @@ pub(crate) fn purgatory(
             speed: spells::PURGATORY_SPEED,
             reach: spells::DISK_REACH,
             all: true,
+            heading: None,
+            turn: 0.0,
         },
         Transform::from_translation(point),
         Visibility::Inherited,
@@ -1617,8 +1626,10 @@ fn act(
                             speed: spells::SOULS_SPEED,
                             reach: spells::SOULS_REACH,
                             all: false,
+                            heading: Some(Vec3::Y),
+                            turn: spells::SOULS_TURN,
                         },
-                        Transform::from_translation(place + Vec3::Y * DISK_HEIGHT),
+                        Transform::from_translation(place),
                         Visibility::Inherited,
                         crate::hums::Hum(SOULS_LOOP),
                         // It looks as its system (`lost_souls`).
@@ -1931,6 +1942,8 @@ fn act(
                         speed: spells::DISK_SPEED,
                         reach: spells::DISK_REACH,
                         all: false,
+                        heading: None,
+                        turn: 0.0,
                     },
                     Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
                     Visibility::Inherited,
@@ -2665,15 +2678,26 @@ fn doom(time: Res<Time>, mut heroes: Query<&mut Effects, With<Body>>) {
 /// Flies each hell disk on its target at its speed, the nearest hostile creature within its
 /// look else, hovering by its caster with none; once a second it strikes the first creature it
 /// touches and turns to the nearest other, else the same (`0x5A7DE0`, `0x5AF93F`). The cells it
-/// may not enter, which turn it back, are not tested.
+/// may not enter, which turn it back, are not tested. A soul flies along its heading, which turns
+/// toward its target's left hand, else its caster's within 50 at random along each axis of the
+/// ground, rolled anew at each run, at its turn a second at most (`0x5A7DBF`, #2058).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
 )]
 fn disk(
-    mut commands: Commands,
-    time: Res<Time>,
+    (mut commands, time, mut dice, mut hits): (
+        Commands,
+        Res<Time>,
+        ResMut<Dice>,
+        MessageWriter<fight::Hit>,
+    ),
     mut disks: Query<(Entity, &mut Disk, &mut Transform)>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     casters: Query<&GlobalTransform, Without<Disk>>,
     bodies: Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
     creatures: Query<
@@ -2687,7 +2711,6 @@ fn disk(
         ),
         (Without<Body>, Without<Disk>, Without<Dies>),
     >,
-    mut hits: MessageWriter<fight::Hit>,
 ) {
     let dt = time.delta_secs();
     for (entity, mut disk, mut transform) in &mut disks {
@@ -2764,14 +2787,40 @@ fn disk(
         if disk.target.and_then(live).is_none() {
             disk.target = nearest(None);
         }
-        let toward = match disk.target.and_then(live) {
-            Some((_, at, ..)) => Some(at.translation().xz()),
+        let goal = disk.target.and_then(live).map(|(target, ..)| target);
+        let toward = match goal {
+            Some(target) => casters.get(target).ok().map(|at| at.translation().xz()),
             None => casters
                 .get(disk.caster)
                 .ok()
                 .map(|at| at.translation().xz()),
         };
-        if let Some(toward) = toward {
+        if let Some(heading) = disk.heading {
+            let whom = goal.unwrap_or(disk.caster);
+            let hand = crate::making::bone(whom, &SOUL_HAND, &children, (&bones, &worn))
+                .or_else(|| casters.get(whom).ok().map(GlobalTransform::translation));
+            if let Some(mut point) = hand {
+                if goal.is_none() {
+                    let mut jitter = || {
+                        (fight_seconds(dice.0.below(0x8000)) / 32_767.0 * 100.0 - 50.0)
+                            * crate::iso::MODEL_SCALE
+                    };
+                    point.x += jitter();
+                    point.z += jitter();
+                }
+                let to = (point - transform.translation).normalize_or_zero();
+                let angle = (heading.dot(to) * 0.9999).clamp(-1.0, 1.0).acos();
+                let axis = heading.cross(to).normalize_or_zero();
+                let turned = if axis == Vec3::ZERO {
+                    heading
+                } else {
+                    Quat::from_axis_angle(axis, angle.min(disk.turn * dt)) * heading
+                };
+                let turned = turned.normalize_or(heading);
+                transform.translation += turned * disk.speed * dt;
+                disk.heading = Some(turned);
+            }
+        } else if let Some(toward) = toward {
             let to = toward - here;
             let step = (disk.speed * dt).min(to.length());
             let next = here + to.normalize_or_zero() * step;
