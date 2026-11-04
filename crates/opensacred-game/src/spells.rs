@@ -1763,10 +1763,14 @@ fn act(
                 let damages = bolt_damages(record, level, multipliers);
                 for k in 0..8u8 {
                     // 170 off along the world's sin and cos, only where a creature may stand,
-                    // on the ground there (`0x52555A`, #2050).
+                    // on the ground there (`0x52555A`, `0x636890`; #2050, #2052).
                     let angle = spells::FROST_ANGLE + spells::FROST_STEP * f32::from(k);
                     let at = here + Vec3::new(angle.sin(), 0.0, angle.cos()) * spells::FROST_FROM;
-                    let Some(ground) = heights.standing(at.x, at.z, body.level()) else {
+                    let cell = crate::paths::cell_of(at.x, at.z);
+                    let Some(ground) = heights
+                        .standing(at.x, at.z, body.level())
+                        .filter(|_| heights.walkable_at(cell, body.level()))
+                    else {
                         continue;
                     };
                     let at = at.with_y(ground);
