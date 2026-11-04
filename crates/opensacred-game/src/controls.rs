@@ -1121,6 +1121,31 @@ impl KeysMut<'_> {
         }
         pressed
     }
+
+    /// Takes every key that went down or up this frame from the systems after, but the keys of
+    /// `kept`'s actions: the open console's line has them, the tools keep theirs (#1981).
+    pub fn take_all_but(&mut self, kept: Section) {
+        let controls = self.controls.as_deref().unwrap_or(&DEFAULTS);
+        let taken: Vec<KeyCode> = self
+            .input
+            .get_just_pressed()
+            .chain(self.input.get_just_released())
+            .copied()
+            .filter(|&code| {
+                !Action::all().any(|action| {
+                    action.section() == kept
+                        && controls
+                            .bindings(action)
+                            .iter()
+                            .any(|binding| binding.is(code))
+                })
+            })
+            .collect();
+        for code in taken {
+            self.input.clear_just_pressed(code);
+            self.input.clear_just_released(code);
+        }
+    }
 }
 
 /// The game's keys: the defaults until `main` puts the file's in.
