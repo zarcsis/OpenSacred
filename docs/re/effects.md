@@ -941,6 +941,23 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`choirs`, `opensacred_rules::particles::Choir`): the object that `spells` makes with each creature the choir holds gets a look of its own going with it, its discs a dark shadow on the ground under it and its black wisps rising from it, untinted by the night.
 The original's frames show its strikes on the goblins, 37 a second, but its dark look hard to tell among the lilac lights behind them at the Daemon's start (#2063); the game's shows the shadow under each goblin.
 
+## The magic prison
+
+Read 2026-11-04 for #2063 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game, by day).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| A magic bar or barrier of the scripts | 854 `FX_MAGICPRISON` | `cParticleSystem_magicprison` (`0x898560`) | `0x79C960`, `0x79CA40`, `0x79C9F0`, `0x79CC80` |
+
+- **Seen**: the row of lilac lights along the south-west edge of the Daemon's starting platform is eleven objects 854, one a cell from 344,1727 to 354,1727 (`cell-info` about his cell 352,1722), the scripts' `CreateObj` of their magic bars and barriers (#1964).
+- Its constructor loads `PARTICLE_GLOW03` (`+0x252C`); 100 particles.
+- Its start (`0x79CC80`): one layer (`+0x24A8`: the life −200 a second, the size +10) and one block (`+0x24C8`: the buoyancy 0 ± 20, the size 5 ± 2, the place (0, 0, 50) ± (2, 2, 50), every 0.05 s, times 1.5 and 2.2 at the detail levels 1 and 0); its ramp (`+0x20A8`) the entry `k` of `⌊64 k / 256⌋` red and green and `⌊128 k / 256⌋` blue; `SPELL_BANNKREIS` (2029) once at a rate's factor of 0.5; its flags 0, no light.
+- Its run (`0x79C9F0`): its particles aged and emitted, with no end of its own: it stands until its object goes (`DelNPC`).
+- Its draw (`0x79CA40`): a flat quad (`0x7631E0`) of `PARTICLE_GLOW03` of a half side of 40 in (128, 128, 255), added by its alpha (`SRCALPHA`, `ONE`); then its particles as billboards of the flags `0x19` (the ramp's colour, `ONE`, `ONE`).
+
+`opensacred-game` draws it since #2063 (`prisons`, `opensacred_rules::particles::magic_prison`): `npcs` makes an entity for each `CreateObj` of 854 at its place and the height of its record's `0x7E`, as the fires, which draws its glows and its ground glow untinted by the night and sounds once as it is made.
+**Seen** 2026-11-04 beside the original's frames at the Daemon's start: the same row of lilac lights along the platform's edge, alike in place, height and colour.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).

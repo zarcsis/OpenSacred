@@ -124,6 +124,7 @@ mod pickup;
 mod place_names;
 mod points;
 mod poison_rings;
+mod prisons;
 mod puffs;
 mod purchase;
 mod purgatories;
@@ -511,6 +512,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         pickup::PickupPlugin,
         points::PointsPlugin,
         poison_rings::PoisonRingsPlugin,
+        prisons::PrisonsPlugin,
         puffs::PuffsPlugin,
         purchase::PurchasePlugin,
         purgatories::PurgatoriesPlugin,
@@ -518,9 +520,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         regions::RegionsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
-        ripples::RipplesPlugin,
     ))
     .add_plugins((
+        ripples::RipplesPlugin,
         runes::RunesPlugin,
         save_picture::SavePicturePlugin,
         saves::SavesPlugin,
@@ -535,9 +537,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sets::SetsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
-        shaders::ShaderLibrary,
     ))
     .add_plugins((
+        shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,

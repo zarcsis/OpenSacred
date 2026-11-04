@@ -2463,6 +2463,57 @@ pub struct Choir {
 /// The choir's texture, its wisps at most (`0x5A0C50`'s count for the type 1011), and its discs.
 pub const CHOIR_TEXTURE: &str = "PARTICLE_GLOW01";
 const CHOIR_COUNT: usize = 150;
+
+/// The look of a magic bar or barrier of the scripts, `cParticleSystem_magicprison`
+/// (`FX_MAGICPRISON`, 854, its start `0x79CC80`, its run `0x79C9F0` and its draw `0x79CA40`;
+/// docs/re/effects.md, "The magic prison"), which stands where its record puts it until its
+/// `DelNPC`: glows of `PARTICLE_GLOW03` rising within 2 of its place along the ground and up to
+/// 100 above it, one every 0.05 s, of a half side of 5 ± 2 growing by 10 a second, drifting up or
+/// down by up to 20 a second, living 1.275 s, from (64, 64, 128) to black, added whole (the flags
+/// `0x19`); over a glow of `PARTICLE_GLOW03` on the ground ([`PRISON_GLOW_HALF`]). No light.
+pub fn magic_prison() -> Fire {
+    Fire {
+        texture: PRISON_TEXTURE,
+        layers: vec![Layer {
+            life: -200.0,
+            size: 10.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            buoyancy: spread(0.0, 20.0),
+            size: spread(5.0, 2.0),
+            offset: spread([0.0, 0.0, 50.0], [2.0, 2.0, 50.0]),
+            interval: 0.05,
+            ..Block::default()
+        }],
+        ramps: vec![prison_ramp()],
+        blends: vec![Blend::Add],
+        grid: 1,
+        count: PRISON_COUNT,
+        light: 0.0,
+        tinted: false,
+    }
+}
+
+/// The magic prison's ramp (`+0x20A8`): the entry `k` of `⌊64 k / 256⌋` red and green and
+/// `⌊128 k / 256⌋` blue, from (63, 63, 127) at a glow's birth to black.
+fn prison_ramp() -> Ramp {
+    Ramp(std::array::from_fn(|k| {
+        let k = f32::from(u16::try_from(k).unwrap_or(0));
+        let rg = (64.0 * k / 256.0).trunc() / 255.0;
+        [rg, rg, (128.0 * k / 256.0).trunc() / 255.0, 1.0]
+    }))
+}
+
+/// Its texture, its glows at most (`0x5A0C50`'s count for the type 854), and its glow on the
+/// ground (`0x7631E0`): a half side of 40 in (128, 128, 255), added by its alpha over the opaque
+/// texture.
+pub const PRISON_TEXTURE: &str = "PARTICLE_GLOW03";
+const PRISON_COUNT: usize = 100;
+pub const PRISON_GLOW_HALF: f32 = 40.0;
+pub const PRISON_GLOW_COLOUR: [f32; 4] = [128.0 / 255.0, 128.0 / 255.0, 1.0, 1.0];
+/// Its sound as it is made (`0x79CC80`): `SPELL_BANNKREIS` once, at the rate's factor 0.5.
+pub const PRISON_SOUND: u32 = 2029;
 const CHOIR_DISCS: u8 = 5;
 
 impl Choir {
@@ -3962,6 +4013,30 @@ mod tests {
             soul.update(0.025, (at, at), &mut dice);
         }
         assert!(soul.done());
+    }
+
+    #[test]
+    fn a_magic_prison_stands_a_column_of_lilac_glows() {
+        let mut dice = Rng::of(23, 0x356, 11);
+        let prison = magic_prison();
+        let mut glows = System::new(prison.count);
+        for _ in 0..120 {
+            glows.update(0.025, &prison.layers);
+            glows.emit(&prison.blocks, &prison.layers, prison.count, &mut dice);
+        }
+        // One every 0.05 s living 1.275 s: about 25 at once, in a column up to 100 high.
+        let alive = glows.particles.len();
+        assert!((20..=27).contains(&alive), "{alive}");
+        assert!(glows.particles.iter().all(|p| p.place[0].abs() <= 2.0
+            && p.place[1].abs() <= 2.0
+            && p.place[2] >= -30.0
+            && p.place[2] <= 130.0));
+        assert!(glows.particles.iter().any(|p| p.place[2] > 50.0));
+        assert_eq!(
+            prison.ramps[0].at(255.0)[..3],
+            [63.0 / 255.0, 63.0 / 255.0, 127.0 / 255.0]
+        );
+        assert_eq!(prison.ramps[0].at(0.0)[..3], [0.0; 3]);
     }
 
     #[test]
