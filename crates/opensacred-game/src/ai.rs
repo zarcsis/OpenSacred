@@ -406,11 +406,9 @@ pub(crate) fn way_onto(
     heights: &Heights,
 ) -> bool {
     let from = paths::cell_of(here.x, here.z);
-    let Some(to) = opensacred_rules::ways::nearer(from, paths::cell_of(to.x, to.y), |cell| {
+    let to = opensacred_rules::ways::nearer(from, paths::cell_of(to.x, to.y), |cell| {
         heights.walkable_on(cell, level)
-    }) else {
-        return false;
-    };
+    });
     paths::path_onto(
         (from, (level, false)),
         to,
