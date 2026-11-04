@@ -776,6 +776,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_bolts_leave_from_their_systems_bones() {
+        use crate::bolt_looks::Kind;
+        assert_eq!(bone_of(Kind::Railgun), ["Bip01 R Hand"]);
+        assert_eq!(bone_of(Kind::Emperor), ["Bip01 R Hand"]);
+        assert_eq!(bone_of(Kind::Fireball), ["Bip01 L Hand"]);
+        assert_eq!(bone_of(Kind::Bfg), ["weapon_fx01"]);
+        // The flag 0x01: the fireball's and the Daemon's end under the ground.
+        assert!(ends_underground(Kind::Fireball) && ends_underground(Kind::Emperor));
+        assert!(!ends_underground(Kind::Railgun) && !ends_underground(Kind::Bfg));
+    }
+
+    #[test]
     fn a_bolt_flies_faster_across_the_screen_than_up_it() {
         // Along a world axis, as the railgun of 400 went 570 a second (#2018).
         assert!(
