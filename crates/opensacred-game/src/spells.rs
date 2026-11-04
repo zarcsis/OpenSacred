@@ -1267,7 +1267,6 @@ pub(crate) fn purgatory(
 /// (the hero), with the record's effects and its turning aside at once.
 pub(crate) fn skin(
     commands: &mut Commands,
-    looks: Option<&Looks>,
     (record, level): (&opensacred_data::tables::Spell, u32),
     (caster, bearer, on): (Entity, Entity, Level),
     rate: f32,
@@ -1301,14 +1300,8 @@ pub(crate) fn skin(
         Visibility::Inherited,
         DespawnOnExit(AppState::InGame),
     ));
-    if let Some(looks) = looks {
-        made.with_child((
-            Mesh3d(looks.disc.clone()),
-            MeshMaterial3d(looks.discs[3].clone()),
-            Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
-                .with_translation(Vec3::Y * 4.0),
-        ));
-    }
+    // A creature's fire skin looks as its system's, in blue (`fire_skins`).
+    made.insert(crate::fire_skins::Look { hero: false });
     let mut given = spells::turning(record, level);
     given.extend(spells::effects(record, level));
     give(commands, bearer, given);
@@ -1370,6 +1363,8 @@ pub(crate) fn strikes_about(
         ))));
     } else if record.id == spells::BLADES_OF_LIGHT {
         made.insert(crate::light_blades::Look(caster));
+    } else if record.id == FIRE_SKIN {
+        made.insert(crate::fire_skins::Look { hero: true });
     } else if record.id == spells::LIGHT {
         // Its light at night its second value (`0x7850D0`, the caster's factor 1.0 a hero's).
         made.insert(crate::magic_lights::Look {
@@ -1378,7 +1373,6 @@ pub(crate) fn strikes_about(
         });
     } else if let Some(looks) = looks {
         let look = match record.id {
-            FIRE_SKIN => 3,
             spells::GUST => 4,
             _ => 2,
         };

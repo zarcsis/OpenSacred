@@ -376,7 +376,6 @@ fn act(
                     / 100.0;
                 crate::spells::skin(
                     &mut commands,
-                    looks.as_deref(),
                     (record, level),
                     (entity, cast.target, way.level),
                     rate,

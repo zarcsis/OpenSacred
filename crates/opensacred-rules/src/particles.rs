@@ -2186,6 +2186,52 @@ pub fn maglite_slices() -> impl Iterator<Item = (f32, f32)> {
     })
 }
 
+/// The look of the fire skin, `cParticleSystem_fireskin` (821, its start `0x78BE10`, its run
+/// `0x78BB00` and its draw `0x78BBA0`; docs/re/effects.md, "The fire skin"), on its bearer for its
+/// seconds: a flame every 0.01 s within 15 of its place along x and y, of a half side of 20 ± 10
+/// shrinking by 50 a second, standing on its foot, living 0.73 s and playing its 4 × 4 frames
+/// once over it, white coming up over its first 32 entries and going to black over the rest,
+/// added by its alpha (`0x761B00`'s flags `0x89`); a hero's of `PARTICLE_FIRE02`, a creature's of
+/// `PARTICLE_FIRE09` (`+0xA9`; [`FIRE_SKIN_TEXTURES`]). Its light is 200.
+pub fn fire_skin(hero: bool) -> Fire {
+    let white = |alpha: f32| [1.0, 1.0, 1.0, alpha];
+    Fire {
+        texture: FIRE_SKIN_TEXTURES[usize::from(!hero)],
+        layers: vec![Layer {
+            life: -350.0,
+            size: -50.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            size: spread(20.0, 10.0),
+            offset: spread([0.0; 3], [15.0, 15.0, 0.0]),
+            interval: 0.01,
+            ..Block::default()
+        }],
+        ramps: vec![Ramp::new(
+            white(0.0),
+            &[(white(1.0), 32), ([0.0, 0.0, 0.0, 1.0], 224)],
+        )],
+        blends: vec![Blend::Add],
+        grid: 4,
+        count: FIRE_SKIN_COUNT,
+        light: 200.0,
+        tinted: false,
+    }
+}
+
+/// The fire skin's flames' textures, a hero's and a creature's, and its particles at most.
+pub const FIRE_SKIN_TEXTURES: [&str; 2] = ["PARTICLE_FIRE02", "PARTICLE_FIRE09"];
+const FIRE_SKIN_COUNT: usize = 100;
+/// The fire skin's glow under it while it burns (`0x7631E0`): `PARTICLE_GLOW03` of a half side of
+/// 60, flat on the ground and added whole, a hero's (255, 192, 1), a creature's (64, 64, 255).
+pub const FIRE_SKIN_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const FIRE_SKIN_GLOW_HALF: f32 = 60.0;
+pub const FIRE_SKIN_GLOW_COLOURS: [[f32; 4]; 2] = [
+    [1.0, 192.0 / 255.0, 1.0 / 255.0, 1.0],
+    [64.0 / 255.0, 64.0 / 255.0, 1.0, 1.0],
+];
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2613,6 +2659,32 @@ mod tests {
         assert_eq!(slices[0], (-25.0, 2_400.0_f32.sqrt()));
         assert_eq!(slices[10], (0.0, 55.0));
         assert_eq!(slices[20].0, 25.0);
+    }
+
+    #[test]
+    fn the_fire_skin_burns_flames_about_its_bearer() {
+        let mut dice = Rng::of(14, 0x335, 2);
+        let skin = fire_skin(true);
+        assert_eq!(skin.texture, "PARTICLE_FIRE02");
+        assert_eq!(fire_skin(false).texture, "PARTICLE_FIRE09");
+        let mut flames = System::new(skin.count);
+        for _ in 0..40 {
+            flames.update(0.025, &skin.layers);
+            flames.emit(&skin.blocks, &skin.layers, skin.count, &mut dice);
+        }
+        // A flame every 0.01 s, living up to 0.73 s but shrinking out at 50 a second: under 73.
+        let alive = flames.particles.len();
+        assert!((25..=73).contains(&alive), "{alive}");
+        assert!(
+            flames
+                .particles
+                .iter()
+                .all(|p| p.place[0].abs() <= 15.0 && p.place[2] == 0.0)
+        );
+        // Born transparent, at its whitest 32 entries on, black at its death.
+        assert_eq!(skin.ramps[0].at(255.0)[3], 0.0);
+        assert_eq!(skin.ramps[0].at(224.0), [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(skin.ramps[0].at(0.0), [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
