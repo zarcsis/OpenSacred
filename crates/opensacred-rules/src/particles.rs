@@ -2842,6 +2842,149 @@ pub fn rune_colours(t: f32) -> ([f32; 4], [f32; 4], [[f32; 4]; 3]) {
 /// Its sparks at most (`0x5A0C50`'s count for the type 805).
 const RUNE_SPARKS: usize = 50;
 
+/// The look of an object of the ring of frost 35, `cParticleSystem_circleofice` (840, its start
+/// `0x78E070`, its run `0x78DC10` and its draw `0x78DD00`; docs/re/effects.md, "The ring of
+/// frost"), where it stands for its seconds: for its first 1.5 s a strike of light flickering
+/// down on its place ([`ICE_STRIKE_QUAD`]), its frame of eight rolled anew every 0.07 s, over a
+/// glow; then a burst of sparks falling about it, and its iceberg ([`ICE_MODELS`], turned at
+/// random) standing on a wider glow to its end. Its light is 150.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Iceberg {
+    pub sparks: System,
+    /// Its clock (`+0x20A0`).
+    pub clock: f32,
+    /// Its strike's frame (`+0x20B4`, 0 to 7): its texture the half of it, its half of the
+    /// texture's breadth the rest ([`Iceberg::strike`]).
+    pub frame: u8,
+    /// Its iceberg's angle about the upright (`+0x20AC`) and its model of the four (`+0x21C4`).
+    pub turn: f32,
+    pub model: usize,
+    seconds: f32,
+    flicker: f32,
+    stands: bool,
+}
+
+/// The strikes' textures (`+0x21D4`, two frames each), their quad (`+0x2144`: from −60 to 60
+/// across and −40 to 400 up, the texture's `u` up it and its `v` across), the glow's texture and
+/// its half sides while it strikes and while it stands, the colours of a hero's and a
+/// creature's (`+0x20B8`, white and `0xFFFF4040`), the icebergs, their textures (a hero's and a
+/// creature's), the sparks' texture and the light.
+pub const ICE_STRIKES: [&str; 4] = [
+    "FX_LIGHTSTRIKE01",
+    "FX_LIGHTSTRIKE02",
+    "FX_LIGHTSTRIKE03",
+    "FX_LIGHTSTRIKE04",
+];
+pub const ICE_STRIKE_QUAD: [f32; 4] = [-60.0, 60.0, -40.0, 400.0];
+pub const ICE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const ICE_GLOW_HALVES: [f32; 2] = [25.0, 50.0];
+pub const ICE_COLOURS: [[f32; 4]; 2] = [[1.0; 4], [1.0, 64.0 / 255.0, 64.0 / 255.0, 1.0]];
+pub const ICE_MODELS: [&str; 4] = [
+    "ICEBERG01.GRN",
+    "ICEBERG02.GRN",
+    "ICEBERG03.GRN",
+    "ICEBERG04.GRN",
+];
+pub const ICE_TEXTURES: [&str; 2] = ["ICEBERG", "ICEBERG2"];
+pub const ICE_SPARK_TEXTURE: &str = "PARTICLE_SPARK02";
+pub const ICE_LIGHT: f32 = 150.0;
+/// How long it strikes, how often its strike's frame changes, and its sparks (`0x5A0C50`'s count
+/// for the type 840, all of them in its burst).
+const ICE_STRIKES_FOR: f32 = 1.5;
+const ICE_FLICKER: f32 = 0.07;
+const ICE_SPARKS: usize = 50;
+
+impl Iceberg {
+    /// An object of the ring of frost for `seconds` (`0x78D870`, `0x78E070`): its iceberg's model
+    /// rolled first, as its constructor rolls it, then its angle.
+    pub fn new(seconds: f32, dice: &mut impl Dice) -> Self {
+        let model = usize::try_from(dice.below(4)).unwrap_or(0);
+        let turn = share(dice) * std::f32::consts::TAU;
+        Self {
+            sparks: System::new(ICE_SPARKS),
+            clock: 0.0,
+            frame: 0,
+            turn,
+            model,
+            seconds,
+            flicker: 0.0,
+            stands: false,
+        }
+    }
+
+    /// Its sparks' layer (`+0x20BC`): the life −150 a second.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -150.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its sparks' ramp (`+0x21FC`): the grey of its entry, from white at their birth to black.
+    pub fn ramp() -> Ramp {
+        Ramp(std::array::from_fn(|k| {
+            let grey = f32::from(u8::try_from(k).unwrap_or(u8::MAX)) / 255.0;
+            [grey, grey, grey, 0.0]
+        }))
+    }
+
+    /// Its sparks' block (`+0x20DC`): the size 10, 30 up within 30 of its place along each axis,
+    /// flying at up to 10 along each, falling by 140 ± 20 a second.
+    fn burst() -> Block {
+        Block {
+            buoyancy: spread(140.0, 20.0),
+            size: spread(10.0, 0.0),
+            velocity: spread([0.0; 3], [10.0; 3]),
+            offset: spread([0.0, 0.0, 30.0], [30.0; 3]),
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds (`0x78DC10`): striking, its frame rolled anew every 0.07 s, and past
+    /// 1.5 s its burst; standing, its sparks age, bouncing on the ground.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.clock += dt;
+        if self.stands {
+            self.sparks.update_over(dt, &[Self::layer()], Some(0.0));
+            return;
+        }
+        if self.clock > ICE_STRIKES_FOR {
+            let block = Self::burst();
+            for _ in 0..ICE_SPARKS {
+                self.sparks.particles.push(born(&block, 0, dice));
+            }
+            self.stands = true;
+        }
+        self.flicker += dt;
+        if self.flicker > ICE_FLICKER {
+            self.flicker -= ICE_FLICKER;
+            self.frame = u8::try_from(dice.below(8)).unwrap_or(0);
+        }
+    }
+
+    /// Whether it strikes yet, before its iceberg stands.
+    pub fn striking(&self) -> bool {
+        !self.stands
+    }
+
+    /// Its strike's texture (of [`ICE_STRIKES`]) and the texture's breadth it takes, from its
+    /// left edge to its right: an even frame's from a half to nothing, an odd frame's from all of
+    /// it to a half.
+    pub fn strike(&self) -> (usize, [f32; 2]) {
+        let texture = usize::from(self.frame / 2);
+        if self.frame.is_multiple_of(2) {
+            (texture, [0.5, 0.0])
+        } else {
+            (texture, [1.0, 0.5])
+        }
+    }
+
+    /// Whether it ended: standing past its seconds.
+    pub fn done(&self) -> bool {
+        self.stands && self.clock > self.seconds
+    }
+}
+
 impl Rune {
     /// A rune of `seconds`.
     pub fn new(seconds: f32) -> Self {
@@ -3496,6 +3639,38 @@ mod tests {
             puffs.update(0.025, &fog.layers);
         }
         assert!(puffs.particles.is_empty());
+    }
+
+    #[test]
+    fn a_ring_of_frosts_object_strikes_bursts_and_stands_its_iceberg() {
+        let mut dice = Rng::of(19, 0x348, 7);
+        let mut ice = Iceberg::new(25.0, &mut dice);
+        assert!(ice.model < 4 && (0.0..=std::f32::consts::TAU).contains(&ice.turn));
+        let mut frames = std::collections::BTreeSet::new();
+        for _ in 0..59 {
+            ice.update(0.025, &mut dice);
+            frames.insert(ice.frame);
+        }
+        // It strikes for 1.5 s, its frame of eight flickering; no sparks yet.
+        assert!(ice.striking() && ice.sparks.particles.is_empty());
+        assert!(frames.len() > 4 && frames.iter().all(|&frame| frame < 8));
+        ice.update(0.025, &mut dice);
+        ice.update(0.025, &mut dice);
+        assert!(!ice.striking());
+        assert_eq!(ice.sparks.particles.len(), 50);
+        // Its sparks fall onto the ground and die within 1.7 s; it stands to its 25 s.
+        for _ in 0..80 {
+            ice.update(0.025, &mut dice);
+        }
+        assert!(ice.sparks.particles.is_empty() && !ice.done());
+        for _ in 0..900 {
+            ice.update(0.025, &mut dice);
+        }
+        assert!(ice.done());
+        assert_eq!(Iceberg::ramp().at(255.0), [1.0, 1.0, 1.0, 0.0]);
+        let mut odd = Iceberg::new(1.0, &mut dice);
+        odd.frame = 5;
+        assert_eq!(odd.strike(), (2, [1.0, 0.5]));
     }
 
     #[test]
