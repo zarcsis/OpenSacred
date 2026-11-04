@@ -390,6 +390,20 @@ impl Body {
         self.order = Some((target, level));
     }
 
+    /// Its course found again from where it stands at its next step, where it heads for a leg
+    /// short of its target: a queue's walk sets its target again at each tick of the world while
+    /// it moves, which its moving action takes for a new one and searches again (`0x59A885`,
+    /// `0x4F5EFF`; docs/re/movement.md, "Searching again"), so that the leg moves on with it.
+    pub fn steer(&mut self) {
+        if self
+            .course
+            .as_ref()
+            .is_some_and(|(leg, _)| Some(*leg) != self.target)
+        {
+            self.course = None;
+        }
+    }
+
     /// Stops it where it stands, with any order it has yet to take.
     pub fn stop(&mut self) {
         self.order = None;
@@ -1462,6 +1476,20 @@ impl Plugin for HeroPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_queue_steers_a_body_short_of_its_target_only() {
+        let (far, leg) = (Vec3::new(5000.0, 0.0, 0.0), Vec3::new(1400.0, 0.0, 0.0));
+        let mut body = Body::standing();
+        body.target = Some(far);
+        body.course = Some((leg, paths::Course::Straight(Vec2::ZERO)));
+        body.steer();
+        assert!(body.course.is_none());
+        // Its leg its target: its course kept.
+        body.course = Some((far, paths::Course::Straight(Vec2::ZERO)));
+        body.steer();
+        assert!(body.course.is_some());
+    }
 
     #[test]
     fn an_item_worn_takes_off_the_default_of_its_slot() {

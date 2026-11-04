@@ -1268,6 +1268,20 @@ const AT_LEG: f32 = 1.0;
 pub struct Still;
 
 impl Walk {
+    /// Its course found again from where it stands at its next step, where it heads for a leg
+    /// short of its target: a queue's walk sets its target again at each tick of the world while
+    /// it moves, which its moving action takes for a new one and searches again (`0x59A885`,
+    /// `0x4F5EFF`; docs/re/movement.md, "Searching again"), so that the leg moves on with it.
+    pub fn steer(&mut self) {
+        if self
+            .course
+            .as_ref()
+            .is_some_and(|(leg, _)| *leg != self.target)
+        {
+            self.course = None;
+        }
+    }
+
     /// A walk to `target` from `level` at `speed`, in world units a second before the game's
     /// speed.
     pub fn to(target: Vec3, level: Level, speed: f32) -> Self {
@@ -7440,7 +7454,7 @@ fn take_steps(
             Option<&ai::Mind>,
             Option<&mut crowd::InTheWay>,
             Option<&mut buildings::Layered>,
-            Has<Walk>,
+            Option<&mut Walk>,
             (
                 Has<ScriptClip>,
                 Has<Plays>,
@@ -7464,10 +7478,11 @@ fn take_steps(
         mind,
         way,
         layered,
-        walking,
+        mut walk,
         (clip, plays, phasing, (ordered, casting)),
     ) in &mut creatures
     {
+        let walking = walk.is_some();
         let here = transform.translation;
         let level = way.as_ref().and_then(|way| way.level);
         let done = match queue.0.front_mut() {
@@ -7479,6 +7494,10 @@ fn take_steps(
                 noted,
             }) => {
                 if walking || mind.is_some_and(|mind| mind.fighting()) {
+                    // Steered while it goes ([`Walk::steer`]).
+                    if let Some(walk) = walk.as_deref_mut() {
+                        walk.steer();
+                    }
                     false
                 } else {
                     let onto = *onto.get_or_insert(level);
@@ -8095,7 +8114,8 @@ fn queued_sound(id: u32) -> sfx::Play {
 /// Takes the first step of the hero's [`ScriptQueue`] at each tick of the world, as the hero's
 /// update steps its queue as a creature's (`0x5375C0` calling `0x59A840` for the local hero, seen
 /// in `annehmen2003`'s run, #1280): a walk orders the hero to its target at a run, the player's
-/// gait set to it (`+0x1F8` 2, seen kept after), waits while it goes, and ends once it stands
+/// gait set to it (`+0x1F8` 2, seen kept after), steers it while it goes (its course found again
+/// from where it stands at each tick, [`hero::Body::steer`]), and ends once it stands
 /// within 40 of the target along each axis on the walk's level, or once it was ordered more than
 /// five times without the hero moving; a teleport puts it there as the scripts' `Teleport` puts a
 /// player. The Sacred campaign queues no other step for the hero. The queue goes once empty.
@@ -8126,6 +8146,7 @@ fn take_hero_steps(
             noted,
         }) => {
             if body.target().is_some() || body.ordered() {
+                body.steer();
                 false
             } else {
                 let onto = *onto.get_or_insert(level);
@@ -9861,6 +9882,18 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn a_queue_steers_a_walk_short_of_its_target_only() {
+        let (far, leg) = (Vec3::new(5000.0, 0.0, 0.0), Vec3::new(1400.0, 0.0, 0.0));
+        let mut walk = Walk::run(far, None, 276.0);
+        walk.course = Some((leg, paths::Course::Straight(Vec2::ZERO)));
+        walk.steer();
+        assert!(walk.course.is_none());
+        walk.course = Some((far, paths::Course::Straight(Vec2::ZERO)));
+        walk.steer();
+        assert!(walk.course.is_some());
+    }
 
     #[test]
     fn a_piece_carried_already_is_taken_out_of_the_equipment_once() {
