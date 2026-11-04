@@ -633,7 +633,7 @@ fn picture_name(file: &str) -> String {
 fn show(
     mut commands: Commands,
     (shown, page): (Res<Shown>, Res<Page>),
-    (images, assets): (Res<UiImages>, Res<AssetServer>),
+    (images, assets, controls): (Res<UiImages>, Res<AssetServer>, crate::controls::Keys),
     (mut arts, pictures, forms): (
         Option<ResMut<HeroArts>>,
         Option<Res<Pictures>>,
@@ -782,8 +782,15 @@ fn show(
                 .id();
             commands.entity(root).add_child(child);
         }
-        // The key's name over the art (`0x6C25A0`).
-        if let Some(&(_, key)) = keys.iter().find(|&&(a, _)| a == art) {
+        // The key's name over the art (`0x6C25A0`'s `F%d`), the first of its action's keys as
+        // `controls.toml` names them (#1980).
+        let name = keys
+            .iter()
+            .find(|&&(a, _)| a == art)
+            .and_then(|&(_, key)| crate::controls::ART_KEYS.get(usize::from(key).checked_sub(1)?))
+            .and_then(|&action| controls.controls().bindings(action).first())
+            .map(crate::controls::Binding::name);
+        if let Some(name) = name {
             let child = commands
                 .spawn((
                     Node {
@@ -792,7 +799,7 @@ fn show(
                         top: Val::Px(at.y + KEY_AT.y),
                         ..default()
                     },
-                    Text::new(format!("F{key}")),
+                    Text::new(name),
                     TextFont {
                         font: assets.load::<Font>(FONT).into(),
                         font_size: FontSize::Px(KEY_FONT),
