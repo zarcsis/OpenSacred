@@ -511,6 +511,9 @@ Other makers of these types, not followed: 801 at `0x4D3FA8` and `0x4E369E`; 778
 
 - The system flag `0x10` is the flight (`0x5A67D2` in `0x5A6680`): at each run the system's place moves by its whole speed `+0x98` times the time along its direction `+0x78` to `+0x80`, the direction turns by `+0x8C` (for the type 778 alone its height's part shrinks by 0.9 at each run, `0x5A67F8`), and the object goes to the system's place (`0x5AA330`).
   The flight gathers its targets (`0x5AB490`, `0x5ABD80` at `0x5A694E`) and tests its cell (`0x636D70`, `0x636D20`); a cell that stops it writes `+0x74` 2 (`0x7CBA10`, `0x5A6AEA`).
+- The system flies in a frame of its own whose axes lie along the screen's horizontal and vertical on the ground, and the object follows it to the ground through the view (`0x5AA330` by `0x623AD0`, its globals `0xAD7788` to `0xAD77A4` not read): the frame's first axis goes to the world's (1, −1) direction scaled by 1.516 (`MODEL_SCALE`), its second to (1, 1) scaled by `2/√5` of that, 1.356, the camera's tilt.
+  So a flight of the speed `v` along the world's unit heading `w` goes `v / √((a / 1.516)² + (b / 1.356)²)` world units a second, `a` and `b` the shares of `w` along the screen's horizontal and vertical: 1.43 `v` along a world axis.
+  **Seen** 2026-11-04 (#2018, a probe at `0x5A67E9`): the railgun of 400 went 570 world units a second along the world's x, its direction (0.667, 0.745) in its frame, and as fast along the world's y, its direction (−0.667, 0.745).
 - The flag `0x01` ends a flyer under the ground (`0x5AA3CE`, the ground `0x636310` above it: `+0x74` 1, an end at once); 778 (flags `0x51`) and 1159 (`0x53`) have it, 801 and 875 (`0x50`) not.
 - The flag `0x40` puts the system once at its followed object's (`+0x68`) bone (`+0x70`), with the bone's turn, in the object's draw (`0x5A9CAF` to `0x5A9D5C`), and clears itself; so a bolt leaves from its bone and keeps its height (**seen**: the railgun flies at her hand's height over the goblin's head).
 - `+0x74`, a word written whole (`0x7CBA10`): 1 ends the system at once, 2 tells its update that it hit or stopped.
@@ -559,7 +562,8 @@ Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540
 ### In `opensacred-game`
 
 The four bolts look as their systems since #1092's first family (`bolt_looks`, `opensacred_rules::particles::{Firestrike, Emperor, bfg_greys, age_frame}`): each look an entity of its own that follows its bolt and outlives it as its system does (the fireball's flames burning out, the emperor's flare on its target's neck), told of its bolt's end (`bolt_looks::Ended`), untinted by the night, their sizes at the models' scale.
-Not followed: their lights and the fireball's point light (#61), the looks of a caster gone (`+0xA9` 1), the bolts' height, which the game keeps 80 over the ground under them rather than their bones', and the units of their flight (#2018).
+Their flight follows the frame's map since #2018 (`bolts::flight_scale`), every bolt's: the railgun's, the BFG's, the fireball's, the Daemon's, the whirlwinds', the splinters', the bubble's and the fire bolt's.
+Not followed: their lights and the fireball's point light (#61), the looks of a caster gone (`+0xA9` 1), and the bolts' height, which the game keeps 80 over the ground under them rather than their bones' (#2018).
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
 ## In `opensacred-game`
