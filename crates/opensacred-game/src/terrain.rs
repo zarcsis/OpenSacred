@@ -888,11 +888,6 @@ impl Heights {
         self.liquids.get(&sector).copied()
     }
 
-    /// The nature of the cell at world `(x, z)`.
-    pub fn nature(&self, x: f32, z: f32) -> Option<u8> {
-        self.cell(x, z).map(|(cell, _, _)| cell.nature)
-    }
-
     /// The nature a creature's step on the cell at world `(x, z)` sounds by, as the client's
     /// `0x639080` gives it to the footstep: `BRIDGE` on a bridge over a liquid ([`bridged`]),
     /// else the cell's own.
@@ -2269,9 +2264,6 @@ mod tests {
             [1.0, 2.0, 3.0, 4.0, 5.0, 6.0].map(nature),
             [BRIDGE, 9, 9, 9, BRIDGE, 4]
         );
-        // The ambient loop takes the cell's own nature.
-        let p = iso::ground(1.5, 0.5);
-        assert_eq!(heights.nature(p.x, p.z), Some(9));
     }
 
     #[test]

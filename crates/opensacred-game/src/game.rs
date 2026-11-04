@@ -725,7 +725,7 @@ fn load(
     } else {
         Some((
             music::Music::new(&shared.world, sound),
-            atmosphere::Atmosphere::new(sound),
+            atmosphere::Atmosphere::default(),
         ))
     };
     Ok(Loaded {

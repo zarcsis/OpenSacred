@@ -1169,7 +1169,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     let shared = world.resource::<Data>().0.clone();
                     let sound = world.resource::<crate::sound::Index>().clone();
                     let music = music::Music::new(&shared.world, &sound.0);
-                    let atmosphere = atmosphere::Atmosphere::new(&sound.0);
+                    let atmosphere = atmosphere::Atmosphere::default();
                     world.insert_resource(music);
                     world.insert_resource(atmosphere);
                     Ok(Outcome::say("the music is on"))

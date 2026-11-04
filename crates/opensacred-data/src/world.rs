@@ -63,10 +63,12 @@ pub struct SectorEntry {
     /// The sector's weather, its entries in order (docs/re/weather.md), none for most sectors.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub weather: Vec<SectorWeather>,
-    /// The byte by which crows (`0x10`) or bats (`0x80`) fly over the camera in the sector, any
-    /// other value but 0 running their timer alone (`sectors.keyx +0x1D8`, docs/re/weather.md).
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub fliers: u8,
+    /// The sector's nature (`sectors.keyx +0x1D8`, a cell's nature byte): crows (`0x10`) or bats
+    /// (`0x80`) fly over the camera in the sector by it, any other value but 0 running their timer
+    /// alone (docs/re/weather.md), and the ambient loop is chosen by it (docs/re/sound.md); named
+    /// `fliers` in a `world.ron` written before #1093.
+    #[serde(default, alias = "fliers", skip_serializing_if = "is_zero")]
+    pub nature: u8,
 }
 
 /// Whether `byte` is 0, which `world.ron` leaves out.
@@ -460,5 +462,15 @@ mod tests {
             Sector::decode(b"not zlib"),
             Err(DecodeError::Inflate(_))
         ));
+    }
+
+    #[test]
+    fn a_sectors_nature_reads_by_its_old_name_too() {
+        let entry = |field: &str| {
+            let text =
+                format!(r#"(x: 53, y: 45, id: 7, file: "sectors/53-45.sector", {field}: 48)"#);
+            ron::from_str::<SectorEntry>(&text).unwrap().nature
+        };
+        assert_eq!((entry("nature"), entry("fliers")), (0x30, 0x30));
     }
 }

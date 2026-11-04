@@ -96,8 +96,8 @@ pub struct Once;
 
 #[derive(Resource)]
 pub struct Music {
-    /// Each sector's music and area, by the sector, and the track of each music.
-    sectors: HashMap<(u32, u32), (u32, u8)>,
+    /// Each sector's music, area and nature, by the sector, and the track of each music.
+    sectors: HashMap<(u32, u32), (u32, u8, u8)>,
     tracks: HashMap<u32, String>,
     /// Each sound's id by its name, lower-cased, and the ambient loops' ids (`ATMO…`), which play
     /// at the effects' level.
@@ -121,8 +121,10 @@ pub struct Music {
     playing: Option<Playing>,
     /// The death's music, held while it plays.
     once: Option<Handle<AudioSource>>,
-    /// The music of the hero's sector, its overrides applied (`+0x692`).
+    /// The music of the hero's sector, its overrides applied (`+0x692`), and its nature
+    /// (`+0xA36`), the last sector's of music in a sector without.
     region: Option<u32>,
+    nature: u8,
     /// The fights' weighing, the fight's music that takes the channel, and whether it cuts in
     /// at once.
     fight: Fight,
@@ -148,7 +150,7 @@ impl Music {
             .sectors
             .iter()
             .filter(|s| s.music != 0)
-            .map(|s| ((s.x, s.y), (s.music, s.area)))
+            .map(|s| ((s.x, s.y), (s.music, s.area, s.nature)))
             .collect();
         let tracks: HashMap<u32, String> = sound
             .music
@@ -185,6 +187,7 @@ impl Music {
             playing: None,
             once: None,
             region: None,
+            nature: 0,
             fight: Fight::default(),
             fighting: None,
             cut: false,
@@ -226,11 +229,12 @@ impl Music {
         self.once(id, once, assets);
     }
 
-    /// The hero in `sector`, whose music is `here`, its overrides applied, none for a sector
-    /// without music. A sector of music come into gives the stream what its phase holds, unless
-    /// the scripts hold it (the region's event, `0x6824AF`); a sector without music posts no
-    /// region's event (`0x626915`), so that the region's music stays the last sector's of one.
-    fn stand(&mut self, sector: (u32, u32), here: Option<u32>) {
+    /// The hero in `sector`, whose music, its overrides applied, and nature are `here`, none for a
+    /// sector without music. A sector of music come into gives the stream what its phase holds,
+    /// unless the scripts hold it (the region's event, `0x6824AF`); a sector without music posts
+    /// no region's event (`0x626915`), so that the region's music and the nature stay the last
+    /// sector's of one.
+    fn stand(&mut self, sector: (u32, u32), here: Option<(u32, u8)>) {
         if self.sector.is_some_and(|before| before != sector)
             && here.is_some()
             && !self.stream.controlled()
@@ -238,10 +242,25 @@ impl Music {
             self.scripted = None;
         }
         self.sector = Some(sector);
-        if here.is_some() {
-            self.region = here;
+        if let Some((music, nature)) = here {
+            self.region = Some(music);
+            self.nature = nature;
         }
         self.spot = self.region.is_some_and(|id| SPOTS.contains(&id));
+    }
+
+    /// The ambient loop that the place calls for, the dusk and the night's by `night`
+    /// (`opensacred_rules::music::ambient_loop`): its id and its track, none where the original
+    /// plays none, or before the first sector of music.
+    pub fn place_loop(&self, night: bool) -> Option<(u32, &str)> {
+        let id = opensacred_rules::music::ambient_loop(self.region?, self.nature, night)?;
+        Some((id, self.tracks.get(&id)?.as_str()))
+    }
+
+    /// Whether the sound `id` is an ambient loop by its name (`ATMO…`), played at the effects'
+    /// level rather than the music's (`0x69C4BB`).
+    pub fn atmo(&self, id: u32) -> bool {
+        self.atmo.contains(&id)
     }
 
     /// Whether the scripts hold the stream, so that the ambient loop does not change either.
@@ -429,18 +448,19 @@ pub fn alternate(
     let here = music
         .sectors
         .get(&sector)
-        .map(|&(id, area)| music_of(id, area, bits(SIEGES), bits(CHANGES)));
+        .map(|&(id, area, nature)| (music_of(id, area, bits(SIEGES), bits(CHANGES)), nature));
     music.stand(sector, here);
     let has_music = !music.spot
         && music
             .region
             .is_some_and(|id| music.tracks.contains_key(&id));
     // The dusk's and the night's events ask for the ambient loop (`0x691310`), and a music that
-    // cannot open does in its phase.
+    // cannot open does in its phase; where the place has no loop, the music plays on.
     let dark = matches!(
         clock.phase(),
         daynight::Phase::Dusk | daynight::Phase::Night
     );
+    let has_loop = music.place_loop(dark).is_some();
     if (dark && !music.dark) || (!has_music && !music.spot) {
         music.stream.now();
     }
@@ -449,9 +469,10 @@ pub fn alternate(
     let seconds = f64::from(time.delta_secs());
     // A fight's music holds the cycle, its timer counting on (`+0xAF28`).
     let holds = music.spot || music.fighting.is_some();
-    if let Some(phase) = music
-        .stream
-        .frame(seconds, (!dark, holds), (crossfading, has_music))
+    if let Some(phase) =
+        music
+            .stream
+            .frame(seconds, (!dark, holds), (crossfading, has_music, has_loop))
     {
         debug!("music: the peace stream turns to {phase:?}");
         music.fading = now + FADE;
@@ -723,7 +744,7 @@ mod tests {
         // The ambient phase: the music silent, a spot loop playing.
         music.stream.begin(0);
         music.stream.now();
-        music.stream.frame(0.0, (true, false), (false, true));
+        music.stream.frame(0.0, (true, false), (false, true, true));
         assert!(music.ambient());
         assert_eq!(wanted(&music, Some(0x1980)), None);
         assert_eq!(wanted(&music, Some(0x1968)), Some(0x1968));
@@ -767,17 +788,17 @@ mod tests {
         // Before any sector of music, none: the ambient loop's.
         music.stand((53, 45), None);
         assert_eq!(music.region, None);
-        music.stand((50, 39), Some(0x1980));
+        music.stand((50, 39), Some((0x1980, 0x40)));
         assert_eq!(wanted(&music, music.region), Some(0x1980));
-        // Into 53,45, of no music: the region's music and the scripts' stay.
+        // Into 53,45, of no music: the region's music, its nature and the scripts' music stay.
         music.scripted = Some(0x1954);
         music.stand((53, 45), None);
         assert_eq!(
-            (music.region, music.scripted, music.spot),
-            (Some(0x1980), Some(0x1954), false)
+            (music.region, music.nature, music.scripted, music.spot),
+            (Some(0x1980), 0x40, Some(0x1954), false)
         );
         // The cemetery's spot loop holds there too.
-        music.stand((50, 40), Some(0x1968));
+        music.stand((50, 40), Some((0x1968, 0x30)));
         music.stand((53, 45), None);
         assert!(music.spot);
         assert_eq!(wanted(&music, music.region), Some(0x1968));
