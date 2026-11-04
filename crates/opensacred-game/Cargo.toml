@@ -21,6 +21,7 @@ bevy_kira_audio.workspace = true
 clap.workspace = true
 # The game's own texts, Fluent files of the crate (`own_texts`, #1986).
 fluent-syntax.workspace = true
+jiff.workspace = true
 kira.workspace = true
 opensacred-data.workspace = true
 opensacred-rules.workspace = true
@@ -41,6 +42,8 @@ toml_edit.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 rfd.workspace = true
+# The user's short date's pattern, which the saves' window writes its dates in (#1990).
+winreg.workspace = true
 
 [lints]
 workspace = true

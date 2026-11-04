@@ -120,6 +120,7 @@ mod ripples;
 mod runes;
 mod save_picture;
 mod saves;
+mod saves_window;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
@@ -487,6 +488,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         save_picture::SavePicturePlugin,
         saves::SavesPlugin,
+        saves_window::SavesWindowPlugin,
         screenshot::ScreenshotPlugin,
         script_attacks::ScriptAttacksPlugin,
         script_particles::ScriptParticlesPlugin,
@@ -499,9 +501,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-        skies::SkiesPlugin,
     ))
     .add_plugins((
+        skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
         sparkles::SparklesPlugin,
@@ -554,6 +556,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(menu::Images::find(&assets))
     .insert_resource(menu::Words::read(&assets))
     .insert_resource(choice::Images::find(&assets))
+    .insert_resource(saves_window::Images::find(&assets))
     .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(
         Update,

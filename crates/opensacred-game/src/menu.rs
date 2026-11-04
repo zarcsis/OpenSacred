@@ -32,6 +32,8 @@ pub enum Screen {
     Multiplayer,
     Extras,
     Heroes,
+    /// The saves' window for loading (`saves_window`, #1990).
+    Load,
     Underworld,
 }
 
@@ -80,13 +82,12 @@ impl Item {
         }
     }
 
-    /// Whether it does anything yet: multiplayer waits for M9, the options for #1096, the saves for
-    /// #1095, the credits for #1110.
+    /// Whether it does anything yet: multiplayer waits for M9, the options for #1096, the credits
+    /// for #1110.
     fn works(self) -> bool {
         !matches!(
             self,
             Self::Options
-                | Self::LoadGame
                 | Self::LocalNetwork
                 | Self::ClosedInternet
                 | Self::OpenInternet
@@ -140,7 +141,7 @@ fn rows(screen: Screen, movies: &Movies) -> Vec<(Item, u8)> {
             rows.push((Item::Back, back));
             rows
         }
-        Screen::Heroes | Screen::Underworld => Vec::new(),
+        Screen::Heroes | Screen::Underworld | Screen::Load => Vec::new(),
     }
 }
 
@@ -508,12 +509,12 @@ fn act(
         Item::Underworld => screen.set(Screen::Underworld),
         Item::Multiplayer => screen.set(Screen::Multiplayer),
         Item::Extras => screen.set(Screen::Extras),
+        Item::LoadGame => screen.set(Screen::Load),
         Item::Back => screen.set(Screen::Main),
         Item::Quit => {
             exit.write(AppExit::Success);
         }
         Item::Options
-        | Item::LoadGame
         | Item::LocalNetwork
         | Item::ClosedInternet
         | Item::OpenInternet

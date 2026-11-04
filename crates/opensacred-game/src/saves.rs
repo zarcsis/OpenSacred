@@ -231,6 +231,73 @@ pub fn list(dir: &Path) -> Vec<(String, Header)> {
     saves
 }
 
+/// A slot's save as the saves' window lists it (#1990): its file's name, its header and its
+/// picture.
+#[derive(Clone, Debug)]
+pub struct Slot {
+    pub stem: String,
+    pub header: Header,
+    pub picture: Option<Picture>,
+}
+
+/// Whether `stem` names a slot's file: `GAME` and digits as its fifth and sixth characters
+/// (`0x71EAA0`), the slot 0 the quick save's.
+fn slot_of(stem: &str) -> Option<u32> {
+    let rest = stem.strip_prefix("GAME")?;
+    let digits = rest.get(..2)?;
+    digits
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| rest.parse().ok())
+        .flatten()
+}
+
+/// The slots' saves in `dir` (`0x71EAA0`): the quick save of the slot 0 apart, the others by
+/// their files' names as text, as the original sorts them; a file that does not read is left out.
+pub fn slots(dir: &Path) -> (Option<Slot>, Vec<Slot>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return (None, Vec::new());
+    };
+    let mut slots: Vec<(u32, Slot)> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == EXTENSION))
+        .filter_map(|path| {
+            let stem = path.file_stem()?.to_string_lossy().into_owned();
+            let slot = slot_of(&stem)?;
+            let bytes = fs::read(&path).ok()?;
+            let (header, picture, _) = header(&bytes).ok()?;
+            Some((
+                slot,
+                Slot {
+                    stem,
+                    header,
+                    picture,
+                },
+            ))
+        })
+        .collect();
+    slots.sort_by(|a, b| a.1.stem.cmp(&b.1.stem));
+    let quick = slots
+        .iter()
+        .position(|(slot, _)| *slot == 0)
+        .map(|at| slots.remove(at).1);
+    (quick, slots.into_iter().map(|(_, slot)| slot).collect())
+}
+
+/// The saves' directory of this run.
+pub fn saves_directory(world: &bevy::prelude::World) -> Option<PathBuf> {
+    directory(world.get_resource::<SettingsFile>())
+}
+
+/// Erases the save `stem` of `dir` (the saves' window's Delete, `0x71CC90`'s action 8).
+pub fn erase(dir: &Path, stem: &str) -> Result<()> {
+    let path = file(dir, stem)?;
+    fs::remove_file(&path).with_context(|| format!("erasing {}", path.display()))?;
+    info!("saves: {} erased", path.display());
+    Ok(())
+}
+
 /// The hero and the game as they stand, to save as `name`.
 fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)> {
     let request = world
