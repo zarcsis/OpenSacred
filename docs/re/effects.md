@@ -669,6 +669,26 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: a soft white column rising out of the frame with sparks climbing it, over a cyan glow and the turning symbol, alike in breadth, both narrowing as they fade.
 Not followed: the sparks' colours' spread, and its Direct3D point light on the models.
 
+## The blades of light
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Seraphim's new game in the chapel of 50,39, her spell 17 at the level 5).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The Seraphim's blades of light 17 | 814 | `cParticleSystem_holywall` | `0x784380`, `0x7846C0`, `0x784630`, `0x784C90` |
+
+- Its constructor loads `PARTICLE_GLOW01` (`+0x21B8`), `PARTICLE_GLOW03` (`+0x21BC`) and `PARTICLE_SPARK06` (`+0x21C0`), and two quads of its own: a dot (`+0x20B8`) of a half side of 4, its corners (0, 0, 128) at the bottom left, (64, 64, 128) at the top left, (0, 64, 128) at the bottom right and (64, 0, 128) at the top right, and a spark (`+0x2138`), white.
+- Its start (`0x784C90`): its turn and height 0, its radius `+0x20B0` its caster's size (`0x428CE0`, 50 for the heroes), its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20B4`), its loop 2036 (`SERA_KLINGENWALL_LOOP`), the effect 35 on its caster for its seconds where it is a creature (`0x582D50`), its flags `0x600` (with its caster, and its hits).
+- Its run (`0x784630`): its turn on by 5 radians a second (`+0x20A8`), its height up by 33 a second to 100 (`+0x20AC`); past its seconds it ends.
+- Its draw (`0x7846C0`), its world matrix the draw's own (the camera-facing one) with its translation replaced, so that its dots and sparks face the camera:
+  - a flat quad (`0x7631E0`) of `PARTICLE_GLOW01` of a half side of its radius and 20, of (175, 175, 255), laid over by its alpha, on the ground under it;
+  - added (`ONE`, `ONE`), `PARTICLE_GLOW03`: 100 dots on its ring at its radius at its foot, every 1/50 of a turn (each place twice); then two spirals of 200 dots, from a quarter turn either side of its turn, round twice the one way and the other, rising from its foot to its height;
+  - `PARTICLE_SPARK06`: a spark at each spiral's top (a quarter turn either side of its turn, at its height), of a half side of 15 and up to 10 more at random at each draw.
+- The dots are drawn as strips of their bottom left, top left, bottom right and top right corners, so that each is split from its top left to its bottom right and its middle, where `PARTICLE_GLOW03` is brightest, takes the mean of those two corners' colours, (32, 64, 128).
+
+`opensacred-game` draws it since #1092 (`light_blades`, `opensacred_rules::particles::Blades`, `fx::Quads::push_facing`): the object that `spells` puts on the Seraphim gets its look for its seconds, its glow on the ground, its dots and sparks facing the camera and added whole, untinted by the night, in the systems' frame ("Their flight" above, `iso::fx_axes`).
+**Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: the ring and the two spirals rising about her as stacked rings of blue dots, their bright pixels' mean (139, 148, 215) against the original's (163, 169, 225), alike in size; before the dots were split as the original's strips, their middles were (32, 0, 128) and the spirals violet.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -720,7 +740,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring and the holy light ("The bolts", "The breath of fire", "The ring of poison" and "The holy light" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the holy light and the blades of light ("The bolts" to "The blades of light" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

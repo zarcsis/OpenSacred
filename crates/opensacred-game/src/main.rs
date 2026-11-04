@@ -85,6 +85,7 @@ mod iso;
 mod journal;
 mod labels;
 mod lens_creatures;
+mod light_blades;
 mod lines;
 mod liquids;
 mod low_health;
@@ -462,12 +463,15 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         labels::LabelsPlugin,
+        light_blades::LightBladesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         low_health::LowHealthPlugin,
         making::MakingPlugin,
         master::MasterPlugin,
         menu::MenuPlugin,
+    ))
+    .add_plugins((
         menu_sound::MenuSoundPlugin,
         mercenaries::MercenariesPlugin,
         merchant::MerchantPlugin,

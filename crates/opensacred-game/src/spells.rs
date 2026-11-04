@@ -1374,14 +1374,16 @@ pub(crate) fn strikes_about(
     if let Some(sound) = area_loop(record.id) {
         made.insert(crate::hums::Hum(sound));
     }
-    // The holy light looks as its system (`holy_lights`).
+    // The holy light and the blades of light look as their systems (`holy_lights`,
+    // `light_blades`).
     if record.id == spells::HOLY_LIGHT {
         made.insert(crate::holy_lights::Look(fight_seconds(spells::value(
             record, 0, level,
         ))));
+    } else if record.id == spells::BLADES_OF_LIGHT {
+        made.insert(crate::light_blades::Look(caster));
     } else if let Some(looks) = looks {
         let look = match record.id {
-            spells::BLADES_OF_LIGHT => 1,
             FIRE_SKIN => 3,
             spells::GUST => 4,
             _ => 2,

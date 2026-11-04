@@ -82,6 +82,14 @@ pub fn up() -> Vec3 {
     view().up().as_vec3()
 }
 
+/// The ground's axes of the effects' systems' frame (docs/re/effects.md, "Their flight"): its x
+/// along the screen's horizontal, toward +X −Z, and its y down the screen, toward +X +Z (the
+/// original's world (1, −1) and (1, 1)).
+pub fn fx_axes() -> (Vec3, Vec3) {
+    let across = right().with_y(0.0).normalize_or(Vec3::X);
+    (across, across.cross(Vec3::Y))
+}
+
 /// The world's projection at `zoom` (clamped to the original's range), the [`Untinted`]
 /// camera's too.
 fn projection(zoom: f32) -> Projection {
