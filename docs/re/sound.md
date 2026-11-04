@@ -418,7 +418,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Scripts' music | `PlayMusic` (127, `0x4ADAA0`), `PlayJingle` (128, `0x4ADD60`), `SetScriptSoundControle` (129, `0x6791C0`) | a music by name | as the script runs | yes (scripts) | yes (`music`, #1243) |
 | `InfoPlayer`'s sounds | `0x4AE350` | mode 3: 7000 | a notice | yes (`talk`) | no tree has the mode 3 |
 | Death extras | `0x53ECA0`, `0x4E8DA0`, `0x5334DD`, `0x536362` | 7029, 3000, the killer's weapon's 7 | below | yes (`sfx`, `undead`) | `DIEFLAMES` (#1168, #1199) and `CHAR_SPLASH` (#1260); the killer's weapon's group 7 is empty in every profile |
-| Boss and odd sounds | `0x5A3840`, `0x7BCBC0`, `0x797179`, `0x77BD60`, `0x5BB010` | 11426/11427, 16303, 2050, 711, 708, 2070 | below | partly | `SPAWN` (#1839) and `TORCH_HIT01` at the casters' marks (#1855); the blood fountain's `BLEEDING02` (#1964), the Sakkara demon's growls (#2006), the arrows' hits (#2007), `PONG` (#2008) |
+| Boss and odd sounds | `0x5A3840`, `0x7BCBC0`, `0x797179`, `0x77BD60`, `0x5BB010` | 11426/11427, 16303, 2050, 711, 708, 2070 | below | partly | `SPAWN` (#1839) and `TORCH_HIT01` at the casters' marks (#1855); the blood fountain's `BLEEDING02` (#1964), the Sakkara demon's growls (#2006), the spider arrow's `HELF_SPINNENPFEIL` (#2007); the burning arrows' `TORCH_HIT01` (#2061), `PONG` (#2008) |
 | Music's alternation with the ambience | `0x69B770` (head), `+0xB7B8` | `PEACE` and the `ATMO_*` loop | every 180 s by day | yes | yes (`music::alternate`, #1177) |
 | The listener's volume by the zoom | (9, `0x15`) from `cWorldView_setZoom` | every placed sound | the zoom changes | yes | yes (`sfx::Listener`, #1181) |
 
@@ -620,6 +620,10 @@ The laser's segment (901 `FX_LASERBEAM`, `cParticleSystem` at `0x7A50B0`; read 2
 The Vampiress's domination (1024, 1025; read 2026-11-03 for #1173, **confirmed** by code) makes its object 857 at its target right after the effect 13 (`0x5124CE`), whose class (`0x79DBF0`) loops `VAMP_BEHERRSCHUNG_LOOP` (2075) from its start while it lives; its life is not read.
   `opensacred-game` loops it since #1173 at the dominated creature for the effect's time (`making`, a child of it with `hums::Hum`; **hypothesis** for the time), the object's sight not made.
 Outside them: `SERA_PLASMASHOT` (2072) with a railgun's shot (`0x4DCB80` at `0x4DDE12`), `HELF_SPINNENPFEIL` and `TORCH_HIT01` with arrows (`0x5BB010`), `SPELL_LASER` (`0x4D4E50`, `0x570BC3`), `FIREGHUL_FLAMEBREATH` (`0x4D3CD0`, `0x4E0300`, `0x5B2600`), `HELF_PFLANZENKONTROLLE` (`0x4D2E10`, `0x4E0300`, `0x4E4CF0`), `BOSS_SAKKARA_DEMON_GROWL01`/`02` (`0x5A3840`), `SPELL_TELEPORTER_ENGAGE` 2088 by (9, `0x47`, poster not found).
+The arrows' hits (read 2026-11-04 for #2007, **confirmed** by code unless marked otherwise) play two sounds of their own, each for an arrow of the local player alone (its `+0x39`), and none for a plain arrow, whose hit sounds are the fight's (502, 503):
+- the spider arrow 1006 (`0x5BBF1A`, with `0x4D1AF0(1006)` for its spiders): `HELF_SPINNENPFEIL` (2070) at the creature it hits, at a rate's factor of 0.5; **seen** 2026-11-04 under the driver of #448 (the Wood Elf's new game, 1006 at the level 5 on a goblin, a trace of `0x693510`): 2070 at 0.5 right after the hit's 503, and four spiders;
+- an arrow burning with its weapon's fire (`0x5BCCF4`, its object 796 at `+0x1AC`, `cArrow3D: turned on magic-fire`): the burning bone 788 at its target unless one burns there, and `TORCH_HIT01` (708) at it, at a rate's factor of `0.4 + (rand() % 20) / 90` (#2061).
+`opensacred-game` plays the spider arrow's since #2007 (`arrows`); the burning arrows wait for their fire (#2061).
 
 #### The other creatures' footsteps
 

@@ -93,6 +93,11 @@ struct Dice(opensacred_rules::spawning::Rng);
 struct Stuck(f32);
 
 /// The rules' point of world point `at`.
+/// The spider arrow's `HELF_SPINNENPFEIL` at the creature it hits, at half its rate (`0x5BBF1A`,
+/// a hero's arrow alone, docs/re/sound.md).
+const SPIDER_ARROW_SOUND: u32 = 2070;
+const SPIDER_ARROW_RATE: f32 = 0.5;
+
 fn point(at: Vec3) -> Point {
     Point::new(Spot::new(at.x, at.z), at.y)
 }
@@ -259,7 +264,11 @@ fn fly(
         (Without<Body>, Without<Arrow>),
     >,
     places: Query<&GlobalTransform>,
-    (experience, tables): (Res<fight::Experience>, Option<Res<crate::arts::HeroArts>>),
+    (experience, tables, mut sounds): (
+        Res<fight::Experience>,
+        Option<Res<crate::arts::HeroArts>>,
+        MessageWriter<crate::sfx::Play>,
+    ),
 ) {
     let dt = time.delta_secs();
     let hero = hero.iter().next();
@@ -417,8 +426,13 @@ fn fly(
             arrow.shooter
         );
         // The spider arrow ends at its first hit with no strike: its spiders about the creature
-        // it hit (`0x5BB010`, `followers::spiders`).
+        // it hit (`0x5BB010`, `followers::spiders`), and its sound there (`0x5BBF1A`).
         if let Some(special) = arrow.special.filter(|special| special.art == 1006) {
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(SPIDER_ARROW_SOUND),
+                at: Some(on),
+                rate: (SPIDER_ARROW_RATE, crate::sfx::Roll::None),
+            });
             if let Some(record) = tables.as_ref().and_then(|tables| {
                 tables
                     .tables
