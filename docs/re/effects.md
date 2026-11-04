@@ -651,6 +651,24 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` makes it since #1092 (`poison_rings`, `opensacred_rules::particles::{poison_ring, poison_twirls, ring_sparks}`): where the Daemon's 1101 burns about him, its sparks (`puffs`), its quake of 30 (`weather`), its ring and twirls on the ground added whole and untinted by the night, and its light of 200 at it, for 3 s.
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the green twirls shrinking at his feet, the white fountain of sparks over him, and the green ring spreading past the twirls, alike in size; the original's ring a darker green.
 
+## The holy light
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Seraphim's new game in the chapel of 50,39, her spell 15 at the level 5 on a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The Seraphim's holy light 15 | 804 | `cParticleSystem_holylight` | `0x780C70`, `0x781100`, `0x781030`, `0x7816A0` |
+
+- Its constructor loads `PARTICLE_GLOW03` (`+0x258C`), `FX_GROUNDSYMBOL01` (`+0x2590`) and `FX_HELIX01` (`+0x2594`, bound at the draw's end and drawn with nothing), makes a Direct3D point light of (0.8, 0.8, 1.0) (`+0xB4`), its light 200, and its column: 13 pairs of vertices about the upright at the radius 7, every π/6, at the heights 0 (white) and 1,000 ((160, 160, 255) at an alpha of 112), and two bands across it in its frame's x–z plane from 7 out to 17.5, their inner edges white at the foot and (160, 160, 255) at the top at an alpha of 128, their outer edges of an alpha of 0; 50 particles.
+- Its start (`0x7816A0`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x2148`, the object's), its fade `+0x20B0` 1, its base size 7 (`+0x20A8`); one layer (the life −300 a second) and one block (buoyancy −1,500, the size `3.5 ± 1.75`, the place ± (7, 7, 0), the colour `0x708080F0` ± `0x0F` each byte, every 0.03 s, times 1.5 and 2.2 at the detail levels 1 and 0); its flags `0x400`, its loop 2031 (`SERA_HEILIGES_LICHT_LOOP`).
+- Its run (`0x781030`): its pulse `+0x20AC` `0.8 + 0.1 sin 4t`; its block's size and place times its fade; its particles aged and emitted; its fade down by `dt / seconds`, ending it at 0.01.
+- Its draw (`0x781100`), its texture stage emptied, added by the vertices' alpha (`SRCALPHA`, `ONE`), the depth tested and not written, its world matrix its fade along x and y at its place: the column, its foot's alpha its pulse times 112, and the bands, their inner foot's its pulse times 128; then flat quads (`0x7631E0`, `ONE`, `ONE`) of `FX_GROUNDSYMBOL01` of a half side of 50 in a grey of 128 turning at 0.5 radians a second, and of `PARTICLE_GLOW03` of a half side of 100 in (75, 233, 247); then its particles as billboards of the flags `0x31` (their own colour, `ONE`, `ONE`) of `PARTICLE_GLOW03`.
+- Its frame's x lies along the screen's horizontal, as the bolts' ("Their flight" above): its bands face the camera, so that the column shows 35 across.
+
+`opensacred-game` draws it since #1092 (`holy_lights`, `opensacred_rules::particles::{HolyLight, HOLY_COLUMN, holy_pulse}`): the object that `spells` stands at the point gets its look for its seconds, its column of its vertices' colours alone (`fx::plain_material`) with its bands across the screen's horizontal, its symbol and glow on the ground and its sparks added whole, untinted by the night, and its light of 200 at it.
+**Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: a soft white column rising out of the frame with sparks climbing it, over a cyan glow and the turning symbol, alike in breadth, both narrowing as they fade.
+Not followed: the sparks' colours' spread, and its Direct3D point light on the models.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -702,7 +720,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts and the Daemon's breath and ring ("The bolts", "The breath of fire" and "The ring of poison" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring and the holy light ("The bolts", "The breath of fire", "The ring of poison" and "The holy light" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

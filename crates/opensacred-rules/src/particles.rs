@@ -1884,6 +1884,114 @@ pub fn ring_sparks(dice: &mut impl Dice) -> Burst {
 /// The ring of poison's particles (`0x5A0C50`'s count for the type 1008), all of its burst.
 const RING_SPARKS: usize = 150;
 
+/// The look of the Seraphim's holy light, `cParticleSystem_holylight` (`SERA_HEILIGES_LICHT`,
+/// 804, its start `0x7816A0`, its run `0x781030` and its draw `0x781100`; docs/re/effects.md,
+/// "The holy light"), standing at its point for its seconds: a column of light 1,000 high
+/// ([`HOLY_COLUMN`]), its ground symbol turning ([`HOLY_SYMBOL_HALF`]), a glow on the ground
+/// ([`HOLY_GLOW_HALF`]) and sparks rising ([`HolyLight`]), its column and sparks narrowing as it
+/// fades, its light 200.
+pub const HOLY_LIGHT_LIGHT: f32 = 200.0;
+/// The column (`+0x214C`, `+0x248C`): a cylinder of 12 segments of the radius 7 and the height
+/// 1,000, white at its foot and (160, 160, 255) at its top, and two bands across it from 7 out
+/// to 17.5 along x, fading to nothing at their outer edges; its alphas, the cylinder's foot's
+/// and the bands' inner foot's, its pulse times 112 and 128, the tops' 112 and 128.
+pub const HOLY_COLUMN: HolyColumn = HolyColumn {
+    radius: 7.0,
+    height: 1_000.0,
+    segments: 12,
+    band: 17.5,
+    foot: [1.0, 1.0, 1.0],
+    top: [160.0 / 255.0, 160.0 / 255.0, 1.0],
+    alphas: [112.0, 128.0],
+};
+/// The ground symbol's texture, half side, grey and turn a second (`FX_GROUNDSYMBOL01`), and the
+/// glow's texture, half side and colour, both flat quads added whole.
+pub const HOLY_SYMBOL_TEXTURE: &str = "FX_GROUNDSYMBOL01";
+pub const HOLY_SYMBOL_HALF: f32 = 50.0;
+pub const HOLY_SYMBOL_GREY: f32 = 128.0 / 255.0;
+pub const HOLY_SYMBOL_TURN: f32 = 0.5;
+pub const HOLY_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const HOLY_GLOW_HALF: f32 = 100.0;
+pub const HOLY_GLOW_COLOUR: [f32; 4] = [75.0 / 255.0, 233.0 / 255.0, 247.0 / 255.0, 1.0];
+/// The sparks' colour (`+0x2134`, `0x708080F0`), added whole (the flags `0x31`).
+pub const HOLY_SPARK_COLOUR: [f32; 4] = [128.0 / 255.0, 128.0 / 255.0, 240.0 / 255.0, 1.0];
+
+/// The holy light's column's measures ([`HOLY_COLUMN`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HolyColumn {
+    pub radius: f32,
+    pub height: f32,
+    pub segments: u16,
+    pub band: f32,
+    pub foot: [f32; 3],
+    pub top: [f32; 3],
+    pub alphas: [f32; 2],
+}
+
+/// The holy light's pulse at its clock `t` (`+0x20AC`): `0.8 + 0.1 sin 4t`, which its column's
+/// alphas and its glow's take.
+pub fn holy_pulse(t: f32) -> f32 {
+    0.8 + 0.1 * (4.0 * t).sin()
+}
+
+/// The holy light's sparks and its fade (`+0x20B0`): from 1 down by `dt / seconds` a run, its
+/// column's and its sparks' breadth and its sparks' size; at 0.01 it ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HolyLight {
+    pub system: System,
+    pub fade: f32,
+    seconds: f32,
+}
+
+/// Its sparks at most (`0x5A0C50`'s count for the type 804).
+const HOLY_SPARKS: usize = 50;
+
+impl HolyLight {
+    /// The look of a holy light of `seconds`.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            system: System::new(HOLY_SPARKS),
+            fade: 1.0,
+            seconds,
+        }
+    }
+
+    /// Its layer: the life −300 a second, its sparks living 0.85 s.
+    fn layer() -> Layer {
+        Layer {
+            life: -300.0,
+            ..Layer::default()
+        }
+    }
+
+    /// A run of `dt` seconds (`0x781030`): its sparks aged, and new ones every 0.03 s at its place,
+    /// rising at a buoyancy of −1,500, of the half side `3.5 ± 1.75` and within 7 along x and y,
+    /// both times its fade; its fade down by `dt / seconds`.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let breadth = 7.0 * self.fade;
+        let block = Block {
+            buoyancy: spread(-1_500.0, 0.0),
+            size: spread(breadth * 0.5, breadth * 0.25),
+            offset: spread([0.0; 3], [breadth, breadth, 0.0]),
+            interval: 0.03,
+            ..Block::default()
+        };
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        self.system.emit(&[block], &layers, HOLY_SPARKS, dice);
+        if self.seconds > 0.0 {
+            self.fade -= dt / self.seconds;
+        } else {
+            self.fade = 0.0;
+        }
+    }
+
+    /// Whether it ended: its fade at 0.01 or below.
+    pub fn done(&self) -> bool {
+        self.fade <= 0.01
+    }
+}
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2227,6 +2335,27 @@ mod tests {
             system.update(0.025, &[burst.layer]);
         }
         assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn the_holy_light_rises_in_sparks_pulses_and_fades_over_its_seconds() {
+        assert!((holy_pulse(0.0) - 0.8).abs() < 1e-6);
+        assert!((holy_pulse(std::f32::consts::FRAC_PI_8) - 0.9).abs() < 1e-6);
+        let mut dice = Rng::of(12, 0x3, 24);
+        let mut light = HolyLight::new(4.0);
+        for _ in 0..80 {
+            light.update(0.025, &mut dice);
+        }
+        // A spark every 0.03 s living 0.85 s: some 28 alive, risen fast, at half its fade.
+        let alive = light.system.particles.len();
+        assert!((26..=30).contains(&alive), "{alive}");
+        assert!(light.system.particles.iter().any(|p| p.place[2] > 300.0));
+        assert!((light.fade - 0.5).abs() < 1e-3, "{}", light.fade);
+        assert!(!light.done());
+        for _ in 0..80 {
+            light.update(0.025, &mut dice);
+        }
+        assert!(light.done());
     }
 
     #[test]

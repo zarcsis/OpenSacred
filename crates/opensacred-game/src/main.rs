@@ -74,6 +74,7 @@ mod help;
 mod hero;
 mod hero_held;
 mod hit_sparks;
+mod holy_lights;
 mod hover;
 mod hud;
 mod hums;
@@ -450,6 +451,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         hero::HeroPlugin,
         hero_held::HeroHeldPlugin,
         hit_sparks::HitSparksPlugin,
+        holy_lights::HolyLightsPlugin,
         hover::HoverPlugin,
         hums::HumsPlugin,
         hud::HudPlugin,
@@ -457,9 +459,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         icons::IconsPlugin,
         inventory::InventoryPlugin,
         journal::JournalPlugin,
-        labels::LabelsPlugin,
     ))
     .add_plugins((
+        labels::LabelsPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         low_health::LowHealthPlugin,
@@ -474,9 +476,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         movies::MoviesPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
-        opus::OpusPlugin,
     ))
     .add_plugins((
+        opus::OpusPlugin,
         overlay::OverlayPlugin,
         overview::OverviewPlugin,
         pause::PausePlugin,
