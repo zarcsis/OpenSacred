@@ -114,13 +114,14 @@ impl Stream {
     /// nor the night); past [`TURN`], unless the place `holds` the cycle (the cemetery's and the
     /// indoor arena's music, a spot loop of their own), a crossfade that runs (`crossfading`)
     /// takes [`WAITS`] off it, and a timer still past it switches to the other phase, the music
-    /// only where the place has one (`music`) and nothing while the scripts hold the stream, and
-    /// starts again (`0x69BD5E`). The phase it switched to, if it did.
+    /// only where the place has one (`music`), the ambient loop only where [`ambient_loop`] gives
+    /// one (`ambient`), nothing while the scripts hold the stream, and starts again
+    /// (`0x69BD5E`). The phase it switched to, if it did.
     pub fn frame(
         &mut self,
         seconds: f64,
         (counts, holds): (bool, bool),
-        (crossfading, music): (bool, bool),
+        (crossfading, music, ambient): (bool, bool, bool),
     ) -> Option<Phase> {
         if let Some(left) = self.control {
             self.control = Some(left - seconds).filter(|&left| left > 0.0);
@@ -142,9 +143,11 @@ impl Stream {
         if self.controlled() {
             return None;
         }
+        // A music or a loop that fails to open is tried again at each frame: where the chooser
+        // gives no loop, the music plays on (`0x696A90` answering 0).
         let next = match phase {
+            Phase::Music if !ambient => return None,
             Phase::Music => Phase::Ambient,
-            // A music that fails to open is tried again at each frame.
             Phase::Ambient if !music => return None,
             Phase::Ambient => Phase::Music,
         };
@@ -555,15 +558,178 @@ pub fn fight_track(kind: u8, region: u32, roll6: u32, roll9: u32) -> u32 {
     FIGHT_TRACKS[usize::try_from(index).unwrap_or(0)]
 }
 
+/// The ambient loops (`ATMO_*`) and the musics that the ambient's choice takes as loops.
+const ATMO_DESERT: u32 = 6500;
+const ATMO_ICE: u32 = 6501;
+const ATMO_VULCANO: u32 = 6502;
+const ATMO_WOOD: u32 = 6503;
+const ATMO_SIEGE_MILITARY_SUMMER: u32 = 6507;
+const ATMO_DUNGEON: u32 = 6511;
+const ATMO_DESERT_NIGHT: u32 = 6512;
+const ATMO_ICE_NIGHT: u32 = 6513;
+const ATMO_VULCANO_NIGHT: u32 = 6514;
+const ATMO_WOOD_NIGHT: u32 = 6515;
+const ATMO_DUNGEON_NIGHT: u32 = 6516;
+const ATMO_SIEGE_MILITARY_WINTER: u32 = 6517;
+const ATMO_KARIBIK: u32 = 6711;
+const ATMO_PILZWALD: u32 = 6712;
+const ATMO_HELL: u32 = 6713;
+const MUSIC_PUB: u32 = 6518;
+const MUSIC_SIEGE_MILITARY: u32 = 6551;
+const MUSIC_SIEGE_UNDEAD: u32 = 6552;
+/// The regions' musics whose own loops the day takes whatever the nature (`0x696C04`):
+/// `MUSIC_PILZWALD`, `MUSIC_KARIBIK`, `MUSIC_HELL`, `MUSIC_WAYTOHELL` and `MUSIC_PIRATENPUB`.
+const OWN_BY_DAY: [u32; 5] = [6701, 6704, 6707, 6706, 6715];
+/// The nature `ARCTIC`, which takes the military siege's winter.
+const ARCTIC: u8 = 0x20;
+
+/// The ambient loop of a sector of the region's music `music`, its overrides applied (`+0x692`),
+/// and of the sector's nature `nature` (`sectors.keyx +0x1D8`, `+0xA36`), by `night` (the dusk
+/// and the night, `+0xA34` 1 or 2), as the sound manager chooses it (`0x696A90`; docs/re/sound.md,
+/// "The atmosphere by the region"); none where it plays none, the loop that plays then staying.
+///
+/// - The undead siege's music plays on as its own loop; the pub's and the military siege's take
+///   the nature's loop of the night at any hour, else their own (`MUSIC_PUB`,
+///   `ATMO_VILLAGE_SIEGE_MILITARY_SUMMER`; the winter's, for `ARCTIC`, is never reached, as the
+///   night's `ARCTIC` comes first).
+/// - By night, the nature's loop of the night, else the music's.
+/// - By day, the music's for the regions of [`OWN_BY_DAY`], else the nature's, else the music's.
+pub fn ambient_loop(music: u32, nature: u8, night: bool) -> Option<u32> {
+    let own = match music {
+        MUSIC_SIEGE_UNDEAD => return Some(MUSIC_SIEGE_UNDEAD),
+        MUSIC_PUB => MUSIC_PUB,
+        MUSIC_SIEGE_MILITARY if nature == ARCTIC => ATMO_SIEGE_MILITARY_WINTER,
+        MUSIC_SIEGE_MILITARY => ATMO_SIEGE_MILITARY_SUMMER,
+        _ if night => return by_nature(nature, true).or_else(|| by_music(music, true)),
+        _ if OWN_BY_DAY.contains(&music) => return by_music(music, false),
+        _ => return by_nature(nature, false).or_else(|| by_music(music, false)),
+    };
+    Some(by_nature(nature, true).unwrap_or(own))
+}
+
+/// The ambient loop of a nature (`0x696C27` by day, `0x696BDA` by night): `DESERT` and `KIES`
+/// the desert's, `ARCTIC` the ice's, `WALD`, `GRASS` and `SUMPF` the wood's, `LAVA` the
+/// volcano's, `DUNGEON` the dungeon's by day and the wood's by night; none for the others.
+fn by_nature(nature: u8, night: bool) -> Option<u32> {
+    let (day, dark) = match nature {
+        0x10 | 0xF0 => (ATMO_DESERT, ATMO_DESERT_NIGHT),
+        0x20 => (ATMO_ICE, ATMO_ICE_NIGHT),
+        0x30 | 0x40 | 0x50 => (ATMO_WOOD, ATMO_WOOD_NIGHT),
+        0x60 => (ATMO_VULCANO, ATMO_VULCANO_NIGHT),
+        0x80 => (ATMO_DUNGEON, ATMO_WOOD_NIGHT),
+        _ => return None,
+    };
+    Some(if night { dark } else { day })
+}
+
+/// The ambient loop of a region's music (`0x696C6B` by day, `0x696D20` by night): the woods',
+/// the villages', Mascarell's, the cemetery's, the outdoor arena's and the dryads' the wood's;
+/// the dungeons' and the indoor arena's the dungeon's; the desert's, the lava's and the ice's
+/// theirs; by day the mushroom forest's and the Caribbean's and the pirates' pub's their own and
+/// the way to hell's and hell's the hell's; by night the mushroom forest's, Nuknuk's and the
+/// Caribbean's the wood's and the way to hell's and hell's the hell's; none for the others (the
+/// capital's, Nuknuk's by day, the pirates' pub's by night, the dungeon of Nuknuk's).
+fn by_music(music: u32, night: bool) -> Option<u32> {
+    let (day, dark) = match music {
+        6504 | 6509 | 6544 | 6550 | 6560..=6562 | 6705 => (Some(ATMO_WOOD), Some(ATMO_WOOD_NIGHT)),
+        6508 | 6520..=6523 => (Some(ATMO_DUNGEON), Some(ATMO_DUNGEON_NIGHT)),
+        6510 => (Some(ATMO_DESERT), Some(ATMO_DESERT_NIGHT)),
+        6540 => (Some(ATMO_VULCANO), Some(ATMO_VULCANO_NIGHT)),
+        6563 => (Some(ATMO_ICE), Some(ATMO_ICE_NIGHT)),
+        6701 => (Some(ATMO_PILZWALD), Some(ATMO_WOOD_NIGHT)),
+        6703 => (None, Some(ATMO_WOOD_NIGHT)),
+        6704 => (Some(ATMO_KARIBIK), Some(ATMO_WOOD_NIGHT)),
+        6706 | 6707 => (Some(ATMO_HELL), Some(ATMO_HELL)),
+        6715 => (Some(ATMO_KARIBIK), None),
+        _ => (None, None),
+    };
+    if night { dark } else { day }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::spawning::Script;
 
+    #[test]
+    fn the_ambient_loop_follows_the_regions_music_and_the_sectors_nature() {
+        let (wood01, dungeon01, lava01, capital, pilzwald, karibik) =
+            (6560, 6520, 6540, 6702, 6701, 6704);
+        let (grass, kies, arctic, dungeon, water, road, floor) =
+            (0x40, 0xF0, 0x20, 0x80, 0x90, 0xB0, 0xD0);
+        // The start's 50,39 and the village's 52,39 on grass, by day and in the dusk (seen).
+        assert_eq!(ambient_loop(wood01, grass, false), Some(ATMO_WOOD));
+        assert_eq!(ambient_loop(6550, grass, true), Some(ATMO_WOOD_NIGHT));
+        // A nature of no loop takes the music's: the floors of the woods, the lava's roads.
+        assert_eq!(ambient_loop(wood01, floor, false), Some(ATMO_WOOD));
+        assert_eq!(ambient_loop(lava01, road, false), Some(ATMO_VULCANO));
+        assert_eq!(
+            ambient_loop(dungeon01, floor, true),
+            Some(ATMO_DUNGEON_NIGHT)
+        );
+        assert_eq!(
+            ambient_loop(dungeon01, dungeon, true),
+            Some(ATMO_WOOD_NIGHT)
+        );
+        assert_eq!(ambient_loop(6510, kies, false), Some(ATMO_DESERT));
+        // The capital on its roads has none, by day and by night (seen: the music plays on).
+        assert_eq!(ambient_loop(capital, road, false), None);
+        assert_eq!(ambient_loop(capital, road, true), None);
+        assert_eq!(ambient_loop(capital, grass, false), Some(ATMO_WOOD));
+        // The regions' own loops by day whatever the nature (seen on the mushroom forest's
+        // grass), the nature's by night.
+        assert_eq!(ambient_loop(pilzwald, grass, false), Some(ATMO_PILZWALD));
+        assert_eq!(ambient_loop(pilzwald, grass, true), Some(ATMO_WOOD_NIGHT));
+        assert_eq!(ambient_loop(karibik, 0x10, false), Some(ATMO_KARIBIK));
+        assert_eq!(ambient_loop(karibik, 0x10, true), Some(ATMO_DESERT_NIGHT));
+        assert_eq!(ambient_loop(karibik, water, true), Some(ATMO_WOOD_NIGHT));
+        assert_eq!(ambient_loop(6715, water, true), None);
+        assert_eq!(ambient_loop(6707, floor, true), Some(ATMO_HELL));
+        assert_eq!(ambient_loop(6703, grass, false), Some(ATMO_WOOD));
+        assert_eq!(ambient_loop(6703, water, false), None);
+        // The sieges: the undead's music on; the military's the night's nature at any hour,
+        // else its own summer, never its winter.
+        assert_eq!(
+            ambient_loop(MUSIC_SIEGE_UNDEAD, grass, false),
+            Some(MUSIC_SIEGE_UNDEAD)
+        );
+        assert_eq!(
+            ambient_loop(MUSIC_SIEGE_MILITARY, grass, false),
+            Some(ATMO_WOOD_NIGHT)
+        );
+        assert_eq!(
+            ambient_loop(MUSIC_SIEGE_MILITARY, road, false),
+            Some(ATMO_SIEGE_MILITARY_SUMMER)
+        );
+        assert_eq!(
+            ambient_loop(MUSIC_SIEGE_MILITARY, arctic, false),
+            Some(ATMO_ICE_NIGHT)
+        );
+        assert_eq!(ambient_loop(MUSIC_PUB, floor, false), Some(MUSIC_PUB));
+        assert_eq!(ambient_loop(0, grass, false), Some(ATMO_WOOD));
+        assert_eq!(ambient_loop(0, floor, false), None);
+    }
+
+    #[test]
+    fn the_music_plays_on_where_the_place_has_no_ambient_loop() {
+        let mut stream = Stream::default();
+        stream.begin(0);
+        assert_eq!(
+            stream.frame(181.0, (true, false), (false, true, false)),
+            None
+        );
+        assert_eq!(stream.frame(0.1, (true, false), (false, true, false)), None);
+        assert_eq!(stream.phase(), Some(Phase::Music));
+        assert_eq!(
+            stream.frame(0.1, (true, false), (false, true, true)),
+            Some(Phase::Ambient)
+        );
+    }
+
     /// Frames of `seconds` each, `count` of them, by day, nothing held nor fading, with music.
     fn run(stream: &mut Stream, seconds: f64, count: u32) -> Vec<Phase> {
         (0..count)
-            .filter_map(|_| stream.frame(seconds, (true, false), (false, true)))
+            .filter_map(|_| stream.frame(seconds, (true, false), (false, true, true)))
             .collect()
     }
 
@@ -571,7 +737,10 @@ mod tests {
     fn by_day_the_music_and_the_ambient_loop_take_turns_of_180_s() {
         let mut stream = Stream::default();
         // Nothing before the first region's event.
-        assert_eq!(stream.frame(200.0, (true, false), (false, true)), None);
+        assert_eq!(
+            stream.frame(200.0, (true, false), (false, true, true)),
+            None
+        );
         assert_eq!(stream.begin(1), Phase::Ambient);
         // Begun once: a later roll changes nothing.
         assert_eq!(stream.begin(0), Phase::Ambient);
@@ -592,17 +761,17 @@ mod tests {
         // The dusk asks for the loop: the next frame switches, whatever the timer.
         stream.now();
         assert_eq!(
-            stream.frame(0.1, (false, false), (false, true)),
+            stream.frame(0.1, (false, false), (false, true, true)),
             Some(Phase::Ambient)
         );
         // The night counts nothing: no music all night.
         for _ in 0..10_000 {
-            assert_eq!(stream.frame(0.1, (false, false), (false, true)), None);
+            assert_eq!(stream.frame(0.1, (false, false), (false, true, true)), None);
         }
         assert!(stream.timer() < 1.0);
         // A request in the ambient phase changes nothing.
         stream.now();
-        assert_eq!(stream.frame(0.1, (false, false), (false, true)), None);
+        assert_eq!(stream.frame(0.1, (false, false), (false, true, true)), None);
         // The dawn counts again: the music 180 s into it.
         assert!(run(&mut stream, 0.5, 360).is_empty());
         assert_eq!(run(&mut stream, 0.5, 1), [Phase::Music]);
@@ -616,12 +785,12 @@ mod tests {
         stream.control(true);
         assert!(stream.controlled());
         assert!((stream.timer() - NOW).abs() < 1e-9);
-        assert_eq!(stream.frame(0.5, (true, false), (false, true)), None);
+        assert_eq!(stream.frame(0.5, (true, false), (false, true, true)), None);
         assert_eq!(stream.phase(), Some(Phase::Music));
         // Given back: the switch goes through at the next frame.
         stream.control(false);
         assert_eq!(
-            stream.frame(0.5, (true, false), (false, true)),
+            stream.frame(0.5, (true, false), (false, true, true)),
             Some(Phase::Ambient)
         );
         // The control runs out 300 s after it was taken, the switch due then going through.
@@ -778,33 +947,36 @@ mod tests {
         stream.begin(0);
         stream.now();
         // A crossfade running: 20 s off, the switch where the timer is still past 180 s.
-        assert_eq!(stream.frame(0.0, (true, false), (true, true)), None);
+        assert_eq!(stream.frame(0.0, (true, false), (true, true, true)), None);
         assert!((stream.timer() - (NOW - WAITS)).abs() < 1e-9);
-        assert_eq!(stream.frame(0.0, (true, false), (false, true)), None);
+        assert_eq!(stream.frame(0.0, (true, false), (false, true, true)), None);
         assert_eq!(
-            stream.frame(0.5, (true, false), (false, true)),
+            stream.frame(0.5, (true, false), (false, true, true)),
             Some(Phase::Ambient)
         );
         let mut stream = Stream::default();
         stream.begin(0);
         stream.now();
         assert_eq!(
-            stream.frame(0.5, (true, false), (true, true)),
+            stream.frame(0.5, (true, false), (true, true, true)),
             Some(Phase::Ambient)
         );
         // No music where the hero stands: the loop stays, tried again at each frame.
         let mut stream = Stream::default();
         stream.begin(1);
-        assert_eq!(stream.frame(181.0, (true, false), (false, false)), None);
-        assert_eq!(stream.frame(0.1, (true, false), (false, false)), None);
         assert_eq!(
-            stream.frame(0.1, (true, false), (false, true)),
+            stream.frame(181.0, (true, false), (false, false, true)),
+            None
+        );
+        assert_eq!(stream.frame(0.1, (true, false), (false, false, true)), None);
+        assert_eq!(
+            stream.frame(0.1, (true, false), (false, true, true)),
             Some(Phase::Music)
         );
         // The cemetery holds the cycle.
         let mut stream = Stream::default();
         stream.begin(1);
-        assert_eq!(stream.frame(500.0, (true, true), (false, true)), None);
+        assert_eq!(stream.frame(500.0, (true, true), (false, true, true)), None);
         assert_eq!(stream.phase(), Some(Phase::Ambient));
     }
 }

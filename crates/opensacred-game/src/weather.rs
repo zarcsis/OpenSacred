@@ -50,7 +50,7 @@ impl Rolls {
 #[derive(Resource)]
 pub struct Weather {
     pub state: weather::Weather,
-    /// Each sector's id, weather entries and fliers' byte.
+    /// Each sector's id, weather entries and nature, by which the fliers come.
     sectors: HashMap<(u32, u32), (u32, Vec<SectorWeather>, u8)>,
     dice: Rng,
     /// The lightnings come since `skies` last drew them.
@@ -70,7 +70,7 @@ impl Weather {
                 .map(|entry| {
                     (
                         (entry.x, entry.y),
-                        (entry.id, entry.weather.clone(), entry.fliers),
+                        (entry.id, entry.weather.clone(), entry.nature),
                     )
                 })
                 .collect(),
@@ -111,7 +111,7 @@ impl Weather {
 /// The weather's choice and its levels, at each frame of a game (`0x625290`, `0x41A4F0`): the
 /// sector the hero is in chooses by its entries at the time of real time, which runs on in the
 /// pause, and the levels move by the game's time, which the pause holds; a flier due over the
-/// camera by the sector's byte goes to `fliers`.
+/// camera by the sector's nature goes to `fliers`.
 fn choose(
     real: Res<Time<Real>>,
     mut due: MessageWriter<crate::fliers::Due>,
@@ -127,13 +127,13 @@ fn choose(
     let side = u32::try_from(SIDE).unwrap_or(64);
     let (x, y) = paths::cell_of(at.translation.x, at.translation.z);
     if let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y))
-        && let Some((id, entries, fliers)) = weather.sectors.get(&(x / side, y / side))
+        && let Some((id, entries, nature)) = weather.sectors.get(&(x / side, y / side))
     {
         let now = real.elapsed_secs_f64() * 1_000.0;
         weather
             .state
             .choose(now, *id, entries, &rolls.0, &mut weather.dice);
-        if let Some(kind) = weather.state.fliers(now / 1_000.0, *fliers, &rolls.0) {
+        if let Some(kind) = weather.state.fliers(now / 1_000.0, *nature, &rolls.0) {
             due.write(crate::fliers::Due(kind));
         }
     }

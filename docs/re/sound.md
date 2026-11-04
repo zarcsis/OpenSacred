@@ -146,21 +146,34 @@ The same step makes the footprint, a decal that the ground's nature chooses (`0x
 A function around `0x6392AE` loads a footprint texture by the nature of the cell (`nature − 0x10` up to `0x90`, byte table `0x639AB0`, jump table `0x639A9C`): `DESERT` `FOOTSTEPDESERT.TGA`, `ARCTIC` `FOOTSTEPSNOW.TGA`, `SUMPF` `FOOTSTEPSWAMP.TGA`, `WATERA` and `WATERB` the ripples `footstepWaterA_01.tga` to `05`; the other natures leave none.
 On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`), as for the footsteps above: on a bridge over the water and on `WATERB` it reads the byte at `+0xF8` of a table of the creature's (at `+0x17C`), else the one at `+0xF7` (not followed further).
 
-## The atmosphere by the ground
+## The atmosphere by the region
 
-A function around `0x696B70` chooses the ambient loop (an `ATMO_*` file of `mp3/`) and some of the music.
-Its object holds the state at fixed offsets; what they are is read off the code and their use, so their names are **hypotheses**:
+The sound manager's `0x696A90` chooses the ambient loop (an `ATMO_*` file of `mp3/`, or a music that stands for one) by the region's music and the nature of the hero's sector (read 2026-11-04 for #1093, **confirmed** by code and seen in the original, below).
+Its object holds the state at fixed offsets, which the region's event and the renderer's set ("The region's music" below, docs/re/daynight.md):
 
 | Offset | Size | Meaning |
 |---|---|---|
-| `+0xA34` | u16 | the phase of the day, from the renderer's event of type 3 (docs/re/daynight.md): 0 the day, 1 the dusk, 2 the night, 3 the dawn; 1 and 2 select the night loops |
-| `+0xA36` | u16 | the nature of the cell under the hero, the cell's `+0x1F` with the low nibble 0 |
-| `+0xA3C` | u32 | a bit set: the bit of the region at `+0xA40` selects `MUSIC_VILLAGE_SIEGE_UNDEAD` |
-| `+0xA40` | u32 | an index; 0x6E is replaced by 0xB |
+| `+0x692` | u16 | the region's music, its sieges' and world change's overrides applied |
+| `+0xA34` | u16 | the phase of the day, from the renderer's event of type 3: 0 the day, 1 the dusk, 2 the night, 3 the dawn |
+| `+0xA36` | u16 | the nature of the hero's sector, `sectors.keyx +0x1D8` (docs/02 §5.1), a cell's nature byte, which the region's event carries (the sector's object's `+0x2C`); not the cell's under the hero, as was supposed before (**seen**: `0x40` in 50,39, `0xB0` in the capital's 17,13) |
+| `+0xA38` | u32 | the value of `Globalchange1` |
+| `+0xA3C` | u32 | the value of `RegionChange`, a bit set: the bit of the region at `+0xA40` selects `MUSIC_VILLAGE_SIEGE_UNDEAD` |
+| `+0xA40` | u32 | the region of the sector's area (`0x602250`); `0x6E` is replaced by `0xB` |
 
+A sector without music posts no region's event, so that all of them stay the last sector's of music there ("The region's music" below, #2001).
 It plays a loop through `0x694510(id, 0, 0)`, `cMSS::playMusic` (its log line), which plays the music too: it takes the volume at `+0x78` for a name that starts with `ATMO` (after `SOUND_FX_`) and the one at `+0x7C` for the rest.
-An ambient loop and a music track sound together only in a crossfade of the one stream they share ("The peace stream's alternation" below, #1211).
-By the nature, through a switch on `nature − 0x10` (byte table `0x696F50`, jump table `0x696F38`, entry at `0x696C27`) by day and another (`0x696E54`, `0x696E40`, entry at `0x696BDA`) by night:
+It answers whether it played one: where it plays none, the loop that plays stays, and a switch of the peace stream from the music to the ambient loop fails and is tried again at each frame, the music playing on ("The peace stream's alternation" below).
+An ambient loop and a music track sound together only in a crossfade of the one stream they share (#1211).
+
+It plays nothing while the sound or the music is off (the globals `0x17E9FA0` and `0xA1CD68`, the manager's `+0x11` and `+0x89`) or with `+0x69C` 1.
+Else, with the region's music:
+
+1. **The regions of a loop of their own.**
+   `MUSIC_PUB` (6518) takes itself; `MUSIC_VILLAGE_SIEGE_MILITARY` (6551) takes `ATMO_VILLAGE_SIEGE_MILITARY_WINTER` on `ARCTIC`, else `…_SUMMER`; `MUSIC_MASCARELL` and `MUSIC_VILLAGE01` take the military siege's too in the regions where the handler turns them into its music (which it has already done, so that the test is moot).
+   For these the loop is the nature's of the night's column below at any hour, and their own only on a nature outside the table; so the winter's never plays, as the night's `ARCTIC` comes first.
+   A region whose bit `+0xA3C` holds takes `MUSIC_VILLAGE_SIEGE_UNDEAD` (6552) as its loop, whatever the nature and the hour: the siege's music plays on in the ambient phase.
+2. **By night** (the dusk and the night), the nature's loop of the night (a switch on `nature − 0x10` at `0x696BDA`: byte table `0x696E54`, jump table `0x696E40`), else the music's of the night (a switch on `music − 6504` at `0x696D20`: byte table `0x697148`, jump table `0x69712C`).
+3. **By day** (the day and the dawn), for `MUSIC_PILZWALD`, `MUSIC_KARIBIK`, `MUSIC_HELL`, `MUSIC_WAYTOHELL` and `MUSIC_PIRATENPUB` the music's loop of the day whatever the nature (a switch on `music − 6504` at `0x696C6B`: byte table `0x697058`, jump table `0x697034`); for the others the nature's loop of the day (at `0x696C27`: byte table `0x696F50`, jump table `0x696F38`), else the music's.
 
 | Nature | Day | Night |
 |---|---|---|
@@ -169,11 +182,33 @@ By the nature, through a switch on `nature − 0x10` (byte table `0x696F50`, jum
 | `WALD`, `GRASS`, `SUMPF` | `ATMO_WOOD` | `ATMO_WOOD_NIGHT` |
 | `LAVA` | `ATMO_VULCANO` | `ATMO_VULCANO_NIGHT` |
 | `DUNGEON` | `ATMO_DUNGEON` | `ATMO_WOOD_NIGHT` |
-| the rest (`BRIDGE`, the waters, the roads, the floors), none | no change of loop | no change of loop |
+| the rest (`BRIDGE`, the waters, the roads, the floors), none | the music's | the music's |
 
-Before the switch the function leaves the loop alone while one of the region musics plays (`MUSIC_PILZWALD`, `MUSIC_KARIBIK`, `MUSIC_HELL`, `MUSIC_WAYTOHELL`, `MUSIC_PIRATENPUB`); after it, a switch on the playing id (`id − 6504`: byte table `0x697058`, jump table `0x697034`; by night another switch at `0x696D20`) handles the rest, including `ATMO_KARIBIK` and `ATMO_PILZWALD`; not analyzed yet.
+| Region's music | Day | Night |
+|---|---|---|
+| `ATMOSPOT_CEMETERY`, `ATMOSPOT_ARENA_OUTDOOR`, `MUSIC_MASCARELL`, `MUSIC_VILLAGE01`, `MUSIC_WOOD01`–`03`, `MUSIC_DRYADEN` | `ATMO_WOOD` | `ATMO_WOOD_NIGHT` |
+| `ATMOSPOT_ARENA_INDOOR`, `MUSIC_DUNGEON01`–`04` | `ATMO_DUNGEON` | `ATMO_DUNGEON_NIGHT` |
+| `MUSIC_DESERT01` | `ATMO_DESERT` | `ATMO_DESERT_NIGHT` |
+| `MUSIC_LAVA01` | `ATMO_VULCANO` | `ATMO_VULCANO_NIGHT` |
+| `MUSIC_ICE01` | `ATMO_ICE` | `ATMO_ICE_NIGHT` |
+| `MUSIC_PILZWALD` | `ATMO_PILZWALD` | `ATMO_WOOD_NIGHT` |
+| `MUSIC_KARIBIK` | `ATMO_KARIBIK` | `ATMO_WOOD_NIGHT` |
+| `MUSIC_PIRATENPUB` | `ATMO_KARIBIK` | none |
+| `MUSIC_NUKNUK` | none | `ATMO_WOOD_NIGHT` |
+| `MUSIC_WAYTOHELL`, `MUSIC_HELL` | `ATMO_HELL` | `ATMO_HELL` |
+| the rest (`MUSIC_HAUPTSTADT`, `MUSIC_DUNGEON_NUKNUK`, `ATMO_ICE_NIGHT`, none) | none | none |
 
-`opensacred-game` plays the day's column by day and at the dawn, the night's in the dusk and by night (`atmosphere.rs`, by the game's clock, docs/re/daynight.md), in the peace stream's ambient phase since #1177.
+The sectors' natures take 12 values (docs/02 §5.1), none of them `LAVA` or `SUMPF`: the lava's sectors, 83 of 88 on `STONEROAD`, take `ATMO_VULCANO` by their music, and the capital's 13 sectors, but two of `WALD` and `GRASS`, have no loop at all, so that their music plays on.
+
+**Seen** 2026-11-04 in the original under the driver of #448 (`--muted`, the Seraphim's new game, traces of `0x694510` and `0x696A90`, the manager's fields read at `0x69BD18`):
+
+- in 50,39 by day the nature `0x40` and the loop `ATMO_WOOD`;
+- in the capital's 17,13 by day (`+0x692` 6702, `+0xA36` `0xB0`), `0x696A90` answered 0 at each frame once the timer passed 180 s, and the stream stayed in the music's phase;
+- in the mushroom forest's 24,13 by day (6701 on `0x40`), `ATMO_PILZWALD` (6712), not the grass's `ATMO_WOOD`;
+- in 52,39 in the dusk (6550 on `0x40`), `ATMO_WOOD_NIGHT`.
+
+`opensacred-game` follows it since #1093 (`opensacred_rules::music::ambient_loop`, `atmosphere`): the region's music and the sector's nature that `music` keeps (the last sector's of music in a sector without), the night's column in the dusk and by night by the game's clock; where it gives none the loop that plays stays, and the stream's turn to the ambient loop waits, the music playing on.
+In its phase the loop changes as soon as the place calls for another (docs/decisions/sound.md, "Peace stream's ambient and spot loops").
 
 A static whose type has a sound profile (`items.pak +0x24`, docs/02 §6.1; the 22 waterfall types 15531 to 15560 have `atmospot_waterfall`, 10) sends the sound manager the event 13 with its key, its screen position (`+0x0E`, `+0x12`) and its type at every frame it is drawn (`cWorldView_renderTileRow`, `0x62B9D5` to `0x62B9FE`).
 The manager keeps such statics in a list of 16 records (`+0xA6A4`, 0x88 bytes each, the count `+0xAF3C`; read 2026-11-03 for #1170): a static already listed is marked seen and its place and type taken anew (`0x684330`), a new one added while fewer than 16 are listed and its distance is under the manager's limit (`0x6843CC`, `+0xB790`); each frame the records' distances from the listener (`+0xAF2C`, `+0xAF30`) are measured in screen pixels by `0x6912B0`, the octagonal estimate `(1007·max + 441·min + 512) >> 10` of the two offsets' larger and smaller, less `40·max` inside where `max < 16·min` (`0x6838C3`).

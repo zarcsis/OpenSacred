@@ -69,10 +69,12 @@ pub struct SectorKey {
     /// The four entries of the sector's weather from `+0x1EE`, each whose bit is set in the mask
     /// at `+0x1ED` (`0x625290`, docs/re/weather.md).
     pub weather: [Option<WeatherEntry>; 4],
-    /// `+0x1D8`: the byte that the client's sector holds at its `+0x2C`, by which crows (`0x10`)
-    /// or bats (`0x80`) fly over the camera, any other value but 0 running their timer alone
-    /// (`0x625290`, docs/re/weather.md).
-    pub fliers: u8,
+    /// `+0x1D8`: the sector's nature, a cell's nature byte (its high nibble, docs/02 §5.2), which
+    /// the client's sector holds at its `+0x2C`: crows (`0x10`) or bats (`0x80`) fly over the
+    /// camera by it, any other value but 0 running their timer alone (`0x625290`,
+    /// docs/re/weather.md), and the sound manager chooses the ambient loop by it (`+0xA36`,
+    /// `0x696A90`, docs/re/sound.md).
+    pub nature: u8,
 }
 
 /// An entry of a sector's weather (`sectors.keyx +0x1EE`, 28 bytes; docs/02 §5.1): its type (0
@@ -129,7 +131,7 @@ impl Keyx {
             skip_to(&mut r, start, 0x108)?;
             let inflated = r.u32()?;
             skip_to(&mut r, start, 0x1D8)?;
-            let fliers = r.u8()?;
+            let nature = r.u8()?;
             skip_to(&mut r, start, 0x1ED)?;
             let mask = r.u8()?;
             let mut weather = [None; 4];
@@ -168,7 +170,7 @@ impl Keyx {
                 music,
                 dungeon,
                 weather,
-                fliers,
+                nature,
             });
         }
         Ok(Self { sectors })
