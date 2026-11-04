@@ -661,6 +661,13 @@ pub struct Piece {
     mount: Mount,
 }
 
+impl Piece {
+    /// Its model, relative to the asset directory.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+}
+
 /// An item in an NPC's hand, whose values it fights with: its type, its category, its weapon's
 /// kind, and the hand.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

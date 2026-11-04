@@ -1648,10 +1648,119 @@ impl Default for Emperor {
     }
 }
 
+/// A lit torch's flame (787 `FX_TORCHSMOKE`, `cParticleSystem_torchsmoke`, `0x774F00`;
+/// docs/re/effects.md, "The torches' flames"), which the torch's `cWeapon3D` makes and ends: a
+/// flame of `PARTICLE_FIRE01` every 0.03 s at its bone, of a half side of 7, turned at random,
+/// rising at 50 ± 10 within 1.5 of the bone and living 0.32 s, riding with the torch's holder
+/// (its flags `0x204`: the system's frame has its origin at the holder's place on the ground, so
+/// that its flames trail the bone's swing about the holder alone), added and turned, its 4 × 4
+/// frames played once over its life ([`age_frame`]); and a glow of `PARTICLE_GLOW01` at the bone ([`TORCH_GLOW_HALF`],
+/// [`TORCH_GLOW_COLOUR`]), added by its alpha. Put out, it makes no more and ends with its last
+/// flame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Torchsmoke {
+    pub system: System,
+    pub lit: bool,
+}
+
+/// The torch's flames' texture and grid, its glow's texture, half side and colour (the style 3,
+/// `SRCALPHA`, `ONE`, `0x775050`), and the loop it plays at the torch while it burns
+/// (`TORCHFIRE_LOOP` at the volume 0.4, `0x7753AC`).
+pub const TORCH_TEXTURE: &str = "PARTICLE_FIRE01";
+pub const TORCH_GRID: u8 = 4;
+pub const TORCH_GLOW_TEXTURE: &str = "PARTICLE_GLOW01";
+pub const TORCH_GLOW_HALF: f32 = 20.0;
+pub const TORCH_GLOW_COLOUR: [f32; 4] = [1.0, 234.0 / 255.0, 59.0 / 255.0, 128.0 / 255.0];
+pub const TORCH_LOOP: u32 = 219;
+pub const TORCH_LOOP_VOLUME: f32 = 0.4;
+/// Its particles at most (`0x774F00`).
+const TORCH_COUNT: usize = 200;
+
+impl Torchsmoke {
+    pub fn new() -> Self {
+        Self {
+            system: System::new(TORCH_COUNT),
+            lit: true,
+        }
+    }
+
+    /// Its layer: the life −800 a second, no growth.
+    fn layer() -> Layer {
+        Layer {
+            life: -800.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block, at the detail 2.
+    fn block() -> Block {
+        Block {
+            size: spread(7.0, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0, 0.0, 50.0], [10.0; 3]),
+            offset: spread([0.0; 3], [1.5; 3]),
+            interval: 0.03,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its bone gone from `from` to `to` in its frame, the models' about
+    /// its holder's place (`0x774FE0`): its flames age and, while it burns, it leaves new ones
+    /// along the way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.lit {
+            self.system
+                .emit_along(&[Self::block()], &layers, TORCH_COUNT, (from, to), dt, dice);
+        }
+    }
+
+    /// Put out (`+0x20A8` 1): no flame more.
+    pub fn put_out(&mut self) {
+        self.lit = false;
+    }
+
+    /// Whether it ended: put out and no flame alive.
+    pub fn done(&self) -> bool {
+        !self.lit && self.system.particles.is_empty()
+    }
+}
+
+impl Default for Torchsmoke {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_torch_burns_a_tongue_of_flames_and_goes_out_with_its_last() {
+        let mut dice = Rng::of(7, 8, 7);
+        let mut torch = Torchsmoke::new();
+        for _ in 0..40 {
+            torch.update(0.025, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        // One flame every 0.03 s, each living 0.32 s: some ten alive, risen at most about 19.
+        let alive = torch.system.particles.len();
+        assert!((9..=12).contains(&alive), "{alive}");
+        assert!(
+            torch
+                .system
+                .particles
+                .iter()
+                .all(|flame| flame.place[2] <= 20.0)
+        );
+        torch.put_out();
+        for _ in 0..20 {
+            torch.update(0.025, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        assert!(torch.done());
+    }
 
     #[test]
     fn a_flip_book_plays_once_over_a_particles_life() {
