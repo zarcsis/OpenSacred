@@ -179,8 +179,9 @@ A static whose type has a sound profile (`items.pak +0x24`, docs/02 §6.1; the 2
 The manager keeps such statics in a list of 16 records (`+0xA6A4`, 0x88 bytes each, the count `+0xAF3C`; read 2026-11-03 for #1170): a static already listed is marked seen and its place and type taken anew (`0x684330`), a new one added while fewer than 16 are listed and its distance is under the manager's limit (`0x6843CC`, `+0xB790`); each frame the records' distances from the listener (`+0xAF2C`, `+0xAF30`) are measured in screen pixels by `0x6912B0`, the octagonal estimate `(1007·max + 441·min + 512) >> 10` of the two offsets' larger and smaller, less `40·max` inside where `max < 16·min` (`0x6838C3`).
 Its profile 10 is played by no record (**seen** 2026-10-25, #227, check 25: nothing of it picked beside nine of them at 51,28), but six of the types loop the waterfall ("Ambience" below).
 
-The regions' share is driven by the scripts (not followed): the campaign's functions set variables `atmos_rg<N>` (`bekannter1` does `IncVar atmos_rg1`), and the client holds the string `atmo_rg` (VA `0x94F4FC`), presumably to read them; 163 lines of the campaign's listing name them.
-M4 recovers the link.
+The scripts' variables `atmos_rg<N>` drive no sound (read 2026-11-04 for #1093, **confirmed** by code): the campaign's functions set them (`bekannter1` does `IncVar atmos_rg1`; 163 records of the Seraphim's tree, every one `atmos_rg`), and the variables' records `SetVar`, `IncVar`, `DecVar` and the fourth that names one (`0x49B2B0`, `0x49C930`, `0x49CEC0`, `0x49D450`) each copy a variable whose name's first seven characters are `atmo_rg` (`0x94F4FC`, compared with `0x85AA60`) into the interpreter's array of 150 regions' values (`+0x7750`, the number after the seven its index, held within 0 and 149).
+  No name of the trees begins so (`atmos_r` is not `atmo_rg`), so the array is never written; nor is it read but by the interpreter's start, which clears it (`0x4613EA`), and its save and load (`0x467415`, `0x46A547`): a scan of `Sacred.exe` for the displacement `0x7750` finds no other code.
+  The regions' ambient loops by these variables are a dead path of the original, which `opensacred-game` does not follow either; the variables stay the scripts' own, which their tests read (#1093).
 
 ## The music profile
 
