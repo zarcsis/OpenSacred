@@ -2337,6 +2337,264 @@ pub fn hellfire_column(hero: bool) -> Column {
     }
 }
 
+/// The look of a meteor of the hail of meteors 26, `cParticleSystem_meteor` (823, its start
+/// `0x786EF0`, its run `0x7866C0` and its draw `0x786AC0`; docs/re/effects.md, "The hail of
+/// meteors"), at the place where it lands: after its wait its head falls from (−100, 0, 500) of
+/// its frame at (160, 0, −800) a second, its rock ([`METEOR_MODEL`] in [`METEOR_TEXTURE`],
+/// [`METEOR_SCALE`] times its size, turned at random) and a glow ([`METEOR_GLOW_HALF`]) at it,
+/// leaving fire and smoke behind it; at the ground a quake of [`METEOR_QUAKE`] and a burst of 10
+/// of them at its place, and its crater ([`METEOR_CRATERS`]) under them, which lies 15 s after
+/// they are gone and fades over 3. No light.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Meteor {
+    pub system: System,
+    pub phase: MeteorPhase,
+    /// Its head's place in its frame (the blocks' offset, `+0x2924`).
+    pub head: [f32; 3],
+    /// Its rock's two angles (`+0x29B8`, `+0x29BC`), a whole turn at random each.
+    pub turns: [f32; 2],
+    /// Its crater's texture by the constructor's coin ([`METEOR_CRATERS`]).
+    pub crater: usize,
+}
+
+/// A meteor's phase (`+0x29B4`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MeteorPhase {
+    /// Before it falls, its seconds left (its event's `+0x38` in milliseconds).
+    Waiting(f32),
+    Falling,
+    /// Landed, its fire and smoke burning out.
+    Burning,
+    /// Its crater lying, its seconds left.
+    Lying(f32),
+    /// Its crater fading, its seconds left.
+    Fading(f32),
+    Done,
+}
+
+/// The meteor's rock, its texture and its scale (`0x6539D0` of 4), its particles' texture, its
+/// craters' textures (`FX_KRATER02` where the coin is even), its crater's half side, its glow's
+/// texture (the style 5), half side and colour (`0xFFB0750A`), and its quake.
+pub const METEOR_MODEL: &str = "GIBS01.GRN";
+pub const METEOR_TEXTURE: &str = "C_LAVA00";
+pub const METEOR_SCALE: f32 = 4.0;
+pub const METEOR_PARTICLES: &str = "PARTICLE_SMOKE04";
+pub const METEOR_CRATERS: [&str; 2] = ["FX_KRATER02", "FX_KRATER01"];
+pub const METEOR_CRATER_HALF: f32 = 50.0;
+pub const METEOR_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const METEOR_GLOW_HALF: f32 = 30.0;
+pub const METEOR_GLOW_COLOUR: [f32; 4] = [176.0 / 255.0, 117.0 / 255.0, 10.0 / 255.0, 1.0];
+pub const METEOR_QUAKE: u32 = 30;
+/// Its particles at most (`0x5A0C50`'s count for the type 823).
+const METEOR_COUNT: usize = 700;
+/// Its head's start and velocity, how long its crater lies at the detail 2 (15 over the detail's
+/// factor) and fades, and its burst's particles (the blocks' `+0x5C`).
+const METEOR_FROM: [f32; 3] = [-100.0, 0.0, 500.0];
+const METEOR_VELOCITY: [f32; 3] = [160.0, 0.0, -800.0];
+const METEOR_LIES: f32 = 15.0;
+const METEOR_FADES: f32 = 3.0;
+const METEOR_BURST: usize = 10;
+
+impl Meteor {
+    /// A meteor that falls after `wait` seconds (`0x786EF0`); its crater's coin is rolled first, as
+    /// its constructor rolls it (`0x786390`), then its rock's angles.
+    pub fn new(wait: f32, dice: &mut impl Dice) -> Self {
+        let crater = usize::from(dice.below(2) == 1);
+        let turns = [
+            share(dice) * std::f32::consts::TAU,
+            share(dice) * std::f32::consts::TAU,
+        ];
+        Self {
+            system: System::new(METEOR_COUNT),
+            phase: MeteorPhase::Waiting(wait),
+            head: METEOR_FROM,
+            turns,
+            crater,
+        }
+    }
+
+    /// Its two layers (`+0x28AC`): the fire's, of the life −400 a second and the size −5, and the
+    /// smoke's, of the life −150 and the size +8.
+    pub fn layers() -> [Layer; 2] {
+        [
+            Layer {
+                life: -400.0,
+                size: -5.0,
+                ..Layer::default()
+            },
+            Layer {
+                life: -150.0,
+                size: 8.0,
+                ..Layer::default()
+            },
+        ]
+    }
+
+    /// Its ramps (`+0x20AC`, `+0x24AC`): the fire's from a grey of 86 to (134, 116, 20) at an
+    /// alpha of 134 over 14 entries, to (233, 128, 47) at 152 over 13, to (152, 83, 31) at 230
+    /// over 60, to nothing over 107 and 62; the smoke's from a grey of 43 to (120, 128, 128) over
+    /// 24, to a grey of 60 at 203 over 44, to nothing over 188; both from an alpha of 255.
+    pub fn ramps() -> [Ramp; 2] {
+        let c = |r: f32, g: f32, b: f32, a: f32| [r / 256.0, g / 256.0, b / 256.0, a / 256.0];
+        let none = [0.0; 4];
+        [
+            Ramp::new(
+                c(86.0, 86.0, 86.0, 255.0),
+                &[
+                    (c(134.0, 116.0, 20.0, 134.0), 14),
+                    (c(233.0, 128.0, 47.0, 152.0), 13),
+                    (c(152.0, 83.0, 31.0, 230.0), 60),
+                    (none, 107),
+                    (none, 62),
+                ],
+            ),
+            Ramp::new(
+                c(43.0, 43.0, 43.0, 255.0),
+                &[
+                    (c(120.0, 128.0, 128.0, 255.0), 24),
+                    (c(60.0, 60.0, 60.0, 203.0), 44),
+                    (none, 188),
+                ],
+            ),
+        ]
+    }
+
+    /// Its blocks as it falls (`+0x28EC`, `+0x2950`), at its head: the fire of the size 6 ± 1,
+    /// drifting by up to 3 along each axis, and the smoke of the size 5 ± 1, its buoyancy 5 ± 10
+    /// and its spin ± 3; both turned at random, one every 0.0012 s at the detail 2, the smoke one in
+    /// five.
+    fn falling() -> [Block; 2] {
+        let pi = std::f32::consts::PI;
+        [
+            Block {
+                size: spread(6.0, 1.0),
+                angle: spread(pi, pi),
+                velocity: spread([0.0; 3], [3.0; 3]),
+                interval: 0.0012,
+                ..Block::default()
+            },
+            Block {
+                buoyancy: spread(5.0, 10.0),
+                size: spread(5.0, 1.0),
+                angle: spread(pi, pi),
+                spin: spread(0.0, 3.0),
+                interval: 0.0012,
+                ..Block::default()
+            },
+        ]
+    }
+
+    /// Its blocks as it lands (`0x7867E5`), at its place: the fire of the size 15 ± 5 within 3 of
+    /// it, the smoke of the size 15 ± 5 within 2, its buoyancy −5 ± 2; both flying off at
+    /// (15, 15, 30) ± 5 along each axis, turned at random.
+    fn burst() -> [Block; 2] {
+        let pi = std::f32::consts::PI;
+        let block = |offset: f32| Block {
+            size: spread(15.0, 5.0),
+            angle: spread(pi, pi),
+            velocity: spread([15.0, 15.0, 30.0], [5.0; 3]),
+            offset: spread([0.0; 3], [offset; 3]),
+            ..Block::default()
+        };
+        [
+            block(3.0),
+            Block {
+                buoyancy: spread(-5.0, 2.0),
+                ..block(2.0)
+            },
+        ]
+    }
+
+    /// A run of `dt` seconds (`0x7866C0`); whether it lands in it, when its quake shakes the
+    /// screen.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) -> bool {
+        let layers = Self::layers();
+        match self.phase {
+            MeteorPhase::Waiting(left) => {
+                self.phase = if left - dt <= 0.0 {
+                    MeteorPhase::Falling
+                } else {
+                    MeteorPhase::Waiting(left - dt)
+                };
+                false
+            }
+            MeteorPhase::Falling => {
+                self.system.update(dt, &layers);
+                let from = self.head;
+                for (axis, speed) in self.head.iter_mut().zip(METEOR_VELOCITY) {
+                    *axis += speed * dt;
+                }
+                self.system.emit_along(
+                    &Self::falling(),
+                    &layers,
+                    METEOR_COUNT,
+                    (from, self.head),
+                    dt,
+                    dice,
+                );
+                if self.head[2] > 0.0 {
+                    return false;
+                }
+                let blocks = Self::burst();
+                for _ in 0..METEOR_BURST {
+                    let layer = pick(blocks.len(), dice);
+                    if let Some(block) = blocks.get(layer)
+                        && self.system.particles.len() < METEOR_COUNT
+                    {
+                        self.system.particles.push(born(block, layer, dice));
+                    }
+                }
+                self.phase = MeteorPhase::Burning;
+                true
+            }
+            MeteorPhase::Burning => {
+                self.system.update(dt, &layers);
+                if self.system.particles.is_empty() {
+                    self.phase = MeteorPhase::Lying(METEOR_LIES);
+                }
+                false
+            }
+            MeteorPhase::Lying(left) => {
+                self.phase = if left - dt <= 0.0 {
+                    MeteorPhase::Fading(METEOR_FADES)
+                } else {
+                    MeteorPhase::Lying(left - dt)
+                };
+                false
+            }
+            MeteorPhase::Fading(left) => {
+                self.phase = if left - dt <= 0.0 {
+                    MeteorPhase::Done
+                } else {
+                    MeteorPhase::Fading(left - dt)
+                };
+                false
+            }
+            MeteorPhase::Done => false,
+        }
+    }
+
+    /// Whether its rock and its glow show: while it falls.
+    pub fn falling_now(&self) -> bool {
+        self.phase == MeteorPhase::Falling
+    }
+
+    /// Its crater's alpha, from its landing: whole, then `⌊85 t⌋ / 255` over its last 3 s, `t`
+    /// its seconds left; none before it lands or once it is gone.
+    pub fn crater_alpha(&self) -> Option<f32> {
+        match self.phase {
+            MeteorPhase::Burning | MeteorPhase::Lying(_) => Some(1.0),
+            MeteorPhase::Fading(left) => Some((85.0 * left).floor().clamp(0.0, 255.0) / 255.0),
+            MeteorPhase::Waiting(_) | MeteorPhase::Falling | MeteorPhase::Done => None,
+        }
+    }
+
+    /// Whether it ended: its crater faded out.
+    pub fn done(&self) -> bool {
+        self.phase == MeteorPhase::Done
+    }
+}
+
 /// The colours of the grounds by their nature (the cell's `+0x1F` high nibble), in the
 /// renderer's table at `+0x9DC8` (`0x418EF3`, read by `0x41BA00`): the dust that the gust raises
 /// takes the colour of the ground its bearer stands on; the nature 0's entry is left 0, and a
@@ -3097,6 +3355,55 @@ mod tests {
         assert_eq!(circle.ramps[0].at(255.0)[3], 0.0);
         assert_eq!(circle.ramps[0].at(224.0), orange);
         assert_eq!(circle.ramps[0].at(0.0), orange);
+    }
+
+    #[test]
+    fn a_meteor_falls_from_aside_bursts_and_leaves_its_crater_to_fade() {
+        let mut dice = Rng::of(18, 0x337, 6);
+        let mut meteor = Meteor::new(0.2, &mut dice);
+        assert!(
+            meteor
+                .turns
+                .iter()
+                .all(|turn| (0.0..=std::f32::consts::TAU).contains(turn))
+        );
+        assert!(!meteor.update(0.1, &mut dice));
+        assert_eq!(meteor.crater_alpha(), None);
+        let mut steps = 0;
+        while !meteor.update(0.025, &mut dice) {
+            steps += 1;
+            assert!(steps < 40, "it lands 0.625 s after its wait");
+        }
+        // It comes down from the side onto its place, its trail behind it.
+        assert!((-1.0..=5.0).contains(&meteor.head[0]), "{:?}", meteor.head);
+        assert!(meteor.system.particles.len() > 300);
+        assert!(meteor.system.particles.iter().any(|p| p.place[2] > 250.0));
+        assert_eq!(meteor.phase, MeteorPhase::Burning);
+        assert_eq!(meteor.crater_alpha(), Some(1.0));
+        // Its fire and smoke burn out in under 2 s; its crater lies 15 s and fades over 3.
+        for _ in 0..80 {
+            meteor.update(0.025, &mut dice);
+        }
+        assert!(matches!(meteor.phase, MeteorPhase::Lying(_)));
+        for _ in 0..640 {
+            meteor.update(0.025, &mut dice);
+        }
+        let alpha = meteor.crater_alpha().unwrap_or(0.0);
+        assert!(
+            matches!(meteor.phase, MeteorPhase::Fading(_)) && alpha < 1.0,
+            "{alpha}"
+        );
+        for _ in 0..120 {
+            meteor.update(0.025, &mut dice);
+        }
+        assert!(meteor.done());
+        // The fire's ramp warms from grey; the smoke's greys.
+        let [fire, smoke] = Meteor::ramps();
+        assert_eq!(
+            fire.at(255.0),
+            [86.0 / 256.0, 86.0 / 256.0, 86.0 / 256.0, 255.0 / 256.0]
+        );
+        assert_eq!(smoke.at(0.0), [0.0; 4]);
     }
 
     #[test]

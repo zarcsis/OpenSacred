@@ -837,6 +837,32 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Mage's start: a golden column of light rising out of the frame from a fire, alike in breadth and place, as it goes from the goblin to the Mage.
 In the original the Mage shows inside the fire where it stands on her, as if drawn over its flames; in `opensacred-game` its flames in front of her cover her.
 
+## The hail of meteors
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 26 at the level 5 at a goblin, by day).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| A meteor of the hail 26 | 823 | `cParticleSystem_meteor` (`0x898050`) | `0x786390`, `0x786AC0`, `0x7866C0`, `0x786EF0` |
+
+- Its constructor makes its two ramps: the fire's (`+0x20AC`) from a grey of 86 opaque to (134, 116, 20) at an alpha of 134 over 14 entries, to (233, 128, 47) at 152 over 13, to (152, 83, 31) at 230 over 60, to nothing over 107 and 62; the smoke's (`+0x24AC`) from a grey of 43 opaque to (120, 128, 128) over 24, to a grey of 60 at 203 over 44, to nothing over 188 (the values out of 256).
+  It loads the rock `gibs01.grn` (`+0x29C0`), `PARTICLE_SMOKE04` (`+0x29C8`), `C_LAVA00` (`+0x29D0`), and `FX_KRATER02` where a `rand()` is even, else `FX_KRATER01` (`+0x29CC`); 700 particles.
+- Its start (`0x786EF0`): its rock's two angles a whole turn at random each (`+0x29B8`, `+0x29BC`); its wait its event's `+0x38` in milliseconds (`+0x20A4`); two layers (`+0x28AC`): the fire's of the life −400 a second and the size −5, the smoke's of −150 and +8; and two blocks (`+0x28EC`, `+0x2950`) at the head (−100, 0, 500) of its frame, one every 0.0012 s (times 1.5 and 2.2 at the detail levels 1 and 0): the fire of the size 6 ± 1, the velocity 0 ± 3 along each axis, the smoke of the size 5 ± 1, the buoyancy 5 ± 10, the angle's speed 0 ± 3, both turned at random; its flags 0, no light.
+- Its run (`0x7866C0`), by its phase (`+0x29B4`):
+  - 0: past its wait it plays `MAGE_METEOREINSCHLAG02` where a `rand()` is even, else `01`, at a rate of `0.4 + (rand() % 10) / 45`, the rate rolled first, and falls;
+  - 1: its particles aged and emitted, two layers, the second one in five (`0x7687F0`); its blocks' head moves by (160, 0, −800) a second; at the height 0 it sends the weather's event of the kind 7 (a quake of 30), its blocks made anew at its place, the fire within 3 of it and the smoke within 2 (its buoyancy −5 ± 2), both of the size 15 ± 5 flying at (15, 15, 30) ± 5 along each axis, turned at random, a burst of 10 (the interval 0, `+0x5C` 10); its flags `0x400`;
+  - 2: its flags 0; once its last particle is gone, 15 s over the detail's factor (`+0x20A4`);
+  - 3: then 3 s;
+  - 4: then it ends.
+- Its draw (`0x786AC0`):
+  - falling: its rock (`0x405C90`, lit as the models are) at its head, four times its size, turned about x by its first angle and about y by its second (`0x6539D0`, `0x653910`, `0x653850`); and a glow (`0x762E10`) of the style 5 (`PARTICLE_GLOW03`) of a half side of 30 in (176, 117, 10) at its head;
+  - in the phases 2 and 3 its crater (`0x7631E0`) of a half side of 50 in the light at it (`+0xA0`), opaque, laid over by its alpha (`SRCALPHA`, `INVSRCALPHA`); in the phase 4 of the alpha `⌊85 t⌋`, `t` its seconds left;
+  - always its particles as billboards of the flags `0xC` (the ramp's colour, turned) of `PARTICLE_SMOKE04`, the fire added (`ONE`) and the smoke laid over by its alpha.
+
+`opensacred-game` draws it since #1092 (`meteors`, `opensacred_rules::particles::Meteor`): each meteor that `spells` makes, the Mage's or a creature's (#1852), gets a look of its own on the ground where it lands, its rock and glow and its trail as it falls, its quake, its burst and its crater; the fire, the smoke and the glow untinted by the night, the crater darkened by it as the ground is.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start by day: streaks of fire falling from the upper left onto the goblin, alike in slant and length, and dark craters left on the ground.
+Its smoke shows darker than the original's, which lies over the place as a light grey haze.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -888,7 +914,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral and the purgatory ("The bolts" to "The purgatory" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory and the hail of meteors ("The bolts" to "The hail of meteors" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
