@@ -1760,8 +1760,14 @@ fn act(
                 ));
                 let damages = bolt_damages(record, level, multipliers);
                 for k in 0..8u8 {
+                    // 170 off along the world's sin and cos, only where a creature may stand,
+                    // on the ground there (`0x52555A`, #2050).
                     let angle = spells::FROST_ANGLE + spells::FROST_STEP * f32::from(k);
-                    let at = here + Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::FROST_FROM;
+                    let at = here + Vec3::new(angle.sin(), 0.0, angle.cos()) * spells::FROST_FROM;
+                    let Some(ground) = heights.standing(at.x, at.z, body.level()) else {
+                        continue;
+                    };
+                    let at = at.with_y(ground);
                     let mut made = commands.spawn((
                         Aura {
                             caster: act.caster,
