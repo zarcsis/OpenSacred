@@ -399,7 +399,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Arts' executors | `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0` | 2076–2122 by the art | an art's run | yes | at the art's start (#1174; where in the run not read) |
 | The Vampiress's night battle cries | `0x67A7A0` (5, 1), flag `+0xAF48` by (9, `0x49`) | `BATTLECRY_nn_REALVAMP` | a battle cry in her night form | yes (`forms`) | yes (`voices`, #1174) |
 | Other creatures' footsteps | `0x68EB90` | 103–114, 1194–1199 | a creature's step near the hero | yes | yes (`steps`, #1171) |
-| The giant spider's steps | `0x4E0300` | 1242, 1243, 1248, 1249 | its motion | yes | no (#2005) |
+| The medium spider's shot (`GIANTSPIDER_FOOTSTEPS01` to `04`) | `0x4E0300`, `0x4D3CD0` | 1242, 1243, 1248, 1249 | its shot of 801 | no | no (#2067) |
 | In-game idle ambience | `0x69B770` (`0x69FBC0`–`0x69FF5F`) | `IDLEFX_*` | every 0.5 s, by the region's music and the day | yes | yes (`ambience`, #1169) |
 | Water ambience | `0x6906C0`, the count from `0x690690` | 216, 217, 218 loops | water cells drawn | yes (`liquids`) | yes (`ambience`, #1169) |
 | Waterfalls | `0x69B770` (`0x69F88C`–`0x69F90D`) | 208 loop | six `WAFA_*` statics within 1,150 | yes (`statics`) | yes (`waterfalls`, #1170) |
@@ -635,7 +635,8 @@ The arrows' hits (read 2026-11-04 for #2007, **confirmed** by code unless marked
 - else the types 33–36, 47, 50, 57–59, 69, 70, 73, 93, 95–98, 106, 107, 119–124, 189, 192, 197, 204, 210, 213, 329, 334, 339–343, 346, 350, 711, 712: 103 group 4; the types 37, 39–43, 45, 49, 51, 60–62, 68, 77, 84, 89–92, 137, 187, 196, 202, 205–208, 253, 254, 330–332, 344, 359, 360, 365–367: `footsteps_bigone` 107, group 2 on water, else 1;
 - else by the type's name after its `TYPE_`: `NATURE_HORSE` and `NPC_UNICORN` 105 by the ground; `NPC_FEUERGHUL` 102 group 4; `NPC_DRAGON` and `NPC_BIG_DEMON` `footsteps_bigger ones` 113; `NPC_ORC_`, `NPC_WARRIOR`, `NPC_GOBLIN`, the three pirates, `NPC_ANDUCAR_GARDE`, `NPC_GLORB` and `NPC_DAEMONENFUERST` `footsteps_metalclothes` 109; `NPC_TATZELANNOY`, `NPC_GIGANT_SPIDER` (at a rate 0.3 lower), `NPC_KILLERKRABBE` and `NPC_RUINENASSEL` `footsteps_tatzeltannoy` 112; `NPC_SPIDER_M`, `NPC_SMALLSPIDER` and `NPC_MED_SPIDER` `footsteps_giant spider` 114; `NPC_SKELETON` and `NPC_DWARF_SKELETON` `footsteps_skelette` 108; all group 1; else none.
 
-The giant spider's steps 1242, 1243, 1248, 1249 are played by its own code (`0x4E0300`, `0x4E378C`–`0x4E3831`).
+The samples `GIANTSPIDER_FOOTSTEPS01` to `04` (1248, 1249, 1242, 1243) are no steps (read 2026-11-04 for #2005, **confirmed** by code): the spider of the type 75 (`med_spider.grn`, `NPC_MED_SPIDER`) plays one of them as it shoots, in its melee state (`0x4E0300`, its branch at `0x4E3513`) and in the ranged state's caster (`0x4D3CD0`, `0x4D3DFC`): it makes an object 801 (`FX_RAILGUN`) at its place toward its target, then in four cases of five (`rand() % 5` of 0 to 3, `0x4E3756`) one of the four at it, at a rate's factor of 0.5.
+Its steps are the generic `footsteps_giant spider` 114 above, which `opensacred-game` plays; its shot and the four samples are not followed (#2067).
 
 Read further 2026-10-27 for #1171 (**confirmed** by code unless marked otherwise):
 

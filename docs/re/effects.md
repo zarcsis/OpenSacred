@@ -958,6 +958,26 @@ Read 2026-11-04 for #2063 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #2063 (`prisons`, `opensacred_rules::particles::magic_prison`): `npcs` makes an entity for each `CreateObj` of 854 at its place and the height of its record's `0x7E`, as the fires, which draws its glows and its ground glow untinted by the night and sounds once as it is made.
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start: the same row of lilac lights along the platform's edge, alike in place, height and colour.
 
+## The fear
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game, his spell 67 at the level 5 by two goblins, by day).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| An object of the fear 67 | 1012 | `cParticleSystem_hellscream` (`0x898B84`) | `0x7B05F0`, `0x7B0870`, `0x7B07B0`, `0x7B0AF0` |
+
+- The executor (`0x528024`) puts its five objects 160 off along the world's `cos` and `sin` of `0.733 + k·2π/5` (a vector turned by `0x529720`), at the ground's height there (`0x636310`), with no test of the cell.
+- Its constructor loads `PARTICLE_GLOW01` (`+0x2134`), `PARTICLE_GLOW03` (`+0x2138`) and `laserbeampart` (`+0x213C`), and makes its column's quad (`+0x20B4`); no particles.
+- Its start (`0x7B0AF0`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20A4`), its fade (`+0x20AC`) 0, its ring's radius (`+0x20B0`) 10, its flags `0x400`, its light 350.
+- Its run (`0x7B07B0`): while its seconds last, its fade rises by its time to 1; after, it falls by 0.3 a second and at 0 it ends; its ring's radius grows by 70 a second, back to 10 past 100.
+- Its draw (`0x7B0870`):
+  - a flat quad (`0x7631E0`) of `PARTICLE_GLOW03` of a half side of 60 in (255, 130, 70), added (`ONE`, `ONE`);
+  - a ring (`0x763530`) of 50 segments flat at its place between its radius and 20 more, of `laserbeampart`, added, of (255, 162, 102) times a share that holds 1 to the radius 75 and falls by 0.04 a unit to 0 at 100, each byte taken whole;
+  - with the draw's own matrix, so that they face the camera, its translation its place raised by `4 i f`, 32 quads of `PARTICLE_GLOW01` in (255, 162, 102), added by their alpha (`SRCALPHA`, `ONE`), the `i`-th of the half side `1.7 sin(0.3 i + t) + 1.6 (sin(i − 3t) + 1) + 6 + f`, `t` its clock and `f` its fade: a column of light that rises to 124 as it fades in.
+
+`opensacred-game` draws it since #1092 (`hell_screams`, `opensacred_rules::particles::HellScream`): each object that `spells` makes gets a look of its own on the ground under it, untinted by the night, its light of 350, fading out after its object goes.
+**Seen** 2026-11-04 beside the original's frames at the Daemon's start by day: five tall golden columns of light about him, each over an orange glow, with golden rings spreading from their feet over and over, alike in place, size and colour.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -1009,7 +1029,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost, the chain lightning, the lost souls and the choir ("The bolts" to "The choir" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost, the chain lightning, the lost souls, the choir and the fear ("The bolts" to "The fear" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

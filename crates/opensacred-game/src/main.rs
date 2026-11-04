@@ -75,6 +75,7 @@ mod glance;
 mod glitter;
 mod guns;
 mod held;
+mod hell_screams;
 mod help;
 mod hero;
 mod hero_held;
@@ -465,6 +466,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         glitter::GlitterPlugin,
         guns::GunsPlugin,
+        hell_screams::HellScreamsPlugin,
         held::HeldPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
@@ -477,9 +479,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         hurled::HurledPlugin,
         icebergs::IcebergsPlugin,
         icons::IconsPlugin,
-        inventory::InventoryPlugin,
     ))
     .add_plugins((
+        inventory::InventoryPlugin,
         journal::JournalPlugin,
         labels::LabelsPlugin,
         light_blades::LightBladesPlugin,

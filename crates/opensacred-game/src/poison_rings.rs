@@ -5,8 +5,6 @@
 //! turning on the ground and shrinking (`poison_twirls`), both added whole and untinted by the
 //! night, and its light of 200 at it.
 
-use std::f32::consts::TAU;
-
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, poison_ring, poison_twirls};
@@ -156,23 +154,12 @@ fn run(
         let ground = ring.place + Vec3::Y * GROUND_LIFT;
         let mut band = Quads::default();
         if let Some((inner, outer, colour)) = poison_ring(ring.clock) {
-            let segments = particles::POISON_RING_SEGMENTS;
-            let edge = |k: u16, radius: f32| {
-                let angle = TAU * f32::from(k) / f32::from(segments);
-                ground + Vec3::new(angle.sin(), 0.0, angle.cos()) * radius * s
-            };
-            for k in 0..segments {
-                band.push_corners(
-                    [
-                        edge(k, inner),
-                        edge(k, outer),
-                        edge(k + 1, outer),
-                        edge(k + 1, inner),
-                    ],
-                    [Vec2::ZERO, Vec2::Y, Vec2::ONE, Vec2::X],
-                    colour,
-                );
-            }
+            band.push_ring(
+                ground,
+                (inner * s, outer * s),
+                particles::POISON_RING_SEGMENTS,
+                colour,
+            );
         }
         let mut twirls = Quads::default();
         for (half, angle) in poison_twirls(ring.clock).into_iter().flatten() {
