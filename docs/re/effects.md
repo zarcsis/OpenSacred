@@ -268,6 +268,7 @@ Its frame's origin is the holder's place on the ground (the flag `4`), so that i
 
 `opensacred-game` follows the flame since #1092 (`torches`, `opensacred_rules::particles::Torchsmoke`): a torch's model in a hand of the hero or an NPC, `torch_small_on` or `torch_large_on`, burns at its bone as above, its flames in its holder's frame, untinted by the night, with its loop at 0.4; the torch gone, its flames burn out.
 **Seen** 2026-11-04 beside the original at the Seraphim's start by night (the start's torch in her right hand): the flame of the same size and place standing, the original's a little more orange, and the same streak down her arm as she runs.
+**Seen** 2026-11-04 beside the original at 52,39 by night: the garrison's guard of the type 295 with the torch in its left hand that it takes by night (docs/re/ai.md, "The torches by night"), its flame of the same size at the torch's head.
 
 The world's wall torches and fire pits are statics (`DUN_torch1` to `4`, `TORCH001`, `Firepit 1`, `firepit002` to `5`, `FIREPIT06`, `3S_FIRE`, `UW_FIRE_01`, `02`: type 9 sprites); their flames are the scripts' FX objects placed with them (`FX_FIRE_L`, `FX_FI_SMOKE_S`, at their heights `0x7E`; **hypothesis** for which goes with which).
 

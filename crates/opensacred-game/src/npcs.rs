@@ -9517,6 +9517,14 @@ impl Arms {
         npcs.map_or_else(crate::sfx::Armed::default, |npcs| npcs.armed(&in_hands))
     }
 
+    /// The type of the item in its left hand (slot 12), if any.
+    pub fn left(&self) -> Option<u32> {
+        self.holding
+            .iter()
+            .find(|(held, _)| held.hand == Hand::Left)
+            .map(|(held, _)| held.item)
+    }
+
     /// Its attack, defence, damage and resistances at level `grade` and of rank `rank`
     /// (`0x5796A0`), with its skills and its items' values: unarmed when what it holds is of
     /// class 0 and its right hand empty (`0x546F80`); and its hits' share of a strike, halved with
@@ -9628,6 +9636,20 @@ impl Rearms {
         Self {
             away: vec![Hand::Right, Hand::Left],
             takes: vec![(bow, Hand::Left, None)],
+        }
+    }
+
+    /// A guard's or a townsperson's torch by night and by day (`minds::Torch`, #61): a torch
+    /// taken into its left hand (slot 12), or what that hand holds put away.
+    pub fn torch(torch: opensacred_rules::minds::Torch) -> Self {
+        Self {
+            away: vec![Hand::Left],
+            takes: match torch {
+                opensacred_rules::minds::Torch::Takes => {
+                    vec![(opensacred_rules::minds::TORCH, Hand::Left, None)]
+                }
+                opensacred_rules::minds::Torch::PutsAway => Vec::new(),
+            },
         }
     }
 

@@ -324,6 +324,20 @@ const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD | TOWNSFOLKS
 const TOWNSFOLK_RANGE: f32 = 600.0;
 /// The children's types (`0x43F670`), which always roll 20.
 const CHILDREN: [u32; 7] = [229, 230, 231, 702, 703, 704, 705];
+/// The torch that a guard or a townsperson takes into its left hand by night, `TORCH_SMALL_ON`
+/// (`0x1600`, made by `sdk_OBJ_CREATE_NPOS` and put into the slot 12).
+pub const TORCH: u32 = 0x1600;
+
+/// What a guard or a townsperson does with its left hand by night and by day
+/// ([`Mind::guard_torch`], [`Mind::townsperson_torch`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Torch {
+    /// It takes a torch ([`TORCH`]) into its empty left hand (`sdk_EQUIP` of the slot 12).
+    Takes,
+    /// It puts away what its left hand holds, which is gone (`0x556A30` of the slot 12 and
+    /// `sdk_DESTROY`).
+    PutsAway,
+}
 /// How far a townsperson follows its partner, how near they meet, farther than which it walks
 /// up to it, and how near it steps off to 220 from it (`0x4EF150` with the flag 4,
 /// `0x4FC490`).
@@ -894,6 +908,48 @@ impl Mind {
     /// Whether it is a child, by its type.
     pub fn is_child(&self) -> bool {
         CHILDREN.contains(&self.creature)
+    }
+
+    /// Whether its type may take a torch by night (`0x4EFA50`, `0x4F0FA8`): none of the type 71,
+    /// of the types 512 to 600 or of the class 6 (`0x426A30`), nor of the category `0x20`, the
+    /// waters' crab and fish 163 to 166 (`0x434070`, which spares the weapons' types too).
+    fn takes_torches(&self) -> bool {
+        self.creature != 71
+            && !(512..=600).contains(&self.creature)
+            && !(163..=166).contains(&self.creature)
+            && self.class != 6
+    }
+
+    /// What a guard does with its left hand at a tick of its behaviour, awake within 1,500 of the
+    /// hero (`0x4EF150` at `0x4EFA50`), `odd` whether its id is odd, by `night` or not (22:20 to
+    /// 03:20, `0x41BAB0`), its left hand holding the type `left` (slot 12): one of an even id
+    /// never; by night one whose left hand is empty takes a torch ([`TORCH`]), and otherwise,
+    /// the dusk and the dawn among it, one that holds a torch there puts it away.
+    pub fn guard_torch(&self, odd: bool, night: bool, left: Option<u32>) -> Option<Torch> {
+        match left {
+            _ if !odd => None,
+            None if night && self.takes_torches() => Some(Torch::Takes),
+            Some(TORCH) if !night => Some(Torch::PutsAway),
+            _ => None,
+        }
+    }
+
+    /// What a townsperson does with its left hand as it decides, `outdoors` or not, by `night`
+    /// or not, its left hand holding the type `left`: on the evening's way outdoors
+    /// (`evening_outdoors`) by night it takes a torch into its empty left hand ([`TORCH`],
+    /// `0x4F0FA8`); on the evening's way indoors and on the day's way it puts away whatever its
+    /// left hand holds, unless it stands outdoors by night (`0x4F1898`, `0x4F1ACF`).
+    pub fn townsperson_torch(
+        &self,
+        evening_outdoors: bool,
+        (outdoors, night): (bool, bool),
+        left: Option<u32>,
+    ) -> Option<Torch> {
+        match left {
+            None if evening_outdoors && night && self.takes_torches() => Some(Torch::Takes),
+            Some(_) if !evening_outdoors && !(outdoors && night) => Some(Torch::PutsAway),
+            _ => None,
+        }
     }
 
     /// How far from the hero it goes dormant again while it stands awake by its behaviour: a
@@ -4581,6 +4637,58 @@ mod tests {
         }
         // On the diagonal at home, its measure 0: about itself.
         assert!(near(parting(here, here, &mut rng), here));
+    }
+
+    #[test]
+    fn guards_and_townsfolk_take_torches_by_night_and_put_them_away_by_day() {
+        let home = at(1000.0, 1000.0);
+        let guard = Mind::new(home, GUARD, (false, false), None, SPEEDS, (640, 3));
+        // A guard of an odd id: by night into its empty left hand, away by day or at dusk, a
+        // shield kept.
+        assert_eq!(guard.guard_torch(true, true, None), Some(Torch::Takes));
+        assert_eq!(guard.guard_torch(true, true, Some(TORCH)), None);
+        assert_eq!(
+            guard.guard_torch(true, false, Some(TORCH)),
+            Some(Torch::PutsAway)
+        );
+        assert_eq!(guard.guard_torch(true, true, Some(1753)), None);
+        assert_eq!(guard.guard_torch(true, false, Some(1753)), None);
+        assert_eq!(guard.guard_torch(true, false, None), None);
+        // Of an even id, never; nor the types spared.
+        assert_eq!(guard.guard_torch(false, true, None), None);
+        assert_eq!(guard.guard_torch(false, false, Some(TORCH)), None);
+        for spared in [71, 512, 600, 164] {
+            let spared = Mind::new(home, GUARD, (false, false), None, SPEEDS, (spared, 3));
+            assert_eq!(spared.guard_torch(true, true, None), None);
+        }
+        let animal = Mind::new(home, GUARD, (false, false), None, SPEEDS, (640, 6));
+        assert_eq!(animal.guard_torch(true, true, None), None);
+        // A townsperson on the evening's way outdoors by night takes one, not at dusk; on its
+        // other ways it puts away whatever it holds there, but outdoors by night.
+        let farmer = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (640, 3));
+        let outdoors_night = (true, true);
+        assert_eq!(
+            farmer.townsperson_torch(true, outdoors_night, None),
+            Some(Torch::Takes)
+        );
+        assert_eq!(farmer.townsperson_torch(true, (true, false), None), None);
+        assert_eq!(
+            farmer.townsperson_torch(true, outdoors_night, Some(TORCH)),
+            None
+        );
+        assert_eq!(
+            farmer.townsperson_torch(false, outdoors_night, Some(TORCH)),
+            None
+        );
+        assert_eq!(
+            farmer.townsperson_torch(false, (false, true), Some(TORCH)),
+            Some(Torch::PutsAway)
+        );
+        assert_eq!(
+            farmer.townsperson_torch(false, (true, false), Some(1753)),
+            Some(Torch::PutsAway)
+        );
+        assert_eq!(farmer.townsperson_torch(false, (true, false), None), None);
     }
 
     #[test]
