@@ -2,7 +2,8 @@
 //! does everywhere, in the game, in the menus and in the console, the keys as `controls.toml` has
 //! them (`controls`). Esc hides it too, without
 //! pausing a game, after the console has had its Esc; the game goes on under it. The command
-//! `keys on|off` shows and hides it from a script or from afar.
+//! `keys on|off` shows and hides it from a script or from afar. Its words are the messages of
+//! `text/en-US/help.ftl` (`own_texts`, #1986), named in its table.
 
 use bevy::input::InputSystems;
 use bevy::picking::Pickable;
@@ -10,9 +11,11 @@ use bevy::prelude::*;
 use bevy::text::FontSize;
 
 use crate::controls::{ART_KEYS, ART_SLOTS, Action, Controls, KeysMut, WEAPON_SETS};
+use crate::own_texts;
 
 /// A row's keys: the keys of actions, the first of each where there are several, between words
-/// before and after them; or words alone, for the mouse and the console's line.
+/// before and after them; or words alone, for the mouse and the console's line. The words are
+/// messages' names, none where empty.
 pub struct Row {
     before: &'static str,
     actions: &'static [Action],
@@ -51,11 +54,15 @@ impl Row {
         } else {
             ", "
         };
-        format!("{}{between}{names}{}", self.before, self.after)
+        format!(
+            "{}{between}{names}{}",
+            own_texts::text(self.before),
+            own_texts::text(self.after)
+        )
     }
 }
 
-/// A place's name and its rows: each row's keys and what they do.
+/// A place's name and its rows: each row's keys and what they do, the words messages' names.
 type Place = (&'static str, &'static [(Row, &'static str)]);
 
 /// The keys and what they do, by where they work, the places in two columns side by side, so
@@ -64,63 +71,45 @@ type Place = (&'static str, &'static [(Row, &'static str)]);
 pub const KEYS: [&[Place]; 2] = [
     &[
         (
-            "Everywhere",
+            "help-everywhere",
             &[
-                (of(&[Action::Help]), "this help"),
-                (of(&[Action::Overlay]), "the debug overlay"),
-                (of(&[Action::Log]), "the log"),
-                (of(&[Action::Window]), "borderless full screen or a window"),
-                (of(&[Action::Console]), "the console (the key under Esc)"),
-                (
-                    of(&[Action::SkipMovie]),
-                    "held, as either button, stop a movie",
-                ),
+                (of(&[Action::Help]), "help-help"),
+                (of(&[Action::Overlay]), "help-overlay"),
+                (of(&[Action::Log]), "help-log"),
+                (of(&[Action::Window]), "help-window"),
+                (of(&[Action::Console]), "help-console"),
+                (of(&[Action::SkipMovie]), "help-skip-movie"),
             ],
         ),
         (
-            "In the game",
+            "help-in-the-game",
             &[
-                (words("Left button"), "run to the cursor"),
-                (of(&[Action::Walk]), "walk rather than run, while held"),
-                (
-                    words("Left button on a foe"),
-                    "strike it; hold to strike on",
-                ),
+                (words("help-left-button"), "help-run"),
+                (of(&[Action::Walk]), "help-walk"),
+                (words("help-left-button-on-a-foe"), "help-strike"),
                 (
                     Row {
                         before: "",
                         actions: &[Action::StrikeAtOnce],
-                        after: "+left button",
+                        after: "help-and-left-button",
                     },
-                    "strike at once",
+                    "help-strike-at-once",
                 ),
-                (
-                    words("Right button on a foe"),
-                    "make the selected combat art",
-                ),
-                (of(&[Action::Labels]), "the items' names"),
-                (of(&[Action::Inventory]), "the inventory"),
-                (of(&[Action::QuestBook]), "the quest book"),
-                (of(&[Action::WorldMap]), "the world map"),
-                (of(&[Action::Overview]), "held, the overview map"),
-                (of(&[Action::CombatArts]), "the inventory's combat arts"),
-                (of(&[Action::Combos]), "the inventory's combos"),
-                (
-                    of(&[Action::ZoomIn, Action::ZoomOut]),
-                    "held, the world closer or farther",
-                ),
-                (of(&[Action::ZoomBack]), "the zoom back to 1"),
-                (of(&WEAPON_SETS), "the weapon sets"),
-                (of(&ART_SLOTS), "the art slots"),
-                (of(&ART_KEYS), "the art of the key into the selected slot"),
-                (
-                    words("The same over an art"),
-                    "on the spells page: bind the key to it",
-                ),
-                (
-                    of(&[Action::BeltPotion]),
-                    "a healing potion (with Shift the yellow one)",
-                ),
+                (words("help-right-button-on-a-foe"), "help-make-art"),
+                (of(&[Action::Labels]), "help-labels"),
+                (of(&[Action::Inventory]), "help-inventory"),
+                (of(&[Action::QuestBook]), "help-quest-book"),
+                (of(&[Action::WorldMap]), "help-world-map"),
+                (of(&[Action::Overview]), "help-overview"),
+                (of(&[Action::CombatArts]), "help-combat-arts"),
+                (of(&[Action::Combos]), "help-combos"),
+                (of(&[Action::ZoomIn, Action::ZoomOut]), "help-zoom-keys"),
+                (of(&[Action::ZoomBack]), "help-zoom-back"),
+                (of(&WEAPON_SETS), "help-weapon-sets"),
+                (of(&ART_SLOTS), "help-art-slots"),
+                (of(&ART_KEYS), "help-art-keys"),
+                (words("help-the-same-over-an-art"), "help-bind"),
+                (of(&[Action::BeltPotion]), "help-belt-potion"),
                 (
                     of(&[
                         Action::PurplePotion,
@@ -128,59 +117,56 @@ pub const KEYS: [&[Place]; 2] = [
                         Action::GreenPotion,
                         Action::YellowPotion,
                     ]),
-                    "a purple, blue, green or yellow potion",
+                    "help-potions",
                 ),
-                (
-                    of(&[Action::FollowerPotion]),
-                    "a healing potion for a follower",
-                ),
-                (of(&[Action::Collect]), "collect the items about the hero"),
+                (of(&[Action::FollowerPotion]), "help-follower-potion"),
+                (of(&[Action::Collect]), "help-collect"),
                 (
                     Row {
                         before: "",
                         actions: &[Action::SendItem],
-                        after: "+click on an item",
+                        after: "help-and-click-on-an-item",
                     },
-                    "the stash's to the backpack, a potion to a follower",
+                    "help-send-item",
                 ),
-                (words("Wheel"), "zoom in and out"),
-                (of(&[Action::Pause]), "pause, and again go on"),
-                (of(&[Action::Back]), "pause: Continue, Main menu, Quit"),
+                (words("help-wheel"), "help-zoom-wheel"),
+                (of(&[Action::Pause]), "help-pause"),
+                (of(&[Action::Back]), "help-pause-menu"),
             ],
         ),
     ],
     &[
         (
-            "In the menus",
+            "help-in-the-menus",
             &[
                 (
                     Row {
-                        before: "Mouse",
+                        before: "help-mouse",
                         actions: &[Action::Next, Action::Previous],
                         after: "",
                     },
-                    "choose",
+                    "help-choose",
                 ),
                 (
                     Row {
-                        before: "Click",
+                        before: "help-click",
                         actions: &[Action::Confirm],
                         after: "",
                     },
-                    "do it",
+                    "help-do-it",
                 ),
-                (of(&[Action::Back]), "back"),
+                (of(&[Action::Back]), "help-back"),
             ],
         ),
         (
-            "In the console",
+            "help-in-the-console",
             &[
-                (words("Enter"), "run the line (help lists the commands)"),
-                (words("Up, Down"), "the history"),
-                (words("Tab"), "complete"),
-                (words("Ctrl+V, Ctrl+C"), "paste, copy the line"),
-                (words("PageUp, PageDown"), "scroll"),
-                (of(&[Action::Back]), "close"),
+                (words("help-enter"), "help-run-line"),
+                (words("help-up-down"), "help-history"),
+                (words("help-tab"), "help-complete"),
+                (words("help-paste-copy-keys"), "help-paste-copy"),
+                (words("help-page-keys"), "help-scroll"),
+                (of(&[Action::Back]), "help-close"),
             ],
         ),
     ],
@@ -255,7 +241,7 @@ fn spawn(mut commands: Commands, controls: Option<Res<Controls>>) {
                     BorderColor::all(GOLD),
                 ))
                 .with_children(|panel| {
-                    panel.spawn(text(TITLE, GOLD, "Keys"));
+                    panel.spawn(text(TITLE, GOLD, own_texts::text("help-title")));
                     panel
                         .spawn(Node {
                             flex_direction: FlexDirection::Row,
@@ -273,7 +259,7 @@ fn spawn(mut commands: Commands, controls: Option<Res<Controls>>) {
                                     .with_children(|column| {
                                         for (place, keys) in places {
                                             column.spawn((
-                                                text(TEXT, GOLD, place),
+                                                text(TEXT, GOLD, own_texts::text(place)),
                                                 Node {
                                                     margin: UiRect::top(Val::Px(PLACE_MARGIN)),
                                                     ..default()
@@ -293,7 +279,11 @@ fn spawn(mut commands: Commands, controls: Option<Res<Controls>>) {
                                                                 ..default()
                                                             },
                                                         ));
-                                                        row.spawn(text(TEXT, WORDS, does));
+                                                        row.spawn(text(
+                                                            TEXT,
+                                                            WORDS,
+                                                            own_texts::text(does),
+                                                        ));
                                                     });
                                             }
                                         }
@@ -356,7 +346,10 @@ mod tests {
     fn the_help_names_every_action_by_its_keys() {
         let controls = Controls::default();
         let rows: Vec<(String, &str)> = places()
-            .flat_map(|(_, rows)| rows.iter().map(|(row, does)| (row.text(&controls), *does)))
+            .flat_map(|(_, rows)| {
+                rows.iter()
+                    .map(|(row, does)| (row.text(&controls), own_texts::text(does)))
+            })
             .collect();
         // Every action has its row.
         let shown: Vec<Action> = places()
@@ -381,6 +374,27 @@ mod tests {
             ("Escape, Space", "held, as either button, stop a movie"),
         ] {
             assert!(rows.contains(&(keys.to_owned(), does)), "{keys}: {rows:#?}");
+        }
+    }
+
+    #[test]
+    fn the_table_names_every_message_of_the_helps_file_and_no_other() {
+        let mut named = vec!["help-title"];
+        for (place, rows) in places() {
+            named.push(place);
+            for (row, does) in *rows {
+                named.extend(
+                    [row.before, row.after, does]
+                        .into_iter()
+                        .filter(|n| !n.is_empty()),
+                );
+            }
+        }
+        for name in &named {
+            assert!(own_texts::has(name), "{name}");
+        }
+        for name in own_texts::names().filter(|name| name.starts_with("help-")) {
+            assert!(named.contains(&name), "{name} is named by no row");
         }
     }
 

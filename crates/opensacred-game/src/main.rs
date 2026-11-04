@@ -101,6 +101,7 @@ mod npcs;
 mod opus;
 mod overlay;
 mod overview;
+mod own_texts;
 mod parallel;
 mod paths;
 mod pause;

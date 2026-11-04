@@ -292,6 +292,7 @@ Every key is in a file of its own, `controls.toml` beside `settings.toml` (#1553
 * Not in it: the editing of a line of text (the console's and the hero's name's: Enter, the arrows, Tab, Ctrl+V and Ctrl+C), and the mouse's buttons.
 * The keys' help (F10) names the keys as the file has them, and so do the bar's buttons' and the belt's tooltips and the spells page's keys over the arts (#1980).
 F10 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
+Its words are Fluent messages of `crates/opensacred-game/text/en-US/help.ftl`, embedded in the game, the game's own texts beside the original's converted `global.ftl` (`own_texts`, #1986).
 
 ## 10. Order and estimates
 
