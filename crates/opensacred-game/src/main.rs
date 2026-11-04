@@ -118,6 +118,7 @@ mod remote;
 mod rewards;
 mod ripples;
 mod runes;
+mod save_picture;
 mod saves;
 #[cfg(test)]
 mod scene_tests;
@@ -484,6 +485,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         runes::RunesPlugin,
     ))
     .add_plugins((
+        save_picture::SavePicturePlugin,
         saves::SavesPlugin,
         screenshot::ScreenshotPlugin,
         script_attacks::ScriptAttacksPlugin,
@@ -498,9 +500,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
-        souls::SoulsPlugin,
     ))
-    .add_plugins((sound::SoundPlugin, sparkles::SparklesPlugin))
+    .add_plugins((
+        souls::SoulsPlugin,
+        sound::SoundPlugin,
+        sparkles::SparklesPlugin,
+    ))
     .add_plugins((
         spells::SpellsPlugin,
         spells_page::SpellsPagePlugin,

@@ -102,6 +102,9 @@ fn show(
     }
     crate::inventory::play(&mut sounds, crate::inventory::CLICK);
     lit.0 = None;
+    // The save's picture as the window opens (`0x6BB795`'s `(0x13, 5, 1)`), of this frame, which
+    // the window shows only after (#1991).
+    crate::save_picture::take(&mut commands);
     let atlases = Atlases::load(&images, &assets);
     let font: Handle<Font> = assets.load(menu::MENU_FONT);
     commands
@@ -111,6 +114,8 @@ fn show(
             GlobalZIndex(20),
             Pickable::IGNORE,
             DespawnOnExit(Play::Paused),
+            Visibility::Hidden,
+            Unveils(1),
         ))
         .with_children(|picture| {
             picture.spawn((
@@ -163,6 +168,23 @@ fn show(
                     ));
             }
         });
+}
+
+/// A window that shows once its frames have passed: the menu's, hidden from the frame that the
+/// save's picture takes (#1991).
+#[derive(Component)]
+struct Unveils(u8);
+
+/// Shows the window whose frames have passed.
+fn unveil(mut commands: Commands, mut windows: Query<(Entity, &mut Unveils, &mut Visibility)>) {
+    for (entity, mut unveils, mut visibility) in &mut windows {
+        if unveils.0 == 0 {
+            *visibility = Visibility::Inherited;
+            commands.entity(entity).remove::<Unveils>();
+        } else {
+            unveils.0 -= 1;
+        }
+    }
 }
 
 /// Lights the item under the cursor, the others gold and the ones that do nothing yet grey.
@@ -301,7 +323,7 @@ impl Plugin for EscMenuPlugin {
                 Update,
                 (
                     keys.before(crate::pause::toggle),
-                    light.run_if(in_state(Play::Paused)),
+                    (light, unveil).run_if(in_state(Play::Paused)),
                 )
                     .run_if(in_state(AppState::InGame)),
             );

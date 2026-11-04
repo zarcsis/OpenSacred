@@ -54,6 +54,7 @@ use crate::game::{AppState, Class, NewGame};
 use crate::hero::{Arrival, Body};
 use crate::merchant::Wares;
 use crate::pickup::{self, Pack};
+use crate::save_picture::Picture;
 use crate::scripts::{HeroHome, Teleport};
 use crate::sets::WeaponSets;
 use crate::settings::SettingsFile;
@@ -63,8 +64,10 @@ use crate::town_stash::Chest;
 use crate::world_map::Map;
 use crate::{arts, drops, making};
 
-/// The saves' version: a save of another is refused.
-pub const VERSION: u32 = 3;
+/// The saves' version: a save of another is refused, but those of the version before it, which
+/// are as these without the picture after their header (#1991).
+pub const VERSION: u32 = 4;
+const UNPICTURED: u32 = 3;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -163,13 +166,15 @@ fn file(dir: &Path, name: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{name}.{EXTENSION}")))
 }
 
-/// Writes a save of `header`, `hero`, `scripts` and `world` at `path`.
+/// Writes a save of `header`, its `picture`, `hero`, `scripts` and `world` at `path`, the picture
+/// after the header, which the saves' list reads with it.
 pub fn write(
     path: &Path,
-    header: &Header,
+    (header, picture): (&Header, Option<&Picture>),
     (hero, scripts, world): (&Hero, &Scripts, &World),
 ) -> Result<()> {
     let mut bytes = postcard::to_stdvec(header).context("writing the header")?;
+    bytes.extend(postcard::to_stdvec(&picture).context("writing the picture")?);
     bytes.extend(postcard::to_stdvec(hero).context("writing the hero")?);
     bytes.extend(postcard::to_stdvec(scripts).context("writing the scripts")?);
     bytes.extend(postcard::to_stdvec(world).context("writing the world")?);
@@ -179,23 +184,23 @@ pub fn write(
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
-/// A save's header and the bytes after it, refused where its version is not [`VERSION`].
-fn header(bytes: &[u8]) -> Result<(Header, &[u8])> {
+/// A save's header, its picture and the bytes after them, refused where its version is neither
+/// [`VERSION`] nor the one before, which has no picture.
+fn header(bytes: &[u8]) -> Result<(Header, Option<Picture>, &[u8])> {
     let (header, rest) =
         postcard::take_from_bytes::<Header>(bytes).context("reading the header")?;
-    if header.version != VERSION {
-        bail!(
-            "a save of the version {}, where the game reads {VERSION}",
-            header.version
-        );
-    }
-    Ok((header, rest))
+    let (picture, rest) = match header.version {
+        VERSION => postcard::take_from_bytes(rest).context("reading the picture")?,
+        UNPICTURED => (None, rest),
+        version => bail!("a save of the version {version}, where the game reads {VERSION}"),
+    };
+    Ok((header, picture, rest))
 }
 
 /// Reads the save at `path`.
 pub fn read(path: &Path) -> Result<(Header, Hero, Scripts, World)> {
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    let (header, rest) = header(&bytes).with_context(|| path.display().to_string())?;
+    let (header, _, rest) = header(&bytes).with_context(|| path.display().to_string())?;
     let (hero, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the hero", path.display()))?;
     let (scripts, rest) = postcard::take_from_bytes(rest)
@@ -217,7 +222,7 @@ pub fn list(dir: &Path) -> Vec<(String, Header)> {
         .filter(|path| path.extension().is_some_and(|e| e == EXTENSION))
         .filter_map(|path| {
             let bytes = fs::read(&path).ok()?;
-            let (header, _) = header(&bytes).ok()?;
+            let (header, _, _) = header(&bytes).ok()?;
             let stem = path.file_stem()?.to_string_lossy().into_owned();
             Some((stem, header))
         })
@@ -389,7 +394,11 @@ fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) -> Result<P
     let (header, hero) = gather(world, name)?;
     let scripts = scripts(world)?;
     let kept = world_of(world)?;
-    write(&path, &header, (&hero, &scripts, &kept))?;
+    // The picture last taken (`save_picture`), as the original's save keeps its last capture.
+    let picture = world
+        .get_resource::<crate::save_picture::Taken>()
+        .and_then(|taken| taken.picture.clone());
+    write(&path, (&header, picture.as_ref()), (&hero, &scripts, &kept))?;
     info!("saves: {} saved in {}", header.name, path.display());
     Ok(path)
 }
@@ -616,6 +625,12 @@ fn autosave(world: &mut bevy::prelude::World) {
         info!("saves: the scripts' autosave {number} left, the autosave being off");
         return;
     }
+    // Its picture first, as the record's `(0xF, 3)` comes before its save (`0x4AC740`).
+    picture_first(world, Waits::Auto(number));
+}
+
+/// The autosave of `number`, its picture taken.
+fn autosave_now(world: &mut bevy::prelude::World, number: u32) {
     let name = world
         .get_resource::<crate::lines::Texts>()
         .and_then(|texts| texts.named(&number.to_string()))
@@ -672,17 +687,65 @@ fn quick_keys(mut keys: crate::controls::KeysMut, refusing: Refusing, mut asked:
     }
 }
 
-/// Carries out the quick save or load asked for, as the console's `save` and `load` do.
+/// Carries out the quick save or load asked for, as the console's `save` and `load` do, the save
+/// once its picture is taken, as F9 takes it right before (`0x618E3A`).
 fn quick(world: &mut bevy::prelude::World) {
     let Some(asked) = world.resource_mut::<Asked>().0.take() else {
         return;
     };
-    let done = match asked {
-        Quick::Save => save_in(world, QUICK_FILE, QUICK_SAVE).map(drop),
-        Quick::Load => load(world, QUICK_FILE).map(drop),
+    match asked {
+        Quick::Save => picture_first(world, Waits::Quick),
+        Quick::Load => {
+            if let Err(e) = load(world, QUICK_FILE) {
+                warn!("saves: the quick load: {e:#}");
+            }
+        }
+    }
+}
+
+/// A save that waits for its picture (#1991): the quick save or an autosave of its number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Waits {
+    Quick,
+    Auto(u32),
+}
+
+/// The save waiting for its picture, the pictures taken as it began to wait, and the frames it
+/// has waited.
+#[derive(Resource, Default)]
+struct Waiting(Option<(Waits, u32, u32)>);
+
+/// The frames a save waits for its picture at most, after which it saves with the last taken.
+const PICTURE_WAIT: u32 = 30;
+
+/// Takes the save's picture, and has `save` wait for it ([`waited`]).
+fn picture_first(world: &mut bevy::prelude::World, save: Waits) {
+    let since = world
+        .get_resource::<crate::save_picture::Taken>()
+        .map_or(0, |taken| taken.count);
+    crate::save_picture::take_in(world);
+    world.resource_mut::<Waiting>().0 = Some((save, since, 0));
+}
+
+/// Saves the save that waited, once its picture is taken or it has waited long enough.
+fn waited(world: &mut bevy::prelude::World) {
+    let Some((save, since, frames)) = world.resource_mut::<Waiting>().0.take() else {
+        return;
     };
-    if let Err(e) = done {
-        warn!("saves: the quick {asked:?}: {e:#}");
+    let taken = world
+        .get_resource::<crate::save_picture::Taken>()
+        .map_or(0, |taken| taken.count);
+    if taken <= since && frames < PICTURE_WAIT {
+        world.resource_mut::<Waiting>().0 = Some((save, since, frames + 1));
+        return;
+    }
+    match save {
+        Waits::Quick => {
+            if let Err(e) = save_in(world, QUICK_FILE, QUICK_SAVE) {
+                warn!("saves: the quick save: {e:#}");
+            }
+        }
+        Waits::Auto(number) => autosave_now(world, number),
     }
 }
 
@@ -701,6 +764,7 @@ impl Plugin for SavesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Asked>()
             .init_resource::<AutoSaves>()
+            .init_resource::<Waiting>()
             .add_systems(OnEnter(AppState::Menu), forget)
             .add_systems(
                 Update,
@@ -713,7 +777,7 @@ impl Plugin for SavesPlugin {
             // Not while a load puts its game back, whose hero a save would not hold yet.
             .add_systems(
                 Update,
-                (quick_keys, quick, autosave)
+                (quick_keys, quick, autosave, waited)
                     .chain()
                     .run_if(in_state(AppState::InGame))
                     .run_if(not(resource_exists::<Restore>)),
@@ -884,13 +948,22 @@ mod tests {
     fn a_save_reads_back_as_written_and_lists_the_newest_first() {
         let dir = scratch("round");
         let parts = (&hero(), &saved_scripts(), &saved_world());
-        write(&file(&dir, "first").unwrap(), &header("first", 10), parts).unwrap();
+        let picture = Picture([0x0F, 0xF0].repeat(128 * 96));
         write(
-            &file(&dir, "second one").unwrap(),
-            &header("second one", 20),
+            &file(&dir, "first").unwrap(),
+            (&header("first", 10), Some(&picture)),
             parts,
         )
         .unwrap();
+        write(
+            &file(&dir, "second one").unwrap(),
+            (&header("second one", 20), None),
+            parts,
+        )
+        .unwrap();
+        // The picture after the header, read with it.
+        let bytes = fs::read(file(&dir, "first").unwrap()).unwrap();
+        assert_eq!(super::header(&bytes).unwrap().1, Some(picture));
         let (read_header, read_hero, read_scripts, read_world) =
             read(&file(&dir, "first").unwrap()).unwrap();
         assert_eq!(read_header, header("first", 10));
@@ -918,10 +991,25 @@ mod tests {
             ..header("old", 1)
         };
         let parts = (&hero(), &saved_scripts(), &World::default());
-        write(&file(&dir, "old").unwrap(), &old, parts).unwrap();
+        write(&file(&dir, "old").unwrap(), (&old, None), parts).unwrap();
         let error = format!("{:#}", read(&file(&dir, "old").unwrap()).unwrap_err());
         assert!(error.contains("version"), "{error}");
         assert!(list(&dir).is_empty());
+        // A save of the version before reads, without a picture.
+        let unpictured = Header {
+            version: UNPICTURED,
+            ..header("unpictured", 2)
+        };
+        let mut bytes = postcard::to_stdvec(&unpictured).unwrap();
+        bytes.extend(postcard::to_stdvec(&hero()).unwrap());
+        bytes.extend(postcard::to_stdvec(&saved_scripts()).unwrap());
+        bytes.extend(postcard::to_stdvec(&World::default()).unwrap());
+        fs::write(file(&dir, "unpictured").unwrap(), &bytes).unwrap();
+        assert_eq!(
+            read(&file(&dir, "unpictured").unwrap()).unwrap().0,
+            unpictured
+        );
+        assert_eq!(super::header(&bytes).unwrap().1, None);
         for bad in ["", "../up", "a/b", "a.sav"] {
             assert!(file(&dir, bad).is_err(), "{bad}");
         }
