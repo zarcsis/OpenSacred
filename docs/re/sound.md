@@ -81,7 +81,7 @@ It plays the heroes' lines by name (`voices`, #713): its comments in the fight o
 The lines by name are one at a time (`+0xB7E0`), the dialogues' voice-overs among them (`PlaySound`, docs/re/netscript.md, "Dialogues"): each stops the one that plays, and `0x693FB0` stops it, at the hero's critical-hit cry and as a dialogue's window closes; the hero's breath gives way to one, and `FOE_ON_THE_RUN`/`ENEMYFLEES` wait for silence.
 `opensacred-game` keeps them so (`voices::NamedLine`, #1234, #1238).
 It plays `MUSIC_DEATH` at the hero's fall (`music`, #734; below, "A music played once").
-Not yet: the Vampiress's `realvamp` profile (1012) of her night form's voices.
+Not yet: the Vampiress's `realvamp` profile (1012) of her night form's voices (#2009).
 
 ### A sound's place
 
@@ -349,7 +349,7 @@ The sound manager's update weighs the fight about the hero at each tick (`0x68BE
 
 Read 2026-10-27 for #1093 in Ghidra and with capstone, against `opensacred-game` of that day (`sfx`, `voices`, `sound`, `music`, `menu_sound`, `skies`, `talk`, `choice`, `atmosphere`, `scripts`); **confirmed** by code unless marked otherwise, none of it heard in the original.
 Sound names are the client's table (`0x964870`, `sound.ron`); the profiles are `sndProfiles.pak`'s slots.
-Each source not played is an issue of its own under #1093 (#1166 to #1181).
+Each source not played is an issue of its own under #1093 (#1166 to #1181); the table's last two columns read again 2026-11-04 against the game of that day, the sources still not played in #1180, #1964 and #2004 to #2009.
 
 ### The play functions and their callers
 
@@ -372,8 +372,8 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 - **Objects** (602–611): only `OPEN` (1) and `CLOSE` (3) hold samples, picked by `0x695800`; `USE` (0) is the potion's alone (600: `DRINK_POTION02`, `LEVELUP01`, `DRINK_POTION01`, `UI_INV_PUTFAILED01`), picked by no call found (**hypothesis**: unused, the potions and the level-up play their ids directly); `KNOCK` (2) is empty everywhere.
 - **Generic** (`SOUND00`–`07`): **hypothesis** the names of the groups of the slots 10, 100 and 101; 100 `death` (`CHAR_SPLASH`, `THUNDER02`–`05`) is picked by no call, 101 `rain` by the rain's loop (`0x41A4F0`, played), 10 `atmospot_waterfall` by `0x425EC0` for the event 13 (a music's id, silent, docs/re/sound.md).
 - **Footsteps** (102–114): the hero's (102, 103) are played; 104–114 are the other creatures' (below).
-- **Music** (1, 2): `PEACE` is played, the jingles wait for the fights' music; `jingle_extension` (2) is the fights' jingles' second profile, rolled against the first at even odds (`0x68BEA0`, "The fights' music and jingles").
-- **Creatures and heroes** (1000–2146): played by `voices` (lines and idle noises); the Vampiress's 1012 `realvamp` is not.
+- **Music** (1, 2): `PEACE` and the fights' jingles are played (#1948); `jingle_extension` (2) is the fights' jingles' second profile, rolled against the first at even odds (`0x68BEA0`, "The fights' music and jingles").
+- **Creatures and heroes** (1000–2146): played by `voices` (lines and idle noises); the Vampiress's 1012 `realvamp` is not (#2009).
 
 ### The sources
 
@@ -385,40 +385,40 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Weapon's `MISS` on an animal | `0x532731`–`0x5329D0` | the striker's weapon's 0 | a strike that does no damage to an animal | yes | yes (`sfx`, #1168): 78 weapon types by their names |
 | The hero's critical-hit cry | `0x6852B0`, `0x686F4F`–`0x686FC9` | 16301 or 16302 | the hero takes `CRITICALHIT` | yes | yes (`voices`, #1168) |
 | Doors open and close | `0x44BCD0` → `0x695800` | 602–608, groups 1 and 3, by the type | a door turns | yes (`npcs::swing`) | yes (#1166) |
-| A locked trigger rattles | `0x415F00` | 331 or 332 | the hero without the trigger's key | no (keys, #1088) | no |
-| Chests, shrines, vases, graves, book stands | `0x695800` from `0x44BCD0` (a container's opening, docs/re/containers.md), `0x48AE90` (`SetObjState`) and `0x4968A0` (`SetTriggerState`) | 605, 609, 610, 611, 324/325 | an object opened or closed | no | no |
+| A locked trigger rattles | `0x415F00` | 331 or 332 | the hero without the trigger's key | no (#2004) | no (#2004) |
+| Chests, shrines, vases, graves, book stands | `0x695800` from `0x44BCD0` (a container's opening, docs/re/containers.md), `0x48AE90` (`SetObjState`) and `0x4968A0` (`SetTriggerState`) | 605, 609, 610, 611, 324/325 | an object opened or closed | yes (`containers`, #1394) | yes (#1394) |
 | Pick-up of an item, of gold | `0x558080` → (9, `0x80`), `0x57FD80` → (9, `0x83`) | 7103, 7100 | an item into the pack or onto the cursor; every change of the hero's gold through its handler | yes (`pickup`, `scripts::collect`; the gold's handler `pickup::Pack::add_gold`, #1792) | yes (#1167, #1792) |
-| An item taken straight into a slot, a quest's item | `0x558080` → (9, 5), (9, `0x81`) | `UI_INV_PUT*` by kind, 7117 | as said | partly | the quest's item and the hurled weapon taken back into the hand (7005) (#1167); the slots wait for the inventory (#1088) |
+| An item taken straight into a slot, a quest's item | `0x558080` → (9, 5), (9, `0x81`) | `UI_INV_PUT*` by kind, 7117 | as said | yes (`held`, `pickup`) | the slots' put sounds (#1269), the quest's item and the hurled weapon taken back into the hand (7005) (#1167) |
 | No room in the pack | `0x558080` → (8, 3) | `CANTCARRYMORE` lines | the pack full | yes (`remarks`, #1324) | yes (#1324) |
 | A rune dropped by a kill | `0x559BF0` at `0x55A4BD` | 7028 | the drop rolls a rune | yes (`drops`, #1183) | yes (#1183) |
 | Level-up | `0x57E160` → (9, `0x10`) | 7002 | the hero's level rises | yes (`fight::level_up`) | yes (#1167) |
 | Spells' cast | `0x51E110` | 2000–2125 by the spell | the cast starts | yes (`making`, `spells`) | yes, the hero's (`art_sounds`, #1172) |
 | Spells' act | `0x522480` | 2011–2117 by the spell | the spell acts | yes | yes, the hero's (#1172) |
-| Spells' and arts' objects | `0x76A440`–`0x7C3AC0` | casts, flights, impacts, loops | the object's life | partly (stand-ins) | no |
+| Spells' and arts' objects | `0x76A440`–`0x7C3AC0` | casts, flights, impacts, loops | the object's life | partly (stand-ins, #1092) | the heroes' spells' and arts' (#1173); the world's, the scripts' and the creatures' (#1964) |
 | Arts' own cries | `0x67A7A0` (5, 1) | 2098–2104 by the art | an art's start | yes | yes, with the battle cry then sure (#1174) |
 | Arts' executors | `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0` | 2076–2122 by the art | an art's run | yes | at the art's start (#1174; where in the run not read) |
 | The Vampiress's night battle cries | `0x67A7A0` (5, 1), flag `+0xAF48` by (9, `0x49`) | `BATTLECRY_nn_REALVAMP` | a battle cry in her night form | yes (`forms`) | yes (`voices`, #1174) |
 | Other creatures' footsteps | `0x68EB90` | 103–114, 1194–1199 | a creature's step near the hero | yes | yes (`steps`, #1171) |
-| The giant spider's steps | `0x4E0300` | 1242, 1243, 1248, 1249 | its motion | yes | no |
+| The giant spider's steps | `0x4E0300` | 1242, 1243, 1248, 1249 | its motion | yes | no (#2005) |
 | In-game idle ambience | `0x69B770` (`0x69FBC0`–`0x69FF5F`) | `IDLEFX_*` | every 0.5 s, by the region's music and the day | yes | yes (`ambience`, #1169) |
 | Water ambience | `0x6906C0`, the count from `0x690690` | 216, 217, 218 loops | water cells drawn | yes (`liquids`) | yes (`ambience`, #1169) |
 | Waterfalls | `0x69B770` (`0x69F88C`–`0x69F90D`) | 208 loop | six `WAFA_*` statics within 1,150 | yes (`statics`) | yes (`waterfalls`, #1170) |
 | Fires, element stones, stargates | `0x690420`, `0x69B770` (`0x69F9EF`–`0x69FAB0`) | 210, 213, 214, 215, 2087 loops | such an object within 300 or 1,150 | the fires (`fx`, #1189); the stones and gates as places without a model (`npcs`, #1170) | yes (`fx::crackle`, `fx_loops`, #1170) |
 | Crows and bats over the camera | `0x41F1B0` | 126; 103 or 104 | their flight | yes (`fliers`, #1073) | yes (#1179) |
-| The hero's horse | `0x68EB90`, (9, `0x25`), (9, `0x26`) | 105; 7012–7014; `NOTMYHORSE` | riding, the whistle, another's horse | no | no |
+| The hero's horse | `0x68EB90`, (9, `0x25`), (9, `0x26`) | 105; 7012–7014; `NOTMYHORSE` | riding, the whistle, another's horse | no (#1180) | no (#1180) |
 | Hero's comments in the fight | `0x6852B0`, `0x68BEA0` | `KILLENEMY`, `BOSSMOB`, `ENDMOB`, `ENEMYHITME`, `ENEMYTOOSTRONG`, `ENEMYTOOWEAK`, `ENEMYTYPE`, `BREATHING`, `FOE_ON_THE_RUN`, `ENEMYFLEES` | below | yes | all (`voices`, #1175); `ENDMOB` never plays |
 | Hero's comments in the world | (9, `0x30`, `0x35`, `0x3F`, `0x40`, `0xCC`, `0x100`), `0x696060` | `REGIONTOOSTRONG`/`WEAK`, `REGIONPACIFIED`, `APPROACHQLOC`, `GETNQ`, `COMEINTOTOWN`/`VILLAGE`, `CANCELMYIDLE`, `REJECTNQ` | below | partly | all (`remarks`, #1246, #1247, `APPROACHQLOC` #1563) |
-| Hero's comments on items and damage | (8, 1–4), (9, 4, 6, 7, 8, `0xCA`, `0xCB`) | `CM_*`, `NOTMYITEM`, `NOTMYITEMLVL`, `NOARMOR*`, `NOWEAPON*` | below | partly (`equipment`, `sets`) | `NOTMYITEM` and `NOTMYITEMLVL` (#1289) |
-| Companions' click lines, equipment remarks | (9, `0x5C`), (8, `0x10`) | `*_HIRELING_ONCLICK*`, `SFX_CLICKMYSH*`, `*_EQUIPINVALID*`, `SFX_GIVE*` | a click on a companion; its equipment | the clicks (`remarks`, #1674), the equipment's (#1733) | no |
+| Hero's comments on items and damage | (8, 1–4), (9, 4, 6, 7, 8, `0xCA`, `0xCB`) | `CM_*`, `NOTMYITEM`, `NOTMYITEMLVL`, `NOARMOR*`, `NOWEAPON*` | below | yes (`equipment`, `sets`, `remarks`) | `NOTMYITEM` and `NOTMYITEMLVL` (#1289), `NOARMOR*` and `NOWEAPON*` (#1673); no code posts the `CM_*` lines |
+| Companions' click lines, equipment remarks | (9, `0x5C`), (8, `0x10`) | `*_HIRELING_ONCLICK*`, `SFX_CLICKMYSH*`, `*_EQUIPINVALID*`, `SFX_GIVE*` | a click on a companion; its equipment | yes (`remarks`) | the clicks (#1674) and the equipment's remarks (#1733); no code names a `*_EQUIPINVALID*` line |
 | Interface windows | (14, 2) | 7000, 7104, 7106, 7108–7112 | a window or a page shows, a bar's button is pressed | yes (`inventory` and the windows', #1767) | 7112 and 7000 as the original's traces play them (#1267, #1722, #1767) |
 | Inventory | (9, 1, 2, 3, 5), `0x5D8000`, `0x5CAA60` | `UI_INV_*`, 7001/7003/7008, 7006 | an item put, refused, used; a potion drunk | partly (`held`, `belt`) | the put sounds (#1269); 7001, 7003, 7008 and 7006 (#1311) |
-| Runes read | `0x5CD100` → (7, 2) | 7010 (7009, 7011 by 7/3, 7/1) | an art learned | yes (`runes`, #1315) | no |
-| Compass pointer, quest book | (9, `0x46`), (9, `0x81`) | 7027, 7117 | the pointer; a quest's item picked up (`cCreature::pickupItem`, below) | no | no |
+| Runes read | `0x5CD100` → (7, 2) | 7010 (7009, 7011 by 7/3, 7/1) | an art learned | yes (`runes`) | yes (#1672) |
+| Compass pointer, quest book | (9, `0x46`), (9, `0x81`) | 7027, 7117 | the pointer; a quest's item picked up (`cCreature::pickupItem`, below) | yes (`compass`, `pickup`) | yes (#1512, #1167) |
 | Quest's fanfare | `0x46CBE0` → (9, `0x42`) | 6541 or 6542 (music once) | `ExitQuest` of a side quest | yes (scripts, #1242) | yes (`music`, #1243) |
 | Scripts' music | `PlayMusic` (127, `0x4ADAA0`), `PlayJingle` (128, `0x4ADD60`), `SetScriptSoundControle` (129, `0x6791C0`) | a music by name | as the script runs | yes (scripts) | yes (`music`, #1243) |
 | `InfoPlayer`'s sounds | `0x4AE350` | mode 3: 7000 | a notice | yes (`talk`) | no tree has the mode 3 |
-| Death extras | `0x53ECA0`, `0x4E8DA0`, `0x5334DD`, `0x536362` | 7029, 3000, the killer's weapon's 7 | below | partly | no |
-| Boss and odd sounds | `0x5A3840`, `0x7BCBC0`, `0x797179`, `0x77BD60`, `0x5BB010` | 11426/11427, 16303, 2050, 711, 708, 2070 | below | partly | no |
+| Death extras | `0x53ECA0`, `0x4E8DA0`, `0x5334DD`, `0x536362` | 7029, 3000, the killer's weapon's 7 | below | yes (`sfx`, `undead`) | `DIEFLAMES` (#1168, #1199) and `CHAR_SPLASH` (#1260); the killer's weapon's group 7 is empty in every profile |
+| Boss and odd sounds | `0x5A3840`, `0x7BCBC0`, `0x797179`, `0x77BD60`, `0x5BB010` | 11426/11427, 16303, 2050, 711, 708, 2070 | below | partly | `SPAWN` (#1839) and `TORCH_HIT01` at the casters' marks (#1855); the blood fountain's `BLEEDING02` (#1964), the Sakkara demon's growls (#2006), the arrows' hits (#2007), `PONG` (#2008) |
 | Music's alternation with the ambience | `0x69B770` (head), `+0xB7B8` | `PEACE` and the `ATMO_*` loop | every 180 s by day | yes | yes (`music::alternate`, #1177) |
 | The listener's volume by the zoom | (9, `0x15`) from `cWorldView_setZoom` | every placed sound | the zoom changes | yes | yes (`sfx::Listener`, #1181) |
 
