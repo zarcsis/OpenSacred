@@ -921,7 +921,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 - Its draw (`0x79CFB0`): its Direct3D light; its particles as billboards of the flags `0xD` (the ramp's colour, turned, added by their alpha); then a glow (`0x762E10`) of the style 5 (`PARTICLE_GLOW03`) at its block's place, its half side `20 + 8 b` (`0x768790`) and its colour (128, 239, 128) plus `b` times (64, 16, 64) (`0x768600`), `b` a beat of its clock: from 0 up to 1 over the first 0.3 s of each second, down to 0 over the rest.
 
 `opensacred-game` draws it since #1092 (`lost_souls`, `opensacred_rules::particles::{LostSoul, soul_glow, soul_wobble, beat}`): each soul that `spells` makes leaves its dots along its way and its glow at its wobbling point, untinted by the night, its dots fading out after its object goes.
-**Seen** 2026-11-04 beside the original's frames at the Wood Elf's start by day: green balls of light trailing green dots, alike in colour and size; the original's rise from her in a fan, the game's in one bunch, as they home at once rather than turning (#2058).
+**Seen** 2026-11-04 beside the original's frames at the Wood Elf's start by day: green balls of light trailing green dots, alike in colour and size, rising from her in a fan and curving about as their headings turn (#2058).
 Not followed: its green Direct3D light on the models.
 
 ## In `opensacred-game`
