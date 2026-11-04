@@ -11,8 +11,9 @@ use opensacred_rules::particles::{System, battle_fog};
 use opensacred_rules::spawning::Rng;
 
 use crate::frame::Playing;
-use crate::fx::{Effect, empty, layer_quads, particle_material, particle_texture};
+use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
+use crate::iso;
 
 /// A fog to make at the place `at` for `seconds`.
 #[derive(Component)]
@@ -134,9 +135,35 @@ fn drift(
             continue;
         }
         if let Some(mut mesh) = meshes.get_mut(&puffs.mesh) {
-            layer_quads(fog, &puffs.puffs, 0).into_mesh(&mut mesh);
+            quads(fog, &puffs.puffs).into_mesh(&mut mesh);
         }
     }
+}
+
+/// The quads of a fog's puffs in the systems' frame (docs/re/effects.md, "Their flight"): its
+/// spread of 30 along the screen's horizontal and 80 down it, each puff its frame of the 2 × 2,
+/// turned, in the ramp's colour at its life.
+fn quads(fog: &opensacred_rules::particles::Fire, puffs: &System) -> Quads {
+    let s = iso::MODEL_SCALE;
+    let (across, down) = iso::fx_axes();
+    let grid = fog.grid.max(1);
+    let side = 1.0 / f32::from(grid);
+    let mut quads = Quads::default();
+    for puff in &puffs.particles {
+        let [x, y, z] = puff.place;
+        let frame = Vec2::new(
+            f32::from(puff.frame % grid),
+            f32::from(puff.frame / grid % grid),
+        ) * side;
+        quads.push(
+            (across * x + down * y + Vec3::Y * z) * s,
+            puff.size * s,
+            puff.angle,
+            (frame, side),
+            fog.ramps[0].at(puff.life),
+        );
+    }
+    quads
 }
 
 /// The battle fogs' looks.
