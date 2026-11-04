@@ -2393,6 +2393,118 @@ pub fn maglite_slices() -> impl Iterator<Item = (f32, f32)> {
     })
 }
 
+/// The look of a soul of the Wood Elf's lost souls 41, `cParticleSystem_lostsouls` (850, its
+/// start `0x79D310`, its run `0x79CEB0` and its draw `0x79CFB0`; docs/re/effects.md, "The lost
+/// souls"), which goes with its object for its seconds: green dots of `PARTICLE_DOTS01` left
+/// behind it from a point that wobbles about its place ([`soul_wobble`]), one every 0.01 s, of a
+/// half side of 7 shrinking by 4 a second and spinning at 6 radians a second, fading out over
+/// 0.64 s, added by their alpha (the flags `0xD`); and a glow beating once a second at that point
+/// ([`soul_glow`]). Its seconds over, it makes no more and ends with its last dot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LostSoul {
+    pub system: System,
+    seconds: f32,
+    out: bool,
+}
+
+/// A soul's dots' texture, their particles at most (`0x5A0C50`'s count for the type 850), and its
+/// glow's texture (the style 5).
+pub const SOUL_TEXTURE: &str = "PARTICLE_DOTS01";
+const SOUL_COUNT: usize = 200;
+pub const SOUL_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+
+/// A beat of a second at the clock `t` (`0x768790`, `0x768600`): from 0 up to 1 over the first
+/// 0.3 s of each second, down to 0 over the rest.
+pub fn beat(t: f32) -> f32 {
+    let phase = t - t.floor();
+    if phase < 0.3 {
+        phase / 0.3
+    } else {
+        (1.0 - phase) / 0.7
+    }
+}
+
+/// The point a soul's dots leave from and its glow lies at, about its place at its clock `t`
+/// (`+0x2508`): `5 sin` of 6.58, 6.87 and 7.49 times `t` along each axis.
+pub fn soul_wobble(t: f32) -> [f32; 3] {
+    [6.58, 6.87, 7.49].map(|rate: f32| 5.0 * (rate * t).sin())
+}
+
+/// A soul's glow at its clock `t` (`0x79CFB0`): its half side `20 + 8 b` and its colour
+/// (128, 239, 128) plus `b` times (64, 16, 64), `b` its beat ([`beat`]), added whole.
+pub fn soul_glow(t: f32) -> (f32, [f32; 4]) {
+    let b = beat(t);
+    let c = |base: f32, more: f32| (base + more * b).round() / 255.0;
+    (
+        20.0 + 8.0 * b,
+        [c(128.0, 64.0), c(239.0, 16.0), c(128.0, 64.0), 1.0],
+    )
+}
+
+impl LostSoul {
+    /// A soul for `seconds` (its record's value 1 at its level, `0x79D310`).
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            system: System::new(SOUL_COUNT),
+            seconds,
+            out: false,
+        }
+    }
+
+    /// Its dots' layer (`+0x24B0`): the life −400 a second and the size −4.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -400.0,
+            size: -4.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its dots' ramp (`+0x20B0`): (60, 255, 60) out of 256, from opaque to nothing.
+    pub fn ramp() -> Ramp {
+        let green = |alpha: f32| [60.0 / 256.0, 255.0 / 256.0, 60.0 / 256.0, alpha];
+        Ramp::new(green(255.0 / 256.0), &[(green(0.0), 256)])
+    }
+
+    /// Its block at the clock `t` (`+0x24D0`): the size 7, the angle's speed 6, from its wobbling
+    /// point, one every 0.01 s at the detail 2.
+    fn block(t: f32) -> Block {
+        Block {
+            size: spread(7.0, 0.0),
+            spin: spread(6.0, 0.0),
+            offset: spread(soul_wobble(t), [0.0; 3]),
+            interval: 0.01,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its place gone from `from` to `to` in the models' frame
+    /// (`0x79CEB0`): its dots age, and while its seconds last it leaves new ones along its way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.out {
+            return;
+        }
+        let block = Self::block(self.system.clock);
+        self.system
+            .emit_along(&[block], &layers, SOUL_COUNT, (from, to), dt, dice);
+        if self.system.clock > self.seconds {
+            self.out = true;
+        }
+    }
+
+    /// Its object's end (`+0x74` bit 1): no dot more.
+    pub fn end(&mut self) {
+        self.out = true;
+    }
+
+    /// Whether it ended: out and no dot alive.
+    pub fn done(&self) -> bool {
+        self.out && self.system.particles.is_empty()
+    }
+}
+
 /// The look of the fire skin, `cParticleSystem_fireskin` (821, its start `0x78BE10`, its run
 /// `0x78BB00` and its draw `0x78BBA0`; docs/re/effects.md, "The fire skin"), on its bearer for its
 /// seconds: a flame every 0.01 s within 15 of its place along x and y, of a half side of 20 ± 10
@@ -3707,6 +3819,45 @@ mod tests {
         assert_eq!(slices[0], (-25.0, 2_400.0_f32.sqrt()));
         assert_eq!(slices[10], (0.0, 55.0));
         assert_eq!(slices[20].0, 25.0);
+    }
+
+    #[test]
+    fn a_lost_soul_trails_green_dots_from_its_wobble_and_beats_its_glow() {
+        assert_eq!((beat(0.0), beat(0.15), beat(0.3)), (0.0, 0.5, 1.0));
+        assert!((beat(0.65) - 0.5).abs() < 1e-5 && (beat(1.0)).abs() < 1e-5);
+        assert_eq!(
+            soul_glow(0.3),
+            (28.0, [192.0 / 255.0, 1.0, 192.0 / 255.0, 1.0])
+        );
+        assert!(soul_wobble(0.4).iter().all(|o| o.abs() <= 5.0));
+        let mut dice = Rng::of(21, 0x352, 9);
+        let mut soul = LostSoul::new(1.0);
+        let mut at = [0.0f32; 3];
+        for _ in 0..30 {
+            let from = at;
+            at[0] += 150.0 * 0.025;
+            soul.update(0.025, (from, at), &mut dice);
+        }
+        // A dot every 0.01 s, living 0.64 s: its trail lies behind it along its way.
+        let dots = soul.system.particles.len();
+        assert!((60..=76).contains(&dots), "{dots}");
+        assert!(
+            soul.system
+                .particles
+                .iter()
+                .all(|p| p.place[0] <= at[0] + 5.0)
+        );
+        assert!(
+            soul.system
+                .particles
+                .iter()
+                .any(|p| p.place[0] < at[0] - 50.0)
+        );
+        assert_eq!(LostSoul::ramp().at(255.0)[1], 255.0 / 256.0);
+        for _ in 0..70 {
+            soul.update(0.025, (at, at), &mut dice);
+        }
+        assert!(soul.done());
     }
 
     #[test]
