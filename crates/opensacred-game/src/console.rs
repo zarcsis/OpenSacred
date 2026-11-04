@@ -4,8 +4,8 @@
 //! Enter runs a command (`command`); Up and Down walk the history, kept beside the settings
 //! (`history.txt`, the last 100 lines), Tab completes, Ctrl+V pastes from the system's clipboard
 //! and Ctrl+C copies the line to it, PageUp, PageDown and the wheel scroll. While it is open the
-//! player's keys and mouse do nothing else (`frame::Control`); F7, F10, F11 and F12 still work, and the
-//! game goes on under it.
+//! player's keys and mouse do nothing else (`frame::Control`, and the keys taken from the systems
+//! after it, #1981); F7, F10, F11 and F12 still work, and the game goes on under it.
 //!
 //! The line of input is the console's own rather than Bevy's text input widget: a console needs
 //! a line, a cursor and the history.
@@ -218,12 +218,16 @@ pub fn closed(console: Option<Res<Console>>) -> bool {
 /// The key under Esc opens and closes the console, Esc closes it; while it is open, the keys
 /// edit its line, and Ctrl+V and Ctrl+C, by their places, paste and copy through the system's
 /// clipboard. It runs right after Bevy reads the input, and takes the keys it uses from the game:
-/// Esc does not pause a game as it closes the console, nor hides the keys' help under it.
+/// Esc does not pause a game as it closes the console, nor hides the keys' help under it. While
+/// it is open, it takes the rest of the keys and the mouse's buttons too, but the tools' keys.
 pub fn keys(
     mut console: ResMut<Console>,
     mut keys: crate::controls::KeysMut,
     mut input: MessageReader<KeyboardInput>,
-    scroll: Res<AccumulatedMouseScroll>,
+    (scroll, mut buttons): (
+        Res<AccumulatedMouseScroll>,
+        ResMut<ButtonInput<MouseButton>>,
+    ),
     mut clipboard: Option<ResMut<Clipboard>>,
 ) {
     let toggled = keys.just_pressed(crate::controls::Action::Console);
@@ -268,6 +272,11 @@ pub fn keys(
     } else if scroll.delta.y < 0.0 {
         console.scroll = console.scroll.saturating_sub(3);
     }
+    // The line has the keys: the windows' toggles after it, which `frame::Control` does not hold
+    // back, find none of them, the tools' keys alone left, nor a click on the bar's buttons
+    // (#1981).
+    keys.take_all_but(crate::controls::Section::Tools);
+    buttons.clear();
 }
 
 /// Runs the lines entered, their output and errors into the log, which the console shows.
@@ -579,26 +588,6 @@ mod tests {
                 .in_set(Control),
             );
         app.update();
-        let press = |app: &mut App, key: KeyCode| {
-            app.world_mut().write_message(KeyboardInput {
-                key_code: key,
-                logical_key: Key::Escape,
-                state: ButtonState::Pressed,
-                text: None,
-                repeat: false,
-                window: Entity::PLACEHOLDER,
-            });
-            app.update();
-            app.world_mut().write_message(KeyboardInput {
-                key_code: key,
-                logical_key: Key::Escape,
-                state: ButtonState::Released,
-                text: None,
-                repeat: false,
-                window: Entity::PLACEHOLDER,
-            });
-            app.update();
-        };
         press(&mut app, KeyCode::Backquote);
         assert!(app.world().resource::<Console>().open);
         press(&mut app, KeyCode::Escape);
@@ -606,5 +595,83 @@ mod tests {
         assert_eq!(app.world().resource::<Controlled>().0, 0);
         press(&mut app, KeyCode::Escape);
         assert_eq!(app.world().resource::<Controlled>().0, 1);
+    }
+
+    #[test]
+    fn the_open_console_leaves_the_systems_after_it_the_tools_keys_alone() {
+        // The keys and the clicks that a system of `PreUpdate` after the console finds gone
+        // down, as the windows' toggles do outside `frame::Control`.
+        #[derive(Resource, Default)]
+        struct Found(Vec<KeyCode>, u32);
+        let click = |app: &mut App| {
+            app.world_mut()
+                .write_message(bevy::input::mouse::MouseButtonInput {
+                    button: MouseButton::Left,
+                    state: ButtonState::Pressed,
+                    window: Entity::PLACEHOLDER,
+                });
+            app.update();
+            app.world_mut()
+                .write_message(bevy::input::mouse::MouseButtonInput {
+                    button: MouseButton::Left,
+                    state: ButtonState::Released,
+                    window: Entity::PLACEHOLDER,
+                });
+            app.update();
+        };
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        crate::frame::held_back(&mut app);
+        app.add_plugins(ConsolePlugin)
+            .insert_resource(Console::default())
+            .insert_resource(Journal::new(None))
+            .init_resource::<Found>()
+            .add_systems(
+                PreUpdate,
+                (|keys: Res<ButtonInput<KeyCode>>,
+                  buttons: Res<ButtonInput<MouseButton>>,
+                  mut found: ResMut<Found>| {
+                    found.0.extend(keys.get_just_pressed().copied());
+                    found.1 += u32::from(buttons.just_pressed(MouseButton::Left));
+                })
+                .after(keys),
+            );
+        app.update();
+        press(&mut app, KeyCode::KeyI);
+        click(&mut app);
+        assert_eq!(app.world().resource::<Found>().0, [KeyCode::KeyI]);
+        assert_eq!(app.world().resource::<Found>().1, 1);
+        press(&mut app, KeyCode::Backquote);
+        press(&mut app, KeyCode::KeyI);
+        click(&mut app);
+        press(&mut app, KeyCode::F10);
+        assert!(app.world().resource::<Console>().open);
+        assert_eq!(
+            app.world().resource::<Found>().0,
+            [KeyCode::KeyI, KeyCode::F10]
+        );
+        assert_eq!(app.world().resource::<Found>().1, 1);
+    }
+
+    /// A key pressed in a frame and released in the next.
+    fn press(app: &mut App, key: KeyCode) {
+        app.world_mut().write_message(KeyboardInput {
+            key_code: key,
+            logical_key: Key::Escape,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+        app.world_mut().write_message(KeyboardInput {
+            key_code: key,
+            logical_key: Key::Escape,
+            state: ButtonState::Released,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
     }
 }
