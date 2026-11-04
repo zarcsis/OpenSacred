@@ -1,14 +1,17 @@
-//! The look of the fire skin (#1092; docs/re/effects.md, "The fire skin"): on its bearer for its
-//! seconds (`spells`), `cParticleSystem_fireskin` (821, `0x78BBA0`) leaves flames standing on the
-//! ground about it, added by their alpha (`opensacred_rules::particles::fire_skin`), over a glow
-//! on the ground added whole, both untinted by the night, its light of 200 with it; its seconds
-//! over, its flames burn out. A creature's is blue, of `PARTICLE_FIRE09` (`+0xA9`).
+//! The look of the fire skin and of the fire spiral's flames (#1092; docs/re/effects.md, "The fire
+//! skin", "The fire spiral"): on its bearer for its seconds (`spells`), `cParticleSystem_fireskin`
+//! (821, `0x78BBA0`) leaves flames standing on the ground about it, added by their alpha
+//! (`opensacred_rules::particles::fire_skin`), over a glow on the ground added whole, both untinted
+//! by the night, its light of 200 with it; its seconds over, its flames burn out. A creature's is
+//! blue, of `PARTICLE_FIRE09` (`+0xA9`). Each of the spiral's five objects leaves the wider orange
+//! flames of `cParticleSystem_fireCircle` (790, `0x775BC0`; `particles::fire_circle`) where it
+//! goes, with no glow, its light of 300.
 //!
-//! Not followed: its bearer's skin of lava (the action 6 of `A_LAVA00`, `0x78BE10`).
+//! Not followed: the fire skin's bearer's skin of lava (the action 6 of `A_LAVA00`, `0x78BE10`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
-use opensacred_rules::particles::{self, System, fire_skin};
+use opensacred_rules::particles::{self, System, fire_circle, fire_skin};
 use opensacred_rules::spawning::Rng;
 
 use crate::bolt_looks::models;
@@ -21,15 +24,28 @@ use crate::{daynight, iso};
 /// cut it.
 const GROUND_LIFT: f32 = 0.5;
 
-/// A fire skin's object to give its look, a hero's or a creature's (`spells`).
-#[derive(Component)]
-pub(crate) struct Look {
-    pub hero: bool,
+/// An object to give its look (`spells`): a fire skin, a hero's or a creature's, or a flame of
+/// the fire spiral.
+#[derive(Component, Clone, Copy)]
+pub(crate) enum Look {
+    Skin { hero: bool },
+    Spiral,
 }
 
-/// A fire skin's look, which outlives its object while its flames burn out: its object while it
-/// lives, its kind (0 a hero's, 1 a creature's), its flames, their dice, its place and the place
-/// before, its lamp, and its parts' meshes, the flames' and the glow's.
+impl Look {
+    /// Its kind, the index of its fire: 0 a hero's skin, 1 a creature's, 2 the spiral's flame.
+    fn kind(self) -> usize {
+        match self {
+            Self::Skin { hero: true } => 0,
+            Self::Skin { hero: false } => 1,
+            Self::Spiral => 2,
+        }
+    }
+}
+
+/// A look, which outlives its object while its flames burn out: its object while it lives, its
+/// kind ([`Look::kind`]), its flames, their dice, its place and the place before, its lamp, and
+/// its parts' meshes, the flames' and the glow's.
 #[derive(Component)]
 struct Skin {
     object: Option<Entity>,
@@ -42,27 +58,31 @@ struct Skin {
     parts: [Handle<Mesh>; 2],
 }
 
-/// The flames' systems, a hero's and a creature's, and the flames' and the glow's materials, made
-/// as the first fire skin shows; none where a texture is missing.
+/// The flames' systems by their kind, and their materials and the glow's (the fire skin's alone),
+/// made as the first look shows; none where a texture is missing.
 #[derive(Resource)]
 struct Looks {
-    fires: [particles::Fire; 2],
-    materials: Option<[Option<Handle<Effect>>; 3]>,
+    fires: [particles::Fire; 3],
+    materials: Option<[Option<Handle<Effect>>; 4]>,
 }
 
 impl Default for Looks {
     fn default() -> Self {
         Self {
-            fires: [fire_skin(true), fire_skin(false)],
+            fires: [fire_skin(true), fire_skin(false), fire_circle()],
             materials: None,
         }
     }
 }
 
+/// The index of the glow's material among the looks' materials.
+const GLOW: usize = 3;
+
 /// The seed of the looks' `rand()` (**estimate**: any).
 const SEED: usize = 0x335;
 
-/// Gives each new fire skin its look (`0x78BE10`): an entity of its own, its lamp and its parts.
+/// Gives each new object its look (`0x78BE10`, `0x775DF0`): an entity of its own, its lamp and
+/// its parts.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources as arguments"
@@ -79,6 +99,7 @@ fn show(
     ),
 ) {
     for (object, look, place) in &skins {
+        let textures = looks.fires.each_ref().map(|fire| fire.texture);
         let made = looks
             .materials
             .get_or_insert_with(|| {
@@ -91,15 +112,15 @@ fn show(
                     }
                     image
                 };
-                let [hero, creature] = particles::FIRE_SKIN_TEXTURES.map(|name| {
+                let [hero, creature, spiral] = textures.map(|name| {
                     image(name).map(|image| materials.add(particle_material(image, AlphaMode::Add)))
                 });
                 let glow = image(particles::FIRE_SKIN_GLOW_TEXTURE)
                     .map(|image| materials.add(whole_material(image)));
-                [hero, creature, glow]
+                [hero, creature, spiral, glow]
             })
             .clone();
-        let kind = usize::from(!look.hero);
+        let kind = look.kind();
         let place = place.translation();
         let lamp = commands
             .spawn((
@@ -116,7 +137,10 @@ fn show(
             ))
             .id();
         let parts = [meshes.add(empty()), meshes.add(empty())];
-        for (mesh, material) in parts.iter().zip([made[kind].clone(), made[2].clone()]) {
+        let glow = made[GLOW]
+            .clone()
+            .filter(|_| matches!(look, Look::Skin { .. }));
+        for (mesh, material) in parts.iter().zip([made[kind].clone(), glow]) {
             if let Some(material) = material {
                 commands.spawn((
                     Mesh3d(mesh.clone()),
@@ -142,9 +166,9 @@ fn show(
     }
 }
 
-/// Runs each fire skin's look a frame on (`0x78BB00`, `0x78BBA0`): while its object lives, flames
-/// at its bearer's place and the glow under it; then its flames burn out and it goes, its lamp
-/// with it.
+/// Runs each look a frame on (`0x78BB00`, `0x78BBA0`; `0x775A70`, `0x775BC0`): while its object
+/// lives, flames at its place and, for a fire skin, the glow under it; then its flames burn out
+/// and it goes, its lamp with it.
 fn burn(
     mut commands: Commands,
     time: Res<Time>,
@@ -194,7 +218,7 @@ fn burn(
         }
         if let Some(mut mesh) = meshes.get_mut(&skin.parts[1]) {
             let mut glow = Quads::default();
-            if burning {
+            if burning && skin.kind < 2 {
                 let s = iso::MODEL_SCALE;
                 let (across, down) = iso::fx_axes();
                 let half = particles::FIRE_SKIN_GLOW_HALF * s;
@@ -215,7 +239,7 @@ fn burn(
     }
 }
 
-/// The fire skins' looks.
+/// The fire skins' and the fire spiral's looks.
 pub struct FireSkinsPlugin;
 
 impl Plugin for FireSkinsPlugin {

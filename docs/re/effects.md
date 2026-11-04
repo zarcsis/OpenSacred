@@ -800,6 +800,24 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`banishing_runes`, `opensacred_rules::particles::{Rune, rune_colours}`): the eight runes that `spells` makes about the Mage for the circle's seconds, at their angles and where she may stand, untinted by the night, each its light of 50.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start: glowing red runes on the ground about her with an orange bar of light rising from each, alike in place and size.
 
+## The fire spiral
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 11 at the level 5).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| A flame of the fire spiral 11 | 790 | `cParticleSystem_fireCircle` (`0x897BA8`) | `0x775930`, `0x775BC0`, `0x775A70`, `0x775DF0` |
+
+- Its constructor makes its ramp (`+0x20C4`): from a transparent (255, 178, 127) to the same opaque over 32 entries, held over 224; and loads `PARTICLE_FIRE02` (`+0x25B0`), `PARTICLE_FIRE09` (`+0x25B4`) and `PARTICLE_GLOW03` (`+0x25B8`, unused); 100 particles.
+- Its start (`0x775DF0`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20A4`), 3 for a creature's (`+0xA9`); one layer (the life −350 a second, the size −70) and one block (the size 40 ± 20, the place ± (7, 7, 0), every 0.01 s, times 1.5 and 2.2 at the detail levels 1 and 0); the loop 2019 (`0x7E3`) for its event's `+0x38` 0; its flags `0x200000`, its light 300.
+- Its run (`0x775A70`): its particles aged and emitted at its place; its value `+0x98` the least of `⌊150 t⌋` and 175, `t` its clock, which the object's run takes for the spiral's growth (`0x5A6B1E`, docs/re/arts.md, the fire spiral); past its seconds, or at its object's end (`+0x74` bit 1, its flags cleared), it emits no more and ends with its last particle.
+- Its draw (`0x775BC0`): its particles as billboards of the flags `0x89` (the ramp's colour, standing on their feet, added by their alpha), its 4 × 4 frames by their age, of `PARTICLE_FIRE02` (a creature's `09`).
+- The object's run (`0x5A6B1E`) moves it about the caster's place at the height of that place (`+0xC0`), along the ground's two axes alone.
+
+`opensacred-game` draws it since #1092 (`fire_skins`, `opensacred_rules::particles::fire_circle`, the flames by `breath::wall_quads`): each of the five objects that `spells` makes leaves its flames where it goes, untinted by the night, its light of 300, its flames burning out after its end.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start: the five flames' fires merged into a white-hot blob about her at first, then a ring of fire about her as they spread, alike in size.
+The original's frames under the driver show the flames gathered in tall columns at a few places at times, a hitch's step of the object between two frames by **hypothesis**, as the screenshots stall it.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -851,7 +869,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog and the banishing circle's runes ("The bolts" to "The banishing circle's runes" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes and the fire spiral ("The bolts" to "The fire spiral" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
