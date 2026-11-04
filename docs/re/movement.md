@@ -84,18 +84,81 @@ Not read: the table of steps (filled at run time, nine entries, so perhaps the e
 
 Read 2026-10-19 (#154): `cPathFloodfill`'s search has no caller in the code but through its vtable, and a creature ordered somewhere finds its way otherwise.
 `0x4F7710`, the order to go to a point (the AI's states and the player's commands call it), finds the way with `0x4FABE0` and keeps the way's points in the creature (`+0x2ED`).
-`0x4FABE0` works in a window of 55 × 55 cells about the creature (`0x1B` cells each side); a target further than 25 cells along an axis it first brings nearer along the line, to the farthest cell of the line within the window that `0x4EBCA0` (the rule of `0x636C10`, with the water's exceptions for some creatures) lets it stand on.
-  It tests each cell of the line on the target's floor of the building there, else on the ground (`0x6354D0` with the target's floor byte); the straight line and the search then go from the creature on its own layer.
-  Probed 2026-10-28 (#1344): the Seraphim's walk of `annehmen2003` from her start on the chapel's floor 1 at 3236,2511 toward 3986,1813 headed for 3255,2493 on the ground, outside the chapel.
+`0x4FABE0` works in a window of 55 × 55 cells about the creature (`0x1B` cells each side); a target further than 25 cells along an axis it first brings nearer along the line, to a leg that `0x4EBCA0` (the rule of `0x636C10`, with the water's exceptions for some creatures) lets it stand on.
+  Read 2026-11-04 (#1346, **confirmed** by code): with `d` the integer square root of the cells' squared distance, rounded to the nearest, plus 1, it tests the cells `start + ⌊span · k / d⌋` along each axis for `k` from 27 down to 2, and the first that passes is the leg; where none passes, the cell of `k` 2 is the leg all the same.
+  So the leg lies about 26 cells along the line, some 19 along each axis for a diagonal.
+  It tests each cell of the line on the target's floor of the building there, else on the ground (`0x6354D0` with the target's floor byte), and the leg keeps the target's floor byte; the straight line and the search then go from the creature on its own layer.
+  Probed 2026-10-28 (#1344): the Seraphim's walk of `annehmen2003` from her start on the chapel's floor 1 at 3236,2511 toward 3986,1813 headed for 3255,2493 on the ground, outside the chapel, the leg of `k` 27 (`d` 1,026, the step (+19, −18)).
   Its way led to the chapel's west exit, 3227,2517, where she stood until the queue dropped the walk.
   From open grass the hero ran on past its first leg, about 45 cells in 9 s, as the queue's walk orders it again.
-  During a queue's walk the hero's way is searched anew at every tick of the world (`0x4FABE0` traced every 0.1 s, its last argument 1 after the first), as the step steers a walker that moves (docs/re/netscript.md, "The anim mode and the creatures' queues").
+  During a queue's walk the hero's way is searched anew at every tick of the world (`0x4FABE0` traced every 0.1 s, its last argument 1 after the first), as the step steers a walker that moves (docs/re/netscript.md, "The anim mode and the creatures' queues"; why, "Searching again" below).
 It tries the straight line first, cell by cell, and else searches the window (`0x4F8AF0`, or `0x4F9410` for some creatures by their type, **hypothesis**: those that fly); every cell either way passes the test of a step, `0x4F7E10` (below).
 Read again 2026-10-25 (#981): the straight line runs from the creature's cell to the target's cell by whole cells, a step along the longer axis each time and one along the shorter where the line's error carries over, so that it does not depend on where in its cell the creature stands; at a diagonal step it tests the two cells beside the corner too.
 Each cell it tests with `0x4FAA60`, which takes the cells within a square of a radius about it, `+0x399` of the creature: 0 for most, 1 or 2 for some types by their id, set at the search's start (**hypothesis**: the big ones).
 The line counts as clear at the target's cell, or, longer than 5 cells, once two thirds of it are clear.
 Seen 2026-10-25 with #448's driver: on open grass about (3183, 2503) the hero sent 7 cells east and 2 south ran along the line, through (3181, 2500), (3182, 2501) to (3185, 2501), (3186, 2502), not along a way's diagonals; by the barrel of (5938, 404) it walked its way's cells.
-Not read in detail: the search's order, its costs, and the points it keeps.
+
+### The search (`0x4F8AF0`)
+
+Read 2026-11-04 (#1346, **confirmed** by code; its ways on the world's files by a scratch model of `0x4FABE0`, `0x4F8560`, `0x4F8AF0` and `0x4F9F20` over the cells alone):
+
+- **Floor numbers, not layers.**
+  The grid is the window's 55 × 55 cells times 8 floor numbers (`0xABA8F8`, each a value and a link of 16 bits).
+  A cell at the floor number `f` is tested by the test of a step (`0x4F7E10`) on `0x6354D0(cell, f)`: the ground for 0, else the floor `f` of the building there, and the ground where there is none.
+  So the floor number 1 is a building's floor 1 within its walls and the ground about it, a walk passing between them wherever their walkable cells meet.
+- **Changes of floor** (`0x4F87C0`) are taken only where the walker's floor byte differs from the target's (`0x4F8E48`); otherwise the entrances, the exits and the stairs are cells like the others.
+  A change is a teleport static with its trigger open (`0x6356E0`), a stair (the ground's nibble 5 up a floor, 6 down, 7 up two, 8 down two, with the cell's offsets), an entrance (9) from the floor 0 to 1 alone and an exit (10) from 1 to 0 alone.
+  It is closed (marked 2) where it leads to the floor it leaves, to the walker's starting floor, away from the target's floor, or to a cell reached before.
+- **The order.**
+  Four neighbours, the sides alone (the first four offsets of `0x890F70`, bound `0x4F9300`), each of a cost by the node's longer axis toward the target (`0x890FD0`): 1 toward it, 3 across, 6 away.
+  The costs are delays in generations of two lists taken in turn, of at most 1,024 entries each: an entry beyond them fails the search, one waiting is dropped.
+  The first step onto the goal ends it, or onto a cell within one of the goal on its floor where `0xAD3BA5` is set ("The way's goal" below).
+- **The way back** (`0x4F9F20`) follows from the end the side neighbour of the greatest rise of the value, through the links, and makes an L-turn a diagonal where its corner was reached; it answers 1 for a way of more than one step.
+- **With no way** (`0x4FB44A`), a straight line from the walker's cell toward the target as it was passed in (for a queue's walk the far target, not the leg), up to 15 cells while `0x4FAA60` lets them pass on the walker's floor, and a search to the last cell that passed (the walker's own where the first fails) become the way; else there is none.
+
+### The way's points and the walk along them
+
+Read 2026-11-04 (#1346, **confirmed** by code):
+
+- `0x4F7710` clears the creature's way (`+0x2ED` to `+0x399`, but `+0x379` to `+0x385`) and sets its speed by its gait (`0x4F75F0`): only a search changes the speed.
+- A straight way (the answer 2) has two points, the walker's place and the target; a searched one (1, 3 and 4) the walker's place, then the way's cells from the start's neighbour on, each its cell's centre, a diagonal step's moved by (±14, ±14) (the table `0x9556E0`), and a cell that is the target's its exact point.
+  It keeps at most 13 points (`0x4F7A47`): the walker and 12 cells.
+- `0x4FABE0`, a way found, writes the centre of the cell it searched for (the target's or the leg) back into the place it was given and, while the walker's action is 1 and its AI's state not 4, into the action's target `+0x158`, `+0x15C` (`0x4FB3B0` to `0x4FB423`; `0x4FB32A` after `0x4F9410`); `0x4F7710` answers 1 where the place came back as it was, −1 where it moved, 0 for no way.
+- The walk (`0x5941A0`, `0x59532F` to `0x595795`) spends each frame's distance (the speed `+0x375` in 16.16, times the frame's time held to 0.3 s, the remainder kept at `+0x379`) along the segments from the point `+0x36D`: a segment walked whole moves the index on, the last point puts the walker on it, and a segment walked in part takes the walker's place as its point.
+
+### Searching again (`0x4F4770`)
+
+Read 2026-11-04 (#1346, **confirmed** by code), the moving action's sub-states (`+0x152`): 0 an order, 1 moving, 2 the end (then the action 2), 3 a run along the points with no search.
+
+- **The order** sets the gait (the hero's by Shift, a follower's its master's, a 0 made a walk, a run for a hero), ends where the walker stands on its target, clears `+0x175` (`0x4F536A`), notes the frame (`+0x385`, the counter `0xCD7A50`) and searches (`0x4F7710` at `0x4F5399`, its last argument 0), or takes the straight mode where `+0x164` is 1.
+  A way found keeps its target (`+0x391`, `+0x395`, the action's target as the search left it) and sets `+0x175` to `0x7B` for a way of three points or more, else 0 (`0x4F543C`); with none, the sub-state 2, and in the AI's states 2 and 4 one try more at the target moved by `rand() % 101 − 50` along each axis (the flag `+0x124`), then the action 0 at once (`0x4F562E`).
+- **Moving**, it ends where the walker stands on the action's target, within its distance to stop (`+0x174`, in the AI's states 1, 4, 10 and 12), or, a follower, within 170 of its master (a player's follower beyond 1,500 is put near its master, `0x4EBF20`).
+  Else, outside the straight mode, it searches again (`0x4F7710` at `0x4F6426`, its last argument 1 where `+0x175` is `0x7B`; the tests `0x4F5EF3` to `0x4F5FF7`) when:
+  1. the action's target is not the one kept (`+0x158` against `+0x391`, `+0x15C` against `+0x395`);
+  2. the walker is at its way's end short of the target (`+0x36D` above 1 and `+0x371 − +0x36D` below 2);
+  3. as many frames have passed since `+0x385` as the smoothed frame rate (`0x6413E0`'s object, `0x641520`) times 0.5 for a player (an id up to 16) or a player's follower, times 2.5 for the others: every half second, every two and a half;
+  4. the walker is on its first point's segment within 100 of the first point, so that it searches again at the first tick past it.
+
+  The straight mode draws its line again at every tick (`0x4F67E2`); a way found again is kept as at the order (`0x4F67D0`).
+  A search that fails sets `+0x175` to 0 (`0x4F6439`) and ends the walk of a creature, while a hero takes the straight mode, which ends unless `0x655920` holds (**hypothesis**: the left button held).
+- **The last argument** of `0x4FABE0`, not 0, fails its straight line at the first step, so that the window is searched at once, as the flag `0xAD2510` does (set for the players' foes near the areas of `0xAD2530`, not read); the searches themselves always take 1.
+  So a way once searched is searched again, never taken straight.
+- **Without a queue** nothing sets the far target again, so a walk toward a target beyond the window ends at its first leg (**confirmed** by code, not seen); a queue's walk sets it at each tick (docs/re/netscript.md, "The anim mode and the creatures' queues"), so that the first test above fires at every tick and the leg moves on with the walker, never reached: the searches at every tick of #1344.
+- `0x4F7710` gives no way, at an order, to a creature of an id above 16 that is neither the local player's follower nor owned and whose own cell fails `0x4EBCA0`; stops one of `+0x1F4 & 0x408` (the townsfolk's modes 8 and `0x400`) sent beyond 1,300, no player's follower, with no way (`0x54E6D0(1, 0)`); and gives the two points to one already in the target's cell on its floor.
+
+### The chapel's west exit
+
+Why the Seraphim's `annehmen2003` stood at the chapel's west exit (#1344; read 2026-11-04 for #1346: each step **confirmed** by code, the ways by the scratch model on the world's files, the outcome seen):
+
+- The record names the floor 0, which its reader makes the hero's floor byte as it runs, 1 in the chapel (docs/re/netscript.md, "The anim mode and the creatures' queues"); so the walker's and the target's floors are the same, and the search takes no change of floor: the entrances and exits are cells like the others.
+- On the monastery's floor 1 (the building 758529, its walls from 3213,2502 to 3246,2531) the south door's exits 3237 to 3239,2520 lead nowhere: the floor 1's cells below them (3236 to 3239,2521) and beside them (3236,2520 and 3240,2520) are closed, the porch's cells from 3240,2521 on reached from the ground alone.
+  The only way out at the floor number 1 is west: from the hall by 3229,2512 and 3227,2513 to 2515, over the entrance 3227,2516 and the exit 3227,2517 into the corridor (3222 to 3233 at 2517 and 2518) and the west wing (3222 to 3225 at 2519 to 2526), and out to the courtyard's ground between 3225,2525 and 3226,2525; the model found it, 94 cells.
+- On the exit 3227,2517 the hero is put on the ground (`0x5FCCB0`, the nibble 10), its floor byte 0; at the next tick the floors differ, the search may end only at the floor number 1, which it reaches only through an entrance onto the monastery's floor 1, from which every way out crosses an exit, closed as it leads back to the starting floor 0: the window is searched out (the model), and the line of the fallback toward 3986,1813 meets the wall 3228,2516.
+- The hero, with no way, takes the straight mode and stops on the exit; the queue orders it again at each tick, each search failing at once, and drops the walk some 11 orders later (5 orders, its count started anew as the hero had moved, then 5 more where it stands), then teleports it.
+- So it is the original's rules that strand it (the floor 0 taken as the walker's floor, with the search's floor numbers), not its data; a click on the ground outside, of the floor 0, would take the changes and leave by the south door (**hypothesis**).
+- **Seen** 2026-11-04 with the driver of #448 (a trace of `0x4F7710` and a probe at `0x4F5EFF`, `script annehmen2003` at the Seraphim's start): at every tick the action's target `+0x158`, `+0x15C` was the far target 213938,97322 and the kept one `+0x391`, `+0x395` the leg, 174708,133815 at first (3255,2493) and moving on with her, each search answering −1, its last argument 1 after the first; on the exit her floor byte `+0x24` turned from 1 to 0 and the search answered 0; then 21 searches of the last argument 0 failed, two an order (the order's and its try at ±50), and the teleport put her at 3432,5455.
+
+`opensacred-game` follows none of these four sections yet: the leg's rule (#2011), the queue's steering (#2012), the search over floor numbers (#2013, which waits for the maintainer as it would strand the hero as the original does), the searches again and the search's own shapes (#2014).
 
 ### The way's goal (`0x4F8560`)
 
