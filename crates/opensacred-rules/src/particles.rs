@@ -2429,6 +2429,91 @@ pub fn battle_fog(variant: u32) -> Fire {
 /// The battle fog's particles (`0x5A0C50`'s count for the type 868).
 const BATTLE_FOG_COUNT: usize = 100;
 
+/// The look of a rune of the banishing circle 16, `cParticleSystem_groundsymbol` (805, its start
+/// `0x7825E0`, its run `0x781D60` and its draw `0x781DC0`; docs/re/effects.md, "The banishing
+/// circle's runes"), standing for its seconds: its rune `runeshield<n>` facing the camera, laid
+/// over by its alpha, with its two glows added over it, its first pulsing by its clock; light
+/// bars of `runeshield_gradient` rising above it in a warm colour; and tiny sparks rising.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rune {
+    pub sparks: System,
+    seconds: f32,
+}
+
+/// A rune's quads facing the camera, in its frame's screen's right and up about its place: the
+/// rune and its glows (`+0x2144`), the bar (`+0x21C4`) and the three rays (`+0x2244`, `+0x22C4`,
+/// `+0x2344`), each its left, right, bottom and top, and its texture's width across.
+pub const RUNE_QUAD: [f32; 4] = [-32.0, 32.0, -16.0, 16.0];
+pub const RUNE_BAR: [f32; 4] = [-6.0, 6.0, 0.0, 64.0];
+pub const RUNE_RAYS: [([f32; 4], f32); 3] = [
+    ([-8.0, 8.0, -4.0, 48.0], 1.0),
+    ([-8.0, 8.0, -4.0, 48.0], 2.0),
+    ([-8.0, 8.0, -4.0, 64.0], 1.0),
+];
+/// The rune's light (`+0x9C`), and its sparks' colour, (128, 64, 0) added whole (the flags
+/// `0x13`).
+pub const RUNE_LIGHT: f32 = 50.0;
+pub const RUNE_SPARK_COLOUR: [f32; 4] = [128.0 / 255.0, 64.0 / 255.0, 0.0, 1.0];
+/// The rune ring's place about its caster (`0x522DE3`): the rune `i` at the angle
+/// `i·π/4 + π − 0.5`, 200 off, along the world's `sin` and `cos`.
+pub const RUNES_APART: f32 = std::f32::consts::FRAC_PI_4;
+pub const RUNES_START: f32 = std::f32::consts::PI - 0.5;
+
+/// A rune's colours at its clock `t` (`0x781DC0`): its first glow's grey
+/// `⌊128 (sin t + 1)⌋`, its bar's `(2c, c, 0)` for `c = ⌊16 (sin t + 1) + 32⌋`, and its rays'
+/// the same of `c = ⌊4 (sin t + 1) sin²(k t) + 8⌋`, `k` 2.1 for the first ray and 1.5 for the
+/// others, each a share of 255.
+pub fn rune_colours(t: f32) -> ([f32; 4], [f32; 4], [[f32; 4]; 3]) {
+    let s = t.sin() + 1.0;
+    let byte = |value: f32| value.trunc().min(255.0) / 255.0;
+    let grey = byte(128.0 * s);
+    let warm = |c: f32| [byte(2.0 * c.trunc()), byte(c), 0.0, 1.0];
+    let ray = |k: f32| warm(4.0 * s * (k * t).sin().powi(2) + 8.0);
+    (
+        [grey, grey, grey, 1.0],
+        warm(16.0 * s + 32.0),
+        [ray(2.1), ray(1.5), ray(1.5)],
+    )
+}
+
+/// Its sparks at most (`0x5A0C50`'s count for the type 805).
+const RUNE_SPARKS: usize = 50;
+
+impl Rune {
+    /// A rune of `seconds`.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            sparks: System::new(RUNE_SPARKS),
+            seconds,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x781D60`): its sparks aged and a new one every 0.05 s, within 6
+    /// of its place along x and y, rising at 30 ± 5 and lifted on at a buoyancy of −200, of a half
+    /// side of 1 ± 0.25, living 0.51 s.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Layer {
+            life: -500.0,
+            ..Layer::default()
+        }];
+        let block = Block {
+            buoyancy: spread(-200.0, 0.0),
+            size: spread(1.0, 0.25),
+            velocity: spread([0.0, 0.0, 30.0], [0.0, 0.0, 5.0]),
+            offset: spread([0.0; 3], [6.0, 6.0, 0.0]),
+            interval: 0.05,
+            ..Block::default()
+        };
+        self.sparks.update(dt, &layers);
+        self.sparks.emit(&[block], &layers, RUNE_SPARKS, dice);
+    }
+
+    /// Whether it ended: past its seconds.
+    pub fn done(&self) -> bool {
+        self.sparks.clock > self.seconds
+    }
+}
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2944,6 +3029,31 @@ mod tests {
             puffs.update(0.025, &fog.layers);
         }
         assert!(puffs.particles.is_empty());
+    }
+
+    #[test]
+    fn a_banishing_rune_pulses_warm_and_ends_with_its_seconds() {
+        let (grey, bar, rays) = rune_colours(0.0);
+        assert_eq!(grey, [128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0]);
+        assert_eq!(bar, [96.0 / 255.0, 48.0 / 255.0, 0.0, 1.0]);
+        assert_eq!(rays[0], [16.0 / 255.0, 8.0 / 255.0, 0.0, 1.0]);
+        // At its brightest the grey holds at 255.
+        let (bright, ..) = rune_colours(std::f32::consts::FRAC_PI_2);
+        assert_eq!(bright[0], 1.0);
+        let mut dice = Rng::of(17, 0x325, 5);
+        let mut rune = Rune::new(2.0);
+        for _ in 0..40 {
+            rune.update(0.025, &mut dice);
+        }
+        // A spark every 0.05 s living 0.51 s: some ten, rising.
+        let alive = rune.sparks.particles.len();
+        assert!((9..=11).contains(&alive), "{alive}");
+        assert!(rune.sparks.particles.iter().all(|p| p.place[2] >= 0.0));
+        assert!(!rune.done());
+        for _ in 0..41 {
+            rune.update(0.025, &mut dice);
+        }
+        assert!(rune.done());
     }
 
     #[test]

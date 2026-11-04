@@ -780,6 +780,26 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Dark Elf's start: grey fog billowing up over the trap's cells, alike in size and colour.
 Not followed: its layer's wind (as the world's smokes'), and its variants 1 and 2, whose makers are not read.
 
+## The banishing circle's runes
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 16 at the level 5).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| A rune of the banishing circle 16 | 805 | `cParticleSystem_groundsymbol` | `0x781830`, `0x781DC0`, `0x781D60`, `0x7825E0` |
+
+- The executor (`0x522DE3`) makes eight about the caster, the rune `i` at the angle `i·π/4 + π − 0.5`, 200 off along the world's `sin` and `cos`, on the ground where a creature may stand (`0x636890`, `0x449950`), its FX event's `+0x38` the index `i`.
+- Its constructor makes its quads: the rune (`+0x2144`), 64 across and 32 high about its place; the bar (`+0x21C4`), 12 across and 0 to 64 up; and three rays (`+0x2244`, `+0x22C4`, `+0x2344`), 16 across from 4 below to 48, 48 and 64 up, the second's texture twice across; and loads `runeshield_gradient` and `particle_glow03`.
+- Its start (`0x7825E0`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x2140`); the textures `runeshield<i+1>`, its `_glow1` and `_glow2`; one layer (the life −500 a second) and one block (buoyancy −200, the size 1 ± 0.25, the velocity (0, 0, 30) ± (0, 0, 5), the place ± (6, 6, 0), every 0.05 s, times 1.5 and 2.2 at the detail levels 1 and 0, the colour (128, 64, 0)); its light 50, its flags 0.
+- Its run (`0x781D60`): its particles aged and emitted; past its seconds it ends.
+- Its draw (`0x781DC0`), with the draw's own matrix, so that its quads face the camera, its translation its place, the depth tested and not written:
+  - the rune, white, laid over by its alpha;
+  - then added (`ONE`, `ONE`): its first glow in the grey `⌊128 (sin t + 1)⌋`, its second white; the bar of the gradient in `(2c, c, 0)` for `c = ⌊16 (sin t + 1) + 32⌋`; the rays in the same of `c = ⌊4 (sin t + 1) sin²(k t) + 8⌋`, `k` 2.1 for the first and 1.5 for the others;
+  - its particles as billboards of the flags `0x13` (its corners' colour, `ONE`, `ONE`) of `particle_glow03`.
+
+`opensacred-game` draws it since #1092 (`banishing_runes`, `opensacred_rules::particles::{Rune, rune_colours}`): the eight runes that `spells` makes about the Mage for the circle's seconds, at their angles and where she may stand, untinted by the night, each its light of 50.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start: glowing red runes on the ground about her with an orange bar of light rising from each, alike in place and size.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -831,7 +851,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust and the battle fog ("The bolts" to "The battle fog" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog and the banishing circle's runes ("The bolts" to "The banishing circle's runes" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

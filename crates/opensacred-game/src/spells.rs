@@ -1737,26 +1737,19 @@ fn act(
                         commands.entity(entity).insert(Banished { from: here });
                     }
                 }
-                let mut made = commands.spawn((
+                commands.spawn((
                     zone,
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some(looks) = &looks {
-                    made.with_children(|runes| {
-                        for k in 0..8u8 {
-                            let angle = std::f32::consts::FRAC_PI_4 * f32::from(k);
-                            let off = Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::RUNES_FROM;
-                            runes.spawn((
-                                Mesh3d(looks.disc.clone()),
-                                MeshMaterial3d(looks.discs[2].clone()),
-                                Transform::from_translation(off + Vec3::Y * 4.0)
-                                    .with_scale(Vec3::new(20.0, 2.0, 20.0)),
-                            ));
-                        }
-                    });
-                }
+                // Its eight runes look as their systems (`banishing_runes`).
+                crate::banishing_runes::circle(
+                    &mut commands,
+                    &heights,
+                    (here, body.level()),
+                    seconds,
+                );
             }
             spells::FROST_RING => {
                 // And its zone, 5 cells along each axis about his cell for 25 s (`0x52555A`).
