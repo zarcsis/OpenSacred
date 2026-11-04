@@ -173,6 +173,42 @@ impl System {
     /// first block have passed since the last emission, each of a block that `pick` chooses and
     /// aged by its share of the time (`0x764760`), up to `count` alive.
     pub fn emit(&mut self, blocks: &[Block], layers: &[Layer], count: usize, dice: &mut impl Dice) {
+        self.emit_at(blocks, layers, count, dice, |_| [0.0; 3]);
+    }
+
+    /// [`Self::emit`] by a system whose place went from `from` to `to` in the frame of `dt`
+    /// seconds that its clock ran last (no flag 2: the particles stay in the world): each
+    /// particle born at its offset from the place the system passed at its moment, so that a
+    /// trail lies along its way.
+    pub fn emit_along(
+        &mut self,
+        blocks: &[Block],
+        layers: &[Layer],
+        count: usize,
+        (from, to): ([f32; 3], [f32; 3]),
+        dt: f32,
+        dice: &mut impl Dice,
+    ) {
+        let start = self.clock - dt;
+        self.emit_at(blocks, layers, count, dice, |moment| {
+            let share = if dt > 0.0 {
+                ((moment - start) / dt).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            std::array::from_fn(|k| from[k] + (to[k] - from[k]) * share)
+        });
+    }
+
+    /// [`Self::emit`], each particle born at its offset from `place` of its moment.
+    fn emit_at(
+        &mut self,
+        blocks: &[Block],
+        layers: &[Layer],
+        count: usize,
+        dice: &mut impl Dice,
+        place: impl Fn(f32) -> [f32; 3],
+    ) {
         let Some(first) = blocks.first() else {
             return;
         };
@@ -189,6 +225,9 @@ impl System {
                 continue;
             };
             let mut particle = born(block, layer, dice);
+            for (axis, at) in particle.place.iter_mut().zip(place(self.last)) {
+                *axis += at;
+            }
             age(&mut particle, self.clock - self.last, rates, None);
             if particle.alive() {
                 self.particles.push(particle);
@@ -1333,10 +1372,371 @@ fn hue_colour(hue: f32, value: f32) -> [f32; 3] {
     }
 }
 
+/// The frame of a grid's flip-book that a particle of the life `life` shows, played once over its
+/// life (`0x761B00` with a grid and no flag `0x100`): `⌊(255 − life) · G² / 256⌋` of the `G × G`
+/// frames, row by row.
+pub fn age_frame(life: f32, grid: u8) -> u8 {
+    let frames = f32::from(grid) * f32::from(grid);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a frame below the grid's count, at most 255"
+    )]
+    let frame = ((255.0 - life.clamp(0.0, 255.0)) * frames / 256.0) as u32;
+    u8::try_from(frame.min(u32::from(grid) * u32::from(grid) - 1).min(255)).unwrap_or(0)
+}
+
+/// The railgun's bolt (801, `cParticleSystem_railgun`, docs/re/effects.md, "The bolts"): no
+/// particles but two crossed quads of `FX_PLASMA_CENTER`, one flat and one upright, of these half
+/// sides along the flight and across it (`0x77E7A0`), laid over by their alpha; and, for a hero's
+/// bolt, a line of [`RAILGUN_GLOWS`] glows of `PARTICLE_GLOW01` facing the camera, of the half side
+/// [`RAILGUN_GLOW_HALF`] and the colour [`RAILGUN_GLOW_COLOUR`], added, the first
+/// [`RAILGUN_GLOW_BEHIND`] behind the bolt's centre and each [`RAILGUN_GLOW_STEP`] on (`0x40DA80`
+/// from `0x77EBC0`). Its light, 100, is not drawn.
+pub const RAILGUN_HALF: (f32, f32) = (20.0, 15.0);
+pub const RAILGUN_GLOWS: usize = 8;
+pub const RAILGUN_GLOW_HALF: f32 = 15.0;
+pub const RAILGUN_GLOW_BEHIND: f32 = 20.0;
+pub const RAILGUN_GLOW_STEP: f32 = 5.0;
+pub const RAILGUN_GLOW_COLOUR: [f32; 4] = [32.0 / 255.0, 32.0 / 255.0, 64.0 / 255.0, 1.0];
+
+/// The BFG's bolt (875, `cParticleSystem_bfg`): three glows of `FX_BFG_1` to `3` of this half
+/// side, added, in greys that pulse ([`bfg_greys`]); and a flat quad of `PARTICLE_GLOW03` on the
+/// ground under it, of this half side and colour, added (`0x77F290`). Its light, 120, is not drawn.
+pub const BFG_GLOW_HALF: f32 = 35.0;
+pub const BFG_GROUND_HALF: f32 = 60.0;
+pub const BFG_GROUND_COLOUR: [f32; 4] = [72.0 / 255.0, 185.0 / 255.0, 1.0, 1.0];
+/// The BFG's pulse, in radians a second of its clock (`0x897E5C`).
+const BFG_PULSE: f32 = 4.21;
+
+/// The greys of the BFG's three glows at its clock `t` (`0x77F1C0`): with `a = 4.21 t`, the first
+/// `⌊127 (sin a + 1)⌋`, the second 255 less that, the third `⌊127 (cos a + 1)⌋`, as shares of 255.
+pub fn bfg_greys(t: f32) -> [f32; 3] {
+    let a = BFG_PULSE * t;
+    let first = (127.0 * (a.sin() + 1.0)).floor();
+    let third = (127.0 * (a.cos() + 1.0)).floor();
+    [first, 255.0 - first, third].map(|grey| grey / 255.0)
+}
+
+/// What a fireball's system does (`cParticleSystem_firestrike`'s state, `+0x20A8`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flames {
+    /// It flies, leaving its trail of flames.
+    Flying,
+    /// It hit or stopped: one flame more at its place, at its next run.
+    Burst,
+    /// It makes no more; it ends as its last flame dies.
+    Out,
+}
+
+/// The Mage's fireball (778, `cParticleSystem_firestrike`, `0x76BAE0`; docs/re/effects.md, "The
+/// bolts"): a trail of `FIRE01` flames left along its way in the world, one every 0.07 s, each of a
+/// half side of 15 growing by 16 a second, turned at random, drifting by up to 4 a second along
+/// each axis and living 0.73 s, added and turned, its 4 × 4 frames played once over its life
+/// ([`age_frame`]); at a hit or a stop one flame more of the burst's block, then none, the system
+/// ending with its last flame; at its time's end none more and no burst.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Firestrike {
+    pub system: System,
+    pub state: Flames,
+}
+
+/// The fireball's texture and its grid.
+pub const FIRESTRIKE_TEXTURE: &str = "PARTICLE_FIRE01";
+pub const FIRESTRIKE_GRID: u8 = 4;
+/// Its particles at most (`0x76BAE0`).
+const FIRESTRIKE_COUNT: usize = 50;
+
+impl Firestrike {
+    pub fn new() -> Self {
+        Self {
+            system: System::new(FIRESTRIKE_COUNT),
+            state: Flames::Flying,
+        }
+    }
+
+    /// Its one layer (`+0x20C0`, written anew at each run).
+    fn layer() -> Layer {
+        Layer {
+            life: -350.0,
+            size: 16.0,
+            ..Layer::default()
+        }
+    }
+
+    /// The flying block (`+0x20E0`) at the detail 2.
+    fn flying() -> Block {
+        Block {
+            size: spread(15.0, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [4.0; 3]),
+            interval: 0.07,
+            ..Block::default()
+        }
+    }
+
+    /// The burst's block (`+0x2144`).
+    fn burst() -> Block {
+        Block {
+            size: spread(10.0, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [20.0; 3]),
+            offset: spread([0.0; 3], [15.0; 3]),
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its place gone from `from` to `to` in the models' frame
+    /// (`0x76BBD0`): its flames age; flying, it leaves them along the way at their interval;
+    /// burst, one at `to`.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        match self.state {
+            Flames::Flying => {
+                self.system.emit_along(
+                    &[Self::flying()],
+                    &layers,
+                    FIRESTRIKE_COUNT,
+                    (from, to),
+                    dt,
+                    dice,
+                );
+            }
+            Flames::Burst => {
+                let mut flame = born(&Self::burst(), 0, dice);
+                for (axis, at) in flame.place.iter_mut().zip(to) {
+                    *axis += at;
+                }
+                self.system.particles.push(flame);
+                self.state = Flames::Out;
+            }
+            Flames::Out => {}
+        }
+    }
+
+    /// Its hit or its stop at a cell: one flame more at its next run, then none.
+    pub fn hit(&mut self) {
+        if self.state == Flames::Flying {
+            self.state = Flames::Burst;
+        }
+    }
+
+    /// Its time's end: no flame more.
+    pub fn out(&mut self) {
+        if self.state == Flames::Flying {
+            self.state = Flames::Out;
+        }
+    }
+
+    /// Whether it ended: no flame more to make and none alive.
+    pub fn done(&self) -> bool {
+        self.state == Flames::Out && self.system.particles.is_empty()
+    }
+}
+
+impl Default for Firestrike {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The Daemon's bolt of his 1103 (1159, `cParticleSystem_emperor`, `0x7BD9B0`; docs/re/effects.md,
+/// "The bolts"): rays of `LIGHTNING01`'s 2 × 2 frames riding with it, one every 0.005 s for its
+/// first 1.14 s, each of a half side of 10 ± 7, turned at random about its foot at the bolt's
+/// centre and living 0.21 s, added in a ramp from black to (220, 220, 255); and while it makes
+/// them a glow of `PARTICLE_GLOW03` of (224, 224, 255) flickering at its centre. At a hit (on its
+/// target's neck) or a stop it flares 2 s more, its rays and its glow 1.75 times as large.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Emperor {
+    pub system: System,
+    /// Until when of its clock it makes rays, and its flare's scale.
+    until: f32,
+    pub scale: f32,
+}
+
+/// The emperor's rays' texture and grid, its glow's texture, colour and half side.
+pub const EMPEROR_TEXTURE: &str = "PARTICLE_LIGHTNING01";
+pub const EMPEROR_GRID: u8 = 2;
+pub const EMPEROR_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const EMPEROR_GLOW_COLOUR: [f32; 4] = [224.0 / 255.0, 224.0 / 255.0, 1.0, 1.0];
+/// Its particles at most, how long it makes rays, its flare's time and scale.
+const EMPEROR_COUNT: usize = 400;
+const EMPEROR_EMITS: f32 = 1.14;
+const EMPEROR_FLARE: f32 = 2.0;
+const EMPEROR_FLARE_SCALE: f32 = 1.75;
+
+impl Emperor {
+    pub fn new() -> Self {
+        Self {
+            system: System::new(EMPEROR_COUNT),
+            until: EMPEROR_EMITS,
+            scale: 1.0,
+        }
+    }
+
+    /// Its layer (`+0x20B0`) and its block (`+0x20D0`) at the detail 2, the block's size and its
+    /// spread by its scale.
+    fn layer() -> Layer {
+        Layer {
+            life: -1200.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block(&self) -> Block {
+        Block {
+            size: spread(10.0 * self.scale, 7.0 * self.scale),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            interval: 0.005,
+            frames: 4,
+            ..Block::default()
+        }
+    }
+
+    /// Its ramp (`+0x2134`, computed): the entry `i` of `(⌊220 i / 256⌋, ⌊220 i / 256⌋,
+    /// ⌊255 i / 256⌋)`, opaque.
+    pub fn ramp() -> Ramp {
+        Ramp(std::array::from_fn(|i| {
+            #[expect(clippy::cast_precision_loss, reason = "an entry below 256")]
+            let i = i as f32;
+            [
+                (220.0 * i / 256.0).floor() / 255.0,
+                (220.0 * i / 256.0).floor() / 255.0,
+                (255.0 * i / 256.0).floor() / 255.0,
+                1.0,
+            ]
+        }))
+    }
+
+    /// A run of `dt` seconds (`0x7BDA50`): its rays age, and it makes them about its centre while
+    /// its clock is below their end.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.emits() {
+            self.system
+                .emit(&[self.block()], &layers, EMPEROR_COUNT, dice);
+        }
+    }
+
+    /// Whether it makes rays still, and draws its glow.
+    pub fn emits(&self) -> bool {
+        self.system.clock < self.until
+    }
+
+    /// Its flare at a hit or a stop: 2 s more of rays, 1.75 times as large (`+0x74` 2).
+    pub fn flare(&mut self) {
+        self.until = self.system.clock + EMPEROR_FLARE;
+        self.scale = EMPEROR_FLARE_SCALE;
+    }
+
+    /// The half side of its glow at a roll `roll` of `[0, 1)`: `(10 + 4 roll)` times its scale.
+    pub fn glow_half(&self, roll: f32) -> f32 {
+        (10.0 + 4.0 * roll) * self.scale
+    }
+
+    /// Whether it ended: no ray more to make and none alive.
+    pub fn done(&self) -> bool {
+        !self.emits() && self.system.particles.is_empty()
+    }
+}
+
+impl Default for Emperor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_flip_book_plays_once_over_a_particles_life() {
+        assert_eq!(age_frame(255.0, 4), 0);
+        assert_eq!(age_frame(127.5, 4), 7);
+        assert_eq!(age_frame(0.0, 4), 15);
+        assert_eq!(age_frame(-5.0, 2), 3);
+    }
+
+    #[test]
+    fn the_bfgs_glows_pulse_against_one_another() {
+        assert_eq!(
+            bfg_greys(0.0),
+            [127.0 / 255.0, 128.0 / 255.0, 254.0 / 255.0]
+        );
+        // A quarter of its period on: the first at its brightest, the second at its darkest.
+        let quarter = bfg_greys(std::f32::consts::FRAC_PI_2 / 4.21);
+        assert!((quarter[0] - 254.0 / 255.0).abs() < 1e-6, "{quarter:?}");
+        assert!((quarter[1] - 1.0 / 255.0).abs() < 1e-6, "{quarter:?}");
+    }
+
+    #[test]
+    fn a_fireball_leaves_its_flames_along_its_way_and_burns_out_after_its_hit() {
+        let mut dice = Rng::of(7, 7, 8);
+        let mut fireball = Firestrike::new();
+        // A second at 160 a second along x, in frames of 0.05 s.
+        let mut at = [0.0; 3];
+        for _ in 0..20 {
+            let to = [at[0] + 8.0, 0.0, 0.0];
+            fireball.update(0.05, (at, to), &mut dice);
+            at = to;
+        }
+        // One flame every 0.07 s, each living 0.73 s: some ten alive, along the way behind it.
+        let alive = fireball.system.particles.len();
+        assert!((9..=11).contains(&alive), "{alive}");
+        assert!(
+            fireball
+                .system
+                .particles
+                .iter()
+                .all(|flame| (40.0..=164.0).contains(&flame.place[0])),
+            "{:?}",
+            fireball.system.particles
+        );
+        // A hit: one flame more about its place, then none, and it ends with its last.
+        fireball.hit();
+        fireball.update(0.05, (at, at), &mut dice);
+        assert_eq!(fireball.state, Flames::Out);
+        let burst = fireball.system.particles.last().expect("the burst's flame");
+        assert!((burst.place[0] - at[0]).abs() <= 16.0, "{burst:?}");
+        for _ in 0..20 {
+            fireball.update(0.05, (at, at), &mut dice);
+        }
+        assert!(fireball.done());
+    }
+
+    #[test]
+    fn the_emperors_rays_crackle_for_their_time_and_flare_at_a_hit() {
+        let mut dice = Rng::of(11, 5, 9);
+        let mut emperor = Emperor::new();
+        for _ in 0..50 {
+            emperor.update(0.01, &mut dice);
+        }
+        // One ray every 0.005 s, each living 0.21 s: some 42 alive.
+        let alive = emperor.system.particles.len();
+        assert!((38..=44).contains(&alive), "{alive}");
+        assert!((emperor.glow_half(0.5) - 12.0).abs() < 1e-6);
+        // A hit: 2 s more, 1.75 times as large.
+        emperor.flare();
+        for _ in 0..150 {
+            emperor.update(0.01, &mut dice);
+        }
+        assert!(emperor.emits() && (emperor.glow_half(0.0) - 17.5).abs() < 1e-6);
+        for _ in 0..80 {
+            emperor.update(0.01, &mut dice);
+        }
+        assert!(emperor.done());
+        // Its ramp: black at death, (220, 220, 255) at birth.
+        let ramp = Emperor::ramp();
+        assert_eq!(ramp.at(0.0), [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(
+            ramp.at(255.0),
+            [219.0 / 255.0, 219.0 / 255.0, 254.0 / 255.0, 1.0]
+        );
+    }
 
     #[test]
     fn a_burst_clouds_in_its_sets_colour_for_a_second() {

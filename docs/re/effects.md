@@ -305,9 +305,9 @@ The families, by what they need beyond the machinery:
 3. **The torches' flame** (787): a flip-book and a glow following the bone `weapon_fx01` of the item in hand; the game has the bones (docs/re/arts.md uses them for the `Rundum` strikes).
 4. **The butterflies** (873, #1073): the wander, the 8 × 8 flip-book with the alpha of the life, the fireflies' glows by the night's level.
 5. **The hit sparks**: `FX_SERA_SM_HIT` (843, 151 particles: a burst at once, buoyancy +180 ± 40, a size of 6 ± 1 shrinking by 4 a second, the velocity (0, 0, 60) ± 40, the place ± 10, a life of 1.275 s, `SPARK06` additive with a ramp from (127, 127, 255) at the birth to black, a light of 200, the system flag `0x40`: placed once at the bone the event names), and its kin `FX_ELVE_SM_HIT` (860), `FX_DARK_SM_HIT` (864), `FX_VAMP_SM_HIT` (862), `FX_GLAD_SM_HIT` (842, 600 particles with rings and floops), all `SPARK06` with the flags `0x19`; the art 1003's event value shakes the screen (kind 7, 30) and changes the burst.
-6. **The spells' and the arts' objects**, a class each (docs/re/arts.md has their rules): the fireball's flight (776 `GLOW01` with a light of 250; 778 `FIRE01` flip-book, light 200), then the rings, the decals, the helices, the beams and the models' effects.
+6. **The spells' and the arts' objects**, a class each (docs/re/arts.md has their rules): the bolts first ("The bolts" below: the railgun's, the BFG's, the fireball's, 778's `FIRE01` flip-book, and the Daemon's), then the rings, the decals, the helices, the beams and the models' effects.
 
-The families 1 and 2 are done (`fx`, #1189), and so is 4 (`butterflies`, #1073).
+The families 1 and 2 are done (`fx`, #1189), and so is 4 (`butterflies`, #1073), and of 6 the bolts (`bolt_looks`, #1092).
 
 ## The catalogue
 
@@ -492,6 +492,76 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | zeitkontrolle | 250 | 859 | PARTICLE_GLOW03, PARTICLE_SPARK04 | PARTICLE_SPARK04 `0x19/g1` | flat quad |  | 0x200 |
 | zhadum | 1 | 1165 | particle_glow01 |  | glow |  | 0x400 |
 
+## The bolts
+
+Read 2026-11-04 for #1092 in Ghidra and with capstone (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Seraphim with the effects 16 and 17, the Mage's spell 5, the Daemon's 1103, a goblin at six to eight cells).
+
+| Bolt | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The Seraphim's railgun | 801 | `cParticleSystem_railgun` (`0x897E20`) | `0x77E7A0`, `0x77EBC0`, `0x77EB70`, `0x77EF50` |
+| Her BFG | 875 | `cParticleSystem_bfg` (`0x897E40`) | `0x77F0F0`, `0x77F290`, `0x77F1C0`, `0x77F520` |
+| The Mage's fireball (spell 5) | 778 | `cParticleSystem_firestrike` (`0x897904`) | `0x76BAE0`, `0x76BDD0`, `0x76BBD0`, `0x76BE80` |
+| The Daemon's 1103 | 1159 | `cParticleSystem_emperor` (`0x898E9C`) | `0x7BD9B0`, `0x7BDB50`, `0x7BDA50`, `0x7BDC50` |
+
+The fireball is 778 (`sdk_CREATE(0x30A)` at `0x523834`): 776, the catalogue's `fireball`, is a weapon's glow that `cWeapon3D` makes (`0x5CDDAD`, below), not the spell's.
+The Daemon's 1103 makes 1159 by the FX event `0x91` (`0x51B0EF`).
+Other makers of these types, not followed: 801 at `0x4D3FA8` and `0x4E369E`; 778 at `0x4D4315`, `0x4E3A84`, `0x5354AA` and `0x57865F`; 1159 at `0x5357B6`, `0x57529B` and `0x6AAEB6`.
+
+### Their flight
+
+- The system flag `0x10` is the flight (`0x5A67D2` in `0x5A6680`): at each run the system's place moves by its whole speed `+0x98` times the time along its direction `+0x78` to `+0x80`, the direction turns by `+0x8C` (for the type 778 alone its height's part shrinks by 0.9 at each run, `0x5A67F8`), and the object goes to the system's place (`0x5AA330`).
+  The flight gathers its targets (`0x5AB490`, `0x5ABD80` at `0x5A694E`) and tests its cell (`0x636D70`, `0x636D20`); a cell that stops it writes `+0x74` 2 (`0x7CBA10`, `0x5A6AEA`).
+- The flag `0x01` ends a flyer under the ground (`0x5AA3CE`, the ground `0x636310` above it: `+0x74` 1, an end at once); 778 (flags `0x51`) and 1159 (`0x53`) have it, 801 and 875 (`0x50`) not.
+- The flag `0x40` puts the system once at its followed object's (`+0x68`) bone (`+0x70`), with the bone's turn, in the object's draw (`0x5A9CAF` to `0x5A9D5C`), and clears itself; so a bolt leaves from its bone and keeps its height (**seen**: the railgun flies at her hand's height over the goblin's head).
+- `+0x74`, a word written whole (`0x7CBA10`): 1 ends the system at once, 2 tells its update that it hit or stopped.
+- The FX handler's cases (the table `0x5A5EC4`, `0x5A3B02`): the railgun's kind `0x21` follows the event's caster at its bone 2 (`Bip01 R Hand`, the event's `+0x38`); the BFG's `0x63` the event's target, the staff 3809 (`0x556F50(13)`), at its bone 15 (`weapon_fx01`); the fireball's 1 its caster at the bone 1 (`Bip01 L Hand`, the event's `+0x3C`); the emperor's `0x91` its caster at the bone 2; each takes the event's direction, none the event's point.
+- `+0xA9`, written by the handler (`0x5A3A4A` to `0x5A3A7B`): 0 for a caster of an id up to 16 (a hero), else 1 where the caster's object is gone and 2 where it is there, 0 again where the event's `+0x28` is 1.0.
+- The base's `+0xB4` is a Direct3D 7 light (`0x642880`, `0x642B90`), moved at each draw (`0x642EF0`), taken off by the base's destructor (`0x761A67`).
+
+### The railgun (801)
+
+- No particles drawn: its 15, its block and its layer are filled and never emitted (no call of `0x764760`, `0x7640C0` or `0x761B00` in its class).
+- Its body (`0x77E7A0`): twelve white vertices of two crossed quads, one flat and one upright, 40 along it and 30 across (`±20`, `±15`), of `FX_PLASMA_CENTER` (128 × 64, a cyan comet whose head lies a quarter along the texture), its `u` 0 at the front and 1 at the back; turned once at its start so that its length lies along the flight (`0x642690` about the axis `x × d`, `0x77EF50`).
+  Drawn laid over by its alpha (`SRCALPHA`, `INVSRCALPHA`), the depth tested and not written, both faces, untinted (`0x77EBC0`).
+- Before it, for a hero's bolt (`+0xA9` 0), a line of eight glows of `PARTICLE_GLOW01` facing the camera (`0x40DA80`), each of a half side of 15 and the colour (32, 32, 64), added, the first 20 behind its centre and each 5 on.
+- It flies at 400 for 2 s at most and ends at its hit or a cell that stops it, with no burst; its light 100; the shot plays `SERA_PLASMASHOT` (2072) with the first bolt (`0x4DDE02`).
+- **Seen**: a cyan streak, its head forward, in a pale lavender haze about three times its width, leaving her right hand; a shot's two bolts close together; nothing stays at the hit.
+
+### The BFG (875)
+
+- Three glows (`0x762E10`) at its place of `FX_BFG_1`, `2` and `3` (256 × 256 opaque starbursts), each of a half side of 35, added (`ONE`, `ONE`), the depth tested, in greys that pulse by its clock `t` (`0x77F1C0`, `a = 4.21 t`, `0x897E5C`): `⌊127 (sin a + 1)⌋`, 255 less that, and `⌊127 (cos a + 1)⌋`, a period of about 1.49 s.
+- A flat quad (`0x7631E0`) of `PARTICLE_GLOW03` under it, of a half side of 60 and the colour (72, 185, 255), added, at its place less `+0xA4` (**hypothesis**: its height over the ground).
+- It flies at 200 for 3 s at most, through what it hits (its hit, `0x5AC485`, writes nothing to `+0x74`), and ends at 3 s or at a cell that stops it; its light 120; its start plays `SERA_PLASMASHOT_BIG` (2073) at its owner.
+- **Seen**: a white starburst leaving the staff's tip, breathing in its size and whiteness, a cyan glow on the ground below it; it passed through the goblin and flew on; by night as by day.
+
+### The fireball (778)
+
+- `PARTICLE_FIRE01`'s flames, 50 at most, left in the world along its way (no flag 2): one every 0.07 s (times 1.5 and 2.2 at the detail levels 1 and 0), each of a half side of 15 growing by 16 a second, turned at random, drifting by up to 4 a second along each axis, living 0.73 s (its layer's life −350 a second), drawn added and turned (the flags `0x15`), white, its frame of the 4 × 4 its age's (`⌊(255 − life) · 16 / 256⌋`: the flip-book once over its life).
+- Its life is `2 + 0.5 L` seconds and its speed `150 + 10 L` (for a hero, `+0xA9` 0; else `130 + 8 L`), at most 500, `L` the event's word `+0x40`; its start plays `MAGE_FEUERBALL_CAST` (2000).
+- At its hit (`0x5AC015`) or a cell that stops it: `MAGE_FEUERBALL_HIT` (2001), its flight stopped, one flame more of its burst's block (a half side of 10, a drift of up to 20, within 15 of its place), and no more; at its time's end no more and no burst; the system ends with its last flame.
+- Its light is 200, and a Direct3D point light (`0x642B90`) of (1, 0.8, 0.4), a range of 200 and the attenuation (1, 0, 0.000125) follows it.
+- `PARTICLE_FIRE04` (a cyan green) takes the place of `FIRE01` where `+0xA9` is 1, its caster gone, and its variant not 1.
+- **Seen**: a white and yellow head with a broad orange plume back to the Mage's hand; at the goblin it stops and blooms into an orange ball with dark red edges, gone within about a second.
+
+### The emperor (1159)
+
+- Rays of `PARTICLE_LIGHTNING01`'s 2 × 2 frames (forked bolts rooted at their foot), 400 at most, riding with it (the flag 2): one every 0.005 s for its first 1.14 s, each of a half side of 10 ± 7, turned at random about its foot, a frame at random, living 0.21 s (some 42 at once), drawn standing on their foot at its centre (the flags `0x18D`: `0x80` a quad its half side across and twice that up from the particle, `0x04` turned about that foot), added by their alpha, in a ramp whose entry `i` is (`⌊220 i / 256⌋`, `⌊220 i / 256⌋`, `⌊255 i / 256⌋`).
+- While it makes them, a glow of the style 5 (`PARTICLE_GLOW03`, `ONE`, `ONE`) of (224, 224, 255) at its centre, of a half side of `(10 + 4 · rand)` times its scale, flickering.
+- It flies at 500, slowing by `⌊300 · dt⌋` at each run; at its hit (`0x5B097E`: `+0x78` 1, `+0x74` 2) it stops and follows its first target's neck (bone 3, `Bip01 Neck`), and flares 2 s more, its rays' size and spread and its glow 1.75 times as large; a cell that stops it flares where it stops; no light, no sound.
+- **Seen**: the bolts leave about 2 s after the click, each a small white ball with violet and white rays; two hit the goblin and stayed on its chest as a large crackling ball for about 2 s, the third flew on.
+
+### 776, a weapon's glow
+
+`cWeapon3D` (`0x5CDD5D` to `0x5CDE3E`) makes it for a weapon of a bonus's style 1 to 5 (`0x5CEA50`) with the bone 18 `weapon_gl01`, by the FX event `0xB` with the weapon its caster, `+0x38` 1 and `+0x3C` the style (**confirmed** by code, not seen).
+Its start (`0x76B5F0`) fills a ramp of white, a style's colour over 8 entries, a darker one at the alpha 0.8 over 192 and to transparent over 56 (1 red, 2 green, 3 grey, 4 blue, else violet); its layer's life −1000 and size −2.7, a block of the size 3 every 0.005 s; its flags `0x1200`, its light 250.
+Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540`) draws `PARTICLE_GLOW01` billboards (the flags 9) and, while it emits, a `PARTICLE_FLARE02` glow at the point 0 of a half side of `17 + 3 p`, `p = (sin 2t + 1) / 2`.
+
+### In `opensacred-game`
+
+The four bolts look as their systems since #1092's first family (`bolt_looks`, `opensacred_rules::particles::{Firestrike, Emperor, bfg_greys, age_frame}`): each look an entity of its own that follows its bolt and outlives it as its system does (the fireball's flames burning out, the emperor's flare on its target's neck), told of its bolt's end (`bolt_looks::Ended`), untinted by the night, their sizes at the models' scale.
+Not followed: their lights and the fireball's point light (#61), the looks of a caster gone (`+0xA9` 1), the bolts' height, which the game keeps 80 over the ground under them rather than their bones', and the units of their flight (#2018).
+**Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost (#2017).
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -542,7 +612,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches burn without a flame (#1092, #61).
+The spells and the arts but the bolts ("The bolts" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches burn without a flame (#1092, #61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
