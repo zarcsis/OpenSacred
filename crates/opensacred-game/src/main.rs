@@ -37,6 +37,7 @@ mod busy_dialog;
 mod butterflies;
 mod chain_bolts;
 mod choice;
+mod choirs;
 mod combos;
 mod combos_page;
 mod command;
@@ -421,6 +422,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         butterflies::ButterfliesPlugin,
         chain_bolts::ChainBoltsPlugin,
         choice::ChoicePlugin,
+        choirs::ChoirsPlugin,
     ))
     .add_plugins((
         combos::CombosPlugin,

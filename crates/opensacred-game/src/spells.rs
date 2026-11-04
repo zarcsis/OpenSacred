@@ -1416,7 +1416,13 @@ fn act(
         Res<crate::terrain::Heights>,
     ),
     hearers: Query<
-        (Entity, &GlobalTransform, &ai::Mind, Option<&Effects>),
+        (
+            Entity,
+            &GlobalTransform,
+            &ai::Mind,
+            Option<&Effects>,
+            Option<&arrows::Size>,
+        ),
         (Without<Body>, Without<Dies>),
     >,
 ) {
@@ -1696,8 +1702,8 @@ fn act(
                 // nearest first, each into an animal at random (`0x525C8C`, `0x795E20`).
                 let mut changed: Vec<(Entity, f32, bool)> = hearers
                     .iter()
-                    .filter(|(_, _, mind, _)| mind.hostile())
-                    .filter_map(|(entity, at, mind, _)| {
+                    .filter(|(_, _, mind, ..)| mind.hostile())
+                    .filter_map(|(entity, at, mind, ..)| {
                         let d = (at.translation() - here).xz().length();
                         let boss = targets
                             .get(entity)
@@ -1739,7 +1745,7 @@ fn act(
                     left: seconds,
                 };
                 // At its cast, the creatures in it of no boss and of a level up to 5·L + 3.
-                for (entity, at, mind, _) in &hearers {
+                for (entity, at, mind, ..) in &hearers {
                     let boss = targets
                         .get(entity)
                         .ok()
@@ -1992,9 +1998,9 @@ fn act(
                 // once a second, and the effect 35 keyed by the spell.
                 let seconds = fight_seconds(spells::value(record, 0, act.level));
                 let damages = bolt_damages(record, level, multipliers);
-                let taken: Vec<Entity> = hearers
+                let taken: Vec<(Entity, f32)> = hearers
                     .iter()
-                    .filter(|(hearer, at, mind, effects)| {
+                    .filter(|(hearer, at, mind, effects, _)| {
                         mind.hostile()
                             && targets
                                 .get(*hearer)
@@ -2003,10 +2009,10 @@ fn act(
                             && !effects.is_some_and(|e| e.holds_any(&[act.spell]))
                             && (at.translation() - here).xz().length() < spells::CHOIR_REACH
                     })
-                    .map(|(entity, ..)| entity)
+                    .map(|(entity, .., size)| (entity, size.map_or(arrows::size(0), |size| size.0)))
                     .take(spells::CHOIR_MOST)
                     .collect();
-                for hearer in taken {
+                for (hearer, size) in taken {
                     let effect = Effect {
                         id: BORNE,
                         whole: 0,
@@ -2030,6 +2036,8 @@ fn act(
                             strikes: Strikes::Bearer,
                         },
                         Transform::from_translation(here),
+                        // It looks as its system on the creature (`choirs`).
+                        crate::choirs::Look { size, seconds },
                         DespawnOnExit(AppState::InGame),
                     ));
                 }
