@@ -5,11 +5,17 @@
 //!
 //! The main menu's Load Game shows it for loading ([`Mode::Load`], the menus' own window, Save
 //! greyed and no empty row); Load asks before it loads, Delete before it erases, and Back and Esc
-//! go back to the main menu. Each window keeps its list's place between its openings, and each
-//! opening selects the first row (`0x71D720`). The window plays no sound of its own, as the
-//! original's buttons are not its children (seen).
+//! go back to the main menu. In a game the menu over it's Save Game and the key S show the game's
+//! window for saving ([`Mode::Save`]), the game standing under it: the list ends with an empty
+//! row, the selected row's name takes the keys, Save over a save asks before it overwrites and
+//! into the empty row saves at once, into the first free slot, and a save, Back and Esc go on with
+//! the game. Each window keeps its list's place between its openings, and each opening selects the
+//! first row (`0x71D720`). The window plays no sound of its own, as the original's buttons are not
+//! its children (seen).
 
 use bevy::asset::RenderAssetUsages;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver, PointerScroll};
 use bevy::prelude::*;
@@ -21,13 +27,23 @@ use crate::choice::{self, Atlases};
 use crate::game::FONT;
 use crate::lines::Texts;
 use crate::menu::Screen;
+use crate::pause::Play;
 use crate::saves::{self, Slot};
 
-/// How the window shows: for loading from the menus (the original's mode 2).
+/// How the window shows: for loading from the menus (the original's mode 2), or for saving and
+/// loading in a game (mode 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Load,
+    Save,
 }
+
+/// The longest name the name's field takes (`+0x484`).
+const NAME_LENGTH: usize = 40;
+/// The caret's blink, its half (`0x3E99999A`), and the editable name's field's left end, an
+/// emblem (`+0x4594`'s set).
+const CARET: f32 = 0.3;
+const EDITABLE: u32 = 331;
 
 /// The background's tiles (`UW_option_01.tga` to `UW_option_12.tga`), four to a row.
 const TILES: usize = 12;
@@ -154,16 +170,64 @@ pub struct Listing {
     lit: Option<Button>,
     /// The user's short date's pattern, read as the window opens.
     pattern: String,
+    /// The selected row's name as typed into its field, none until a key types: the field shows
+    /// the row's name or the placeholder until then, and the typing goes after it.
+    typed: Option<String>,
+    /// Whether the caret shows, its blink's half.
+    caret: bool,
 }
 
 impl Listing {
-    /// The first of the list's saves shown: the place, held at most at the last three
-    /// (`0x71C2B0`: length − 3 for loading).
+    /// The first of the list's saves shown: the place, held at most at the last three for loading
+    /// and the last two in a game, whose list ends with an empty row (`0x71C2B0`).
     fn first(&self) -> usize {
         let rows = match self.mode {
             Mode::Load => 3,
+            Mode::Save => 2,
         };
         self.place.min(self.saves.len().saturating_sub(rows))
+    }
+
+    /// The selected row's name's field as it shows: what was typed, else its save's name, else
+    /// the placeholder `empty`.
+    fn name_field(&self, empty: &str) -> String {
+        self.typed.clone().unwrap_or_else(|| {
+            self.save_of(self.selected)
+                .map_or_else(|| empty.to_owned(), |save| save.header.name.clone())
+        })
+    }
+
+    /// A character typed into the selected row's name in a game, after what its field shows, up
+    /// to [`NAME_LENGTH`] (`0x737AC0`).
+    fn type_in(&mut self, typed: &str, empty: &str) {
+        if self.mode != Mode::Save || self.selected == 0 {
+            return;
+        }
+        let mut name = self.name_field(empty);
+        for c in typed.chars().filter(|&c| u32::from(c) >= 0x20) {
+            if name.chars().count() < NAME_LENGTH {
+                name.push(c);
+            }
+        }
+        self.typed = Some(name);
+    }
+
+    /// Backspace in the selected row's name: its last character gone.
+    fn rub_out(&mut self, empty: &str) {
+        if self.mode != Mode::Save || self.selected == 0 {
+            return;
+        }
+        let mut name = self.name_field(empty);
+        name.pop();
+        self.typed = Some(name);
+    }
+
+    /// The selection moved to `group`, its field showing its row's name again.
+    fn select(&mut self, group: usize) {
+        if group != self.selected {
+            self.typed = None;
+        }
+        self.selected = group;
     }
 
     /// The save of the group `group`, 0 the quick save's.
@@ -175,16 +239,17 @@ impl Listing {
     }
 
     /// Whether `button` may be used: Load and Delete where the selected group holds a save, Save
-    /// not for loading, Back always (`0x71C360`).
+    /// in a game for the list's rows, Back always (`0x71C360`).
     fn enabled(&self, button: Button) -> bool {
         match button {
             Button::Load | Button::Erase => self.save_of(self.selected).is_some(),
-            Button::Save => false,
+            Button::Save => self.mode == Mode::Save && self.selected != 0,
             Button::Back => true,
         }
     }
 
-    /// One row up or down the list, the scroll bar's place within the list's length.
+    /// One row up or down the list, the scroll bar's place within the list's length; the field
+    /// shows its row again (`0x71D8A0`).
     fn scroll(&mut self, down: bool) {
         let last = self.saves.len().saturating_sub(1);
         self.place = if down {
@@ -192,14 +257,20 @@ impl Listing {
         } else {
             self.place.saturating_sub(1)
         };
+        self.typed = None;
     }
 }
 
-/// The places that the windows keep between their openings: the menus' (#1990).
+/// The places that the windows keep between their openings: the menus' and the game's (#1990).
 #[derive(Resource, Default)]
 struct Kept {
     menu: usize,
+    game: usize,
 }
+
+/// Asks for the game's window: the menu over a game's Save Game, or the key S (#1990).
+#[derive(Resource, Default)]
+pub struct Asked(pub bool);
 
 /// The background's textures, found among the converted ones.
 #[derive(Resource, Default)]
@@ -231,24 +302,45 @@ struct Question;
 enum Answer {
     Load(bool),
     Erase(bool),
+    Save(bool),
 }
 
-/// Opens the window for loading, as the main menu's Load Game does: its list read, its place
-/// kept, its first row selected.
+/// Opens the window for loading, as the main menu's Load Game does.
 fn open(world: &mut World) {
+    open_in(world, Mode::Load);
+}
+
+/// Opens the game's window for saving where it was asked for, the game paused under it: by the
+/// menu over a game, which the window takes the place of, or by the key S.
+fn open_game(world: &mut World) {
+    // Asked until the pause ends, so that the menu over the game, shown on the same entry, sees
+    // it whichever runs first.
+    if !world.resource::<Asked>().0 || world.contains_resource::<Listing>() {
+        return;
+    }
+    open_in(world, Mode::Save);
+}
+
+/// Opens the window in `mode`: its list read, its place kept, its first row selected.
+fn open_in(world: &mut World, mode: Mode) {
     let (quick, saves) = saves::saves_directory(world)
         .map(|dir| saves::slots(&dir))
         .unwrap_or_default();
-    let place = world.get_resource::<Kept>().map_or(0, |kept| kept.menu);
+    let place = world.get_resource::<Kept>().map_or(0, |kept| match mode {
+        Mode::Load => kept.menu,
+        Mode::Save => kept.game,
+    });
     let place = place.min(saves.len().saturating_sub(1));
     world.insert_resource(Listing {
-        mode: Mode::Load,
+        mode,
         quick,
         saves,
         place,
         selected: 1,
         lit: None,
         pattern: short_date_pattern(),
+        typed: None,
+        caret: true,
     });
     world.run_system_cached(spawn).ok();
 }
@@ -258,172 +350,170 @@ fn open(world: &mut World) {
 fn spawn(
     mut commands: Commands,
     (images, ui, choices): (Res<Images>, Res<UiImages>, Res<choice::Images>),
-    (assets, texts): (Res<AssetServer>, Option<Res<Texts>>),
+    (assets, texts, listing): (Res<AssetServer>, Option<Res<Texts>>, Res<Listing>),
 ) {
     let atlases = Atlases::load(&choices, &assets);
     let font: Handle<Font> = assets.load(FONT);
     let texts = texts.as_deref();
-    commands
-        .spawn((
-            Root,
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-            GlobalZIndex(15),
-            Pickable::default(),
-            DespawnOnExit(Screen::Load),
-        ))
-        .observe(wheel)
-        .with_children(|root| {
-            root.spawn((busy_dialog::screen(), Pickable::IGNORE))
-                .with_children(|screen| {
-                    for (k, tile) in images.tiles.iter().enumerate() {
-                        let Some(file) = tile else { continue };
-                        let at = Vec2::new(
-                            TILE * f32::from(u8::try_from(k % 4).unwrap_or(0)),
-                            TILE * f32::from(u8::try_from(k / 4).unwrap_or(0)),
-                        );
-                        screen.spawn((
-                            ImageNode::new(crate::hud::image(&assets, file.clone())),
-                            bar::placed(at, Vec2::splat(TILE)),
-                            Pickable::IGNORE,
-                        ));
-                    }
-                    for fill in FILLS {
-                        screen.spawn((
-                            choice::place(fill),
-                            BackgroundColor(FILL),
-                            Pickable::IGNORE,
-                        ));
-                    }
-                    for framed in BOXES {
-                        choice::frame_about(screen, &atlases, framed);
-                    }
-                    for y in SEPARATORS {
-                        bar_of(screen, (&ui, &assets), SEPARATOR, Vec2::new(44.0, y), 680.0);
-                    }
-                    for (y, text) in LABELS {
-                        bar_of(
-                            screen,
-                            (&ui, &assets),
-                            LABEL_BAR,
-                            Vec2::new(64.0, y),
-                            LABEL_WIDTH,
-                        );
-                        screen.spawn((
-                            Node {
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                ..choice::place(Rect::new(64.0, y, 64.0 + LABEL_WIDTH, y + 16.0))
-                            },
-                            Pickable::IGNORE,
-                            children![(
-                                Text::new(word(texts, text)),
-                                lettering(&font, LABEL_SIZE),
-                                TextColor(WHITE),
-                                Pickable::IGNORE,
-                            )],
-                        ));
-                    }
-                    // The scroll bar's track between its arrows, and the arrows.
-                    let up_size = ui.size(UP.0);
+    let mut root = commands.spawn((
+        Root,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
+        GlobalZIndex(15),
+        Pickable::default(),
+    ));
+    match listing.mode {
+        Mode::Load => root.insert(DespawnOnExit(Screen::Load)),
+        // Over the paused game, in the place of the menu over it, which a save goes on from.
+        Mode::Save => root.insert(DespawnOnExit(Play::Paused)),
+    };
+    root.observe(wheel).with_children(|root| {
+        root.spawn((busy_dialog::screen(), Pickable::IGNORE))
+            .with_children(|screen| {
+                for (k, tile) in images.tiles.iter().enumerate() {
+                    let Some(file) = tile else { continue };
+                    let at = Vec2::new(
+                        TILE * f32::from(u8::try_from(k % 4).unwrap_or(0)),
+                        TILE * f32::from(u8::try_from(k / 4).unwrap_or(0)),
+                    );
                     screen.spawn((
-                        stretched(
-                            (&ui, &assets),
-                            TRACK,
-                            Vec2::new(UP.1.x, UP.1.y + up_size.y),
-                            Vec2::new(ui.size(TRACK).x, DOWN.1.y - UP.1.y - up_size.y),
+                        ImageNode::new(crate::hud::image(&assets, file.clone())),
+                        bar::placed(at, Vec2::splat(TILE)),
+                        Pickable::IGNORE,
+                    ));
+                }
+                for fill in FILLS {
+                    screen.spawn((choice::place(fill), BackgroundColor(FILL), Pickable::IGNORE));
+                }
+                for framed in BOXES {
+                    choice::frame_about(screen, &atlases, framed);
+                }
+                for y in SEPARATORS {
+                    bar_of(screen, (&ui, &assets), SEPARATOR, Vec2::new(44.0, y), 680.0);
+                }
+                for (y, text) in LABELS {
+                    bar_of(
+                        screen,
+                        (&ui, &assets),
+                        LABEL_BAR,
+                        Vec2::new(64.0, y),
+                        LABEL_WIDTH,
+                    );
+                    screen.spawn((
+                        Node {
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..choice::place(Rect::new(64.0, y, 64.0 + LABEL_WIDTH, y + 16.0))
+                        },
+                        Pickable::IGNORE,
+                        children![(
+                            Text::new(word(texts, text)),
+                            lettering(&font, LABEL_SIZE),
+                            TextColor(WHITE),
+                            Pickable::IGNORE,
+                        )],
+                    ));
+                }
+                // The scroll bar's track between its arrows, and the arrows.
+                let up_size = ui.size(UP.0);
+                screen.spawn((
+                    stretched(
+                        (&ui, &assets),
+                        TRACK,
+                        Vec2::new(UP.1.x, UP.1.y + up_size.y),
+                        Vec2::new(ui.size(TRACK).x, DOWN.1.y - UP.1.y - up_size.y),
+                    ),
+                    Pickable::IGNORE,
+                ));
+                for (index, at, down) in [(UP.0, UP.1, false), (DOWN.0, DOWN.1, true)] {
+                    screen
+                        .spawn((
+                            bar::piece(&ui, &assets, index, at, Vec2::ZERO),
+                            Pickable::default(),
+                        ))
+                        .observe(
+                            move |click: On<PointerClick>, mut listing: ResMut<Listing>| {
+                                if click.button == PointerButton::Primary {
+                                    listing.scroll(down);
+                                }
+                            },
+                        );
+                }
+                for button in Button::ALL {
+                    let at = Vec2::new(BUTTON_X, button.row());
+                    let [left, middle, right] = BUTTON;
+                    screen.spawn((
+                        bar::piece(
+                            &ui,
+                            &assets,
+                            left,
+                            at - Vec2::new(ui.size(left).x, 0.0),
+                            Vec2::ZERO,
                         ),
                         Pickable::IGNORE,
                     ));
-                    for (index, at, down) in [(UP.0, UP.1, false), (DOWN.0, DOWN.1, true)] {
-                        screen
-                            .spawn((
-                                bar::piece(&ui, &assets, index, at, Vec2::ZERO),
-                                Pickable::default(),
-                            ))
-                            .observe(
-                                move |click: On<PointerClick>, mut listing: ResMut<Listing>| {
-                                    if click.button == PointerButton::Primary {
-                                        listing.scroll(down);
-                                    }
-                                },
-                            );
-                    }
-                    for button in Button::ALL {
-                        let at = Vec2::new(BUTTON_X, button.row());
-                        let [left, middle, right] = BUTTON;
-                        screen.spawn((
-                            bar::piece(
-                                &ui,
-                                &assets,
-                                left,
-                                at - Vec2::new(ui.size(left).x, 0.0),
-                                Vec2::ZERO,
-                            ),
-                            Pickable::IGNORE,
-                        ));
-                        screen.spawn((
-                            stretched((&ui, &assets), middle, at, BUTTON_SIZE),
-                            Pickable::IGNORE,
-                        ));
-                        screen.spawn((
-                            bar::piece(
-                                &ui,
-                                &assets,
-                                right,
-                                at + Vec2::new(BUTTON_SIZE.x, 0.0),
-                                Vec2::ZERO,
-                            ),
-                            Pickable::IGNORE,
-                        ));
-                        screen
-                            .spawn((
-                                button,
-                                Node {
-                                    justify_content: JustifyContent::Center,
-                                    align_items: AlignItems::Center,
-                                    ..choice::place(Rect::from_corners(
-                                        at - Vec2::new(0.0, BUTTON_RISE),
-                                        at + BUTTON_SIZE - Vec2::new(0.0, BUTTON_RISE),
-                                    ))
-                                },
-                                Pickable::default(),
-                                children![(
-                                    Text::new(word(texts, button.text())),
-                                    lettering(&font, WORDS),
-                                    TextColor(WHITE),
-                                    Pickable::IGNORE,
-                                )],
-                            ))
-                            .observe(move |_: On<PointerOver>, mut listing: ResMut<Listing>| {
-                                listing.lit = Some(button);
-                            })
-                            .observe(move |_: On<PointerOut>, mut listing: ResMut<Listing>| {
-                                if listing.lit == Some(button) {
-                                    listing.lit = None;
-                                }
-                            })
-                            .observe(move |click: On<PointerClick>, mut commands: Commands| {
-                                if click.button == PointerButton::Primary {
-                                    commands.run_system_cached_with(pressed, button);
-                                }
-                            });
-                    }
                     screen.spawn((
-                        Rows,
-                        Node {
-                            position_type: PositionType::Absolute,
-                            ..choice::place(Rect::new(0.0, 0.0, bar::SCREEN.x, bar::SCREEN.y))
-                        },
+                        stretched((&ui, &assets), middle, at, BUTTON_SIZE),
                         Pickable::IGNORE,
                     ));
-                });
-        });
+                    screen.spawn((
+                        bar::piece(
+                            &ui,
+                            &assets,
+                            right,
+                            at + Vec2::new(BUTTON_SIZE.x, 0.0),
+                            Vec2::ZERO,
+                        ),
+                        Pickable::IGNORE,
+                    ));
+                    screen
+                        .spawn((
+                            button,
+                            Node {
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..choice::place(Rect::from_corners(
+                                    at - Vec2::new(0.0, BUTTON_RISE),
+                                    at + BUTTON_SIZE - Vec2::new(0.0, BUTTON_RISE),
+                                ))
+                            },
+                            Pickable::default(),
+                            children![(
+                                Text::new(word(texts, button.text())),
+                                lettering(&font, WORDS),
+                                TextColor(WHITE),
+                                Pickable::IGNORE,
+                            )],
+                        ))
+                        .observe(move |_: On<PointerOver>, mut listing: ResMut<Listing>| {
+                            listing.lit = Some(button);
+                        })
+                        .observe(move |_: On<PointerOut>, mut listing: ResMut<Listing>| {
+                            if listing.lit == Some(button) {
+                                listing.lit = None;
+                            }
+                        })
+                        .observe(move |click: On<PointerClick>, mut commands: Commands| {
+                            if click.button == PointerButton::Primary {
+                                commands.run_system_cached_with(pressed, button);
+                            }
+                        });
+                }
+                screen.spawn((
+                    Rows,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        ..choice::place(Rect::new(0.0, 0.0, bar::SCREEN.x, bar::SCREEN.y))
+                    },
+                    Pickable::IGNORE,
+                ));
+            });
+    });
 }
 
 /// A bar of three pieces from `at`, `width` wide: its left end, its middle repeated at its width
@@ -557,7 +647,7 @@ fn redraw(
                     } else {
                         WHITE
                     };
-                    let lines = match save {
+                    let mut lines = match save {
                         Some(save) => [
                             save.header.name.clone(),
                             format!("{}.sav", save.stem),
@@ -565,9 +655,23 @@ fn redraw(
                         ],
                         None => [empty.clone(), empty.clone(), empty.clone()],
                     };
+                    // In a game the list's rows' names take the keys, the selected one's showing
+                    // what was typed and its caret (`0x7382F0`).
+                    let editable = listing.mode == Mode::Save && group != 0;
+                    if editable && listing.selected == group {
+                        lines[0] = listing.name_field(&empty);
+                        if listing.caret {
+                            lines[0].push('_');
+                        }
+                    }
                     for (k, line) in lines.into_iter().enumerate() {
                         let y = picture_at.y + FIELD_STEP * f32::from(u8::try_from(k).unwrap_or(0));
-                        field(rows, (&ui, &assets), Vec2::new(FIELD_X, y));
+                        let left = if editable && k == 0 {
+                            EDITABLE
+                        } else {
+                            FIELD[0]
+                        };
+                        field(rows, (&ui, &assets), Vec2::new(FIELD_X, y), left);
                         rows.spawn((
                             Text::new(line),
                             lettering(&font, WORDS),
@@ -593,7 +697,7 @@ fn redraw(
                             if click.button != PointerButton::Primary {
                                 return;
                             }
-                            listing.selected = group;
+                            listing.select(group);
                             if click.count >= 2 && listing.enabled(Button::Load) {
                                 commands.run_system_cached_with(pressed, Button::Load);
                             }
@@ -635,8 +739,13 @@ const PICTURE: Vec2 = Vec2::new(128.0, 96.0);
 
 /// A field's frame at `at`: its left end right against it, its middle stretched over it and its
 /// right end at its end, as wide as the middle (the original's quirk, `0x7382F0`).
-fn field(parent: &mut ChildSpawnerCommands, (ui, assets): (&UiImages, &AssetServer), at: Vec2) {
-    let [left, middle, right] = FIELD;
+fn field(
+    parent: &mut ChildSpawnerCommands,
+    (ui, assets): (&UiImages, &AssetServer),
+    at: Vec2,
+    left: u32,
+) {
+    let [_, middle, right] = FIELD;
     parent.spawn((
         bar::piece(
             ui,
@@ -741,15 +850,16 @@ fn wheel(_: On<PointerScroll>, scroll: Res<AccumulatedMouseScroll>, mut listing:
     }
 }
 
-/// A button pressed, or its key: Load asks first, Delete asks first, Back goes back to the main
-/// menu (`0x71CC90`).
+/// A button pressed, or its key (`0x71CC90`): Load asks first, Delete asks first, Save over a
+/// save asks first and into the empty row saves at once, Back goes back to the main menu or on
+/// with the game.
 fn pressed(
     In(button): In<Button>,
     mut commands: Commands,
     listing: Res<Listing>,
     (choices, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
     questions: Query<(), With<Question>>,
-    mut screen: ResMut<NextState<Screen>>,
+    (mut screen, play): (ResMut<NextState<Screen>>, Option<ResMut<NextState<Play>>>),
 ) {
     if !listing.enabled(button) || !questions.is_empty() {
         return;
@@ -765,9 +875,21 @@ fn pressed(
             Answer::Erase(true),
             Answer::Erase(false),
         ),
-        Button::Save => return,
+        Button::Save if listing.save_of(listing.selected).is_some() => (
+            ("UI_BUSY_SAVE_OVERWRITE", "Overwrite the game?"),
+            Answer::Save(true),
+            Answer::Save(false),
+        ),
+        Button::Save => {
+            commands.queue(save_selected);
+            return;
+        }
         Button::Back => {
-            screen.set(Screen::Main);
+            match (listing.mode, play) {
+                (Mode::Load, _) => screen.set(Screen::Main),
+                (Mode::Save, Some(mut play)) => play.set(Play::Running),
+                (Mode::Save, None) => {}
+            }
             return;
         }
     };
@@ -791,8 +913,8 @@ fn pressed(
     }
 }
 
-/// A question answered: OK loads the selected save or erases it, its list read anew; either
-/// answer closes the question.
+/// A question answered: OK loads the selected save, erases it, its list read anew, or saves over
+/// it; either answer closes the question.
 fn answered(
     In(answer): In<Answer>,
     mut commands: Commands,
@@ -823,8 +945,33 @@ fn answered(
             listing.quick = quick;
             listing.saves = list;
             listing.place = listing.place.min(listing.saves.len().saturating_sub(1));
+            listing.typed = None;
         }),
-        Answer::Load(false) | Answer::Erase(false) => {}
+        Answer::Save(true) => commands.queue(save_selected),
+        Answer::Load(false) | Answer::Erase(false) | Answer::Save(false) => {}
+    }
+}
+
+/// Saves the game into the selected row, named by its name's field (`0x71CC90`'s action 2): over
+/// its save, or into the first free slot from 1 for the empty row; the window closes and the game
+/// goes on (seen).
+fn save_selected(world: &mut World) {
+    let empty = word(world.get_resource::<Texts>(), ("UI_SAVE_EMPTY", "<empty>"));
+    let (Some(listing), Some(dir)) = (
+        world.get_resource::<Listing>(),
+        saves::saves_directory(world),
+    ) else {
+        return;
+    };
+    let stem = listing
+        .save_of(listing.selected)
+        .map_or_else(|| saves::free_slot(&dir), |save| save.stem.clone());
+    let name = listing.name_field(&empty);
+    if let Err(e) = saves::save_in(world, &stem, &name) {
+        warn!("saves window: {e:#}");
+    }
+    if let Some(mut play) = world.get_resource_mut::<NextState<Play>>() {
+        play.set(Play::Running);
     }
 }
 
@@ -836,21 +983,110 @@ fn selected_stem(world: &World) -> Option<String> {
         .map(|save| save.stem.clone())
 }
 
-/// Enter does the selected row's Load (`0x71D890`'s action 11, for loading).
+/// Enter (`0x71D890`'s action 11): in a game, Save for a list's row whose name was typed and
+/// differs from its save's; else Load.
 fn keys(mut commands: Commands, keys: crate::controls::Keys, listing: Option<Res<Listing>>) {
-    if listing.is_some_and(|listing| listing.enabled(Button::Load))
-        && keys.just_pressed(crate::controls::Action::Confirm)
-    {
+    let Some(listing) = listing else {
+        return;
+    };
+    if !keys.just_pressed(crate::controls::Action::Confirm) {
+        return;
+    }
+    let renamed = listing.typed.as_ref().is_some_and(|typed| {
+        listing
+            .save_of(listing.selected)
+            .is_none_or(|save| save.header.name != *typed)
+    });
+    if renamed && listing.enabled(Button::Save) {
+        commands.run_system_cached_with(pressed, Button::Save);
+    } else if listing.enabled(Button::Load) {
         commands.run_system_cached_with(pressed, Button::Load);
     }
 }
 
-/// Keeps the list's place as the window closes.
+/// The keys typed into the selected row's name in a game (`0x737AC0`): its characters, and
+/// Backspace; the other keys of the game are taken from the systems after, the window's own
+/// (`[interface]`: Esc, Enter) left, as the open console takes them.
+fn typing(
+    mut input: MessageReader<KeyboardInput>,
+    mut keys: crate::controls::KeysMut,
+    listing: Option<ResMut<Listing>>,
+    texts: Option<Res<Texts>>,
+) {
+    let Some(mut listing) = listing.filter(|listing| listing.mode == Mode::Save) else {
+        input.clear();
+        return;
+    };
+    let empty = word(texts.as_deref(), ("UI_SAVE_EMPTY", "<empty>"));
+    for event in input.read() {
+        if event.state != ButtonState::Pressed {
+            continue;
+        }
+        match &event.logical_key {
+            Key::Backspace => listing.rub_out(&empty),
+            _ => {
+                if let Some(text) = &event.text {
+                    listing.type_in(text, &empty);
+                }
+            }
+        }
+    }
+    keys.take_all_but(crate::controls::Section::Interface);
+}
+
+/// The caret's blink, a half each 0.3 s of the real time.
+fn blink(time: Res<Time<Real>>, listing: Option<ResMut<Listing>>) {
+    let Some(mut listing) = listing.filter(|listing| listing.mode == Mode::Save) else {
+        return;
+    };
+    let caret = (time.elapsed_secs() / CARET).floor().rem_euclid(2.0) < 1.0;
+    if listing.caret != caret {
+        listing.caret = caret;
+    }
+}
+
+/// The key S in a game (`cUI_Manager_receiveEvent`, `0x757E95`): the saves' window, its picture
+/// first, where the interface allows a save, the game paused under it with no menu over it.
+fn s_key(
+    mut commands: Commands,
+    mut keys: crate::controls::KeysMut,
+    refusing: saves::Refusing,
+    (mut asked, mut play): (ResMut<Asked>, ResMut<NextState<Play>>),
+) {
+    if keys.take(crate::controls::Action::Saves) && saves::allowed(&refusing) {
+        crate::save_picture::take(&mut commands);
+        asked.0 = true;
+        play.set(Play::Paused);
+    }
+}
+
+/// Opens the game's window in the menu over a game's place, the game still paused (its Save
+/// Game).
+pub fn open_saving(world: &mut World) {
+    world.resource_mut::<Asked>().0 = true;
+    open_in(world, Mode::Save);
+}
+
+/// Keeps the list's place as the window closes, by its window.
 fn close(mut commands: Commands, listing: Option<Res<Listing>>, mut kept: ResMut<Kept>) {
     if let Some(listing) = listing {
-        kept.menu = listing.place;
+        match listing.mode {
+            Mode::Load => kept.menu = listing.place,
+            Mode::Save => kept.game = listing.place,
+        }
     }
     commands.remove_resource::<Listing>();
+}
+
+/// The game's window closes with the pause.
+fn close_game(
+    commands: Commands,
+    listing: Option<Res<Listing>>,
+    kept: ResMut<Kept>,
+    mut asked: ResMut<Asked>,
+) {
+    asked.0 = false;
+    close(commands, listing, kept);
 }
 
 /// The saves' window.
@@ -859,11 +1095,26 @@ pub struct SavesWindowPlugin;
 impl Plugin for SavesWindowPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Kept>()
+            .init_resource::<Asked>()
             .add_systems(OnEnter(Screen::Load), open)
             .add_systems(OnExit(Screen::Load), close)
+            .add_systems(OnEnter(Play::Paused), open_game)
+            .add_systems(OnExit(Play::Paused), close_game)
+            .add_systems(
+                PreUpdate,
+                typing
+                    .after(bevy::input::InputSystems)
+                    .before(crate::console::keys)
+                    .run_if(resource_exists::<Listing>),
+            )
             .add_systems(
                 Update,
-                (keys, redraw).chain().run_if(in_state(Screen::Load)),
+                (
+                    s_key.run_if(in_state(Play::Running)),
+                    (blink, keys, redraw)
+                        .chain()
+                        .run_if(resource_exists::<Listing>),
+                ),
             );
     }
 }
@@ -898,6 +1149,8 @@ mod tests {
             selected: 1,
             lit: None,
             pattern: "dd/MM/yyyy".to_owned(),
+            typed: None,
+            caret: true,
         }
     }
 
@@ -917,6 +1170,36 @@ mod tests {
         assert_eq!(listing.first(), 7);
         listing.scroll(false);
         assert_eq!(listing.first(), 6);
+    }
+
+    #[test]
+    fn a_games_list_ends_with_an_empty_row_whose_save_names_by_its_field() {
+        let mut listing = Listing {
+            mode: Mode::Save,
+            ..listing(2)
+        };
+        for _ in 0..3 {
+            listing.scroll(true);
+        }
+        // Two saves and the empty row.
+        assert_eq!(listing.first(), 0);
+        assert!(listing.save_of(3).is_none());
+        listing.select(3);
+        assert!(listing.enabled(Button::Save) && !listing.enabled(Button::Load));
+        // The typing goes after the placeholder that the field shows, up to 40.
+        listing.type_in("ab", "<empty>");
+        assert_eq!(listing.name_field("<empty>"), "<empty>ab");
+        listing.rub_out("<empty>");
+        assert_eq!(listing.name_field("<empty>"), "<empty>a");
+        listing.type_in(&"x".repeat(50), "<empty>");
+        assert_eq!(listing.name_field("<empty>").chars().count(), NAME_LENGTH);
+        // Another row's field shows its save's name again; the quick save's takes no keys and no
+        // save.
+        listing.select(1);
+        assert_eq!(listing.name_field("<empty>"), "GAME01");
+        listing.select(0);
+        listing.type_in("ab", "<empty>");
+        assert!(listing.typed.is_none() && !listing.enabled(Button::Save));
     }
 
     #[test]

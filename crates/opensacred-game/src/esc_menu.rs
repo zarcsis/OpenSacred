@@ -63,10 +63,10 @@ impl Entry {
         }
     }
 
-    /// Whether it does anything yet: the options wait for #1096, the saves for #1095, and the
-    /// export, the multiplayer's character, for M9.
+    /// Whether it does anything yet: the options wait for #1096, and the export, the
+    /// multiplayer's character, for M9.
     fn works(self) -> bool {
-        matches!(self, Self::Quit | Self::Continue)
+        matches!(self, Self::SaveGame | Self::Quit | Self::Continue)
     }
 }
 
@@ -94,10 +94,14 @@ fn show(
     mut commands: Commands,
     (still, busy): (Option<Res<Still>>, Option<Res<Busy>>),
     (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
-    mut lit: ResMut<Lit>,
+    (mut lit, saves): (ResMut<Lit>, Option<Res<crate::saves_window::Asked>>),
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
-    if still.is_some_and(|still| still.0) || busy.is_some_and(|busy| busy.0) {
+    // Nor the key S's pause, under the saves' window alone.
+    if still.is_some_and(|still| still.0)
+        || busy.is_some_and(|busy| busy.0)
+        || saves.is_some_and(|saves| saves.0)
+    {
         return;
     }
     crate::inventory::play(&mut sounds, crate::inventory::CLICK);
@@ -188,9 +192,16 @@ fn unveil(mut commands: Commands, mut windows: Query<(Entity, &mut Unveils, &mut
 }
 
 /// Lights the item under the cursor, the others gold and the ones that do nothing yet grey.
-fn light(lit: Res<Lit>, entries: Query<(&Entry, &Children)>, mut texts: Query<&mut TextColor>) {
+fn light(
+    lit: Res<Lit>,
+    entries: Query<(&Entry, &Children)>,
+    mut texts: Query<&mut TextColor>,
+    refusing: crate::saves::Refusing,
+) {
+    // Save Game greyed while the interface allows no save (`0x75ADB0`).
+    let saves = crate::saves::allowed(&refusing);
     for (entry, children) in &entries {
-        let colour = if !entry.works() {
+        let colour = if !entry.works() || (*entry == Entry::SaveGame && !saves) {
             menu::ITEM_GREY
         } else if lit.0 == Some(*entry) {
             LIT
@@ -210,8 +221,9 @@ fn choose(
     In(entry): In<Entry>,
     mut commands: Commands,
     mut play: ResMut<NextState<Play>>,
-    dialogs: Query<(), With<Dialog>>,
+    (dialogs, windows): (Query<(), With<Dialog>>, Query<Entity, With<Window>>),
     (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
+    (refusing, mut sounds): (crate::saves::Refusing, MessageWriter<crate::sfx::Play>),
 ) {
     if !dialogs.is_empty() {
         return;
@@ -219,6 +231,15 @@ fn choose(
     match entry {
         Entry::Continue => play.set(Play::Running),
         Entry::Quit => ask(&mut commands, &images, &assets, texts.as_deref()),
+        // The saves' window in the menu's place, the game still paused, its click as the menu's
+        // item takes it (seen; `0x6BBBD0`).
+        Entry::SaveGame if crate::saves::allowed(&refusing) => {
+            crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+            for window in &windows {
+                commands.entity(window).despawn();
+            }
+            commands.queue(crate::saves_window::open_saving);
+        }
         Entry::Options | Entry::SaveGame | Entry::Export => {}
     }
 }

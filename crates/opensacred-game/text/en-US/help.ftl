@@ -50,6 +50,7 @@ help-zoom-wheel = zoom in and out
 help-pause = pause, and again go on
 help-quick-save = the quick save
 help-quick-load = load the quick save
+help-saves = the saves' window
 help-pause-menu = pause: Continue, Main menu, Quit
 
 ## In the menus

@@ -455,7 +455,7 @@ pub fn save(world: &mut bevy::prelude::World, name: &str) -> Result<PathBuf> {
 
 /// Saves the game as `name` in the file `stem` of the saves' directory, as the original's save
 /// keeps its name inside its slot's file (`GAME%.2d.PAK`, docs/re/saves.md).
-fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) -> Result<PathBuf> {
+pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) -> Result<PathBuf> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
     let path = file(&dir, stem)?;
     let (header, hero) = gather(world, name)?;
@@ -664,7 +664,7 @@ const QUICK_FILE: &str = "GAME00";
 
 /// The file of the first slot from 1 that no save holds (`0x619B80`: `GAME01` and on, the slot
 /// 511 where every one to 509 is taken), which an autosave takes.
-fn free_slot(dir: &Path) -> String {
+pub(crate) fn free_slot(dir: &Path) -> String {
     (1..0x1FE_u16)
         .map(|slot| format!("GAME{slot:02}"))
         .find(|stem| !dir.join(format!("{stem}.{EXTENSION}")).exists())
