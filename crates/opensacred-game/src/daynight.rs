@@ -438,19 +438,35 @@ pub struct HeroLight {
     pub doubled: bool,
 }
 
-/// The hero's light's radius at the night's level (`0x54A7B0`): 200 in a dungeon at any hour;
-/// elsewhere 700, and from the dusk to the dawn 1000 − level · 700/255, `doubled` or not. Not
-/// yet: a torch in hand (`TORCH_SMALL_ON`, `TORCH_LARGE_ON`), which makes it 300 in a dungeon and
-/// half as much again elsewhere, and the attribute `0x361`, which replaces it when it is set.
-fn hero_radius(phase: Phase, level: f32, dungeon: bool, doubled: bool) -> f32 {
+/// The lit torches' types, `TORCH_SMALL_ON` and `TORCH_LARGE_ON` (`0x1600`, `0x1601`).
+const TORCHES: [u32; 2] = [0x1600, 0x1601];
+
+/// The hero's light's radius at the night's level (`0x54A7B0`): in a dungeon 200 at any hour, 300
+/// with a lit torch among its items (`torch`, [`TORCHES`]); elsewhere 700 by day, whatever it
+/// holds, and from the dusk to the dawn 1000 − level · 700/255, doubled where `doubled`, and half
+/// as much again with a torch. Not yet: the attribute `0x361`, which replaces it when it is set.
+fn hero_radius(phase: Phase, level: f32, dungeon: bool, (doubled, torch): (bool, bool)) -> f32 {
     if dungeon {
-        200.0
+        if torch { 300.0 } else { 200.0 }
     } else if phase == Phase::Day {
         700.0
     } else {
         let radius = 1000.0 - level * 700.0 / 255.0;
-        if doubled { 2.0 * radius } else { radius }
+        let radius = if doubled { 2.0 * radius } else { radius };
+        if torch { 1.5 * radius } else { radius }
     }
+}
+
+/// Whether the hero holds a lit torch: one in a hand of its weapon set selected, among the items
+/// it wears and holds (`+0x1A4`'s 19).
+fn holds_torch(sets: Option<&crate::sets::WeaponSets>) -> bool {
+    sets.and_then(|sets| sets.halves.get(sets.selected))
+        .is_some_and(|halves| {
+            halves
+                .iter()
+                .flatten()
+                .any(|held| TORCHES.contains(&held.item))
+        })
 }
 
 /// Keeps the camera's night by the clock and the light sources on screen.
@@ -462,7 +478,7 @@ fn hero_radius(phase: Phase, level: f32, dungeon: bool, doubled: bool) -> f32 {
 pub fn light(
     clock: Res<Clock>,
     dungeons: Res<Dungeons>,
-    hero_light: Res<HeroLight>,
+    (hero_light, sets): (Res<HeroLight>, Option<Res<crate::sets::WeaponSets>>),
     mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
     hero: Query<&Transform, With<crate::hero::Body>>,
     lights: Query<(&Transform, &Light), Without<crate::hero::Body>>,
@@ -473,6 +489,7 @@ pub fn light(
         .iter()
         .next()
         .is_some_and(|t| dungeons.holds(t.translation.x, t.translation.z));
+    let torch = holds_torch(sets.as_deref());
     for (camera, view, projection, mut night) in &mut cameras {
         let Some(size) = camera.logical_viewport_size() else {
             continue;
@@ -496,7 +513,7 @@ pub fn light(
                 uv(t.translation).map(|p| {
                     (
                         p,
-                        hero_radius(phase(minutes), level, dungeon, hero_light.doubled),
+                        hero_radius(phase(minutes), level, dungeon, (hero_light.doubled, torch)),
                     )
                 })
             })
@@ -594,11 +611,47 @@ mod tests {
         };
         let found = sources(&sector, &types);
         assert_eq!(found, [(crate::iso::ground(10.0, 4.0), 300.0)]);
-        assert_eq!(hero_radius(Phase::Day, 0.0, false, true), 700.0);
-        assert_eq!(hero_radius(Phase::Night, 255.0, false, false), 300.0);
-        assert_eq!(hero_radius(Phase::Night, 255.0, false, true), 600.0);
-        assert_eq!(hero_radius(Phase::Dusk, 0.0, false, false), 1000.0);
-        assert_eq!(hero_radius(Phase::Night, 255.0, true, true), 200.0);
+        assert_eq!(hero_radius(Phase::Day, 0.0, false, (true, false)), 700.0);
+        assert_eq!(
+            hero_radius(Phase::Night, 255.0, false, (false, false)),
+            300.0
+        );
+        assert_eq!(
+            hero_radius(Phase::Night, 255.0, false, (true, false)),
+            600.0
+        );
+        assert_eq!(hero_radius(Phase::Dusk, 0.0, false, (false, false)), 1000.0);
+        assert_eq!(hero_radius(Phase::Night, 255.0, true, (true, false)), 200.0);
+        // A torch: 300 in a dungeon, half as much again by night, nothing by day.
+        assert_eq!(hero_radius(Phase::Night, 255.0, true, (false, true)), 300.0);
+        assert_eq!(
+            hero_radius(Phase::Night, 255.0, false, (false, true)),
+            450.0
+        );
+        assert_eq!(hero_radius(Phase::Night, 255.0, false, (true, true)), 900.0);
+        assert_eq!(hero_radius(Phase::Day, 0.0, false, (false, true)), 700.0);
+    }
+
+    #[test]
+    fn a_torch_lights_the_hero_from_the_set_in_its_hands() {
+        use opensacred_rules::drops::{Dropped, Kind};
+        let torch = Dropped {
+            kind: Kind::Other,
+            item: 0x1601,
+            level: 1,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: Vec::new(),
+        };
+        let mut sets = crate::sets::WeaponSets::default();
+        sets.halves[1][0] = Some(torch);
+        assert!(!holds_torch(Some(&sets)));
+        sets.selected = 1;
+        assert!(holds_torch(Some(&sets)));
+        assert!(!holds_torch(None));
     }
 
     #[test]
