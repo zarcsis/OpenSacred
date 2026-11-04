@@ -21,6 +21,8 @@
 //! creature hostile to it within 500, and an idle hostile creature, in one tick of three, takes
 //! for its foe instead of the hero a creature that fights near it; they fight as they fight the
 //! hero, in melee or at range (#670; docs/re/ai.md, "Foes among the creatures").
+//! By night the guards and the townsfolk take torches into their left hands, and put them away by
+//! day (#61; docs/re/ai.md, "The torches by night").
 //! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
 //! components, reads the world for them and carries them out: the walks, the strikes, the shots,
 //! the doors, the lines and the turns. They decide at each of the world's ticks alone
@@ -204,6 +206,14 @@ fn spot(point: Vec3) -> Spot {
 /// The world point over the rules' point of the ground `spot`, at height `y`.
 fn point(spot: Spot, y: f32) -> Vec3 {
     Vec3::new(spot.x, y, spot.y)
+}
+
+/// Whether a guard's id is odd, which takes it a torch by night (`0x4EFA50`): the game, whose
+/// creatures have no ids of the original's object manager, takes the cell of its home, the sum
+/// of its coordinates odd (docs/decisions/ai.md, "The guards' torches").
+fn odd(home: Spot) -> bool {
+    let (x, y) = paths::cell_of(home.x, home.y);
+    (x + y).rem_euclid(2) == 1
 }
 
 /// The game's generator for the creatures' chances.
@@ -1479,7 +1489,7 @@ fn behave(
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::fight::Experience>>,
     ),
-    (followers, queued): (
+    (followers, queued, arms): (
         Query<(), With<crate::followers::Follower>>,
         Query<
             (),
@@ -1488,6 +1498,7 @@ fn behave(
                 With<crate::npcs::ScriptClip>,
             )>,
         >,
+        Query<&crate::npcs::Arms>,
     ),
 ) {
     let Some((the_hero, hero, holding)) = hero.iter().next() else {
@@ -1616,9 +1627,12 @@ fn behave(
     let mut swings: Vec<(Entity, bool)> = Vec::new();
     // At dusk and by night the townsfolk take the evening's way (`0x41BB50`, `0x41BAB0`).
     let evening = matches!(clock.phase(), Phase::Dusk | Phase::Night);
+    // By night, not at dusk, the guards and the townsfolk take torches (`0x41BAB0`).
+    let night = clock.phase() == Phase::Night;
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
+    let mut torches: Vec<(Entity, minds::Torch)> = Vec::new();
     for (entity, transform, way, mut mind, walk) in &mut creatures {
         // A follower keeps by its master instead (`followers`), and one whose script's queue runs
         // by its queue (`0x544890` at `0x545B1B`, #1220).
@@ -1626,6 +1640,16 @@ fn behave(
             continue;
         }
         let here = transform.translation;
+        let left = || arms.get(entity).ok().and_then(crate::npcs::Arms::left);
+        // A guard awake within 1,500 of the hero takes a torch into its empty left hand by night
+        // and puts it away by day (`0x4EFA50`), before it looks for a foe.
+        if mind.active
+            && mind.is_guard()
+            && (here - hero).xz().length() <= BEHAVES_WITHIN
+            && let Some(torch) = mind.guard_torch(odd(mind.home), night, left())
+        {
+            torches.push((entity, torch));
+        }
         // A guard awake, walking or standing, attacks the nearest creature of the 3 × 3 sectors
         // about it that it is hostile to, within 500 (`0x4EF150`, `0x4EEE40`, the event `0x100`).
         if mind.active
@@ -1870,6 +1894,11 @@ fn behave(
             }
             if (evening || before_daemon) && !crowded {
                 let inside = way.level.is_some();
+                // Outdoors by night it takes a torch; indoors it puts away what it holds in its
+                // left hand (`0x4F0FA8`, `0x4F1898`).
+                if let Some(torch) = mind.townsperson_torch(!inside, (!inside, night), left()) {
+                    torches.push((entity, torch));
+                }
                 let stage =
                     match evening_way(spot(here), inside, door.map(spot), &mut minds.rng) {
                         Evening::Indoors => indoors(here, &heights, &mut minds.rng)
@@ -1887,6 +1916,12 @@ fn behave(
                     walks.push((entity, Walk::to(target, way.level, mind.speed)));
                 }
                 continue;
+            }
+            // On the day's way it puts away what its left hand holds, but outdoors by night
+            // (`0x4F1ACF`).
+            if let Some(torch) = mind.townsperson_torch(false, (way.level.is_none(), night), left())
+            {
+                torches.push((entity, torch));
             }
             // Indoors on a free cell, it leaves by day (`0x4F1AB9`).
             if way.level.is_some()
@@ -2124,6 +2159,11 @@ fn behave(
     }
     for (door, open) in swings {
         commands.entity(door).insert(Swing::to(open));
+    }
+    // Its torch taken or put away as it rearms (`npcs::Rearms`), unless it rearms already.
+    for (entity, torch) in torches {
+        debug!("ai: {entity} {torch:?} a torch");
+        commands.entity(entity).insert_if_new(Rearms::torch(torch));
     }
     // The other idle children within 600 of one at play, without a dialogue, run after it
     // (`0x4EE820`); not one sent off this tick (`sent`).
