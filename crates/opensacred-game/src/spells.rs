@@ -1091,7 +1091,8 @@ fn make_looks(
 
 /// Makes a hail of meteors, the hero's or a creature's (#1852): the record's count at the
 /// spell's level `level`, each about `point` within its scatter, falling after a wait at random
-/// (`0x524A83`), striking with `damages` on the level `on` what is hostile to its caster.
+/// (`0x524A83`), striking with `damages` on the level `on` what is hostile to its caster; each
+/// looks as its system (`meteors`).
 pub(crate) fn meteors(
     commands: &mut Commands,
     dice: &mut Dice,
@@ -1108,6 +1109,7 @@ pub(crate) fn meteors(
         };
         let (dx, dz) = (off(), off());
         let wait = fight_seconds(dice.0.below(spells::METEOR_WAIT + 1)) / 1000.0;
+        crate::meteors::fall(commands, point + Vec3::new(dx, 0.0, dz), on, wait);
         commands.spawn((
             Meteor {
                 caster,
@@ -2829,7 +2831,6 @@ const METEOR_SOUNDS: [u32; 2] = [2025, 2024];
 fn meteor(
     mut commands: Commands,
     time: Res<Time>,
-    looks: Option<Res<Looks>>,
     mut meteors: Query<(Entity, &mut Meteor, &mut Transform, &mut Visibility)>,
     creatures: Query<
         (
@@ -2908,15 +2909,6 @@ fn meteor(
                 sure: true,
                 poison: false,
             });
-        }
-        if let Some(looks) = &looks {
-            commands.spawn((
-                Mesh3d(looks.blast.0.clone()),
-                MeshMaterial3d(looks.blast.1.clone()),
-                Transform::from_translation(meteor.at).with_scale(Vec3::splat(0.8)),
-                Fades(0.3),
-                DespawnOnExit(AppState::InGame),
-            ));
         }
         commands.entity(entity).despawn();
     }
