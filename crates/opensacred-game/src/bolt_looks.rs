@@ -14,9 +14,11 @@
 //!   at its centre and a flickering glow, flaring 2 s on its target's neck at its hit.
 //!
 //! Each look is an entity of its own that follows its bolt and outlives it as its system does;
-//! sizes in the models' units are drawn at the world's scale (`iso::MODEL_SCALE`). Not followed:
-//! their lights (#61), the fireball's point light, and the looks of a caster gone
-//! (`+0xA9` 1: a black railgun, a green fireball).
+//! sizes in the models' units are drawn at the world's scale (`iso::MODEL_SCALE`). The railgun's,
+//! the BFG's and the fireball's light the night by their systems' radii while they live, at their
+//! places on the ground at height 0 (`0x5AA26E`, `0x41B200`; #61). Not followed: the fireball's
+//! Direct3D point light on the models, and the looks of a caster gone (`+0xA9` 1: a black
+//! railgun, a green fireball).
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -26,7 +28,7 @@ use opensacred_rules::spawning::Rng;
 use crate::frame::{Playing, Step};
 use crate::fx::{Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
-use crate::iso;
+use crate::{daynight, iso};
 
 /// What a bolt looks like.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,7 +76,7 @@ pub fn spawn(commands: &mut Commands, bolt: Entity, kind: Kind, direction: Vec2,
 
 /// A look: its bolt while it flies, its direction, whether a hero shot it, its clock, its place
 /// in the world and the place before, what its system holds, the creature it follows after a
-/// hit, and the meshes of its parts.
+/// hit, the meshes of its parts, and its light's entity and radius, where it has one.
 #[derive(Component)]
 struct Look {
     bolt: Option<Entity>,
@@ -86,6 +88,21 @@ struct Look {
     system: System,
     follows: Option<Entity>,
     parts: Vec<Handle<Mesh>>,
+    light: Option<(Entity, f32)>,
+}
+
+/// A look's light, at its place on the ground at height 0.
+#[derive(Component)]
+struct Lamp;
+
+/// The radius of a kind's light (`+0x9C`), none for the Daemon's bolt.
+fn light_of(kind: Kind) -> Option<f32> {
+    match kind {
+        Kind::Railgun => Some(particles::RAILGUN_LIGHT),
+        Kind::Bfg => Some(particles::BFG_LIGHT),
+        Kind::Fireball => Some(particles::FIRESTRIKE_LIGHT),
+        Kind::Emperor => None,
+    }
 }
 
 /// A look's system.
@@ -183,6 +200,17 @@ fn make(
                 ));
             }
         }
+        let light = light_of(unmade.kind).map(|radius| {
+            let lamp = look
+                .commands()
+                .spawn((
+                    Lamp,
+                    Transform::from_translation(place.with_y(0.0)),
+                    ChildOf(entity),
+                ))
+                .id();
+            (lamp, radius)
+        });
         look.remove::<Unmade>().insert(Look {
             bolt: Some(unmade.bolt),
             direction: unmade.direction,
@@ -193,6 +221,7 @@ fn make(
             system,
             follows: None,
             parts: handles,
+            light,
         });
     }
 }
@@ -228,12 +257,19 @@ fn end(
 /// The bones that the Daemon's bolt flares on after a hit, the neck's (bone 3).
 const NECK: [&str; 1] = ["Bip01 Neck"];
 
-/// Runs each look a frame on and draws it where its bolt flies, or where it ended.
+/// Runs each look a frame on and draws it where its bolt flies, or where it ended, its light
+/// under it while it shows.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries, with their filters, as arguments"
+)]
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut looks: Query<(Entity, &mut Look, &mut Visibility)>,
-    bolts: Query<(&Transform, &Visibility), Without<Look>>,
+    bolts: Query<(&Transform, &Visibility), (Without<Look>, Without<Lamp>)>,
+    mut lamps: Query<&mut Transform, With<Lamp>>,
     (children, bones): (Query<&Children>, Query<(&Name, &GlobalTransform)>),
     mut meshes: ResMut<Assets<Mesh>>,
     mut rolls: ResMut<Rolls>,
@@ -252,6 +288,9 @@ fn run(
             if *shown == Visibility::Hidden {
                 *visibility = Visibility::Hidden;
                 look.before = None;
+                if let Some((lamp, _)) = look.light {
+                    commands.entity(lamp).remove::<daynight::Light>();
+                }
                 continue;
             }
         } else if let Some(target) = look.follows
@@ -260,6 +299,12 @@ fn run(
             look.place = neck;
         }
         *visibility = Visibility::Inherited;
+        if let Some((lamp, radius)) = look.light
+            && let Ok(mut at) = lamps.get_mut(lamp)
+        {
+            at.translation = look.place.with_y(0.0);
+            commands.entity(lamp).insert(daynight::Light(radius));
+        }
         look.clock += dt;
         let before = look.before.unwrap_or(look.place);
         look.before = Some(look.place);
@@ -470,6 +515,14 @@ impl Plugin for BoltLooksPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bolts_light_by_their_systems_but_the_daemons() {
+        assert_eq!(light_of(Kind::Railgun), Some(100.0));
+        assert_eq!(light_of(Kind::Bfg), Some(120.0));
+        assert_eq!(light_of(Kind::Fireball), Some(200.0));
+        assert_eq!(light_of(Kind::Emperor), None);
+    }
 
     #[test]
     fn a_point_goes_to_the_models_frame_and_back() {
