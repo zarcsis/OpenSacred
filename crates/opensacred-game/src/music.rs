@@ -5,13 +5,14 @@
 //! place's nature (`atmosphere`) take the stream for 180 s each in turn
 //! (`opensacred_rules::music::Stream`), the first by a roll, crossfading over 7 s, the tracks
 //! looping. The dusk and the night ask for the ambient loop and hold the timer, so that the music
-//! comes back 180 s into the dawn or the day; a sector without music keeps the ambient loop;
-//! entering a sector of another music in the music's phase crossfades to it. The spot loops of
-//! the cemetery and the arenas (`ATMOSPOT_*`) take the stream while the hero stands in their
-//! sectors, the cycle held (**hypothesis** for what plays there: the original plays the arenas'
-//! on a stream of their own and asks for the ambient loop at the cemetery). Only the tracks
-//! playing are loaded: `bevy_kira_audio` decodes a whole file into memory, some 85 MB for a track
-//! of four minutes, as it does not stream.
+//! comes back 180 s into the dawn or the day; a sector without music keeps the region's music of
+//! the last sector of one, as the original posts it no region's event (`0x626915`), and the
+//! stream goes on with it; entering a sector of another music in the music's phase crossfades to
+//! it. The spot loops of the cemetery and the arenas (`ATMOSPOT_*`) take the stream while the
+//! hero stands in their sectors, the cycle held (**hypothesis** for what plays there: the
+//! original plays the arenas' on a stream of their own and asks for the ambient loop at the
+//! cemetery). Only the tracks playing are loaded: `bevy_kira_audio` decodes a whole file into
+//! memory, some 85 MB for a track of four minutes, as it does not stream.
 //!
 //! The campaign's sieges and its world's change override a sector's music (`0x67A7A0`, #55,
 //! [`music_of`]): the scripts' variables `RegionChange`, a bit for each sieged region, and
@@ -225,6 +226,24 @@ impl Music {
         self.once(id, once, assets);
     }
 
+    /// The hero in `sector`, whose music is `here`, its overrides applied, none for a sector
+    /// without music. A sector of music come into gives the stream what its phase holds, unless
+    /// the scripts hold it (the region's event, `0x6824AF`); a sector without music posts no
+    /// region's event (`0x626915`), so that the region's music stays the last sector's of one.
+    fn stand(&mut self, sector: (u32, u32), here: Option<u32>) {
+        if self.sector.is_some_and(|before| before != sector)
+            && here.is_some()
+            && !self.stream.controlled()
+        {
+            self.scripted = None;
+        }
+        self.sector = Some(sector);
+        if here.is_some() {
+            self.region = here;
+        }
+        self.spot = self.region.is_some_and(|id| SPOTS.contains(&id));
+    }
+
     /// Whether the scripts hold the stream, so that the ambient loop does not change either.
     pub fn holds(&self) -> bool {
         self.stream.controlled()
@@ -248,10 +267,7 @@ impl Music {
     /// Plays the music `id` once on the once-stream, at once, stopping what plays there
     /// (`0x694FE0`): nothing in a sector of the indoor arena's music, nor for a music of no track.
     fn once(&mut self, id: u32, once: &AudioChannel<Once>, assets: &AssetServer) {
-        let arena = self
-            .sector
-            .and_then(|sector| self.sectors.get(&sector))
-            .is_some_and(|&(music, _)| music == ARENA_INDOOR);
+        let arena = self.region == Some(ARENA_INDOOR);
         let Some(file) = self.tracks.get(&id).filter(|_| !arena).cloned() else {
             return;
         };
@@ -370,10 +386,10 @@ pub fn scripted(
 }
 
 /// Turns the peace stream at each frame (`0x69B770`'s head): its first phase rolled as the hero
-/// first stands in the world, the dusk and the night asking for the ambient loop, a sector
-/// without music in the music's phase too, the timer counting by day and dawn and switching past
-/// 180 s, held in a spot loop's sector; and the hero's death playing its music once over it,
-/// asking for the ambient loop.
+/// first stands in the world, the dusk and the night asking for the ambient loop, and so in the
+/// music's phase the region's music that cannot open (none before the first sector of music), the
+/// timer counting by day and dawn and switching past 180 s, held in a spot loop's sector; and the
+/// hero's death playing its music once over it, asking for the ambient loop.
 pub fn alternate(
     mut music: ResMut<Music>,
     (time, clock): (Res<Time>, Res<Clock>),
@@ -410,22 +426,15 @@ pub fn alternate(
         u32::from_le_bytes(value.to_le_bytes())
     };
     let sector = sector_of(hero.translation.x, hero.translation.z);
-    let id = music
+    let here = music
         .sectors
         .get(&sector)
         .map(|&(id, area)| music_of(id, area, bits(SIEGES), bits(CHANGES)));
-    // A sector of music come into gives the stream what its phase holds, unless the scripts hold
-    // it (the region's event, `0x6824AF`).
-    if music.sector.is_some_and(|before| before != sector)
-        && id.is_some()
-        && !music.stream.controlled()
-    {
-        music.scripted = None;
-    }
-    music.sector = Some(sector);
-    music.region = id;
-    music.spot = id.is_some_and(|id| SPOTS.contains(&id));
-    let has_music = !music.spot && id.is_some_and(|id| music.tracks.contains_key(&id));
+    music.stand(sector, here);
+    let has_music = !music.spot
+        && music
+            .region
+            .is_some_and(|id| music.tracks.contains_key(&id));
     // The dusk's and the night's events ask for the ambient loop (`0x691310`), and a music that
     // cannot open does in its phase.
     let dark = matches!(
@@ -459,21 +468,12 @@ pub fn play(
     mut instances: ResMut<Assets<AudioInstance>>,
     assets: Res<AssetServer>,
     time: Res<Time>,
-    bodies: Query<&Transform, With<hero::Body>>,
-    scripts: Option<NonSend<crate::scripts::Live>>,
+    bodies: Query<(), With<hero::Body>>,
 ) {
-    let Some(hero) = bodies.iter().next() else {
+    if bodies.is_empty() {
         return;
-    };
-    let bits = |name: &str| {
-        let value = scripts.as_ref().map_or(0, |scripts| scripts.variable(name));
-        u32::from_le_bytes(value.to_le_bytes())
-    };
-    let id = music
-        .sectors
-        .get(&sector_of(hero.translation.x, hero.translation.z))
-        .map(|&(id, area)| music_of(id, area, bits(SIEGES), bits(CHANGES)));
-    let want = wanted(&music, id);
+    }
+    let want = wanted(&music, music.region);
     if music.stream.controlled()
         && music.scripted.is_none()
         && !want.is_some_and(|id| SPOTS.contains(&id))
@@ -758,6 +758,29 @@ mod tests {
         assert_eq!(music_of(0x1980, 1, 1 << 1, 0), SIEGE_UNDEAD);
         assert_eq!(music_of(VILLAGE, 24, 1 << 11, 2), SIEGE_UNDEAD);
         assert_eq!(music_of(0x1980, 1, 1 << 2, 0), 0x1980);
+    }
+
+    #[test]
+    fn a_sector_without_music_keeps_the_last_regions_music() {
+        let mut music = music();
+        music.stream.begin(0);
+        // Before any sector of music, none: the ambient loop's.
+        music.stand((53, 45), None);
+        assert_eq!(music.region, None);
+        music.stand((50, 39), Some(0x1980));
+        assert_eq!(wanted(&music, music.region), Some(0x1980));
+        // Into 53,45, of no music: the region's music and the scripts' stay.
+        music.scripted = Some(0x1954);
+        music.stand((53, 45), None);
+        assert_eq!(
+            (music.region, music.scripted, music.spot),
+            (Some(0x1980), Some(0x1954), false)
+        );
+        // The cemetery's spot loop holds there too.
+        music.stand((50, 40), Some(0x1968));
+        music.stand((53, 45), None);
+        assert!(music.spot);
+        assert_eq!(wanted(&music, music.region), Some(0x1968));
     }
 
     #[test]

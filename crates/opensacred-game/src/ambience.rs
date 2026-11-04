@@ -162,7 +162,8 @@ fn idle(
     ambience.since = 0.0;
     let now = time.elapsed_secs_f64();
     ambience.waits.retain(|_, until| *until > now);
-    // The region's music, the last sector's of a music of its own (**hypothesis** for `+0x692`).
+    // The region's music, the last sector's of a music of its own (`+0x692`, which a sector
+    // without music leaves, `0x626915`).
     if let Some(at) = heroes.iter().next()
         && let Some(&id) = ambience
             .sectors
