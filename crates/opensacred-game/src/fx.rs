@@ -383,6 +383,22 @@ pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
     }
 }
 
+/// A material of no texture, of its vertices' colours alone, added to the frame by their alpha
+/// (`SRCALPHA`, `ONE`): the geometry that a system draws with its texture stage emptied, as the
+/// holy light's column (`holy_lights`).
+pub(crate) fn plain_material() -> Effect {
+    Effect {
+        base: StandardMaterial {
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        },
+        extension: Particles::default(),
+    }
+}
+
 /// A colour of the frame's values in linear light, as the vertices of an [`Effect`] take it: its
 /// texels are decoded, multiplied by it and encoded again, so that the frame takes their values'
 /// product.
@@ -470,6 +486,20 @@ impl Quads {
             ],
             colour,
         );
+    }
+
+    /// A quad of the four corners `corners`, in order about it, each its own colour of `colours`
+    /// (the holy light's column, `holy_lights`).
+    pub(crate) fn push_shaded(&mut self, corners: [Vec3; 4], colours: [[f32; 4]; 4]) {
+        let Ok(first) = u32::try_from(self.positions.len()) else {
+            return;
+        };
+        self.positions
+            .extend(corners.map(|corner| corner.to_array()));
+        self.uvs.extend([[0.0, 0.0]; 4]);
+        self.colours.extend(colours.map(linear));
+        self.indices
+            .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
     }
 
     /// A quad of the four corners `corners`, in order about it, with the texture's points `uvs`
