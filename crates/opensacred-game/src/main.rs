@@ -73,6 +73,7 @@ mod held;
 mod help;
 mod hero;
 mod hero_held;
+mod hit_sparks;
 mod hover;
 mod hud;
 mod hums;
@@ -447,6 +448,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         help::HelpPlugin,
         hero::HeroPlugin,
         hero_held::HeroHeldPlugin,
+        hit_sparks::HitSparksPlugin,
         hover::HoverPlugin,
         hums::HumsPlugin,
         hud::HudPlugin,
@@ -455,9 +457,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         inventory::InventoryPlugin,
         journal::JournalPlugin,
         labels::LabelsPlugin,
-        lines::LinesPlugin,
     ))
     .add_plugins((
+        lines::LinesPlugin,
         liquids::LiquidsPlugin,
         low_health::LowHealthPlugin,
         making::MakingPlugin,

@@ -26,6 +26,7 @@ use crate::arts::HeroArts;
 use crate::fight::{self, Combat, Experience, Health};
 use crate::frame::{Control, Step, Unpaused, WorldTick};
 use crate::hero::{self, ArtClipName, Body, Clips, GameSpeed};
+use crate::hit_sparks::Spark;
 use crate::motions::Slots;
 use crate::npcs::Dies;
 use crate::spawning::Rng;
@@ -541,10 +542,11 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    (nearest, heights, mut fires): (
+    (nearest, heights, mut fires, mut sparks): (
         Res<crate::crowd::Nearest>,
         Res<crate::terrain::Heights>,
         MessageWriter<crate::sfx::Gunfire>,
+        MessageWriter<Spark>,
     ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
@@ -1295,6 +1297,11 @@ fn make(
                     && health.current > 0
                 {
                     hits.write(hit(playing.target, &playing));
+                    sparks.write(Spark {
+                        art: making.art,
+                        by: hero,
+                        on: playing.target,
+                    });
                     let boss = ranks
                         .get(playing.target)
                         .is_ok_and(|rank| rank.0 == opensacred_rules::fight::Rank::Boss);
@@ -1438,6 +1445,11 @@ fn make(
                                 continue;
                             }
                             roared += 1;
+                            sparks.write(Spark {
+                                art: making.art,
+                                by: hero,
+                                on: entity,
+                            });
                             if knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
                                     .entity(entity)
@@ -1554,6 +1566,11 @@ fn make(
                     .filter(|(.., health)| health.current > 0);
                 if let (Some(record), Some((_, at, ..))) = (record, target) {
                     hits.write(hit(playing.target, &playing));
+                    sparks.write(Spark {
+                        art: making.art,
+                        by: hero,
+                        on: playing.target,
+                    });
                     let centre = at.translation();
                     let part = arts::sweep_factor(record, playing.level);
                     let about: Vec<Entity> = creatures
@@ -1578,6 +1595,11 @@ fn make(
                         hits.write(fight::Hit {
                             share: part,
                             ..hit(entity, &playing)
+                        });
+                        sparks.write(Spark {
+                            art: making.art,
+                            by: hero,
+                            on: entity,
                         });
                     }
                 }
@@ -1911,6 +1933,11 @@ fn make(
                     .filter(|(_, _, mind, _)| mind.hostile());
                 if let Some((entity, ..)) = struck {
                     hits.write(hit(entity, &playing));
+                    sparks.write(Spark {
+                        art: making.art,
+                        by: hero,
+                        on: entity,
+                    });
                 }
                 if let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) {
                     let blast = arts::Blast::of(record, playing.level);
@@ -2027,6 +2054,11 @@ fn make(
                                 && health.current > 0
                             {
                                 hits.write(hit(playing.target, &playing));
+                                sparks.write(Spark {
+                                    art: making.art,
+                                    by: hero,
+                                    on: playing.target,
+                                });
                             }
                         }
                     }
@@ -2093,6 +2125,11 @@ fn make(
                     info!("making: {} strikes {} creatures", making.art, struck.len());
                     for entity in struck {
                         hits.write(hit(entity, &playing));
+                        sparks.write(Spark {
+                            art: making.art,
+                            by: hero,
+                            on: entity,
+                        });
                     }
                     arts.start(making.art);
                     end(&mut commands);
@@ -2247,6 +2284,11 @@ fn make(
                     arts.start(making.art);
                 }
                 hits.write(hit(chosen, &playing));
+                sparks.write(Spark {
+                    art: making.art,
+                    by: hero,
+                    on: chosen,
+                });
                 playing.target = chosen;
                 playing.struck += 1;
                 if playing.struck >= playing.points.len() {
@@ -2263,6 +2305,11 @@ fn make(
                         && health.current > 0
                     {
                         hits.write(hit(playing.target, &playing));
+                        sparks.write(Spark {
+                            art: making.art,
+                            by: hero,
+                            on: playing.target,
+                        });
                         let knocks = knocks_back(&mut dice.0, playing.level, mind);
                         let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                         if knocks
@@ -2296,6 +2343,11 @@ fn make(
                     }
                     if creatures.get(playing.target).is_ok() {
                         hits.write(hit(playing.target, &playing));
+                        sparks.write(Spark {
+                            art: making.art,
+                            by: hero,
+                            on: playing.target,
+                        });
                     }
                     arts.start(making.art);
                     end(&mut commands);
@@ -2359,6 +2411,11 @@ fn make(
                     .and_then(|index| found.get(index))
                 {
                     hits.write(hit(chosen, &playing));
+                    sparks.write(Spark {
+                        art: making.art,
+                        by: hero,
+                        on: chosen,
+                    });
                     playing.last = Some(chosen);
                     // The whirling blow knocks back each creature it strikes by a kick's roll
                     // (`0x5038F0` at `0x50522A`).
@@ -2439,7 +2496,7 @@ fn blade_bones(blade: Blade) -> [&'static str; 2] {
 )]
 fn blades(
     tick: Res<WorldTick>,
-    mut heroes: Query<(Entity, &mut Playing, Option<&Blade>), Without<Dies>>,
+    mut heroes: Query<(Entity, &mut Playing, Option<&Blade>, Option<&Making>), Without<Dies>>,
     creatures: Query<
         (
             Entity,
@@ -2452,12 +2509,12 @@ fn blades(
     >,
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sparks): (MessageWriter<fight::Hit>, MessageWriter<Spark>),
 ) {
     if tick.seconds.is_none() {
         return;
     }
-    for (hero, mut playing, blade) in &mut heroes {
+    for (hero, mut playing, blade, making) in &mut heroes {
         if playing.style != Style::Blades {
             continue;
         }
@@ -2490,6 +2547,13 @@ fn blades(
                 ranged: false,
                 art: Some(playing.level),
             });
+            if let Some(making) = making {
+                sparks.write(Spark {
+                    art: making.art,
+                    by: hero,
+                    on: entity,
+                });
+            }
             playing.last = Some(entity);
         }
     }
