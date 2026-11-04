@@ -1355,8 +1355,8 @@ pub(crate) fn strikes_about(
     if let Some(sound) = area_loop(record.id) {
         made.insert(crate::hums::Hum(sound));
     }
-    // The holy light, the blades of light and the light look as their systems (`holy_lights`,
-    // `light_blades`, `magic_lights`).
+    // The holy light, the blades of light, the fire skin, the light and the gust look as their
+    // systems (`holy_lights`, `light_blades`, `fire_skins`, `magic_lights`, `twisters`).
     if record.id == spells::HOLY_LIGHT {
         made.insert(crate::holy_lights::Look(fight_seconds(spells::value(
             record, 0, level,
@@ -1371,14 +1371,15 @@ pub(crate) fn strikes_about(
             light: fight_seconds(spells::value(record, 1, level)),
             bearer: follows,
         });
+    } else if record.id == spells::GUST {
+        made.insert(crate::twisters::Look {
+            bearer: follows,
+            seconds: fight_seconds(spells::value(record, 0, level)),
+        });
     } else if let Some(looks) = looks {
-        let look = match record.id {
-            spells::GUST => 4,
-            _ => 2,
-        };
         made.with_child((
             Mesh3d(looks.disc.clone()),
-            MeshMaterial3d(looks.discs[look].clone()),
+            MeshMaterial3d(looks.discs[2].clone()),
             Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
                 .with_translation(Vec3::Y * 4.0),
         ));

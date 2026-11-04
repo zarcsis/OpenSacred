@@ -904,6 +904,13 @@ impl Heights {
         self.liquids.get(&sector).copied()
     }
 
+    /// The nature of the ground's cell at world `(x, z)` (its ground byte's high nibble,
+    /// `+0x1F`), which the gust's dust takes its colour by (`fx_twisters`); `None` outside the
+    /// loaded sectors.
+    pub fn nature(&self, x: f32, z: f32) -> Option<u8> {
+        self.cell(x, z).map(|(cell, _, _)| cell.nature)
+    }
+
     /// The nature a creature's step on the cell at world `(x, z)` sounds by, as the client's
     /// `0x639080` gives it to the footstep: `BRIDGE` on a bridge over a liquid ([`bridged`]),
     /// else the cell's own.

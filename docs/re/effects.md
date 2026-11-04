@@ -742,6 +742,26 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Mage's start: flames rising about her feet over an orange glow, alike in size.
 Not followed: its bearer's skin of lava (the action 6 of `A_LAVA00`), by which the original's Mage glows orange all over.
 
+## The gust
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Mage's new game, her spell 28 on herself at the start).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The gust 28 | 826 | `cParticleSystem_twister` | `0x788850`, `0x788B80`, `0x7888E0`, `0x788D90` |
+
+- The executor (`0x524D7E`) makes it at its bearer with the colour of the ground under it: the cell's nature (its `+0x1F` high nibble, `0x634C50`) indexes the renderer's table at `+0x9DC8` (`0x41BA00`), else (128, 128, 128).
+  The table (`0x418EF3`): 1 (239, 239, 192), 2 (224, 224, 239), 3 and 4 (48, 64, 16), 5 (134, 154, 38), 6 (239, 144, 25), 7, 11 and 12 (128, 128, 128), 8 (192, 192, 192), 9 (25, 193, 239), 10 (25, 74, 239), 13 (181, 179, 179), 14 (227, 117, 43), 15 (236, 203, 48), all opaque; the nature 0's entry is left 0.
+  **Seen** 2026-11-04 (a probe at `0x788D9B`): the colour `0xFF304010` at the Mage's start, on grass.
+- Its start (`0x788D90`): its four corners' colours the event's `+0x38`, its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20C8`), the effect 25 on its bearer, its flags `0x600`, its loop 2017 (`MAGE_WIRBELWIND_LOOP`); its 250 particles' lives 1.0.
+- Its run (`0x7888E0`), at its first each particle rolled: its angle about its bearer a whole turn at random (`+0x0C`), its radius 30 to 35 (`+0x10`), its share of the column's height the cube of a roll of 0 to 1 (`+0x14`), its speed 0.3 to 4 radians a second (`+0x18`), its quad's angle at random (`+0x30`).
+  Then at each run each particle stands at its angle at the radius `(0.6 s + 1) r` and the height `H s` about its bearer, of the half side `7 (2 s + 1)`, its angle on by its speed; the column `H` rises at 30 a second to 100 (its phase 0), stands to its seconds (1), then climbs at 50 a second while its particles spin faster by 6 a second, for 2 s (2), when it ends.
+  The particles never age (no layer's update).
+- Its draw (`0x788B80`): billboards of the flags `0x44` (its corners' colours as they are, turned, tinted by the light at it, laid over by their alpha) of `PARTICLE_CLOUD01`.
+
+`opensacred-game` draws it since #1092 (`twisters`, `opensacred_rules::particles::{Twister, GROUND_COLOURS}`, `terrain::Heights::nature`): the object that `spells` puts on the Mage gets a look of its own about her that outlives it by its 2 s of going, in the colour of the ground under her at each frame, drawn with the world under the night's pass.
+**Seen** 2026-11-04 beside the original's frames at the Mage's start: a dark green swirl of dust widening and rising about her, alike.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -793,7 +813,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, and the fire skin ("The bolts" to "The fire skin" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin and the gust ("The bolts" to "The gust" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
