@@ -225,6 +225,7 @@ The direct dependencies of `[workspace.dependencies]` in `Cargo.toml` and what B
 | Serialization | serde, ron, postcard, serde_json | 1.0.229, 0.12.2, 1.1.3, 1.0.154 | MIT or Apache-2.0 |
 | Settings file (comments and order kept) | toml_edit | 0.25.17 | MIT or Apache-2.0 |
 | The game's own texts, Fluent files of `opensacred-game`'s `text/` (#1986) | fluent-syntax | 0.12.0 | MIT or Apache-2.0 |
+| The saves' window's dates in the computer's time zone (#1990), the user's short date's pattern read from the registry | jiff, winreg | 0.2.38, the workspace's | MIT or Unlicense; MIT |
 | Binary format parsing | our own `opensacred_formats::reader::Reader`; binrw, zerocopy and bytemuck are not used (see above) | — | — |
 | Compression | miniz_oxide (zlib: decompression with an output size limit, and the zlib stream of the postcard files) | 0.9.1 | MIT, Zlib or Apache-2.0 |
 | The game's archives (#699) | a reader and writer of their own in `opensacred-data` (`archive`) over miniz_oxide and crc32fast | — | — |

@@ -75,6 +75,20 @@ impl Picture {
         }
         Some(Self(bytes))
     }
+
+    /// Its pixels as RGBA8, each channel's four bits made eight, from the top.
+    pub fn rgba(&self) -> Vec<u8> {
+        self.0
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .flat_map(|&pair| {
+                let word = u16::from_le_bytes(pair);
+                let four = |shift: u16| u8::try_from((word >> shift) & 0xF).unwrap_or(0) * 17;
+                [four(8), four(4), four(0), four(12)]
+            })
+            .collect()
+    }
 }
 
 /// The last picture taken, and how many have been taken, which a save waiting for its picture
