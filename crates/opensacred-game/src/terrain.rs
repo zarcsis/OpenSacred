@@ -676,6 +676,22 @@ impl Heights {
             .or_else(|| self.floors.keys().copied().filter(holds).min())
     }
 
+    /// The level of the floor `floor` (from 1, 0 the ground) at global `cell`, as the way's
+    /// tests take a floor (`0x6354D0`): that floor of the building there, else the ground.
+    pub fn on_floor(&self, cell: (i32, i32), floor: usize) -> Level {
+        match floor {
+            0 => None,
+            floor => self
+                .building_on_floor(cell, floor)
+                .and_then(|building| self.floor_level(building, floor)),
+        }
+    }
+
+    /// The floor of a level, from 1, 0 for the ground.
+    pub fn floor_number(&self, level: Level) -> usize {
+        self.floor(level).map_or(0, |(_, floor)| usize::from(floor))
+    }
+
     /// The level of a hero at a level that steps onto a cell: on the ground, an entrance of a
     /// building takes it onto the building's inside ([`Self::level_of`]); on an inside layer, an
     /// exit takes it out onto the ground; any other cell leaves it where it is (`0x5FCCB0`).

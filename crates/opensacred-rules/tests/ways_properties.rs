@@ -295,25 +295,30 @@ proptest! {
             h % 100 >= density
         };
         let far = dx.abs().max(dy.abs());
-        let on_the_line = |cell: Cell| {
-            let (cx, cy) = (f64::from(cell.0 - from.0), f64::from(cell.1 - from.1));
-            let (lx, ly) = (f64::from(dx), f64::from(dy));
-            (cx * ly - cy * lx).abs() / lx.hypot(ly) <= 1.0
-        };
-        match nearer(from, to, walkable) {
-            _ if far <= NEARER_THAN => prop_assert_eq!(nearer(from, to, walkable), Some(to)),
-            Some(cell) => {
-                let off = (cell.0 - from.0, cell.1 - from.1);
-                prop_assert!(off.0.abs() <= NEARER_THAN && off.1.abs() <= NEARER_THAN, "{cell:?}");
-                prop_assert!(off != (0, 0) && walkable(cell) && on_the_line(cell), "{cell:?}");
-            }
-            None => {
-                // No cell of the line within 25 along each axis that may be stood on.
-                for k in 1..=NEARER_THAN {
-                    let cell = (from.0 + dx * k / far, from.1 + dy * k / far);
-                    prop_assert!(!walkable(cell), "{cell:?}");
-                }
-            }
+        let leg = nearer(from, to, walkable);
+        if far <= NEARER_THAN {
+            prop_assert_eq!(leg, to);
+            return Ok(());
         }
+        // The line's cells by steps of the distance plus 1, from 27 of them down to 2.
+        let d = f64::from(dx).hypot(f64::from(dy)).round() + 1.0;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a step of a line of at most 27 cells, a small whole number"
+        )]
+        let at = |k: i32| {
+            let along = |span: i32| (f64::from(span) * f64::from(k) / d).trunc() as i32;
+            (from.0 + along(dx), from.1 + along(dy))
+        };
+        let off = (leg.0 - from.0, leg.1 - from.1);
+        prop_assert!(off.0.abs() <= 27 && off.1.abs() <= 27 && off != (0, 0), "{leg:?}");
+        let k = (2..=27).rev().find(|&k| at(k) == leg);
+        prop_assert!(k.is_some(), "{leg:?} off the line");
+        let k = k.unwrap_or(2);
+        // Each farther step's cell is closed; the leg open, or the nearest step's where none is.
+        for farther in k + 1..=27 {
+            prop_assert!(!walkable(at(farther)), "{:?}", at(farther));
+        }
+        prop_assert!(walkable(leg) || (k == 2 && (2..=27).all(|k| !walkable(at(k)))), "{leg:?}");
     }
 }
