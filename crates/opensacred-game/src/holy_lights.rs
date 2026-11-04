@@ -10,7 +10,7 @@
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
-use opensacred_rules::particles::{self, HOLY_COLUMN, HolyLight, holy_pulse};
+use opensacred_rules::particles::{self, Column, HOLY_COLUMN, HolyLight, holy_pulse};
 use opensacred_rules::spawning::Rng;
 
 use crate::bolt_looks::world;
@@ -137,48 +137,10 @@ fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<
         let pulse = holy_pulse(shown.clock);
         let fade = shown.light.fade;
         let c = HOLY_COLUMN;
-        // The systems' frame, its x along the screen's horizontal on the ground (docs/re/
-        // effects.md, "Their flight"), scaled by the fade across (`0x653A80`), at the world's
-        // scale: its bands face the camera.
+        // Scaled by the fade across (`0x653A80`).
         let (across, depth) = iso::fx_axes();
         let at = |x: f32, y: f32, z: f32| (across * x * fade + depth * y * fade + Vec3::Y * z) * s;
-        let colour = |rgb: [f32; 3], alpha: f32| [rgb[0], rgb[1], rgb[2], alpha / 255.0];
-        let mut column = Quads::default();
-        let foot = colour(c.foot, (pulse * c.alphas[0]).trunc());
-        let top = colour(c.top, c.alphas[0]);
-        for k in 0..c.segments {
-            let angle = |k: u16| std::f32::consts::TAU * f32::from(k) / f32::from(c.segments);
-            let (a, b) = (angle(k), angle(k + 1));
-            column.push_shaded(
-                [
-                    at(c.radius * a.sin(), c.radius * a.cos(), 0.0),
-                    at(c.radius * b.sin(), c.radius * b.cos(), 0.0),
-                    at(c.radius * b.sin(), c.radius * b.cos(), c.height),
-                    at(c.radius * a.sin(), c.radius * a.cos(), c.height),
-                ],
-                [foot, foot, top, top],
-            );
-        }
-        // The two bands across it, from its edge out to nothing.
-        let inner_foot = colour(c.foot, (pulse * c.alphas[1]).trunc());
-        let inner_top = colour(c.top, c.alphas[1]);
-        for side in [-1.0, 1.0] {
-            let (inner, outer) = (side * c.radius, side * c.band);
-            column.push_shaded(
-                [
-                    at(outer, 0.0, 0.0),
-                    at(inner, 0.0, 0.0),
-                    at(inner, 0.0, c.height),
-                    at(outer, 0.0, c.height),
-                ],
-                [
-                    colour(c.foot, 0.0),
-                    inner_foot,
-                    inner_top,
-                    colour(c.top, 0.0),
-                ],
-            );
-        }
+        let column = column_quads(&c, c.alphas.map(|alpha| (pulse * alpha).trunc()), at);
         let flat = |half: f32, angle: f32, colour: [f32; 4]| {
             let mut quads = Quads::default();
             let (sin, cos) = angle.sin_cos();
@@ -221,6 +183,55 @@ fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<
             }
         }
     }
+}
+
+/// The quads of a column of light `c` (the holy light's, the purgatory's): its cylinder and its
+/// two bands across it, from its edge out to nothing, its feet's alphas `feet` (out of 255), at
+/// the points that `at` gives of the systems' frame. That frame's x lies along the screen's
+/// horizontal on the ground (docs/re/effects.md, "Their flight", `iso::fx_axes`), so that the
+/// bands face the camera; the quads split as the original's strips are.
+pub(crate) fn column_quads(
+    c: &Column,
+    feet: [f32; 2],
+    at: impl Fn(f32, f32, f32) -> Vec3,
+) -> Quads {
+    let colour = |rgb: [f32; 3], alpha: f32| [rgb[0], rgb[1], rgb[2], alpha / 255.0];
+    let mut column = Quads::default();
+    let foot = colour(c.foot, feet[0]);
+    let top = colour(c.top, c.tops[0]);
+    for k in 0..c.segments {
+        let angle = |k: u16| std::f32::consts::TAU * f32::from(k) / f32::from(c.segments);
+        let (a, b) = (angle(k), angle(k + 1));
+        column.push_shaded(
+            [
+                at(c.radius * a.sin(), c.radius * a.cos(), 0.0),
+                at(c.radius * b.sin(), c.radius * b.cos(), 0.0),
+                at(c.radius * b.sin(), c.radius * b.cos(), c.height),
+                at(c.radius * a.sin(), c.radius * a.cos(), c.height),
+            ],
+            [foot, foot, top, top],
+        );
+    }
+    let inner_foot = colour(c.foot, feet[1]);
+    let inner_top = colour(c.top, c.tops[1]);
+    for side in [-1.0, 1.0] {
+        let (inner, outer) = (side * c.radius, side * c.band);
+        column.push_shaded(
+            [
+                at(outer, 0.0, 0.0),
+                at(inner, 0.0, 0.0),
+                at(inner, 0.0, c.height),
+                at(outer, 0.0, c.height),
+            ],
+            [
+                colour(c.foot, 0.0),
+                inner_foot,
+                inner_top,
+                colour(c.top, 0.0),
+            ],
+        );
+    }
+    column
 }
 
 /// Puts out the lamp of each holy light gone or faded out.
