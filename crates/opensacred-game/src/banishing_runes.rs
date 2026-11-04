@@ -49,7 +49,8 @@ struct Materials {
 const SEED: usize = 0x325;
 
 /// The eight runes of a banishing circle about `centre` for `seconds` (`0x522DE3`): the rune `i`
-/// at its angle, 200 off, only where the hero may stand.
+/// at its angle, 200 off, only where a creature may stand, its cell one that may be walked on
+/// (`0x636890`, #2052).
 pub(crate) fn circle(
     commands: &mut Commands,
     heights: &crate::terrain::Heights,
@@ -60,7 +61,11 @@ pub(crate) fn circle(
         let angle = particles::RUNES_START + particles::RUNES_APART * f32::from(index);
         let at = centre
             + Vec3::new(angle.sin(), 0.0, angle.cos()) * opensacred_rules::spells::RUNES_FROM;
-        let Some(ground) = heights.standing(at.x, at.z, level) else {
+        let cell = crate::paths::cell_of(at.x, at.z);
+        let Some(ground) = heights
+            .standing(at.x, at.z, level)
+            .filter(|_| heights.walkable_at(cell, level))
+        else {
             continue;
         };
         commands.spawn((
