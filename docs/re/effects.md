@@ -596,6 +596,41 @@ The other bolts, of no system's look, and a shooter of no such bone, keep 80 ove
 Not followed: the fireball's point light on the models, and the looks of a caster gone (`+0xA9` 1).
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
+## The breath of fire
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game at 352,1722, his form 1098 and its breath 1102 toward a point 174 off).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The Daemon's breath 1102 | 1006 | `cParticleSystem_walloffire` (`0x898AB4`) | `0x7AE200`, `0x7AE4F0`, `0x7AE290`, `0x7AE5A0` |
+| A fire of its wall | 1007 | `cParticleSystem_walloffire_line` (`0x898AD8`) | `0x7AEAF0`, `0x7AEBF0`, `0x7AEB80`, `0x7AEC60` |
+
+### The breath (1006)
+
+- Its start keeps its place as its start (`+0x20B8`), its event's `+0x4C` as its reach, held to 650 (`+0x20B4`), its `+0x48` (`+0x20A8`, unused), its speed `+0x98` 150, its flags `0xC00` and its light 100.
+  **Seen** 2026-11-04 (a probe at `0x7AE5B9`): `+0x48` 10 and `+0x4C` 173.6, the distance to the point.
+- Its particles are a fire of the smoke class's make ("The fires and smokes" above), two layers of `PARTICLE_FIRE03` emitted at its place (no flag 2, so they stay in the world as it moves): the flame (the layer's life −100 a second and size +12; the block of buoyancy −35 ± 34, size 5 ± 0.5, angle π ± π, velocity ± 0.5, place ± 9 along x, 0.01 s) in the fires' ramp A, and one in five the smoke (life −130, size +15; buoyancy −35 ± 5, size 3 ± 1, angle π ± π, spin ± 2, the rest alike) in the fire smokes' ramp B at its whole alpha; the intervals times 1.5 and 2.2 at the detail levels 1 and 0; 250 particles at most.
+- Its run (`0x7AE290`), in its state `+0x20C4`:
+  - 0, flying: the layers' wind from the renderer's vector, as the smoke class takes it; its particles aged, and new ones emitted along its way; farther than its reach from its start it clears its flags (no more hits) and goes to 1.
+  - 1, stopped: its particles aged, none emitted; `+0x20AC` grows by 200 a second to 200, and every 0.15 s (`+0x20B0`) it asks for the action 1 of the type 1007 (`+0x84`), its data the spread `⌊+0x20AC⌋` (`+0x88`) and its direction its way turned a quarter (`+0x8C` … `+0x94`), which makes the wall's pair of fires (`0x5B2600` at `0x5B3E39`: at ± the spread along that direction, each on ground that `0x636890` admits, at the ground's height `0x636310`, its FX event a copy of the breath's); at 200 it lives while a particle does.
+- Its draw (`0x7AE4F0`): its particles as billboards of the flags `0x0C` (the ramp's colour, turned; neither `0x01` nor `0x10`, so with its two layers the flame added by its alpha and the smoke laid over, "The billboards"), untinted; then a glow (`0x762E10`) at its place, of a half side of 20, the style 5 (`PARTICLE_GLOW03`, `ONE`, `ONE`), white, its depth tested; both while it lives, so that the glow stays where it stopped until its last flame dies.
+
+### A fire of its wall (1007)
+
+- Its start: its event's `+0x48` its seconds (`+0x20A4`; **seen** 10 at each fire that a probe at `0x7AEC67` caught, the breath's), its flags `0x400` (its hits) and its light 200.
+- One layer of `PARTICLE_FIRE02`'s 4 × 4 frames: the layer's life −100 a second and size −17; the block of size 40 ± 10, place ± (40, 40, 0), nothing else, every 0.08 s (times 1.5 and 2.2 at the detail levels 1 and 0); 250 particles at most.
+- Its ramp from a transparent black through a grey of 199 over 10 entries, held over 200, to a transparent black over 46: its alpha 0 throughout, which its draw does not take.
+- Its run (`0x7AEB80`): its particles aged, and new ones while its clock is below its seconds; then it lives while a particle does.
+- Its draw (`0x7AEBF0`): billboards of the flags `0x99`, `ONE`, `ONE` (the source `0x10` and the destination `0x01`), the ramp's colour (`0x08`), standing on their feet (`0x80`), each its frame by its age, not turned, untinted.
+  `PARTICLE_FIRE02`'s texels carry their brightness in their alpha as well (its alpha equals its colour), which the source `ONE` leaves out.
+
+### In `opensacred-game`
+
+The breath and its wall look as their systems since #1092 (`breath`, `opensacred_rules::particles::{walloffire, walloffire_line}`): the breath's look an entity of its own that follows the breath while it flies, leaving its flames and smoke along the way, its glow and its light of 100 at it (at height 0, as the bolts'), outliving the breath until its last flame dies; each fire of the wall its flames on the ground for its 10 s (`arts::WALL_BURNS`), its light of 200 with it until its last; all untinted by the night.
+The wall's flames and the glow are added whole (`fx::whole_material`: the particles' material that takes no alpha, `ONE`, `ONE`).
+**Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the breath an orange plume with a dark smoke where it stops, and the wall a row of tall flames that run together into a white and yellow sheet, alike in size; the original's smoke drifts and spreads more.
+Not followed: the layers' wind (as the world's smokes'), the detail's factor of the intervals, and the steps' small fire of the variant 1 that the wall's end makes ("The steps' small fire" below).
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -647,7 +682,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts ("The bolts" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts and the Daemon's breath ("The bolts" and "The breath of fire" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
