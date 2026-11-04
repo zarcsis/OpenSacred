@@ -16,6 +16,7 @@ mod arts;
 mod atmosphere;
 mod attack;
 mod backpack;
+mod banishing_runes;
 mod bar;
 mod bar_tips;
 mod battle_fogs;
@@ -392,6 +393,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
         backpack::BackpackPlugin,
+        banishing_runes::BanishingRunesPlugin,
         bar::BarPlugin,
         bar_tips::BarTipsPlugin,
         battle_fogs::BattleFogsPlugin,
