@@ -226,9 +226,10 @@ const SOULS_LOOP: u32 = 2058;
 /// `DEMON_HOELLENDISK_LOOP` (1005, `0x7AE040`), the demon fire's `DEMON_HOELLENFEUER` (1015,
 /// `0x7B3110`) and the tentacles' `DEMON_TENTAKEL_LOOP` (1013, `0x7B1990`).
 const HELL_DISK_LOOP: u32 = 2119;
-/// The flying skull's hit's object's loop (862 `FX_VAMP_SM_HIT`, its class's start at `0x793D52`):
-/// `VAMP_BEHERRSCHUNG_LOOP`, as the domination's object's.
-const SKULL_HIT_LOOP: u32 = 2075;
+/// The flying skull's hit's object's loop (862 `FX_VAMP_SM_HIT`, its class's start's branch of
+/// 1033 at `0x793C8E`, #2028): `VAMP_BLUTKUSS`; the class's `VAMP_BEHERRSCHUNG_LOOP` of
+/// `0x793D52` is the master bite's (1031).
+const SKULL_HIT_LOOP: u32 = 2077;
 const DEMON_FIRE_LOOP: u32 = 2124;
 const TENTACLES_LOOP: u32 = 2123;
 /// The call of death's object at each kill (1010, the particle system `callofdeath`, made at the
