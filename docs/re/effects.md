@@ -924,6 +924,23 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Wood Elf's start by day: green balls of light trailing green dots, alike in colour and size, rising from her in a fan and curving about as their headings turn (#2058).
 Not followed: its green Direct3D light on the models.
 
+## The choir
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and cast in the running original under the driver of #448 (the Daemon's new game, his spell 66 at the level 5 on two goblins, by day).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The choir 66 on a creature | 1011 | `cParticleSystem_songsfromhell` (`0x898B60`) | `0x7AFFB0`, `0x7B0110`, `0x7B0040`, `0x7B0200` |
+
+- The executor (`0x527DA9`) makes one at each creature it holds, its FX event's `+0x38` the creature's size (`0x428CE0`, `items.pak +0x14`, 50 for 0).
+- Its constructor loads `PARTICLE_GLOW01` (`+0x2148`); 150 particles.
+- Its start (`0x7B0200`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20A4`); its base (`+0x20AC`) the size over 6; its fade (`+0x20B0`) 0; the action 9 (the effect 15 of its factor, docs/re/arts.md); one layer (the life −100 a second, the size −2) and one block (the buoyancy −20 ± 15, the size 6 ± 3, the place ± (base, base, 0), every 0.07 s, times 1.5 and 2.2 at the detail levels 1 and 0); its corners' colours black (`0xFF000000`); its flags `0x2200`.
+- Its run (`0x7B0040`): its fade rises by its time to 1, and only then its particles age and, while its seconds last, are emitted; with the event's `+0x3C` set, past 2 s the action 10 and its clock started anew (not read further).
+- Its draw (`0x7B0110`): five flat quads (`0x7631E0`) of `PARTICLE_GLOW01`, the `k`-th `3 k` over its place, of the half side `(10 − k)(sin t + b) f`, `t` its clock, `b` its base and `f` its fade, black, laid over by their alpha (`SRCALPHA`, `INVSRCALPHA`), their depth tested; then its particles as billboards of the flags 2 (its corners' colour with the alpha of their life, laid over by their alpha) of `PARTICLE_GLOW01`.
+
+`opensacred-game` draws it since #1092 (`choirs`, `opensacred_rules::particles::Choir`): the object that `spells` makes with each creature the choir holds gets a look of its own going with it, its discs a dark shadow on the ground under it and its black wisps rising from it, untinted by the night.
+The original's frames show its strikes on the goblins, 37 a second, but its dark look hard to tell among the lilac lights behind them at the Daemon's start (#2063); the game's shows the shadow under each goblin.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -975,7 +992,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost, the chain lightning and the lost souls ("The bolts" to "The lost souls" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost, the chain lightning, the lost souls and the choir ("The bolts" to "The choir" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

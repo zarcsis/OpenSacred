@@ -2441,6 +2441,110 @@ pub fn soul_glow(t: f32) -> (f32, [f32; 4]) {
     )
 }
 
+/// The look of the Daemon's choir 66 on a creature it holds, `cParticleSystem_songsfromhell`
+/// (1011, its start `0x7B0200`, its run `0x7B0040` and its draw `0x7B0110`; docs/re/effects.md,
+/// "The choir"), which goes with its creature for its seconds: it fades in over its first second,
+/// then black wisps of `PARTICLE_GLOW01` rise from within its base of the creature's size over 6
+/// along each axis of the ground, one every 0.07 s, of a half side of 6 ± 3 shrinking by 2 a
+/// second, rising ever faster by 20 ± 15 a second, fading over 2.55 s, laid over by their
+/// alpha (the flags 2); and five black discs under it ([`Choir::discs`]). Its seconds over, it
+/// makes no more and ends with its last wisp.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Choir {
+    pub system: System,
+    pub clock: f32,
+    /// Its fade (`+0x20B0`), from 0 up to 1 over its first second.
+    pub fade: f32,
+    /// Its base (`+0x20AC`): its event's `+0x38`, the creature's size (`0x428CE0`), over 6.
+    pub base: f32,
+    seconds: f32,
+}
+
+/// The choir's texture, its wisps at most (`0x5A0C50`'s count for the type 1011), and its discs.
+pub const CHOIR_TEXTURE: &str = "PARTICLE_GLOW01";
+const CHOIR_COUNT: usize = 150;
+const CHOIR_DISCS: u8 = 5;
+
+impl Choir {
+    /// A choir on a creature of the size `size` for `seconds` (`0x7B0200`).
+    pub fn new(size: f32, seconds: f32) -> Self {
+        Self {
+            system: System::new(CHOIR_COUNT),
+            clock: 0.0,
+            fade: 0.0,
+            base: size / 6.0,
+            seconds,
+        }
+    }
+
+    /// Its wisps' layer (`+0x20C4`): the life −100 a second and the size −2.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -100.0,
+            size: -2.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block (`+0x20E4`): the buoyancy −20 ± 15, the size 6 ± 3, within its base along each
+    /// axis of the ground, one every 0.07 s at the detail 2.
+    fn block(&self) -> Block {
+        Block {
+            buoyancy: spread(-20.0, 15.0),
+            size: spread(6.0, 3.0),
+            offset: spread([0.0; 3], [self.base, self.base, 0.0]),
+            interval: 0.07,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7B0040`): fading in, nothing more; whole, its wisps age and,
+    /// while its seconds last, it makes new ones about its place.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.clock += dt;
+        if self.fade < 1.0 {
+            self.fade += dt;
+            return;
+        }
+        self.fade = 1.0;
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.clock < self.seconds {
+            self.system
+                .emit(&[self.block()], &layers, CHOIR_COUNT, dice);
+        }
+    }
+
+    /// Its object's end: no wisp more, its seconds over.
+    pub fn end(&mut self) {
+        self.seconds = self.seconds.min(self.clock);
+        self.fade = 1.0;
+    }
+
+    /// Its wisps' colour at the life `life`: black at the alpha of their life (the flags 2).
+    pub fn wisp(life: f32) -> [f32; 4] {
+        [0.0, 0.0, 0.0, life.clamp(0.0, 255.0) / 255.0]
+    }
+
+    /// Its discs (`0x7631E0`): the `k`-th of five `3 k` over its place, of the half side
+    /// `(10 − k)(sin t + b) f`, `t` its clock, `b` its base and `f` its fade, black, laid over
+    /// by their alpha.
+    pub fn discs(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
+        (0..CHOIR_DISCS).map(|k| {
+            let k = f32::from(k);
+            (
+                3.0 * k,
+                (10.0 - k) * (self.clock.sin() + self.base) * self.fade,
+            )
+        })
+    }
+
+    /// Whether it ended: past its seconds and no wisp alive.
+    pub fn done(&self) -> bool {
+        self.fade >= 1.0 && self.clock >= self.seconds && self.system.particles.is_empty()
+    }
+}
+
 impl LostSoul {
     /// A soul for `seconds` (its record's value 1 at its level, `0x79D310`).
     pub fn new(seconds: f32) -> Self {
@@ -3858,6 +3962,39 @@ mod tests {
             soul.update(0.025, (at, at), &mut dice);
         }
         assert!(soul.done());
+    }
+
+    #[test]
+    fn a_choir_fades_in_then_rises_black_wisps_over_its_beating_discs() {
+        let mut dice = Rng::of(22, 0x3F3, 10);
+        let mut choir = Choir::new(60.0, 3.0);
+        assert_eq!(choir.base, 10.0);
+        for _ in 0..40 {
+            choir.update(0.025, &mut dice);
+        }
+        // A second of fading in, with no wisp yet.
+        assert!(choir.fade < 1.0 + 1e-3 && choir.system.particles.is_empty());
+        for _ in 0..41 {
+            choir.update(0.025, &mut dice);
+        }
+        assert!(!choir.system.particles.is_empty());
+        assert!(
+            choir
+                .system
+                .particles
+                .iter()
+                .all(|p| p.place[0].abs() <= 10.0 && p.place[1].abs() <= 10.0 && p.place[2] >= 0.0)
+        );
+        let discs: Vec<(f32, f32)> = choir.discs().collect();
+        assert_eq!(discs.len(), 5);
+        assert_eq!(discs[4].0, 12.0);
+        let t = choir.clock;
+        assert!((discs[0].1 - 10.0 * (t.sin() + 10.0)).abs() < 1e-3);
+        assert_eq!(Choir::wisp(255.0), [0.0, 0.0, 0.0, 1.0]);
+        for _ in 0..200 {
+            choir.update(0.025, &mut dice);
+        }
+        assert!(choir.done());
     }
 
     #[test]
