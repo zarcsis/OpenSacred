@@ -333,9 +333,7 @@ fn act(
                     sure: true,
                     poison: false,
                 });
-                if let Some(looks) = &looks {
-                    crate::spells::lightning(&mut commands, looks, place);
-                }
+                crate::lightning_strikes::strike(&mut commands, place, false);
             }
             spells::STONE | casts::CAGE => {
                 // The stone, or the plant cage about the hero (its object 849, `0x52494F`): the
@@ -470,9 +468,7 @@ fn act(
                     sure: true,
                     poison: false,
                 });
-                if let Some(looks) = &looks {
-                    crate::spells::lightning(&mut commands, looks, place);
-                }
+                crate::lightning_strikes::strike(&mut commands, place, false);
             }
             casts::GUARDS_FIRE => {
                 // The guard's fire charging at its hand, then homing (`0x528E97`), and its sound

@@ -306,6 +306,28 @@ pub(crate) fn particle_texture(
     )
 }
 
+/// [`particle_texture`], repeated along its width: the lightning's strips, whose `u` runs on past
+/// 1 (`lightning_strikes`).
+pub(crate) fn repeated_texture(
+    assets: &std::path::Path,
+    server: &AssetServer,
+    name: &str,
+) -> Option<Handle<Image>> {
+    let path = texture_path(assets, name)?;
+    Some(
+        server
+            .load_builder()
+            .with_settings(|settings: &mut ImageLoaderSettings| {
+                settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    lod_max_clamp: 0.0,
+                    address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                    ..ImageSamplerDescriptor::linear()
+                });
+            })
+            .load::<Image>(path),
+    )
+}
+
 /// The particles' material (#2017): Bevy's own, its colour encoded for the frame of sRGB values
 /// before an added one is premultiplied by its alpha (`standard.wesl`'s `PARTICLES`), so that
 /// the texels' and the colours' values are laid over the frame or added to it as they are, as

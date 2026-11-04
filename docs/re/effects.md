@@ -689,6 +689,26 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`light_blades`, `opensacred_rules::particles::Blades`, `fx::Quads::push_facing`): the object that `spells` puts on the Seraphim gets its look for its seconds, its glow on the ground, its dots and sparks facing the camera and added whole, untinted by the night, in the systems' frame ("Their flight" above, `iso::fx_axes`).
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: the ring and the two spirals rising about her as stacked rings of blue dots, their bright pixels' mean (139, 148, 215) against the original's (163, 169, 225), alike in size; before the dots were split as the original's strips, their middles were (32, 0, 128) and the spirals violet.
 
+## The lightning
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Seraphim's new game in the chapel of 50,39, her spell 13 at the level 5 on a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The lightning 13 | 798 | `cParticleSystem_lightningStrike` | `0x77CD70`, `0x77D000`, `0x77CF70`, `0x77D5C0` |
+
+- Its constructor loads `FX_LIGHTSTRIKE05` (`+0x21E8`), `FX_LIGHTSTRIKE06` (`+0x21EC`) and `PARTICLE_SPARK06` (`+0x21F0`), makes a Direct3D point light of (0.8, 0.8, 1.0), and a quad of its own (`+0x2168`), white, its top corners at (−10, 0, 250) and (10, 0, 250) and its foot's at (−10, 0, 0) and (10, 0, 0) in its frame.
+- Its start (`0x77D5C0`): its bolt and its glow on, three bolts of slants `2 rand()/32767 − 1` (`+0x20BC`), its colour (160, 176, 255) for a hero's (`+0xA9` 0) and (231, 73, 255) else (`+0x20A8`); one layer (the life −250 a second, the size −2) and one block, a burst of all its 150 particles: buoyancy 150 ± 40, size 7 ± 1, angle π ± π, velocity (0, 0, 50) ± (40, 40, 20), place ± 10; its light 200, its action 2 of the spell 13, its flags `0x1200`.
+- Its run (`0x77CF70`): the burst at its clock's 0; its bolt off past 0.25 s, its glow past 0.1 s; it lives while a particle does.
+- Its draw (`0x77D000`), while its bolt is on, its depth neither tested nor written, added (`ONE`, `ONE`), of `FX_LIGHTSTRIKE05` (a creature's `06`): for each bolt its quad at its place, its top shifted by 40 times its slant along x, and again 250 up and 40 times its slant on, while the point it climbs from lies on the screen (`0x60D6C0`, `0x6251E0`), so that the bolt rises out of the screen; each segment's `u` from its slant at the top to one more at its foot, and its `v` across the texture's first eighth, turned over and its `u` shifted by a half where `rand() & 1` is 1, at each draw.
+  While its glow is on, a glow (`0x762E10`) of a half side of 25, the style 2 (`PARTICLE_GLOW05`, `ONE`, `ONE`), in its colour, at its first point less 2 up, its depth not tested.
+  Then its particles as billboards of the flags `0x13` (its corners' colour, `ONE`, `ONE`) of `PARTICLE_SPARK06`.
+- `FX_LIGHTSTRIKE05` is a strip of a bolt along the top eighth of its 512 × 512, seamless along its width, its `u` repeated.
+
+`opensacred-game` draws it since #1092 (`lightning_strikes`, `opensacred_rules::particles::{LightningBolt, lightning_sparks}`, `fx::repeated_texture`): at what the Seraphim's lightning strikes, and at what a creature's lightning strikes in violet (#1852), its three bolts of 12 segments, its glow and its sparks (`puffs`), added whole and untinted by the night, its light of 200 while its sparks fall.
+**Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: three slanting blue zigzags rising out of the frame from the goblin, a white flash at their foot and a shower of blue-white sparks after, alike.
+Not followed: the bolts over all else (their depth test off), and the glow at the system's first point, which the game takes for its place (the original's flash lies a little higher, at the goblin's body).
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -740,7 +760,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the holy light and the blades of light ("The bolts" to "The blades of light" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the holy light, the blades of light and the lightning ("The bolts" to "The lightning" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

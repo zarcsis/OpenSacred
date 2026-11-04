@@ -2068,6 +2068,107 @@ impl Blades {
     }
 }
 
+/// The look of the lightning 13, `cParticleSystem_lightningStrike` (798, its start `0x77D5C0`, its
+/// run `0x77CF70` and its draw `0x77D000`; docs/re/effects.md, "The lightning"), at what it
+/// strikes: three bolts rising from it out of the screen for 0.25 s ([`LightningBolt`]), a glow
+/// for 0.1 s and a burst of sparks ([`lightning_sparks`]), its light 200; a hero's of
+/// `FX_LIGHTSTRIKE05` in (160, 176, 255), a creature's of `FX_LIGHTSTRIKE06` in (231, 73, 255)
+/// (`+0xA9`).
+pub const LIGHTNING_LIGHT: f32 = 200.0;
+pub const LIGHTNING_BOLTS: usize = 3;
+pub const LIGHTNING_BOLTS_SHOW: f32 = 0.25;
+pub const LIGHTNING_GLOW_SHOWS: f32 = 0.1;
+pub const LIGHTNING_TEXTURES: [&str; 2] = ["FX_LIGHTSTRIKE05", "FX_LIGHTSTRIKE06"];
+pub const LIGHTNING_COLOURS: [[f32; 4]; 2] = [
+    [160.0 / 255.0, 176.0 / 255.0, 1.0, 1.0],
+    [231.0 / 255.0, 73.0 / 255.0, 1.0, 1.0],
+];
+/// The glow: `PARTICLE_GLOW05` of a half side of 25 in its colour, added whole (the style 2).
+pub const LIGHTNING_GLOW_TEXTURE: &str = "PARTICLE_GLOW05";
+pub const LIGHTNING_GLOW_HALF: f32 = 25.0;
+/// A bolt's segments: 20 wide and 250 high, each the next 40 times its slant along x
+/// (`+0x2168`); and of the texture the strip along `u` of the height 1/8 of it.
+pub const LIGHTNING_SEGMENT: (f32, f32, f32) = (20.0, 250.0, 40.0);
+pub const LIGHTNING_STRIP: f32 = 0.125;
+
+/// A bolt of the lightning: its slant in −1 to 1 (`+0x20BC`), which shifts each segment up from
+/// the last by 40 times it along x, and the texture's `u` by it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LightningBolt {
+    pub slant: f32,
+}
+
+impl LightningBolt {
+    /// The three bolts of a lightning, of slants at random (`2 rand() / 32767 − 1`).
+    pub fn three(dice: &mut impl Dice) -> [Self; LIGHTNING_BOLTS] {
+        std::array::from_fn(|_| Self {
+            slant: signed(dice),
+        })
+    }
+
+    /// Its segment `k` from its foot, in its frame, the third coordinate up, with the texture's
+    /// points: its bottom left, bottom right, top right and top left corners, its strip turned
+    /// over and shifted by half its width where `flip` (a roll of `rand() & 1` at each draw).
+    pub fn segment(&self, k: u16, flip: bool) -> [([f32; 3], [f32; 2]); 4] {
+        let (width, height, drift) = LIGHTNING_SEGMENT;
+        let half = width * 0.5;
+        let (low, high) = (f32::from(k), f32::from(k) + 1.0);
+        let corner =
+            |step: f32, side: f32| [drift * self.slant * step + side * half, 0.0, height * step];
+        let o = self.slant;
+        // The top's `u` the slant, the foot's one more; across, the strip's height.
+        let (u, v) = if flip {
+            ((o + 0.5, o + 1.5), (LIGHTNING_STRIP, 0.0))
+        } else {
+            ((o, o + 1.0), (0.0, LIGHTNING_STRIP))
+        };
+        [
+            (corner(low, -1.0), [u.1, v.1]),
+            (corner(low, 1.0), [u.1, v.0]),
+            (corner(high, 1.0), [u.0, v.0]),
+            (corner(high, -1.0), [u.0, v.1]),
+        ]
+    }
+}
+
+/// The lightning's burst of sparks at its start (`0x77D5C0`, `0x764760` of the interval 0): 150
+/// of `PARTICLE_SPARK06` within 10 of its place, shot up at 50 ± (40, 40, 20) and falling back at
+/// a buoyancy of 150 ± 40, of a half side of 7 ± 1 shrinking by 2 a second, living 1.02 s, in its
+/// colour (`colour`, the flags `0x13`: its corners' colour, added whole), turned at random.
+pub fn lightning_sparks(colour: [f32; 4], dice: &mut impl Dice) -> Burst {
+    let pi = std::f32::consts::PI;
+    let block = Block {
+        buoyancy: spread(150.0, 40.0),
+        size: spread(7.0, 1.0),
+        angle: spread(pi, pi),
+        velocity: spread([0.0, 0.0, 50.0], [40.0, 40.0, 20.0]),
+        offset: spread([0.0; 3], [10.0; 3]),
+        ..Block::default()
+    };
+    let particles = (0..LIGHTNING_SPARKS)
+        .map(|_| born(&block, 0, dice))
+        .collect();
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            life: -250.0,
+            size: -2.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(colour, &[(colour, 256)]),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
+/// The lightning's particles (`0x5A0C50`'s count for the type 798), all of its burst.
+const LIGHTNING_SPARKS: usize = 150;
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2460,6 +2561,32 @@ mod tests {
         let [a, b] = blades.sparks(50.0);
         assert!((a[0] + b[0]).abs() < 1e-3 && (a[1] + b[1]).abs() < 1e-3);
         assert_eq!(a[2], blades.height);
+    }
+
+    #[test]
+    fn the_lightnings_bolts_climb_slanted_and_its_sparks_fall() {
+        let mut dice = Rng::of(13, 0x31E, 1);
+        let bolts = LightningBolt::three(&mut dice);
+        assert!(bolts.iter().all(|b| (-1.0..=1.0).contains(&b.slant)));
+        let bolt = LightningBolt { slant: 0.5 };
+        // The foot of the first segment 20 wide about its place, its top 20 to the side, 250 up.
+        let [bl, br, tr, tl] = bolt.segment(0, false);
+        assert_eq!((bl.0, br.0), ([-10.0, 0.0, 0.0], [10.0, 0.0, 0.0]));
+        assert_eq!((tl.0, tr.0), ([10.0, 0.0, 250.0], [30.0, 0.0, 250.0]));
+        // The strip along `u`, from the slant at the top to one more at the foot.
+        assert_eq!(
+            (tl.1, tr.1, br.1, bl.1),
+            ([0.5, 0.125], [0.5, 0.0], [1.5, 0.0], [1.5, 0.125])
+        );
+        // Turned over and shifted by half.
+        let [fbl, _, ftr, _] = bolt.segment(0, true);
+        assert_eq!((fbl.1, ftr.1), ([2.0, 0.0], [1.0, 0.125]));
+        // The third segment follows the second.
+        let [second_bl, ..] = bolt.segment(2, false);
+        assert_eq!(second_bl.0, [30.0, 0.0, 500.0]);
+        let burst = lightning_sparks(LIGHTNING_COLOURS[0], &mut dice);
+        assert_eq!(burst.particles.len(), 150);
+        assert_eq!(burst.ramp.at(128.0), LIGHTNING_COLOURS[0]);
     }
 
     #[test]
