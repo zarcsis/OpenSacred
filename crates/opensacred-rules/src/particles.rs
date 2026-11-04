@@ -2463,6 +2463,112 @@ pub struct Choir {
 /// The choir's texture, its wisps at most (`0x5A0C50`'s count for the type 1011), and its discs.
 pub const CHOIR_TEXTURE: &str = "PARTICLE_GLOW01";
 const CHOIR_COUNT: usize = 150;
+
+/// The look of an object of the Daemon's fear 67, `cParticleSystem_hellscream` (1012, its start
+/// `0x7B0AF0`, its run `0x7B07B0` and its draw `0x7B0870`; docs/re/effects.md, "The fear"), where
+/// it stands for its seconds: a glow on the ground ([`FEAR_GLOW_HALF`]), a ring spreading from
+/// 10 to 100 over and over ([`HellScream::ring`]), and a column of light of camera-facing glows
+/// stacked up as it fades in ([`HellScream::column`]). It fades in at 1 a second and out at 0.3
+/// a second after its seconds. Its light is 350.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HellScream {
+    pub clock: f32,
+    /// Its fade (`+0x20AC`).
+    pub fade: f32,
+    /// Its ring's inner radius (`+0x20B0`).
+    pub radius: f32,
+    seconds: f32,
+    out: bool,
+}
+
+/// The fear's glow (`+0x2138`, `PARTICLE_GLOW03`, added whole) and its colour (`0xFF8246`), its
+/// ring's texture (`+0x213C`), breadth and segments, its column's texture (`+0x2134`, added by
+/// its alpha), colour (`0xFFFFA266`) and glows, and its light.
+pub const FEAR_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const FEAR_GLOW_HALF: f32 = 60.0;
+pub const FEAR_GLOW_COLOUR: [f32; 4] = [1.0, 130.0 / 255.0, 70.0 / 255.0, 1.0];
+pub const FEAR_RING_TEXTURE: &str = "laserbeampart";
+pub const FEAR_RING_BREADTH: f32 = 20.0;
+pub const FEAR_RING_SEGMENTS: u16 = 50;
+pub const FEAR_COLUMN_TEXTURE: &str = "PARTICLE_GLOW01";
+pub const FEAR_COLUMN_COLOUR: [f32; 4] = [1.0, 162.0 / 255.0, 102.0 / 255.0, 1.0];
+const FEAR_COLUMN_GLOWS: u8 = 32;
+pub const FEAR_LIGHT: f32 = 350.0;
+
+impl HellScream {
+    /// An object of the fear for `seconds` (its record's value 0 at its level, `0x7B0AF0`).
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            fade: 0.0,
+            radius: 10.0,
+            seconds,
+            out: false,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7B07B0`).
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock <= self.seconds {
+            self.fade = if self.fade >= 1.0 {
+                1.0
+            } else {
+                self.fade + dt
+            };
+        } else if self.fade <= 0.0 {
+            self.fade = 0.0;
+            self.out = true;
+        } else {
+            self.fade -= 0.3 * dt;
+        }
+        self.radius += 70.0 * dt;
+        if self.radius > 100.0 {
+            self.radius = 10.0;
+        }
+    }
+
+    /// Its ring (`0x763530`): flat between its radius and 20 more, of (255, 162, 102) times a
+    /// share that holds 1 to the radius 75 and falls to 0 at 100, each byte taken whole, added
+    /// whole.
+    pub fn ring(&self) -> (f32, f32, [f32; 4]) {
+        let share = if self.radius < 75.0 {
+            1.0
+        } else {
+            1.0 - (self.radius - 75.0) * 0.04
+        };
+        let byte = |value: f32| (value * share).trunc().max(0.0) / 255.0;
+        (
+            self.radius,
+            self.radius + FEAR_RING_BREADTH,
+            [byte(255.0), byte(162.0), byte(102.0), 1.0],
+        )
+    }
+
+    /// Its column's glows (`0x7B0A0D`): the `i`-th of 32 at the height `4 i f` over its place, of
+    /// the half side `1.7 sin(0.3 i + t) + 1.6 (sin(i − 3t) + 1) + 6 + f`, `t` its clock and `f`
+    /// its fade.
+    pub fn column(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
+        let (t, f) = (self.clock, self.fade);
+        (0..FEAR_COLUMN_GLOWS).map(move |i| {
+            let i = f32::from(i);
+            (
+                4.0 * i * f,
+                1.7 * (0.3 * i + t).sin() + 1.6 * ((i - 3.0 * t).sin() + 1.0) + 6.0 + f,
+            )
+        })
+    }
+
+    /// Its object's end: its seconds over, so that it fades out.
+    pub fn end(&mut self) {
+        self.seconds = self.seconds.min(self.clock);
+    }
+
+    /// Whether it ended: faded out after its seconds.
+    pub fn done(&self) -> bool {
+        self.out
+    }
+}
 const CHOIR_DISCS: u8 = 5;
 
 impl Choir {
@@ -3962,6 +4068,36 @@ mod tests {
             soul.update(0.025, (at, at), &mut dice);
         }
         assert!(soul.done());
+    }
+
+    #[test]
+    fn a_fears_column_rises_as_it_fades_in_and_its_ring_spreads_over_and_over() {
+        let mut fear = HellScream::new(25.0);
+        assert_eq!(fear.ring().0, 10.0);
+        for _ in 0..40 {
+            fear.update(0.025);
+        }
+        // Whole after a second, its column 124 high, its ring at 80 and dimming.
+        assert!((fear.fade - 1.0).abs() < 1e-3);
+        let top = fear.column().last().map_or(0.0, |(height, _)| height);
+        assert!((top - 124.0).abs() < 0.2, "{top}");
+        assert!(fear.column().all(|(_, half)| (2.6..=18.0).contains(&half)));
+        let (inner, outer, colour) = fear.ring();
+        assert!((inner - 80.0).abs() < 0.1 && (outer - inner - 20.0).abs() < 1e-4);
+        assert!(colour[0] < 1.0 && colour[0] > 0.7);
+        for _ in 0..12 {
+            fear.update(0.025);
+        }
+        // Past 100 it starts again at 10.
+        assert!(fear.ring().0 < 20.0);
+        for _ in 0..958 {
+            fear.update(0.025);
+        }
+        assert!(!fear.done() && fear.fade < 1.0);
+        for _ in 0..200 {
+            fear.update(0.025);
+        }
+        assert!(fear.done());
     }
 
     #[test]
