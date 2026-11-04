@@ -2232,6 +2232,155 @@ pub const FIRE_SKIN_GLOW_COLOURS: [[f32; 4]; 2] = [
     [64.0 / 255.0, 64.0 / 255.0, 1.0, 1.0],
 ];
 
+/// The colours of the grounds by their nature (the cell's `+0x1F` high nibble), in the
+/// renderer's table at `+0x9DC8` (`0x418EF3`, read by `0x41BA00`): the dust that the gust raises
+/// takes the colour of the ground its bearer stands on; the nature 0's entry is left 0, and a
+/// place of no cell takes (128, 128, 128) (`0x524DDC`).
+pub const GROUND_COLOURS: [u32; 16] = [
+    0x0000_0000,
+    0xFFEF_EFC0,
+    0xFFE0_E0EF,
+    0xFF30_4010,
+    0xFF30_4010,
+    0xFF86_9A26,
+    0xFFEF_9019,
+    0xFF80_8080,
+    0xFFC0_C0C0,
+    0xFF19_C1EF,
+    0xFF19_4AEF,
+    0xFF80_8080,
+    0xFF80_8080,
+    0xFFB5_B3B3,
+    0xFFE3_752B,
+    0xFFEC_CB30,
+];
+pub const NO_GROUND_COLOUR: u32 = 0xFF80_8080;
+
+/// The colour of an ARGB word, its red, green, blue and alpha in 0 to 1.
+pub fn argb(word: u32) -> [f32; 4] {
+    let [a, r, g, b] = word.to_be_bytes().map(|byte| f32::from(byte) / 255.0);
+    [r, g, b, a]
+}
+
+/// The look of the gust 28, `cParticleSystem_twister` (826, its start `0x788D90`, its run
+/// `0x7888E0` and its draw `0x788B80`; docs/re/effects.md, "The gust"), on its bearer for its
+/// seconds: 250 puffs of `PARTICLE_CLOUD01` circling it in the colour of the ground under it,
+/// laid over by their alpha and tinted by the light at it, their column rising to 100 over its
+/// first seconds, and once its seconds are over spinning faster and climbing for 2 s more.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Twister {
+    pub puffs: Vec<Puff>,
+    /// Its column's height (`+0x20AC`), its phase (`+0x20B4`: 0 rising, 1 standing, 2 going),
+    /// its clock and its seconds, and how far it has gone in its last phase (`+0x20B0`).
+    pub height: f32,
+    phase: u8,
+    clock: f32,
+    seconds: f32,
+    gone: f32,
+}
+
+/// A puff of the gust: its angle about its bearer, its radius, its share of the column's height,
+/// its turn's speed a second, and its quad's angle in the screen's plane.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Puff {
+    pub angle: f32,
+    pub radius: f32,
+    pub share: f32,
+    pub spin: f32,
+    pub turn: f32,
+}
+
+impl Puff {
+    /// Its place about its bearer at the column's height `height`, in the systems' frame, the
+    /// third coordinate up, and its quad's half side: the radius widening by 0.6 of its share,
+    /// the half side `7 (2 share + 1)`.
+    pub fn at(&self, height: f32) -> ([f32; 3], f32) {
+        let radius = (self.share * 0.6 + 1.0) * self.radius;
+        (
+            [
+                self.angle.cos() * radius,
+                self.angle.sin() * radius,
+                height * self.share,
+            ],
+            (self.share * 2.0 + 1.0) * 7.0,
+        )
+    }
+}
+
+/// The gust's puffs (`0x5A0C50`'s count for the type 826).
+const TWISTER_PUFFS: usize = 250;
+
+impl Twister {
+    /// A gust of `seconds`, its puffs rolled at its first run: their angles of a whole turn,
+    /// their radii 30 to 35, their shares the cube of a roll of 0 to 1, their speeds 0.3 to 4
+    /// radians a second.
+    pub fn new(seconds: f32, dice: &mut impl Dice) -> Self {
+        let roll = |dice: &mut _| (signed(dice) + 1.0) * 0.5;
+        let tau = std::f32::consts::TAU;
+        let puffs = (0..TWISTER_PUFFS)
+            .map(|_| {
+                let angle = roll(dice) * tau;
+                let radius = roll(dice) * 5.0 + 30.0;
+                let share = roll(dice).powi(3);
+                let spin = roll(dice) * 3.7 + 0.3;
+                let turn = roll(dice) * tau;
+                Puff {
+                    angle,
+                    radius,
+                    share,
+                    spin,
+                    turn,
+                }
+            })
+            .collect();
+        Self {
+            puffs,
+            height: 0.0,
+            phase: 0,
+            clock: 0.0,
+            seconds,
+            gone: 1.0,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7888E0`): each puff on about its bearer by its speed, faster by
+    /// 6 a second once it goes; its column rising at 30 a second to 100, standing to its
+    /// seconds, then climbing at 50 a second for 2 s.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        let tau = std::f32::consts::TAU;
+        for puff in &mut self.puffs {
+            puff.angle += dt * puff.spin;
+            if puff.angle > tau {
+                puff.angle -= tau;
+            }
+            if self.phase == 2 {
+                puff.spin += dt * 6.0;
+            }
+        }
+        match self.phase {
+            0 => {
+                self.height += dt * 30.0;
+                if self.height > 100.0 {
+                    self.height = 100.0;
+                    self.phase = 1;
+                }
+            }
+            1 if self.clock > self.seconds => self.phase = 2,
+            2 => {
+                self.gone += dt * 0.5;
+                self.height += dt * 50.0;
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether it ended: 2 s after its seconds.
+    pub fn done(&self) -> bool {
+        self.gone > 2.0
+    }
+}
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2685,6 +2834,42 @@ mod tests {
         assert_eq!(skin.ramps[0].at(255.0)[3], 0.0);
         assert_eq!(skin.ramps[0].at(224.0), [1.0, 1.0, 1.0, 1.0]);
         assert_eq!(skin.ramps[0].at(0.0), [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn the_gust_circles_rises_and_goes_in_the_grounds_colour() {
+        assert_eq!(
+            argb(GROUND_COLOURS[3]),
+            [48.0 / 255.0, 64.0 / 255.0, 16.0 / 255.0, 1.0]
+        );
+        let mut dice = Rng::of(15, 0x33A, 3);
+        let mut gust = Twister::new(5.0, &mut dice);
+        assert_eq!(gust.puffs.len(), 250);
+        assert!(gust.puffs.iter().all(|p| (30.0..=35.0).contains(&p.radius)
+            && (0.0..=1.0).contains(&p.share)
+            && (0.3..=4.0).contains(&p.spin)));
+        // Its column at 100 by 3.4 s, standing to its 5 s, then 2 s of climbing.
+        for _ in 0..140 {
+            gust.update(0.025);
+        }
+        assert_eq!(gust.height, 100.0);
+        for _ in 0..70 {
+            gust.update(0.025);
+        }
+        assert!(gust.height > 100.0 && !gust.done());
+        for _ in 0..80 {
+            gust.update(0.025);
+        }
+        assert!(gust.done());
+        // A puff at the top widens by 0.6 and grows to a half side of 21.
+        let puff = Puff {
+            angle: 0.0,
+            radius: 30.0,
+            share: 1.0,
+            spin: 1.0,
+            turn: 0.0,
+        };
+        assert_eq!(puff.at(100.0), ([48.0, 0.0, 100.0], 21.0));
     }
 
     #[test]
