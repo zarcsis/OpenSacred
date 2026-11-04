@@ -1774,7 +1774,7 @@ fn act(
                         continue;
                     };
                     let at = at.with_y(ground);
-                    let mut made = commands.spawn((
+                    commands.spawn((
                         Aura {
                             caster: act.caster,
                             follows: None,
@@ -1790,20 +1790,10 @@ fn act(
                         },
                         Transform::from_translation(at),
                         Visibility::Inherited,
+                        // It looks as its system (`icebergs`).
+                        crate::icebergs::Look(spells::FROST_LIFE),
                         DespawnOnExit(AppState::InGame),
                     ));
-                    if let Some(looks) = &looks {
-                        made.with_child((
-                            Mesh3d(looks.disc.clone()),
-                            MeshMaterial3d(looks.discs[1].clone()),
-                            Transform::from_scale(Vec3::new(
-                                spells::FROST_REACH,
-                                2.0,
-                                spells::FROST_REACH,
-                            ))
-                            .with_translation(Vec3::Y * 4.0),
-                        ));
-                    }
                 }
             }
             spells::WHIRLWIND | spells::SPLINTERS => {

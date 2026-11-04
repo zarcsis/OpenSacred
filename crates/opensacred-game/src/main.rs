@@ -82,6 +82,7 @@ mod hover;
 mod hud;
 mod hums;
 mod hurled;
+mod icebergs;
 mod icons;
 mod inventory;
 mod iso;
@@ -468,11 +469,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         hums::HumsPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
+        icebergs::IcebergsPlugin,
         icons::IconsPlugin,
         inventory::InventoryPlugin,
-        journal::JournalPlugin,
     ))
     .add_plugins((
+        journal::JournalPlugin,
         labels::LabelsPlugin,
         light_blades::LightBladesPlugin,
         lightning_strikes::LightningStrikesPlugin,
