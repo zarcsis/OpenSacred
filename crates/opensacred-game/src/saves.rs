@@ -21,8 +21,10 @@
 //! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; the drops; the
 //! town stash; the merchants' stock; the land explored and the map's pin; and the weather.
 //!
-//! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` where the interface
-//! allows a save ([`allowed`]), F8 and Control+X load it.
+//! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` in the slot 0's file
+//! `GAME00` where the interface allows a save ([`allowed`]), F8 and Control+X load it. The
+//! scripts' autosave (#1989): an `AutoSave` saves the game into the first free slot, named by its
+//! number's text, where `[gameplay] autosave` is on ([`autosave`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -376,8 +378,14 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
 
 /// Saves the game as `name`: where its file went.
 pub fn save(world: &mut bevy::prelude::World, name: &str) -> Result<PathBuf> {
+    save_in(world, name, name)
+}
+
+/// Saves the game as `name` in the file `stem` of the saves' directory, as the original's save
+/// keeps its name inside its slot's file (`GAME%.2d.PAK`, docs/re/saves.md).
+fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) -> Result<PathBuf> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
-    let path = file(&dir, name)?;
+    let path = file(&dir, stem)?;
     let (header, hero) = gather(world, name)?;
     let scripts = scripts(world)?;
     let kept = world_of(world)?;
@@ -571,8 +579,53 @@ fn refit(
     }
 }
 
-/// The quick save's name (`cEngine_receiveEvent`, `0x618E3A`).
+/// The quick save's name and its file, the slot 0 (`cEngine_receiveEvent`, `0x618E3A`), which F8
+/// loads.
 pub const QUICK_SAVE: &str = "QUICKSAVE";
+const QUICK_FILE: &str = "GAME00";
+
+/// The file of the first slot from 1 that no save holds (`0x619B80`: `GAME01` and on, the slot
+/// 511 where every one to 509 is taken), which an autosave takes.
+fn free_slot(dir: &Path) -> String {
+    (1..0x1FE_u16)
+        .map(|slot| format!("GAME{slot:02}"))
+        .find(|stem| !dir.join(format!("{stem}.{EXTENSION}")).exists())
+        .unwrap_or_else(|| "GAME511".to_owned())
+}
+
+/// The numbers of the scripts' `AutoSave`s run (`scripts`; 121, `0x4AC740`; #1989), which
+/// [`autosave`] saves the game by.
+#[derive(Resource, Default)]
+pub struct AutoSaves(pub Vec<u32>);
+
+/// Saves the game where the scripts ran an `AutoSave` and the autosave is on (`[gameplay]
+/// autosave`, the original's `AUTOSAVE`, `0x81B6F0`): into the first free slot, named by the text
+/// of its number (`cEngine::save`, `0x619BF0`), whatever windows show, as the record asks the
+/// engine without the autosave's test of the interface (`0x618FA0`).
+fn autosave(world: &mut bevy::prelude::World) {
+    let numbers = std::mem::take(&mut world.resource_mut::<AutoSaves>().0);
+    let Some(&number) = numbers.last() else {
+        return;
+    };
+    let on = world
+        .get_resource::<crate::settings::Settings>()
+        .is_some_and(|settings| settings.gameplay.autosave);
+    if !on {
+        info!("saves: the scripts' autosave {number} left, the autosave being off");
+        return;
+    }
+    let name = world
+        .get_resource::<crate::lines::Texts>()
+        .and_then(|texts| texts.named(&number.to_string()))
+        .map_or_else(|| number.to_string(), str::to_owned);
+    let Some(dir) = directory(world.get_resource::<SettingsFile>()) else {
+        warn!("saves: no directory for the autosave {number}");
+        return;
+    };
+    if let Err(e) = save_in(world, &free_slot(&dir), &name) {
+        warn!("saves: the autosave {number}: {e:#}");
+    }
+}
 
 /// The windows whose showing refuses a save (`0x75ADB0`): the merchant's, the smith's, the combat
 /// master's and the town stash's (the players' trade, its fifth, the game has not).
@@ -623,8 +676,8 @@ fn quick(world: &mut bevy::prelude::World) {
         return;
     };
     let done = match asked {
-        Quick::Save => save(world, QUICK_SAVE).map(drop),
-        Quick::Load => load(world, QUICK_SAVE).map(drop),
+        Quick::Save => save_in(world, QUICK_FILE, QUICK_SAVE).map(drop),
+        Quick::Load => load(world, QUICK_FILE).map(drop),
     };
     if let Err(e) = done {
         warn!("saves: the quick {asked:?}: {e:#}");
@@ -645,6 +698,7 @@ pub struct SavesPlugin;
 impl Plugin for SavesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Asked>()
+            .init_resource::<AutoSaves>()
             .add_systems(OnEnter(AppState::Menu), forget)
             .add_systems(
                 Update,
@@ -657,7 +711,7 @@ impl Plugin for SavesPlugin {
             // Not while a load puts its game back, whose hero a save would not hold yet.
             .add_systems(
                 Update,
-                (quick_keys, quick)
+                (quick_keys, quick, autosave)
                     .chain()
                     .run_if(in_state(AppState::InGame))
                     .run_if(not(resource_exists::<Restore>)),
@@ -710,6 +764,19 @@ mod tests {
         assert_eq!(press(&mut app, &[KeyCode::F8]), Some(Quick::Load));
         app.insert_resource(crate::town_stash::Opened(None));
         assert_eq!(press(&mut app, &[KeyCode::F9]), Some(Quick::Save));
+    }
+
+    #[test]
+    fn an_autosave_takes_the_first_slot_from_1_that_no_save_holds() {
+        let dir = scratch("slots");
+        assert_eq!(free_slot(&dir), "GAME01");
+        for stem in ["GAME00", "GAME01", "GAME03"] {
+            fs::write(dir.join(format!("{stem}.{EXTENSION}")), b"").unwrap();
+        }
+        assert_eq!(free_slot(&dir), "GAME02");
+        fs::write(dir.join(format!("GAME02.{EXTENSION}")), b"").unwrap();
+        assert_eq!(free_slot(&dir), "GAME04");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     fn scratch(name: &str) -> PathBuf {

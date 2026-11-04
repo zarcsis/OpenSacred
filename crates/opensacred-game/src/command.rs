@@ -1016,8 +1016,14 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             let lines: Vec<String> = crate::saves::saves(world)
                 .into_iter()
                 .map(|(file, header)| {
+                    // A slot's file holds a name of its own (#1989).
+                    let named = if header.name == file {
+                        String::new()
+                    } else {
+                        format!(" \"{}\"", header.name)
+                    };
                     format!(
-                        "{file}: {} the {}, level {}, {:?}",
+                        "{file}{named}: {} the {}, level {}, {:?}",
                         header.hero,
                         header.class.name(),
                         header.level,
