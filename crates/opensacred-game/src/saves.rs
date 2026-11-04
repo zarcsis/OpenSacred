@@ -20,6 +20,9 @@
 //! the world gone as their sectors keep them going, which a load's sectors put back as they come
 //! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; the drops; the
 //! town stash; the merchants' stock; the land explored and the map's pin; and the weather.
+//!
+//! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` where the interface
+//! allows a save ([`allowed`]), F8 and Control+X load it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,8 +31,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail, ensure};
 use bevy::prelude::{
     App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Query, Real, Res,
-    ResMut, Resource, Time, Transform, Update, Vec2, Vec3, With, in_state, info, resource_exists,
-    warn,
+    ResMut, Resource, Time, Transform, Update, Vec2, Vec3, With, in_state, info, not,
+    resource_exists, warn,
 };
 use opensacred_rules::arts::Arts;
 use opensacred_rules::drops::Difficulty;
@@ -424,6 +427,11 @@ pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
     world.remove_resource::<crate::talk::CloseFirst>();
     world.insert_resource(crate::game::Request(game));
     let creatures = std::mem::take(&mut kept.creatures);
+    // The hero of a game that the load leaves is not the save's: [`restore`] waits for the load's
+    // own, which `hero::leave` would mark only a frame later, as the state changes.
+    if let Some(mut ready) = world.get_resource_mut::<crate::hero::Ready>() {
+        ready.0 = false;
+    }
     world.insert_resource(Restore(Box::new(hero), Box::new(kept)));
     world.insert_resource(Resume(scripts, creatures));
     world
@@ -563,6 +571,66 @@ fn refit(
     }
 }
 
+/// The quick save's name (`cEngine_receiveEvent`, `0x618E3A`).
+pub const QUICK_SAVE: &str = "QUICKSAVE";
+
+/// The windows whose showing refuses a save (`0x75ADB0`): the merchant's, the smith's, the combat
+/// master's and the town stash's (the players' trade, its fifth, the game has not).
+pub type Refusing<'w> = (
+    Option<Res<'w, crate::merchant::Merchant>>,
+    Option<Res<'w, crate::blacksmith::Blacksmith>>,
+    Option<Res<'w, crate::master::Master>>,
+    Option<Res<'w, crate::town_stash::Opened>>,
+);
+
+/// Whether the interface allows a save: none of the `refusing` windows shows (`0x75ADB0`).
+pub fn allowed((merchant, smith, master, stash): &Refusing) -> bool {
+    merchant.is_none()
+        && smith.is_none()
+        && master.is_none()
+        && stash.as_ref().is_none_or(|stash| stash.0.is_none())
+}
+
+/// A quick save or its load.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Quick {
+    Save,
+    Load,
+}
+
+/// The quick save or load that its key asked for this frame, which [`quick`] carries out, as the
+/// original's key sets the engine's request that its loop carries out (`+0x54` bit `0x40`).
+#[derive(Resource, Default)]
+struct Asked(Option<Quick>);
+
+/// F9 and Control+Z ask for the quick save where the interface allows one, F8 and Control+X for
+/// its load (`cEngine_receiveEvent`, `0x618090`; docs/re/saves.md, "When it saves").
+fn quick_keys(mut keys: crate::controls::KeysMut, refusing: Refusing, mut asked: ResMut<Asked>) {
+    if keys.take(crate::controls::Action::QuickSave) {
+        if allowed(&refusing) {
+            asked.0 = Some(Quick::Save);
+        } else {
+            info!("saves: no quick save while a trader's or a stash's window shows");
+        }
+    } else if keys.take(crate::controls::Action::QuickLoad) {
+        asked.0 = Some(Quick::Load);
+    }
+}
+
+/// Carries out the quick save or load asked for, as the console's `save` and `load` do.
+fn quick(world: &mut bevy::prelude::World) {
+    let Some(asked) = world.resource_mut::<Asked>().0.take() else {
+        return;
+    };
+    let done = match asked {
+        Quick::Save => save(world, QUICK_SAVE).map(drop),
+        Quick::Load => load(world, QUICK_SAVE).map(drop),
+    };
+    if let Err(e) = done {
+        warn!("saves: the quick {asked:?}: {e:#}");
+    }
+}
+
 /// Forgets a load that did not get as far as its game (the menu again before its hero stood), so
 /// that no later game takes its hero or its scripts.
 fn forget(mut commands: Commands) {
@@ -576,7 +644,8 @@ pub struct SavesPlugin;
 
 impl Plugin for SavesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::Menu), forget)
+        app.init_resource::<Asked>()
+            .add_systems(OnEnter(AppState::Menu), forget)
             .add_systems(
                 Update,
                 restore
@@ -584,6 +653,14 @@ impl Plugin for SavesPlugin {
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Restore>)
                     .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
+            )
+            // Not while a load puts its game back, whose hero a save would not hold yet.
+            .add_systems(
+                Update,
+                (quick_keys, quick)
+                    .chain()
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(not(resource_exists::<Restore>)),
             );
     }
 }
@@ -591,6 +668,49 @@ impl Plugin for SavesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quick_keys_ask_for_a_save_but_under_a_stash_and_for_its_load() {
+        use bevy::input::ButtonState;
+        use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
+        let mut app = App::new();
+        app.add_plugins((bevy::MinimalPlugins, bevy::input::InputPlugin))
+            .init_resource::<Asked>()
+            .add_systems(Update, quick_keys);
+        app.update();
+        let press = |app: &mut App, keys: &[KeyCode]| {
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                for &key in keys {
+                    app.world_mut().write_message(KeyboardInput {
+                        key_code: key,
+                        logical_key: Key::F9,
+                        state,
+                        text: None,
+                        repeat: false,
+                        window: Entity::PLACEHOLDER,
+                    });
+                }
+                app.update();
+            }
+            app.world_mut().resource_mut::<Asked>().0.take()
+        };
+        assert_eq!(press(&mut app, &[KeyCode::F9]), Some(Quick::Save));
+        assert_eq!(
+            press(&mut app, &[KeyCode::ControlLeft, KeyCode::KeyZ]),
+            Some(Quick::Save)
+        );
+        assert_eq!(press(&mut app, &[KeyCode::F8]), Some(Quick::Load));
+        assert_eq!(
+            press(&mut app, &[KeyCode::ControlRight, KeyCode::KeyX]),
+            Some(Quick::Load)
+        );
+        // The town stash's window refuses the save, not the load.
+        app.insert_resource(crate::town_stash::Opened(Some(Entity::PLACEHOLDER)));
+        assert_eq!(press(&mut app, &[KeyCode::F9]), None);
+        assert_eq!(press(&mut app, &[KeyCode::F8]), Some(Quick::Load));
+        app.insert_resource(crate::town_stash::Opened(None));
+        assert_eq!(press(&mut app, &[KeyCode::F9]), Some(Quick::Save));
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

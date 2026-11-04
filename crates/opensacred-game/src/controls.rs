@@ -92,6 +92,8 @@ pub enum Action {
     FollowerPotion,
     Collect,
     Pause,
+    QuickSave,
+    QuickLoad,
     Back,
     Confirm,
     Next,
@@ -132,7 +134,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 47] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 49] = [
     (
         Action::Walk,
         Section::World,
@@ -384,6 +386,20 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 47] = [
         "pause",
         &["P"],
         "pause the game under the pause's window, and again go on",
+    ),
+    (
+        Action::QuickSave,
+        Section::World,
+        "quick_save",
+        &["F9", "Control+Z"],
+        "save the game as the quick save, where no trader's or stash's window shows",
+    ),
+    (
+        Action::QuickLoad,
+        Section::World,
+        "quick_load",
+        &["F8", "Control+X"],
+        "load the quick save",
     ),
     (
         Action::Back,
@@ -1197,6 +1213,8 @@ mod tests {
         assert_eq!(controls.names(Action::Confirm), "Enter, NumpadEnter");
         assert_eq!(controls.names(Action::Walk), "Shift");
         assert_eq!(controls.names(Action::Collect), "A");
+        assert_eq!(controls.names(Action::QuickSave), "F9, Control+Z");
+        assert_eq!(controls.names(Action::QuickLoad), "F8, Control+X");
         let dir = scratch("defaults");
         let settings = dir.join("settings.toml");
         let (read, warnings) = Controls::read(Some(&settings));

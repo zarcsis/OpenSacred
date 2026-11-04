@@ -269,6 +269,8 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | B | the game | a healing potion of the belt for the weakest follower (#1536) |
 | A | the game | collect the items about the hero, as the bar's Collect button (#1408, #1591) |
 | P | the game | pause the game under the original's pause window, and again go on, as its OK does (#1687) |
+| F9, Ctrl + Z | the game | save the game as `QUICKSAVE`, where no merchant's, smith's, combat master's or town stash's window shows (#1988) |
+| F8, Ctrl + X | the game | load the quick save (#1988) |
 | 1 to 5 | the game | choose a weapon set (#1348) |
 | 6 to 0 | the game | choose an art slot (#1529) |
 | F1 to F6 | the game | the art bound to the key into the selected slot; over an art of the spells page, bind the key to it or take it off (#1536, #1750) |

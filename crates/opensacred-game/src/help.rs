@@ -131,6 +131,8 @@ pub const KEYS: [&[Place]; 2] = [
                 ),
                 (words("help-wheel"), "help-zoom-wheel"),
                 (of(&[Action::Pause]), "help-pause"),
+                (of(&[Action::QuickSave]), "help-quick-save"),
+                (of(&[Action::QuickLoad]), "help-quick-load"),
                 (of(&[Action::Back]), "help-pause-menu"),
             ],
         ),
