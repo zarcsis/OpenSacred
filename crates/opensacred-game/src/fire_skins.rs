@@ -137,7 +137,9 @@ fn show(
             ))
             .id();
         let parts = [meshes.add(empty()), meshes.add(empty())];
-        let glow = made[GLOW].clone().filter(|_| matches!(look, Look::Skin { .. }));
+        let glow = made[GLOW]
+            .clone()
+            .filter(|_| matches!(look, Look::Skin { .. }));
         for (mesh, material) in parts.iter().zip([made[kind].clone(), glow]) {
             if let Some(material) = material {
                 commands.spawn((
