@@ -296,6 +296,25 @@ Its layer is at `+0x24A8` and its one emission block at `+0x24C8`, the ramp at `
 - **The variant 4**, the dust of a corpse that vanishes (docs/re/fight.md, "The other deaths of class 5"): a burst (the block's interval 0) of 150 particles at the corpse model's skinned vertices (`0x44FC30`, `0x767FB0`), the buoyancy −20 ± 8, the size 10, the angle π ± π, the angle's speed 0.5 ± 0.2, the velocity 0 ± 3 along each axis and a frame of 4; the layer's rates of the buoyancy −10 (they rise ever faster), the life −100 (2.55 s), the size +8 and the angle +1, its wind the renderer's vector as the smoke class's; the ramp of (0.898, 0.836, 0.664), a pale bone colour, from an alpha of 0.5 to 0 over 256 entries.
 - The variant 5 is the variant 4's of (0.625, 0.684, 0.625), a pale green, the buoyancy −16 and the size 7 (its user not read); 0 is a burst of 500 at the skinned vertices (the buoyancy −5 ± 5, the size 2, the life's rate −150, from (0.8, 0.9, 1.0) to opaque black, which adds nothing); 1 a burst of 250 there (the size 10, the angle π ± π, the life's rate −150, the buoyancy's −1 and the angle's 1, a black ramp); 2 a ring of 50 at the 50th of a turn (0.1257) of 17.5 at a height of 40, rising and falling at ± 70 with a buoyancy of −10, of a size of 25, the life's rate −512 and the size's −30, from (1, 0.5, 0.5) to opaque black, with the sound event `0x825` and `(9, 0x49)`; none of them read for its users.
 
+### The hit sparks: `cParticleSystem_*_sm_hit`
+
+Read 2026-11-04 for #1092 (**confirmed** by code unless marked).
+
+- Five types alone, no others: 842 `FX_GLAD_SM_HIT`, 843 `FX_SERA_SM_HIT`, 860 `FX_ELVE_SM_HIT`, 862 `FX_VAMP_SM_HIT`, 864 `FX_DARK_SM_HIT`, of the FX events' kinds `0x42`, `0x44`, `0x55`, `0x57` and `0x59`.
+  Their handler's cases (`0x5A522D`, `0x5A527D`, `0x5A52A3`) follow the event's `+0x08`, the struck creature, at the bone of its `+0x38`, and the system flag `0x40` places the system there once, at its first draw.
+- The heroes' executors make one right after each strike they send (`0x4EA3F0`), with no test of whether it lands, so a miss sparks too; the event's `+0x3C` is the art's id.
+  The bone is 3 (`Bip01 Neck`), or 0 (`__Root`) where the struck model has no neck (`0x44CB80`); the kicks' sparks burst at the kicker's own foot (36 `Bip01 R Foot` for the Gladiator's 1060 and the Vampiress's 1041 and 1076, 37 `Bip01 L Foot` for the Seraphim's 1072), the Dark Elf's kick's at its target's neck (**hypothesis** on whose).
+- By the art: 842 for the Gladiator's `Attacke`, `Hardhit`, `Rundum`, 1012 and his roar 1014 at each creature roared at, the Dwarf's `Attacke`, `Hardhit`, `Rundum` and 1084, the Daemon's `Attacke` and his charge's landing 1091, and the Vampiress's kick; 843 for the Seraphim's `Attacke`, `Hardhit`, `Rundum`, 1020, 1054 and her jump 1017 (at the struck's root), and the Mage's `Hardhit` and `Rundum` (1001, 1000); 860 for the Wood Elf's `Attacke`, `Hardhit` and `Rundum` and the Mage's `Attacke` (1002); 862 for the Vampiress's, by day and by night; 864 for the Dark Elf's and her kick.
+  The Dwarf's `Attacke` and `Hardhit` with a gun make none, but the gun's 1172 and 1151 (`0x514DC4` to `0x515011`); the other arts make none.
+- The object is made at the striker's place, which it keeps: its light, 200, lies there while the sparks fly at the struck creature.
+- Its burst, the same in the five classes' starts' default (`0x78F180`, `0x790340`, `0x791410`, `0x7938D0`, `0x794CE0`): every particle at once at its first update, a buoyancy of 180 ± 40 (they fall), a size of 6 ± 1 shrinking by 4 a second, the velocity (0, 0, 60) ± 40 and the place ± 10 on each axis, living 1.275 s (the life's rate −200); drawn as billboards with the flags `0x19`, `ONE`, `ONE` (`0x761BA2`: the bit 1 makes the destination `ONE`, the bit `0x10` the source, `0x643430`), not turned, not tinted, in a ramp from its colour at the birth to black, so that the ramp's alpha of 0 adds nothing.
+  The counts and the colours: 842 600 green (127, 255, 127), 843 151 blue (127, 127, 255), 860 152 green, 862 250 red (255, 127, 127) of `PARTICLE_GLOW07` rather than `SPARK06`, 864 153 yellow (255, 255, 127).
+- The other values of `+0x3C` are no hits: 842's 1015 and 1016, the Gladiator's rings under him, and 1077, a horse's floops; 843's 1003, a burst of its own with the screen's quake (kind 7, 30), which only the Seraphim's executor reaches; 860's 1007, a ring at the club arrow's hit; 862's 1030, 1031 and 1033, the Vampiress's bites and her skull's curse; 864's 1042, 1046 to 1048 and 16, the Dark Elf's symbols and her hands' sparks.
+- **Seen** 2026-11-04 with the driver of #448 at the Seraphim's start: her `Attacke` (1071) on a goblin bursts a white glow of sparks at the strike, which scatter violet-blue and fall within about a second.
+
+`opensacred-game` follows the hits' bursts since #1092 (`hit_sparks`, `opensacred_rules::particles::{sparks_of, hit_sparks}`): each strike of a hero's art that the table names sends its sparks from `making`, drawn as the bursts of `puffs`, untinted, with the light at the striker; **seen** beside the original at the Seraphim's start, a white burst at the goblin as she strikes and violet-blue sparks falling about it.
+Not followed: the other values' looks, the thrown weapons' hits' 864 (`0x44E570`) and the Wood Elf's arrows' 860 (`0x5BC660`, `0x5BC965`), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
+
 ### Not followed here
 
 The birds over the camera (`0x637060`, docs/re/weather.md) are models, not effects.
@@ -310,10 +329,10 @@ The families, by what they need beyond the machinery:
    The simplest first: the variants 10 to 12 (`FX_FIRE_L`), then 4 to 6 (with the hit of 5 and 6 already a rule), 1 to 3, 8 and 9, 7 (its timer and sound), 13.
 3. **The torches' flame** (787): a flip-book and a glow following the bone `weapon_fx01` of the item in hand, riding with its holder.
 4. **The butterflies** (873, #1073): the wander, the 8 × 8 flip-book with the alpha of the life, the fireflies' glows by the night's level.
-5. **The hit sparks**: `FX_SERA_SM_HIT` (843, 151 particles: a burst at once, buoyancy +180 ± 40, a size of 6 ± 1 shrinking by 4 a second, the velocity (0, 0, 60) ± 40, the place ± 10, a life of 1.275 s, `SPARK06` additive with a ramp from (127, 127, 255) at the birth to black, a light of 200, the system flag `0x40`: placed once at the bone the event names), and its kin `FX_ELVE_SM_HIT` (860), `FX_DARK_SM_HIT` (864), `FX_VAMP_SM_HIT` (862), `FX_GLAD_SM_HIT` (842, 600 particles with rings and floops), all `SPARK06` with the flags `0x19`; the art 1003's event value shakes the screen (kind 7, 30) and changes the burst.
+5. **The hit sparks** ("The hit sparks" above): a burst at the struck creature's neck at each strike of a hero's art, of its class's count and colour, `SPARK06` but the Vampiress's `GLOW07`, with the flags `0x19`; the Seraphim's class's 1003 shakes the screen (kind 7, 30) and changes the burst.
 6. **The spells' and the arts' objects**, a class each (docs/re/arts.md has their rules): the bolts first ("The bolts" below: the railgun's, the BFG's, the fireball's, 778's `FIRE01` flip-book, and the Daemon's), then the rings, the decals, the helices, the beams and the models' effects.
 
-The families 1 and 2 are done (`fx`, #1189), and so are 3 (`torches`, #1092) and 4 (`butterflies`, #1073), and of 6 the bolts (`bolt_looks`, #1092).
+The families 1 and 2 are done (`fx`, #1189), and so are 3 (`torches`, #1092), 4 (`butterflies`, #1073) and 5 (`hit_sparks`, #1092), and of 6 the bolts (`bolt_looks`, #1092).
 
 ## The catalogue
 
@@ -395,7 +414,7 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | freeze_impact | 15 | 872 | PARTICLE_SPARK06 | PARTICLE_SPARK06 `0x19/g1` | glow |  |  |
 | generic | 500 | 856 | ARROW2_GOLD, FX_HELIX01, FX_STREAKS02, PARTICLE_CLOUD01, PARTICLE_GLOW03, PARTICLE_SMOKE04, PARTICLE_SPARK02, PARTICLE_SPARK06 | PARTICLE_SPARK02 `5/g1`; PARTICLE_SPARK06 `0x11/g1`; PARTICLE_GLOW03 `0x19/g1`; PARTICLE_CLOUD01 `0xd/g1`; PARTICLE_CLOUD01 `0xd/g1`; PARTICLE_CLOUD01 `0xc/g1`; PARTICLE_SMOKE04 `0x4c/g1` | flat quad, helix, model | 100, 150 | 0x40 |
 | glad_sm_cast | 100 | 803 | FX_AURA, PARTICLE_SPARK06 | PARTICLE_SPARK06 `0x19/g1`; PARTICLE_SPARK06 `0x19/g1`; PARTICLE_SPARK06 `0x19/g1` | flat quad, glow |  | 0x200 |
-| glad_sm_hit | 600 | 842 | FX_GRADIENT3, FX_RINGX1, FX_RINGX2, FX_RINGX3, FX_RINGX4, FX_RINGX5, FX_RINGXGLOW, PARTICLE_FLOOP01, PARTICLE_GLOW03, PARTICLE_SPARK06 | PARTICLE_SPARK06 `0x19/g1`; PARTICLE_FLOOP01 `ebp/g?` | flat quad, ring | 200 | 0x200,0x202,0x3e800000,0x40 |
+| glad_sm_hit | 600 | 842 | FX_GRADIENT3, FX_RINGX1, FX_RINGX2, FX_RINGX3, FX_RINGX4, FX_RINGX5, FX_RINGXGLOW, PARTICLE_FLOOP01, PARTICLE_GLOW03, PARTICLE_SPARK06 | PARTICLE_SPARK06 `0x19/g1`; PARTICLE_FLOOP01 `ebp/g?` | flat quad, ring | 200 | 0x200,0x202,0x40 |
 | goblinimpact | 200 | 786 | PARTICLE_GLOW03, PARTICLE_LIGHTNING01, PARTICLE_LINE01 | PARTICLE_LINE01 `ebp/g?`; PARTICLE_LIGHTNING01 `ebp/g?` | flat quad |  |  |
 | grenadeimpact | 300 | 1020 | fx_dwarf_explosion1, fx_dwarf_explosion2, fx_dwarf_explosion3, fx_dwarf_explosion4, fx_krater04 | fx_dwarf_explosion3 `0x10d/g2` | flat quad, own geometry | 1048969216 | 0x3f7f0000,0x400 |
 | groundPoison | 200 | 792 | FX_GROUNDPOISON, FX_MAGICCIRCLE03, PARTICLE_SMOKE03 | PARTICLE_SMOKE03 `0x109/g2` | flat quad | 280 | 0x400 |

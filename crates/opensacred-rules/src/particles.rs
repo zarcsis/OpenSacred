@@ -1741,10 +1741,194 @@ impl Default for Torchsmoke {
     }
 }
 
+/// The combat arts' hit sparks (docs/re/effects.md, "The hit sparks"): the five classes of the
+/// heroes' strikes, `FX_GLAD_SM_HIT` (842), `FX_SERA_SM_HIT` (843), `FX_ELVE_SM_HIT` (860),
+/// `FX_VAMP_SM_HIT` (862) and `FX_DARK_SM_HIT` (864), which differ in their count, their colour and
+/// one texture alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sparks {
+    Glad,
+    Sera,
+    Elve,
+    Vamp,
+    Dark,
+}
+
+/// Where a strike's sparks burst: at the struck creature's neck (bone 3, `Bip01 Neck`), else its
+/// root (bone 0, where its model has no neck, `0x44CB80`); at its root (bone 0); or at the striker's
+/// own foot (the bones 36, the right, and 37, the left), as the kicks make them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SparksAt {
+    Neck,
+    Root,
+    RightFoot,
+    LeftFoot,
+}
+
+/// The sparks that a strike of the art `art` makes and where (the heroes' executors' sites,
+/// `0x4FF0B0` to `0x5192E0`, the FX events `0x42`, `0x44`, `0x55`, `0x57`, `0x59`), whether it lands
+/// or not: the `Attacke`s, `Hardhit`s and `Rundum`s of every class, the kicks, the Gladiator's
+/// 1012 and 1014, the Seraphim's 1017, 1020 and 1054, the Dwarf's 1084 and the Daemon's 1091;
+/// none for the other arts.
+pub fn sparks_of(art: u16) -> Option<(Sparks, SparksAt)> {
+    let (sparks, at) = match art {
+        // The Gladiator's, the Dwarf's and the Daemon's, and the Vampiress's kick.
+        1012 | 1014 | 1057..=1059 | 1078..=1080 | 1084 | 1091 | 1092 => {
+            (Sparks::Glad, SparksAt::Neck)
+        }
+        1060 | 1041 | 1076 => (Sparks::Glad, SparksAt::RightFoot),
+        // The Seraphim's, and the Mage's `Hardhit` and `Rundum`.
+        1000 | 1001 | 1020 | 1054 | 1069..=1071 => (Sparks::Sera, SparksAt::Neck),
+        1072 => (Sparks::Sera, SparksAt::LeftFoot),
+        1017 => (Sparks::Sera, SparksAt::Root),
+        // The Wood Elf's, and the Mage's `Attacke`.
+        1002 | 1061..=1063 => (Sparks::Elve, SparksAt::Neck),
+        1038..=1040 | 1073..=1075 => (Sparks::Vamp, SparksAt::Neck),
+        1065..=1068 => (Sparks::Dark, SparksAt::Neck),
+        _ => return None,
+    };
+    Some((sparks, at))
+}
+
+impl Sparks {
+    /// Its particles (the class's whole count, burst at once).
+    pub fn count(self) -> usize {
+        match self {
+            Self::Glad => 600,
+            Self::Sera => 151,
+            Self::Elve => 152,
+            Self::Vamp => 250,
+            Self::Dark => 153,
+        }
+    }
+
+    /// Its texture: `PARTICLE_SPARK06`, the Vampiress's `PARTICLE_GLOW07`.
+    pub fn texture(self) -> &'static str {
+        match self {
+            Self::Vamp => "PARTICLE_GLOW07",
+            _ => "PARTICLE_SPARK06",
+        }
+    }
+
+    /// Its ramp's entry `i`, from the death (0) to the birth (255), with `h = ⌊i/2⌋`: the
+    /// Gladiator's and the Wood Elf's (h, i, h) green, the Seraphim's (h, h, i) blue, the
+    /// Vampiress's (i, h, h) red, the Dark Elf's (i, i, h) yellow; added whole, as the original's
+    /// `ONE`, `ONE` adds it whatever its alpha (`0x78F323`, `0x79054B`, `0x791530`, `0x793A10`,
+    /// `0x794E47`).
+    pub fn ramp(self) -> Ramp {
+        Ramp(std::array::from_fn(|i| {
+            let full = u8::try_from(i).unwrap_or(u8::MAX);
+            let (i, h) = (f32::from(full) / 255.0, f32::from(full / 2) / 255.0);
+            match self {
+                Self::Glad | Self::Elve => [h, i, h, 1.0],
+                Self::Sera => [h, h, i, 1.0],
+                Self::Vamp => [i, h, h, 1.0],
+                Self::Dark => [i, i, h, 1.0],
+            }
+        }))
+    }
+}
+
+/// The hit sparks' light, at the striker's place (`+0x9C`).
+pub const SPARKS_LIGHT: f32 = 200.0;
+/// How long the sparks live: their life's rate of −200 a second.
+pub const SPARKS_LIFE: f32 = 255.0 / 200.0;
+
+/// A strike's sparks of the class `sparks` (the default of the five classes' starts, `0x78F180`,
+/// `0x790340`, `0x791410`, `0x7938D0`, `0x794CE0`): all at once about the point it bursts at, each
+/// of a buoyancy of 180 ± 40, so that it falls, a size of 6 ± 1 shrinking by 4 a second, the
+/// velocity (0, 0, 60) ± 40 and the place ± 10 on each axis, living 1.275 s, drawn added and not
+/// turned (the flags `0x19`) in its class's ramp. Its light ([`SPARKS_LIGHT`]) is not the burst's:
+/// it lies at the striker.
+pub fn hit_sparks(sparks: Sparks, dice: &mut impl Dice) -> Burst {
+    let block = Block {
+        buoyancy: spread(180.0, 40.0),
+        size: spread(6.0, 1.0),
+        velocity: spread([0.0, 0.0, 60.0], [40.0; 3]),
+        offset: spread([0.0; 3], [10.0; 3]),
+        ..Block::default()
+    };
+    let particles = (0..sparks.count())
+        .map(|_| Particle {
+            place: spread_3(block.offset, dice),
+            velocity: spread_3(block.velocity, dice),
+            buoyancy: spread_f32(block.buoyancy, dice),
+            size: spread_f32(block.size, dice),
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+        })
+        .collect();
+    Burst {
+        texture: sparks.texture(),
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            life: -200.0,
+            size: -4.0,
+            ..Layer::default()
+        },
+        ramp: sparks.ramp(),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_strike_spills_its_classs_sparks_and_they_fall_and_go() {
+        let mut dice = Rng::of(3, 4, 5);
+        let mut burst = hit_sparks(Sparks::Sera, &mut dice);
+        assert_eq!(burst.particles.len(), 151);
+        assert_eq!(burst.texture, "PARTICLE_SPARK06");
+        assert_eq!(
+            hit_sparks(Sparks::Vamp, &mut dice).texture,
+            "PARTICLE_GLOW07"
+        );
+        // Born blue (127, 127, 255), dying black.
+        let born = burst.ramp.at(255.0);
+        assert!((born[0] - 127.0 / 255.0).abs() < 1e-6 && (born[2] - 1.0).abs() < 1e-6);
+        assert_eq!(burst.ramp.at(0.0), [0.0, 0.0, 0.0, 1.0]);
+        let mut system = System::new(burst.particles.len());
+        system.particles = std::mem::take(&mut burst.particles);
+        let layers = [burst.layer];
+        for _ in 0..20 {
+            system.update(0.025, &layers);
+        }
+        // Half a second on, they have risen at most some 60 and come back down.
+        assert!(system.particles.iter().all(|spark| spark.place[2] < 60.0));
+        for _ in 0..40 {
+            system.update(0.025, &layers);
+        }
+        assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn the_arts_spark_by_their_classes() {
+        assert_eq!(sparks_of(1059), Some((Sparks::Glad, SparksAt::Neck)));
+        assert_eq!(sparks_of(1072), Some((Sparks::Sera, SparksAt::LeftFoot)));
+        assert_eq!(sparks_of(1060), Some((Sparks::Glad, SparksAt::RightFoot)));
+        assert_eq!(sparks_of(1041), Some((Sparks::Glad, SparksAt::RightFoot)));
+        assert_eq!(sparks_of(1002), Some((Sparks::Elve, SparksAt::Neck)));
+        assert_eq!(sparks_of(1001), Some((Sparks::Sera, SparksAt::Neck)));
+        assert_eq!(sparks_of(1017), Some((Sparks::Sera, SparksAt::Root)));
+        assert_eq!(sparks_of(1074), Some((Sparks::Vamp, SparksAt::Neck)));
+        assert_eq!(sparks_of(1068), Some((Sparks::Dark, SparksAt::Neck)));
+        // The jumps of the Gladiator and the Vampiress, the throw and the spells, none.
+        assert_eq!(sparks_of(1003), None);
+        assert_eq!(sparks_of(1032), None);
+        assert_eq!(sparks_of(1013), None);
+        assert_eq!(sparks_of(5), None);
+    }
 
     #[test]
     fn a_torch_burns_a_tongue_of_flames_and_goes_out_with_its_last() {
