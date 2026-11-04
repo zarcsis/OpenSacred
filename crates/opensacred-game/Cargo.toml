@@ -19,6 +19,8 @@ anyhow.workspace = true
 bevy.workspace = true
 bevy_kira_audio.workspace = true
 clap.workspace = true
+# The game's own texts, Fluent files of the crate (`own_texts`, #1986).
+fluent-syntax.workspace = true
 kira.workspace = true
 opensacred-data.workspace = true
 opensacred-rules.workspace = true

@@ -4756,6 +4756,7 @@ dependencies = [
  "bevy",
  "bevy_kira_audio",
  "clap",
+ "fluent-syntax",
  "kira",
  "opensacred-data",
  "opensacred-rules",

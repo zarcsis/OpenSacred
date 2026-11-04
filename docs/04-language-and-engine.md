@@ -224,6 +224,7 @@ The direct dependencies of `[workspace.dependencies]` in `Cargo.toml` and what B
 | Audio decoders: the game's Ogg Opus (#701), decoded whole into Kira's static sounds by the game's `opus` | symphonia (its Ogg demuxer), symphonia-adapter-libopus, opusic-sys (libopus 1.5, built with CMake), kira | 0.6.1, 0.3.0, 0.7.6, 0.12.5 | MPL-2.0; MIT or Apache-2.0; BSD-3-Clause; MIT or Apache-2.0 |
 | Serialization | serde, ron, postcard, serde_json | 1.0.229, 0.12.2, 1.1.3, 1.0.154 | MIT or Apache-2.0 |
 | Settings file (comments and order kept) | toml_edit | 0.25.17 | MIT or Apache-2.0 |
+| The game's own texts, Fluent files of `opensacred-game`'s `text/` (#1986) | fluent-syntax | 0.12.0 | MIT or Apache-2.0 |
 | Binary format parsing | our own `opensacred_formats::reader::Reader`; binrw, zerocopy and bytemuck are not used (see above) | — | — |
 | Compression | miniz_oxide (zlib: decompression with an output size limit, and the zlib stream of the postcard files) | 0.9.1 | MIT, Zlib or Apache-2.0 |
 | The game's archives (#699) | a reader and writer of their own in `opensacred-data` (`archive`) over miniz_oxide and crc32fast | — | — |

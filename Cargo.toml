@@ -74,6 +74,7 @@ bevy = { version = "0.20.0", default-features = false, features = [
 bevy_kira_audio = { version = "0.27.1", default-features = false, features = ["ogg"] }
 clap = { version = "4.6.7", features = ["derive"] }
 crc32fast = "1.5.2"
+# Fluent: the converter's texts read back in its tests, and the game's own texts (#1986).
 fluent-syntax = "0.12.0"
 # The free space of the disk that the player's conversion writes to (#1497).
 fs4 = "1.1.0"
