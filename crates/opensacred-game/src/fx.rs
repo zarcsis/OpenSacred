@@ -565,6 +565,34 @@ impl Quads {
             .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
     }
 
+    /// A flat ring about `centre` between the radii `inner` and `outer` in world units, of
+    /// `segments` quads in `colour`, each the texture's width along it and its height from the
+    /// inner radius out (`0x763530`: the rings of poison and of the fear).
+    pub(crate) fn push_ring(
+        &mut self,
+        centre: Vec3,
+        (inner, outer): (f32, f32),
+        segments: u16,
+        colour: [f32; 4],
+    ) {
+        let edge = |k: u16, radius: f32| {
+            let angle = std::f32::consts::TAU * f32::from(k) / f32::from(segments.max(1));
+            centre + Vec3::new(angle.sin(), 0.0, angle.cos()) * radius
+        };
+        for k in 0..segments {
+            self.push_corners(
+                [
+                    edge(k, inner),
+                    edge(k, outer),
+                    edge(k + 1, outer),
+                    edge(k + 1, inner),
+                ],
+                [Vec2::ZERO, Vec2::Y, Vec2::ONE, Vec2::X],
+                colour,
+            );
+        }
+    }
+
     /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
     /// as the renderer warns of a mesh without vertices (#1203).
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {

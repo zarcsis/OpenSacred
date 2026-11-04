@@ -1498,7 +1498,7 @@ fn act(
                 for k in 0..5u8 {
                     let angle = spells::FEAR_ANGLE + spells::FEAR_STEP * f32::from(k);
                     let at = here + Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::FEAR_FROM;
-                    let mut made = commands.spawn((
+                    commands.spawn((
                         Aura {
                             caster: act.caster,
                             follows: None,
@@ -1514,20 +1514,13 @@ fn act(
                         },
                         Transform::from_translation(at),
                         Visibility::Inherited,
+                        // It looks as its system (`hell_screams`).
+                        crate::hell_screams::Look {
+                            seconds: spells::FEAR_LIFE,
+                            level: body.level(),
+                        },
                         DespawnOnExit(AppState::InGame),
                     ));
-                    if let Some(looks) = &looks {
-                        made.with_child((
-                            Mesh3d(looks.disc.clone()),
-                            MeshMaterial3d(looks.discs[5].clone()),
-                            Transform::from_scale(Vec3::new(
-                                spells::FEAR_REACH,
-                                2.0,
-                                spells::FEAR_REACH,
-                            ))
-                            .with_translation(Vec3::Y * 4.0),
-                        ));
-                    }
                 }
             }
             // The Wood Elf's summoning at the order's point, which makes her creature of
