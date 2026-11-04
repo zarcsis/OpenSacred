@@ -150,7 +150,11 @@ fn burn(
     torches: Query<Option<&InheritedVisibility>, With<Wielded>>,
     holders: Query<&GlobalTransform>,
     mut crackles: Query<&mut Transform, With<Hum>>,
-    (children, bones): (Query<&Children>, Query<(&Name, &GlobalTransform)>),
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     mut meshes: ResMut<Assets<Mesh>>,
     mut rolls: ResMut<Rolls>,
 ) {
@@ -160,7 +164,7 @@ fn burn(
         let mut bone = None;
         if let Some(torch) = flame.torch {
             if let Ok(shown) = torches.get(torch) {
-                let at = crate::making::bone(torch, &BONE, &children, &bones);
+                let at = crate::making::bone(torch, &BONE, &children, (&bones, &worn));
                 let Some(at) = at.filter(|_| shown.is_none_or(|shown| shown.get())) else {
                     // Hidden, or its bone not yet in place: nothing drawn, nothing left behind.
                     *visibility = Visibility::Hidden;

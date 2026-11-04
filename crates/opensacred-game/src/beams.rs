@@ -139,17 +139,16 @@ fn joints(from: Vec3, to: Vec3, (segment, across): (f32, Vec3), wobble: &[f32]) 
 
 /// Ages each beam, joins its ends' spines by its chain of segments facing the camera, and takes it
 /// away after its second or where either end is gone.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
-)]
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut beams: Query<(Entity, &mut Beam)>,
     places: Query<&GlobalTransform>,
-    children: Query<&Children>,
-    bones: Query<(&Name, &GlobalTransform)>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     mut meshes: ResMut<Assets<Mesh>>,
     mut rolls: ResMut<Rolls>,
 ) {
@@ -158,7 +157,7 @@ fn run(
     for (entity, mut beam) in &mut beams {
         beam.age += dt;
         let spine = |of: Entity| {
-            crate::making::bone(of, &SPINE, &children, &bones).or_else(|| {
+            crate::making::bone(of, &SPINE, &children, (&bones, &worn)).or_else(|| {
                 places
                     .get(of)
                     .ok()

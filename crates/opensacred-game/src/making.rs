@@ -439,16 +439,24 @@ pub(crate) fn aim(
     }
 }
 
-/// The world point of the first of `names` among `root`'s descendants.
+/// The worn items' models (`npcs::WornBy`), whose nodes of their wearers' bones' names keep their
+/// rest pose under their wearers, their skinned meshes following the wearers' bones (#2030).
+pub(crate) type Worn<'w, 's> = Query<'w, 's, (), With<crate::npcs::WornBy>>;
+
+/// The world point of the first of `names` among `root`'s descendants, but its worn items'
+/// ([`Worn`]).
 pub(crate) fn bone(
     root: Entity,
     names: &[&str],
     children: &Query<&Children>,
-    bones: &Query<(&Name, &GlobalTransform)>,
+    (bones, worn): (&Query<(&Name, &GlobalTransform)>, &Worn),
 ) -> Option<Vec3> {
     let mut found: Option<(usize, Vec3)> = None;
     let mut stack = vec![root];
     while let Some(entity) = stack.pop() {
+        if entity != root && worn.contains(entity) {
+            continue;
+        }
         if let Ok((name, at)) = bones.get(entity)
             && let Some(rank) = names.iter().position(|n| *n == name.as_str())
             && found.is_none_or(|(best, _)| rank < best)
@@ -542,11 +550,12 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    (nearest, heights, mut fires, mut sparks): (
+    (nearest, heights, mut fires, mut sparks, worn): (
         Res<crate::crowd::Nearest>,
         Res<crate::terrain::Heights>,
         MessageWriter<crate::sfx::Gunfire>,
         MessageWriter<Spark>,
+        Worn,
     ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
@@ -1007,7 +1016,7 @@ fn make(
                     continue;
                 }
                 if let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) {
-                    let neck = bone(hero, &[crate::arrows::NECK], &children, &bones)
+                    let neck = bone(hero, &[crate::arrows::NECK], &children, (&bones, &worn))
                         .unwrap_or(here + Vec3::Y * 100.0);
                     crate::spells::kiss(
                         &mut commands,
@@ -2381,8 +2390,8 @@ fn make(
                     continue;
                 };
                 let radius = |reach| rundum_radius(record, playing.level, reach);
-                let point = bone(hero, &WEAPON_BONES, &children, &bones)
-                    .or_else(|| bone(hero, &[HAND_BONE], &children, &bones))
+                let point = bone(hero, &WEAPON_BONES, &children, (&bones, &worn))
+                    .or_else(|| bone(hero, &[HAND_BONE], &children, (&bones, &worn)))
                     .unwrap_or(here);
                 let found: Vec<(Entity, Candidate)> = creatures
                     .iter()
@@ -2507,8 +2516,7 @@ fn blades(
         ),
         (Without<Dies>, Without<Body>),
     >,
-    children: Query<&Children>,
-    bones: Query<(&Name, &GlobalTransform)>,
+    (children, bones, worn): (Query<&Children>, Query<(&Name, &GlobalTransform)>, Worn),
     (mut hits, mut sparks): (MessageWriter<fight::Hit>, MessageWriter<Spark>),
 ) {
     if tick.seconds.is_none() {
@@ -2521,7 +2529,7 @@ fn blades(
         let Some(blade) = blade.copied() else {
             continue;
         };
-        let Some(point) = bone(hero, &blade_bones(blade), &children, &bones) else {
+        let Some(point) = bone(hero, &blade_bones(blade), &children, (&bones, &worn)) else {
             continue;
         };
         let touched = creatures
@@ -2787,6 +2795,35 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wearers_bone_is_its_own_not_its_worn_items() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let at = |y: f32| GlobalTransform::from_translation(Vec3::Y * y);
+        let wearer = world.spawn(GlobalTransform::IDENTITY).id();
+        world.spawn((Name::new(HAND_BONE), at(60.0), ChildOf(wearer)));
+        // The worn item's node of the same name, at its rest pose, its last child, met first.
+        let piece = world
+            .spawn((
+                crate::npcs::WornBy(wearer),
+                GlobalTransform::IDENTITY,
+                ChildOf(wearer),
+            ))
+            .id();
+        world.spawn((Name::new(HAND_BONE), at(-36.0), ChildOf(piece)));
+        let found = world
+            .run_system_once(
+                move |children: Query<&Children>,
+                      bones: Query<(&Name, &GlobalTransform)>,
+                      worn: Worn| {
+                    bone(wearer, &[HAND_BONE], &children, (&bones, &worn))
+                },
+            )
+            .ok()
+            .flatten();
+        assert_eq!(found, Some(Vec3::Y * 60.0));
+    }
 
     #[test]
     fn the_heroes_arts_play_their_models_clips_with_their_hit_points() {

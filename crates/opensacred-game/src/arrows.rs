@@ -135,8 +135,11 @@ fn loose(
     rules: Option<Res<fight::Rules>>,
     effects: Query<&crate::effects::Effects, With<Body>>,
     assets: Res<AssetServer>,
-    children: Query<&Children>,
-    names: Query<&Name>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     places: Query<&GlobalTransform>,
     ways: Query<&InTheWay>,
 ) {
@@ -149,11 +152,7 @@ fn loose(
             continue;
         };
         let bone = |root: Entity, name: &str| {
-            children
-                .iter_descendants(root)
-                .find(|&e| names.get(e).is_ok_and(|n| n.as_str() == name))
-                .and_then(|e| places.get(e).ok())
-                .map(GlobalTransform::translation)
+            crate::making::bone(root, &[name], &children, (&bones, &worn))
         };
         let from =
             bone(shot.shooter, HAND).unwrap_or(shooter.translation() + Vec3::Y * HAND_HEIGHT);
