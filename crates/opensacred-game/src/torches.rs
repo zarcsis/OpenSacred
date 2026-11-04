@@ -32,7 +32,7 @@ const LIT: [&str; 2] = ["torch_small_on", "torch_large_on"];
 const BONE: [&str; 1] = ["weapon_fx01"];
 
 /// Whether the model `model`, a file `<number>-<name>.glb`, is a lit torch's ([`LIT`]).
-fn lit(model: &str) -> bool {
+pub(crate) fn lit(model: &str) -> bool {
     std::path::Path::new(model)
         .file_stem()
         .and_then(|stem| stem.to_str())

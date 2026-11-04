@@ -34,9 +34,9 @@ use bevy::asset::embedded_asset;
 use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
-    AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, GlobalTransform,
-    IntoScheduleConfigs, OnExit, Plugin, PostUpdate, Projection, Query, Res, ResMut, Resource,
-    StandardMaterial, Startup, Time, Transform, Update, With, Without, default,
+    AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, Entity,
+    GlobalTransform, IntoScheduleConfigs, OnExit, Plugin, PostUpdate, Projection, Query, Res,
+    ResMut, Resource, StandardMaterial, Startup, Time, Transform, Update, With, Without, default,
 };
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
@@ -475,21 +475,47 @@ fn holds_torch(sets: Option<&crate::sets::WeaponSets>) -> bool {
     clippy::cast_precision_loss,
     reason = "a level from 0 to 255 and a count of 32 in floats of the shader"
 )]
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
 pub fn light(
     clock: Res<Clock>,
     dungeons: Res<Dungeons>,
     (hero_light, sets): (Res<HeroLight>, Option<Res<crate::sets::WeaponSets>>),
     mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
-    hero: Query<&Transform, With<crate::hero::Body>>,
+    hero: Query<(Entity, &Transform), With<crate::hero::Body>>,
     lights: Query<(&Transform, &Light), Without<crate::hero::Body>>,
+    (followers, held): (
+        Query<(Entity, &Transform, &crate::followers::Follower)>,
+        Query<(&crate::npcs::Piece, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
+    ),
 ) {
     let minutes = clock.minutes();
     let level = level(minutes) as f32;
-    let dungeon = hero
-        .iter()
-        .next()
-        .is_some_and(|t| dungeons.holds(t.translation.x, t.translation.z));
-    let torch = holds_torch(sets.as_deref());
+    let hero = hero.iter().next();
+    let dungeon = hero.is_some_and(|(_, t)| dungeons.holds(t.translation.x, t.translation.z));
+    let radius = |doubled, torch| hero_radius(phase(minutes), level, dungeon, (doubled, torch));
+    // The hero's light, and its followers', each lit as a hero by its own items, of a type that
+    // doubles none (`0x54A7DE`: a creature of the flags `0x104` whose master is the player).
+    let heroes: Vec<(Vec3, f32)> = hero
+        .map(|(_, t)| {
+            let torch = holds_torch(sets.as_deref());
+            (t.translation, radius(hero_light.doubled, torch))
+        })
+        .into_iter()
+        .chain(
+            followers
+                .iter()
+                .filter(|(_, _, follower)| hero.is_some_and(|(hero, _)| follower.master == hero))
+                .map(|(follower, t, _)| {
+                    let torch = held.iter().any(|(piece, &crate::models::OrderedWith(by))| {
+                        by == follower && crate::torches::lit(piece.model())
+                    });
+                    (t.translation, radius(false, torch))
+                }),
+        )
+        .collect();
     for (camera, view, projection, mut night) in &mut cameras {
         let Some(size) = camera.logical_viewport_size() else {
             continue;
@@ -507,16 +533,9 @@ pub fn light(
                 .ok()
                 .map(|p| Vec2::new(p.x / size.x, p.y / size.y))
         };
-        let mut found: Vec<(Vec2, f32)> = hero
+        let mut found: Vec<(Vec2, f32)> = heroes
             .iter()
-            .filter_map(|t| {
-                uv(t.translation).map(|p| {
-                    (
-                        p,
-                        hero_radius(phase(minutes), level, dungeon, (hero_light.doubled, torch)),
-                    )
-                })
-            })
+            .filter_map(|&(at, r)| uv(at).map(|p| (p, r)))
             .chain(
                 lights
                     .iter()
