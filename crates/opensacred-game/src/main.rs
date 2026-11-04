@@ -111,6 +111,7 @@ mod pick;
 mod pickup;
 mod place_names;
 mod points;
+mod poison_rings;
 mod puffs;
 mod purchase;
 mod quest_book;
@@ -481,6 +482,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         pause::PausePlugin,
         pickup::PickupPlugin,
         points::PointsPlugin,
+        poison_rings::PoisonRingsPlugin,
         puffs::PuffsPlugin,
         purchase::PurchasePlugin,
         quest_book::QuestBookPlugin,

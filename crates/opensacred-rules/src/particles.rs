@@ -1786,6 +1786,104 @@ pub fn walloffire() -> Fire {
     }
 }
 
+/// The look of the Daemon's ring of poison 1101, `cParticleSystem_ringofpoison`
+/// (`FX_RINGOFPOISON`, 1008, its start `0x7AF840`, its run `0x7AF550` and its draw `0x7AF650`;
+/// docs/re/effects.md, "The ring of poison"), which lies where it was made for 3 s: its burst of
+/// sparks ([`ring_sparks`]) and a screen's quake of 30 at its start, its ring spreading over the
+/// ground ([`poison_ring`]) and its two twirls turning on it ([`poison_twirls`]), its light 200.
+pub const POISON_RING_LIVES: f32 = 3.0;
+pub const POISON_RING_LIGHT: f32 = 200.0;
+pub const POISON_RING_QUAKE: u32 = 30;
+/// The ring's texture, its segments, the twirls' texture and colour (`0xFF41FF42`).
+pub const POISON_RING_TEXTURE: &str = "fx_ringofpoison01";
+pub const POISON_RING_SEGMENTS: u16 = 50;
+pub const POISON_TWIRL_TEXTURE: &str = "Fx_twirl_rays";
+pub const POISON_TWIRL_COLOUR: [f32; 4] = [65.0 / 255.0, 1.0, 66.0 / 255.0, 1.0];
+
+/// The ring of poison's ring at its clock `t` (`0x763530`): flat on the ground, 50 segments
+/// between the radii `150 t` and 40 more, each segment the texture's width along it and its height
+/// from the inner radius out, added whole, of the colour (34, 128, 34) times a share that holds
+/// 1 to 0.45 s and falls to 0 at 0.75 s; none from then.
+pub fn poison_ring(t: f32) -> Option<(f32, f32, [f32; 4])> {
+    if !(0.0..0.75).contains(&t) {
+        return None;
+    }
+    let share = if t < 0.45 {
+        1.0
+    } else {
+        1.0 - (t - 0.45) * (10.0 / 3.0)
+    };
+    // The bytes rounded toward 0, as `__ftol`.
+    let byte = |value: f32| (value * share).trunc() / 255.0;
+    let inner = 150.0 * t;
+    Some((
+        inner,
+        inner + 40.0,
+        [byte(34.0), byte(128.0), byte(34.0), 1.0],
+    ))
+}
+
+/// The ring of poison's twirls at its clock `t` (`0x7631E0` twice): flat quads at its place of
+/// the half sides `100 (1 − (t/3)²)` and `90 (1 − (t/3)²)`, turned by `−1.7 t` and `−1.3 t`
+/// radians, of [`POISON_TWIRL_TEXTURE`] in [`POISON_TWIRL_COLOUR`] added whole; none from 3 s.
+pub fn poison_twirls(t: f32) -> Option<[(f32, f32); 2]> {
+    let share = t / POISON_RING_LIVES;
+    if !(0.0..1.0).contains(&share) {
+        return None;
+    }
+    let shrink = 1.0 - share * share;
+    Some([(100.0 * shrink, -1.7 * t), (90.0 * shrink, -1.3 * t)])
+}
+
+/// The ring of poison's sparks at its start (`0x7AF840`, `0x764760` of the interval 0): its 150
+/// particles of `PARTICLE_SPARK06` at once within 7 of its place along x and y, shot up at
+/// 150 ± 40 (± 40 across) and falling back at a buoyancy of 180 ± 40, of a half side of 7 ± 2
+/// shrinking by 6 a second, living 1.5 s, white for their first 100 entries and fading to black
+/// over the rest, added whole (the flags `0x19`), not turned.
+pub fn ring_sparks(dice: &mut impl Dice) -> Burst {
+    let block = Block {
+        buoyancy: spread(180.0, 40.0),
+        size: spread(7.0, 2.0),
+        velocity: spread([0.0, 0.0, 150.0], [40.0; 3]),
+        offset: spread([0.0; 3], [7.0, 7.0, 0.0]),
+        ..Block::default()
+    };
+    let particles = (0..RING_SPARKS)
+        .map(|_| Particle {
+            place: spread_3(block.offset, dice),
+            velocity: spread_3(block.velocity, dice),
+            buoyancy: spread_f32(block.buoyancy, dice),
+            size: spread_f32(block.size, dice),
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+        })
+        .collect();
+    let white = [254.0 / 255.0, 254.0 / 255.0, 254.0 / 255.0, 1.0];
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            life: -170.0,
+            size: -6.0,
+            ..Layer::default()
+        },
+        // Its alpha is 0 in the original's, which its source `ONE` does not take.
+        ramp: Ramp::new(white, &[(white, 100), ([0.0, 0.0, 0.0, 1.0], 156)]),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
+/// The ring of poison's particles (`0x5A0C50`'s count for the type 1008), all of its burst.
+const RING_SPARKS: usize = 150;
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2096,6 +2194,39 @@ mod tests {
         // Its grey up over its first entries, held, and gone at its death.
         assert!((wall.ramps[0].at(200.0)[0] - 199.0 / 255.0).abs() < 1e-6);
         assert_eq!(wall.ramps[0].at(0.0)[0], 0.0);
+    }
+
+    #[test]
+    fn the_ring_of_poison_spreads_fades_and_its_twirls_shrink_over_3_s() {
+        // The ring: 40 wide from 150 t, green, held to 0.45 s, gone at 0.75 s.
+        let (inner, outer, colour) = poison_ring(0.2).unwrap_or_default();
+        assert!((inner - 30.0).abs() < 1e-4 && (outer - 70.0).abs() < 1e-4);
+        assert_eq!(colour, [34.0 / 255.0, 128.0 / 255.0, 34.0 / 255.0, 1.0]);
+        let (_, _, fading) = poison_ring(0.55).unwrap_or_default();
+        assert_eq!(fading[1], 85.0 / 255.0);
+        assert!(poison_ring(0.75).is_none());
+        // The twirls: whole at the start, turning the other way at their two rates, gone at 3 s.
+        assert_eq!(poison_twirls(0.0), Some([(100.0, 0.0), (90.0, 0.0)]));
+        let [(half, angle), (_, other)] = poison_twirls(1.5).unwrap_or_default();
+        assert!((half - 75.0).abs() < 1e-4 && (angle + 2.55).abs() < 1e-4);
+        assert!((other + 1.95).abs() < 1e-4);
+        assert!(poison_twirls(POISON_RING_LIVES).is_none());
+        // The sparks: 150 at once, shot up and falling back, gone within 1.5 s.
+        let mut dice = Rng::of(11, 0x8, 4);
+        let mut burst = ring_sparks(&mut dice);
+        assert_eq!(burst.particles.len(), 150);
+        assert!(
+            burst
+                .particles
+                .iter()
+                .all(|p| p.place[2] == 0.0 && (110.0..=190.0).contains(&p.velocity[2]))
+        );
+        let mut system = System::new(150);
+        system.particles = std::mem::take(&mut burst.particles);
+        for _ in 0..61 {
+            system.update(0.025, &[burst.layer]);
+        }
+        assert!(system.particles.is_empty());
     }
 
     #[test]

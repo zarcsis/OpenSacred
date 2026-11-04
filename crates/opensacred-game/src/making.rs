@@ -550,12 +550,13 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    (nearest, heights, mut fires, mut sparks, worn): (
+    (nearest, heights, mut fires, mut sparks, worn, mut rings): (
         Res<crate::crowd::Nearest>,
         Res<crate::terrain::Heights>,
         MessageWriter<crate::sfx::Gunfire>,
         MessageWriter<Spark>,
         Worn,
+        MessageWriter<crate::poison_rings::Made>,
     ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
@@ -1851,6 +1852,8 @@ fn make(
                             making.art,
                             burned.len()
                         );
+                        // Its look, the object 1008 at him (`0x51B46E`).
+                        rings.write(crate::poison_rings::Made { at: here });
                         commands
                             .entity(hero)
                             .entry::<crate::burns::Burns>()
