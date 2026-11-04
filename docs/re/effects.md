@@ -212,6 +212,7 @@ Two kinds, by their pixels (counted 2026-10-27): white with an alpha mask, tinte
 ## Lights
 
 - An FX object gives light through its system: its draw (`0x5A9C50`) adds to the frame's table of lights (`0x41B200`, docs/re/daynight.md) the object's world place with the system's radius `+0x9C`, at each frame it is drawn, where the radius is above 0.
+  The place is the object's `+0x1C`, `+0x20` on the ground at the height 0 (`0x5AA26E`, `0x41B200` into `0x622620`), whatever the height its system draws at; the table takes it by night or in a dungeon alone, of a radius above 10.
   The radii the classes' starts set: the fires 280, 370 and 530 (variants 10, 11, 12) and the fire smokes alike (4, 5, 6), the magic fire 230, the fireball 250, the fire strike 200, the burning bone 150, the dwarf's magic 350 or 400, the gates and the spells others (the catalogue).
 - The draw lists' path for an object of the type flag `2` (`0x631358`) adds a light only for a creature (a cast to `cCreature`, then `0x54A7B0`), so the items table's radius of an FX type (`+0x32` with the flag `0x20000`) gives no light; nor are FX types statics, whose radius `0x41B170` takes.
 - The torch's flame gives none of its own: the torch's light is the hero's rule (docs/re/daynight.md: 300 in a dungeon, half as much again outside, from the types `0x1600` and `0x1601` in the creature's objects).
@@ -568,7 +569,8 @@ Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540
 
 The four bolts look as their systems since #1092's first family (`bolt_looks`, `opensacred_rules::particles::{Firestrike, Emperor, bfg_greys, age_frame}`): each look an entity of its own that follows its bolt and outlives it as its system does (the fireball's flames burning out, the emperor's flare on its target's neck), told of its bolt's end (`bolt_looks::Ended`), untinted by the night, their sizes at the models' scale.
 Their flight follows the frame's map since #2018 (`bolts::flight_scale`), every bolt's: the railgun's, the BFG's, the fireball's, the Daemon's, the whirlwinds', the splinters', the bubble's and the fire bolt's.
-Not followed: their lights and the fireball's point light (#61), the looks of a caster gone (`+0xA9` 1), and the bolts' height, which the game keeps 80 over the ground under them rather than their bones' (#2018).
+Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 and the fireball's 200, at their places on the ground at height 0 while their looks show, the fireball's while its flames burn out.
+Not followed: the fireball's point light on the models, the looks of a caster gone (`+0xA9` 1), and the bolts' height, which the game keeps 80 over the ground under them rather than their bones' (#2018).
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
 ## In `opensacred-game`
