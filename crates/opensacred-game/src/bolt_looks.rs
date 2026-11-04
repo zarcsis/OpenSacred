@@ -39,14 +39,16 @@ pub enum Kind {
     Emperor,
 }
 
-/// How a bolt ended (`bolts`): where, and the creature it hit first if it hit one, or whether it
-/// flew out its time rather than stopping at a cell it may not pass.
+/// How a bolt ended (`bolts`): where, and the creature it hit first if it hit one, whether it
+/// flew out its time rather than stopping at a cell it may not pass, and whether its system ends
+/// at once, under the ground (`+0x74` 1).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Ended {
     pub bolt: Entity,
     pub at: Vec3,
     pub hit: Option<Entity>,
     pub timed: bool,
+    pub at_once: bool,
 }
 
 /// A look to make for a bolt ([`make`]).
@@ -241,6 +243,10 @@ fn end(
             }
             look.bolt = None;
             look.place = ended.at;
+            if ended.at_once {
+                commands.entity(entity).despawn();
+                continue;
+            }
             match &mut look.system {
                 System::Railgun | System::Bfg => commands.entity(entity).despawn(),
                 System::Fireball(fireball) if ended.timed => fireball.out(),
@@ -277,6 +283,7 @@ fn run(
     ),
     mut meshes: ResMut<Assets<Mesh>>,
     mut rolls: ResMut<Rolls>,
+    heights: Res<crate::terrain::Heights>,
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut look, mut visibility) in &mut looks {
@@ -319,7 +326,10 @@ fn run(
                 false
             }
             System::Bfg => {
-                bfg(look.place, look.clock, &mut quads);
+                let ground = heights
+                    .standing(look.place.x, look.place.z, None)
+                    .unwrap_or(look.place.y - crate::bolts::HEIGHT);
+                bfg(look.place, look.clock, ground, &mut quads);
                 false
             }
             System::Fireball(fireball) => {
@@ -409,8 +419,9 @@ fn railgun(place: Vec3, direction: Vec2, hero: bool, quads: &mut [Quads]) {
 }
 
 /// The BFG's parts (`0x77F290`): its three glows in their greys of its clock `clock` at `place`,
-/// and its glow on the ground under it, laid flat.
-fn bfg(place: Vec3, clock: f32, quads: &mut [Quads]) {
+/// and its glow on the ground under it at the height `floor`, laid flat (its place less its
+/// height over the ground, `+0xA4`).
+fn bfg(place: Vec3, clock: f32, floor: f32, quads: &mut [Quads]) {
     let s = iso::MODEL_SCALE;
     for (part, grey) in quads.iter_mut().zip(particles::bfg_greys(clock)) {
         part.push(
@@ -422,7 +433,7 @@ fn bfg(place: Vec3, clock: f32, quads: &mut [Quads]) {
         );
     }
     if let Some(ground) = quads.get_mut(3) {
-        let at = place - Vec3::Y * (crate::bolts::HEIGHT - GROUND_LIFT);
+        let at = place.with_y(floor + GROUND_LIFT);
         let half = particles::BFG_GROUND_HALF * s;
         ground.push_corners(
             [
