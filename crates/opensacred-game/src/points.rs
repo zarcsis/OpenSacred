@@ -31,6 +31,20 @@ pub(crate) struct Plus {
     pub glowing: bool,
 }
 
+impl Plus {
+    /// The "+" of a hero set up from a save (`0x585260`, #1992): shown and glowing where points
+    /// of any kind wait (the taskbar's message 8), else hidden (7 with 1).
+    pub fn loaded(experience: &opensacred_rules::fight::Experience) -> Self {
+        let waiting = experience.attribute_points != 0
+            || experience.skill_points != 0
+            || experience.to_learn() != 0;
+        Self {
+            shown: waiting,
+            glowing: waiting,
+        }
+    }
+}
+
 /// The "+"'s node and its glow's.
 #[derive(Component)]
 struct PlusNode;
@@ -177,6 +191,21 @@ impl Plugin for PointsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_loaded_hero_shows_the_plus_glowing_where_points_wait() {
+        let mut experience = opensacred_rules::fight::Experience::default();
+        assert_eq!(Plus::loaded(&experience), Plus::default());
+        experience.skill_points = 1;
+        let glowing = Plus {
+            shown: true,
+            glowing: true,
+        };
+        assert_eq!(Plus::loaded(&experience), glowing);
+        experience.skill_points = 0;
+        experience.attribute_points = 2;
+        assert_eq!(Plus::loaded(&experience), glowing);
+    }
 
     #[test]
     fn the_glow_pulses_up_to_a_third_of_its_byte() {
