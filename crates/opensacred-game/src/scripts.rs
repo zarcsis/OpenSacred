@@ -356,6 +356,9 @@ pub struct Effects {
     /// The side quests that its `ExitQuest`s won, each of which may give the hero a rune of its
     /// class (`0x46D362`, `rewards`; #1386).
     pub won: Vec<u32>,
+    /// The numbers of its `AutoSave`s, each a save's name among the game's texts (`saves`,
+    /// #1989).
+    pub autosaves: Vec<u32>,
 }
 
 impl Effects {
@@ -377,6 +380,7 @@ impl Effects {
         self.random_items += other.random_items;
         self.particles.extend(other.particles);
         self.won.extend(other.won);
+        self.autosaves.extend(other.autosaves);
     }
 }
 
@@ -848,6 +852,7 @@ impl Live {
             random_items: recorder.random_items,
             particles: recorder.particles,
             won: recorder.won,
+            autosaves: recorder.autosaves,
         };
         (effects, outcome)
     }
@@ -1027,6 +1032,8 @@ struct Recorder<'a> {
     particles: Vec<Partikel>,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
     won: Vec<u32>,
+    /// The numbers of its `AutoSave`s ([`Effects::autosaves`]).
+    autosaves: Vec<u32>,
     /// Whether the scripts' anim mode is on in the run, from a `SetAnimMode` or a
     /// `SetCinemaMode` to a `SetPlayMode` (the mode word's bit 1, `0xAB73DC`; #1278).
     anim: bool,
@@ -1079,6 +1086,7 @@ impl<'a> Recorder<'a> {
             random_items: 0,
             particles: Vec::new(),
             won: Vec::new(),
+            autosaves: Vec::new(),
             anim: false,
         }
     }
@@ -1268,6 +1276,21 @@ impl Host for Recorder<'_> {
                 ),
                 _ => Handled::Unknown,
             };
+        }
+        // An autosave (121, `0x4AC740`; #1989): its number, a field of the tags `0x16`, `0x1D` or
+        // `0x1E`, the last read, where not 0, whose text the engine names the save by.
+        if name == "auto_save" {
+            let number = ["_16", "_1D", "_1E"]
+                .into_iter()
+                .filter_map(|tag| tags.numbers(tag).last().copied())
+                .next_back();
+            if ran.is_empty()
+                && let Some(number) = number.and_then(|n| u32::try_from(n).ok())
+                && number != 0
+            {
+                self.autosaves.push(number);
+            }
+            return Handled::Done;
         }
         if REWARDS.contains(&name) && !self.rewards() {
             bevy::log::debug!("scripts: {name} inside a finished quest gives nothing");
@@ -2384,8 +2407,12 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         won,
         window,
         particles,
+        autosaves,
         ..
     } = effects;
+    if let Some(mut saves) = world.get_resource_mut::<crate::saves::AutoSaves>() {
+        saves.0.extend(autosaves);
+    }
     world.write_message_batch(particles);
     world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
     world.write_message_batch(sounds);
@@ -2471,6 +2498,7 @@ struct Queues<'w> {
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
     particles: MessageWriter<'w, Partikel>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
+    autosaves: Option<ResMut<'w, crate::saves::AutoSaves>>,
 }
 
 impl Queues<'_> {
@@ -2495,6 +2523,9 @@ impl Queues<'_> {
         self.particles.write_batch(effects.particles);
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
+        if let Some(saves) = self.autosaves.as_mut() {
+            saves.0.extend(effects.autosaves);
+        }
     }
 }
 
@@ -3958,6 +3989,26 @@ mod tests {
         );
         // The number held to 255.
         assert!(live.pacified(2) && live.pacified(255) && !live.pacified(3));
+    }
+
+    #[test]
+    fn an_autosave_gives_its_number_where_not_zero() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"Saving\"] = function()\n\
+             auto_save { _1D = 30000 }\n\
+             auto_save { _1D = 0 }\n\
+             auto_save { _16 = 30001 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run("Saving", 0);
+        assert_eq!(effects.autosaves, [30000, 30001]);
+        // No record of the world.
+        assert!(effects.records.is_empty(), "{:?}", effects.records);
     }
 
     #[test]

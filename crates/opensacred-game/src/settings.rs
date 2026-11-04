@@ -129,6 +129,15 @@ impl Default for Movies {
     }
 }
 
+/// `[gameplay]`: how the game plays.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Gameplay {
+    /// Whether the scripts' `AutoSave`s save the game (`saves`, #1989), the original's `AUTOSAVE`
+    /// of `Settings.cfg`, off as it writes it where the file lacks it (`0x81B6F0`).
+    pub autosave: bool,
+}
+
 /// The settings in force: the file's, with the command line's for this run.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -136,6 +145,7 @@ pub struct Settings {
     pub display: Display,
     pub interface: Interface,
     pub movies: Movies,
+    pub gameplay: Gameplay,
     pub debug: Panels,
 }
 
@@ -436,6 +446,7 @@ mod tests {
                 extro: true,
                 extro_underworld: true,
             },
+            gameplay: Gameplay { autosave: true },
             debug: Panels {
                 overlay: true,
                 log: true,
@@ -452,6 +463,7 @@ mod tests {
                 "movies.show",
                 "movies.extro",
                 "movies.extro_underworld",
+                "gameplay.autosave",
                 "debug.overlay",
                 "debug.log",
             ],
