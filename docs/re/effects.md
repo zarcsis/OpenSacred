@@ -907,6 +907,23 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: a thin bright bolt from her hand to the goblin between a glow at her hand and a bright glow and sparks at the goblin, alike in place and size.
 Not followed: the bolt's end at a cell that may not be walked on, which in the original ends the spell with no strike (the goblins under a pine at the start took none), and the Direct3D lights on the models.
 
+## The lost souls
+
+Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Wood Elf's new game, her spell 41 at the level 5 by two goblins, by day).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| A soul of the lost souls 41 | 850 | `cParticleSystem_lostsouls` (`0x898580`) | `0x79CDD0`, `0x79CFB0`, `0x79CEB0`, `0x79D310` |
+
+- Its constructor loads `PARTICLE_DOTS01` (`+0x2534`) and makes a Direct3D light of (0.2, 1, 0.2); 200 particles.
+- Its start (`0x79D310`): its seconds `0x4D26B0(1, L) · [+0x70]` (`+0x20A8`, the record's value 1); its loop 2058 (`0x80A`); one layer (the life −400 a second, the size −4) and one block (the size 7, the angle's speed 6, every 0.01 s, times 1.5 and 2.2 at the detail levels 1 and 0); its ramp (`+0x20B0`) from (60, 255, 60) opaque to nothing over 256 entries (out of 256); its flags `0x10000`, its speed `+0x98` 150; no light of the table's.
+- Its run (`0x79CEB0`): its block's place (`+0x2508`) `5 sin` of 6.58, 6.87 and 7.49 times its clock along each axis, its particles emitted there and aged; past its seconds or at its object's end (`+0x74` bit 1) it emits no more and ends with its last particle.
+- Its draw (`0x79CFB0`): its Direct3D light; its particles as billboards of the flags `0xD` (the ramp's colour, turned, added by their alpha); then a glow (`0x762E10`) of the style 5 (`PARTICLE_GLOW03`) at its block's place, its half side `20 + 8 b` (`0x768790`) and its colour (128, 239, 128) plus `b` times (64, 16, 64) (`0x768600`), `b` a beat of its clock: from 0 up to 1 over the first 0.3 s of each second, down to 0 over the rest.
+
+`opensacred-game` draws it since #1092 (`lost_souls`, `opensacred_rules::particles::{LostSoul, soul_glow, soul_wobble, beat}`): each soul that `spells` makes leaves its dots along its way and its glow at its wobbling point, untinted by the night, its dots fading out after its object goes.
+**Seen** 2026-11-04 beside the original's frames at the Wood Elf's start by day: green balls of light trailing green dots, alike in colour and size; the original's rise from her in a fan, the game's in one bunch, as they home at once rather than turning (#2058).
+Not followed: its green Direct3D light on the models.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -958,7 +975,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost and the chain lightning ("The bolts" to "The chain lightning" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost, the chain lightning and the lost souls ("The bolts" to "The lost souls" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
