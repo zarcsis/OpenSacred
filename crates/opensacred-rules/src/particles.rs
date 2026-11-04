@@ -2169,6 +2169,23 @@ pub fn lightning_sparks(colour: [f32; 4], dice: &mut impl Dice) -> Burst {
 /// The lightning's particles (`0x5A0C50`'s count for the type 798), all of its burst.
 const LIGHTNING_SPARKS: usize = 150;
 
+/// The look of the light 20, `cParticleSystem_maglite` (817, its start `0x7850D0` and its draw
+/// `0x784E90`; docs/re/effects.md, "The light"), which goes with its caster for its seconds: a
+/// ball of light of the radius 55 about its place, of 21 flat slices of `PARTICLE_GLOW03`
+/// ([`maglite_slices`]), each of (175, 175, 255) at an alpha of 24, added by its alpha; its light
+/// at night the spell's second value at its level.
+pub const MAGLITE_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const MAGLITE_COLOUR: [f32; 4] = [175.0 / 255.0, 175.0 / 255.0, 1.0, 24.0 / 255.0];
+
+/// The light's slices: at the heights `2.5 (k − 10)` for `k` of 0 to 20 about its place, each of
+/// the half side `√(55² − h²)`.
+pub fn maglite_slices() -> impl Iterator<Item = (f32, f32)> {
+    (0..21_u8).map(|k| {
+        let height = (f32::from(k) - 10.0) * 2.5;
+        (height, (3_025.0 - height * height).sqrt())
+    })
+}
+
 /// The breath's glow at its place (`0x7AE4F0`): `PARTICLE_GLOW03` of a half side of 20, white,
 /// added whole (the style 5, `ONE`, `ONE`), its depth tested.
 pub const WALLOFFIRE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2587,6 +2604,15 @@ mod tests {
         let burst = lightning_sparks(LIGHTNING_COLOURS[0], &mut dice);
         assert_eq!(burst.particles.len(), 150);
         assert_eq!(burst.ramp.at(128.0), LIGHTNING_COLOURS[0]);
+    }
+
+    #[test]
+    fn the_light_is_a_ball_of_slices() {
+        let slices: Vec<(f32, f32)> = maglite_slices().collect();
+        assert_eq!(slices.len(), 21);
+        assert_eq!(slices[0], (-25.0, 2_400.0_f32.sqrt()));
+        assert_eq!(slices[10], (0.0, 55.0));
+        assert_eq!(slices[20].0, 25.0);
     }
 
     #[test]

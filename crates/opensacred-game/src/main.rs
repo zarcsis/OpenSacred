@@ -90,6 +90,7 @@ mod lightning_strikes;
 mod lines;
 mod liquids;
 mod low_health;
+mod magic_lights;
 mod making;
 mod master;
 mod menu;
@@ -469,6 +470,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         low_health::LowHealthPlugin,
+        magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
         master::MasterPlugin,
         menu::MenuPlugin,

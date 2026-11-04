@@ -1362,14 +1362,20 @@ pub(crate) fn strikes_about(
     if let Some(sound) = area_loop(record.id) {
         made.insert(crate::hums::Hum(sound));
     }
-    // The holy light and the blades of light look as their systems (`holy_lights`,
-    // `light_blades`).
+    // The holy light, the blades of light and the light look as their systems (`holy_lights`,
+    // `light_blades`, `magic_lights`).
     if record.id == spells::HOLY_LIGHT {
         made.insert(crate::holy_lights::Look(fight_seconds(spells::value(
             record, 0, level,
         ))));
     } else if record.id == spells::BLADES_OF_LIGHT {
         made.insert(crate::light_blades::Look(caster));
+    } else if record.id == spells::LIGHT {
+        // Its light at night its second value (`0x7850D0`, the caster's factor 1.0 a hero's).
+        made.insert(crate::magic_lights::Look {
+            light: fight_seconds(spells::value(record, 1, level)),
+            bearer: follows,
+        });
     } else if let Some(looks) = looks {
         let look = match record.id {
             FIRE_SKIN => 3,
