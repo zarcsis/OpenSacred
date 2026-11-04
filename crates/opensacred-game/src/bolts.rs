@@ -9,8 +9,9 @@
 //! damages (the fight's hit of fixed damages, which always lands, #854): the railgun's every one it
 //! found and goes, the BFG's those of its first contact and flies on harmless, the Daemon's the
 //! first alone and goes. The Mage's fireball flies as a bolt too, of its own speed and time by its
-//! level, and strikes every creature it found at its first contact and goes (`making`, #872). A
-//! glowing ball stands in for their particle systems (#1092).
+//! level, and strikes every creature it found at its first contact and goes (`making`, #872). The
+//! railgun's, the BFG's, the fireball's and the Daemon's look as the original's systems
+//! (`bolt_looks`, #1092), told of each one's end; a glowing ball stands in for the others'.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};
@@ -166,14 +167,14 @@ impl Course {
     /// The course of the fire bolt of Anducar, his demon and Sharifo (the spell 52's
     /// `FX_SHADDAR_MAGIC`, 922; docs/re/arts.md, "The creatures' own spells"): straight on at 150 a
     /// second for 2 s, every creature of its first contact, once, its size 0 so 50; the
-    /// fireball's look.
+    /// fireball's stand-in.
     pub fn fire_bolt() -> Self {
         Self {
             speed: 150.0,
             slows: 0.0,
             life: 2.0,
             strikes: Strikes::All,
-            look: 3,
+            look: FIRE_BOLT_LOOK,
             reach: arrows::size(0),
             beat: 1.0,
             bursts: None,
@@ -228,14 +229,30 @@ struct Flying {
     cooldown: f32,
 }
 
-/// The stand-ins' meshes and materials: the railgun's, the BFG's, the Daemon's, the fireball's,
-/// the whirlwind's and the ice splinter's.
+/// The stand-ins' meshes and materials, by the course's look: the railgun's, the BFG's, the
+/// Daemon's and the fireball's, which [`look_of`] draws as their systems instead, the
+/// whirlwind's, the ice splinter's, the bubble's and the fire bolt's.
 #[derive(Resource)]
 pub(crate) struct Looks(pub(crate) Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
+/// The look of a system of its own, by the course's look (`bolt_looks`).
+fn look_of(look: usize) -> Option<crate::bolt_looks::Kind> {
+    use crate::bolt_looks::Kind;
+    match look {
+        0 => Some(Kind::Railgun),
+        1 => Some(Kind::Bfg),
+        2 => Some(Kind::Emperor),
+        3 => Some(Kind::Fireball),
+        _ => None,
+    }
+}
+
+/// The fire bolt's stand-in (922, whose system is not read).
+const FIRE_BOLT_LOOK: usize = 7;
+
 /// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
-/// the BFG, a violet one for the Daemon's, an orange one for the fireball (**estimate**: the
-/// colours of their glows).
+/// the BFG, a violet one for the Daemon's, an orange one for the fireball and the fire bolt
+/// (**estimate**: the colours of their glows).
 fn make_looks(
     mut commands: Commands,
     meshes: Option<ResMut<Assets<Mesh>>>,
@@ -262,6 +279,7 @@ fn make_looks(
         look(16.0, Color::srgb(0.8, 0.85, 0.75)),
         look(8.0, Color::srgb(0.7, 0.9, 1.0)),
         look(24.0, Color::srgb(0.55, 0.85, 0.3)),
+        look(18.0, Color::srgb(1.0, 0.55, 0.15)),
     ]));
 }
 
@@ -349,12 +367,12 @@ fn launch(
             (None, Some(way)) => way.level,
             (None, None) => None,
         };
-        let Some((mesh, material)) = looks.0.get(launched.course.look).cloned() else {
+        let system = look_of(launched.course.look);
+        let stand_in = looks.0.get(launched.course.look).cloned();
+        if system.is_none() && stand_in.is_none() {
             continue;
-        };
+        }
         let mut bolt = commands.spawn((
-            Mesh3d(mesh),
-            MeshMaterial3d(material),
             Transform::from_translation(at.translation + Vec3::Y * HEIGHT),
             if launched.wait > 0.0 {
                 Visibility::Hidden
@@ -374,6 +392,22 @@ fn launch(
             },
             DespawnOnExit(AppState::InGame),
         ));
+        match (system, stand_in) {
+            (Some(kind), _) => {
+                let id = bolt.id();
+                crate::bolt_looks::spawn(
+                    bolt.commands_mut(),
+                    id,
+                    kind,
+                    launched.direction,
+                    body.is_some(),
+                );
+            }
+            (None, Some((mesh, material))) => {
+                bolt.insert((Mesh3d(mesh), MeshMaterial3d(material)));
+            }
+            (None, None) => {}
+        }
         // Its system's loop while it flies (`crate::hums`).
         if let Some(looping) = launched.course.sounds.looping {
             bolt.insert(crate::hums::Hum(looping));
@@ -391,7 +425,8 @@ fn launch(
     }
 }
 
-/// Flies each bolt a frame on (`0x5A6680`) and hits what it comes on (`0x5AB490`, `0x5ABD80`).
+/// Flies each bolt a frame on (`0x5A6680`) and hits what it comes on (`0x5AB490`, `0x5ABD80`),
+/// telling its look of its end (`bolt_looks::Ended`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -400,10 +435,11 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    (mut hits, ranks, mut sounds): (
+    (mut hits, ranks, mut sounds, mut ends): (
         MessageWriter<fight::Hit>,
         Query<&fight::Ranked>,
         MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::bolt_looks::Ended>,
     ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
     (shooters, heroes): (
@@ -488,6 +524,12 @@ fn fly(
                     });
                 }
             }
+            ends.write(crate::bolt_looks::Ended {
+                bolt: entity,
+                at: transform.translation,
+                hit: None,
+                timed: bolt.flown >= course.life,
+            });
             commands.entity(entity).despawn();
             continue;
         }
@@ -584,10 +626,22 @@ fn fly(
         match course.strikes {
             Strikes::FirstContact => bolt.spent = true,
             Strikes::Passing => bolt.cooldown = course.beat,
-            Strikes::All | Strikes::First => commands.entity(entity).despawn(),
+            Strikes::All | Strikes::First => {
+                ends.write(crate::bolt_looks::Ended {
+                    bolt: entity,
+                    at: transform.translation,
+                    hit: struck.first().copied(),
+                    timed: false,
+                });
+                commands.entity(entity).despawn();
+            }
         }
     }
 }
+
+/// The bolts' systems, after which their looks follow them (`bolt_looks`).
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Flown;
 
 /// The bolts.
 pub struct BoltsPlugin;
@@ -602,7 +656,8 @@ impl Plugin for BoltsPlugin {
                 (fire, launch, fly)
                     .chain()
                     .after(Step::Npcs)
-                    .in_set(Playing),
+                    .in_set(Playing)
+                    .in_set(Flown),
             );
     }
 }

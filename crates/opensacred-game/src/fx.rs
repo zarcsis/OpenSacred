@@ -365,8 +365,35 @@ impl Quads {
             .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
-    /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
-    /// as the renderer warns of a mesh without vertices (#1203).
+    /// A quad facing the camera standing on its foot `foot`, `size` across each way and twice
+    /// that up, turned by `angle` about its foot in the screen's plane, the texture's bottom at the
+    /// foot (`0x761B00`'s flags `0x80` and `0x04`: the Daemon's rays, `bolt_looks`).
+    pub(crate) fn push_footed(
+        &mut self,
+        foot: Vec3,
+        size: f32,
+        angle: f32,
+        (corner, side): (Vec2, f32),
+        colour: [f32; 4],
+    ) {
+        let (right, up) = (iso::right(), iso::up());
+        let (sin, cos) = angle.sin_cos();
+        let (r, u) = (
+            (right * cos + up * sin) * size,
+            (up * cos - right * sin) * size,
+        );
+        self.push_corners(
+            [foot - r, foot + r, foot + r + u * 2.0, foot - r + u * 2.0],
+            [
+                Vec2::new(corner.x, corner.y + side),
+                Vec2::new(corner.x + side, corner.y + side),
+                Vec2::new(corner.x + side, corner.y),
+                corner,
+            ],
+            colour,
+        );
+    }
+
     /// A quad of the four corners `corners`, in order about it, with the texture's points `uvs`
     /// and the colour `colour`: a beam's segment (`beams`).
     pub(crate) fn push_corners(&mut self, corners: [Vec3; 4], uvs: [Vec2; 4], colour: [f32; 4]) {
@@ -381,6 +408,8 @@ impl Quads {
             .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
     }
 
+    /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
+    /// as the renderer warns of a mesh without vertices (#1203).
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
         if self.indices.is_empty() {
             self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);
