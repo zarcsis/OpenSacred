@@ -1392,7 +1392,7 @@ pub fn age_frame(life: f32, grid: u8) -> u8 {
 /// bolt, a line of [`RAILGUN_GLOWS`] glows of `PARTICLE_GLOW01` facing the camera, of the half side
 /// [`RAILGUN_GLOW_HALF`] and the colour [`RAILGUN_GLOW_COLOUR`], added, the first
 /// [`RAILGUN_GLOW_BEHIND`] behind the bolt's centre and each [`RAILGUN_GLOW_STEP`] on (`0x40DA80`
-/// from `0x77EBC0`). Its light, 100, is not drawn.
+/// from `0x77EBC0`); its light [`RAILGUN_LIGHT`].
 pub const RAILGUN_HALF: (f32, f32) = (20.0, 15.0);
 pub const RAILGUN_GLOWS: usize = 8;
 pub const RAILGUN_GLOW_HALF: f32 = 15.0;
@@ -1400,9 +1400,16 @@ pub const RAILGUN_GLOW_BEHIND: f32 = 20.0;
 pub const RAILGUN_GLOW_STEP: f32 = 5.0;
 pub const RAILGUN_GLOW_COLOUR: [f32; 4] = [32.0 / 255.0, 32.0 / 255.0, 64.0 / 255.0, 1.0];
 
+/// The bolts' lights, their systems' radii (`+0x9C`) in the pixels of the original's screen, which
+/// their objects' draw adds at their places on the ground (`0x5AA26E`, docs/re/effects.md,
+/// "Lights"): the railgun's, the BFG's and the fireball's; the Daemon's bolt has none.
+pub const RAILGUN_LIGHT: f32 = 100.0;
+pub const BFG_LIGHT: f32 = 120.0;
+pub const FIRESTRIKE_LIGHT: f32 = 200.0;
+
 /// The BFG's bolt (875, `cParticleSystem_bfg`): three glows of `FX_BFG_1` to `3` of this half
 /// side, added, in greys that pulse ([`bfg_greys`]); and a flat quad of `PARTICLE_GLOW03` on the
-/// ground under it, of this half side and colour, added (`0x77F290`). Its light, 120, is not drawn.
+/// ground under it, of this half side and colour, added (`0x77F290`); its light [`BFG_LIGHT`].
 pub const BFG_GLOW_HALF: f32 = 35.0;
 pub const BFG_GROUND_HALF: f32 = 60.0;
 pub const BFG_GROUND_COLOUR: [f32; 4] = [72.0 / 255.0, 185.0 / 255.0, 1.0, 1.0];
@@ -1434,7 +1441,8 @@ pub enum Flames {
 /// half side of 15 growing by 16 a second, turned at random, drifting by up to 4 a second along
 /// each axis and living 0.73 s, added and turned, its 4 × 4 frames played once over its life
 /// ([`age_frame`]); at a hit or a stop one flame more of the burst's block, then none, the system
-/// ending with its last flame; at its time's end none more and no burst.
+/// ending with its last flame; at its time's end none more and no burst. Its light
+/// [`FIRESTRIKE_LIGHT`] lasts as long as it does.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Firestrike {
     pub system: System,
