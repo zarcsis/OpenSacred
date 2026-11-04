@@ -57,7 +57,7 @@ struct Beam {
 
 /// The beams' material, made as the first is asked; none where the texture is missing.
 #[derive(Resource, Default)]
-struct Material(Option<Option<Handle<StandardMaterial>>>);
+struct Material(Option<Option<Handle<crate::fx::Effect>>>);
 
 /// The beams' rolls of the wobble and the flicker.
 #[derive(Resource)]
@@ -77,7 +77,7 @@ fn make(
     assets: Res<AssetServer>,
     (mut made, mut materials, mut meshes): (
         ResMut<Material>,
-        ResMut<Assets<StandardMaterial>>,
+        ResMut<Assets<crate::fx::Effect>>,
         ResMut<Assets<Mesh>>,
     ),
 ) {

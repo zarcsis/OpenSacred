@@ -37,7 +37,7 @@ pub fn spawn(commands: &mut Commands, at: Vec3, colour: u32) {
 struct Looks {
     model: Option<String>,
     texture: Option<String>,
-    helix: Option<Handle<StandardMaterial>>,
+    helix: Option<Handle<crate::fx::Effect>>,
     dice: Rng,
 }
 
@@ -56,7 +56,7 @@ fn begin(
     mut commands: Commands,
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<crate::fx::Effect>>,
 ) {
     let Some(data) = data else {
         return;

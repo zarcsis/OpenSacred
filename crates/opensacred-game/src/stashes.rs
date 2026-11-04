@@ -401,7 +401,7 @@ fn begin_blink(
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<crate::fx::Effect>>,
 ) {
     let Some(data) = data else {
         return;

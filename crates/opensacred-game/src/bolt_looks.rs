@@ -120,7 +120,7 @@ fn parts(kind: Kind) -> &'static [(&'static str, AlphaMode)] {
 /// The parts' materials by their texture, made as the first is asked; none where the texture is
 /// missing.
 #[derive(Resource, Default)]
-struct Materials(HashMap<&'static str, Option<Handle<StandardMaterial>>>);
+struct Materials(HashMap<&'static str, Option<Handle<crate::fx::Effect>>>);
 
 /// The looks' rolls: their particles' and the glow's flicker.
 #[derive(Resource)]
@@ -140,7 +140,7 @@ fn make(
     assets: Res<AssetServer>,
     (mut made, mut materials, mut meshes): (
         ResMut<Materials>,
-        ResMut<Assets<StandardMaterial>>,
+        ResMut<Assets<crate::fx::Effect>>,
         ResMut<Assets<Mesh>>,
     ),
     places: Query<&Transform>,

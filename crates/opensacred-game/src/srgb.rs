@@ -6,9 +6,10 @@
 //! So the camera renders into a target of `Rgba8Unorm` that holds sRGB values ([`Frame`]): Bevy's
 //! own sRGB compositing (`CompositingSpace::Srgb`), whose last pass decodes the frame onto the
 //! window. Bevy grants it to 2D cameras alone, since its 3D materials write linear light; the
-//! game's materials encode their colour last (`post.wesl`, `standard.wesl`), the night's pass
-//! multiplies the values as they are (`night.wesl`), and the HUD gives Bevy's interface its
-//! colours and images in those values (`hud`).
+//! game's materials encode their colour last (`post.wesl`, `standard.wesl`; the effects' before
+//! their alpha premultiplies an added colour, `fx::Effect`), the night's pass multiplies the
+//! values as they are (`night.wesl`), and the HUD gives Bevy's interface its colours and images in
+//! those values (`hud`).
 
 use bevy::camera::CompositingSpace;
 use bevy::prelude::{App, Component, IntoScheduleConfigs, Plugin, Query, With};
