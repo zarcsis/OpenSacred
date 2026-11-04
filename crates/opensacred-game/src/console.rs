@@ -37,6 +37,8 @@ const FONT_SIZE: f32 = 11.0;
 const BACK: Color = Color::linear_rgba(0.02, 0.02, 0.03, 0.88);
 const TEXT: Color = Color::linear_rgb(0.85, 0.85, 0.85);
 const INPUT: Color = Color::linear_rgb(0.86, 0.74, 0.45);
+/// The character under the cursor, on the block of the line's colour.
+const UNDER: Color = Color::linear_rgb(0.02, 0.02, 0.03);
 const WARNING: Color = Color::linear_rgb(0.95, 0.8, 0.3);
 const ERROR: Color = Color::linear_rgb(1.0, 0.35, 0.3);
 
@@ -312,7 +314,34 @@ struct View;
 #[derive(Component)]
 struct Line;
 
+/// The line's spans after its text before the cursor: the character under the cursor, a space
+/// past the line's end, on a block of the line's colour, so that the cursor takes no cell of its
+/// own (#1982); and the rest of the line.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Under,
+    After,
+}
+
+/// The line's text before the cursor, under it and after it, for the cursor `at` (a byte's index,
+/// [`Console::at`]): `> ` and what comes before it, its character or a space at the line's end,
+/// and the rest.
+fn line_parts(input: &str, at: usize) -> (String, String, String) {
+    let (before, rest) = input.split_at_checked(at).unwrap_or((input, ""));
+    let mut rest = rest.chars();
+    let under = rest.next().unwrap_or(' ');
+    (
+        format!("> {before}"),
+        under.to_string(),
+        rest.as_str().to_owned(),
+    )
+}
+
 fn spawn(mut commands: Commands) {
+    let font = || TextFont {
+        font_size: FontSize::Px(FONT_SIZE),
+        ..default()
+    };
     commands
         .spawn((
             Panel,
@@ -342,24 +371,19 @@ fn spawn(mut commands: Commands) {
                     BackgroundColor(BACK),
                 ))
                 .with_children(|panel| {
-                    panel.spawn((
-                        View,
-                        Text::new(""),
-                        TextFont {
-                            font_size: FontSize::Px(FONT_SIZE),
-                            ..default()
-                        },
-                        TextColor(TEXT),
-                    ));
-                    panel.spawn((
-                        Line,
-                        Text::new(""),
-                        TextFont {
-                            font_size: FontSize::Px(FONT_SIZE),
-                            ..default()
-                        },
-                        TextColor(INPUT),
-                    ));
+                    panel.spawn((View, Text::new(""), font(), TextColor(TEXT)));
+                    panel
+                        .spawn((Line, Text::new(""), font(), TextColor(INPUT)))
+                        .with_children(|line| {
+                            line.spawn((
+                                Part::Under,
+                                TextSpan::new(" "),
+                                font(),
+                                TextColor(UNDER),
+                                TextBackgroundColor(INPUT),
+                            ));
+                            line.spawn((Part::After, TextSpan::new(""), font(), TextColor(INPUT)));
+                        });
                 });
         });
 }
@@ -372,12 +396,12 @@ struct Shown(Option<(u64, String, usize, usize)>);
 /// colour, and the line with its cursor.
 fn draw(
     mut commands: Commands,
-    console: Res<Console>,
-    journal: Res<Journal>,
+    (console, journal): (Res<Console>, Res<Journal>),
     mut shown: Local<Shown>,
     mut panel: Single<&mut Visibility, With<Panel>>,
     view: Single<Entity, With<View>>,
     mut line: Single<&mut Text, With<Line>>,
+    mut parts: Query<(&mut TextSpan, &Part)>,
 ) {
     let visibility = if console.open {
         Visibility::Inherited
@@ -401,9 +425,14 @@ fn draw(
         return;
     }
     *shown = now;
-    let mut input = console.input.clone();
-    input.insert(console.at(), '|');
-    line.0 = format!("> {input}");
+    let (before, under, after) = line_parts(&console.input, console.at());
+    line.0 = before;
+    for (mut span, part) in &mut parts {
+        span.0 = match part {
+            Part::Under => under.clone(),
+            Part::After => after.clone(),
+        };
+    }
     // The records' lines, the newest last, up to the scroll.
     let records = journal.last(LINES + console.scroll);
     let mut lines: Vec<(String, Color)> = Vec::new();
@@ -469,6 +498,19 @@ pub fn history_file(settings: &SettingsFile) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cursor_stands_on_a_character_and_takes_no_cell() {
+        let parts = |input: &str, at| {
+            let (before, under, after) = line_parts(input, at);
+            [before, under, after]
+        };
+        assert_eq!(parts("record", 2), ["> re", "c", "ord"]);
+        assert_eq!(parts("record", 6), ["> record", " ", ""]);
+        assert_eq!(parts("", 0), ["> ", " ", ""]);
+        // A character of more bytes than one stands whole under the cursor.
+        assert_eq!(parts("ёлка", 2), ["> ё", "л", "ка"]);
+    }
 
     fn typed(console: &mut Console, key: Key, text: Option<&str>) {
         console.key(&KeyboardInput {
