@@ -1321,9 +1321,7 @@ fn druid_thorns(
                 point: at,
                 rate: (0.5, crate::sfx::Roll::None),
             });
-            if let Some(looks) = looks.as_deref() {
-                crate::spells::puff(&mut commands, looks, at, BLINK_PUFF);
-            }
+            crate::battle_fogs::rise(&mut commands, at, BLINK_PUFF);
         }
         let Some(record) = arts
             .as_ref()

@@ -433,7 +433,7 @@ fn balls(
                 }
             }
             _ => {
-                let mut made = commands.spawn((
+                commands.spawn((
                     Fog {
                         cell: crate::paths::cell_of(here.x, here.z),
                         level: ball.level,
@@ -452,17 +452,9 @@ fn balls(
                         rate: (0.5, crate::sfx::Roll::None),
                     });
                 }
-                if let Some(looks) = &looks {
-                    made.with_children(|sights| {
-                        for (x, z) in [(from, from), (from, -from), (-from, from), (-from, -from)] {
-                            sights.spawn((
-                                Mesh3d(looks.disc.clone()),
-                                MeshMaterial3d(looks.discs[4].clone()),
-                                Transform::from_translation(Vec3::new(x, 4.0, z))
-                                    .with_scale(Vec3::new(65.0, 2.0, 65.0)),
-                            ));
-                        }
-                    });
+                // Its four fogs look as their system (`battle_fogs`).
+                for (x, z) in [(from, from), (from, -from), (-from, from), (-from, -from)] {
+                    crate::battle_fogs::rise(&mut commands, here + Vec3::new(x, 0.0, z), seconds);
                 }
             }
         }
@@ -1145,18 +1137,6 @@ pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3)
             .with_rotation(Quat::from_rotation_arc(Vec3::Y, direction))
             .with_scale(Vec3::new(0.5, along.length() / 400.0, 0.5)),
         Fades(LIGHTNING_SHOWS),
-        DespawnOnExit(AppState::InGame),
-    ));
-}
-
-/// A puff of the battle fog (868) at `at` for `seconds`, as the fog's sights look: the dryad
-/// druid's blink's (#1883).
-pub(crate) fn puff(commands: &mut Commands, looks: &Looks, at: Vec3, seconds: f32) {
-    commands.spawn((
-        Mesh3d(looks.disc.clone()),
-        MeshMaterial3d(looks.discs[4].clone()),
-        Transform::from_translation(at + Vec3::Y * 4.0).with_scale(Vec3::new(65.0, 2.0, 65.0)),
-        Fades(seconds),
         DespawnOnExit(AppState::InGame),
     ));
 }
