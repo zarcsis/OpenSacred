@@ -6,6 +6,9 @@
 //! 9961 with the experience into the level and the level's span, six wide each, centred 24 left of
 //! the bar's corner (`0x6D7B80`).
 //!
+//! The buttons' and the belt's texts end in the original's fixed key in brackets; since #1980 it
+//! names the action's keys of `controls.toml` instead (`controls::Controls::keyed`).
+//!
 //! Since #1698 the column's "+" shows the hero's list of bonuses (`bonus_list`).
 //!
 //! Not followed yet (#1594): the horse's button and
@@ -15,6 +18,7 @@
 use bevy::prelude::*;
 
 use crate::bar::{self, UiImages};
+use crate::controls::{Action, Keys};
 use crate::fight::{Experience, Health};
 use crate::game::AppState;
 use crate::hero::Body;
@@ -24,16 +28,22 @@ use crate::lines::Texts;
 use crate::tooltip::{Frame, Rest, TipRoot, spawn_tip_in};
 
 /// The bar's buttons' texts, in the order of `bar::BUTTONS`: Inventory, Options, Map, Book and
-/// Collect.
-const BUTTON_TEXTS: [&str; 5] = ["9907", "9908", "9910", "9911", "9909"];
+/// Collect, each ending in its key, which the action's keys replace (#1980).
+const BUTTON_TEXTS: [(&str, Action); 5] = [
+    ("9907", Action::Inventory),
+    ("9908", Action::Back),
+    ("9910", Action::WorldMap),
+    ("9911", Action::QuestBook),
+    ("9909", Action::Collect),
+];
 /// The belt's slots' texts, the slots 1 to 5 (red, purple, blue, green and yellow), each its
-/// potion's name and its key (the names at `0x94C880`).
-const BELT_TEXTS: [&str; 5] = [
-    "POTION_RED_HINT",
-    "POTION_BLACK_HINT",
-    "POTION_BLUE_HINT",
-    "POTION_GREEN_HINT",
-    "POTION_YELLOW_HINT",
+/// potion's name and its key (the names at `0x94C880`), the key the action's.
+const BELT_TEXTS: [(&str, Action); 5] = [
+    ("POTION_RED_HINT", Action::BeltPotion),
+    ("POTION_BLACK_HINT", Action::PurplePotion),
+    ("POTION_BLUE_HINT", Action::BluePotion),
+    ("POTION_GREEN_HINT", Action::GreenPotion),
+    ("POTION_YELLOW_HINT", Action::YellowPotion),
 ];
 /// A button's or a belt slot's tooltip's centre above its top's middle.
 const ABOVE: f32 = 20.0;
@@ -137,7 +147,7 @@ fn tips(
     time: Res<Time<Real>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
-    (entries, experience): (Option<Res<bar::Entries>>, Res<Experience>),
+    (entries, experience, keys): (Option<Res<bar::Entries>>, Res<Experience>, Keys),
     bars: Query<(), With<bar::BarRoot>>,
     (heroes, healths): (Query<&Health, With<Body>>, Query<&Health>),
     (holding, arts, data): (
@@ -174,8 +184,9 @@ fn tips(
         Control::Button(i) => {
             let (index, corner) = bar::BUTTONS[i];
             let size = images.size(index);
+            let (name, action) = BUTTON_TEXTS[i];
             (
-                named(texts, BUTTON_TEXTS[i]).to_owned(),
+                keys.controls().keyed(named(texts, name), action),
                 Vec2::new(corner.x + size.x / 2.0, corner.y - ABOVE),
                 Frame::Screen,
             )
@@ -183,8 +194,9 @@ fn tips(
         Control::Belt(slot) => {
             let index = usize::from(slot.saturating_sub(1));
             let corner = bar::BELT[index.min(bar::BELT.len() - 1)];
+            let (name, action) = BELT_TEXTS[index.min(BELT_TEXTS.len() - 1)];
             (
-                named(texts, BELT_TEXTS[index.min(BELT_TEXTS.len() - 1)]).to_owned(),
+                keys.controls().keyed(named(texts, name), action),
                 Vec2::new(corner.x + bar::BELT_SIDE / 2.0, corner.y - ABOVE),
                 Frame::Screen,
             )

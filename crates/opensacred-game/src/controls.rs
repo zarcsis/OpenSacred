@@ -802,6 +802,22 @@ impl Controls {
             .join(", ")
     }
 
+    /// `text` with the key in square brackets at its end, which the original's tooltips name by
+    /// its fixed keys (`[I]`), made the keys of `action` as the file names them, the brackets
+    /// left out where it has none (#1980); a text without them stays as it is.
+    pub fn keyed(&self, text: &str, action: Action) -> String {
+        let trimmed = text.trim_end();
+        let Some(open) = trimmed.strip_suffix(']').and_then(|rest| rest.rfind('[')) else {
+            return text.to_owned();
+        };
+        let before = &trimmed[..open];
+        let names = self.names(action);
+        if names.is_empty() {
+            return before.trim_end().to_owned();
+        }
+        format!("{before}[{names}]")
+    }
+
     /// Whether `binding` of `action` counts with the modifiers `held`: its own held, and no key of
     /// more modifiers held on the same key in its section.
     fn counts(&self, action: Action, binding: &Binding, held: Modifiers) -> bool {
@@ -872,7 +888,9 @@ impl Controls {
         let mut text = String::from(
             "# OpenSacred's keys (docs/10 §9): each action and its keys, by their places on the\n\
              # keyboard (I, 1, F1, Space, NumpadEnter, ...), with the modifiers held with them\n\
-             # (Shift+Space). An action left out takes its default; delete the file for them all.\n",
+             # (Shift+Space). A key is named by its place on a US layout and keeps that place on\n\
+             # any other, whatever letter it shows there. An action left out takes its default;\n\
+             # delete the file for them all.\n",
         );
         for section in Section::ALL {
             let _ = write!(text, "\n[{}]\n", section.name());
@@ -1185,6 +1203,22 @@ mod tests {
         assert!(controls.just_pressed(Action::Help, &keys(&[KeyCode::ShiftRight], KeyCode::KeyH)));
         // The rest keep their defaults.
         assert_eq!(controls.names(Action::Overlay), "F7");
+    }
+
+    #[test]
+    fn a_tooltips_key_in_brackets_is_the_actions_keys() {
+        let (controls, _) =
+            Controls::parse("[world]\ninventory = [\"J\", \"Shift+K\"]\nbelt_potion = []\n")
+                .unwrap();
+        let keyed = |text: &str, action| controls.keyed(text, action);
+        assert_eq!(
+            keyed("<c=1>Bag [I]", Action::Inventory),
+            "<c=1>Bag [J, Shift+K]"
+        );
+        assert_eq!(keyed("Flask <c=2>[X] ", Action::BeltPotion), "Flask <c=2>");
+        assert_eq!(keyed("Map [M]", Action::WorldMap), "Map [M]");
+        assert_eq!(keyed("No key here", Action::WorldMap), "No key here");
+        assert_eq!(keyed("[1] of two [M]", Action::WorldMap), "[1] of two [M]");
     }
 
     #[test]

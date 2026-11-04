@@ -285,12 +285,12 @@ The game's keys are the original's (#1536): its F1 to F6 bind the combat arts, F
 Every key is in a file of its own, `controls.toml` beside `settings.toml` (#1553, the module `controls`), and the table gives the defaults:
 
 * An action of the game to the list of its keys, in a section for each place they work: `[world]`, `[interface]`, `[tools]` and `[movie]`.
-  A key by its place on the keyboard, so that `I` is `I` on any layout: a letter, a digit, `F1` to `F24`, `Space`, `Escape`, `Enter`, `Backquote`, the arrows, the keypad's (`NumpadEnter`, `NumpadAdd`, …), `Shift`, `Control`, `Alt`, and the modifiers held with a key before it (`Shift+Space`).
+  A key by its place on the keyboard, named as on a US layout, so that `I` is `I` on any layout, whatever letter another layout shows on it (docs/decisions/interface.md, "Keys by their place on any layout"): a letter, a digit, `F1` to `F24`, `Space`, `Escape`, `Enter`, `Backquote`, the arrows, the keypad's (`NumpadEnter`, `NumpadAdd`, …), `Shift`, `Control`, `Alt`, and the modifiers held with a key before it (`Shift+Space`).
   A key asks for its modifiers and lets the others be held too (Q drinks while Shift walks), but a key of more modifiers that are held wins over it in its section.
 * The game writes the file with the defaults, each action under a comment of what it does, where there is none: beside the file `--settings` names, else in the configuration directory.
   An action the file lacks takes its default (deleting the file brings back them all); an unknown section, action or key's name is a warning in the log, the default kept; two actions of one section on one key are a warning.
 * Not in it: the editing of a line of text (the console's and the hero's name's: Enter, the arrows, Tab, Ctrl+V and Ctrl+C), and the mouse's buttons.
-* The keys' help (F10) names the keys as the file has them.
+* The keys' help (F10) names the keys as the file has them, and so do the bar's buttons' and the belt's tooltips and the spells page's keys over the arts (#1980).
 F10 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
 
 ## 10. Order and estimates
