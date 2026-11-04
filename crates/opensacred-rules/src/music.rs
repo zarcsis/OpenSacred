@@ -3,8 +3,8 @@
 //! 180 s, crossfading over 7 s. The timer (`+0xB7B8`) counts by day and dawn alone; past 180 s it
 //! switches the stream to the other phase and starts again, a crossfade that runs taking 20 s off
 //! it first. The hero's death and the dusk and the night ask for the ambient loop now, setting the
-//! timer to 200 s in the music's phase; a sector without music cannot open the music, so that the
-//! ambient loop, once it plays, stays. The scripts' control (`SetScriptSoundControle`, #1243)
+//! timer to 200 s in the music's phase; a region's music that cannot open (none before the first
+//! sector of music) keeps the ambient loop, once it plays. The scripts' control (`SetScriptSoundControle`, #1243)
 //! refuses the switches while it holds, until the scripts give the stream back or 300 s pass.
 //! `opensacred-game`'s `music` and `atmosphere` play what the phase holds.
 //!
@@ -144,7 +144,7 @@ impl Stream {
         }
         let next = match phase {
             Phase::Music => Phase::Ambient,
-            // The music fails to open in a place without one, and is tried again at each frame.
+            // A music that fails to open is tried again at each frame.
             Phase::Ambient if !music => return None,
             Phase::Ambient => Phase::Music,
         };
