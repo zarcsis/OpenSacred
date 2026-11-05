@@ -30,7 +30,8 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 27] = [
+const FOLLOWED: [u16; 28] = [
+    casts::SPIDER_SHOT,
     casts::HOLY_LIGHT,
     casts::BLADES,
     casts::HOLY_SHIELD,
@@ -73,7 +74,8 @@ pub fn follows(spell: u16) -> bool {
 /// a dragon, a big demon (#1853), a magician of the mark 8 (#1854) or a caster of a mark of its
 /// own (#1855).
 pub fn casts(creature: u32) -> bool {
-    casts::own_mark(creature).is_some()
+    casts::shooter(creature)
+        || casts::own_mark(creature).is_some()
         || casts::dragon(creature)
         || casts::big_demon(creature)
         || casts::mark_8(creature)
@@ -212,7 +214,12 @@ fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind
         }
         cast.begun = true;
         let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
-        let share = spells::share(cast.spell).unwrap_or(1.0);
+        // The spider shoots as its clip starts (`0x4E3464`).
+        let share = if cast.spell == casts::SPIDER_SHOT {
+            0.0
+        } else {
+            spells::share(cast.spell).unwrap_or(1.0)
+        };
         debug!(
             "creature_casts: {entity} casts {} (variant {}) by its clip {slot}",
             cast.spell, cast.variant
@@ -268,6 +275,34 @@ fn act(
 ) {
     for (entity, cast, at, (mind, way), rank, combat) in &acting {
         commands.entity(entity).remove::<ClipActs>();
+        if cast.spell == casts::SPIDER_SHOT {
+            // The spider's shot (`0x4E369E`): the railgun's bolt from it toward its target, its
+            // own strike (no record), and its sound in four cases of five.
+            let here = at.translation;
+            let toward = places
+                .get(cast.target)
+                .map_or(cast.point, GlobalTransform::translation);
+            let direction = (toward - here)
+                .xz()
+                .try_normalize()
+                .unwrap_or_else(|| (at.rotation * Vec3::X).xz().normalize_or(Vec2::X));
+            launches.write(crate::bolts::Launch {
+                shooter: entity,
+                direction,
+                course: crate::bolts::Course::of(opensacred_rules::arts::Bolt::Railgun),
+                damages: [0.0; 4],
+                wait: 0.0,
+            });
+            if let Some(sound) = casts::spider_shot_sound(dice.0.below(5)) {
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(sound),
+                    at: Some(entity),
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
+            }
+            info!("creature_casts: {entity} shoots a railgun's bolt at {toward}");
+            continue;
+        }
         let Some(record) = arts
             .as_ref()
             .and_then(|arts| arts.tables.spells.iter().find(|s| s.id == cast.spell))

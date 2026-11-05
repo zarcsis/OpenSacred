@@ -1250,18 +1250,26 @@ impl Mind {
         let demon = casts::big_demon(self.creature);
         let mage = casts::mark_8(self.creature);
         let own = casts::own_mark(self.creature);
-        if mark_1.is_none() && !dragon && !demon && !mage && own.is_none() {
+        let shooter = casts::shooter(self.creature);
+        if mark_1.is_none() && !dragon && !demon && !mage && own.is_none() && !shooter {
             return None;
         }
         if !self.fighting || self.ranged || sight.striking {
             return None;
         }
         let d = (sight.hero - sight.here).length();
-        // A big demon casts as it comes on too (`0x4E1F73`).
-        if demon && sight.walk.is_some_and(|walk| walk.comes_on) {
+        // A big demon casts as it comes on too (`0x4E1F73`), and the spider shoots so alone.
+        let comes_on = sight.walk.is_some_and(|walk| walk.comes_on);
+        if demon && comes_on {
             let roll = rng.below(101);
             let spell = casts::big_demon_approaches(d, roll, rng.below(5))?;
             return Some(Pursues::Casts { spell, variant: 0 });
+        }
+        if shooter {
+            return (comes_on && casts::approaches(d, rng.below(101))).then_some(Pursues::Casts {
+                spell: casts::SPIDER_SHOT,
+                variant: 0,
+            });
         }
         // Its band's walk (the sub-state 1) it ends before it decides again.
         self.banding &= sight.walk.is_some();
