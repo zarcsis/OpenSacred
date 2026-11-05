@@ -9,8 +9,9 @@
 //! spells' cast ([`spells`]), the scripts' state: the quests, the variables and the dialogues
 //! ([`quests`]), the regions' kills ([`regions`]), a quest's reward ([`rewards`]), the weather
 //! ([`weather`]), the peace stream's music ([`music`]), the undead that rise again
-//! ([`undead`]), the particle systems ([`particles`]), the backpack's grid ([`inventory`]), the
-//! equipment's slots and who may use an item ([`equipment`]), the land explored ([`explored`]),
+//! ([`undead`]), the particle systems ([`particles`]), the scripts' Pong ([`pong`]), the
+//! backpack's grid ([`inventory`]), the equipment's slots and who may use an item
+//! ([`equipment`]), the land explored ([`explored`]),
 //! the potions and the belt ([`potions`]), the weapon sets ([`sets`]), the item sets' bonuses
 //! ([`set_bonuses`]), the prices ([`trade`]) and the blacksmith ([`smith`]).
 
@@ -28,6 +29,7 @@ pub mod inventory;
 pub mod minds;
 pub mod music;
 pub mod particles;
+pub mod pong;
 pub mod potions;
 pub mod quests;
 pub mod regions;

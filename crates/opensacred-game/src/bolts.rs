@@ -491,7 +491,7 @@ fn launch(
 /// (`0x5AA330` taking the system's place to the ground by `0x623AD0`): 1.43 along a world axis,
 /// 1.52 across the screen, 1.36 up and down it (**seen**: the railgun of 400 going 570 a second
 /// along the world's x and along its y).
-fn flight_scale(heading: Vec2) -> f32 {
+pub(crate) fn flight_scale(heading: Vec2) -> f32 {
     let across = iso::right().xz().normalize_or(Vec2::X);
     let up = Vec2::new(across.y, -across.x);
     let (a, b) = (heading.dot(across), heading.dot(up));

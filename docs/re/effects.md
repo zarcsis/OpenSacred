@@ -1007,7 +1007,10 @@ Read 2026-11-04 for #2008 in Ghidra (**confirmed** by code unless marked otherwi
 - The ball's draw (`0x7BD630`): while it waits, two flat quads (`0x7631E0`) of `fx_twirl_rays` turning at −1.7 and −1.3 radians a second, of the half sides `100 w²` and `90 w²` (`w` its wait) in `0xFFA0A0FF`; always a flat quad of `PARTICLE_GLOW03` of the half side `2 r` in `0xFF4040FF` (a blue), `r = (1 − w)(7 cos 4t + 35)`, and a glow of the style 6 (`GLOW06`) of the half side `r` 15 up.
 - **Seen** 2026-11-04 at (5398, 5147) and (5406, 5165): the two bats as lilac boxes about four cells long across the court's ends and the ball a blue-white glow between them, the court's walls about it; with the hero standing still behind his bat, it returned five balls in 150 s, each of 100 experience (a trace of `0x549520`), the others passing it.
 
-`opensacred-game` does not make them yet (#2008).
+`opensacred-game` makes them since #2008 (`pong`, `opensacred_rules::pong`): `npcs` places the three pieces at their points, the hero's bat follows the hero's column within 16 cells of it and the other the ball's, within the court's columns, the ball waits, rises in speed, flies at the bolts' scale of a flight (`bolts::flight_scale`), turns back off the cells that may not be walked on and off the bats and is lost past them, and each return sounds `PONG` at its bat, brightens it and gives the hero twice the ball's speed less 400 experience.
+The bats' boxes are drawn as their faces of `Fx_dwarf_shield` added whole and their edges as thin lilac quads facing the camera, the ball as its ground glow, its rings while it waits and its white glow over it, untinted by the night.
+Simplified: the ball's heading turns in the world's plane where the original turns it in the flight's frame, whose axes are scaled apart (a turn off a bat along the rows exactly, the original's about 3° off them), and a wall turns it back along the axis of the step that crossed into the stopping cell (**hypothesis** for the original's choice of the axis).
+**Seen** 2026-11-04 in the game at (5406, 5163): the bats and the ball as the original draws them, and the hero earning 140 experience from a ball his bat returned at the speed of 270.
 
 ## The big demon's summoning
 
