@@ -511,6 +511,33 @@ impl Quads {
         );
     }
 
+    /// A ray facing the camera from its foot `foot`, `across` to each side and `length` up, turned
+    /// by `angle` about its foot in the screen's plane, the whole texture, its bottom at the foot
+    /// (`0x761B00`'s flags `0x80` and `0x04` of a factor below 1: the demon fire's rays,
+    /// `demon_fires`), but its first `hidden` up from the foot, which something that writes the
+    /// depth hides there (a ball about the foot).
+    pub(crate) fn push_ray(
+        &mut self,
+        foot: Vec3,
+        (across, length, hidden): (f32, f32, f32),
+        angle: f32,
+        colour: [f32; 4],
+    ) {
+        if hidden >= length {
+            return;
+        }
+        let (right, up) = (iso::right(), iso::up());
+        let (sin, cos) = angle.sin_cos();
+        let (r, along) = ((right * cos + up * sin) * across, up * cos - right * sin);
+        let (from, to) = (foot + along * hidden.max(0.0), foot + along * length);
+        let v = 1.0 - hidden.max(0.0) / length;
+        self.push_corners(
+            [from - r, from + r, to + r, to - r],
+            [Vec2::new(0.0, v), Vec2::new(1.0, v), Vec2::X, Vec2::ZERO],
+            colour,
+        );
+    }
+
     /// A quad facing the camera about `centre`, of the half side `size`, the whole texture, its
     /// corners' colours `colours` from the bottom left, the top left, the bottom right and the top
     /// right (the blades of light's dots, `light_blades`).

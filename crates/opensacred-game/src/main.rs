@@ -55,6 +55,7 @@ mod cursors;
 mod daemon;
 mod daynight;
 mod debug;
+mod demon_fires;
 mod doors;
 mod dragon_fires;
 mod drops;
@@ -462,6 +463,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         daynight::DayNightPlugin,
+        demon_fires::DemonFiresPlugin,
         doors::DoorsPlugin,
         dragon_fires::DragonFiresPlugin,
         dryad_ghosts::DryadGhostsPlugin,

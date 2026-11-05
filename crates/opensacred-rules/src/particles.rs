@@ -6125,6 +6125,131 @@ impl Tentacle {
     }
 }
 
+/// The demon fire's model, its lava's frames (`A_LAVA00` to `A_LAVA49`) and its rays' texture
+/// (1015, `0x7B2B00`), and its particles.
+pub const DEMON_FIRE_MODEL: &str = "SPHERE.GRN";
+/// The sphere's radius in the models' frame, at its size 1.
+pub const SPHERE_RADIUS: f32 = 20.0;
+pub const LAVA_FRAMES: u8 = 50;
+pub const DEMON_FIRE_RAYS: &str = "PARTICLE_LINE01";
+const DEMON_FIRE_COUNT: usize = 500;
+
+/// The name of the lava's frame `frame`, 0 to 49.
+pub fn lava_frame_name(frame: u8) -> String {
+    format!("A_LAVA{frame:02}")
+}
+
+/// The lava's frame at the clock `t` running at `rate` frames a second: `⌊fmod(rate·t, 49.5)⌋`, so
+/// that its last frame shows half as long (`0x7B2DF0`, `0x7ADBC0`).
+pub fn lava_frame(t: f32, rate: f32) -> u8 {
+    let at = (rate * t).rem_euclid(49.5).floor();
+    u8::try_from(crate::fight::truncated(f64::from(at))).unwrap_or(0)
+}
+
+/// The demon fire (1015, `FX_DEMONFIRE`, `cParticleSystem_demonfire`, its constructor
+/// `0x7B2B00`, start `0x7B3110`, run `0x7B2CA0` and draw `0x7B2DF0`; #1092): a ball of lava
+/// hanging `45 + 3 sin(1.17 t)` over its point, two spheres of [`DEMON_FIRE_MODEL`] in the lava's
+/// frames at 70 a second, the inner lit and turning at a radian a second, the outer added over it
+/// and turning at 1.2456, of the sizes `(0.3 + 0.05 sin t)·g` and `(0.35 + 0.05 sin t)·g`; and a
+/// starburst of thin rays of [`DEMON_FIRE_RAYS`] about it, one every 0.004 s at the detail 2, of
+/// the size 30 ± 7 falling by 25 a second, turned at random, within 1 of the ball's centre along
+/// each axis, their life falling by 200 a second, of the ramp [`DemonFire::ramp`], added by their
+/// alpha. Its growth `g` rises from 0 to 1 over 2 s, holds until it strikes no more, and falls to
+/// 0 over 2 s more, when it ends; it makes rays until it strikes no more.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemonFire {
+    pub system: System,
+    strikes: f32,
+    lives: f32,
+}
+
+impl DemonFire {
+    /// A fire that strikes until `strikes` seconds from its start and lives `lives`
+    /// (`crate::spells::hellfire_times`).
+    pub fn new((strikes, lives): (f32, f32)) -> Self {
+        Self {
+            system: System::new(DEMON_FIRE_COUNT),
+            strikes,
+            lives,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -200.0,
+            size: -25.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block(centre: [f32; 3]) -> Block {
+        Block {
+            size: spread(30.0, 7.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            offset: spread(centre, [1.0; 3]),
+            interval: 0.004,
+            ..Block::default()
+        }
+    }
+
+    /// Its rays' ramp (`+0x20B0`): from nothing in an orange (0.922, 0.363, 0.035) to its full
+    /// alpha over 76 entries, to a yellow (0.996, 0.617, 0.25) over 66, to nothing in a brown
+    /// (0.566, 0.371, 0.184) over 114.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.922, 0.363, 0.035, 0.0],
+            &[
+                ([0.922, 0.363, 0.035, 0.996], 76),
+                ([0.996, 0.617, 0.25, 0.996], 66),
+                ([0.566, 0.371, 0.184, 0.0], 114),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x7B2CA0`): its rays age, and while it strikes it makes new ones
+    /// about its ball's centre.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.system.clock < self.strikes {
+            let block = Self::block(self.centre());
+            self.system.emit(&[block], &layers, DEMON_FIRE_COUNT, dice);
+        }
+    }
+
+    /// Its ball's centre over its point, in the models' frame (`+0x250C`).
+    pub fn centre(&self) -> [f32; 3] {
+        [0.0, 0.0, 45.0 + 3.0 * (1.17 * self.system.clock).sin()]
+    }
+
+    /// Its growth `g` (`+0x20A8`).
+    pub fn growth(&self) -> f32 {
+        let t = self.system.clock;
+        if t <= self.strikes {
+            (t / 2.0).min(1.0)
+        } else {
+            (1.0 - (t - self.strikes) / 2.0).max(0.0)
+        }
+    }
+
+    /// Its two spheres' sizes and turns about the vertical, the inner's and the outer's.
+    pub fn spheres(&self) -> [(f32, f32); 2] {
+        let (t, g) = (self.system.clock, self.growth());
+        let pulse = 0.05 * t.sin();
+        [((0.3 + pulse) * g, t), ((0.35 + pulse) * g, 1.2456 * t)]
+    }
+
+    /// Its lava's frame now.
+    pub fn frame(&self) -> u8 {
+        lava_frame(self.system.clock, 70.0)
+    }
+
+    /// Whether it ended.
+    pub fn done(&self) -> bool {
+        self.system.clock >= self.lives
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7735,5 +7860,31 @@ mod tests {
             ball.update(0.01, ([50.0, 0.0, 40.0], [50.0, 0.0, 40.0]), &mut dice);
         }
         assert!(ball.done());
+    }
+
+    #[test]
+    fn a_demon_fire_grows_bursts_its_rays_while_it_strikes_and_shrinks() {
+        let mut dice = Rng::of(8, 8, 1015);
+        let mut fire = DemonFire::new((3.0, 5.0));
+        for _ in 0..30 {
+            fire.update(1.0 / 30.0, &mut dice);
+        }
+        // A second on: half grown, its rays of the last second alive, 250 a second.
+        assert!((fire.growth() - 0.5).abs() < 1e-3);
+        assert!((240..=251).contains(&fire.system.particles.len()));
+        let [(inner, _), (outer, _)] = fire.spheres();
+        assert!(inner < outer && inner > 0.1);
+        for _ in 0..90 {
+            fire.update(1.0 / 30.0, &mut dice);
+        }
+        // Past its strikes: shrinking, no more rays made.
+        assert!((fire.growth() - 0.5).abs() < 1e-2);
+        assert!(fire.system.particles.len() < 240 && !fire.done());
+        for _ in 0..31 {
+            fire.update(1.0 / 30.0, &mut dice);
+        }
+        assert!(fire.done());
+        assert_eq!((lava_frame(0.5, 70.0), lava_frame(0.71, 70.0)), (35, 0));
+        assert_eq!(lava_frame_name(7), "A_LAVA07");
     }
 }
