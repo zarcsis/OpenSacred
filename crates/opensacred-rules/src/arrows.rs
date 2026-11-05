@@ -426,18 +426,19 @@ pub fn weapon_element(most: [f32; 4], [min, max]: [f32; 2]) -> Option<(Element, 
     (share > ELEMENT_SHOWS_ABOVE).then_some((kind, share))
 }
 
-/// The line of glows that an item of an element draws along its two bones `weapon_fx01` and
-/// `weapon_fx02` (`0x5BEE90`, through `0x40DA80`): the glows a unit of the line, the half side of
-/// each at the share `share`, and its colour, added by its alpha.
-pub fn element_line(element: Element, share: f32) -> (f32, f32, [f32; 4]) {
-    let colour = |argb: u32| {
-        let [a, r, g, b] = argb.to_be_bytes().map(|c| f32::from(c) / 255.0);
-        [r, g, b, a]
+/// The line of glows that an item of an element draws along its bones `weapon_fx01` to
+/// `weapon_fx03` (`0x5BEE90`, through `0x40DA80`; `crate::particles::glow_segments`), its half
+/// side by the share `share`.
+pub fn element_line(element: Element, share: f32) -> crate::particles::GlowLine {
+    let (density, half, argb) = match element {
+        Element::Fire => (0.5, share * 4.0 + 2.0, 0x40FF_8844),
+        Element::Poison => (0.5, share * 4.0 + 2.0, 0x4044_FF44),
+        Element::Magic => (0.7, share * 10.0, 0x5070_33FF),
     };
-    match element {
-        Element::Fire => (0.5, share * 4.0 + 2.0, colour(0x40FF_8844)),
-        Element::Poison => (0.5, share * 4.0 + 2.0, colour(0x4044_FF44)),
-        Element::Magic => (0.7, share * 10.0, colour(0x5070_33FF)),
+    crate::particles::GlowLine {
+        density,
+        half,
+        argb,
     }
 }
 
@@ -654,7 +655,7 @@ mod tests {
         assert_eq!(element([20.0, 4.0, 0.0, 0.0]), None);
         assert_eq!(element([20.0, 10.0, 10.0, 0.0]), None);
         assert_eq!(element([20.0, 0.0, 0.0, 0.0]), None);
-        assert_eq!(element_line(Element::Fire, 0.5).0, 0.5);
+        assert_eq!(element_line(Element::Fire, 0.5).density, 0.5);
         // In hand: above a third of the physical, by the balance's 25 and 275.
         let spawn = [25.0, 275.0];
         let (kind, share) = weapon_element([60.0, 40.0, 0.0, 0.0], spawn).unwrap();
@@ -662,6 +663,6 @@ mod tests {
         assert!((share - 27.5 / (275.0 * 0.333_333_34 - 12.5)).abs() < 1e-6);
         assert_eq!(weapon_element([150.0, 40.0, 0.0, 0.0], spawn), None);
         assert_eq!(weapon_element([60.0, 14.0, 0.0, 0.0], spawn), None);
-        assert_eq!(element_line(Element::Magic, 0.5).1, 5.0);
+        assert_eq!(element_line(Element::Magic, 0.5).half, 5.0);
     }
 }

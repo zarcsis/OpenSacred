@@ -93,6 +93,7 @@ mod icebergs;
 mod icons;
 mod inventory;
 mod iso;
+mod item_glows;
 mod journal;
 mod labels;
 mod lava_bursts;
@@ -493,6 +494,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         inventory::InventoryPlugin,
+        item_glows::ItemGlowsPlugin,
         journal::JournalPlugin,
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,

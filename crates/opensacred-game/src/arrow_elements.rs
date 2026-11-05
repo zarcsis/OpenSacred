@@ -17,8 +17,8 @@ use crate::game::{AppState, Data};
 use crate::spawning::Rng;
 use crate::{bolt_looks, daynight, iso};
 
-/// The bones of an arrow's shaft or a weapon's line (15 and 16).
-const SHAFT: [&str; 2] = ["weapon_fx01", "weapon_fx02"];
+/// The bones of an arrow's shaft or a weapon's line (15, 16 and 17).
+const SHAFT: [&str; 3] = ["weapon_fx01", "weapon_fx02", "weapon_fx03"];
 
 /// An arrow's element and its share, which its shot gives it (`arrows`, `0x5BD2D0`), or a
 /// weapon's in hand, which its values give it ([`wield`]).
@@ -42,15 +42,15 @@ impl Default for Dice {
 #[derive(Resource, Default)]
 struct Material(Option<Option<Handle<Effect>>>);
 
-/// An arrow's element shown: its arrow, its sparks, its shaft's bones once its model has them,
-/// where the shaft was a frame ago in the frame of its arrow's place, and the meshes of its
-/// sparks and its line.
+/// An arrow's element shown: its arrow, its sparks, its shaft's bones that its model has from the
+/// first on, once it has the first, where the shaft was a frame ago in the frame of its arrow's
+/// place, and the meshes of its sparks and its line.
 #[derive(Component)]
 struct Shown {
     arrow: Entity,
     elemental: Elemental,
     sparks: Option<ArrowSparks>,
-    shaft: Option<[Entity; 2]>,
+    shaft: Option<Vec<Entity>>,
     last: Option<[[f32; 3]; 2]>,
     meshes: [Handle<Mesh>; 2],
 }
@@ -163,8 +163,9 @@ fn show(
 }
 
 /// Runs each arrow's or weapon's element a frame on at it: its sparks along the shaft the frame
-/// swept (`0x77A650`), riding with its place (the system's flag 4), and its line of glows from one
-/// bone of the shaft to the other (`0x40DA80`); it goes with its arrow or weapon.
+/// swept between its first two bones (`0x77A650`), riding with its place (the system's flag 4),
+/// and its line of glows over its bones (`0x40DA80`, `particles::glow_segments`); it goes with
+/// its arrow or weapon.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -187,21 +188,30 @@ fn run(
         let origin = arrow.translation();
         transform.translation = origin;
         if look.shaft.is_none() {
-            let found = SHAFT.map(|bone| {
-                crate::making::bone_entity(look.arrow, &[bone], &children, (&bones, &worn))
-            });
-            if let [Some(tip), Some(tail)] = found {
-                look.shaft = Some([tip, tail]);
+            let found: Vec<Entity> = SHAFT
+                .iter()
+                .map_while(|&bone| {
+                    crate::making::bone_entity(look.arrow, &[bone], &children, (&bones, &worn))
+                })
+                .collect();
+            if !found.is_empty() {
+                look.shaft = Some(found);
             }
         }
-        let Some(points) = look
-            .shaft
-            .and_then(|shaft| places.get_many(shaft).ok())
-            .map(|bones| bones.map(|bone| bolt_looks::models(bone.translation() - origin)))
-        else {
+        let Some(points) = look.shaft.as_ref().and_then(|shaft| {
+            shaft
+                .iter()
+                .map(|&bone| {
+                    let bone = places.get(bone).ok()?;
+                    Some(bolt_looks::models(bone.translation() - origin))
+                })
+                .collect::<Option<Vec<[f32; 3]>>>()
+        }) else {
             continue;
         };
-        let from = look.last.unwrap_or(points);
+        // The sparks between its first two bones, at its one bone for a model of one.
+        let ends = [points[0], points.get(1).copied().unwrap_or(points[0])];
+        let from = look.last.unwrap_or(ends);
         let Shown {
             elemental,
             sparks,
@@ -210,7 +220,7 @@ fn run(
         } = &mut *look;
         let mut quads = Quads::default();
         if let Some(sparks) = sparks {
-            sparks.update(dt, (from, points), &mut dice.0);
+            sparks.update(dt, (from, ends), &mut dice.0);
             for particle in &sparks.system.particles {
                 quads.push(
                     bolt_looks::world(particle.place),
@@ -224,27 +234,23 @@ fn run(
         if let Some(mut mesh) = meshes.get_mut(&*spark_mesh) {
             quads.into_mesh(&mut mesh);
         }
-        let (density, half, colour) = arrows::element_line(elemental.element, elemental.share);
-        let [a, b] = points.map(Vec3::from);
-        // As many glows as the line's length times its density, at least one, from its start.
-        let count = ((b - a).length() * density).floor().max(1.0);
+        let line = arrows::element_line(elemental.element, elemental.share);
         let mut quads = Quads::default();
-        let mut k = 0.0;
-        while k < count {
-            let at = a + (b - a) * (k / count);
-            quads.push(
-                bolt_looks::world(at.to_array()),
-                half * s,
-                0.0,
-                (Vec2::ZERO, 1.0),
-                colour,
-            );
-            k += 1.0;
+        for &(a, b) in particles::glow_segments(points.len()) {
+            for at in line.points(points[a], points[b]) {
+                quads.push(
+                    bolt_looks::world(at),
+                    line.half * s,
+                    0.0,
+                    (Vec2::ZERO, 1.0),
+                    line.colour(),
+                );
+            }
         }
         if let Some(mut mesh) = meshes.get_mut(&*line_mesh) {
             quads.into_mesh(&mut mesh);
         }
-        look.last = Some(points);
+        look.last = Some(ends);
     }
 }
 

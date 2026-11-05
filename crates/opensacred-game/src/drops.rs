@@ -56,6 +56,11 @@ pub struct Tables {
     /// The types that glitter lying on the ground: their `items.pak` record's first word's bit
     /// 19, the byte `+0x02` bit 3 (`0x428460`; #1382, `glitter`).
     glittering: std::collections::HashSet<u32>,
+    /// Each weapon's record's parent (`Weapon.pak +0x24`) and each slot's effect of the second
+    /// model renderer (`Item::model_effect`'s kind), by which an item's model draws its own glows
+    /// (`own_glows`, #2091).
+    parents: HashMap<u32, u32>,
+    effects: HashMap<u32, u8>,
     /// Each type's record's bytes `+0x14` to `+0x1B` as the file holds them: the level it asks,
     /// the strength, the dexterity, the charisma and the endurance it asks, its own level, and its
     /// skill and the skill's level, which the tooltip names (#1273).
@@ -203,6 +208,15 @@ impl Tables {
             .filter(|item| item.subclass & GLITTERS != 0)
             .map(|item| item.slot)
             .collect();
+        let parents = weapons
+            .iter()
+            .filter(|weapon| weapon.parent != 0)
+            .map(|weapon| (weapon.id, weapon.parent))
+            .collect();
+        let effects = items
+            .iter()
+            .filter_map(|item| Some((item.slot, item.model_effect()?.0)))
+            .collect();
         let looks = items
             .iter()
             .filter_map(|item| {
@@ -335,6 +349,8 @@ impl Tables {
             weapon_lists,
             prices,
             glittering,
+            parents,
+            effects,
         })
     }
 
@@ -354,6 +370,18 @@ impl Tables {
     pub fn glitters(&self, item: u32) -> bool {
         let slot = self.catalogue.slot(item).unwrap_or(item);
         self.glittering.contains(&item) || self.glittering.contains(&slot)
+    }
+
+    /// What the model of an item of the type `item` draws of its own
+    /// (`opensacred_rules::particles::own_glows`, `0x5BEE90`): by its own weapon record's parent,
+    /// and by the effect of its entry, its derived type's root's.
+    pub fn own_glows(&self, item: u32) -> opensacred_rules::particles::OwnGlows {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        opensacred_rules::particles::own_glows(
+            item,
+            self.parents.get(&item).copied().unwrap_or(0),
+            self.effects.get(&slot).copied(),
+        )
     }
 
     /// The values of `dropped` of its own, its sockets' items' shares left out: its maker's where

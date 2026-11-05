@@ -642,6 +642,7 @@ fn dress(
             let (model, texture, _) = tables.look(item)?;
             Some(crate::npcs::Held::worn(
                 slot,
+                item,
                 model.to_owned(),
                 texture.map(str::to_owned),
             ))
