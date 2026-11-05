@@ -541,12 +541,9 @@ fn act(
                     Visibility::Inherited,
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some((mesh, material)) = bolt_looks
-                    .as_ref()
-                    .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
-                {
-                    fire.insert((Mesh3d(mesh), MeshMaterial3d(material)));
-                }
+                fire.insert(crate::homing_fires::Flames(
+                    opensacred_rules::particles::HomingKind::Guard,
+                ));
                 sounds.write(crate::sfx::Play {
                     sound: crate::sfx::Of::Id(GUARDS_FIRE_SOUND),
                     at: Some(entity),
@@ -815,12 +812,9 @@ fn act(
                     Visibility::Inherited,
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some((mesh, material)) = bolt_looks
-                    .as_ref()
-                    .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
-                {
-                    fire.insert((Mesh3d(mesh), MeshMaterial3d(material)));
-                }
+                fire.insert(crate::homing_fires::Flames(
+                    opensacred_rules::particles::HomingKind::Demon,
+                ));
                 if let Some(weather) = weather.as_mut() {
                     weather.set(opensacred_rules::weather::Event::Jolt(DEMON_FIRE_JOLT));
                 }
@@ -1141,8 +1135,6 @@ fn spread(
     }
 }
 
-/// The look of a homing fire, the fireball's (`bolts`).
-const FIRE_LOOK: usize = 3;
 /// The ball's sound as it starts (`SOUND_FX_DELF_WURFCAST`).
 const BALL_SOUND: u32 = 2057;
 
@@ -1217,19 +1209,34 @@ const DEMON_FIRE_SOUND: u32 = 2084;
 /// its time, at a cell it may not pass, or as it bursts on the hero.
 fn home(
     mut commands: Commands,
-    time: Res<Time>,
-    heights: Res<Heights>,
+    (time, heights): (Res<Time>, Res<Heights>),
     mut fires: Query<(Entity, &mut HomingFire, &mut Transform)>,
     places: Query<&GlobalTransform, Without<HomingFire>>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     heroes: Query<(Entity, &GlobalTransform, &Body, &crate::fight::Health), Without<Dies>>,
-    mut hits: MessageWriter<crate::fight::Hit>,
+    (mut hits, mut bursts): (
+        MessageWriter<crate::fight::Hit>,
+        MessageWriter<crate::homing_fires::Bursts>,
+    ),
 ) {
     let dt = time.delta_secs();
     for (entity, mut fire, mut transform) in &mut fires {
         if fire.charge > 0.0 {
             fire.charge -= dt;
-            if let Ok(caster) = places.get(fire.caster) {
-                transform.translation = caster.translation() + Vec3::Y * crate::bolts::HEIGHT;
+            // In its caster's right hand (the bone 14, `0x5A3840`'s cases `0x7A` and `0xA8`).
+            let hand = crate::making::bone(fire.caster, &FIRE_HAND, &children, (&bones, &worn))
+                .or_else(|| {
+                    places
+                        .get(fire.caster)
+                        .ok()
+                        .map(|at| at.translation() + Vec3::Y * crate::bolts::HEIGHT)
+                });
+            if let Some(hand) = hand {
+                transform.translation = hand;
             }
             continue;
         }
@@ -1245,6 +1252,13 @@ fn home(
         let ground = here + fire.direction * casts::HOMING_SPEED * dt;
         let cell = crate::paths::cell_of(ground.x, ground.y);
         if fire.left <= 0.0 || !heights.walkable_on(cell, fire.level) {
+            // A cell that stops it bursts it (its word `+0x74` bit 2); its flight's end does not.
+            if fire.left > 0.0 {
+                bursts.write(crate::homing_fires::Bursts {
+                    fire: entity,
+                    at: transform.translation,
+                });
+            }
             commands.entity(entity).despawn();
             continue;
         }
@@ -1281,9 +1295,20 @@ fn home(
                 poison: false,
             });
         }
+        bursts.write(crate::homing_fires::Bursts {
+            fire: entity,
+            at: transform.translation,
+        });
         commands.entity(entity).despawn();
     }
 }
+
+/// The look of the flames of the rings and the fan, the fireball's stand-in (`bolts`).
+const FIRE_LOOK: usize = 3;
+
+/// The bone in whose hand a homing fire charges (`Bip01 R Finger31`, the bone 14 of `0x44CBB0`'s
+/// table).
+const FIRE_HAND: [&str; 1] = ["Bip01 R Finger31"];
 
 /// Ends each cast whose clip has ended (`0x51D150`'s sub-state 4), the creature taking its melee
 /// up again from its start.

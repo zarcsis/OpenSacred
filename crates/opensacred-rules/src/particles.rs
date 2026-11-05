@@ -6353,6 +6353,143 @@ impl Tentacle {
     }
 }
 
+/// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
+pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
+const HOMING_FIRE_COUNT: usize = 300;
+
+/// The two homing fires, of one code (`0x7A6AD0`, `0x7BF720`): the big demons' (910,
+/// `FX_DAEMONFIRE`, of the spell 50) and Anducar's guards' (1164, `FX_ANDUCAR_GARDE`, of the
+/// spell 70).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HomingKind {
+    Demon,
+    Guard,
+}
+
+/// A homing fire's flames (910 and 1164, `cParticleSystem_daemonfire` and
+/// `cParticleSystem_anducar_garde`, their starts `0x7A6F50` and `0x7BFA90`, their run and draw
+/// of one code; #1092): flames of [`HOMING_FIRE_TEXTURE`] at the fire, one every 0.006 s at the
+/// detail 2, rising (the buoyancy −35 ± 34) and growing as they burn for 0.85 s, the demons' of
+/// the size 12 ± 1.5 within 15 of it growing by 15 a second, the guards' of 6 ± 0.5 within 5
+/// growing by 10, of the ramp [`HomingFlames::ramp`], turned at random, added by their alpha,
+/// left in the world behind it as it flies; at its burst all its dead flames at once in a ball,
+/// and none more; past its flight it makes no more and ends with its last.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HomingFlames {
+    pub system: System,
+    kind: HomingKind,
+    out: bool,
+    burst: bool,
+}
+
+impl HomingFlames {
+    /// The flames of a fire of `kind` as it starts.
+    pub fn new(kind: HomingKind) -> Self {
+        Self {
+            system: System::new(HOMING_FIRE_COUNT),
+            kind,
+            out: false,
+            burst: false,
+        }
+    }
+
+    /// Its flames' layer: theirs as it burns, the burst's after it (its layers cleared and set
+    /// anew at the burst).
+    fn layer(&self) -> Layer {
+        if self.burst {
+            return Layer {
+                life: -200.0,
+                size: -15.0,
+                ..Layer::default()
+            };
+        }
+        Layer {
+            life: -300.0,
+            size: match self.kind {
+                HomingKind::Demon => 15.0,
+                HomingKind::Guard => 10.0,
+            },
+            ..Layer::default()
+        }
+    }
+
+    fn block(&self) -> Block {
+        let (size, offset) = match self.kind {
+            HomingKind::Demon => (spread(12.0, 1.5), 15.0),
+            HomingKind::Guard => (spread(6.0, 0.5), 5.0),
+        };
+        Block {
+            buoyancy: spread(-35.0, 34.0),
+            size,
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [0.5; 3]),
+            offset: spread([0.0; 3], [offset; 3]),
+            interval: 0.006,
+            ..Block::default()
+        }
+    }
+
+    /// Its flames' ramp (`+0x20AC`): from nothing to a pale yellow at the alpha 0.352 over 5
+    /// entries, to an orange red at 0.996 over 40, to a darker red at 0.898 over 29, to black at
+    /// 0.547 over 85, to nothing over 97.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.0; 4],
+            &[
+                ([0.996, 0.953, 0.516, 0.352], 5),
+                ([0.996, 0.313, 0.156, 0.996], 40),
+                ([0.910, 0.262, 0.078, 0.898], 29),
+                ([0.0, 0.0, 0.0, 0.547], 85),
+                ([0.0; 4], 97),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds, the fire gone from `from` to `to` in the models' frame: its flames
+    /// age, and until it stops it leaves new ones along its way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        if !self.out {
+            self.system.emit_along(
+                &[self.block()],
+                &layers,
+                HOMING_FIRE_COUNT,
+                (from, to),
+                dt,
+                dice,
+            );
+        }
+    }
+
+    /// Its burst at `at` in the models' frame, its contact or a cell that stops it: all its dead
+    /// flames at once, of the size 12 ± 1.5 within 15 of it, flying out at up to 25 along each
+    /// axis, their life falling by 200 a second and their size by 15; then none more.
+    pub fn burst(&mut self, at: [f32; 3], dice: &mut impl Dice) {
+        self.out = true;
+        let block = Block {
+            size: spread(12.0, 1.5),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [25.0; 3]),
+            offset: spread(at, [15.0; 3]),
+            ..Block::default()
+        };
+        self.burst = true;
+        let room = HOMING_FIRE_COUNT.saturating_sub(self.system.particles.len());
+        self.system.burst(&block, room, HOMING_FIRE_COUNT, dice);
+    }
+
+    /// Its flight's end: it makes no more.
+    pub fn end(&mut self) {
+        self.out = true;
+    }
+
+    /// Whether it ended: out and no flame alive.
+    pub fn done(&self) -> bool {
+        self.out && self.system.particles.is_empty()
+    }
+}
+
 /// The demon fire's model, its lava's frames (`A_LAVA00` to `A_LAVA49`) and its rays' texture
 /// (1015, `0x7B2B00`), and its particles.
 pub const DEMON_FIRE_MODEL: &str = "SPHERE.GRN";
@@ -8737,5 +8874,36 @@ mod tests {
                 .all(|p| p.frame < 4 && p.place[2] >= 0.0)
         );
         assert_eq!(GroundPoison::ramp().at(255.0), [0.5, 1.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn a_homing_fire_trails_its_flames_and_bursts_into_a_ball() {
+        let mut dice = Rng::of(13, 13, 910);
+        let mut fire = HomingFlames::new(HomingKind::Demon);
+        for k in 0..30u8 {
+            let x = f32::from(k) * 4.0;
+            fire.update(
+                1.0 / 60.0,
+                ([x, 0.0, 60.0], [x + 4.0, 0.0, 60.0]),
+                &mut dice,
+            );
+        }
+        // Half a second at one every 0.006 s, each living 0.85 s.
+        assert!((80..=84).contains(&fire.system.particles.len()));
+        assert!(fire.system.particles.iter().all(|p| p.place[2] >= 40.0));
+        fire.burst([120.0, 0.0, 60.0], &mut dice);
+        assert_eq!(fire.system.particles.len(), 300);
+        for _ in 0..80 {
+            fire.update(
+                1.0 / 60.0,
+                ([120.0, 0.0, 60.0], [120.0, 0.0, 60.0]),
+                &mut dice,
+            );
+        }
+        assert!(fire.done());
+        let mut guard = HomingFlames::new(HomingKind::Guard);
+        guard.update(0.1, ([0.0; 3], [0.0; 3]), &mut dice);
+        assert!(guard.system.particles.iter().all(|p| p.size < 8.0));
+        assert_eq!(HomingFlames::ramp().at(251.0)[3], 0.352);
     }
 }

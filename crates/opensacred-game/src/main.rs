@@ -90,6 +90,7 @@ mod hero;
 mod hero_held;
 mod hit_sparks;
 mod holy_lights;
+mod homing_fires;
 mod hover;
 mod hud;
 mod hums;
@@ -502,14 +503,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         hero_held::HeroHeldPlugin,
         hit_sparks::HitSparksPlugin,
         holy_lights::HolyLightsPlugin,
+        homing_fires::HomingFiresPlugin,
         hover::HoverPlugin,
         hums::HumsPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
         icebergs::IcebergsPlugin,
-        icons::IconsPlugin,
     ))
     .add_plugins((
+        icons::IconsPlugin,
         inventory::InventoryPlugin,
         item_glows::ItemGlowsPlugin,
         journal::JournalPlugin,
@@ -524,9 +526,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         lost_souls::LostSoulsPlugin,
         low_health::LowHealthPlugin,
         magic_lights::MagicLightsPlugin,
-        making::MakingPlugin,
     ))
     .add_plugins((
+        making::MakingPlugin,
         master::MasterPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,

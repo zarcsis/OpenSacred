@@ -1397,6 +1397,25 @@ Read 2026-11-05 for #1092 and #2119 in Ghidra (**confirmed** by code), and the h
 `opensacred-game` lays them since #1092 (`beams`, `opensacred_rules::particles::{LaserSegment, laser_axes}`, `opensacred_rules::ways::laser_places`): the drains', the hellfire's, the eye lasers' and the bite's, each segment staying where it was laid with its quads, its band, its sway and its colour by its variant, and its sound; the line's test of the strikes is #2123's; the segments' lights of 80, the `Gehirnfüßler`'s, the strike handler's and the zhadum's beams are not followed.
 **Seen** 2026-11-05 beside the original: in both the hellfire's yellow-orange streak from its ball to the goblin's neck at a strike; the drain's chain of red strands from the Seraphim to the skeleton in the game.
 
+## The homing fires
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The big demons' fire, the creatures' spell 50 | 910 `FX_DAEMONFIRE` | `cParticleSystem_daemonfire` (`0x8988C4`) | `0x7A6A40`, `0x7A6F50`, `0x7A6AD0`, `0x7A6D30` |
+| Anducar's guards' fire, the spell 70 | 1164 `FX_ANDUCAR_GARDE` | `cParticleSystem_anducar_garde` (`0x898F38`) | `0x7BF690`, `0x7BFA90`, `0x7BF720`, `0x7BFA20` |
+
+The two run one code; their FX events (`0x7A`, `0xA8`) follow the caster at its bone 14 (`Bip01 R Finger31`), the flag `0x200` putting the system there at each frame while it charges.
+- Its constructor (300 particles) loads `PARTICLE_FIRE03`; no Direct3D light.
+- Its start: its charge 2.5 s (910) or 0.9 s (1164); one layer of the life −300 a second (0.85 s) and the size +15 (910) or +10 (1164); one block of the buoyancy −35 ± 34 (rising), the angle π ± π, the velocity ± 0.5, the size 12 ± 1.5 within 15 (910) or 6 ± 0.5 within 5 (1164), one every 0.006 s at the detail 2; its ramp from nothing to a pale yellow (0.996, 0.953, 0.516) at the alpha 0.352 over 5 entries, to (0.996, 0.313, 0.156) at 0.996 over 40, to (0.910, 0.262, 0.078) at 0.898 over 29, to black at 0.547 over 85, to nothing over 97 (a second ramp, layer and block filled and never used); its light 250; 1164 plays `TORCH_HIT01` (708).
+- Its run: the renderer's wind in its layer; charging, it makes flames; at its charge's end the homing flight (its flags `0x10001`, its speed 250, docs/re/arts.md), and 1164 plays `SPELL_FIRESTRIKE` (2091); 5 s on it stops and burns out; at its contact or a cell that stops it (its word `+0x74` bit 2), it stops, its layers set to the life −200 and the size −15, and bursts all its dead flames at once within 15 of it, flying out at up to 25 along each axis, and 1164 plays `MAGE_FEUERBALL_HIT` (2001).
+- Its draw: billboards of the flags `0x0D` (the ramp's colour, turned, added by their alpha), the grid 1, untinted; the additive blend leaves the ramp's black part unseen.
+- So a flickering fire burns in the caster's right hand as it charges, trails its flames behind it as it homes, and bursts in a ball of up to 300 flames gone within a second.
+
+`opensacred-game` draws them since #1092 (`homing_fires`, `opensacred_rules::particles::{HomingFlames, HomingKind}`): each homing fire of `creature_casts` charges at its caster's `Bip01 R Finger31`, leaves its flames in the world along its way and bursts where it strikes the hero or a cell stops it, its flames added and untinted by the night; the demons' flames riding with their caster (the flag 4) are left in the world as the guards' (**estimate**: how its riding origin carries into the flight is not read).
+**Seen** 2026-11-05 in the game: an Anducar's guard 184 of the level 20 striking the Seraphim with its fire, a ball of orange flames bursting at her.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
