@@ -2572,7 +2572,25 @@ pub struct LostSoul {
     pub system: System,
     seconds: f32,
     out: bool,
+    colour: [f32; 3],
 }
+
+/// The dryad ghost (1162, `cParticleSystem_dryad_ghost`, its start `0x7BF3A0`, its run `0x7BF1E0`
+/// and its draw `0x7BF2C0`; docs/re/effects.md, "The dryad ghost"), which a sector's fill makes
+/// for its dummy 1249 (`0x480D40`): a lost soul's look with blue dots ([`LostSoul::dryad_ghost`]),
+/// which flies at 120 a second (`+0x98`), turning by 3 radians a second at most (`+0xE0`), at the
+/// nearest creature hostile to its dummy within a squared 100,000 (`0x600570`), at its bone 3
+/// (`Bip01 Neck`), else hovers 10 over its place (`0x5A7F28`); once a second it strikes every such
+/// creature within its size and theirs (`0x5B17AB`), and it loops `HELF_AHNEN_LOOP` (2058).
+pub const DRYAD_GHOST: u32 = 1162;
+pub const DRYAD_GHOST_DUMMY: u32 = 1249;
+pub const DRYAD_GHOST_SPEED: f32 = 120.0;
+pub const DRYAD_GHOST_TURN: f32 = 3.0;
+pub const DRYAD_GHOST_LOOKS: f32 = 316.2;
+pub const DRYAD_GHOST_HOVER: f32 = 10.0;
+pub const DRYAD_GHOST_SIZE: f32 = 50.0;
+pub const DRYAD_GHOST_BEAT: f32 = 1.0;
+pub const DRYAD_GHOST_LOOP: u32 = 2058;
 
 /// A soul's dots' texture, their particles at most (`0x5A0C50`'s count for the type 850), and its
 /// glow's texture (the style 5).
@@ -3023,6 +3041,16 @@ impl LostSoul {
             system: System::new(SOUL_COUNT),
             seconds,
             out: false,
+            colour: [60.0, 255.0, 60.0],
+        }
+    }
+
+    /// A dryad ghost's look ([`DRYAD_GHOST`]): its dots (60, 60, 255) out of 256 (`0x7BF3A0`),
+    /// with no seconds of its own, as long as its object lives.
+    pub fn dryad_ghost() -> Self {
+        Self {
+            colour: [60.0, 60.0, 255.0],
+            ..Self::new(f32::INFINITY)
         }
     }
 
@@ -3035,10 +3063,12 @@ impl LostSoul {
         }
     }
 
-    /// Its dots' ramp (`+0x20B0`): (60, 255, 60) out of 256, from opaque to nothing.
-    pub fn ramp() -> Ramp {
-        let green = |alpha: f32| [60.0 / 256.0, 255.0 / 256.0, 60.0 / 256.0, alpha];
-        Ramp::new(green(255.0 / 256.0), &[(green(0.0), 256)])
+    /// Its dots' ramp (`+0x20B0`): its colour, (60, 255, 60) out of 256 a soul's, from opaque to
+    /// nothing.
+    pub fn ramp(&self) -> Ramp {
+        let [r, g, b] = self.colour.map(|c| c / 256.0);
+        let colour = |alpha: f32| [r, g, b, alpha];
+        Ramp::new(colour(255.0 / 256.0), &[(colour(0.0), 256)])
     }
 
     /// Its block at the clock `t` (`+0x24D0`): the size 7, the angle's speed 6, from its wobbling
@@ -5361,7 +5391,11 @@ mod tests {
                 .iter()
                 .any(|p| p.place[0] < at[0] - 50.0)
         );
-        assert_eq!(LostSoul::ramp().at(255.0)[1], 255.0 / 256.0);
+        assert_eq!(LostSoul::new(1.0).ramp().at(255.0)[1], 255.0 / 256.0);
+        // A dryad ghost's dots are blue, its seconds endless.
+        let ghost = LostSoul::dryad_ghost();
+        assert_eq!(ghost.ramp().at(255.0)[2], 255.0 / 256.0);
+        assert_eq!(ghost.ramp().at(255.0)[1], 60.0 / 256.0);
         for _ in 0..70 {
             soul.update(0.025, (at, at), &mut dice);
         }
