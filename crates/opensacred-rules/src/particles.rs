@@ -5550,6 +5550,270 @@ pub fn skull_turn([x, y]: [f32; 2]) -> f32 {
     (-y).atan2(x) + std::f32::consts::FRAC_PI_2
 }
 
+/// The points of a vine, the thorns' plant's or a tentacle's tendril's (`0x798820`, `0x7B0DF0`).
+pub const VINE_POINTS: u16 = 128;
+/// The thorns' plant's textures: its vine's and spurs' dots and its glow on the ground.
+pub const PLANT_TEXTURE: &str = "PARTICLE_GLOW01";
+pub const PLANT_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+/// The colours of a hero's plant and of a creature's (`0x799640`: `0xFF40FF40`, `0xFF4040FF`).
+pub const PLANT_GREEN: [f32; 4] = [64.0 / 255.0, 1.0, 64.0 / 255.0, 1.0];
+pub const PLANT_BLUE: [f32; 4] = [64.0 / 255.0, 64.0 / 255.0, 1.0, 1.0];
+
+/// The forms of a vine's curve along each axis by its rolls `U1` to `U4`: `sin(0.1 k f)·a`, its
+/// size `a` and its frequency `f` each `p·U + q`, its size along x by `U1`, its frequency by `U2`,
+/// along y by `U3` and `U4`; the curve turned by `2π·U0` about the vertical.
+struct Curve {
+    x_size: [f32; 2],
+    x_freq: [f32; 2],
+    y_size: [f32; 2],
+    y_freq: [f32; 2],
+}
+
+/// A vine's stem (`+0x20C4`), its two sways (`+0x26C4`, `+0x2CC4`).
+const STEM: Curve = Curve {
+    x_size: [2.0, 4.5],
+    x_freq: [1.0, 0.5],
+    y_size: [2.0, 6.5],
+    y_freq: [1.0, 0.7],
+};
+const SWAY_A: Curve = Curve {
+    x_size: [3.0, 3.5],
+    x_freq: [0.8, 0.2],
+    y_size: [3.0, 6.0],
+    y_freq: [0.4, 0.1],
+};
+const SWAY_B: Curve = Curve {
+    x_size: [3.0, 2.5],
+    x_freq: [1.0, 0.5],
+    y_size: [2.0, 7.0],
+    y_freq: [1.0, 1.0],
+};
+
+/// A [`Curve`] of its rolls: its sizes and frequencies along each axis and its turn's sine and
+/// cosine.
+struct Rolled {
+    x: [f32; 2],
+    y: [f32; 2],
+    turn: (f32, f32),
+}
+
+impl Curve {
+    /// The curve of five rolls of `dice`, `U0` to `U4` in turn.
+    fn roll(&self, dice: &mut impl Dice) -> Rolled {
+        let [u0, u1, u2, u3, u4]: [f32; 5] = std::array::from_fn(|_| share(dice));
+        let of = |[p, q]: [f32; 2], u: f32| p * u + q;
+        Rolled {
+            x: [of(self.x_size, u1), of(self.x_freq, u2)],
+            y: [of(self.y_size, u3), of(self.y_freq, u4)],
+            turn: (std::f32::consts::TAU * u0).sin_cos(),
+        }
+    }
+}
+
+impl Rolled {
+    /// Its point `k` across the vertical.
+    fn at(&self, k: f32) -> [f32; 2] {
+        let ([x_size, x_freq], [y_size, y_freq], (sin, cos)) = (self.x, self.y, self.turn);
+        let x = (0.1 * k * x_freq).sin() * x_size;
+        let y = (0.1 * k * y_freq).sin() * y_size;
+        [x * cos - y * sin, x * sin + y * cos]
+    }
+}
+
+/// A vine's shape, rolled as it is made (`0x798820`, `0x7B0DF0`): its stem of 128 points in the
+/// models' frame from its foot, rising half a unit a point and winding out as it rises, and its
+/// two sways, each a loop of 128 offsets across, the first 64 rolled and the rest mirrored, which
+/// climb it at 30 and 27 entries a second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Vine {
+    stem: Vec<[f32; 3]>,
+    sways: [Vec<[f32; 2]>; 2],
+}
+
+impl Vine {
+    /// A vine of the rolls of `dice`: its stem's five, then each sway's five.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let stem = STEM.roll(dice);
+        let stem = (0..VINE_POINTS)
+            .map(|k| {
+                let k = f32::from(k);
+                let [x, y] = stem.at(k);
+                let share = k / f32::from(VINE_POINTS);
+                [x * share, y * share, 0.5 * k]
+            })
+            .collect();
+        let sways = [SWAY_A, SWAY_B].map(|curve| {
+            let sway = curve.roll(dice);
+            let half: Vec<[f32; 2]> = (0..VINE_POINTS / 2)
+                .map(|k| sway.at(f32::from(k)))
+                .collect();
+            half.iter().chain(half.iter().rev()).copied().collect()
+        });
+        Self { stem, sways }
+    }
+
+    /// Its stem's point `k`.
+    pub fn stem(&self, k: usize) -> [f32; 3] {
+        self.stem.get(k).copied().unwrap_or_default()
+    }
+
+    /// Its sways' offsets at the point `k` at the clock `t`, added: the first's entry
+    /// `k − ⌊30 t⌋` about its loop, the second's `k − ⌊27 t⌋` (`0x798F10`).
+    pub fn sway(&self, k: usize, t: f32) -> [f32; 2] {
+        let points = f32::from(VINE_POINTS);
+        let entry = |sway: &[[f32; 2]], rate: f32| {
+            let k = f32::from(u16::try_from(k).unwrap_or(0));
+            let at = (k - (rate * t).floor()).rem_euclid(points);
+            let at = usize::try_from(crate::fight::truncated(f64::from(at))).unwrap_or(0);
+            sway.get(at).copied().unwrap_or_default()
+        };
+        let ([ax, ay], [bx, by]) = (entry(&self.sways[0], 30.0), entry(&self.sways[1], 27.0));
+        [ax + bx, ay + by]
+    }
+}
+
+/// How a [`KillerPlant`] grows: it rises, stands for its seconds, sinks, and ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Growth {
+    Rises,
+    Stands,
+    Sinks,
+    Done,
+}
+
+/// The thorns' plant (848, `FX_KILLERPLANTS`, `cParticleSystem_killerplants`, its constructor
+/// `0x798820`, start `0x799640`, run `0x798E50` and draw `0x798F10`; #1092): a vine of 128
+/// dots of [`PLANT_TEXTURE`] facing the camera, from a half side of 3 at its foot to 1 at its
+/// tip, 64 high, swaying as its two sways climb it, seven spurs of dots straight out along its
+/// bends, and a glow of [`PLANT_GLOW_TEXTURE`] flat on the ground under it, all added by their
+/// alpha in its colour, green a hero's and blue a creature's. Its rise goes from −3 to 0 over a
+/// second, which every dot's half side takes, so that it grows from its foot up; it stands for
+/// its seconds, and sinks as it rose.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KillerPlant {
+    vine: Vine,
+    spurs: [usize; 7],
+    clock: f32,
+    rise: f32,
+    stands: f32,
+    growth: Growth,
+    pub colour: [f32; 4],
+}
+
+impl KillerPlant {
+    /// A plant that stands `seconds` after its rise, a hero's or a creature's, of the rolls of
+    /// `dice`: its seven spurs' points first, the `m`-th `⌊128 m / 7⌋ + rand() % 7` and at least
+    /// 1, then its vine's.
+    pub fn new(seconds: f32, hero: bool, dice: &mut impl Dice) -> Self {
+        let spurs = std::array::from_fn(|m| {
+            let m = u32::try_from(m).unwrap_or(0);
+            let at = (128 * m / 7 + dice.below(7)).max(1);
+            usize::try_from(at).unwrap_or(1)
+        });
+        Self {
+            vine: Vine::new(dice),
+            spurs,
+            clock: 0.0,
+            rise: -3.0,
+            stands: seconds,
+            growth: Growth::Rises,
+            colour: if hero { PLANT_GREEN } else { PLANT_BLUE },
+        }
+    }
+
+    /// A run of `dt` seconds (`0x798E50`): its rise grows by 3 a second to 0, it stands its
+    /// seconds, and its rise falls by 3 a second until it ends below −3.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.growth {
+            Growth::Rises => {
+                self.rise += 3.0 * dt;
+                if self.rise >= 0.0 {
+                    self.rise = 0.0;
+                    self.growth = Growth::Stands;
+                }
+            }
+            Growth::Stands => {
+                self.stands -= dt;
+                if self.stands <= 0.0 {
+                    self.growth = Growth::Sinks;
+                }
+            }
+            Growth::Sinks => {
+                self.rise -= 3.0 * dt;
+                if self.rise < -3.0 {
+                    self.rise = -3.0;
+                    self.growth = Growth::Done;
+                }
+            }
+            Growth::Done => {}
+        }
+    }
+
+    /// Whether it ended.
+    pub fn done(&self) -> bool {
+        self.growth == Growth::Done
+    }
+
+    /// The half side of its glow on the ground: `5·(rise + 3)`, 15 at its full rise.
+    pub fn glow(&self) -> f32 {
+        5.0 * (self.rise + 3.0)
+    }
+
+    /// Its vine's point `k` at its clock, from its foot in the models' frame: the stem's, and the
+    /// sways' times `k / 128` across it.
+    fn point(&self, k: usize) -> [f32; 3] {
+        let [x, y, z] = self.vine.stem(k);
+        let [sx, sy] = self.vine.sway(k, self.clock);
+        let share = f32::from(u16::try_from(k).unwrap_or(0)) / f32::from(VINE_POINTS);
+        [x + share * sx, y + share * sy, z]
+    }
+
+    /// Its dots, each a centre from its foot in the models' frame and a half side (`0x798F10`):
+    /// the vine's where its half side, its width `1 + (128 − k)/64` and its rise, is above 0, and
+    /// at each of its seven spurs' points so drawn while its rise is above −1, a spur's dots 0.75
+    /// apart straight on along the vine from the point before, of the half side `1.5 + rise`
+    /// falling by 0.075 a dot while above 0.5, 14 at its full rise.
+    pub fn dots(&self) -> Vec<([f32; 3], f32)> {
+        let mut dots = Vec::new();
+        let mut spurs = self.spurs.iter().copied().peekable();
+        for k in 0..usize::from(VINE_POINTS) {
+            let width = 1.0 + f32::from(VINE_POINTS - u16::try_from(k).unwrap_or(0)) / 64.0;
+            let half = width + self.rise;
+            if half <= 0.0 {
+                continue;
+            }
+            let at = self.point(k);
+            dots.push((at, half));
+            if k == 0 || spurs.peek() != Some(&k) {
+                continue;
+            }
+            spurs.next();
+            if self.rise <= -1.0 {
+                continue;
+            }
+            let before = self.point(k - 1);
+            let along = [0, 1, 2].map(|i| at[i] - before[i]);
+            let length = along.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let along = if length < 1e-7 {
+                [0.0; 3]
+            } else {
+                along.map(|v| v / length)
+            };
+            let mut n = 1.0_f32;
+            loop {
+                let half = 1.5 + self.rise - 0.075 * (n - 1.0);
+                if half <= 0.5 {
+                    break;
+                }
+                dots.push(([0, 1, 2].map(|i| at[i] + 0.75 * n * along[i]), half));
+                n += 1.0;
+            }
+        }
+        dots
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7056,5 +7320,40 @@ mod tests {
         assert!(skull.flies().is_none() && skull.done());
         assert_eq!(FlyingSkull::ramp().at(255.0), [0.0; 4]);
         assert!((skull_turn([1.0, 0.0]) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_killer_plant_grows_from_its_foot_stands_and_sinks_with_its_seven_spurs() {
+        let mut dice = Rng::of(5, 5, 848);
+        let mut plant = KillerPlant::new(2.0, true, &mut dice);
+        assert_eq!(plant.colour, PLANT_GREEN);
+        assert!(plant.dots().is_empty());
+        assert_eq!(plant.glow(), 0.0);
+        // A third of its rise: the dots of a width above 2, its lower half.
+        for _ in 0..10 {
+            plant.update(1.0 / 30.0);
+        }
+        let low = plant.dots();
+        assert_eq!(low.len(), 64);
+        assert!(low.iter().all(|&([_, _, z], _)| z < 32.0));
+        // Risen: the 128 dots of its vine to 63.5 high and its seven spurs' 14 each.
+        for _ in 0..25 {
+            plant.update(1.0 / 30.0);
+        }
+        let dots = plant.dots();
+        assert_eq!(dots.len(), 128 + 7 * 14);
+        assert_eq!(plant.glow(), 15.0);
+        assert!((dots[0].1 - 3.0).abs() < 1e-6);
+        assert!(dots.iter().any(|&([_, _, z], _)| z == 63.5));
+        // Its two seconds, then its sink of a second.
+        for _ in 0..60 {
+            plant.update(1.0 / 30.0);
+        }
+        assert!(!plant.done());
+        for _ in 0..32 {
+            plant.update(1.0 / 30.0);
+        }
+        assert!(plant.done() && plant.dots().is_empty());
+        assert_eq!(KillerPlant::new(3.0, false, &mut dice).colour, PLANT_BLUE);
     }
 }

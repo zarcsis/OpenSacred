@@ -444,7 +444,7 @@ fn act(
             spells::THORNS => {
                 crate::spells::thorns(
                     &mut commands,
-                    (&mut dice, &heights, looks.as_deref()),
+                    (&mut dice, &heights),
                     &mut points,
                     (record, level),
                     (entity, way.level, false),
@@ -1333,10 +1333,6 @@ const BLINK_PUFF: f32 = 1.0;
 /// record at the group's spell's level, their damage `MagieAll`'s share at that level (as its
 /// casts', **hypothesis** for this path), scattered 0 to 100 beyond each centre where they may
 /// stand, the thorns' sound at every fifth of a group (`0x4D3091`, `spells::thorns`).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, grouped"
-)]
 fn druid_thorns(
     mut commands: Commands,
     druids: Query<(
@@ -1345,11 +1341,10 @@ fn druid_thorns(
         &InTheWay,
         Option<&crate::fight::Combat>,
     )>,
-    (heights, arts, rules, looks, mut dice): (
+    (heights, arts, rules, mut dice): (
         Res<Heights>,
         Option<Res<crate::arts::HeroArts>>,
         Res<crate::fight::Rules>,
-        Option<Res<crate::spells::Looks>>,
         ResMut<crate::spells::Dice>,
     ),
     mut points: MessageWriter<crate::sfx::PlayAt>,
@@ -1378,7 +1373,7 @@ fn druid_thorns(
             let centre = blink.target + Vec3::new(x, 0.0, y);
             crate::spells::thorns(
                 &mut commands,
-                (&mut dice, &heights, looks.as_deref()),
+                (&mut dice, &heights),
                 &mut points,
                 (record, level),
                 (entity, way.level, false),

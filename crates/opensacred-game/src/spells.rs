@@ -1155,14 +1155,23 @@ pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3)
 /// (`spells::THORNS_SCATTER` either way).
 pub(crate) const THORNS_SCATTER: (f32, u32) = (-75.0, 2 * spells::THORNS_SCATTER + 1);
 
+/// A thorn of the thorns' spell (848, `0x799640`): how long it stands after its rise, and whether
+/// a hero's, green, or a creature's, blue; its plant grows from it (`killer_plants`).
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct Thorn {
+    pub(crate) stands: f32,
+    pub(crate) hero: bool,
+}
+
 /// Makes the thorns about `centre`, the Wood Elf's or a creature's (#1854): the record's count
 /// at the spell's level, each within its scatter (`from` and `span` whole offsets from it along
-/// each axis) where it may stand on the level `on`, else at the centre, striking about itself
-/// what is hostile to its caster through its rise, its seconds (the record's value 1 for a
-/// hero's, 3 for a creature's) and its sink, every fifth sounding at its place (#2104).
+/// each axis) where it may stand on the level `on`, else at the centre, at its standing height
+/// there, a [`Thorn`], striking about itself what is hostile to its caster through its rise,
+/// its seconds (the record's value 1 for a hero's, 3 for a creature's) and its sink, every fifth
+/// sounding at its place (#2104).
 pub(crate) fn thorns(
     commands: &mut Commands,
-    (dice, heights, looks): (&mut Dice, &crate::terrain::Heights, Option<&Looks>),
+    (dice, heights): (&mut Dice, &crate::terrain::Heights),
     points: &mut MessageWriter<crate::sfx::PlayAt>,
     (record, level): (&opensacred_data::tables::Spell, u32),
     (caster, on, hero): (Entity, Level, bool),
@@ -1170,12 +1179,14 @@ pub(crate) fn thorns(
     damages: [f32; 4],
 ) {
     let seconds = spells::thorn_seconds(record, level, hero);
+    let stands = spells::thorn_stands(record, level, hero);
     for thorn in 0..spells::count(record, level) {
         let mut off = || from + f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0));
         let mut place = centre + Vec3::new(off(), 0.0, off());
         if !heights.walkable_on(crate::paths::cell_of(place.x, place.z), on) {
             place = centre;
         }
+        place.y = heights.standing(place.x, place.z, on).unwrap_or(place.y);
         if thorn % spells::THORNS_SOUNDED == 0 {
             points.write(crate::sfx::PlayAt {
                 sound: crate::sfx::Of::Id(spells::THORNS_SOUND),
@@ -1183,7 +1194,7 @@ pub(crate) fn thorns(
                 rate: (0.5, crate::sfx::Roll::None),
             });
         }
-        let mut made = commands.spawn((
+        commands.spawn((
             Aura {
                 caster,
                 follows: None,
@@ -1197,18 +1208,11 @@ pub(crate) fn thorns(
                 cooldown: 0.0,
                 strikes: Strikes::About,
             },
+            Thorn { stands, hero },
             Transform::from_translation(place),
             Visibility::Inherited,
             DespawnOnExit(AppState::InGame),
         ));
-        if let Some(looks) = looks {
-            made.with_child((
-                Mesh3d(looks.disc.clone()),
-                MeshMaterial3d(looks.discs[6].clone()),
-                Transform::from_scale(Vec3::new(spells::THORNS_REACH, 2.0, spells::THORNS_REACH))
-                    .with_translation(Vec3::Y * 4.0),
-            ));
-        }
     }
 }
 
@@ -1600,7 +1604,7 @@ fn act(
                     .map_or(act.point, GlobalTransform::translation);
                 thorns(
                     &mut commands,
-                    (&mut dice, &heights, looks.as_deref()),
+                    (&mut dice, &heights),
                     &mut points,
                     (record, act.level),
                     (act.caster, body.level(), true),

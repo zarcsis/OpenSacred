@@ -705,16 +705,20 @@ pub fn value(spell: &Spell, j: usize, level: u32) -> u32 {
     }
 }
 
-/// How long a thorn of the spell `spell` at the level `level` strikes, a hero's or a creature's:
-/// its rise, its seconds (the record's value 1 at the level, or [`CREATURE_THORNS`]) and its
-/// sink (`0x799640`, `0x798E50`).
-pub fn thorn_seconds(spell: &Spell, level: u32, hero: bool) -> f32 {
-    let stands = if hero {
+/// How long a thorn of the spell `spell` at the level `level` stands after its rise, a hero's or
+/// a creature's: the record's value 1 at the level, or [`CREATURE_THORNS`] (`0x799640`).
+pub fn thorn_stands(spell: &Spell, level: u32, hero: bool) -> f32 {
+    if hero {
         to_f32(value(spell, 1, level))
     } else {
         CREATURE_THORNS
-    };
-    stands + 2.0 * THORN_RISES
+    }
+}
+
+/// How long a thorn of the spell `spell` at the level `level` strikes, a hero's or a creature's:
+/// its rise, its seconds ([`thorn_stands`]) and its sink (`0x798E50`).
+pub fn thorn_seconds(spell: &Spell, level: u32, hero: bool) -> f32 {
+    thorn_stands(spell, level, hero) + 2.0 * THORN_RISES
 }
 
 /// How long a tentacle of the spell `spell` at the level `level` strikes: the record's value 1 at
