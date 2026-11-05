@@ -746,7 +746,14 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`fire_skins`, `opensacred_rules::particles::fire_skin`, the flames by `breath::wall_quads`): the object that `spells` puts on the Mage, and on a creature that casts it (#1852) in blue, gets a look of its own that leaves its flames about its bearer while it burns, its glow under it and its light of 200, its flames burning out after, untinted by the night.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start: flames rising about her feet over an orange glow, alike in size.
-Not followed: its bearer's skin of lava (the action 6 of `A_LAVA00`), by which the original's Mage glows orange all over.
+- **The skin of lava**, read 2026-11-05 for #2042: the object's action 6 (`0x5B2600`'s case 6) gives its effects and sends its bearer the event `0x109` (`0x5B576F`) of its data (`+0x14`, 10), its seconds (`+0x18`, the record's value 0 at its level, truncated, the effects' own; 1 without a record) and its texture (`+0x1C`); the creature's events' handler (`0x52E590`, the case `0x109` of its switch from `0x101`) keeps them as its overlay's state (`+0x60`), its timer (`+0x68`, a float) and its texture (`+0x6C`).
+  The objects' update (`0x44A520`) counts the timer down by the frame's time and ends the state 10 at 0 (the states 1, 4 and 7 go on to 3, 5 and 8 for 2 s; 11 counts up; 13 rises and falls by its `+0x6C`).
+  Its draw (`0x44B230` through `0x44A9D0`, whose jump table at `0x44B1B8` holds 24 states): the state 10 draws the model as ever (`0x44A8C0`), then again (`0x40D310`) with the texture by the model's own coordinates, its colour a grey of `⌊128 + 64·sin(4·t)⌋` for `t` the seconds left (`0x44AD7B`, the floats at `0x89098C`, `0x890914` and `0x890D2C`), unlit, added (`ONE`, `ONE`), its depth tested and not written, the faces culled as the model's.
+  The pass draws the creature's own sequence, onto which its worn items are merged (`GrannyWearSequence`): the Mage's hood takes the lava, her staff, an object of its own, does not.
+
+`opensacred-game` draws the skin since #2042 (`lava_skins`, `opensacred_rules::spells::{LAVA_SKIN_STATE, lava_skin_grey}`): the fire skin, the hero's or a creature's, asks its bearer for it for its seconds, a new one setting them anew, and each mesh of the bearer and of the items it wears, not of those in its hands or on its back, gets a copy skinned to the same joints, of `A_LAVA00` unlit and added in the objects' layer of the blended things (`models::Pass::Added`), whose grey pulses by the seconds left; the seconds over, the copies go.
+**Seen** 2026-11-05 beside the original at the Mage's start, her spell 24 at the level 10: in both games the Mage orange all over under her flames, her hood with her and her staff as it was.
+  The game's lava looked the brighter of the two in the frames, its pulse of the same grey (not measured apart from the flames in front of it).
 
 ## The gust
 

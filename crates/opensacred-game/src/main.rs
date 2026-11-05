@@ -97,6 +97,7 @@ mod item_glows;
 mod journal;
 mod labels;
 mod lava_bursts;
+mod lava_skins;
 mod lens_creatures;
 mod light_blades;
 mod lightning_strikes;
@@ -498,6 +499,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         journal::JournalPlugin,
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,
+        lava_skins::LavaSkinsPlugin,
         light_blades::LightBladesPlugin,
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
@@ -507,9 +509,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
         master::MasterPlugin,
-        menu::MenuPlugin,
     ))
     .add_plugins((
+        menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         mercenaries::MercenariesPlugin,
         merchant::MerchantPlugin,
