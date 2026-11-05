@@ -96,6 +96,7 @@ mod hover;
 mod hud;
 mod hums;
 mod hurled;
+mod ice_splinters;
 mod icebergs;
 mod icons;
 mod inventory;
@@ -510,9 +511,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         hums::HumsPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
-        icebergs::IcebergsPlugin,
+        ice_splinters::IceSplintersPlugin,
     ))
     .add_plugins((
+        icebergs::IcebergsPlugin,
         icons::IconsPlugin,
         inventory::InventoryPlugin,
         item_glows::ItemGlowsPlugin,
@@ -527,9 +529,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         liquids::LiquidsPlugin,
         lost_souls::LostSoulsPlugin,
         low_health::LowHealthPlugin,
-        magic_lights::MagicLightsPlugin,
     ))
     .add_plugins((
+        magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
         master::MasterPlugin,
         menu::MenuPlugin,
