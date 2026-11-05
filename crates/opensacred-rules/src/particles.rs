@@ -4664,7 +4664,8 @@ const ARROW_SPARKS_COUNT: usize = 500;
 
 /// The sparks of an arrow's fire or poison, `cParticleSystem_magicfire` (`FX_MAGICFIRE`, 796, its
 /// start `0x77A8E0`, its run `0x77A650` and its draw `0x77A6C0`) and `cParticleSystem_magicgift`
-/// (`FX_MAGICGIFT`, 808, `0x77C3E0`), of the variant 1, at the share `share` of its element: a
+/// (`FX_MAGICGIFT`, 808, `0x77C3E0`), of the variant 1, at the share `share` that its event
+/// carries (`+0x3C`, in thousandths): 0 for an arrow, its element's for a weapon in hand; a
 /// spark of `PARTICLE_GLOW01` every 0.1 s at a point at random along the arrow's shaft (its bones
 /// `weapon_fx01` and `weapon_fx02`, `0x766200`), of the size `2·(share + 1)` growing by
 /// `15·share + 10` a second, living 0.425 s (−600), riding with the arrow (the system's flags
@@ -4679,8 +4680,20 @@ pub struct ArrowSparks {
 }
 
 impl ArrowSparks {
+    /// The sparks of an arrow of `element`: of the share 0 whatever its element's, which its shot's
+    /// event carries (`0x5BD76E`, #2093); the arrow's own share sizes its line of glows alone.
+    pub fn of_arrow(element: crate::arrows::Element) -> Option<Self> {
+        Self::new(element, 0.0)
+    }
+
+    /// The sparks of a weapon in hand of `element` at `share`: its share in thousandths, truncated,
+    /// as its event carries it (`0x5CE308`) and the start takes it back (`0x77A8E0`).
+    pub fn of_weapon(element: crate::arrows::Element, share: f32) -> Option<Self> {
+        Self::new(element, (share * 1000.0).trunc() * 0.001)
+    }
+
     /// The sparks of `element` at `share`: none of the magic, which only glows.
-    pub fn new(element: crate::arrows::Element, share: f32) -> Option<Self> {
+    fn new(element: crate::arrows::Element, share: f32) -> Option<Self> {
         let (colour, lights) = match element {
             crate::arrows::Element::Fire => ([255.0, 136.0, 68.0], true),
             crate::arrows::Element::Poison => ([68.0, 255.0, 68.0], false),
@@ -6312,9 +6325,17 @@ mod tests {
     #[test]
     fn an_arrows_fire_sparks_along_its_shaft_and_lights_by_its_share() {
         let mut dice = Rng::of(7, 9, 796);
-        let mut sparks = ArrowSparks::new(crate::arrows::Element::Fire, 0.5).unwrap();
-        assert!(ArrowSparks::new(crate::arrows::Element::Magic, 0.5).is_none());
+        let mut sparks = ArrowSparks::of_weapon(crate::arrows::Element::Fire, 0.5).unwrap();
+        assert!(ArrowSparks::of_weapon(crate::arrows::Element::Magic, 0.5).is_none());
         assert_eq!(sparks.light(), 300.0);
+        // An arrow's are of the share 0 whatever its element's: of the size 2, its fire's light 200.
+        let arrow = ArrowSparks::of_arrow(crate::arrows::Element::Fire).unwrap();
+        assert_eq!(arrow.light(), 200.0);
+        assert_eq!(arrow.block().size, spread(2.0, 0.0));
+        assert_eq!(arrow.layer().size, 10.0);
+        // A weapon's in thousandths, truncated.
+        let weapon = ArrowSparks::of_weapon(crate::arrows::Element::Poison, 0.4129).unwrap();
+        assert!((weapon.share - 0.412).abs() < 1e-6);
         let shaft = (
             [[0.0, 0.0, 50.0], [60.0, 0.0, 50.0]],
             [[0.0, 0.0, 50.0], [60.0, 0.0, 50.0]],
