@@ -364,15 +364,8 @@ fn balls(
                         });
                     }
                 }
-                if let Some(looks) = &looks {
-                    commands.spawn((
-                        Mesh3d(looks.blast.0.clone()),
-                        MeshMaterial3d(looks.blast.1.clone()),
-                        Transform::from_translation(here),
-                        Fades(0.3),
-                        DespawnOnExit(AppState::InGame),
-                    ));
-                }
+                // The bomb trap's blast (`explosions`).
+                crate::explosions::blast(&mut commands, here, true);
             }
             1050 => {
                 points.write(crate::sfx::PlayAt {
@@ -1019,7 +1012,7 @@ struct Mine {
 /// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
 /// light's, the light's, the fire skin's, the gust's, the fear's and a tentacle's; a column of
 /// light and the lightning's;
-/// a mine and its blast; the hell disk, a flame and a lost soul.
+/// a mine; the hell disk, a flame and a lost soul.
 #[derive(Resource)]
 pub(crate) struct Looks {
     disc: Handle<Mesh>,
@@ -1027,7 +1020,6 @@ pub(crate) struct Looks {
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
     mine: (Handle<Mesh>, Handle<StandardMaterial>),
-    blast: (Handle<Mesh>, Handle<StandardMaterial>),
     disk: (Handle<Mesh>, Handle<StandardMaterial>),
     flame: (Handle<Mesh>, Handle<StandardMaterial>),
     soul: (Handle<Mesh>, Handle<StandardMaterial>),
@@ -1067,10 +1059,6 @@ fn make_looks(
         meshes.add(Cylinder::new(14.0, 6.0)),
         glow(Color::srgba(0.25, 0.22, 0.2, 1.0)),
     );
-    let blast = (
-        meshes.add(Sphere::new(spells::BLAST_REACH)),
-        glow(Color::srgba(1.0, 0.6, 0.2, 0.45)),
-    );
     let disk = (
         meshes.add(Cylinder::new(18.0, 4.0)),
         glow(Color::srgba(1.0, 0.3, 0.1, 0.9)),
@@ -1092,7 +1080,6 @@ fn make_looks(
         column: meshes.add(Cylinder::new(8.0, 400.0)),
         lightning,
         mine,
-        blast,
     });
 }
 
@@ -2584,15 +2571,7 @@ fn mine(
                 poison: false,
             });
         }
-        if let Some(looks) = &looks {
-            commands.spawn((
-                Mesh3d(looks.blast.0.clone()),
-                MeshMaterial3d(looks.blast.1.clone()),
-                Transform::from_translation(at.translation),
-                Fades(0.3),
-                DespawnOnExit(AppState::InGame),
-            ));
-        }
+        crate::explosions::blast(&mut commands, at.translation, false);
         commands.entity(entity).despawn();
     }
 }

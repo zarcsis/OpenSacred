@@ -63,6 +63,7 @@ mod effects;
 mod equipment;
 mod esc_menu;
 mod explored;
+mod explosions;
 mod fight;
 mod files;
 mod fire_skins;
@@ -466,6 +467,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         explored::ExploredPlugin,
+        explosions::ExplosionsPlugin,
         fight::FightPlugin,
         fire_skins::FireSkinsPlugin,
         fliers::FliersPlugin,
