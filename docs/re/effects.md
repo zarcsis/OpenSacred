@@ -206,7 +206,7 @@ The common draw of particles, called with the device, the matrix, a flags word, 
 - **A flat quad** (`0x7631E0`): a square of half side `s` in the horizontal plane at the system's position, turned by an angle, of a texture and a colour, a frame of a grid, the source `ONE` or `SRCALPHA` and the destination `ONE` or `INVSRCALPHA` as asked: the magic circles, the ground symbols, the puddles, the decals (50 classes).
 - **A ring** (`0x763530`): a band of `n` segments between two radii, flat or stood up (turned a quarter about x), of a texture, additive or blended (7 classes: the explosions, the shock waves of the Gladiator's hits, the rings of poison).
 - **A helix** (`0x762C30`): two strips of 50 segments turning about the axis, additive (3 classes).
-- Others draw their own geometry (`DrawPrimitive` directly, 50 classes), Granny models (`cGranny::render`, 16 uses: the killer plants, the bubble trap's bushes, the demons' illusions), and a few further helpers (`0x762650` a streak, `0x768600` and `0x768790` chains, `0x7638E0`, `0x763CB0`; not read).
+- Others draw their own geometry (`DrawPrimitive` directly, 50 classes), Granny models (`cGranny::render`, 16 uses: the bubble trap's bushes, the demons' illusions; the killer plants' class draws none, "The thorns' plants"), and a few further helpers (`0x762650` a streak, `0x768600` and `0x768790` chains, `0x7638E0`, `0x763CB0`; not read).
 
 ### What the textures are
 
@@ -1203,6 +1203,32 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 
 `opensacred-game` draws it since #1092 (`flying_skulls`, `opensacred_rules::particles::{FlyingSkull, skull_turn}`): each skull of the death's kiss shows its model turned to its heading and its trail, untinted by the night; its Direct3D light is not followed.
 **Seen** 2026-11-05 beside the original: in both a small red skull at the head of a trail of orange glows flying from the Vampiress at the goblin; the game's trail shorter and wider.
+
+## The thorns' plants
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Wood Elf's 39 at the level 5 on a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A thorn of the spell 39, the hero's or a creature's | 848 `FX_KILLERPLANTS` | `cParticleSystem_killerplants` (`0x898474`) | `0x798820`, `0x799640`, `0x798E50`, `0x798F10` |
+
+The class makes no particle and no model: its plant is drawn of its own geometry.
+- Its constructor loads `PARTICLE_GLOW01` (`+0x3560`) and `PARTICLE_GLOW03` (`+0x3564`), makes a Direct3D point light of the colour (0.2, 1, 0.2), the range 200 and the attenuations 1, 0 and 0.000125, and rolls the plant's shape, `U` a share `rand() / 32767`:
+  - first its seven spurs' points (`+0x34C4`), the `m`-th (0 to 6) `⌊128 m / 7⌋ + rand() % 7`, at least 1;
+  - then its stem of 128 points (`+0x20C4`) of five rolls `U0` to `U4`: the point `k` at `sin(0.1 k (U2 + 0.5))·(k/128)·(2 U1 + 4.5)` along x, `sin(0.1 k (U4 + 0.7))·(k/128)·(2 U3 + 6.5)` along y and `0.5 k` up, turned by `2π U0` about the vertical;
+  - its widths (`+0x32C4`), `1 + (128 − k)/64`, 3 at its foot to about 1 at its tip;
+  - and its two sways of five rolls each, `V` (`+0x26C4`) `sin(0.1 k (0.8 V2 + 0.2))·(3 V1 + 3.5)` and `sin(0.1 k (0.4 V4 + 0.1))·(3 V3 + 6)` turned by `2π V0`, and `W` (`+0x2CC4`) `sin(0.1 k (W2 + 0.5))·(3 W1 + 2.5)` and `sin(0.1 k (W4 + 1))·(2 W3 + 7)` turned by `2π W0`, each rolled for `k` 0 to 63 and mirrored for 64 to 127 (the entry `64 + i` the entry `63 − i`), a loop.
+- Its start: its clock 0, its rise (`+0x20A8`) −3; a player's plant (the system's `+0xA9` 0, which the FX handler `0x5A3A7B` sets to 1 or 2 for an owner of an id above 16) green, `0xFF40FF40`, its light (0.25, 1, 0.25), standing the record's value 1 at the level in seconds; another's blue, `0xFF4040FF`, its light (0.25, 0.25, 1), standing 3 s.
+- Its run: its rise grows by 3 a second to 0, it stands its seconds, and its rise falls by 3 a second until it ends below −3, striking all the while (docs/re/arts.md).
+- Its draw, its clock `t`, `a = ⌊30 t⌋` and `b = ⌊27 t⌋`:
+  - its light at its place;
+  - a glow of `PARTICLE_GLOW03` flat on the ground at its place (`0x7631E0`), of the half side `5·(rise + 3)`, 15 risen, in its colour, added by its alpha (`SRCALPHA`, `ONE`);
+  - its vine: for each `k` the point `stem[k] + (k/128)·(V[(k − a) mod 128] + W[(k − b) mod 128])` from its place, a square of `PARTICLE_GLOW01` facing the camera (**hypothesis**: the display matrix with the point's translation), of the half side `width[k] + rise` where that is above 0, in its colour, added by its alpha, unlit, no depth written;
+  - at each spur's point so drawn while its rise is above −1, squares along the vine's way from the point before, `0.75 n` on from it for `n` 1, 2, …, of the half side `1.5 + rise − 0.075 (n − 1)` while above 0.5, 14 risen.
+- So a twisting vine of soft dots stands 64 high, thick at its foot, as two waves climb it at 15 and 13.5 units a second, seven straight spurs out along its bends; it grows from its foot up over a second and sinks from its tip down.
+
+`opensacred-game` draws it since #1092 (`killer_plants`, `opensacred_rules::particles::{KillerPlant, Vine}`): each thorn of `spells` grows its plant at its standing height, its dots and its glow added, untinted by the night; its Direct3D light, which tints the creatures about it green, is not followed (#2106).
+**Seen** 2026-11-05 beside the original: in both a green vine of white-hot dots with its spurs over a green glow on the ground.
 
 ## The arrows' elements
 

@@ -98,6 +98,7 @@ mod inventory;
 mod iso;
 mod item_glows;
 mod journal;
+mod killer_plants;
 mod labels;
 mod lava_bursts;
 mod lava_skins;
@@ -505,6 +506,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         inventory::InventoryPlugin,
         item_glows::ItemGlowsPlugin,
         journal::JournalPlugin,
+        killer_plants::KillerPlantsPlugin,
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,
         lava_skins::LavaSkinsPlugin,
@@ -516,9 +518,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         low_health::LowHealthPlugin,
         magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
-        master::MasterPlugin,
     ))
     .add_plugins((
+        master::MasterPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         mercenaries::MercenariesPlugin,
