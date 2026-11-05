@@ -300,7 +300,7 @@ fn balls(
         ball.s = (ball.s + opensacred_rules::arts::BALL_RATE * dt).min(1.0);
         let at = ball.from.lerp(ball.to, ball.s);
         let cell = crate::paths::cell_of(at.x, at.z);
-        if !heights.walkable_on(cell, ball.level) {
+        if !heights.passes(cell, ball.level) {
             debug!("spells: the trap's ball {entity} breaks at {cell:?}");
             commands.entity(entity).despawn();
             continue;

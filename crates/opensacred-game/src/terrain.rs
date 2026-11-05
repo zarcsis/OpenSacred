@@ -540,6 +540,13 @@ impl Heights {
         }
     }
 
+    /// Whether a flying object passes a cell at a level (`0x636D20`): one that may be walked on
+    /// ([`Self::walkable_on`]) or that an arrow flies over ([`Self::flown_over`]), as a trap's
+    /// ball and a bolt fly over a cliff's edge (#2109).
+    pub fn passes(&self, cell: (i32, i32), level: Level) -> bool {
+        self.walkable_on(cell, level) || self.flown_over(cell, level)
+    }
+
     /// The flags (`+0x1E`) of global cell `(cx, cy)` of the ground; `None` outside the loaded
     /// sectors.
     pub fn flags(&self, (cx, cy): (i32, i32)) -> Option<u8> {
@@ -1619,6 +1626,12 @@ mod tests {
         assert_eq!(
             [0, 1, 2, 3, 4].map(walkable),
             [true, false, false, false, true]
+        );
+        // A flying object passes the water of the nibble 2 too, not the mass (#2109).
+        let passes = |column| heights.passes((2 * side + column, 3 * side), None);
+        assert_eq!(
+            [0, 1, 2, 3, 4].map(passes),
+            [true, false, true, false, true]
         );
         // Outside the loaded sectors.
         assert!(!heights.walkable((0, 0)));
