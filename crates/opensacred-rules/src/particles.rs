@@ -6250,6 +6250,114 @@ impl DemonFire {
     }
 }
 
+/// The hell disk's model, at its size (1005, `0x7AD8C0`, `0x7ADBC0`), and its particles.
+pub const HELL_DISK_MODEL: &str = "HELL_DISK.GRN";
+pub const HELL_DISK_SCALE: f32 = 0.08;
+pub const HELL_DISK_GLOW: &str = "PARTICLE_GLOW03";
+const HELL_DISK_COUNT: usize = 300;
+/// The colour of its glow (`0x00B07151`).
+pub const HELL_DISK_GLOW_COLOUR: [f32; 4] = [176.0 / 255.0, 113.0 / 255.0, 81.0 / 255.0, 1.0];
+
+/// The hell disk (1005, `FX_HELLDISK`, `cParticleSystem_helldisk`, its constructor `0x7AD8C0`,
+/// start `0x7AE040`, run `0x7ADB10` and draw `0x7ADBC0`; #1092): its model
+/// [`HELL_DISK_MODEL`] at 0.08 of its size, its rings whirling in its clip's loop, in the lava's
+/// frames at 100 a second and again added over itself half a frame on; a glow of
+/// [`HELL_DISK_GLOW`] about it, of the half side `30 + 10·(1 + sin t)`, added whole in
+/// [`HELL_DISK_GLOW_COLOUR`]; and a trail of glows behind it, one every 0.015 s at the detail 2,
+/// of the size 10 falling by 4 a second, their life falling by 200 a second, of the ramp
+/// [`HellDisk::ramp`], added by their alpha. Stopped past its seconds, it makes no more and ends
+/// with its last glow, its model and its glow shown till then.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HellDisk {
+    pub system: System,
+    out: bool,
+}
+
+impl Default for HellDisk {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HellDisk {
+    /// A hell disk as it starts (`0x7AE040`).
+    pub fn new() -> Self {
+        Self {
+            system: System::new(HELL_DISK_COUNT),
+            out: false,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -200.0,
+            size: -4.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            size: spread(10.0, 0.0),
+            interval: 0.015,
+            ..Block::default()
+        }
+    }
+
+    /// Its trail's ramp (`+0x20B0`): (0.996, 0.391, 0.234) throughout, its alpha 0 for 20 entries,
+    /// up to 0.781 over 30 and down to 0 over 206.
+    pub fn ramp() -> Ramp {
+        let [r, g, b] = [0.996, 0.391, 0.234];
+        Ramp::new(
+            [r, g, b, 0.0],
+            &[
+                ([r, g, b, 0.0], 20),
+                ([r, g, b, 0.781], 30),
+                ([r, g, b, 0.0], 206),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds, its place gone from `from` to `to` in the models' frame
+    /// (`0x7ADB10`): its glows age, and until it stops it leaves new ones along its way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if !self.out {
+            self.system.emit_along(
+                &[Self::block()],
+                &layers,
+                HELL_DISK_COUNT,
+                (from, to),
+                dt,
+                dice,
+            );
+        }
+    }
+
+    /// Its stop past its seconds (`+0x20AC` 1): it makes no more glows.
+    pub fn end(&mut self) {
+        self.out = true;
+    }
+
+    /// Whether it ended: stopped and no glow alive.
+    pub fn done(&self) -> bool {
+        self.out && self.system.particles.is_empty()
+    }
+
+    /// The half side of its glow now.
+    pub fn glow(&self) -> f32 {
+        30.0 + 10.0 * (1.0 + self.system.clock.sin())
+    }
+
+    /// Its lava's frames now, its model's and its added copy's half a frame on (`0x7ADBC0`: the
+    /// second `⌊fmod(100 t + 50, 49.5)⌋`).
+    pub fn frames(&self) -> [u8; 2] {
+        let t = self.system.clock;
+        [lava_frame(t, 100.0), lava_frame(t + 0.5, 100.0)]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7886,5 +7994,27 @@ mod tests {
         assert!(fire.done());
         assert_eq!((lava_frame(0.5, 70.0), lava_frame(0.71, 70.0)), (35, 0));
         assert_eq!(lava_frame_name(7), "A_LAVA07");
+    }
+
+    #[test]
+    fn a_hell_disk_trails_its_glows_and_ends_with_its_last() {
+        let mut dice = Rng::of(9, 9, 1005);
+        let mut disk = HellDisk::new();
+        for k in 0..20u8 {
+            let x = f32::from(k) * 4.0;
+            disk.update(0.015, ([x, 0.0, 60.0], [x + 4.0, 0.0, 60.0]), &mut dice);
+        }
+        // One every 0.015 s.
+        assert!((19..=20).contains(&disk.system.particles.len()));
+        assert!((disk.glow() - (40.0 + 10.0 * 0.3_f32.sin())).abs() < 1e-3);
+        // At 0.3 s: the frame 30, the copy's 80 less 49.5.
+        let [own, copy] = disk.frames();
+        assert!((29..=30).contains(&own) && copy == 30);
+        disk.end();
+        for _ in 0..90 {
+            disk.update(0.015, ([80.0, 0.0, 60.0], [80.0, 0.0, 60.0]), &mut dice);
+        }
+        assert!(disk.done());
+        assert_eq!(HellDisk::ramp().at(255.0)[3], 0.0);
     }
 }

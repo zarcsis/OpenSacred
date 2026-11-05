@@ -83,6 +83,7 @@ mod glance;
 mod glitter;
 mod guns;
 mod held;
+mod hell_disks;
 mod hell_screams;
 mod help;
 mod hero;
@@ -471,9 +472,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,
         esc_menu::EscMenuPlugin,
+        explored::ExploredPlugin,
     ))
     .add_plugins((
-        explored::ExploredPlugin,
         explosions::ExplosionsPlugin,
         fight::FightPlugin,
         fire_skins::FireSkinsPlugin,
@@ -488,10 +489,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,
         glance::GlancePlugin,
+        glitter::GlitterPlugin,
     ))
     .add_plugins((
-        glitter::GlitterPlugin,
         guns::GunsPlugin,
+        hell_disks::HellDisksPlugin,
         hell_screams::HellScreamsPlugin,
         held::HeldPlugin,
         help::HelpPlugin,
