@@ -1,6 +1,6 @@
 //! A big demon's summoning (#2006; docs/re/effects.md, "The big demon's summoning"): the six
 //! objects of `FX_BIG_DEMON_SUMMON` (918) that a script's `CreateObj` makes about one place
-//! (`npcs`) draw, as `cParticleSystem_bigdemonsummon` (`0x7A9060`), a burning pentagram in its
+//! (`npcs`) draw, as `cParticleSystem_bigdemonsummon`'s draw (`0x7A9060`), a burning pentagram in its
 //! circle of glows of `PARTICLE_GLOW03` on the ground, added whole, for 8 s
 //! (`opensacred_rules::particles::DemonSummon`); untinted by the night, the circle's light of
 //! 600. Each growls as it is set up, `BOSS_SAKKARA_DEMON_GROWL01` or `02` at even odds.
