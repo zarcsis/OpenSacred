@@ -1114,12 +1114,14 @@ fn make(
                 }
                 arts.start(making.art);
                 let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+                // From his right hand (the bone 2, `0x5A55B2`, #2112).
+                let hand = bone(hero, &[HAND_BONE], &children, (&bones, &worn)).unwrap_or(here);
                 crate::spells::throw_trap(
                     &mut commands,
                     hero,
                     (making.art, playing.level),
                     multipliers,
-                    (here, playing.point, body.level()),
+                    (hand, playing.point, body.level()),
                 );
                 end(&mut commands);
             }

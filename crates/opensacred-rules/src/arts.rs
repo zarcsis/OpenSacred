@@ -1649,8 +1649,9 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
 
 /// What is left of its clip, as a part of it, below which a trap is thrown (`0x506770`).
 pub const TRAPS: f32 = 0.7;
-/// The trap's ball (867, `0x5A55B2`, `0x5A706C`): how high its arc rises at its middle, and how
-/// fast its course's part grows a second, so that it flies 2/3 s at any distance.
+/// The trap's ball (867, `0x5A55B2`, `0x5A706C`): how high its arc rises at its middle, in the
+/// models' frame (`+0xAC`), and how fast its course's part grows a second (`+0xB0`), so that it
+/// flies 2/3 s at any distance; it leaves its thrower's right hand (the bone 2, `+0x70`).
 pub const BALL_RISE: f32 = 60.0;
 pub const BALL_RATE: f32 = 1.5;
 /// The traps' objects' reaches, their sizes in `items.pak` (`0x5AB490`): the explosion 794, the
@@ -1676,8 +1677,8 @@ pub fn trap_spell(art: u16) -> u16 {
     }
 }
 
-/// How high over its straight course the trap's ball flies at the part `s` of it (`0x5A706C`):
-/// `60·(1 − 4(s − 0.5)²)`.
+/// How high over its straight course the trap's ball flies at the part `s` of it, in the models'
+/// frame (`0x5A706C`): `60·(1 − 4(s − 0.5)²)`.
 pub fn ball_rise(s: f32) -> f32 {
     BALL_RISE * (1.0 - 4.0 * (s - 0.5) * (s - 0.5))
 }
