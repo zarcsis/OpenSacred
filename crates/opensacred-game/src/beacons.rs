@@ -160,26 +160,37 @@ fn run(
         };
         let [r, g, b] = set.colour;
         let colour = [r, g, b, set.beacon.alpha()];
-        let world = crate::bolt_looks::world;
         let mut quads = Quads::default();
-        for ribbon in set.beacon.helix() {
-            let last = f32::from(u16::try_from(ribbon.len().saturating_sub(1).max(1)).unwrap_or(1));
-            for (k, pair) in (0_u16..).zip(ribbon.windows(2)) {
-                let (u0, u1) = (f32::from(k) / last, f32::from(k + 1) / last);
-                let ([a0, b0], [a1, b1]) = (pair[0], pair[1]);
-                quads.push_corners(
-                    [world(a0), world(b0), world(b1), world(a1)],
-                    [
-                        Vec2::new(u0, 0.0),
-                        Vec2::new(u0, 1.0),
-                        Vec2::new(u1, 1.0),
-                        Vec2::new(u1, 0.0),
-                    ],
-                    colour,
-                );
-            }
-        }
+        ribbon_quads(&mut quads, &set.beacon.helix(), colour);
         quads.into_mesh(&mut mesh);
+    }
+}
+
+/// Lays a helix's ribbons (`opensacred_rules::particles::helix_ribbons`, `0x762C30`) into
+/// `quads` in `colour`, each a strip of quads between its points' pairs from the models' frame
+/// about its entity, the texture's `u` along it from 0 to 1 and its `v` across.
+pub(crate) fn ribbon_quads(
+    quads: &mut Quads,
+    ribbons: &[opensacred_rules::particles::Ribbon],
+    colour: [f32; 4],
+) {
+    let world = crate::bolt_looks::world;
+    for ribbon in ribbons {
+        let last = f32::from(u16::try_from(ribbon.len().saturating_sub(1).max(1)).unwrap_or(1));
+        for (k, pair) in (0_u16..).zip(ribbon.windows(2)) {
+            let (u0, u1) = (f32::from(k) / last, f32::from(k + 1) / last);
+            let ([a0, b0], [a1, b1]) = (pair[0], pair[1]);
+            quads.push_corners(
+                [world(a0), world(b0), world(b1), world(a1)],
+                [
+                    Vec2::new(u0, 0.0),
+                    Vec2::new(u0, 1.0),
+                    Vec2::new(u1, 1.0),
+                    Vec2::new(u1, 0.0),
+                ],
+                colour,
+            );
+        }
     }
 }
 

@@ -269,7 +269,6 @@ fn balls(
     mut commands: Commands,
     time: Res<Time>,
     arts: Option<Res<crate::arts::HeroArts>>,
-    looks: Option<Res<Looks>>,
     heights: Res<crate::terrain::Heights>,
     experience: Res<fight::Experience>,
     (mut hits, mut sounds, mut points): (
@@ -329,16 +328,6 @@ fn balls(
             "spells: the trap {} lands at {here} of the spell {spell}",
             ball.art
         );
-        let disc = |radius: f32, look: usize| {
-            looks.as_ref().map(|looks| {
-                (
-                    Mesh3d(looks.disc.clone()),
-                    MeshMaterial3d(looks.discs[look].clone()),
-                    Transform::from_scale(Vec3::new(radius, 2.0, radius))
-                        .with_translation(Vec3::Y * 4.0),
-                )
-            })
-        };
         match ball.art {
             1049 => {
                 points.write(crate::sfx::PlayAt {
@@ -377,7 +366,7 @@ fn balls(
                     point: here,
                     rate: (0.5, crate::sfx::Roll::None),
                 });
-                let mut made = commands.spawn((
+                commands.spawn((
                     Pentagram {
                         caster: ball.caster,
                         damages,
@@ -386,16 +375,14 @@ fn balls(
                         left: seconds,
                         slays: spells::value(record, 1, ball.spell_level),
                     },
+                    crate::trap_landings::Landing::Pentagram(seconds),
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some(disc) = disc(opensacred_rules::arts::PENTAGRAM_REACH, 5) {
-                    made.with_child(disc);
-                }
             }
             1051 => {
-                let mut made = commands.spawn((
+                commands.spawn((
                     Confusion {
                         spell_level: ball.spell_level,
                         caster_level: experience.level,
@@ -403,17 +390,15 @@ fn balls(
                         left: seconds,
                         cooldown: 0.0,
                     },
+                    crate::trap_landings::Landing::Confusion,
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     crate::hums::Hum(CONFUSION_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some(disc) = disc(opensacred_rules::arts::CONFUSION_REACH, 2) {
-                    made.with_child(disc);
-                }
             }
             1052 => {
-                let mut made = commands.spawn((
+                commands.spawn((
                     Aura {
                         caster: ball.caster,
                         follows: None,
@@ -427,14 +412,12 @@ fn balls(
                         cooldown: 0.0,
                         strikes: Strikes::About,
                     },
+                    crate::trap_landings::Landing::Poison,
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     crate::hums::Hum(POISON_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some(disc) = disc(opensacred_rules::arts::POISON_REACH, 6) {
-                    made.with_child(disc);
-                }
             }
             _ => {
                 commands.spawn((
@@ -1039,12 +1022,10 @@ pub(crate) struct Mine {
     left: f32,
 }
 
-/// The stand-ins' meshes and materials: a disc of radius 1 and its colours, and a column of light
-/// and the lightning's.
+/// The stand-ins' meshes and materials: a column of light and the lightning's, the big demons'
+/// lasers' (`beam`).
 #[derive(Resource)]
 pub(crate) struct Looks {
-    disc: Handle<Mesh>,
-    discs: [Handle<StandardMaterial>; 7],
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
 }
@@ -1070,19 +1051,8 @@ fn make_looks(
             ..default()
         })
     };
-    let discs = [
-        glow(Color::srgba(1.0, 0.85, 0.4, 0.35)),
-        glow(Color::srgba(0.75, 0.85, 1.0, 0.3)),
-        glow(Color::srgba(1.0, 1.0, 0.75, 0.2)),
-        glow(Color::srgba(1.0, 0.45, 0.1, 0.3)),
-        glow(Color::srgba(0.85, 0.9, 0.85, 0.25)),
-        glow(Color::srgba(0.45, 0.1, 0.5, 0.25)),
-        glow(Color::srgba(0.3, 0.5, 0.2, 0.35)),
-    ];
     let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
     commands.insert_resource(Looks {
-        disc: meshes.add(Cylinder::new(1.0, 1.0)),
-        discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
         lightning,
     });
@@ -1322,7 +1292,6 @@ fn area_loop(spell: u16) -> Option<u32> {
 /// seconds what is hostile to its caster, its loop at it ([`area_loop`]).
 pub(crate) fn strikes_about(
     commands: &mut Commands,
-    looks: Option<&Looks>,
     (record, level): (&opensacred_data::tables::Spell, u32),
     (caster, follows, on): (Entity, Option<Entity>, Level),
     centre: Vec3,
@@ -1380,13 +1349,6 @@ pub(crate) fn strikes_about(
             bearer: follows,
             seconds: fight_seconds(spells::value(record, 0, level)),
         });
-    } else if let Some(looks) = looks {
-        made.with_child((
-            Mesh3d(looks.disc.clone()),
-            MeshMaterial3d(looks.discs[2].clone()),
-            Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
-                .with_translation(Vec3::Y * 4.0),
-        ));
     }
 }
 
@@ -1414,10 +1376,9 @@ fn heroes_on(
 fn act(
     mut commands: Commands,
     mut acts: MessageReader<Acts>,
-    (arts, rules, looks, experience): (
+    (arts, rules, experience): (
         Option<Res<crate::arts::HeroArts>>,
         Res<crate::fight::Rules>,
-        Option<Res<Looks>>,
         Res<fight::Experience>,
     ),
     casters: Query<(&Transform, &Body, Option<&Combat>)>,
@@ -2219,7 +2180,6 @@ fn act(
                 );
                 strikes_about(
                     &mut commands,
-                    looks.as_deref(),
                     (record, act.level),
                     (act.caster, follows, body.level()),
                     centre,

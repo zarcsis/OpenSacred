@@ -1319,6 +1319,38 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 `opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its Direct3D light and its shadow are not followed (#2106).
 **Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
 
+## The traps' landings
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Dark Elf's traps 1050, 1051 and 1052 at the level 5 by goblins).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The pentagram of the trap 1050 | 782 `FX_PENTAGRAMMKILLER` | `cParticleSystem_pentagrammKiller` (`0x897AA4`) | `0x7727E0`, `0x773790`, `0x772C40`, `0x773020` |
+| The confusion of the trap 1051 | 871 `FX_CONFUSION` | `cParticleSystem_confusion` (`0x897C3C`) | `0x778E80`, `0x7792C0`, `0x778F40`, `0x779020` |
+| The ground's poison of the trap 1052 | 792 `FX_GROUND_POISON` | `cParticleSystem_groundPoison` (`0x897C1C`) | `0x778760`, `0x778D10`, `0x7788F0`, `0x778980` |
+
+The trap's ball makes them where it lands ("The thrown balls"); their strikes are docs/re/arts.md's.
+The spells' executor still makes 782 for the spell 6 and 792 for the spell 12 (`0x5238EF`, `0x523B19`), which no hero holds (their class masks 0, their runes missing) and a creature casts only as a script's spell; only the trap makes 871.
+
+**The pentagram.**
+- Its constructor (300 particles) loads `PARTICLE_GLOW03`, `PARTICLE_SPARK02` and `PARTICLE_CLOUD01`, a spark's quad of the half side 4 in (128, 240, 255) at the alpha 96, and its puffs' ramp from white to (1, 0.5, 0.2) over 60 entries and to nothing in (1, 0.2, 0) over 196.
+- Its start: its seconds the record's value 0 at the level; `MAGE_PENTAGRAMM_CAST` (docs/re/sound.md).
+- Its run: its turn grows by a radian a second, its star's points at the turn and `4π/5`, `8π/5`, `2π/5` and `6π/5` on, on the radius 40; arming, its fade grows by 0.5 a second, and at 1, 2 s on, it strikes (its flags `0x400`) and loops `MAGE_PENTAGRAMM_LOOP`; burst (its object's word `+0x74` bit 2), it plays `MAGE_PENTAGRAMM_HIT`, its radius falls from 40 to 0 over a second while it makes puffs, one every 0.003 s at the detail 2, of the size 30, at random angles, the velocity (0 ± 15, 0 ± 15, 350 ± 150) and the place ± 10 across, their life falling by 650 a second, and it ends with its last; past its seconds unburst its fade falls by 0.5 a second and it ends at 0.
+- Its draw: a glow of `PARTICLE_GLOW03` flat on the ground at its place (`0x7631E0`), of the half side 70 in (96, 192, 207), added whole; its sparks of `PARTICLE_SPARK02` facing the camera (**hypothesis**: the display matrix), added by their alpha and each laid anew at random each frame: `⌊4·f·r⌋` on its ring within the share `f` of its turn that its fade draws, two comets of `⌊r⌋` each armed, from `1 − turn` and π on, spreading over `i/30` radians, and `⌊2·f·r⌋` along each of its star's five sides, `r` its radius; its puffs, billboards of the flags `0x0D` (the ramp's colour, turned, added by their alpha).
+
+**The confusion.**
+- Its constructor loads `FX_MAGICCIRCLE01`, `FX_MAGICCIRCLE02` and `FX_HELIX01`; its start its seconds, its flags `0x400`, `DELF_VERWIRRUNG_LOOP`, its helix's turn `θ₀` at random.
+- Its run: past its seconds it ends at once; its helix's phase grows by 0.15 a second, at 1 back to 0 on a turn rolled anew, its alpha else `⌊255·sin(π·phase)⌋`; its small circle's height grows by itself times the frame's time (so faster at higher rates of frames), back to 1 past 100.
+- Its draw: a circle of `FX_MAGICCIRCLE01` flat on the ground, of the half side 70, white, turned by its clock; one of `FX_MAGICCIRCLE02` of the half side 17, turned by `−5` times its clock, at its height over it, both added whole; its helix (`0x762C30`) of `FX_HELIX01` in (13, 253, 228) at its alpha, added by its alpha: 50 points at `θ₀ − 0.3·(k + j)` and `0.5·(k + j)` high on the radius 30, `k = 100·phase`, a band 4 across flat and one 4 high upright.
+
+**The ground's poison.**
+- Its constructor (200 particles) loads `FX_GROUNDPOISON`, `PARTICLE_SMOKE03` and `FX_MAGICCIRCLE03`, its ramp from (0.5, 1, 0.5) to (0.2, 1, 0.2) over 128 entries and to black over 128, opaque, and a Direct3D point light of (0.3, 1, 0.3), the range 200 and the attenuations 1, 0 and 0.000125; its start its seconds, its flags `0x400`, its light 280, `DELF_GIFTHAUCH_LOOP`; one layer of the buoyancy's rate −5, the life −200 a second and the size −2; one block of the buoyancy −100, the size 18, the place ± 15 across and a frame below 4, one every 0.04 s at the detail 2.
+- Its run: past its seconds it ends at once; its puffs rise and age, and it makes new ones.
+- Its draw: its light; for a player's trap (the system's `+0xA9` 0) a circle of `FX_MAGICCIRCLE03` flat on the ground, of the half side 65, in (160, 160, 160), turned by 0.2 times its clock, added whole; a stain of `FX_GROUNDPOISON` flat over it, of the half side 70, laid by its alpha; its puffs, billboards of `PARTICLE_SMOKE03` of the flags `0x109` (the ramp's colour, added, the frame of the grid of 2 by their byte).
+
+`opensacred-game` draws them since #1092 (`trap_landings`, `opensacred_rules::particles::{PentagramKiller, ConfusionCircle, GroundPoison, helix_ribbons}`): each landing of `spells` takes its look, the glows, the sparks, the puffs, the helix and the smoke added and untinted by the night, the poison's stain in the world's camera; the pentagram's look outlives its object while it bursts or fades out; their flat parts lie level over the ground, not hidden by it where it rises, and the poison's Direct3D light is not followed (#2106).
+**Seen** 2026-11-05 beside the original: in both the poison's green stain over its turning circle in green smoke, the confusion's turquoise rune circle with its small purple one, and the pentagram's bluish ring and star of sparks drawing themselves.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
