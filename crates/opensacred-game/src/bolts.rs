@@ -294,14 +294,6 @@ struct Flying {
     level_at: Option<f32>,
 }
 
-/// The stand-ins' meshes and materials, by the course's look: the railgun's, the BFG's, the
-/// Daemon's and the fireball's, which [`look_of`] draws as their systems instead, as every other
-/// look is drawn as its own: the whirlwind's and the fire bolt's as their trails ([`trail_of`]),
-/// the ice splinters' as their icicles (`ice_splinters`) and the bubble's as its bush
-/// (`bubble_traps`); the casts' fans and rings take the fireball's (`creature_casts`).
-#[derive(Resource)]
-pub(crate) struct Looks(pub(crate) Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
-
 /// The look of a system of its own, by the course's look (`bolt_looks`).
 fn look_of(look: usize) -> Option<crate::bolt_looks::Kind> {
     use crate::bolt_looks::Kind;
@@ -335,35 +327,6 @@ const BUBBLE_LOOK: usize = 6;
 
 /// The fire bolt's look (922).
 const FIRE_BOLT_LOOK: usize = 7;
-
-/// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
-/// the BFG, a violet one for the Daemon's, an orange one for the fireball (**estimate**: the
-/// colours of their glows).
-fn make_looks(
-    mut commands: Commands,
-    meshes: Option<ResMut<Assets<Mesh>>>,
-    materials: Option<ResMut<Assets<StandardMaterial>>>,
-) {
-    let (Some(mut meshes), Some(mut materials)) = (meshes, materials) else {
-        return;
-    };
-    let mut look = |radius: f32, colour: Color| {
-        (
-            meshes.add(Sphere::new(radius)),
-            materials.add(StandardMaterial {
-                base_color: colour,
-                unlit: true,
-                ..default()
-            }),
-        )
-    };
-    commands.insert_resource(Looks(vec![
-        look(10.0, Color::srgb(0.75, 0.85, 1.0)),
-        look(22.0, Color::srgb(0.55, 1.0, 0.45)),
-        look(14.0, Color::srgb(0.75, 0.45, 1.0)),
-        look(18.0, Color::srgb(1.0, 0.55, 0.15)),
-    ]));
-}
 
 /// Makes the launches of each of the Seraphim's shots: its bolts along the line on the ground to
 /// `toward` (with none, her facing), of the damages of the bolt's record by the whole value of
@@ -433,7 +396,6 @@ fn fire(
 fn launch(
     mut commands: Commands,
     mut launches: MessageReader<Launch>,
-    looks: Option<Res<Looks>>,
     shooters: Query<(&Transform, Option<&Body>, Option<&InTheWay>)>,
     (children, bones, worn): (
         Query<&Children>,
@@ -442,10 +404,6 @@ fn launch(
     ),
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
-    let Some(looks) = looks else {
-        launches.clear();
-        return;
-    };
     for launched in launches.read() {
         let Ok((at, body, way)) = shooters.get(launched.shooter) else {
             continue;
@@ -458,11 +416,10 @@ fn launch(
         let system = look_of(launched.course.look);
         let trail = trail_of(launched.course.look);
         let splinters = launched.course.look == SPLINTERS_LOOK;
-        // A look of its own, else a stand-in ball.
+        // Every course's look is drawn as its own; a look of none makes no bolt.
         let own =
             system.is_some() || trail.is_some() || splinters || launched.course.look == BUBBLE_LOOK;
-        let stand_in = looks.0.get(launched.course.look).filter(|_| !own).cloned();
-        if !own && stand_in.is_none() {
+        if !own {
             continue;
         }
         let (start, level_at) = leaving(
@@ -513,21 +470,15 @@ fn launch(
                 direction: launched.direction,
             });
         }
-        match (system, stand_in) {
-            (Some(kind), _) => {
-                let id = bolt.id();
-                crate::bolt_looks::spawn(
-                    bolt.commands_mut(),
-                    id,
-                    kind,
-                    launched.direction,
-                    body.is_some(),
-                );
-            }
-            (None, Some((mesh, material))) => {
-                bolt.insert((Mesh3d(mesh), MeshMaterial3d(material)));
-            }
-            (None, None) => {}
+        if let Some(kind) = system {
+            let id = bolt.id();
+            crate::bolt_looks::spawn(
+                bolt.commands_mut(),
+                id,
+                kind,
+                launched.direction,
+                body.is_some(),
+            );
         }
         // Its system's loop while it flies (`crate::hums`).
         if let Some(looping) = launched.course.sounds.looping {
@@ -825,7 +776,6 @@ impl Plugin for BoltsPlugin {
         app.add_message::<Fire>()
             .add_message::<Launch>()
             .add_message::<Pops>()
-            .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
                 (fire, launch, fly)

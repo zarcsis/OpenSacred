@@ -1521,6 +1521,25 @@ Its FX event (`0xC`, docs/re/arts.md) puts it at the dying creature's place at i
 **Seen** 2026-11-05 beside the original: a goblin's figure in pale green sparks streaming up and to the Dark Elf in both, its sparks vanishing at his soulcatcher.
 Not followed: the souls that no soulcatcher draws (no system starts, docs/re/arts.md).
 
+## The spikes
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| Anducar's demon's rings, the spell 69 | 1163 `FX_ANDUCAR_DEMON` | `cParticleSystem_anducar_demon` (`0x898F58`) | `0x7C0020`, `0x7C04B0`, `0x7C0150`, `0x7C02B0` |
+| The demon prince's fan, the spell 71 | 1166 `FX_DAEMONENFUERST` | `cParticleSystem_daemonenfuerst` (`0x898F80`) | `0x7C0830`, `0x7C0CC0`, `0x7C0960`, `0x7C0AC0` |
+
+The two draw no particles: each object raises spikes about its place, its constructor loading the models `anducar_spikes1.grn` to `anducar_spikes5.grn`, the texture `Andukar_demon_512.tga` and a glow, `Andukar_demon_glow.tga` (1163) or `andukar_demon_glow2.tga` (1166).
+- Their start: 3, 6 or 10 spikes by the detail (0, 1, 2); each of a size `0.65 + 0.55 r` (1163) or `0.45 + 0.25 r` (1166), a turn `2π r` about the vertical, an offset of `140 r − 70` (1163) or `130 r − 65` (1166) along each of y and x, a wait of its distance from the wave's origin (the event's `+0x2C`: the target's place for 1163, the caster's for 1166) over 350 (1163) or 550 (1166), a standing time of 0.75 s (1163) or 0.5 s (1166), and one of the five models by `rand() % 5`, `r` each a roll of `rand()/32767`; 1166 keeps its event's `+0x38`, the colour that the act gives by the prince's type (`0x529037`: 250 `0xFFFFA010` orange, 185 `0xFF20FF20` green, 251 `0xFF6060FF` blue, others a register's value, **hypothesis** white).
+- Their run: each spike waits, then its growth rises by 2 a second to 1 (its object's flags `0x400` set, so it strikes, docs/re/arts.md), it stands for its time, and its growth falls by 2 a second to 0, when it is gone; the object lives while one is not gone.
+- Their draw: each spike not waiting nor gone in its world matrix, its scale half its size times its growth across and its size times its growth up, turned and at its place and offset; its texture overridden by `Andukar_demon_512` (`0x401BD0`); at the detail 2 its shadow (`0x406FF0`); its model lit, its depth written (`0x405C90`); at the detail 2 again added in its glow's texture and colour (`0x40D310`), white for 1163.
+- So a field of tall thin dark red spikes, their tips aglow in orange, springs from the ground as a wave from the target (1163) or from the prince along his line (1166), stands and sinks back within 2 to 3 s.
+
+`opensacred-game` draws them since #1092 (`spikes`, `opensacred_rules::particles::{Spikes, SpikesKind}`), in place of the stand-in balls of flame: each object of `creature_casts`' rings and fan raises its ten spikes on the ground, its models in `Andukar_demon_512`, their glow added in copies of their meshes; the last stand-in ball of the bolts gone with them (`bolts::Looks`).
+**Seen** 2026-11-05 beside the original: Anducar's demon's rings about the Mage, a field of dark red spikes with glowing tips in both, the game's a little shorter and thinner; in the game alone, the demon prince 250's fan, its smaller spikes' tips orange, along his line to the Mage.
+Not followed: their shadows.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
