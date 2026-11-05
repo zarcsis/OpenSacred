@@ -693,7 +693,7 @@ fn fogs(
 /// The death's kiss's skull 905 (`FX_FLYINGSKULL`, `0x7A6370`): its caster, the creature it homes
 /// on, its direction, its curse's value and its bleeding's, its time left, and its level.
 #[derive(Component, Debug, Clone)]
-struct Skull {
+pub(crate) struct Skull {
     caster: Entity,
     target: Option<Entity>,
     direction: Vec3,
@@ -701,6 +701,18 @@ struct Skull {
     bleeds: f32,
     left: f32,
     level: Level,
+}
+
+impl Skull {
+    /// Its heading, a unit vector of the world; its look turns to it (`flying_skulls`).
+    pub(crate) fn heading(&self) -> Vec3 {
+        self.direction
+    }
+
+    /// Its seconds left.
+    pub(crate) fn seconds(&self) -> f32 {
+        self.left
+    }
 }
 
 /// How high over a creature's place the skull aims, for its neck (**estimate**).
@@ -742,17 +754,15 @@ pub fn kiss(
 /// 1,000, ending without one (`0x5ABD80` at `0x5AF091`); past its life or at a cell that may not
 /// be walked on it ends.
 #[expect(
-    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, its queries with their               filters"
+    reason = "a Bevy system takes its queries with their filters"
 )]
 fn skulls(
     mut commands: Commands,
     time: Res<Time>,
-    looks: Option<Res<Looks>>,
     mut dice: ResMut<Dice>,
     heights: Res<crate::terrain::Heights>,
-    mut skulls: Query<(Entity, &mut Skull, &mut Transform, Has<Children>)>,
+    mut skulls: Query<(Entity, &mut Skull, &mut Transform)>,
     casters: Query<&Transform, (With<Body>, Without<Skull>)>,
     creatures: Query<
         (
@@ -772,13 +782,7 @@ fn skulls(
         |effects: Option<&Effects>| effects.is_some_and(|effects| effects.holds_any(&[1033]));
     // The creatures cursed in this frame, whose effects the commands have not given yet.
     let mut given: Vec<Entity> = Vec::new();
-    for (entity, mut skull, mut transform, shown) in &mut skulls {
-        if !shown && let Some(looks) = &looks {
-            commands.entity(entity).with_child((
-                Mesh3d(looks.soul.0.clone()),
-                MeshMaterial3d(looks.discs[5].clone()),
-            ));
-        }
+    for (entity, mut skull, mut transform) in &mut skulls {
         skull.left -= dt;
         let here = transform.translation;
         let level = skull.level;
