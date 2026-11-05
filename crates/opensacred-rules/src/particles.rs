@@ -4342,7 +4342,9 @@ pub fn dragon_fire_variant(creature: u32) -> u8 {
     }
 }
 
-/// The fires on the ground's textures by their variant (`0x7AAFB0`), and their light.
+/// The fires on the ground's FX type (`FX_DRAGON_GROUNDFIRE`), their textures by their variant
+/// (`0x7AAFB0`), and their light.
+pub const GROUND_FIRE: u16 = 923;
 pub const GROUND_FIRE_TEXTURES: [&str; 3] =
     ["PARTICLE_FIRE02", "PARTICLE_FIRE05", "PARTICLE_FIRE08"];
 pub const GROUND_FIRE_LIGHT: f32 = 200.0;

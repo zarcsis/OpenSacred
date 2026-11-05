@@ -2,8 +2,9 @@
 //! fire"): a dragon that comes on to its target breathes it now and then (`creature_casts`,
 //! `opensacred_rules::casts::DRAGON_FIRE`), a jet of flames from its head that lays fires on the
 //! ground under the head (923, `FX_DRAGON_GROUNDFIRE`), both added whole and untinted by the night,
-//! and each lighting it (`opensacred_rules::particles::{DragonFire, GroundFire}`). The fires on
-//! the ground strike nothing yet.
+//! and each lighting it (`opensacred_rules::particles::{DragonFire, GroundFire}`). Each fire on
+//! the ground strikes the hero and the hero's followers about it once, of the dragon's damages
+//! (`opensacred_rules::fight::Rules::ground_fire_damages`, #2084).
 
 use std::collections::HashMap;
 
@@ -97,12 +98,42 @@ struct Breath {
     lit: bool,
 }
 
-/// A fire on the ground: its flames in the frame of its place, and their mesh.
+/// A fire on the ground: its flames in the frame of its place, their mesh, the dragon that laid
+/// it, its damages, and whether it has struck.
 #[derive(Component)]
 struct OnTheGround {
     fire: GroundFire,
     ramp: Ramp,
     mesh: Handle<Mesh>,
+    caster: Entity,
+    damages: [f32; 4],
+    struck: bool,
+}
+
+/// A fire on the ground's size for its hits (`items.pak +0x14` of 923, `0x428CE0`), read at the
+/// start.
+#[derive(Resource)]
+struct FireSize(f32);
+
+impl Default for FireSize {
+    fn default() -> Self {
+        Self(opensacred_rules::arrows::size(0))
+    }
+}
+
+/// Reads the fires' size off the assets' tables at the start.
+fn read(mut commands: Commands, data: Option<Res<Data>>) {
+    let size = data.and_then(|data| {
+        data.0.tables.items().ok().and_then(|items| {
+            items
+                .iter()
+                .find(|item| item.slot == u32::from(opensacred_rules::particles::GROUND_FIRE))
+                .map(|item| opensacred_rules::arrows::size(item.words_14[0]))
+        })
+    });
+    if let Some(size) = size {
+        commands.insert_resource(FireSize(size));
+    }
 }
 
 /// A fire's flames' mesh, drawn under its entity of `material` where there is one, untinted by
@@ -204,6 +235,10 @@ fn breathe_on(
         ResMut<Assets<Mesh>>,
         ResMut<Dice>,
     ),
+    (dragons, rules): (
+        Query<(&crate::ai::Mind, Option<&crate::npcs::Arms>)>,
+        Res<crate::fight::Rules>,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut breath, transform) in &mut breaths {
@@ -218,6 +253,7 @@ fn breathe_on(
             head.affine().transform_vector3(Vec3::NEG_Z),
         ))
         .normalize_or_zero();
+        let caster = breath.dragon;
         let Breath {
             fire, mesh, lit, ..
         } = &mut *breath;
@@ -234,10 +270,15 @@ fn breathe_on(
         }
         if lays {
             let point = head.translation().with_y(dragon.translation().y);
+            // Its damages by the dragon's level and its skill 2 (`0x5AF75D`).
+            let damages = dragons.get(caster).map_or([0.0; 4], |(mind, arms)| {
+                let skill_2 = arms.map_or(0, |arms| arms.skill_level(mind.level, 2));
+                rules.0.ground_fire_damages(mind.level, skill_2)
+            });
             lay(
                 &mut commands,
-                point,
-                fire.variant,
+                (point, fire.variant),
+                (caster, damages),
                 (data.as_deref(), &assets),
                 (&mut made, &mut materials, &mut meshes),
             );
@@ -268,11 +309,11 @@ fn frame(frame: u8, grid: u8) -> (Vec2, f32) {
 }
 
 /// Lays a fire on the ground of the variant `variant` at `point` (the system's action 1,
-/// `0x5B2600`), lit by 200.
+/// `0x5B2600`), lit by 200, of the dragon `caster` and its damages `damages`.
 fn lay(
     commands: &mut Commands,
-    point: Vec3,
-    variant: u8,
+    (point, variant): (Vec3, u8),
+    (caster, damages): (Entity, [f32; 4]),
     (data, assets): (Option<&Data>, &AssetServer),
     (made, materials, meshes): (
         &mut Materials,
@@ -298,7 +339,65 @@ fn lay(
         fire: GroundFire::new(variant),
         ramp: GroundFire::ramp(),
         mesh,
+        caster,
+        damages,
+        struck: false,
     });
+}
+
+/// Strikes, at each fire's first frame with targets about it (`0x5AF75D`, `+0x11C`), the hero and
+/// the hero's followers alive nearer it than the sum of their sizes, once, by the dragon's damages
+/// as a spell's (the event 5 of `0x51CB00`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn strike(
+    mut fires: Query<(&mut OnTheGround, &Transform)>,
+    targets: Query<
+        (Entity, &GlobalTransform, Option<&crate::arrows::Size>),
+        (
+            Or<(With<crate::hero::Body>, With<crate::followers::Follower>)>,
+            Without<crate::npcs::Dies>,
+        ),
+    >,
+    size: Res<FireSize>,
+    mut hits: MessageWriter<crate::fight::Hit>,
+) {
+    for (mut fire, at) in &mut fires {
+        if fire.struck {
+            continue;
+        }
+        let here = at.translation.xz();
+        let within: Vec<Entity> = targets
+            .iter()
+            .filter(|(_, place, other)| {
+                let other = other.map_or(opensacred_rules::arrows::size(0), |other| other.0);
+                (place.translation().xz() - here).length() < size.0 + other
+            })
+            .map(|(target, ..)| target)
+            .collect();
+        if within.is_empty() {
+            continue;
+        }
+        fire.struck = true;
+        for target in within {
+            debug!(
+                "dragon fires: a fire of {} strikes {target} with {:?}",
+                fire.caster, fire.damages
+            );
+            hits.write(crate::fight::Hit {
+                attacker: fire.caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(fire.damages),
+                sure: true,
+                poison: false,
+            });
+        }
+    }
 }
 
 /// Runs each fire on the ground a frame on (`0x7AB070`), its flames standing on their feet; it
@@ -311,7 +410,9 @@ fn burn(
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut fire) in &mut fires {
-        let OnTheGround { fire, ramp, mesh } = &mut *fire;
+        let OnTheGround {
+            fire, ramp, mesh, ..
+        } = &mut *fire;
         fire.update(dt, &mut dice.0);
         if fire.done() {
             commands.entity(entity).despawn();
@@ -341,9 +442,11 @@ impl Plugin for DragonFiresPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>()
             .init_resource::<Materials>()
+            .init_resource::<FireSize>()
+            .add_systems(Startup, read)
             .add_systems(
                 Update,
-                (make, breathe_on, burn)
+                (make, breathe_on, burn, strike)
                     .chain()
                     .in_set(Playing)
                     .in_set(Unpaused)

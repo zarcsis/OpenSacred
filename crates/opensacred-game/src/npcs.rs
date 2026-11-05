@@ -9664,6 +9664,15 @@ impl Arms {
             .map(|&(held, values)| (held.item, values))
     }
 
+    /// Its level in the skill `skill` at the level `grade` (`0x582450`), 0 without it; the items'
+    /// bonuses to it are not followed.
+    pub(crate) fn skill_level(&self, grade: u32, skill: u8) -> u32 {
+        fight::skills(&self.base, grade, self.plain)
+            .iter()
+            .find(|&&(had, _)| had == skill)
+            .map_or(0, |&(_, level)| level)
+    }
+
     /// Whether it has the skill of two weapons (6) at the level `grade`, its level in the skill
     /// above 0 (`0x582450(6)`); the items' bonuses to it are not followed.
     pub(crate) fn two_weapons(&self, grade: u32) -> bool {
