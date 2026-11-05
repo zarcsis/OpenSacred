@@ -366,6 +366,34 @@ pub const FEAR: u16 = 67;
 pub const DISK_SPEED: f32 = 250.0;
 pub const DISK_LOOKS: f32 = 316.2;
 pub const DISK_REACH: f32 = 50.0;
+/// The hell disk's flight in three dimensions (`0x5A55F8`, `0x5A7F4B`, #2115): the angle off its
+/// aim past which its heading turns, in radians (`+0xDC`), its turn a second (`+0xE0`), and how
+/// high over its caster's neck it hovers with no target, in the models' frame.
+pub const DISK_SLACK: f32 = 0.5;
+pub const DISK_TURN: f32 = 25.0;
+pub const DISK_HOVERS: f32 = 50.0;
+
+/// How far the hell disk's heading turns toward its aim `angle` radians off it in `dt` seconds:
+/// not while within [`DISK_SLACK`], else by its turn, at most the angle (`0x5A7F4B`).
+pub fn disk_turns(angle: f32, dt: f32) -> f32 {
+    if angle > DISK_SLACK {
+        angle.min(DISK_TURN * dt)
+    } else {
+        0.0
+    }
+}
+
+/// The share of its speed that the hell disk keeps at `distance` from the point it hovers at,
+/// in the models' frame: all beyond 10, `1/(11 − d)` within, and none within 6 (`0x5A7F4B`).
+pub fn disk_slows(distance: f32) -> f32 {
+    if distance < 6.0 {
+        0.0
+    } else if distance < 10.0 {
+        1.0 / (11.0 - distance)
+    } else {
+        1.0
+    }
+}
 /// The hellfire's choice of a target (`0x5AFF86`): within 800 of the hero and 1,300 of it along
 /// each axis, of a weight of 1 and 3 more with a ranged weapon; else within 300 and the
 /// creature's size of it.
@@ -1370,6 +1398,16 @@ mod tests {
     fn the_hellfire_strikes_from_its_growth_to_its_seconds_and_shrinks_two_more() {
         assert_eq!(hellfire_times(30.0), (30.0, 32.0));
         assert_eq!(hellfire_times(1.0), (2.0, 4.0));
+    }
+
+    #[test]
+    fn the_hell_disk_turns_past_its_slack_and_slows_to_hover() {
+        assert_eq!(disk_turns(0.4, 0.1), 0.0);
+        assert_eq!(disk_turns(1.0, 0.01), 0.25);
+        assert_eq!(disk_turns(1.0, 0.1), 1.0);
+        assert_eq!(disk_slows(12.0), 1.0);
+        assert_eq!(disk_slows(9.0), 0.5);
+        assert_eq!(disk_slows(5.0), 0.0);
     }
 
     #[test]
