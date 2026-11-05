@@ -181,7 +181,7 @@ A class keeps one ramp per layer, side by side; the draw takes the entry of the 
 
 The common draw of particles, called with the device, the matrix, a flags word, the ramps, the atlas's grid `G`, a layer for trails (0 for none), a size factor, a byte `b` and a byte `c`:
 
-- States first (`0x643430`, docs/re/drawing.md): the depth test on (`1`), the depth write off (`0x100`), the lighting off (`0x20`), the blending on (`4`), the linear filter (`0x800`), the source factor `ONE` with the flag `0x10` else `SRCALPHA` (`8`), the destination `ONE` with the flag `0x01` else `INVSRCALPHA` (`0x10`).
+- States first (`0x643430`, docs/re/drawing.md): the depth test on (`1`), the depth write off (`0x100` called with 0; with 1 it is on, "The stargates"), the lighting off (`0x20`), the blending on (`4`), the linear filter (`0x800`), the source factor `ONE` with the flag `0x10` else `SRCALPHA` (`8`), the destination `ONE` with the flag `0x01` else `INVSRCALPHA` (`0x10`).
 - Each living particle becomes a quad of its size times the factor about its position plus the origin, in the plane of the matrix (camera-facing), as two triangles of pre-lit vertices (FVF `0x1E2`, `D3DFVF_LVERTEX`: a position, a diffuse and a specular colour, one pair of coordinates) transformed on the CPU (`0x6545E0`), the world transform the identity, batched into the buffer `+0xBC` and drawn as a triangle list (`DrawPrimitive`, the device's `+0x64`).
 - The flags word:
   - `0x01` the destination `ONE`, `0x10` the source `ONE`;
@@ -1588,6 +1588,28 @@ The two draw no particles: each object raises spikes about its place, its constr
 `opensacred-game` draws them since #1092 (`spikes`, `opensacred_rules::particles::{Spikes, SpikesKind}`), in place of the stand-in balls of flame: each object of `creature_casts`' rings and fan raises its ten spikes on the ground, its models in `Andukar_demon_512`, their glow added in copies of their meshes; the last stand-in ball of the bolts gone with them (`bolts::Looks`).
 **Seen** 2026-11-05 beside the original: Anducar's demon's rings about the Mage, a field of dark red spikes with glowing tips in both, the game's a little shorter and thinner; in the game alone, the demon prince 250's fan, its smaller spikes' tips orange, along his line to the Mage.
 Not followed: their shadows.
+
+## The stargates
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The waypoints' gates | 802 `FX_STARGATE` | `cParticleSystem_stargate` (`0x897E9C`) | `0x77FBE0`, `0x780BB0`, `0x780450`, `0x780790` |
+| The add-on's gates | 1180 `FX_STARGATE_UW` | `cParticleSystem_stargate_uw` (`0x899118`) | `0x7C5C10`, `0x7C6BE0`, `0x7C6480`, `0x7C67C0` |
+
+The scripts make them by `CreateObj` (the Seraphim's tree's 65 of 802, the waypoints' functions `OMO_Wegpunkte_*` after their `teleporter` where the bit `Teleporter_WP` is not set, the quests' and the regions'; the add-on's of 1180 alike); their FX events (`0x22`, `0xB3`) put the system at the event's point, a cell's centre at the height 0, with no variant.
+The two run one code; 1180 takes other textures.
+- Their constructor loads sixteen pictures of the world map's sectors (`MINIMAP<x><y>.TGA`: 802 058028, 063031, 049032, 034035, 061032, 044044 to 044041, 045044, 050036, 050035, 050037, 051034 to 051036; 1180 seven of the add-on's sectors in its sixteen slots, two of them thrice) and two whirls (`FX_WHIRL01` and `02`, bluish; 1180's `03` and `04`, reddish); it builds a window of 20 columns by 34 rows of pre-lit vertices in the plane of the models' `x` and `z` (upright, facing the viewer), at `x = 6(i − 10)` and `z = 6(j − 17)`, its texture's `u = i/33` and `v = 1 − j/33` (the picture's left 57 % at its whole height), twice, for the picture shown and the next; each vertex's fade `3.2·(10 − d)` truncated to 0 to 15, `d` its distance in steps from the segment of (9.5, 10) to (9.5, 24), so a capsule whose sides fade over their outer five columns and whose round ends fade out; the alpha of a picture's level `a` and a fade `b`, 0 to 15 each, `a·b·17/15` of 255; two quads of the whirls in `0x8FFFFFFF` and `0xAFFFFFFF`.
+  Its start: two pictures at random of the sixteen, the shown at the level 15 and the next at 0, its whirls' turns π/4, its world light 200 (`+0x9C`), its flags 0.
+- Its run (nothing past a second's frame): its clock; its ripples' phase by 5 a second; its growth `g` by 0.5 a second to 1; at 3 s the next picture's level rises as `15.9·(c − 3)`, at 4 s the shown's falls as `15.9·(5 − c)`, and at 5 s the next is shown, a new one rolled, its clock again 0; each vertex's ripple `5·cos(2r − t)` toward the viewer, `r` its distance in steps from (9.5, 17) and `t` the phase, its grey `127.9·(1 + N·L)` of a slope `sin(r − t)` along `r` under the light (2/3, −2/3, 1/3), 213 when flat; its whirls turning by `0.3 k` and `0.4 k` a second, `k` 1/`g` (0.1 while `g` is below 0.1), their corners on an ellipse of 125 across and 220 up.
+- Its draw: a world matrix of the scale `sin(g·π/2)`, 95 over its point; the depth tested and written, unlit, laid over by their alpha (`SRCALPHA`, `INVSRCALPHA`): the window in the shown picture while its level is above 0, then in the next over it while its level is; then the depth neither tested nor written: the first whirl laid over, and the second added by its alpha (`SRCALPHA`, `ONE`); the night's tint left out.
+  Note: `0x643430`'s bit `0x100` sets the depth's write on with its second argument 1 (the billboards' draws call it with 0, the write off).
+- So an upright window 114 by 198, centred 95 over the waypoint, shows a sector of the map rippling in rings from its middle, its edges fading; every 5 s another picture fades in over it; two whirls of 250 by 440 turn about it over everything, the blended one at 0.3 a second and the added one at 0.4; it grows from a point over 2 s, its whirls spinning fast while it is small; by night it lights the ground within 200 of it, its own colours as by day.
+
+`opensacred-game` draws them since #1092 (`stargates`, `opensacred_rules::particles::Stargate`): each gate object of the scripts (`npcs`, which loops its sound, `fx_loops`) shows its window's two copies, rewritten each frame, its whirls over everything (`fx::over_material`) and its light in the world's table, untinted by the night.
+**Seen** 2026-11-05 beside the original at the Kernland's waypoint (2642, 3057, `OMO-1Wegpunkte_Kernland`): in both a window of a sector's map inside the stone arch, a violet and blue whirl about it, alike in size and colour.
+Not followed: the window's depth written over its whole rectangle, its clear corners included (**hypothesis**: the original's alpha test is off there).
 
 ## The arrows' elements
 
