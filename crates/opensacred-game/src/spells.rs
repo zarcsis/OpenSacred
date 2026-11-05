@@ -1039,16 +1039,19 @@ pub(crate) struct Mine {
     left: f32,
 }
 
-/// The stand-ins' meshes and materials: a disc of radius 1 and its colours, a column of light
-/// and the lightning's, and the hell disk.
+/// The stand-ins' meshes and materials: a disc of radius 1 and its colours, and a column of light
+/// and the lightning's.
 #[derive(Resource)]
 pub(crate) struct Looks {
     disc: Handle<Mesh>,
     discs: [Handle<StandardMaterial>; 7],
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
-    disk: (Handle<Mesh>, Handle<StandardMaterial>),
 }
+
+/// The Daemon's hell disk (1005, `0x527BA9`); its look is `hell_disks`'.
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct HellDisk;
 
 /// Makes the stand-ins' looks (**estimate**: the colours of their glows).
 fn make_looks(
@@ -1077,12 +1080,7 @@ fn make_looks(
         glow(Color::srgba(0.3, 0.5, 0.2, 0.35)),
     ];
     let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
-    let disk = (
-        meshes.add(Cylinder::new(18.0, 4.0)),
-        glow(Color::srgba(1.0, 0.3, 0.1, 0.9)),
-    );
     commands.insert_resource(Looks {
-        disk,
         disc: meshes.add(Cylinder::new(1.0, 1.0)),
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
@@ -1963,7 +1961,7 @@ fn act(
             }
             spells::DISK => {
                 let damages = bolt_damages(record, level, multipliers);
-                let mut made = commands.spawn((
+                commands.spawn((
                     Disk {
                         caster: act.caster,
                         target: None,
@@ -1978,17 +1976,12 @@ fn act(
                         // From his feet, straight up (`0x527BA9`, `0x5A55F8`, #2115).
                         flight: Flight::HellDisk { heading: Vec3::Y },
                     },
+                    HellDisk,
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     crate::hums::Hum(HELL_DISK_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some(looks) = &looks {
-                    made.with_child((
-                        Mesh3d(looks.disk.0.clone()),
-                        MeshMaterial3d(looks.disk.1.clone()),
-                    ));
-                }
             }
             spells::HELLFIRE => {
                 // It strikes from its growth's end to its seconds, and lives and sounds while it

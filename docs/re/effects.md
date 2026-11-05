@@ -1297,6 +1297,28 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 `opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its Direct3D light and its shadow are not followed (#2106).
 **Seen** 2026-11-05 beside the original: in both an orange lava ball in a starburst of thin rays over the point.
 
+## The hell disk
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Daemon's 60 at the level 5 by a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The hell disk of the spell 60 | 1005 `FX_HELLDISK` | `cParticleSystem_helldisk` (`0x898A8C`) | `0x7AD8C0`, `0x7AE040`, `0x7ADB10`, `0x7ADBC0` |
+
+- Its constructor (300 particles) loads `fx_multiTexGlow01` (`+0x2534`, which nothing of it draws), `particle_glow03` (`+0x2538`), the lava's 50 frames `A_LAVA00` to `A_LAVA49` (`+0x253C`), the model `hell_disk.grn` (`+0x2604`: three rings, a flat one and two tilted against each other) and its motion of the slot 1 as a controlled animation from the time 0 (`+0x260C`, `+0x2614`; **hypothesis**: the converted clip `FX_F_IDLE_BH` of 1.32 s, looping for ever by its parameter 3 of the largest float), and a Direct3D point light of (1.0, 0.4, 0.2), the range 200 and the attenuations 1, 0 and 0.000125.
+- Its start: its seconds (`+0x20A8`) the record's value 0 at the level times the event's factor; one layer of the life −200 a second (1.275 s) and the size −4; one block of the size 10, one every 0.015 s at the detail 2; its ramp of (0.996, 0.391, 0.234) throughout, its alpha 0 for 20 entries, up to 0.781 over 30 and down to 0 over 206, so that a glow shows from 0.1 s after its birth, brightest at 0.25 s; its flags `0x10000` (its flight, docs/re/arts.md, #2115), its speed 250, its light 250; `DEMON_HOELLENDISK_LOOP` looping (docs/re/sound.md).
+- Its run: while it flies it leaves glows at its place, so that its trail lies along its way; past its seconds, or its object's word `+0x74` bit 2, it stops (`+0x20AC` 1, its flags 0) where it is, still drawn, and ends with its last glow.
+- Its draw, its clock `t`:
+  - its light at its place;
+  - its model at 0.08 of its size, not turned, at its place, in the lava's frame `⌊fmod(100 t, 49.5)⌋`, lit, blended by its alpha and its depth written (`0x405C90`), its shadow under it (`0x406FF0`);
+  - its model again in the frame `⌊fmod(100 t + 50, 49.5)⌋`, half a frame on, white, unlit, added (`ONE`, `ONE`) and its depth not written (`0x40D310`);
+  - a glow of the style 5 (`0x762E10`: `PARTICLE_GLOW03` added whole) at its place, of the half side `30 + 10·(1 + sin t)`, in (176, 113, 81);
+  - its trail, billboards of the flags `0x0D` (`0x761B00`: the ramp's colour, added by their alpha), the grid 1, the factor 1.
+- So a small gyroscope of flowing lava whirls along its flight in a pulsing dull orange glow, trailing orange glows that light up a little behind it and fade within 1.3 s.
+
+`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its Direct3D light and its shadow are not followed (#2106).
+**Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
