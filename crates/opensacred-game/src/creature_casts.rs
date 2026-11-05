@@ -30,8 +30,9 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 28] = [
+const FOLLOWED: [u16; 29] = [
     casts::SPIDER_SHOT,
+    casts::DRAGON_FIRE,
     casts::HOLY_LIGHT,
     casts::BLADES,
     casts::HOLY_SHIELD,
@@ -74,7 +75,7 @@ pub fn follows(spell: u16) -> bool {
 /// a dragon, a big demon (#1853), a magician of the mark 8 (#1854) or a caster of a mark of its
 /// own (#1855).
 pub fn casts(creature: u32) -> bool {
-    casts::shooter(creature)
+    casts::coming_on(creature).is_some()
         || casts::own_mark(creature).is_some()
         || casts::dragon(creature)
         || casts::big_demon(creature)
@@ -214,8 +215,8 @@ fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind
         }
         cast.begun = true;
         let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
-        // The spider shoots as its clip starts (`0x4E3464`).
-        let share = if cast.spell == casts::SPIDER_SHOT {
+        // The spider shoots and the dragon breathes as its clip starts (`0x4E3464`).
+        let share = if matches!(cast.spell, casts::SPIDER_SHOT | casts::DRAGON_FIRE) {
             0.0
         } else {
             spells::share(cast.spell).unwrap_or(1.0)
@@ -301,6 +302,18 @@ fn act(
                 });
             }
             info!("creature_casts: {entity} shoots a railgun's bolt at {toward}");
+            continue;
+        }
+        if cast.spell == casts::DRAGON_FIRE {
+            // The dragon's breath of fire (`0x4E3B30`) at its head, of its type's variant.
+            let variant = opensacred_rules::particles::dragon_fire_variant(mind.creature);
+            crate::dragon_fires::breathe(
+                &mut commands,
+                &mut sounds,
+                (entity, at.translation),
+                variant,
+            );
+            info!("creature_casts: {entity} breathes fire");
             continue;
         }
         let Some(record) = arts

@@ -103,16 +103,30 @@ pub fn approaches(distance: f32, roll: u32) -> bool {
     distance >= APPROACH_FROM && roll % 101 < 5
 }
 
-/// Whether a creature of type `creature` shoots as it comes on (`0x4E1FC4`, the melee's state 9 at
-/// `0x4E3464`, #2067): the medium spider (75, `med_spider.grn`), of the mark 4, which shoots the
-/// railgun's bolt (801) at its target; the fire ghoul (73) and the types 186 and 333 take the
-/// state too, their own shots not followed.
-pub fn shooter(creature: u32) -> bool {
-    creature == 75
+/// What a creature of type `creature` makes as it comes on (`0x4E1FC4`, the melee's state 9 at
+/// `0x4E3464`): the medium spider (75, `med_spider.grn`), of the mark 4, shoots the railgun's bolt
+/// at its target ([`SPIDER_SHOT`], #2067), and a dragon breathes its fire ([`DRAGON_FIRE`],
+/// #1964); the fire ghoul (73), the giant spider (55) and the killer crab queen (348) take the
+/// state too, their own not followed.
+pub fn coming_on(creature: u32) -> Option<u16> {
+    if creature == 75 {
+        Some(SPIDER_SHOT)
+    } else if dragon(creature) {
+        Some(DRAGON_FIRE)
+    } else {
+        None
+    }
 }
 
+/// A dragon's breath of fire as it comes on, a pseudo-spell of its FX type (`FX_DRAGONFIRE`, 852,
+/// `0x4E3B40`), at the dragon's head (the FX event `0x4C`'s bone 20), of the variant of its type
+/// (`particles::dragon_fire_variant`); `FIREGHUL_FLAMEBREATH` (11122) at it at a rate's factor of
+/// 0.5 as it is made (`0x4E3DB9`), and again from its start (`0x77AF2D`).
+pub const DRAGON_FIRE: u16 = 852;
+pub const FLAME_BREATH: u32 = 11122;
+
 /// The spider's shot, a pseudo-spell of the railgun's FX type (`FX_RAILGUN`, 801), the clip's slot
-/// it plays (`0x593320(0x4F, …)`), and its sounds as it shoots (`0x4E369E`): in four cases of five
+/// it plays (`0x593320(0x4F, …)`, the dragons' fire's too), and its sounds as it shoots (`0x4E369E`): in four cases of five
 /// (`rand() % 5` below 4) one of `GIANTSPIDER_FOOTSTEPS01`, `02`, `03` and `04`, at a rate's factor
 /// of 0.5.
 pub const SPIDER_SHOT: u16 = 801;
@@ -141,11 +155,11 @@ pub const DEMON_FIRE_SIZE: f32 = 70.0;
 /// (`0x522030`): by the spell, a few types their own, the dragons (`dragon`, `Creature.pak`'s
 /// class 10) always 81, Anducar (182) and his demon (183) always 154.
 pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
+    if matches!(spell, SPIDER_SHOT | DRAGON_FIRE) {
+        return SPIDER_SHOT_CLIP;
+    }
     if dragon {
         return 81;
-    }
-    if spell == SPIDER_SHOT {
-        return SPIDER_SHOT_CLIP;
     }
     if matches!(creature, 182 | 183) {
         return 154;
@@ -867,8 +881,13 @@ mod tests {
     }
 
     #[test]
-    fn the_medium_spider_shoots_its_railguns_bolt_as_it_comes_on() {
-        assert!(shooter(75) && !shooter(73) && !shooter(76));
+    fn the_medium_spider_shoots_and_the_dragons_breathe_fire_as_they_come_on() {
+        assert_eq!(coming_on(75), Some(SPIDER_SHOT));
+        assert_eq!(coming_on(88), Some(DRAGON_FIRE));
+        assert_eq!((coming_on(73), coming_on(76)), (None, None));
+        // The dragons breathe by the clip of the state 9, not their casts' 81.
+        assert_eq!(clip(DRAGON_FIRE, 88, true), SPIDER_SHOT_CLIP);
+        assert_eq!(clip(METEORS, 88, true), 81);
         // As the big demons: from 371 away, by a roll below 5 of 101.
         assert!(!approaches(370.0, 0) && !approaches(400.0, 5) && approaches(400.0, 104));
         assert_eq!(clip(SPIDER_SHOT, 75, false), SPIDER_SHOT_CLIP);

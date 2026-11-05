@@ -4219,6 +4219,205 @@ impl BloodFountain {
     }
 }
 
+/// The dragons' breath's textures by its variant (`0x77AA20`), its grid, how long it waits before
+/// it burns and when it ends, its flames' speed and its light while it burns (`0x77AAE0`).
+pub const DRAGON_FIRE_TEXTURES: [&str; 3] =
+    ["PARTICLE_FIRE01", "PARTICLE_FIRE06", "PARTICLE_FIRE07"];
+pub const DRAGON_FIRE_GRID: u8 = 4;
+const DRAGON_FIRE_WAITS: f32 = 1.5;
+const DRAGON_FIRE_ENDS: f32 = 4.0;
+const DRAGON_FIRE_SPEED: f32 = 1000.0;
+pub const DRAGON_FIRE_LIGHT: f32 = 400.0;
+/// Its particles at most (`0x5A0C50`).
+const DRAGON_FIRE_COUNT: usize = 500;
+/// How often it lays a fire on the ground while it burns (`0x77AB8C`).
+const GROUND_FIRE_EVERY: f32 = 0.3;
+
+/// A dragon's breath of fire, `cParticleSystem_dragonfire` (`FX_DRAGONFIRE`, 852, its start
+/// `0x77AE90`, its run `0x77AAE0` and its draw `0x77AC20`; docs/re/effects.md, "The dragons'
+/// fire"), which keeps to the dragon's head: for 1.5 s nothing, then until 4 s a flame of its
+/// variant's texture every 0.001 s at the head, within 5 of it on each axis, leaving along the
+/// head's own `−y` at 1,000 ± 50 on each axis, of a size of 7 ± 3 that grows by 80 a second and
+/// an angle of π ± π, living 0.2 s (−1,300), added whole, turned, its 4 × 4 frames played once
+/// over its life; it lights the night by 400 while it burns, and lays a [`GroundFire`] where its
+/// head is above the ground every 0.3 s from a first moment at random below 0.3 s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DragonFire {
+    pub system: System,
+    pub variant: u8,
+    clock: f32,
+    next: f32,
+    alive: bool,
+}
+
+impl DragonFire {
+    /// A breath of the variant `variant` (the FX event's `+0x38`).
+    pub fn new(variant: u8, dice: &mut impl Dice) -> Self {
+        let roll = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        Self {
+            system: System::new(DRAGON_FIRE_COUNT),
+            variant,
+            clock: 0.0,
+            next: roll * GROUND_FIRE_EVERY,
+            alive: true,
+        }
+    }
+
+    /// Its layer: the life −1,300 a second, the size +80.
+    fn layer() -> Layer {
+        Layer {
+            life: -1300.0,
+            size: 80.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block at the detail 2, its flames' velocity `velocity`.
+    fn block(velocity: [f32; 3]) -> Block {
+        Block {
+            size: spread(7.0, 3.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread(velocity, [50.0; 3]),
+            offset: spread([0.0; 3], [5.0; 3]),
+            interval: 0.001,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, the head gone from `from` to `to` in its frame and its `−y` axis
+    /// `along` (of length 1): whether it lays a fire on the ground at `to` this run.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        (from, to): ([f32; 3], [f32; 3]),
+        along: [f32; 3],
+        dice: &mut impl Dice,
+    ) -> bool {
+        self.clock += dt;
+        if self.clock <= DRAGON_FIRE_WAITS {
+            return false;
+        }
+        let layers = [Self::layer()];
+        self.system.clock = self.clock - dt;
+        self.system.update(dt, &layers);
+        let velocity = along.map(|axis| axis * DRAGON_FIRE_SPEED);
+        self.system.emit_along(
+            &[Self::block(velocity)],
+            &layers,
+            DRAGON_FIRE_COUNT,
+            (from, to),
+            dt,
+            dice,
+        );
+        if self.clock > DRAGON_FIRE_ENDS {
+            self.alive = false;
+            return false;
+        }
+        self.next -= dt;
+        if self.next >= 0.0 {
+            return false;
+        }
+        self.next = GROUND_FIRE_EVERY;
+        true
+    }
+
+    /// Whether it burns: past its wait and before its end, so that it lights the night.
+    pub fn burns(&self) -> bool {
+        self.alive && self.clock > DRAGON_FIRE_WAITS
+    }
+
+    /// Whether it ended (`+0x20B4` 0), its flames with it.
+    pub fn done(&self) -> bool {
+        !self.alive
+    }
+}
+
+/// The variant of the breath of a dragon of type `creature` (`0x4E3B6D`): 1 for the types 74 and
+/// 100, 2 for 88, 0 for the others.
+pub fn dragon_fire_variant(creature: u32) -> u8 {
+    match creature {
+        74 | 100 => 1,
+        88 => 2,
+        _ => 0,
+    }
+}
+
+/// The fires on the ground's textures by their variant (`0x7AAFB0`), and their light.
+pub const GROUND_FIRE_TEXTURES: [&str; 3] =
+    ["PARTICLE_FIRE02", "PARTICLE_FIRE05", "PARTICLE_FIRE08"];
+pub const GROUND_FIRE_LIGHT: f32 = 200.0;
+/// How long a fire on the ground makes flames (`0x7AB070`).
+const GROUND_FIRE_BURNS: f32 = 2.0;
+const GROUND_FIRE_COUNT: usize = 100;
+
+/// A fire that a dragon's breath lays on the ground, `cParticleSystem_dragon_groundfire`
+/// (`FX_DRAGON_GROUNDFIRE`, 923, its start `0x7AB1A0`, its run `0x7AB070` and its draw
+/// `0x7AB0E0`), of its breath's variant: for 2 s a flame every 0.04 s within 50 of its place on
+/// the ground along each of its axes, of a size of 40 ± 10 that shrinks by 17 a second, living
+/// 2.55 s (−100), standing on its foot, added whole in a grey of 200/256 that rises from nothing
+/// over the first 10 entries of its ramp and falls to nothing over the last 46, its 4 × 4 frames
+/// played once over its life; it lights the night by 200 while a flame lives.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundFire {
+    pub system: System,
+    pub variant: u8,
+    clock: f32,
+}
+
+impl GroundFire {
+    /// A fire of the variant `variant`.
+    pub fn new(variant: u8) -> Self {
+        Self {
+            system: System::new(GROUND_FIRE_COUNT),
+            variant,
+            clock: 0.0,
+        }
+    }
+
+    /// Its ramp: from nothing over 10 entries to a grey of 200/256, held over 200 and to nothing
+    /// over 46, at an alpha of 0 (it adds whole).
+    pub fn ramp() -> Ramp {
+        let grey = [200.0 / 256.0, 200.0 / 256.0, 200.0 / 256.0, 0.0];
+        Ramp::new([0.0; 4], &[(grey, 10), (grey, 200), ([0.0; 4], 46)])
+    }
+
+    /// Its layer: the life −100 a second, the size −17.
+    fn layer() -> Layer {
+        Layer {
+            life: -100.0,
+            size: -17.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block at the detail 2.
+    fn block() -> Block {
+        Block {
+            size: spread(40.0, 10.0),
+            offset: spread([0.0; 3], [50.0, 50.0, 0.0]),
+            interval: 0.04,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7AB070`): its flames age, and before 2 s new ones rise.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.clock < GROUND_FIRE_BURNS {
+            self.system.clock = self.clock;
+            self.system
+                .emit(&[Self::block()], &layers, GROUND_FIRE_COUNT, dice);
+        }
+        self.clock += dt;
+    }
+
+    /// Whether it ended: past its 2 s and no flame alive.
+    pub fn done(&self) -> bool {
+        self.clock >= GROUND_FIRE_BURNS && self.system.particles.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5433,5 +5632,55 @@ mod tests {
         let sounds: std::collections::HashSet<u32> =
             (0..50).map(|_| blood_sound(&mut dice)).collect();
         assert_eq!(sounds.len(), 2);
+    }
+
+    #[test]
+    fn a_dragons_breath_burns_from_its_head_after_its_wait_and_lays_fires() {
+        let mut dice = Rng::of(5, 2, 852);
+        let mut fire = DragonFire::new(dragon_fire_variant(88), &mut dice);
+        assert_eq!(fire.variant, 2);
+        let head = ([0.0, 0.0, 200.0], [0.0, 0.0, 200.0]);
+        let mut laid = 0;
+        for _ in 0..14 {
+            laid += u32::from(fire.update(0.1, head, [0.0, -1.0, 0.0], &mut dice));
+        }
+        // Nothing for 1.5 s.
+        assert!(!fire.burns() && fire.system.particles.is_empty() && laid == 0);
+        for _ in 0..11 {
+            laid += u32::from(fire.update(0.1, head, [0.0, -1.0, 0.0], &mut dice));
+        }
+        // Then a jet along the head's −y, at most 0.2 s long, and a fire every 0.3 s.
+        assert!(fire.burns() && !fire.system.particles.is_empty());
+        assert!(fire.system.particles.iter().all(|p| p.place[1] < 10.0));
+        assert!(fire.system.particles.iter().all(|p| p.place[1] > -260.0));
+        assert!((3..=4).contains(&laid), "{laid}");
+        for _ in 0..16 {
+            fire.update(0.1, head, [0.0, -1.0, 0.0], &mut dice);
+        }
+        assert!(fire.done());
+    }
+
+    #[test]
+    fn a_fire_on_the_ground_burns_two_seconds_and_dies_down() {
+        let mut dice = Rng::of(5, 3, 923);
+        let mut fire = GroundFire::new(0);
+        for _ in 0..20 {
+            fire.update(0.1, &mut dice);
+        }
+        let count = fire.system.particles.len();
+        assert!((45..=51).contains(&count), "{count}");
+        assert!(
+            fire.system
+                .particles
+                .iter()
+                .all(|p| p.place[0].abs() <= 50.0 && p.place[2] == 0.0)
+        );
+        assert!(!fire.done());
+        for _ in 0..26 {
+            fire.update(0.1, &mut dice);
+        }
+        assert!(fire.done());
+        assert_eq!(GroundFire::ramp().at(255.0), [0.0; 4]);
+        assert_eq!(GroundFire::ramp().at(128.0)[0], 200.0 / 256.0);
     }
 }

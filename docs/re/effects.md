@@ -1060,6 +1060,29 @@ Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-05 in the game with the violence on: a few of the wolves 588 killed by the console spurted, a jet of red drops from the head or a limb that fell to the ground beside the corpse.
 Not followed: the 30 of `+0x2B8` bit 1, the sets' fountains at a hit (the part 100) and the blood on the ground.
 
+## The dragons' fire
+
+Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwise).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| A dragon's breath of fire | 852 `FX_DRAGONFIRE` | `cParticleSystem_dragonfire` | `0x77AE90`, `0x77AAE0`, `0x77AC20` |
+| A fire that the breath lays on the ground | 923 `FX_DRAGON_GROUNDFIRE` | `cParticleSystem_dragon_groundfire` | `0x7AB1A0`, `0x7AB070`, `0x7AB0E0` |
+
+- **Who makes it.** A creature of the mark 4 (`0x43C540`: the types 52, 53, 55, 73 to 75, 88, 94, 100 to 103 and 348) that comes on to its target on its level from 371 away takes, by a roll of `rand() % 101` below 5 at a tick, its melee's state 9 (`0x4E1F5C`), but the big demons 53 and 94, which cast (docs/re/ai.md).
+  The state plays the clip 0x4F (0x50 for the fire ghoul 73, 0x91 for the types 186 and 333) and turns the creature to its target, and by the type: the medium spider's shot (75, docs/re/ai.md), the fire ghoul's own, nothing for 55 and 348 (their spit is their attack's, 880), and for the others, the dragons 52, 74, 88 and 100 to 103, the 852 at the dragon's place (`0x4E3B40`) with the FX event `0x4C` (its case `0x5A55A1` keeps the system at the caster's bone 20, `Bip01 Head`), its variant 1 for 74 and 100, 2 for 88 and 0 for the others, its array's first word the dragon's level; then `FIREGHUL_FLAMEBREATH` (11122) at the object, at a rate's factor of 0.5 (`0x4E3DB9`).
+- **The breath's start** (`0x77AE90`): its clock 0, a timer of the fires on the ground of `0.3·U`; one layer (the life −1,300 a second, the size +80) and one block (the size 7 ± 3, the angle π ± π, the velocity ± 50 on each axis, the place ± 5 on each axis, every 0.001 s at the detail 2); the system's flags `0x200`, no light; and `FIREGHUL_FLAMEBREATH` once more, at the same rate.
+- **Its run** (`0x77AAE0`): its clock runs, and nothing happens until it passes 1.5 s; then its light is 400, the block's velocity `(0, −1000, 0)` turned by the system's orientation (`0x653EA0`), the head's, its particles age (`0x7640C0`) and new ones leave (`0x764760`, up to 500); past 4 s it ends (`+0x20B4` 0); else its timer counts down, and below 0 is set to 0.3 and asks the action 1 (`0x5B2600`) of the type 923, of its variant, at its place: a fire on the ground there.
+  The engine's frame mirrors the model's `y` (the FX frame is left-handed), so the flames leave along the head's own `+y`, out of the mouth.
+- **Its draw** (`0x77AC20`): its flames as billboards of `PARTICLE_FIRE01`, `PARTICLE_FIRE06` or `PARTICLE_FIRE07` by its variant, of the flags `0x15` and the grid 4: added whole, turned, of the four corners' white, their 16 frames played once over their lives.
+- **A fire on the ground** (923): its start (`0x7AB1A0`) one layer (the life −100, the size −17 a second) and one block (the size 40 ± 10, the place ± 50 along the ground's two axes, every 0.04 s at the detail 2), its ramp from nothing over 10 entries to a grey of 200/256, held over 200 and to nothing over 46, at an alpha of 0; its light 200; its system's flags `0x400`, the targets and the hits ("The FX objects" above; its damages by the caster's skill 2 and the object's level, docs/re/arts.md, not read).
+  Its run (`0x7AB070`): its flames age, new ones rise while its clock is below 2 s, and then it lives while one does.
+  Its draw (`0x7AB0E0`): billboards of `PARTICLE_FIRE02`, `PARTICLE_FIRE05` or `PARTICLE_FIRE08` by its variant, of the flags `0x99` and the grid 4: standing on their feet, added whole, of their ramp's colour, their 16 frames played once over their lives.
+
+`opensacred-game` makes them since #1964 (`dragon_fires`, `opensacred_rules::particles::{DragonFire, GroundFire}`, `casts::{coming_on, DRAGON_FIRE}`): a dragon coming on to the hero from 371 away breathes at a tick by the same roll (`minds::Mind::cast`), by the clip 0x4F at the creature's speed, the breath at its head with both its sounds, its flames untinted by the night, its light while it burns, and a fire on the ground under the head every 0.3 s, each lit by 200.
+**Seen** 2026-11-05 in the game: a dragon 52 of level 10 woken by the hero and left 12 cells behind came on and, now and then, stopped to breathe a jet of flames from its mouth toward her about 2 s after its clip began, with fires rising on the ground under its head.
+Not followed: the fires' hits (#2084); not set beside the original's, whose dragon 52 under the driver kept its AI's state 0 by the Daemon, struck too, and walked off.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12, and 13 since #2070 (the magic fire, with the pick of a block among three and every particle at the first block's offset); the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886), `FX_FI_SMOKE_*` (812, 813, 876) and `FX_FIRE_MAGIC` (904) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
