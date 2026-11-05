@@ -372,6 +372,17 @@ pub const DISK_REACH: f32 = 50.0;
 pub const HELLFIRE_HERO: f32 = 800.0;
 pub const HELLFIRE_BOX: f32 = 1300.0;
 pub const HELLFIRE_NEAR: f32 = 300.0;
+/// How long the hellfire grows before its first strike and shrinks after its last (`0x7B2CA0`:
+/// its growth by 0.5 a second, its flag `0x2000`, which lets it strike, set at its full growth
+/// and cleared past its seconds, #2114).
+pub const HELLFIRE_GROWS: f32 = 2.0;
+
+/// Until when the hellfire of `seconds` strikes, from its cast, and how long it lives: its
+/// seconds, at least its growth's, and its shrinking after (`0x7B2CA0`).
+pub fn hellfire_times(seconds: f32) -> (f32, f32) {
+    let strikes = seconds.max(HELLFIRE_GROWS);
+    (strikes, strikes + HELLFIRE_GROWS)
+}
 /// The choir's reach about the Daemon (a squared 32,000) and the most creatures it takes
 /// (`0x527DA9`).
 pub const CHOIR_REACH: f32 = 178.9;
@@ -1353,6 +1364,12 @@ mod tests {
         assert_eq!([1, 10, 100].map(|l| count(&souls, l)), [2, 5, 6]);
         let cage = record(CAGE, &[], [14, 1], 30);
         assert_eq!([1, 5, 6, 20].map(|l| count(&cage, l)), [3, 3, 4, 4]);
+    }
+
+    #[test]
+    fn the_hellfire_strikes_from_its_growth_to_its_seconds_and_shrinks_two_more() {
+        assert_eq!(hellfire_times(30.0), (30.0, 32.0));
+        assert_eq!(hellfire_times(1.0), (2.0, 4.0));
     }
 
     #[test]
