@@ -989,20 +989,35 @@ pub(crate) struct Dice(pub(crate) crate::spawning::Rng);
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct Fades(pub(crate) f32);
 
-/// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries, its
-/// cooldown, the mines' damages and its level.
+/// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries and
+/// all it carried, its cooldown, the mines' damages and its level; its look is `mines`'.
 #[derive(Component, Debug, Clone)]
-struct MineSign {
+pub(crate) struct MineSign {
     caster: Entity,
     left: u32,
+    total: u32,
     cooldown: f32,
     damages: [f32; 4],
     level: Level,
 }
 
-/// A mine lying where the sign laid it: its caster, its damages, its level and its time left.
+impl MineSign {
+    /// The share of its mines it still carries, the arc of its look (`0x7BA610`).
+    pub(crate) fn share_left(&self) -> f32 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        let share = f64::from(self.left) / f64::from(self.total);
+        #[expect(clippy::cast_possible_truncation, reason = "a share of 0 to 1")]
+        let share = share as f32;
+        share
+    }
+}
+
+/// A mine lying where the sign laid it: its caster, its damages, its level and its time left;
+/// its look is `mines`'.
 #[derive(Component, Debug, Clone)]
-struct Mine {
+pub(crate) struct Mine {
     caster: Entity,
     damages: [f32; 4],
     level: Level,
@@ -1012,14 +1027,13 @@ struct Mine {
 /// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
 /// light's, the light's, the fire skin's, the gust's, the fear's and a tentacle's; a column of
 /// light and the lightning's;
-/// a mine; the hell disk, a flame and a lost soul.
+/// the hell disk, a flame and a lost soul.
 #[derive(Resource)]
 pub(crate) struct Looks {
     disc: Handle<Mesh>,
     discs: [Handle<StandardMaterial>; 7],
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
-    mine: (Handle<Mesh>, Handle<StandardMaterial>),
     disk: (Handle<Mesh>, Handle<StandardMaterial>),
     flame: (Handle<Mesh>, Handle<StandardMaterial>),
     soul: (Handle<Mesh>, Handle<StandardMaterial>),
@@ -1055,10 +1069,6 @@ fn make_looks(
         glow(Color::srgba(0.3, 0.5, 0.2, 0.35)),
     ];
     let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
-    let mine = (
-        meshes.add(Cylinder::new(14.0, 6.0)),
-        glow(Color::srgba(0.25, 0.22, 0.2, 1.0)),
-    );
     let disk = (
         meshes.add(Cylinder::new(18.0, 4.0)),
         glow(Color::srgba(1.0, 0.3, 0.1, 0.9)),
@@ -1079,7 +1089,6 @@ fn make_looks(
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
         lightning,
-        mine,
     });
 }
 
@@ -2043,10 +2052,12 @@ fn act(
                     level,
                     combat.map_or([1.0; 4], |combat| combat.multipliers),
                 );
+                let left = spells::ratio(record, 0, 1, act.level);
                 commands.spawn((
                     MineSign {
                         caster: act.caster,
-                        left: spells::ratio(record, 0, 1, act.level),
+                        left,
+                        total: left,
                         cooldown: 0.0,
                         damages,
                         level: body.level(),
@@ -2453,14 +2464,12 @@ const MINE_BLAST: u32 = 2111;
 /// hostile creatures within [`spells::BLAST_REACH`] and their size (`0x5B094A`, the object 794);
 /// each laying and each blast with its sound ([`MINE_LAID`], [`MINE_BLAST`]).
 #[expect(
-    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
+    reason = "a Bevy system takes its queries with their filters"
 )]
 fn mine(
     mut commands: Commands,
     time: Res<Time>,
-    looks: Option<Res<Looks>>,
     mut signs: Query<(Entity, &mut MineSign, &mut Transform), Without<Mine>>,
     mut mines: Query<(Entity, &mut Mine, &Transform), Without<MineSign>>,
     casters: Query<&GlobalTransform, (With<Body>, Without<Dies>)>,
@@ -2497,7 +2506,7 @@ fn mine(
         if sign.cooldown > 0.0 || near {
             continue;
         }
-        let mut made = commands.spawn((
+        commands.spawn((
             Mine {
                 caster: sign.caster,
                 damages: sign.damages,
@@ -2505,15 +2514,8 @@ fn mine(
                 left: spells::MINE_LIFE,
             },
             Transform::from_translation(here),
-            Visibility::Inherited,
             DespawnOnExit(AppState::InGame),
         ));
-        if let Some(looks) = &looks {
-            made.with_child((
-                Mesh3d(looks.mine.0.clone()),
-                MeshMaterial3d(looks.mine.1.clone()),
-            ));
-        }
         sounds.write(crate::sfx::Play {
             sound: crate::sfx::Of::Id(MINE_LAID),
             at: Some(entity),

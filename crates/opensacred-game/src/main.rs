@@ -115,6 +115,7 @@ mod menu_sound;
 mod mercenaries;
 mod merchant;
 mod meteors;
+mod mines;
 mod minimap;
 mod model_effects;
 mod models;
@@ -521,6 +522,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         mercenaries::MercenariesPlugin,
         merchant::MerchantPlugin,
         meteors::MeteorsPlugin,
+        mines::MinesPlugin,
         model_effects::ModelEffectsPlugin,
         models::ModelsPlugin,
         movies::MoviesPlugin,
