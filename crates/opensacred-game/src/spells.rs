@@ -2363,6 +2363,10 @@ fn strike(
                 .map(|(hero, _)| hero)
                 .collect();
             for target in struck {
+                // The fire skin sets each target's head burning (`0x5AD4F0`).
+                if aura.key == FIRE_SKIN {
+                    crate::burning_bones::burn(&mut commands, target);
+                }
                 if let Some(damages) = aura.damages {
                     debug!("spells: {entity} of {} strikes {target}", aura.caster);
                     hits.write(fight::Hit {
@@ -2410,6 +2414,9 @@ fn strike(
             continue;
         }
         for target in struck {
+            if aura.key == FIRE_SKIN {
+                crate::burning_bones::burn(&mut commands, target);
+            }
             if let Some(damages) = aura.damages {
                 debug!("spells: {entity} strikes {target} for {damages:?}");
                 hits.write(fight::Hit {

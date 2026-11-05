@@ -97,6 +97,10 @@ struct Stuck(f32);
 /// a hero's arrow alone, docs/re/sound.md).
 const SPIDER_ARROW_SOUND: u32 = 2070;
 const SPIDER_ARROW_RATE: f32 = 0.5;
+/// A burning arrow's `TORCH_HIT01` at the creature it hits, at `0.4 + (rand() % 20) / 90` of its
+/// rate (`0x5BCCF4`, a hero's arrow alone).
+const BURNING_ARROW_SOUND: u32 = 708;
+const BURNING_ARROW_RATE: f32 = 0.4;
 
 fn point(at: Vec3) -> Point {
     Point::new(Spot::new(at.x, at.z), at.y)
@@ -261,7 +265,12 @@ fn fly(
     heights: Res<Heights>,
     mut hits: MessageWriter<fight::Hit>,
     mut dice: ResMut<Dice>,
-    mut flying: Query<(Entity, &mut Arrow, &mut Transform)>,
+    mut flying: Query<(
+        Entity,
+        &mut Arrow,
+        &mut Transform,
+        Option<&crate::arrow_elements::Elemental>,
+    )>,
     shooters: Query<(&ai::Mind, &Health), Without<Dies>>,
     hero: Query<
         (
@@ -286,7 +295,7 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     let hero = hero.iter().next();
-    for (entity, mut arrow, mut transform) in &mut flying {
+    for (entity, mut arrow, mut transform, elemental) in &mut flying {
         let level = arrow.level;
         if let Some(homing) = arrow.homing.as_mut() {
             homing.wait = (homing.wait - dt).max(0.0);
@@ -502,6 +511,18 @@ fn fly(
             ranged: true,
             art: arrow.special.map(|special| special.level),
         });
+        // A hero's burning arrow sets its target's head burning, with `TORCH_HIT01` there
+        // (`0x5BCCF4`).
+        if elemental.is_some_and(|e| e.element == arrows::Element::Fire)
+            && hero.is_some_and(|(hero, ..)| hero == arrow.shooter)
+        {
+            crate::burning_bones::burn(&mut commands, on);
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(BURNING_ARROW_SOUND),
+                at: Some(on),
+                rate: (BURNING_ARROW_RATE, crate::sfx::Roll::Twentieths),
+            });
+        }
         // A blade flies on, its next target the nearest other foe within its reach of the one it
         // struck, else the one it had (`0x600570`).
         if let Some(homing) = arrow.homing.as_mut() {

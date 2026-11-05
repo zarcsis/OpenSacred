@@ -391,6 +391,8 @@ pub enum Roll {
     None,
     /// `rand() % 10` / 90.
     Tenths,
+    /// `rand() % 20` / 90.
+    Twentieths,
     /// `rand()` / 32767 times the span.
     Share(f32),
 }
@@ -635,6 +637,7 @@ fn plays(
             base + match roll {
                 Roll::None => 0.0,
                 Roll::Tenths => sfx.roll(10) / 90.0,
+                Roll::Twentieths => sfx.roll(20) / 90.0,
                 Roll::Share(span) => span * sfx.share(),
             } + 0.5;
         let sample = sfx.sample(id, file, &assets);
