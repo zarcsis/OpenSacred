@@ -6353,6 +6353,138 @@ impl Tentacle {
     }
 }
 
+/// The whirlwind's texture and particles (831, `0x789E10`), and the fire bolt's (922,
+/// `0x7AA980`).
+pub const WINDSTRIKE_TEXTURE: &str = "PARTICLE_CLOUD01";
+pub const SHADDAR_TEXTURE: &str = "PARTICLE_SMOKE03";
+const WINDSTRIKE_COUNT: usize = 200;
+const SHADDAR_COUNT: usize = 200;
+
+/// Which of the two bolts' trails: the Mage's whirlwind's dust (831, `FX_WINDSTRIKE`, of the spell
+/// 29) or the fire bolt's green smoke (922, `FX_SHADDAR_MAGIC`, of the creatures' spell 52).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrailKind {
+    Windstrike,
+    Shaddar,
+}
+
+/// A bolt's trail of particles (#1092): the whirlwind's (831, `cParticleSystem_windstrike`, its
+/// start `0x78A170`, run `0x789EA0` and draw `0x789F50`), puffs of [`WINDSTRIKE_TEXTURE`] in the
+/// colour of the ground under its caster, one every 0.01 s at the detail 2, shot up at 350 ± 50
+/// and falling back at the buoyancy 700, of the size 10 ± 5 growing by 30 a second, within 15 of
+/// its way, living 0.64 s, laid over the scene by their life's alpha and tinted by the light, left
+/// in the world along its way, a column of dust about 90 high behind it, gone at once at a cell
+/// that stops it; or the fire bolt's (922, `cParticleSystem_shaddar_magic`, `0x7AAC20`,
+/// `0x7AAA60`, `0x7AAB90`), puffs of [`SHADDAR_TEXTURE`]'s first frame riding with it, one every
+/// 0.05 s, of the size 12 ± 6 growing by 13 a second, flying off at up to 18 along each axis and
+/// turning, living 0.57 s, of the ramp [`BoltTrail::ramp`] added by their alpha, a cloud of green
+/// smoke about it that fades where it stops.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoltTrail {
+    pub system: System,
+    pub kind: TrailKind,
+    out: bool,
+}
+
+impl BoltTrail {
+    /// A trail of `kind` as its bolt starts.
+    pub fn new(kind: TrailKind) -> Self {
+        let count = match kind {
+            TrailKind::Windstrike => WINDSTRIKE_COUNT,
+            TrailKind::Shaddar => SHADDAR_COUNT,
+        };
+        Self {
+            system: System::new(count),
+            kind,
+            out: false,
+        }
+    }
+
+    fn layer(&self) -> Layer {
+        match self.kind {
+            TrailKind::Windstrike => Layer {
+                life: -400.0,
+                size: 30.0,
+                ..Layer::default()
+            },
+            TrailKind::Shaddar => Layer {
+                life: -450.0,
+                size: 13.0,
+                ..Layer::default()
+            },
+        }
+    }
+
+    fn block(&self) -> Block {
+        match self.kind {
+            TrailKind::Windstrike => Block {
+                buoyancy: spread(700.0, 0.0),
+                size: spread(10.0, 5.0),
+                angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+                velocity: spread([0.0, 0.0, 350.0], [0.0, 0.0, 50.0]),
+                offset: spread([0.0; 3], [15.0, 15.0, 0.0]),
+                interval: 0.01,
+                ..Block::default()
+            },
+            TrailKind::Shaddar => Block {
+                size: spread(12.0, 6.0),
+                angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+                spin: spread(0.0, 10.0),
+                velocity: spread([0.0; 3], [18.0; 3]),
+                interval: 0.05,
+                ..Block::default()
+            },
+        }
+    }
+
+    /// The fire bolt's puffs' ramp (`+0x20B0`), at the alpha 0.781: from (0.332, 0.980, 0.758) to
+    /// (0.555, 0.984, 0.645) over 76 entries, to (0.129, 0.996, 0.641) over 66, to nothing over
+    /// 114.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.332, 0.980, 0.758, 0.781],
+            &[
+                ([0.555, 0.984, 0.645, 0.781], 76),
+                ([0.129, 0.996, 0.641, 0.781], 66),
+                ([0.129, 0.996, 0.641, 0.0], 114),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds, its bolt gone from `from` to `to` in the models' frame
+    /// (`0x789EA0`, `0x7AAA60`): its puffs age, and while its bolt flies it makes new ones, the
+    /// whirlwind's along its way, the fire bolt's about its origin, riding with it.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        if self.out {
+            return;
+        }
+        let blocks = [self.block()];
+        match self.kind {
+            TrailKind::Windstrike => {
+                self.system
+                    .emit_along(&blocks, &layers, WINDSTRIKE_COUNT, (from, to), dt, dice);
+            }
+            TrailKind::Shaddar => self.system.emit(&blocks, &layers, SHADDAR_COUNT, dice),
+        }
+    }
+
+    /// Its bolt's end: it makes no more; the whirlwind's at a cell that stops it, `at_once`, goes
+    /// at once with its puffs (`+0x74` bit 2).
+    pub fn end(&mut self, at_once: bool) {
+        self.out = true;
+        if at_once && self.kind == TrailKind::Windstrike {
+            self.system.particles.clear();
+        }
+    }
+
+    /// Whether it ended: out and no puff alive.
+    pub fn done(&self) -> bool {
+        self.out && self.system.particles.is_empty()
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -8905,5 +9037,46 @@ mod tests {
         guard.update(0.1, ([0.0; 3], [0.0; 3]), &mut dice);
         assert!(guard.system.particles.iter().all(|p| p.size < 8.0));
         assert_eq!(HomingFlames::ramp().at(251.0)[3], 0.352);
+    }
+
+    #[test]
+    fn a_whirlwind_leaves_its_dust_and_a_fire_bolt_carries_its_smoke() {
+        let mut dice = Rng::of(14, 14, 831);
+        let mut dust = BoltTrail::new(TrailKind::Windstrike);
+        for k in 0..30u8 {
+            let x = f32::from(k) * 3.3;
+            dust.update(1.0 / 60.0, ([x, 0.0, 0.0], [x + 3.3, 0.0, 0.0]), &mut dice);
+        }
+        // Half a second at a hundred a second, each living 0.64 s and rising to at most
+        // 400² / 1400.
+        assert!((48..=51).contains(&dust.system.particles.len()));
+        assert!(
+            dust.system
+                .particles
+                .iter()
+                .all(|p| p.place[2] >= 0.0 && p.place[2] < 115.0)
+        );
+        dust.end(true);
+        assert!(dust.done());
+        let mut smoke = BoltTrail::new(TrailKind::Shaddar);
+        for _ in 0..30 {
+            smoke.update(1.0 / 60.0, ([0.0; 3], [5.0, 0.0, 0.0]), &mut dice);
+        }
+        // Twenty a second about its origin.
+        assert!((9..=11).contains(&smoke.system.particles.len()));
+        assert!(
+            smoke
+                .system
+                .particles
+                .iter()
+                .all(|p| p.place.iter().all(|v| v.abs() < 20.0))
+        );
+        smoke.end(false);
+        assert!(!smoke.done());
+        for _ in 0..40 {
+            smoke.update(1.0 / 60.0, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        assert!(smoke.done());
+        assert_eq!(BoltTrail::ramp().at(255.0)[3], 0.781);
     }
 }
