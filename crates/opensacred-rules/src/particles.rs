@@ -1381,26 +1381,35 @@ impl Beacon {
     /// and a fifth of a radian on).
     pub fn helix(&self) -> [Ribbon; 2] {
         let t = self.cycle * 100.0;
-        let mut z = t * HELIX_RISE + HELIX_HEIGHT;
-        let mut angle = t * HELIX_TURN + self.turn;
-        let mut flat = Vec::with_capacity(usize::from(HELIX_SEGMENTS));
-        let mut upright = Vec::with_capacity(usize::from(HELIX_SEGMENTS));
-        for _ in 0..HELIX_SEGMENTS {
-            let (sin, cos) = angle.sin_cos();
-            let at = |radius: f32, height: f32| [cos * radius, sin * radius, height];
-            flat.push([
-                at(HELIX_RADIUS - HELIX_HALF, z),
-                at(HELIX_RADIUS + HELIX_HALF, z),
-            ]);
-            upright.push([
-                at(HELIX_RADIUS, z + HELIX_HALF),
-                at(HELIX_RADIUS, z - HELIX_HALF),
-            ]);
-            z += HELIX_RISE;
-            angle += HELIX_TURN;
-        }
-        [flat, upright]
+        helix_ribbons(
+            (t * HELIX_RISE + HELIX_HEIGHT, t * HELIX_TURN + self.turn),
+            (HELIX_RISE, HELIX_TURN),
+            (HELIX_RADIUS, HELIX_HALF),
+            HELIX_SEGMENTS,
+        )
     }
+}
+
+/// A helix's two ribbons of `segments` points (`0x762C30`): from the height and the angle
+/// `(z, angle)`, each point `rise` higher and `turn` on, one flat from `radius − half` to
+/// `radius + half`, one upright from `half` above to `half` below, at `(cos, sin)` of the angle.
+pub fn helix_ribbons(
+    (mut z, mut angle): (f32, f32),
+    (rise, turn): (f32, f32),
+    (radius, half): (f32, f32),
+    segments: u8,
+) -> [Ribbon; 2] {
+    let mut flat = Vec::with_capacity(usize::from(segments));
+    let mut upright = Vec::with_capacity(usize::from(segments));
+    for _ in 0..segments {
+        let (sin, cos) = angle.sin_cos();
+        let at = |radius: f32, height: f32| [cos * radius, sin * radius, height];
+        flat.push([at(radius - half, z), at(radius + half, z)]);
+        upright.push([at(radius, z + half), at(radius, z - half)]);
+        z += rise;
+        angle += turn;
+    }
+    [flat, upright]
 }
 
 /// How long the generic system's variants 7 and 8 emit their flames, in seconds (`0x796660`).
@@ -6358,6 +6367,362 @@ impl HellDisk {
     }
 }
 
+/// The pentagram's textures, its glow's colour and half side, its sparks' colour and half side,
+/// and its ring's radius (782, `0x7727E0`, `0x773020`).
+pub const PENTAGRAM_GLOW: &str = "PARTICLE_GLOW03";
+pub const PENTAGRAM_SPARK: &str = "PARTICLE_SPARK02";
+pub const PENTAGRAM_PUFF: &str = "PARTICLE_CLOUD01";
+pub const PENTAGRAM_GLOW_COLOUR: [f32; 4] = [96.0 / 255.0, 192.0 / 255.0, 207.0 / 255.0, 1.0];
+pub const PENTAGRAM_GLOW_HALF: f32 = 70.0;
+pub const PENTAGRAM_SPARK_COLOUR: [f32; 4] = [128.0 / 255.0, 240.0 / 255.0, 1.0, 96.0 / 255.0];
+pub const PENTAGRAM_SPARK_HALF: f32 = 4.0;
+const PENTAGRAM_RADIUS: f32 = 40.0;
+const PENTAGRAM_COUNT: usize = 300;
+/// The star's points by its turn, at the ring's radius: the pentagram `{5/2}` and back to the
+/// first (`+0x2544`).
+const STAR: [f32; 6] = [
+    0.0,
+    4.0 * std::f32::consts::PI / 5.0,
+    8.0 * std::f32::consts::PI / 5.0,
+    2.0 * std::f32::consts::PI / 5.0,
+    6.0 * std::f32::consts::PI / 5.0,
+    0.0,
+];
+
+/// How a [`PentagramKiller`] goes on: it draws itself over 2 s, it lies armed, it bursts (the
+/// burst's clock), it fades out unburst, and it ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Pentagram {
+    Arming,
+    Armed,
+    Burst(f32),
+    Expired,
+    Done,
+}
+
+/// The point at the angle `angle` on a circle of `radius` in the models' frame, `(sin, cos)`.
+fn on_circle(angle: f32, radius: f32) -> [f32; 3] {
+    [radius * angle.sin(), radius * angle.cos(), 0.0]
+}
+
+/// The pentagram of the trap 1050 (782, `FX_PENTAGRAMMKILLER`,
+/// `cParticleSystem_pentagrammKiller`, its constructor `0x7727E0`, start `0x773790`, run
+/// `0x772C40` and draw `0x773020`; #1092): a glow of [`PENTAGRAM_GLOW`] flat on the ground, 140
+/// across, in [`PENTAGRAM_GLOW_COLOUR`]; over its 2 s of arming a ring of radius 40 of twinkling
+/// sparks of [`PENTAGRAM_SPARK`] draws itself about it and a five-pointed star of them fills in,
+/// turning at a radian a second; armed, two comets of sparks chase about the ring against the
+/// star; burst, the comets go, the ring and the star thin out over a second and a column of fire
+/// puffs of [`PENTAGRAM_PUFF`] shoots up; expired, the ring and the star fade out over 2 s. Its
+/// sparks lie anew at random each frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PentagramKiller {
+    pub system: System,
+    seconds: f32,
+    turn: f32,
+    fade: f32,
+    stage: Pentagram,
+}
+
+impl PentagramKiller {
+    /// A pentagram that stands armed until `seconds` from its start (`0x773790`).
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            system: System::new(PENTAGRAM_COUNT),
+            seconds,
+            turn: 0.0,
+            fade: 0.0,
+            stage: Pentagram::Arming,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -650.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            size: spread(30.0, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0, 0.0, 350.0], [15.0, 15.0, 150.0]),
+            offset: spread([0.0; 3], [10.0, 10.0, 0.0]),
+            interval: 0.003,
+            ..Block::default()
+        }
+    }
+
+    /// Its puffs' ramp (`+0x20BC`): white, to (1, 0.5, 0.2) over 60 entries, to nothing in
+    /// (1, 0.2, 0) over 196.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [1.0; 4],
+            &[([1.0, 0.5, 0.2, 1.0], 60), ([1.0, 0.2, 0.0, 0.0], 196)],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x772C40`), its object `gone`: it arms, and gone it bursts, or
+    /// fades out past its seconds.
+    pub fn update(&mut self, dt: f32, gone: bool, dice: &mut impl Dice) {
+        self.system.clock += dt;
+        let clock = self.system.clock;
+        self.turn = (self.turn + dt).rem_euclid(std::f32::consts::TAU);
+        let expired = clock >= self.seconds;
+        self.stage = match self.stage {
+            Pentagram::Arming if gone || expired => Pentagram::Expired,
+            Pentagram::Arming => {
+                self.fade = (self.fade + 0.5 * dt).min(1.0);
+                if self.fade >= 1.0 {
+                    Pentagram::Armed
+                } else {
+                    Pentagram::Arming
+                }
+            }
+            Pentagram::Armed if expired => Pentagram::Expired,
+            Pentagram::Armed if gone => Pentagram::Burst(0.0),
+            Pentagram::Burst(b) => {
+                let b = b + dt;
+                let layers = [Self::layer()];
+                self.system.clock -= dt;
+                self.system.update(dt, &layers);
+                if b <= 1.0 {
+                    self.system
+                        .emit(&[Self::block()], &layers, PENTAGRAM_COUNT, dice);
+                }
+                if b > 1.0 && self.system.particles.is_empty() {
+                    Pentagram::Done
+                } else {
+                    Pentagram::Burst(b)
+                }
+            }
+            Pentagram::Expired => {
+                self.fade -= 0.5 * dt;
+                if self.fade <= 0.0 {
+                    Pentagram::Done
+                } else {
+                    Pentagram::Expired
+                }
+            }
+            other => other,
+        };
+    }
+
+    /// Whether it ended.
+    pub fn done(&self) -> bool {
+        self.stage == Pentagram::Done
+    }
+
+    /// Its ring's and star's radius, which shrinks as it bursts (`+0x20B4`).
+    fn radius(&self) -> f32 {
+        match self.stage {
+            Pentagram::Burst(b) => ((1.0 - b) * PENTAGRAM_RADIUS).max(0.0),
+            _ => PENTAGRAM_RADIUS,
+        }
+    }
+
+    /// Its sparks now, each a point from its place in the models' frame, rolled anew by `dice`:
+    /// `⌊4·f·r⌋` on its ring within the share `f` of its turn that its fade draws, its comets'
+    /// 80 while armed, and `⌊2·f·r⌋` along each of its star's five sides, `r` its radius.
+    pub fn sparks(&self, dice: &mut impl Dice) -> Vec<[f32; 3]> {
+        if self.stage == Pentagram::Done {
+            return Vec::new();
+        }
+        let (f, r) = (self.fade, self.radius());
+        let whole = |n: f32| usize::try_from(crate::fight::truncated(f64::from(n))).unwrap_or(0);
+        let mut sparks = Vec::new();
+        for _ in 0..whole(4.0 * f * r) {
+            let angle = share(dice) * f * std::f32::consts::TAU;
+            sparks.push(on_circle(angle, PENTAGRAM_RADIUS));
+        }
+        if self.stage == Pentagram::Armed {
+            let head = 1.0 - self.turn;
+            for start in [head, head + std::f32::consts::PI] {
+                for i in 0..whole(r) {
+                    let i = f32::from(u16::try_from(i).unwrap_or(0));
+                    let angle = (start + share(dice) * i / 30.0).rem_euclid(std::f32::consts::TAU);
+                    sparks.push(on_circle(angle, PENTAGRAM_RADIUS));
+                }
+            }
+        }
+        let points = STAR.map(|angle| on_circle(self.turn + angle, PENTAGRAM_RADIUS));
+        for side in points.windows(2) {
+            let [from, to] = [side[0], side[1]];
+            for _ in 0..whole(2.0 * f * r) {
+                let along = share(dice);
+                sparks.push([0, 1, 2].map(|k| from[k] + along * (to[k] - from[k])));
+            }
+        }
+        sparks
+    }
+}
+
+/// The confusion's textures, its circles' half sides and its helix's colour (871, `0x778E80`,
+/// `0x779020`).
+pub const CONFUSION_CIRCLE: &str = "FX_MAGICCIRCLE01";
+pub const CONFUSION_SPINNER: &str = "FX_MAGICCIRCLE02";
+pub const CONFUSION_HELIX: &str = "FX_HELIX01";
+pub const CONFUSION_CIRCLE_HALF: f32 = 70.0;
+pub const CONFUSION_SPINNER_HALF: f32 = 17.0;
+pub const CONFUSION_HELIX_COLOUR: [f32; 3] = [13.0 / 255.0, 253.0 / 255.0, 228.0 / 255.0];
+/// The confusion's helix's segments, its radius and half width, and its rise and turn a segment
+/// (`+0x20AC`).
+const CONFUSION_SEGMENTS: u8 = 50;
+const CONFUSION_RADIUS: f32 = 30.0;
+const CONFUSION_HALF: f32 = 2.0;
+const CONFUSION_RISE: f32 = 0.5;
+const CONFUSION_TURN: f32 = -0.3;
+
+/// The confusion of the trap 1051 (871, `FX_CONFUSION`, `cParticleSystem_confusion`, its
+/// constructor `0x778E80`, start `0x7792C0`, run `0x778F40` and draw `0x779020`; #1092): a rune
+/// circle of [`CONFUSION_CIRCLE`] flat on the ground, 140 across, turning at a radian a second; a
+/// small one of [`CONFUSION_SPINNER`] spinning at 5 against it, flying up from it ever faster to 100
+/// high and starting again; and a screw-thread ribbon of [`CONFUSION_HELIX`] of 50 segments at
+/// the radius 30, sliding up a screw line from a turn at random and fading in and out over each
+/// 6.67 s; all added. It ends at once with its seconds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConfusionCircle {
+    clock: f32,
+    phase: f32,
+    start: f32,
+    rise: f32,
+    alpha: f32,
+}
+
+impl ConfusionCircle {
+    /// A confusion as it starts (`0x7792C0`), its helix's first turn rolled by `dice`.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        Self {
+            clock: 0.0,
+            phase: 0.0,
+            start: share(dice) * std::f32::consts::TAU,
+            rise: 1.0,
+            alpha: 0.0,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x778F40`): its helix's phase grows by 0.15 a second, at 1 back to
+    /// 0 on a turn rolled anew, its alpha `⌊255·sin(π·phase)⌋`; its small circle's height grows
+    /// by itself times the frame's time, back to 1 past 100.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.clock += dt;
+        self.phase += 0.15 * dt;
+        if self.phase >= 1.0 {
+            self.phase = 0.0;
+            self.start = share(dice) * std::f32::consts::TAU;
+        } else {
+            self.alpha = (255.0 * (std::f32::consts::PI * self.phase).sin()).floor() / 255.0;
+        }
+        self.rise += self.rise * dt;
+        if self.rise > 100.0 {
+            self.rise = 1.0;
+        }
+    }
+
+    /// Its circles' turns now, the big one's and the small one's, and the small one's height.
+    pub fn circles(&self) -> (f32, f32, f32) {
+        (self.clock, -5.0 * self.clock, self.rise)
+    }
+
+    /// Its helix's alpha now.
+    pub fn alpha(&self) -> f32 {
+        self.alpha
+    }
+
+    /// Its helix's two ribbons from its place in the models' frame (`0x762C30`): the point `j`
+    /// at `θ₀ − 0.3·(k + j)` and `0.5·(k + j)` high at the radius 30, `k = 100·phase`, a band 4
+    /// across flat and one 4 high upright.
+    pub fn helix(&self) -> [Ribbon; 2] {
+        let k = 100.0 * self.phase;
+        helix_ribbons(
+            (CONFUSION_RISE * k, self.start + CONFUSION_TURN * k),
+            (CONFUSION_RISE, CONFUSION_TURN),
+            (CONFUSION_RADIUS, CONFUSION_HALF),
+            CONFUSION_SEGMENTS,
+        )
+    }
+}
+
+/// The ground's poison's textures, its circle's half side, colour and turn, its stain's half side
+/// (792, `0x778760`, `0x778980`).
+pub const POISON_STAIN: &str = "FX_GROUNDPOISON";
+pub const POISON_SMOKE: &str = "PARTICLE_SMOKE03";
+pub const POISON_CIRCLE: &str = "FX_MAGICCIRCLE03";
+pub const POISON_CIRCLE_HALF: f32 = 65.0;
+pub const POISON_CIRCLE_COLOUR: [f32; 4] = [160.0 / 255.0, 160.0 / 255.0, 160.0 / 255.0, 1.0];
+pub const POISON_STAIN_HALF: f32 = 70.0;
+const POISON_COUNT: usize = 200;
+
+/// The ground's poison of the trap 1052 (792, `FX_GROUND_POISON`, `cParticleSystem_groundPoison`,
+/// its constructor `0x778760`, start `0x778D10`, run `0x7788F0` and draw `0x778980`; #1092): a
+/// green stain of [`POISON_STAIN`] laid flat on the ground by its alpha, 140 across; under a
+/// player's trap a circle of [`POISON_CIRCLE`] turning at 0.2 radians a second, added in
+/// [`POISON_CIRCLE_COLOUR`]; and puffs of green smoke of [`POISON_SMOKE`] rising from a square of
+/// 30 about it, one every 0.04 s at the detail 2, of the size 18 falling by 2 a second, the
+/// buoyancy −100 falling by 5 a second, a frame of its grid of 2 at random, their life falling by
+/// 200 a second, of the ramp [`GroundPoison::ramp`], added. It ends at once with its seconds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundPoison {
+    pub system: System,
+}
+
+impl Default for GroundPoison {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GroundPoison {
+    /// A poison as it starts (`0x778D10`).
+    pub fn new() -> Self {
+        Self {
+            system: System::new(POISON_COUNT),
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            buoyancy: -5.0,
+            life: -200.0,
+            size: -2.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            buoyancy: spread(-100.0, 0.0),
+            size: spread(18.0, 0.0),
+            offset: spread([0.0; 3], [15.0, 15.0, 0.0]),
+            interval: 0.04,
+            frames: 4,
+            ..Block::default()
+        }
+    }
+
+    /// Its smoke's ramp (`+0x20A8`): (0.5, 1, 0.5), to (0.2, 1, 0.2) over 128 entries, to black
+    /// over 128, opaque.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.5, 1.0, 0.5, 1.0],
+            &[([0.2, 1.0, 0.2, 1.0], 128), ([0.0, 0.0, 0.0, 1.0], 128)],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x7788F0`): its puffs rise and age, and it makes new ones.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        self.system
+            .emit(&[Self::block()], &layers, POISON_COUNT, dice);
+    }
+
+    /// Its circle's turn now.
+    pub fn turn(&self) -> f32 {
+        0.2 * self.system.clock
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8016,5 +8381,87 @@ mod tests {
         }
         assert!(disk.done());
         assert_eq!(HellDisk::ramp().at(255.0)[3], 0.0);
+    }
+
+    #[test]
+    fn a_pentagram_draws_itself_bursts_into_fire_and_ends() {
+        let mut dice = Rng::of(10, 10, 782);
+        let mut pentagram = PentagramKiller::new(30.0);
+        for _ in 0..30 {
+            pentagram.update(1.0 / 30.0, false, &mut dice);
+        }
+        // Half drawn: 80 of the ring's and 40 of each side's.
+        assert_eq!(pentagram.sparks(&mut dice).len(), 80 + 5 * 40);
+        for _ in 0..31 {
+            pentagram.update(1.0 / 30.0, false, &mut dice);
+        }
+        // Armed: the ring's 160, the comets' 80 and the star's 400.
+        assert_eq!(pentagram.sparks(&mut dice).len(), 160 + 80 + 400);
+        assert!(
+            pentagram
+                .sparks(&mut dice)
+                .iter()
+                .all(|&[x, y, _]| (x * x + y * y).sqrt() <= 40.001)
+        );
+        pentagram.update(1.0 / 30.0, true, &mut dice);
+        for _ in 0..15 {
+            pentagram.update(1.0 / 30.0, true, &mut dice);
+        }
+        assert!(!pentagram.system.particles.is_empty());
+        assert!(
+            pentagram
+                .system
+                .particles
+                .iter()
+                .all(|p| p.velocity[2] >= 200.0)
+        );
+        for _ in 0..60 {
+            pentagram.update(1.0 / 30.0, true, &mut dice);
+        }
+        assert!(pentagram.done() && pentagram.sparks(&mut dice).is_empty());
+        // Unburst, it fades out over 2 s past its seconds.
+        let mut expired = PentagramKiller::new(3.0);
+        for _ in 0..90 {
+            expired.update(1.0 / 30.0, false, &mut dice);
+        }
+        for _ in 0..58 {
+            expired.update(1.0 / 30.0, true, &mut dice);
+        }
+        assert!(!expired.done());
+        for _ in 0..5 {
+            expired.update(1.0 / 30.0, true, &mut dice);
+        }
+        assert!(expired.done());
+    }
+
+    #[test]
+    fn a_confusions_helix_climbs_fading_in_and_out_and_its_spinner_rises() {
+        let mut dice = Rng::of(11, 11, 871);
+        let mut confusion = ConfusionCircle::new(&mut dice);
+        for _ in 0..100 {
+            confusion.update(1.0 / 30.0, &mut dice);
+        }
+        // A phase of 0.5: fully shown, its helix from 50 to 74.5 high.
+        assert!(confusion.alpha() > 0.99);
+        let [flat, upright] = confusion.helix();
+        assert_eq!((flat.len(), upright.len()), (50, 50));
+        assert!((flat[0][0][2] - 25.0).abs() < 0.1 && (flat[49][0][2] - 49.5).abs() < 0.1);
+        assert!((upright[0][0][2] - upright[0][1][2] - 4.0).abs() < 1e-4);
+        let (big, small, rise) = confusion.circles();
+        assert!((small + 5.0 * big).abs() < 1e-4 && rise > 1.0);
+        let mut poison = GroundPoison::new();
+        for _ in 0..30 {
+            poison.update(1.0 / 30.0, &mut dice);
+        }
+        // 25 a second, rising.
+        assert!((24..=26).contains(&poison.system.particles.len()));
+        assert!(
+            poison
+                .system
+                .particles
+                .iter()
+                .all(|p| p.frame < 4 && p.place[2] >= 0.0)
+        );
+        assert_eq!(GroundPoison::ramp().at(255.0), [0.5, 1.0, 0.5, 1.0]);
     }
 }

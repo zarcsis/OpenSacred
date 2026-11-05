@@ -475,7 +475,6 @@ fn act(
                 let follows = (cast.spell == casts::BLADES).then_some(entity);
                 crate::spells::strikes_about(
                     &mut commands,
-                    looks.as_deref(),
                     (record, level),
                     (entity, follows, way.level),
                     if follows.is_some() { here } else { toward },
