@@ -6972,6 +6972,181 @@ impl SoulSparks {
     }
 }
 
+/// The spikes' models and textures (1163 `0x7C0020`, 1166 `0x7C0830`): five models, one taken at
+/// random, the texture over them and the glows added over them, Anducar's demon's and the demon
+/// prince's.
+pub const SPIKE_MODELS: [&str; 5] = [
+    "ANDUCAR_SPIKES1.GRN",
+    "ANDUCAR_SPIKES2.GRN",
+    "ANDUCAR_SPIKES3.GRN",
+    "ANDUCAR_SPIKES4.GRN",
+    "ANDUCAR_SPIKES5.GRN",
+];
+pub const SPIKE_TEXTURE: &str = "ANDUKAR_DEMON_512";
+pub const SPIKE_GLOWS: [&str; 2] = ["ANDUKAR_DEMON_GLOW", "ANDUKAR_DEMON_GLOW2"];
+/// How many spikes an object raises at the detail 2 (3 at 0, 6 at 1).
+const SPIKES: usize = 10;
+
+/// Whose spikes: Anducar's demon's rings (1163, `FX_ANDUCAR_DEMON`, of the spell 69) or the demon
+/// prince's fan (1166, `FX_DAEMONENFUERST`, of the spell 71).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpikesKind {
+    Demon,
+    Prince,
+}
+
+impl SpikesKind {
+    /// Its spikes' scale's least and spread, their place's spread, their wave's speed and their
+    /// burning's time.
+    fn rolls(self) -> (f32, f32, f32, f32, f32) {
+        match self {
+            SpikesKind::Demon => (0.65, 0.55, 70.0, 350.0, 0.75),
+            SpikesKind::Prince => (0.45, 0.25, 65.0, 550.0, 0.5),
+        }
+    }
+
+    /// The glow of a prince of the type `creature` (`0x529037`): the fire's orange `0xFFFFA010`
+    /// for 250, the poison's green `0xFF20FF20` for 185, the magic's blue `0xFF6060FF` for 251,
+    /// else white (**hypothesis**: the register it keeps holds −1).
+    pub fn prince_glow(creature: u32) -> [f32; 4] {
+        let argb: u32 = match creature {
+            250 => 0xFFFF_A010,
+            185 => 0xFF20_FF20,
+            251 => 0xFF60_60FF,
+            _ => 0xFFFF_FFFF,
+        };
+        argb_rgba(argb)
+    }
+}
+
+fn argb_rgba(argb: u32) -> [f32; 4] {
+    let [a, r, g, b] = argb.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    [r, g, b, a]
+}
+
+/// A spike's stage (`+0x21EC`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpikeStage {
+    Waits,
+    Rises,
+    Stands,
+    Sinks,
+    Gone,
+}
+
+/// A spike: its offset from its object's place, its size, its turn about the vertical, its model
+/// of the five, the time it waits and stands, and its growth from 0 to 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spike {
+    pub offset: [f32; 3],
+    pub size: f32,
+    pub turn: f32,
+    pub model: u8,
+    pub growth: f32,
+    wait: f32,
+    stands: f32,
+    stage: SpikeStage,
+}
+
+impl Spike {
+    /// Its scale along the models' axes at its growth (`0x7C02B0`): half its size across, its
+    /// size up.
+    pub fn scale(&self) -> [f32; 3] {
+        let up = self.size * self.growth;
+        [0.5 * up, 0.5 * up, up]
+    }
+
+    /// Whether it shows: risen and not yet gone.
+    pub fn shown(&self) -> bool {
+        matches!(
+            self.stage,
+            SpikeStage::Rises | SpikeStage::Stands | SpikeStage::Sinks
+        )
+    }
+}
+
+/// The spikes of one object of Anducar's demon's rings or the demon prince's fan
+/// (`cParticleSystem_anducar_demon`, `cParticleSystem_daemonenfuerst`; `0x7C04B0`, `0x7C0150`;
+/// `0x7C0CC0`, `0x7C0960`): ten spikes about its place, each waiting its distance from the wave's
+/// origin over the wave's speed, then rising in half a second, standing, and sinking in half a
+/// second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spikes {
+    pub spikes: Vec<Spike>,
+}
+
+impl Spikes {
+    /// The spikes of an object `from` away from the wave's origin, in the models' frame.
+    pub fn new(kind: SpikesKind, from: [f32; 3], dice: &mut impl Dice) -> Self {
+        let (least, spread, place, wave, stands) = kind.rolls();
+        let spikes = (0..SPIKES)
+            .map(|_| {
+                let size = least + spread * share(dice);
+                let turn = std::f32::consts::TAU * share(dice);
+                let y = 2.0 * place * share(dice) - place;
+                let x = 2.0 * place * share(dice) - place;
+                let offset = [x, y, 0.0];
+                let away: [f32; 3] = std::array::from_fn(|k| from[k] + offset[k]);
+                let distance = away.iter().map(|v| v * v).sum::<f32>().sqrt();
+                Spike {
+                    offset,
+                    size,
+                    turn,
+                    model: u8::try_from(dice.below(5)).unwrap_or(0),
+                    growth: 0.0,
+                    wait: distance / wave,
+                    stands,
+                    stage: SpikeStage::Waits,
+                }
+            })
+            .collect();
+        Self { spikes }
+    }
+
+    /// A run of `dt` seconds: each spike waits, rises by 2 a second, stands, and sinks by 2 a
+    /// second.
+    pub fn update(&mut self, dt: f32) {
+        for spike in &mut self.spikes {
+            match spike.stage {
+                SpikeStage::Waits => {
+                    spike.wait -= dt;
+                    if spike.wait <= 0.0 {
+                        spike.stage = SpikeStage::Rises;
+                    }
+                }
+                SpikeStage::Rises => {
+                    spike.growth += 2.0 * dt;
+                    if spike.growth > 1.0 {
+                        spike.growth = 1.0;
+                        spike.stage = SpikeStage::Stands;
+                    }
+                }
+                SpikeStage::Stands => {
+                    spike.stands -= dt;
+                    if spike.stands < 0.0 {
+                        spike.stage = SpikeStage::Sinks;
+                    }
+                }
+                SpikeStage::Sinks => {
+                    spike.growth -= 2.0 * dt;
+                    if spike.growth < 0.0 {
+                        spike.growth = 0.0;
+                        spike.stage = SpikeStage::Gone;
+                    }
+                }
+                SpikeStage::Gone => {}
+            }
+        }
+    }
+
+    /// Whether every spike is gone.
+    pub fn done(&self) -> bool {
+        self.spikes
+            .iter()
+            .all(|spike| spike.stage == SpikeStage::Gone)
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -9734,5 +9909,47 @@ mod tests {
         }];
         system.update_toward(0.1, &layers, [0.0; 3]);
         assert_eq!(system.particles[0].velocity, [-5.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn the_spikes_rise_with_the_wave_stand_and_sink() {
+        let mut dice = Rng::of(14, 14, 1163);
+        let mut spikes = Spikes::new(SpikesKind::Demon, [320.0, 0.0, 0.0], &mut dice);
+        assert_eq!(spikes.spikes.len(), 10);
+        assert!(spikes.spikes.iter().all(|spike| {
+            (0.65..=1.2).contains(&spike.size)
+                && spike.offset[..2].iter().all(|v| v.abs() <= 70.0)
+                && spike.model < 5
+                && !spike.shown()
+        }));
+        // The wave comes to them at 350 a second, 250 to 390 away, within 1.12 s.
+        for _ in 0..72 {
+            spikes.update(1.0 / 60.0);
+        }
+        assert!(
+            spikes
+                .spikes
+                .iter()
+                .all(|spike| spike.shown() && spike.growth > 0.0)
+        );
+        let tall = spikes.spikes[0];
+        assert_eq!(tall.scale()[0], 0.5 * tall.scale()[2]);
+        // Up in 0.5 s, standing 0.75 s and down in 0.5 s, all gone by 2.9 s.
+        for _ in 0..110 {
+            spikes.update(1.0 / 60.0);
+        }
+        assert!(spikes.done());
+        let prince = Spikes::new(SpikesKind::Prince, [0.0; 3], &mut dice);
+        assert!(
+            prince
+                .spikes
+                .iter()
+                .all(|spike| (0.45..=0.7).contains(&spike.size))
+        );
+        assert_eq!(
+            SpikesKind::prince_glow(185),
+            [32.0 / 255.0, 1.0, 32.0 / 255.0, 1.0]
+        );
+        assert_eq!(SpikesKind::prince_glow(252), [1.0; 4]);
     }
 }

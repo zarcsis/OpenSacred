@@ -19,6 +19,7 @@
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
+use opensacred_rules::particles::SpikesKind;
 use opensacred_rules::{casts, spells};
 
 use crate::ai::Mind;
@@ -262,9 +263,8 @@ fn act(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    (heights, bolt_looks, mut weather, mut sounds): (
+    (heights, mut weather, mut sounds): (
         Res<Heights>,
-        Option<Res<crate::bolts::Looks>>,
         Option<ResMut<crate::weather::Weather>>,
         MessageWriter<crate::sfx::Play>,
     ),
@@ -590,12 +590,17 @@ fn act(
                             Visibility::Hidden,
                             DespawnOnExit(AppState::InGame),
                         ));
-                        if let Some((mesh, material)) = bolt_looks
-                            .as_ref()
-                            .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
-                        {
-                            flame.insert((Mesh3d(mesh), MeshMaterial3d(material)));
-                        }
+                        // Its spikes, the wave from the prince, in his type's glow (`spikes`).
+                        flame.insert(crate::spikes::Raise {
+                            kind: SpikesKind::Prince,
+                            ground: Vec3::new(
+                                at.x,
+                                heights.standing(at.x, at.z, way.level).unwrap_or(at.y),
+                                at.z,
+                            ),
+                            origin: here,
+                            glow: SpikesKind::prince_glow(mind.creature),
+                        });
                     }
                 }
             }
@@ -664,12 +669,17 @@ fn act(
                             Visibility::Hidden,
                             DespawnOnExit(AppState::InGame),
                         ));
-                        if let Some((mesh, material)) = bolt_looks
-                            .as_ref()
-                            .and_then(|looks| looks.0.get(FIRE_LOOK).cloned())
-                        {
-                            flame.insert((Mesh3d(mesh), MeshMaterial3d(material)));
-                        }
+                        // Its spikes, the wave from its target's place, in white (`spikes`).
+                        flame.insert(crate::spikes::Raise {
+                            kind: SpikesKind::Demon,
+                            ground: Vec3::new(
+                                at.x,
+                                heights.standing(at.x, at.z, way.level).unwrap_or(at.y),
+                                at.z,
+                            ),
+                            origin: place,
+                            glow: [1.0; 4],
+                        });
                     }
                 }
             }
@@ -1302,9 +1312,6 @@ fn home(
         commands.entity(entity).despawn();
     }
 }
-
-/// The look of the flames of the rings and the fan, the fireball's stand-in (`bolts`).
-const FIRE_LOOK: usize = 3;
 
 /// The bone in whose hand a homing fire charges (`Bip01 R Finger31`, the bone 14 of `0x44CBB0`'s
 /// table).
