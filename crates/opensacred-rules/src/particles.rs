@@ -5814,6 +5814,107 @@ impl KillerPlant {
     }
 }
 
+/// The thrown ball's model and its glows' texture (867, `0x79E630`), and its particles.
+pub const BALL_MODEL: &str = "BOTTLE01.GRN";
+pub const BALL_TEXTURE: &str = "PARTICLE_GLOW03";
+const BALL_COUNT: usize = 100;
+
+/// The colour of a thrown ball's glows by its variant, the art or the spell that throws it
+/// (`0x79EA50`, the event's `+0x3C`): the Dark Elf's traps 1049 and 1050 a pale cyan, 1051 a grey,
+/// 1052 a green and 1053 a light grey, the goblin mages' spell 53 white; none for another.
+pub fn ball_colour(variant: u16) -> Option<[f32; 4]> {
+    let [r, g, b] = match variant {
+        1049 | 1050 => [0x80, 0xF0, 0xFF],
+        1051 => [0xA0, 0xA0, 0xA0],
+        1052 => [0x20, 0xFF, 0x20],
+        1053 => [0xC0, 0xC0, 0xC0],
+        53 => [0xFF, 0xFF, 0xFF],
+        _ => return None,
+    }
+    .map(|c: u8| f32::from(c) / 255.0);
+    Some([r, g, b, 1.0])
+}
+
+/// A thrown ball (867, `FX_BALL`, `cParticleSystem_ball`, its constructor `0x79E630`, start
+/// `0x79EA50`, run `0x79E730` and draw `0x79E900`; #1092): its model [`BALL_MODEL`] tumbling
+/// about the models' x and y at 2 to 4 radians a second each, rolled as it is thrown, and a
+/// trail of glows of [`BALL_TEXTURE`] behind it, one every 0.005 s at the detail 2, of the size
+/// 7 ± 2 falling by 30 a second and the buoyancy 0 ± 5, within 3 of its place along each axis,
+/// their life falling by 350 a second, added by their alpha in its colour times their life (the
+/// billboards' flags 3). Landed, it makes no more and ends with its last glow, its model drawn
+/// till then.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrapBall {
+    pub system: System,
+    pub colour: [f32; 4],
+    pub turns: [f32; 2],
+    rates: [f32; 2],
+    out: bool,
+}
+
+impl TrapBall {
+    /// A ball of the colour `colour`, its two rates rolled by `dice`, `2·(1 + U)` each.
+    pub fn new(colour: [f32; 4], dice: &mut impl Dice) -> Self {
+        let rates = std::array::from_fn(|_| 2.0 * (1.0 + share(dice)));
+        Self {
+            system: System::new(BALL_COUNT),
+            colour,
+            turns: [0.0; 2],
+            rates,
+            out: false,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -350.0,
+            size: -30.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            buoyancy: spread(0.0, 5.0),
+            size: spread(7.0, 2.0),
+            offset: spread([0.0; 3], [3.0; 3]),
+            interval: 0.005,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its place gone from `from` to `to` in the models' frame
+    /// (`0x79E730`): its glows age, it leaves new ones along its way while it flies, and it
+    /// tumbles.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if !self.out {
+            self.system
+                .emit_along(&[Self::block()], &layers, BALL_COUNT, (from, to), dt, dice);
+        }
+        for (turn, rate) in self.turns.iter_mut().zip(self.rates) {
+            *turn += dt * rate;
+        }
+    }
+
+    /// Its landing (its object's `+0x74` bit 2): it makes no more glows.
+    pub fn end(&mut self) {
+        self.out = true;
+    }
+
+    /// Whether it ended: landed and no glow alive.
+    pub fn done(&self) -> bool {
+        self.out && self.system.particles.is_empty()
+    }
+
+    /// A glow's colour: its colour, its alpha times its life's share.
+    pub fn glow_colour(&self, life: f32) -> [f32; 4] {
+        let [r, g, b, a] = self.colour;
+        [r, g, b, a * (life / 255.0).clamp(0.0, 1.0)]
+    }
+}
+
 /// The tentacles' textures: their tendrils' dots and their runes, `fx_tentacle_rune1` to 15.
 pub const TENTACLE_TEXTURE: &str = "particle_glow01";
 pub const TENTACLE_RUNES: u8 = 15;
@@ -7612,5 +7713,27 @@ mod tests {
         }
         assert!(aura.done());
         assert_eq!(tentacle_rune(15), "fx_tentacle_rune15");
+    }
+
+    #[test]
+    fn a_thrown_ball_trails_its_glows_tumbling_and_ends_with_its_last() {
+        let mut dice = Rng::of(7, 7, 867);
+        let colour = ball_colour(1052).unwrap_or_default();
+        assert_eq!(colour, [32.0 / 255.0, 1.0, 32.0 / 255.0, 1.0]);
+        assert_eq!(ball_colour(1048), None);
+        let mut ball = TrapBall::new(colour, &mut dice);
+        for k in 0..10u8 {
+            let x = f32::from(k) * 5.0;
+            ball.update(0.01, ([x, 0.0, 40.0], [x + 5.0, 0.0, 40.0]), &mut dice);
+        }
+        // Two a hundredth of a second, the first born 0.1 s ago and still alive (7 ± 2 by 30).
+        assert!((19..=20).contains(&ball.system.particles.len()));
+        assert!(ball.turns.iter().all(|turn| (0.2..=0.4).contains(turn)));
+        assert!(ball.glow_colour(127.5)[3] - 0.5 < 1e-6);
+        ball.end();
+        for _ in 0..40 {
+            ball.update(0.01, ([50.0, 0.0, 40.0], [50.0, 0.0, 40.0]), &mut dice);
+        }
+        assert!(ball.done());
     }
 }
