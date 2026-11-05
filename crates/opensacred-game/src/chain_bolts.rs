@@ -179,6 +179,14 @@ fn make(
                 part(&mut commands, shown, mesh, material);
             }
         }
+        // The first segment's Direct3D light, where the bolt leaves (`0x77DE80`, the event's
+        // `+0x3C` 0).
+        commands.spawn(crate::fx_lights::light(
+            crate::fx_lights::ICE_BLUE,
+            from,
+            shown,
+            (None, Vec3::ZERO),
+        ));
         commands.entity(shown).insert(Bolt {
             bolt: chain,
             from,
@@ -206,6 +214,8 @@ fn make(
                 part(&mut commands, struck, mesh, material);
             }
         }
+        // The impact's Direct3D light (`0x77E1C0`, `0x77E3A0`).
+        commands.spawn(crate::fx_lights::child(crate::fx_lights::ICE_BLUE, struck));
         commands.entity(struck).insert(Impact {
             impact: ChainImpact::new(&mut dice),
             lamp,

@@ -202,6 +202,16 @@ fn make(
                 ));
             }
         }
+        // The fireball's Direct3D light, at its place while it flies and where it bursts
+        // (`0x76BAE0`, `0x76BDD0`).
+        if unmade.kind == Kind::Fireball {
+            look.commands().spawn(crate::fx_lights::light(
+                crate::fx_lights::FIRE,
+                place,
+                entity,
+                (Some(unmade.bolt), Vec3::ZERO),
+            ));
+        }
         let light = light_of(unmade.kind).map(|radius| {
             let lamp = look
                 .commands()

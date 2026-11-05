@@ -92,6 +92,14 @@ fn show(
                 DespawnOnExit(AppState::InGame),
             ))
             .id();
+        // Its Direct3D light, following it (`0x79CDD0`, `0x79CFB0`; the dryad ghost's alike,
+        // `0x7BF100`).
+        commands.spawn(crate::fx_lights::light(
+            crate::fx_lights::SOUL_GREEN,
+            place.translation(),
+            shown,
+            (Some(object), Vec3::ZERO),
+        ));
         let parts = [meshes.add(empty()), meshes.add(empty())];
         for (mesh, material) in parts.iter().zip([dots, glow]) {
             if let Some(material) = material {

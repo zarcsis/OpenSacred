@@ -109,6 +109,16 @@ fn show(
                 TrailKind::Shaddar => shown.with_child((drawn, RenderLayers::layer(iso::UNTINTED))),
             };
         }
+        // The fire bolt's Direct3D light, at its place while it flies (`0x7AA980`, `0x7AAB90`).
+        if matches!(trail.0, TrailKind::Shaddar) {
+            let owner = shown.id();
+            shown.commands().spawn(crate::fx_lights::light(
+                crate::fx_lights::FIRE,
+                at,
+                owner,
+                (Some(entity), Vec3::ZERO),
+            ));
+        }
         shown.insert(Shown {
             bolt: Some(entity),
             trail: BoltTrail::new(trail.0),
