@@ -66,9 +66,13 @@ pub struct Block {
     pub velocity: Spread<[f32; 3]>,
     pub offset: Spread<[f32; 3]>,
     pub interval: f32,
-    /// A frame of the texture's grid at random below it, the first for 0 or 1 (`+0x60`).
+    /// A frame of the texture's grid at random below it, the first for 0 or 1, the particle's
+    /// layer for [`FRAME_OF_LAYER`] (`+0x60`).
     pub frames: u8,
 }
+
+/// A block's frames that give each particle the frame of its layer's index (`0x764760`).
+pub const FRAME_OF_LAYER: u8 = 0xFF;
 
 /// A colour ramp over a particle's life (`0x763F50`): 256 entries of red, green, blue and alpha in
 /// 0 to 1, the entry 255 the colour at its birth and the entry 0 at its death.
@@ -200,7 +204,9 @@ impl System {
         });
     }
 
-    /// [`Self::emit`], each particle born at its offset from `place` of its moment.
+    /// [`Self::emit`], each particle born at its offset from `place` of its moment: the first
+    /// block's offset, whatever the particle's block, and its own block's spread about it, as the
+    /// steady emission of `0x764760` reads the first block's `+0x38` alone (#2070).
     fn emit_at(
         &mut self,
         blocks: &[Block],
@@ -220,13 +226,16 @@ impl System {
             if self.particles.len() >= count {
                 continue;
             }
-            let layer = pick(blocks.len(), dice);
+            let layer = pick(blocks, dice);
             let (Some(block), Some(rates)) = (blocks.get(layer), layers.get(layer)) else {
                 continue;
             };
             let mut particle = born(block, layer, dice);
-            for (axis, at) in particle.place.iter_mut().zip(place(self.last)) {
-                *axis += at;
+            let at = place(self.last);
+            let shift: [f32; 3] =
+                std::array::from_fn(|k| at[k] + first.offset.value[k] - block.offset.value[k]);
+            for (axis, shift) in particle.place.iter_mut().zip(shift) {
+                *axis += shift;
             }
             age(&mut particle, self.clock - self.last, rates, None);
             if particle.alive() {
@@ -248,10 +257,10 @@ fn born(block: &Block, layer: usize, dice: &mut impl Dice) -> Particle {
         angle: spread_f32(block.angle, dice),
         spin: spread_f32(block.spin, dice),
         layer: u8::try_from(layer).unwrap_or(0),
-        frame: if block.frames > 1 {
-            u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0)
-        } else {
-            0
+        frame: match block.frames {
+            FRAME_OF_LAYER => u8::try_from(layer).unwrap_or(0),
+            frames if frames > 1 => u8::try_from(dice.below(u32::from(frames))).unwrap_or(0),
+            _ => 0,
         },
     }
 }
@@ -276,20 +285,42 @@ fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<f32>) {
     particle.angle += dt * layer.angle;
 }
 
-/// The layer that a particle of `layers` blocks takes (`0x7687F0`): the first for one, the first
-/// four times in five for two.
-fn pick(layers: usize, dice: &mut impl Dice) -> usize {
-    match layers {
-        2 => usize::from(dice.below(5) == 0),
+/// The layer that a particle of the blocks `blocks` takes (`0x7687F0`): the first for one, the
+/// first four times in five for two, and for three each by its share of their rates, the inverses
+/// of their intervals, by one roll.
+fn pick(blocks: &[Block], dice: &mut impl Dice) -> usize {
+    match blocks {
+        [_, _] => usize::from(dice.below(5) == 0),
+        [a, b, c] => {
+            let rate = |block: &Block| {
+                if block.interval > 0.0 {
+                    1.0 / block.interval
+                } else {
+                    0.0
+                }
+            };
+            let rates = [rate(a), rate(b), rate(c)];
+            let whole: f32 = rates.iter().sum();
+            let roll = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+            if roll < rates[0] / whole {
+                0
+            } else if roll >= (rates[0] + rates[1]) / whole {
+                2
+            } else {
+                1
+            }
+        }
         _ => 0,
     }
 }
 
 /// How a layer of particles is drawn (docs/re/effects.md, "The billboards"): added to the frame
-/// by its alpha (`SRCALPHA`, `ONE`), or laid over it by its alpha (`SRCALPHA`, `INVSRCALPHA`).
+/// by its alpha (`SRCALPHA`, `ONE`), added whole (`ONE`, `ONE`), or laid over it by its alpha
+/// (`SRCALPHA`, `INVSRCALPHA`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Blend {
     Add,
+    Whole,
     Over,
 }
 
@@ -582,6 +613,7 @@ fn smoke(variant: u8) -> Option<Fire> {
             lava(1.0),
         ),
         7 => return Some(geyser()),
+        13 => return Some(magic_fire()),
         _ => return None,
     };
     Some(Fire {
@@ -609,6 +641,90 @@ fn smoke(variant: u8) -> Option<Fire> {
         // The chimneys' flags `0x146`, the lavas' `0x10C`.
         tinted: variant <= 3,
     })
+}
+
+/// The magic fire of the variant 13 (`FX_FIRE_MAGIC`, 904; `0x76E980`, `0x76E2D0`): three layers
+/// of `PARTICLE_MULTI02`'s 2 × 2 frames, each particle the frame of its layer, turned at random
+/// and added whole (the flags `0x11D`), a light of 230; the system emits every 0.0265 s, each
+/// particle of a block by its share of the three blocks' rates (`0x7687F0`):
+/// - a flame rising at 35 ± 5, of 5, spinning ± 1.5, drifting ± 4 across, every 0.0265 s, living
+///   1.4 s and growing by 11 a second, from white to pink, magenta and teal;
+/// - a spark rising at 70, of 5, drifting ± 4 across, every 0.06545 s, living 1 s and growing by
+///   1, from orange to blue;
+/// - a glow of 8 ± 0.5, drifting ± 2, every 0.02222 s, living a third of a second, from pink to
+///   purple.
+///
+/// The sparks' and the glows' blocks lie 20 up, which the steady emission does not read: all are
+/// born at the system's place, the glows on the brazier's bowl ([`System::emit`]). The ramps'
+/// values are out of 256.
+fn magic_fire() -> Fire {
+    let c = |r: f32, g: f32, b: f32, a: f32| [r / 256.0, g / 256.0, b / 256.0, a / 256.0];
+    let clear = [0.0; 4];
+    let layer = |life: f32, size: f32| Layer {
+        life,
+        size,
+        ..Layer::default()
+    };
+    let block = |buoyancy: Spread<f32>, size: Spread<f32>, drift: [f32; 3], up: f32| Block {
+        buoyancy,
+        size,
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        velocity: spread([0.0; 3], drift),
+        offset: spread([0.0, 0.0, up], [0.0; 3]),
+        frames: FRAME_OF_LAYER,
+        ..Block::default()
+    };
+    let interval = |block: Block, interval: f32| Block { interval, ..block };
+    Fire {
+        texture: "particle_multi02",
+        layers: vec![layer(-180.0, 11.0), layer(-256.0, 1.0), layer(-768.0, 0.0)],
+        blocks: vec![
+            Block {
+                spin: spread(0.0, 1.5),
+                ..interval(
+                    block(spread(-35.0, 5.0), spread(5.0, 0.0), [4.0, 4.0, 0.0], 0.0),
+                    0.0265,
+                )
+            },
+            interval(
+                block(spread(-70.0, 0.0), spread(5.0, 0.0), [4.0, 4.0, 0.0], 20.0),
+                0.06545,
+            ),
+            interval(
+                block(spread(0.0, 0.0), spread(8.0, 0.5), [2.0; 3], 20.0),
+                0.02222,
+            ),
+        ],
+        ramps: vec![
+            Ramp::new(
+                c(255.0, 255.0, 255.0, 0.0),
+                &[
+                    (c(255.0, 205.0, 248.0, 248.0), 20),
+                    (c(254.0, 12.0, 223.0, 254.0), 82),
+                    (c(39.0, 137.0, 162.0, 158.0), 65),
+                    (clear, 45),
+                    (clear, 44),
+                ],
+            ),
+            Ramp::new(
+                c(255.0, 184.0, 97.0, 255.0),
+                &[(c(90.0, 52.0, 253.0, 255.0), 166), (clear, 44), (clear, 46)],
+            ),
+            Ramp::new(
+                c(247.0, 167.0, 245.0, 247.0),
+                &[
+                    (c(172.0, 9.0, 142.0, 173.0), 110),
+                    (clear, 105),
+                    (clear, 41),
+                ],
+            ),
+        ],
+        blends: vec![Blend::Whole; 3],
+        grid: 2,
+        count: SMOKE_PARTICLES,
+        light: 230.0,
+        tinted: false,
+    }
 }
 
 /// The geyser's jet at rest (the variant 7, `FX_GEYSIR`, the flags `0x46`): one layer of
@@ -708,9 +824,11 @@ impl Geyser {
 
 /// The smoke class's variant of the FX type `kind` that the scripts' `CreateObj` gives it
 /// (`0x48907C`): 771, 810 and 811 the chimneys' smokes, 812, 813 and 876 the fire smokes, 879 the
-/// geyser, 882 and 881 the lavas' smokes, 886, 885 and 884 the fires.
+/// geyser, 882 and 881 the lavas' smokes, 886, 885 and 884 the fires, 904 the magic fire
+/// (`0x489C3F`).
 pub fn fire_variant(kind: u32) -> Option<u8> {
     match kind {
+        904 => Some(13),
         879 => Some(7),
         771 => Some(1),
         810 => Some(2),
@@ -3258,7 +3376,7 @@ impl Meteor {
                 }
                 let blocks = Self::burst();
                 for _ in 0..METEOR_BURST {
-                    let layer = pick(blocks.len(), dice);
+                    let layer = pick(&blocks, dice);
                     if let Some(block) = blocks.get(layer)
                         && self.system.particles.len() < METEOR_COUNT
                     {
@@ -5018,6 +5136,45 @@ mod tests {
         }
         assert!(system.particles.iter().all(|p| p.layer == 1));
         assert_eq!(fire_variant(884), Some(12));
+    }
+
+    #[test]
+    fn a_magic_fire_burns_three_layers_each_of_its_frame_by_their_rates() {
+        let fire = fire(fire_variant(904).unwrap()).unwrap();
+        assert_eq!((fire.layers.len(), fire.grid, fire.light), (3, 2, 230.0));
+        assert!(fire.blends.iter().all(|&blend| blend == Blend::Whole));
+        let mut system = System::new(fire.count);
+        let mut dice = Rng::of(0, 0, 11);
+        let mut born = [0_usize; 3];
+        for _ in 0..600 {
+            let before = system.particles.len();
+            system.update(1.0 / 60.0, &fire.layers);
+            let survived = system.particles.len();
+            system.emit(&fire.blocks, &fire.layers, fire.count, &mut dice);
+            for particle in &system.particles[survived..] {
+                born[usize::from(particle.layer)] += 1;
+            }
+            assert!(survived <= before);
+        }
+        // Each particle takes its layer's frame.
+        assert!(system.particles.iter().all(|p| p.frame == p.layer));
+        // About 38 a second over 10 s, by the rates' shares 0.38, 0.16 and 0.46.
+        let all: usize = born.iter().sum();
+        assert!((360..=400).contains(&all), "{all}");
+        let share = |k: usize| born[k] as f32 / all as f32;
+        assert!((share(0) - 0.385).abs() < 0.06, "{born:?}");
+        assert!((share(1) - 0.156).abs() < 0.05, "{born:?}");
+        assert!((share(2) - 0.459).abs() < 0.06, "{born:?}");
+        // The flames rise; the glows hang about the system's place, not their block's 20 up.
+        assert!(
+            system
+                .particles
+                .iter()
+                .filter(|p| p.layer == 0)
+                .all(|p| p.velocity[2] > 0.0)
+        );
+        let glows: Vec<_> = system.particles.iter().filter(|p| p.layer == 2).collect();
+        assert!(!glows.is_empty() && glows.iter().all(|p| p.place[2].abs() < 2.0));
     }
 
     #[test]
