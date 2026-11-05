@@ -308,8 +308,9 @@ struct Placement {
     /// height in the models' units, the record's `0x7E` (`fx`, #1092).
     fx: Option<(u8, f32)>,
     /// An FX object that loops a sound of its own near the hero, an element stone or a stargate
-    /// (`fx_loops`, #1170), which has no model.
-    fx_loop: Option<u32>,
+    /// (`fx_loops`, #1170), which has no model: its sound and its type, a stargate's look its
+    /// own (`stargates`).
+    fx_loop: Option<(u32, u32)>,
     /// An object of a big demon's summoning (`FX_BIG_DEMON_SUMMON`, 918; `summonings`, #2006):
     /// its variant, the record's `0x03`, and its height in the models' units, its `0x7E`; it has
     /// no model.
@@ -2959,7 +2960,7 @@ impl Makers {
         // An element stone or a stargate of the FX objects, which loops its sound and has no
         // model.
         let fx_loop = (record.kind == CREATE_OBJ && category(item) == FX)
-            .then(|| crate::fx_loops::sound_of(creature))
+            .then(|| crate::fx_loops::sound_of(creature).map(|sound| (sound, creature)))
             .flatten();
         // A big demon's summoning of the FX objects, which has no model: its variant, the
         // record's `0x03` (`0x489FBA`), and its height.
@@ -5378,15 +5379,17 @@ fn spawn(
             ))
             .id();
     }
-    if let Some(sound) = placement.fx_loop {
-        return commands
-            .spawn((
-                crate::fx_loops::FxLoop(sound),
-                Transform::from_translation(model),
-                layered,
-                layered.visibility(states),
-            ))
-            .id();
+    if let Some((sound, kind)) = placement.fx_loop {
+        let mut made = commands.spawn((
+            crate::fx_loops::FxLoop(sound),
+            Transform::from_translation(model),
+            layered,
+            layered.visibility(states),
+        ));
+        if let Some(gate) = crate::stargates::Gate::of(kind) {
+            made.insert(gate);
+        }
+        return made.id();
     }
     let mut entity = commands.spawn((
         models::scene(assets, &placement.model),

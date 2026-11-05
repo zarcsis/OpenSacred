@@ -29,7 +29,7 @@ use bevy::pbr::{
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, CompareFunction, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
 use opensacred_rules::particles::{
@@ -339,23 +339,28 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 /// The extension of [`Effect`]: whether an added particle takes its colour whole, its alpha
 /// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
 /// 3), where Bevy's premultiplies it by its alpha: the texels of `PARTICLE_FIRE02` and of some
-/// glows carry an alpha as their brightness, which that would take twice (#1092).
+/// glows carry an alpha as their brightness, which that would take twice (#1092); and whether it
+/// draws over everything, its depth not tested, as the stargates' whirls (`0x643430` without its
+/// bit 1).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
+    over: bool,
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ParticlesKey {
     whole: bool,
+    over: bool,
 }
 
 impl From<&Particles> for ParticlesKey {
     fn from(extension: &Particles) -> Self {
         Self {
             whole: extension.whole,
+            over: extension.over,
         }
     }
 }
@@ -376,6 +381,11 @@ impl MaterialExtension for Particles {
             if key.bind_group_data.whole {
                 fragment.shader_defs.push("WHOLE".into());
             }
+        }
+        if key.bind_group_data.over
+            && let Some(depth) = descriptor.depth_stencil.as_mut()
+        {
+            depth.depth_compare = Some(CompareFunction::Always);
         }
         Ok(())
     }
@@ -401,8 +411,23 @@ pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> 
 /// (`ONE`, `ONE`, [`Particles`]).
 pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
     Effect {
-        extension: Particles { whole: true },
+        extension: Particles {
+            whole: true,
+            over: false,
+        },
         ..particle_material(image, AlphaMode::Add)
+    }
+}
+
+/// A particles' material of the texture `image` drawn over everything, its depth not tested,
+/// added to the frame by its alpha or laid over it by its alpha.
+pub(crate) fn over_material(image: Handle<Image>, alpha_mode: AlphaMode) -> Effect {
+    Effect {
+        extension: Particles {
+            whole: false,
+            over: true,
+        },
+        ..particle_material(image, alpha_mode)
     }
 }
 
@@ -425,7 +450,7 @@ pub(crate) fn plain_material() -> Effect {
 /// A colour of the frame's values in linear light, as the vertices of an [`Effect`] take it: its
 /// texels are decoded, multiplied by it and encoded again, so that the frame takes their values'
 /// product.
-fn linear([r, g, b, a]: [f32; 4]) -> [f32; 4] {
+pub(crate) fn linear([r, g, b, a]: [f32; 4]) -> [f32; 4] {
     let linear = Color::srgba(r, g, b, a).to_linear();
     [linear.red, linear.green, linear.blue, linear.alpha]
 }

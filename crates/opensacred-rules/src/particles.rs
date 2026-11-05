@@ -7147,6 +7147,249 @@ impl Spikes {
     }
 }
 
+/// The stargates' pictures (802 `0x77FBE0`, 1180 `0x7C5C10`): the world map's sectors' pictures
+/// that their windows show, sixteen slots each, the add-on's seven with repeats.
+pub const STARGATE_PICTURES: [[&str; 16]; 2] = [
+    [
+        "MINIMAP058028",
+        "MINIMAP063031",
+        "MINIMAP049032",
+        "MINIMAP034035",
+        "MINIMAP061032",
+        "MINIMAP044044",
+        "MINIMAP044043",
+        "MINIMAP044042",
+        "MINIMAP044041",
+        "MINIMAP045044",
+        "MINIMAP050036",
+        "MINIMAP050035",
+        "MINIMAP050037",
+        "MINIMAP051034",
+        "MINIMAP051035",
+        "MINIMAP051036",
+    ],
+    [
+        "MINIMAP005005",
+        "MINIMAP005026",
+        "MINIMAP024018",
+        "MINIMAP033009",
+        "MINIMAP027022",
+        "MINIMAP009015",
+        "MINIMAP050070",
+        "MINIMAP005005",
+        "MINIMAP005026",
+        "MINIMAP024018",
+        "MINIMAP033009",
+        "MINIMAP027022",
+        "MINIMAP009015",
+        "MINIMAP050070",
+        "MINIMAP027022",
+        "MINIMAP024018",
+    ],
+];
+/// Their whirls' textures, a gate's and an add-on gate's: the blended and the added.
+pub const STARGATE_WHIRLS: [[&str; 2]; 2] =
+    [["FX_WHIRL01", "FX_WHIRL02"], ["FX_WHIRL03", "FX_WHIRL04"]];
+/// How high over its point a gate's middle stands, in the models' units.
+pub const STARGATE_HIGH: f32 = 95.0;
+/// The world's light about a gate (`+0x9C`).
+pub const STARGATE_LIGHT: f32 = 200.0;
+/// Its window's grid: its columns and its rows.
+pub const STARGATE_COLUMNS: u16 = 20;
+pub const STARGATE_ROWS: u16 = 34;
+/// Its whirls' alphas (`0x8FFFFFFF`, `0xAFFFFFFF`).
+pub const STARGATE_WHIRL_ALPHAS: [f32; 2] = [143.0 / 255.0, 175.0 / 255.0];
+/// The direction of the light that shades its window's ripples (`0x7802A0`).
+const STARGATE_SHADE: [f32; 3] = [2.0 / 3.0, -2.0 / 3.0, 1.0 / 3.0];
+
+/// The level 0 to 15 that `value` truncates to.
+fn truncated_level(value: f32) -> u8 {
+    (0..=15_u8)
+        .rev()
+        .find(|&level| f32::from(level) <= value)
+        .unwrap_or(0)
+}
+
+/// A gate's window's vertex: its place in the gate's own frame (the models' axes, its middle at
+/// the origin, not yet scaled), its texture's coordinates, and its colour in its two copies, the
+/// picture shown and the next.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GateVertex {
+    pub place: [f32; 3],
+    pub uv: [f32; 2],
+    pub colours: [[f32; 4]; 2],
+}
+
+/// A stargate (802, `cParticleSystem_stargate`, and the add-on's 1180, `0x780BB0`, `0x780450`,
+/// `0x780790`): an upright window facing the viewer, 114 by 198, of a world map's picture, its
+/// edges fading in a capsule, its ripples running out from its middle; its picture changes every
+/// 5 s, the next fading in over a second and the shown out over the next; two whirls turn about
+/// it in an ellipse of 250 by 440; it grows from nothing over 2 s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stargate {
+    clock: f32,
+    /// Its ripples' phase, by 5 a second (`+0x20AC`).
+    phase: f32,
+    /// Its growth, from 0 to 1 by 0.5 a second (`+0x20B8`).
+    growth: f32,
+    state: u8,
+    /// The pictures shown and next, of the sixteen (`+0x20C4`, `+0x20C8`).
+    pub pictures: [usize; 2],
+    /// Their levels, 0 to 15 (`+0x20CC`, `+0x20D0`).
+    pub levels: [u8; 2],
+    /// Its whirls' turns (`+0x20B0`, `+0x20B4`).
+    pub turns: [f32; 2],
+}
+
+impl Stargate {
+    /// A gate as it starts, its two pictures rolled.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        Self {
+            clock: 0.0,
+            phase: 0.0,
+            growth: 0.0,
+            state: 0,
+            pictures: [0, 0].map(|_| usize::try_from(dice.below(16)).unwrap_or(0)),
+            levels: [15, 0],
+            turns: [std::f32::consts::FRAC_PI_4; 2],
+        }
+    }
+
+    /// Its scale, `sin(g·π/2)` of its growth `g` (`0x6539D0`).
+    pub fn scale(&self) -> f32 {
+        (self.growth * std::f32::consts::FRAC_PI_2).sin()
+    }
+
+    /// A run of `dt` seconds (none past a second): its ripples run, it grows, its pictures
+    /// change at 3, 4 and 5 s, and its whirls turn by 0.3 and 0.4 a second, faster while it is
+    /// small.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        if dt > 1.0 {
+            return;
+        }
+        let level = |share: f32| truncated_level(share * 15.9);
+        self.clock += dt;
+        self.phase += 5.0 * dt;
+        if self.phase > std::f32::consts::TAU {
+            self.phase -= std::f32::consts::TAU;
+        }
+        if self.growth < 1.0 {
+            self.growth = (self.growth + 0.5 * dt).min(1.0);
+        }
+        match self.state {
+            0 if self.clock > 3.0 => self.state = 1,
+            1 => {
+                self.levels[1] = level(self.clock - 3.0);
+                if self.clock > 4.0 {
+                    self.levels[1] = 15;
+                    self.state = 2;
+                }
+            }
+            2 => {
+                self.levels[0] = level(5.0 - self.clock);
+                if self.clock > 5.0 {
+                    self.levels = [15, 0];
+                    self.pictures[0] = self.pictures[1];
+                    self.pictures[1] = usize::try_from(dice.below(16)).unwrap_or(0);
+                    self.clock = 0.0;
+                    self.state = 0;
+                }
+            }
+            _ => {}
+        }
+        let rate = if self.growth <= 0.1 {
+            0.1
+        } else {
+            1.0 / self.growth
+        };
+        self.turns[0] += 0.3 * rate * dt;
+        self.turns[1] += 0.4 * rate * dt;
+    }
+
+    /// The fade of its window's vertex in the column `i` and the row `j`, 0 to 15 (`0x77FBE0`):
+    /// `3.2·(10 − d)` truncated, `d` its distance in the grid's steps from the segment of
+    /// (9.5, 10) to (9.5, 24), none beyond 10 of its round ends.
+    pub fn mask(i: u16, j: u16) -> u8 {
+        let x = f32::from(i) - 9.5;
+        let d = if j < 10 {
+            (x * x + (f32::from(j) - 10.0).powi(2)).sqrt()
+        } else if j >= 24 {
+            (x * x + (f32::from(j) - 24.0).powi(2)).sqrt()
+        } else {
+            x.abs()
+        };
+        if d > 10.0 {
+            return 0;
+        }
+        truncated_level(3.2 * (10.0 - d))
+    }
+
+    /// Its window's vertices, row by row (`0x7802A0`): each at `(6·(i − 10), y, 6·(j − 17))`, `y`
+    /// its ripple `5·cos(2r − t)`, `r` its distance from (9.5, 17) in steps, `t` the phase; its
+    /// grey the shading of a slope of `sin(r − t)` under the light, 213 of 255 when flat; its
+    /// alpha the level of its copy's picture times its fade, in 225ths.
+    pub fn window(&self) -> Vec<GateVertex> {
+        let t = self.phase;
+        let mut vertices = Vec::with_capacity(usize::from(STARGATE_COLUMNS * STARGATE_ROWS));
+        for j in 0..STARGATE_ROWS {
+            for i in 0..STARGATE_COLUMNS {
+                let (dx, dy) = (f32::from(i) - 9.5, f32::from(j) - 17.0);
+                let r = (dx * dx + dy * dy).sqrt();
+                let slope = (r - t).sin() / r.max(f32::EPSILON);
+                let normal = [-dx * slope, -1.0, -dy * slope];
+                let length = normal.iter().map(|v| v * v).sum::<f32>().sqrt();
+                let lit: f32 = normal
+                    .iter()
+                    .zip(STARGATE_SHADE)
+                    .map(|(n, l)| n / length * l)
+                    .sum();
+                let grey = (127.9 * (1.0 + lit)).trunc().clamp(0.0, 255.0) / 255.0;
+                let mask = f32::from(Self::mask(i, j));
+                let colours = self.levels.map(|level| {
+                    let alpha = (f32::from(level) * mask * 1.133_333_4).trunc() / 255.0;
+                    [grey, grey, grey, alpha]
+                });
+                vertices.push(GateVertex {
+                    place: [
+                        6.0 * (f32::from(i) - 10.0),
+                        5.0 * (2.0 * r - t).cos(),
+                        6.0 * (f32::from(j) - 17.0),
+                    ],
+                    uv: [f32::from(i) / 33.0, 1.0 - f32::from(j) / 33.0],
+                    colours,
+                });
+            }
+        }
+        vertices
+    }
+
+    /// Its window's triangles over [`Self::window`]'s vertices.
+    pub fn triangles() -> Vec<u32> {
+        let columns = u32::from(STARGATE_COLUMNS);
+        let mut indices = Vec::new();
+        for j in 0..u32::from(STARGATE_ROWS) - 1 {
+            for i in 0..columns - 1 {
+                let v = i + columns * j;
+                indices.extend([v, v + columns, v + 1, v + 1, v + columns, v + columns + 1]);
+            }
+        }
+        indices
+    }
+
+    /// The corners of its whirl `k` in the gate's frame, about its middle, in the order of a
+    /// quad's bottom left, top left, top right and bottom right of the texture: each at
+    /// `(125·sin(a), 0, 220·cos(a))` for its turn `a` and its corner's quarter.
+    pub fn whirl(&self, k: usize) -> [[f32; 3]; 4] {
+        let turn = self.turns.get(k).copied().unwrap_or(0.0);
+        let corner = |quarter: f32| {
+            let a = turn + quarter * std::f32::consts::FRAC_PI_2;
+            [125.0 * a.sin(), 0.0, 220.0 * a.cos()]
+        };
+        // The strip's (0, 1), (0, 0), (1, 1), (1, 0) at the quarters 0, 1, 3 and 2.
+        [corner(0.0), corner(1.0), corner(2.0), corner(3.0)]
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -9951,5 +10194,44 @@ mod tests {
             [32.0 / 255.0, 1.0, 32.0 / 255.0, 1.0]
         );
         assert_eq!(SpikesKind::prince_glow(252), [1.0; 4]);
+    }
+
+    #[test]
+    fn a_stargate_grows_ripples_and_changes_its_picture() {
+        let mut dice = Rng::of(14, 14, 802);
+        let mut gate = Stargate::new(&mut dice);
+        assert!(gate.pictures.iter().all(|&p| p < 16));
+        assert_eq!(gate.scale(), 0.0);
+        // The capsule: the middle rows fade over their outer five columns, the first row clear.
+        assert_eq!(
+            (0..10).map(|i| Stargate::mask(i, 17)).collect::<Vec<_>>(),
+            [1, 4, 8, 11, 14, 15, 15, 15, 15, 15]
+        );
+        assert!((0..20).all(|i| Stargate::mask(i, 0) == 0));
+        assert_eq!(Stargate::triangles().len(), 3762);
+        let window = gate.window();
+        assert_eq!(window.len(), 680);
+        // A flat place shades it at 213 of 255; the shown picture whole at its middle.
+        let middle = window[usize::from(17 * STARGATE_COLUMNS + 9)];
+        assert!(middle.colours[0][3] > 0.99 && middle.colours[1][3] == 0.0);
+        let first = gate.pictures[1];
+        for _ in 0..70 {
+            gate.update(0.05, &mut dice);
+        }
+        // Grown by 2 s; at 3.5 s the next picture half in.
+        assert_eq!(gate.scale(), 1.0);
+        assert_eq!(gate.levels, [15, 7]);
+        for _ in 0..32 {
+            gate.update(0.05, &mut dice);
+        }
+        // Past 5 s the next is shown.
+        assert_eq!(gate.pictures[0], first);
+        assert_eq!(gate.levels, [15, 0]);
+        let corners = gate.whirl(0);
+        assert!(
+            corners
+                .iter()
+                .all(|c| { ((c[0] / 125.0).powi(2) + (c[2] / 220.0).powi(2) - 1.0).abs() < 1e-4 })
+        );
     }
 }

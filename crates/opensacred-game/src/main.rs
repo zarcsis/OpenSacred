@@ -184,6 +184,7 @@ mod spells;
 mod spells_page;
 mod spikes;
 mod srgb;
+mod stargates;
 mod stashes;
 mod statics;
 mod statistics;
@@ -604,6 +605,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         spells::SpellsPlugin,
         spells_page::SpellsPagePlugin,
         srgb::SrgbPlugin,
+        stargates::StargatesPlugin,
         stashes::StashesPlugin,
         statics::StaticsPlugin,
         statistics::StatisticsPlugin,
@@ -615,9 +617,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         tooltip::TooltipPlugin,
         torches::TorchesPlugin,
         town_stash::TownStashPlugin,
-        trap_balls::TrapBallsPlugin,
     ))
     .add_plugins((
+        trap_balls::TrapBallsPlugin,
         trap_landings::TrapLandingsPlugin,
         twisters::TwistersPlugin,
         undead::UndeadPlugin,
