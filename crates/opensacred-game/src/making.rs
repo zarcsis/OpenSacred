@@ -2236,6 +2236,20 @@ fn make(
                                 Transform::default(),
                             ));
                         }
+                        // The Daemon's forms' object 1014 at his head for the form's time
+                        // (`0x51A47B`; `demon_forms`).
+                        if (1097..=1100).contains(&making.art)
+                            && let Some(&(_, seconds)) = boon.effects.first()
+                        {
+                            commands.spawn((
+                                crate::demon_forms::Form {
+                                    bearer: hero,
+                                    art: making.art,
+                                    seconds,
+                                },
+                                DespawnOnExit(crate::game::AppState::InGame),
+                            ));
+                        }
                         // The testosterone's and the adrenaline's two objects 864 at him, made
                         // with their effects (`0x5080F0`, `0x5081CB`; `0x508396`, `0x508471`),
                         // each living the effects' time (the event's `+0x2C`) and looping its

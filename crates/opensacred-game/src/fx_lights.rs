@@ -81,33 +81,44 @@ pub(crate) fn child(colour: [f32; 3], owner: Entity) -> impl Bundle {
     )
 }
 
-/// The lumens of a Bevy point light of the colour's brightest channel `brightest`: Bevy's light
-/// falls by the square of the distance alone, the fixed function's by `1 + 0.000125 d²`, so the
-/// two are matched at the distance where the latter halves, `1/√0.000125` (89 of the models'
-/// units): nearer the effect Bevy's is brighter, farther dimmer, and it fades to nothing at the
-/// range, where the fixed function's is cut at a sixth.
-fn lumens(brightest: f32) -> f32 {
-    let s = iso::MODEL_SCALE;
-    4.0 * std::f32::consts::PI * SUN * brightest * 0.5 / QUADRATIC * s * s
+/// How high over its place a Bevy light stands, in the models' units: `1/√0.000125`, 89. Bevy's
+/// light falls by the square of the distance alone, so one at this height over the plane of its
+/// place falls as `1 / (h² + x²)` along it, `x` the distance in the plane, which is the fixed
+/// function's `1 / (1 + 0.000125 x²)` up to its scale: as bright beside the effect as the
+/// original's, at none of the inverse square's glare near it; it lights from above rather than
+/// from the effect's own place (docs/decisions/drawing.md).
+fn lift() -> f32 {
+    QUADRATIC.recip().sqrt()
 }
 
-/// The Bevy light of an effect's light of `colour`.
+/// The lumens of a Bevy point light of the colour's brightest channel `brightest`, at
+/// [`lift`] over its place: the sun's illuminance there times `4π h²`.
+fn lumens(brightest: f32) -> f32 {
+    let s = iso::MODEL_SCALE;
+    4.0 * std::f32::consts::PI * SUN * brightest * (lift() * s).powi(2)
+}
+
+/// The Bevy light of an effect's light of `colour`, its range reaching 200 along its place's
+/// plane.
 pub(crate) fn point_light(colour: [f32; 3]) -> PointLight {
     let brightest = colour.iter().copied().fold(0.0_f32, f32::max);
     let [r, g, b] = colour.map(|c| c / brightest.max(f32::EPSILON));
     PointLight {
         color: Color::linear_rgb(r, g, b),
         intensity: lumens(brightest),
-        range: RANGE * iso::MODEL_SCALE,
+        range: RANGE.hypot(lift()) * iso::MODEL_SCALE,
         shadow_maps_enabled: false,
         ..default()
     }
 }
 
-/// Gives each new effect's light its Bevy light.
+/// Gives each new effect's light its Bevy light, a child of it at [`lift`] over it.
 fn kindle(mut commands: Commands, lights: Query<(Entity, &FxLight), Added<FxLight>>) {
     for (entity, light) in &lights {
-        commands.entity(entity).insert(point_light(light.colour));
+        commands.entity(entity).with_child((
+            point_light(light.colour),
+            Transform::from_translation(Vec3::Y * lift() * iso::MODEL_SCALE),
+        ));
     }
 }
 
@@ -148,14 +159,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_light_matches_the_fixed_function_where_its_attenuation_halves() {
+    fn a_light_falls_along_its_plane_as_the_fixed_functions() {
         let s = iso::MODEL_SCALE;
-        let d = QUADRATIC.recip().sqrt();
-        let fixed = SUN / (1.0 + QUADRATIC * d * d);
+        assert!((lift() - 89.44).abs() < 1e-2);
         let point = point_light(FIRE);
-        let bevy = point.intensity / (4.0 * std::f32::consts::PI) / (d * s).powi(2);
-        assert!((bevy / fixed - 1.0).abs() < 1e-3, "{bevy} {fixed}");
-        assert!((point.range - 200.0 * s).abs() < 1e-3);
+        for x in [0.0_f32, 20.0, 89.0, 150.0] {
+            let fixed = SUN / (1.0 + QUADRATIC * x * x);
+            let bevy =
+                point.intensity / (4.0 * std::f32::consts::PI) / (x.hypot(lift()) * s).powi(2);
+            assert!((bevy / fixed - 1.0).abs() < 1e-3, "{x}: {bevy} {fixed}");
+        }
+        assert!((point.range - 200.0_f32.hypot(lift()) * s).abs() < 1e-2);
         assert!(!point.shadow_maps_enabled);
     }
 }
