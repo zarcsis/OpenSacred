@@ -3,7 +3,9 @@
 //! sparks (`opensacred_rules::particles::ring_sparks`, by `puffs`) and a screen's quake of 30 at
 //! its start, its green ring spreading over the ground for 0.75 s (`poison_ring`), its two twirls
 //! turning on the ground and shrinking (`poison_twirls`), both added whole and untinted by the
-//! night, and its light of 200 at it.
+//! night, and its light of 200 at it. The blast of his charge 1091 (1168, `FX_KAMIKAZE`,
+//! "The Daemon's blast") is the same but for its ring's reach and its blue-white colours
+//! (`blast_ring`, `blast_sparks`, `BLAST_TWIRL_COLOUR`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -18,10 +20,11 @@ use crate::{daynight, iso};
 /// faces do not cut them.
 const GROUND_LIFT: f32 = 0.5;
 
-/// A ring of poison: its clock, its place on the ground, its lamp, and its parts' meshes, the
+/// A ring: its kind, its clock, its place on the ground, its lamp, and its parts' meshes, the
 /// ring's and the twirls'.
 #[derive(Component)]
 struct Ring {
+    kind: Kind,
     clock: f32,
     place: Vec3,
     lamp: Entity,
@@ -33,10 +36,18 @@ struct Ring {
 #[derive(Resource, Default)]
 struct Materials(Option<[Option<Handle<Effect>>; 2]>);
 
-/// A ring of poison to make at the place on the ground `at` (`making`).
+/// A ring to make at the place on the ground `at` (`making`, `blast`), of its kind.
 #[derive(Message)]
 pub struct Made {
     pub at: Vec3,
+    pub kind: Kind,
+}
+
+/// A ring's kind: the ring of poison 1008, or the blast 1168 of its reach a second.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Kind {
+    Poison,
+    Blast(f32),
 }
 
 /// The rings' dice of their sparks.
@@ -66,7 +77,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for &Made { at } in made.read() {
+    for &Made { at, kind } in made.read() {
         let parts_materials = made_materials
             .0
             .get_or_insert_with(|| {
@@ -85,12 +96,11 @@ fn make(
                 })
             })
             .clone();
-        crate::puffs::spawn(
-            &mut commands,
-            particles::ring_sparks(&mut rolls.0),
-            at,
-            None,
-        );
+        let sparks = match kind {
+            Kind::Poison => particles::ring_sparks(&mut rolls.0),
+            Kind::Blast(_) => particles::blast_sparks(&mut rolls.0),
+        };
+        crate::puffs::spawn(&mut commands, sparks, at, None);
         commands.queue(|world: &mut World| {
             if let Some(mut weather) = world.get_resource_mut::<crate::weather::Weather>() {
                 weather.set(opensacred_rules::weather::Event::Quake(
@@ -126,6 +136,7 @@ fn make(
             }
         }
         commands.entity(ring).insert(Ring {
+            kind,
             clock: 0.0,
             place: at,
             lamp,
@@ -153,7 +164,15 @@ fn run(
         }
         let ground = ring.place + Vec3::Y * GROUND_LIFT;
         let mut band = Quads::default();
-        if let Some((inner, outer, colour)) = poison_ring(ring.clock) {
+        let band_at = match ring.kind {
+            Kind::Poison => poison_ring(ring.clock),
+            Kind::Blast(reach) => particles::blast_ring(ring.clock, reach),
+        };
+        let twirl = match ring.kind {
+            Kind::Poison => particles::POISON_TWIRL_COLOUR,
+            Kind::Blast(_) => particles::BLAST_TWIRL_COLOUR,
+        };
+        if let Some((inner, outer, colour)) = band_at {
             band.push_ring(
                 ground,
                 (inner * s, outer * s),
@@ -177,7 +196,7 @@ fn run(
                     corner(-1.0, 1.0),
                 ],
                 [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
-                particles::POISON_TWIRL_COLOUR,
+                twirl,
             );
         }
         for (handle, quads) in ring.parts.iter().zip([band, twirls]) {

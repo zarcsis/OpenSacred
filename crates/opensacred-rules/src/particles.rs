@@ -1992,6 +1992,19 @@ pub const POISON_TWIRL_COLOUR: [f32; 4] = [65.0 / 255.0, 1.0, 66.0 / 255.0, 1.0]
 /// from the inner radius out, added whole, of the colour (34, 128, 34) times a share that holds
 /// 1 to 0.45 s and falls to 0 at 0.75 s; none from then.
 pub fn poison_ring(t: f32) -> Option<(f32, f32, [f32; 4])> {
+    ring_band(t, 150.0, [34.0, 128.0, 34.0])
+}
+
+/// The Daemon's blast's ring at its clock `t` (1168, `FX_KAMIKAZE`, `cParticleSystem_kamikaze`,
+/// its draw `0x7C1890`; #1092): the ring of poison's band but spreading at its reach `reach` a
+/// second (`min(150 + 2·L, 400)`, the event's `+0x44`), of (100, 100, 128).
+pub fn blast_ring(t: f32, reach: f32) -> Option<(f32, f32, [f32; 4])> {
+    ring_band(t, reach, [100.0, 100.0, 128.0])
+}
+
+/// A ring's band at its clock `t` spreading at `rate` a second, of the bytes `colour` times its
+/// share (`0x763530`).
+fn ring_band(t: f32, rate: f32, colour: [f32; 3]) -> Option<(f32, f32, [f32; 4])> {
     if !(0.0..0.75).contains(&t) {
         return None;
     }
@@ -2002,13 +2015,14 @@ pub fn poison_ring(t: f32) -> Option<(f32, f32, [f32; 4])> {
     };
     // The bytes rounded toward 0, as `__ftol`.
     let byte = |value: f32| (value * share).trunc() / 255.0;
-    let inner = 150.0 * t;
-    Some((
-        inner,
-        inner + 40.0,
-        [byte(34.0), byte(128.0), byte(34.0), 1.0],
-    ))
+    let inner = rate * t;
+    let [r, g, b] = colour;
+    Some((inner, inner + 40.0, [byte(r), byte(g), byte(b), 1.0]))
 }
+
+/// The blast's twirls' colour (`0xFFE0E0FF`); its twirls are the ring of poison's otherwise
+/// ([`poison_twirls`]).
+pub const BLAST_TWIRL_COLOUR: [f32; 4] = [224.0 / 255.0, 224.0 / 255.0, 1.0, 1.0];
 
 /// The ring of poison's twirls at its clock `t` (`0x7631E0` twice): flat quads at its place of
 /// the half sides `100 (1 − (t/3)²)` and `90 (1 − (t/3)²)`, turned by `−1.7 t` and `−1.3 t`
@@ -2028,6 +2042,18 @@ pub fn poison_twirls(t: f32) -> Option<[(f32, f32); 2]> {
 /// shrinking by 6 a second, living 1.5 s, white for their first 100 entries and fading to black
 /// over the rest, added whole (the flags `0x19`), not turned.
 pub fn ring_sparks(dice: &mut impl Dice) -> Burst {
+    sparks_burst([254.0 / 255.0; 3], dice)
+}
+
+/// The blast's sparks at its start (`0x7C1AB0`, `0x7C1790`): the ring of poison's, turning pale
+/// blue (0.820, 0.820, 0.996) over their first 100 entries rather than staying white.
+pub fn blast_sparks(dice: &mut impl Dice) -> Burst {
+    sparks_burst([0.820, 0.820, 0.996], dice)
+}
+
+/// A ring's burst of sparks whose colour goes from white to `middle` over 100 entries and to
+/// black over the rest.
+fn sparks_burst(middle: [f32; 3], dice: &mut impl Dice) -> Burst {
     let block = Block {
         buoyancy: spread(180.0, 40.0),
         size: spread(7.0, 2.0),
@@ -2049,6 +2075,7 @@ pub fn ring_sparks(dice: &mut impl Dice) -> Burst {
         })
         .collect();
     let white = [254.0 / 255.0, 254.0 / 255.0, 254.0 / 255.0, 1.0];
+    let [r, g, b] = middle;
     Burst {
         texture: "PARTICLE_SPARK06",
         grid: 1,
@@ -2059,7 +2086,7 @@ pub fn ring_sparks(dice: &mut impl Dice) -> Burst {
             ..Layer::default()
         },
         // Its alpha is 0 in the original's, which its source `ONE` does not take.
-        ramp: Ramp::new(white, &[(white, 100), ([0.0, 0.0, 0.0, 1.0], 156)]),
+        ramp: Ramp::new(white, &[([r, g, b, 1.0], 100), ([0.0, 0.0, 0.0, 1.0], 156)]),
         particles,
         ground: None,
         light: 0.0,
@@ -7079,6 +7106,20 @@ mod tests {
             system.update(0.025, &[burst.layer]);
         }
         assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn the_blast_spreads_its_ring_at_its_reach_in_its_blue() {
+        let (inner, outer, colour) = blast_ring(0.5, 160.0).unwrap_or_default();
+        assert!((inner - 80.0).abs() < 1e-4 && (outer - 120.0).abs() < 1e-4);
+        // Fading from 0.45 s: a share of 5/6.
+        assert_eq!(colour, [83.0 / 255.0, 83.0 / 255.0, 106.0 / 255.0, 1.0]);
+        assert!(blast_ring(0.75, 160.0).is_none());
+        let mut dice = Rng::of(12, 0x9, 5);
+        let burst = blast_sparks(&mut dice);
+        assert_eq!(burst.particles.len(), 150);
+        assert_eq!(burst.ramp.at(156.0), [0.820, 0.820, 0.996, 1.0]);
+        assert_eq!(ring_sparks(&mut dice).ramp.at(156.0)[0], 254.0 / 255.0);
     }
 
     #[test]

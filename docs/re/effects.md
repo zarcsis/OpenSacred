@@ -657,6 +657,20 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` makes it since #1092 (`poison_rings`, `opensacred_rules::particles::{poison_ring, poison_twirls, ring_sparks}`): where the Daemon's 1101 burns about him, its sparks (`puffs`), its quake of 30 (`weather`), its ring and twirls on the ground added whole and untinted by the night, and its light of 200 at it, for 3 s.
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the green twirls shrinking at his feet, the white fountain of sparks over him, and the green ring spreading past the twirls, alike in size; the original's ring a darker green.
 
+## The Daemon's blast
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Daemon's charge 1091 at the level 10 in his form 1094 by a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The blast of his charge 1091 | 1168 `FX_KAMIKAZE` | `cParticleSystem_kamikaze` (`0x898FCC`) | `0x7C16D0`, `0x7C1AB0`, `0x7C1790`, `0x7C1890` |
+
+It is the ring of poison 1008 ("The ring of poison") line for line but for three things: its ring's reach is the event's `+0x44`, the blast's `R = min(150 + 2·L, 400)` (`0x51A2AA`), where the ring of poison's is 150; its colours, the band's (100, 100, 128) and the twirls' (224, 224, 255), its sparks' ramp turning pale blue (0.820, 0.820, 0.996) over its first 100 entries; and its flags `0x1000400`, whose `0x1000000` has its hits search their targets within its `+0x98` radius (`0x5FF2F0`), which its draw sets to `⌊R·t⌋` while its band spreads and to three quarters of itself at each frame after (docs/re/arts.md, "The objects 1168 and 842").
+It loads `fx_ringofpoison01`, `PARTICLE_SPARK06` and `Fx_twirl_rays`, makes its 150 sparks at once with the screen's quake of 30 at its start, and ends at 3 s; its light 200.
+
+`opensacred-game` draws it since #1092 (`poison_rings` of the kind `Blast`, `opensacred_rules::particles::{blast_ring, blast_sparks, BLAST_TWIRL_COLOUR}`), where `blast` makes it, in place of the stand-in ring.
+**Seen** 2026-11-05 beside the original: in both a white fountain of sparks and pale twirls on the ground about the Daemon where his charge lands.
+
 ## The holy light
 
 Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Seraphim's new game in the chapel of 50,39, her spell 15 at the level 5 on a goblin).

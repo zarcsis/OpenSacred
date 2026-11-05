@@ -1883,7 +1883,10 @@ fn make(
                             burned.len()
                         );
                         // Its look, the object 1008 at him (`0x51B46E`).
-                        rings.write(crate::poison_rings::Made { at: here });
+                        rings.write(crate::poison_rings::Made {
+                            at: here,
+                            kind: crate::poison_rings::Kind::Poison,
+                        });
                         commands
                             .entity(hero)
                             .entry::<crate::burns::Burns>()
