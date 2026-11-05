@@ -83,9 +83,10 @@ pub fn casts(creature: u32) -> bool {
         || casts::mark_1(creature).is_some_and(|(spell, _)| FOLLOWED.contains(&spell))
 }
 
-/// The height of a big demon's eyes over its feet, whence its lasers leave (**estimate**: its
-/// bones `Left_EyeBone_FX` and `Right_EyeBone_FX` are not read).
-const EYES: f32 = 250.0;
+/// A big demon's eyes' bones, whence its lasers leave (`0x527392`, `0x52741C`), and their height
+/// over its feet in the models' frame on a model without them (**estimate**).
+const EYES: [&[&str]; 2] = [&["Left_EyeBone_FX"], &["Right_EyeBone_FX"]];
+const EYES_HIGH: f32 = 165.0;
 
 /// A homing fire of a creature (the big demons' `FX_DAEMONFIRE`, 910, of the spell 50; docs/re/
 /// arts.md, "The creatures' own spells"): held at its caster for its charge, then flying at
@@ -267,10 +268,9 @@ fn act(
         Option<ResMut<crate::weather::Weather>>,
         MessageWriter<crate::sfx::Play>,
     ),
-    (arts, rules, looks, mut dice): (
+    (arts, rules, mut dice): (
         Option<Res<crate::arts::HeroArts>>,
         Res<crate::fight::Rules>,
-        Option<Res<crate::spells::Looks>>,
         ResMut<crate::spells::Dice>,
     ),
     (mut launches, mut hits, mut healths, mut points): (
@@ -774,19 +774,17 @@ fn act(
                 let reaches = crate::paths::laser_reaches(here, place, |cell| {
                     heights.passes(cell, way.level)
                 });
-                if let Some(looks) = &looks {
-                    crate::spells::beam(
+                // A laser beam from each eye to the target's neck (`beams`, #2119).
+                for eye in EYES {
+                    crate::beams::lay(
                         &mut commands,
-                        looks,
-                        here + Vec3::Y * EYES,
-                        place + Vec3::Y * crate::bolts::HEIGHT,
+                        (
+                            crate::beams::End::Bone(entity, eye, EYES_HIGH),
+                            crate::beams::End::neck(cast.target),
+                        ),
+                        opensacred_rules::particles::LASER_BEAM,
                     );
                 }
-                sounds.write(crate::sfx::Play {
-                    sound: crate::sfx::Of::Id(LASER_SOUND),
-                    at: Some(entity),
-                    rate: (0.5, crate::sfx::Roll::None),
-                });
                 if reaches {
                     hits.write(crate::fight::Hit {
                         attacker: entity,
@@ -1147,10 +1145,6 @@ fn spread(
 const FIRE_LOOK: usize = 3;
 /// The ball's sound as it starts (`SOUND_FX_DELF_WURFCAST`).
 const BALL_SOUND: u32 = 2057;
-/// The laser's beam's sound as it starts: its segment's (901 `FX_LASERBEAM`, `0x7A50B0`) of the
-/// variant 1, `SOUND_FX_SPELL_LASER` (the variant 0's `SOUND_FX_VAMP_BLUTBISS` the Vampiress's
-/// bite's, **hypothesis** by their names), once for the two beams.
-const LASER_SOUND: u32 = 2074;
 
 /// A goblin mage's ball (the spell 53's `FX_BALL`, 867; docs/re/arts.md, "The creatures' own
 /// spells"): it flies the traps' arc from its caster to its point over 2/3 s, and landing strikes

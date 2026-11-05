@@ -130,7 +130,14 @@ pub fn drain(
     by: u32,
 ) {
     if undead::drained(kind, level, by, u32::MAX) > 0 {
-        crate::beams::spawn(commands, killer, skeleton);
+        crate::beams::lay(
+            commands,
+            (
+                crate::beams::End::spine(killer),
+                crate::beams::End::spine(skeleton),
+            ),
+            opensacred_rules::particles::DRAIN_BEAM,
+        );
     }
     commands
         .entity(killer)

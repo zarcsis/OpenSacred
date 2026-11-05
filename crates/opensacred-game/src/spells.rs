@@ -17,8 +17,8 @@ use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::spells::{
     self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIRE_SKIN, FIREBALL, HEALING, HOLY_SHIELD,
-    IRRITATION, LIGHTNING, LIGHTNING_SHOWS, QUICKENING, REIKI, SHIELD_TIME, SHIELD_WALL, SPRING,
-    STONE_SKIN, STRENGTH_TIME, WALL_TIME,
+    IRRITATION, LIGHTNING, QUICKENING, REIKI, SHIELD_TIME, SHIELD_WALL, SPRING, STONE_SKIN,
+    STRENGTH_TIME, WALL_TIME,
 };
 
 use crate::crowd::InTheWay;
@@ -1022,41 +1022,9 @@ pub(crate) struct Mine {
     left: f32,
 }
 
-/// The stand-ins' meshes and materials: a column of light and the lightning's, the big demons'
-/// lasers' (`beam`).
-#[derive(Resource)]
-pub(crate) struct Looks {
-    column: Handle<Mesh>,
-    lightning: Handle<StandardMaterial>,
-}
-
 /// The Daemon's hell disk (1005, `0x527BA9`); its look is `hell_disks`'.
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct HellDisk;
-
-/// Makes the stand-ins' looks (**estimate**: the colours of their glows).
-fn make_looks(
-    mut commands: Commands,
-    meshes: Option<ResMut<Assets<Mesh>>>,
-    materials: Option<ResMut<Assets<StandardMaterial>>>,
-) {
-    let (Some(mut meshes), Some(mut materials)) = (meshes, materials) else {
-        return;
-    };
-    let mut glow = |colour: Color| {
-        materials.add(StandardMaterial {
-            base_color: colour,
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        })
-    };
-    let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
-    commands.insert_resource(Looks {
-        column: meshes.add(Cylinder::new(8.0, 400.0)),
-        lightning,
-    });
-}
 
 /// Makes a hail of meteors, the hero's or a creature's (#1852): the record's count at the
 /// spell's level `level`, each about `point` within its scatter, falling after a wait at random
@@ -1092,24 +1060,6 @@ pub(crate) fn meteors(
             DespawnOnExit(AppState::InGame),
         ));
     }
-}
-
-/// A beam from `from` to `to`, the lightning's column laid along it, fading after the
-/// lightning's time: the stand-in of the big demons' lasers (#1853).
-pub(crate) fn beam(commands: &mut Commands, looks: &Looks, from: Vec3, to: Vec3) {
-    let along = to - from;
-    let Some(direction) = along.try_normalize() else {
-        return;
-    };
-    commands.spawn((
-        Mesh3d(looks.column.clone()),
-        MeshMaterial3d(looks.lightning.clone()),
-        Transform::from_translation((from + to) / 2.0)
-            .with_rotation(Quat::from_rotation_arc(Vec3::Y, direction))
-            .with_scale(Vec3::new(0.5, along.length() / 400.0, 0.5)),
-        Fades(LIGHTNING_SHOWS),
-        DespawnOnExit(AppState::InGame),
-    ));
 }
 
 /// The scatter of the thorns about their centre along each axis: the first offset and how many
@@ -2340,6 +2290,20 @@ fn strike(
                     })
                 })
             };
+            // Its laser beam from its ball, 45 over its point, to the target's neck, as far as
+            // its line reaches (`0x5B0259`, `beams`, #2119).
+            if let Some(&(target, _)) = picked {
+                crate::beams::lay(
+                    &mut commands,
+                    (
+                        crate::beams::End::At(
+                            transform.translation + Vec3::Y * 45.0 * crate::iso::MODEL_SCALE,
+                        ),
+                        crate::beams::End::neck(target),
+                    ),
+                    opensacred_rules::particles::LASER_BEAM,
+                );
+            }
             if let (Some(&(target, _)), Some(damages)) = (picked, aura.damages)
                 && reaches(target)
             {
@@ -3505,7 +3469,6 @@ impl Plugin for SpellsPlugin {
         app.add_message::<Acts>()
             .add_observer(killed)
             .insert_resource(Dice(crate::seed::dice(64)))
-            .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
                 (

@@ -1273,8 +1273,17 @@ fn make(
                     continue;
                 }
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
-                // Her beam's line to it, which a cell it may not pass cuts short, the bite's hold
-                // and drain with it (`0x510140`, `0x604030`, #2123).
+                // Her beam from her spine to its (`beams`, #2119), whose line, which a cell it may
+                // not pass cuts short, the bite's hold and drain go with (`0x510140`, `0x604030`,
+                // #2123).
+                crate::beams::lay(
+                    &mut commands,
+                    (
+                        crate::beams::End::spine(hero),
+                        crate::beams::End::spine(playing.target),
+                    ),
+                    opensacred_rules::particles::BITE_BEAM,
+                );
                 if let (Some(record), Ok((_, at, mind, health))) =
                     (record, creatures.get(playing.target))
                     && mind.hostile()
