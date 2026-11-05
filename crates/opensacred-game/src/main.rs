@@ -93,6 +93,7 @@ mod inventory;
 mod iso;
 mod journal;
 mod labels;
+mod lava_bursts;
 mod lens_creatures;
 mod light_blades;
 mod lightning_strikes;
@@ -490,6 +491,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         inventory::InventoryPlugin,
         journal::JournalPlugin,
         labels::LabelsPlugin,
+        lava_bursts::LavaBurstsPlugin,
         light_blades::LightBladesPlugin,
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,

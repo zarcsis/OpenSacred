@@ -4420,6 +4420,218 @@ impl GroundFire {
     }
 }
 
+/// The lava bursts' sound (`LAVABURST`, `0x79F2E5`), the chance in per cent that a cell of deep
+/// lava drawn makes one (`0x41AF60`), and the seconds after one before the next may come.
+pub const LAVA_BURST_SOUND: u32 = 206;
+const LAVA_BURST_CHANCE: f32 = 0.3;
+pub const LAVA_BURST_COOLDOWN: f32 = 1.0;
+/// A burst's glow at its rock (`0x79F12A`, the style 5 of [`METEOR_GLOW_TEXTURE`]) and its trail's
+/// texture.
+pub const LAVA_GLOW_HALF: f32 = 30.0;
+pub const LAVA_GLOW_COLOUR: [f32; 4] = [128.0 / 255.0, 53.0 / 255.0, 10.0 / 255.0, 1.0];
+/// Its particles at most (`0x5A0C50`).
+const LAVA_BURST_COUNT: usize = 100;
+
+/// Whether a liquid cell of the material `material` and the corner heights `heights` is deep
+/// lava (`0x62B680`): of the materials 4 to 6 (`a_lava`, `b_lava`, `c_lava`) and every corner's
+/// bed 2 or more below the surface; the cells about it must be liquid too.
+pub fn deep_lava(material: u8, heights: [i8; 4]) -> bool {
+    (4..=6).contains(&material) && heights.iter().all(|&height| height <= -2)
+}
+
+/// Whether a cell of deep lava drawn makes a burst, by a roll of `rand()` on `dice`
+/// (`0x41AF60`): its share of 100 below 0.3.
+pub fn lava_bursts(dice: &mut impl Dice) -> bool {
+    let roll = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+    roll * 100.0 < LAVA_BURST_CHANCE
+}
+
+/// A lava burst, `cParticleSystem_lavaburst` (`FX_LAVABURST`, 877, its start `0x79F160`, its run
+/// `0x79EEE0` and its draw `0x79EFB0`; docs/re/effects.md, "The lava bursts"), of the variant 0:
+/// a rock of lava ([`METEOR_MODEL`] in [`METEOR_TEXTURE`], [`METEOR_SCALE`] times its size,
+/// turned about two axes at 2 to 4 radians a second each) thrown from the lava in an arc (the
+/// object's flag 8): toward a heading at random, 150 to 250 away, as high as 80 to 180 at its
+/// middle, in 1.7 to 2.5 s (its share of the way rising by 0.4 to 0.6 a second); a glow at it and
+/// a trail of glows every 0.02 s within 1 of it, of a size of 5 ± 2 shrinking by 10 a second,
+/// living 1.275 s, added by their alpha in a dim orange fading to black. Landed, it lays a small
+/// fire there ([`LavaFlames`]) and ends with its trail.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LavaBurst {
+    pub system: System,
+    /// Its rock's two angles and their speeds (`+0x252C` to `+0x2538`).
+    pub turns: [f32; 2],
+    spins: [f32; 2],
+    /// Its share of the way (`+0xA8`), its rate, the arc's height and the way's end in its frame.
+    share: f32,
+    rate: f32,
+    height: f32,
+    end: [f32; 3],
+    /// Its place in its frame, set at each run for the next one's emission.
+    place: [f32; 3],
+    landing: bool,
+    landed: bool,
+}
+
+impl LavaBurst {
+    /// A burst from its frame's origin, its arc and its rock's spins rolled on `dice` (`0x5A3C88`,
+    /// `0x79F1E7`).
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let mut unit = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        let height = unit() * 100.0 + 80.0;
+        let rate = unit() * 0.2 + 0.4;
+        let heading = unit() * std::f32::consts::TAU;
+        let distance = unit() * 100.0 + 150.0;
+        let spins = [unit() * 2.0 + 2.0, unit() * 2.0 + 2.0];
+        let (sin, cos) = heading.sin_cos();
+        Self {
+            system: System::new(LAVA_BURST_COUNT),
+            turns: [0.0; 2],
+            spins,
+            share: 0.0,
+            rate,
+            height,
+            end: [cos * distance, sin * distance, 0.0],
+            place: [0.0; 3],
+            landing: false,
+            landed: false,
+        }
+    }
+
+    /// Its trail's ramp (`0x79F180`): at the entry `k` the colour `⌊128·k/256⌋`, `⌊50·k/256⌋`,
+    /// `⌊10·k/256⌋` of 255, opaque.
+    pub fn ramp() -> Ramp {
+        Ramp(std::array::from_fn(|k| {
+            let share = f32::from(u16::try_from(k).unwrap_or(0)) / 256.0;
+            let [red, green, blue] =
+                [128.0_f32, 50.0, 10.0].map(|top| (share * top).floor() / 255.0);
+            [red, green, blue, 1.0]
+        }))
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -200.0,
+            size: -10.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            size: spread(5.0, 2.0),
+            offset: spread([0.0; 3], [1.0; 3]),
+            interval: 0.02,
+            ..Block::default()
+        }
+    }
+
+    /// Its rock's place in its frame: along the way by its share, raised by the arc
+    /// `(1 − 4(s − ½)²)` of its height (`0x5A7108`).
+    pub fn place(&self) -> [f32; 3] {
+        let s = self.share;
+        let lift = (1.0 - (s - 0.5) * (s - 0.5) * 4.0) * self.height;
+        [self.end[0] * s, self.end[1] * s, self.end[2] * s + lift]
+    }
+
+    /// A run of `dt` seconds (`0x79EEE0`, then the object's flag 8 of `0x5A6680`): its trail ages
+    /// and, while it flies, leaves new glows from where its rock was; its rock turns; then its rock
+    /// goes on along the arc, and once its share reaches 1 it lands. Whether it landed this run,
+    /// where a small fire is to be laid at its place ([`Self::place`]).
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) -> bool {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        let from = self.place;
+        let mut lands = false;
+        if !self.landed {
+            if self.landing {
+                self.landed = true;
+                lands = true;
+            } else {
+                self.system.emit_along(
+                    &[Self::block()],
+                    &layers,
+                    LAVA_BURST_COUNT,
+                    (from, from),
+                    dt,
+                    dice,
+                );
+            }
+        }
+        for (turn, spin) in self.turns.iter_mut().zip(self.spins) {
+            *turn += dt * spin;
+        }
+        if !self.landed {
+            self.place = self.place();
+            if self.share >= 1.0 {
+                self.landing = true;
+            }
+            self.share += dt * self.rate;
+        }
+        lands
+    }
+
+    /// Whether its rock flies, drawn with its glow.
+    pub fn flies(&self) -> bool {
+        !self.landed
+    }
+
+    /// Whether it ended: landed and its trail gone.
+    pub fn done(&self) -> bool {
+        self.landed && self.system.particles.is_empty()
+    }
+}
+
+/// The small fire that a lava burst lays where it comes from and where it lands, its texture, its
+/// grid and its flames' colour (`0x79F9B5`, `0xFFFF701A`), and its light.
+pub const LAVA_FLAMES_TEXTURE: &str = "PARTICLE_FIRE02";
+pub const LAVA_FLAMES_GRID: u8 = 4;
+pub const LAVA_FLAMES_COLOUR: [f32; 4] = [1.0, 112.0 / 255.0, 26.0 / 255.0, 1.0];
+pub const LAVA_FLAMES_LIGHT: f32 = 100.0;
+/// Its flames, made at once.
+const LAVA_FLAMES: usize = 5;
+
+/// The small fire of a lava burst, `cParticleSystem_smallfire` of the variant 0 (`FX_SMALLFIRE`,
+/// 878, its start `0x79F970`, its run `0x79F6D0` and its draw `0x79F7D0`): five flames at once
+/// within 5 of its place along the ground's axes, of a size of 20 ± 3 that shrinks by 12 a second,
+/// living until they shrink away, standing on their feet, added by their alpha in their orange,
+/// their 4 × 4 frames played once over their lives; it lights the night by 100 and strikes
+/// nothing (its system's flags 0).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LavaFlames {
+    pub system: System,
+}
+
+impl LavaFlames {
+    /// Its flames, rolled on `dice` (`0x764760` at its clock's 0, the block's burst of 5).
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let block = Block {
+            size: spread(20.0, 3.0),
+            offset: spread([0.0; 3], [5.0, 5.0, 0.0]),
+            ..Block::default()
+        };
+        let mut system = System::new(LAVA_FLAMES);
+        system
+            .particles
+            .extend((0..LAVA_FLAMES).map(|_| born(&block, 0, dice)));
+        Self { system }
+    }
+
+    /// A run of `dt` seconds: its flames age.
+    pub fn update(&mut self, dt: f32) {
+        let layer = Layer {
+            life: -100.0,
+            size: -12.0,
+            ..Layer::default()
+        };
+        self.system.update(dt, &[layer]);
+    }
+
+    /// Whether its flames are gone.
+    pub fn done(&self) -> bool {
+        self.system.particles.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5684,5 +5896,41 @@ mod tests {
         assert!(fire.done());
         assert_eq!(GroundFire::ramp().at(255.0), [0.0; 4]);
         assert_eq!(GroundFire::ramp().at(128.0)[0], 200.0 / 256.0);
+    }
+
+    #[test]
+    fn deep_lava_bursts_throw_a_rock_in_an_arc_that_lays_a_small_fire() {
+        assert!(deep_lava(5, [-10, -5, -2, -30]));
+        assert!(!deep_lava(5, [-10, -5, -1, -30]) && !deep_lava(1, [-10; 4]));
+        assert!(!deep_lava(8, [-10; 4]));
+        let mut dice = Rng::of(4, 8, 877);
+        let mut burst = LavaBurst::new(&mut dice);
+        let mut highest = 0.0_f32;
+        let mut seconds = 0.0;
+        while !burst.update(0.05, &mut dice) {
+            highest = highest.max(burst.place()[2]);
+            seconds += 0.05;
+            assert!(seconds < 3.0);
+        }
+        // 1.7 to 2.5 s up to 80 to 180 high, 150 to 250 away.
+        assert!((1.6..=2.6).contains(&seconds), "{seconds}");
+        assert!((79.0..=181.0).contains(&highest), "{highest}");
+        // Past the way's end by the last run's step, under it a little: the fire goes on the ground.
+        let [x, y, z] = burst.place();
+        assert!(
+            (149.0..=260.0).contains(&x.hypot(y)) && z < 1.0,
+            "{x} {y} {z}"
+        );
+        assert!(!burst.flies() && !burst.done());
+        assert_eq!(
+            LavaBurst::ramp().at(255.0),
+            [127.0 / 255.0, 49.0 / 255.0, 9.0 / 255.0, 1.0]
+        );
+        let mut flames = LavaFlames::new(&mut dice);
+        assert_eq!(flames.system.particles.len(), 5);
+        for _ in 0..40 {
+            flames.update(0.05);
+        }
+        assert!(flames.done());
     }
 }
