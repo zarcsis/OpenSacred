@@ -174,6 +174,7 @@ mod sfx;
 mod shaders;
 mod shadows;
 mod skies;
+mod soulcatchers;
 mod souls;
 mod sound;
 mod sparkles;
@@ -588,6 +589,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
+        soulcatchers::SoulcatchersPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
         sparkles::SparklesPlugin,

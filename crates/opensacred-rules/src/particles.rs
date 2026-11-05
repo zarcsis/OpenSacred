@@ -6779,6 +6779,85 @@ impl SonarRing {
     }
 }
 
+/// The Dark Elf's soulcatcher's twirls' and glow's textures (869, `0x76A6D0`), its particles, its
+/// height over its bone, and its glow's colour `0xFFFFEF80`.
+pub const SOULCATCHER_TEXTURE: &str = "PARTICLE_TWIRL01";
+pub const SOULCATCHER_GLOW_TEXTURE: &str = "PARTICLE_SPARK07";
+const SOULCATCHER_COUNT: usize = 100;
+pub const SOULCATCHER_HIGH: f32 = 40.0;
+pub const SOULCATCHER_GLOW: [f32; 4] = [1.0, 239.0 / 255.0, 128.0 / 255.0, 1.0];
+
+/// The Dark Elf's soulcatcher (869, `cParticleSystem_soulcatcher`, `0x76AA40`, `0x76A860`,
+/// `0x76A960`): twirls spinning 40 over his neck, four in five of a layer added in gold, one in
+/// five of a longer one laid over in black, riding with him; each soul it absorbs swells them by
+/// 20 and lights a pale yellow glow of a half side of twice that, both falling by 13 a second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Soulcatcher {
+    pub system: System,
+    /// The swelling of its last soul (`+0x29B4`).
+    pub pulse: f32,
+}
+
+impl Default for Soulcatcher {
+    fn default() -> Self {
+        Self {
+            system: System::new(SOULCATCHER_COUNT),
+            pulse: 0.0,
+        }
+    }
+}
+
+impl Soulcatcher {
+    /// Its two layers (`+0x28AC`): the gold of the life −500 a second (0.51 s), the black of −250
+    /// (1.02 s).
+    fn layers() -> [Layer; 2] {
+        [-500.0, -250.0].map(|life| Layer {
+            life,
+            ..Layer::default()
+        })
+    }
+
+    /// Its two ramps (`+0x20A4`, `+0x24A4`): the gold (0.977, 0.883, 0.1875) and black, each
+    /// from nothing to its alpha, 0.25 and 0.996, over 128 entries and back to nothing over 128.
+    pub fn ramps() -> [Ramp; 2] {
+        [([0.977, 0.883, 0.1875], 0.25), ([0.0; 3], 0.996)].map(|([r, g, b], alpha)| {
+            Ramp::new(
+                [r, g, b, 0.0],
+                &[([r, g, b, alpha], 128), ([r, g, b, 0.0], 128)],
+            )
+        })
+    }
+
+    /// A run of `dt` seconds, its bone at `at` in the models' frame from the place it rides with
+    /// (`0x76A860`): its twirls age, its blocks' size is its pulse and 20, its pulse falls by 13
+    /// a second, and it makes twirls at 40 over its bone, one every 0.02 s.
+    pub fn update(&mut self, dt: f32, at: [f32; 3], dice: &mut impl Dice) {
+        let layers = Self::layers();
+        self.system.update(dt, &layers);
+        let block = Block {
+            size: spread(self.pulse + 20.0, 8.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            spin: spread(6.0, 2.0),
+            offset: spread([at[0], at[1], at[2] + SOULCATCHER_HIGH], [1.0; 3]),
+            interval: 0.02,
+            ..Block::default()
+        };
+        self.pulse = (self.pulse - 13.0 * dt).max(0.0);
+        self.system
+            .emit(&[block, block], &layers, SOULCATCHER_COUNT, dice);
+    }
+
+    /// A soul absorbed (`+0x74` bit 8): its pulse 20.
+    pub fn absorb(&mut self) {
+        self.pulse = 20.0;
+    }
+
+    /// Its glow's half side while its pulse lasts (`0x762E10` of the style 4): twice its pulse.
+    pub fn glow(&self) -> Option<f32> {
+        (self.pulse > 0.0).then_some(2.0 * self.pulse)
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -9460,5 +9539,32 @@ mod tests {
         );
         ring.update(0.3);
         assert!(ring.done());
+    }
+
+    #[test]
+    fn a_soulcatcher_twirls_over_its_bone_and_swells_at_a_soul() {
+        let mut dice = Rng::of(14, 14, 869);
+        let mut catcher = Soulcatcher::default();
+        for _ in 0..60 {
+            catcher.update(1.0 / 60.0, [0.0, 0.0, 100.0], &mut dice);
+        }
+        // Fifty a second, four in five gold living 0.51 s, one in five black living 1.02 s.
+        let n = catcher.system.particles.len();
+        assert!((25..=40).contains(&n), "{n}");
+        assert!(
+            catcher
+                .system
+                .particles
+                .iter()
+                .all(|p| (p.place[2] - 140.0).abs() <= 1.0 && (12.0..=28.0).contains(&p.size))
+        );
+        assert_eq!(catcher.glow(), None);
+        catcher.absorb();
+        assert_eq!(catcher.glow(), Some(40.0));
+        catcher.update(0.5, [0.0, 0.0, 100.0], &mut dice);
+        assert_eq!(catcher.pulse, 13.5);
+        let [gold, black] = Soulcatcher::ramps();
+        assert_eq!(gold.at(128.0)[3], 0.25);
+        assert_eq!(black.at(128.0)[3], 0.996);
     }
 }

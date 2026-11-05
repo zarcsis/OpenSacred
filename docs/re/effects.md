@@ -1482,6 +1482,26 @@ Its FX event (`0x47`) takes the event's direction and the flag `0x40`, so the bu
 **Seen** 2026-11-05 beside the original: the Wood Elf's bubble of the level 5, an orange ball of vines and green leaves alike in size flying from her hand; in the game her arrow burst it over a chasm, its green puff and the ring spreading on the chasm's floor (the original's arrow struck the goblin before it reached the bubble).
 Not followed: its bush's shadow, its glows' place at its bone's state (taken at its place), the lights (#2106).
 
+## The soulcatcher
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The Dark Elf's soulcatcher, the art 1044 | 869 `FX_SOULCATCHER` | `cParticleSystem_soulcatcher` (`0x8978A0`) | `0x76A6D0`, `0x76AA40`, `0x76A860`, `0x76A960` |
+
+Its FX event (`0x5D`) follows its target, the Dark Elf, at his neck (`0x44CB80`: the bone 3 `Bip01 Neck`, else 0 `__Root`).
+- Its constructor (100 particles) loads `PARTICLE_TWIRL01` and fills two ramps: the gold (0.977, 0.883, 0.1875) from nothing to the alpha 0.25 over 128 entries and back to nothing over 128, and the black from nothing to 0.996 over 128 and back over 128.
+- Its start: its seconds its record's value 0 at the level times the event's factor, the effect 35 keyed by 1044 on its target for them (docs/re/arts.md); two layers of the life −500 a second (0.51 s) and −250 (1.02 s); two blocks alike, of the size 20 ± 8, the angle π ± π, the spin 6 ± 2, the place (0, 0, 40) ± 1 along each axis, one every 0.02 s at the detail 2; its flags `0x204` (the flag 4 its particles riding with its bearer, `0x200` at his bone each frame), no light; `DELF_SOULCATCHER_LOOP` (2068) looping at the volume 0.5.
+- Its run: its twirls age; its blocks' size is its pulse and 20, its pulse falling by 13 a second; while its seconds last it makes twirls, four in five of the first layer and one in five of the second (`0x7687F0`); past them it ends at once, its twirls with it; a soul's signal (its word `+0x74` bit 8) plays `DELF_SOULCATCHER_ABSORP` (2069) once and sets its pulse to 20.
+- Its draw: billboards of `PARTICLE_TWIRL01` of the flags `0x0C` (the ramp's colour, turned), the grid 1, in one batch in their slots' order, the first layer added by its alpha (`SRCALPHA`, `ONE`) and the second laid over (`SRCALPHA`, `INVSRCALPHA`), the blend switched at each change of layer; while its pulse lasts a glow of the style 4 (`PARTICLE_SPARK07` added whole, `0x762E10`), its half side twice the pulse, in `0xFFFFEF80`, 40 over the bone, depth tested.
+- So for its time a cluster of spinning twirls 24 to 56 across hangs 40 over his neck, riding with him, about 30 alive: faint gold, darkened where a black one falls late in the batch; at each soul its twirls swell to twice their size and shrink back over 1.5 s under a pale yellow flash.
+
+`opensacred-game` draws it since #1092 (`soulcatchers`, `opensacred_rules::particles::Soulcatcher`): the soulcatcher's object that `making` hangs at the Dark Elf takes its look, its twirls over his `Bip01 Neck` riding with him, each run of one layer in their order a mesh of its own drawn after the one before (`depth_bias`), untinted by the night; each soul that `souls` absorbs swells them and lights the glow.
+**Seen** 2026-11-05 beside the original: the Dark Elf's soulcatcher of the level 5, a gold vortex over his head alike in its place, its colour and its spiral, a little smaller; the swelling and the flash at a soul in the game.
+Not followed: the order of the twirls' slots, which reuses the dead ones (ours their births'), so that its fully dark moments are rarer.
+In the original a creature's ordinary death makes no soul (780): a goblin killed by the Dark Elf without his soulcatcher started none (the trace of `0x76CD50`), one killed with it one.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).

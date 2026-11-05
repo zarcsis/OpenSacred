@@ -194,13 +194,17 @@ fn home(
     }
 }
 
-/// The soulcatcher's absorption of each soul faded out, at the Dark Elf while its effect holds.
+/// The soulcatcher's absorption of each soul faded out, at the Dark Elf while its effect holds:
+/// its sound, and its twirls' swelling (`soulcatchers`).
 fn absorb(
     mut commands: Commands,
     time: Res<Time>,
     mut fading: Query<(Entity, &mut Fading)>,
     heroes: Query<&Effects, With<Body>>,
-    mut sounds: MessageWriter<crate::sfx::Play>,
+    (mut sounds, mut absorbed): (
+        MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::soulcatchers::Absorbs>,
+    ),
 ) {
     for (entity, mut soul) in &mut fading {
         soul.left -= time.delta_secs();
@@ -217,6 +221,7 @@ fn absorb(
                 at: Some(soul.to),
                 rate: (0.5, crate::sfx::Roll::None),
             });
+            absorbed.write(crate::soulcatchers::Absorbs(soul.to));
         }
     }
 }
