@@ -27,6 +27,7 @@ mod benchmark;
 mod blacksmith;
 mod blast;
 mod blended;
+mod blood_fountains;
 mod bolt_looks;
 mod bolts;
 mod bonus_list;
@@ -417,6 +418,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         blacksmith::BlacksmithPlugin,
         blast::BlastPlugin,
         blended::BlendedPlugin,
+        blood_fountains::BloodFountainsPlugin,
         bolt_looks::BoltLooksPlugin,
         bolts::BoltsPlugin,
         breath::BreathPlugin,

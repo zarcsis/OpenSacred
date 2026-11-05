@@ -61,6 +61,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * `[movies] show` (on by default, as the original's `SHOWMOVIE`) plays the movies that play by themselves: the start's logos, the scripts' and `GameEnd`'s; `[movies] extro` and `extro_underworld`, the original's `SHOWEXTRO` and `SHOWEXTRO_UW`, are written as a campaign's extro plays, and the Extras offer it from then on (#1946).
 * `[gameplay] autosave` (off by default, as the original writes its `AUTOSAVE`) lets the scripts' autosaves save the game as the main quests are done, each into a slot of its own, `saves/GAME01.sav` and on (#1989).
   A run with `--remote`, `--exec`, `--script`, `--screenshot`, `--record` or `--benchmark` plays none by itself whatever `show` says, as a logo or the intro would stand in its way; `movies on|off` sets it for the run.
+* `[gameplay] violence` (off by default, as the installation's `VIOLENCE`) lets the creatures bleed as they die: the blood fountains of docs/re/effects.md (#1964).
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 

@@ -451,23 +451,35 @@ pub(crate) fn bone(
     children: &Query<&Children>,
     (bones, worn): (&Query<(&Name, &GlobalTransform)>, &Worn),
 ) -> Option<Vec3> {
-    let mut found: Option<(usize, Vec3)> = None;
+    bone_entity(root, names, children, (bones, worn))
+        .and_then(|bone| bones.get(bone).ok())
+        .map(|(_, at)| at.translation())
+}
+
+/// The first of `names` among `root`'s descendants, but its worn items' ([`Worn`]).
+pub(crate) fn bone_entity(
+    root: Entity,
+    names: &[&str],
+    children: &Query<&Children>,
+    (bones, worn): (&Query<(&Name, &GlobalTransform)>, &Worn),
+) -> Option<Entity> {
+    let mut found: Option<(usize, Entity)> = None;
     let mut stack = vec![root];
     while let Some(entity) = stack.pop() {
         if entity != root && worn.contains(entity) {
             continue;
         }
-        if let Ok((name, at)) = bones.get(entity)
+        if let Ok((name, _)) = bones.get(entity)
             && let Some(rank) = names.iter().position(|n| *n == name.as_str())
             && found.is_none_or(|(best, _)| rank < best)
         {
-            found = Some((rank, at.translation()));
+            found = Some((rank, entity));
         }
         if let Ok(kids) = children.get(entity) {
             stack.extend(kids.iter());
         }
     }
-    found.map(|(_, at)| at)
+    found.map(|(_, bone)| bone)
 }
 
 /// The distance of `point` from the segment from `from` to `to` (`0x6226B0`).

@@ -1034,6 +1034,32 @@ Read 2026-11-04 for #2006 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #2006 (`summonings`, `opensacred_rules::particles::DemonSummon`): `npcs` makes an entity for each `CreateObj` of 918 at its point and the height of its record's `0x7E`, with its variant, which draws its glows untinted by the night, gives the circle's light and growls once as it is made.
 **Seen** 2026-11-04 beside the original's frames at the same cell and times: alike in size, colours, the circle's way and time and the moving ends; the star, first turned 45° about its middle, lies as the original's since #2072, a point toward the viewer and a side across the screen below its middle.
 
+## The blood fountain
+
+Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's game, its options' "Display of violence" ticked for the check and unticked after it).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| The blood that a creature spurts from a bone | 908 `FX_BLOODFONTAIN` | `cParticleSystem_bloodfontain` | `0x77BD60`, `0x77BA90`, `0x77BB40` |
+
+- **Who makes it.** The death's action (`0x53ECA0`) as the dying clip starts (`0x53F37C`): a creature that bleeds (`0x4281F0`, below), in a roll of `rand() % 101` below 10 (30 with `+0x2B8` bit 1, not read), without `+0x2B7` bit 8 (a follower that rises, docs/re/ai.md), with no dialogue (`+0x245` below 1) and whose master (`+0x251`) is not the local player, calls the maker `0x4E87E0` with its part `+0x574` and 1.
+  The part is rolled as the creature is made, `rand() % 6` (`0x52DFA1`).
+  The maker makes nothing unless `VIOLENCE` is 1 (`0x819FD0`, docs/re/fight.md, "The burst"), the options' "Display of violence", which the GOG installation's `Settings.cfg` holds at 0, and, called with 1, nothing once the creature's `+0xB0` has bit `0x20`.
+  The parts 0 to 4 make the 908 at the bones 20 (`Bip01 Head`), 43 (`Bip01 L UpperArm`), 44 (`Bip01 R UpperArm`), 6 (`Bip01 L Thigh`) and 7 (`Bip01 R Thigh`), setting the bits `0x20`, `0x40`, `0x80`, `0x100` and `0x200` of `+0xB0`, the part 5 none; the part 100, which the sets' bleeding sends at a hit (docs/re/sets.md, M15), one at a bone it rolls.
+  Each sends the FX event `0x78` (its case `0x5A5555` keeps the system at the creature's bone, `+0x38`), its `+0x3C` the creature's gib set (`0x427630`, `items.pak +0x6F`).
+- **Who bleeds** (`0x4281F0`): no creature of the `Creature.pak` class 5 (the undead), none of the gib sets 3 or 4, and none of the types 1 to 7, 46, 52, 53, 55, 63, 74, 88, 100 to 103, 125, 126, 130, 700 and 706, the dragons among them.
+- **Its start** (`0x77BD60`): its strength 1; one layer (the life −180 a second, the size +12) and one block (the buoyancy 45 ± 10, the size 5 ± 3, the angle π ± π, the velocity (0, 0, 35) ± 3 on each axis, the place ± 1 on each axis, every 0.005 s at the detail 2, 1.5 and 2.2 times that below); its ramp by the gib set from (255, 12, 0) at the whole alpha over 124 entries to (165, 3, 0) at 165, over 61 to (138, 0, 0) at 140 and over 71 to nothing, out of 256, the set 1 green ((12, 255, 0), (3, 165, 0), (0, 138, 0)) and the set 2 near black ((12, 12, 0), (3, 3, 0), black); the system's flags `0x200`, no light.
+  It plays `BLEEDING01` (710) or `BLEEDING02` (711), by the truncation of `rand()` / 32767 times just below 2, at the object, at a rate's factor of `0.4 + 0.2·U`.
+- **Its run** (`0x77BA90`): its clock runs, and past 5 s its strength falls by 0.5 a second; at 0 the system ends (its alive flag `+0x20A8`, `0x7C7A40`), its drops with it.
+  The block's velocity is `(35·strength, 0, 0)` turned by the system's orientation (`0x653EA0`), the bone's: the drops leave along the bone's own axis `x`.
+  The particles' update (`0x7645C0`) takes its mode 2: a drop at or below the system's place less its height over the ground dies (its life set to 0), where the mode 0 bounces it; then the steady emission (`0x764760`), up to 400 drops.
+- **Its draw** (`0x77BB40`): its drops as billboards of `particle_dots03` of the flags `0x4C`, of their ramp's colour, turned and tinted by the light at them, laid over the frame by their alpha.
+- **Seen** 2026-11-04 with the violence on: the wolves 588 killed by the driver made the 908 at a few of their deaths (`0x4E87E0` and the start traced); the same option also leaves blood on the ground under the dead and the struck (**hypothesis**: the puddles 903 and 907, `FX_BLOODPUDDLE`, makers not read), which the frames' clutter of corpses kept from comparing with the fountain's drops.
+
+`opensacred-game` makes it since #1964 (`blood_fountains`, `opensacred_rules::particles::{BloodFountain, bleeds}`) under `[gameplay] violence`, off by default as the installation's `VIOLENCE` (docs/10 §3): a creature that dies, but the hero, the hero's followers and those of a dialogue, bleeds by its class, its gib set (`Item::gib_set`) and its type, in one case of ten at the bone of a part that its death rolls rather than its making (the same odds, as a creature that bleeds dies once), with its sound, its drops dying on the ground where it fell.
+**Seen** 2026-11-05 in the game with the violence on: a few of the wolves 588 killed by the console spurted, a jet of red drops from the head or a limb that fell to the ground beside the corpse.
+Not followed: the 30 of `+0x2B8` bit 1, the sets' fountains at a hit (the part 100) and the blood on the ground.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12, and 13 since #2070 (the magic fire, with the pick of a block among three and every particle at the first block's offset); the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886), `FX_FI_SMOKE_*` (812, 813, 876) and `FX_FIRE_MAGIC` (904) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
