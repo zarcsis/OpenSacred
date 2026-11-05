@@ -1493,7 +1493,7 @@ mod tests {
 
     #[test]
     fn an_item_worn_takes_off_the_default_of_its_slot() {
-        let worn = |slot, model: &str| crate::npcs::Held::worn(slot, model.to_owned(), None);
+        let worn = |slot, model: &str| crate::npcs::Held::worn(slot, 0, model.to_owned(), None);
         let models = |hero: &Hero| -> Vec<String> {
             hero.shown().into_iter().map(|held| held.model).collect()
         };

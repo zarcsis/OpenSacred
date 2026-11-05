@@ -619,6 +619,9 @@ impl Mount {
 /// An item an NPC or the hero holds.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Held {
+    /// The item's type, by which its model draws its own glows (`item_glows`); 0 for none.
+    #[serde(default)]
+    pub(crate) item: u32,
     /// The model, relative to the asset directory.
     pub(crate) model: String,
     /// The texture its item names (`+0x08`).
@@ -631,11 +634,12 @@ pub struct Held {
 }
 
 impl Held {
-    /// The item of the model `model` and the texture `texture` worn in the slot `slot` of the
-    /// hero's equipment (#1307): on its back in the slot 17, the wings', else on its skeleton
-    /// (docs/re/equipment.md, "The slots").
-    pub fn worn(slot: u8, model: String, texture: Option<String>) -> Self {
+    /// The item of the type `item`, the model `model` and the texture `texture` worn in the slot
+    /// `slot` of the hero's equipment (#1307): on its back in the slot 17, the wings', else on its
+    /// skeleton (docs/re/equipment.md, "The slots").
+    pub fn worn(slot: u8, item: u32, model: String, texture: Option<String>) -> Self {
         Self {
+            item,
             model,
             texture,
             hand: Hand::Right,
@@ -656,6 +660,7 @@ impl Held {
     /// What its model on its holder is made of ([`Piece`]).
     fn piece(&self) -> Piece {
         Piece {
+            item: self.item,
             model: self.model.clone(),
             texture: self.texture.clone(),
             hand: self.hand,
@@ -669,6 +674,7 @@ impl Held {
 /// shows (`hero::spawn`, #1600).
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Piece {
+    item: u32,
     model: String,
     texture: Option<String>,
     hand: Hand,
@@ -676,6 +682,11 @@ pub struct Piece {
 }
 
 impl Piece {
+    /// Its item's type, 0 for a model of no type (an instrument's).
+    pub fn item(&self) -> u32 {
+        self.item
+    }
+
     /// Its model, relative to the asset directory.
     pub fn model(&self) -> &str {
         &self.model
@@ -3315,13 +3326,14 @@ impl Makers {
         let equipment = equipped
             .iter()
             .zip(hands(&categories))
-            .filter_map(|(&(_, item), hand)| {
+            .filter_map(|(&(id, item), hand)| {
                 let model = self.models.get(&item.name.to_ascii_uppercase())?;
                 let texture = match item.words_08[0] {
                     0 => None,
                     number => self.textures.get(&number).cloned(),
                 };
                 Some(Held {
+                    item: id,
                     model: model.clone(),
                     texture,
                     hand: hand?,
@@ -3898,6 +3910,7 @@ impl Npcs {
         let held = weapon(Hand::Left).or_else(|| weapon(Hand::Right))?;
         let gear = self.gear.get(&held.item)?;
         let model = Held {
+            item: held.item,
             model: gear.model.clone()?,
             texture: gear.texture.clone(),
             hand: held.hand,
@@ -3971,6 +3984,7 @@ impl Npcs {
             .filter_map(|held| {
                 let gear = self.gear.get(&held.item)?;
                 Some(Held {
+                    item: held.item,
                     model: gear.model.clone()?,
                     texture: gear.texture.clone(),
                     hand: held.hand,
@@ -4099,6 +4113,7 @@ fn showcase(gear: &HashMap<u32, Gear>, slots: &[(u8, u32)]) -> (u8, Vec<Held>) {
         }
         if let Some(model) = gear.model.clone() {
             held.push(Held {
+                item,
                 model,
                 texture: gear.texture.clone(),
                 hand,
@@ -4124,6 +4139,7 @@ fn worn_gear(gear: &HashMap<u32, Gear>, worn: &[Worn], holding: &[InHand]) -> Ve
                 return None;
             }
             Some(Held {
+                item: worn.item,
                 model: gear.model.clone()?,
                 texture: gear.texture.clone(),
                 hand: Hand::Right,
@@ -4707,10 +4723,10 @@ pub fn place(
                         InHand::of(gear.iter().map(|&(item, g)| (item, g.category, g.kind)));
                     placement.equipment = gear
                         .iter()
-                        .map(|(_, g)| *g)
                         .zip(hands(&categories))
-                        .filter_map(|(g, hand)| {
+                        .filter_map(|(&(item, g), hand)| {
                             Some(Held {
+                                item,
                                 model: g.model.clone()?,
                                 texture: g.texture.clone(),
                                 hand: hand?,
@@ -9887,6 +9903,7 @@ fn rearm(
             if let Some(model) = &gear.model {
                 equips.push(Equip {
                     piece: Piece {
+                        item,
                         model: model.clone(),
                         texture: gear.texture.clone(),
                         hand,
@@ -9963,6 +9980,7 @@ fn instrument(
         npc.instrument = Some(plays.instrument);
         commands.entity(entity).insert(Equipment(vec![Equip {
             piece: Piece {
+                item: 0,
                 model: model.clone(),
                 texture: texture.clone(),
                 hand: Hand::Right,
@@ -10067,6 +10085,7 @@ mod tests {
     #[test]
     fn a_piece_carried_already_is_taken_out_of_the_equipment_once() {
         let piece = |model: &str, hand| Piece {
+            item: 0,
             model: model.into(),
             texture: None,
             hand,

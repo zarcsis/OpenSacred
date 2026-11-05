@@ -4840,6 +4840,173 @@ impl BurningBone {
     }
 }
 
+/// The texture of an item's lines of glows (`0x40DA80`, the display's `+0xD4`, loaded at
+/// `0x401353`).
+pub const GLOW_LINE_TEXTURE: &str = "PARTICLE_GLOW01";
+
+/// A line of glows that an item draws of its own (`0x5BEE90`, through `0x40DA80`): its glows a
+/// unit of its length, the half side of each, and its colour (`0xAARRGGBB`), added by its alpha
+/// (the source's alpha, the render flag 8 off).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlowLine {
+    pub density: f32,
+    pub half: f32,
+    pub argb: u32,
+}
+
+impl GlowLine {
+    /// Its colour, red, green, blue and alpha.
+    pub fn colour(&self) -> [f32; 4] {
+        argb(self.argb)
+    }
+
+    /// Its glows' points from `a` to `b`: `⌊length · density⌋` of them, at least one, from `a`
+    /// on at even steps, `b` left out.
+    pub fn points(&self, a: [f32; 3], b: [f32; 3]) -> Vec<[f32; 3]> {
+        let step = std::array::from_fn::<f32, 3, _>(|axis| b[axis] - a[axis]);
+        let length = step.iter().map(|d| d * d).sum::<f32>().sqrt();
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a count of glows, truncated as `__ftol` does"
+        )]
+        let count = ((length * self.density) as u32).max(1);
+        let count_f = f64::from(count);
+        (0..count)
+            .map(|k| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a share of the line of 0 to 1"
+                )]
+                let share = (f64::from(k) / count_f) as f32;
+                std::array::from_fn(|axis| a[axis] + step[axis] * share)
+            })
+            .collect()
+    }
+}
+
+/// The segments of an item's line of glows over the first `found` of its bones 15, 16 and 17
+/// (`weapon_fx01` to `weapon_fx03`, `0x5BEE90`): a glow at the first for one, from the first to
+/// the second for two, and on from the second to the third for three; none for none.
+pub fn glow_segments(found: usize) -> &'static [(usize, usize)] {
+    match found {
+        0 => &[],
+        1 => &[(0, 0)],
+        2 => &[(0, 1)],
+        _ => &[(0, 1), (1, 2)],
+    }
+}
+
+/// A glow that an item draws of its own at one of its bones (`0x5BEE90`, through `0x40E2B0`): its
+/// half side, its colour (`0xAARRGGBB`), added whole (the source `ONE`, the render flag 8), and
+/// its texture (the display's `+0xD8` or `+0xE0`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glow {
+    pub half: f32,
+    pub argb: u32,
+    pub texture: &'static str,
+}
+
+impl Glow {
+    /// Its colour, red, green, blue and alpha.
+    pub fn colour(&self) -> [f32; 4] {
+        argb(self.argb)
+    }
+}
+
+/// The bones at which an item's model glows blue, as many of them from the first as it has
+/// (`0x5BE5E0`, the names of `0x401010`): the Seraphim's wings 2 and 4, her lance and her long
+/// swords.
+pub const BLUE_GLOW_BONES: [&str; 10] = [
+    "stdfx_bone01",
+    "stdfx_bone02",
+    "stdfx_bone03",
+    "stdfx_bone04",
+    "stdfx_bone05",
+    "stdfx_bone06",
+    "stdfx_bone07",
+    "stdfx_bone08",
+    "stdfx_bone09",
+    "stdfx_bone10",
+];
+
+/// The glow at each of those bones (`0x5BF433`): of a half side 15, blue, of `PARTICLE_GLOW03`.
+pub const BLUE_GLOW: Glow = Glow {
+    half: 15.0,
+    argb: 0xFF10_80FF,
+    texture: "PARTICLE_GLOW03",
+};
+
+/// The bones at which the wings of the second renderer's effect 9 glitter (`0x5BF540`), and
+/// their glitter's texture (the display's `+0xE0`).
+pub const GLITTER_BONES: [&str; 4] = ["sera03_fx0", "sera03_fx1", "sera03_fx2", "sera03_fx3"];
+pub const GLITTER_TEXTURE: &str = "PARTICLE_SERA03";
+
+/// A glitter's glow at each of those bones and each frame (`0x5BF576`): white, of
+/// `PARTICLE_SERA03`, of a half side of 3 to 4 at random.
+pub fn wings_glitter(dice: &mut impl Dice) -> Glow {
+    Glow {
+        half: share(dice) + 3.0,
+        argb: 0xFFFF_FFFF,
+        texture: GLITTER_TEXTURE,
+    }
+}
+
+/// The type of the Seraphim's staff (`SeraBFG`), the lightsaber's, and the second renderer's
+/// effect of the glittering wings (`Item::model_effect`, `SeraWings05`).
+pub const SERAPHIM_STAFF: u32 = 0xEE1;
+pub const LIGHTSABER: u32 = 0xC00;
+pub const GLITTERING_WINGS: u8 = 9;
+
+/// The Seraphim's staff's line along its bones 15 and 16 (`0x5BF4E6`).
+const SERAPHIM_STAFF_LINE: [GlowLine; 1] = [GlowLine {
+    density: 0.3,
+    half: 15.0,
+    argb: 0x3888_88FF,
+}];
+
+/// The lightsaber's two lines along its bones 15 and 16 (`0x5BF77B`, `0x5BF7CA`): a thin core
+/// and a wide faint halo.
+const LIGHTSABER_LINES: [GlowLine; 2] = [
+    GlowLine {
+        density: 0.8,
+        half: 1.5,
+        argb: 0xFF88_88FF,
+    },
+    GlowLine {
+        density: 0.1,
+        half: 10.0,
+        argb: 0x4088_88FF,
+    },
+];
+
+/// What an item's model draws of its own by its type, besides its element's line
+/// (`crate::arrows::element_line`) and its bones' blue glows ([`BLUE_GLOW_BONES`]): its lines
+/// along its bones 15 and 16, and whether it glitters at its [`GLITTER_BONES`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct OwnGlows {
+    pub lines: &'static [GlowLine],
+    pub glitters: bool,
+}
+
+/// What an item of the type `item` draws of its own (`0x5BEE90`), its weapon record's parent
+/// `parent` (`Weapon.pak +0x24`, 0 for none) and its entry's effect of the second renderer
+/// `effect` (`Item::model_effect`'s kind): the Seraphim's staff's line, the two lines of a
+/// lightsaber, its own type or of that parent (`0x4283C0`), and the glittering wings' glitter.
+pub fn own_glows(item: u32, parent: u32, effect: Option<u8>) -> OwnGlows {
+    let lines: &'static [GlowLine] = if item == SERAPHIM_STAFF {
+        &SERAPHIM_STAFF_LINE
+    } else if item == LIGHTSABER || parent == LIGHTSABER {
+        &LIGHTSABER_LINES
+    } else {
+        &[]
+    };
+    OwnGlows {
+        lines,
+        glitters: effect == Some(GLITTERING_WINGS),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6187,5 +6354,53 @@ mod tests {
             bone.update(0.05, at, &mut dice);
         }
         assert!(bone.done());
+    }
+
+    #[test]
+    fn a_line_of_glows_has_a_glow_a_unit_over_its_density_from_its_start() {
+        let line = GlowLine {
+            density: 0.5,
+            half: 2.0,
+            argb: 0x40FF_8844,
+        };
+        let points = line.points([0.0; 3], [10.0, 0.0, 0.0]);
+        assert_eq!(points.len(), 5);
+        assert_eq!(points[0], [0.0; 3]);
+        assert_eq!(points[4], [8.0, 0.0, 0.0]);
+        // A line of no length still has its one glow.
+        assert_eq!(line.points([1.0; 3], [1.0; 3]), vec![[1.0; 3]]);
+        assert_eq!(
+            line.colour(),
+            [1.0, 136.0 / 255.0, 68.0 / 255.0, 64.0 / 255.0]
+        );
+    }
+
+    #[test]
+    fn a_line_of_glows_runs_over_the_bones_found() {
+        assert!(glow_segments(0).is_empty());
+        assert_eq!(glow_segments(1), &[(0, 0)]);
+        assert_eq!(glow_segments(2), &[(0, 1)]);
+        assert_eq!(glow_segments(3), &[(0, 1), (1, 2)]);
+    }
+
+    #[test]
+    fn the_staff_the_lightsabers_and_the_glittering_wings_draw_their_own() {
+        assert_eq!(own_glows(SERAPHIM_STAFF, 0, None).lines.len(), 1);
+        assert_eq!(own_glows(LIGHTSABER, 0, None).lines.len(), 2);
+        // A type derived from the lightsaber, not one of its model alone.
+        assert_eq!(own_glows(2296, LIGHTSABER, None).lines.len(), 2);
+        assert_eq!(own_glows(3073, 0, None), OwnGlows::default());
+        assert!(own_glows(3111, 0, Some(GLITTERING_WINGS)).glitters);
+        assert!(!own_glows(4018, 0, Some(3)).glitters);
+    }
+
+    #[test]
+    fn a_glitter_is_white_of_a_half_side_of_3_to_4() {
+        let mut low = crate::spawning::Script::new(vec![0]);
+        let mut high = crate::spawning::Script::new(vec![32_767]);
+        assert_eq!(wings_glitter(&mut low).half, 3.0);
+        assert_eq!(wings_glitter(&mut high).half, 4.0);
+        assert_eq!(wings_glitter(&mut low).colour(), [1.0; 4]);
+        assert_eq!(BLUE_GLOW.colour()[2], 1.0);
     }
 }
