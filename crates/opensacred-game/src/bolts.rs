@@ -253,6 +253,15 @@ pub struct Launch {
 /// A bolt in flight: its course, its shooter, its direction on the ground, the level it flies on,
 /// its damages, how long until it leaves, how long it has flown, and whether it hit already (a
 /// BFG's, which flies on harmless).
+/// A bolt that an arrow's passing through bursts, the Wood Elf's bubble (847, `0x797D80`'s
+/// signal 8; #2128).
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct Bubble;
+
+/// The bursting of a [`Bubble`] by an arrow (`arrows`, `0x5BBCD0`).
+#[derive(Message, Debug, Clone, Copy)]
+pub(crate) struct Pops(pub(crate) Entity);
+
 #[derive(Component)]
 struct Flying {
     course: Course,
@@ -451,6 +460,9 @@ fn launch(
             },
             DespawnOnExit(AppState::InGame),
         ));
+        if launched.course.bursts.is_some() {
+            bolt.insert(Bubble);
+        }
         match (system, stand_in) {
             (Some(kind), _) => {
                 let id = bolt.id();
@@ -509,11 +521,12 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    (mut hits, ranks, mut sounds, mut ends): (
+    (mut hits, ranks, mut sounds, mut ends, mut pops): (
         MessageWriter<fight::Hit>,
         Query<&fight::Ranked>,
         MessageWriter<crate::sfx::Play>,
         MessageWriter<crate::bolt_looks::Ended>,
+        MessageReader<Pops>,
     ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
     (shooters, heroes, children, bones, worn): (
@@ -536,6 +549,7 @@ fn fly(
     >,
 ) {
     let dt = time.delta_secs();
+    let popped: Vec<Entity> = pops.read().map(|pops| pops.0).collect();
     for (entity, mut bolt, mut transform, mut visibility) in &mut flying {
         // A bolt that waits leaves its shooter's place as its time comes.
         if bolt.wait > 0.0 {
@@ -584,14 +598,15 @@ fn fly(
             commands.entity(entity).despawn();
             continue;
         }
-        if bolt.flown >= course.life || !heights.passes(cell, bolt.level) {
+        let bursts = popped.contains(&entity);
+        if bursts || bolt.flown >= course.life || !heights.passes(cell, bolt.level) {
             debug!(
                 "bolts: {entity} of {} ends at {:.0},{:.0}",
                 bolt.shooter, ground.x, ground.y
             );
-            // A bubble bursts at a cell it may not pass, striking about it at its factor.
-            // A creature's (#1854) on the hero alone.
-            if let Some((reach, factor)) = course.bursts.filter(|_| bolt.flown < course.life) {
+            // A bubble that an arrow passes through bursts, striking about it at its factor; a
+            // cell that stops it ends it without (#2128). A creature's (#1854) on the hero alone.
+            if let Some((reach, factor)) = course.bursts.filter(|_| bursts) {
                 let here = transform.translation.xz();
                 let burst: Vec<Entity> = if shooters.contains(bolt.shooter) {
                     creatures
@@ -759,6 +774,7 @@ impl Plugin for BoltsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Fire>()
             .add_message::<Launch>()
+            .add_message::<Pops>()
             .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
