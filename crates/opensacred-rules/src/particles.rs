@@ -162,6 +162,17 @@ impl System {
     /// without loss (`0x7645C0`, the mode 0): its vertical velocity turned about where its place
     /// lies at or below it, after its move and before its layer's rates.
     pub fn update_over(&mut self, dt: f32, layers: &[Layer], ground: Option<f32>) {
+        self.run(dt, layers, ground.map(Ground::Bounces));
+    }
+
+    /// [`Self::update`], each particle dying at the height `ground` of the system's frame
+    /// (`0x7645C0`, the mode 2): its life set to 0 where its place lies at or below it, after its
+    /// move and before its layer's rates.
+    pub fn update_to_ground(&mut self, dt: f32, layers: &[Layer], ground: f32) {
+        self.run(dt, layers, Some(Ground::Stops(ground)));
+    }
+
+    fn run(&mut self, dt: f32, layers: &[Layer], ground: Option<Ground>) {
         self.clock += dt;
         for particle in &mut self.particles {
             let Some(layer) = layers.get(usize::from(particle.layer)) else {
@@ -265,8 +276,16 @@ fn born(block: &Block, layer: usize, dice: &mut impl Dice) -> Particle {
     }
 }
 
-/// A particle aged by `dt` seconds under the layer `layer`, bouncing at `ground` where given.
-fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<f32>) {
+/// What a particle does at its system's ground (`0x7645C0`'s mode): it bounces without loss (the
+/// mode 0) or it dies (the mode 2).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Ground {
+    Bounces(f32),
+    Stops(f32),
+}
+
+/// A particle aged by `dt` seconds under the layer `layer`, at `ground` where given.
+fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<Ground>) {
     for k in 0..3 {
         particle.place[k] += dt * particle.velocity[k];
     }
@@ -276,8 +295,12 @@ fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<f32>) {
         particle.velocity[k] += fall * layer.wind[k];
     }
     particle.angle += dt * particle.spin;
-    if ground.is_some_and(|ground| particle.place[2] <= ground) {
-        particle.velocity[2] = -particle.velocity[2];
+    match ground {
+        Some(Ground::Bounces(ground)) if particle.place[2] <= ground => {
+            particle.velocity[2] = -particle.velocity[2];
+        }
+        Some(Ground::Stops(ground)) if particle.place[2] <= ground => particle.life = 0.0,
+        _ => {}
     }
     particle.buoyancy += dt * layer.buoyancy;
     particle.life += dt * layer.life;
@@ -4038,6 +4061,164 @@ pub fn hit_sparks(sparks: Sparks, dice: &mut impl Dice) -> Burst {
     }
 }
 
+/// The blood fountain's texture and the sounds of its start (`BLEEDING01` and `02`, `0x77BD60`).
+pub const BLOOD_TEXTURE: &str = "particle_dots03";
+pub const BLOOD_SOUNDS: [u32; 2] = [710, 711];
+/// Its particles at most (`0x5A0C50`).
+const BLOOD_COUNT: usize = 400;
+/// The blood's speed out of its bone at the fountain's whole strength, how long that strength
+/// holds and how fast it falls after (`0x77BA90`).
+const BLOOD_SPEED: f32 = 35.0;
+const BLOOD_HOLDS: f32 = 5.0;
+const BLOOD_FALLS: f32 = 0.5;
+/// The factor of `rand()` / 32767 whose truncation chooses its sound (`0x897D58`, just below 2).
+const BLOOD_SOUND_FACTOR: f32 = f32::from_bits(0x3FFF_DF3B);
+
+/// The bones that a creature's blood fountain may spurt from, by the part that its making rolls
+/// (`+0x574`, `rand() % 6`, `0x52DFA1`), of which the sixth makes none (`0x4E87E0`): the head, the
+/// upper arms and the thighs (the bones 20, 43, 44, 6 and 7).
+pub const BLOOD_BONES: [&str; 5] = [
+    "Bip01 Head",
+    "Bip01 L UpperArm",
+    "Bip01 R UpperArm",
+    "Bip01 L Thigh",
+    "Bip01 R Thigh",
+];
+/// The parts that a making rolls among.
+pub const BLOOD_PARTS: u32 = 6;
+
+/// The types that bleed no blood whatever their class and gib set (`0x4281F0`), the dragons
+/// among them.
+const BLOODLESS: [u32; 23] = [
+    1, 2, 3, 4, 5, 6, 7, 46, 52, 53, 55, 63, 74, 88, 100, 101, 102, 103, 125, 126, 130, 700, 706,
+];
+
+/// Whether a creature of the type `kind`, of the `Creature.pak` class `class` and the gib set
+/// `set` (`items.pak +0x6F`), bleeds (`0x4281F0`): no undead (the class 5), no set of bones (3) nor
+/// of none (4), none of [`BLOODLESS`].
+pub fn bleeds(kind: u32, class: u8, set: u8) -> bool {
+    class != 5 && !matches!(set, 3 | 4) && !BLOODLESS.contains(&kind)
+}
+
+/// Whether a creature that bleeds spurts blood as it dies, by a roll of `rand() % 101` on `dice`
+/// below 10 (`0x53F38F`).
+pub fn spurts_at_death(dice: &mut impl Dice) -> bool {
+    dice.below(101) < 10
+}
+
+/// The sound of a blood fountain's start, by a roll of `rand()` on `dice` (`0x77BFB3`): each of
+/// [`BLOOD_SOUNDS`] at about even odds.
+pub fn blood_sound(dice: &mut impl Dice) -> u32 {
+    let roll = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+    if roll * BLOOD_SOUND_FACTOR < 1.0 {
+        BLOOD_SOUNDS[0]
+    } else {
+        BLOOD_SOUNDS[1]
+    }
+}
+
+/// A creature's blood fountain, `cParticleSystem_bloodfontain` (`FX_BLOODFONTAIN`, 908, its start
+/// `0x77BD60` and its update `0x77BA90`; docs/re/effects.md, "The blood fountain"), which keeps to
+/// its bone: a drop of `particle_dots03` every 0.005 s at the bone, within 1 of it on each axis,
+/// leaving along the bone's axis at 35 times the fountain's strength ± 3 on each axis, of a
+/// buoyancy of 45 ± 10, so that it falls, a size of 5 ± 3 that grows by 12 a second and an angle
+/// of π ± π, living 1.42 s (−180) unless it reaches the ground first, where it dies; its strength
+/// holds at 1 for 5 s, then falls by 0.5 a second, and the fountain ends as it reaches 0. Its
+/// drops stay in the world, laid over the frame by their alpha, turned, of their ramp's colour and
+/// tinted by the light at them (the flags `0x4C`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BloodFountain {
+    pub system: System,
+    pub strength: f32,
+    pub ramp: Ramp,
+}
+
+impl BloodFountain {
+    /// A fountain of the blood of the gib set `set`.
+    pub fn new(set: u8) -> Self {
+        Self {
+            system: System::new(BLOOD_COUNT),
+            strength: 1.0,
+            ramp: Self::blood(set),
+        }
+    }
+
+    /// The blood's ramp by the gib set (the FX event's `+0x3C`, `0x427630`): from its colour at
+    /// the whole alpha over 124 entries to a darker one at 165/256, over 61 to a darker still at
+    /// 140/256 and over 71 to nothing; red, green for the set 1, near black for 2.
+    pub fn blood(set: u8) -> Ramp {
+        let [first, second, third]: [[u8; 2]; 3] = match set {
+            1 => [[12, 255], [3, 165], [0, 138]],
+            2 => [[12, 12], [3, 3], [0, 0]],
+            _ => [[255, 12], [165, 3], [138, 0]],
+        };
+        let colour = |[red, green]: [u8; 2], alpha: f32| {
+            [f32::from(red) / 256.0, f32::from(green) / 256.0, 0.0, alpha]
+        };
+        Ramp::new(
+            colour(first, 1.0),
+            &[
+                (colour(second, 165.0 / 256.0), 124),
+                (colour(third, 140.0 / 256.0), 61),
+                ([0.0; 4], 71),
+            ],
+        )
+    }
+
+    /// Its layer: the life −180 a second, the size +12.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -180.0,
+            size: 12.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block at the detail 2, the drops' velocity `velocity`.
+    fn block(velocity: [f32; 3]) -> Block {
+        Block {
+            buoyancy: spread(45.0, 10.0),
+            size: spread(5.0, 3.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread(velocity, [3.0; 3]),
+            offset: spread([0.0; 3], [1.0; 3]),
+            interval: 0.005,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its bone gone from `from` to `to` in its frame and its axis
+    /// `along` (of length 1), the ground at the height `ground` (`0x77BA90`): its strength falls
+    /// once 5 s have run, its drops age and die on the ground, and new ones leave along the way.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        (from, to): ([f32; 3], [f32; 3]),
+        (along, ground): ([f32; 3], f32),
+        dice: &mut impl Dice,
+    ) {
+        if self.system.clock + dt > BLOOD_HOLDS {
+            self.strength = (self.strength - dt * BLOOD_FALLS).max(0.0);
+        }
+        let velocity = along.map(|axis| axis * self.strength * BLOOD_SPEED);
+        let layers = [Self::layer()];
+        self.system.update_to_ground(dt, &layers, ground);
+        self.system.emit_along(
+            &[Self::block(velocity)],
+            &layers,
+            BLOOD_COUNT,
+            (from, to),
+            dt,
+            dice,
+        );
+    }
+
+    /// Whether it ended: its strength gone (`+0x20A8` 0), its drops with it.
+    pub fn done(&self) -> bool {
+        self.strength <= 0.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5205,5 +5386,52 @@ mod tests {
             Jet::Rests
         );
         assert!((30.0..=100.0).contains(&geyser.clock) && !latch);
+    }
+
+    #[test]
+    fn a_creature_bleeds_by_its_class_its_set_and_its_type() {
+        assert!(bleeds(30, 1, 0) && bleeds(36, 2, 1) && bleeds(44, 3, 2));
+        // No undead, no set of bones nor of none, no dragon.
+        assert!(!bleeds(30, 5, 0) && !bleeds(30, 1, 3) && !bleeds(30, 1, 4));
+        assert!(!bleeds(52, 1, 0) && !bleeds(1, 1, 0));
+    }
+
+    #[test]
+    fn a_blood_fountain_spurts_five_seconds_then_dries_up() {
+        let mut dice = Rng::of(9, 0, 8);
+        let mut fountain = BloodFountain::new(0);
+        assert_eq!(
+            fountain.ramp.at(255.0),
+            [255.0 / 256.0, 12.0 / 256.0, 0.0, 1.0]
+        );
+        let place = ([0.0, 0.0, 50.0], [0.0, 0.0, 50.0]);
+        for _ in 0..50 {
+            fountain.update(0.1, place, ([0.0, 0.0, 1.0], 0.0), &mut dice);
+        }
+        assert_eq!(fountain.strength, 1.0);
+        // A drop every 0.005 s living 1.42 s, unless the ground takes it first.
+        let count = fountain.system.particles.len();
+        assert!((200..=284).contains(&count), "{count}");
+        assert!(fountain.system.particles.iter().all(|p| p.place[2] > 0.0));
+        fountain.update(0.1, place, ([0.0, 0.0, 1.0], 0.0), &mut dice);
+        assert!((fountain.strength - 0.95).abs() < 1e-4);
+        for _ in 0..19 {
+            fountain.update(0.1, place, ([0.0, 0.0, 1.0], 0.0), &mut dice);
+        }
+        assert!(fountain.done());
+    }
+
+    #[test]
+    fn a_blood_fountain_bleeds_the_colour_of_its_set() {
+        assert_eq!(
+            BloodFountain::blood(1).at(255.0)[..2],
+            [12.0 / 256.0, 255.0 / 256.0]
+        );
+        assert_eq!(BloodFountain::blood(2).at(255.0)[..2], [12.0 / 256.0; 2]);
+        assert_eq!(BloodFountain::blood(0).at(0.0), [0.0; 4]);
+        let mut dice = Rng::of(1, 2, 3);
+        let sounds: std::collections::HashSet<u32> =
+            (0..50).map(|_| blood_sound(&mut dice)).collect();
+        assert_eq!(sounds.len(), 2);
     }
 }

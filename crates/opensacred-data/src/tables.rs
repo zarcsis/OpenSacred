@@ -133,6 +133,13 @@ impl Item {
         self.words_14[4]
     }
 
+    /// A creature's gib set at `+0x6F` (docs/02 §6.1), the fourth byte of `words_58[5]`: the
+    /// colour of its blood and of its burst's cloud (`0x427630`), 0 red, 1 green, 2 black, 3 the
+    /// bones', 4 a pale blue.
+    pub fn gib_set(&self) -> u8 {
+        self.words_58[5].to_le_bytes()[3]
+    }
+
     /// The effect that the second model renderer draws on the type's model (`cGranny::renderComplex`
     /// `0x406510`; #1309): its kind 1 to 9, the byte `+0x6E` (the third byte of `words_58[5]`), and
     /// its texture's number, the word `+0x66` (the high half of `words_58[3]`), for a type whose

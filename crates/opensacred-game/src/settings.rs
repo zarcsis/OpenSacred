@@ -136,6 +136,10 @@ pub struct Gameplay {
     /// Whether the scripts' `AutoSave`s save the game (`saves`, #1989), the original's `AUTOSAVE`
     /// of `Settings.cfg`, off as it writes it where the file lacks it (`0x81B6F0`).
     pub autosave: bool,
+    /// Whether the creatures bleed as they die (`blood_fountains`, #1964), the original's
+    /// `VIOLENCE` of `Settings.cfg`, off as the GOG installation's file holds it and as it reads
+    /// where the file lacks it (`0x819FD0`).
+    pub violence: bool,
 }
 
 /// The settings in force: the file's, with the command line's for this run.
@@ -446,7 +450,10 @@ mod tests {
                 extro: true,
                 extro_underworld: true,
             },
-            gameplay: Gameplay { autosave: true },
+            gameplay: Gameplay {
+                autosave: true,
+                violence: true,
+            },
             debug: Panels {
                 overlay: true,
                 log: true,
@@ -464,6 +471,7 @@ mod tests {
                 "movies.extro",
                 "movies.extro_underworld",
                 "gameplay.autosave",
+                "gameplay.violence",
                 "debug.overlay",
                 "debug.log",
             ],
