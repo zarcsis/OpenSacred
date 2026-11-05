@@ -165,8 +165,9 @@ fn run(
         for (half, angle) in poison_twirls(ring.clock).into_iter().flatten() {
             let (sin, cos) = angle.sin_cos();
             let corner = |x: f32, y: f32| {
-                // The models' frame turned about its upright, its y the world's z.
-                ground + Vec3::new(x * cos - y * sin, 0.0, x * sin + y * cos) * half * s
+                // The models' frame turned about its upright.
+                ground
+                    + crate::bolt_looks::world([x * cos - y * sin, x * sin + y * cos, 0.0]) * half
             };
             twirls.push_corners(
                 [

@@ -2802,12 +2802,10 @@ fn disk(
                 .or_else(|| casters.get(whom).ok().map(GlobalTransform::translation));
             if let Some(mut point) = hand {
                 if goal.is_none() {
-                    let mut jitter = || {
-                        (fight_seconds(dice.0.below(0x8000)) / 32_767.0 * 100.0 - 50.0)
-                            * crate::iso::MODEL_SCALE
-                    };
-                    point.x += jitter();
-                    point.z += jitter();
+                    let mut jitter =
+                        || fight_seconds(dice.0.below(0x8000)) / 32_767.0 * 100.0 - 50.0;
+                    let (x, y) = (jitter(), jitter());
+                    point += crate::bolt_looks::world([x, y, 0.0]);
                 }
                 let to = (point - transform.translation).normalize_or_zero();
                 let angle = (heading.dot(to) * 0.9999).clamp(-1.0, 1.0).acos();

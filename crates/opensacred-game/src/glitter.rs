@@ -36,6 +36,13 @@ const PHASE: f32 = 0.1 * RATE;
 /// point (`0x890670`, 0.5; seen: the sparks of this size and spread beside the original's).
 const SPACE: f32 = 2.0;
 
+/// A spark's offset `[across, along, up]` of the glitter's frame in the world: along the effects'
+/// axes on the ground (`iso::fx_axes`) and up, at the glitter's scale (#2072).
+fn space([across, along, up]: [f32; 3]) -> Vec3 {
+    let (x, y) = iso::fx_axes();
+    (x * across + y * along + Vec3::Y * up) * SPACE
+}
+
 /// The meshes of the sparks' coloured squares and of their grey ones.
 #[derive(Resource)]
 struct Meshes([Handle<Mesh>; 2]);
@@ -102,8 +109,7 @@ fn glitters(
         let point = at.translation();
         for spark in glitter(time.elapsed_secs() * RATE + phase, SPARKS) {
             // The glitter's frame, its third coordinate up, at the world's scale.
-            let [across, along, up] = spark.offset;
-            let centre = point + Vec3::new(across, up, along) * SPACE;
+            let centre = point + space(spark.offset);
             let [r, g, b] = spark.colour;
             coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
             grey.push(
@@ -122,8 +128,7 @@ fn glitters(
     {
         let point = crate::stashes::drawn_at(at);
         for spark in &events {
-            let [across, along, up] = spark.offset;
-            let centre = point + Vec3::new(across, up, along) * SPACE;
+            let centre = point + space(spark.offset);
             let [r, g, b] = spark.colour;
             coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
             grey.push(
