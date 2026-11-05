@@ -3,10 +3,10 @@
 //! and 780, `0x5FF7C0`), which flies toward him at `⌊10·t⌋` units a second, `t` its age, and as it
 //! reaches him, nearer than his size and its own, heals him `10 + 30·L` up to his most health
 //! with the effect 30 for 1 s (`opensacred_rules::arts::soul_speed`, `soul_heals`); a soul ends at
-//! a cell that may not be walked on or without him. A glowing ball stands in for its particles,
-//! as the Seraphim's bolts' (#1092).
-//! A soul that reaches him fades and, once its particles are gone, signals his soulcatcher's
-//! object, which plays `DELF_SOULCATCHER_ABSORP` (#1173; [`ABSORBED_AFTER`]).
+//! a cell that may not be walked on or without him. It flies from the creature's feet to his neck
+//! (`0x44CBB0`), its look the creature's figure in sparks (`soul_sparks`, #1092).
+//! A soul that reaches him, or that a cell stops, fades and, once its particles are gone, signals
+//! his soulcatcher's object, which plays `DELF_SOULCATCHER_ABSORP` (#1173; [`ABSORBED_AFTER`]).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{SOUL_REACH, SOUL_SIZE, SOULCATCHER, soul_heals, soul_speed};
@@ -22,9 +22,8 @@ use crate::npcs::Dies;
 use crate::terrain::{Heights, Level};
 use crate::{arrows, paths};
 
-/// How high over the ground a soul flies, in world units (**hypothesis**: about the Dark Elf's
-/// chest, his bone 1).
-const HEIGHT: f32 = 90.0;
+/// The bones a soul flies to (`0x44CBB0` of the bone 3): his neck, else his root.
+const NECK: [&str; 2] = ["Bip01 Neck", "__Root"];
 
 /// How long after a soul reaches him the soulcatcher's object plays its absorption, in seconds:
 /// the soul's particles fade at 250 of their alpha's 255 a second (its state 2, `0x5AE42C`), and
@@ -52,29 +51,6 @@ struct Fading {
     left: f32,
 }
 
-/// The souls' look.
-#[derive(Resource)]
-struct Look(Handle<Mesh>, Handle<StandardMaterial>);
-
-/// Makes the souls' look: a small pale ball (**estimate**).
-fn make_look(
-    mut commands: Commands,
-    meshes: Option<ResMut<Assets<Mesh>>>,
-    materials: Option<ResMut<Assets<StandardMaterial>>>,
-) {
-    let (Some(mut meshes), Some(mut materials)) = (meshes, materials) else {
-        return;
-    };
-    commands.insert_resource(Look(
-        meshes.add(Sphere::new(12.0)),
-        materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.95, 0.9),
-            unlit: true,
-            ..default()
-        }),
-    ));
-}
-
 /// Sends a soul from each creature that dies within [`SOUL_REACH`] of the hero while his
 /// effect 35 holds, of the health that his 1044 at its level in play gives; an undead that rises
 /// again sends none (#1199).
@@ -84,13 +60,12 @@ fn make_look(
 )]
 fn catch(
     mut commands: Commands,
-    look: Option<Res<Look>>,
     arts: Option<Res<HeroArts>>,
     experience: Res<Experience>,
     heroes: Query<(Entity, &Transform, &Body, &Effects)>,
-    dying: Query<(&Transform, &Dies), (Added<Dies>, Without<Body>)>,
+    dying: Query<(Entity, &Transform, &Dies), (Added<Dies>, Without<Body>)>,
 ) {
-    let (Some(look), Some(arts)) = (look, arts) else {
+    let Some(arts) = arts else {
         return;
     };
     let Some((hero, at, body, _)) = heroes
@@ -111,7 +86,7 @@ fn catch(
         return;
     };
     let heals = soul_heals(spell, level.unwrap_or(1));
-    for (place, _) in dying.iter().filter(|(_, dies)| !dies.rises) {
+    for (from, place, _) in dying.iter().filter(|(.., dies)| !dies.rises) {
         if (place.translation - at.translation).xz().length() >= SOUL_REACH {
             continue;
         }
@@ -119,10 +94,10 @@ fn catch(
             "souls: a soul for {hero} of {heals} from {:?}",
             place.translation
         );
+        // It leaves the creature's place at its height (`0x5A46B3`).
         commands.spawn((
-            Mesh3d(look.0.clone()),
-            MeshMaterial3d(look.1.clone()),
-            Transform::from_translation(place.translation + Vec3::Y * HEIGHT),
+            Transform::from_translation(place.translation),
+            crate::soul_sparks::Sparks { from },
             Soul {
                 to: hero,
                 level: body.level(),
@@ -134,14 +109,19 @@ fn catch(
     }
 }
 
-/// Flies each soul toward the hero and heals him as it reaches him (`0x5A7BB2`, `0x5ABD80`'s case
-/// `0x30C`).
+/// Flies each soul toward the hero's neck and heals him as it reaches him (`0x5A7BB2`,
+/// `0x5ABD80`'s case `0x30C`); one that a cell stops fades without healing him (`0x5A7DA8`).
 fn home(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
     mut souls: Query<(Entity, &mut Soul, &mut Transform), Without<Body>>,
     mut heroes: Query<(&Transform, &mut Health, Option<&mut Effects>), With<Body>>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
 ) {
     let dt = time.delta_secs();
     for (entity, mut soul, mut transform) in &mut souls {
@@ -181,16 +161,23 @@ fn home(
             ));
             continue;
         }
-        let step = (soul_speed(soul.age) * dt).min(offset.length());
-        let ground = here + offset.normalize_or_zero() * step;
-        if !heights.walkable_on(paths::cell_of(ground.x, ground.y), soul.level) {
+        let neck = crate::making::bone(soul.to, &NECK, &children, (&bones, &worn))
+            .unwrap_or(at.translation);
+        let way = neck - transform.translation;
+        let step = (soul_speed(soul.age) * dt).min(way.length());
+        let next = transform.translation + way.normalize_or_zero() * step;
+        if !heights.walkable_on(paths::cell_of(next.x, next.z), soul.level) {
             commands.entity(entity).despawn();
+            commands.spawn((
+                Fading {
+                    to: soul.to,
+                    left: ABSORBED_AFTER,
+                },
+                DespawnOnExit(AppState::InGame),
+            ));
             continue;
         }
-        let height = heights
-            .standing(ground.x, ground.y, soul.level)
-            .unwrap_or(transform.translation.y - HEIGHT);
-        transform.translation = Vec3::new(ground.x, height + HEIGHT, ground.y);
+        transform.translation = next;
     }
 }
 
@@ -231,7 +218,7 @@ pub struct SoulsPlugin;
 
 impl Plugin for SoulsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, make_look).add_systems(
+        app.add_systems(
             Update,
             (catch, home, absorb)
                 .chain()

@@ -33,7 +33,8 @@ impl Particle {
 }
 
 /// An emitter layer's rates a second (32 bytes): of the buoyancy, the life (−200 lives 1.275 s),
-/// the size and the angle; the wind its buoyancy carries it by.
+/// the size and the angle; the wind its buoyancy carries it by; and its pull toward the system's
+/// place (`+0x1C`), by which its particles' velocity turns toward it each second.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Layer {
     pub buoyancy: f32,
@@ -41,6 +42,7 @@ pub struct Layer {
     pub size: f32,
     pub angle: f32,
     pub wind: [f32; 3],
+    pub pull: f32,
 }
 
 /// A value and its spread, which adds a uniform `[−spread, spread]`.
@@ -172,6 +174,19 @@ impl System {
         self.run(dt, layers, Some(Ground::Stops(ground)));
     }
 
+    /// [`Self::update`] of a system at `place`, which its layers' pull draws its particles to.
+    pub fn update_toward(&mut self, dt: f32, layers: &[Layer], place: [f32; 3]) {
+        self.clock += dt;
+        for particle in &mut self.particles {
+            let Some(layer) = layers.get(usize::from(particle.layer)) else {
+                particle.life = 0.0;
+                continue;
+            };
+            age(particle, dt, layer, None, Some(place));
+        }
+        self.particles.retain(Particle::alive);
+    }
+
     fn run(&mut self, dt: f32, layers: &[Layer], ground: Option<Ground>) {
         self.clock += dt;
         for particle in &mut self.particles {
@@ -179,7 +194,7 @@ impl System {
                 particle.life = 0.0;
                 continue;
             };
-            age(particle, dt, layer, ground);
+            age(particle, dt, layer, ground, None);
         }
         self.particles.retain(Particle::alive);
     }
@@ -285,7 +300,7 @@ impl System {
             for (axis, shift) in particle.place.iter_mut().zip(shift) {
                 *axis += shift;
             }
-            age(&mut particle, self.clock - self.last, rates, None);
+            age(&mut particle, self.clock - self.last, rates, None, None);
             if particle.alive() {
                 self.particles.push(particle);
             }
@@ -321,8 +336,16 @@ enum Ground {
     Stops(f32),
 }
 
-/// A particle aged by `dt` seconds under the layer `layer`, at `ground` where given.
-fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<Ground>) {
+/// A particle aged by `dt` seconds under the layer `layer`, at `ground` where given, drawn by the
+/// layer's pull toward the system's place `centre` where given: its velocity less `dt` times the
+/// pull along the unit way from the place to it.
+fn age(
+    particle: &mut Particle,
+    dt: f32,
+    layer: &Layer,
+    ground: Option<Ground>,
+    centre: Option<[f32; 3]>,
+) {
     for k in 0..3 {
         particle.place[k] += dt * particle.velocity[k];
     }
@@ -332,6 +355,16 @@ fn age(particle: &mut Particle, dt: f32, layer: &Layer, ground: Option<Ground>) 
         particle.velocity[k] += fall * layer.wind[k];
     }
     particle.angle += dt * particle.spin;
+    if let Some(centre) = centre.filter(|_| layer.pull != 0.0) {
+        let away: [f32; 3] = std::array::from_fn(|k| particle.place[k] - centre[k]);
+        let length = away.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if length >= 1e-7 {
+            let pull = dt * layer.pull / length;
+            for (velocity, away) in particle.velocity.iter_mut().zip(away) {
+                *velocity -= pull * away;
+            }
+        }
+    }
     match ground {
         Some(Ground::Bounces(ground)) if particle.place[2] <= ground => {
             particle.velocity[2] = -particle.velocity[2];
@@ -6858,6 +6891,87 @@ impl Soulcatcher {
     }
 }
 
+/// The souls' texture, colour and particles (780, `cParticleSystem_puzzleSolved`, `0x76C930`): its
+/// corners' `0x00A0FFB0`, drawn whole.
+pub const SOUL_SPARK_TEXTURE: &str = "PARTICLE_SPARK06";
+pub const SOUL_COLOUR: [f32; 4] = [160.0 / 255.0, 1.0, 176.0 / 255.0, 1.0];
+pub const SOUL_SPARKS: usize = 500;
+/// How long a soul's sparks live at most.
+const SOUL_SECONDS: f32 = 10.0;
+
+/// A soul homing on a soulcatcher (780, `0x76CD50`, `0x76C9D0`, `0x76CB10` with the flag
+/// `0x4000`): the dying creature's figure in pale green sparks, one at each of its vertices it
+/// takes, rising and drawn to its place by a pull of 50 that grows by 100 a second, their size 5
+/// shrinking by 2 a second, that rate rising by 0.5 a second to 0; where it arrives or a cell
+/// stops it they stop and fade out in 1.02 s; it ends past 10 s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoulSparks {
+    pub system: System,
+    clock: f32,
+    pull: f32,
+    size: f32,
+    life: f32,
+}
+
+impl SoulSparks {
+    /// A soul of sparks at `points` in the models' frame, the first [`SOUL_SPARKS`] of them
+    /// (`0x767FB0`).
+    pub fn new(points: impl IntoIterator<Item = [f32; 3]>) -> Self {
+        let mut system = System::new(SOUL_SPARKS);
+        system.particles = points
+            .into_iter()
+            .take(SOUL_SPARKS)
+            .map(|place| Particle {
+                place,
+                velocity: [0.0; 3],
+                buoyancy: -50.0,
+                size: 5.0,
+                life: 255.0,
+                angle: 0.0,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+            })
+            .collect();
+        Self {
+            system,
+            clock: 0.0,
+            pull: 50.0,
+            size: -2.0,
+            life: 0.0,
+        }
+    }
+
+    /// A run of `dt` seconds, its place at `centre` in the models' frame: its pull grows by 100 a
+    /// second and its size's rate by 0.5 to 0, and its sparks age, drawn toward its place.
+    pub fn update(&mut self, dt: f32, centre: [f32; 3]) {
+        self.clock += dt;
+        self.pull += 100.0 * dt;
+        self.size = (self.size + 0.5 * dt).min(0.0);
+        let layers = [Layer {
+            life: self.life,
+            size: self.size,
+            pull: self.pull,
+            ..Layer::default()
+        }];
+        self.system.update_toward(dt, &layers, centre);
+    }
+
+    /// Its arrival, or its stop at a cell (`+0x74` bit 2): every spark stops, and they fade at
+    /// 250 a second.
+    pub fn arrive(&mut self) {
+        for spark in &mut self.system.particles {
+            spark.velocity = [0.0; 3];
+        }
+        self.life = -250.0;
+    }
+
+    /// Whether it ended: no spark alive, or past its 10 s.
+    pub fn done(&self) -> bool {
+        self.system.particles.is_empty() || self.clock > SOUL_SECONDS
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -9566,5 +9680,59 @@ mod tests {
         let [gold, black] = Soulcatcher::ramps();
         assert_eq!(gold.at(128.0)[3], 0.25);
         assert_eq!(black.at(128.0)[3], 0.996);
+    }
+
+    #[test]
+    fn a_souls_sparks_stream_to_its_place_and_fade_where_it_arrives() {
+        let points = (0..600u16).map(|k| [f32::from(k % 10), f32::from(k / 10), 0.0]);
+        let mut soul = SoulSparks::new(points);
+        assert_eq!(soul.system.particles.len(), SOUL_SPARKS);
+        let centre = [200.0, 0.0, 90.0];
+        let far = |soul: &SoulSparks| {
+            soul.system
+                .particles
+                .iter()
+                .map(|p| {
+                    let d: [f32; 3] = std::array::from_fn(|k| p.place[k] - centre[k]);
+                    d.iter().map(|v| v * v).sum::<f32>().sqrt()
+                })
+                .fold(0.0, f32::max)
+        };
+        let before = far(&soul);
+        for _ in 0..60 {
+            soul.update(1.0 / 60.0, centre);
+        }
+        // Drawn toward its place, the size shrunk by about 1.75.
+        assert!(far(&soul) < before);
+        let size = soul.system.particles[0].size;
+        assert!((size - (5.0 - 2.0 + 0.25)).abs() < 0.05, "{size}");
+        soul.arrive();
+        assert!(soul.system.particles.iter().all(|p| p.velocity == [0.0; 3]));
+        for _ in 0..62 {
+            soul.update(1.0 / 60.0, centre);
+        }
+        assert!(soul.done());
+    }
+
+    #[test]
+    fn a_layers_pull_turns_its_particles_toward_the_place() {
+        let mut system = System::new(1);
+        system.particles.push(Particle {
+            place: [10.0, 0.0, 0.0],
+            velocity: [0.0; 3],
+            buoyancy: 0.0,
+            size: 1.0,
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+        });
+        let layers = [Layer {
+            pull: 50.0,
+            ..Layer::default()
+        }];
+        system.update_toward(0.1, &layers, [0.0; 3]);
+        assert_eq!(system.particles[0].velocity, [-5.0, 0.0, 0.0]);
     }
 }
