@@ -266,7 +266,7 @@ Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
 | gunfire | 1172 | (1, 1, 1) | 1 | 5 along its shot's way from its place (**hypothesis**) |
 
 `opensacred-game` follows them since #2106 (`fx_lights`) for the systems it draws: the fireball's, the torches' flames', the ground poison's, the lightning strike's, the chain lightning's first bolt's and its impacts', the holy light's, the thorns' plants', the lost souls' and the dryad ghosts', the flying skull's, the fire bolt's, the hell disk's and the demon fire's, each a Bevy point light on the models of its colour and its range, following its system while it moves and taken off with its look.
-Bevy's point light falls by the square of the distance alone, so its intensity matches the fixed function's where that halves (89 of the models' units, the sun's 4,000 lux the whole colour): nearer the effect it is brighter, farther dimmer, and it fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
+Bevy's point light falls by the square of the distance alone, so it stands 89 of the models' units (`1/√0.000125`) over the effect's place, where along that place's plane it falls as the fixed function's, the sun's 4,000 lux its whole colour; it lights the models from above rather than from the effect's place, and fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
 **Seen** 2026-11-05 in the game: a goblin standing in the Wood Elf's thorns, its legs lit green as the original's (#2106's frames).
 Not followed: the device's count of lights and the manager's priorities (every light shines), the demon fire's wobble, and the systems the game does not draw yet.
 
@@ -1628,6 +1628,25 @@ The scripts' `CreateObj` makes them (about 900 in the Seraphim's tree, the secto
 
 `opensacred-game` draws them since #1092 (`dwarf_magics`, `opensacred_rules::particles::DwarfMagic`): each such object of the scripts (`npcs`) twinkles at its place and height and lights the world's table, untinted by the night.
 **Seen** 2026-11-05 beside the original at 4510, 915 (the dark elves' cave, 70,14): in both the blue stars twinkling over the blue crystal lamps, alike in size, colour and count.
+
+## The Daemon's forms
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The Daemon's forms 1097 to 1100 | 1014 `FX_DEMONFORM` | `cParticleSystem_demonform` (`0x898BEC`) | `0x7B1D50`, `0x7B27D0`, `0x7B20F0`, `0x7B2230` |
+
+The Daemon's executor makes the object 1014 at the form's bearer as the form takes hold (`0x51A47B`), its FX event `0x8F` with the variant 3 for 1097 (physical, white), 2 for 1098 (fire, orange), 1 for 1099 (poison, green) and 0 for 1100 (energy, pale blue), and the form's seconds `min(44 + L, 180)` (the event's `+0x48`); its case (`0x5A56D2`) follows the bearer at his head (the bone 20, `Bip01 Head`), the system flag `0x200` putting it there at each frame, its orientation the head bone's.
+- Its constructor (1 particle, never emitted) loads seven ray bursts, each `fx_punk_1` to `3` at random, the streak `fx_demonform_demon`, and its flares' `PARTICLE_FLARE04`; a Direct3D light (`fx_lights`'s table).
+- Its start: its colour by its variant, (116, 190, 255), (107, 255, 128), (255, 170, 101) or white, and its light's (0.5, 0.7, 1), (0.4, 1, 0.5), (1, 0.7, 0.4) or (1, 1, 1); its growth 0; its flags `0x200`, no world light; `DEMON_CAST` (2122) once.
+- Its run: its growth by 0.5 a second to 1; three rings of nine points about its place, the point `i` of the ring `r` at `R·(cos φ, sin φ, E + D·sin(C·φ))`, `R = H + G·sin(F·φ)`, `φ = π·(A·t − i·B/9)`, of the figures (A, B, C, D, E, F, G, H) (2, 0.6, 0.35463, 1.2, −0.7, 1.463, 7, 18), (1.7, 0.5, 0.6351, 1.1, −0.9, 1.946, 5, 16) and (1.5, 0.65, 0.2755, 1.05, −0.78, 1.102, 5.8, 17): each ring a comet's tail along its head's path, turning once a second or so, 11 to 25 about the head and from 12 over it to some 45 under it; its light at the first ring's head; past its seconds it goes at once, and with its form (the effect 60's end, docs/re/arts.md).
+- Its draw, untinted by the night: seven squares of the ray bursts added whole (`ONE`, `ONE`), each of a half side `13·g·(1.5 + 0.5·sin(t + 0.8k))` in the head bone's own plane, turned by `(k − 3)/17` about it, 8 over the head, its colour its light's times `0.2 + 0.3·(1 + sin(2.4t + 1.5k))`; three ribbons of `fx_demonform_demon` added whole along the rings, each point's edges 3 either side across its way and the line of sight (0, −2, −1), its texture's `v` from the head to the tail; three flares of the style 8 of a half side of 8 at the rings' heads, in its colour.
+- So three comets of the form's colour whirl about the Daemon's head and chest, each led by a flare, and a crest of rays in its colour grows over his head over 2 s, pulsing, as long as the form holds.
+
+`opensacred-game` draws it since #1092 (`demon_forms`, `opensacred_rules::particles::DemonForm`): `making` makes the look as a form's effects take hold, at the Daemon's `Bip01 Head`; it goes as his form's effects end, a new form's look taking its place.
+**Seen** 2026-11-05 beside the original: the Daemon's fire and energy forms, the comets whirling in their colour about his head and chest in both, his crest of rays over his head.
+Not followed: the crest in the head bone's own plane, which the game faces to the viewer as the original's frames show it from the front (**estimate**); and its size: the original's crest looks about twice as wide as its code's half side of 13 to 26 (**hypothesis**: the head bone's matrix that turns it carries the model's scale).
 
 ## The arrows' elements
 

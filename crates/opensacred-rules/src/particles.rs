@@ -7477,6 +7477,162 @@ impl DwarfMagic {
     }
 }
 
+/// The Daemon's forms' look's textures (1014, `0x7B1D50`): its crest's three ray bursts, one of
+/// them at random in each of its seven squares, its ribbons' streak and its flares'.
+pub const DEMON_FORM_CRESTS: [&str; 3] = ["FX_PUNK_1", "FX_PUNK_2", "FX_PUNK_3"];
+pub const DEMON_FORM_RIBBON: &str = "FX_DEMONFORM_DEMON";
+pub const DEMON_FORM_FLARE: &str = "PARTICLE_FLARE04";
+/// Its crest's squares and its rings' points.
+pub const DEMON_FORM_SQUARES: usize = 7;
+const DEMON_FORM_POINTS: usize = 9;
+/// Its ribbons' half width and its flares' half side.
+pub const DEMON_FORM_RIBBON_HALF: f32 = 3.0;
+pub const DEMON_FORM_FLARE_HALF: f32 = 8.0;
+/// How high over the head its crest stands.
+pub const DEMON_FORM_CREST_HIGH: f32 = 8.0;
+
+/// Its three rings' figures (`+0x2228`): their heads' turns `A`, their tails' spread `B`, the
+/// periods and the swings of their heights `C`, `D` about `E`, and of their radii `F`, `G` about
+/// `H`.
+const DEMON_FORM_RINGS: [[f32; 8]; 3] = [
+    [2.0, 0.6, 0.354_63, 1.2, -0.7, 1.463, 7.0, 18.0],
+    [1.7, 0.5, 0.635_1, 1.1, -0.9, 1.946, 5.0, 16.0],
+    [1.5, 0.65, 0.275_5, 1.05, -0.78, 1.102, 5.8, 17.0],
+];
+
+/// The Daemon's form's look (1014, `cParticleSystem_demonform`, `0x7B27D0`, `0x7B20F0`,
+/// `0x7B2230`), at his head while a form of 1097 to 1100 holds: three comets of its colour
+/// whirling about him, each a ribbon of nine points along its head's path led by a flare, and a
+/// crest of seven ray bursts fanned over his head, growing over 2 s and pulsing; it goes at once
+/// at its seconds' end.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DemonForm {
+    pub clock: f32,
+    growth: f32,
+    seconds: f32,
+    variant: u8,
+}
+
+impl DemonForm {
+    /// The look of the variant of a form: 3 of 1097, 2 of 1098, 1 of 1099, 0 of 1100
+    /// (`0x51A4EB`).
+    pub fn variant_of(art: u16) -> u8 {
+        match art {
+            1097 => 3,
+            1098 => 2,
+            1099 => 1,
+            _ => 0,
+        }
+    }
+
+    /// The look of `variant` for `seconds` (the event's `+0x48`).
+    pub fn new(variant: u8, seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            growth: 0.0,
+            seconds,
+            variant,
+        }
+    }
+
+    /// Its ribbons' and flares' colour (`+0x20D8`): the energy's pale blue, the poison's green,
+    /// the fire's orange, the physical's white.
+    pub fn colour(&self) -> [f32; 4] {
+        let [r, g, b] = match self.variant {
+            0 => [116, 190, 255],
+            1 => [107, 255, 128],
+            2 => [255, 170, 101],
+            _ => [255, 255, 255],
+        }
+        .map(|c: u8| f32::from(c) / 255.0);
+        [r, g, b, 1.0]
+    }
+
+    /// Its light's colour (`+0x20CC`), and its crest's.
+    pub fn light(&self) -> [f32; 3] {
+        match self.variant {
+            0 => [0.5, 0.7, 1.0],
+            1 => [0.4, 1.0, 0.5],
+            2 => [1.0, 0.7, 0.4],
+            _ => [1.0, 1.0, 1.0],
+        }
+    }
+
+    /// A run of `dt` seconds: it grows by 0.5 a second to 1.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.growth = (self.growth + 0.5 * dt).min(1.0);
+    }
+
+    /// Whether its seconds are over.
+    pub fn done(&self) -> bool {
+        self.clock > self.seconds
+    }
+
+    /// Its ring `r`'s nine points about his head, its head first: each at `R·(cos φ, sin φ,
+    /// E + D·sin(C·φ))`, `R = H + G·sin(F·φ)`, `φ = π·(A·t − i·B/9)`.
+    pub fn ring(&self, r: usize) -> [[f32; 3]; DEMON_FORM_POINTS] {
+        let [a, b, c, d, e, f, g, h] = DEMON_FORM_RINGS.get(r).copied().unwrap_or_default();
+        std::array::from_fn(|i| {
+            let i = f32::from(u8::try_from(i).unwrap_or(0));
+            let phi = std::f32::consts::PI * (a * self.clock - i * b / 9.0);
+            let radius = h + g * (f * phi).sin();
+            [
+                radius * phi.cos(),
+                radius * phi.sin(),
+                radius * (e + d * (c * phi).sin()),
+            ]
+        })
+    }
+
+    /// Its ring `r`'s ribbon: at each point its two edges `3·n` either side, `n` across the way
+    /// to the next point and the line of sight (0, −2, −1), the last point's the one before's.
+    pub fn ribbon(&self, r: usize) -> [([f32; 3], [f32; 3]); DEMON_FORM_POINTS] {
+        let points = self.ring(r);
+        let across = |k: usize| {
+            let (Some(from), Some(to)) = (points.get(k), points.get(k + 1)) else {
+                return [0.0; 3];
+            };
+            let d: [f32; 3] = std::array::from_fn(|j| to[j] - from[j]);
+            let sight = [0.0, -2.0, -1.0];
+            let n = [
+                d[1] * sight[2] - d[2] * sight[1],
+                d[2] * sight[0] - d[0] * sight[2],
+                d[0] * sight[1] - d[1] * sight[0],
+            ];
+            let length = n.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if length < 1e-7 {
+                [0.0; 3]
+            } else {
+                n.map(|v| v / length)
+            }
+        };
+        std::array::from_fn(|k| {
+            let n = across(k.min(DEMON_FORM_POINTS - 2));
+            let p = points[k];
+            let edge =
+                |side: f32| std::array::from_fn(|j| p[j] + side * DEMON_FORM_RIBBON_HALF * n[j]);
+            (edge(1.0), edge(-1.0))
+        })
+    }
+
+    /// Its crest's square `k`: its half side `13·g·(1.5 + 0.5·sin(t + 0.8k))`, its turn
+    /// `(k − 3)/17` about the head's vertical, and its colour's share `0.2 + 0.3·(1 +
+    /// sin(2.4t + 1.5k))` of its light's colour, added whole.
+    pub fn square(&self, k: usize) -> (f32, f32, [f32; 4]) {
+        let k = f32::from(u8::try_from(k).unwrap_or(0));
+        let t = self.clock;
+        let half = 13.0 * self.growth * (1.5 + 0.5 * (t + 0.8 * k).sin());
+        let share = 0.2 + 0.3 * (1.0 + (2.4 * t + 1.5 * k).sin());
+        let [r, g, b] = self.light();
+        (
+            half,
+            (k - 3.0) / 17.0,
+            [r * share, g * share, b * share, 1.0],
+        )
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -10343,5 +10499,43 @@ mod tests {
         let blue = DwarfMagic::new(2);
         assert_eq!(blue.ramp().at(128.0), [0.7, 0.7, 1.0, 1.0]);
         assert_eq!((dwarf_magic_light(1), dwarf_magic_light(2)), (350.0, 400.0));
+    }
+
+    #[test]
+    fn the_daemons_form_whirls_its_comets_and_grows_its_crest() {
+        let mut look = DemonForm::new(DemonForm::variant_of(1098), 45.0);
+        assert_eq!(look.colour(), [1.0, 170.0 / 255.0, 101.0 / 255.0, 1.0]);
+        // At first the crest has no size; grown in 2 s.
+        assert_eq!(look.square(3).0, 0.0);
+        for _ in 0..40 {
+            look.update(0.05);
+        }
+        let (half, turn, colour) = look.square(3);
+        assert!((13.0..=26.0).contains(&half) && turn == 0.0);
+        assert!(colour[0] >= 0.2 && colour[0] <= 0.8);
+        // Each ring's points within its radii, its head turning at A·π a second.
+        for r in 0..3 {
+            for p in look.ring(r) {
+                let radius = (p[0] * p[0] + p[1] * p[1]).sqrt();
+                assert!((10.9..=25.1).contains(&radius), "{radius}");
+            }
+        }
+        let head = look.ring(0)[0];
+        look.update(0.5);
+        let later = look.ring(0)[0];
+        let turned = later[1].atan2(later[0]) - head[1].atan2(head[0]);
+        assert!((turned.rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).abs() < 1e-3);
+        // Its ribbons 6 wide.
+        let (a, b) = look.ribbon(1)[4];
+        let width = a
+            .iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        assert!((width - 6.0).abs() < 1e-3);
+        assert!(!look.done());
+        look.update(43.0);
+        assert!(look.done());
     }
 }
