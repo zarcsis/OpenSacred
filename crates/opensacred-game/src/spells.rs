@@ -1996,7 +1996,11 @@ fn act(
                 }
             }
             spells::HELLFIRE => {
-                let mut made = commands.spawn((
+                // It strikes from its growth's end to its seconds, and lives and sounds while it
+                // shrinks after (#2114).
+                let (strikes, lives) =
+                    spells::hellfire_times(fight_seconds(spells::value(record, 0, act.level)));
+                commands.spawn((
                     Aura {
                         caster: act.caster,
                         follows: None,
@@ -2006,10 +2010,15 @@ fn act(
                         gives: Vec::new(),
                         key: act.spell,
                         level: body.level(),
-                        left: fight_seconds(spells::value(record, 0, act.level)),
-                        cooldown: 0.0,
+                        left: strikes,
+                        cooldown: spells::HELLFIRE_GROWS,
                         strikes: Strikes::OneAtRandom,
                     },
+                    Transform::from_translation(act.point),
+                    DespawnOnExit(AppState::InGame),
+                ));
+                let mut made = commands.spawn((
+                    Fades(lives),
                     Transform::from_translation(act.point),
                     Visibility::Inherited,
                     crate::hums::Hum(DEMON_FIRE_LOOP),
