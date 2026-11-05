@@ -315,6 +315,26 @@ pub const GUST: u16 = 28;
 pub const SHIELD_WALL: u16 = 30;
 pub const SPRING: u16 = 31;
 
+/// The skin of lava that the fire skin's action 6 gives its bearer (`0x78BE10`: the data 10 and
+/// the texture `A_LAVA00`), its overlay state (the event `0x109`, the creature's `+0x60`), which
+/// runs for the action's seconds (`+0x68`, `0x44A520`).
+pub const LAVA_SKIN_STATE: u8 = 10;
+pub const LAVA_SKIN_TEXTURE: &str = "A_LAVA00";
+
+/// The grey by which the skin of lava's pass adds its texture over its bearer's model at `left`
+/// seconds still to run (`0x44AD7B`): `128 + 64·sin(4·left)` truncated, of 255, so that it pulses
+/// between a quarter and three quarters about every 1.6 s.
+pub fn lava_skin_grey(left: f32) -> f32 {
+    let grey = (left * 4.0).sin() * 64.0 + 128.0;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a grey of 64 to 192, truncated as `__ftol` does"
+    )]
+    let grey = grey as u8;
+    f32::from(grey) / 255.0
+}
+
 /// The Dwarf's spells: the greed, the burrowing, the dwarven armour and the dwarven steel.
 pub const GREED: u16 = 55;
 pub const MINES: u16 = 56;
@@ -1318,5 +1338,13 @@ mod tests {
         assert_eq!((fireball_speed(1), fireball_life(1)), (160.0, 2.5));
         assert_eq!((fireball_speed(35), fireball_speed(60)), (500.0, 500.0));
         assert!(made(FIREBALL) && made(REIKI) && !made(6));
+    }
+
+    #[test]
+    fn the_skin_of_lava_pulses_between_a_quarter_and_three_quarters() {
+        assert_eq!(lava_skin_grey(0.0), 128.0 / 255.0);
+        let peak = std::f32::consts::FRAC_PI_8;
+        assert_eq!(lava_skin_grey(peak), 192.0 / 255.0);
+        assert_eq!(lava_skin_grey(3.0 * peak), 64.0 / 255.0);
     }
 }
