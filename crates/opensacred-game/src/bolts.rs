@@ -11,7 +11,8 @@
 //! first alone and goes. The Mage's fireball flies as a bolt too, of its own speed and time by its
 //! level, and strikes every creature it found at its first contact and goes (`making`, #872). The
 //! railgun's, the BFG's, the fireball's and the Daemon's look as the original's systems
-//! (`bolt_looks`, #1092), told of each one's end; a glowing ball stands in for the others'.
+//! (`bolt_looks`, #1092), told of each one's end, the whirlwind's and the fire bolt's as their
+//! trails (`bolt_trails`); a glowing ball stands in for the others'.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};
@@ -31,16 +32,20 @@ use crate::{ai, arrows, iso, paths};
 /// leave a shooter without a hand).
 pub(crate) const HEIGHT: f32 = 80.0;
 
-/// The bones that a bolt of a system's look leaves from, which it keeps the height of (the FX
-/// handler's cases `0x5A52C3`, `0x5A52F1`, `0x5A49D3` and `0x5A5900`, the system flag `0x40`
-/// placing it once at the bone, #2018): the railgun's and the Daemon's bolt the shooter's right
-/// hand (bone 2), the fireball the left (bone 1), the BFG the staff's `weapon_fx01` (bone 15).
-fn bone_of(kind: crate::bolt_looks::Kind) -> &'static [&'static str] {
+/// The bones that a bolt of a system's look leaves from, by its course's look, which it keeps the
+/// height of (the FX handler's cases `0x5A52C3`, `0x5A52F1`, `0x5A49D3` and `0x5A5900`, the
+/// system flag `0x40` placing it once at the bone, #2018): the railgun's and the Daemon's bolt the
+/// shooter's right hand (bone 2), the fireball and the fire bolt the left (bone 1, the event
+/// `0x82`), the BFG the staff's `weapon_fx01` (bone 15), the whirlwind the shooter's root (bone 0,
+/// the event `0x37`); none for a stand-in's.
+fn bone_of(look: usize) -> Option<&'static [&'static str]> {
     use crate::bolt_looks::Kind;
-    match kind {
-        Kind::Railgun | Kind::Emperor => &["Bip01 R Hand"],
-        Kind::Fireball => &["Bip01 L Hand"],
-        Kind::Bfg => &["weapon_fx01"],
+    match (look_of(look), look) {
+        (Some(Kind::Railgun | Kind::Emperor), _) => Some(&["Bip01 R Hand"]),
+        (Some(Kind::Fireball), _) | (None, FIRE_BOLT_LOOK) => Some(&["Bip01 L Hand"]),
+        (Some(Kind::Bfg), _) => Some(&["weapon_fx01"]),
+        (None, WHIRLWIND_LOOK) => Some(&["__Root"]),
+        (None, _) => None,
     }
 }
 
@@ -52,19 +57,21 @@ fn ends_underground(kind: crate::bolt_looks::Kind) -> bool {
     matches!(kind, Kind::Fireball | Kind::Emperor)
 }
 
-/// Where a bolt leaves its shooter `shooter` standing at `at`: at the bone of its system's look,
-/// at whose height it flies on, else [`HEIGHT`] over its place, following the ground.
+/// Where a bolt of the course's look `look` leaves its shooter `shooter` standing at `at`: at
+/// the bone of its system's look ([`bone_of`]), at whose height it flies on, else [`HEIGHT`] over
+/// its place, following the ground.
 fn leaving(
     shooter: Entity,
     at: Vec3,
-    kind: Option<crate::bolt_looks::Kind>,
+    look: usize,
     (children, bones, worn): (
         &Query<&Children>,
         &Query<(&Name, &GlobalTransform)>,
         &crate::making::Worn,
     ),
 ) -> (Vec3, Option<f32>) {
-    kind.and_then(|kind| crate::making::bone(shooter, bone_of(kind), children, (bones, worn)))
+    bone_of(look)
+        .and_then(|names| crate::making::bone(shooter, names, children, (bones, worn)))
         .map_or((at + Vec3::Y * HEIGHT, None), |bone| (bone, Some(bone.y)))
 }
 
@@ -204,8 +211,8 @@ impl Course {
 
     /// The course of the fire bolt of Anducar, his demon and Sharifo (the spell 52's
     /// `FX_SHADDAR_MAGIC`, 922; docs/re/arts.md, "The creatures' own spells"): straight on at 150 a
-    /// second for 2 s, every creature of its first contact, once, its size 0 so 50; the
-    /// fireball's stand-in.
+    /// second for 2 s, every creature of its first contact, once, its size 0 so 50; drawn as its
+    /// trail (`bolt_trails`).
     pub fn fire_bolt() -> Self {
         Self {
             speed: 150.0,
@@ -281,7 +288,8 @@ struct Flying {
 
 /// The stand-ins' meshes and materials, by the course's look: the railgun's, the BFG's, the
 /// Daemon's and the fireball's, which [`look_of`] draws as their systems instead, the
-/// whirlwind's, the ice splinter's, the bubble's and the fire bolt's.
+/// whirlwind's, which [`trail_of`] draws as its trail, the ice splinter's, the bubble's and the
+/// fire bolt's, drawn as its trail too.
 #[derive(Resource)]
 pub(crate) struct Looks(pub(crate) Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
@@ -297,12 +305,25 @@ fn look_of(look: usize) -> Option<crate::bolt_looks::Kind> {
     }
 }
 
-/// The fire bolt's stand-in (922, whose system is not read).
+/// The trail of a course's look (`bolt_trails`): the whirlwind's dust and the fire bolt's smoke.
+fn trail_of(look: usize) -> Option<opensacred_rules::particles::TrailKind> {
+    use opensacred_rules::particles::TrailKind;
+    match look {
+        WHIRLWIND_LOOK => Some(TrailKind::Windstrike),
+        FIRE_BOLT_LOOK => Some(TrailKind::Shaddar),
+        _ => None,
+    }
+}
+
+/// The Mage's whirlwind's look (831).
+const WHIRLWIND_LOOK: usize = 4;
+
+/// The fire bolt's look (922).
 const FIRE_BOLT_LOOK: usize = 7;
 
 /// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
-/// the BFG, a violet one for the Daemon's, an orange one for the fireball and the fire bolt
-/// (**estimate**: the colours of their glows).
+/// the BFG, a violet one for the Daemon's, an orange one for the fireball (**estimate**: the
+/// colours of their glows), and those of the splinters and the bubble.
 fn make_looks(
     mut commands: Commands,
     meshes: Option<ResMut<Assets<Mesh>>>,
@@ -424,14 +445,19 @@ fn launch(
             (None, None) => None,
         };
         let system = look_of(launched.course.look);
-        let stand_in = looks.0.get(launched.course.look).cloned();
-        if system.is_none() && stand_in.is_none() {
+        let trail = trail_of(launched.course.look);
+        let stand_in = looks
+            .0
+            .get(launched.course.look)
+            .filter(|_| trail.is_none())
+            .cloned();
+        if system.is_none() && trail.is_none() && stand_in.is_none() {
             continue;
         }
         let (start, level_at) = leaving(
             launched.shooter,
             at.translation,
-            system,
+            launched.course.look,
             (&children, &bones, &worn),
         );
         debug!(
@@ -462,6 +488,9 @@ fn launch(
         ));
         if launched.course.bursts.is_some() {
             bolt.insert(Bubble);
+        }
+        if let Some(trail) = trail {
+            bolt.insert(crate::bolt_trails::Trail(trail));
         }
         match (system, stand_in) {
             (Some(kind), _) => {
@@ -558,7 +587,7 @@ fn fly(
                 let (start, level_at) = leaving(
                     bolt.shooter,
                     shooter.translation,
-                    bolt.kind,
+                    bolt.course.look,
                     (&children, &bones, &worn),
                 );
                 transform.translation = start;
@@ -794,10 +823,13 @@ mod tests {
     #[test]
     fn the_bolts_leave_from_their_systems_bones() {
         use crate::bolt_looks::Kind;
-        assert_eq!(bone_of(Kind::Railgun), ["Bip01 R Hand"]);
-        assert_eq!(bone_of(Kind::Emperor), ["Bip01 R Hand"]);
-        assert_eq!(bone_of(Kind::Fireball), ["Bip01 L Hand"]);
-        assert_eq!(bone_of(Kind::Bfg), ["weapon_fx01"]);
+        assert_eq!(bone_of(0), Some(&["Bip01 R Hand"][..]));
+        assert_eq!(bone_of(2), Some(&["Bip01 R Hand"][..]));
+        assert_eq!(bone_of(3), Some(&["Bip01 L Hand"][..]));
+        assert_eq!(bone_of(1), Some(&["weapon_fx01"][..]));
+        assert_eq!(bone_of(WHIRLWIND_LOOK), Some(&["__Root"][..]));
+        assert_eq!(bone_of(FIRE_BOLT_LOOK), Some(&["Bip01 L Hand"][..]));
+        assert_eq!(bone_of(5), None);
         // The flag 0x01: the fireball's and the Daemon's end under the ground.
         assert!(ends_underground(Kind::Fireball) && ends_underground(Kind::Emperor));
         assert!(!ends_underground(Kind::Railgun) && !ends_underground(Kind::Bfg));

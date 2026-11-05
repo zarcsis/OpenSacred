@@ -54,10 +54,6 @@ struct Shown {
 
 /// Gives each new trail its look (`0x789E10`, `0x78A170`; `0x7AA980`, `0x7AAC20`): the
 /// whirlwind's dust takes the colour of the ground where it leaves (`0x52507C`, `0x41BA00`).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources as arguments"
-)]
 fn show(
     mut commands: Commands,
     trails: Query<(Entity, &Trail, &Transform), Added<Trail>>,
@@ -72,11 +68,7 @@ fn show(
                 particles::WINDSTRIKE_TEXTURE,
                 AlphaMode::Blend,
             ),
-            TrailKind::Shaddar => (
-                &mut looks.smoke,
-                particles::SHADDAR_TEXTURE,
-                AlphaMode::Add,
-            ),
+            TrailKind::Shaddar => (&mut looks.smoke, particles::SHADDAR_TEXTURE, AlphaMode::Add),
         };
         let material = made
             .get_or_insert_with(|| {
@@ -104,18 +96,18 @@ fn show(
             DespawnOnExit(AppState::InGame),
         ));
         if let Some(material) = material {
-            let mut drawn = shown.with_child((
+            let drawn = (
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material),
                 Transform::IDENTITY,
                 NoFrustumCulling,
-            ));
+            );
             // The dust tinted by the light at it (the flag `0x40`), drawn with the world under
             // the night's pass; the smoke untinted.
-            if matches!(trail.0, TrailKind::Shaddar) {
-                drawn = drawn.insert(RenderLayers::layer(iso::UNTINTED));
-            }
-            let _ = drawn;
+            match trail.0 {
+                TrailKind::Windstrike => shown.with_child(drawn),
+                TrailKind::Shaddar => shown.with_child((drawn, RenderLayers::layer(iso::UNTINTED))),
+            };
         }
         shown.insert(Shown {
             bolt: Some(entity),
