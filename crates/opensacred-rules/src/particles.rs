@@ -5814,6 +5814,216 @@ impl KillerPlant {
     }
 }
 
+/// The tentacles' textures: their tendrils' dots and their runes, `fx_tentacle_rune1` to 15.
+pub const TENTACLE_TEXTURE: &str = "particle_glow01";
+pub const TENTACLE_RUNES: u8 = 15;
+/// The runes an object of the tentacles rolls, one a segment of its rings, each of the 15 at
+/// random (`0x7B0DF0`'s `+0x7CEC`: `rand() % 15 + 1`).
+const RUNE_ROLLS: usize = 50;
+
+/// The name of the tentacles' rune `rune`, 1 to 15.
+pub fn tentacle_rune(rune: u8) -> String {
+    format!("fx_tentacle_rune{rune}")
+}
+
+/// A ring of runes flat on the ground (`0x7638E0`): its inner and outer radius, its segments,
+/// each of the next of its object's runes from the first, and its turn about the vertical.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RuneRing {
+    pub inner: f32,
+    pub outer: f32,
+    pub segments: u16,
+    pub turn: f32,
+}
+
+impl RuneRing {
+    /// Its segments, each its index among its object's runes and its corners in the models'
+    /// frame from its centre, at the angles `θ` from `(i − 1)·2π/n` to `i·2π/n` turned by its
+    /// turn, `(sin θ, cos θ)` times its radii: the inner corner, the outer, the next outer and
+    /// the next inner; the texture's `u` runs along it, its `v` from the outer edge in.
+    pub fn segments(&self) -> Vec<(usize, [[f32; 2]; 4])> {
+        let n = f32::from(self.segments.max(1));
+        let edge = |i: u16, radius: f32| {
+            let angle = std::f32::consts::TAU * f32::from(i) / n - self.turn;
+            [radius * angle.sin(), radius * angle.cos()]
+        };
+        (0..self.segments)
+            .map(|i| {
+                (
+                    usize::from(i),
+                    [
+                        edge(i, self.inner),
+                        edge(i, self.outer),
+                        edge(i + 1, self.outer),
+                        edge(i + 1, self.inner),
+                    ],
+                )
+            })
+            .collect()
+    }
+}
+
+/// An object's runes rolled by `dice`, 1 to 15 each.
+fn runes(dice: &mut impl Dice) -> Vec<u8> {
+    (0..RUNE_ROLLS)
+        .map(|_| u8::try_from(dice.below(u32::from(TENTACLE_RUNES))).unwrap_or(0) + 1)
+        .collect()
+}
+
+/// The four rings of the tentacles' aura about the Daemon (1013 of the variant 0, `0x7B14F0`):
+/// their radii, their segments and their turns in radians a second.
+const AURA_RINGS: [(f32, f32, u16, f32); 4] = [
+    (25.0, 32.0, 17, -0.873_88),
+    (30.0, 39.0, 22, 0.783_45),
+    (37.0, 46.0, 27, -0.543_21),
+    (44.0, 53.0, 32, 0.376_46),
+];
+/// The two rings under a tentacle (1013 of the variant 1), at their full size.
+const TENTACLE_RINGS: [(f32, f32, u16, f32); 2] =
+    [(25.0, 32.0, 17, 0.584_63), (30.0, 39.0, 17, -0.752_35)];
+/// A tentacle's tendrils.
+const TENDRILS: usize = 5;
+
+/// The rings of `rings` at the clock `t`, their radii times `size`.
+fn rune_rings(rings: &[(f32, f32, u16, f32)], t: f32, size: f32) -> Vec<RuneRing> {
+    rings
+        .iter()
+        .map(|&(inner, outer, segments, turn)| RuneRing {
+            inner: inner * size,
+            outer: outer * size,
+            segments,
+            turn: turn * t,
+        })
+        .collect()
+}
+
+/// The tentacles' aura about the Daemon (1013, `FX_DAYOFTHETENTACLE`,
+/// `cParticleSystem_dayofthetentacle` of the variant 0, its constructor `0x7B0DF0`, start
+/// `0x7B1990`, run `0x7B1480` and draw `0x7B14F0`; #1092): four rings of black runes laid over
+/// the ground about his feet by their alpha, turning against each other, for his effect's
+/// seconds and its sink's second, whole until it ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TentacleAura {
+    pub runes: Vec<u8>,
+    clock: f32,
+    left: f32,
+}
+
+impl TentacleAura {
+    /// An aura of `seconds`, its runes rolled by `dice`.
+    pub fn new(seconds: f32, dice: &mut impl Dice) -> Self {
+        Self {
+            runes: runes(dice),
+            clock: 0.0,
+            left: seconds + crate::spells::TENTACLE_SINKS,
+        }
+    }
+
+    /// A run of `dt` seconds.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.left -= dt;
+    }
+
+    /// Whether it ended.
+    pub fn done(&self) -> bool {
+        self.left <= 0.0
+    }
+
+    /// Its rings now.
+    pub fn rings(&self) -> Vec<RuneRing> {
+        rune_rings(&AURA_RINGS, self.clock, 1.0)
+    }
+}
+
+/// A tentacle at a corpse (1013 of the variant 1, `0x7B0DF0`, `0x7B1990`, `0x7B1480`,
+/// `0x7B14F0`; #1092): five tendrils of black dots of [`TENTACLE_TEXTURE`] facing the camera,
+/// each a vine scaled from its foot, `(k/128)·(stem + sways)`, so that its dots crowd at its foot
+/// and it rises 63 high, its foot `0.2·o` and its tip `1.2·o` from the corpse, `o` its offset of
+/// up to 40 along each axis, of the half side `1 + (128 − k)/51.2` from 3.5 to 1, over two rings
+/// of black runes turning against each other, all laid over the scene by their alpha. It stands
+/// whole for its seconds, then sinks for a second, its dots' half sides falling by 3 a second and
+/// its rings shrinking to nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tentacle {
+    pub runes: Vec<u8>,
+    vines: Vec<(Vine, [f32; 2])>,
+    clock: f32,
+    seconds: f32,
+    sink: f32,
+}
+
+impl Tentacle {
+    /// A tentacle that stands `seconds` before it sinks, of the rolls of `dice`: its runes, then
+    /// each tendril's vine and its foot's offset, along y first.
+    pub fn new(seconds: f32, dice: &mut impl Dice) -> Self {
+        let runes = runes(dice);
+        let vines = (0..TENDRILS)
+            .map(|_| {
+                let vine = Vine::new(dice);
+                let y = 80.0 * share(dice) - 40.0;
+                let x = 80.0 * share(dice) - 40.0;
+                (vine, [x, y])
+            })
+            .collect();
+        Self {
+            runes,
+            vines,
+            clock: 0.0,
+            seconds,
+            sink: 0.0,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7B1480`): past its seconds its sink falls by 3 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock > self.seconds {
+            self.sink -= 3.0 * dt;
+        }
+    }
+
+    /// Whether it ended: sunk below −3.
+    pub fn done(&self) -> bool {
+        self.sink < -3.0
+    }
+
+    /// Its rings now, of their full size times `(sink + 3)/3`.
+    pub fn rings(&self) -> Vec<RuneRing> {
+        let size = ((self.sink + 3.0) / 3.0).max(0.0);
+        rune_rings(&TENTACLE_RINGS, self.clock, size)
+    }
+
+    /// Its tendrils' dots, each a centre from the corpse in the models' frame and a half side,
+    /// where that is above 0.
+    pub fn dots(&self) -> Vec<([f32; 3], f32)> {
+        let points = f32::from(VINE_POINTS);
+        let mut dots = Vec::new();
+        for (vine, [ox, oy]) in &self.vines {
+            for k in 0..usize::from(VINE_POINTS) {
+                let index = u16::try_from(k).unwrap_or(0);
+                let half = 1.0 + f32::from(VINE_POINTS - index) / 51.2 + self.sink;
+                if half <= 0.0 {
+                    continue;
+                }
+                let share = f32::from(index) / points;
+                let [x, y, z] = vine.stem(k);
+                let [sx, sy] = vine.sway(k, self.clock);
+                let foot = share + 0.2;
+                dots.push((
+                    [
+                        share * (x + sx) + foot * ox,
+                        share * (y + sy) + foot * oy,
+                        share * z,
+                    ],
+                    half,
+                ));
+            }
+        }
+        dots
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7355,5 +7565,52 @@ mod tests {
         }
         assert!(plant.done() && plant.dots().is_empty());
         assert_eq!(KillerPlant::new(3.0, false, &mut dice).colour, PLANT_BLUE);
+    }
+
+    #[test]
+    fn a_tentacle_stands_its_seconds_over_its_rune_rings_then_sinks_in_a_second() {
+        let mut dice = Rng::of(6, 6, 1013);
+        let mut tentacle = Tentacle::new(1.0, &mut dice);
+        assert_eq!(tentacle.runes.len(), 50);
+        assert!(tentacle.runes.iter().all(|&rune| (1..=15).contains(&rune)));
+        let dots = tentacle.dots();
+        assert_eq!(dots.len(), 5 * 128);
+        assert!((dots[0].1 - 3.5).abs() < 1e-6);
+        // Its tips 63.5 · 127/128 high, its feet within 8 of the corpse.
+        assert!(
+            dots.iter()
+                .all(|&([x, y, z], _)| z < 63.1 && (z > 0.0 || x.abs().max(y.abs()) <= 8.0))
+        );
+        let rings = tentacle.rings();
+        assert_eq!(rings.len(), 2);
+        assert_eq!(
+            (rings[0].inner, rings[1].outer, rings[1].segments),
+            (25.0, 39.0, 17)
+        );
+        let segment = rings[0].segments()[0];
+        assert_eq!(segment.0, 0);
+        assert!((segment.1[0][1] - 25.0).abs() < 1e-4 && (segment.1[1][1] - 32.0).abs() < 1e-4);
+        for _ in 0..45 {
+            tentacle.update(1.0 / 30.0);
+        }
+        assert!(!tentacle.done() && tentacle.rings()[0].inner < 25.0);
+        for _ in 0..30 {
+            tentacle.update(1.0 / 30.0);
+        }
+        assert!(tentacle.done() && tentacle.dots().is_empty());
+        let mut aura = TentacleAura::new(2.0, &mut dice);
+        assert_eq!(
+            aura.rings().iter().map(|ring| ring.segments).sum::<u16>(),
+            98
+        );
+        for _ in 0..85 {
+            aura.update(1.0 / 30.0);
+        }
+        assert!(!aura.done());
+        for _ in 0..6 {
+            aura.update(1.0 / 30.0);
+        }
+        assert!(aura.done());
+        assert_eq!(tentacle_rune(15), "fx_tentacle_rune15");
     }
 }

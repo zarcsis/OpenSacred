@@ -1230,6 +1230,34 @@ The class makes no particle and no model: its plant is drawn of its own geometry
 `opensacred-game` draws it since #1092 (`killer_plants`, `opensacred_rules::particles::{KillerPlant, Vine}`): each thorn of `spells` grows its plant at its standing height, its dots and its glow added, untinted by the night; its Direct3D light, which tints the creatures about it green, is not followed (#2106).
 **Seen** 2026-11-05 beside the original: in both a green vine of white-hot dots with its spurs over a green glow on the ground.
 
+## The tentacles
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Daemon's 65 at the level 5, a goblin killed under it).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The spell 65's aura about the Daemon (the variant 0) and a tentacle at a corpse (the variant 1) | 1013 `FX_DAYOFTHETENTACLE` | `cParticleSystem_dayofthetentacle` (`0x898BB0`) | `0x7B0DF0`, `0x7B1990`, `0x7B1480`, `0x7B14F0` |
+
+- The spell's executor (`0x52829F`) makes the aura at the Daemon, the FX event `0x8E` of the variant 0, which follows his bone 0 (`__Root`, the system's flags `0x200`); his kill under the effect 41 (`0x53382F`) bursts the corpse and makes a tentacle at its place, the variant 1 (docs/re/arts.md).
+- Its constructor makes no particle of use (its 150 never emit), loads `particle_glow01` (`+0x7DB4`) and 50 runes (`+0x7CEC`), each `fx_tentacle_rune<n>` of `n = rand() % 15 + 1`, and rolls five tendrils: each a stem and two sways of the thorns' plant's forms and order ("The thorns' plants"), and a foot's offset `o` (`+0x7CB0`) of `80 U − 40` along y, then along x; the widths (`+0x20B0`) `1 + (128 − k)/51.2`, 3.5 at the foot to about 1.
+- Its start: the variant the event's `+0x38`; the aura for the record's value 0 at the level in seconds, giving a creature that casts it the effect 41 for as long, and silent; the tentacle for its value 1, 10 s, striking (the flags `0x400`) and looping `DEMON_TENTAKEL_LOOP` (docs/re/sound.md).
+- Its run: past its seconds its sink (`+0x20AC`) falls from 0 by 3 a second, and it ends below −3.
+- Its rings (`0x7638E0`, read here): flat on the ground at its place, turned about the vertical by its turn, each segment `i` of `n` a quad between the angles `(i − 1)·2π/n` and `i·2π/n` at `(sin θ, cos θ)` times its inner and outer radii, of the object's `i`-th rune, its `u` along it and its `v` from the outer edge in, in its colour, blended by its alpha (`SRCALPHA`, `INVSRCALPHA`) unless added, no depth written.
+- Its draw of the variant 0: four rings, black and opaque, whole until it ends:
+
+| Ring | Its radii | Its segments | Its turn, radians a second |
+|---|---|---|---|
+| 1 | 25 to 32 | 17 | −0.87388 |
+| 2 | 30 to 39 | 22 | 0.78345 |
+| 3 | 37 to 46 | 27 | −0.54321 |
+| 4 | 44 to 53 | 32 | 0.37646 |
+
+- Its draw of the variant 1, `g = (sink + 3)/3`: two black rings, 25 g to 32 g of 17 segments turning at 0.58463 radians a second and 30 g to 39 g of 17 turning at −0.75235; then for each tendril and each `k` the point `(k/128)·(stem[k] + V[(k − ⌊30 t⌋) mod 128] + W[(k − ⌊27 t⌋) mod 128]) + (k/128 + 0.2)·o` from its place, a black square of `particle_glow01` facing the camera, of the half side `width[k] + sink` where that is above 0, blended by its alpha.
+- So a tentacle is five dark tendrils writhing up to 63 high from within 8 of the corpse, leaning out to within 48, over two rings of black runes turning against each other, all shrinking away over its last second; the aura is four such rings about the Daemon's feet (**hypothesis**: his root bone at his feet).
+
+`opensacred-game` draws both since #1092 (`tentacles`, `opensacred_rules::particles::{Tentacle, TentacleAura, RuneRing}`): each tentacle of `spells` at its corpse, and the aura that `spells` makes as he casts 65, following him for its seconds and its sink's second, laid over the scene in the world's camera.
+**Seen** 2026-11-05 beside the original: in both a ring of black runes about the Daemon's feet, and at the burst goblin's place five black tendrils over their runes.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).

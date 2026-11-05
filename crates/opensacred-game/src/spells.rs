@@ -1519,6 +1519,17 @@ fn act(
             // on him; the fear's five objects about him.
             spells::DOOM | spells::FORCE | spells::TENTACLES => {
                 given.extend(spells::daemons(record, act.level));
+                if act.spell == spells::TENTACLES {
+                    commands.spawn((
+                        TentacleAura {
+                            bearer: act.caster,
+                            seconds: fight_seconds(spells::value(record, 0, act.level)),
+                        },
+                        Transform::from_translation(here),
+                        Visibility::Inherited,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                }
             }
             spells::FEAR => {
                 let fear = spells::fear(record, act.level);
@@ -2606,7 +2617,6 @@ fn killed(
     died: On<Insert<Dies>>,
     mut commands: Commands,
     arts: Option<Res<crate::arts::HeroArts>>,
-    looks: Option<Res<Looks>>,
     dead: Query<(&Dies, &GlobalTransform, Option<&InTheWay>), Without<Body>>,
     mut heroes: Query<(Entity, &mut Effects, Option<&Combat>), With<Body>>,
     mut points: MessageWriter<crate::sfx::PlayAt>,
@@ -2647,7 +2657,7 @@ fn killed(
     };
     let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
     let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers);
-    let mut made = commands.spawn((
+    commands.spawn((
         Aura {
             caster: hero,
             follows: None,
@@ -2661,23 +2671,14 @@ fn killed(
             cooldown: 0.0,
             strikes: Strikes::About,
         },
+        Tentacle {
+            stands: fight_seconds(spells::value(record, 1, level)),
+        },
         Transform::from_translation(at.translation()),
         Visibility::Inherited,
         crate::hums::Hum(TENTACLES_LOOP),
         DespawnOnExit(AppState::InGame),
     ));
-    if let Some(looks) = &looks {
-        made.with_child((
-            Mesh3d(looks.disc.clone()),
-            MeshMaterial3d(looks.discs[6].clone()),
-            Transform::from_scale(Vec3::new(
-                spells::TENTACLE_REACH,
-                2.0,
-                spells::TENTACLE_REACH,
-            ))
-            .with_translation(Vec3::Y * 4.0),
-        ));
-    }
     if !dies.rises {
         commands.entity(died.entity).insert(crate::undead::Bursts);
     }
@@ -2685,6 +2686,22 @@ fn killed(
         "spells: a tentacle rises at {} for {damages:?}",
         died.entity
     );
+}
+
+/// A tentacle at a corpse (1013 of the variant 1, `0x7B1990`): how long it stands before it
+/// sinks; its tendrils and rings rise from it (`tentacles`).
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct Tentacle {
+    pub(crate) stands: f32,
+}
+
+/// The tentacles' aura about the Daemon (1013 of the variant 0, `0x52829F`, `0x7B1990`): whom it
+/// follows and for how long, his effect's seconds; its rings turn about his feet
+/// (`tentacles`), which ends it.
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct TentacleAura {
+    pub(crate) bearer: Entity,
+    pub(crate) seconds: f32,
 }
 
 /// The call of death's value falls with the time to no less than 1 (`0x56373E`); the effects'
