@@ -1030,6 +1030,12 @@ impl Rules {
             + 1.0
     }
 
+    /// The element that a weapon of each kind's most damage `most` shows in hand
+    /// (`crate::arrows::weapon_element`), by the balance's `SpawnWeaponMin` and `SpawnWeaponMax`.
+    pub fn weapon_element(&self, most: [f32; 4]) -> Option<(crate::arrows::Element, f32)> {
+        crate::arrows::weapon_element(most, self.spawn_weapon)
+    }
+
     /// The damages of the four kinds of a dragon's fire on the ground (923, `0x5AF75D`): each
     /// kind's `dragonfire_dmg_*` times one plus a hundredth of the damage multipliers' curve at the
     /// level `skill_2` of the dragon's skill 2, times its level `level` plus 9, truncated and held

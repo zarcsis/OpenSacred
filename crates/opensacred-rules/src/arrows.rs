@@ -400,6 +400,32 @@ pub fn element(most: [f32; 4]) -> Option<(Element, f32)> {
     (share > ELEMENT_SHOWS_ABOVE).then_some((kind, share))
 }
 
+/// The element that a weapon of each kind's most damage `most` (physical, fire, magic, poison; its
+/// record's `+0x24` to `+0x2A`, whole) shows in hand, and its share (`cWeapon3D::toggleVisuals`,
+/// `0x5CDB60`): the largest of the three, larger than both others and than a third of the
+/// physical; the fire's and the poison's share `(v − min/2) / (max/3 − min/2)`, the magic's
+/// `(v − min/3) / (max/4 − min/3)`, `min` and `max` the balance's `SpawnWeaponMin` and
+/// `SpawnWeaponMax`, held to 0 … 1; none where it does not pass [`ELEMENT_SHOWS_ABOVE`].
+pub fn weapon_element(most: [f32; 4], [min, max]: [f32; 2]) -> Option<(Element, f32)> {
+    const THIRD: f32 = 0.333_333_34;
+    let [physical, fire, magic, poison] = most.map(f32::trunc);
+    let third = physical * THIRD;
+    let (kind, share) = if fire > poison && fire > magic && fire > third {
+        let low = min * 0.5;
+        (Element::Fire, (fire - low) / (max * THIRD - low))
+    } else if poison > fire && poison > magic && poison > third {
+        let low = min * 0.5;
+        (Element::Poison, (poison - low) / (max * THIRD - low))
+    } else if magic > poison && magic > fire && magic > third {
+        let low = min * THIRD;
+        (Element::Magic, (magic - low) / (max * 0.25 - low))
+    } else {
+        return None;
+    };
+    let share = share.clamp(0.0, 1.0);
+    (share > ELEMENT_SHOWS_ABOVE).then_some((kind, share))
+}
+
 /// The line of glows that an item of an element draws along its two bones `weapon_fx01` and
 /// `weapon_fx02` (`0x5BEE90`, through `0x40DA80`): the glows a unit of the line, the half side of
 /// each at the share `share`, and its colour, added by its alpha.
@@ -629,6 +655,13 @@ mod tests {
         assert_eq!(element([20.0, 10.0, 10.0, 0.0]), None);
         assert_eq!(element([20.0, 0.0, 0.0, 0.0]), None);
         assert_eq!(element_line(Element::Fire, 0.5).0, 0.5);
+        // In hand: above a third of the physical, by the balance's 25 and 275.
+        let spawn = [25.0, 275.0];
+        let (kind, share) = weapon_element([60.0, 40.0, 0.0, 0.0], spawn).unwrap();
+        assert_eq!(kind, Element::Fire);
+        assert!((share - 27.5 / (275.0 * 0.333_333_34 - 12.5)).abs() < 1e-6);
+        assert_eq!(weapon_element([150.0, 40.0, 0.0, 0.0], spawn), None);
+        assert_eq!(weapon_element([60.0, 14.0, 0.0, 0.0], spawn), None);
         assert_eq!(element_line(Element::Magic, 0.5).1, 5.0);
     }
 }

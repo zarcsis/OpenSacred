@@ -5605,6 +5605,24 @@ fn category(item: &Item) -> u8 {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Wielded(Hand);
 
+impl Wielded {
+    /// Its hand's half of a weapon set, 0 the left and 1 the right, and its equipment's slot, 12
+    /// and 13 (`0x556F50`).
+    pub(crate) fn half(&self) -> usize {
+        match self.0 {
+            Hand::Left => 0,
+            Hand::Right => 1,
+        }
+    }
+
+    pub(crate) fn slot(&self) -> u8 {
+        match self.0 {
+            Hand::Left => 12,
+            Hand::Right => 13,
+        }
+    }
+}
+
 /// The model of an item that a creature wears on its skeleton (`equip`): its wearer, whose bones
 /// its skinned meshes follow ([`bind_worn`]).
 #[derive(Component, Clone, Copy, Debug)]
