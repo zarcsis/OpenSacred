@@ -164,6 +164,7 @@ mod stashes;
 mod statics;
 mod statistics;
 mod steps;
+mod summonings;
 mod tables;
 mod talk;
 mod terrain;
@@ -556,6 +557,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         statistics::StatisticsPlugin,
         steps::StepsPlugin,
+        summonings::SummoningsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
         tooltip::TooltipPlugin,
