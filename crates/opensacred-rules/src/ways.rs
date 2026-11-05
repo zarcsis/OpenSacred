@@ -285,6 +285,29 @@ pub fn straight(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> bool {
     true
 }
 
+/// A laser beam's segment's length over the ground, a cell's (the argument of `0x604030`).
+pub const LASER_SEGMENT: f32 = 53.665_63;
+
+/// The world places that a laser beam's line tests, from `from` to `to` on the ground
+/// (`createLaserbeam`, `0x604030`, #2123): the start of each of its `n` segments, `n` the whole
+/// segments of the distance between the ends' whole places and at least 1, at `from + k·(Δ/n)`
+/// for `k` below `n`, the division a whole one toward 0; the end's own place is not tested.
+pub fn laser_places(from: (f32, f32), to: (f32, f32)) -> Vec<(f32, f32)> {
+    let (fx, fy) = (from.0.trunc(), from.1.trunc());
+    let (dx, dy) = (to.0.trunc() - fx, to.1.trunc() - fy);
+    let length = f64::from(dx).hypot(f64::from(dy));
+    let n = crate::fight::truncated(length / f64::from(LASER_SEGMENT)).max(1);
+    let steps = u16::try_from(n).unwrap_or(u16::MAX);
+    let n = f32::from(steps);
+    let (sx, sy) = ((dx / n).trunc(), (dy / n).trunc());
+    (0..steps)
+        .map(|k| {
+            let k = f32::from(k);
+            (fx + k * sx, fy + k * sy)
+        })
+        .collect()
+}
+
 /// Whether a way leads round the closed cell `closed` from its neighbour `before` to its neighbour
 /// `beyond` through its other neighbours, every one passing `passes`: clockwise round the ring
 /// from `before`, else anticlockwise.
@@ -684,6 +707,22 @@ pub fn stated_word(old: u32, word: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_laser_tests_the_start_of_each_whole_segment_but_not_its_end() {
+        // Three cells and a half off along x: three segments of 62, from the start.
+        assert_eq!(
+            laser_places((100.7, 50.2), (288.0, 50.0)),
+            vec![(100.0, 50.0), (162.0, 50.0), (224.0, 50.0)]
+        );
+        // Nearer than a cell: one segment, the start alone.
+        assert_eq!(laser_places((0.0, 0.0), (20.0, 20.0)), vec![(0.0, 0.0)]);
+        // Backward, the division toward 0.
+        assert_eq!(
+            laser_places((0.0, 0.0), (-110.0, 0.0)),
+            vec![(0.0, 0.0), (-55.0, 0.0)]
+        );
+    }
 
     /// A wall along x = 5 from y = 0 to y = 8, the rest walkable.
     fn wall(cell: Cell) -> bool {

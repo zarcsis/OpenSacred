@@ -767,13 +767,13 @@ fn act(
                 });
             }
             casts::EYE_LASERS => {
-                // Its two beams to the target's place, which land the demon's own strike where a
-                // straight line of cells reaches it (`0x604030`).
+                // Its two beams to the target's place, which land the demon's own strike where
+                // their line reaches it (`0x527392`, `0x604030`, #2123).
                 let Ok(place) = target else {
                     continue;
                 };
-                let reaches = crate::paths::straight(here.xz(), place.xz(), |cell| {
-                    heights.walkable_on(cell, way.level)
+                let reaches = crate::paths::laser_reaches(here, place, |cell| {
+                    heights.passes(cell, way.level)
                 });
                 if let Some(looks) = &looks {
                     crate::spells::beam(

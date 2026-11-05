@@ -2280,7 +2280,7 @@ fn fight_seconds(seconds: u32) -> f32 {
 )]
 fn strike(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, heights): (Res<Time>, Res<crate::terrain::Heights>),
     mut dice: ResMut<Dice>,
     heroes: Query<&GlobalTransform, (With<Body>, Without<Aura>)>,
     mut auras: Query<(Entity, &mut Aura, &mut Transform)>,
@@ -2371,7 +2371,18 @@ fn strike(
                 roll = roll.saturating_sub(w);
                 here
             });
-            if let (Some(&(target, _)), Some(damages)) = (picked, aura.damages) {
+            // Its beam's line from it to the target, which a cell it may not pass cuts short
+            // and the strike with it (`0x5B0259`, `0x604030`, #2123).
+            let reaches = |target: Entity| {
+                creatures.get(target).is_ok_and(|(_, at, ..)| {
+                    crate::paths::laser_reaches(transform.translation, at.translation(), |cell| {
+                        heights.passes(cell, aura.level)
+                    })
+                })
+            };
+            if let (Some(&(target, _)), Some(damages)) = (picked, aura.damages)
+                && reaches(target)
+            {
                 debug!("spells: the hellfire strikes {target} for {damages:?}");
                 hits.write(fight::Hit {
                     attacker: aura.caster,
