@@ -3,7 +3,8 @@
 //! (`opensacred_rules::arrows::element`): a line of glows along its shaft, its bones `weapon_fx01`
 //! and `weapon_fx02` (`0x5BEE90`), and for the fire and the poison sparks along it that ride with
 //! it (`opensacred_rules::particles::ArrowSparks`), the fire lighting the night; all added and
-//! untinted by the night, while the arrow lives.
+//! untinted by the night, while the arrow lives. A weapon in hand shows its own element likewise
+//! (#2089, `opensacred_rules::arrows::weapon_element`), while its model is in the hand.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -16,10 +17,11 @@ use crate::game::{AppState, Data};
 use crate::spawning::Rng;
 use crate::{bolt_looks, daynight, iso};
 
-/// The bones of an arrow's shaft (15 and 16).
+/// The bones of an arrow's shaft or a weapon's line (15 and 16).
 const SHAFT: [&str; 2] = ["weapon_fx01", "weapon_fx02"];
 
-/// An arrow's element and its share, which its shot gives it (`arrows`, `0x5BD2D0`).
+/// An arrow's element and its share, which its shot gives it (`arrows`, `0x5BD2D0`), or a
+/// weapon's in hand, which its values give it ([`wield`]).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Elemental {
     pub element: Element,
@@ -53,7 +55,49 @@ struct Shown {
     meshes: [Handle<Mesh>; 2],
 }
 
-/// Gives each arrow of an element its look, in the camera that draws after the night's pass.
+/// Gives each weapon put into a hand the element of its values (`cWeapon3D::toggleVisuals`,
+/// `0x5CDB60`): a creature's of its arms, the hero's of its weapon set's half for that hand.
+fn wield(
+    mut commands: Commands,
+    wielded: Query<
+        (Entity, &crate::npcs::Wielded, &crate::models::OrderedWith),
+        Added<crate::npcs::Wielded>,
+    >,
+    holders: Query<&crate::npcs::Arms>,
+    sets: Option<Res<crate::sets::WeaponSets>>,
+    (tables, rules): (
+        Option<Res<crate::drops::Tables>>,
+        Option<Res<crate::fight::Rules>>,
+    ),
+) {
+    let (Some(tables), Some(rules)) = (tables, rules) else {
+        return;
+    };
+    for (weapon, hand, holder) in &wielded {
+        // A creature's of its arms, its type's record's where the item maker gave it none; the
+        // hero's, which has none, of its set's half for that hand, else the other half's, where a
+        // weapon of both hands lies in one half and its model in the other hand.
+        let values = match holders.get(holder.0) {
+            Ok(arms) => arms
+                .in_hand(hand.slot())
+                .map(|(item, values)| tables.own_values(&tables.held_item(item, 1, values))),
+            Err(_) => sets.as_ref().and_then(|sets| {
+                let halves = sets.halves.get(sets.selected)?;
+                let [this, other] = [hand.half(), 1 - hand.half()]
+                    .map(|half| halves[half].as_ref().map(|dropped| tables.values(dropped)));
+                this.or(other)
+            }),
+        };
+        if let Some((element, share)) =
+            values.and_then(|v| rules.0.weapon_element(v.damage.map(|[_, most]| most)))
+        {
+            commands.entity(weapon).insert(Elemental { element, share });
+        }
+    }
+}
+
+/// Gives each arrow or weapon of an element its look, in the camera that draws after the night's
+/// pass.
 fn show(
     mut commands: Commands,
     arrows: Query<(Entity, &Elemental, &GlobalTransform), Added<Elemental>>,
@@ -118,9 +162,9 @@ fn show(
     }
 }
 
-/// Runs each arrow's element a frame on at its arrow: its sparks along the shaft the frame swept
-/// (`0x77A650`), riding with the arrow's place (the system's flag 4), and its line of glows from
-/// one bone of the shaft to the other (`0x40DA80`); it goes with its arrow.
+/// Runs each arrow's or weapon's element a frame on at it: its sparks along the shaft the frame
+/// swept (`0x77A650`), riding with its place (the system's flag 4), and its line of glows from one
+/// bone of the shaft to the other (`0x40DA80`); it goes with its arrow or weapon.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -213,7 +257,7 @@ impl Plugin for ArrowElementsPlugin {
             .init_resource::<Material>()
             .add_systems(
                 Update,
-                (show, run)
+                (wield, show, run)
                     .chain()
                     .in_set(Playing)
                     .in_set(Unpaused)
