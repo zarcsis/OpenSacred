@@ -1324,7 +1324,7 @@ By the object (its spell, "The spells' executor" above):
 | 1020 `FX_GRENADEIMPACT` | the Dwarf's 1086 | the event of its damages (`0x5B79F0`, `0x5B7A00`), once |
 | 1154 `FX_DWARF_MINE_SIGN` | 56 | an object 1153 (`FX_DWARF_MINE`) laid at most once a second where none lies within 50 (`0x5B7950` and `0x5B7900` a distance and its inverse) |
 | 1159 `FX_EMPEROR`, 1162 `FX_DRYAD_GHOST`, 1163 to 1167, 1170 | 69 to 72 and the scripts' | the event of their own damages (`FX_DAEMONENFUERST` by its state, `+0x9C` 185 or 250 to 252, one kind each), 1170 `FX_EITERBLUME` 500 of the first kind and 100 of the third |
-| 1156 to 1158 `FX_PONG_…` | | a game of the scripts', not of the fight |
+| 1156 to 1158 `FX_PONG_…` | | a game of the scripts', not of the fight (docs/re/effects.md, "The scripts' Pong") |
 
 **Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1, `arts learn 15`, `arts select 15` and the right button at the feet of a hostile goblin warrior of level 30): its health went from 757 to 715 within a second and to 571 within four, so that `HIMMELSLEUCHTEN` hits again and again over its time (its one object 804 hits once a second, "The Seraphim's spells" below); the immortal goblins' hook of the driver, which tells the strikes of `0x56B130`, told none of these hits.
 Seen again 2026-10-25 with the hook of `0x43EEE0` (#874): the light's hits were 21 of the magic each second, 56.6, 57.6, 58.7, 59.7 and 60.7 s, and the rest of that loss was the goblin's fight with others.

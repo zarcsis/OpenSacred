@@ -984,6 +984,31 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`hell_screams`, `opensacred_rules::particles::HellScream`): each object that `spells` makes gets a look of its own on the ground under it, untinted by the night, its light of 350, fading out after its object goes.
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by day: five tall golden columns of light about him, each over an orange glow, with golden rings spreading from their feet over and over, alike in place, size and colour.
 
+## The scripts' Pong
+
+Read 2026-11-04 for #2008 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game).
+
+| Object | FX type | Class (virtual table) | Its constructor, draw, update, start |
+|---|---|---|---|
+| The hero's bat | 1156 `FX_PONG_BATTER` | `cParticleSystem_pong_batter` (`0x898E54`) | `0x7BBD90`, `0x7BCC60`, `0x7BCBC0`, `0x7BD2C0` |
+| The other bat | 1158 `FX_PONG_BATTER_AI` | the same | the same |
+| The ball | 1157 `FX_PONG_BALL` | `cParticleSystem_pong_ball` (`0x898E7C`) | `0x7BD4C0`, `0x7BD630`, `0x7BD560`, `0x7BD7A0` |
+
+- Every tree's `Sector84080Enter` makes the three on a court of stone in a town's yard: the other bat at the cell (5407, 5133), the ball at (5401, 5147) and the hero's bat at (5406, 5161), the court's rows from 5133 to 5161 and its columns from 5398 to 5419 (the bats' bounds below).
+  So the campaign reaches it, with no quest: a hero that walks into the court plays.
+- Their objects' tick (`0x5A6680`) runs, for the system flag `0x2000`, a step of each type (`0x5ABD80`, the cases `0x484` to `0x486`):
+  - the hero's bat takes the nearest hero of the objects about it (`0x426650`) and, while that hero's cell lies in the columns 5398 to 5419, puts its x at the hero's, and keeps the hero as its holder (`+0x68`);
+  - the other bat puts its x at the ball's within the same columns, so that it never misses (the second hero's in a game of the network);
+  - the ball, nearing a bat (its y within 30 world units of the bat's on the court's side, its x within 80 of the bat's) and going toward it, turns its direction back along y (the hero's bat `+1`, the other `−1`), signals the bat (its action 8) and gives the bat's holder experience of its speed (`0x549520`, `addExperience` `0x57E160`); so the hero earns 250 to 1,000 experience at each ball he returns, and the other bat, of no holder, earns nothing.
+- The ball flies under its flag `0x800000` (`0x5A9152` in `0x5A6680`): its place moves at its speed (`+0x98`) along its direction (`+0x78`); where the cell ahead stops it (`0x636D70`, `0x636D20`) it turns back along the axis of the stopping neighbour, off the court's walls; where it stops outside the rows 5132 to 5162, past a bat, it signals itself (its action 8), goes back to its start (`+0xB8`) and turns its direction by `rand() / 32767 − 0.5` radians (`0x529720`).
+- The ball's start (`0x7BD7A0`): its speed 250, its flags 0 (it stands), a wait (`+0x20AC`) of 1; its run (`0x7BD560`): the wait falls by 0.5 a second, and at 0 the flags `0x802000` set it flying; every 5 s its speed rises by 20, to 1,000 at most; its action 8 stops it again, the wait 1 and the speed 250.
+- The bat's start (`0x7BD2C0`): the flags `0x2000`; its run (`0x7BCBC0`): its action 8 plays `PONG` (16303) at the bat, at a rate's factor of 0.5, and lights it for 1 s (`+0x20A8`).
+- The bat's draw (`0x7BCC60`): a box of twelve lines of `0xFFA0A0FF` (a lilac) about its place (`0x40DA80`) and a strip of 36 vertices of `Fx_dwarf_shield` added whole, whose grey pulses by `sin` of its clock.
+- The ball's draw (`0x7BD630`): while it waits, two flat quads (`0x7631E0`) of `fx_twirl_rays` turning at −1.7 and −1.3 radians a second, of the half sides `100 w²` and `90 w²` (`w` its wait) in `0xFFA0A0FF`; always a flat quad of `PARTICLE_GLOW03` of the half side `2 r` in `0xFF4040FF` (a blue), `r = (1 − w)(7 cos 4t + 35)`, and a glow of the style 6 (`GLOW06`) of the half side `r` 15 up.
+- **Seen** 2026-11-04 at (5398, 5147) and (5406, 5165): the two bats as lilac boxes about four cells long across the court's ends and the ball a blue-white glow between them, the court's walls about it; the hero's experience rose from 0 to 200 as he stood by his bat (**hypothesis** for the amount: a return of the ball scaled by the experience's rule).
+
+`opensacred-game` does not make them yet (#2008).
+
 ## The big demon's summoning
 
 Read 2026-11-04 for #2006 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game).
