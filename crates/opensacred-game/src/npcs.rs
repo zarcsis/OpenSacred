@@ -321,6 +321,9 @@ struct Placement {
     /// A magic bar or barrier of the FX objects (`FX_MAGICPRISON`, 854; `prisons`, #2063), its
     /// height in the models' units, the record's `0x7E`; it has no model.
     prison: Option<f32>,
+    /// A dwarves' magic of the FX objects (`FX_DWARFMAGIC`, 832 and 833; `dwarf_magics`), its
+    /// variant, 1 or 2, and its height in the models' units, the record's `0x7E`; it has no model.
+    dwarf_magic: Option<(u8, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -494,6 +497,8 @@ const FX_HEIGHT: u8 = 0x7E;
 const DEMON_SUMMON: u32 = 918;
 /// The FX type of the scripts' magic bars and barriers (`FX_MAGICPRISON`; `prisons`).
 const MAGIC_PRISON: u32 = 854;
+/// The dwarves' magics, `CreateObj`'s variants 1 and 2 (`0x4898B2`, `0x489920`).
+const DWARF_MAGICS: [u32; 2] = [832, 833];
 /// `CreateObj`'s mark of a quest's item that it lays in the world, an object of `+0x14` bit
 /// `0x800` (`0x485C10`), and the function that its taking runs, kept behind `Take:` (docs/re/
 /// netscript.md, "The log's quest items"; #1256).
@@ -866,6 +871,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         summon: None,
         pong: None,
         prison: None,
+        dwarf_magic: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
@@ -2990,6 +2996,17 @@ impl Makers {
                     })
                     .unwrap_or(0.0)
             });
+        // A dwarves' magic of the FX objects, which has no model: its variant and its height.
+        let dwarf_magic = (record.kind == CREATE_OBJ && category(item) == FX)
+            .then(|| DWARF_MAGICS.iter().position(|&kind| kind == creature))
+            .flatten()
+            .map(|k| {
+                let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                    _ => None,
+                });
+                (u8::try_from(k + 1).unwrap_or(1), height.unwrap_or(0.0))
+            });
         // A piece of the scripts' Pong of the FX objects, which has no model: its height.
         let pong = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| crate::pong::Piece::of(creature))
@@ -3009,6 +3026,7 @@ impl Makers {
                 || fx_loop.is_some()
                 || summon.is_some()
                 || prison.is_some()
+                || dwarf_magic.is_some()
                 || pong.is_some())
             .then_some(&empty))
         else {
@@ -3113,6 +3131,7 @@ impl Makers {
             fx_loop,
             summon,
             prison,
+            dwarf_magic,
             pong,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
@@ -5363,6 +5382,16 @@ fn spawn(
         return commands
             .spawn((
                 crate::summonings::Summon(variant),
+                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                layered,
+                layered.visibility(states),
+            ))
+            .id();
+    }
+    if let Some((variant, height)) = placement.dwarf_magic {
+        return commands
+            .spawn((
+                crate::dwarf_magics::Magic(variant),
                 Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
                 layered,
                 layered.visibility(states),
