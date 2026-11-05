@@ -746,7 +746,7 @@ fn act(
                 // From its right hand (the bone 2, `0x5A55B2`, #2112).
                 let from = crate::making::bone(entity, &[BALL_HAND], &children, (&bones, &worn))
                     .unwrap_or(here + Vec3::Y * crate::bolts::HEIGHT);
-                let mut ball = commands.spawn((
+                commands.spawn((
                     Ball {
                         caster: entity,
                         from,
@@ -755,16 +755,11 @@ fn act(
                         damages,
                         level: way.level,
                     },
+                    crate::trap_balls::Thrown(BALL),
                     Transform::from_translation(from),
                     Visibility::Inherited,
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some((mesh, material)) = bolt_looks
-                    .as_ref()
-                    .and_then(|looks| looks.0.get(BALL_LOOK).cloned())
-                {
-                    ball.insert((Mesh3d(mesh), MeshMaterial3d(material)));
-                }
                 sounds.write(crate::sfx::Play {
                     sound: crate::sfx::Of::Id(BALL_SOUND),
                     at: Some(entity),
@@ -1149,9 +1144,8 @@ fn spread(
     }
 }
 
-/// The look of a homing fire, the fireball's (`bolts`), and of a ball, the railgun's white one.
+/// The look of a homing fire, the fireball's (`bolts`).
 const FIRE_LOOK: usize = 3;
-const BALL_LOOK: usize = 0;
 /// The ball's sound as it starts (`SOUND_FX_DELF_WURFCAST`).
 const BALL_SOUND: u32 = 2057;
 /// The laser's beam's sound as it starts: its segment's (901 `FX_LASERBEAM`, `0x7A50B0`) of the

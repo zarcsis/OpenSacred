@@ -201,6 +201,7 @@ pub fn throw_trap(
             s: 0.0,
             shown: false,
         },
+        crate::trap_balls::Thrown(art),
         Transform::from_translation(from),
         Visibility::Inherited,
         DespawnOnExit(AppState::InGame),
@@ -290,12 +291,6 @@ fn balls(
                 at: Some(entity),
                 rate: (0.5, crate::sfx::Roll::None),
             });
-            if let Some(looks) = &looks {
-                commands.entity(entity).with_child((
-                    Mesh3d(looks.soul.0.clone()),
-                    MeshMaterial3d(looks.flame.1.clone()),
-                ));
-            }
         }
         ball.s = (ball.s + opensacred_rules::arts::BALL_RATE * dt).min(1.0);
         let at = ball.from.lerp(ball.to, ball.s);
@@ -1029,10 +1024,8 @@ pub(crate) struct Mine {
     left: f32,
 }
 
-/// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
-/// light's, the light's, the fire skin's, the gust's, the fear's and a tentacle's; a column of
-/// light and the lightning's;
-/// the hell disk, a flame and a lost soul.
+/// The stand-ins' meshes and materials: a disc of radius 1 and its colours, a column of light
+/// and the lightning's, and the hell disk.
 #[derive(Resource)]
 pub(crate) struct Looks {
     disc: Handle<Mesh>,
@@ -1040,8 +1033,6 @@ pub(crate) struct Looks {
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
     disk: (Handle<Mesh>, Handle<StandardMaterial>),
-    flame: (Handle<Mesh>, Handle<StandardMaterial>),
-    soul: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
 /// How high over the ground the hell disk flies (**estimate**: a hand's height, as the bolts').
@@ -1078,18 +1069,8 @@ fn make_looks(
         meshes.add(Cylinder::new(18.0, 4.0)),
         glow(Color::srgba(1.0, 0.3, 0.1, 0.9)),
     );
-    let flame = (
-        meshes.add(Sphere::new(20.0)),
-        glow(Color::srgba(1.0, 0.5, 0.1, 0.85)),
-    );
-    let soul = (
-        meshes.add(Sphere::new(10.0)),
-        glow(Color::srgba(0.85, 0.95, 1.0, 0.7)),
-    );
     commands.insert_resource(Looks {
         disk,
-        flame,
-        soul,
         disc: meshes.add(Cylinder::new(1.0, 1.0)),
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),

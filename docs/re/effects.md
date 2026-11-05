@@ -1258,6 +1258,23 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 `opensacred-game` draws both since #1092 (`tentacles`, `opensacred_rules::particles::{Tentacle, TentacleAura, RuneRing}`): each tentacle of `spells` at its corpse, and the aura that `spells` makes as he casts 65, following him for its seconds and its sink's second, laid over the scene in the world's camera.
 **Seen** 2026-11-05 beside the original: in both a ring of black runes about the Daemon's feet, and at the burst goblin's place five black tendrils over their runes.
 
+## The thrown balls
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Dark Elf's poison trap 1052 at the level 5 on a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The ball of the Dark Elf's traps 1049 to 1053 and of the goblin mages' spell 53 | 867 `FX_BALL` | `cParticleSystem_ball` (`0x89860C`) | `0x79E630`, `0x79EA50`, `0x79E730`, `0x79E900` |
+
+- Its constructor (100 particles, the FX handler's `0x5A1F07`) loads the model `bottle01.grn` (`+0x2150`) and `PARTICLE_GLOW03` (`+0x2158`).
+- Its start: its variant the event's `+0x3C`, the art or the spell that throws it, which gives its glows' colour (`+0x20AC` … `+0x20B8`, its four corners'): 1049 and 1050 (128, 240, 255), 1051 (160, 160, 160), 1052 (32, 255, 32), 1053 (192, 192, 192), and 53 white (its flags `0x80108`, the others' `0x108`); `DELF_WURFCAST` (2057) at its object; two turns' rates (`+0x2148`, `+0x214C`) of `2·(1 + U)` radians a second each; one layer of the life −350 a second (0.73 s) and the size −30; one block of the size 7 ± 2, the buoyancy 0 ± 5 and the place ± 3 along each axis, one every 0.005 s at the detail 2 (0.0075 at 1, 0.011 at 0).
+- Its run: its glows age (`0x7640C0`, a glow dying at a size or a life of 0), and while it flies it leaves new ones along its way (`0x764760`); its turns grow by their rates; its object's word `+0x74` bit 2, as it lands, ends its emission and makes its trap (its action, `+0x80` 1, of the type `+0x84`: 1049 the explosion 794 with its `DELF_SPRENGSATZ` (2056) and a quake of 21, 1050 the pentagram 782, 1051 the confusion 871, 1052 the ground's poison 792, 1053 the battle fog 868; docs/re/arts.md), and it ends with its last glow.
+- Its draw: its model at its place, turned about the models' x (`0x653910`) and then y (`0x653850`) by its two turns, drawn as the world's models; then its glows, billboards of the flags 3 (`0x761B00`: added by their alpha, `ONE` the destination, their corners' colour times their life's share), the grid 1, the factor 1.
+- So a small bottle tumbles along the ball's arc (docs/re/arts.md, #2112) trailing a streak of glows in its trap's colour, its head brightest and its tail thinning to dots.
+
+`opensacred-game` draws it since #1092 (`trap_balls`, `opensacred_rules::particles::{TrapBall, ball_colour}`): each ball of `spells` and of `creature_casts` shows its bottle tumbling and its glows, added and untinted by the night.
+**Seen** 2026-11-05 beside the original: in both a green streak thick at its head and dotted at its tail arcing from the Dark Elf's hand over her head to the goblin.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
