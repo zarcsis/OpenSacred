@@ -93,11 +93,13 @@ fn make(
                         burst.texture
                     );
                 }
-                let alpha_mode = match burst.blend {
-                    Blend::Add => AlphaMode::Add,
-                    Blend::Over => AlphaMode::Blend,
-                };
-                image.map(|image| materials.add(particle_material(image, alpha_mode)))
+                image.map(|image| {
+                    materials.add(match burst.blend {
+                        Blend::Add => particle_material(image, AlphaMode::Add),
+                        Blend::Whole => crate::fx::whole_material(image),
+                        Blend::Over => particle_material(image, AlphaMode::Blend),
+                    })
+                })
             })
             .clone();
         let mesh = meshes.add(empty());

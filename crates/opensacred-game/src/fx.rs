@@ -70,7 +70,7 @@ type Material = Option<Handle<Effect>>;
 
 /// The smoke class's variants that the game makes: the chimneys', the fire smokes', the lavas'
 /// smokes and the fires (docs/re/effects.md).
-const VARIANTS: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const VARIANTS: [u8; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 /// The steps' small fires' data and materials: their flame's and smoke's layers' and their burnt
 /// ground's, made as the game starts.
@@ -633,12 +633,13 @@ fn begin(
                 if image.is_none() {
                     warn!("fx: no texture {}; its effects are not drawn", fire.texture);
                 }
-                let alpha_mode = match blend {
-                    Blend::Add => AlphaMode::Add,
-                    Blend::Over => AlphaMode::Blend,
-                };
-                let material =
-                    image.map(|image| materials.add(particle_material(image, alpha_mode)));
+                let material = image.map(|image| {
+                    materials.add(match blend {
+                        Blend::Add => particle_material(image, AlphaMode::Add),
+                        Blend::Whole => whole_material(image),
+                        Blend::Over => particle_material(image, AlphaMode::Blend),
+                    })
+                });
                 made.push((key, material.clone()));
                 material
             })
