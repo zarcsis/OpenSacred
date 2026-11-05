@@ -5559,6 +5559,198 @@ pub fn skull_turn([x, y]: [f32; 2]) -> f32 {
     (-y).atan2(x) + std::f32::consts::FRAC_PI_2
 }
 
+/// The laser beams' variants that their callers lay (`0x604030`'s flags byte): the Vampiress's
+/// bite's, the hellfire's and the eye lasers', the drains'.
+pub const BITE_BEAM: u8 = 0;
+pub const LASER_BEAM: u8 = 1;
+pub const DRAIN_BEAM: u8 = 2;
+
+/// A laser segment's quad: its four corners in its own frame and their texture's points.
+pub type LaserQuad = ([[f32; 3]; 4], [[f32; 2]; 4]);
+
+/// A segment of a laser beam (901, `FX_LASERBEAM`, `cParticleSystem_laserbeam`, its constructor
+/// `0x7A3790`, start `0x7A50B0`, run `0x7A3DF0` and draw `0x7A4D50`; #1092, #2119): the `k`-th of
+/// the `n` that `createLaserbeam` (`0x604030`) lays along a line, a cell of ground long each,
+/// staying where it was laid. It is two crossed quads along its axis, one across and one upright,
+/// added whole in its variant's texture and colour times its fade, which holds for its variant's
+/// seconds and then falls by its rate a second, when it ends: the bite's (0) and the drains' (2 and
+/// the others) 20 wide in `FX_VAMPBLOODLINE`, a quarter of the texture stepping every 0.1 s,
+/// swaying across and up and down by up to 7 at the chain's middle, half grey or tinted; the
+/// lasers' (1) and the variant 4's 30 wide in `LASERBEAMPART`, straight, orange and pale pink.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LaserSegment {
+    variant: u8,
+    k: u16,
+    n: u16,
+    clock: f32,
+    fade: f32,
+}
+
+impl LaserSegment {
+    /// The `k`-th segment of `n` of the variant `variant` as it starts (`0x7A50B0`).
+    pub fn new(variant: u8, (k, n): (u16, u16)) -> Self {
+        Self {
+            variant,
+            k,
+            n: n.max(1),
+            clock: 0.0,
+            fade: 1.0,
+        }
+    }
+
+    /// Its variant's hold in seconds and the fall of its fade a second (`+0x20F4`, `+0x20F8`).
+    fn hold_rate(&self) -> (f32, f32) {
+        match self.variant {
+            0 => (4.4, 20.0),
+            1 | 4 => (0.0, 2.0),
+            3 => (2.0, 1.0),
+            5 => (1.0, 1.5),
+            _ => (0.0, 1.0),
+        }
+    }
+
+    /// Whether it is straight and 30 wide, the texture whole (the variants 1 and 4), rather than
+    /// swaying and 20 wide on a quarter of it.
+    fn straight(&self) -> bool {
+        matches!(self.variant, 1 | 4)
+    }
+
+    /// Its texture by its variant (`+0x2404`, `+0x2408`).
+    pub fn texture(variant: u8) -> &'static str {
+        if matches!(variant, 1 | 4) {
+            "LASERBEAMPART"
+        } else {
+            "FX_VAMPBLOODLINE"
+        }
+    }
+
+    /// The sound each segment of the variant plays as it starts: the bite's `VAMP_BLUTBISS`, the
+    /// lasers' `SPELL_LASER` (`0x7A50B0`).
+    pub fn sound(variant: u8) -> Option<u32> {
+        match variant {
+            0 => Some(2076),
+            1 => Some(2074),
+            _ => None,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7A3DF0`): past its hold its fade falls by its rate.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        let (hold, rate) = self.hold_rate();
+        if self.clock > hold {
+            self.fade -= rate * dt;
+        }
+    }
+
+    /// Whether it ended: its fade below 0.
+    pub fn done(&self) -> bool {
+        self.fade < 0.0
+    }
+
+    /// Its colour now, as the frame's values (`⌊255 f⌋`, halved but for the lasers).
+    pub fn colour(&self) -> [f32; 4] {
+        let c = (255.0 * self.fade.max(0.0)).floor();
+        let [r, g, b] = match self.variant {
+            1 => [255.0, 146.0, 39.0].map(|v| (v * self.fade.max(0.0)).floor()),
+            4 => [255.0, 235.0, 235.0].map(|v| (v * self.fade.max(0.0)).floor()),
+            10 => [
+                (c / 2.0).floor(),
+                (c * 50.0 / 255.0).floor(),
+                (c * 50.0 / 255.0).floor(),
+            ],
+            11 => [
+                (c * 50.0 / 255.0).floor(),
+                (c * 50.0 / 255.0).floor(),
+                (c / 2.0).floor(),
+            ],
+            12 => [
+                (c / 2.0).floor(),
+                (c / 2.0).floor(),
+                (c * 50.0 / 255.0).floor(),
+            ],
+            _ => [(c / 2.0).floor(); 3],
+        };
+        [r / 255.0, g / 255.0, b / 255.0, 1.0]
+    }
+
+    /// The sway of the joint `j` of the chain at its clock, across and up (`0x7A3DF0`): 0 at both
+    /// ends of the chain, up to 7 at its middle.
+    fn sway(&self, j: u16) -> (f32, f32) {
+        let (j, t) = (f32::from(j), self.clock);
+        let s = (j * std::f32::consts::PI / f32::from(self.n)).sin();
+        let a = 4.0 * (1.456_34 * j + 3.0 * t + 1.783_56).cos()
+            + 3.0 * (2.852_61 * j + 5.895_635 * t).cos();
+        let b = 4.0 * (0.964_52 * j + 3.0 * t + 0.743_72).cos()
+            + 3.0 * (2.578_38 * j + 5.836_23 * t).cos();
+        (a * s, b * s)
+    }
+
+    /// Its two quads in its own frame, `x` along it from 0 to `length`, `y` across and `z` up,
+    /// each its corners from its start's minus side to its end's and back on the plus side, and
+    /// their texture's points: the across one and the upright one.
+    pub fn quads(&self, length: f32) -> [LaserQuad; 2] {
+        let (half, ends) = if self.straight() {
+            (15.0, [(0.0, 0.0); 2])
+        } else {
+            (10.0, [self.sway(self.k), self.sway(self.k + 1)])
+        };
+        // The band of the texture: whole, or the quarter that steps every 0.1 s.
+        let (low, high) = if self.straight() {
+            (0.0, 1.0)
+        } else {
+            let quarter = (10.0 * self.clock).floor().rem_euclid(4.0) * 0.25;
+            (quarter, quarter + 0.25)
+        };
+        let uvs = [[0.0, high], [1.0, high], [1.0, low], [0.0, low]];
+        let [(a0, b0), (a1, b1)] = ends;
+        let across = [
+            [0.0, a0 - half, b0],
+            [length, a1 - half, b1],
+            [length, a1 + half, b1],
+            [0.0, a0 + half, b0],
+        ];
+        let upright = [
+            [0.0, a0, b0 - half],
+            [length, a1, b1 - half],
+            [length, a1, b1 + half],
+            [0.0, a0, b0 + half],
+        ];
+        [(across, uvs), (upright, uvs)]
+    }
+}
+
+/// The axes of a laser segment's frame along `direction` in the models' frame (`0x7A50B0`):
+/// turned about `(0, −n.z, n.y)` by `acos(n.x)`, so that its `x` lies along the unit direction
+/// `n`; its `x`, `y` and `z` there.
+pub fn laser_axes(direction: [f32; 3]) -> [[f32; 3]; 3] {
+    let length = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    if length < 1e-7 {
+        return identity;
+    }
+    let n = direction.map(|v| v / length);
+    let axis = [0.0, -n[2], n[1]];
+    let size = axis.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if size < 1e-7 {
+        return identity;
+    }
+    let a = axis.map(|v| v / size);
+    let angle = n[0].clamp(-1.0, 1.0).acos();
+    let (sin, cos) = angle.sin_cos();
+    // Rodrigues's turn of `v` about `a` by the angle.
+    let turn = |v: [f32; 3]| {
+        let cross = [
+            a[1] * v[2] - a[2] * v[1],
+            a[2] * v[0] - a[0] * v[2],
+            a[0] * v[1] - a[1] * v[0],
+        ];
+        let dot = a[0] * v[0] + a[1] * v[1] + a[2] * v[2];
+        std::array::from_fn(|i| v[i] * cos + cross[i] * sin + a[i] * dot * (1.0 - cos))
+    };
+    identity.map(turn)
+}
+
 /// The points of a vine, the thorns' plant's or a tentacle's tendril's (`0x798820`, `0x7B0DF0`).
 pub const VINE_POINTS: u16 = 128;
 /// The thorns' plant's textures: its vine's and spurs' dots and its glow on the ground.
@@ -8229,6 +8421,47 @@ mod tests {
         assert!(skull.flies().is_none() && skull.done());
         assert_eq!(FlyingSkull::ramp().at(255.0), [0.0; 4]);
         assert!((skull_turn([1.0, 0.0]) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_laser_segment_holds_and_fades_by_its_variant_and_lies_along_its_axis() {
+        // The hellfire's: 0.5 s, orange, 30 wide, straight.
+        let mut laser = LaserSegment::new(LASER_BEAM, (0, 3));
+        assert_eq!(laser.colour(), [1.0, 146.0 / 255.0, 39.0 / 255.0, 1.0]);
+        let [(across, uvs), _] = laser.quads(53.0);
+        assert_eq!(
+            (across[0], across[2]),
+            ([0.0, -15.0, 0.0], [53.0, 15.0, 0.0])
+        );
+        assert_eq!(uvs[0], [0.0, 1.0]);
+        for _ in 0..15 {
+            laser.update(1.0 / 30.0);
+        }
+        assert!(!laser.done());
+        for _ in 0..2 {
+            laser.update(1.0 / 30.0);
+        }
+        assert!(laser.done());
+        // The drain's: half grey, 20 wide, pinned at the chain's start, a quarter of the texture.
+        let drain = LaserSegment::new(DRAIN_BEAM, (0, 4));
+        assert_eq!(drain.colour()[0], 127.0 / 255.0);
+        let [(across, uvs), (upright, _)] = drain.quads(53.0);
+        assert_eq!(
+            (across[0], upright[0]),
+            ([0.0, -10.0, 0.0], [0.0, 0.0, -10.0])
+        );
+        assert_eq!((uvs[0], uvs[2]), ([0.0, 0.25], [1.0, 0.0]));
+        // The bite's holds 4.4 s.
+        let mut bite = LaserSegment::new(BITE_BEAM, (1, 2));
+        for _ in 0..130 {
+            bite.update(1.0 / 30.0);
+        }
+        assert!(!bite.done());
+        // A segment along y turns its x onto y, its z kept up.
+        let [x, _, z] = laser_axes([0.0, 2.0, 0.0]);
+        assert!((x[1] - 1.0).abs() < 1e-6 && (z[2] - 1.0).abs() < 1e-6);
+        assert_eq!(LaserSegment::texture(LASER_BEAM), "LASERBEAMPART");
+        assert_eq!(LaserSegment::sound(BITE_BEAM), Some(2076));
     }
 
     #[test]

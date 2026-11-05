@@ -1351,6 +1351,38 @@ The spells' executor still makes 782 for the spell 6 and 792 for the spell 12 (`
 `opensacred-game` draws them since #1092 (`trap_landings`, `opensacred_rules::particles::{PentagramKiller, ConfusionCircle, GroundPoison, helix_ribbons}`): each landing of `spells` takes its look, the glows, the sparks, the puffs, the helix and the smoke added and untinted by the night, the poison's stain in the world's camera; the pentagram's look outlives its object while it bursts or fades out; their flat parts lie level over the ground, not hidden by it where it rises, and the poison's Direct3D light is not followed (#2106).
 **Seen** 2026-11-05 beside the original: in both the poison's green stain over its turning circle in green smoke, the confusion's turquoise rune circle with its small purple one, and the pentagram's bluish ring and star of sparks drawing themselves.
 
+## The laser beams
+
+Read 2026-11-05 for #1092 and #2119 in Ghidra (**confirmed** by code), and the hellfire's seen in the running original under the driver of #448 (the Daemon's 64 at the level 5 by a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A segment of a laser beam | 901 `FX_LASERBEAM` | `cParticleSystem_laserbeam` (`0x8987CC`) | `0x7A3790`, `0x7A50B0`, `0x7A3DF0`, `0x7A4D50` |
+
+- `createLaserbeam` (`0x604030`, on the objects' manager) lays a beam from a point to another: `n = ⌊d / 53.66563⌋` segments, at least 1, `d` the ground distance of the ends' whole places; for `k` below `n` it tests the cell at the start's place and `k·(Δ/n)` on (a whole division) with `0x636A60`, which passes a cell that may be walked on (`0x636C10`) or failing that one of the low nibble 2, and at the first that fails it stops, returning false unless the flags' bit `0x80` goes on past it; else it makes an object 901 at that cell and starts it by the FX event `0x72`, its point `from + k·(to − from)/n`, its direction `(to − from)/n`, its variant (`+0x38`, the flags' low seven bits) and `k | n << 16` (`+0x3C`); the event's case puts it at its point, and it follows nothing.
+- Its callers: the magic skeleton's drain (`0x533029`, the variant 2, from its killer's `Bip01 Spine2` to its own); the hellfire's strike (`0x5B0259`, 1, from the demon fire's ball to its target's `Bip01 Neck`, else its root), which a false skips; the big demons' eye lasers (`0x527392`, `0x52741C`, 1, from `Left_EyeBone_FX` and `Right_EyeBone_FX` to the target's neck), which strike where either reaches; the Vampiress's bite 1030 (`0x510140`, 0, from her spine to its target's), which a false skips; the `Gehirnfüßler` 203, 351 and 352 (`0x4D4E50`, 10 to 12 with `0x80`, from its spine to a bone of its target's at random); the strike handler's three health's transfers (`0x56B130`, 2) and the network's copies; the zhadum 1165 (`0x5B2263`, 5).
+- Its constructor makes two sets of two crossed quads along its `x` from 0 to 1, one across of ±5 in `y` and one upright of ±5 in `z`, half grey, the texture's `u` along it, and loads `FX_VAMPBLOODLINE`, `LASERBEAMPART`, `FX_LIGHTSTRIKE05`, `LASERBEAMPART3` and `LASERBEAMPART4`; no particle, no Direct3D light.
+- Its start: its fade 1; its world matrix turned about `(0, −n.z, n.y)` by `acos(n.x)`, so that its `x` lies along its direction `n`; its quads' far ends at its length; its light 80; by its variant, its hold and the fall of its fade a second, and a sound at each segment as it starts:
+
+| Variant | Its hold | Its fade's fall | Its life | Its sound |
+|---|---|---|---|---|
+| 0, the bite's | 4.4 s | 20 | 4.45 s | `VAMP_BLUTBISS` (2076) |
+| 1, the lasers' | 0 | 2 | 0.5 s | `SPELL_LASER` (2074) |
+| 3 | 2 s | 1 | 3 s | none |
+| 4 | 0 | 2 | 0.5 s | none |
+| 5, the zhadum's | 1 s | 1.5 | 1.67 s | none |
+| 2, the drains', and the others | 0 | 1 | 1 s | none |
+
+- Its run: past its hold its fade falls by its rate, and below 0 it ends; by its variant:
+  - 0, 2 and the others: its quads 20 wide (±10), a quarter of the texture's height, stepping 0, ¼, ½ and ¾ every 0.1 s, all segments in step; each joint `j` of the chain (`k` at its start, `k + 1` at its end) swayed across by `(4 cos(1.45634 j + 3t + 1.78356) + 3 cos(2.85261 j + 5.895635 t))·sin(jπ/n)` and up by `(4 cos(0.96452 j + 3t + 0.74372) + 3 cos(2.57838 j + 5.83623 t))·sin(jπ/n)`, so that the chain sways most at its middle and keeps its ends; its colour `⌊255 f⌋` halved, grey, else (127, 50, 50) for 10, (50, 50, 127) for 11 and (127, 127, 50) for 12, times its fade;
+  - 1 and 4: straight, 30 wide (±15), the whole texture, (255, 146, 39) and (255, 235, 235) times its fade;
+  - 3: the top eighth of `FX_LIGHTSTRIKE05`, 20 wide, half grey, jittering each frame; 5: both sets 70 wide, `LASERBEAMPART3` and `LASERBEAMPART4` flowing along at 0.44 and 0.78 a second, white.
+- Its draw: depth tested, its depth not written, unlit, added whole (`ONE`, `ONE`), its two crossed quads in its world matrix at its place, not facing the camera, not tinted by the night: `FX_VAMPBLOODLINE` for 0, 2 and the others, `LASERBEAMPART` for 1 and 4, `FX_LIGHTSTRIKE05` for 3, `LASERBEAMPART3` and `LASERBEAMPART4` for 5.
+- So the hellfire's and the lasers' are straight yellow-orange streaks gone in half a second, the drains' swaying chains of red strands fading over a second, the bite's the same whole for 4.4 s.
+
+`opensacred-game` lays them since #1092 (`beams`, `opensacred_rules::particles::{LaserSegment, laser_axes}`, `opensacred_rules::ways::laser_places`): the drains', the hellfire's, the eye lasers' and the bite's, each segment staying where it was laid with its quads, its band, its sway and its colour by its variant, and its sound; the line's test of the strikes is #2123's; the segments' lights of 80, the `Gehirnfüßler`'s, the strike handler's and the zhadum's beams are not followed.
+**Seen** 2026-11-05 beside the original: in both the hellfire's yellow-orange streak from its ball to the goblin's neck at a strike; the drain's chain of red strands from the Seraphim to the skeleton in the game.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
@@ -1393,7 +1425,7 @@ The smokes of the variants 1 to 3 (`FX_HS_SMOKE_*`, 771, 810, 811) and 8 and 9 (
 The geyser (7, `FX_GEYSIR`, 879) follows its clock (read 2026-10-27 at `0x76E3E8`): its jet of `PARTICLE_WATER01` at rest rises at 40 every 0.1 s and lives 0.73 s; its first burst comes 3 to 20 s after it starts (**estimate** for the roll), and for the last second of each rest of 30 to 100 s (`rand()`/32767·70 + 30) its jet bursts upward at 200, living longer (the life's rate −75) every 0.035 s at the detail 2, and the first geyser to burst while the latch that every geyser shares (`0x17EEBC8`) is open plays `211` or `212` at it at a rate's factor of 0.4 to 0.6, which closes the latch until a geyser's rest starts again; the burst's hit of 100 (the system flag `0x400`) is not followed.
 The wind of the smoke class's layers, the magic fire (13) and the other classes are not followed.
 The undead's ring and dust follow since #1261 (`puffs`, `opensacred_rules::particles::{rise_ring, dust}`): an undead or a skeleton warrior that stands again makes the variant 3 of 781 at itself, following it, and a corpse of class 5 that vanishes the variant 4 where it lay, drawn as the fires' billboards and not tinted by the night; the dust leaves the corpse's bones rather than its skinned vertices, and without the wind (docs/decisions/drawing.md, "Undead's dust from the bones").
-The magic skeleton's drain draws its beam since #1263 (`beams`, the `laserbeam` of the catalogue, 901): from its killer's `Bip01 Spine2` to its own, a chain of segments a cell long and 20 wide, `FX_VAMPBLOODLINE` added at half grey, each segment a random quarter of the texture at each frame, the chain's joints pushed across it by up to 8 units times the sine of their place (**estimate**: the wobble's size), all fading over a second; **seen** beside the original's (the Daemon's and the Seraphim's level 1 killing magic skeletons of the level 3).
+The magic skeleton's drain draws its beam since #1263 (`beams`, the `laserbeam` of the catalogue, 901): from its killer's `Bip01 Spine2` to its own, of the variant 2 ("The laser beams"); **seen** beside the original's (the Daemon's and the Seraphim's level 1 killing magic skeletons of the level 3).
 Not followed: the chain's stop at a cell that fails `0x636A60`, and its light of 80.
 The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89840C`) follow since #1262 (read 2026-11-02 by code, **confirmed** unless marked otherwise; `opensacred_rules::particles::{burn_variant, generic_sparks, death_flames, scorch_alpha}`).
 - The death's action (`0x53ECA0`) makes one at the last death of three kinds of creature, then sounds `DIEFLAMES`: the variant 0 for the undead goblins 142 and 143 (its case 5, `0x541A0D`), the variant 7 for the fire ghoul 73 once its dying clip has played (its case 4, `0x5416DD`), the variant 8 for the magic skeletons 48, 80 and 81 (its case 3, `0x541E8D`); each at the creature's place on the ground, following nothing.
