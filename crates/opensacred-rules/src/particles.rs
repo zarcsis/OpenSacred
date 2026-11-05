@@ -5140,6 +5140,121 @@ impl Reanimate {
     }
 }
 
+/// The blast's flames' textures, the mine's and the bomb trap's, of a grid of 4; its scorch's two,
+/// one by a coin; the trap's ring's; the scorch's half side; the ring's width and segments; the
+/// quake of a mine's blast (`0x779960`, `0x779B60`, `0x7BAD70`).
+pub const EXPLOSION_FLAMES: [&str; 2] = ["PARTICLE_FIRE01", "PARTICLE_FIRE04"];
+pub const EXPLOSION_GRID: u8 = 4;
+pub const EXPLOSION_SCORCHES: [&str; 2] = ["FX_STREAKS02", "FX_STREAKS01"];
+pub const EXPLOSION_RING: &str = "Fx_ExplosionCircle01";
+pub const EXPLOSION_SCORCH_HALF: f32 = 50.0;
+pub const EXPLOSION_RING_WIDTH: f32 = 20.0;
+pub const EXPLOSION_RING_SEGMENTS: u16 = 15;
+pub const MINE_QUAKE: u32 = 21;
+const EXPLOSION_COUNT: usize = 100;
+/// How long it makes flames and strikes, how long its scorch lies whole, and how fast it fades
+/// and its ring grows (`0x779A50`, the floats at `0x890820`, `0x89076C` and `0x8907D8`).
+const EXPLOSION_BURNS: f32 = 0.8;
+const EXPLOSION_SCORCHED: f32 = 10.0;
+const EXPLOSION_FADES: f32 = 0.2;
+const EXPLOSION_RING_GROWS: f32 = 50.0;
+const EXPLOSION_RING_FROM: f32 = 10.0;
+const EXPLOSION_RING_TO: f32 = 50.0;
+
+/// A blast, `cParticleSystem_explosion` (794, `FX_EXPLOSION`, its constructor `0x779960`, its
+/// start `0x779F60`, its run `0x779A50` and its draw `0x779B60`), of the scale 1 that both its
+/// makers give it (the variant 100): a Dwarf's mine's (`+0x3C` 0) and the Dark Elf's bomb trap's
+/// (1). For 0.8 s a flame every 0.02 s at the detail 2 within 20 of a point 10 over its place, of
+/// a size of 10 ± 5 growing by 20 a second, living 0.85 s (−300), turned at random, its 4 × 4
+/// frames played once over its life, white at the alpha of its life, added (the flags 7): of
+/// `PARTICLE_FIRE01` the mine's, of `FIRE04` the trap's; a scorch of `FX_STREAKS02` or `01` under
+/// it on the ground, of a half side of 50 at a turn at random, whole for 10 s and fading over 5,
+/// laid over by its alpha; and the trap's alone, a ring of `Fx_ExplosionCircle01` from 10 out to
+/// 50 at 50 a second, 20 wide, added whole. It strikes while it burns (its flags `0x400`) and it
+/// ends with its scorch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Explosion {
+    pub system: System,
+    trap: bool,
+    clock: f32,
+    /// Its scorch's texture of [`EXPLOSION_SCORCHES`], its turn, and its alpha.
+    pub scorch: usize,
+    pub scorch_turn: f32,
+    pub fade: f32,
+    ring: f32,
+}
+
+impl Explosion {
+    /// A mine's blast, or the bomb trap's where `trap`: its scorch's coin rolled as it is made,
+    /// then its turn as it starts.
+    pub fn new(trap: bool, dice: &mut impl Dice) -> Self {
+        let scorch = usize::try_from(dice.below(2)).unwrap_or(0);
+        let scorch_turn = share(dice) * std::f32::consts::TAU;
+        Self {
+            system: System::new(EXPLOSION_COUNT),
+            trap,
+            clock: 0.0,
+            scorch,
+            scorch_turn,
+            fade: 1.0,
+            ring: EXPLOSION_RING_FROM,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -300.0,
+            size: 20.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            size: spread(10.0, 5.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            offset: spread([0.0, 0.0, 10.0], [20.0; 3]),
+            interval: 0.02,
+            ..Block::default()
+        }
+    }
+
+    /// Its flames' texture of [`EXPLOSION_FLAMES`].
+    pub fn flames(&self) -> usize {
+        usize::from(self.trap)
+    }
+
+    /// Whether it strikes still: while it burns.
+    pub fn strikes(&self) -> bool {
+        self.clock <= EXPLOSION_BURNS
+    }
+
+    /// Its ring's inner radius while it shows, the trap's alone.
+    pub fn ring(&self) -> Option<f32> {
+        (self.trap && self.ring < EXPLOSION_RING_TO).then_some(self.ring)
+    }
+
+    /// A run of `dt` seconds (`0x779A50`): its flames age, and while it burns new ones rise; past
+    /// 10 s its scorch fades; its ring grows.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.strikes() {
+            self.system
+                .emit(&[Self::block()], &layers, EXPLOSION_COUNT, dice);
+        } else if self.clock > EXPLOSION_SCORCHED {
+            self.fade = (self.fade - EXPLOSION_FADES * dt).max(0.0);
+        }
+        self.clock += dt;
+        self.ring += EXPLOSION_RING_GROWS * dt;
+    }
+
+    /// Whether it ended: its scorch gone.
+    pub fn done(&self) -> bool {
+        self.fade <= 0.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6571,5 +6686,29 @@ mod tests {
         let ramp = Reanimate::ramp();
         assert_eq!(ramp.at(255.0)[3], 0.0);
         assert_eq!(ramp.at(200.0), [100.0 / 256.0, 100.0 / 256.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn a_blast_burns_for_0_8_s_and_its_scorch_lies_15_s() {
+        let mut dice = Rng::of(1, 2, 794);
+        let mut mine = Explosion::new(false, &mut dice);
+        assert_eq!(mine.flames(), 0);
+        assert_eq!(mine.ring(), None);
+        for _ in 0..16 {
+            mine.update(0.05, &mut dice);
+        }
+        // A flame every 0.02 s over 0.8 s, none dead yet.
+        let count = mine.system.particles.len();
+        assert!((38..=42).contains(&count), "{count}");
+        assert!(!mine.strikes());
+        let mut steps = 0;
+        while !mine.done() {
+            mine.update(0.05, &mut dice);
+            steps += 1;
+        }
+        // Whole until 10 s, then 5 s of fading: 14.2 s past its first 0.8.
+        assert!((280..=290).contains(&steps), "{steps}");
+        let trap = Explosion::new(true, &mut dice);
+        assert_eq!((trap.flames(), trap.ring()), (1, Some(10.0)));
     }
 }

@@ -1158,6 +1158,29 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
 **Seen** 2026-11-05 in the game: a black magician 264 raised a dead 567 beside the Seraphim, and a ring of pale blue lines stood about it and faded in under two seconds.
 Not set beside the original: its black magician under the driver slept under the trees out of the Seraphim's reach.
 
+## The Dwarf's mines
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Dwarf's new game, his spell 56 at the level 5).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A mine | 1153 `FX_DWARF_MINE` | `cParticleSystem_dwarf_mine` (`0x898E0C`) | `0x7BAC30`, `0x7BB0B0`, `0x7BAD70`, `0x7BAF30` |
+| The mines' sign | 1154 `FX_DWARF_MINE_SIGN` | `cParticleSystem_dwarf_mine_sign` (`0x898DEC`) | `0x7BA580`, `0x7BA8D0`, `0x7BA610`, `0x7BA830` |
+| A blast | 794 `FX_EXPLOSION` | `cParticleSystem_explosion` (`0x897C7C`) | `0x779960`, `0x779F60`, `0x779A50`, `0x779B60` |
+
+- **A mine goes off** (its run `0x7BAD70`) past its 30 s, or as the hits' case (`0x5B096B`) marks it, a hostile creature touching it while the Dwarf is 100 or more off: it asks for the action 1 for the type 794 with the data `0x80000064`, shakes the screen by 21 (`cEventWeather` of the kind 7) and plays 2111, and goes.
+  The action (`0x5B2600`'s case `0x31A`, `0x5B2895`) makes the 794 at its place on the ground, of the variant 100 (`+0x38`) and the event's `+0x3C` 0, the data's top bit set; the Dark Elf's bomb trap's ball makes it of the data 100 (`0x79E730`), `+0x3C` 1, with the same quake.
+- **The blast** (794), of the scale `s` 1 for both (the variant over 100):
+  - its constructor loads `PARTICLE_FIRE01`, `PARTICLE_FIRE04`, `Fx_ExplosionCircle01` and, by the low bit of a `rand()`, `FX_STREAKS02` (even) or `FX_STREAKS01`;
+  - its start: the scorch's turn `2π·U` and its alpha 1, the ring's radius 10; one layer of the life −300 a second (0.85 s) and the size +20; one block of the size 10 ± 5, the angle π ± π, at (0, 0, 10) ± 20 on each axis, one every 0.02 s at the detail 2; its flags `0x400` while it burns, no light;
+  - its run: for 0.8 s it makes flames and strikes (each creature once, docs/re/arts.md); then its flags are 0; past 10 s its scorch fades by 0.2 a second, and it ends at 0, some 15 s in all; its ring grows by 50 a second;
+  - its draw: the scorch, a flat quad of a half side 50 turned by its turn on the ground, white at its alpha, laid over by its alpha (black with an alpha mask: a dark star of streaks); the trap's alone, while its ring is under 50, a flat ring from its radius to 20 beyond of `Fx_ExplosionCircle01`, 15 segments, added whole; then the flames, billboards of the flags 7 (white at the alpha of their life, turned, added) and the grid 4, of `FIRE01` for the mine's and `FIRE04` for the trap's, their frames played once over their life.
+  It plays no sound of its own.
+
+`opensacred-game` draws the blast since #1092 (`explosions`, `opensacred_rules::particles::Explosion`): a mine's and the bomb trap's, each with its quake, the flames untinted by the night, the scorch on the ground with the world as the meteors' craters; the blast still strikes once at its start (`spells`).
+**Seen** 2026-11-05 beside the original, the Dwarf's mines going off after their 30 s: in both a white and orange fireball over each mine, and a dark round scorch left on the ground where it lay.
+Not followed yet: the mine's model and the sign's ring of blue tongues.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
