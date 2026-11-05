@@ -90,13 +90,40 @@ pub const LASERS_BEYOND: f32 = 500.0;
 /// eye lasers beyond [`LASERS_BEYOND`], else the fire in four cases of five (`choice`, a
 /// `rand() % 5` below 4) and the lasers in one.
 pub fn big_demon_approaches(distance: f32, roll: u32, choice: u32) -> Option<u16> {
-    (distance >= APPROACH_FROM && roll % 101 < 5).then_some(
-        if distance > LASERS_BEYOND || choice % 5 >= 4 {
-            EYE_LASERS
-        } else {
-            DEMON_FIRE
-        },
-    )
+    approaches(distance, roll).then_some(if distance > LASERS_BEYOND || choice % 5 >= 4 {
+        EYE_LASERS
+    } else {
+        DEMON_FIRE
+    })
+}
+
+/// Whether a creature of the mark 4 that comes on to its target on its level makes its own at a
+/// tick (`0x4E1F5C`): from [`APPROACH_FROM`] away, by a roll `rand() % 101` below 5.
+pub fn approaches(distance: f32, roll: u32) -> bool {
+    distance >= APPROACH_FROM && roll % 101 < 5
+}
+
+/// Whether a creature of type `creature` shoots as it comes on (`0x4E1FC4`, the melee's state 9 at
+/// `0x4E3464`, #2067): the medium spider (75, `med_spider.grn`), of the mark 4, which shoots the
+/// railgun's bolt (801) at its target; the fire ghoul (73) and the types 186 and 333 take the
+/// state too, their own shots not followed.
+pub fn shooter(creature: u32) -> bool {
+    creature == 75
+}
+
+/// The spider's shot, a pseudo-spell of the railgun's FX type (`FX_RAILGUN`, 801), the clip's slot
+/// it plays (`0x593320(0x4F, …)`), and its sounds as it shoots (`0x4E369E`): in four cases of five
+/// (`rand() % 5` below 4) one of `GIANTSPIDER_FOOTSTEPS01`, `02`, `03` and `04`, at a rate's factor
+/// of 0.5.
+pub const SPIDER_SHOT: u16 = 801;
+pub const SPIDER_SHOT_CLIP: u16 = 0x4F;
+pub const SPIDER_SHOT_SOUNDS: [u32; 4] = [1248, 1249, 1242, 1243];
+
+/// The sound of the spider's shot of the roll `roll` (`rand() % 5`), none for 4.
+pub fn spider_shot_sound(roll: u32) -> Option<u32> {
+    SPIDER_SHOT_SOUNDS
+        .get(usize::try_from(roll % 5).ok()?)
+        .copied()
 }
 
 /// The homing fires (docs/re/arts.md, "The creatures' own spells"; the object update's flag
@@ -116,6 +143,9 @@ pub const DEMON_FIRE_SIZE: f32 = 70.0;
 pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
     if dragon {
         return 81;
+    }
+    if spell == SPIDER_SHOT {
+        return SPIDER_SHOT_CLIP;
     }
     if matches!(creature, 182 | 183) {
         return 154;
@@ -834,6 +864,18 @@ mod tests {
         assert_eq!(big_demon_approaches(400.0, 4, 3), Some(DEMON_FIRE));
         assert_eq!(big_demon_approaches(400.0, 4, 4), Some(EYE_LASERS));
         assert_eq!(big_demon_approaches(600.0, 0, 0), Some(EYE_LASERS));
+    }
+
+    #[test]
+    fn the_medium_spider_shoots_its_railguns_bolt_as_it_comes_on() {
+        assert!(shooter(75) && !shooter(73) && !shooter(76));
+        // As the big demons: from 371 away, by a roll below 5 of 101.
+        assert!(!approaches(370.0, 0) && !approaches(400.0, 5) && approaches(400.0, 104));
+        assert_eq!(clip(SPIDER_SHOT, 75, false), SPIDER_SHOT_CLIP);
+        // One of its four sounds in four cases of five.
+        assert_eq!(spider_shot_sound(0), Some(1248));
+        assert_eq!(spider_shot_sound(3), Some(1243));
+        assert_eq!(spider_shot_sound(4), None);
     }
 
     #[test]
