@@ -241,6 +241,17 @@ impl System {
         });
     }
 
+    /// A burst of `count` particles of `block` at once, of the layer 0, while the system has room
+    /// below `room` (`0x764760` of a block of the interval 0).
+    pub fn burst(&mut self, block: &Block, count: usize, room: usize, dice: &mut impl Dice) {
+        for _ in 0..count {
+            if self.particles.len() >= room {
+                break;
+            }
+            self.particles.push(born(block, 0, dice));
+        }
+    }
+
     /// [`Self::emit`], each particle born at its offset from `place` of its moment: the first
     /// block's offset, whatever the particle's block, and its own block's spread about it, as the
     /// steady emission of `0x764760` reads the first block's `+0x38` alone (#2070).
@@ -5255,6 +5266,189 @@ impl Explosion {
     }
 }
 
+/// A Dwarf's mine's model and its textures, its own and its flash's, its smoke's, its model's
+/// scale, and its particles at most (`0x7BAC30`, `0x7BAF30`).
+pub const MINE_MODEL: &str = "DWARF_MINE.GRN";
+pub const MINE_TEXTURE: &str = "DWARF_MINE";
+pub const MINE_FLASH_TEXTURE: &str = "DWARF_MINE2";
+pub const MINE_SMOKE_TEXTURE: &str = "PARTICLE_SMOKE04";
+pub const MINE_SCALE: f32 = 0.4;
+const MINE_COUNT: usize = 100;
+const MINE_PUFFS: usize = 20;
+/// Its flash's clock's turn (`0x7BAD70`, the float at `0x8909A8`): from 1.5 it goes back to −0.2,
+/// and below 0 the flash shows.
+const MINE_BLINK_TOP: f32 = 1.5;
+const MINE_BLINK_FROM: f32 = -0.2;
+
+/// A Dwarf's mine lying on the ground (1153, `FX_DWARF_MINE`, `cParticleSystem_dwarf_mine`, its
+/// constructor `0x7BAC30`, its start `0x7BB0B0`, its run `0x7BAD70` and its draw `0x7BAF30`): its
+/// model [`MINE_MODEL`] at 0.4 of its size, turned about the vertical at random, in its own
+/// texture, lit as the world's models are; its button's flash, the model again in
+/// [`MINE_FLASH_TEXTURE`] added whole, for 0.2 s in every 1.7 s from 1.5 s after it is laid;
+/// and as it is laid a burst of 20 dark puffs of [`MINE_SMOKE_TEXTURE`] rising ever faster,
+/// growing by 8 a second, living 1.275 s (−200), of the ramp [`DwarfMine::ramp`], laid over by
+/// their alpha, turned, darkened by the night (the flags `0x4C`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DwarfMine {
+    pub system: System,
+    /// Its turn about the vertical.
+    pub turn: f32,
+    blink: f32,
+    smoked: bool,
+}
+
+impl DwarfMine {
+    /// A mine as it is laid, its turn rolled.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        Self {
+            system: System::new(MINE_COUNT),
+            turn: share(dice) * std::f32::consts::TAU,
+            blink: 0.0,
+            smoked: false,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -200.0,
+            size: 8.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            buoyancy: spread(-35.0, 5.0),
+            size: spread(6.0, 2.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0, 0.0, 15.0], [20.0, 20.0, 0.0]),
+            offset: spread([0.0; 3], [5.0; 3]),
+            frames: FRAME_OF_LAYER,
+            ..Block::default()
+        }
+    }
+
+    /// Its puffs' ramp (`+0x20B8`): a grey (50, 50, 50) of 256 at the alpha 0.996, to the alpha
+    /// 0.39 over 60 entries, then to (74, 56, 71) at the alpha 0 over 196.
+    pub fn ramp() -> Ramp {
+        let grey = |alpha: f32| [50.0 / 256.0, 50.0 / 256.0, 50.0 / 256.0, alpha];
+        Ramp::new(
+            grey(255.0 / 256.0),
+            &[
+                (grey(100.0 / 256.0), 60),
+                ([74.0 / 256.0, 56.0 / 256.0, 71.0 / 256.0, 0.0], 196),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x7BAD70`): its flash's clock turns, its puffs age, and at its
+    /// first run they burst.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.blink += dt;
+        if self.blink > MINE_BLINK_TOP {
+            self.blink = MINE_BLINK_FROM;
+        }
+        self.system.update(dt, &[Self::layer()]);
+        if !self.smoked {
+            self.smoked = true;
+            self.system
+                .burst(&Self::block(), MINE_PUFFS, MINE_COUNT, dice);
+        }
+    }
+
+    /// Whether its button flashes.
+    pub fn flashes(&self) -> bool {
+        self.blink < 0.0
+    }
+}
+
+/// The mines' sign's texture, its particles at most, the circle its tongues stand on, and how
+/// many it makes a second while every mine is left (`0x7BA580`, `0x7BA610`, the float at
+/// `0x890D48`).
+pub const MINE_SIGN_TEXTURE: &str = "PARTICLE_FLOOP01";
+const MINE_SIGN_COUNT: usize = 500;
+pub const MINE_SIGN_RADIUS: f32 = 25.0;
+const MINE_SIGN_RATE: f32 = 200.0;
+/// Its accumulator's top, at which it starts again (the float at `0x890998`).
+const MINE_SIGN_TOP: f32 = 100.0;
+
+/// The Dwarf's sign of his mines (1154, `FX_DWARF_MINE_SIGN`, `cParticleSystem_dwarf_mine_sign`,
+/// its constructor `0x7BA580`, its start `0x7BA8D0`, its run `0x7BA610` and its draw `0x7BA830`),
+/// riding with him (its flags `0x2202`): tongues of [`MINE_SIGN_TEXTURE`] lying flat on the ground
+/// about his feet, each standing on the circle of 25 and pointing out from it at a turn of ±0.1,
+/// along an arc from his right that is the share of his mines left, as many a second as 200
+/// times that share; of a size of 4 ± 2 growing by 8 a second, living 1.275 s (−200), of the ramp
+/// [`MineSign::ramp`], added by their alpha (the flags `0x8D`). It goes with his last mine.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MineSign {
+    pub system: System,
+    due: f32,
+}
+
+impl Default for MineSign {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MineSign {
+    /// A sign as it starts.
+    pub fn new() -> Self {
+        Self {
+            system: System::new(MINE_SIGN_COUNT),
+            due: 0.0,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -200.0,
+            size: 8.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its ramp (`+0x20B4`): from (17, 7, 228) of 256 at the alpha 1, to (51, 126, 203) at 0.79
+    /// over 96 entries, to (60, 141, 141) at 0.55 over 49, to (64, 64, 64) at 0.25 over 111.
+    pub fn ramp() -> Ramp {
+        let c = |r: f32, g: f32, b: f32, a: f32| [r / 256.0, g / 256.0, b / 256.0, a];
+        Ramp::new(
+            c(17.0, 7.0, 228.0, 1.0),
+            &[
+                (c(51.0, 126.0, 203.0, 0.79), 96),
+                (c(60.0, 141.0, 141.0, 0.55), 49),
+                (c(64.0, 64.0, 64.0, 0.25), 111),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x7BA610`) with `share` of the mines left: its tongues age, and
+    /// new ones stand along its arc, each at a point at random on it, its turn pointing out.
+    pub fn update(&mut self, dt: f32, share_left: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        self.due += share_left * dt * MINE_SIGN_RATE;
+        if self.due > MINE_SIGN_TOP {
+            self.due = 0.0;
+        }
+        while self.due >= 1.0 {
+            let a = std::f32::consts::TAU * share_left * share(dice);
+            let (sin, cos) = a.sin_cos();
+            let block = Block {
+                size: spread(4.0, 2.0),
+                angle: spread(std::f32::consts::FRAC_PI_2 - a, 0.1),
+                offset: spread(
+                    [MINE_SIGN_RADIUS * cos, MINE_SIGN_RADIUS * sin, 0.0],
+                    [0.0; 3],
+                ),
+                ..Block::default()
+            };
+            self.system.burst(&block, 1, MINE_SIGN_COUNT, dice);
+            self.due -= 1.0;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6710,5 +6904,38 @@ mod tests {
         assert!((280..=290).contains(&steps), "{steps}");
         let trap = Explosion::new(true, &mut dice);
         assert_eq!((trap.flames(), trap.ring()), (1, Some(10.0)));
+    }
+
+    #[test]
+    fn a_mine_puffs_once_and_flashes_two_tenths_in_every_1_7_s() {
+        let mut dice = Rng::of(5, 6, 1153);
+        let mut mine = DwarfMine::new(&mut dice);
+        mine.update(0.05, &mut dice);
+        assert_eq!(mine.system.particles.len(), 20);
+        let mut flashing = 0;
+        for _ in 0..340 {
+            mine.update(0.05, &mut dice);
+            flashing += usize::from(mine.flashes());
+        }
+        // 17 s: ten flashes of four or five frames each.
+        assert!((36..=50).contains(&flashing), "{flashing}");
+        assert!(mine.system.particles.is_empty());
+    }
+
+    #[test]
+    fn the_mines_sign_stands_its_tongues_on_the_arc_of_the_mines_left() {
+        let mut dice = Rng::of(8, 9, 1154);
+        let mut sign = MineSign::new();
+        for _ in 0..20 {
+            sign.update(0.05, 0.25, &mut dice);
+        }
+        // 200 a second times a quarter over a second.
+        let count = sign.system.particles.len();
+        assert!((45..=55).contains(&count), "{count}");
+        assert!(sign.system.particles.iter().all(|p| {
+            let a = p.place[1].atan2(p.place[0]);
+            p.place[0].hypot(p.place[1]) > 24.9
+                && (-0.01..=std::f32::consts::FRAC_PI_2 + 0.01).contains(&a)
+        }));
     }
 }
