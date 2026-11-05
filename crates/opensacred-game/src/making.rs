@@ -1273,10 +1273,17 @@ fn make(
                     continue;
                 }
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
-                if let (Some(record), Ok((_, _, mind, health))) =
+                // Her beam's line to it, which a cell it may not pass cuts short, the bite's hold
+                // and drain with it (`0x510140`, `0x604030`, #2123).
+                if let (Some(record), Ok((_, at, mind, health))) =
                     (record, creatures.get(playing.target))
                     && mind.hostile()
                     && health.current > 0
+                    && crate::paths::laser_reaches(
+                        transform.translation,
+                        at.translation(),
+                        |cell| heights.passes(cell, body.level()),
+                    )
                 {
                     let drain = arts::bite_drain(record, playing.level);
                     let effect = opensacred_rules::fight::Effect {

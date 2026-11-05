@@ -24,6 +24,15 @@ pub fn cell_of(x: f32, z: f32) -> Cell {
     ways::cell_at((x / iso::CELL, z / iso::CELL))
 }
 
+/// Whether a laser beam's line from world `from` to `to` reaches its end: each of the places it
+/// tests (`ways::laser_places`, `createLaserbeam` `0x604030`) in a cell that `passes` takes
+/// (#2123).
+pub fn laser_reaches(from: Vec3, to: Vec3, passes: impl Fn(Cell) -> bool) -> bool {
+    ways::laser_places((from.x, from.z), (to.x, to.z))
+        .into_iter()
+        .all(|(x, z)| passes(cell_of(x, z)))
+}
+
 /// The world point at the centre of `cell`, on the ground plane.
 pub fn centre(cell: Cell) -> Vec2 {
     let point = iso::ground(cell.0 as f32 + 0.5, cell.1 as f32 + 0.5);
