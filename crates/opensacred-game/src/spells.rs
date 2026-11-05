@@ -86,8 +86,7 @@ const SOUL_HAND: [&str; 1] = ["Bip01 L Hand"];
 /// creature it homes on, the one it struck last, its damages, its level, its time left, its
 /// cooldown, its speed, how near it strikes a creature with the creature's size, whether it
 /// strikes every creature within its reach rather than the first it touches (the purgatory's),
-/// and a soul's heading in three dimensions and its turn a second (#2058), the others homing at
-/// once.
+/// and how it flies.
 #[derive(Component, Debug, Clone)]
 struct Disk {
     caster: Entity,
@@ -100,8 +99,17 @@ struct Disk {
     speed: f32,
     reach: f32,
     all: bool,
-    heading: Option<Vec3>,
-    turn: f32,
+    flight: Flight,
+}
+
+/// How a [`Disk`] flies: homing over the ground at once (the purgatory's), along a soul's heading
+/// in three dimensions turning at its turn a second (#2058), or along the hell disk's, turning
+/// past its slack toward its target's neck or a point over its caster's (#2115).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Flight {
+    Homes,
+    Soul { heading: Vec3, turn: f32 },
+    HellDisk { heading: Vec3 },
 }
 
 /// A zone of the banishing circle (the kind 2, `0xAD2530`): its centre and cell, its level, and
@@ -1044,9 +1052,6 @@ pub(crate) struct Looks {
     soul: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
-/// How high over the ground the hell disk flies (**estimate**: a hand's height, as the bolts').
-const DISK_HEIGHT: f32 = 80.0;
-
 /// Makes the stand-ins' looks (**estimate**: the colours of their glows).
 fn make_looks(
     mut commands: Commands,
@@ -1251,8 +1256,7 @@ pub(crate) fn purgatory(
             speed: spells::PURGATORY_SPEED,
             reach: spells::DISK_REACH,
             all: true,
-            heading: None,
-            turn: 0.0,
+            flight: Flight::Homes,
         },
         Transform::from_translation(point),
         Visibility::Inherited,
@@ -1665,8 +1669,10 @@ fn act(
                             speed: spells::SOULS_SPEED,
                             reach: spells::SOULS_REACH,
                             all: false,
-                            heading: Some(Vec3::Y),
-                            turn: spells::SOULS_TURN,
+                            flight: Flight::Soul {
+                                heading: Vec3::Y,
+                                turn: spells::SOULS_TURN,
+                            },
                         },
                         Transform::from_translation(place),
                         Visibility::Inherited,
@@ -1981,10 +1987,10 @@ fn act(
                         speed: spells::DISK_SPEED,
                         reach: spells::DISK_REACH,
                         all: false,
-                        heading: None,
-                        turn: 0.0,
+                        // From his feet, straight up (`0x527BA9`, `0x5A55F8`, #2115).
+                        flight: Flight::HellDisk { heading: Vec3::Y },
                     },
-                    Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
+                    Transform::from_translation(here),
                     Visibility::Inherited,
                     crate::hums::Hum(HELL_DISK_LOOP),
                     DespawnOnExit(AppState::InGame),
@@ -2714,6 +2720,50 @@ pub(crate) struct TentacleAura {
     pub(crate) seconds: f32,
 }
 
+/// A hell disk's move of `dt` seconds at `speed` along its `heading` in three dimensions on its
+/// `level` (`0x5A7F4B`, #2115), toward `aim`, its target's neck, else its root, else 50 of the
+/// models' frame over its caster's neck, where it `hovers`, slowing within 10 and stopping within
+/// 6; its heading turns toward its aim once more than its slack off it. A cell it may not pass
+/// turns it back about the vertical and undoes its move; at or below the ground its heading turns
+/// up (the original flips its vertical part, **estimate**: only while it goes down, so that it
+/// does not flip back below the ground). Its new heading.
+fn hell_disk(
+    transform: &mut Transform,
+    heading: Vec3,
+    (aim, hovers): (Vec3, bool),
+    (speed, dt): (f32, f32),
+    level: Level,
+    heights: &crate::terrain::Heights,
+) -> Vec3 {
+    let s = crate::iso::MODEL_SCALE;
+    let to = aim - transform.translation;
+    let toward = to.normalize_or_zero();
+    let angle = heading.dot(toward).clamp(-1.0, 1.0).acos();
+    let axis = heading.cross(toward).try_normalize().unwrap_or(Vec3::Y);
+    let mut heading = (Quat::from_axis_angle(axis, spells::disk_turns(angle, dt)) * heading)
+        .normalize_or(heading);
+    let step = if hovers {
+        speed * dt * spells::disk_slows(to.length() / s)
+    } else {
+        speed * dt
+    };
+    let next = transform.translation + heading * step;
+    if heights.passes(crate::paths::cell_of(next.x, next.z), level) {
+        transform.translation = next;
+    } else {
+        heading = Vec3::new(-heading.x, heading.y, -heading.z);
+    }
+    let here = transform.translation;
+    if heading.y < 0.0
+        && heights
+            .standing(here.x, here.z, level)
+            .is_some_and(|ground| here.y <= ground)
+    {
+        heading.y = -heading.y;
+    }
+    heading
+}
+
 /// The call of death's value falls with the time to no less than 1 (`0x56373E`); the effects'
 /// recomputation does not take it, so its change is not one of theirs.
 fn doom(time: Res<Time>, mut heroes: Query<&mut Effects, With<Body>>) {
@@ -2728,21 +2778,22 @@ fn doom(time: Res<Time>, mut heroes: Query<&mut Effects, With<Body>>) {
 }
 
 /// Flies each hell disk on its target at its speed, the nearest hostile creature within its
-/// look else, hovering by its caster with none; once a second it strikes the first creature it
-/// touches and turns to the nearest other, else the same (`0x5A7DE0`, `0x5AF93F`). The cells it
-/// may not enter, which turn it back, are not tested. A soul flies along its heading, which turns
-/// toward its target's left hand, else its caster's within 50 at random along each axis of the
-/// ground, rolled anew at each run, at its turn a second at most (`0x5A7DBF`, #2058).
+/// look else, hovering over its caster with none ([`hell_disk`]); once a second it strikes the
+/// first creature it touches and turns to the nearest other, else the same (`0x5A7DE0`,
+/// `0x5AF93F`). A soul flies along its heading, which turns toward its target's left hand, else
+/// its caster's within 50 at random along each axis of the ground, rolled anew at each run, at
+/// its turn a second at most (`0x5A7DBF`, #2058). The purgatory homes over the ground.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
 )]
 fn disk(
-    (mut commands, time, mut dice, mut hits): (
+    (mut commands, time, mut dice, mut hits, heights): (
         Commands,
         Res<Time>,
         ResMut<Dice>,
         MessageWriter<fight::Hit>,
+        Res<crate::terrain::Heights>,
     ),
     mut disks: Query<(Entity, &mut Disk, &mut Transform)>,
     (children, bones, worn): (
@@ -2847,34 +2898,65 @@ fn disk(
                 .ok()
                 .map(|at| at.translation().xz()),
         };
-        if let Some(heading) = disk.heading {
-            let whom = goal.unwrap_or(disk.caster);
-            let hand = crate::making::bone(whom, &SOUL_HAND, &children, (&bones, &worn))
-                .or_else(|| casters.get(whom).ok().map(GlobalTransform::translation));
-            if let Some(mut point) = hand {
-                if goal.is_none() {
-                    let mut jitter =
-                        || fight_seconds(dice.0.below(0x8000)) / 32_767.0 * 100.0 - 50.0;
-                    let (x, y) = (jitter(), jitter());
-                    point += crate::bolt_looks::world([x, y, 0.0]);
+        match disk.flight {
+            Flight::Soul { heading, turn } => {
+                let whom = goal.unwrap_or(disk.caster);
+                let hand = crate::making::bone(whom, &SOUL_HAND, &children, (&bones, &worn))
+                    .or_else(|| casters.get(whom).ok().map(GlobalTransform::translation));
+                if let Some(mut point) = hand {
+                    if goal.is_none() {
+                        let mut jitter =
+                            || fight_seconds(dice.0.below(0x8000)) / 32_767.0 * 100.0 - 50.0;
+                        let (x, y) = (jitter(), jitter());
+                        point += crate::bolt_looks::world([x, y, 0.0]);
+                    }
+                    let to = (point - transform.translation).normalize_or_zero();
+                    let angle = (heading.dot(to) * 0.9999).clamp(-1.0, 1.0).acos();
+                    let axis = heading.cross(to).normalize_or_zero();
+                    let turned = if axis == Vec3::ZERO {
+                        heading
+                    } else {
+                        Quat::from_axis_angle(axis, angle.min(turn * dt)) * heading
+                    };
+                    let turned = turned.normalize_or(heading);
+                    transform.translation += turned * disk.speed * dt;
+                    disk.flight = Flight::Soul {
+                        heading: turned,
+                        turn,
+                    };
                 }
-                let to = (point - transform.translation).normalize_or_zero();
-                let angle = (heading.dot(to) * 0.9999).clamp(-1.0, 1.0).acos();
-                let axis = heading.cross(to).normalize_or_zero();
-                let turned = if axis == Vec3::ZERO {
-                    heading
-                } else {
-                    Quat::from_axis_angle(axis, angle.min(disk.turn * dt)) * heading
-                };
-                let turned = turned.normalize_or(heading);
-                transform.translation += turned * disk.speed * dt;
-                disk.heading = Some(turned);
             }
-        } else if let Some(toward) = toward {
-            let to = toward - here;
-            let step = (disk.speed * dt).min(to.length());
-            let next = here + to.normalize_or_zero() * step;
-            transform.translation = Vec3::new(next.x, transform.translation.y, next.y);
+            Flight::HellDisk { heading } => {
+                let at = |whom: Entity| casters.get(whom).ok().map(GlobalTransform::translation);
+                let neck = |whom: Entity| {
+                    crate::making::bone(whom, &[arrows::NECK], &children, (&bones, &worn))
+                        .or_else(|| at(whom))
+                };
+                let aim = match goal {
+                    Some(target) => neck(target),
+                    None => neck(disk.caster)
+                        .map(|neck| neck + Vec3::Y * spells::DISK_HOVERS * crate::iso::MODEL_SCALE),
+                };
+                if let Some(aim) = aim {
+                    let heading = hell_disk(
+                        &mut transform,
+                        heading,
+                        (aim, goal.is_none()),
+                        (disk.speed, dt),
+                        level,
+                        &heights,
+                    );
+                    disk.flight = Flight::HellDisk { heading };
+                }
+            }
+            Flight::Homes => {
+                if let Some(toward) = toward {
+                    let to = toward - here;
+                    let step = (disk.speed * dt).min(to.length());
+                    let next = here + to.normalize_or_zero() * step;
+                    transform.translation = Vec3::new(next.x, transform.translation.y, next.y);
+                }
+            }
         }
         if disk.cooldown > 0.0 {
             continue;
