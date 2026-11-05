@@ -1419,6 +1419,21 @@ fn drawn_at(ops: &[opensacred_data::netscript::Operand]) -> Option<Vec2> {
     })
 }
 
+/// The cell of a `CreateObj` that gives its world position `0x20` and no cell `0x04`: the cell
+/// under the point, on the layer of the position's third number. The client makes such an object
+/// at the point itself (`0x485C10`: the tag `0x20` marks that no cell was given, and the object is
+/// made by `sdk_OBJ_CREATE_NPOS` at `0x487695` in the sector it resolves the point to), as the
+/// scripts make the big demon's summoning, the forges' elements and the glyphs (#2069).
+fn world_cell(ops: &[opensacred_data::netscript::Operand]) -> Option<(i32, i32, i32)> {
+    ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (WORLD_POSITION, Value::I32x3([x, y, layer])) => {
+            let (cx, cy) = crate::paths::cell_of(*x as f32, *y as f32);
+            Some((cx, cy, *layer))
+        }
+        _ => None,
+    })
+}
+
 /// Where the model of a placement whose logical position is `at` stands: at `at` without a drawn
 /// position; with one, where the screen shows its drawn position `drawn` at height 0, taken along
 /// the line of sight to `at`'s height, as the client draws it: `0x485C10` moves `0x20` by its
@@ -2897,7 +2912,11 @@ impl Makers {
         let arming = self.arming(&items);
         // An NPC sent somewhere at the start walks there from where it was made.
         let target = name_of(ops).and_then(|name| targets.get(&name).copied());
-        let cell = position(ops, named).or(target);
+        let cell = position(ops, named).or(target).or_else(|| {
+            (record.kind == CREATE_OBJ)
+                .then(|| world_cell(ops))
+                .flatten()
+        });
         let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
             (0x03, Value::U16(v)) => Some(f32::from(*v)),
             _ => None,
@@ -10168,6 +10187,9 @@ mod tests {
         let drawn = drawn_at(&ops);
         assert_eq!(drawn, Some(Vec2::new(724.0, 1100.0)));
         assert_eq!(drawn_at(&ops[..2]), None);
+        // Without its cell, it stands in the cell under its world position (#2069).
+        assert_eq!(world_cell(&ops), Some((13, 20, 0)));
+        assert_eq!(world_cell(&ops[..2]), None);
         // The ground a creature stands on rises from the cells' column 12 on.
         let cell = |raised: bool| Cell {
             tile: 0,
