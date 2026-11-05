@@ -997,6 +997,13 @@ pub(crate) struct Dice(pub(crate) crate::spawning::Rng);
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct Fades(pub(crate) f32);
 
+/// The demon fire's object (1015, `0x528566`): until when it strikes and how long it lives
+/// (`opensacred_rules::spells::hellfire_times`); its look is `demon_fires`'.
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct DemonFire {
+    pub(crate) times: (f32, f32),
+}
+
 /// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries and
 /// all it carried, its cooldown, the mines' damages and its level; its look is `mines`'.
 #[derive(Component, Debug, Clone)]
@@ -2005,21 +2012,16 @@ fn act(
                     Transform::from_translation(act.point),
                     DespawnOnExit(AppState::InGame),
                 ));
-                let mut made = commands.spawn((
+                commands.spawn((
+                    DemonFire {
+                        times: (strikes, lives),
+                    },
                     Fades(lives),
                     Transform::from_translation(act.point),
                     Visibility::Inherited,
                     crate::hums::Hum(DEMON_FIRE_LOOP),
                     DespawnOnExit(AppState::InGame),
                 ));
-                if let Some(looks) = &looks {
-                    made.with_child((
-                        Mesh3d(looks.disc.clone()),
-                        MeshMaterial3d(looks.discs[3].clone()),
-                        Transform::from_scale(Vec3::new(60.0, 2.0, 60.0))
-                            .with_translation(Vec3::Y * 4.0),
-                    ));
-                }
             }
             spells::CHOIR => {
                 // The first 20 creatures hostile to the hero, alive, within its reach, of no

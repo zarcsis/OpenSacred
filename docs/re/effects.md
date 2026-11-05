@@ -1275,6 +1275,28 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 `opensacred-game` draws it since #1092 (`trap_balls`, `opensacred_rules::particles::{TrapBall, ball_colour}`): each ball of `spells` and of `creature_casts` shows its bottle tumbling and its glows, added and untinted by the night.
 **Seen** 2026-11-05 beside the original: in both a green streak thick at its head and dotted at its tail arcing from the Dark Elf's hand over her head to the goblin.
 
+## The demon fire
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Daemon's 64 at the level 5 by a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The hellfire of the spell 64 | 1015 `FX_DEMONFIRE` | `cParticleSystem_demonfire` (`0x898C14`) | `0x7B2B00`, `0x7B3110`, `0x7B2CA0`, `0x7B2DF0` |
+
+- The executor (`0x528566`) makes it at the action's point, at the ground's height there (`0x636310`); the FX event `0x90` places it there, and it follows nothing.
+- Its constructor (500 particles) loads `PARTICLE_LINE01` (`+0x2538`), the lava's 50 frames `A_LAVA00` to `A_LAVA49` (`+0x253C`), the model `sphere.grn` (`+0x2604`, a sphere of the radius 20, no motion) and a Direct3D point light of (1.0, 0.4, 0.2), the range 200 and the attenuations 1, 0 and 0.000125.
+- Its start: its seconds (`+0x24B0`) the record's value 0 at the level times the event's factor; its growth `g` (`+0x20A8`) 0; one layer of the life −200 a second (1.275 s) and the size −25; one block of the size 30 ± 7, the angle π ± π, the place ± 1 along each axis, one every 0.004 s at the detail 2; its ramp from nothing in (0.922, 0.363, 0.035) to its full alpha 0.996 over 76 entries, to (0.996, 0.617, 0.25) over 66, to nothing in (0.566, 0.371, 0.184) over 114; its flags 2 (its particles kept about its place); its light 250; `DEMON_HOELLENFEUER` looping (docs/re/sound.md).
+- Its run (#2114): it grows `g` by 0.5 a second to 1 over 2 s, then sets its flag `0x2000`, which lets it strike; it stays until its clock passes its seconds, making rays all the while; then it clears the flag and shrinks `g` by 0.5 a second to 0, making no rays, and ends.
+- Its draw, its clock `t`:
+  - its block's place and its ball's centre `(0, 0, 45 + 3 sin(1.17 t))` over its place, its light there;
+  - an inner sphere of the size `(0.3 + 0.05 sin t)·g`, turned about the vertical by `t` radians, in the lava's frame `⌊fmod(70 t, 49.5)⌋`, lit and its depth written, its shadow under it (`0x406FF0`);
+  - an outer sphere of the size `(0.35 + 0.05 sin t)·g`, turned by `1.2456 t`, in the same frame, white, unlit, added (`ONE`, `ONE`) and its depth not written (`0x40D310`);
+  - its rays, billboards of `PARTICLE_LINE01` of the flags `0x8D` (`0x761B00`: standing on their feet, turned, the ramp's colour, added by their alpha), the grid 1, the factor 0.125: each `0.125·size` to each side and `2·size` long from its foot at the ball's centre, at its angle in the screen's plane, so that thin rays up to about 74 long stand out about the ball, their feet hidden within the inner sphere, whose depth they test.
+- So a ball of flowing lava bobs about 45 over the point in a starburst of thin orange rays, growing in over two seconds and shrinking away over its last two; its strikes' beam is not its own (#2119).
+
+`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its Direct3D light and its shadow are not followed (#2106).
+**Seen** 2026-11-05 beside the original: in both an orange lava ball in a starburst of thin rays over the point.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
