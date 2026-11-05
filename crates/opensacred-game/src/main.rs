@@ -58,6 +58,7 @@ mod debug;
 mod doors;
 mod dragon_fires;
 mod drops;
+mod dryad_ghosts;
 mod effects;
 mod equipment;
 mod esc_menu;
@@ -456,6 +457,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
         dragon_fires::DragonFiresPlugin,
+        dryad_ghosts::DryadGhostsPlugin,
         drops::DropsPlugin,
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,

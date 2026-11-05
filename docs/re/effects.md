@@ -1117,6 +1117,29 @@ Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` makes them since #1964 (`lava_bursts`, `opensacred_rules::particles::{LavaBurst, LavaFlames, deep_lava}`): `liquids` keeps each sector's cells of deep lava (a cell on its sector's edge left out), and once a second at most each of them in view rolls the burst in turn, the first that wins throwing its rock with its sound and a small fire there; the rock is the meteors' (`meteors`), the trail, the glow and the flames untinted by the night, the flames lighting it.
 **Seen** 2026-11-05 at the sector 12,74 in the game: rocks of lava arcing out of the pool with their glows and trails about once a second, small fires on the lava where they leave and on the rock where they land.
 
+## The dryad ghost
+
+Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Seraphim's game at the sector 16,79).
+
+| Object | FX type | Class | Its constructor, start, run, draw |
+|---|---|---|---|
+| The dryad ghost | 1162 `FX_DRYAD_GHOST` | `cParticleSystem_dryad_ghost` (`0x898F18`) | `0x7BF100`, `0x7BF3A0`, `0x7BF1E0`, `0x7BF2C0` |
+
+- **Its maker.** `FillSector`'s reader turns the type 1249 (`TYPE_NPC_DUMMY`) into 1162 in both its entry tags (`0x47C893`, `0x47C909`), its weight and third word kept; 60 entries of the Seraphim's tree name it, all hostile, in the dryads' sectors (16,79, 17,79, 19,72 and others).
+  The fill's creature maker (`0x480D40`) makes the object at the middle of the cell and, the object no creature and of the type 1162 (`0x4811F5`), sends it the FX event `0xA6` at its place on the ground (`0x636520`, 28 a floor) with no caster, no target and no array, and returns the object's followed creature with the fill's level, before its own course of the flags (`+0x1F4`), the stance and the hostility (`0x4812FD`).
+- **The event `0xA6`** (`0x5A593F`): the object's `+0x48` takes the bits `0x20` (turned back rather than ended) and `0x100` (its own creature no target), `+0xA8` 1.5 (not read), its heading straight up; it makes a creature 1249 at its place, of the side 2 (3 for a player's caster), keeps it at `+0x68` and, without a caster, takes it for its caster.
+- **The dummy 1249** draws nothing (`0x44B230` returns for it before its shadow and its model, `0x44B6F4`); returned past the maker's flags, it is hostile without the flag 1 and never wakes (the original's dummies stood at the AI's state 0 with the hero beside them, seen).
+  Its death takes a branch of its own (`0x53ECA0`; **hypothesis**: it leaves no corpse).
+- **The flight** is the lost souls' homing (`0x5A6680` under the flag `0x10000`): at the system's speed 120 (`+0x98`), its heading turned toward its aim by at most 3 radians a second; its target the nearest creature hostile to its dummy within a squared 100,000 (`0x600570`), kept while it lives and keeps its byte `+0x38` (**hypothesis**: its sector), aimed at its bone 3 (`Bip01 Neck`) else 0; without one it hovers, aiming 10 over its place at the speed 0 (`0x5A7F28`).
+  A cell it may not walk on turns its heading's horizontal part about and puts it back where it was; the ground at or over its height turns its vertical part (`0x5A851D`).
+- **Its strikes** (`0x5AB490`, `0x5ABD80`'s case at `0x5B17AB`): every creature hostile to its dummy within its size and theirs (`0x5FF7C0`, 50 each by default) takes, once a second (`+0x11C`), the strike's event from the object of `⌊dryadghost_dmg_k · (1 + v/100) · 9⌋` of each kind, held to 65,534, `v` the damage multipliers' curve at its dummy's skill 2 and 9 its first array word 0 plus 9: the formula of the dragons' fire on the ground ("The dragons' fire"), 18 physical and 22 fire at `v` 0.
+- **Its look** is the lost souls' ("The lost souls", the draw `0x79CFB0` word for word): 200 dots of `PARTICLE_DOTS01` from a point wobbling by 5 about its place, one every 0.01 s, of a size of 7 shrinking by 4 a second, turning at 6 radians a second, living 0.64 s, their ramp (60, 60, 255) of 256 fading out, added by their alpha; and the green glow beating once a second at that point; its green Direct3D light; and `HELF_AHNEN_LOOP` (2058) looping from its start, as the souls' (docs/re/sound.md).
+- **Its end**: at once where its target or its dummy changes its byte `+0x38`, or its place has no sector; fading where it has no target and its dummy is gone; with its sector going idle.
+
+`opensacred-game` makes it since #1964 (`dryad_ghosts`, `opensacred_rules::particles::{DRYAD_GHOST, LostSoul::dryad_ghost}`, `opensacred_rules::fight::Rules::dryad_ghost_damages`): each fill's dummy 1249 is hidden as it is made, its flags' low 16 bits cleared, and its ghost rises on the ground at its place, flies, strikes the hero and its followers and looks and sounds as described (`lost_souls`, `hums::Hum`); it goes with its dummy, its dots fading after it.
+The bytes `+0x38`, the strikes' resolution from an object, the dummy's death and the light are not followed.
+**Seen** 2026-11-05 at the sector 16,79 beside the original: the dummies of neither game showing or stirring; in both a green glow trailing blue dots that rose and flew at the Seraphim within some six cells and circled about her head, striking her.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).

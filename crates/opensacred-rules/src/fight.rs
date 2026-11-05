@@ -672,6 +672,9 @@ pub struct Rules {
     /// The dragons' fires on the ground's damages of the four kinds a level (`dragonfire_dmg_ph`,
     /// `_fi`, `_ma` and `_po`, `0x5AF7C5`).
     dragon_fire: [f32; 4],
+    /// The dryad ghosts' damages of the four kinds (`dryadghost_dmg_ph`, `_fi`, `_ma` and `_po`,
+    /// the balance's `0x1104` to `0x1110`).
+    dryad_ghost: [f32; 4],
     spawn_weapon: [f32; 2],
     /// The rare effects' parameters `(a, b, c)` of the balance's tail's fifth table, by their
     /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
@@ -711,6 +714,7 @@ impl Default for Rules {
             multi_shot: 0.83,
             geschick: 200.0,
             dragon_fire: [2.0, 2.5, 0.0, 0.0],
+            dryad_ghost: [2.0, 2.5, 0.0, 0.0],
             spawn_weapon: [25.0, 275.0],
             rare: Vec::new(),
             tollwut: 1.0,
@@ -965,6 +969,13 @@ impl Rules {
                         .unwrap_or(default.dragon_fire[k])
                 })
             },
+            dryad_ghost: {
+                let kinds = ["ph", "fi", "ma", "po"];
+                std::array::from_fn(|k| {
+                    b.f32(&format!("dryadghost_dmg_{}", kinds[k]))
+                        .unwrap_or(default.dryad_ghost[k])
+                })
+            },
             spawn_weapon: [
                 b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
                 b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
@@ -1041,9 +1052,23 @@ impl Rules {
     /// level `skill_2` of the dragon's skill 2, times its level `level` plus 9, truncated and held
     /// to 65,534, at 53 bits.
     pub fn ground_fire_damages(&self, level: u32, skill_2: u32) -> [f32; 4] {
+        self.object_damages(self.dragon_fire, level, skill_2)
+    }
+
+    /// The damages of the four kinds of a dryad ghost's strike (1162, `0x5B17AB`): as a dragon's
+    /// fire on the ground's ([`Self::ground_fire_damages`]) of `dryadghost_dmg_*`, at the level
+    /// of its object's first word, 0 for a fill's ghost, and the skill 2 of its dummy 1249: 18
+    /// physical and 22 fire at a skill of 0.
+    pub fn dryad_ghost_damages(&self, skill_2: u32) -> [f32; 4] {
+        self.object_damages(self.dryad_ghost, 0, skill_2)
+    }
+
+    /// Each kind's `per_level` times one plus a hundredth of the damage multipliers' curve at the
+    /// level `skill_2`, times `level` plus 9, truncated and held to 65,534, at 53 bits.
+    fn object_damages(&self, per_level: [f32; 4], level: u32, skill_2: u32) -> [f32; 4] {
         let factor = f64::from(curve(self.curves.damage, skill_2)) * HUNDREDTH + 1.0;
         let reach = f64::from(level) + 9.0;
-        self.dragon_fire.map(|per_level| {
+        per_level.map(|per_level| {
             let value = factor * reach * f64::from(per_level);
             stored(value.trunc().clamp(0.0, 65_534.0))
         })
@@ -4295,6 +4320,15 @@ mod tests {
         assert_eq!(rules.ground_fire_damages(10, 0), [38.0, 47.0, 0.0, 0.0]);
         let skilled = rules.ground_fire_damages(10, 5);
         assert!(skilled[0] > 38.0 && skilled[1] > 47.0, "{skilled:?}");
+    }
+
+    #[test]
+    fn a_dryad_ghost_strikes_by_its_dummys_skill_2_at_the_level_0() {
+        let rules = Rules::default();
+        // 2 and 2.5 times 9, truncated.
+        assert_eq!(rules.dryad_ghost_damages(0), [18.0, 22.0, 0.0, 0.0]);
+        let skilled = rules.dryad_ghost_damages(5);
+        assert!(skilled[0] > 18.0 && skilled[1] > 22.0, "{skilled:?}");
     }
 
     #[test]

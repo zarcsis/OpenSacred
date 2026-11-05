@@ -22,6 +22,11 @@ use crate::iso;
 #[derive(Component)]
 pub(crate) struct Look(pub f32);
 
+/// A dryad ghost's object, which looks as a soul does with blue dots for as long as it lives
+/// (`dryad_ghosts`, `particles::LostSoul::dryad_ghost`).
+#[derive(Component)]
+pub(crate) struct Ghostly;
+
 /// A soul's look, which outlives its object while its dots fade: its object while it lives, its
 /// dots, their dice, its place and the place before, and its parts' meshes, the dots' and the
 /// glow's.
@@ -50,7 +55,7 @@ const SEED: usize = 0x352;
 )]
 fn show(
     mut commands: Commands,
-    souls: Query<(Entity, &Look, &GlobalTransform), Added<Look>>,
+    souls: Query<(Entity, &Look, &GlobalTransform, Has<Ghostly>), Added<Look>>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -59,7 +64,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, &Look(seconds), place) in &souls {
+    for (object, &Look(seconds), place, ghostly) in &souls {
         let [dots, glow] = made
             .0
             .get_or_insert_with(|| {
@@ -103,7 +108,11 @@ fn show(
         let index = usize::try_from(shown.index_u32()).unwrap_or(0);
         commands.entity(shown).insert(Shown {
             object: Some(object),
-            soul: LostSoul::new(seconds),
+            soul: if ghostly {
+                LostSoul::dryad_ghost()
+            } else {
+                LostSoul::new(seconds)
+            },
             dice: crate::seed::dice(SEED ^ index),
             place: place.translation(),
             before: None,
@@ -123,9 +132,9 @@ fn fly(
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    let ramp = LostSoul::ramp();
     for (entity, mut look) in &mut shown {
         let look = &mut *look;
+        let ramp = look.soul.ramp();
         match look.object.map(|object| objects.get(object)) {
             Some(Ok(place)) => look.place = place.translation(),
             _ => {
