@@ -5,8 +5,9 @@
 //! once, takes the Daemon's strike of the charge's art and the share by his distance from it,
 //! while he lives (`Blast::share`; seen, #856), and then, by the kicks' roll of the charge's level (**hypothesis**: the
 //! object's level word, which the original leaves as it finds it), is knocked back by the blast's
-//! strength (`making::Knocked`). A ring of one colour stands in for its particle system
-//! (docs/decisions/arts.md, "Daemon's blast edge and level").
+//! strength (`making::Knocked`) (docs/decisions/arts.md, "Daemon's blast edge and level"). It
+//! looks as its system, the ring of poison's with its own reach and colours (`poison_rings`,
+//! #1092).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{BLAST_LIFE, Blast};
@@ -15,14 +16,10 @@ use crate::ai::Mind;
 use crate::crowd::InTheWay;
 use crate::fight::{self, Health};
 use crate::frame::{Playing, Step};
-use crate::game::AppState;
 use crate::hero::Body;
 use crate::npcs::Dies;
 use crate::spawning::Rng;
 use crate::terrain::Level;
-
-/// How high the ring stands, in world units.
-const RING_HEIGHT: f32 = 20.0;
 
 /// A blast: its caster, its values, its level, the level of the charge that made it, its place,
 /// its time, its radius, and the creatures it has touched.
@@ -55,52 +52,21 @@ impl Blasting {
     }
 }
 
-/// The ring's look.
-#[derive(Resource)]
-struct Look(Handle<Mesh>, Handle<StandardMaterial>);
-
 /// The dice of the knockbacks.
 #[derive(Resource)]
 struct Dice(Rng);
 
-/// Makes the ring's look: a flat cylinder of radius 1, scaled to the blast's radius, of a
-/// translucent orange (**estimate**).
-fn make_look(
-    mut commands: Commands,
-    meshes: Option<ResMut<Assets<Mesh>>>,
-    materials: Option<ResMut<Assets<StandardMaterial>>>,
-) {
-    let (Some(mut meshes), Some(mut materials)) = (meshes, materials) else {
-        return;
-    };
-    commands.insert_resource(Look(
-        meshes.add(Cylinder::new(1.0, RING_HEIGHT)),
-        materials.add(StandardMaterial {
-            base_color: Color::srgba(1.0, 0.55, 0.15, 0.35),
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        }),
-    ));
-}
-
-/// Gives each new blast its ring.
+/// Gives each new blast its look (`0x7C1AB0`): the ring of its reach, `R` a second
+/// (`poison_rings`).
 fn show(
-    mut commands: Commands,
-    look: Option<Res<Look>>,
-    blasts: Query<(Entity, &Blasting), Added<Blasting>>,
+    blasts: Query<&Blasting, Added<Blasting>>,
+    mut rings: MessageWriter<crate::poison_rings::Made>,
 ) {
-    let Some(look) = look else {
-        return;
-    };
-    for (entity, blasting) in &blasts {
-        commands.entity(entity).insert((
-            Mesh3d(look.0.clone()),
-            MeshMaterial3d(look.1.clone()),
-            Transform::from_translation(blasting.at + Vec3::Y * RING_HEIGHT / 2.0)
-                .with_scale(Vec3::new(0.0, 1.0, 0.0)),
-            DespawnOnExit(AppState::InGame),
-        ));
+    for blasting in &blasts {
+        rings.write(crate::poison_rings::Made {
+            at: blasting.at,
+            kind: crate::poison_rings::Kind::Blast(blasting.blast.most),
+        });
     }
 }
 
@@ -114,7 +80,7 @@ fn spread(
     mut commands: Commands,
     time: Res<Time>,
     mut dice: ResMut<Dice>,
-    mut blasts: Query<(Entity, &mut Blasting, Option<&mut Transform>)>,
+    mut blasts: Query<(Entity, &mut Blasting)>,
     casters: Query<&Transform, (With<Body>, Without<Blasting>, Without<Dies>)>,
     creatures: Query<
         (
@@ -129,7 +95,7 @@ fn spread(
     >,
     mut hits: MessageWriter<fight::Hit>,
 ) {
-    for (entity, mut blasting, transform) in &mut blasts {
+    for (entity, mut blasting) in &mut blasts {
         blasting.time += time.delta_secs();
         if blasting.time >= BLAST_LIFE {
             commands.entity(entity).despawn();
@@ -137,9 +103,6 @@ fn spread(
         }
         let radius = blasting.blast.radius(blasting.time, blasting.radius);
         blasting.radius = radius;
-        if let Some(mut transform) = transform {
-            transform.scale = Vec3::new(radius, 1.0, radius);
-        }
         let at = blasting.at.xz();
         let caster = casters.get(blasting.caster).ok().map(|t| t.translation);
         let reached: Vec<(Entity, Vec3, &Mind)> = creatures
@@ -198,11 +161,9 @@ pub struct BlastPlugin;
 
 impl Plugin for BlastPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dice(crate::seed::dice(5)))
-            .add_systems(Startup, make_look)
-            .add_systems(
-                Update,
-                (show, spread).chain().after(Step::Npcs).in_set(Playing),
-            );
+        app.insert_resource(Dice(crate::seed::dice(5))).add_systems(
+            Update,
+            (show, spread).chain().after(Step::Npcs).in_set(Playing),
+        );
     }
 }
