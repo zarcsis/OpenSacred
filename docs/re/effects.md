@@ -596,9 +596,9 @@ Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540
 The four bolts look as their systems since #1092's first family (`bolt_looks`, `opensacred_rules::particles::{Firestrike, Emperor, bfg_greys, age_frame}`): each look an entity of its own that follows its bolt and outlives it as its system does (the fireball's flames burning out, the emperor's flare on its target's neck), told of its bolt's end (`bolt_looks::Ended`), untinted by the night, their sizes at the models' scale.
 Their flight follows the frame's map since #2018 (`bolts::flight_scale`), every bolt's: the railgun's, the BFG's, the fireball's, the Daemon's, the whirlwinds', the splinters', the bubble's and the fire bolt's.
 Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 and the fireball's 200, at their places on the ground at height 0 while their looks show, the fireball's while its flames burn out.
-Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun and the Daemon's bolt the right hand, the fireball and the fire bolt the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
+Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun and the Daemon's bolt the right hand, the fireball, the fire bolt and the splinters the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
 **Seen** 2026-11-04 in the game: the Mage's fireball leaving her raised left hand at 90 over the ground and flying at her chest's height to the goblin it struck.
-The splinters and the bubble, of no system's look yet, and a shooter of no such bone, keep 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
+The bubble, of no system's look yet, and a shooter of no such bone, keep 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
 Not followed: the fireball's point light on the models, and the looks of a caster gone (`+0xA9` 1).
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
@@ -1441,6 +1441,25 @@ Their FX events take the event's direction and the flag `0x40`, so each flies le
 `opensacred-game` draws them since #1092 (`bolt_trails`, `opensacred_rules::particles::{BoltTrail, TrailKind}`), in place of their stand-in balls: the whirlwind leaves its caster's `__Root` and flies level at its height, its dust left along its way in the colour of the ground where it leaves (`terrain::Heights::nature`, `GROUND_COLOURS`), at the alpha of its life, laid over and tinted by the light; the fire bolt leaves its caster's left hand, its smoke riding with it, added and untinted by the night.
 **Seen** 2026-11-05 beside the original: the Mage's whirlwinds' dark green dust about her and along their way, gone where a tree stops them; the fire bolt's teal and white glow at the caster's hand and at its target alike in size and colour (Sharifo's in the game, the Mage's taught the spell 52 in the original).
 Not followed: the dust's colour spread, the fire bolt's light (#2106) and its one puff at its end (**hypothesis**: drawn from a stale origin, far off).
+
+## The ice splinters
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The Mage's ice splinters, the spell 34 | 839 `FX_ICEBULLETS` | `cParticleSystem_icebullets` (`0x898218`) | `0x78CA30`, `0x78D640`, `0x78CD10`, `0x78CF50` |
+
+Its FX event (`0x3F`) takes the event's direction and the flag `0x40`, so each bolt flies level at its caster's left hand (bone 1).
+- Its constructor (200 particles) loads the models `Icicle01.grn`, `Icicle02.grn` and `Icicle03.grn`, of which it draws the first alone, and the textures `ICICLE`, `ICICLE2`, `FX_CIRCLE02` and `PARTICLE_SPARK07`; no light.
+- Its start: its heading along its direction, its point the first of the ten places it keeps (`+0x25E4`), its timer 1; five icicles (`+0x2540`), each at an offset within 20 of its place along each axis (`+0x2544`); its sparks' ramp (`+0x20A8`) of each entry `i` a hero's `(⌊i/2⌋, ⌊i/2⌋, i)` blue white, another's grey `⌊i/4⌋`, its alpha 0; its speed 150, its flags `0x50`.
+- Its run: flying, its timer falls by 10 a second, and at 0 its places shift back by one, its place the first, its timer 1 again: a place every 0.1 s; past 3 s, or at a cell that stops it (its word `+0x74` bit 2), it bursts, once: one layer of the life −150 a second (1.7 s), one block of the buoyancy 140 ± 20, the size 2, the velocity 70 along its direction within 10 along each axis, the place ± 2, and 40 sparks at each icicle's offset; then its sparks alone, their upward velocity turned back where they reach the ground under it (`0x7645C0` of the mode 0); it ends with its last.
+- Its draw, flying: each icicle `Icicle01` in its world matrix, laid along its heading and turned about it by its clock (a radian a second), at its place and its offset, in `ICICLE` for a hero's (`+0xA9` 0) or `ICICLE2` for another's, lit, its depth written; then, unlit, depth tested and not written, both faces, a square of `FX_CIRCLE02` at each of its first four places and each icicle's offset, in the plane across its flight and turned with its icicles, its half side `2·((2 − t) + j)` for the `j`-th place back and the timer `t`, a hero's added (`ONE`, `ONE`) in a grey of 128, another's laid over (`SRCALPHA`, `INVSRCALPHA`) in black at the alpha 128, the fourth's 128 taken times the timer; burst, its sparks as billboards of the flags `0x19` (the ramp's colour, added whole), the grid 1.
+- So five icicles fly in a loose cluster rolling slowly about their way, each trailing four pale rings growing from 2 to 10 about 15 apart, and at 3 s or a wall they burst into 200 blue-white sparks that fall and bounce for 1.7 s; `MAGE_ICEBULLETS` (2026) sounds once as the spell is cast (docs/re/sound.md).
+
+`opensacred-game` draws them since #1092 (`ice_splinters`, `opensacred_rules::particles::IceSplinters`), in place of their stand-in balls: each splinter bolt leaves its caster's left hand, its icicles the model's point (its `+Z`) forward, another caster's in `ICICLE2`; its rings and its sparks untinted by the night.
+**Seen** 2026-11-05 beside the original: the Mage's splinters of the level 5, a cluster of white icicles and pale rings alike in size and colour flying to the goblin, and their sparks at their end.
+Not followed: which end of the icicle leads (**hypothesis**: its point, the model's thin end), and its turn's sense in the mirrored frame.
 
 ## The arrows' elements
 

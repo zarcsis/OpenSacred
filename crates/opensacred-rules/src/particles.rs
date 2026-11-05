@@ -6485,6 +6485,149 @@ impl BoltTrail {
     }
 }
 
+/// The ice splinters' model and textures (839, `0x78CA30`): the icicle (the first of the three
+/// it loads, the one drawn), the hero's icicles' texture and the others', the rings' and the
+/// sparks'.
+pub const SPLINTER_MODEL: &str = "ICICLE01.GRN";
+pub const SPLINTER_TEXTURE: &str = "ICICLE";
+pub const SPLINTER_OTHERS_TEXTURE: &str = "ICICLE2";
+pub const SPLINTER_RING_TEXTURE: &str = "FX_CIRCLE02";
+pub const SPLINTER_SPARK_TEXTURE: &str = "PARTICLE_SPARK07";
+const SPLINTER_SHARDS: usize = 5;
+const SPLINTER_COUNT: usize = 200;
+/// How many of the places it passed each icicle draws a ring at (of the ten it keeps).
+pub const SPLINTER_RINGS: usize = 4;
+
+/// The ice splinters (839, `cParticleSystem_icebullets`, `0x78D640`, `0x78CD10`, `0x78CF50`):
+/// five icicles about their place, each within 20 of it along each axis, laid along their flight
+/// and turning about it at a radian a second, each trailing rings at the places they passed, one
+/// every 0.1 s; at their end they burst into 40 sparks each, which fall and bounce off the
+/// ground.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IceSplinters {
+    pub system: System,
+    /// The icicles' offsets from their place.
+    pub offsets: [[f32; 3]; SPLINTER_SHARDS],
+    /// How long they flew, their turn about their flight in radians.
+    pub clock: f32,
+    /// The time to the next ring's place, from 1 down by 10 a second (`+0x265C`).
+    pub timer: f32,
+    /// The places they passed, the newest first (`+0x25E4`).
+    pub history: [Option<[f32; 3]>; SPLINTER_RINGS],
+    pub hero: bool,
+    burst: bool,
+}
+
+impl IceSplinters {
+    /// The splinters leaving `start` in the models' frame, a hero's or another's.
+    pub fn new(start: [f32; 3], hero: bool, dice: &mut impl Dice) -> Self {
+        let mut history = [None; SPLINTER_RINGS];
+        history[0] = Some(start);
+        Self {
+            system: System::new(SPLINTER_COUNT),
+            offsets: std::array::from_fn(|_| spread_3(spread([0.0; 3], [20.0; 3]), dice)),
+            clock: 0.0,
+            timer: 1.0,
+            history,
+            hero,
+            burst: false,
+        }
+    }
+
+    /// Whether they still fly: drawn as icicles and rings, not burst.
+    pub fn flying(&self) -> bool {
+        !self.burst
+    }
+
+    /// The sparks' ramp (`+0x20A8`): each entry `i` a hero's blue white `(⌊i/2⌋, ⌊i/2⌋, i)`,
+    /// another's grey `⌊i/4⌋`, in 255ths, its alpha 0 (drawn whole).
+    pub fn ramp(&self) -> Ramp {
+        let hero = self.hero;
+        Ramp(std::array::from_fn(|i| {
+            let i = f32::from(u8::try_from(i).unwrap_or(u8::MAX));
+            if hero {
+                let half = (i / 2.0).floor();
+                [half / 255.0, half / 255.0, i / 255.0, 0.0]
+            } else {
+                let grey = (i / 4.0).floor() / 255.0;
+                [grey, grey, grey, 0.0]
+            }
+        }))
+    }
+
+    /// A run of `dt` seconds at `place` in the models' frame, `ground` the ground's height under
+    /// it: they turn, and while they fly take a ring's place every 0.1 s; their sparks age,
+    /// their upward velocity turned back at the ground (`0x7645C0` of the mode 0).
+    pub fn update(&mut self, dt: f32, place: [f32; 3], ground: f32) {
+        self.clock += dt;
+        if !self.burst {
+            self.timer -= 10.0 * dt;
+            if self.timer <= 0.0 {
+                self.history.rotate_right(1);
+                self.history[0] = Some(place);
+                self.timer = 1.0;
+            }
+        }
+        let layers = [Layer {
+            life: -150.0,
+            ..Layer::default()
+        }];
+        self.system.update_over(dt, &layers, Some(ground));
+    }
+
+    /// The rings to draw: each icicle's at each place it passed, its centre, its half side
+    /// `2·((2 − timer) + j)` for the `j`-th place back, and its colour's share, the last fading
+    /// by the timer; none once they burst.
+    pub fn rings(&self) -> Vec<([f32; 3], f32, f32)> {
+        if self.burst {
+            return Vec::new();
+        }
+        let mut rings = Vec::new();
+        for offset in &self.offsets {
+            for (j, place) in self.history.iter().enumerate() {
+                let Some(place) = place else {
+                    continue;
+                };
+                // A place not yet passed is skipped, as the original skips one of x and y 0.
+                let j = f32::from(u8::try_from(j).unwrap_or(0));
+                let share = if j >= 3.0 { self.timer } else { 1.0 };
+                rings.push((
+                    std::array::from_fn(|k| place[k] + offset[k]),
+                    2.0 * ((2.0 - self.timer) + j),
+                    share,
+                ));
+            }
+        }
+        rings
+    }
+
+    /// Their end at `place`, flying along the unit `direction`, both in the models' frame, at
+    /// their time's end or at a cell that stops them: the icicles go, 40 sparks bursting from
+    /// each, flying on at 70 along their way within 10 along each axis.
+    pub fn burst(&mut self, place: [f32; 3], direction: [f32; 3], dice: &mut impl Dice) {
+        if self.burst {
+            return;
+        }
+        self.burst = true;
+        let per = SPLINTER_COUNT / SPLINTER_SHARDS;
+        for offset in self.offsets {
+            let block = Block {
+                buoyancy: spread(140.0, 20.0),
+                size: spread(2.0, 0.0),
+                velocity: spread(direction.map(|d| 70.0 * d), [10.0; 3]),
+                offset: spread(std::array::from_fn(|k| place[k] + offset[k]), [2.0; 3]),
+                ..Block::default()
+            };
+            self.system.burst(&block, per, SPLINTER_COUNT, dice);
+        }
+    }
+
+    /// Whether they ended: burst and no spark alive.
+    pub fn done(&self) -> bool {
+        self.burst && self.system.particles.is_empty()
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -9078,5 +9221,44 @@ mod tests {
         }
         assert!(smoke.done());
         assert_eq!(BoltTrail::ramp().at(255.0)[3], 0.781);
+    }
+
+    #[test]
+    fn the_splinters_trail_rings_and_burst_into_sparks() {
+        let mut dice = Rng::of(14, 14, 839);
+        let mut ice = IceSplinters::new([0.0, 0.0, 60.0], true, &mut dice);
+        assert!(ice.offsets.iter().flatten().all(|v| v.abs() <= 20.0));
+        // A ring's place every 0.1 s: four places after 0.3 s and more.
+        for k in 0..30u8 {
+            ice.update(0.0125, [f32::from(k) * 2.0, 0.0, 60.0], 0.0);
+        }
+        assert_eq!(ice.history.iter().flatten().count(), 4);
+        let rings = ice.rings();
+        assert_eq!(rings.len(), 20);
+        assert!(
+            rings
+                .iter()
+                .all(|&(_, half, _)| (2.0..=10.0).contains(&half))
+        );
+        ice.burst([60.0, 0.0, 60.0], [1.0, 0.0, 0.0], &mut dice);
+        assert!(ice.rings().is_empty() && !ice.flying());
+        assert_eq!(ice.system.particles.len(), 200);
+        // They fall and bounce off the ground and live 1.7 s.
+        for _ in 0..100 {
+            ice.update(0.0125, [60.0, 0.0, 60.0], 0.0);
+        }
+        assert!(ice.system.particles.iter().all(|p| p.place[2] > -20.0));
+        for _ in 0..80 {
+            ice.update(0.0125, [60.0, 0.0, 60.0], 0.0);
+        }
+        assert!(ice.done());
+        assert_eq!(
+            ice.ramp().at(255.0),
+            [127.0 / 255.0, 127.0 / 255.0, 1.0, 0.0]
+        );
+        let grey = IceSplinters::new([0.0; 3], false, &mut dice)
+            .ramp()
+            .at(255.0);
+        assert_eq!(grey, [63.0 / 255.0, 63.0 / 255.0, 63.0 / 255.0, 0.0]);
     }
 }
