@@ -5449,6 +5449,107 @@ impl MineSign {
     }
 }
 
+/// The flying skull's model and its scale, its trail's texture and its particles at most
+/// (`0x7A5DE0`, `0x7A6040`).
+pub const SKULL_MODEL: &str = "SKULL.GRN";
+pub const SKULL_SCALE: f32 = 2.0;
+pub const SKULL_TRAIL_TEXTURE: &str = "PARTICLE_GLOW03";
+const SKULL_COUNT: usize = 200;
+
+/// The death's kiss's flying skull (905, `FX_FLYINGSKULL`, `cParticleSystem_flyingskull`, its
+/// constructor `0x7A5DE0`, its start `0x7A6370`, its run `0x7A5F40` and its draw `0x7A6040`),
+/// which flies as the homing souls (its flags `0x10000`, its speed 150): its model [`SKULL_MODEL`]
+/// at twice its size, turned about the vertical to its heading (`atan2(−y, x) + π/2`), at a point
+/// that wobbles about its place as a soul's ([`soul_wobble`]); and from that point a trail of
+/// glows of [`SKULL_TRAIL_TEXTURE`], one every 0.05 s at the detail 2, of a size of 18 ± 2 falling
+/// by 15 a second, living 0.85 s (−300), of the ramp [`FlyingSkull::ramp`], added whole (the
+/// flags `0x19`). Its seconds over, or its object ended, it shows no more and makes no more, and
+/// ends with its last glow.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlyingSkull {
+    pub system: System,
+    seconds: f32,
+    out: bool,
+}
+
+impl FlyingSkull {
+    /// A skull for `seconds` (its FX event's `+0x4C`).
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            system: System::new(SKULL_COUNT),
+            seconds,
+            out: false,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -300.0,
+            size: -15.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block(t: f32) -> Block {
+        Block {
+            size: spread(18.0, 2.0),
+            offset: spread(soul_wobble(t), [0.0; 3]),
+            interval: 0.05,
+            ..Block::default()
+        }
+    }
+
+    /// Its trail's ramp (`+0x20B0`): from nothing to an orange (0.996, 0.852, 0.051) over 10
+    /// entries, to a rust (0.879, 0.383, 0.160) over 126, to nothing over 120.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.0; 4],
+            &[
+                ([0.996, 0.852, 0.051, 0.996], 10),
+                ([0.879, 0.383, 0.160, 0.781], 126),
+                ([0.0; 4], 120),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds, its place gone from `from` to `to` in the models' frame
+    /// (`0x7A5F40`): its glows age, and while it flies it leaves new ones along its way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.out {
+            return;
+        }
+        let block = Self::block(self.system.clock);
+        self.system
+            .emit_along(&[block], &layers, SKULL_COUNT, (from, to), dt, dice);
+        if self.system.clock > self.seconds {
+            self.out = true;
+        }
+    }
+
+    /// Its object's end (`+0x74` bit 1): it shows and makes no more.
+    pub fn end(&mut self) {
+        self.out = true;
+    }
+
+    /// Whether it shows its model and its wobbling point there: while it flies.
+    pub fn flies(&self) -> Option<[f32; 3]> {
+        (!self.out).then(|| soul_wobble(self.system.clock))
+    }
+
+    /// Whether it ended: out and no glow alive.
+    pub fn done(&self) -> bool {
+        self.out && self.system.particles.is_empty()
+    }
+}
+
+/// The skull's turn about the vertical in the models' frame by its heading `(x, y)` there
+/// (`0x7A6040`): `atan2(−y, x) + π/2`.
+pub fn skull_turn([x, y]: [f32; 2]) -> f32 {
+    (-y).atan2(x) + std::f32::consts::FRAC_PI_2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6937,5 +7038,23 @@ mod tests {
             p.place[0].hypot(p.place[1]) > 24.9
                 && (-0.01..=std::f32::consts::FRAC_PI_2 + 0.01).contains(&a)
         }));
+    }
+
+    #[test]
+    fn a_flying_skull_trails_a_glow_every_twentieth_and_ends_after_its_seconds() {
+        let mut dice = Rng::of(4, 4, 905);
+        let mut skull = FlyingSkull::new(1.0);
+        for k in 0..10 {
+            let x = f32::from(u8::try_from(k).unwrap_or(0)) * 7.5;
+            skull.update(0.05, ([x, 0.0, 50.0], [x + 7.5, 0.0, 50.0]), &mut dice);
+        }
+        assert_eq!(skull.system.particles.len(), 10);
+        assert!(skull.flies().is_some());
+        for _ in 0..40 {
+            skull.update(0.05, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        assert!(skull.flies().is_none() && skull.done());
+        assert_eq!(FlyingSkull::ramp().at(255.0), [0.0; 4]);
+        assert!((skull_turn([1.0, 0.0]) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
     }
 }

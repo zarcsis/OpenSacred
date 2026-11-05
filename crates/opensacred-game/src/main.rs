@@ -69,6 +69,7 @@ mod files;
 mod fire_skins;
 mod first_start;
 mod fliers;
+mod flying_skulls;
 mod foe_panel;
 mod followers;
 mod forge;
@@ -472,6 +473,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         fight::FightPlugin,
         fire_skins::FireSkinsPlugin,
         fliers::FliersPlugin,
+        flying_skulls::FlyingSkullsPlugin,
         foe_panel::FoePanelPlugin,
         followers::FollowersPlugin,
         forge::ForgePlugin,

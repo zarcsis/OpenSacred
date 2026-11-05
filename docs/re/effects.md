@@ -1188,6 +1188,22 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 Since #1092 the mines and their sign look as the original's (`mines`, `opensacred_rules::particles::{DwarfMine, MineSign}`): each mine its model turned at random, its button's flash in copies of its meshes added whole, its puffs darkened by the night; the sign its tongues on the ground about the Dwarf along the arc of his mines left, untinted.
 **Seen** 2026-11-05 beside the original, the Dwarf laying his mines as he walks: in both a small dark dome with a red button lying where each was laid, and in the game blue tongues spread about his feet.
 
+## The flying skull
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Vampiress in her night form, her 1033 at the level 5 on a goblin).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The death's kiss's skull | 905 `FX_FLYINGSKULL` | `cParticleSystem_flyingskull` (`0x898884`) | `0x7A5DE0`, `0x7A6370`, `0x7A5F40`, `0x7A6040` |
+
+- Its constructor loads `PARTICLE_GLOW03` (`+0x2534`) and the model `skull.grn` (`+0x2538`, `+0x253C`), and makes a Direct3D light of the colour (1.0, 0.8, 0.1).
+- Its start: its seconds the event's `+0x4C` (`+0x20A8`); the loop 2058 as the souls' (docs/re/sound.md); one layer of the life −300 a second (0.85 s) and the size −15; one block of the size 18 ± 2, one every 0.05 s at the detail 2; its ramp from nothing to (0.996, 0.852, 0.051) over 10 entries, to (0.879, 0.383, 0.160) at the alpha 0.781 over 126, to nothing over 120; its flags `0x10000` (the homing flight, "The lost souls") and its speed 150.
+- Its run: while it flies, the block's offset wobbles as a soul's (`5 sin(6.58 t)`, `5 sin(6.87 t)`, `5 sin(7.49 t)`) and it emits along its way; past its seconds, or its object's word `+0x74` bit 2, it stops (`+0x20AC` 1, its flags 0) and ends with its last glow.
+- Its draw: while it flies, its light at its place, then its model at twice its size, turned about the vertical by `atan2(−y, x) + π/2` of its heading, at its place and the wobble, drawn by `0x406510` as the world's models; then its glows, billboards of the flags `0x19` (the ramp's colour added whole), the grid 1.
+
+`opensacred-game` draws it since #1092 (`flying_skulls`, `opensacred_rules::particles::{FlyingSkull, skull_turn}`): each skull of the death's kiss shows its model turned to its heading and its trail, untinted by the night; its Direct3D light is not followed.
+**Seen** 2026-11-05 beside the original: in both a small red skull at the head of a trail of orange glows flying from the Vampiress at the goblin; the game's trail shorter and wider.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
