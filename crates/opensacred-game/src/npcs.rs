@@ -314,6 +314,9 @@ struct Placement {
     /// its variant, the record's `0x03`, and its height in the models' units, its `0x7E`; it has
     /// no model.
     summon: Option<(u8, f32)>,
+    /// A piece of the scripts' Pong (1156 to 1158; `pong`, #2008) and its height in the models'
+    /// units, its `0x7E`; it has no model.
+    pong: Option<(crate::pong::Piece, f32)>,
     /// A magic bar or barrier of the FX objects (`FX_MAGICPRISON`, 854; `prisons`, #2063), its
     /// height in the models' units, the record's `0x7E`; it has no model.
     prison: Option<f32>,
@@ -849,6 +852,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         fx: None,
         fx_loop: None,
         summon: None,
+        pong: None,
         prison: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
@@ -2974,14 +2978,27 @@ impl Makers {
                     })
                     .unwrap_or(0.0)
             });
+        // A piece of the scripts' Pong of the FX objects, which has no model: its height.
+        let pong = (record.kind == CREATE_OBJ && category(item) == FX)
+            .then(|| crate::pong::Piece::of(creature))
+            .flatten()
+            .map(|piece| {
+                let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                    _ => None,
+                });
+                (piece, height.unwrap_or(0.0))
+            });
         let empty = String::new();
         let Some(model) = self
             .models
             .get(&item.name.to_ascii_uppercase())
-            .or(
-                (fx.is_some() || fx_loop.is_some() || summon.is_some() || prison.is_some())
-                    .then_some(&empty),
-            )
+            .or((fx.is_some()
+                || fx_loop.is_some()
+                || summon.is_some()
+                || prison.is_some()
+                || pong.is_some())
+            .then_some(&empty))
         else {
             return Ok(None);
         };
@@ -3084,6 +3101,7 @@ impl Makers {
             fx_loop,
             summon,
             prison,
+            pong,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
                     ops.iter().find_map(|o| match (o.tag, &o.value) {
@@ -5313,6 +5331,16 @@ fn spawn(
             Vec3::new(model.x, height * iso::MODEL_SCALE, model.z),
             (layered, layered.visibility(states)),
         );
+    }
+    if let Some((piece, height)) = placement.pong {
+        return commands
+            .spawn((
+                piece,
+                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                layered,
+                layered.visibility(states),
+            ))
+            .id();
     }
     if let Some((variant, height)) = placement.summon {
         return commands

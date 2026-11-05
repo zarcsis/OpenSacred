@@ -125,6 +125,7 @@ mod pickup;
 mod place_names;
 mod points;
 mod poison_rings;
+mod pong;
 mod prisons;
 mod puffs;
 mod purchase;
@@ -515,6 +516,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         pickup::PickupPlugin,
         points::PointsPlugin,
         poison_rings::PoisonRingsPlugin,
+        pong::PongPlugin,
         prisons::PrisonsPlugin,
         puffs::PuffsPlugin,
         purchase::PurchasePlugin,
@@ -522,8 +524,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         quest_book::QuestBookPlugin,
         regions::RegionsPlugin,
         remarks::RemarksPlugin,
-        rewards::RewardsPlugin,
     ))
+    .add_plugins(rewards::RewardsPlugin)
     .add_plugins((
         ripples::RipplesPlugin,
         runes::RunesPlugin,
