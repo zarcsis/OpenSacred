@@ -669,6 +669,9 @@ pub struct Rules {
     spell_ranks: [f32; 2],
     multi_shot: f32,
     geschick: f32,
+    /// The dragons' fires on the ground's damages of the four kinds a level (`dragonfire_dmg_ph`,
+    /// `_fi`, `_ma` and `_po`, `0x5AF7C5`).
+    dragon_fire: [f32; 4],
     spawn_weapon: [f32; 2],
     /// The rare effects' parameters `(a, b, c)` of the balance's tail's fifth table, by their
     /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
@@ -707,6 +710,7 @@ impl Default for Rules {
             spell_ranks: [1.4, 1.2],
             multi_shot: 0.83,
             geschick: 200.0,
+            dragon_fire: [2.0, 2.5, 0.0, 0.0],
             spawn_weapon: [25.0, 275.0],
             rare: Vec::new(),
             tollwut: 1.0,
@@ -954,6 +958,13 @@ impl Rules {
             ],
             multi_shot: b.f32("Multipfeil").unwrap_or(default.multi_shot),
             geschick: b.f32("BalanceGeschick").unwrap_or(default.geschick),
+            dragon_fire: {
+                let kinds = ["ph", "fi", "ma", "po"];
+                std::array::from_fn(|k| {
+                    b.f32(&format!("dragonfire_dmg_{}", kinds[k]))
+                        .unwrap_or(default.dragon_fire[k])
+                })
+            },
             spawn_weapon: [
                 b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
                 b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
@@ -1017,6 +1028,19 @@ impl Rules {
         f64::from(curve(self.curves.damage, level)) * HUNDREDTH
             + f64::from(strength) / f64::from(self.geschick)
             + 1.0
+    }
+
+    /// The damages of the four kinds of a dragon's fire on the ground (923, `0x5AF75D`): each
+    /// kind's `dragonfire_dmg_*` times one plus a hundredth of the damage multipliers' curve at the
+    /// level `skill_2` of the dragon's skill 2, times its level `level` plus 9, truncated and held
+    /// to 65,534, at 53 bits.
+    pub fn ground_fire_damages(&self, level: u32, skill_2: u32) -> [f32; 4] {
+        let factor = f64::from(curve(self.curves.damage, skill_2)) * HUNDREDTH + 1.0;
+        let reach = f64::from(level) + 9.0;
+        self.dragon_fire.map(|per_level| {
+            let value = factor * reach * f64::from(per_level);
+            stored(value.trunc().clamp(0.0, 65_534.0))
+        })
     }
 
     /// The curve of the skill `skill` at `level` that the arts' tooltip reads (`0x5893B0`): the
@@ -4257,6 +4281,15 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_dragons_fire_on_the_ground_burns_by_its_level_and_its_skill_2() {
+        let rules = Rules::default();
+        // The level 10 without the skill 2: 2 and 2.5 times 19, truncated.
+        assert_eq!(rules.ground_fire_damages(10, 0), [38.0, 47.0, 0.0, 0.0]);
+        let skilled = rules.ground_fire_damages(10, 5);
+        assert!(skilled[0] > 38.0 && skilled[1] > 47.0, "{skilled:?}");
+    }
 
     #[test]
     fn the_exchange_costs_nothing_below_two_runes_and_the_balances_price_above() {

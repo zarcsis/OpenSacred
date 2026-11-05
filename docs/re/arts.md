@@ -1314,7 +1314,7 @@ By the object (its spell, "The spells' executor" above):
 | 906 `FX_BUBBLETRAP_EXPLO` | | the event at the factor 2.0, once |
 | 910 `FX_DAEMONFIRE`, 922 `FX_SHADDAR_MAGIC` | 50, 52 | an event of `0x51CB00` from the caster, once to each target at its first contact, where it bursts ("The creatures' own spells" below) |
 | 921 `FX_SHADDAR_SLAVE` | | the effect 32 for 5 s to a target of an id up to 16, or it follows the creature of the type 700 |
-| 923 `FX_DRAGON_GROUNDFIRE` | | the event of damages by the caster's skill 2 and the object's level, once |
+| 923 `FX_DRAGON_GROUNDFIRE` | | an event of `0x51CB00` from the caster with each kind's `⌊dragonfire_dmg·(1 + v₂/100)·(L + 9)⌋`, `v₂` its skill 2's curve and `L` the object's level, once (docs/re/effects.md, "The dragons' fire") |
 | 1005 `FX_HELLDISK` | the Daemon's 60 | an event of `0x51CB00` to its target, once a second, then a new target within a squared 100,000, about 316 |
 | 1006 `FX_WALLOFFIRE`, 1007 `FX_WALLOFFIRE_LINE`, 1008 `FX_RINGOFPOISON` | the Daemon's forms (1102, 1101) | from a caster of a hero's class, to each hostile target the effect 62 of the event's whole and float values (`0x4EB630`, `0x4EB6F0`), for 1 s (**hypothesis** for its arguments' order; 1007 not to a target of `0x5539D0`) |
 | 1011 `FX_SONGSFROMHELL` | 66 | an event of `0x51CB00` to its owner's target, once a second |
