@@ -2222,8 +2222,8 @@ fn make(
                     if let Some(boon) = boon {
                         info!("making: {} gives the hero {:?}", making.art, boon.effects);
                         // The soulcatcher's object 869 hangs at him for its effect's time,
-                        // looping `DELF_SOULCATCHER_LOOP` from its start (`0x76AC5F`); its
-                        // sight is not made.
+                        // looping `DELF_SOULCATCHER_LOOP` from its start (`0x76AC5F`), its
+                        // twirls over his neck (`soulcatchers`).
                         if let Some(&(_, seconds)) = boon
                             .effects
                             .iter()
@@ -2232,6 +2232,7 @@ fn make(
                             commands.entity(hero).with_child((
                                 crate::hums::Hum(SOULCATCHER_LOOP),
                                 crate::spells::Fades(seconds),
+                                crate::soulcatchers::Catcher,
                                 Transform::default(),
                             ));
                         }
