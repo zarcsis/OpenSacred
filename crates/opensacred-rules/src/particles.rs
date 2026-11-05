@@ -6628,6 +6628,157 @@ impl IceSplinters {
     }
 }
 
+/// The Wood Elf's bubble's model and textures (847, `0x797B30`): the bush, the hero's texture
+/// and the others', its burst's glows; and its burst's sonar ring's (906, `0x798460`).
+pub const BUBBLE_MODEL: &str = "ELVESTRAUCH.GRN";
+pub const BUBBLE_TEXTURE: &str = "ELVESTRAUCH";
+pub const BUBBLE_OTHERS_TEXTURE: &str = "ELVESTRAUCH2";
+pub const BUBBLE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const SONAR_TEXTURE: &str = "FX_SONAREFFECT";
+const BUBBLE_GLOWS: usize = 75;
+
+/// The bubble's stages (`+0x20B1`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BubbleStage {
+    Grows,
+    Flies,
+    Shrinks,
+    Burst,
+}
+
+/// The Wood Elf's bubble (847, `cParticleSystem_bubbletrap`, `0x798380`, `0x797D80`,
+/// `0x798030`): its bush grows to its size in a third of a second, flies, and shrinks away over
+/// its last half second, or at once where a cell stops it; an arrow that bursts it leaves 75
+/// green glows drifting about where it was.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BubbleTrap {
+    pub system: System,
+    pub clock: f32,
+    /// Its bush's share of its size, 0 to 1 (`+0x20AC`).
+    pub scale: f32,
+    seconds: f32,
+    stage: BubbleStage,
+}
+
+impl BubbleTrap {
+    /// A bubble of `seconds` seconds.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            system: System::new(BUBBLE_GLOWS),
+            clock: 0.0,
+            scale: 0.0,
+            seconds,
+            stage: BubbleStage::Grows,
+        }
+    }
+
+    /// Whether its bush shows, not burst and not shrunk away.
+    pub fn drawn(&self) -> bool {
+        self.stage != BubbleStage::Burst && self.scale > 0.0
+    }
+
+    /// The glows' ramp (`+0x20B4`): each entry `i` green, `(⌊i/2⌋, i, ⌊i/2⌋)` in 255ths, its alpha
+    /// 0 (drawn whole).
+    pub fn ramp() -> Ramp {
+        Ramp(std::array::from_fn(|i| {
+            let i = f32::from(u8::try_from(i).unwrap_or(u8::MAX));
+            let half = (i / 2.0).floor() / 255.0;
+            [half, i / 255.0, half, 0.0]
+        }))
+    }
+
+    /// A run of `dt` seconds: its bush grows by 3 a second to its size, shrinks by 2 a second
+    /// from half a second before its seconds' end, and its glows age.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.stage {
+            BubbleStage::Grows => {
+                self.scale = (self.scale + 3.0 * dt).min(1.0);
+                if self.scale >= 1.0 {
+                    self.stage = BubbleStage::Flies;
+                }
+            }
+            BubbleStage::Flies if self.clock > self.seconds - 0.5 => {
+                self.stage = BubbleStage::Shrinks;
+            }
+            BubbleStage::Shrinks => self.scale = (self.scale - 2.0 * dt).max(0.0),
+            _ => {}
+        }
+        let layers = [Layer {
+            life: -150.0,
+            ..Layer::default()
+        }];
+        self.system.update(dt, &layers);
+    }
+
+    /// Its stop at a cell it may not pass (`+0x74` bit 2): it shrinks away where it is, without
+    /// a burst.
+    pub fn stop(&mut self) {
+        if self.stage != BubbleStage::Burst {
+            self.stage = BubbleStage::Shrinks;
+        }
+    }
+
+    /// Its burst at `at` in the models' frame (`+0x74` bit 8): its bush goes, 75 glows within 10
+    /// of it, drifting by up to 10 a second along each axis.
+    pub fn burst(&mut self, at: [f32; 3], dice: &mut impl Dice) {
+        if self.stage == BubbleStage::Burst {
+            return;
+        }
+        self.stage = BubbleStage::Burst;
+        let block = Block {
+            buoyancy: spread(0.0, 10.0),
+            size: spread(10.0, 3.0),
+            velocity: spread([0.0; 3], [10.0; 3]),
+            offset: spread(at, [10.0; 3]),
+            ..Block::default()
+        };
+        self.system.burst(&block, BUBBLE_GLOWS, BUBBLE_GLOWS, dice);
+    }
+
+    /// Whether it ended: shrunk away, or burst and no glow alive.
+    pub fn done(&self) -> bool {
+        match self.stage {
+            BubbleStage::Shrinks => self.scale <= 0.0,
+            BubbleStage::Burst => self.system.particles.is_empty(),
+            _ => false,
+        }
+    }
+}
+
+/// The bubble's burst's sonar ring (906, `cParticleSystem_bubbletrap_explo`, `0x7985D0`,
+/// `0x7984F0`, `0x798530`): a flat green ring on the ground from the radius 10, 30 wide, growing
+/// by 250 a second and fading for half a second.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SonarRing {
+    pub clock: f32,
+}
+
+impl SonarRing {
+    /// A run of `dt` seconds.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+    }
+
+    /// Its inner and outer radii.
+    pub fn radii(&self) -> (f32, f32) {
+        let inner = 10.0 + 250.0 * self.clock;
+        (inner, inner + 30.0)
+    }
+
+    /// Its colour, `(⌊128 f⌋, ⌊255 f⌋, ⌊128 f⌋)` for `f = 2·(0.5 − t)`, drawn whole.
+    pub fn colour(&self) -> [f32; 4] {
+        let f = (2.0 * (0.5 - self.clock)).clamp(0.0, 1.0);
+        let byte = |most: f32| (most * f).floor() / 255.0;
+        [byte(128.0), byte(255.0), byte(128.0), 1.0]
+    }
+
+    /// Whether it ended: past half a second.
+    pub fn done(&self) -> bool {
+        self.clock > 0.5
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -9260,5 +9411,54 @@ mod tests {
             .ramp()
             .at(255.0);
         assert_eq!(grey, [63.0 / 255.0, 63.0 / 255.0, 63.0 / 255.0, 0.0]);
+    }
+
+    #[test]
+    fn a_bubble_grows_flies_and_shrinks_or_bursts() {
+        let mut bubble = BubbleTrap::new(7.35);
+        bubble.update(0.2);
+        assert!((bubble.scale - 0.6).abs() < 1e-5 && bubble.drawn());
+        bubble.update(0.2);
+        assert_eq!(bubble.scale, 1.0);
+        // Half a second before its end it shrinks, gone at its end.
+        for _ in 0..66 {
+            bubble.update(0.1);
+        }
+        assert!(bubble.scale < 1.0 && bubble.scale > 0.0);
+        for _ in 0..6 {
+            bubble.update(0.1);
+        }
+        assert!(bubble.done() && !bubble.drawn());
+        // A cell stops it: it shrinks where it is.
+        let mut stopped = BubbleTrap::new(7.35);
+        stopped.update(0.5);
+        stopped.stop();
+        stopped.update(0.3);
+        assert!((stopped.scale - 0.4).abs() < 1e-5 && !stopped.done());
+        // An arrow bursts it into 75 green glows living 1.7 s.
+        let mut dice = Rng::of(14, 14, 847);
+        let mut popped = BubbleTrap::new(7.35);
+        popped.update(1.0);
+        popped.burst([0.0, 0.0, 60.0], &mut dice);
+        assert!(!popped.drawn() && popped.system.particles.len() == 75);
+        for _ in 0..18 {
+            popped.update(0.1);
+        }
+        assert!(popped.done());
+        assert_eq!(
+            BubbleTrap::ramp().at(255.0),
+            [127.0 / 255.0, 1.0, 127.0 / 255.0, 0.0]
+        );
+        let mut ring = SonarRing::default();
+        assert_eq!(ring.radii(), (10.0, 40.0));
+        assert_eq!(ring.colour(), [128.0 / 255.0, 1.0, 128.0 / 255.0, 1.0]);
+        ring.update(0.25);
+        assert_eq!(ring.radii(), (72.5, 102.5));
+        assert_eq!(
+            ring.colour(),
+            [64.0 / 255.0, 127.0 / 255.0, 64.0 / 255.0, 1.0]
+        );
+        ring.update(0.3);
+        assert!(ring.done());
     }
 }

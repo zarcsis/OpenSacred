@@ -12,8 +12,8 @@
 //! level, and strikes every creature it found at its first contact and goes (`making`, #872). The
 //! railgun's, the BFG's, the fireball's and the Daemon's look as the original's systems
 //! (`bolt_looks`, #1092), told of each one's end, the whirlwind's and the fire bolt's as their
-//! trails (`bolt_trails`), the splinters' as their icicles (`ice_splinters`); a glowing ball
-//! stands in for the bubble's.
+//! trails (`bolt_trails`), the splinters' as their icicles (`ice_splinters`), the bubble's as
+//! its bush (`bubble_traps`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};
@@ -36,13 +36,13 @@ pub(crate) const HEIGHT: f32 = 80.0;
 /// The bones that a bolt of a system's look leaves from, by its course's look, which it keeps the
 /// height of (the FX handler's cases `0x5A52C3`, `0x5A52F1`, `0x5A49D3` and `0x5A5900`, the
 /// system flag `0x40` placing it once at the bone, #2018): the railgun's and the Daemon's bolt the
-/// shooter's right hand (bone 2), the fireball, the fire bolt and the splinters the left (bone
-/// 1, the events `0x82` and `0x3F`), the BFG the staff's `weapon_fx01` (bone 15), the whirlwind
-/// the shooter's root (bone 0, the event `0x37`); none for a stand-in's.
+/// shooter's right hand (bone 2), and the bubble (the event `0x47`), the fireball, the fire
+/// bolt and the splinters the left (bone 1, the events `0x82` and `0x3F`), the BFG the staff's
+/// `weapon_fx01` (bone 15), the whirlwind the shooter's root (bone 0, the event `0x37`).
 fn bone_of(look: usize) -> Option<&'static [&'static str]> {
     use crate::bolt_looks::Kind;
     match (look_of(look), look) {
-        (Some(Kind::Railgun | Kind::Emperor), _) => Some(&["Bip01 R Hand"]),
+        (Some(Kind::Railgun | Kind::Emperor), _) | (None, BUBBLE_LOOK) => Some(&["Bip01 R Hand"]),
         (Some(Kind::Fireball), _) | (None, FIRE_BOLT_LOOK | SPLINTERS_LOOK) => {
             Some(&["Bip01 L Hand"])
         }
@@ -260,18 +260,23 @@ pub struct Launch {
     pub wait: f32,
 }
 
-/// A bolt in flight: its course, its shooter, its direction on the ground, the level it flies on,
-/// its damages, how long until it leaves, how long it has flown, and whether it hit already (a
-/// BFG's, which flies on harmless).
 /// A bolt that an arrow's passing through bursts, the Wood Elf's bubble (847, `0x797D80`'s
-/// signal 8; #2128).
+/// signal 8; #2128): whether a hero cast it, its direction on the ground and its seconds, which
+/// its look takes (`bubble_traps`).
 #[derive(Component, Debug, Clone, Copy)]
-pub(crate) struct Bubble;
+pub(crate) struct Bubble {
+    pub(crate) hero: bool,
+    pub(crate) direction: Vec2,
+    pub(crate) seconds: f32,
+}
 
 /// The bursting of a [`Bubble`] by an arrow (`arrows`, `0x5BBCD0`).
 #[derive(Message, Debug, Clone, Copy)]
 pub(crate) struct Pops(pub(crate) Entity);
 
+/// A bolt in flight: its course, its shooter, its direction on the ground, the level it flies on,
+/// its damages, how long until it leaves, how long it has flown, and whether it hit already (a
+/// BFG's, which flies on harmless).
 #[derive(Component)]
 struct Flying {
     course: Course,
@@ -290,9 +295,10 @@ struct Flying {
 }
 
 /// The stand-ins' meshes and materials, by the course's look: the railgun's, the BFG's, the
-/// Daemon's and the fireball's, which [`look_of`] draws as their systems instead, the
-/// whirlwind's, which [`trail_of`] draws as its trail, the ice splinter's, drawn as its icicles
-/// (`ice_splinters`), the bubble's and the fire bolt's, drawn as its trail too.
+/// Daemon's and the fireball's, which [`look_of`] draws as their systems instead, as every other
+/// look is drawn as its own: the whirlwind's and the fire bolt's as their trails ([`trail_of`]),
+/// the ice splinters' as their icicles (`ice_splinters`) and the bubble's as its bush
+/// (`bubble_traps`); the casts' fans and rings take the fireball's (`creature_casts`).
 #[derive(Resource)]
 pub(crate) struct Looks(pub(crate) Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
@@ -324,12 +330,15 @@ const WHIRLWIND_LOOK: usize = 4;
 /// The ice splinters' look (839).
 const SPLINTERS_LOOK: usize = 5;
 
+/// The Wood Elf's bubble's look (847).
+const BUBBLE_LOOK: usize = 6;
+
 /// The fire bolt's look (922).
 const FIRE_BOLT_LOOK: usize = 7;
 
 /// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
 /// the BFG, a violet one for the Daemon's, an orange one for the fireball (**estimate**: the
-/// colours of their glows), and those of the splinters and the bubble.
+/// colours of their glows).
 fn make_looks(
     mut commands: Commands,
     meshes: Option<ResMut<Assets<Mesh>>>,
@@ -352,10 +361,6 @@ fn make_looks(
         look(10.0, Color::srgb(0.75, 0.85, 1.0)),
         look(22.0, Color::srgb(0.55, 1.0, 0.45)),
         look(14.0, Color::srgb(0.75, 0.45, 1.0)),
-        look(18.0, Color::srgb(1.0, 0.55, 0.15)),
-        look(16.0, Color::srgb(0.8, 0.85, 0.75)),
-        look(8.0, Color::srgb(0.7, 0.9, 1.0)),
-        look(24.0, Color::srgb(0.55, 0.85, 0.3)),
         look(18.0, Color::srgb(1.0, 0.55, 0.15)),
     ]));
 }
@@ -453,12 +458,11 @@ fn launch(
         let system = look_of(launched.course.look);
         let trail = trail_of(launched.course.look);
         let splinters = launched.course.look == SPLINTERS_LOOK;
-        let stand_in = looks
-            .0
-            .get(launched.course.look)
-            .filter(|_| trail.is_none() && !splinters)
-            .cloned();
-        if system.is_none() && trail.is_none() && !splinters && stand_in.is_none() {
+        // A look of its own, else a stand-in ball.
+        let own =
+            system.is_some() || trail.is_some() || splinters || launched.course.look == BUBBLE_LOOK;
+        let stand_in = looks.0.get(launched.course.look).filter(|_| !own).cloned();
+        if !own && stand_in.is_none() {
             continue;
         }
         let (start, level_at) = leaving(
@@ -494,7 +498,11 @@ fn launch(
             DespawnOnExit(AppState::InGame),
         ));
         if launched.course.bursts.is_some() {
-            bolt.insert(Bubble);
+            bolt.insert(Bubble {
+                hero: body.is_some(),
+                direction: launched.direction,
+                seconds: launched.course.life,
+            });
         }
         if let Some(trail) = trail {
             bolt.insert(crate::bolt_trails::Trail(trail));
@@ -843,7 +851,8 @@ mod tests {
         assert_eq!(bone_of(WHIRLWIND_LOOK), Some(&["__Root"][..]));
         assert_eq!(bone_of(FIRE_BOLT_LOOK), Some(&["Bip01 L Hand"][..]));
         assert_eq!(bone_of(SPLINTERS_LOOK), Some(&["Bip01 L Hand"][..]));
-        assert_eq!(bone_of(6), None);
+        assert_eq!(bone_of(BUBBLE_LOOK), Some(&["Bip01 R Hand"][..]));
+        assert_eq!(bone_of(8), None);
         // The flag 0x01: the fireball's and the Daemon's end under the ground.
         assert!(ends_underground(Kind::Fireball) && ends_underground(Kind::Emperor));
         assert!(!ends_underground(Kind::Railgun) && !ends_underground(Kind::Bfg));
