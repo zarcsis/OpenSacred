@@ -100,7 +100,15 @@ fn wield(
 /// pass.
 fn show(
     mut commands: Commands,
-    arrows: Query<(Entity, &Elemental, &GlobalTransform), Added<Elemental>>,
+    arrows: Query<
+        (
+            Entity,
+            &Elemental,
+            &GlobalTransform,
+            Has<crate::npcs::Wielded>,
+        ),
+        Added<Elemental>,
+    >,
     (data, assets): (Option<Res<Data>>, Res<AssetServer>),
     (mut made, mut materials, mut meshes): (
         ResMut<Material>,
@@ -108,7 +116,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (arrow, elemental, at) in &arrows {
+    for (arrow, elemental, at, held) in &arrows {
         let material = made
             .0
             .get_or_insert_with(|| {
@@ -124,7 +132,12 @@ fn show(
                 image.map(|image| materials.add(particle_material(image, AlphaMode::Add)))
             })
             .clone();
-        let sparks = ArrowSparks::new(elemental.element, elemental.share);
+        // A weapon's sparks by its share, an arrow's of the share 0 (#2093).
+        let sparks = if held {
+            ArrowSparks::of_weapon(elemental.element, elemental.share)
+        } else {
+            ArrowSparks::of_arrow(elemental.element)
+        };
         debug!(
             "arrow elements: {arrow} shows {:?} at {:.2}",
             elemental.element, elemental.share
