@@ -596,9 +596,9 @@ Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540
 The four bolts look as their systems since #1092's first family (`bolt_looks`, `opensacred_rules::particles::{Firestrike, Emperor, bfg_greys, age_frame}`): each look an entity of its own that follows its bolt and outlives it as its system does (the fireball's flames burning out, the emperor's flare on its target's neck), told of its bolt's end (`bolt_looks::Ended`), untinted by the night, their sizes at the models' scale.
 Their flight follows the frame's map since #2018 (`bolts::flight_scale`), every bolt's: the railgun's, the BFG's, the fireball's, the Daemon's, the whirlwinds', the splinters', the bubble's and the fire bolt's.
 Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 and the fireball's 200, at their places on the ground at height 0 while their looks show, the fireball's while its flames burn out.
-Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun and the Daemon's bolt the right hand, the fireball the left, the BFG the staff's `weapon_fx01`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
+Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun and the Daemon's bolt the right hand, the fireball and the fire bolt the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
 **Seen** 2026-11-04 in the game: the Mage's fireball leaving her raised left hand at 90 over the ground and flying at her chest's height to the goblin it struck.
-The other bolts, of no system's look, and a shooter of no such bone, keep 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
+The splinters and the bubble, of no system's look yet, and a shooter of no such bone, keep 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
 Not followed: the fireball's point light on the models, and the looks of a caster gone (`+0xA9` 1).
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
@@ -1415,6 +1415,32 @@ The two run one code; their FX events (`0x7A`, `0xA8`) follow the caster at its 
 
 `opensacred-game` draws them since #1092 (`homing_fires`, `opensacred_rules::particles::{HomingFlames, HomingKind}`): each homing fire of `creature_casts` charges at its caster's `Bip01 R Finger31`, leaves its flames in the world along its way and bursts where it strikes the hero or a cell stops it, its flames added and untinted by the night; the demons' flames riding with their caster (the flag 4) are left in the world as the guards' (**estimate**: how its riding origin carries into the flight is not read).
 **Seen** 2026-11-05 in the game: an Anducar's guard 184 of the level 20 striking the Seraphim with its fire, a ball of orange flames bursting at her.
+
+## The whirlwind and the fire bolt
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The Mage's whirlwind, the spell 29 | 831 `FX_WINDSTRIKE` | `cParticleSystem_windstrike` (`0x898134`) | `0x789E10`, `0x78A170`, `0x789EA0`, `0x789F50` |
+| The fire bolt, the creatures' spell 52 | 922 `FX_SHADDAR_MAGIC` | `cParticleSystem_shaddar_magic` (`0x8989DC`) | `0x7AA980`, `0x7AAC20`, `0x7AAA60`, `0x7AAB90` |
+
+Their FX events take the event's direction and the flag `0x40`, so each flies level at its caster's bone: the whirlwind's (`0x37`) the root `__Root` (bone 0), the fire bolt's (`0x82`) the left hand (bone 1).
+- The whirlwind's constructor (200 particles) loads `PARTICLE_CLOUD01`; no model and no light.
+  Its event's `+0x38` holds the colour of the ground under its caster (`0x52507C`, the cell's nature by `0x634C50` into the renderer's table that the gust takes too, `0x41BA00`), else `0xFF808080`.
+- Its start: that colour on its block, spread by ± 16 in each channel; one layer of the life −400 a second (0.64 s) and the size +30; one block of the buoyancy 700 (falling), the size 10 ± 5, the angle π ± π, the velocity (0, 0, 350) ± (0, 0, 50), the place ± 15 along x and y, one every 0.01 s at the detail 2; its speed 200, its flags `0x50`.
+- Its run: it makes its puffs, left in the world along its way, for 2 s, then makes no more and ends with its last; a cell that stops it (its word `+0x74` bit 2) ends it at once, its puffs gone with it.
+- Its draw: billboards of the flags `0x64` (each puff's own colour at the alpha of its life, turned, tinted by the light at it), laid over by their alpha (`SRCALPHA`, `INVSRCALPHA`), the grid 1.
+- So about 64 puffs of the ground's colour live along its last 0.64 s of way, each shooting up to 87.5 at 0.5 s and grown to about 29: a column of dust about 90 high trailing behind it.
+- The fire bolt's constructor (200 particles) loads `PARTICLE_SMOKE03` and a Direct3D light of (1.0, 0.8, 0.4), its range 200.
+- Its start: its seconds 2; one layer of the life −450 a second (0.57 s) and the size +13; one block of the size 12 ± 6, the angle π ± π, the spin 0 ± 10, the velocity ± 18 along each axis, the first frame of its 2 × 2, one every 0.05 s at the detail 2; its ramp at the alpha 0.781 from (0.332, 0.980, 0.758) to (0.555, 0.984, 0.645) over 76 entries, to (0.129, 0.996, 0.641) over 66, to nothing over 114; its speed 150, its flags `0x53` (the flag 2 its puffs about its place, riding with it), its light 200.
+- Its run: it makes its puffs while it flies; at its hit or a cell that stops it (bit 2), or past its 2 s, it makes no more, one puff burst at its end (a block of the size 10, the place ± 15, the velocity ± 20), and ends with its last.
+- Its draw: its light at its place; billboards of the flags `0x10D` (the ramp's colour, turned, the frame of the particle's byte), added by their alpha (`SRCALPHA`, `ONE`), the grid 2.
+- So about 11 green smoke puffs travel with it, a pale green glow from its caster's left hand to its target, fading where it ends.
+
+`opensacred-game` draws them since #1092 (`bolt_trails`, `opensacred_rules::particles::{BoltTrail, TrailKind}`), in place of their stand-in balls: the whirlwind leaves its caster's `__Root` and flies level at its height, its dust left along its way in the colour of the ground where it leaves (`terrain::Heights::nature`, `GROUND_COLOURS`), at the alpha of its life, laid over and tinted by the light; the fire bolt leaves its caster's left hand, its smoke riding with it, added and untinted by the night.
+**Seen** 2026-11-05 beside the original: the Mage's whirlwinds' dark green dust about her and along their way, gone where a tree stops them; the fire bolt's teal and white glow at the caster's hand and at its target alike in size and colour (Sharifo's in the game, the Mage's taught the spell 52 in the original).
+Not followed: the dust's colour spread, the fire bolt's light (#2106) and its one puff at its end (**hypothesis**: drawn from a stale origin, far off).
 
 ## The arrows' elements
 

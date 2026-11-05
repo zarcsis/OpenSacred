@@ -30,6 +30,7 @@ mod blast;
 mod blended;
 mod blood_fountains;
 mod bolt_looks;
+mod bolt_trails;
 mod bolts;
 mod bonus_list;
 mod breath;
@@ -439,6 +440,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         blended::BlendedPlugin,
         blood_fountains::BloodFountainsPlugin,
         bolt_looks::BoltLooksPlugin,
+        bolt_trails::BoltTrailsPlugin,
         bolts::BoltsPlugin,
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
@@ -448,9 +450,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         butterflies::ButterfliesPlugin,
         chain_bolts::ChainBoltsPlugin,
         choice::ChoicePlugin,
-        choirs::ChoirsPlugin,
     ))
     .add_plugins((
+        choirs::ChoirsPlugin,
         combos::CombosPlugin,
         combos_page::CombosPagePlugin,
         command::CommandPlugin,
