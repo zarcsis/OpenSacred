@@ -305,7 +305,8 @@ fn balls(
             commands.entity(entity).despawn();
             continue;
         }
-        transform.translation = at + Vec3::Y * opensacred_rules::arts::ball_rise(ball.s);
+        transform.translation =
+            at + Vec3::Y * opensacred_rules::arts::ball_rise(ball.s) * crate::iso::MODEL_SCALE;
         if ball.s < 1.0 {
             continue;
         }

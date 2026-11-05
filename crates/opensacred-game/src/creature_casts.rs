@@ -255,7 +255,12 @@ fn act(
         With<ClipActs>,
     >,
     places: Query<&GlobalTransform>,
-    held: Query<Option<&crate::effects::Effects>, With<crate::hero::Body>>,
+    (held, children, bones, worn): (
+        Query<Option<&crate::effects::Effects>, With<crate::hero::Body>>,
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     (heights, bolt_looks, mut weather, mut sounds): (
         Res<Heights>,
         Option<Res<crate::bolts::Looks>>,
@@ -738,16 +743,19 @@ fn act(
                     let (x, z) = casts::goblin_point((to.x, to.z), jitter, stands);
                     to = Vec3::new(x, to.y, z);
                 }
+                // From its right hand (the bone 2, `0x5A55B2`, #2112).
+                let from = crate::making::bone(entity, &[BALL_HAND], &children, (&bones, &worn))
+                    .unwrap_or(here + Vec3::Y * crate::bolts::HEIGHT);
                 let mut ball = commands.spawn((
                     Ball {
                         caster: entity,
-                        from: here,
+                        from,
                         to,
                         flown: 0.0,
                         damages,
                         level: way.level,
                     },
-                    Transform::from_translation(here + Vec3::Y * crate::bolts::HEIGHT),
+                    Transform::from_translation(from),
                     Visibility::Inherited,
                     DespawnOnExit(AppState::InGame),
                 ));
@@ -1164,13 +1172,14 @@ pub struct Ball {
     level: Level,
 }
 
-/// How fast a ball's share of its arc grows a second, how high its arc rises, and its size.
+/// How fast a ball's share of its arc grows a second, its size, and the bone it leaves.
 const BALL_RATE: f32 = 1.5;
-const BALL_ARC: f32 = 60.0;
 const BALL_SIZE: f32 = 20.0;
+const BALL_HAND: &str = "Bip01 R Hand";
 
-/// Flies each ball along its arc, `start + (point − start)·s` and `60·(1 − 4(s − 0.5)²)` higher, and
-/// lands it at `s` 1 (the update at `0x5A7179`).
+/// Flies each ball along its arc, `start + (point − start)·s` and `60·(1 − 4(s − 0.5)²)` higher in
+/// the models' frame (`opensacred_rules::arts::ball_rise`), and lands it at `s` 1 (the update at
+/// `0x5A7179`).
 fn throw(
     mut commands: Commands,
     time: Res<Time>,
@@ -1181,9 +1190,8 @@ fn throw(
     for (entity, mut ball, mut transform) in &mut balls {
         ball.flown = (ball.flown + BALL_RATE * time.delta_secs()).min(1.0);
         let s = ball.flown;
-        let rise = BALL_ARC * (1.0 - 4.0 * (s - 0.5) * (s - 0.5));
-        transform.translation =
-            ball.from + (ball.to - ball.from) * s + Vec3::Y * (crate::bolts::HEIGHT + rise);
+        let rise = opensacred_rules::arts::ball_rise(s) * crate::iso::MODEL_SCALE;
+        transform.translation = ball.from + (ball.to - ball.from) * s + Vec3::Y * rise;
         if s < 1.0 {
             continue;
         }
