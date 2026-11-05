@@ -270,7 +270,7 @@ fn draw(clock: Option<Res<Clock>>, swarms: Query<&Swarm>, mut meshes: ResMut<Ass
         let mut wings = Quads::default();
         let mut glows = Quads::default();
         // The models' frame, its third coordinate up, at the world's scale.
-        let place = |offset: Vec3| Vec3::new(offset.x, offset.z, offset.y) * iso::MODEL_SCALE;
+        let place = |offset: Vec3| crate::bolt_looks::world(offset.to_array());
         if night < DAY_BELOW {
             for fly in &swarm.flies {
                 // Its wing beat, a frame of 64 by its age (`⌊(255 − life) · 64 / 256⌋`).

@@ -86,8 +86,10 @@ pub fn up() -> Vec3 {
 /// along the screen's horizontal, toward +X −Z, and its y down the screen, toward +X +Z (the
 /// original's world (1, −1) and (1, 1)).
 pub fn fx_axes() -> (Vec3, Vec3) {
-    let across = right().with_y(0.0).normalize_or(Vec3::X);
-    (across, across.cross(Vec3::Y))
+    (
+        Vec3::new(FRAC_1_SQRT_2, 0.0, -FRAC_1_SQRT_2),
+        Vec3::new(FRAC_1_SQRT_2, 0.0, FRAC_1_SQRT_2),
+    )
 }
 
 /// The world's projection at `zoom` (clamped to the original's range), the [`Untinted`]
@@ -242,6 +244,15 @@ mod tests {
     /// projection of the origin.
     fn screen(point: Vec3) -> Vec2 {
         Vec2::new(point.dot(right()), -point.dot(up())) * PIXELS_PER_UNIT
+    }
+
+    #[test]
+    fn the_effects_frame_lies_along_the_screens_horizontal_and_toward_the_viewer() {
+        let (across, down) = fx_axes();
+        assert!((across - right().with_y(0.0).normalize()).length() < 1e-6);
+        assert!((down - across.cross(Vec3::Y)).length() < 1e-6);
+        // Down the screen, as a step toward the viewer on the ground shows.
+        assert!(screen(down).y > 0.0 && screen(down).x.abs() < 1e-3);
     }
 
     #[test]

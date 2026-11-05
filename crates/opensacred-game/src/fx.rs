@@ -39,6 +39,7 @@ use opensacred_rules::particles::{
 };
 use opensacred_rules::spawning::Rng;
 
+use crate::bolt_looks::world;
 use crate::frame::{Playing, Unpaused};
 use crate::game::{AppState, Data};
 use crate::{daynight, iso};
@@ -227,14 +228,14 @@ fn burn_on(
             layer_quads(fire, system, 0).into_mesh(&mut mesh);
         }
         if let Some(mut mesh) = scorch.as_ref().and_then(|handle| meshes.get_mut(handle)) {
-            let half = SCORCH_HALF * iso::MODEL_SCALE;
+            let half = SCORCH_HALF;
             let mut quads = Quads::default();
             quads.push_corners(
                 [
-                    Vec3::new(-half, 0.0, -half),
-                    Vec3::new(half, 0.0, -half),
-                    Vec3::new(half, 0.0, half),
-                    Vec3::new(-half, 0.0, half),
+                    world([-half, -half, 0.0]),
+                    world([half, -half, 0.0]),
+                    world([half, half, 0.0]),
+                    world([-half, half, 0.0]),
                 ],
                 [
                     Vec2::new(0.0, 0.0),
@@ -575,9 +576,10 @@ impl Quads {
         segments: u16,
         colour: [f32; 4],
     ) {
+        let (across, down) = iso::fx_axes();
         let edge = |k: u16, radius: f32| {
             let angle = std::f32::consts::TAU * f32::from(k) / f32::from(segments.max(1));
-            centre + Vec3::new(angle.sin(), 0.0, angle.cos()) * radius
+            centre + (across * angle.sin() + down * angle.cos()) * radius
         };
         for k in 0..segments {
             self.push_corners(
@@ -775,8 +777,6 @@ pub(crate) fn layer_quads(fire: &Fire, system: &System, layer: usize) -> Quads {
         .iter()
         .filter(|p| usize::from(p.layer) == layer)
     {
-        // The models' frame, its third coordinate up, at the world's scale.
-        let [x, y, z] = particle.place;
         // Its frame's square of the texture's grid.
         let side = fire.grid.max(1);
         let frame = Vec2::new(
@@ -784,7 +784,7 @@ pub(crate) fn layer_quads(fire: &Fire, system: &System, layer: usize) -> Quads {
             f32::from(particle.frame / side % side),
         );
         quads.push(
-            Vec3::new(x, z, y) * iso::MODEL_SCALE,
+            world(particle.place),
             particle.size * iso::MODEL_SCALE,
             particle.angle,
             (frame / grid, 1.0 / grid),
@@ -835,7 +835,7 @@ fn smoulder(
         if let Some(mut mesh) = ground.as_ref().and_then(|handle| meshes.get_mut(handle)) {
             let mut quads = Quads::default();
             if let Some(frame) = frame {
-                let half = GROUND_HALF * iso::MODEL_SCALE;
+                let half = GROUND_HALF;
                 let grid = f32::from(GROUND_GRID);
                 let corner = Vec2::new(
                     f32::from(frame % GROUND_GRID),
@@ -845,10 +845,10 @@ fn smoulder(
                 // Turned by a half turn: the texture's far corner at the near one.
                 quads.push_corners(
                     [
-                        Vec3::new(-half, 0.0, -half),
-                        Vec3::new(half, 0.0, -half),
-                        Vec3::new(half, 0.0, half),
-                        Vec3::new(-half, 0.0, half),
+                        world([-half, -half, 0.0]),
+                        world([half, -half, 0.0]),
+                        world([half, half, 0.0]),
+                        world([-half, half, 0.0]),
                     ],
                     [
                         corner + Vec2::splat(side),

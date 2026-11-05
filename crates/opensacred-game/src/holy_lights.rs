@@ -145,8 +145,7 @@ fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<
             let mut quads = Quads::default();
             let (sin, cos) = angle.sin_cos();
             let corner = |x: f32, y: f32| {
-                Vec3::new(x * cos - y * sin, 0.0, x * sin + y * cos) * half * s
-                    + Vec3::Y * GROUND_LIFT
+                world([x * cos - y * sin, x * sin + y * cos, 0.0]) * half + Vec3::Y * GROUND_LIFT
             };
             quads.push_corners(
                 [
