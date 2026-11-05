@@ -584,7 +584,7 @@ fn fly(
             commands.entity(entity).despawn();
             continue;
         }
-        if bolt.flown >= course.life || !heights.walkable_on(cell, bolt.level) {
+        if bolt.flown >= course.life || !heights.passes(cell, bolt.level) {
             debug!(
                 "bolts: {entity} of {} ends at {:.0},{:.0}",
                 bolt.shooter, ground.x, ground.y
