@@ -1611,6 +1611,24 @@ The two run one code; 1180 takes other textures.
 **Seen** 2026-11-05 beside the original at the Kernland's waypoint (2642, 3057, `OMO-1Wegpunkte_Kernland`): in both a window of a sector's map inside the stone arch, a violet and blue whirl about it, alike in size and colour.
 Not followed: the window's depth written over its whole rectangle, its clear corners included (**hypothesis**: the original's alpha test is off there).
 
+## The dwarves' magic
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The dwarves' magic | 832 and 833 `FX_DWARFMAGIC` | `cParticleSystem_dwarfmagic` (`0x898154`) | `0x78A2D0`, `0x78A5D0`, `0x78A360`, `0x78A3B0` |
+
+The scripts' `CreateObj` makes them (about 900 in the Seraphim's tree, the sectors' `Enter` functions of the dwarves' halls and the caves: 34,83, 70,14, 10,95 and others), 832 with the variant 1 and 833 with the variant 2 (`0x4898B2`, `0x489920`); their FX event's kind `0x38` takes the fires' case (`0x5A5AE2`), the system at the record's point at its height (`0x7E`), following nothing.
+- Its constructor (100 particles, either type) loads `PARTICLE_SPARK04`, a white star of four points on black; no model, no Direct3D light, no sound.
+- Its start, by its variant: one layer of the buoyancy −10 (−12 for 2), the life −175 (−150: 1.46 s, 1.7 s), the size +1.5 (+2.5) and the angle +2.1 a second; one block of the buoyancy −30 (−40), the size 1 ± 0.5 (2 ± 1), the angle π ± π, the place (0, 0, 100) ± 5 (± 15) along each axis, one every 0.2 s, not scaled by the detail; one ramp from white to (1, 1, 0.6) over 128 entries (pale blue (0.7, 0.7, 1) for 2) and to black over 128; its world light 350 (400); its flags 0.
+- Its run: one star every 0.2 s, its stars aged; it never ends (its alive byte stays, and the types are on the set-up's persistent list).
+- Its draw: billboards of the flags `0x1D` (the ramp's colour, turned, added whole, `ONE`, `ONE`), the grid 1; untinted by the night.
+- So about 100 over its place a faint twinkle of small stars, seven to nine at once, each rising some 37 (68) units as it swells, turns and fades through pale yellow (pale blue) to nothing; and a pool of the world's light of 350 (400) about it by night or in a dungeon.
+
+`opensacred-game` draws them since #1092 (`dwarf_magics`, `opensacred_rules::particles::DwarfMagic`): each such object of the scripts (`npcs`) twinkles at its place and height and lights the world's table, untinted by the night.
+**Seen** 2026-11-05 beside the original at 4510, 915 (the dark elves' cave, 70,14): in both the blue stars twinkling over the blue crystal lamps, alike in size, colour and count.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).

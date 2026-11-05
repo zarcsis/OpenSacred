@@ -62,6 +62,7 @@ mod doors;
 mod dragon_fires;
 mod drops;
 mod dryad_ghosts;
+mod dwarf_magics;
 mod effects;
 mod equipment;
 mod esc_menu;
@@ -481,6 +482,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         dragon_fires::DragonFiresPlugin,
         dryad_ghosts::DryadGhostsPlugin,
         drops::DropsPlugin,
+        dwarf_magics::DwarfMagicsPlugin,
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,
         esc_menu::EscMenuPlugin,

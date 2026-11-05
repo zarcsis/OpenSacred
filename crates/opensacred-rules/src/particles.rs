@@ -7390,6 +7390,93 @@ impl Stargate {
     }
 }
 
+/// The dwarves' magic's texture and particles (832, 833, `0x78A2D0`).
+pub const DWARF_MAGIC_TEXTURE: &str = "PARTICLE_SPARK04";
+const DWARF_MAGIC_COUNT: usize = 100;
+
+/// The world light of a dwarves' magic of the variant 1 (832) and 2 (833) (`+0x9C`).
+pub fn dwarf_magic_light(variant: u8) -> f32 {
+    if variant == 2 { 400.0 } else { 350.0 }
+}
+
+/// The dwarves' magic (832 of the variant 1 and 833 of the variant 2, `cParticleSystem_dwarfmagic`,
+/// `0x78A5D0`, `0x78A360`, `0x78A3B0`): the scripts' lamps of the dwarves' halls and the caves,
+/// a star of `PARTICLE_SPARK04` every 0.2 s 100 over its place, rising, swelling and turning as
+/// it fades from white through pale yellow (832) or pale blue (833) to nothing; it never ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DwarfMagic {
+    pub system: System,
+    variant: u8,
+}
+
+impl DwarfMagic {
+    /// A magic of its variant, 1 or 2.
+    pub fn new(variant: u8) -> Self {
+        Self {
+            system: System::new(DWARF_MAGIC_COUNT),
+            variant,
+        }
+    }
+
+    fn blue(&self) -> bool {
+        self.variant == 2
+    }
+
+    /// Its layer: the buoyancy −10 (−12), the life −175 (−150), the size +1.5 (+2.5), the angle
+    /// +2.1 a second.
+    fn layer(&self) -> Layer {
+        let (buoyancy, life, size) = if self.blue() {
+            (-12.0, -150.0, 2.5)
+        } else {
+            (-10.0, -175.0, 1.5)
+        };
+        Layer {
+            buoyancy,
+            life,
+            size,
+            angle: 2.1,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block: the buoyancy −30 (−40), the size 1 ± 0.5 (2 ± 1), the angle π ± π, the place
+    /// (0, 0, 100) ± 5 (± 15), one every 0.2 s.
+    fn block(&self) -> Block {
+        let (buoyancy, size, place) = if self.blue() {
+            (-40.0, spread(2.0, 1.0), 15.0)
+        } else {
+            (-30.0, spread(1.0, 0.5), 5.0)
+        };
+        Block {
+            buoyancy: spread(buoyancy, 0.0),
+            size,
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            offset: spread([0.0, 0.0, 100.0], [place; 3]),
+            interval: 0.2,
+            ..Block::default()
+        }
+    }
+
+    /// Its ramp: from white to pale yellow (1, 1, 0.6), else pale blue (0.7, 0.7, 1), over 128
+    /// entries, to black over 128, whole.
+    pub fn ramp(&self) -> Ramp {
+        let middle = if self.blue() {
+            [0.7, 0.7, 1.0, 1.0]
+        } else {
+            [1.0, 1.0, 0.6, 1.0]
+        };
+        Ramp::new([1.0; 4], &[(middle, 128), ([0.0, 0.0, 0.0, 1.0], 128)])
+    }
+
+    /// A run of `dt` seconds: its stars age, and it makes them.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        let blocks = [self.block()];
+        self.system.emit(&blocks, &layers, DWARF_MAGIC_COUNT, dice);
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -10233,5 +10320,28 @@ mod tests {
                 .iter()
                 .all(|c| { ((c[0] / 125.0).powi(2) + (c[2] / 220.0).powi(2) - 1.0).abs() < 1e-4 })
         );
+    }
+
+    #[test]
+    fn the_dwarves_magic_twinkles_and_rises() {
+        let mut dice = Rng::of(14, 14, 832);
+        let mut yellow = DwarfMagic::new(1);
+        for _ in 0..300 {
+            yellow.update(1.0 / 60.0, &mut dice);
+        }
+        // Five a second, each living 1.46 s: about seven at once, 100 over its place and above.
+        let n = yellow.system.particles.len();
+        assert!((6..=8).contains(&n), "{n}");
+        assert!(
+            yellow
+                .system
+                .particles
+                .iter()
+                .all(|p| p.place[2] >= 95.0 && p.place[2] < 145.0)
+        );
+        assert_eq!(yellow.ramp().at(128.0), [1.0, 1.0, 0.6, 1.0]);
+        let blue = DwarfMagic::new(2);
+        assert_eq!(blue.ramp().at(128.0), [0.7, 0.7, 1.0, 1.0]);
+        assert_eq!((dwarf_magic_light(1), dwarf_magic_light(2)), (350.0, 400.0));
     }
 }
