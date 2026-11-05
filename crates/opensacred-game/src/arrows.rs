@@ -292,6 +292,10 @@ fn fly(
         Option<Res<crate::arts::HeroArts>>,
         MessageWriter<crate::sfx::Play>,
     ),
+    (bubbles, mut pops): (
+        Query<(Entity, &Transform), (With<crate::bolts::Bubble>, Without<Arrow>)>,
+        MessageWriter<crate::bolts::Pops>,
+    ),
 ) {
     let dt = time.delta_secs();
     let hero = hero.iter().next();
@@ -345,6 +349,22 @@ fn fly(
             continue;
         };
         transform.translation = world(arrow.flight.at());
+        // A bubble on its way bursts, the arrow flying on (`0x5BBCD0`, #2128).
+        let on_way = bubbles.iter().map(|(bubble, at)| {
+            let reach = opensacred_rules::spells::BUBBLE_COURSE.2;
+            (
+                Some(bubble),
+                Spot::new(at.translation.x, at.translation.z),
+                reach,
+            )
+        });
+        if let Some(bubble) = arrows::picks(way, arrow.size, on_way, None).flatten() {
+            debug!(
+                "arrows: {entity} of {} bursts the bubble {bubble}",
+                arrow.shooter
+            );
+            pops.write(crate::bolts::Pops(bubble));
+        }
         // The creatures on its level, and the hero, but its shooter.
         let near = hero
             .iter()

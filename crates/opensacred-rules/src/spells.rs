@@ -103,10 +103,11 @@ pub const CAGE: u16 = 40;
 pub const SOULS: u16 = 41;
 pub const PLANT_HEAL: u16 = 42;
 
-/// The bubble (`0x798380`, `0x5AC138`): its speed, its time (its model's clip's, not read:
-/// **estimate**), how often and how near it strikes, and its burst's reach and factor (906,
-/// `0x5AEE99`).
-pub const BUBBLE_COURSE: (f32, f32, f32) = (100.0, 4.0, 25.0);
+/// The bubble (`0x798380`, `0x5AC138`): its speed, its time (its controlled animation's
+/// length, **hypothesis**: its clip `FX_C_IDLE_BH`'s 7.35 s, #2128), how often and how near it
+/// strikes, and its burst's reach and factor (906, `0x5AEE99`), which an arrow's passing through
+/// it makes (`0x5BBCD0`), not a cell that stops it.
+pub const BUBBLE_COURSE: (f32, f32, f32) = (100.0, 7.35, 25.0);
 pub const BUBBLE_BEAT: f32 = 0.5;
 pub const BURST: (f32, f32) = (300.0, 2.0);
 /// The thorns about their centre along each axis, and their reach (`0x5260CB`, `0x5ADBCF`).
