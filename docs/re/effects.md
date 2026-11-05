@@ -1083,7 +1083,32 @@ Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` makes them since #1964 (`dragon_fires`, `opensacred_rules::particles::{DragonFire, GroundFire}`, `casts::{coming_on, DRAGON_FIRE}`): a dragon coming on to the hero from 371 away breathes at a tick by the same roll (`minds::Mind::cast`), by the clip 0x4F at the creature's speed, the breath at its head with both its sounds, its flames untinted by the night, its light while it burns, and a fire on the ground under the head every 0.3 s, each lit by 200.
 **Seen** 2026-11-05 in the game: a dragon 52 of level 10 woken by the hero and left 12 cells behind came on and, now and then, stopped to breathe a jet of flames from its mouth toward her about 2 s after its clip began, with fires rising on the ground under its head.
 Since #2084 each fire on the ground strikes, at its first frame with the hero or a follower of the hero's nearer it than their two sizes (923's `items.pak +0x14`), each of them once with those damages from the dragon, as a spell's (`opensacred_rules::fight::Rules::ground_fire_damages`); **seen** 2026-11-05: a dragon of level 10 breathing at the hero put under its head struck her twice for 55 each through her resistances, its fires' damages 48 and 60.
-Not set beside the original's, whose dragon 52 under the driver kept its AI's state 0 by the Daemon, struck too, and walked off.
+**Seen** in the original 2026-11-05 at the sector 12,74 ("The lava bursts" below): its lava dragon breathed at the Daemon beside its mouth, a white-hot jet from the mouth along its heading and white flames standing under it, as the game's; the dragon 52 by the start under the driver had kept its AI's state 0 by the Daemon, struck too, and walked off.
+
+## The lava bursts
+
+Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's game at the sector 12,74).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| A rock of lava thrown out of deep lava | 877 `FX_LAVABURST` | `cParticleSystem_lavaburst` | `0x79F160`, `0x79EEE0`, `0x79EFB0` |
+| The small fire where it leaves and where it lands | 878 `FX_SMALLFIRE`, the variant 0 | `cParticleSystem_smallfire` | `0x79F970`, `0x79F6D0`, `0x79F7D0` |
+
+- **Who makes it.** The view, as it draws a liquid cell (`cWorldView_renderTileRow`, `0x62B680`): a cell of the liquid materials 4 to 6 (`a_lava`, `b_lava`, `c_lava`, docs/re/liquids.md) whose four corners' beds lie 2 or more below the surface (`+0x10` to `+0x13` at most −2) and whose eight neighbours are liquid (the natures `0x90` and `0xA0`) calls `0x41AF60` with its middle.
+  While the renderer's cooldown `+0x9E08` is not above 0, by a roll of `rand()` whose share of 100 is below 0.3, that makes an 877 (the FX event 100) and an 878 (the event `0x65`, its variant 0) there and sets the cooldown to 1.0; the renderer's update counts it down by its frame's time (`0x41A614`; **hypothesis** that the time is in seconds).
+  So while deep lava is in view a burst comes about once a second, the draw's rolls among its cells.
+- **The event 100** (its case `0x5A3C88`), of the variant 0: the object's flag 8 throws the system in an arc from the event's point, its share of the way rising by `0.4 + 0.2·U` a second, its height `80 + 100·U`, toward a heading `2π·U` along the ground, `150 + 100·U` away; the arc's place is the way's point at its share raised by `(1 − 4(s − ½)²)` of its height (`0x5A7108`), and at a share of 1 the object lands (`+0x74` bit 2).
+  Its variant 1 throws the fire skin's stopped arrows (`arrow_long.grn`, `0x561751`; not read further).
+- **The burst's start** (`0x79F160`), of the variant 0: its rock `gibs01.grn` at 4 times its size, turned by two angles at `2 + 2·U` radians a second each; its ramp at the entry `k` the colour `⌊128·k/256⌋`, `⌊50·k/256⌋`, `⌊10·k/256⌋` of 255, opaque; one layer (the life −200 a second, the size −10) and one block (the size 5 ± 2, the place ± 1 on each axis, every 0.02 s at the detail 2); the system's flags 8; and `LAVABURST` (206) at the object at a rate's factor of `0.4 + 0.2·U`.
+- **Its run** (`0x79EEE0`): its trail ages and, until it lands, leaves new glows at its place; its rock turns; landed, it asks the action 1 of the type 878 at its place (`0x5B2600`, on the ground) and ends with its trail.
+- **Its draw** (`0x79EFB0`): while it flies, its rock textured with `C_LAVA00` at its place (the world's models' lighting), its trail as billboards of `PARTICLE_GLOW03` of the flags 9 (their ramp's colour, added by their alpha), and a glow of the style 5 (`PARTICLE_GLOW03`) of a half side of 30 in (128, 53, 10), added whole.
+- **The small fire's variant 0** (`0x79F970`): no ramp but its four corners' orange `0xFFFF701A`; one layer (the life −100, the size −12 a second) and one block of no interval and a burst of 5 (the size 20 ± 3, the place ± 5 along the ground's axes), made at its clock's 0; its light 100; its system's flags 0, so that it strikes nothing.
+  Its draw (`0x79F7D0`): billboards of `PARTICLE_FIRE02` of the flags `0x81` and the grid 4: standing on their feet, added by their alpha, of the corners' orange, their 16 frames played once over their lives.
+- **Seen** 2026-11-05 at the sector 12,74: bursts traced every few seconds (`0x79F160`) and small flames standing on the lava and on the rock about it.
+  The lava dragon there breathed its fire at the Daemon beside its mouth at the same time ("The dragons' fire" above): a white-hot jet from its mouth along its heading and white flames standing under it.
+
+`opensacred-game` makes them since #1964 (`lava_bursts`, `opensacred_rules::particles::{LavaBurst, LavaFlames, deep_lava}`): `liquids` keeps each sector's cells of deep lava (a cell on its sector's edge left out), and once a second at most each of them in view rolls the burst in turn, the first that wins throwing its rock with its sound and a small fire there; the rock is the meteors' (`meteors`), the trail, the glow and the flames untinted by the night, the flames lighting it.
+**Seen** 2026-11-05 at the sector 12,74 in the game: rocks of lava arcing out of the pool with their glows and trails about once a second, small fires on the lava where they leave and on the rock where they land.
 
 ## In `opensacred-game`
 
@@ -1131,7 +1156,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 - Its burnt ground: a flat quad of a half side of 50, turned by a half turn, of `FX_GROUNDSTEP`'s 4 × 4 frames, added (`ONE`, `ONE`), white, at the ground's height with the depth test: the frames 4 to 0 over the first 0.3 s, the frame 0 to 8 s, the frames 0 to 15 over the ninth second (`⌊(t − 3)·16⌋ mod 16`), none after.
 - No sound of its own; the fires' loop takes it at 0.6 of the volume (`0x690420`).
 - Its hits (the system flag `0x400`, `0x5AB490`, `0x5AE436`): at most once a second, each living creature hostile to the hero, never the hero, within 30 and its size (50 for none) of the fire's place in x and y on its floor takes the event 5 from the hero of the physical `⌊min(0.2·S·m_p, 1000)⌋` and the fire `⌊0.2·min(D·m_f, 1000)⌋`, `S` and `D` his strength and dexterity and `m_p`, `m_f` his first damage multipliers (`+0x96`, `+0x9A`): no hit chance, through the resistances, not turned aside by the magic defence; each fire keeps its own second.
-- Its variants 1 (the end of a wall of fire 1006) and 0 (after a lava burst), the Big Demon's steps (type 53) and the spell 50, which make it too, are not followed.
+- Its variant 1 (the end of a wall of fire 1006), the Big Demon's steps (type 53) and the spell 50, which make it too, are not followed; the variant 0 of the lava bursts is ("The lava bursts" below).
 
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.

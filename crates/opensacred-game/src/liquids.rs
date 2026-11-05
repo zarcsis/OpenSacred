@@ -118,10 +118,12 @@ pub const BACK: f32 = 4_450.0;
 const CHUNK: usize = 16;
 
 /// The liquids of a sector, built off the main thread: the surfaces' meshes and the clear
-/// waters' second layer's, by material.
+/// waters' second layer's, by material, and the middles of its cells of deep lava, whence the lava
+/// bursts (`lava_bursts`).
 pub struct Surfaces {
     surfaces: Vec<(u8, Mesh)>,
     beds: Vec<(u8, Mesh)>,
+    vents: Vec<bevy::math::Vec3>,
 }
 
 /// A mesh being built.
@@ -151,11 +153,16 @@ pub fn build(sector: &Sector) -> Surfaces {
     let (sx, sy) = (sector.x as usize * SIDE, sector.y as usize * SIDE);
     let mut surfaces = Vec::new();
     let mut beds = Vec::new();
+    let mut vents = Vec::new();
     for (slot, nature) in SLOTS.into_iter().enumerate() {
         let material = sector.liquids[slot];
         let Some(spec) = MATERIALS.get(usize::from(material)) else {
             continue;
         };
+        vents.extend(
+            deep_lava(sector, nature, material)
+                .map(|(x, y)| iso::ground((sx + x) as f32 + 0.5, (sy + y) as f32 + 0.5)),
+        );
         let mut pieces: HashMap<(usize, usize), Piece> = HashMap::new();
         let mut bed_pieces: HashMap<(usize, usize), Piece> = HashMap::new();
         for (index, cell) in sector.cells.iter().enumerate() {
@@ -204,7 +211,28 @@ pub fn build(sector: &Sector) -> Surfaces {
         surfaces.extend(meshes(pieces).into_iter().map(|mesh| (material, mesh)));
         beds.extend(meshes(bed_pieces).into_iter().map(|mesh| (material, mesh)));
     }
-    Surfaces { surfaces, beds }
+    Surfaces {
+        surfaces,
+        beds,
+        vents,
+    }
+}
+
+/// The cells of `sector` of the nature `nature` and its slot's material `material` whose lava is
+/// deep (`opensacred_rules::particles::deep_lava`) and whose eight neighbours are liquid
+/// (`0x62B6FE`), as `(column, row)`; a cell on the sector's edge, whose neighbours lie in another,
+/// is left out.
+fn deep_lava(sector: &Sector, nature: u8, material: u8) -> impl Iterator<Item = (usize, usize)> {
+    let at = move |column: usize, row: usize| sector.cells.get(row * SIDE + column);
+    (1..SIDE - 1)
+        .flat_map(move |row| (1..SIDE - 1).map(move |column| (column, row)))
+        .filter(move |&(column, row)| {
+            at(column, row).is_some_and(|cell| {
+                cell.ground >> 4 == nature
+                    && opensacred_rules::particles::deep_lava(material, cell.heights)
+            }) && (row - 1..=row + 1)
+                .all(|r| (column - 1..=column + 1).all(|c| at(c, r).is_some_and(liquid)))
+        })
 }
 
 /// Adds the second layer of the clear water's cell at global `(x, y)` to `piece`: the cell's
@@ -406,6 +434,13 @@ pub fn spawn(
     materials: &mut Assets<Sorted>,
 ) -> Vec<Entity> {
     let mut entities = Vec::new();
+    if !surfaces.vents.is_empty() {
+        entities.push(
+            commands
+                .spawn(crate::lava_bursts::Vents(surfaces.vents))
+                .id(),
+        );
+    }
     let all = surfaces
         .surfaces
         .into_iter()
@@ -544,7 +579,7 @@ mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
-        let Surfaces { surfaces, beds } = build(&sector);
+        let Surfaces { surfaces, beds, .. } = build(&sector);
         let [(0, mesh)] = &surfaces[..] else {
             panic!("one surface of material 0");
         };
@@ -566,6 +601,40 @@ mod tests {
         };
         let alphas: Vec<f32> = colours.iter().map(|c| (c[3] * 255.0).round()).collect();
         assert_eq!(alphas, [0.0, 120.0, 240.0, 120.0]);
+    }
+
+    #[test]
+    fn a_deep_lava_amid_liquid_is_a_vent() {
+        let cell = |ground, heights| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights,
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let mut cells = vec![cell(0x40, [0; 4]); SIDE * SIDE];
+        // A 3 × 3 pool of the second slot's `A_LAVA`, deep but at one corner of its middle's
+        // neighbour, and another of the first slot's water.
+        for (row, column) in (4..7).flat_map(|row| (4..7).map(move |column| (row, column))) {
+            cells[row * SIDE + column] = cell(0xA0, [-10; 4]);
+            cells[row * SIDE + column + 10] = cell(0x90, [-10; 4]);
+        }
+        cells[4 * SIDE + 4] = cell(0xA0, [-10, -10, -1, -10]);
+        let sector = Sector {
+            x: 1,
+            y: 0,
+            id: 0,
+            liquids: [0, 4],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let Surfaces { vents, .. } = build(&sector);
+        assert_eq!(vents, [iso::ground((SIDE + 5) as f32 + 0.5, 5.5)]);
     }
 
     #[test]
