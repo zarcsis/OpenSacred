@@ -59,6 +59,11 @@ struct Burns(f32);
 #[derive(Component, Clone, Copy, Debug)]
 struct BurnsAfterClip;
 
+/// A creature of any class that bursts as it lies dead ([`last`]), the corpse of a tentacle's
+/// (`0x53382F`, #2104).
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct Bursts;
+
 /// The undead's dice for the health they rise with.
 #[derive(Resource)]
 struct Dice(Rng);
@@ -307,14 +312,33 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
 /// zombie or a ghoul bursts at once, with `CHAR_SPLASH` at it (`0x4E8DA0`), and any other
 /// vanishes at once in a dust that leaves its bones ([`bones`], 781's variant 4, `puffs`,
 /// #1261); the fire ghoul burns away once its clip has played ([`burn_after_clip`]). One that
-/// rises lies on.
+/// rises lies on. A creature of another class that [`Bursts`] bursts as they do, in its type's gib
+/// set's colour.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn last(
     mut commands: Commands,
-    lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform), Added<Corpse>>,
+    lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform, Has<Bursts>), Added<Corpse>>,
     (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
-    (mut sounds, mut dice): (MessageWriter<Play>, ResMut<Dice>),
+    (mut sounds, mut dice, gibs): (
+        MessageWriter<Play>,
+        ResMut<Dice>,
+        Option<Res<crate::blood_fountains::Gibs>>,
+    ),
 ) {
-    for (entity, corpse, dies, at) in &lying {
+    for (entity, corpse, dies, at, bursts) in &lying {
+        if bursts {
+            let set = gibs.as_ref().map_or(0, |gibs| gibs.of(corpse.creature));
+            burst(
+                &mut commands,
+                &mut sounds,
+                (entity, corpse.creature, at),
+                set,
+            );
+            continue;
+        }
         if dies.rises {
             continue;
         }
@@ -330,22 +354,13 @@ fn last(
                 commands.entity(entity).insert(Burns(BURNS));
             }
             End::Bursts => {
-                debug!("undead: {entity}, a {}, bursts", corpse.creature);
-                // Its cloud in its gib set's colour (809, `0x4E8DA0`); the body parts and the
-                // blood decal, which the original makes only under `VIOLENCE` 1, are not made.
-                let colour = particles::burst_colour(undead::gib_set(corpse.creature));
-                crate::puffs::spawn(
+                let set = undead::gib_set(corpse.creature);
+                burst(
                     &mut commands,
-                    particles::burst_cloud(colour),
-                    at.translation(),
-                    None,
+                    &mut sounds,
+                    (entity, corpse.creature, at),
+                    set,
                 );
-                sounds.write(Play {
-                    sound: Of::Id(SPLASH),
-                    at: Some(entity),
-                    rate: (0.5, Roll::None),
-                });
-                gone(&mut commands, entity);
             }
             End::Vanishes => {
                 debug!("undead: {entity}, a {}, vanishes", corpse.creature);
@@ -386,6 +401,30 @@ pub(crate) fn bones(
     } else {
         points
     }
+}
+
+/// Bursts a corpse at once (`0x4E8DA0`): its cloud in its gib set `set`'s colour (809) and
+/// `CHAR_SPLASH` at it, its body gone; the body parts and the blood decal, which the original
+/// makes only under `VIOLENCE` 1, are not made.
+fn burst(
+    commands: &mut Commands,
+    sounds: &mut MessageWriter<Play>,
+    (entity, creature, at): (Entity, u32, &GlobalTransform),
+    set: u8,
+) {
+    debug!("undead: {entity}, a {creature}, bursts");
+    crate::puffs::spawn(
+        commands,
+        particles::burst_cloud(particles::burst_colour(set)),
+        at.translation(),
+        None,
+    );
+    sounds.write(Play {
+        sound: Of::Id(SPLASH),
+        at: Some(entity),
+        rate: (0.5, Roll::None),
+    });
+    gone(commands, entity);
 }
 
 /// Hides the body of `entity` and leaves no corpse to raise (`+0x14` bit `0x10000000`, out of

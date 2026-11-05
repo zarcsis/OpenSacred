@@ -112,6 +112,15 @@ pub const BURST: (f32, f32) = (300.0, 2.0);
 /// The thorns about their centre along each axis, and their reach (`0x5260CB`, `0x5ADBCF`).
 pub const THORNS_SCATTER: u32 = 75;
 pub const THORNS_REACH: f32 = 50.0;
+/// A thorn rises for a second before it stands and sinks for one after, striking the while
+/// (`0x798E50`: its rise from −3 to 0 and back at 3 a second); a creature's stands 3 s whatever
+/// its level (`0x799640`, its owner not a player).
+pub const THORN_RISES: f32 = 1.0;
+pub const CREATURE_THORNS: f32 = 3.0;
+/// Every fifth thorn of a cast plays `DRYADE_DORNEN` at its place, from the first (`0x52632A`,
+/// `0x4D309E`).
+pub const THORNS_SOUNDED: u32 = 5;
+pub const THORNS_SOUND: u32 = 2061;
 /// The souls about the Wood Elf, along the world's sin and cos of their angles, their first
 /// angle, their speed and reach (`0x5268E5`, `0x79D310`, `0x5AEAC4`).
 pub const SOULS_FROM: f32 = 50.0;
@@ -384,8 +393,10 @@ pub const FEAR_STEP: f32 = std::f32::consts::TAU / 5.0;
 pub const FEAR_REACH: f32 = 150.0;
 pub const FEAR_LIFE: f32 = 25.0;
 pub const FEAR_HOLDS: f32 = 1.0;
-/// A tentacle's reach with the creature's size (`0x5AFE9C`).
+/// A tentacle's reach with the creature's size (`0x5AFE9C`), and how long it sinks after its
+/// seconds, striking the while (`0x7B1480`: its sink from 0 to −3 at 3 a second).
 pub const TENTACLE_REACH: f32 = 120.0;
+pub const TENTACLE_SINKS: f32 = 1.0;
 
 /// The greed's effect (`crate::fight::effects::SHIELDS`): `D`'s multiplier times 100 over its
 /// value, and its whole value the level at which the record's value 1 is the drops' `s`
@@ -692,6 +703,24 @@ pub fn value(spell: &Spell, j: usize, level: u32) -> u32 {
     } else {
         value
     }
+}
+
+/// How long a thorn of the spell `spell` at the level `level` strikes, a hero's or a creature's:
+/// its rise, its seconds (the record's value 1 at the level, or [`CREATURE_THORNS`]) and its
+/// sink (`0x799640`, `0x798E50`).
+pub fn thorn_seconds(spell: &Spell, level: u32, hero: bool) -> f32 {
+    let stands = if hero {
+        to_f32(value(spell, 1, level))
+    } else {
+        CREATURE_THORNS
+    };
+    stands + 2.0 * THORN_RISES
+}
+
+/// How long a tentacle of the spell `spell` at the level `level` strikes: the record's value 1 at
+/// the level, then its sink (`0x7B1990`, `0x7B1480`).
+pub fn tentacle_seconds(spell: &Spell, level: u32) -> f32 {
+    to_f32(value(spell, 1, level)) + TENTACLE_SINKS
 }
 
 /// The effect [`LASTS`] of the spell `spell` at the level `level`, with its seconds.
@@ -1320,6 +1349,20 @@ mod tests {
         assert_eq!([1, 10, 100].map(|l| count(&souls, l)), [2, 5, 6]);
         let cage = record(CAGE, &[], [14, 1], 30);
         assert_eq!([1, 5, 6, 20].map(|l| count(&cage, l)), [3, 3, 4, 4]);
+    }
+
+    #[test]
+    fn a_thorn_strikes_through_its_rise_and_sink_and_a_creatures_stands_three_seconds() {
+        // GOG 2.28's 39 lives 19 + L at most 50, the 65's tentacle 10 s.
+        let mut thorns = record(THORNS, &[], [0, 0], 0);
+        thorns.values[1] = [19, 1];
+        thorns.caps[1] = 50;
+        assert_eq!(thorn_seconds(&thorns, 1, true), 22.0);
+        assert_eq!(thorn_seconds(&thorns, 40, true), 52.0);
+        assert_eq!(thorn_seconds(&thorns, 40, false), 5.0);
+        let mut tentacles = record(TENTACLES, &[], [44, 1], 90);
+        tentacles.values[1] = [10, 0];
+        assert_eq!(tentacle_seconds(&tentacles, 7), 11.0);
     }
 
     #[test]

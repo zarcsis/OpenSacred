@@ -268,10 +268,11 @@ fn act(
         Option<Res<crate::spells::Looks>>,
         ResMut<crate::spells::Dice>,
     ),
-    (mut launches, mut hits, mut healths): (
+    (mut launches, mut hits, mut healths, mut points): (
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::fight::Hit>,
         Query<&mut crate::fight::Health>,
+        MessageWriter<crate::sfx::PlayAt>,
     ),
 ) {
     for (entity, cast, at, (mind, way), rank, combat) in &acting {
@@ -444,8 +445,9 @@ fn act(
                 crate::spells::thorns(
                     &mut commands,
                     (&mut dice, &heights, looks.as_deref()),
+                    &mut points,
                     (record, level),
-                    (entity, way.level),
+                    (entity, way.level, false),
                     (toward, crate::spells::THORNS_SCATTER),
                     damages,
                 );
@@ -1326,15 +1328,11 @@ pub struct DruidThorns {
 /// read, **estimate**).
 const BLINK_SOUND: u32 = 2055;
 const BLINK_PUFF: f32 = 1.0;
-/// The thorns' sound at every fifth of a group (`0x4D3091`: `DRYADE_DORNEN`'s id 2061, by the
-/// spell's own, `art_sounds`).
-const THORNS_SOUND: u32 = 2061;
-
 /// Sets the dryad druid's thorns after its blink (`0x4D2E10`): a puff of the battle fog at each
 /// end, then each group of `casts::druid_thorns` about its target's place, of the thorns'
 /// record at the group's spell's level, their damage `MagieAll`'s share at that level (as its
 /// casts', **hypothesis** for this path), scattered 0 to 100 beyond each centre where they may
-/// stand, the thorns' sound at every fifth.
+/// stand, the thorns' sound at every fifth of a group (`0x4D3091`, `spells::thorns`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -1378,16 +1376,12 @@ fn druid_thorns(
             let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers)
                 .map(|damage| scaled(damage, factor));
             let centre = blink.target + Vec3::new(x, 0.0, y);
-            points.write(crate::sfx::PlayAt {
-                sound: crate::sfx::Of::Id(THORNS_SOUND),
-                point: centre,
-                rate: (0.5, crate::sfx::Roll::None),
-            });
             crate::spells::thorns(
                 &mut commands,
                 (&mut dice, &heights, looks.as_deref()),
+                &mut points,
                 (record, level),
-                (entity, way.level),
+                (entity, way.level, false),
                 (centre, casts::DRUID_SCATTER),
                 damages,
             );
