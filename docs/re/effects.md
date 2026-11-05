@@ -50,6 +50,9 @@ Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The o
 | `+0x40` … `+0x74` | an array of 14 words, copied to the object's `+0xE4` (the level, the damages' multipliers, the factor, the art's record; docs/re/arts.md) |
 | `+0x78` | flags, or'ed into the object's `+0x48` (`0x2C0` for the scripts' effects) |
 
+The systems' places, velocities, spreads and offsets lie in the models' frame, as the event's point does: its `x` along the screen's horizontal on the ground, the world's (1, −1), its `y` toward the viewer, the world's (1, 1), its `z` up (docs/re/drawing.md, "The models' turn"; "Their flight" below).
+`opensacred-game` takes them so since #2072 (`bolt_looks::{world, models}`, `iso::fx_axes`), at `MODEL_SCALE` world units a unit along each axis as it draws the models; before it took their `x` along the world's x, a turn of 45° about each system's origin, which only the shapes not round about the upright showed: **seen** 2026-11-04 by the big demon's pentagram ("The big demon's summoning").
+
 The object's handler (`0x5A3840`, virtual `+0x18`) takes the event when the object is set up (`+0x48` bit 1): it keeps the caster (`+0x54`, its sector `+0x58`) and the target (`+0x60`), the array and the kind (`+0x44`), plays the type's sound profile (`0x6770E0` with 6), and switches on the kind (`kind − 1` into the jump table `0x5A5EC4`).
 Each case sets what the object follows, `+0x68` an object's id and `+0x70` a bone's index, sometimes `+0x72`, `+0x74` and `+0x76` three more, and other fields (a direction at `+0x78`, a turn rate at `+0x8C`), places the system (`0x7CBB00`, its position `+0x08`), and starts it: `0x7CC040` calls the system's virtual `+0x10` with the event.
 Then the handler sets `+0x48` bit 2, the object started, which its draw requires.
@@ -998,7 +1001,7 @@ Read 2026-11-04 for #2006 in Ghidra (**confirmed** by code unless marked otherwi
 - **Seen** 2026-11-04 with the hero at (6063, 2513): a circle and a five-pointed star of orange glows on the ground about the lair's middle, each moving end white-hot, the circle drawn clockwise on the screen, all gone about 10 s after the script; the star's point toward the viewer and a side across the screen below its middle.
 
 `opensacred-game` draws it since #2006 (`summonings`, `opensacred_rules::particles::DemonSummon`): `npcs` makes an entity for each `CreateObj` of 918 at its point and the height of its record's `0x7E`, with its variant, which draws its glows untinted by the night, gives the circle's light and growls once as it is made.
-**Seen** 2026-11-04 beside the original's frames at the same cell and times: alike in size, colours, the circle's way and time and the moving ends; the star is turned 45° about its middle, as every system's frame is (#2072).
+**Seen** 2026-11-04 beside the original's frames at the same cell and times: alike in size, colours, the circle's way and time and the moving ends; the star, first turned 45° about its middle, lies as the original's since #2072, a point toward the viewer and a side across the screen below its middle.
 
 ## In `opensacred-game`
 
