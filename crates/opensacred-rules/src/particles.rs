@@ -188,7 +188,7 @@ impl System {
     /// first block have passed since the last emission, each of a block that `pick` chooses and
     /// aged by its share of the time (`0x764760`), up to `count` alive.
     pub fn emit(&mut self, blocks: &[Block], layers: &[Layer], count: usize, dice: &mut impl Dice) {
-        self.emit_at(blocks, layers, count, dice, |_| [0.0; 3]);
+        self.emit_at(blocks, layers, count, dice, |_, _| [0.0; 3]);
     }
 
     /// [`Self::emit`] by a system whose place went from `from` to `to` in the frame of `dt`
@@ -205,7 +205,7 @@ impl System {
         dice: &mut impl Dice,
     ) {
         let start = self.clock - dt;
-        self.emit_at(blocks, layers, count, dice, |moment| {
+        self.emit_at(blocks, layers, count, dice, |moment, _| {
             let share = if dt > 0.0 {
                 ((moment - start) / dt).clamp(0.0, 1.0)
             } else {
@@ -215,16 +215,42 @@ impl System {
         });
     }
 
-    /// [`Self::emit`], each particle born at its offset from `place` of its moment: the first
-    /// block's offset, whatever the particle's block, and its own block's spread about it, as the
-    /// steady emission of `0x764760` reads the first block's `+0x38` alone (#2070).
-    fn emit_at(
+    /// [`Self::emit_along`] by a system of two points that went from `from` to `to` (`0x766200`):
+    /// each particle born at a point at random along the segment between them at its moment.
+    pub fn emit_along_segment(
         &mut self,
         blocks: &[Block],
         layers: &[Layer],
         count: usize,
+        (from, to): ([[f32; 3]; 2], [[f32; 3]; 2]),
+        dt: f32,
         dice: &mut impl Dice,
-        place: impl Fn(f32) -> [f32; 3],
+    ) {
+        let start = self.clock - dt;
+        self.emit_at(blocks, layers, count, dice, |moment, dice| {
+            let share = if dt > 0.0 {
+                ((moment - start) / dt).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let [a, b]: [[f32; 3]; 2] = std::array::from_fn(|end| {
+                std::array::from_fn(|k| from[end][k] + (to[end][k] - from[end][k]) * share)
+            });
+            let along = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+            std::array::from_fn(|k| a[k] + (b[k] - a[k]) * along)
+        });
+    }
+
+    /// [`Self::emit`], each particle born at its offset from `place` of its moment: the first
+    /// block's offset, whatever the particle's block, and its own block's spread about it, as the
+    /// steady emission of `0x764760` reads the first block's `+0x38` alone (#2070).
+    fn emit_at<D: Dice>(
+        &mut self,
+        blocks: &[Block],
+        layers: &[Layer],
+        count: usize,
+        dice: &mut D,
+        mut place: impl FnMut(f32, &mut D) -> [f32; 3],
     ) {
         let Some(first) = blocks.first() else {
             return;
@@ -242,7 +268,7 @@ impl System {
                 continue;
             };
             let mut particle = born(block, layer, dice);
-            let at = place(self.last);
+            let at = place(self.last, dice);
             let shift: [f32; 3] =
                 std::array::from_fn(|k| at[k] + first.offset.value[k] - block.offset.value[k]);
             for (axis, shift) in particle.place.iter_mut().zip(shift) {
@@ -4632,6 +4658,94 @@ impl LavaFlames {
     }
 }
 
+/// The sparks' texture of an arrow's fire and poison, and their particles at most (`0x5A0C50`).
+pub const ARROW_SPARKS_TEXTURE: &str = "PARTICLE_GLOW01";
+const ARROW_SPARKS_COUNT: usize = 500;
+
+/// The sparks of an arrow's fire or poison, `cParticleSystem_magicfire` (`FX_MAGICFIRE`, 796, its
+/// start `0x77A8E0`, its run `0x77A650` and its draw `0x77A6C0`) and `cParticleSystem_magicgift`
+/// (`FX_MAGICGIFT`, 808, `0x77C3E0`), of the variant 1, at the share `share` of its element: a
+/// spark of `PARTICLE_GLOW01` every 0.1 s at a point at random along the arrow's shaft (its bones
+/// `weapon_fx01` and `weapon_fx02`, `0x766200`), of the size `2·(share + 1)` growing by
+/// `15·share + 10` a second, living 0.425 s (−600), riding with the arrow (the system's flags
+/// `0x1204`), added by the alpha of its life in its element's colour; the fire lights the night
+/// by `200 + 200·share`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrowSparks {
+    pub system: System,
+    share: f32,
+    colour: [f32; 3],
+    lights: bool,
+}
+
+impl ArrowSparks {
+    /// The sparks of `element` at `share`: none of the magic, which only glows.
+    pub fn new(element: crate::arrows::Element, share: f32) -> Option<Self> {
+        let (colour, lights) = match element {
+            crate::arrows::Element::Fire => ([255.0, 136.0, 68.0], true),
+            crate::arrows::Element::Poison => ([68.0, 255.0, 68.0], false),
+            crate::arrows::Element::Magic => return None,
+        };
+        Some(Self {
+            system: System::new(ARROW_SPARKS_COUNT),
+            share,
+            colour: colour.map(|c: f32| c / 255.0),
+            lights,
+        })
+    }
+
+    fn layer(&self) -> Layer {
+        Layer {
+            life: -600.0,
+            size: self.share * 15.0 + 10.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block(&self) -> Block {
+        Block {
+            size: spread((self.share + 1.0) * 2.0, 0.0),
+            interval: 0.1,
+            ..Block::default()
+        }
+    }
+
+    /// A spark's colour at its life: its element's, at the alpha of its life (the draw's flag 2).
+    pub fn colour(&self, life: f32) -> [f32; 4] {
+        let [r, g, b] = self.colour;
+        [r, g, b, life.clamp(0.0, 255.0) / 255.0]
+    }
+
+    /// Its light's radius: the fire's `200 + 200·share` (`0x77A9C7`), none of the poison.
+    pub fn light(&self) -> f32 {
+        if self.lights {
+            self.share * 200.0 + 200.0
+        } else {
+            0.0
+        }
+    }
+
+    /// A run of `dt` seconds, the arrow's shaft gone from `from` to `to` in its frame: its sparks
+    /// age, and new ones rise along the way the shaft swept.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        (from, to): ([[f32; 3]; 2], [[f32; 3]; 2]),
+        dice: &mut impl Dice,
+    ) {
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        self.system.emit_along_segment(
+            &[self.block()],
+            &layers,
+            ARROW_SPARKS_COUNT,
+            (from, to),
+            dt,
+            dice,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5932,5 +6046,34 @@ mod tests {
             flames.update(0.05);
         }
         assert!(flames.done());
+    }
+
+    #[test]
+    fn an_arrows_fire_sparks_along_its_shaft_and_lights_by_its_share() {
+        let mut dice = Rng::of(7, 9, 796);
+        let mut sparks = ArrowSparks::new(crate::arrows::Element::Fire, 0.5).unwrap();
+        assert!(ArrowSparks::new(crate::arrows::Element::Magic, 0.5).is_none());
+        assert_eq!(sparks.light(), 300.0);
+        let shaft = (
+            [[0.0, 0.0, 50.0], [60.0, 0.0, 50.0]],
+            [[0.0, 0.0, 50.0], [60.0, 0.0, 50.0]],
+        );
+        for _ in 0..10 {
+            sparks.update(0.05, shaft, &mut dice);
+        }
+        // A spark every 0.1 s, living 0.425 s, on the shaft.
+        let count = sparks.system.particles.len();
+        assert!((4..=5).contains(&count), "{count}");
+        assert!(
+            sparks
+                .system
+                .particles
+                .iter()
+                .all(|p| (0.0..=60.0).contains(&p.place[0]) && p.place[2] == 50.0)
+        );
+        assert_eq!(
+            sparks.colour(255.0),
+            [1.0, 136.0 / 255.0, 68.0 / 255.0, 1.0]
+        );
     }
 }

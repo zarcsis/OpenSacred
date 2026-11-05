@@ -7,6 +7,7 @@
 
 mod ai;
 mod ambience;
+mod arrow_elements;
 mod arrows;
 mod arsenal;
 mod art_burn;
@@ -395,6 +396,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         ai::AiPlugin,
         ambience::AmbiencePlugin,
+        arrow_elements::ArrowElementsPlugin,
         arrows::ArrowsPlugin,
         arsenal::ArsenalPlugin,
         art_burn::ArtBurnPlugin,

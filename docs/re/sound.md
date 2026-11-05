@@ -627,7 +627,7 @@ Outside them: `SERA_PLASMASHOT` (2072) with a railgun's shot (`0x4DCB80` at `0x4
 The arrows' hits (read 2026-11-04 for #2007, **confirmed** by code unless marked otherwise) play two sounds of their own, each for an arrow of the local player alone (its `+0x39`), and none for a plain arrow, whose hit sounds are the fight's (502, 503):
 - the spider arrow 1006 (`0x5BBF1A`, with `0x4D1AF0(1006)` for its spiders): `HELF_SPINNENPFEIL` (2070) at the creature it hits, at a rate's factor of 0.5; **seen** 2026-11-04 under the driver of #448 (the Wood Elf's new game, 1006 at the level 5 on a goblin, a trace of `0x693510`): 2070 at 0.5 right after the hit's 503, and four spiders;
 - an arrow burning with its weapon's fire (`0x5BCCF4`, its object 796 at `+0x1AC`, `cArrow3D: turned on magic-fire`): the burning bone 788 at its target unless one burns there, and `TORCH_HIT01` (708) at it, at a rate's factor of `0.4 + (rand() % 20) / 90` (#2061).
-`opensacred-game` plays the spider arrow's since #2007 (`arrows`); the burning arrows wait for their fire (#2061).
+`opensacred-game` plays the spider arrow's since #2007 (`arrows`); the burning arrows show their fire since #2061 (`arrow_elements`, docs/re/effects.md, "The arrows' elements"), their hit's sound waiting for the burning bone 788.
 
 #### The other creatures' footsteps
 
