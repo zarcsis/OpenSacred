@@ -1502,6 +1502,25 @@ Its FX event (`0x5D`) follows its target, the Dark Elf, at his neck (`0x44CB80`:
 Not followed: the order of the twirls' slots, which reuses the dead ones (ours their births'), so that its fully dark moments are rarer.
 In the original a creature's ordinary death makes no soul (780): a goblin killed by the Dark Elf without his soulcatcher started none (the trace of `0x76CD50`), one killed with it one.
 
+## The souls
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A soul homing on the soulcatcher | 780 `FX_PUZZLE_SOLVED` | `cParticleSystem_puzzleSolved` (`0x897944`) | `0x76C930`, `0x76CD50`, `0x76C9D0`, `0x76CB10` |
+
+Its FX event (`0xC`, docs/re/arts.md) puts it at the dying creature's place at its height; homing on a soulcatcher, its flag `0x4000`.
+- Its constructor (500 particles) loads `PARTICLE_SPARK06` (and `PARTICLE_FACE01`, never drawn).
+- Its start: its four corners `0x00A0FFB0`, pale green (160, 255, 176); homing, its layer's pull (`+0x1C`) 50, its life's rate 0 and its size's −2, its block's buoyancy −50 (rising) and size 5; then, its target a model, a particle at every `⌊V/500⌋`-th vertex of each of its meshes, skinned to its pose (`0x767FB0`, `0x44FC30`), up to 500, of its block's values and the life 255.
+- Its run: its speed `⌊10 t⌋` toward its target's neck (`0x44CBB0`, the bone 3, else the root); its pull grows by 100 a second and its size's rate by 0.5 a second up to 0; its sparks age, each drawn toward its place (`0x7640C0`: its velocity less `dt` times the pull along the unit way from its place to it); at its arrival, or at a cell that stops it (its word `+0x74` bit 2), every spark's velocity is zeroed and its life's rate −250; with no spark alive it asks the soulcatcher's signal 8; past 10 s it ends.
+- Its draw: billboards of `PARTICLE_SPARK06` of the flags `0x13` (the corners' colour at the alpha of its life, added whole), the grid 1.
+- So the dead creature's figure in up to 500 pale green sparks, their half side 5 shrinking to 1 over 4 s, rises and is pulled ever harder to a place speeding from its feet to the Dark Elf's neck: a swirling green cloud streaming to him; at its arrival the sparks stop and vanish together 1.02 s later.
+
+`opensacred-game` draws them since #1092 (`soul_sparks`, `opensacred_rules::particles::SoulSparks`, the pull of `Layer::pull` and `System::update_toward`), in place of the stand-in ball: each soul that `souls` sends takes the vertices of its creature's meshes but its worn items', skinned on the CPU by its joints' places as it dies, and flies from its feet to the Dark Elf's `Bip01 Neck` (90 over the ground before); a soul that a cell stops fades and is absorbed without healing him, as the original's.
+**Seen** 2026-11-05 beside the original: a goblin's figure in pale green sparks streaming up and to the Dark Elf in both, its sparks vanishing at his soulcatcher.
+Not followed: the souls that no soulcatcher draws (no system starts, docs/re/arts.md).
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
