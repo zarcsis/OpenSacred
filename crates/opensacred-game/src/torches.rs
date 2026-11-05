@@ -103,11 +103,18 @@ fn light(
                 DespawnOnExit(AppState::InGame),
             ))
             .id();
+        // Its loop and its Direct3D light (`0x774F00`, `0x775050`), both at its bone.
         let crackle = commands
             .spawn((
                 Transform::IDENTITY,
                 Hum(particles::TORCH_LOOP),
                 Loudness(particles::TORCH_LOOP_VOLUME),
+                crate::fx_lights::FxLight {
+                    colour: crate::fx_lights::TORCH,
+                    owner: flame,
+                    follows: None,
+                    offset: Vec3::ZERO,
+                },
                 ChildOf(flame),
             ))
             .id();

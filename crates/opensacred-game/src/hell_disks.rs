@@ -132,6 +132,14 @@ fn show(
             Visibility::default(),
             DespawnOnExit(AppState::InGame),
         ));
+        // Its Direct3D light, following it (`0x7AD8C0`, `0x7ADBC0`).
+        let owner = shown.id();
+        shown.commands().spawn(crate::fx_lights::light(
+            crate::fx_lights::HELL,
+            place.translation,
+            owner,
+            (Some(entity), Vec3::ZERO),
+        ));
         for (mesh, material) in parts.iter().zip([looks.trail.clone(), looks.glow.clone()]) {
             if let Some(material) = material {
                 shown.with_child((

@@ -79,6 +79,7 @@ mod forge;
 mod forms;
 mod frame;
 mod fx;
+mod fx_lights;
 mod fx_loops;
 mod game;
 mod glance;
@@ -483,9 +484,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         equipment::EquipmentPlugin,
         esc_menu::EscMenuPlugin,
         explored::ExploredPlugin,
+        explosions::ExplosionsPlugin,
     ))
     .add_plugins((
-        explosions::ExplosionsPlugin,
         fight::FightPlugin,
         fire_skins::FireSkinsPlugin,
         fliers::FliersPlugin,
@@ -496,6 +497,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         forms::FormsPlugin,
         frame::FramePlugin,
         fx::FxPlugin,
+        fx_lights::FxLightsPlugin,
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,
         glance::GlancePlugin,

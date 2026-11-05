@@ -107,6 +107,8 @@ fn show(
             Lamp(entity),
             DespawnOnExit(AppState::InGame),
         ));
+        // Its Direct3D light at its place (`0x780C70`, `0x781100`).
+        commands.spawn(crate::fx_lights::child(crate::fx_lights::PALE_BLUE, entity));
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
         commands.entity(entity).insert(Shown {
             light: HolyLight::new(seconds),

@@ -95,6 +95,15 @@ fn show(
             Visibility::default(),
             DespawnOnExit(AppState::InGame),
         ));
+        // Its Direct3D light, following it while it flies, then where it stopped (`0x7A5DE0`,
+        // `0x7A6040`).
+        let owner = shown.id();
+        shown.commands().spawn(crate::fx_lights::light(
+            crate::fx_lights::SKULL,
+            place.translation,
+            owner,
+            (Some(entity), Vec3::ZERO),
+        ));
         if let Some(material) = looks.trail.clone() {
             shown.with_child((
                 Mesh3d(mesh.clone()),

@@ -111,6 +111,13 @@ fn show(
         };
         let spheres = [sphere(), sphere()];
         let mesh = meshes.add(empty());
+        // Its Direct3D light 45 over its place (`0x7B2B00`, `0x7B2DF0`; its wobble of 3 left out).
+        commands.spawn(crate::fx_lights::light(
+            crate::fx_lights::HELL,
+            place.translation,
+            entity,
+            (Some(entity), Vec3::Y * 45.0 * iso::MODEL_SCALE),
+        ));
         let mut shown = commands.entity(entity);
         if let Some(material) = looks.rays.clone() {
             shown.with_child((

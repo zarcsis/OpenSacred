@@ -141,6 +141,13 @@ fn show(
             Visibility::default(),
             DespawnOnExit(AppState::InGame),
         ));
+        // The ground poison's Direct3D light at its place (`0x778760`, `0x778980`).
+        if matches!(*landing, Landing::Poison) {
+            let owner = shown.id();
+            shown
+                .commands()
+                .spawn(crate::fx_lights::child(crate::fx_lights::POISON, owner));
+        }
         for (k, (mesh, material)) in parts.iter().zip(materials).enumerate() {
             let Some(material) = material else {
                 continue;

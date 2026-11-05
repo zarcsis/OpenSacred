@@ -75,6 +75,11 @@ fn grow(
         }
         let (dots, glow) = (meshes.add(empty()), meshes.add(empty()));
         let mut shown = commands.entity(entity);
+        // Its Direct3D light at its place, a hero's green, a creature's blue (`0x799640`).
+        shown.commands().spawn(crate::fx_lights::child(
+            crate::fx_lights::PLANTS[usize::from(!thorn.hero)],
+            entity,
+        ));
         shown.insert(Plant {
             plant: KillerPlant::new(thorn.stands, thorn.hero, &mut dice.0),
             dots: dots.clone(),

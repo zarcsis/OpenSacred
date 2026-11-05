@@ -221,6 +221,55 @@ Two kinds, by their pixels (counted 2026-10-27): white with an alpha mask, tinte
 - The draw lists' path for an object of the type flag `2` (`0x631358`) adds a light only for a creature (a cast to `cCreature`, then `0x54A7B0`), so the items table's radius of an FX type (`+0x32` with the flag `0x20000`) gives no light; nor are FX types statics, whose radius `0x41B170` takes.
 - The torch's flame gives none of its own: the torch's light is the hero's rule (docs/re/daynight.md: 300 in a dungeon, half as much again outside, from the types `0x1600` and `0x1601` in the creature's objects).
 
+### The systems' Direct3D lights
+
+Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
+
+- The light manager `cDX7LightMgr` (one object at `0xCD7A78`, made by `0x642880`, its set-up `0x642910` at the start): `0x642B90` (a place or a direction, a colour, a kind, a priority) makes a light in its first free slot, else in the slot of the lowest priority where the new one's is at least as high, else none (the handle 0); it sets it on the device (`SetLight`) and turns it on (`LightEnable`).
+- The kind 2, which every system passes, is a point light: its diffuse and specular the colour, its ambient black, its range 200 and its attenuations (1, 0, 0.000125) set by the manager, so every system's light falls as `1 / (1 + 0.000125 d²)` within 200 of it, a sixth at its edge.
+  The kind 1 is the world view's directional light (`0x624825`): white, its ambient 0.3 of its colour, the priority 4, recoloured before the models' draws (`0x642FD0`, the light at the model, docs/re/daynight.md); a system's light, of the priority 1 or 2, never takes its slot.
+- The device's lights are as many as its count with hardware transform and lighting (`D3DDEVCAPS_HWTRANSFORMANDLIGHT`, the display's `+0x358`), else 4; the default material diffuse 1, ambient 0.7, specular 1 of the power 30.
+- A system makes its light in its constructor at the world's origin, moves it at its draw (`0x642EF0`, or `0x642DF0` with a new colour), and takes it off in the base's destructor (`0x642D90`, `0x761A67`); it never fades with the system.
+  So, once on, it lights every model within 200 of it in its colour in the fixed function's sum, the sprites and the ground, which the game draws unlit, untouched.
+
+| Class | FX type | Colour | Priority | Where, and what changes |
+|---|---|---|---|---|
+| firestrike, the fireball | 778 | (1, 0.8, 0.4) | 2 | at its place |
+| torchsmoke, the torches' flames | 787 | (1, 1, 0) | 2 | at its place |
+| groundPoison | 792 | (0.3, 1, 0.3) | 2 | at its place |
+| lightningStrike | 798 | (0.8, 0.8, 1.0) | 2 | at its place |
+| freeze, the chain lightning | 799 | (0.7, 0.7, 1.0) | 2 | made only for its event's `+0x3C` 0, the first bolt (`0x77DE80`) |
+| holylight | 804 | (0.8, 0.8, 1.0) | 2 | at its place |
+| sera_sm_cast | 844 | (0.7, 0.7, 1.0) | 1 | made for 1018 alone, once its delay is over (`0x790680`) |
+| highspeed | 846 | (0.2, 1, 0.2) | 1 | at its place |
+| killerplants, the thorns' plants | 848 | (0.25, 1, 0.25) a hero's, (0.25, 0.25, 1) another's | 1 | at its place (`0x799640`) |
+| plantcage | 849 | as 848's | 1 | at its event's point ± 50 along x and y at random |
+| lostsouls | 850 | (0.2, 1, 0.2) | 1 | at its place |
+| beherrschung | 857 | (1, 0.28, 0.28) | 2 | at its orbiting glow |
+| vamp_sm_cast | 863 | (0.8, 0.8, 1.0) | 1 | moved for 1022 and 1023 alone, to its glow's point; else at the origin |
+| freeze_impact | 872 | (0.7, 0.7, 1.0) | 2 | at its place |
+| trap03_laser | 895 | (0.7, 0.7, 1.0) | 2 | only for its event's `+0x3C` 0 |
+| flyingskull | 905 | (1, 0.8, 0.1) | 1 | at its place while it flies, then where it stopped |
+| laserbeam_impact | 909 | (1, 0.8, 0.2) | 2 | at its place |
+| bigdemondeath | 919 | (0.8, 0.8, 1.0) | 2 | at its place |
+| shaddar_slave | 921 | (1, 0.8, 0.7) | 1 | at its place |
+| shaddar_magic, the fire bolt | 922 | (1, 0.8, 0.4) | 1 | at its place |
+| helldisk | 1005 | (1, 0.4, 0.2) | 1 | at its place |
+| demonform | 1014 | by its variant: (0.5, 0.7, 1), (0.4, 1, 0.5), (1, 0.7, 0.4), (1, 1, 1) | 1 | at the first of its orbiting points |
+| demonfire | 1015 | (1, 0.4, 0.2) | 1 | 45 + 3 sin(1.17 t) over its place |
+| dwarf_flamethrower, dwarf_shoot, dwarf_grenade | 1016, 1017, 1018 | (1, 0.8, 0.4) | 2 | at its place after its delay, off as its emission ends |
+| panzer | 1021 | (0.15 + 0.35(1 + c), 0.15 + 0.35(1 − c), 0.137), c = cos(0.5425 t) | 2 | at its place |
+| stahl | 1022 | (0.25 + 0.2 c, 0.25 − 0.2 c, 1), c alike | 2 | at its place |
+| dwarf_gier | 1155 | 2 sin(5π τ) times (1, 0.5, 0.1), τ a timer of 0.2 s | 1 | each 0.2 s at a new point within (18, 18, 20) of its place less 15 |
+| dryad_ghost | 1162 | (0.2, 1, 0.2) | 1 | at its place |
+| terrorsprinter | 1167 | (1, 0.1, 1) | 1 | for its event's `+0x38` 0 alone |
+| gunfire | 1172 | (1, 1, 1) | 1 | 5 along its shot's way from its place (**hypothesis**) |
+
+`opensacred-game` follows them since #2106 (`fx_lights`) for the systems it draws: the fireball's, the torches' flames', the ground poison's, the lightning strike's, the chain lightning's first bolt's and its impacts', the holy light's, the thorns' plants', the lost souls' and the dryad ghosts', the flying skull's, the fire bolt's, the hell disk's and the demon fire's, each a Bevy point light on the models of its colour and its range, following its system while it moves and taken off with its look.
+Bevy's point light falls by the square of the distance alone, so its intensity matches the fixed function's where that halves (89 of the models' units, the sun's 4,000 lux the whole colour): nearer the effect it is brighter, farther dimmer, and it fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
+**Seen** 2026-11-05 in the game: a goblin standing in the Wood Elf's thorns, its legs lit green as the original's (#2106's frames).
+Not followed: the device's count of lights and the manager's priorities (every light shines), the demon fire's wobble, and the systems the game does not draw yet.
+
 ## The world's effects
 
 ### The fires and smokes: `cParticleSystem_smoke`
@@ -599,7 +648,7 @@ Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 a
 Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun, the Daemon's bolt and the bubble the right hand, the fireball, the fire bolt and the splinters the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
 **Seen** 2026-11-04 in the game: the Mage's fireball leaving her raised left hand at 90 over the ground and flying at her chest's height to the goblin it struck.
 A shooter of no such bone keeps its bolts 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
-Not followed: the fireball's point light on the models, and the looks of a caster gone (`+0xA9` 1).
+Not followed: the looks of a caster gone (`+0xA9` 1); the fireball's point light on the models follows since #2106 ("The systems' Direct3D lights").
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
 ## The breath of fire
@@ -687,7 +736,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`holy_lights`, `opensacred_rules::particles::{HolyLight, HOLY_COLUMN, holy_pulse}`): the object that `spells` stands at the point gets its look for its seconds, its column of its vertices' colours alone (`fx::plain_material`) with its bands across the screen's horizontal, its symbol and glow on the ground and its sparks added whole, untinted by the night, and its light of 200 at it.
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: a soft white column rising out of the frame with sparks climbing it, over a cyan glow and the turning symbol, alike in breadth, both narrowing as they fade.
-Not followed: the sparks' colours' spread, and its Direct3D point light on the models.
+Not followed: the sparks' colours' spread; its Direct3D point light on the models follows since #2106.
 
 ## The blades of light
 
@@ -932,7 +981,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`chain_bolts`, `opensacred_rules::particles::{ChainBolt, ChainImpact}`): each strike's bolt that `spells` makes, its first from the Mage's left hand and each leap from the last target's, to the target's left hand (80 over its place where it has none, **estimate**), its segments' crossed quads in world space along the line, its glow, its segments' lights, and its impact at its end; all untinted by the night.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: a thin bright bolt from her hand to the goblin between a glow at her hand and a bright glow and sparks at the goblin, alike in place and size.
-Not followed: the bolt's end at a cell that may not be walked on, which in the original ends the spell with no strike (the goblins under a pine at the start took none), and the Direct3D lights on the models.
+Not followed: the bolt's end at a cell that may not be walked on, which in the original ends the spell with no strike (the goblins under a pine at the start took none); the Direct3D lights on the models follow since #2106.
 
 ## The lost souls
 
@@ -949,7 +998,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`lost_souls`, `opensacred_rules::particles::{LostSoul, soul_glow, soul_wobble, beat}`): each soul that `spells` makes leaves its dots along its way and its glow at its wobbling point, untinted by the night, its dots fading out after its object goes.
 **Seen** 2026-11-04 beside the original's frames at the Wood Elf's start by day: green balls of light trailing green dots, alike in colour and size, rising from her in a fan and curving about as their headings turn (#2058).
-Not followed: its green Direct3D light on the models.
+Not followed: its green Direct3D light on the models, which follows since #2106.
 
 ## The choir
 
@@ -1215,7 +1264,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 - Its run: while it flies, the block's offset wobbles as a soul's (`5 sin(6.58 t)`, `5 sin(6.87 t)`, `5 sin(7.49 t)`) and it emits along its way; past its seconds, or its object's word `+0x74` bit 2, it stops (`+0x20AC` 1, its flags 0) and ends with its last glow.
 - Its draw: while it flies, its light at its place, then its model at twice its size, turned about the vertical by `atan2(−y, x) + π/2` of its heading, at its place and the wobble, drawn by `0x406510` as the world's models; then its glows, billboards of the flags `0x19` (the ramp's colour added whole), the grid 1.
 
-`opensacred-game` draws it since #1092 (`flying_skulls`, `opensacred_rules::particles::{FlyingSkull, skull_turn}`): each skull of the death's kiss shows its model turned to its heading and its trail, untinted by the night; its Direct3D light is not followed.
+`opensacred-game` draws it since #1092 (`flying_skulls`, `opensacred_rules::particles::{FlyingSkull, skull_turn}`): each skull of the death's kiss shows its model turned to its heading and its trail, untinted by the night; its Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both a small red skull at the head of a trail of orange glows flying from the Vampiress at the goblin; the game's trail shorter and wider.
 
 ## The thorns' plants
@@ -1241,7 +1290,7 @@ The class makes no particle and no model: its plant is drawn of its own geometry
   - at each spur's point so drawn while its rise is above −1, squares along the vine's way from the point before, `0.75 n` on from it for `n` 1, 2, …, of the half side `1.5 + rise − 0.075 (n − 1)` while above 0.5, 14 risen.
 - So a twisting vine of soft dots stands 64 high, thick at its foot, as two waves climb it at 15 and 13.5 units a second, seven straight spurs out along its bends; it grows from its foot up over a second and sinks from its tip down.
 
-`opensacred-game` draws it since #1092 (`killer_plants`, `opensacred_rules::particles::{KillerPlant, Vine}`): each thorn of `spells` grows its plant at its standing height, its dots and its glow added, untinted by the night; its Direct3D light, which tints the creatures about it green, is not followed (#2106).
+`opensacred-game` draws it since #1092 (`killer_plants`, `opensacred_rules::particles::{KillerPlant, Vine}`): each thorn of `spells` grows its plant at its standing height, its dots and its glow added, untinted by the night; its Direct3D light, which tints the creatures about it green, follows since #2106.
 **Seen** 2026-11-05 beside the original: in both a green vine of white-hot dots with its spurs over a green glow on the ground.
 
 ## The tentacles
@@ -1308,7 +1357,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its rays, billboards of `PARTICLE_LINE01` of the flags `0x8D` (`0x761B00`: standing on their feet, turned, the ramp's colour, added by their alpha), the grid 1, the factor 0.125: each `0.125·size` to each side and `2·size` long from its foot at the ball's centre, at its angle in the screen's plane, so that thin rays up to about 74 long stand out about the ball, their feet hidden within the inner sphere, whose depth they test.
 - So a ball of flowing lava bobs about 45 over the point in a starburst of thin orange rays, growing in over two seconds and shrinking away over its last two; its strikes' beam is not its own (#2119).
 
-`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its Direct3D light and its shadow are not followed (#2106).
+`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its shadow is not followed, its Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both an orange lava ball in a starburst of thin rays over the point.
 
 ## The hell disk
@@ -1330,7 +1379,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its trail, billboards of the flags `0x0D` (`0x761B00`: the ramp's colour, added by their alpha), the grid 1, the factor 1.
 - So a small gyroscope of flowing lava whirls along its flight in a pulsing dull orange glow, trailing orange glows that light up a little behind it and fade within 1.3 s.
 
-`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its Direct3D light and its shadow are not followed (#2106).
+`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow is not followed, its Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
 
 ## The traps' landings
@@ -1362,7 +1411,7 @@ The spells' executor still makes 782 for the spell 6 and 792 for the spell 12 (`
 - Its run: past its seconds it ends at once; its puffs rise and age, and it makes new ones.
 - Its draw: its light; for a player's trap (the system's `+0xA9` 0) a circle of `FX_MAGICCIRCLE03` flat on the ground, of the half side 65, in (160, 160, 160), turned by 0.2 times its clock, added whole; a stain of `FX_GROUNDPOISON` flat over it, of the half side 70, laid by its alpha; its puffs, billboards of `PARTICLE_SMOKE03` of the flags `0x109` (the ramp's colour, added, the frame of the grid of 2 by their byte).
 
-`opensacred-game` draws them since #1092 (`trap_landings`, `opensacred_rules::particles::{PentagramKiller, ConfusionCircle, GroundPoison, helix_ribbons}`): each landing of `spells` takes its look, the glows, the sparks, the puffs, the helix and the smoke added and untinted by the night, the poison's stain in the world's camera; the pentagram's look outlives its object while it bursts or fades out; their flat parts lie level over the ground, not hidden by it where it rises, and the poison's Direct3D light is not followed (#2106).
+`opensacred-game` draws them since #1092 (`trap_landings`, `opensacred_rules::particles::{PentagramKiller, ConfusionCircle, GroundPoison, helix_ribbons}`): each landing of `spells` takes its look, the glows, the sparks, the puffs, the helix and the smoke added and untinted by the night, the poison's stain in the world's camera; the pentagram's look outlives its object while it bursts or fades out; their flat parts lie level over the ground, not hidden by it where it rises, and the poison's Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both the poison's green stain over its turning circle in green smoke, the confusion's turquoise rune circle with its small purple one, and the pentagram's bluish ring and star of sparks drawing themselves.
 
 ## The laser beams
@@ -1440,7 +1489,7 @@ Their FX events take the event's direction and the flag `0x40`, so each flies le
 
 `opensacred-game` draws them since #1092 (`bolt_trails`, `opensacred_rules::particles::{BoltTrail, TrailKind}`), in place of their stand-in balls: the whirlwind leaves its caster's `__Root` and flies level at its height, its dust left along its way in the colour of the ground where it leaves (`terrain::Heights::nature`, `GROUND_COLOURS`), at the alpha of its life, laid over and tinted by the light; the fire bolt leaves its caster's left hand, its smoke riding with it, added and untinted by the night.
 **Seen** 2026-11-05 beside the original: the Mage's whirlwinds' dark green dust about her and along their way, gone where a tree stops them; the fire bolt's teal and white glow at the caster's hand and at its target alike in size and colour (Sharifo's in the game, the Mage's taught the spell 52 in the original).
-Not followed: the dust's colour spread, the fire bolt's light (#2106) and its one puff at its end (**hypothesis**: drawn from a stale origin, far off).
+Not followed: the dust's colour spread and the fire bolt's one puff at its end (its Direct3D light follows since #2106) (**hypothesis**: drawn from a stale origin, far off).
 
 ## The ice splinters
 
@@ -1480,7 +1529,7 @@ Its FX event (`0x47`) takes the event's direction and the flag `0x40`, so the bu
 
 `opensacred-game` draws them since #1092 (`bubble_traps`, `opensacred_rules::particles::{BubbleTrap, SonarRing}`), in place of its stand-in ball: the bubble leaves its caster's right hand, its bush its clip's loop playing, along its flight; burst by an arrow (`bolts::Pops`), its glows where it was and its ring on the ground under it, both untinted by the night.
 **Seen** 2026-11-05 beside the original: the Wood Elf's bubble of the level 5, an orange ball of vines and green leaves alike in size flying from her hand; in the game her arrow burst it over a chasm, its green puff and the ring spreading on the chasm's floor (the original's arrow struck the goblin before it reached the bubble).
-Not followed: its bush's shadow, its glows' place at its bone's state (taken at its place), the lights (#2106).
+Not followed: its bush's shadow, its glows' place at its bone's state (taken at its place), the world's lights of 100 and 150 and the ring's 200 (`+0x9C`).
 
 ## The soulcatcher
 
@@ -1580,7 +1629,7 @@ By night the original's flame keeps its colour (the flags `0x0C` leave out the t
 The chimneys' smokes (`0x146`) and the geyser's jet (`0x46`), which the light at them tints, stay with the world under the night's pass.
 The smokes of the variants 1 to 3 (`FX_HS_SMOKE_*`, 771, 810, 811) and 8 and 9 (`FX_LV_SMOKE_*`, 882, 881) follow as one layer of `PARTICLE_SMOKE03`'s 2 × 2 frames, a frame at random each, turned and spinning, laid over by their alpha (the flags `0x146` and `0x10C` have neither `0x01` nor `0x10`, so the source is the alpha and the destination its inverse, whatever the table above says of the lavas'), the first three a grey of 224 at the alpha of the life, the lavas' ramp B starting opaque; seen 2026-10-27 in 24,86 as white plumes rising from the braziers, not yet set beside the original's.
 The geyser (7, `FX_GEYSIR`, 879) follows its clock (read 2026-10-27 at `0x76E3E8`): its jet of `PARTICLE_WATER01` at rest rises at 40 every 0.1 s and lives 0.73 s; its first burst comes 3 to 20 s after it starts (**estimate** for the roll), and for the last second of each rest of 30 to 100 s (`rand()`/32767·70 + 30) its jet bursts upward at 200, living longer (the life's rate −75) every 0.035 s at the detail 2, and the first geyser to burst while the latch that every geyser shares (`0x17EEBC8`) is open plays `211` or `212` at it at a rate's factor of 0.4 to 0.6, which closes the latch until a geyser's rest starts again; the burst's hit of 100 (the system flag `0x400`) is not followed.
-The wind of the smoke class's layers, the magic fire (13) and the other classes are not followed.
+The wind of the smoke class's layers is not followed; the magic fire (13) follows since #2075 (above), and the other classes as their sections tell.
 The undead's ring and dust follow since #1261 (`puffs`, `opensacred_rules::particles::{rise_ring, dust}`): an undead or a skeleton warrior that stands again makes the variant 3 of 781 at itself, following it, and a corpse of class 5 that vanishes the variant 4 where it lay, drawn as the fires' billboards and not tinted by the night; the dust leaves the corpse's bones rather than its skinned vertices, and without the wind (docs/decisions/drawing.md, "Undead's dust from the bones").
 The magic skeleton's drain draws its beam since #1263 (`beams`, the `laserbeam` of the catalogue, 901): from its killer's `Bip01 Spine2` to its own, of the variant 2 ("The laser beams"); **seen** beside the original's (the Daemon's and the Seraphim's level 1 killing magic skeletons of the level 3).
 Not followed: the chain's stop at a cell that fails `0x636A60`, and its light of 80.
@@ -1622,7 +1671,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-The spells and the arts but the bolts, the Daemon's breath and ring, the Seraphim's lightning, holy light, blades of light and light, the fire skin, the gust, the battle fog, the banishing circle's runes, the fire spiral, the purgatory, the hail of meteors, the ring of frost, the chain lightning, the lost souls, the choir and the fear ("The bolts" to "The fear" above) still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches give no light of their own (#61).
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, the cast's sights, the forms' and the guns' among them, show nothing; the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

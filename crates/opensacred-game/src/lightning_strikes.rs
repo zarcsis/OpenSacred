@@ -129,6 +129,8 @@ fn make(
                 DespawnOnExit(AppState::InGame),
             ))
             .id();
+        // Its Direct3D light at its place (`0x77CD70`, `0x77D000`).
+        commands.spawn(crate::fx_lights::child(crate::fx_lights::PALE_BLUE, strike));
         for (mesh, material) in parts.iter().zip([made[kind].clone(), made[2].clone()]) {
             if let Some(material) = material {
                 commands.spawn((
