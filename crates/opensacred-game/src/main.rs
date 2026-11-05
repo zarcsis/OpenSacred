@@ -34,6 +34,7 @@ mod bolts;
 mod bonus_list;
 mod breath;
 mod buildings;
+mod burning_bones;
 mod burns;
 mod busy_dialog;
 mod butterflies;
@@ -427,6 +428,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         bolts::BoltsPlugin,
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
+        burning_bones::BurningBonesPlugin,
         burns::BurnsPlugin,
         busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,

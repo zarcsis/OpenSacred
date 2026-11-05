@@ -1293,7 +1293,7 @@ By the object (its spell, "The spells' executor" above):
 | 814 `FX_HOLYWALL` | 17 | the event, once a second |
 | 817 `FX_MAGLITE` | 20 | the event, once a second, to the targets of the `Creature.pak` classes 5, 9 and 11 (`0x426A80`, `0x426B20`, `0x426BC0`) |
 | 820 `FX_HELLFIRE` | 23 | the event, once a second |
-| 821 `FX_FIRESKIN` | 24 | the event, once a second, and an object 788 (`FX_BURNING_BONE`) at each target |
+| 821 `FX_FIRESKIN` | 24 | the event, once a second, and an object 788 (`FX_BURNING_BONE`) at each target (drawn since #2061, docs/re/effects.md, "The arrows' elements") |
 | 823 `FX_METEOR` | 26 | the event at every run |
 | 826 `FX_TWISTER` | 28 | once a second, on its bearer's owner's machine, the event from the bearer, and to every target in its reach the event `0x112` for a level 4 or more below the spell's, or by a roll of one in `3·(M − L + 6) + 1`: disarmed (`0x4E9900`) |
 | 831 `FX_WINDSTRIKE` | 29 | the event to every target, and to one whose level (a boss's scaled) is below `0.4·L' + 5·L` and of no big type the event of kind 3, the knockback, of the spell's value 1 at its level (`0x4D26B0`), once a second |

@@ -4746,6 +4746,100 @@ impl ArrowSparks {
     }
 }
 
+/// The burning bone's texture, its grid and its light (`0x775420`, `0x77583D`).
+pub const BURNING_BONE_TEXTURE: &str = "PARTICLE_FIRE01";
+pub const BURNING_BONE_GRID: u8 = 4;
+pub const BURNING_BONE_LIGHT: f32 = 150.0;
+/// Its particles at most (`0x5A0C50`), and how long it makes flames past its start.
+const BURNING_BONE_COUNT: usize = 300;
+const BURNING_BONE_BURNS: f32 = 0.5;
+
+/// A burning bone, `cParticleSystem_burningBone` (`FX_BURNING_BONE`, 788, its start `0x775750`
+/// and its run `0x7754B0`), which keeps to its creature's bone (the FX event `0x14`, the bone 20,
+/// `Bip01 Head`): from `−0.1·delay` until 0.5 s on its clock a flame of `PARTICLE_FIRE01` every
+/// 0.02 s within 6 of the bone on each axis, of the velocity (5, 5, 15) ± 3, a buoyancy of
+/// −100 ± 20 that falls by 100 a second, so that it rises ever faster, of a size by the event's
+/// `+0x34` (10 for 0, a fifth of it up to 60, else 12) growing by 4 a second, living 0.36 s
+/// (−700), in a grey of `+0x34 + 35` (white for 0 and above 220), added whole, turned, its 4 × 4
+/// frames played once over its life; it lights the night by 150 and ends with its last flame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BurningBone {
+    pub system: System,
+    clock: f32,
+    size: f32,
+    pub grey: f32,
+    burning: bool,
+}
+
+impl BurningBone {
+    /// A burning bone of the event's `+0x34` `size` and `+0x3C` `delay`.
+    pub fn new(size: f32, delay: u32) -> Self {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a grey of 0 to 255 or more, truncated as `__ftol` does"
+        )]
+        let grey = (size + 35.0).max(0.0) as u32;
+        let grey = if grey > 255 || grey == 35 { 255 } else { grey };
+        let flame = if size == 0.0 {
+            10.0
+        } else if size <= 60.0 {
+            size * 0.2
+        } else {
+            12.0
+        };
+        let delay = f32::from(u16::try_from(delay).unwrap_or(u16::MAX));
+        Self {
+            system: System::new(BURNING_BONE_COUNT),
+            clock: delay * -0.1,
+            size: flame,
+            grey: f32::from(u8::try_from(grey).unwrap_or(u8::MAX)) / 255.0,
+            burning: true,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            buoyancy: -100.0,
+            life: -700.0,
+            size: 4.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block(&self) -> Block {
+        Block {
+            buoyancy: spread(-100.0, 20.0),
+            size: spread(self.size, 0.0),
+            velocity: spread([5.0, 5.0, 15.0], [3.0; 3]),
+            offset: spread([0.0; 3], [6.0; 3]),
+            interval: 0.02,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its bone gone from `from` to `to` in its frame (`0x7754B0`): its
+    /// flames age and, until its clock passes 0.5 s, new ones leave along the way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        self.clock += dt;
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.burning {
+            let block = self.block();
+            self.system
+                .emit_along(&[block], &layers, BURNING_BONE_COUNT, (from, to), dt, dice);
+        }
+        if self.clock > BURNING_BONE_BURNS {
+            self.burning = false;
+        }
+    }
+
+    /// Whether it ended: its flames done and gone.
+    pub fn done(&self) -> bool {
+        !self.burning && self.system.particles.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6075,5 +6169,23 @@ mod tests {
             sparks.colour(255.0),
             [1.0, 136.0 / 255.0, 68.0 / 255.0, 1.0]
         );
+    }
+
+    #[test]
+    fn a_burning_bone_burns_white_half_a_second_and_its_flames_rise() {
+        let mut dice = Rng::of(7, 8, 788);
+        let mut bone = BurningBone::new(0.0, 0);
+        assert_eq!(bone.grey, 1.0);
+        assert_eq!(BurningBone::new(20.0, 0).grey, 55.0 / 255.0);
+        let at = ([0.0, 0.0, 100.0], [0.0, 0.0, 100.0]);
+        for _ in 0..10 {
+            bone.update(0.05, at, &mut dice);
+        }
+        assert!(!bone.system.particles.is_empty());
+        assert!(bone.system.particles.iter().all(|p| p.velocity[2] > 0.0));
+        for _ in 0..12 {
+            bone.update(0.05, at, &mut dice);
+        }
+        assert!(bone.done());
     }
 }
