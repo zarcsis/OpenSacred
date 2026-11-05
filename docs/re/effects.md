@@ -596,9 +596,9 @@ Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540
 The four bolts look as their systems since #1092's first family (`bolt_looks`, `opensacred_rules::particles::{Firestrike, Emperor, bfg_greys, age_frame}`): each look an entity of its own that follows its bolt and outlives it as its system does (the fireball's flames burning out, the emperor's flare on its target's neck), told of its bolt's end (`bolt_looks::Ended`), untinted by the night, their sizes at the models' scale.
 Their flight follows the frame's map since #2018 (`bolts::flight_scale`), every bolt's: the railgun's, the BFG's, the fireball's, the Daemon's, the whirlwinds', the splinters', the bubble's and the fire bolt's.
 Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 and the fireball's 200, at their places on the ground at height 0 while their looks show, the fireball's while its flames burn out.
-Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun and the Daemon's bolt the right hand, the fireball, the fire bolt and the splinters the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
+Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun, the Daemon's bolt and the bubble the right hand, the fireball, the fire bolt and the splinters the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
 **Seen** 2026-11-04 in the game: the Mage's fireball leaving her raised left hand at 90 over the ground and flying at her chest's height to the goblin it struck.
-The bubble, of no system's look yet, and a shooter of no such bone, keep 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
+A shooter of no such bone keeps its bolts 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
 Not followed: the fireball's point light on the models, and the looks of a caster gone (`+0xA9` 1).
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
@@ -1460,6 +1460,27 @@ Its FX event (`0x3F`) takes the event's direction and the flag `0x40`, so each b
 `opensacred-game` draws them since #1092 (`ice_splinters`, `opensacred_rules::particles::IceSplinters`), in place of their stand-in balls: each splinter bolt leaves its caster's left hand, its icicles the model's point (its `+Z`) forward, another caster's in `ICICLE2`; its rings and its sparks untinted by the night.
 **Seen** 2026-11-05 beside the original: the Mage's splinters of the level 5, a cluster of white icicles and pale rings alike in size and colour flying to the goblin, and their sparks at their end.
 Not followed: which end of the icicle leads (**hypothesis**: its point, the model's thin end), and its turn's sense in the mirrored frame.
+
+## The bubble
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The Wood Elf's bubble, the spell 38 | 847 `FX_BUBBLETRAP` | `cParticleSystem_bubbletrap` (`0x898430`) | `0x797B30`, `0x798380`, `0x797D80`, `0x798030` |
+| Its burst | 906 | `cParticleSystem_bubbletrap_explo` (`0x898450`) | `0x798460`, `0x7985D0`, `0x7984F0`, `0x798530` |
+
+Its FX event (`0x47`) takes the event's direction and the flag `0x40`, so the bubble flies level at its caster's right hand (bone 2).
+- Its constructor (75 particles) loads the model `ElveStrauch.grn`, its motion 1 and its bone `Bone01`, its controlled animation (`0x4040D0`), and the textures `ElveStrauch.tga`, `ElveStrauch2.tga` and `particle_glow03`.
+- Its start: its heading along its direction; its size's share 0; its seconds its record's value at the level, then its animation's length (**hypothesis**: its clip `FX_C_IDLE_BH`, 7.35 s); its speed 100, its flags `0x50`, its light 100.
+- Its run: its share grows by 3 a second to 1; half a second before its seconds' end it shrinks by 2 a second and ends below 0, without a burst; a cell that stops it (its word `+0x74` bit 2) stops it, shrinking where it is; an arrow that passes through it (bit 8, docs/re/arts.md) bursts it: one layer of the life −150 a second, one block of the size 10 ± 3, the buoyancy 0 ± 10, the velocity ± 10, the place its `Bone01` ± 10, 75 glows at once, its ramp of each entry `i` green `(⌊i/2⌋, i, ⌊i/2⌋)`, its light 150, and the object 906 made; burst, its glows alone, and it ends with its last.
+- Its draw, not burst: its bush at twice its share, turned to its heading, at its place, in `ElveStrauch` for a hero's or `ElveStrauch2` for another's, its shadow on the ground under it (`0x406FF0`) and its model lit, its depth written; burst, its glows as billboards of the flags `0x19` (the ramp's colour, added whole), the grid 1.
+- 906's start: its corners' colour `0x0080FF80`, its radius 10, its flags `0x400` (it strikes, docs/re/arts.md), its light 200; its run: its radius grows by 250 a second, and it ends past 0.5 s; its draw: one flat ring of `FX_SONAREFFECT` on the ground under it (`0x763530`), from its radius to 30 more, of 50 segments, added whole, depth tested and not written, unlit, both faces, its colour `(⌊128 f⌋, ⌊255 f⌋, ⌊128 f⌋)` for `f = 2·(0.5 − t)`.
+- So a thorny bush of orange vines and green leaves, about 38 across, grows in a third of a second at the Elf's hand, flies whirling for 7.35 s and shrinks away; burst, a puff of 75 green glows drifts and fades for 1.7 s and a green ring spreads on the ground from 10 to 135 in half a second.
+
+`opensacred-game` draws them since #1092 (`bubble_traps`, `opensacred_rules::particles::{BubbleTrap, SonarRing}`), in place of its stand-in ball: the bubble leaves its caster's right hand, its bush its clip's loop playing, along its flight; burst by an arrow (`bolts::Pops`), its glows where it was and its ring on the ground under it, both untinted by the night.
+**Seen** 2026-11-05 beside the original: the Wood Elf's bubble of the level 5, an orange ball of vines and green leaves alike in size flying from her hand; in the game her arrow burst it over a chasm, its green puff and the ring spreading on the chasm's floor (the original's arrow struck the goblin before it reached the bubble).
+Not followed: its bush's shadow, its glows' place at its bone's state (taken at its place), the lights (#2106).
 
 ## The arrows' elements
 
