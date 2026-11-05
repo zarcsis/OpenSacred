@@ -370,6 +370,51 @@ pub fn sticks(size: f32, hero: bool) -> bool {
     !hero && size > STICKS_ABOVE
 }
 
+/// The element that an arrow shows of its shooter's weapon (`+0x248`, `0x5BD2D0`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Element {
+    Fire,
+    Poison,
+    Magic,
+}
+
+/// The share of its element above which an arrow shows it (`cItemBase`'s `+0x1DC`, `0x5BE130`).
+pub const ELEMENT_SHOWS_ABOVE: f32 = 0.1;
+
+/// The element that an arrow of a weapon of each kind's most damage `most` (physical, fire, magic,
+/// poison; its record's `+0x24` to `+0x2A`, whole) shows, and its share (`0x5BD2D0`): the largest
+/// of the three larger than both others, its most over twice the physical, held to 0 … 1; none
+/// where it does not pass [`ELEMENT_SHOWS_ABOVE`], or where no kind is larger than both others.
+pub fn element(most: [f32; 4]) -> Option<(Element, f32)> {
+    let [physical, fire, magic, poison] = most.map(f32::trunc);
+    let (kind, value) = if fire > poison && fire > magic {
+        (Element::Fire, fire)
+    } else if poison > fire && poison > magic {
+        (Element::Poison, poison)
+    } else if magic > poison && magic > fire {
+        (Element::Magic, magic)
+    } else {
+        return None;
+    };
+    let share = (value / (physical * 2.0)).clamp(0.0, 1.0);
+    (share > ELEMENT_SHOWS_ABOVE).then_some((kind, share))
+}
+
+/// The line of glows that an item of an element draws along its two bones `weapon_fx01` and
+/// `weapon_fx02` (`0x5BEE90`, through `0x40DA80`): the glows a unit of the line, the half side of
+/// each at the share `share`, and its colour, added by its alpha.
+pub fn element_line(element: Element, share: f32) -> (f32, f32, [f32; 4]) {
+    let colour = |argb: u32| {
+        let [a, r, g, b] = argb.to_be_bytes().map(|c| f32::from(c) / 255.0);
+        [r, g, b, a]
+    };
+    match element {
+        Element::Fire => (0.5, share * 4.0 + 2.0, colour(0x40FF_8844)),
+        Element::Poison => (0.5, share * 4.0 + 2.0, colour(0x4044_FF44)),
+        Element::Magic => (0.7, share * 10.0, colour(0x5070_33FF)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,5 +614,21 @@ mod tests {
         // Of level 20 at the level 3: below 23.
         assert!(club_knocks(22, 20, 3));
         assert!(!club_knocks(23, 20, 3));
+    }
+
+    #[test]
+    fn an_arrow_shows_the_largest_element_of_its_weapon_above_a_fifth_of_its_physical() {
+        assert_eq!(element([20.0, 10.0, 2.0, 0.0]), Some((Element::Fire, 0.25)));
+        assert_eq!(
+            element([20.0, 0.0, 2.0, 30.0]),
+            Some((Element::Poison, 0.75))
+        );
+        assert_eq!(element([5.0, 0.0, 40.0, 0.0]), Some((Element::Magic, 1.0)));
+        // A fifth of the physical or less, a tie, or none at all.
+        assert_eq!(element([20.0, 4.0, 0.0, 0.0]), None);
+        assert_eq!(element([20.0, 10.0, 10.0, 0.0]), None);
+        assert_eq!(element([20.0, 0.0, 0.0, 0.0]), None);
+        assert_eq!(element_line(Element::Fire, 0.5).0, 0.5);
+        assert_eq!(element_line(Element::Magic, 0.5).1, 5.0);
     }
 }

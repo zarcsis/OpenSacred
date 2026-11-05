@@ -147,6 +147,7 @@ fn loose(
     ),
     places: Query<&GlobalTransform>,
     ways: Query<&InTheWay>,
+    (holdings, arms): (Query<&fight::Holding>, Query<&crate::npcs::Arms>),
 ) {
     let Some(npcs) = npcs else {
         shots.clear();
@@ -168,6 +169,16 @@ fn loose(
         let Some((model, texture, size)) = npcs.arrow(arrows::projectile(art)) else {
             continue;
         };
+        // The element of the shooter's weapon, its most damaging item's (`0x5BD2D0`).
+        let held = holdings
+            .get(shot.shooter)
+            .map(|holding| holding.items.clone())
+            .or_else(|_| arms.get(shot.shooter).map(crate::npcs::Arms::held_values))
+            .unwrap_or_default();
+        let element = held
+            .iter()
+            .max_by(|a, b| a.damage[0][1].total_cmp(&b.damage[0][1]))
+            .and_then(|weapon| arrows::element(weapon.damage.map(|[_, most]| most)));
         // A hero with the multi-shot looses as many arrows as its whole value, fanned, each of
         // `Multipfeil` to the power of their number (`0x4DD90E`, `0x56D173`).
         let count = arrows::volley(effects.get(shot.shooter).ok().and_then(|effects| {
@@ -221,6 +232,9 @@ fn loose(
             ));
             if let Some(texture) = texture {
                 arrow.insert(Retexture::load(&assets, texture));
+            }
+            if let Some((element, share)) = element {
+                arrow.insert(crate::arrow_elements::Elemental { element, share });
             }
         }
     }
