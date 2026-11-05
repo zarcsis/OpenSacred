@@ -53,6 +53,22 @@ pub const DEATH: u8 = 7;
 /// record's `+0x2C` below 26, **hypothesis**: its health in per cent).
 const CRITICAL: u32 = 26;
 
+/// The Vampiress's profiles by day, one of the two at random, and her night form's, which the
+/// voice function takes for her case while the manager's `+0xAF48` holds her form's flag
+/// (`0x6852B0`'s case 5, `0x689AD4`; the event `(9, 0x49)`, #2009).
+const VAMPIRESS_DAY: [u16; 2] = [1010, 1011];
+const REALVAMP: u16 = 1012;
+
+/// The profile of a line of the voice of `profiles`: the Vampiress's `realvamp` in her night
+/// form (`night`), else the profile of the roll `roll` of their count.
+fn profile_of(profiles: &[u16], night: bool, roll: usize) -> Option<u16> {
+    if night && profiles == VAMPIRESS_DAY {
+        Some(REALVAMP)
+    } else {
+        profiles.get(roll).copied()
+    }
+}
+
 /// The animals' types, which the comments on a kill, a boss and a foe's strength leave out
 /// (`0x687656`).
 const ANIMALS: std::ops::RangeInclusive<u32> = 512..=596;
@@ -565,15 +581,21 @@ impl Voices {
     }
 
     /// The line of `creature`'s voice for `group`, if its roll gives one: the profile (one of
-    /// the heroes' two at random), a variant of its group (`Sfx::pick`), the sound id and its
-    /// file, and the voice's wait.
-    fn line(&mut self, sfx: &mut Sfx, creature: u32, group: u8) -> Option<(u32, String, f32)> {
+    /// the heroes' two at random, the Vampiress's `realvamp` in her night form, `night`), a
+    /// variant of its group (`Sfx::pick`), the sound id and its file, and the voice's wait.
+    fn line(
+        &mut self,
+        sfx: &mut Sfx,
+        (creature, night): (u32, bool),
+        group: u8,
+    ) -> Option<(u32, String, f32)> {
         let voice = self.voices.get(&creature)?;
         if !rolls(voice.roll(group), &mut self.dice) {
             return None;
         }
         let count = u32::try_from(voice.profiles.len()).ok()?;
-        let profile = voice.profiles[usize::try_from(self.dice.below(count)).ok()?];
+        let roll = usize::try_from(self.dice.below(count)).ok()?;
+        let profile = profile_of(&voice.profiles, night, roll)?;
         let wait = voice.wait;
         let (id, file) = sfx.pick(u32::from(profile), group)?;
         Some((id, file, wait))
@@ -884,7 +906,8 @@ fn speak(
             (false, Some(mind)) => mind.thinks.creature,
             (false, None) => continue,
         };
-        let Some((id, file, wait)) = voices.line(&mut sfx, creature, line.group) else {
+        let night = forms.as_ref().is_some_and(|forms| forms.by_night());
+        let Some((id, file, wait)) = voices.line(&mut sfx, (creature, night), line.group) else {
             continue;
         };
         let waiting = voices.waits.get(&id).is_some_and(|&until| until > now);
@@ -1750,6 +1773,15 @@ mod tests {
         // No noise of its list, none at all.
         assert_eq!(count(512, false), 0);
         assert_eq!(count(76, true), 0);
+    }
+
+    #[test]
+    fn the_vampiress_speaks_by_realvamp_in_her_night_form() {
+        assert_eq!(profile_of(&VAMPIRESS_DAY, false, 1), Some(1011));
+        assert_eq!(profile_of(&VAMPIRESS_DAY, true, 0), Some(REALVAMP));
+        assert_eq!(profile_of(&VAMPIRESS_DAY, true, 1), Some(REALVAMP));
+        // Another voice keeps its own profiles by night.
+        assert_eq!(profile_of(&[1000, 1001], true, 1), Some(1001));
     }
 
     #[test]

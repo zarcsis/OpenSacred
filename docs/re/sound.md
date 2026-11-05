@@ -81,7 +81,10 @@ It plays the heroes' lines by name (`voices`, #713): its comments in the fight o
 The lines by name are one at a time (`+0xB7E0`), the dialogues' voice-overs among them (`PlaySound`, docs/re/netscript.md, "Dialogues"): each stops the one that plays, and `0x693FB0` stops it, at the hero's critical-hit cry and as a dialogue's window closes; the hero's breath gives way to one, and `FOE_ON_THE_RUN`/`ENEMYFLEES` wait for silence.
 `opensacred-game` keeps them so (`voices::NamedLine`, #1234, #1238).
 It plays `MUSIC_DEATH` at the hero's fall (`music`, #734; below, "A music played once").
-Not yet: the Vampiress's `realvamp` profile (1012) of her night form's voices (#2009).
+The Vampiress's case of the voice function (5, at `0x689AD4`) takes one of her profiles 1010 and 1011 at even odds by day, and 1012 `realvamp` while the manager's `+0xAF48` holds her night form's flag, which the event (9, `0x49`) sets as her form changes (read 2026-11-04 for #2009, **confirmed** by code).
+`realvamp` holds the groups 1 to 3 alone (`ATTACK`, `NORMALHIT`, `CRITICALHIT`), so that in her night form her attack's and her hits' cries are its own and she has no other voice of the profile.
+The flag is the manager's, not the speaker's: a creature of her case speaks so while the local hero wears the night form (**hypothesis**: only the heroes take that case).
+`opensacred-game` follows it since #2009 (`voices::profile_of`, the night form by `forms`).
 
 ### A sound's place
 
@@ -373,7 +376,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 - **Generic** (`SOUND00`–`07`): **hypothesis** the names of the groups of the slots 10, 100 and 101; 100 `death` (`CHAR_SPLASH`, `THUNDER02`–`05`) is picked by no call, 101 `rain` by the rain's loop (`0x41A4F0`, played), 10 `atmospot_waterfall` by `0x425EC0` for the event 13 (a music's id, silent, docs/re/sound.md).
 - **Footsteps** (102–114): the hero's (102, 103) are played; 104–114 are the other creatures' (below).
 - **Music** (1, 2): `PEACE` and the fights' jingles are played (#1948); `jingle_extension` (2) is the fights' jingles' second profile, rolled against the first at even odds (`0x68BEA0`, "The fights' music and jingles").
-- **Creatures and heroes** (1000–2146): played by `voices` (lines and idle noises); the Vampiress's 1012 `realvamp` is not (#2009).
+- **Creatures and heroes** (1000–2146): played by `voices` (lines and idle noises), the Vampiress's 1012 `realvamp` in her night form since #2009.
 
 ### The sources
 
