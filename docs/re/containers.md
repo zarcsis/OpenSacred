@@ -121,6 +121,22 @@ A barred container's click leaves its trigger shut and sounds `(9, 0x17)`, but i
 The test `0x81` (`IsLocked`) reads the bit `0x8000`; no record of the Seraphim's tree tests it.
 Triggers of the flags `0x44` (`+4`) want a key item (`+0x0C`) or sound 331 or 332 (`0x415F00`); the containers' triggers have the flags 0.
 
+### The triggers' keys
+
+Read 2026-11-04 for #2004 in Ghidra (**confirmed** by code unless marked otherwise).
+
+- A trigger (16 bytes in the world's table, docs/02 §5.5) keeps its flags at `+4`, the object it serves at `+6`, its state at `+0x0A` and a key at `+0x0C`, the type of a key item.
+  `Triggers.PAK` holds the key 0 in every record; the triggers that `CreateTrigger` makes (`0x6387B0`, `0x415E70`) take the flags of their kind with `0x80`, and the key 0.
+- Nothing else writes the key: no keyword of the scripts names one, neither `CreateTrigger` (`0x496520`: `0x26`, `0x27`, `0x2C`, `0x2D` the state, `0x28` the kind), `SetObjState` (`0x48AE90`), `SetTriggerState` (`0x4968A0`) nor `CreateObj` (`0x485C10`) reads one into a trigger, and no store to `+0x0C` follows any of the 70 calls that fetch a trigger (`0x634150`; a byte scan of `Sacred.exe` for the stores through any register but `ESP` and `EBP` within 48 bytes of each call).
+  The only other write is `setState`'s, which clears the key once its holder passes.
+  So no trigger of the game is locked by a key, and the rattle of `0x415F00` never sounds.
+- The keys themselves, the items of the category 14 (`0x428170`), go into a list of 256 types per player (the inventory's `+0xD5C`, of 32 players of `0x1180` bytes; `0x5DB030` adds one), and their objects are destroyed: as `CreateObj` gives one to the hero (`0x4886F2`) and as a key is picked up (`0x558D76`).
+  `cInventory::hasKey` (`0x5DF1D0`), which searches that list, has `setState` alone for its caller.
+- The flags `0x44` latch a trigger: with no key, the first `setState` of its bit 0 on a state of 0 sets its bits with `0x4000` (`Trigger[%d] locked` in the log), after which `setState` and `resetState` (`0x416280`) leave it as it is (`trigger is locked`), but for a reset that names `0x4000` itself, which the doors send in a network game alone (`0x44BCD0`).
+  `SetObjState` gives the flag 4, and takes the flag 8 away, to the trigger of every object of the types 5676 to 5679 that it names (`Door_Pali01.GRN` and `Door_Pali02.GRN`, the palisades' gates; `0x48B079`), and nothing else sets the flags 4 or `0x40` (the callers of `0x415EB0`: that one and the doors' `0x2000`, `0x44BCD0`).
+  The Seraphim's tree so names 21 palisade gates and touches 14 of them (`_07` and `_0F`, the quests 5003 and 6001 and `bt_torauf`): such a gate, once opened, stays open, its closing refused (**hypothesis** for what the player sees, not tried in the running original).
+  `opensacred-game` does not follow the latch (#2076).
+
 ## The town stash (5200)
 
 A town stash always opens, its emptied bit kept only while its window shows: the AI passes over the bit for it, and its open sets the bit and shows `UI_WND_CHEST` with the inventory.
