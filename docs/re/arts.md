@@ -44,7 +44,7 @@ The 70 records carry the ids 1 to 72 but 54 and 68, mostly in order: 13 and 14, 
 
 The value 0 is the art's duration in seconds for most: `0x539E70` gives the target the effect `0x22`, keyed by the art, for the value 0 under its cap 0 (for an art of the second table that casts it, 0.8 times its regeneration time instead).
 For others, by its label in `0x5893B0`, it is a range (`GUI_SPELL_PHASEN`, the art 1: 80 + 10·L, at most 200), a summoned creature's level (`GUI_SPELL_SUMMONBEAR`, 3), the health healed (`GUI_SPELL_HEILKRAFT`, 7: 10 + 50·L) or a quantity; the values 1 and 2 are a radius, a speed or a range (the arts 8, 12, 20 and 29).
-An art's FX objects (`0x4D2E10`) are as many as its value 0 at its level under its cap 2, at most 20: objects of type 848 that `sdk_CREATE` makes about the target, each within 100 of it at random, every fifth posting an engine's event of type `0x80D` (`0x6770E0`; not read).
+An art's FX objects (`0x4D2E10`) are as many as its value 0 at its level under its cap 2, at most 20: objects of type 848 that `sdk_CREATE` makes about the target, each within 100 of it at random, every fifth playing `DRYADE_DORNEN` (2061, `0x80D`) at its place (`0x6770E0`, #2104).
 So `GUI_SPELL_STEINHAUT`, the art 2, regenerates in 40 + 24·L seconds, lasts 44 + L seconds, at most 120, and gives 15 + 5·L percent of defence, 25 + 40·L of the physical resistance and 10 + 15·L of the poison's, of the element earth, for the Mage.
 
 ## The second table: the weapon arts
@@ -1301,7 +1301,7 @@ By the object (its spell, "The spells' executor" above):
 | 839 `FX_ICEBULLETS` | 34 | the event, once a second, from a caster of the local player |
 | 840 `FX_CIRCLEOFICE` | 35 | the event, once a second |
 | 847 `FX_BUBBLETRAP` | 38 | the event every 0.5 s, passing through |
-| 848 `FX_KILLERPLANTS` | 39 | the event, once |
+| 848 `FX_KILLERPLANTS` | 39 | the event, once a second (`0x5ADBCF`), through its rise and its sink |
 | 850 `FX_LOSTSOULS` | 41 | an event of `0x51CB00` to its target, then a new target within a squared 100,000, about 316 (`0x600570`): the souls fly on |
 | 855 `FX_ARACATTACK` | | the event to its owner's target, once |
 | 867 `FX_BALL` | 53, the Dark Elf's traps | to each hostile target (`0x548FB0`) an event of `0x51CB00` from the caster and an object 786 (`FX_GOBLINIMPACT`) at it, sent to the network (`0x5B7590`) |
@@ -1529,6 +1529,8 @@ Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
 - **`SPEED` (37)**, launch type 2, `v₀` 19 + L at most 60 (`0x526625`): the effect `0x22` and two objects 846, each running the action 6: the effect 1 of `(10 + 7·L)/100` and the effect 28 of `1 + (13 + 2·L)/100` for `v₀` seconds; the second 28 is refused, the second 1 stacks (**hypothesis**: the attack's bonus doubled in play).
 - **`CAMOUFLAGE` (38), the bubble**, launch type 0, 18 + 27·L poison (`0x525F3F`): one object 847 flying straight at 100 a second toward the target's place for its model's clip's length, striking every hostile creature it touches every 0.5 s and passing through; at a cell that stops it, it bursts into an object 906 that strikes once within 300 and their size at the factor 2.0.
 - **`THORNS` (39)**, launch type 3, 2 + L magic and 4 + 3·L poison (`0x5260CB`): `⌊min(10, ⌊v₀/v₂⌋)·f⌋` plants 848 (2 at level 1), each within 75 of the target's place, else the point, along each axis, where it may stand, living 19 + L seconds, at most 50, and striking the creatures within 50 and their size once a second.
+  Each rises for a second before those seconds and sinks for one after, striking the while (`0x798E50`), and a creature's stands 3 s whatever its level (`0x799640`: its owner, not a player, an id above 16, #2104).
+  Every fifth of a cast, from the first, plays `DRYADE_DORNEN` (2061) at its place at a rate's factor of 0.5 (`0x52632A`), besides the act's sound at the caster (docs/re/sound.md).
 - **`PLANTCAGE` (40)**, launch type 1, `v₀` 14 + L at most 30 (`0x52634B`): no big type; `⌊min(20, ⌊v₀·f⌋)/5⌋` cages 849 at the target (3 to level 5), each, some 0.67 s on, giving the effect 15 for `⌊v₀⌋` seconds keyed by 40, which holds it, with no test of a boss or of the levels.
 - **`LOSTSOULS` (41)**, launch type 5, 9 + 5·L physical and 5 + 2·L magic, `v₁` 24 + L at most 60 (`0x5268E5`): the caster's effect `0x22` for `v₁` seconds and `⌊min(8, ⌊v₀/v₂⌋)·f⌋` souls 850 at 50 about her (the soul `i` at the angle `2π i / n + π − 0.5` along the world's `sin` and `cos`, only where a creature may stand), flying at 150 a second toward the nearest creature she may fight within about 316 (else back to her), turning at 3 radians a second, for `v₁` seconds; each strikes the first it touches once a second and turns to another.
 - **`PLANTHEAL` (42)**, launch type 2, `v₀` 10 + 50·L (`0x5267D8`): the healing's action 3 (`HEILKRAFT` above) on its target.
@@ -1538,7 +1540,7 @@ Each acts at its share of its clip ("The spells' cast"): 3 and 42 at 0.9, 36 at 
 `opensacred-game` makes 37 to 42 (#888, `opensacred_rules::spells`, `spells`, `bolts`):
 - the speed's effects from each of its two objects, the second's effect 28 refused;
 - the bubble as a bolt flying at 100 a second for 4 s (**estimate**: its clip's length is not read), striking what it touches within 25 every 0.5 s and flying on, and bursting at a cell it may not pass, striking within 300 and their size at twice its damage;
-- the thorns, each where it may stand within 75 of the centre along each axis, striking within 50 and their size once a second for `v₁` seconds;
+- the thorns, each where it may stand within 75 of the centre along each axis, striking within 50 and their size once a second for `v₁` seconds (a creature's 3 s) and their rise and sink of a second each, every fifth sounding at its place (#2104);
 - the plant cage's effect 15 and hold for `v₀` seconds on a target of no big type, as the stone's, at once rather than 0.67 s on;
 - the lost souls, flying at 150 a second along headings that turn toward their targets, each striking the first it touches within 20 and its size once a second for `v₁` seconds, her effect `0x22` for as long;
 - the plants' healing, as the healing's.
@@ -1574,7 +1576,8 @@ None gives the effect `0x22`.
 - **62 (`gui_spells_rufdestodes`), the call of death**, launch type 5, `v₀` 24 + L at most 60, `v₁` 840 + 60·L, `v₂` 56 + 4·L (`0x527CFC`, no object): the effect 46 of the whole value `v₂` and the value 1.0 for `v₀` seconds, keyed by 62, its word `v₁`; each of his kills raises the value by `(w − 1000·(value − 1))/3000` toward `1 + w/1000` (`0x5339F3`), it falls by `v₂/1000` a second to no less than 1 (`0x56373E`), and his strikes' damage is times it (`0x56D1EC`).
 - **63 (`gui_spells_hoellenkraft`), the force of hell**, launch type 2, `v₀` 29 + L at most 90, `v₁` 25 + 5·L (`0x5283B4`): two objects 1173 on the target, each giving for `v₀` seconds keyed by 63 the effect 4 of `(25 + 5·L)/100`, 59 of the whole value 4 + L, and by its action 6 the effect 1 of `(20 + 20·L)/100` (**hypothesis**: twice in play).
 - **64 (`gui_spells_hoellenfeuer`), the hellfire**, launch type 3, 8 + 5·L fire and magic, `v₀` 24 + L at most 45 (`0x528566`, its object 1015 at the point): once a second it strikes one creature at random among the local hero's hostiles within 800 of the hero and 1,300 of it along each axis, weighed 1, 3 more for one with a ranged weapon and 6 more by `0x5B7BC0` (not read), else among those within 300 of it, where a line from it reaches the target (`0x604030`).
-- **65 (`gui_spells_tentakel`), the tentacles**, launch type 5, 2 + L magic and 4 + 3·L poison, `v₀` 44 + L at most 90 (`0x52829F`): an object 1013 following him and the effect 41 for `v₀` seconds; each of his kills under it raises a tentacle 1013 at the corpse (`0x533818`), which strikes every hostile creature within 120 and their size once a second for 10 s.
+- **65 (`gui_spells_tentakel`), the tentacles**, launch type 5, 2 + L magic and 4 + 3·L poison, `v₀` 44 + L at most 90 (`0x52829F`): an object 1013 following him and the effect 41 for `v₀` seconds; each of his kills under it raises a tentacle 1013 at the corpse (`0x533818`), which strikes every hostile creature within 120 and their size once a second for 10 s and its sink of a second after (`0x7B1480`).
+  The corpse bursts first (`0x53382F`: `0x4E8DA0(1, 2)`, docs/re/fight.md, "The burst"), whatever its class.
 - **66 (`gui_spells_chor`), the choir**, launch type 0, 3 + 3·L physical and magic, `v₀` 19 + L at most 30 (`0x527DA9`): for the local hero, the first 20 hostile creatures within about 179, of an id above 16, of no big type and without its effect, each take the effect 35 keyed by 66 and an object 1011 following it, which gives it the effect 15 of `clamp(2M/(15·L), 0.5, 1)` (a boss's level times 1.3) for `v₀` seconds by its action 9 and strikes it once a second.
 - **67 (`gui_spells_hoellenfurcht`), the fear**, launch type 0, `v₀` 25 (`0x528024`): five objects 1012 at 160 about him, each for 25 s striking once a second the hostile creatures within 150 and their size without its effect with the effects 1 and 2 of `−(1 − 100/(110 + 10·L))` for 1 s, keyed by 67.
 
@@ -1583,7 +1586,7 @@ None gives the effect `0x22`.
 - the call of death's effect 46 rises by a third of the way to `1 + v₁/1000` at each of his kills, falls by `v₂/1000` a second to 1, and multiplies his strikes' damage while above 1;
 - the force of hell's effects 4, 59 and 1, from each of its two objects;
 - the hellfire strikes once a second one creature at random among those within 800 of him and 1,300 of it along each axis, weighed 4 for one with a ranged weapon and 1 else, or within 300 of it; the line's test and the weight of `0x5B7BC0` are left out;
-- the tentacles' effect 41, under which each of his kills raises a tentacle at its corpse, striking within 120 once a second for 10 s;
+- the tentacles' effect 41, under which each of his kills bursts as the undead do and raises a tentacle at its place, striking within 120 once a second for 10 s and its sink of a second (#2104);
 - the choir's effect 35 on the first 20 hostile creatures within about 179, of no big type, and a choir following each, striking it once a second; its effect 15, whose value's use is not read, is left out;
 - the fear's five objects at 160 about him, each giving once a second the creatures within 150 and their size that hold none of its effects its effects 1 and 2 for 1 s.
 

@@ -1158,21 +1158,30 @@ pub(crate) const THORNS_SCATTER: (f32, u32) = (-75.0, 2 * spells::THORNS_SCATTER
 /// Makes the thorns about `centre`, the Wood Elf's or a creature's (#1854): the record's count
 /// at the spell's level, each within its scatter (`from` and `span` whole offsets from it along
 /// each axis) where it may stand on the level `on`, else at the centre, striking about itself
-/// for the record's value 1 in seconds what is hostile to its caster.
+/// what is hostile to its caster through its rise, its seconds (the record's value 1 for a
+/// hero's, 3 for a creature's) and its sink, every fifth sounding at its place (#2104).
 pub(crate) fn thorns(
     commands: &mut Commands,
     (dice, heights, looks): (&mut Dice, &crate::terrain::Heights, Option<&Looks>),
+    points: &mut MessageWriter<crate::sfx::PlayAt>,
     (record, level): (&opensacred_data::tables::Spell, u32),
-    (caster, on): (Entity, Level),
+    (caster, on, hero): (Entity, Level, bool),
     (centre, (from, span)): (Vec3, (f32, u32)),
     damages: [f32; 4],
 ) {
-    let seconds = fight_seconds(spells::value(record, 1, level));
-    for _ in 0..spells::count(record, level) {
+    let seconds = spells::thorn_seconds(record, level, hero);
+    for thorn in 0..spells::count(record, level) {
         let mut off = || from + f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0));
         let mut place = centre + Vec3::new(off(), 0.0, off());
         if !heights.walkable_on(crate::paths::cell_of(place.x, place.z), on) {
             place = centre;
+        }
+        if thorn % spells::THORNS_SOUNDED == 0 {
+            points.write(crate::sfx::PlayAt {
+                sound: crate::sfx::Of::Id(spells::THORNS_SOUND),
+                point: place,
+                rate: (0.5, crate::sfx::Roll::None),
+            });
         }
         let mut made = commands.spawn((
             Aura {
@@ -1419,9 +1428,10 @@ fn act(
     casters: Query<(&Transform, &Body, Option<&Combat>)>,
     places: Query<&GlobalTransform>,
     mut targets: Query<(&mut Health, Option<&ai::Mind>, Option<&fight::Ranked>)>,
-    (mut launches, mut sounds): (
+    (mut launches, mut sounds, mut points): (
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::sfx::PlayAt>,
     ),
     (mut hits, mut dice, heights): (
         MessageWriter<fight::Hit>,
@@ -1591,8 +1601,9 @@ fn act(
                 thorns(
                     &mut commands,
                     (&mut dice, &heights, looks.as_deref()),
+                    &mut points,
                     (record, act.level),
-                    (act.caster, body.level()),
+                    (act.caster, body.level(), true),
                     (centre, THORNS_SCATTER),
                     bolt_damages(record, level, multipliers),
                 );
@@ -2583,9 +2594,10 @@ fn mine(
 }
 
 /// Each creature that the hero kills (its fall not a creature's) while the hero holds the
-/// tentacles' effect raises a tentacle at its corpse, which strikes about itself once a second for
-/// the record's value 1, 10 s (`0x533818`); while it holds the call of death's, it raises its
-/// value and the object 1010 sounds at the corpse (`0x5339F3`).
+/// tentacles' effect bursts and raises a tentacle at its place, which strikes about itself once a
+/// second for the record's value 1, 10 s, and its sink (`0x533818`, `0x53382F`, #2104); while it
+/// holds the call of death's, it raises its value and the object 1010 sounds at the corpse
+/// (`0x5339F3`).
 fn killed(
     died: On<Insert<Dies>>,
     mut commands: Commands,
@@ -2641,7 +2653,7 @@ fn killed(
             gives: Vec::new(),
             key: spells::TENTACLES,
             level: way.and_then(|way| way.level),
-            left: fight_seconds(spells::value(record, 1, level)),
+            left: spells::tentacle_seconds(record, level),
             cooldown: 0.0,
             strikes: Strikes::About,
         },
@@ -2661,6 +2673,9 @@ fn killed(
             ))
             .with_translation(Vec3::Y * 4.0),
         ));
+    }
+    if !dies.rises {
+        commands.entity(died.entity).insert(crate::undead::Bursts);
     }
     debug!(
         "spells: a tentacle rises at {} for {damages:?}",

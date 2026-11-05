@@ -21,7 +21,14 @@ use crate::{bolt_looks, iso};
 
 /// The creatures' gib sets by their type (`items.pak +0x6F`), read at the start.
 #[derive(Resource, Default)]
-struct Gibs(HashMap<u32, u8>);
+pub(crate) struct Gibs(HashMap<u32, u8>);
+
+impl Gibs {
+    /// The gib set of a creature of the type `creature`, 0 (red) where the table has none.
+    pub(crate) fn of(&self, creature: u32) -> u8 {
+        self.0.get(&creature).copied().unwrap_or(0)
+    }
+}
 
 /// The fountains' dice: the deaths' rolls, the parts, the sounds and the drops.
 #[derive(Resource)]
@@ -96,10 +103,7 @@ fn spurt(
         return;
     }
     for (entity, mind, at) in &dying {
-        let set = gibs
-            .as_ref()
-            .and_then(|gibs| gibs.0.get(&mind.creature).copied())
-            .unwrap_or(0);
+        let set = gibs.as_ref().map_or(0, |gibs| gibs.of(mind.creature));
         if !particles::bleeds(mind.creature, mind.class, set)
             || !particles::spurts_at_death(&mut dice.0)
         {
