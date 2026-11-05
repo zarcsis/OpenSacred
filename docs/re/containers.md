@@ -134,8 +134,10 @@ Read 2026-11-04 for #2004 in Ghidra (**confirmed** by code unless marked otherwi
   `cInventory::hasKey` (`0x5DF1D0`), which searches that list, has `setState` alone for its caller.
 - The flags `0x44` latch a trigger: with no key, the first `setState` of its bit 0 on a state of 0 sets its bits with `0x4000` (`Trigger[%d] locked` in the log), after which `setState` and `resetState` (`0x416280`) leave it as it is (`trigger is locked`), but for a reset that names `0x4000` itself, which the doors send in a network game alone (`0x44BCD0`).
   `SetObjState` gives the flag 4, and takes the flag 8 away, to the trigger of every object of the types 5676 to 5679 that it names (`Door_Pali01.GRN` and `Door_Pali02.GRN`, the palisades' gates; `0x48B079`), and nothing else sets the flags 4 or `0x40` (the callers of `0x415EB0`: that one and the doors' `0x2000`, `0x44BCD0`).
-  The Seraphim's tree so names 21 palisade gates and touches 14 of them (`_07` and `_0F`, the quests 5003 and 6001 and `bt_torauf`): such a gate, once opened, stays open, its closing refused (**hypothesis** for what the player sees, not tried in the running original).
-  `opensacred-game` does not follow the latch (#2076).
+  The Seraphim's tree so names 21 palisade gates and touches 14 of them (`_07` and `_0F`, the quests 5003 and 6001 and `bt_torauf`).
+  **Seen** 2026-11-04 under the driver of #448 (the Daemon's game, `bt_torauf6002` run, a trace of `trigger-set` and `trigger-reset`): the gate `Tyr_Orcs_1_A` (5678, cell 870,2953) unbarred (`0x8000` → 0), a click opened it (0 → `0x4001`, latched), and a second later a reset of `0x4000` alone freed the latch (`0x4001` → 1), so that the gate stands open as any door; who sends that reset is not read (**hypothesis**: the door's own open, `0x44BCD0`'s reset of `0xC000`).
+  A click on the open gate then closed nothing within 8 s (no reset traced), which one try does not explain.
+  So the latch changes nothing that `opensacred-game` shows, whose doors open and close by bit 0 and `0x8000` (#2076).
 
 ## The town stash (5200)
 
