@@ -310,6 +310,10 @@ struct Placement {
     /// An FX object that loops a sound of its own near the hero, an element stone or a stargate
     /// (`fx_loops`, #1170), which has no model.
     fx_loop: Option<u32>,
+    /// An object of a big demon's summoning (`FX_BIG_DEMON_SUMMON`, 918; `summonings`, #2006):
+    /// its variant, the record's `0x03`, and its height in the models' units, its `0x7E`; it has
+    /// no model.
+    summon: Option<(u8, f32)>,
     /// A magic bar or barrier of the FX objects (`FX_MAGICPRISON`, 854; `prisons`, #2063), its
     /// height in the models' units, the record's `0x7E`; it has no model.
     prison: Option<f32>,
@@ -482,6 +486,8 @@ const DOOR: u8 = 10;
 const FX: u8 = 12;
 /// A `CreateObj`'s height of an FX object, in the models' units (`0x4861BF`).
 const FX_HEIGHT: u8 = 0x7E;
+/// The FX type of a big demon's summoning (`FX_BIG_DEMON_SUMMON`; `summonings`).
+const DEMON_SUMMON: u32 = 918;
 /// The FX type of the scripts' magic bars and barriers (`FX_MAGICPRISON`; `prisons`).
 const MAGIC_PRISON: u32 = 854;
 /// `CreateObj`'s mark of a quest's item that it lays in the world, an object of `+0x14` bit
@@ -842,6 +848,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         door: false,
         fx: None,
         fx_loop: None,
+        summon: None,
         prison: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
@@ -2939,6 +2946,22 @@ impl Makers {
         let fx_loop = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| crate::fx_loops::sound_of(creature))
             .flatten();
+        // A big demon's summoning of the FX objects, which has no model: its variant, the
+        // record's `0x03` (`0x489FBA`), and its height.
+        let summon = (record.kind == CREATE_OBJ
+            && category(item) == FX
+            && creature == DEMON_SUMMON)
+            .then(|| {
+                let variant = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (0x03, Value::U16(v)) => u8::try_from(*v).ok(),
+                    _ => None,
+                });
+                let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                    _ => None,
+                });
+                (variant.unwrap_or(0), height.unwrap_or(0.0))
+            });
         // A magic bar or barrier of the FX objects, which has no model: its height.
         let prison = (record.kind == CREATE_OBJ
             && category(item) == FX
@@ -2955,7 +2978,10 @@ impl Makers {
         let Some(model) = self
             .models
             .get(&item.name.to_ascii_uppercase())
-            .or((fx.is_some() || fx_loop.is_some() || prison.is_some()).then_some(&empty))
+            .or(
+                (fx.is_some() || fx_loop.is_some() || summon.is_some() || prison.is_some())
+                    .then_some(&empty),
+            )
         else {
             return Ok(None);
         };
@@ -3056,6 +3082,7 @@ impl Makers {
             door: record.kind == CREATE_OBJ && category(item) == DOOR,
             fx,
             fx_loop,
+            summon,
             prison,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
@@ -5286,6 +5313,16 @@ fn spawn(
             Vec3::new(model.x, height * iso::MODEL_SCALE, model.z),
             (layered, layered.visibility(states)),
         );
+    }
+    if let Some((variant, height)) = placement.summon {
+        return commands
+            .spawn((
+                crate::summonings::Summon(variant),
+                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                layered,
+                layered.visibility(states),
+            ))
+            .id();
     }
     if let Some(height) = placement.prison {
         return commands

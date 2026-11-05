@@ -2516,6 +2516,153 @@ pub const PRISON_GLOW_COLOUR: [f32; 4] = [128.0 / 255.0, 128.0 / 255.0, 1.0, 1.0
 /// Its sound as it is made (`0x79CC80`): `SPELL_BANNKREIS` once, at the rate's factor 0.5.
 pub const PRISON_SOUND: u32 = 2029;
 
+/// The look of an object of a big demon's summoning, `cParticleSystem_bigdemonsummon`
+/// (`FX_BIG_DEMON_SUMMON`, 918, its start `0x7A92E0`, its run `0x7A8C10` and its draw
+/// `0x7A9060`; docs/re/effects.md, "The big demon's summoning"), which the scripts make six at
+/// once about one place (the record's `0x03` its variant): its emitter goes, a turn every 4 s,
+/// about a circle of the radius 285 (the variant 0) or to and fro along a side of the pentagram
+/// in it (1 to 5), and leaves glows of `PARTICLE_GLOW03` where it passes for 8 s, added whole,
+/// so that a burning pentagram in a circle is drawn on the ground. The circle's light is 600.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemonSummon {
+    pub system: System,
+    pub variant: u8,
+    /// Its emitter's share of its turn (`+0x20A8`), up by 0.25 a second.
+    pub phase: f32,
+    /// Its emitter's place in its frame (`+0x2508`).
+    pub emitter: [f32; 3],
+}
+
+/// The summoning's texture, its glows at most (`0x5A0C50`'s count for the type 918), its circle's
+/// radius, how long it emits, its circle's light and its sounds as each object is set up (the FX
+/// event `0x7E`'s case, `0x5A48F0`): `BOSS_SAKKARA_DEMON_GROWL01` or `02` at even odds, at the
+/// rate's factor 0.5.
+pub const SUMMON_TEXTURE: &str = "PARTICLE_GLOW03";
+const SUMMON_COUNT: usize = 400;
+pub const SUMMON_RADIUS: f32 = 285.0;
+const SUMMON_EMITS: f32 = 8.0;
+pub const SUMMON_LIGHT: f32 = 600.0;
+pub const SUMMON_GROWLS: [u32; 2] = [11426, 11427];
+
+/// The pentagram's points (`0x7A8A60`): on the circle at the angles 0, 4π/5, 8π/5, 2π/5, 6π/5
+/// and 0 again along its frame's `sin` and `cos`, so that each side joins two of its points.
+fn summon_point(k: usize) -> [f32; 3] {
+    let angle = std::f32::consts::TAU * 0.4 * f32::from(u8::try_from(k % 5).unwrap_or(0));
+    [
+        SUMMON_RADIUS * angle.sin(),
+        SUMMON_RADIUS * angle.cos(),
+        0.0,
+    ]
+}
+
+impl DemonSummon {
+    /// An object of the variant `variant` (`0x7A92E0`).
+    pub fn new(variant: u8) -> Self {
+        let mut summon = Self {
+            system: System::new(SUMMON_COUNT),
+            variant,
+            phase: 0.0,
+            emitter: [0.0; 3],
+        };
+        summon.emitter = summon.place();
+        summon
+    }
+
+    /// Whether it draws the circle (0 and 10) rather than a side.
+    fn circle(&self) -> bool {
+        self.variant == 0 || self.variant == 10
+    }
+
+    /// Its light: the circle's alone.
+    pub fn light(&self) -> f32 {
+        if self.circle() { SUMMON_LIGHT } else { 0.0 }
+    }
+
+    /// Its layer (`+0x24B0`): the life −150 a second, the size −2.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -150.0,
+            size: -2.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its ramp (`+0x20B0`): from black over 5 entries to (150, 150, 196) (a red (150, 100,
+    /// 100) for the variants from 10), over 50 to (196, 105, 30) ((196, 38, 30)), and over 201 to
+    /// black; the values out of 256, added whole.
+    pub fn ramp(&self) -> Ramp {
+        let c = |r: f32, g: f32, b: f32| [r / 256.0, g / 256.0, b / 256.0, 1.0];
+        let (first, second) = if self.variant < 10 {
+            (c(150.0, 150.0, 196.0), c(196.0, 105.0, 30.0))
+        } else {
+            (c(150.0, 100.0, 100.0), c(196.0, 38.0, 30.0))
+        };
+        let black = [0.0, 0.0, 0.0, 1.0];
+        Ramp::new(black, &[(first, 5), (second, 50), (black, 201)])
+    }
+
+    /// Its block (`+0x24D0`), at its emitter: the size 10, one every 0.01 s for the circle and
+    /// 0.02 s for a side, at the detail 2.
+    fn block(&self) -> Block {
+        Block {
+            size: spread(10.0, 0.0),
+            interval: if self.circle() { 0.01 } else { 0.02 },
+            ..Block::default()
+        }
+    }
+
+    /// Its emitter's place at its phase (`0x7A8C10`): about the circle from (285, 0) turned by a
+    /// whole turn of its phase; on its side, from its point to the next over the first half of its
+    /// phase and back over the second.
+    fn place(&self) -> [f32; 3] {
+        if self.circle() {
+            let angle = self.phase * std::f32::consts::TAU;
+            return [
+                SUMMON_RADIUS * angle.cos(),
+                SUMMON_RADIUS * angle.sin(),
+                0.0,
+            ];
+        }
+        let side = usize::from(self.variant % 10).saturating_sub(1);
+        let (from, to) = (summon_point(side), summon_point(side + 1));
+        let share = if self.phase < 0.5 {
+            2.0 * self.phase
+        } else {
+            2.0 * (1.0 - self.phase)
+        };
+        std::array::from_fn(|k| from[k] + (to[k] - from[k]) * share)
+    }
+
+    /// A run of `dt` seconds: its glows age, its emitter goes on, and for its first 8 s it leaves
+    /// glows along its way.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        self.phase += 0.25 * dt;
+        if self.phase >= 1.0 {
+            self.phase -= 1.0;
+        }
+        let from = self.emitter;
+        self.emitter = self.place();
+        if self.system.clock < SUMMON_EMITS {
+            let block = self.block();
+            self.system.emit_along(
+                &[block],
+                &layers,
+                SUMMON_COUNT,
+                (from, self.emitter),
+                dt,
+                dice,
+            );
+        }
+    }
+
+    /// Whether it ended: past its 8 s and no glow alive.
+    pub fn done(&self) -> bool {
+        self.system.clock >= SUMMON_EMITS && self.system.particles.is_empty()
+    }
+}
+
 /// The look of an object of the Daemon's fear 67, `cParticleSystem_hellscream` (1012, its start
 /// `0x7B0AF0`, its run `0x7B07B0` and its draw `0x7B0870`; docs/re/effects.md, "The fear"), where
 /// it stands for its seconds: a glow on the ground ([`FEAR_GLOW_HALF`]), a ring spreading from
@@ -4173,6 +4320,43 @@ mod tests {
             fear.update(0.025);
         }
         assert!(fear.done());
+    }
+
+    #[test]
+    fn a_summonings_six_objects_draw_a_burning_pentagram_in_its_circle() {
+        let mut dice = Rng::of(24, 0x396, 12);
+        let mut circle = DemonSummon::new(0);
+        let mut side = DemonSummon::new(1);
+        assert_eq!((circle.light(), side.light()), (SUMMON_LIGHT, 0.0));
+        for _ in 0..80 {
+            circle.update(0.025, &mut dice);
+            side.update(0.025, &mut dice);
+        }
+        // The circle's glows lie on its radius; the side's on the line from its first point,
+        // half way along it after 2 s of the 4 s of its turn.
+        assert!(circle.system.particles.iter().all(|p| {
+            let r = (p.place[0] * p.place[0] + p.place[1] * p.place[1]).sqrt();
+            (r - SUMMON_RADIUS).abs() < 1.0
+        }));
+        let to = summon_point(1);
+        assert!((side.emitter[0] - to[0]).abs() < 10.0 && (side.emitter[1] - to[1]).abs() < 10.0);
+        assert!(side.system.particles.iter().all(|p| {
+            // On the segment from (0, 285) to its second point: across it, under 1.
+            let (a, b) = (summon_point(0), to);
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let cross = ((p.place[0] - a[0]) * dy - (p.place[1] - a[1]) * dx).abs();
+            cross / (dx * dx + dy * dy).sqrt() < 1.0
+        }));
+        // It emits for 8 s, its last glows dying 1.7 s after.
+        for _ in 0..400 {
+            circle.update(0.025, &mut dice);
+        }
+        assert!(circle.done());
+        assert_eq!(circle.ramp().at(0.0)[..3], [0.0; 3]);
+        assert_eq!(
+            DemonSummon::new(10).ramp().at(251.0)[..3],
+            [150.0 / 256.0, 100.0 / 256.0, 100.0 / 256.0]
+        );
     }
 
     #[test]

@@ -72,7 +72,7 @@ Then the handler sets `+0x48` bit 2, the object started, which its draw requires
   | 832, 833 `FX_DWARFMAGIC` | `0x38` | 1, 2 |
   | 911 to 915 `FX_FORGE_*ELEM` | `0x7B` | 0 to 4 |
   | 1175 to 1178 `FX_UW_GLYPH01` to `04` | `0xB1` | 0 to 3 |
-  | 802 `FX_STARGATE` `0x22`, 853 `0x4D`, 854 `0x4E`, 873 `FX_BUTTERFLY` `0x61`, 889 `0x6B`, 891 `0x6C`, 894 `0x6F`, 917 `0x7D`, 918 `0x7E`, 920 `0x80`, 921 `0x81`, 1156 and 1158 `0xA2`, 1157 `0xA3`, 1160 `0xA4`, 1161 `0xA5`, 1162 `0xA6`, 1165 `0xAE`, 1174 `0xB0`, 1179 `0xB2`, 1180 `0xB3`, 1181 `0xB4` | as listed | 0 (1158: 1) |
+  | 802 `FX_STARGATE` `0x22`, 853 `0x4D`, 854 `0x4E`, 873 `FX_BUTTERFLY` `0x61`, 889 `0x6B`, 891 `0x6C`, 894 `0x6F`, 917 `0x7D`, 918 `0x7E`, 920 `0x80`, 921 `0x81`, 1156 and 1158 `0xA2`, 1157 `0xA3`, 1160 `0xA4`, 1161 `0xA5`, 1162 `0xA6`, 1165 `0xAE`, 1174 `0xB0`, 1179 `0xB2`, 1180 `0xB3`, 1181 `0xB4` | as listed | 0 (1158: 1; 918: the record's `0x03`, "The big demon's summoning") |
 
   The kind 7's case (`0x5A5AE2`) puts the system at the event's point and starts it: the world's effects stand still where the script put them.
   The point's third coordinate is the record's tag `0x7E` (its case at `0x4861BF` writes the slot that `0x489045` loads as the height; **hypothesis** on the units, the models' height): the braziers' fires of 50,39 carry 28 and sit on the braziers' bowls (**seen**), others 104 and 105, the height of a wall torch (**hypothesis**).
@@ -977,6 +977,28 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`hell_screams`, `opensacred_rules::particles::HellScream`): each object that `spells` makes gets a look of its own on the ground under it, untinted by the night, its light of 350, fading out after its object goes.
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by day: five tall golden columns of light about him, each over an orange glow, with golden rings spreading from their feet over and over, alike in place, size and colour.
+
+## The big demon's summoning
+
+Read 2026-11-04 for #2006 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| A part of the pentagram of a big demon's summoning | 918 `FX_BIG_DEMON_SUMMON` | `cParticleSystem_bigdemonsummon` | `0x7A92E0`, `0x7A8C10`, `0x7A9060` |
+
+- The scripts make six objects at once at one world position and no cell (docs/02 §7.3, #2069), their `0x03` their variants: `HornTot74` and `HornTot2_74` of the quest 74 the variants 0 to 5 at (325413, 134903), the middle of the big demon's lair about the cell (6063, 2513), and the add-on's `hq15_close_gate` 10 to 15.
+- `CreateObj`'s FX switch passes the record's `0x03` as the event's variant (its case 7 at `0x489FBA`), of the kind `0x7E`.
+- The event's case (`0x5A48F0`) plays `BOSS_SAKKARA_DEMON_GROWL01` (11426) or `_02` (11427) at even odds (`rand() & 1`) at the object, at a rate's factor of 0.5, as each object is set up: six growls at once.
+- Its start: one layer (the life −150 a second, the size −2) and one block at its emitter (the size 10, every 0.01 s for the variants 0 and 10 and 0.02 s for the others, at the detail 2); its ramp from black over 5 entries to (150, 150, 196), over 50 to (196, 105, 30) and over 201 to black, the variants from 10 to (150, 100, 100) and (196, 38, 30) instead, out of 256; the variants 0 and 10 a light of 600, the others none.
+- Its run (`0x7A8C10`): its emitter's share of a turn rises by 0.25 a second and wraps.
+  The variants 0 and 10 put the emitter on a circle of the radius 285 about the object, at `(285 cos 2πp, 285 sin 2πp)`.
+  The others put it on a side of the pentagram, from its point `v − 1` to its point `v` over the first half of the turn and back over the second, `v` the variant's last digit; the points (`0x7A8A60`) lie on the circle at `(285 sin a, 285 cos a)` for `a` of 0, 4π/5, 8π/5, 2π/5, 6π/5 and 0 in turn.
+  It leaves glows along the emitter's way while its clock is below 8 s; they then age out, in about 1.7 s.
+- Its draw (`0x7A9060`): its glows as billboards of `PARTICLE_GLOW03` of the flags `0x19`, the ramp's colour added whole.
+- **Seen** 2026-11-04 with the hero at (6063, 2513): a circle and a five-pointed star of orange glows on the ground about the lair's middle, each moving end white-hot, the circle drawn clockwise on the screen, all gone about 10 s after the script; the star's point toward the viewer and a side across the screen below its middle.
+
+`opensacred-game` draws it since #2006 (`summonings`, `opensacred_rules::particles::DemonSummon`): `npcs` makes an entity for each `CreateObj` of 918 at its point and the height of its record's `0x7E`, with its variant, which draws its glows untinted by the night, gives the circle's light and growls once as it is made.
+**Seen** 2026-11-04 beside the original's frames at the same cell and times: alike in size, colours, the circle's way and time and the moving ends; the star is turned 45° about its middle, as every system's frame is (#2072).
 
 ## In `opensacred-game`
 
