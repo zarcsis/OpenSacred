@@ -1590,7 +1590,7 @@ None gives the effect `0x22`.
 - the choir's effect 35 on the first 20 hostile creatures within about 179, of no big type, and a choir following each, striking it once a second; its effect 15, whose value's use is not read, is left out;
 - the fear's five objects at 160 about him, each giving once a second the creatures within 150 and their size that hold none of its effects its effects 1 and 2 for 1 s.
 
-The Daemon of a new game took `A` from 32.5 to 58 under the force of hell; translucent discs stand in for the fear's objects, the tentacles and the hellfire, and an orange disk for the hell disk.
+The Daemon of a new game took `A` from 32.5 to 58 under the force of hell; translucent discs stand in for the fear's objects and the hellfire, and an orange disk for the hell disk; the tentacles and their aura are drawn since #1092 (docs/re/effects.md, "The tentacles").
 
 #### The creatures' own spells
 

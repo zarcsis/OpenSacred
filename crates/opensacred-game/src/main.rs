@@ -181,6 +181,7 @@ mod steps;
 mod summonings;
 mod tables;
 mod talk;
+mod tentacles;
 mod terrain;
 mod tooltip;
 mod torches;
@@ -587,14 +588,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         steps::StepsPlugin,
         summonings::SummoningsPlugin,
         talk::TalkPlugin,
+        tentacles::TentaclesPlugin,
         terrain::GroundPlugin,
         tooltip::TooltipPlugin,
         torches::TorchesPlugin,
         town_stash::TownStashPlugin,
         twisters::TwistersPlugin,
-        undead::UndeadPlugin,
     ))
     .add_plugins((
+        undead::UndeadPlugin,
         voices::VoicesPlugin,
         waterfalls::WaterfallsPlugin,
         weather::WeatherPlugin,
