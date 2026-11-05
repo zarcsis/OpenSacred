@@ -846,7 +846,7 @@ fn act(
 /// Raises the first dead creature of the caster's sector that it may raise (`0x523220`; #1856):
 /// the nearest of them (**hypothesis**: the sector's list's order is not followed) stands up on
 /// its cell of its type and level, whole, hostile as it was, its flags' [`casts::RAISED`], with a
-/// ring about it (`FX_REANIMATE`, 924's stand-in, the undead's rising ring).
+/// ring about it (`FX_REANIMATE`, 924, `reanimations`).
 fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
     let sector = crate::music::sector_of(here.x, here.z);
     let mut corpses = world.query::<(Entity, &crate::npcs::Corpse, &Transform)>();
@@ -884,12 +884,7 @@ fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
             dead.creature
         );
         if let Some(at) = risen.get::<Transform>().map(|at| at.translation) {
-            crate::puffs::spawn_in(
-                world,
-                opensacred_rules::particles::rise_ring(),
-                at,
-                Some(raised),
-            );
+            crate::reanimations::ring_in(world, at);
         }
     }
 }

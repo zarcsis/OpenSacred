@@ -5050,6 +5050,96 @@ pub fn own_glows(item: u32, parent: u32, effect: Option<u8>) -> OwnGlows {
     }
 }
 
+/// The ring's texture, its quads' share of its particles' sizes, its light, and its particles at
+/// most (`0x7AB500`, `0x7AB680`, `0x7AB6F0`).
+pub const REANIMATE_TEXTURE: &str = "PARTICLE_LINE01";
+pub const REANIMATE_SIZE: f32 = 0.125;
+pub const REANIMATE_LIGHT: f32 = 200.0;
+const REANIMATE_COUNT: usize = 500;
+/// How fast its point turns about its place, in radians a second, and how far from it.
+const REANIMATE_TURN: f32 = 10.0;
+const REANIMATE_RADIUS: f32 = 25.0;
+
+/// The ring about a creature that a caster raises (924, `FX_REANIMATE`,
+/// `cParticleSystem_reanimate`, its constructor `0x7AB500`, its start `0x7AB6F0`, its run
+/// `0x7AB590` and its draw `0x7AB680`; the FX event `0x84`): a point that turns once about its
+/// place on a circle of 25, at ten radians a second (some 0.63 s), leaves particles of
+/// `PARTICLE_LINE01` that stand where they are born, one every 0.004 s at the detail 2, of a size
+/// of 40 ± 10 falling by 10 a second, living 2.55 s (−100), a pale blue that rises over the first
+/// 10 entries of their life, holds over 200 and fades over the last 46 ([`Reanimate::ramp`]);
+/// drawn standing on their feet at an eighth of their size, the ramp's colour added by its alpha
+/// (the flags `0x89`); it lights the night by 200 and ends with its last particle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reanimate {
+    pub system: System,
+    angle: f32,
+}
+
+impl Default for Reanimate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Reanimate {
+    /// A ring as it starts, its point at the angle 0.
+    pub fn new() -> Self {
+        Self {
+            system: System::new(REANIMATE_COUNT),
+            angle: 0.0,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -100.0,
+            size: -10.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block at its point's angle `angle`: its offset on the circle.
+    fn block(angle: f32) -> Block {
+        let (sin, cos) = angle.sin_cos();
+        Block {
+            size: spread(40.0, 10.0),
+            offset: spread(
+                [REANIMATE_RADIUS * cos, REANIMATE_RADIUS * sin, 0.0],
+                [0.0; 3],
+            ),
+            interval: 0.004,
+            ..Block::default()
+        }
+    }
+
+    /// Its ramp (`+0x20AC`): (100, 100, 256) of 256, from nothing to whole over 10 entries,
+    /// whole over 200, to nothing over 46.
+    pub fn ramp() -> Ramp {
+        let blue = |alpha: f32| [100.0 / 256.0, 100.0 / 256.0, 1.0, alpha];
+        Ramp::new(
+            blue(0.0),
+            &[(blue(1.0), 10), (blue(1.0), 200), (blue(0.0), 46)],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x7AB590`): its particles age, and while its point has not turned
+    /// once it leaves new ones from it.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.angle < std::f32::consts::TAU {
+            let block = Self::block(self.angle);
+            self.system.emit(&[block], &layers, REANIMATE_COUNT, dice);
+        }
+        self.angle += dt * REANIMATE_TURN;
+    }
+
+    /// Whether it ended: its turn over and its particles gone.
+    pub fn done(&self) -> bool {
+        self.angle >= std::f32::consts::TAU && self.system.particles.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6457,5 +6547,29 @@ mod tests {
         assert_eq!(wings_glitter(&mut high).half, 4.0);
         assert_eq!(wings_glitter(&mut low).colour(), [1.0; 4]);
         assert_eq!(BLUE_GLOW.colour()[2], 1.0);
+    }
+
+    #[test]
+    fn a_raised_creatures_ring_turns_once_and_its_lines_stand_and_fade() {
+        let mut dice = Rng::of(3, 5, 924);
+        let mut ring = Reanimate::new();
+        for _ in 0..13 {
+            ring.update(0.05, &mut dice);
+        }
+        // Some 0.63 s of a line every 0.004 s, on the circle of 25, none moving.
+        let count = ring.system.particles.len();
+        assert!((140..=170).contains(&count), "{count}");
+        assert!(ring.system.particles.iter().all(|p| {
+            let r = p.place[0].hypot(p.place[1]);
+            (r - 25.0).abs() < 0.01 && p.place[2] == 0.0
+        }));
+        assert!(!ring.done());
+        for _ in 0..60 {
+            ring.update(0.05, &mut dice);
+        }
+        assert!(ring.done());
+        let ramp = Reanimate::ramp();
+        assert_eq!(ramp.at(255.0)[3], 0.0);
+        assert_eq!(ramp.at(200.0), [100.0 / 256.0, 100.0 / 256.0, 1.0, 1.0]);
     }
 }

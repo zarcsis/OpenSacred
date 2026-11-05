@@ -139,6 +139,7 @@ mod puffs;
 mod purchase;
 mod purgatories;
 mod quest_book;
+mod reanimations;
 mod regions;
 mod remarks;
 mod remote;
@@ -523,9 +524,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         movies::MoviesPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
+        opus::OpusPlugin,
     ))
     .add_plugins((
-        opus::OpusPlugin,
         overlay::OverlayPlugin,
         overview::OverviewPlugin,
         pause::PausePlugin,
@@ -538,6 +539,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         purchase::PurchasePlugin,
         purgatories::PurgatoriesPlugin,
         quest_book::QuestBookPlugin,
+        reanimations::ReanimationsPlugin,
         regions::RegionsPlugin,
         remarks::RemarksPlugin,
     ))
