@@ -1140,6 +1140,24 @@ Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 The bytes `+0x38`, the strikes' resolution from an object, the dummy's death and the light are not followed.
 **Seen** 2026-11-05 at the sector 16,79 beside the original: the dummies of neither game showing or stirring; in both a green glow trailing blue dots that rose and flew at the Seraphim within some six cells and circled about her head, striking her.
 
+## The raised creature's ring
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The ring of a raised creature | 924 `FX_REANIMATE` | `cParticleSystem_reanimate` (`0x898A1C`) | `0x7AB500`, `0x7AB6F0`, `0x7AB590`, `0x7AB680` |
+
+- Its maker: the black magicians' raising 43 (docs/re/arts.md, "The creatures' own spells"), an object 924 at the raised creature's place (the FX event `0x84`), standing there (its system's flags 0).
+- Its constructor loads `PARTICLE_LINE01` (`+0x2530`).
+- Its start: one layer of the life −100 a second (2.55 s) and the size −10; one block of the size 40 ± 10, one every 0.004 s at the detail 2 (1.5 and 2.2 times at 1 and 0); its ramp (100, 100, 256) of 256, from the alpha 0 to 1 over its first 10 entries, 1 over 200, to 0 over the last 46; its light 200.
+- Its run: while its angle (`+0x20A8`) is under 2π, the block's offset is (25, 0, 0) turned by it about the vertical, and it emits there; the angle grows by 10 a second, so the point goes round once in some 0.63 s; then it ends with its last particle.
+- Its draw: billboards of the flags `0x89` (the ramp's colour, standing on their feet, added by their alpha), the grid 1, the size factor 0.125: pale blue lines standing on a ring of 25 that fade where they were born.
+
+`opensacred-game` draws it since #1092 (`reanimations`, `opensacred_rules::particles::Reanimate`) where `creature_casts` raises a creature, in place of the undead's rising ring that stood in for it, untinted by the night, lighting it by 200.
+**Seen** 2026-11-05 in the game: a black magician 264 raised a dead 567 beside the Seraphim, and a ring of pale blue lines stood about it and faded in under two seconds.
+Not set beside the original: its black magician under the driver slept under the trees out of the Seraphim's reach.
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
