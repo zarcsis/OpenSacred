@@ -364,15 +364,19 @@ fn run(
     }
 }
 
-/// A world point in the models' frame, its third coordinate up.
+/// A world point in the models' frame, the effects' systems' (docs/re/effects.md, "Their
+/// flight"): its x along the screen's horizontal on the ground and its y toward the viewer
+/// (`iso::fx_axes`), its third coordinate up, in the models' units (#2072).
 pub(crate) fn models(point: Vec3) -> [f32; 3] {
+    let (across, down) = iso::fx_axes();
     let s = iso::MODEL_SCALE;
-    [point.x / s, point.z / s, point.y / s]
+    [point.dot(across) / s, point.dot(down) / s, point.y / s]
 }
 
 /// A point of the models' frame in the world.
 pub(crate) fn world([x, y, z]: [f32; 3]) -> Vec3 {
-    Vec3::new(x, z, y) * iso::MODEL_SCALE
+    let (across, down) = iso::fx_axes();
+    (across * x + down * y + Vec3::Y * z) * iso::MODEL_SCALE
 }
 
 /// The railgun's parts (`0x77EBC0`): its crossed quads along `direction` at `place`, the texture's
@@ -434,13 +438,13 @@ fn bfg(place: Vec3, clock: f32, floor: f32, quads: &mut [Quads]) {
     }
     if let Some(ground) = quads.get_mut(3) {
         let at = place.with_y(floor + GROUND_LIFT);
-        let half = particles::BFG_GROUND_HALF * s;
+        let half = particles::BFG_GROUND_HALF;
         ground.push_corners(
             [
-                at + Vec3::new(-half, 0.0, -half),
-                at + Vec3::new(half, 0.0, -half),
-                at + Vec3::new(half, 0.0, half),
-                at + Vec3::new(-half, 0.0, half),
+                at + world([-half, -half, 0.0]),
+                at + world([half, -half, 0.0]),
+                at + world([half, half, 0.0]),
+                at + world([-half, half, 0.0]),
             ],
             [
                 Vec2::new(0.0, 0.0),
@@ -544,8 +548,12 @@ mod tests {
         let point = Vec3::new(120.0, 80.0, -45.0);
         let back = world(models(point));
         assert!((back - point).length() < 1e-3, "{back}");
-        // The models' third coordinate is the world's up.
+        // The models' third coordinate is the world's up, its first the screen's right on the
+        // ground and its second the way toward the viewer (#2072).
         assert!((models(Vec3::Y * iso::MODEL_SCALE)[2] - 1.0).abs() < 1e-6);
+        let (across, down) = iso::fx_axes();
+        assert!((world([1.0, 0.0, 0.0]) - across * iso::MODEL_SCALE).length() < 1e-4);
+        assert!((world([0.0, 1.0, 0.0]) - down * iso::MODEL_SCALE).length() < 1e-4);
     }
 
     #[test]

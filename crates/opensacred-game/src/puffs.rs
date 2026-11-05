@@ -184,14 +184,12 @@ fn run(
         let grid = f32::from(side);
         let mut quads = Quads::default();
         for particle in &system.particles {
-            // The models' frame, its third coordinate up, at the world's scale.
-            let [x, y, z] = particle.place;
             let frame = Vec2::new(
                 f32::from(particle.frame % side),
                 f32::from(particle.frame / side % side),
             );
             quads.push(
-                Vec3::new(x, z, y) * iso::MODEL_SCALE,
+                crate::bolt_looks::world(particle.place),
                 particle.size * iso::MODEL_SCALE,
                 particle.angle,
                 (frame / grid, 1.0 / grid),
@@ -205,8 +203,7 @@ fn run(
 /// A point of the world at `at` in the frame of a burst at `origin`: the models' units, the third
 /// coordinate up.
 pub fn local(at: Vec3, origin: Vec3) -> [f32; 3] {
-    let d = (at - origin) / iso::MODEL_SCALE;
-    [d.x, d.z, d.y]
+    crate::bolt_looks::models(at - origin)
 }
 
 /// The bursts that make their particles once.
@@ -232,7 +229,7 @@ mod tests {
     #[test]
     fn a_point_of_the_world_takes_the_bursts_frame() {
         let origin = Vec3::new(100.0, 5.0, 200.0);
-        let at = origin + Vec3::new(2.0, 3.0, -1.0) * iso::MODEL_SCALE;
+        let at = origin + crate::bolt_looks::world([2.0, -1.0, 3.0]);
         let [x, y, z] = local(at, origin);
         assert!((x - 2.0).abs() < 1e-3 && (y + 1.0).abs() < 1e-3 && (z - 3.0).abs() < 1e-3);
     }

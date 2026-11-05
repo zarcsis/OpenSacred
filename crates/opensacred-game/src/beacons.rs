@@ -160,7 +160,7 @@ fn run(
         };
         let [r, g, b] = set.colour;
         let colour = [r, g, b, set.beacon.alpha()];
-        let world = |[x, y, z]: [f32; 3]| Vec3::new(x, z, y) * iso::MODEL_SCALE;
+        let world = crate::bolt_looks::world;
         let mut quads = Quads::default();
         for ribbon in set.beacon.helix() {
             let last = f32::from(u16::try_from(ribbon.len().saturating_sub(1).max(1)).unwrap_or(1));
