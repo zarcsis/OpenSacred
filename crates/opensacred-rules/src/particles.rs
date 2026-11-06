@@ -12556,7 +12556,7 @@ mod tests {
             .system
             .particles
             .iter()
-            .map(|p| (p.colour[0] * 1000.0) as u32)
+            .map(|p| p.colour[0].to_bits())
             .collect();
         assert!(colours.len() > 50, "{}", colours.len());
         let (frame, colour) = NatureHealing::butterfly(&healing.system.particles[0]);
