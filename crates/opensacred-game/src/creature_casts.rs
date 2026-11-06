@@ -401,15 +401,21 @@ fn act(
             }
             spells::STONE | casts::CAGE => {
                 // The stone, or the plant cage about the hero (its object 849, `0x52494F`): the
-                // effect 15 keyed by its spell, refused on a hero held by it already.
+                // effect 15 keyed by its spell, refused on a hero held by it already; the stone
+                // 3 s, as a creature casts it (`0x5B5CC8`), the cage its value 0 (**hypothesis**:
+                // its object's hold not read).
                 let Ok(effects) = held.get(cast.target) else {
                     continue;
                 };
                 if effects.is_some_and(|effects| effects.holds_any(&[cast.spell])) {
                     continue;
                 }
-                let seconds =
-                    f32::from(u16::try_from(spells::value(record, 0, level)).unwrap_or(u16::MAX));
+                let whole = if cast.spell == spells::STONE {
+                    spells::stone_holds(record, level, false)
+                } else {
+                    spells::value(record, 0, level)
+                };
+                let seconds = f32::from(u16::try_from(whole).unwrap_or(u16::MAX));
                 let effect = opensacred_rules::fight::Effect {
                     id: spells::HELD,
                     whole: 0,

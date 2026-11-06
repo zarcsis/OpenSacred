@@ -118,6 +118,9 @@ pub const THORNS_REACH: f32 = 50.0;
 /// its level (`0x799640`, its owner not a player).
 pub const THORN_RISES: f32 = 1.0;
 pub const CREATURE_THORNS: f32 = 3.0;
+/// How long a creature's flesh to stone holds its target, whatever its level: the stone's action
+/// gives a caster above the id 16 3 s (`0x5B5CC8`), as its sight lives (822, `0x786120`).
+pub const CREATURE_STONE: u32 = 3;
 /// Every fifth thorn of a cast plays `DRYADE_DORNEN` at its place, from the first (`0x52632A`,
 /// `0x4D309E`).
 pub const THORNS_SOUNDED: u32 = 5;
@@ -752,6 +755,17 @@ pub fn thorn_stands(spell: &Spell, level: u32, hero: bool) -> f32 {
         to_f32(value(spell, 1, level))
     } else {
         CREATURE_THORNS
+    }
+}
+
+/// How long the flesh to stone of the record `spell` at the level `level` holds its target in
+/// whole seconds, a hero's or a creature's: the record's value 0 at the level, or
+/// [`CREATURE_STONE`] (the action 7, `0x5B5CC8`).
+pub fn stone_holds(spell: &Spell, level: u32, hero: bool) -> u32 {
+    if hero {
+        value(spell, 0, level)
+    } else {
+        CREATURE_STONE
     }
 }
 
@@ -1423,6 +1437,17 @@ mod tests {
         let mut tentacles = record(TENTACLES, &[], [44, 1], 90);
         tentacles.values[1] = [10, 0];
         assert_eq!(tentacle_seconds(&tentacles, 7), 11.0);
+    }
+
+    #[test]
+    fn a_creatures_stone_holds_three_seconds_and_a_heros_its_value() {
+        // GOG 2.28's 25 holds 14 + L at most 30.
+        let mut stone = record(STONE, &[], [0, 0], 0);
+        stone.values[0] = [14, 1];
+        stone.caps[0] = 30;
+        assert_eq!(stone_holds(&stone, 3, true), 17);
+        assert_eq!(stone_holds(&stone, 40, true), 30);
+        assert_eq!(stone_holds(&stone, 40, false), 3);
     }
 
     #[test]
