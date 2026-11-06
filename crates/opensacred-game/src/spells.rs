@@ -1626,9 +1626,13 @@ fn act(
                     level: 0,
                 };
                 given.push((effect, seconds));
-                // The stone's sight and skin as long (822, `stones`).
+                // The stone's sight and skin as long (822, `stones`), or the cages about it
+                // (849, `plant_cages`).
                 if act.spell == spells::STONE {
                     crate::stones::stone(&mut commands, act.target, seconds);
+                } else {
+                    let cages = spells::count(record, act.level);
+                    crate::plant_cages::cage(&mut commands, act.target, cages, (true, seconds));
                 }
                 let mut held = commands.entity(act.target);
                 held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();

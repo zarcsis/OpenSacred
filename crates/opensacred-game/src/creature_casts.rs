@@ -400,22 +400,17 @@ fn act(
                 crate::lightning_strikes::strike(&mut commands, place, false);
             }
             spells::STONE | casts::CAGE => {
-                // The stone, or the plant cage about the hero (its object 849, `0x52494F`): the
-                // effect 15 keyed by its spell, refused on a hero held by it already; the stone
-                // 3 s, as a creature casts it (`0x5B5CC8`), the cage its value 0 (**hypothesis**:
-                // its object's hold not read).
+                // The stone, or the plant cage about the hero (its objects 849, `0x52494F`): the
+                // effect 15 keyed by its spell, refused on a hero held by it already, 3 s as a
+                // creature casts it (`0x5B5CC8`).
                 let Ok(effects) = held.get(cast.target) else {
                     continue;
                 };
                 if effects.is_some_and(|effects| effects.holds_any(&[cast.spell])) {
                     continue;
                 }
-                let whole = if cast.spell == spells::STONE {
-                    spells::stone_holds(record, level, false)
-                } else {
-                    spells::value(record, 0, level)
-                };
-                let seconds = f32::from(u16::try_from(whole).unwrap_or(u16::MAX));
+                let seconds =
+                    f32::from(u16::try_from(spells::holds(record, level, false)).unwrap_or(3));
                 let effect = opensacred_rules::fight::Effect {
                     id: spells::HELD,
                     whole: 0,
@@ -428,9 +423,13 @@ fn act(
                     .entry::<crate::effects::Effects>()
                     .or_default()
                     .and_modify(move |mut effects| effects.add(effect, seconds));
-                // The stone's sight and skin as long (822, `stones`).
+                // The stone's sight and skin as long (822, `stones`), or the cages about it
+                // (849, `plant_cages`).
                 if cast.spell == spells::STONE {
                     crate::stones::stone(&mut commands, cast.target, seconds);
+                } else {
+                    let cages = spells::count(record, level);
+                    crate::plant_cages::cage(&mut commands, cast.target, cages, (false, seconds));
                 }
             }
             casts::HEAL => {

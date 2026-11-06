@@ -146,6 +146,7 @@ mod pause;
 mod pick;
 mod pickup;
 mod place_names;
+mod plant_cages;
 mod points;
 mod poison_rings;
 mod pong;
@@ -571,6 +572,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         overview::OverviewPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        plant_cages::PlantCagesPlugin,
         points::PointsPlugin,
         poison_rings::PoisonRingsPlugin,
         pong::PongPlugin,
@@ -581,9 +583,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         quest_book::QuestBookPlugin,
         reanimations::ReanimationsPlugin,
         regions::RegionsPlugin,
-        remarks::RemarksPlugin,
     ))
-    .add_plugins(rewards::RewardsPlugin)
+    .add_plugins((remarks::RemarksPlugin, rewards::RewardsPlugin))
     .add_plugins((
         ripples::RipplesPlugin,
         runes::RunesPlugin,

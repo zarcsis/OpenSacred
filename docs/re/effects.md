@@ -1675,6 +1675,26 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
+## The plant cage
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A cage about a held creature | 849 `FX_PLANTCAGE` | `cParticleSystem_plantcage` (`0x898498`) | `0x799720`, `0x79A610`, `0x799D30`, `0x799E10` |
+
+- It is the thorns' plant's code (848, "The thorns' plants") on another vine: its constructor loads `PARTICLE_GLOW01` and `PARTICLE_GLOW03` and makes a Direct3D light (range 200, the attenuations (1, 0, 0.000125)); no world light; no sound of its own.
+- Its makers send the FX event `0x49` (the caster, the target, the target's place on the ground), whose case (`0x5A4CC5`) follows the target at its bone 3 (`Bip01 Neck`), else its root, the start's flag `0x200` standing it there each frame: the spell 40's executor (`0x52634B`), the hero's or a creature's, `⌊min(20, ⌊v₀·f⌋)/5⌋` cages at the target; the hero's terror (`0x4E26F1`), ten about the creature that stands in it, the hero their caster, of the level ⌊hero's level / 3⌋; the set bonus `UI_SET_ROOTEN` in melee (`0x4E074A`, ten at the level 2) and the killer crab 348 (`0x4E58EF`, ten on an odd roll).
+  Every maker but the terror's plays `DRYADE_DORNEN` (2061) at every fifth cage, from the first.
+- Its rolls: its seven spurs' points as the thorns' plant's; its stem's five rolls, `x = sin(0.1k(U₂ + 0.5))·sin(k/128)·(U₁ + 2.5)`, `y = sin(0.1k(U₄ + 0.7))·sin(k/128)·(U₃ + 3.5)`, `z = k/2`, turned by `2π·U₀` about the upright; its two sways', `sin(0.1k(0.8V₂ + 0.2))·(2V₁ + 1.5)` and `sin(0.1k(0.4V₄ + 0.1))·(V₃ + 3)`, `sin(0.1k(W₂ + 0.5))·(W₁ + 1.5)` and `sin(0.1k(W₄ + 1))·(W₃ + 3)`, each turned and its 64 points mirrored; at its start its base point within 50 of the event's along each axis on the ground, its `y` rolled first.
+- Its start: its rise −2; a hero's cage (`+0xA9` 0) green (`0xFF40FF40`, its light (0.25, 1, 0.25)) holding for the record's value 0 times the factor, a creature's blue (`0xFF4040FF`, (0.25, 0.25, 1)) for 3 s.
+- Its run: its rise grows by 3 a second to 0 (0.667 s), when its action 7 holds the creature (the effect 15 for the hold's seconds, 3 s for a caster above the id 16, `0x5B5CC8`); it stands its hold's seconds; its rise falls by 3 a second, and it ends at −2.
+- Its draw: its light at its base point; a glow of `GLOW03` flat on the ground at the base, of the half side `10·(rise + 2)`, added by its alpha; its vine of `GLOW01` dots facing the camera added by their alpha in its colour, the point `k` the stem's, the sways' times `sin(πk/127)` and the share `k/127` of the way from the stem's end to the base, so that it runs from the neck to the base, of the half side `1 + k/128 + rise` where above 0, so that it grows from the ground up; at each spur's point while the rise is above −1, dots 0.75 apart along the stem's way there, of the half side `1.5 + rise` less 0.1 a dot while above 0.5.
+
+`opensacred-game` follows it since #1092 (`plant_cages`, `opensacred_rules::particles::PlantCage`): the Wood Elf's cages (`spells`), a creature's at the hero (`creature_casts`) and the terror's ten (`ai`), each vine from its creature's neck to its base, its glow and its light at the base, untinted by the night, every fifth cage of a cast sounding; a creature's cage holds the hero 3 s (`spells::holds`, #2154).
+**Seen** 2026-11-06 beside the original: the Wood Elf's cages about a goblin, green vines from its neck to their glowing bases on the ground, alike in both.
+Not followed: the hold given as the cage has grown (0.667 s on) rather than at once; the set bonus's cages and the killer crab's; the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look.
+
 ## The flesh to stone
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
