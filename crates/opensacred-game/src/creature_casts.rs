@@ -520,6 +520,7 @@ fn act(
             }
             casts::HOLY_SHIELD => {
                 let (effect, seconds) = spells::holy_shield(record, level);
+                crate::shields::show(&mut commands, crate::shields::Kind::Holy, entity, seconds);
                 commands
                     .entity(entity)
                     .entry::<crate::effects::Effects>()

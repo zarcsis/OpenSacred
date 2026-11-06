@@ -4140,6 +4140,290 @@ impl LightStrike {
     }
 }
 
+/// The columns of the holy shield's and the shield wall's cylinders about their bearer, a pair of
+/// vertices each 12° apart and the 31st at the first's place, their radius in the models'
+/// frame, and the world light of the two (`0x785860`, `0x78A8A0`; #1092; docs/re/effects.md,
+/// "The holy shield, the shield wall, the mana's spring and the regeneration").
+pub const SHIELD_COLUMNS: u8 = 30;
+pub const SHIELD_RADIUS: f32 = 35.0;
+pub const SHIELD_LIGHT: f32 = 300.0;
+
+/// The holy shield's height, the turns of its texture about it (its `u` 0.1 a column), its
+/// ground's half side, and its textures, the cylinder's then the ground's.
+pub const HOLY_SHIELD_HEIGHT: f32 = 120.0;
+pub const HOLY_SHIELD_U: f32 = 0.1;
+pub const HOLY_SHIELD_GROUND: f32 = 41.0;
+pub const HOLY_SHIELD_TEXTURES: [&str; 2] = ["FX_SHIELD", "FX_SHIELDGROUND"];
+
+/// The greys of the holy shield's band at its columns' feet, from its head back, of 255; the
+/// columns behind them dark.
+const HOLY_SHIELD_BAND: [i32; 8] = [255, 223, 191, 159, 127, 95, 63, 31];
+/// How fast its flash fades, in its greys a second, truncated each frame; and how fast its band
+/// goes round, in turns a second.
+const HOLY_SHIELD_FADE: f32 = 400.0;
+const HOLY_SHIELD_TURN: f32 = 0.5;
+
+/// The holy shield (819, `cParticleSystem_holyshield`; its start `0x785DE0`, its run
+/// `0x785970`, its draw `0x785A20`): a pale blue cylinder of light about its bearer, 35 across
+/// and 120 high, lit only by a band of eight columns at its foot that sweeps round clockwise on
+/// the screen every 2 s, over a matching arc on the ground; an arrow it turns aside lights it
+/// whole for some 0.6 s; it goes at once at the end of its seconds. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HolyShield {
+    clock: f32,
+    seconds: f32,
+    phase: f32,
+    flash: i32,
+}
+
+impl HolyShield {
+    /// A holy shield of `seconds`, its spell's value 0 at its level.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            phase: 0.0,
+            flash: 0,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock, its band's phase falling by half a turn a second and
+    /// wrapping, its flash fading by `⌊400·dt⌋`.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.phase -= dt * HOLY_SHIELD_TURN;
+        if self.phase < 0.0 {
+            self.phase += 1.0;
+        }
+        if self.flash > 0 {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a frame's fade of a few greys, truncated as `__ftol` does"
+            )]
+            let fade = (HOLY_SHIELD_FADE * dt) as i32;
+            self.flash = (self.flash - fade).max(0);
+        }
+    }
+
+    /// An arrow turned aside: the whole cylinder lit (`+0x74`'s bit 8).
+    pub fn flash(&mut self) {
+        self.flash = 255;
+    }
+
+    /// Whether its seconds are over.
+    pub fn done(&self) -> bool {
+        self.clock > self.seconds
+    }
+
+    /// The grey, of 1, at the foot of the column pair `pair` (0 to 30): the band's from its head
+    /// at `⌊31·phase⌋` back, each plus the flash, held at 1.
+    pub fn foot(&self, pair: u8) -> f32 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a share of 31 below 31, truncated as `__ftol` does"
+        )]
+        let head = (31.0 * self.phase) as i32;
+        let behind = (i32::from(pair) - head).rem_euclid(31);
+        let band = usize::try_from(behind)
+            .ok()
+            .and_then(|behind| HOLY_SHIELD_BAND.get(behind))
+            .copied()
+            .unwrap_or(0);
+        grey(band + self.flash)
+    }
+
+    /// The grey, of 1, at its columns' tops: its flash's.
+    pub fn top(&self) -> f32 {
+        grey(self.flash)
+    }
+
+    /// The angle of its ground's arc, turning with its band (`2π·phase + π − 0.1`).
+    pub fn ground_angle(&self) -> f32 {
+        std::f32::consts::TAU * self.phase + std::f32::consts::PI - 0.1
+    }
+}
+
+/// A grey of 255 as a share, held at 1.
+fn grey(value: i32) -> f32 {
+    f32::from(u8::try_from(value.clamp(0, 255)).unwrap_or(255)) / 255.0
+}
+
+/// The shield wall's height, the `v` at its top, its colour (opaque (255, 128, 128)), its
+/// textures (the two walls' gradients and the glows'), its glows' half side and their corners'
+/// colours from (−, −) round by (−, +), (+, −) to (+, +), with their textures' points.
+pub const SHIELD_WALL_HEIGHT: f32 = 70.0;
+pub const SHIELD_WALL_TOP_V: f32 = 0.02;
+pub const SHIELD_WALL_COLOUR: [f32; 4] = [1.0, 128.0 / 255.0, 128.0 / 255.0, 1.0];
+pub const SHIELD_WALL_TEXTURES: [&str; 3] = [
+    "RUNESHIELD_GRADIENT",
+    "RUNESHIELD_GRADIENT2",
+    "PARTICLE_GLOW01",
+];
+pub const SHIELD_WALL_GLOW: f32 = 10.0;
+pub const SHIELD_WALL_GLOW_CORNERS: [([f32; 2], [f32; 2], [f32; 4]); 4] = [
+    (
+        [-1.0, -1.0],
+        [0.0, 1.0],
+        [1.0, 128.0 / 255.0, 128.0 / 255.0, 1.0],
+    ),
+    (
+        [-1.0, 1.0],
+        [0.0, 0.0],
+        [1.0, 64.0 / 255.0, 128.0 / 255.0, 1.0],
+    ),
+    (
+        [1.0, -1.0],
+        [1.0, 1.0],
+        [1.0, 128.0 / 255.0, 64.0 / 255.0, 1.0],
+    ),
+    (
+        [1.0, 1.0],
+        [1.0, 0.0],
+        [1.0, 64.0 / 255.0, 64.0 / 255.0, 1.0],
+    ),
+];
+
+/// How fast the shield wall is built and unbuilt, in columns a second, and how fast its flash
+/// falls, a second.
+const SHIELD_WALL_BUILD: f32 = 30.0;
+const SHIELD_WALL_FADE: f32 = 0.75;
+
+/// The shield wall (834, `cParticleSystem_magicshield`; its start `0x78B040`, its run
+/// `0x78AAF0`, its draw `0x78AC00`): two red-tinted walls about its bearer, 35 across, built
+/// column by column counterclockwise on the screen from the front over a second, a red glow at
+/// each built column's foot; they stand bobbing between 56 and 84 high out of step with each
+/// other, a spell or an arrow turned aside doubling their height at once, which falls back over
+/// 1.33 s; past its seconds they are unbuilt the other way over a second. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShieldWall {
+    clock: f32,
+    seconds: f32,
+    build: f32,
+    flash: f32,
+    stage: u8,
+}
+
+impl ShieldWall {
+    /// A shield wall of `seconds`, its spell's value 0 at its level.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            build: 0.0,
+            flash: 0.0,
+            stage: 0,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock; built at 30 columns a second up to 30, then held, its
+    /// flash falling by 0.75 a second, until its seconds; then unbuilt at 30 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.stage {
+            0 => {
+                self.build += SHIELD_WALL_BUILD * dt;
+                if self.build > f32::from(SHIELD_COLUMNS) {
+                    self.build = f32::from(SHIELD_COLUMNS);
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                if self.clock > self.seconds {
+                    self.stage = 2;
+                }
+                if self.flash > 0.0 {
+                    self.flash -= SHIELD_WALL_FADE * dt;
+                }
+            }
+            _ => {
+                self.build = (self.build - SHIELD_WALL_BUILD * dt).max(0.0);
+            }
+        }
+    }
+
+    /// An arrow or a spell turned aside: the walls' height doubled (`+0x74`'s bit 8).
+    pub fn flash(&mut self) {
+        self.flash = 1.0;
+    }
+
+    /// Whether it is unbuilt after its seconds.
+    pub fn done(&self) -> bool {
+        self.stage == 2 && self.build <= 0.0
+    }
+
+    /// How many of its columns stand, from the front.
+    pub fn columns(&self) -> u8 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a count of columns from 0 to 30, truncated as `__ftol` does"
+        )]
+        let columns = self.build as u8;
+        columns.min(SHIELD_COLUMNS)
+    }
+
+    /// The scale of its glows, breathing between 1.7 and 2.3 (`2 + 0.3 cos t`).
+    pub fn glow_scale(&self) -> f32 {
+        2.0 + 0.3 * self.clock.cos()
+    }
+
+    /// The two walls' heights' factors, bobbing out of step, plus the flash
+    /// (`1 + 0.2 cos 3t + f`, `1 + 0.2 sin 2.6t + f`).
+    pub fn heights(&self) -> [f32; 2] {
+        [
+            1.0 + 0.2 * (3.0 * self.clock).cos() + self.flash,
+            1.0 + 0.2 * (2.6 * self.clock).sin() + self.flash,
+        ]
+    }
+}
+
+/// The two regenerations' sights: the mana's spring's (835, `cParticleSystem_manaregen`, its
+/// draw `0x78B230`) and the regeneration's (836, `cParticleSystem_hpregen`, `0x78B680`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Regen {
+    Mana,
+    Health,
+}
+
+/// The regenerations' symbol's half side, their glows' texture, and the glows' half sides and
+/// heights over their bearer's root.
+pub const REGEN_SYMBOL: f32 = 40.0;
+pub const REGEN_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const REGEN_GLOWS: [[f32; 2]; 5] = [
+    [100.0, 0.0],
+    [90.0, 3.0],
+    [80.0, 6.0],
+    [70.0, 9.0],
+    [60.0, 12.0],
+];
+
+impl Regen {
+    /// Its symbol's texture.
+    pub fn texture(self) -> &'static str {
+        match self {
+            Self::Mana => "FX_MANAREGEN",
+            Self::Health => "FX_HPREGEN",
+        }
+    }
+
+    /// Its glows' colour: a pale blue (143, 143, 255) or a red (255, 79, 79), at the alpha 64.
+    pub fn glow_colour(self) -> [f32; 4] {
+        match self {
+            Self::Mana => [143.0 / 255.0, 143.0 / 255.0, 1.0, 64.0 / 255.0],
+            Self::Health => [1.0, 79.0 / 255.0, 79.0 / 255.0, 64.0 / 255.0],
+        }
+    }
+
+    /// Its symbol's angle at `t` seconds: turning clockwise on the screen for the mana's spring,
+    /// counterclockwise for the regeneration, half a radian a second (`∓0.5·t`).
+    pub fn angle(self, t: f32) -> f32 {
+        match self {
+            Self::Mana => -0.5 * t,
+            Self::Health => 0.5 * t,
+        }
+    }
+}
+
 impl Rune {
     /// A rune of `seconds`.
     pub fn new(seconds: f32) -> Self {
@@ -11719,6 +12003,93 @@ mod tests {
         assert_eq!(StrikeKind::StoneSkin.colour(true)[1], 128.0 / 255.0);
         assert_eq!(StrikeKind::StoneSkin.colour(false), [1.0; 4]);
         assert_eq!(StrikeKind::Quickening.glow_colour(true)[2], 1.0);
+    }
+
+    #[test]
+    fn the_holy_shields_band_goes_round_and_an_arrow_lights_it_whole() {
+        let mut shield = HolyShield::new(45.0);
+        // At the phase 0 the band's head is the column pair 0, its tail behind it to the pair 7.
+        assert_eq!(shield.foot(0), 1.0);
+        assert_eq!(shield.foot(1), 223.0 / 255.0);
+        assert_eq!(shield.foot(7), 31.0 / 255.0);
+        assert_eq!(shield.foot(8), 0.0);
+        assert_eq!(shield.foot(30), 0.0);
+        assert_eq!(shield.top(), 0.0);
+        // A quarter second on, the phase down to 0.875, the head at the pair 27, the band
+        // wrapping past the pair 30 onto 0 to 3.
+        for _ in 0..25 {
+            shield.update(0.01);
+        }
+        assert!((shield.phase - 0.875).abs() < 1e-4, "{}", shield.phase);
+        assert_eq!(shield.foot(27), 1.0);
+        assert_eq!(shield.foot(30), 159.0 / 255.0);
+        assert_eq!(shield.foot(3), 31.0 / 255.0);
+        assert_eq!(shield.foot(4), 0.0);
+        // Its ground's arc under the band's head.
+        let angle = shield.ground_angle();
+        assert!(
+            (angle - (std::f32::consts::TAU * 0.875 + std::f32::consts::PI - 0.1)).abs() < 1e-3
+        );
+        // An arrow turned aside lights every column whole, fading by 4 a frame of 0.01 s.
+        shield.flash();
+        assert_eq!(shield.foot(10), 1.0);
+        assert_eq!(shield.top(), 1.0);
+        shield.update(0.01);
+        assert_eq!(shield.top(), 251.0 / 255.0);
+        for _ in 0..70 {
+            shield.update(0.01);
+        }
+        assert_eq!(shield.top(), 0.0);
+        // Its seconds over, it goes at once.
+        assert!(!shield.done());
+        for _ in 0..4500 {
+            shield.update(0.01);
+        }
+        assert!(shield.done());
+    }
+
+    #[test]
+    fn the_shield_wall_is_built_in_a_second_and_unbuilt_after_its_seconds() {
+        let mut wall = ShieldWall::new(3.0);
+        assert_eq!(wall.columns(), 0);
+        for _ in 0..50 {
+            wall.update(0.01);
+        }
+        assert_eq!(wall.columns(), 15);
+        for _ in 0..60 {
+            wall.update(0.01);
+        }
+        assert_eq!(wall.columns(), 30);
+        // Standing, bobbing about its height; a turned arrow doubles it, falling back.
+        let [a, b] = wall.heights();
+        assert!(
+            (0.8..=1.2).contains(&a) && (0.8..=1.2).contains(&b),
+            "{a} {b}"
+        );
+        wall.flash();
+        assert!(wall.heights()[0] > 1.7);
+        for _ in 0..140 {
+            wall.update(0.01);
+        }
+        assert!(wall.heights()[0] < 1.3, "{:?}", wall.heights());
+        assert!((1.7..=2.3).contains(&wall.glow_scale()));
+        // Past its seconds, unbuilt over a second, then gone.
+        for _ in 0..100 {
+            wall.update(0.01);
+        }
+        assert!(wall.columns() < 30 && !wall.done());
+        for _ in 0..110 {
+            wall.update(0.01);
+        }
+        assert!(wall.done());
+        assert_eq!(wall.columns(), 0);
+    }
+
+    #[test]
+    fn the_regenerations_symbols_turn_their_ways() {
+        assert!(Regen::Mana.angle(2.0) < 0.0 && Regen::Health.angle(2.0) > 0.0);
+        assert_eq!(Regen::Mana.texture(), "FX_MANAREGEN");
+        assert_eq!(Regen::Health.glow_colour()[3], 64.0 / 255.0);
     }
 
     #[test]

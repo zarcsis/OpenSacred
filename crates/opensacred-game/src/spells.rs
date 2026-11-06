@@ -15,7 +15,7 @@
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
-use opensacred_rules::particles::StrikeKind;
+use opensacred_rules::particles::{Regen, StrikeKind};
 use opensacred_rules::spells::{
     self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIRE_SKIN, FIREBALL, HEALING, HOLY_SHIELD,
     IRRITATION, LIGHTNING, QUICKENING, REIKI, SHIELD_TIME, SHIELD_WALL, SPRING, STONE_SKIN,
@@ -1400,6 +1400,18 @@ fn act(
             }
             None => {}
         }
+        // The shields' and the regenerations' sights about their bearer for the spell's time.
+        let sight = match act.spell {
+            HOLY_SHIELD => Some(crate::shields::Kind::Holy),
+            SHIELD_WALL => Some(crate::shields::Kind::Wall),
+            SPRING => Some(crate::shields::Kind::Regen(Regen::Mana)),
+            REIKI => Some(crate::shields::Kind::Regen(Regen::Health)),
+            _ => None,
+        };
+        if let Some(kind) = sight {
+            let (_, seconds) = spells::lasting(record, act.level);
+            crate::shields::show(&mut commands, kind, act.target, seconds);
+        }
         match act.spell {
             FIREBALL => {
                 // For its target's place, or the point where it is gone (`0x522480`).
@@ -2226,7 +2238,7 @@ fn act(
     }
 }
 
-/// The sound of the object of the spell `spell` that the game does not draw, and whether it loops
+/// The sound of the object of the spell `spell` whose sight `shields` draws, and whether it loops
 /// (docs/re/sound.md, "Spells and arts"): the holy shield's 819 (`0x785DE0`) loops
 /// `SERA_LICHTSCHILD_LOOP` (2040), the shield wall's 834 (`0x78B040`) `MAGE_MAGIESCHILD_LOOP`
 /// (2022) and the mana's spring's 835 (`0x78B4B0`) 2028 from their starts while they live, and
