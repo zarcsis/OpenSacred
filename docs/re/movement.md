@@ -146,6 +146,14 @@ Read 2026-11-04 (#1346, **confirmed** by code), the moving action's sub-states (
 - **Without a queue** nothing sets the far target again, so a walk toward a target beyond the window ends at its first leg (**confirmed** by code, not seen); a queue's walk sets it at each tick (docs/re/netscript.md, "The anim mode and the creatures' queues"), so that the first test above fires at every tick and the leg moves on with the walker, never reached: the searches at every tick of #1344.
 - `0x4F7710` gives no way, at an order, to a creature of an id above 16 that is neither the local player's follower nor owned and whose own cell fails `0x4EBCA0`; stops one of `+0x1F4 & 0x408` (the townsfolk's modes 8 and `0x400`) sent beyond 1,300, no player's follower, with no way (`0x54E6D0(1, 0)`); and gives the two points to one already in the target's cell on its floor.
 
+**Seen** 2026-11-06 with the driver of #448 (#2014), each call of `0x4F7710` traced with its walker and its caller, the order's (returning to `0x4F539E`) or the search again's (`0x4F642B`):
+
+- A click on open ground whose line is clear makes no search at all: the hero sent 18 cells east from 3252,2508 ran straight, neither call reached (the straight mode, which draws its line again at every tick).
+- Sent from 5934,404 to 5946,404 across the barrel of 5938,404, the hero searched at the order and again at 0.32, 0.65, 0.87, 1.22, 1.32, 1.63 and 1.95 s, about once a cell of its run (0.1 to 0.35 s apart, at the ticks of the world), not every half second: the test of its first point (the fourth above) fires as soon as the walker has passed the place it searched from.
+- The monsters about it (the types 274 to 278 of 92,6) searched again 0.42 to 0.65 s apart while they walked, about once a cell at their pace, and seconds apart between their walks, not every two and a half seconds.
+- The hero's way round the barrel, 5935,404, 5936,405 along the row 405 to 5942,405, then 5943,404 to 5944,403, the game's alike to a cell (5936,405 to 5941,405, 5942,404, 5943,403 to 5945,403): on open ground the search's four neighbours and its costs gave the same cells as the game's fewest steps of eight here.
+- Not seen: the first leg's stop of a walk with no queue beyond 25 cells, which no click of the original's 1,024 × 768 at the zoom 2 reaches (21 cells along an axis at the most).
+
 ### The chapel's west exit
 
 Why the Seraphim's `annehmen2003` stood at the chapel's west exit (#1344; read 2026-11-04 for #1346: each step **confirmed** by code, the ways by the scratch model on the world's files, the outcome seen):
