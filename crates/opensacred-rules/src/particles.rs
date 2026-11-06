@@ -8125,6 +8125,191 @@ impl GrenadeImpact {
     }
 }
 
+/// The burning light's texture (816, `cParticleSystem_burninglight`, its constructor `0x77F5C0`)
+/// and its particles at most.
+pub const BURNING_TEXTURE: &str = "PARTICLE_SPARK06";
+const BURNING_COUNT: usize = 200;
+/// The seconds its sparks burst on a knocked creature, a stunned one's, and the least where none
+/// are given (the event's `[1]`, 0 making 0.5 s).
+pub const BURNING_KNOCKED: f32 = 3.0;
+const BURNING_LEAST: f32 = 0.5;
+
+/// The burning light about a held creature (816, `FX_BURNINGLIGHT`, its start `0x77FA60`, run
+/// `0x77F6B0` and draw `0x77F840`; #1092): the Seraphim's irritation (18), every knock-back and the
+/// Dwarf's and the Gladiator's stuns. Until its time, now and then (every 0.01 to 0.2 s) 30 sparks
+/// burst together at a point within the creature's half size across and 10 up and down of its
+/// neck, falling (a buoyancy of 30), of the size 4 ± 2 shrinking by 2 a second, turned at random,
+/// flying ± 17 on each axis, living 1.02 s, left in the world; added by their alpha from a pale
+/// blue-white to black; it ends with its last spark.
+#[derive(Clone, Debug)]
+pub struct BurningLight {
+    pub system: System,
+    clock: f32,
+    timer: f32,
+    seconds: f32,
+    spread: f32,
+}
+
+impl BurningLight {
+    /// A light of `seconds` (0 making 0.5) about a creature of the size `size` (its type's, 50 where
+    /// it has none).
+    pub fn new(seconds: f32, size: f32) -> Self {
+        let size = if size > 0.0 { size } else { 50.0 };
+        Self {
+            system: System::new(BURNING_COUNT),
+            clock: 0.0,
+            timer: 0.0,
+            seconds: if seconds > 0.0 {
+                seconds
+            } else {
+                BURNING_LEAST
+            },
+            spread: size / 2.0,
+        }
+    }
+
+    /// Its layer: the life −250 and the size −2 a second.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -250.0,
+            size: -2.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its ramp: from (0.7, 0.7, 1) to black over its life, opaque.
+    pub fn ramp() -> Ramp {
+        Ramp::new([0.7, 0.7, 1.0, 1.0], &[([0.0, 0.0, 0.0, 1.0], 256)])
+    }
+
+    /// A run of `dt` seconds, none of a frame longer than a second, its creature's neck at `at` in
+    /// its frame: until its time each burst's 30 sparks at one point about it, its rolls the next
+    /// timer's, then the point's height, its `y` and its `x`.
+    pub fn update(&mut self, dt: f32, at: [f32; 3], dice: &mut impl Dice) {
+        if dt > 1.0 {
+            return;
+        }
+        self.clock += dt;
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        self.timer -= dt;
+        if self.clock >= self.seconds || self.timer >= 0.0 {
+            return;
+        }
+        self.timer = 0.01 + 0.19 * share(dice);
+        let z = 20.0 * share(dice) - 10.0;
+        let y = 2.0 * self.spread * share(dice) - self.spread;
+        let x = 2.0 * self.spread * share(dice) - self.spread;
+        let block = Block {
+            buoyancy: spread(30.0, 0.0),
+            size: spread(4.0, 2.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [17.0; 3]),
+            ..Block::default()
+        };
+        for _ in 0..30 {
+            if self.system.particles.len() >= BURNING_COUNT {
+                break;
+            }
+            let mut spark = born(&block, 0, dice);
+            spark.place = [at[0] + x, at[1] + y, at[2] + z];
+            self.system.particles.push(spark);
+        }
+    }
+
+    /// Whether it ended: its time past and its last spark gone.
+    pub fn done(&self) -> bool {
+        self.clock >= self.seconds && self.system.particles.is_empty()
+    }
+}
+
+/// The holy conversion's texture (806, `cParticleSystem_holyconvert`, its constructor `0x7827D0`),
+/// its glows, and the three among them that a larger grey glow doubles.
+pub const CONVERSION_TEXTURE: &str = "PARTICLE_GLOW03";
+const CONVERSION_GLOWS: u16 = 40;
+const CONVERSION_GREYS: [u16; 3] = [10, 20, 30];
+
+/// A glow of the holy conversion: its place in the frame of its creature's head (the head bone's
+/// axes), its half side and its colour, added whole.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConversionGlow {
+    pub place: [f32; 3],
+    pub half: f32,
+    pub colour: [f32; 4],
+}
+
+/// The holy conversion's halo (806, `FX_HOLYCONVERT`, its start `0x782EF0`, run `0x782A60` and
+/// draw `0x782AD0`; #1092) at a converted creature's head: forty small blue-violet glows on a
+/// ring of 5 about a point 9.6 along the head bone's `x`, three of them doubled by a large grey
+/// one; after its time it swells to eleven times its size and fades over a second.
+#[derive(Clone, Debug)]
+pub struct HolyConversion {
+    clock: f32,
+    seconds: f32,
+    scale: f32,
+    fade: f32,
+}
+
+impl HolyConversion {
+    /// A halo of `seconds`.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            scale: 1.0,
+            fade: 1.0,
+        }
+    }
+
+    /// A run of `dt` seconds: past its time it swells by 10 a second and fades by 1.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock > self.seconds {
+            self.scale += 10.0 * dt;
+            self.fade = (self.fade - dt).max(0.0);
+        }
+    }
+
+    /// Whether it ended, faded.
+    pub fn done(&self) -> bool {
+        self.clock > self.seconds && self.fade <= 0.0
+    }
+
+    /// Its glows: each of the forty at `a = 2πi/40` at `(10 − 0.2·(5 cos a + 2), 5 cos a + 2,
+    /// 5 sin a)` in the head's frame, a small one of its scale in `(100, 100, 255)` times its fade,
+    /// and at the tenth, the twentieth and the thirtieth a large one of eight times its scale in a
+    /// grey of 64 times its fade.
+    pub fn glows(&self) -> Vec<ConversionGlow> {
+        let fade = self.fade;
+        let small = [100.0 / 255.0 * fade, 100.0 / 255.0 * fade, fade, 1.0];
+        let grey = [
+            64.0 / 255.0 * fade,
+            64.0 / 255.0 * fade,
+            64.0 / 255.0 * fade,
+            1.0,
+        ];
+        let mut glows = Vec::new();
+        for i in 0..CONVERSION_GLOWS {
+            let a = std::f32::consts::TAU * f32::from(i) / f32::from(CONVERSION_GLOWS);
+            let ring = 5.0 * a.cos() + 2.0;
+            let place = [10.0 - 0.2 * ring, ring, 5.0 * a.sin()];
+            glows.push(ConversionGlow {
+                place,
+                half: self.scale,
+                colour: small,
+            });
+            if CONVERSION_GREYS.contains(&i) {
+                glows.push(ConversionGlow {
+                    place,
+                    half: 8.0 * self.scale,
+                    colour: grey,
+                });
+            }
+        }
+        glows
+    }
+}
+
 /// The thrown ball's model and its glows' texture (867, `0x79E630`), and its particles.
 pub const BALL_MODEL: &str = "BOTTLE01.GRN";
 pub const BALL_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -11362,6 +11547,36 @@ mod tests {
         let end = f32::from(u16::try_from(steps).unwrap_or(0)) * 0.01;
         assert!((13.9..=14.1).contains(&end), "{end}");
         assert!(impact.crater < 2);
+    }
+
+    #[test]
+    fn a_burning_light_bursts_about_its_creature_till_its_time_and_a_halo_swells_away() {
+        let mut dice = Rng::of(4, 4, 1);
+        let mut light = BurningLight::new(BURNING_KNOCKED, 25.0);
+        let mut most = 0;
+        let mut steps = 0_u32;
+        while !light.done() && steps < 1000 {
+            light.update(0.02, [0.0, 0.0, 50.0], &mut dice);
+            most = most.max(light.system.particles.len());
+            steps += 1;
+        }
+        // Bursts of 30 till 3 s, their last sparks a second after.
+        let end = f32::from(u16::try_from(steps).unwrap_or(0)) * 0.02;
+        assert!((3.0..=4.1).contains(&end), "{end}");
+        assert!((60..=200).contains(&most), "{most}");
+        assert_eq!(BurningLight::new(0.0, 0.0).seconds, 0.5);
+        let mut halo = HolyConversion::new(2.0);
+        let glows = halo.glows();
+        assert_eq!(glows.len(), 43);
+        assert!(glows.iter().all(|glow| (glow.place[0] - 9.6).abs() <= 1.01));
+        for _ in 0..100 {
+            halo.update(0.02);
+        }
+        assert!(!halo.done());
+        for _ in 0..60 {
+            halo.update(0.02);
+        }
+        assert!(halo.done());
     }
 
     #[test]

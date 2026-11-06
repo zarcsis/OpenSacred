@@ -2070,6 +2070,14 @@ fn act(
                     experience.level,
                     health.level,
                 ));
+                // Its sight for the hold's seconds untruncated (816, 806; `holding_sights`).
+                let seconds =
+                    spells::holding_sight(record, act.level, experience.level, health.level);
+                if act.spell == IRRITATION {
+                    crate::holding_sights::burn(&mut commands, act.target, seconds);
+                } else {
+                    crate::holding_sights::convert(&mut commands, act.target, seconds);
+                }
             }
             CRUSADERS_STRENGTH => {
                 commands.entity(act.target).insert(Shielding {

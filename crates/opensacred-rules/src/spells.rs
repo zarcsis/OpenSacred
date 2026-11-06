@@ -851,6 +851,19 @@ pub fn holy_shield(spell: &Spell, level: u32) -> (Effect, f32) {
     (effect, to_f32(value(spell, 0, level)))
 }
 
+/// How long the sight of the holding spell `spell` shows on its target of the level `target`, cast
+/// at the level `level` by a caster of the level `caster`: the value 0 at its level times the
+/// irritation's factor of [`holding`], untruncated and not scaled by `5L/M` (816's and 806's
+/// starts, `0x77FA60`, `0x782EF0`).
+pub fn holding_sight(spell: &Spell, level: u32, caster: u32, target: u32) -> f32 {
+    let factor = if spell.id == IRRITATION && caster < target {
+        1.0 / to_f32(target - caster)
+    } else {
+        1.0
+    };
+    to_f32(value(spell, 0, level)) * factor
+}
+
 /// What the holding spell `spell` gives its target of the level `target`, cast at the level `level`
 /// by a caster of the level `caster` (the action 7, `0x5B5BB3` and `0x5B5EE2`): the effect
 /// [`IRRITATED`] for the irritation, [`CONVERTED`] for the conversion, of the whole value the

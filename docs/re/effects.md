@@ -1697,6 +1697,29 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 **Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (#2162).
 The impact 1020 follows since #2160 ("The mortar's impact").
 
+## The burning light and the holy conversion
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The burning light | 816 `FX_BURNINGLIGHT` | `cParticleSystem_burninglight` (`0x897E64`) | `0x77F5C0`, `0x77FA60`, `0x77F6B0`, `0x77F840` |
+| The holy conversion | 806 `FX_HOLYCONVERT` | `cParticleSystem_holyconvert` (`0x897F20`) | `0x7827D0`, `0x782EF0`, `0x782A60`, `0x782AD0` |
+
+- The burning light (200 particles, `PARTICLE_SPARK06`, no light): the FX event `0x2B` follows its creature at its neck (3), else its root.
+  Its makers: the Seraphim's irritation (18) at the act, for the record's value 0 times its factor (docs/re/arts.md); every knock-back, the creature's event 3 (`0x531BB6`), for 3 s; the Dwarf's 1083 on its held target, its flyer's blows, the Gladiator's 1003 at each creature it stuns, the stun of 862 (0.5 s) and the laser stare of the types 203, 351 and 352.
+  Its start: its spread the half of its creature's size (`items.pak +0x14`, 50 for none); its seconds, at least 0.5; for the irritation its action 7, the hold.
+  Its run, skipped for a frame longer than a second: until its seconds, each time its timer of 0.01 to 0.2 s runs out, 30 sparks burst together at a point within its spread across and 10 up and down of its place, falling (a buoyancy of 30), of the size 4 ± 2 shrinking by 2 a second, turned at random, flying ± 17 on each axis, living 1.02 s, left in the world; it ends with its last spark.
+  Its draw: the sparks turned and added by their alpha, from (0.7, 0.7, 1) to black over their life, untinted.
+- The holy conversion (40 particles, `PARTICLE_GLOW03`; `GLOW01` loaded and never drawn; no light): the Seraphim's conversion (19) alone, at a target of no big type; its FX event `0x25` follows its creature at its head (20), standing there each frame with the bone's turn.
+  Its start: its seconds the record's value 0, its action 7, the hold; its forty glows at `a = 2πi/40`, at `(10 − 0.2·(5 cos a + 2), 5 cos a + 2, 5 sin a)` in the head bone's axes, a ring of 5 about a point 9.6 along the bone's `x`, over the head.
+  Its run: past its seconds its scale grows by 10 a second and its fade falls by 1; it ends faded.
+  Its draw, unlit, added whole, untinted: at each glow a quad facing the camera of the half side of its scale in (100, 100, 255) times its fade, and at the tenth, the twentieth and the thirtieth one of eight times its scale in a grey of 64 times its fade: a halo over the creature's head.
+
+`opensacred-game` draws them since #1092 (`holding_sights`, `opensacred_rules::particles::{BurningLight, HolyConversion}`, `spells::holding_sight`): the irritation's light and the conversion's halo as `spells` holds their target, and the light on every creature that a blow knocks back (`making::Knocked` inserted), for 3 s; the halo's offset taken in the head bone's glTF axes, the original's `y` its `z`.
+**Seen** 2026-11-06 beside the original: the irritation's bursts of white and pale blue sparks about the goblin, and the conversion's white halo over its head, alike in both, the game's halo a little bluer.
+Not followed: the Dwarf's 1083's and the Gladiator's 1003's own lights, the stun of 862's and the lasers' stares.
+
 ## The mortar's impact
 
 Read 2026-11-06 for #2160 in Ghidra (**confirmed** by code unless marked).
