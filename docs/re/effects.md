@@ -822,6 +822,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
   The game's lava looked the brighter of the two in the frames, its pulse of the same grey (not measured apart from the flames in front of it).
   Its grey was then taken in linear light, which the models' material encodes for the frame, so that a grey of 0.5 added about 0.73 of the texture and one of 0.25 about 0.54; and the texture's smaller levels averaged its pattern out.
   Since #2169 the skins' grey multiplies the texels' values in the frame, as the device's modulation by the vertices' colour does (`fx::linear`), and their textures are sampled at their one level, linearly, as `0x40D310` asks (its state flag `0x800`, `0x643470`).
+  Since #2172 the copies are drawn after the night's pass (`iso::UNTINTED`): `0x40D310` draws unlit in the grey alone, which no light of the night reaches, as the big demons' pulse showed beside the original (docs/re/drawing.md, "The models' effects").
 
 ## The gust
 

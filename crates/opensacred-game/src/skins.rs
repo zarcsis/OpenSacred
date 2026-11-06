@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling};
+use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling, RenderLayers};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::Affine2;
 use bevy::mesh::MeshTag;
@@ -253,11 +253,14 @@ fn dress(
                 let Ok((mesh, _, skinned, tag, dynamic, unculled)) = meshes.get(entity) else {
                     continue;
                 };
+                // After the night's pass, which leaves it as it is: the original adds it unlit in
+                // its own grey, which no night's light darkens (`0x40D310`; #2172).
                 let mut copy = commands.spawn((
                     Mesh3d(mesh.0.clone()),
                     MeshMaterial3d(material.clone()),
                     tag.clone(),
                     ChildOf(entity),
+                    RenderLayers::layer(crate::iso::UNTINTED),
                 ));
                 if let Some(skinned) = skinned {
                     copy.insert(skinned.clone());
