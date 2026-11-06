@@ -87,6 +87,7 @@ mod fx_loops;
 mod game;
 mod glance;
 mod glitter;
+mod gun_fires;
 mod guns;
 mod held;
 mod hell_disks;
@@ -510,6 +511,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         glance::GlancePlugin,
         glitter::GlitterPlugin,
     ))
+    .add_plugins(gun_fires::GunFiresPlugin)
     .add_plugins((
         guns::GunsPlugin,
         hell_disks::HellDisksPlugin,

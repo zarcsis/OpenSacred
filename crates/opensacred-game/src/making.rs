@@ -562,13 +562,14 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    (nearest, heights, mut fires, mut sparks, worn, mut rings): (
+    (nearest, heights, mut fires, mut sparks, worn, mut rings, mut impacts): (
         Res<crate::crowd::Nearest>,
         Res<crate::terrain::Heights>,
         MessageWriter<crate::sfx::Gunfire>,
         MessageWriter<Spark>,
         Worn,
         MessageWriter<crate::poison_rings::Made>,
+        MessageWriter<crate::gun_fires::Impact>,
     ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
@@ -1796,9 +1797,23 @@ fn make(
                             }
                             reach = arts::CANNON_STEP * to_f32(step);
                         }
-                        let struck = hostile_near(from, from + direction * reach);
+                        let far = from + direction * reach;
+                        let struck = hostile_near(from, far);
                         info!("making: {} shoots {} creatures", making.art, struck.len());
                         for (entity, mind) in struck {
+                            // Its impact at the creature along the line's far end less it
+                            // (`0x517A10`, `gun_fires`).
+                            let away = creatures
+                                .get(entity)
+                                .ok()
+                                .and_then(|(_, at, _, _)| {
+                                    (far - at.translation().xz()).try_normalize()
+                                })
+                                .unwrap_or(direction);
+                            impacts.write(crate::gun_fires::Impact {
+                                on: entity,
+                                direction: Vec3::new(away.x, 0.0, away.y),
+                            });
                             let damages = arts::cannon_damages(
                                 &record,
                                 playing.level,

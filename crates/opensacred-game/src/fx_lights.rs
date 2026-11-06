@@ -63,6 +63,7 @@ pub(crate) fn light(
             offset,
         },
         Transform::from_translation(place + offset),
+        Visibility::default(),
         DespawnOnExit(crate::game::AppState::InGame),
     )
 }
