@@ -1595,10 +1595,13 @@ fn act(
                     stands,
                 );
                 let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |c| c.cast) / 100.0;
+                let to = Vec3::new(x, heights.standing(x, z, level).unwrap_or(here.y), z);
                 commands.entity(act.caster).insert(Teleporting {
                     to: Vec3::new(x, here.y, z),
                     left: spells::TELEPORT_TIME / rate.max(f32::EPSILON),
                 });
+                // Its sights at his feet and at the arrival on the ground (774, 775, `teleports`).
+                crate::teleports::spawn(&mut commands, act.caster, (here, to), rate);
             }
             spells::WATER_FORM => {
                 let seconds = fight_seconds(spells::value(record, 0, act.level));
