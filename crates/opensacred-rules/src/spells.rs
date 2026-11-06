@@ -356,6 +356,49 @@ pub fn lava_skin_grey(left: f32) -> f32 {
     f32::from(grey) / 255.0
 }
 
+/// The skins that the buffs' strikes of light ask as they give their effects (their action 6's
+/// event `0x109`; docs/re/effects.md, "The light strikes"), for the seconds of their value 0: the
+/// crusader's strength's state 6, its bearer's model drawn again in `FX_CROSS` by its coordinates
+/// times 3 (`0x44AD29`, `0x40CD30`); the stone skin's state 7, drawn again in `FX_MULTITEXGLOW01`
+/// by its coordinates scrolled by 0.05 a second of the real clock along both (`0x44ACAA`,
+/// `0x40CA20`), then its state 8 for 2 s more; and the quickening's state 10, the skin of lava's
+/// draw in `FX_SPEEDUP`.
+pub const CROSS_SKIN_STATE: u8 = 6;
+pub const CROSS_SKIN_TEXTURE: &str = "FX_CROSS";
+pub const CROSS_SKIN_SCALE: f32 = 3.0;
+pub const GLOW_SKIN_STATE: u8 = 7;
+pub const GLOW_SKIN_TEXTURE: &str = "FX_MULTITEXGLOW01";
+pub const GLOW_SKIN_SCROLL: f32 = 0.05;
+pub const SPEED_SKIN_TEXTURE: &str = "FX_SPEEDUP";
+pub const SKIN_BLINK: f32 = 2.0;
+
+/// The grey by which the crusader's crosses are added over their bearer's model at `ms`
+/// milliseconds of the real clock (`0x44AD29`): `50·(1 + sin(0.007·ms))` truncated, of 255, so
+/// that it pulses between none and 100 about every 0.9 s.
+pub fn cross_skin_grey(ms: f64) -> f32 {
+    let grey = (ms * 0.007).sin().mul_add(50.0, 50.0);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a grey of 0 to 100, truncated as `__ftol` does"
+    )]
+    let grey = grey as u8;
+    f32::from(grey) / 255.0
+}
+
+/// Whether a skin that blinks out (the stone skin's state 8, the water form's 3) shows at `left`
+/// seconds still to run of its 2 s: `⌊5·left⌋` odd, so that it comes and goes every 0.2 s
+/// (`0x44A9D0`).
+pub fn skin_shows(left: f32) -> bool {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a count of fifths of a second below 10, truncated as `__ftol` does"
+    )]
+    let fifths = (left * 5.0) as u8;
+    fifths % 2 == 1
+}
+
 /// The Dwarf's spells: the greed, the burrowing, the dwarven armour and the dwarven steel.
 pub const GREED: u16 = 55;
 pub const MINES: u16 = 56;
@@ -1500,5 +1543,17 @@ mod tests {
         let peak = std::f32::consts::FRAC_PI_8;
         assert_eq!(lava_skin_grey(peak), 192.0 / 255.0);
         assert_eq!(lava_skin_grey(3.0 * peak), 64.0 / 255.0);
+    }
+
+    #[test]
+    fn the_crosses_pulse_by_the_real_clock_and_a_skin_blinks_out_every_fifth() {
+        assert_eq!(cross_skin_grey(0.0), 50.0 / 255.0);
+        let peak = std::f64::consts::FRAC_PI_2 / 0.007;
+        assert_eq!(cross_skin_grey(peak), 100.0 / 255.0);
+        assert_eq!(cross_skin_grey(3.0 * peak), 0.0);
+        assert!(skin_shows(1.9));
+        assert!(!skin_shows(1.7));
+        assert!(skin_shows(0.3));
+        assert!(!skin_shows(0.1));
     }
 }

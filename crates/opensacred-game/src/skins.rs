@@ -4,46 +4,76 @@
 //! fire skin's system asks at its start (`0x78BE10`, the action 6) for the action's seconds, its
 //! bearer's model drawn a second time with that texture by the model's own coordinates, unlit,
 //! added to the frame (`ONE`, `ONE`) and its depth not written, in a grey that pulses by the
-//! seconds left (`0x44AD7B`, `0x40D310`; `opensacred_rules::spells::lava_skin_grey`); and the
-//! flesh to stone's skin of stone (#1092; "The flesh to stone"), the state 9 with the texture
-//! `FREEZE_STONE01` that the stone's action 7 asks for its hold's seconds, its model drawn again
-//! with that texture, lit, laid over by its alpha (`0x44AD50`, `0x40D060`), which, the texture
-//! opaque, hides the model under it: here the model's own materials take the stone's texture
-//! while it lasts, and give it back. The items it wears, merged onto its model
-//! (`GrannyWearSequence`), take the skin with it; those it holds in a hand or carries on its back,
-//! objects of their own, keep their looks.
+//! seconds left (`0x44AD7B`, `0x40D310`; `opensacred_rules::spells::lava_skin_grey`), and the
+//! quickening's, the same in `FX_SPEEDUP`; the crusader's strength's crosses (#1092; "The light
+//! strikes"), the state 6, its model drawn again so in `FX_CROSS` by its coordinates times 3, in a
+//! grey that pulses by the real clock (`0x44AD29`, `0x40CD30`); the stone skin's glow, the state
+//! 7, its model drawn again so in `FX_MULTITEXGLOW01` by its coordinates scrolled by the real
+//! clock, white (`0x44ACAA`, `0x40CA20`), then the state 8 for 2 s, the glow and the plain model
+//! in turns every 0.2 s; and the flesh to stone's skin of stone (#1092; "The flesh to stone"), the
+//! state 9 with the texture `FREEZE_STONE01` that the stone's action 7 asks for its hold's
+//! seconds, its model drawn again with that texture, lit, laid over by its alpha (`0x44AD50`,
+//! `0x40D060`), which, the texture opaque, hides the model under it: here the model's own
+//! materials take the stone's texture while it lasts, and give it back. The items it wears,
+//! merged onto its model (`GrannyWearSequence`), take the skin with it; those it holds in a hand or
+//! carries on its back, objects of their own, keep their looks.
 
 use std::collections::HashMap;
 
 use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling};
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::math::Affine2;
 use bevy::mesh::MeshTag;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
-use opensacred_rules::spells::{LAVA_SKIN_TEXTURE, STONED_TEXTURE, lava_skin_grey};
+use opensacred_rules::spells::{
+    CROSS_SKIN_SCALE, CROSS_SKIN_TEXTURE, GLOW_SKIN_SCROLL, GLOW_SKIN_TEXTURE, LAVA_SKIN_TEXTURE,
+    SKIN_BLINK, SPEED_SKIN_TEXTURE, STONED_TEXTURE, cross_skin_grey, lava_skin_grey, skin_shows,
+};
 
 use crate::blended::Layer;
 use crate::frame::{Playing, Unpaused};
 use crate::game::Data;
 use crate::models::{Anchors, ModelMaterial, Pass, in_order};
 
-/// A skin over a creature's model: the fire skin's lava (the state 10) or the stone's (9).
+/// A skin over a creature's model: the fire skin's lava and the quickening's speed (the state
+/// 10), the crusader's strength's crosses (6), the stone skin's glow (7, then 8) or the stone's
+/// (9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Overlay {
     Lava,
+    Speed,
+    Cross,
+    Glow,
     Stone,
+}
+
+impl Overlay {
+    /// The texture its model is drawn in.
+    fn texture(self) -> &'static str {
+        match self {
+            Self::Lava => LAVA_SKIN_TEXTURE,
+            Self::Speed => SPEED_SKIN_TEXTURE,
+            Self::Cross => CROSS_SKIN_TEXTURE,
+            Self::Glow => GLOW_SKIN_TEXTURE,
+            Self::Stone => STONED_TEXTURE,
+        }
+    }
 }
 
 /// An ask for a bearer's skin, of its seconds (`spells`, `stones`).
 #[derive(Component, Clone, Copy)]
 pub(crate) struct Asked(pub Overlay, pub f32);
 
-/// A bearer's skin: its overlay, its seconds left, the lava's material once made, whether its
-/// model is dressed in it, the copies of its model's meshes that draw the lava, or its meshes that
-/// wear the stone, each with the material it wore before.
+/// A bearer's skin: its overlay, its seconds left, whether it blinks out (the stone skin's state
+/// 8), the copies' material once made, whether its model is dressed in it, the copies of its
+/// model's meshes that draw it, or its meshes that wear the stone, each with the material it wore
+/// before.
 #[derive(Component)]
 struct Skin {
     overlay: Overlay,
     left: f32,
+    blinking: bool,
     material: Option<Handle<ModelMaterial>>,
     dressed: bool,
     copies: Vec<Entity>,
@@ -55,6 +85,7 @@ impl Skin {
         Self {
             overlay,
             left,
+            blinking: false,
             material: None,
             dressed: false,
             copies: Vec::new(),
@@ -93,7 +124,10 @@ fn ask(mut commands: Commands, mut asked: Query<(Entity, &Asked, Option<&mut Ski
     for (bearer, &Asked(overlay, seconds), skin) in &mut asked {
         commands.entity(bearer).remove::<Asked>();
         match skin {
-            Some(mut skin) if skin.overlay == overlay => skin.left = seconds,
+            Some(mut skin) if skin.overlay == overlay => {
+                skin.left = seconds;
+                skin.blinking = false;
+            }
             skin => {
                 if let Some(mut skin) = skin {
                     skin.undress(&mut commands);
@@ -104,20 +138,42 @@ fn ask(mut commands: Commands, mut asked: Query<(Entity, &Asked, Option<&mut Ski
     }
 }
 
-/// The texture of `name`, loaded, where the assets have it.
-fn texture(data: Option<&Data>, server: &AssetServer, name: &str) -> Option<Handle<Image>> {
+/// The texture of `name`, loaded, where the assets have it: the crosses' and the glow's repeated
+/// along both its axes, as their coordinates run past its edges.
+fn texture(
+    data: Option<&Data>,
+    server: &AssetServer,
+    name: &str,
+    repeated: bool,
+) -> Option<Handle<Image>> {
     let path = data.and_then(|data| crate::fx::texture_path(&data.0.assets, name));
-    if path.is_none() {
+    let Some(path) = path else {
         warn!("skins: no texture {name}; the skin is not drawn");
+        return None;
+    };
+    if !repeated {
+        return Some(server.load(path));
     }
-    path.map(|path| server.load(path))
+    Some(
+        server
+            .load_builder()
+            .with_settings(|settings: &mut ImageLoaderSettings| {
+                settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::Repeat,
+                    address_mode_v: ImageAddressMode::Repeat,
+                    ..ImageSamplerDescriptor::linear()
+                });
+            })
+            .load::<Image>(path),
+    )
 }
 
 /// Dresses each bearer's model in its skin once its meshes are converted (`models`): its own
-/// meshes and the items it wears, not those it holds or carries on its back. The lava draws a copy
-/// of each, the same mesh skinned to the same joints, tagged with the same slot, added in the
-/// objects' layer of the blended things; the stone gives each its material with the stone's
-/// texture, lit, a material of the stone for each material the model wears.
+/// meshes and the items it wears, not those it holds or carries on its back. The lava, the speed,
+/// the crosses and the glow draw a copy of each, the same mesh skinned to the same joints, tagged
+/// with the same slot, added in the objects' layer of the blended things; the stone gives each its
+/// material with the stone's texture, lit, a material of the stone for each material the model
+/// wears.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries name their components"
@@ -152,74 +208,74 @@ fn dress(
             continue;
         }
         skin.dressed = true;
-        match skin.overlay {
-            Overlay::Lava => {
-                let left = skin.left;
-                let material = skin
-                    .material
-                    .get_or_insert_with(|| {
-                        let lava = StandardMaterial {
-                            base_color: grey(left),
-                            base_color_texture: texture(
-                                data.as_deref(),
-                                &server,
-                                LAVA_SKIN_TEXTURE,
-                            ),
-                            unlit: true,
-                            ..default()
-                        };
-                        materials.add(in_order(lava, &anchors, Pass::Added(Layer::Objects)))
-                    })
-                    .clone();
-                for entity in own {
-                    let Ok((mesh, _, skinned, tag, dynamic, unculled)) = meshes.get(entity) else {
-                        continue;
-                    };
-                    let mut copy = commands.spawn((
-                        Mesh3d(mesh.0.clone()),
-                        MeshMaterial3d(material.clone()),
-                        tag.clone(),
-                        ChildOf(entity),
-                    ));
-                    if let Some(skinned) = skinned {
-                        copy.insert(skinned.clone());
-                    }
-                    if dynamic {
-                        copy.insert(DynamicSkinnedMeshBounds);
-                    }
-                    if unculled {
-                        copy.insert(NoFrustumCulling);
-                    }
-                    skin.copies.push(copy.id());
-                }
-            }
-            Overlay::Stone => {
-                // Without its texture the skin lasts unseen.
-                let Some(stone) = texture(data.as_deref(), &server, STONED_TEXTURE) else {
+        let overlay = skin.overlay;
+        if overlay == Overlay::Stone {
+            // Without its texture the skin lasts unseen.
+            let Some(stone) = texture(data.as_deref(), &server, STONED_TEXTURE, false) else {
+                continue;
+            };
+            let mut made: HashMap<AssetId<ModelMaterial>, Handle<ModelMaterial>> = HashMap::new();
+            for entity in own {
+                let Ok((_, worn, ..)) = meshes.get(entity) else {
                     continue;
                 };
-                let mut made: HashMap<AssetId<ModelMaterial>, Handle<ModelMaterial>> =
-                    HashMap::new();
-                for entity in own {
-                    let Ok((_, worn, ..)) = meshes.get(entity) else {
-                        continue;
+                let Some(base) = materials.get(&worn.0).cloned() else {
+                    continue;
+                };
+                let material = made
+                    .entry(worn.0.id())
+                    .or_insert_with(|| {
+                        let mut base = base;
+                        base.base.base_color = Color::WHITE;
+                        base.base.base_color_texture = Some(stone.clone());
+                        base.base.unlit = false;
+                        materials.add(base)
+                    })
+                    .clone();
+                skin.swapped.push((entity, worn.0.clone()));
+                commands.entity(entity).insert(MeshMaterial3d(material));
+            }
+        } else {
+            let left = skin.left;
+            let material = skin
+                .material
+                .get_or_insert_with(|| {
+                    let repeated = matches!(overlay, Overlay::Cross | Overlay::Glow);
+                    let added = StandardMaterial {
+                        base_color: grey(overlay, left, 0.0),
+                        base_color_texture: texture(
+                            data.as_deref(),
+                            &server,
+                            overlay.texture(),
+                            repeated,
+                        ),
+                        uv_transform: coordinates(overlay, 0.0),
+                        unlit: true,
+                        ..default()
                     };
-                    let Some(base) = materials.get(&worn.0).cloned() else {
-                        continue;
-                    };
-                    let material = made
-                        .entry(worn.0.id())
-                        .or_insert_with(|| {
-                            let mut base = base;
-                            base.base.base_color = Color::WHITE;
-                            base.base.base_color_texture = Some(stone.clone());
-                            base.base.unlit = false;
-                            materials.add(base)
-                        })
-                        .clone();
-                    skin.swapped.push((entity, worn.0.clone()));
-                    commands.entity(entity).insert(MeshMaterial3d(material));
+                    materials.add(in_order(added, &anchors, Pass::Added(Layer::Objects)))
+                })
+                .clone();
+            for entity in own {
+                let Ok((mesh, _, skinned, tag, dynamic, unculled)) = meshes.get(entity) else {
+                    continue;
+                };
+                let mut copy = commands.spawn((
+                    Mesh3d(mesh.0.clone()),
+                    MeshMaterial3d(material.clone()),
+                    tag.clone(),
+                    ChildOf(entity),
+                ));
+                if let Some(skinned) = skinned {
+                    copy.insert(skinned.clone());
                 }
+                if dynamic {
+                    copy.insert(DynamicSkinnedMeshBounds);
+                }
+                if unculled {
+                    copy.insert(NoFrustumCulling);
+                }
+                skin.copies.push(copy.id());
             }
         }
         debug!(
@@ -231,35 +287,85 @@ fn dress(
     }
 }
 
-/// The lava's grey at `left` seconds still to run, as the frame's raw values.
-fn grey(left: f32) -> Color {
-    let grey = lava_skin_grey(left);
+/// An added skin's grey at `left` seconds still to run and `real` seconds of the real clock, as
+/// the frame's raw values: the lava's and the speed's by the seconds left, the crosses' by the
+/// real clock, the glow white.
+fn grey(overlay: Overlay, left: f32, real: f64) -> Color {
+    let grey = match overlay {
+        Overlay::Lava | Overlay::Speed => lava_skin_grey(left),
+        Overlay::Cross => cross_skin_grey(real * 1000.0),
+        Overlay::Glow | Overlay::Stone => 1.0,
+    };
     Color::linear_rgb(grey, grey, grey)
 }
 
-/// Runs each skin on: its seconds count down (`0x44A520`) and the lava's grey pulses by them; its
-/// seconds over, it is taken off and its bearer is as before.
+/// An added skin's texture coordinates at `real` seconds of the real clock: the crosses' times 3,
+/// the glow's scrolled along both by 0.05 a second.
+fn coordinates(overlay: Overlay, real: f64) -> Affine2 {
+    match overlay {
+        Overlay::Cross => Affine2::from_scale(Vec2::splat(CROSS_SKIN_SCALE)),
+        Overlay::Glow => {
+            let scroll = (real * f64::from(GLOW_SKIN_SCROLL)).fract();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a share of the texture below 1"
+            )]
+            let scroll = scroll as f32;
+            Affine2::from_translation(Vec2::splat(scroll))
+        }
+        Overlay::Lava | Overlay::Speed | Overlay::Stone => Affine2::IDENTITY,
+    }
+}
+
+/// Runs each skin on: its seconds count down (`0x44A520`), the lava's and the speed's grey pulses
+/// by them, the crosses' by the real clock, and the glow scrolls; its seconds over, the glow blinks
+/// for 2 s more (the state 8), then the skin is taken off and its bearer is as before.
 fn run(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, real): (Res<Time>, Res<Time<Real>>),
     mut skins: Query<(Entity, &mut Skin)>,
+    mut visibilities: Query<&mut Visibility>,
     mut materials: ResMut<Assets<ModelMaterial>>,
 ) {
     let dt = time.delta_secs();
+    let now = real.elapsed_secs_f64();
     for (bearer, mut skin) in &mut skins {
         skin.left -= dt;
+        if skin.left < 0.0 && skin.overlay == Overlay::Glow && !skin.blinking {
+            skin.blinking = true;
+            skin.left += SKIN_BLINK;
+        }
         if skin.left < 0.0 {
             skin.undress(&mut commands);
             commands.entity(bearer).remove::<Skin>();
             continue;
         }
-        if skin.overlay == Overlay::Lava
-            && let Some(mut material) = skin
-                .material
-                .as_ref()
-                .and_then(|material| materials.get_mut(material))
+        // Its bearer's model made anew (a quickening's pace, an item worn), its copies went with
+        // its meshes: it is dressed again on the new ones.
+        if skin.copies.iter().any(|&copy| !visibilities.contains(copy)) {
+            skin.undress(&mut commands);
+            skin.dressed = false;
+            continue;
+        }
+        if skin.blinking {
+            let shown = if skin_shows(skin.left) {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            for &copy in &skin.copies {
+                if let Ok(mut visibility) = visibilities.get_mut(copy) {
+                    visibility.set_if_neq(shown);
+                }
+            }
+        }
+        if let Some(mut material) = skin
+            .material
+            .as_ref()
+            .and_then(|material| materials.get_mut(material))
         {
-            material.base.base_color = grey(skin.left);
+            material.base.base_color = grey(skin.overlay, skin.left, now);
+            material.base.uv_transform = coordinates(skin.overlay, now);
         }
     }
 }
