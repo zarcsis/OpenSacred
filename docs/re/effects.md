@@ -1649,7 +1649,30 @@ The Daemon's executor makes the object 1014 at the form's bearer as the form tak
 
 `opensacred-game` draws it since #1092 (`demon_forms`, `opensacred_rules::particles::DemonForm`): `making` makes the look as a form's effects take hold, at the Daemon's `Bip01 Head`; it goes as his form's effects end, a new form's look taking its place.
 **Seen** 2026-11-05 beside the original: the Daemon's fire and energy forms, the comets whirling in their colour about his head and chest in both, his crest of rays over his head.
-Not followed: the crest in the head bone's own plane, which the game faces to the viewer as the original's frames show it from the front (**estimate**); and its size: the original's crest looks about twice as wide as its code's half side of 13 to 26 (**hypothesis**: the head bone's matrix that turns it carries the model's scale).
+Not followed: the crest in the head bone's own plane, which the game faces to the viewer as the original's frames show it from the front (**estimate**); the tongues of flame about his hands in the original's frames are his form's casts' sights ("The casts' sights"), not the crest.
+
+## The casts' sights
+
+Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A cast's sight | 791 `FX_CAST_SPELL` | `cParticleSystem_castSpell` (`0x897BE8`) | `0x776AB0`, `0x7773D0`, `0x776BB0`, `0x776CA0` |
+
+The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for the spells that it names, the Daemon's executor (`0x51B46E`) for 1101 to 1103 and his forms, and the scripts' queued `Partikel` of `n0` −2; each its own object at the caster's place, its FX event 23 (`0x5A496E`) following the caster at its bone (`+0x38`: 21 `Bip01 L Finger3`, 22 `Bip01 R Finger3`, 0 the root, 36 and 37 the feet), its style at the event's `+0x3C`, its clock's rate at the point's `x` (the caster's casts' speed over 100 for the cast, 1 for the Daemon's arts); no seconds.
+- Its constructor (300 particles) loads `PARTICLE_GLOW03`, `GLOW01`, `SPARK06`, `SPARK08`, `LINE01` (never drawn) and `Fx_twirl_rays`; no light of either kind.
+- Its start: its style, 13 instead where the handler marks the system's `+0xA9` (a caster above the id 16 not found, or the event's `+0x28` not 1.0; **hypothesis**: a creature's casts take the style 13 so, as the cast writes the point's `x` alone); its flags `0x200` (`0x40` for the style 22), so that it stands at its bone each frame and leaves its particles where they are born; by its style one layer, one block and one ramp:
+  - the clock's times from which and to which it shows: 0 1.0–4.0, 1 0.7–2.3, 2 0.5–1.2, 3 0.5–2.0, 4 0.3–3.5, 5 1.0–2.9, 6 0.7–2.9, 7 2.0–3.5, 8 and 24 4.2–8.0, 9 and 12 0.1–1.0, 10 0.5–2.3, 11 1.0–2.9, 13 0.5–2.5, 14 to 16 0.2–1.7, 17 to 20 0.2–2.8, 21 0.7–1.7, 22 1.8–10;
+  - its particles: 0 and 1 the life −300 and the size +2, the size 8 drifting by 5 within 2, one every 0.02 s, magenta (0) or blue (1) ramps to black; 2 and 3 the life −150 and −200, rising (−10), the size 4 within 2, every 0.005 s; 4 the life −100, the size 2.5, every 0.015 s, green; 5 to 8 and 24 their own colours about 0x808080, 0x5050E0, 0x505050 and 0x505080 by a channel's spread, dying as they shrink; 9 and 12 the orange (255, 175, 47) or pale cyan (143, 252, 244) glows of a size 10 within 1 shrinking by 16, living 0.36 s, one every 0.045 s; 11 turned sparks of a five-key ramp from green to orange to black to white; 14 and 15 orange and green turned sparks of the size 10 ± 3 and 7 ± 2, the life −80 and the size −7; 16 dark puffs laid over by their alpha; 17 to 21 rising turned sparks of the size 4 ± 2 in the form's colour, green, orange, pale blue, grey-white and pale blue;
+  - the intervals times 1.5 and 2.2 at the detail levels 1 and 0.
+- Its run: its clock by the time times its rate; from its first time its particles age by the real time, and to its second it makes them at its bone; past it it ends with its last; the styles 10, 13 and 22 end past their second time.
+- Its draw, untinted by the night: billboards added whole, `SPARK06` (0 to 4, 14, 15, 17 to 21), `GLOW03` (5 to 9, 12, 24), turned `SPARK08` (11), and `GLOW01` laid over (16); a glow at its bone while it shows, its half side `S·sin(π·(t − A)/(B − A))`: the style 10 green of 35 and 13 blue of 40 (the glow style 7), 17 to 21 of 15 in their colours (the style 8); the style 22 two twirls of `Fx_twirl_rays` flat on the ground at the root in `0xFF804122`, of the half sides `80·(1 − f²)` and `70·(1 − f²)`, turning by `−1.7 t` and `−1.3 t`.
+- The sights by the spell: 3 both hands 3; 5 the left 9 (12 for an undead caster); 6 the left 0; 11 the right 9; 13 both 1; 15 the right 6; 17, 20, 21 and 22 both 8; 18 the right 7; 23 and 43 the left 5; 24 the left 6; 26 the left 1; 29 the left 9; 35 and 41 both 5; 36 both 10; 37 both 11; 39 the left 2; 40 the right 4; 52 both 12; 60 both 14 and the root 22; 61 to 65 and 67 both 14; 66 both 16; 72 both 24; by the Daemon's art: 1101 both 15, 1102 both 14, 1103 the right 21, his forms 1097, 1098, 1099 and 1100 both 20, 18, 17 and 19.
+- So the Mage's fireball pops small orange glows at his left hand as he casts, left along its way; the Daemon's forms raise sparks and a flare of their colour at both his hands; the others alike in their colours.
+
+`opensacred-game` draws them since #1092 (`cast_sights`, `opensacred_rules::particles::{CastSight, cast_sights, art_sights}`) for the hero's own casts and the Daemon's arts as their clips start, each at its bone (`Bip01 L Finger3`, else the hand), its particles left in the world, untinted by the night.
+**Seen** 2026-11-05 beside the original: the Mage's fireball's orange glows at his left hand in both; the Daemon's fire form's orange sparks at his hands, the tongues of flame that the original shows about his raised hands.
+Not followed: the creatures' casts' sights, for the style 13 that their `+0xA9` may give them (**hypothesis** above, for a check in the running original); an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
 ## The arrows' elements
 
