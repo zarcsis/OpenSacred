@@ -44,11 +44,13 @@ pub struct Acts {
 }
 
 /// A spell's effects waiting for its object's clock, the stone skin's or the crusader's
-/// strength's: what is left of it in the world's seconds.
+/// strength's: what is left of it in the world's seconds, and the skin its action 6 asks with
+/// them, for its seconds (`skins`).
 #[derive(Component, Debug, Clone)]
 struct Shielding {
     left: f32,
     effects: Vec<(Effect, f32)>,
+    skin: Option<(crate::skins::Overlay, f32)>,
 }
 
 /// An object that strikes about itself once a [`BEAT`] for its time (`opensacred_rules::spells::
@@ -1188,6 +1190,10 @@ pub(crate) fn skin(
         commands.entity(bearer).insert(Shielding {
             left: SHIELD_TIME / rate.max(f32::EPSILON),
             effects: spells::effects(record, level),
+            skin: Some((
+                crate::skins::Overlay::Glow,
+                fight_seconds(spells::value(record, 0, level)),
+            )),
         });
         crate::light_strikes::strike(commands, StrikeKind::StoneSkin, (bearer, bearer), rate);
         return;
@@ -2040,6 +2046,10 @@ fn act(
                 commands.entity(act.target).insert(Shielding {
                     left: SHIELD_TIME / rate.max(f32::EPSILON),
                     effects: spells::effects(record, act.level),
+                    skin: Some((
+                        crate::skins::Overlay::Speed,
+                        fight_seconds(spells::value(record, 0, act.level)),
+                    )),
                 });
                 // Its strike follows its caster, its object at his place (825, `0x524C8C`).
                 crate::light_strikes::strike(
@@ -2054,6 +2064,7 @@ fn act(
                 commands.entity(act.target).insert(Shielding {
                     left: WALL_TIME,
                     effects: spells::effects(record, act.level),
+                    skin: None,
                 });
             }
             HOLY_SHIELD => given.push(spells::holy_shield(record, act.level)),
@@ -2099,6 +2110,10 @@ fn act(
                 commands.entity(act.target).insert(Shielding {
                     left: STRENGTH_TIME,
                     effects: spells::effects(record, act.level),
+                    skin: Some((
+                        crate::skins::Overlay::Cross,
+                        fight_seconds(spells::value(record, 0, act.level)),
+                    )),
                 });
                 // Its strike follows its target, its object at its caster's place, at the
                 // world's time (818, `0x5244EF`).
@@ -2115,6 +2130,10 @@ fn act(
                 commands.entity(act.target).insert(Shielding {
                     left: SHIELD_TIME / rate.max(f32::EPSILON),
                     effects: spells::effects(record, act.level),
+                    skin: Some((
+                        crate::skins::Overlay::Glow,
+                        fight_seconds(spells::value(record, 0, act.level)),
+                    )),
                 });
                 // Its strike follows its bearer, its object at its place (769, `0x522CDD`).
                 crate::light_strikes::strike(
@@ -3508,6 +3527,12 @@ fn shield(time: Res<Time>, mut commands: Commands, mut shields: Query<(Entity, &
         let given = std::mem::take(&mut shielding.effects);
         commands.entity(bearer).remove::<Shielding>();
         give(&mut commands, bearer, given);
+        // Its overlay with its effects (the event `0x109`).
+        if let Some((overlay, seconds)) = shielding.skin {
+            commands
+                .entity(bearer)
+                .insert(crate::skins::Asked(overlay, seconds));
+        }
     }
 }
 

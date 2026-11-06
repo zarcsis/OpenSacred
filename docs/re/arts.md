@@ -1423,7 +1423,7 @@ Read 2026-10-25 (#672) for the spells of the Mage's template ("The heroes' start
 
 `opensacred-game` makes the three (#873, `opensacred_rules::spells`, `spells`): each is cast on the hero by the right button on him or the console's `arts make`, with the clip of its slot, and acts at its share.
 The healing adds its health to the hero's, its most at most (**hypothesis**: the event 6 of the sub-kind 3 adds it), 67 at level 1 with the magic lore at level 1; the regeneration gives the effects `0x22` and 12 of 1.5 for 72 s at level 1; the stone skin gives the effect `0x22` at once and its three effects 1.6 s over the casts' rate later, 1.33 s at 120, which raise the Mage's `D` from 21.2 to 25.0 and his physical and poison resistances by 65 and 25 before their multipliers.
-What the effect `0x22` does is not read; the stone skin's data 7 is the overlay state 7, its bearer's model glowing in `FX_MULTITEXGLOW01` (docs/re/effects.md, "The light strikes"), not made, and its strike of light is drawn since #1092.
+What the effect `0x22` does is not read; the stone skin's data 7 is the overlay state 7, its bearer's model glowing in `FX_MULTITEXGLOW01` (docs/re/effects.md, "The light strikes"); its strike of light and its glow are drawn since #1092.
 
 #### The Seraphim's spells
 

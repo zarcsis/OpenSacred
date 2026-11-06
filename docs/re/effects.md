@@ -1736,7 +1736,9 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws the strikes since #1092 (`light_strikes`, `opensacred_rules::particles::{LightStrike, StrikeKind, strike_frame}`) as `spells` casts the four spells, the creatures' stone skins on their friends too, their clocks those of the spells' effects (`spells::SHIELD_TIME`, `STRENGTH_TIME`), the light of 200 standing where the object is made.
 **Seen** 2026-11-06 beside the original: the stone skin's and the quickening's bolts and their glows, white and violet, alike in both.
-Not followed: the strikes over all else (their depth test off), whether the light follows its object's creature (**hypothesis**: it stands), and the overlays.
+It draws the overlays since #1092 too (`skins`, `opensacred_rules::spells::{cross_skin_grey, skin_shows}`), asked with the spells' effects as the strikes end: the stone skin's glow and its blink of 2 s, the crusader's strength's crosses and the quickening's speed, each a copy of the bearer's meshes added over them, dressed again on the new meshes where the model is made anew (the hero's is after the quickening; **hypothesis**: by its pace).
+**Seen** 2026-11-06 beside the original: the stone skin's pale glow over the Mage, alike in both; the quickening's blue skin brighter in the game than the original's (#2169).
+Not followed: the strikes over all else (their depth test off), whether the light follows its object's creature (**hypothesis**: it stands), and the water form's overlay (the states 1 and 3).
 
 ## The burning light and the holy conversion
 
