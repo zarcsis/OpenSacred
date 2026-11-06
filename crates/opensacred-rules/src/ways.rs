@@ -1,6 +1,7 @@
 //! The ways and the cells in the way (docs/re/movement.md): the search of the fewest steps over
 //! the walkable cells of a 64 × 64 window (`0x421B90`), on a layer and, through the doors, the
-//! others; the straight line's test of the cells it crosses, and the original's test of a
+//! others, and which changes of floor the search over floor numbers takes (`0x4F8AF0`, [`change`]);
+//! the straight line's test of the cells it crosses, and the original's test of a
 //! straight way by whole cells with its way round a closed cell (`0x4FCC80`); and who stops whose step into a
 //! cell that another creature holds (`0x4F7E10`, "The creatures in the way").
 //! `opensacred-game` (`paths`, `crowd`) keeps the world's points, the cells that the creatures
@@ -115,6 +116,37 @@ fn search<L: Copy + Eq + Hash>(
         }
     }
     None
+}
+
+/// What a way's search over floor numbers makes of a cell where a change of floor lies (an
+/// entrance, an exit, a stair), the walker's floor number `start` and the target's `target`, the
+/// cell at the floor number `from` and the change leading to `to` (`0x4F8AF0` with `0x4F87C0`,
+/// docs/re/movement.md, "The search").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// A cell like the others, at its floor number: the walker and the target are on one floor.
+    Ordinary,
+    /// The change taken: the search goes on from the floor it leads to.
+    Taken,
+    /// Closed: the change leads to the floor it leaves, to the walker's own floor, or away from
+    /// the target's.
+    Closed,
+}
+
+/// [`Change`] of a change of floor from the floor number `from` to `to`, for a walker on the floor
+/// number `start` heading for the target's `target`.
+pub fn change(start: usize, target: usize, from: usize, to: usize) -> Change {
+    if start == target {
+        Change::Ordinary
+    } else if to == from
+        || to == start
+        || (from < target && to < from)
+        || (target < from && from < to)
+    {
+        Change::Closed
+    } else {
+        Change::Taken
+    }
 }
 
 /// How far along an axis a creature's way's search takes its target as it is (`0x4FABE0`).
@@ -707,6 +739,34 @@ pub fn stated_word(old: u32, word: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_of_floor_is_a_cell_like_the_others_on_one_floor() {
+        // The walker and the target on the ground: an entrance, an exit, a stair are crossed.
+        assert_eq!(change(0, 0, 0, 1), Change::Ordinary);
+        assert_eq!(change(1, 1, 1, 0), Change::Ordinary);
+        assert_eq!(change(2, 2, 2, 3), Change::Ordinary);
+    }
+
+    #[test]
+    fn a_change_of_floor_is_taken_only_toward_the_targets_floor() {
+        // From the ground into a house's floor 2: in, then up.
+        assert_eq!(change(0, 2, 0, 1), Change::Taken);
+        assert_eq!(change(0, 2, 1, 2), Change::Taken);
+        // Never back onto the walker's own floor: an exit on the way in is closed.
+        assert_eq!(change(0, 2, 1, 0), Change::Closed);
+        // Nor away from the target's floor.
+        assert_eq!(change(1, 3, 2, 0), Change::Closed);
+        assert_eq!(change(4, 1, 2, 3), Change::Closed);
+        // From the target's floor itself the test lets a change on, as the original's does; the
+        // search has ended there before.
+        assert_eq!(change(0, 2, 2, 3), Change::Taken);
+        // Down from floor 1 onto the ground, and down a stair toward it.
+        assert_eq!(change(1, 0, 1, 0), Change::Taken);
+        assert_eq!(change(2, 0, 2, 1), Change::Taken);
+        // A change onto the floor it leaves is no change.
+        assert_eq!(change(0, 1, 1, 1), Change::Closed);
+    }
 
     #[test]
     fn a_laser_tests_the_start_of_each_whole_segment_but_not_its_end() {
