@@ -196,6 +196,7 @@ mod statics;
 mod statistics;
 mod steps;
 mod stones;
+mod summon_looks;
 mod summonings;
 mod tables;
 mod talk;
@@ -624,14 +625,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         statistics::StatisticsPlugin,
         steps::StepsPlugin,
         stones::StonesPlugin,
+        summon_looks::SummonLooksPlugin,
         summonings::SummoningsPlugin,
         talk::TalkPlugin,
         tentacles::TentaclesPlugin,
         terrain::GroundPlugin,
         tooltip::TooltipPlugin,
-        torches::TorchesPlugin,
     ))
     .add_plugins((
+        torches::TorchesPlugin,
         town_stash::TownStashPlugin,
         trap_balls::TrapBallsPlugin,
         trap_landings::TrapLandingsPlugin,

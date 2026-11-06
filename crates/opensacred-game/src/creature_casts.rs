@@ -641,6 +641,7 @@ fn act(
                 };
                 let creature = casts::summoned(mind.creature, dice.0.below(2));
                 crate::followers::summoning_sound(&mut commands, Vec3::new(x, here.y, z));
+                crate::summon_looks::spawn(&mut commands, Vec3::new(x, here.y, z), entity);
                 commands.spawn((
                     Summoning {
                         caster: entity,
