@@ -28,7 +28,8 @@ use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use opensacred_rules::spells::{
     CROSS_SKIN_SCALE, CROSS_SKIN_TEXTURE, GLOW_SKIN_SCROLL, GLOW_SKIN_TEXTURE, LAVA_SKIN_TEXTURE,
-    SKIN_BLINK, SPEED_SKIN_TEXTURE, STONED_TEXTURE, cross_skin_grey, lava_skin_grey, skin_shows,
+    SKIN_BLINK, SPEED_SKIN_TEXTURE, STONED_TEXTURE, WATER_SKIN_TEXTURE, cross_skin_grey,
+    lava_skin_grey, skin_shows,
 };
 
 use crate::blended::Layer;
@@ -37,8 +38,8 @@ use crate::game::Data;
 use crate::models::{Anchors, ModelMaterial, Pass, in_order};
 
 /// A skin over a creature's model: the fire skin's lava and the quickening's speed (the state
-/// 10), the crusader's strength's crosses (6), the stone skin's glow (7, then 8) or the stone's
-/// (9).
+/// 10), the crusader's strength's crosses (6), the stone skin's glow (7, then 8), the stone's (9)
+/// or the water form's (1, then 3), which the model wears in place of its own look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Overlay {
     Lava,
@@ -46,6 +47,7 @@ pub(crate) enum Overlay {
     Cross,
     Glow,
     Stone,
+    Water,
 }
 
 impl Overlay {
@@ -57,7 +59,20 @@ impl Overlay {
             Self::Cross => CROSS_SKIN_TEXTURE,
             Self::Glow => GLOW_SKIN_TEXTURE,
             Self::Stone => STONED_TEXTURE,
+            Self::Water => WATER_SKIN_TEXTURE,
         }
+    }
+
+    /// Whether its model wears it in place of its own materials, rather than under a copy added
+    /// over it.
+    fn worn(self) -> bool {
+        matches!(self, Self::Stone | Self::Water)
+    }
+
+    /// Whether it blinks out for 2 s after its seconds: the stone skin's glow (the state 8) and
+    /// the water form (3).
+    fn blinks(self) -> bool {
+        matches!(self, Self::Glow | Self::Water)
     }
 }
 
@@ -66,9 +81,9 @@ impl Overlay {
 pub(crate) struct Asked(pub Overlay, pub f32);
 
 /// A bearer's skin: its overlay, its seconds left, whether it blinks out (the stone skin's state
-/// 8), the copies' material once made, whether its model is dressed in it, the copies of its
-/// model's meshes that draw it, or its meshes that wear the stone, each with the material it wore
-/// before.
+/// 8, the water form's 3), the copies' material once made, whether its model is dressed in it, the
+/// copies of its model's meshes that draw it, or its meshes that wear it, each with the material
+/// it wore before and the one it wears, and whether they wear it now.
 #[derive(Component)]
 struct Skin {
     overlay: Overlay,
@@ -78,6 +93,8 @@ struct Skin {
     dressed: bool,
     copies: Vec<Entity>,
     swapped: Vec<(Entity, Handle<ModelMaterial>)>,
+    worn: Vec<Handle<ModelMaterial>>,
+    wearing: bool,
 }
 
 impl Skin {
@@ -90,6 +107,21 @@ impl Skin {
             dressed: false,
             copies: Vec::new(),
             swapped: Vec::new(),
+            worn: Vec::new(),
+            wearing: true,
+        }
+    }
+
+    /// Puts its meshes in its own look (`on`) or in their own materials.
+    fn wear(&mut self, commands: &mut Commands, on: bool) {
+        if self.wearing == on {
+            return;
+        }
+        self.wearing = on;
+        for ((mesh, own), worn) in self.swapped.iter().zip(&self.worn) {
+            if let Ok(mut mesh) = commands.get_entity(*mesh) {
+                mesh.insert(MeshMaterial3d(if on { worn.clone() } else { own.clone() }));
+            }
         }
     }
 
@@ -104,6 +136,7 @@ impl Skin {
                 mesh.insert(MeshMaterial3d(own));
             }
         }
+        self.worn.clear();
     }
 }
 
@@ -208,9 +241,9 @@ fn dress(
         }
         skin.dressed = true;
         let overlay = skin.overlay;
-        if overlay == Overlay::Stone {
+        if overlay.worn() {
             // Without its texture the skin lasts unseen.
-            let Some(stone) = texture(data.as_deref(), &server, Overlay::Stone) else {
+            let Some(look) = texture(data.as_deref(), &server, overlay) else {
                 continue;
             };
             let mut made: HashMap<AssetId<ModelMaterial>, Handle<ModelMaterial>> = HashMap::new();
@@ -224,14 +257,22 @@ fn dress(
                 let material = made
                     .entry(worn.0.id())
                     .or_insert_with(|| {
+                        if overlay == Overlay::Water {
+                            return materials.add(crate::models::water(
+                                base.base,
+                                &anchors,
+                                look.clone(),
+                            ));
+                        }
                         let mut base = base;
                         base.base.base_color = Color::WHITE;
-                        base.base.base_color_texture = Some(stone.clone());
+                        base.base.base_color_texture = Some(look.clone());
                         base.base.unlit = false;
                         materials.add(base)
                     })
                     .clone();
                 skin.swapped.push((entity, worn.0.clone()));
+                skin.worn.push(material.clone());
                 commands.entity(entity).insert(MeshMaterial3d(material));
             }
         } else {
@@ -292,7 +333,7 @@ fn grey(overlay: Overlay, left: f32, real: f64) -> Color {
     let grey = match overlay {
         Overlay::Lava | Overlay::Speed => lava_skin_grey(left),
         Overlay::Cross => cross_skin_grey(real * 1000.0),
-        Overlay::Glow | Overlay::Stone => 1.0,
+        Overlay::Glow | Overlay::Stone | Overlay::Water => 1.0,
     };
     Color::srgb(grey, grey, grey)
 }
@@ -311,13 +352,14 @@ fn coordinates(overlay: Overlay, real: f64) -> Affine2 {
             let scroll = scroll as f32;
             Affine2::from_translation(Vec2::splat(scroll))
         }
-        Overlay::Lava | Overlay::Speed | Overlay::Stone => Affine2::IDENTITY,
+        Overlay::Lava | Overlay::Speed | Overlay::Stone | Overlay::Water => Affine2::IDENTITY,
     }
 }
 
 /// Runs each skin on: its seconds count down (`0x44A520`), the lava's and the speed's grey pulses
-/// by them, the crosses' by the real clock, and the glow scrolls; its seconds over, the glow blinks
-/// for 2 s more (the state 8), then the skin is taken off and its bearer is as before.
+/// by them, the crosses' by the real clock, and the glow scrolls; its seconds over, the glow and
+/// the water form blink for 2 s more (the states 8 and 3), then the skin is taken off and its
+/// bearer is as before.
 fn run(
     mut commands: Commands,
     (time, real): (Res<Time>, Res<Time<Real>>),
@@ -329,7 +371,7 @@ fn run(
     let now = real.elapsed_secs_f64();
     for (bearer, mut skin) in &mut skins {
         skin.left -= dt;
-        if skin.left < 0.0 && skin.overlay == Overlay::Glow && !skin.blinking {
+        if skin.left < 0.0 && skin.overlay.blinks() && !skin.blinking {
             skin.blinking = true;
             skin.left += SKIN_BLINK;
         }
@@ -346,7 +388,10 @@ fn run(
             continue;
         }
         if skin.blinking {
-            let shown = if skin_shows(skin.left) {
+            // The water form's look and its plain model in turns.
+            let shows = skin_shows(skin.left);
+            skin.wear(&mut commands, shows);
+            let shown = if shows {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
@@ -397,5 +442,16 @@ mod tests {
         let crosses = grey(Overlay::Cross, 0.0, 0.25);
         assert!((crosses.to_srgba().red - cross_skin_grey(250.0)).abs() < 1e-6);
         assert_eq!(grey(Overlay::Glow, 0.0, 0.0).to_srgba().red, 1.0);
+    }
+
+    /// The stone and the water form are worn in place of the model's look; the glow and the water
+    /// form blink out for 2 s after their seconds.
+    #[test]
+    fn the_worn_and_the_blinking_skins() {
+        assert!(Overlay::Stone.worn() && Overlay::Water.worn());
+        assert!(!Overlay::Lava.worn() && !Overlay::Glow.worn());
+        assert!(Overlay::Glow.blinks() && Overlay::Water.blinks());
+        assert!(!Overlay::Stone.blinks() && !Overlay::Speed.blinks());
+        assert_eq!(Overlay::Water.texture(), "GRN_SHADETEXTURE02");
     }
 }
