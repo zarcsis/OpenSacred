@@ -4238,6 +4238,159 @@ pub fn hit_sparks(sparks: Sparks, dice: &mut impl Dice) -> Burst {
     }
 }
 
+/// The gun's fire's textures (1172, `cParticleSystem_gunfire`, its constructor `0x7C3200`), one
+/// at random for each flash (`rand() % 4`, its start `0x7C3AC0`).
+pub const GUNFIRE_TEXTURES: [&str; 4] = [
+    "particle_gunfire01",
+    "particle_gunfire02",
+    "particle_gunfire03",
+    "particle_gunfire04",
+];
+/// How long a flash shows (its run `0x7C38C0`), its world light's radius, and how far along its
+/// shot from its place its Direct3D light stands (**hypothesis**: `+0x2C` times 5).
+pub const GUNFIRE_LIFE: f32 = 0.1;
+pub const GUNFIRE_LIGHT: f32 = 300.0;
+pub const GUNFIRE_LIGHT_AHEAD: f32 = 5.0;
+
+/// A quad of the gun's fire in its own frame, the shot along its `y` and its third coordinate
+/// its `z`: its corners in order about it, its texture's points (the flame's tip at the texture's
+/// top, forward) and its colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GunfireQuad {
+    pub corners: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
+    pub colour: [f32; 4],
+}
+
+/// The gun's fire's four quads (its constructor's 24 vertices, `0x7C3200`), lit by their own
+/// colours and added whole (`ONE`, `ONE`): a narrow flame of (255, 176, 159), flat (`z` 0) of the
+/// half width 5 and upright (`x` 0) of the half height 10, from 2.5 behind its place to 12.5
+/// ahead, and about it a wide one of a grey of 160, of the half sides 10, from 5 behind to 25
+/// ahead. One corner of its narrow flat quad lies 12.5 behind in the original's table, read as a
+/// slip of its 2.5 (**hypothesis**).
+pub fn gunfire_quads() -> [GunfireQuad; 4] {
+    let warm = [1.0, 176.0 / 255.0, 159.0 / 255.0, 1.0];
+    let grey = [160.0 / 255.0, 160.0 / 255.0, 160.0 / 255.0, 0.0];
+    let uvs = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+    let flat = |half: f32, (back, ahead): (f32, f32)| {
+        [
+            [-half, back, 0.0],
+            [half, back, 0.0],
+            [half, ahead, 0.0],
+            [-half, ahead, 0.0],
+        ]
+    };
+    let upright = |half: f32, (back, ahead): (f32, f32)| {
+        [
+            [0.0, back, -half],
+            [0.0, back, half],
+            [0.0, ahead, half],
+            [0.0, ahead, -half],
+        ]
+    };
+    let narrow = (-2.5, 12.5);
+    let wide = (-5.0, 25.0);
+    [
+        (flat(5.0, narrow), warm),
+        (upright(10.0, narrow), warm),
+        (flat(10.0, wide), grey),
+        (upright(10.0, wide), grey),
+    ]
+    .map(|(corners, colour)| GunfireQuad {
+        corners,
+        uvs,
+        colour,
+    })
+}
+
+/// The gun's fire's scale by the gun's type (the event's `+0x38`, its start `0x7C3AC0`): the
+/// pistols 1855 2, 1856 0.7 and 1857 1.4, every other gun 1.
+pub fn gunfire_scale(gun: Option<u32>) -> f32 {
+    match gun {
+        Some(1855) => 2.0,
+        Some(1856) => 0.7,
+        Some(1857) => 1.4,
+        _ => 1.0,
+    }
+}
+
+/// The texture of a flash, by `rand() % 4` (its start `0x7C3AC0`).
+pub fn gunfire_texture(dice: &mut impl Dice) -> &'static str {
+    let index = usize::try_from(dice.below(4)).unwrap_or(0);
+    GUNFIRE_TEXTURES
+        .get(index)
+        .copied()
+        .unwrap_or(GUNFIRE_TEXTURES[0])
+}
+
+/// The shot's impact's texture (1151, `cParticleSystem_shoot_impact`, its constructor
+/// `0x7B9020`) and its particles (all of its 200 at once).
+pub const SHOOT_IMPACT_TEXTURE: &str = "particle_dots03";
+const SHOOT_IMPACT_COUNT: usize = 200;
+
+/// A shot's impact at the struck creature along the shot's `direction` (its frame's, the third
+/// coordinate up; its start `0x7B9180` and run `0x7B90B0`): every particle at once at its first
+/// run, of a buoyancy of 30 ± 5, so that it falls, a size of 5 ± 1 growing by 4 a second, turned
+/// by π ± π, the velocity 120 along the shot ± 40 on each axis and the place ± 5, drawn back to
+/// its place by 80 a second, living 0.73 s (the life's rate −350); laid over by its alpha, turned
+/// and tinted by the night (the flags `0x4C`), in its red ramp (its `+0x3C` 0) from (254, 12, 0)
+/// opaque to (164, 3, 0) at 164 over 124 entries, to (137, 3, 0) at 139 over 61 and to nothing
+/// over 71; no light.
+pub fn shoot_impact(direction: [f32; 3], dice: &mut impl Dice) -> Burst {
+    let length = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let along: [f32; 3] = if length > f32::EPSILON {
+        direction.map(|v| 120.0 * v / length)
+    } else {
+        [0.0; 3]
+    };
+    let block = Block {
+        buoyancy: spread(30.0, 5.0),
+        size: spread(5.0, 1.0),
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        velocity: spread(along, [40.0; 3]),
+        offset: spread([0.0; 3], [5.0; 3]),
+        ..Block::default()
+    };
+    let particles = (0..SHOOT_IMPACT_COUNT)
+        .map(|_| Particle {
+            place: spread_3(block.offset, dice),
+            velocity: spread_3(block.velocity, dice),
+            buoyancy: spread_f32(block.buoyancy, dice),
+            size: spread_f32(block.size, dice),
+            life: 255.0,
+            angle: spread_f32(block.angle, dice),
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+        })
+        .collect();
+    let red = |r: f32, g: f32, a: f32| [r / 255.0, g / 255.0, 0.0, a / 255.0];
+    Burst {
+        texture: SHOOT_IMPACT_TEXTURE,
+        grid: 1,
+        blend: Blend::Over,
+        layer: Layer {
+            life: -350.0,
+            size: 4.0,
+            pull: 80.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(
+            red(254.0, 12.0, 255.0),
+            &[
+                (red(164.0, 3.0, 164.0), 124),
+                (red(137.0, 3.0, 139.0), 61),
+                (red(137.0, 3.0, 0.0), 71),
+            ],
+        ),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: true,
+        stream: None,
+    }
+}
+
 /// The blood fountain's texture and the sounds of its start (`BLEEDING01` and `02`, `0x77BD60`).
 pub const BLOOD_TEXTURE: &str = "particle_dots03";
 pub const BLOOD_SOUNDS: [u32; 2] = [710, 711];
@@ -8876,6 +9029,67 @@ mod tests {
         assert!(system.particles.iter().all(|spark| spark.place[2] < 60.0));
         for _ in 0..40 {
             system.update(0.025, &layers);
+        }
+        assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_guns_fire_is_two_crossed_flames_along_its_shot() {
+        let quads = gunfire_quads();
+        // The narrow flames reach 12.5 ahead and 2.5 behind, the wide ones 25 and 5.
+        let reach = |quad: &GunfireQuad| {
+            let ys = quad.corners.map(|corner| corner[1]);
+            (
+                ys.iter().copied().fold(f32::MAX, f32::min),
+                ys.iter().copied().fold(f32::MIN, f32::max),
+            )
+        };
+        assert_eq!(reach(&quads[0]), (-2.5, 12.5));
+        assert_eq!(reach(&quads[3]), (-5.0, 25.0));
+        // The first and third lie flat, the second and fourth upright.
+        assert!(quads[0].corners.iter().all(|corner| corner[2] == 0.0));
+        assert!(quads[1].corners.iter().all(|corner| corner[0] == 0.0));
+        // The flame's tip, the texture's top, lies ahead.
+        assert_eq!(quads[2].uvs[2][1], 0.0);
+        assert_eq!(quads[2].corners[2][1], 25.0);
+        assert!((quads[0].colour[1] - 176.0 / 255.0).abs() < 1e-6);
+        assert_eq!(gunfire_scale(Some(1855)), 2.0);
+        assert_eq!(gunfire_scale(Some(1856)), 0.7);
+        assert_eq!(gunfire_scale(Some(1857)), 1.4);
+        assert_eq!(gunfire_scale(Some(1481)), 1.0);
+        let mut dice = Rng::of(1, 7, 2);
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..64 {
+            seen.insert(gunfire_texture(&mut dice));
+        }
+        assert_eq!(seen.len(), 4);
+    }
+
+    #[test]
+    fn a_shots_impact_sprays_red_along_the_shot_and_is_drawn_back() {
+        let mut dice = Rng::of(5, 1, 9);
+        let mut burst = shoot_impact([0.0, 2.0, 0.0], &mut dice);
+        assert_eq!(burst.particles.len(), 200);
+        assert_eq!(burst.texture, "particle_dots03");
+        assert!(burst.tinted && burst.blend == Blend::Over);
+        // Born opaque red, dying transparent.
+        let born = burst.ramp.at(255.0);
+        assert!((born[0] - 254.0 / 255.0).abs() < 1e-6 && born[3] == 1.0);
+        assert_eq!(burst.ramp.at(0.0)[3], 0.0);
+        let mean = burst.particles.iter().map(|p| p.velocity[1]).sum::<f32>() / 200.0;
+        assert!((mean - 120.0).abs() < 10.0, "{mean}");
+        let mut system = System::new(burst.particles.len());
+        system.particles = std::mem::take(&mut burst.particles);
+        let layers = [burst.layer];
+        for _ in 0..10 {
+            system.update_toward(0.025, &layers, [0.0; 3]);
+        }
+        // A quarter of a second on, the pull has slowed them along the shot.
+        let mean = system.particles.iter().map(|p| p.velocity[1]).sum::<f32>()
+            / f32::from(u16::try_from(system.particles.len()).unwrap_or(1));
+        assert!(mean < 110.0, "{mean}");
+        for _ in 0..20 {
+            system.update_toward(0.025, &layers, [0.0; 3]);
         }
         assert!(system.particles.is_empty());
     }

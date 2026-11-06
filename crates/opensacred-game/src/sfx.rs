@@ -489,7 +489,7 @@ fn gunfire(
 }
 
 /// What a creature holds, by its arms (`npcs::Arms`) or the hero's.
-fn armed_of(
+pub(crate) fn armed_of(
     entity: Entity,
     hero: Option<&hero::Hero>,
     heroes: &Query<(), With<Body>>,

@@ -5,7 +5,9 @@
 //! quad of each particle facing the camera, of its ramp's colour at its life, not tinted by the
 //! night unless the light at it tints it (a script's smoke, `Burst::tinted`). A ring follows the
 //! creature it rises about; the dust stays where the corpse lay. A burst that streams emits on
-//! from its start for its time (`Burst::stream`, the cloud of a creature's burst, #1264).
+//! from its start for its time (`Burst::stream`, the cloud of a creature's burst, #1264). A
+//! burst whose layer pulls draws its particles back to its place (`Layer::pull`, a shot's
+//! impact, `gun_fires`).
 
 use std::collections::HashMap;
 
@@ -163,7 +165,11 @@ fn run(
             transform.translation = at.translation();
         }
         let layers = std::slice::from_ref(&burst.layer);
-        system.update_over(dt, layers, burst.ground);
+        if burst.layer.pull == 0.0 {
+            system.update_over(dt, layers, burst.ground);
+        } else {
+            system.update_toward(dt, layers, [0.0; 3]);
+        }
         let streaming = burst.stream.filter(|stream| system.clock < stream.until);
         if let Some(stream) = streaming {
             system.emit(

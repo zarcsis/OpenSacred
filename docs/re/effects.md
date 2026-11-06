@@ -265,7 +265,7 @@ Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
 | terrorsprinter | 1167 | (1, 0.1, 1) | 1 | for its event's `+0x38` 0 alone |
 | gunfire | 1172 | (1, 1, 1) | 1 | 5 along its shot's way from its place (**hypothesis**) |
 
-`opensacred-game` follows them since #2106 (`fx_lights`) for the systems it draws: the fireball's, the torches' flames', the ground poison's, the lightning strike's, the chain lightning's first bolt's and its impacts', the holy light's, the thorns' plants', the lost souls' and the dryad ghosts', the flying skull's, the fire bolt's, the hell disk's and the demon fire's, each a Bevy point light on the models of its colour and its range, following its system while it moves and taken off with its look.
+`opensacred-game` follows them since #2106 (`fx_lights`) for the systems it draws: the fireball's, the torches' flames', the ground poison's, the lightning strike's, the chain lightning's first bolt's and its impacts', the holy light's, the thorns' plants', the lost souls' and the dryad ghosts', the flying skull's, the fire bolt's, the hell disk's, the demon fire's and the guns' flashes', each a Bevy point light on the models of its colour and its range, following its system while it moves and taken off with its look.
 Bevy's point light falls by the square of the distance alone, so it stands 89 of the models' units (`1/√0.000125`) over the effect's place, where along that place's plane it falls as the fixed function's, the sun's 4,000 lux its whole colour; it lights the models from above rather than from the effect's place, and fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
 **Seen** 2026-11-05 in the game: a goblin standing in the Wood Elf's thorns, its legs lit green as the original's (#2106's frames).
 Not followed: the device's count of lights and the manager's priorities (every light shines), the demon fire's wobble, and the systems the game does not draw yet.
@@ -1675,6 +1675,31 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
+## The guns' sights
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A gun's flash | 1172 | `cParticleSystem_gunfire` (`0x89906C`) | `0x7C3200`, `0x7C3AC0`, `0x7C38C0`, `0x7C38F0` |
+| A shot's impact | 1151 | `cParticleSystem_shoot_impact` (`0x898D78`) | `0x7B9020`, `0x7B9180`, `0x7B90B0`, `0x7B9110` |
+
+- The flash is made by the shot's maker (`0x4DCB80`) for any shooter that holds a gun, as a shot's clip starts (`0x4DD1FE`) and as each shot repeated starts its own (`0x4DF442`, `0x4DFE85`), and by the Dwarf's executor (`0x514790`) at each of his `Rundum`'s strikes (`0x515E27`), his `Hardhit`'s point (`0x515298`) and each of his `Attacke`'s points (`0x514E8F`) with a gun.
+  Its point is the gun's bone 48 (`Canon_fx01`), its direction that bone's `y` axis, the barrel's way; its FX event's kind `0xAF` places it there and follows nothing.
+- Its constructor builds 24 lit vertices, four quads in its own frame whose `y` is the shot's axis: a narrow flame of (255, 176, 159) flat (`z` 0) of the half width 5 and upright (`x` 0) of the half height 10, from 2.5 behind its place to 12.5 ahead, and a wide one of a grey of 160 of the half sides 10, from 5 behind to 25 ahead; the texture's top, the flame's tip, ahead.
+  One corner of the narrow flat quad lies 12.5 behind in its table, read as a slip of its 2.5 (**hypothesis**).
+- Its start chooses one of `particle_gunfire01` to `04` by `rand() % 4`, plays its sound (docs/re/sound.md), scales it by the gun's type (the event's `+0x38`: 1855 2, 1856 0.7, 1857 1.4, any other 1) and turns its `y` onto the event's direction; its world light 300, and a white Direct3D light (1, 1, 1) 5 ahead of it along the shot (**hypothesis**: `+0x2C` times 5).
+- Its run lives 0.1 s and moves nothing; its draw, depth tested and not written, unlit and untinted by the night, adds the texture times the vertices' colours whole (`ONE`, `ONE`), no face culled.
+- The impact is made only by the Dwarf's executor: for each creature that his `Rundum`, `Hardhit` and `Attacke` strike with a gun, right after their flash (`0x515F04`, `0x515372`, `0x514F67`), unless the struck object's `+0x14` has the bit `0x10` (not read); and for each hostile creature near his cannon's (1087) line (`0x517A10`).
+  Its FX event's kind `0x9C` follows the struck creature at its bone 3 (`Bip01 Neck`), the system's flag `0x40` placing it there once; its direction the gun's bone's `y` axis, or for the cannon the line's far end less the creature.
+- Its start bursts all its 200 particles of `particle_dots03` at its first run: a buoyancy of 30 ± 5 (they fall), a size of 5 ± 1 growing by 4 a second, turned by π ± π, the velocity 120 along the shot ± 40 on each axis and the place ± 5, drawn back to its place by 80 a second, living 0.73 s (the life's rate −350); laid over by their alpha, turned and tinted by the night (the flags `0x4C`), in its red ramp (`+0x3C` 0) from (254, 12, 0) opaque to (164, 3, 0) at 164 over 124 entries, to (137, 3, 0) at 139 over 61 and to nothing over 71; no light; it never ends itself, drawing nothing once its particles are gone.
+- An ordinary shot of a gun, the hero's or a creature's, makes the flash alone.
+
+`opensacred-game` draws them since #1092 (`gun_fires`, `opensacred_rules::particles::{gunfire_quads, gunfire_scale, shoot_impact}`): each `sfx::Gunfire` of a shooter holding a gun flashes at its muzzle, of its gun's scale and one of the four textures, lighting the night by 300 and the models white ahead of it; it keeps to the muzzle and turns with the barrel while it shows, where the original leaves it where it was made (docs/decisions/drawing.md, "The guns' flash at the muzzle").
+Each strike of the Dwarf's `Rundum`, `Hardhit` and `Attacke` with a gun, and each creature his cannon strikes, sprays the impact at the struck creature's neck, else its place (`puffs`, its pull `Layer::pull`).
+**Seen** 2026-11-06 in the game: the Dwarf's pistol's flash at its muzzle, turning with it as he raises it to shoot a goblin (a flash held 3 s in a scratch build, to see it whole); the red spray at the goblin's neck at his `Attacke` and his cannon.
+Not followed: the impact's test of the struck object's `+0x14` bit `0x10`; the cannon's own flash (1017, `dwarf_shoot`).
+
 ## The arrows' elements
 
 Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwise).
@@ -1757,7 +1782,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn always (the game has no detail setting), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, the cast's sights, the forms' and the guns' among them, show nothing; the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing; the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
