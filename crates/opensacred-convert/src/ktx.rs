@@ -236,9 +236,33 @@ fn decode_png(png: &[u8]) -> Result<(usize, usize, Vec<u8>)> {
     Ok((width, height, texels))
 }
 
+/// A texture of one row or one column made two texels thick, each texel twice across it: a
+/// KTX2 file of a side of 1 is read as a one-dimensional texture, which can hold no smaller levels
+/// and is no two-dimensional one to sample (`GRN_SHADETEXTURE02`, 64 × 1; #2180). Sampled at its
+/// row's or its column's middle, it gives the texels it held.
+fn thickened(width: usize, height: usize, rgba: Vec<u8>) -> (usize, usize, Vec<u8>) {
+    if height == 1 && width > 1 {
+        let mut twice = rgba.clone();
+        twice.extend_from_slice(&rgba);
+        (width, 2, twice)
+    } else if width == 1 && height > 1 {
+        let twice = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|texel| [*texel, *texel])
+            .flatten()
+            .collect();
+        (2, height, twice)
+    } else {
+        (width, height, rgba)
+    }
+}
+
 /// The KTX2 file of the texture whose master is `png`, for `usage`.
 pub fn encode(png: &[u8], usage: Use) -> Result<Vec<u8>> {
     let (width, height, rgba) = decode_png(png)?;
+    let (width, height, rgba) = thickened(width, height, rgba);
     let (w, h) = (u32::try_from(width)?, u32::try_from(height)?);
     if usage == Use::Read {
         return Ok(texture::write(Encoding::Rgba8, w, h, &[rgba])?);
@@ -333,6 +357,26 @@ mod tests {
         let (header, levels) = levels_of(&encode(&png(8, 8, &rgba), Use::Read).unwrap());
         assert_eq!(header.level_count, 1);
         assert_eq!(levels, vec![rgba]);
+    }
+
+    #[test]
+    fn a_texture_of_one_row_or_column_is_written_two_texels_thick() {
+        // `GRN_SHADETEXTURE02`'s 64 × 1, translucent: two rows alike, its levels down to 1 × 1.
+        let mut row = pattern(64, 1);
+        row[3] = 0;
+        let (header, levels) = levels_of(&encode(&png(64, 1, &row), Use::Sampled).unwrap());
+        assert_eq!((header.pixel_width, header.pixel_height), (64, 2));
+        assert_eq!(header.level_count, 7);
+        assert_eq!(levels[0][..row.len()], row[..]);
+        assert_eq!(levels[0][row.len()..], row[..]);
+        // A column likewise, each texel twice across.
+        let column = pattern(1, 4);
+        let (header, levels) = levels_of(&encode(&png(1, 4, &column), Use::Read).unwrap());
+        assert_eq!((header.pixel_width, header.pixel_height), (2, 4));
+        assert_eq!(
+            levels[0][..8],
+            [column[..4].to_vec(), column[..4].to_vec()].concat()[..]
+        );
     }
 
     #[test]
