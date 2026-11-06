@@ -4590,6 +4590,149 @@ pub const VAMP_CLAW_TEXTURE: &str = "PARTICLE_GLOW03";
 pub const VAMP_SPARK_TEXTURE: &str = "PARTICLE_SPARK07";
 pub const VAMP_RUNES: [&str; 2] = ["FX_TRIBALS2_VAMP", "FX_TRIBALS2_VAMP_G"];
 
+/// The Vampiress's change's ribbons (the case 0 of 863, her 1022 and 1023): their particles'
+/// texture of a 2 × 2 grid, the head's glow and spark, the model whose bone they follow and that
+/// bone, its clip's length where the model gives none (**hypothesis**: the control's span is the
+/// clip's), their four angles about the upright, and the night's light of the first.
+pub const VAMP_RIBBON_TEXTURE: &str = "PARTICLE_MULTI01";
+pub const VAMP_HEAD_GLOW: &str = "PARTICLE_GLOW03";
+pub const VAMP_HEAD_SPARK: &str = "PARTICLE_SPARK06";
+pub const VAMP_RIBBON_MODEL: &str = "CAST01.GRN";
+pub const VAMP_RIBBON_BONE: &str = "particle_source_01";
+pub const VAMP_RIBBON_SECONDS: f32 = 3.98;
+pub const VAMP_RIBBON_ANGLES: [f32; 4] = [
+    0.0,
+    std::f32::consts::FRAC_PI_2,
+    std::f32::consts::PI,
+    3.0 * std::f32::consts::FRAC_PI_2,
+];
+pub const VAMP_RIBBON_LIGHT: f32 = 250.0;
+/// The head's red glow of the half side 25 and its white spark of 12, added whole.
+pub const VAMP_HEAD_GLOW_LOOK: (f32, [f32; 4]) = (25.0, [1.0, 0.0, 0.0, 1.0]);
+pub const VAMP_HEAD_SPARK_LOOK: (f32, [f32; 4]) = (12.0, [1.0; 4]);
+
+/// A ribbon of the Vampiress's change, one of the four that its start makes at her root
+/// (`0x51431A`, placed there once, the flag `0x40`): at each run the model's bone's point, turned
+/// about the upright by its angle, and its particles born along that way of three blocks, each of
+/// its layer and its frame of the grid, until the clip's length.
+#[derive(Clone, Debug)]
+pub struct VampRibbon {
+    pub system: System,
+    angle: f32,
+    end: f32,
+}
+
+/// The ribbons' particles at most at once.
+const VAMP_RIBBON_COUNT: usize = 200;
+
+impl VampRibbon {
+    /// A ribbon of the angle `angle` that ends at `end` seconds, its clip's length.
+    pub fn new(angle: f32, end: f32) -> Self {
+        Self {
+            system: System::new(VAMP_RIBBON_COUNT),
+            angle,
+            end,
+        }
+    }
+
+    /// `point` of the model's frame turned about the upright by its angle (`0x7918D0`).
+    pub fn turned(&self, [x, y, z]: [f32; 3]) -> [f32; 3] {
+        let (sin, cos) = self.angle.sin_cos();
+        [x * cos - y * sin, y * cos + x * sin, z]
+    }
+
+    /// Its three layers: the life −260 and the size −1 a second, −320, and −150 (the size's rate
+    /// written three times at the first, the others keep 0).
+    pub fn layers() -> [Layer; 3] {
+        let layer = |life: f32, size: f32| Layer {
+            life,
+            size,
+            ..Layer::default()
+        };
+        [layer(-260.0, -1.0), layer(-320.0, 0.0), layer(-150.0, 0.0)]
+    }
+
+    /// Its three blocks: the sizes 8 ± 1, 8 ± 1 and 2 ± 0.3, the velocity 0 ± 12 on each axis, the
+    /// intervals 0.01, 0.0666 and 0.0333 s, which choose a particle's block by their rates, the
+    /// first's timing them (100 a second), each particle of its block's frame.
+    fn blocks() -> [Block; 3] {
+        let block = |size: Spread<f32>, interval: f32| Block {
+            size,
+            velocity: spread([0.0; 3], [12.0; 3]),
+            interval,
+            frames: FRAME_OF_LAYER,
+            ..Block::default()
+        };
+        [
+            block(spread(8.0, 1.0), 0.01),
+            block(spread(8.0, 1.0), 0.0666),
+            block(spread(2.0, 0.3), 0.0333),
+        ]
+    }
+
+    /// Its three ramps, a layer's each, from magenta to orange to nothing, the third's through
+    /// yellow and white.
+    pub fn ramps() -> [Ramp; 3] {
+        let none = [0.0; 4];
+        [
+            Ramp::new(
+                [0.996_09, 0.0, 0.277_34, 1.0],
+                &[
+                    ([0.996_09, 0.664_06, 0.296_88, 1.0], 158),
+                    (none, 55),
+                    (none, 43),
+                ],
+            ),
+            Ramp::new(
+                [0.996_09, 0.0, 0.277_34, 1.0],
+                &[
+                    ([0.996_09, 0.605_47, 0.277_34, 1.0], 153),
+                    (none, 72),
+                    (none, 31),
+                ],
+            ),
+            Ramp::new(
+                [0.996_09, 0.0, 0.285_16, 0.0],
+                &[
+                    ([0.992_19, 0.671_88, 0.507_81, 0.0], 103),
+                    ([0.992_19, 0.992_19, 0.613_28, 1.0], 50),
+                    ([0.996_09, 0.996_09, 0.996_09, 1.0], 25),
+                    ([0.757_81, 0.757_81, 0.757_81, 0.988_28], 11),
+                    (none, 35),
+                    (none, 32),
+                ],
+            ),
+        ]
+    }
+
+    /// Runs it `dt` seconds on, its head gone from `from` to `to` in its frame (turned): its
+    /// particles age, and until its end it makes them along that way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = Self::layers();
+        self.system.update(dt, &layers);
+        if self.system.clock <= self.end {
+            self.system.emit_along(
+                &Self::blocks(),
+                &layers,
+                VAMP_RIBBON_COUNT,
+                (from, to),
+                dt,
+                dice,
+            );
+        }
+    }
+
+    /// Whether its head's glow and spark show: while its clock is above 0 and at most its end.
+    pub fn heads(&self) -> bool {
+        self.system.clock > 0.0 && self.system.clock <= self.end
+    }
+
+    /// Whether it is over: past its end, its last particle gone.
+    pub fn done(&self) -> bool {
+        self.system.clock > self.end && self.system.particles.is_empty()
+    }
+}
+
 /// The red ramp of the claws' glows and the bats' sparks, worked out entry by entry rather than
 /// from keys (`0x791FB0`): the entry `i` (i, ⌊i/4⌋, ⌊i/4⌋), from (255, 63, 63) at the birth to
 /// black, added whole whatever its alpha (the flags `0x19`).
@@ -9604,6 +9747,48 @@ mod tests {
             bats.update(0.01);
         }
         assert!(bats.done());
+    }
+
+    #[test]
+    fn the_vampiresss_change_trails_its_ribbons_along_the_bones_way_till_its_clip_ends() {
+        let mut dice = Rng::of(8, 3, 1);
+        let ribbon = VampRibbon::new(VAMP_RIBBON_ANGLES[1], 1.0);
+        let turned = ribbon.turned([10.0, 0.0, 5.0]);
+        assert!(turned[0].abs() < 1e-5 && (turned[1] - 10.0).abs() < 1e-5 && turned[2] == 5.0);
+        let mut ribbon = VampRibbon::new(0.0, 1.0);
+        let mut frames = std::collections::HashSet::new();
+        for step in 0..100_u8 {
+            let x = f32::from(step);
+            ribbon.update(0.01, ([x, 0.0, 100.0], [x + 1.0, 0.0, 100.0]), &mut dice);
+            assert!(ribbon.heads());
+            for particle in &ribbon.system.particles {
+                frames.insert(particle.frame);
+            }
+        }
+        // A hundred a second, of the three blocks' frames, along the way.
+        assert!(
+            ribbon.system.particles.len() > 80,
+            "{}",
+            ribbon.system.particles.len()
+        );
+        assert_eq!(frames.len(), 3);
+        let far = ribbon
+            .system
+            .particles
+            .iter()
+            .map(|p| p.place[0])
+            .fold(0.0_f32, f32::max);
+        assert!(far > 90.0, "{far}");
+        for _ in 0..200 {
+            ribbon.update(0.01, ([100.0, 0.0, 100.0], [100.0, 0.0, 100.0]), &mut dice);
+        }
+        assert!(!ribbon.heads() && ribbon.done());
+        // Born magenta, orange later, nothing at the last.
+        let [first, _, third] = VampRibbon::ramps();
+        assert_eq!(first.at(255.0), [0.996_09, 0.0, 0.277_34, 1.0]);
+        assert!(first.at(100.0)[1] > 0.6);
+        assert_eq!(first.at(0.0), [0.0; 4]);
+        assert!(third.at(110.0)[1] > 0.9);
     }
 
     #[test]
