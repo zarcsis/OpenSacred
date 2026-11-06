@@ -1695,7 +1695,25 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws them since #1092 (`dwarf_fires`, `opensacred_rules::particles::{DwarfFire, DwarfFireSight}`) as `making` sounds them, at the Dwarf's `canon_fx01`, else his right hand, the flamethrower's along the bone's glTF `x` each frame, the shots' placed at their first frame, their lights at the muzzle while they fire, always at the detail 2.
 **Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (#2162).
-Not followed: the impact 1020 (#2160).
+The impact 1020 follows since #2160 ("The mortar's impact").
+
+## The mortar's impact
+
+Read 2026-11-06 for #2160 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The mortar shell's impact | 1020 `FX_GRENADEIMPACT` | `cParticleSystem_grenadeimpact` (`0x898CDC`) | `0x7B67E0`, `0x7B70A0`, `0x7B6BE0`, `0x7B6DD0` |
+
+- Its constructor (300 particles) loads `fx_dwarf_explosion1` to `4` and its crater, `fx_krater04` or `fx_krater03` one in two, and lays out 75 tongues: each a quad turned on from the one before by up to a whole turn, its near edge from (−10, 10) to (10, 10) on the ground and its far edge from (15, 25) to (−15, 25) at a height of 21 to 33, across scaled by 0.3 to 1, of a cell of `explosion4`'s 2 × 2 grid at random.
+- Its maker is the mortar's burst 1018's action 1 (`0x5B40C4`), at the shell's point on the ground 0.775 s after the burst; the FX event `0x97` places it there.
+- Its start shakes the screen by 8 pixels (`cEventWeather` 7, the value 24) and plays 2115; no light of either kind; the hit flag `0x400` is its object's strike (docs/re/arts.md).
+- Its run: while it bursts, its flash's half side grows by 200 a second and past 70 its alpha falls by 4, its cloud's grows by 170 and past 25 falls by 10, its tongues' scale grows by 4 and past 1.3 their alpha falls by 4; at its first run 210 sparks burst at its place, each of its block by a roll of 211 against their counts (150, 30, 30): the first of the size 3 ± 1 flying up at (0, 0, 150) ± (100, 100, 50), living 0.64 s, the others of the size 2 ± 1 turning, flying up at 130 ± 40 and falling (a buoyancy of 300 ± 50), living 1.02 s, bouncing on the ground; with all faded and the sparks gone (about 1 s) it waits until 10 s from its start, then its crater's alpha falls by a quarter a second and it ends (about 14 s).
+- Its draw: the crater flat on the ground, of the half side 50, laid over by its alpha and tinted by the night; while it bursts, `explosion2`'s flash flat on the ground added, `explosion1`'s cloud laid over, untinted; the tongues of `explosion4` scaled about its place, laid over and tinted; the sparks of `explosion3` facing the camera, each of its layer's frame, the first layer added and the others laid over (the byte `b` 0), untinted, the first's ramp from white through orange and grey to nothing, the others' white fading.
+
+`opensacred-game` draws it since #2160 (`grenade_impacts`, `opensacred_rules::particles::GrenadeImpact`) where the Dwarf's shell lands (`guns`), on the ground there.
+**Seen** 2026-11-06 beside the original: the Dwarf's mortar shell's flaming ring, dark cloud and crater at a goblin, alike in both.
+Not followed: the sparks' roll of 211 that falls to an unset fourth block, dropped.
 
 ## The teleport
 

@@ -7894,6 +7894,237 @@ impl TeleportSight {
     }
 }
 
+/// The mortar shell's impact's textures (1020, `cParticleSystem_grenadeimpact`, its constructor
+/// `0x7B67E0`): its four explosions' (`fx_dwarf_explosion1` to `4`: the dark cloud, the flash,
+/// the sparks' grid and the tongues' grid) and its two craters, one at random.
+pub const GRENADE_EXPLOSIONS: [&str; 4] = [
+    "fx_dwarf_explosion1",
+    "fx_dwarf_explosion2",
+    "fx_dwarf_explosion3",
+    "fx_dwarf_explosion4",
+];
+pub const GRENADE_CRATERS: [&str; 2] = ["fx_krater04", "fx_krater03"];
+/// The screen's quake as it lands (8 pixels, `cEventWeather` 7), the crater's half side, and how
+/// long the crater lies whole before it fades by a quarter a second.
+pub const GRENADE_QUAKE: u32 = 24;
+pub const GRENADE_CRATER_HALF: f32 = 50.0;
+const GRENADE_CRATER_LIES: f32 = 10.0;
+/// Its particles, its sparks' blocks' counts, and its tongues.
+const GRENADE_COUNT: usize = 300;
+const GRENADE_BLOCKS: [u32; 3] = [150, 30, 30];
+const GRENADE_TONGUES: usize = 75;
+
+/// A tongue of the impact's fire: its four corners in its frame, the near pair on the ground and
+/// the far pair up, and their points of the 2 × 2 grid.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrenadeTongue {
+    pub corners: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
+}
+
+/// The mortar shell's impact (1020, `FX_GRENADEIMPACT`, its start `0x7B70A0`, run `0x7B6BE0` and
+/// draw `0x7B6DD0`; #2160) at its point on the ground: for 0.6 s a flash added and a dark cloud
+/// laid over, growing as they fade, 75 tongues of fire flaring up and out, 210 sparks bursting
+/// up and falling, bouncing on the ground; and a crater under them that lies 10 s and fades over
+/// 4 s. Its fields: the flash's half side `A` and alpha `B`, the cloud's `C` and `D`, the tongues'
+/// scale `E` and alpha `F`, the crater's alpha `G`.
+#[derive(Clone, Debug)]
+pub struct GrenadeImpact {
+    pub system: System,
+    pub tongues: Vec<GrenadeTongue>,
+    /// Its crater's index in [`GRENADE_CRATERS`].
+    pub crater: usize,
+    clock: f32,
+    fired: bool,
+    bursting: bool,
+    flash: (f32, f32),
+    cloud: (f32, f32),
+    tongue: (f32, f32),
+    crater_alpha: f32,
+}
+
+impl GrenadeImpact {
+    /// An impact of the rolls of `dice`: its tongues, each turned on from the one before by up to
+    /// a whole turn, of a scale of 0.3 to 1 across and a height of 21 to 33, of a cell of the grid
+    /// at random; then its crater, one in two.
+    pub fn new<D: Dice>(dice: &mut D) -> Self {
+        let mut turn = 0.0_f32;
+        let tongues = (0..GRENADE_TONGUES)
+            .map(|_| {
+                turn += std::f32::consts::TAU * share(dice);
+                let scale = 0.3 + 0.7 * share(dice);
+                let high = 30.0 * (0.7 + 0.4 * share(dice));
+                let cell = |dice: &mut D| 0.5 * f32::from(u8::try_from(dice.below(2)).unwrap_or(0));
+                let (u, v) = (cell(dice), cell(dice));
+                let (sin, cos) = turn.sin_cos();
+                let at = |x: f32, y: f32, z: f32| {
+                    let (x, y) = (x * scale, y * scale);
+                    [x * cos - y * sin, x * sin + y * cos, z]
+                };
+                GrenadeTongue {
+                    corners: [
+                        at(-10.0, 10.0, 0.0),
+                        at(10.0, 10.0, 0.0),
+                        at(15.0, 25.0, high),
+                        at(-15.0, 25.0, high),
+                    ],
+                    uvs: [[u, v + 0.5], [u + 0.5, v + 0.5], [u + 0.5, v], [u, v]],
+                }
+            })
+            .collect();
+        let crater = usize::try_from(dice.below(2)).unwrap_or(0);
+        Self {
+            system: System::new(GRENADE_COUNT),
+            tongues,
+            crater,
+            clock: 0.0,
+            fired: false,
+            bursting: true,
+            flash: (0.0, 1.0),
+            cloud: (0.0, 1.0),
+            tongue: (0.0, 1.0),
+            crater_alpha: 1.0,
+        }
+    }
+
+    /// Its sparks' layers: the life −400 a second (0.64 s), the falling ones' −250 (1.02 s).
+    pub fn layers() -> [Layer; 3] {
+        let layer = |life: f32| Layer {
+            life,
+            ..Layer::default()
+        };
+        [layer(-400.0), layer(-250.0), layer(-250.0)]
+    }
+
+    /// Its sparks' blocks: 150 of the size 3 ± 1 flying up at 150 ± (100, 100, 50), not falling,
+    /// then twice 30 of the size 2 ± 1 turning by ± π, flying up at 130 ± 40 and falling (a
+    /// buoyancy of 300 ± 50).
+    fn blocks() -> [Block; 3] {
+        let rising = Block {
+            size: spread(3.0, 1.0),
+            velocity: spread([0.0, 0.0, 150.0], [100.0, 100.0, 50.0]),
+            frames: FRAME_OF_LAYER,
+            ..Block::default()
+        };
+        let falling = Block {
+            buoyancy: spread(300.0, 50.0),
+            size: spread(2.0, 1.0),
+            spin: spread(0.0, std::f32::consts::PI),
+            velocity: spread([0.0, 0.0, 130.0], [40.0; 3]),
+            frames: FRAME_OF_LAYER,
+            ..Block::default()
+        };
+        [rising, falling, falling]
+    }
+
+    /// Its sparks' ramps: the first from white through orange and grey to nothing, the others
+    /// white, fading at the last.
+    pub fn ramps() -> [Ramp; 3] {
+        let white = [0.996_093_75; 4];
+        let grey = |a: f32| [0.199_218_75, 0.199_218_75, 0.199_218_75, a];
+        let first = Ramp::new(
+            white,
+            &[
+                ([0.992_187_5, 0.390_625, 0.070_312_5, 0.996_093_75], 56),
+                ([0.488_281_25, 0.265_625, 0.152_343_75, 0.996_093_75], 47),
+                (grey(0.996_093_75), 27),
+                (grey(0.996_093_75), 46),
+                ([0.226_562_5, 0.199_218_75, 0.199_218_75, 0.808_593_75], 14),
+                ([0.867_187_5, 0.261_718_75, 0.214_843_75, 0.6875], 11),
+                ([0.128_906_25, 0.148_437_5, 0.105_468_75, 0.578_125], 10),
+                ([0.140_625, 0.152_343_75, 0.109_375, 0.0], 45),
+            ],
+        );
+        let white_out = Ramp::new(
+            white,
+            &[
+                (white, 220),
+                ([0.996_093_75, 0.996_093_75, 0.996_093_75, 0.0], 36),
+            ],
+        );
+        [first, white_out.clone(), white_out]
+    }
+
+    /// A run of `dt` seconds (`0x7B6BE0`): at its first its 210 sparks burst at its place, each
+    /// of its block by a roll of 211 against their counts (the last roll of none, dropped); while it
+    /// bursts its flash grows by 200 a second and past 70 fades by 4, its cloud grows by 170 and
+    /// past 25 fades by 10, its tongues' scale grows by 4 and past 1.3 they fade by 4, its sparks
+    /// age, bouncing on the ground; with all faded and the sparks gone it stops, its crater lies
+    /// until 10 s from its start and fades by a quarter a second.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.clock += dt;
+        if self.bursting {
+            if !self.fired {
+                self.fired = true;
+                let blocks = Self::blocks();
+                let whole: u32 = GRENADE_BLOCKS.iter().sum::<u32>() + 1;
+                for _ in 0..whole - 1 {
+                    let roll = dice.below(whole);
+                    let mut reached = 0;
+                    let layer = GRENADE_BLOCKS.iter().position(|&count| {
+                        reached += count;
+                        roll < reached
+                    });
+                    if let Some(layer) = layer
+                        && let Some(block) = blocks.get(layer)
+                    {
+                        self.system.particles.push(born(block, layer, dice));
+                    }
+                }
+            }
+            let grow = |(size, alpha): &mut (f32, f32), rate: f32, past: f32, fades: f32| {
+                *size += rate * dt;
+                if *size > past {
+                    *alpha = (*alpha - fades * dt).max(0.0);
+                }
+            };
+            grow(&mut self.flash, 200.0, 70.0, 4.0);
+            grow(&mut self.cloud, 170.0, 25.0, 10.0);
+            grow(&mut self.tongue, 4.0, 1.3, 4.0);
+            self.system.update_over(dt, &Self::layers(), Some(0.0));
+            if self.flash.1 <= 0.0
+                && self.cloud.1 <= 0.0
+                && self.tongue.1 <= 0.0
+                && self.system.particles.is_empty()
+            {
+                self.bursting = false;
+            }
+        } else if self.clock > GRENADE_CRATER_LIES {
+            self.crater_alpha -= 0.25 * dt;
+        }
+    }
+
+    /// Whether it ended, its crater faded.
+    pub fn done(&self) -> bool {
+        self.crater_alpha < 0.0
+    }
+
+    /// Whether its burst shows: its flash, its cloud, its tongues and its sparks.
+    pub fn bursting(&self) -> bool {
+        self.bursting
+    }
+
+    /// Its flash's half side and alpha, while it shows.
+    pub fn flash(&self) -> Option<(f32, f32)> {
+        (self.bursting && self.flash.1 > 0.0).then_some(self.flash)
+    }
+
+    /// Its cloud's half side and alpha, while it shows.
+    pub fn cloud(&self) -> Option<(f32, f32)> {
+        (self.bursting && self.cloud.1 > 0.0).then_some(self.cloud)
+    }
+
+    /// Its tongues' scale and alpha.
+    pub fn tongue(&self) -> (f32, f32) {
+        self.tongue
+    }
+
+    /// Its crater's alpha.
+    pub fn crater_alpha(&self) -> f32 {
+        self.crater_alpha.max(0.0)
+    }
+}
+
 /// The thrown ball's model and its glows' texture (867, `0x79E630`), and its particles.
 pub const BALL_MODEL: &str = "BOTTLE01.GRN";
 pub const BALL_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -11092,6 +11323,45 @@ mod tests {
         assert!(
             ringed.iter().any(|(at, _)| at[2] > 90.0) && ringed.iter().any(|(at, _)| at[2] < 10.0)
         );
+    }
+
+    #[test]
+    fn a_mortar_shells_impact_flashes_for_a_second_and_its_crater_lies_fourteen() {
+        let mut dice = Rng::of(2, 6, 9);
+        let mut impact = GrenadeImpact::new(&mut dice);
+        assert_eq!(impact.tongues.len(), 75);
+        assert!(impact.tongues.iter().all(|tongue| {
+            let high = tongue.corners[2][2];
+            tongue.corners[0][2] == 0.0 && (21.0..=33.0).contains(&high)
+        }));
+        impact.update(0.01, &mut dice);
+        let sparks = impact.system.particles.len();
+        assert!((195..=210).contains(&sparks), "{sparks}");
+        let mut steps = 1_u32;
+        let mut stopped = None;
+        while !impact.done() && steps < 3000 {
+            impact.update(0.01, &mut dice);
+            steps += 1;
+            if !impact.bursting() && stopped.is_none() {
+                stopped = Some(steps);
+            }
+            if steps == 30 {
+                // The flash grows, the cloud gone at 0.25 s, the sparks fly.
+                let (half, alpha) = impact.flash().unwrap_or_default();
+                assert!((55.0..=65.0).contains(&half) && alpha == 1.0, "{half}");
+                assert!(impact.cloud().is_none());
+                assert!(impact.system.particles.iter().all(|p| p.place[2] >= -5.0));
+            }
+        }
+        // The burst over at about a second, the crater faded at 14.
+        let stopped = stopped.map(|s| f32::from(u16::try_from(s).unwrap_or(0)) * 0.01);
+        assert!(
+            stopped.is_some_and(|s| (0.95..=1.1).contains(&s)),
+            "{stopped:?}"
+        );
+        let end = f32::from(u16::try_from(steps).unwrap_or(0)) * 0.01;
+        assert!((13.9..=14.1).contains(&end), "{end}");
+        assert!(impact.crater < 2);
     }
 
     #[test]

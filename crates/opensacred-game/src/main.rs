@@ -89,6 +89,7 @@ mod game;
 mod glance;
 mod glitter;
 mod goblin_impacts;
+mod grenade_impacts;
 mod gun_fires;
 mod guns;
 mod healings;
@@ -520,7 +521,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         glance::GlancePlugin,
         glitter::GlitterPlugin,
     ))
-    .add_plugins(goblin_impacts::GoblinImpactsPlugin)
+    .add_plugins((
+        goblin_impacts::GoblinImpactsPlugin,
+        grenade_impacts::GrenadeImpactsPlugin,
+    ))
     .add_plugins((gun_fires::GunFiresPlugin, guns::GunsPlugin))
     .add_plugins((
         healings::HealingsPlugin,
