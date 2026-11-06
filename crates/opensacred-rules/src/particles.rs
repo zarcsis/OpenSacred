@@ -7034,12 +7034,13 @@ const SUMMON_ORBITS: usize = 20;
 const SUMMON_BOLTS: usize = 10;
 const SUMMON_BOLT_POINTS: usize = 6;
 const SUMMON_RISE: f32 = 20.0;
-/// The original's whole turn of its rolls and its end, 6.28 rather than 2π.
+/// The original's whole turn of its rolls, 6.28 rather than 2π: the summoning's (and its end), the
+/// teleport's.
 #[expect(
     clippy::approx_constant,
     reason = "the original's 6.28, a little short of 2π"
 )]
-const SUMMON_TURN: f32 = 6.28;
+const ROLLED_TURN: f32 = 6.28;
 /// A triangle of the summoning: its corners and their colours.
 pub type SummonTriangle = ([[f32; 3]; 3], [[f32; 4]; 3]);
 
@@ -7101,8 +7102,8 @@ impl BigSummon {
         };
         let orbits = (0..SUMMON_ORBITS)
             .map(|_| Orbit {
-                azimuth: SUMMON_TURN * share(dice),
-                elevation: SUMMON_TURN * share(dice),
+                azimuth: ROLLED_TURN * share(dice),
+                elevation: ROLLED_TURN * share(dice),
                 rates: [rate(dice), rate(dice)],
             })
             .collect();
@@ -7149,7 +7150,7 @@ impl BigSummon {
 
     /// Whether it ended, its phase past 2π.
     pub fn done(&self) -> bool {
-        self.phase > SUMMON_TURN
+        self.phase > ROLLED_TURN
     }
 
     /// The radius of its world light, `⌊100·(1 − cos φ)⌋`, from 0 to 200 and back.
@@ -7666,6 +7667,230 @@ impl DwarfFireSight {
                 self.clock >= self.until && self.system.particles.is_empty()
             }
         }
+    }
+}
+
+/// The teleport's sights' texture (774 `FX_TELEPORT_OUT` and 775 `FX_TELEPORT_IN`, one class,
+/// `cParticleSystem_teleport`, its constructor `0x771370`), their particles, their world light and
+/// their corners' colours (from the bottom left, the top left, the bottom right and the top right),
+/// a blue.
+pub const TELEPORT_TEXTURE: &str = "PARTICLE_SPARK02";
+const TELEPORT_COUNT: usize = 500;
+pub const TELEPORT_LIGHT: f32 = 170.0;
+pub const TELEPORT_CORNERS: [[f32; 4]; 4] = [
+    [0x55 as f32 / 255.0, 0x66 as f32 / 255.0, 1.0, 1.0],
+    [0x66 as f32 / 255.0, 0x55 as f32 / 255.0, 1.0, 1.0],
+    [0x66 as f32 / 255.0, 0x66 as f32 / 255.0, 1.0, 1.0],
+    [0x55 as f32 / 255.0, 0x55 as f32 / 255.0, 1.0, 1.0],
+];
+/// The ring's radius and its height over its place, the half side of its sparks, and the time
+/// each stage takes in the run's time (the time times the cast's rate): its arc opening, its
+/// cylinder rising, its hold, its pause, its cylinder sinking and its arc closing.
+const TELEPORT_RING: f32 = 30.0;
+const TELEPORT_HEIGHT: f32 = 50.0;
+const TELEPORT_SPARK: f32 = 7.0;
+const TELEPORT_OPENS: f32 = 6.0;
+const TELEPORT_RISES: f32 = 25.0;
+const TELEPORT_HOLDS: f32 = 0.3;
+
+/// A spark of the teleport: its angle about the ring and its rate, its bob's phase, and for one
+/// that broke away its place, its velocity and its life.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TeleportSpark {
+    angle: f32,
+    rate: f32,
+    bob: f32,
+    loose: Option<([f32; 3], [f32; 3], f32)>,
+}
+
+/// The stages of a teleport's sight (`+0x20B0`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum TeleportStage {
+    Opens,
+    Rises,
+    Holds,
+    Waits,
+    Sinks,
+    Closes,
+    Done,
+}
+
+/// The teleport's sight (774 at the caster's departure, 775 at the arrival; its start `0x771E20`,
+/// run `0x771410` and draw `0x771C10`; #1092): 500 sparks on a ring of 30 about its place, 50
+/// over it, each running about it at its own rate either way; the ring opens from an arc to the
+/// whole circle, rises into a cylinder of 0 to 100, holds 0.3 s, when the hero is put at the
+/// arrival, then sinks and closes as it came; a spark now and then breaks away, falls bouncing on
+/// the ground and shrinks, and comes back to the ring. Its time runs at the cast's rate; it is
+/// added by its alpha in its blue corners.
+#[derive(Clone, Debug)]
+pub struct TeleportSight {
+    sparks: Vec<TeleportSpark>,
+    arc: f32,
+    height: f32,
+    timer: f32,
+    stage: TeleportStage,
+    rate: f32,
+}
+
+impl TeleportSight {
+    /// A sight at the cast's rate `rate` of the rolls of `dice`: each spark's bob's phase and its
+    /// rate of 0.5 to 3 a second either way.
+    pub fn new<D: Dice>(rate: f32, dice: &mut D) -> Self {
+        let sparks = (0..TELEPORT_COUNT)
+            .map(|_| {
+                let bob = ROLLED_TURN * share(dice);
+                let speed = 2.5 * share(dice) + 0.5;
+                let rate = if dice.below(2) == 1 { speed } else { -speed };
+                TeleportSpark {
+                    angle: 0.0,
+                    rate,
+                    bob,
+                    loose: None,
+                }
+            })
+            .collect();
+        Self {
+            sparks,
+            arc: 0.0,
+            height: 0.0,
+            timer: TELEPORT_HOLDS,
+            stage: TeleportStage::Opens,
+            rate: rate.max(f32::EPSILON),
+        }
+    }
+
+    /// A ring spark's place about its sight's place: `(30 cos φ, 30 sin φ, 50 + H sin θ)`.
+    fn ringed(&self, spark: &TeleportSpark) -> [f32; 3] {
+        [
+            TELEPORT_RING * spark.angle.cos(),
+            TELEPORT_RING * spark.angle.sin(),
+            TELEPORT_HEIGHT + self.height * spark.bob.sin(),
+        ]
+    }
+
+    /// A run of `dt` seconds, its place at the height `ground` over the ground in its frame, of
+    /// the rolls of `dice`; whether the hero is put at the arrival now, as its hold ends.
+    pub fn update(&mut self, dt: f32, ground: f32, dice: &mut impl Dice) -> bool {
+        if dt > 1.0 || self.stage == TeleportStage::Done {
+            return false;
+        }
+        let d = dt * self.rate;
+        let tau = std::f32::consts::TAU;
+        let mut arrives = false;
+        match self.stage {
+            TeleportStage::Opens => {
+                self.arc += TELEPORT_OPENS * d;
+                if self.arc >= tau {
+                    self.arc = tau;
+                    self.stage = TeleportStage::Rises;
+                }
+            }
+            TeleportStage::Rises => {
+                self.height += TELEPORT_RISES * d;
+                if self.height >= TELEPORT_HEIGHT {
+                    self.height = TELEPORT_HEIGHT;
+                    self.stage = TeleportStage::Holds;
+                }
+            }
+            TeleportStage::Holds => {
+                self.timer -= d;
+                if self.timer <= 0.0 {
+                    self.timer = TELEPORT_HOLDS;
+                    self.stage = TeleportStage::Waits;
+                    arrives = true;
+                }
+            }
+            TeleportStage::Waits => {
+                self.timer -= d;
+                if self.timer <= 0.0 {
+                    self.stage = TeleportStage::Sinks;
+                }
+            }
+            TeleportStage::Sinks => {
+                self.height -= TELEPORT_RISES * d;
+                if self.height <= 0.0 {
+                    self.height = 0.0;
+                    self.stage = TeleportStage::Closes;
+                }
+            }
+            TeleportStage::Closes => {
+                self.arc -= TELEPORT_OPENS * d;
+                if self.arc <= 0.0 {
+                    self.arc = 0.0;
+                    self.stage = TeleportStage::Done;
+                }
+            }
+            TeleportStage::Done => {}
+        }
+        let arc = self.arc;
+        for index in 0..self.sparks.len() {
+            let spark = self.sparks[index];
+            let next = match spark.loose {
+                None => {
+                    let mut spark = spark;
+                    spark.angle += spark.rate * d;
+                    if arc > 0.0 {
+                        spark.angle = spark.angle.rem_euclid(arc);
+                    } else {
+                        spark.angle = 0.0;
+                    }
+                    spark.bob = (spark.bob + d).rem_euclid(tau);
+                    if dice.below(5001) == 0 {
+                        let at = self.ringed(&spark);
+                        let length = at.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+                        let speed = 10.0 * (share(dice) + 1.0);
+                        spark.loose =
+                            Some((at, at.map(|v| v / length * speed), TELEPORT_SPARK - d));
+                    }
+                    spark
+                }
+                Some((mut at, mut velocity, mut life)) => {
+                    for (axis, speed) in at.iter_mut().zip(velocity) {
+                        *axis += speed * d;
+                    }
+                    velocity[2] -= 90.0 * d;
+                    if at[2] < ground {
+                        velocity[2] *= -0.9;
+                    }
+                    life -= 2.0 * d;
+                    let mut spark = spark;
+                    spark.loose = if life <= 0.0 {
+                        spark.angle = 0.0;
+                        None
+                    } else {
+                        Some((at, velocity, life))
+                    };
+                    spark
+                }
+            };
+            self.sparks[index] = next;
+        }
+        arrives
+    }
+
+    /// Whether it ended, its arc closed.
+    pub fn done(&self) -> bool {
+        self.stage == TeleportStage::Done
+    }
+
+    /// Its sparks, each a place about its own and a half side: the ring's of 7, the loose ones'
+    /// their life, now and then 10 to 12 more (`rand() % 51` 0).
+    pub fn sparks(&self, dice: &mut impl Dice) -> Vec<([f32; 3], f32)> {
+        self.sparks
+            .iter()
+            .map(|spark| match spark.loose {
+                None => (self.ringed(spark), TELEPORT_SPARK),
+                Some((at, _, life)) => {
+                    let size = if dice.below(51) == 0 {
+                        let more = f32::from(u16::try_from(dice.below(3)).unwrap_or(0));
+                        life + 10.0 + more
+                    } else {
+                        life
+                    };
+                    (at, size)
+                }
+            })
+            .collect()
     }
 }
 
@@ -10834,6 +11059,39 @@ mod tests {
         }
         assert!(shot.system.particles.is_empty());
         assert_eq!(DwarfFireSight::new(DwarfFire::Grenade, 2.0).until, 0.15);
+    }
+
+    #[test]
+    fn a_teleport_opens_rises_puts_the_hero_and_closes_at_the_casts_rate() {
+        let mut dice = Rng::of(3, 3, 8);
+        let mut sight = TeleportSight::new(1.2, &mut dice);
+        let mut arrival = None;
+        let mut steps = 0_u32;
+        while !sight.done() && steps < 2000 {
+            if sight.update(0.01, -10.0, &mut dice) {
+                arrival = Some(steps);
+            }
+            steps += 1;
+        }
+        // The hero at the arrival 3.35/1.2 = 2.8 s on, the sight over at 6.69/1.2 = 5.6 s.
+        let at = arrival.map(|s| f32::from(u16::try_from(s).unwrap_or(0)) * 0.01);
+        assert!(at.is_some_and(|at| (2.75..=2.85).contains(&at)), "{at:?}");
+        let end = f32::from(u16::try_from(steps).unwrap_or(0)) * 0.01;
+        assert!((5.5..=5.65).contains(&end), "{end}");
+        // At its full height, its ring's sparks lie 30 about it between 0 and 100 up.
+        let mut sight = TeleportSight::new(1.0, &mut dice);
+        for _ in 0..300 {
+            sight.update(0.01, -10.0, &mut dice);
+        }
+        let sparks = sight.sparks(&mut dice);
+        assert_eq!(sparks.len(), 500);
+        let ringed: Vec<_> = sparks.iter().filter(|(_, half)| *half == 7.0).collect();
+        assert!(ringed.iter().all(|(at, _)| {
+            (at[0].hypot(at[1]) - 30.0).abs() < 1e-3 && (0.0..=100.0).contains(&at[2])
+        }));
+        assert!(
+            ringed.iter().any(|(at, _)| at[2] > 90.0) && ringed.iter().any(|(at, _)| at[2] < 10.0)
+        );
     }
 
     #[test]

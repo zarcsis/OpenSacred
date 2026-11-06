@@ -202,6 +202,7 @@ mod summon_looks;
 mod summonings;
 mod tables;
 mod talk;
+mod teleports;
 mod tentacles;
 mod terrain;
 mod tooltip;
@@ -631,11 +632,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         summon_looks::SummonLooksPlugin,
         summonings::SummoningsPlugin,
         talk::TalkPlugin,
+        teleports::TeleportsPlugin,
         tentacles::TentaclesPlugin,
         terrain::GroundPlugin,
-        tooltip::TooltipPlugin,
     ))
     .add_plugins((
+        tooltip::TooltipPlugin,
         torches::TorchesPlugin,
         town_stash::TownStashPlugin,
         trap_balls::TrapBallsPlugin,

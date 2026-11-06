@@ -1697,6 +1697,25 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 **Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (#2162).
 Not followed: the impact 1020 (#2160).
 
+## The teleport
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The departure and the arrival | 774 `FX_TELEPORT_OUT`, 775 `FX_TELEPORT_IN` | `cParticleSystem_teleport` (`0x897A40`) | `0x771370`, `0x771E20`, `0x771410`, `0x771C10` |
+
+- One class for both (500 particles, `PARTICLE_SPARK02`, its world light 170 constant; no Direct3D light, no sound of its own); the spell 1's executor (`0x522742`) alone makes them at the act, 775 at the arrival on the ground (the FX event 3, placed there) and 774 at the caster (the event 2, following him at his root, carrying the arrival), both of the cast's rate `s` (the caster's `+0x3E6` times 0.01).
+  The spells 9 and 10 make none: the black magician's blink makes the object 856 (docs/re/ai.md).
+- Its start: the arc and the height 0, its corners' blues `0xFF5566FF`, `0xFF6655FF`, `0xFF6666FF`, `0xFF5555FF`.
+- Its run, by the time times `s`, skipped for a frame longer than a second: at its first, each spark on the ring at the angle 0 at its own rate of ± (0.5 to 3) a second, its bob's phase at random; each frame a spark on the ring at `(30 cos φ, 30 sin φ, 50 + H sin θ)` about its place, `φ` held within the arc and `θ` running at 1 a second, and one of 5001 breaking away at 10 to 20 a second outward from its place, falling by 90 a second, bouncing on the ground at 0.9 and shrinking by 2 a second from 7 until it is put back on the ring.
+  Its stages: the arc opens by 6 a second to 2π, the height rises by 25 a second to 50, it holds 0.3 s, when the departure's puts the hero at the arrival (the event 8, `0x52F206`) and stays where he was and the arrival's rides on him; 0.3 s more; the height sinks and the arc closes as they came; it ends, `6.69/s` s after the act (the hero put at `3.35/s`).
+- Its draw: its sparks of the half side 7, the loose ones' their life, now and then 10 to 12 more, facing the camera and added by their alpha in its corners' colours, untinted.
+
+`opensacred-game` draws them since #1092 (`teleports`, `opensacred_rules::particles::TeleportSight`) at the Mage's feet and at the arrival on the ground as his teleport acts (`spells`), the hero put there by `spells`'s own timer at the same moment.
+**Seen** 2026-11-06 in the game: the two blue rings opening, rising into cylinders, and closing; not beside the original, whose driver's right button on the ground did not make the Mage's teleport.
+Not followed: the sparks' fixed turns (drawn unturned); the fog of the world map revealed about the arrival.
+
 ## The healing
 
 Read 2026-11-06 for #2149 in Ghidra (**confirmed** by code unless marked).
