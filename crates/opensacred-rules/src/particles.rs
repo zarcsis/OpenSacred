@@ -7733,6 +7733,12 @@ pub fn art_sights(art: u16) -> Vec<(CastBone, u8)> {
     }
 }
 
+/// The style of a creature's casts' sights: the blue glow 13, which the FX handler gives a
+/// caster above the id 16 whose event's `+0x28` is not 1.0 (`0x5A3A4A`), as the spells' cast
+/// writes the point's `x` alone (**seen** 2026-11-05: Anducar's demon's fire bolt's sights of the
+/// style 13, its `+0xA9` 2).
+pub const CREATURES_CAST_STYLE: u8 = 13;
+
 /// A cast's sight's texture of its particles, by its style (`0x776CA0`).
 pub fn cast_texture(style: u8) -> &'static str {
     match style {

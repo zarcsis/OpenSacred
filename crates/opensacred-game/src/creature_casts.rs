@@ -210,12 +210,22 @@ fn ordered(
 
 /// Begins each cast's clip: its slot by spell and type, its spell acting at the spell's share
 /// (`0x521D60`).
-fn begin(mut commands: Commands, mut casting: Query<(Entity, &mut Casting, &Mind), Without<Dies>>) {
-    for (entity, mut cast, mind) in &mut casting {
+fn begin(
+    mut commands: Commands,
+    mut casting: Query<(Entity, &mut Casting, &Mind, Option<&crate::fight::Combat>), Without<Dies>>,
+    mut sights: MessageWriter<crate::cast_sights::CreatureCast>,
+) {
+    for (entity, mut cast, mind, combat) in &mut casting {
         if cast.begun {
             continue;
         }
         cast.begun = true;
+        // Its cast's sights in its hands (`0x51E110`; `cast_sights`), on its clip's rate.
+        sights.write(crate::cast_sights::CreatureCast {
+            caster: entity,
+            spell: cast.spell,
+            rate: combat.map_or(1.2, |combat| combat.cast / 100.0),
+        });
         let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
         // The spider shoots and the dragon breathes as its clip starts (`0x4E3464`).
         let share = if matches!(cast.spell, casts::SPIDER_SHOT | casts::DRAGON_FIRE) {
