@@ -586,7 +586,24 @@ impl Quads {
     /// corners' colours `colours` from the bottom left, the top left, the bottom right and the top
     /// right (the blades of light's dots, `light_blades`).
     pub(crate) fn push_facing(&mut self, centre: Vec3, size: f32, colours: [[f32; 4]; 4]) {
-        let (r, u) = (iso::right() * size, iso::up() * size);
+        self.push_facing_turned(centre, size, 0.0, colours);
+    }
+
+    /// [`Self::push_facing`] turned by `angle` in the screen's plane (the flags `0x04`: the
+    /// healing's sparks, `healings`).
+    pub(crate) fn push_facing_turned(
+        &mut self,
+        centre: Vec3,
+        size: f32,
+        angle: f32,
+        colours: [[f32; 4]; 4],
+    ) {
+        let (right, up) = (iso::right(), iso::up());
+        let (sin, cos) = angle.sin_cos();
+        let (r, u) = (
+            (right * cos + up * sin) * size,
+            (up * cos - right * sin) * size,
+        );
         let Ok(first) = u32::try_from(self.positions.len()) else {
             return;
         };

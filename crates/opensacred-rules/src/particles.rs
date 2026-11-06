@@ -7236,6 +7236,90 @@ impl BigSummon {
     }
 }
 
+/// The healing's sight's texture (784, `cParticleSystem_healing`, its constructor `0x773F30`) and
+/// its particles, all made at once.
+pub const HEALING_TEXTURE: &str = "PARTICLE_SPARK02";
+const HEALING_COUNT: usize = 400;
+/// The radius of the ring the healing's sparks are born on about its creature's root.
+const HEALING_RING: f32 = 20.0;
+
+/// The colours of the healing's sparks' corners, from the bottom left, the top left, the bottom
+/// right and the top right (its start `0x774330`): a hero's red with a pink corner, a creature's
+/// pale blue.
+pub fn healing_corners(hero: bool) -> [[f32; 4]; 4] {
+    let colour = |argb: u32| {
+        let [a, r, g, b] = argb.to_be_bytes().map(|c| f32::from(c) / 255.0);
+        [r, g, b, a]
+    };
+    if hero {
+        [0xFFFF_0000, 0xFFFF_7F7F, 0xFFFF_0000, 0xFFFF_0000].map(colour)
+    } else {
+        [colour(0xFF80_80FF); 4]
+    }
+}
+
+/// The healing's sight (784, `FX_HEALING`, `cParticleSystem_healing`, its start `0x774330`, run
+/// `0x773FC0` and draw `0x774120`; #1092): at its first run 400 sparks on a ring of 20 about its
+/// creature's root, each turned at random and rising ever faster (a buoyancy of −(80U + 10)),
+/// of a size 20 shrinking by 8 a second and turning by 3, living 2.45 s (the life's rate −104),
+/// drawn turned and added by their alpha in its corners' colours, whatever their life; it ends
+/// with them.
+#[derive(Clone, Debug)]
+pub struct HealingSight {
+    pub system: System,
+}
+
+impl HealingSight {
+    /// Its sparks of the rolls of `dice`, each its angle on the ring, its buoyancy and its turn.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let mut system = System::new(HEALING_COUNT);
+        system.particles = (0..HEALING_COUNT)
+            .map(|_| {
+                let at = std::f32::consts::TAU * share(dice);
+                let buoyancy = -(80.0 * share(dice) + 10.0);
+                Particle {
+                    place: [HEALING_RING * at.cos(), HEALING_RING * at.sin(), 0.0],
+                    velocity: [0.0, 0.0, 2.0],
+                    buoyancy,
+                    size: 20.0,
+                    life: 255.0,
+                    angle: std::f32::consts::TAU * share(dice),
+                    spin: 0.0,
+                    layer: 0,
+                    frame: 0,
+                }
+            })
+            .collect();
+        Self { system }
+    }
+
+    /// Its layer: the life −104, the size −8 and the angle +3 a second.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -104.0,
+            size: -8.0,
+            angle: 3.0,
+            ..Layer::default()
+        }
+    }
+
+    /// A run of `dt` seconds.
+    pub fn update(&mut self, dt: f32) {
+        self.system.update(dt, &[Self::layer()]);
+    }
+
+    /// Whether it ended, its last spark gone.
+    pub fn done(&self) -> bool {
+        self.system.particles.is_empty()
+    }
+}
+
+/// The level of the heal that the goblin mages' ball gives each creature of its caster's side it
+/// lands among, of the spell 7's record (`0x5A7336`): a quarter of its caster's level, at least 1.
+pub fn ball_heal_level(caster: u32) -> u32 {
+    (caster / 4).max(1)
+}
+
 /// The thrown ball's model and its glows' texture (867, `0x79E630`), and its particles.
 pub const BALL_MODEL: &str = "BOTTLE01.GRN";
 pub const BALL_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -10313,6 +10397,41 @@ mod tests {
         let mut stalled = BigSummon::new(summon_colour(6), true, &mut dice);
         stalled.update(1.5);
         assert_eq!(stalled.clock, 0.0);
+    }
+
+    #[test]
+    fn a_healing_rises_from_a_ring_about_its_creature_and_ends_in_two_and_a_half_seconds() {
+        let mut dice = Rng::of(9, 2, 4);
+        let mut sight = HealingSight::new(&mut dice);
+        assert_eq!(sight.system.particles.len(), 400);
+        assert!(sight.system.particles.iter().all(|p| {
+            (p.place[0].hypot(p.place[1]) - 20.0).abs() < 1e-3 && p.buoyancy <= -10.0
+        }));
+        for _ in 0..100 {
+            sight.update(0.02);
+        }
+        // Two seconds on, risen and shrunk.
+        assert!(
+            sight
+                .system
+                .particles
+                .iter()
+                .all(|p| p.place[2] > 20.0 && p.size < 5.0)
+        );
+        for _ in 0..30 {
+            sight.update(0.02);
+        }
+        assert!(sight.done());
+        assert_eq!(
+            healing_corners(true)[1],
+            [1.0, 127.0 / 255.0, 127.0 / 255.0, 1.0]
+        );
+        assert_eq!(
+            healing_corners(false)[0],
+            [128.0 / 255.0, 128.0 / 255.0, 1.0, 1.0]
+        );
+        assert_eq!(ball_heal_level(3), 1);
+        assert_eq!(ball_heal_level(22), 5);
     }
 
     #[test]

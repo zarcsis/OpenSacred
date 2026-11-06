@@ -1675,6 +1675,24 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
+## The healing
+
+Read 2026-11-06 for #2149 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A heal | 784 `FX_HEALING` | `cParticleSystem_healing` (`0x897B00`) | `0x773F30`, `0x774330`, `0x773FC0`, `0x774120` |
+
+- Its constructor (400 particles) loads `PARTICLE_SPARK02`; no light of either kind.
+- Its makers send the FX event `0x10` (`0x5A49E6`: following the target at its root, the start's flag `0x200`): the spell 7's executor (`0x523A36`), the hero's or a healer's, at the order's object, else the caster; and the goblin mages' ball at each creature it lands among not hostile to its caster (`0x5A7336`), of the spell 7's record at ⌊caster's level / 4⌋, at least 1, its factor 1.
+- Its start: a layer of the life −104, the size −8 and the angle +3 a second; its corners' colours, a hero's `0xFFFF0000`, `0xFFFF7F7F`, `0xFFFF0000`, `0xFFFF0000`, a creature's `0xFF8080FF` each; its sound 2020 once.
+- Its first run: all its 400 particles on a ring of 20 about its place, each at an angle at random, the velocity (0, 0, 2), a buoyancy of −(80U + 10) (rising ever faster), the size 20 and an angle at random; and its action 3, the heal, once (`0x5B53A3`): the record's value 0 at its level times its factor times `1 + lore/100`, the caster's magic lore, given to the target up to its most health, with the effect 30 for 1 s keyed 100 (**hypothesis**: the end of a poisoning); none where the caster or the target changed since the event.
+- Its run ages them and ends with them (2.45 s); its draw turns them and adds them by their alpha in its corners' colours, whatever their life, untinted.
+
+`opensacred-game` draws it since #2149 (`healings`, `opensacred_rules::particles::{HealingSight, healing_corners, ball_heal_level}`, `fx::Quads::push_facing_turned`): the hero's heal and a healer's, and the goblin mages' ball's heal of the creatures it lands among not hostile to its caster (`creature_casts::Ball`, by `spells::healing` with no magic lore, as a creature's heals are), the sparks left in the world where they were born.
+**Seen** 2026-11-06 beside the original: the Mage's heal as a white disk at his feet rising into a pink column and its sparks, alike in both.
+Not followed: the heal's effect 30.
+
 ## The summoning
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -1774,7 +1792,8 @@ Read 2026-11-06 for #2147 in Ghidra (**confirmed** by code unless marked).
 `opensacred-game` follows it since #2147 (`goblin_impacts`, `opensacred_rules::particles::{GoblinImpact, GoblinLanding}`, `creature_casts::Ball`): the ball's hit on the hero cracks the ground under her, and its landing on no creature traces the ring and summons the creature 0.314 s on, hostile and of the caster's level and side (`creature_casts::Summoning`), the impacts untinted by the night and lighting it by 200.
 The ring's streaks are born along the turn's way in the frame, where the original sets the block's offset to the turn's point once a frame and a frame's streaks stand together (**estimate**: at the game's frame rate they stood apart as bright bars).
 **Seen** 2026-11-06 beside the original: the miss's column of blue streaks alike in size, brighter at its right edge and its foot in both; in the game the hit's cracks radiating from the hero's feet.
-Not followed: the ball's heal of the caster's friends (784, **hypothesis**, #2149), its strikes on the hero's followers (the game's ball strikes the hero alone), the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are), the type 145's item `0x73A` in its slot 13, and the event's sound.
+Since #2149 its heal of the caster's friends follows ("The healing").
+Not followed: its strikes on the hero's followers (the game's ball strikes the hero alone), the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are), the type 145's item `0x73A` in its slot 13, and the event's sound.
 
 ## The guns' sights
 
