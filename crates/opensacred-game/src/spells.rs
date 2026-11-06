@@ -3493,6 +3493,14 @@ fn teleport(
         if let Some(mut unseen) = unseen {
             if unseen.after > 0.0 {
                 unseen.after -= dt;
+                // Its look as its strike ends, for the spell's seconds, then its blink (the
+                // action 6's overlay of the state 1, `0x44AB44`).
+                if unseen.after <= 0.0 {
+                    let seconds = (unseen.left - spells::WATER_AFTER).max(0.0);
+                    commands
+                        .entity(hero)
+                        .insert(crate::skins::Asked(crate::skins::Overlay::Water, seconds));
+                }
             } else {
                 unseen.left -= dt;
                 if unseen.left <= 0.0 {
