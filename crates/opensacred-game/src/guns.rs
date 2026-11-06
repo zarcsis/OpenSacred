@@ -3,7 +3,7 @@
 //! strikes every hostile creature alive within [`opensacred_rules::arts::MORTAR_REACH`] and its
 //! size of the point with its damages (the impact 1020's, `0x5B05E3`), the fight's hit of fixed
 //! damages, which lands, and sounds the impact's `DWARF_MOERSER_EINSCHLAG` there
-//! (`0x7B7622`). The grenade and its blast are not drawn.
+//! (`0x7B7622`). Its burst at the muzzle is `dwarf_fires`', the impact 1020 is not drawn (#2160).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{MORTAR_DELAY, MORTAR_REACH};

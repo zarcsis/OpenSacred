@@ -194,7 +194,7 @@ The common draw of particles, called with the device, the matrix, a flags word, 
   - `0x80` the quad standing on its foot, from 0 to twice the size up, instead of centred;
   - `0x100` the atlas's frame from the particle's byte `+0x3C`, else from its age, `⌊(255 − life) · G²/256⌋`, so that a particle plays the atlas's `G × G` frames once over its life.
 - With `G` above 1 the texture is a grid of `G × G` frames and each quad takes its frame's square.
-- When the system last emitted with two layers (`+0xA8` 2, or the byte `c`), the batch is drawn and the destination factor switched at each change of layer: the layer 0 additive (`ONE`) where the byte `b` is 0, the others by the alpha (`INVSRCALPHA`).
+- When the system last emitted with two layers (`+0xA8` 2, or the byte `c`), the batch is drawn and the destination factor switched at each change of layer: the layer 0 additive (`ONE`) where the byte `b` is 0, the others by the alpha (`INVSRCALPHA`); where `b` is 1 the other way about, the layer 0 by the alpha and the others added (`0x761FD9`…`0x762005`, the Dwarf's guns' fires).
   So a fire's flames add to the frame and its smoke covers it.
 - The particles are drawn in their slots' order, not sorted; the depth test against the models and the depth buffer's other contents is their only order inside the system.
 - A trail's layer, when given (the fourth argument, tested at `0x7623D8`), draws each particle again as shrinking copies back along its velocity (0 in the classes read here).
@@ -257,7 +257,7 @@ Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
 | helldisk | 1005 | (1, 0.4, 0.2) | 1 | at its place |
 | demonform | 1014 | by its variant: (0.5, 0.7, 1), (0.4, 1, 0.5), (1, 0.7, 0.4), (1, 1, 1) | 1 | at the first of its orbiting points |
 | demonfire | 1015 | (1, 0.4, 0.2) | 1 | 45 + 3 sin(1.17 t) over its place |
-| dwarf_flamethrower, dwarf_shoot, dwarf_grenade | 1016, 1017, 1018 | (1, 0.8, 0.4) | 2 | at its place after its delay, off as its emission ends |
+| dwarf_flamethrower, dwarf_shoot, dwarf_grenade | 1016, 1017, 1018 | (1, 0.8, 0.4) | 2 | at the muzzle each frame, the flamethrower's off as its last flame dies, the shots' as their emission ends (their delay `+0x20A4` is always 0; no world light) |
 | panzer | 1021 | (0.15 + 0.35(1 + c), 0.15 + 0.35(1 − c), 0.137), c = cos(0.5425 t) | 2 | at its place |
 | stahl | 1022 | (0.25 + 0.2 c, 0.25 − 0.2 c, 1), c alike | 2 | at its place |
 | dwarf_gier | 1155 | 2 sin(5π τ) times (1, 0.5, 0.1), τ a timer of 0.2 s | 1 | each 0.2 s at a new point within (18, 18, 20) of its place less 15 |
@@ -1674,6 +1674,28 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-05 beside the original: the Mage's fireball's orange glows at his left hand in both; the Daemon's fire form's orange sparks at his hands, the tongues of flame that the original shows about his raised hands.
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
+
+## The Dwarf's guns' fires
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The flamethrower's flames (1085) | 1016 | `cParticleSystem_dwarf_flamethrower` (`0x898C40`) | `0x7B34D0`, `0x7B3870`, `0x7B35F0`, `0x7B37A0` |
+| The cannon's flash (1087) | 1017 | `cParticleSystem_dwarf_shoot` (`0x898C68`) | `0x7B40D0`, `0x7B4480`, `0x7B41B0`, `0x7B4410` |
+| The mortar's burst (1086) | 1018 | `cParticleSystem_dwarf_grenade` (`0x898C94`) | `0x7B4CB0`, `0x7B50F0`, `0x7B4DC0`, `0x7B5080` |
+
+- Their makers are the Dwarf's executor (`0x514790`) alone, at the moments of docs/re/arts.md: the flamethrower at the clip's first hit point (`0x516BF9`), the cannon's flash at `1 − h₀ + 0.05·r` (`0x51724D`), the mortar's at its first hit point (`0x516894`), `r` the clips' rate (1.2).
+  Their FX events `0x94` to `0x96` follow the Dwarf at his bone 46 (`canon_fx01`, the muzzle of his back's cannon); none has a delay, a variant or a world light; each its Direct3D light (1, 0.8, 0.4); none tinted by the night.
+- The flamethrower (999 particles; `particle_flamethrower`, a 2 × 2 grid, and `particle_smoke04`): its flag `0x200` stands it at the muzzle each frame with the bone's turn; its three blocks' velocity is 200 along the bone's `x` axis, set again each frame, their sizes 2 ± 1, 2 ± 1 and 2 ± 0.7, spinning, the velocity ± 5, ± 8 and ± 10, every 0.003, 0.001 and 0.001 s (times 1.5 and 2.2 at the detail levels 1 and 0), each particle of its block's frame, three layers of the life −250 and the sizes +13, +4 and +20 a second; it streams them until `3.25/r` s, and once the last is gone a smoke rises at the muzzle every 0.05 s until `6.25/r` (a buoyancy of −55 ± 10, the size 1, the life −200 and the size +4), ending with its last puff.
+  Its draw: the flames turned, of their layer's ramp's colour (the flags `0x10D`, the byte `b` 1), the layer 0's dark smoke laid over by its alpha and the layers 1 and 2, white-yellow and orange, added; the smoke laid over by its alpha.
+  Its light shines at the muzzle until the last flame dies; its sound 2113.
+- The cannon's flash and the mortar's burst (500 particles each; `particle_shoot`, a 2 × 2 grid): at the second run the flag `0x40` places it once at the muzzle with the bone's turn, where it stays; four blocks along the bone's `x` axis, smoke at 25 (a buoyancy of −60 ± 20, the size 10 ± 4), sparks at 100 ± 40 (the size 4 ± 1), fire at 15 (4 ± 2, its place ± 5) and streaks at 1500 (5 ± 1, a buoyancy of 11 ± 10), every 0.001, 0.00007, 0.0006 and 0.0001 s, chosen by their rates; their layers the smoke's of the life −100 and the size +20, the sparks' of −300 drawn back by 80 a second, the fire's of −350 and +17, the streaks' of −1200 blown back along the shot; streamed until `0.18/r` s (the cannon's) or 0.15 s (the mortar's), lit until then, and ended with the last particle; drawn as the flamethrower's, the smoke laid over and the rest added; the sounds 2116 and 2114.
+  The mortar's object asks its impact, the object 1020 (`cParticleSystem_grenadeimpact`), at its target's place 0.775 s on (its action 1, `0x5B40C4`); it does not fly.
+
+`opensacred-game` draws them since #1092 (`dwarf_fires`, `opensacred_rules::particles::{DwarfFire, DwarfFireSight}`) as `making` sounds them, at the Dwarf's `canon_fx01`, else his right hand, the flamethrower's along the bone's glTF `x` each frame, the shots' placed at their first frame, their lights at the muzzle while they fire, always at the detail 2.
+**Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (#2162).
+Not followed: the impact 1020 (#2160).
 
 ## The healing
 
