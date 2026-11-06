@@ -19,7 +19,7 @@
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
-use opensacred_rules::particles::SpikesKind;
+use opensacred_rules::particles::{GoblinLanding, SpikesKind};
 use opensacred_rules::{casts, spells};
 
 use crate::ai::Mind;
@@ -1166,7 +1166,9 @@ const BALL_SOUND: u32 = 2057;
 
 /// A goblin mage's ball (the spell 53's `FX_BALL`, 867; docs/re/arts.md, "The creatures' own
 /// spells"): it flies the traps' arc from its caster to its point over 2/3 s, and landing strikes
-/// once the hero within its size 20 and the hero's, on its level, with its damages.
+/// once the hero within its size 20 and the hero's, on its level, with its damages, its impact
+/// cracking the ground under her (786, `0x5AED3E`); landing on no creature, it traces its ring
+/// there and summons its caster's creature (`0x5A7531`, `goblin_impacts`).
 #[derive(Component, Debug)]
 pub struct Ball {
     caster: Entity,
@@ -1185,11 +1187,23 @@ const BALL_HAND: &str = "Bip01 R Hand";
 /// Flies each ball along its arc, `start + (point − start)·s` and `60·(1 − 4(s − 0.5)²)` higher in
 /// the models' frame (`opensacred_rules::arts::ball_rise`), and lands it at `s` 1 (the update at
 /// `0x5A7179`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn throw(
     mut commands: Commands,
     time: Res<Time>,
     mut balls: Query<(Entity, &mut Ball, &mut Transform)>,
     heroes: Query<(Entity, &GlobalTransform, &Body, &crate::fight::Health), Without<Dies>>,
+    (creatures, sizes, minds): (
+        Query<
+            (Entity, &GlobalTransform, &crate::fight::Health),
+            (With<Mind>, Without<Body>, Without<Dies>),
+        >,
+        Query<&crate::arrows::Size>,
+        Query<&Mind>,
+    ),
     mut hits: MessageWriter<crate::fight::Hit>,
 ) {
     for (entity, mut ball, mut transform) in &mut balls {
@@ -1200,6 +1214,7 @@ fn throw(
         if s < 1.0 {
             continue;
         }
+        let mut gathered = false;
         for (hero, at, body, health) in &heroes {
             if body.level() == ball.level
                 && health.current > 0
@@ -1210,6 +1225,8 @@ fn throw(
                     "creature_casts: the ball of {} lands on {hero}",
                     ball.caster
                 );
+                gathered = true;
+                crate::goblin_impacts::spawn(&mut commands, at.translation(), GoblinLanding::Hit);
                 hits.write(crate::fight::Hit {
                     attacker: ball.caster,
                     target: hero,
@@ -1220,6 +1237,37 @@ fn throw(
                     sure: true,
                     poison: false,
                 });
+            }
+        }
+        // Landing on no creature within its size and the creature's (`0x5AB8E0`), its ring at its
+        // place and its caster's creature summoned there once the ring's turn passes π
+        // (`0x5A7531`, `0x774730`); its friends' heal (784) is not followed.
+        gathered |= creatures.iter().any(|(creature, at, health)| {
+            let size = sizes
+                .get(creature)
+                .map_or(opensacred_rules::arrows::size(0), |size| size.0);
+            health.current > 0 && (at.translation().xz() - ball.to.xz()).length() < BALL_SIZE + size
+        });
+        if !gathered && let Ok(mind) = minds.get(ball.caster) {
+            let landing = GoblinLanding::missed_by(mind.creature);
+            debug!(
+                "creature_casts: the ball of {} lands on nobody: {landing:?}",
+                ball.caster
+            );
+            crate::goblin_impacts::spawn(&mut commands, ball.to, landing);
+            if let Some(creature) = landing.summoned() {
+                commands.spawn((
+                    Summoning {
+                        caster: ball.caster,
+                        creature,
+                        level: mind.level,
+                        side: mind.side,
+                        floor: ball.level,
+                        left: opensacred_rules::particles::GOBLIN_SUMMONS,
+                    },
+                    Transform::from_translation(ball.to),
+                    DespawnOnExit(AppState::InGame),
+                ));
             }
         }
         commands.entity(entity).despawn();

@@ -4391,6 +4391,197 @@ pub fn shoot_impact(direction: [f32; 3], dice: &mut impl Dice) -> Burst {
     }
 }
 
+/// The goblin mages' ball's impact's textures (786, `cParticleSystem_goblinimpact`, its
+/// constructor `0x774670`): the cracks' lightning, a 2 × 2 grid of bolts, the glow and the
+/// streaks.
+pub const GOBLIN_IMPACT_CRACKS: &str = "PARTICLE_LIGHTNING01";
+pub const GOBLIN_IMPACT_GLOW: &str = "PARTICLE_GLOW03";
+pub const GOBLIN_IMPACT_STREAKS: &str = "PARTICLE_LINE01";
+/// Its particles at most, and the radius of its world light, every variant's (`+0x9C`).
+const GOBLIN_IMPACT_COUNT: usize = 200;
+pub const GOBLIN_IMPACT_LIGHT: f32 = 200.0;
+/// Its glow's colour (160, 176, 255), added whole.
+pub const GOBLIN_IMPACT_GLOW_COLOUR: [f32; 4] = [160.0 / 255.0, 176.0 / 255.0, 1.0, 1.0];
+/// The streaks' half width by their size (the draw's factor 0.125).
+pub const GOBLIN_STREAK_WIDTH: f32 = 0.125;
+
+/// What a goblin mages' ball's landing makes (the event's `+0x38`): its impact at each hostile it
+/// strikes (the variant 0, `0x5AED3E`), or, landing on no creature, a summoning at its own place
+/// (`0x5A7531`): the variant 2 for a caster of the type 144, 3 for 143, else 1, of which the
+/// variant 1 alone draws its streaks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GoblinLanding {
+    Hit,
+    Summons(u8),
+}
+
+impl GoblinLanding {
+    /// A miss's variant by its caster's type.
+    pub fn missed_by(caster: u32) -> Self {
+        match caster {
+            144 => Self::Summons(2),
+            143 => Self::Summons(3),
+            _ => Self::Summons(1),
+        }
+    }
+
+    /// The creature a miss summons, by its variant (`0x5B2600`'s action 1): the god's child 145,
+    /// the undead goblin 142, else the goblin warrior 76.
+    pub fn summoned(self) -> Option<u32> {
+        match self {
+            Self::Hit => None,
+            Self::Summons(2) => Some(145),
+            Self::Summons(3) => Some(142),
+            Self::Summons(_) => Some(76),
+        }
+    }
+}
+
+/// The goblin mages' ball's impact (786, `cParticleSystem_goblinimpact`, its start `0x774C40`, run
+/// `0x774730` and draw `0x774910`; docs/re/effects.md, "The goblin mages' ball"): its variant,
+/// its particles, the glow's half side that falls from 20 by 5 a second (`+0x20AC`) and its turn
+/// (`+0x20A4`).
+#[derive(Clone, Debug)]
+pub struct GoblinImpact {
+    pub landing: GoblinLanding,
+    pub system: System,
+    pub glow: f32,
+    turn: f32,
+}
+
+/// How much its glow's half side falls a second, and how fast its turn grows.
+const GOBLIN_GLOW_FALLS: f32 = 5.0;
+const GOBLIN_TURNS: f32 = 10.0;
+/// How long after a miss its creature is made: once its turn passes π (`0x774730`'s action 1).
+pub const GOBLIN_SUMMONS: f32 = std::f32::consts::PI / GOBLIN_TURNS;
+/// The radius of the circle a miss's streaks are traced along.
+const GOBLIN_RING: f32 = 15.0;
+
+impl GoblinImpact {
+    /// An impact of `landing` at its start: its glow's half side 20, its turn 0.
+    pub fn new(landing: GoblinLanding) -> Self {
+        Self {
+            landing,
+            system: System::new(GOBLIN_IMPACT_COUNT),
+            glow: 20.0,
+            turn: 0.0,
+        }
+    }
+
+    /// Its layer: a hit's cracks live about 1 s (the life's rate −256), a miss's streaks 2.55 s
+    /// (−100) shrinking by 10 a second.
+    pub fn layer(&self) -> Layer {
+        match self.landing {
+            GoblinLanding::Hit => Layer {
+                life: -256.0,
+                ..Layer::default()
+            },
+            GoblinLanding::Summons(_) => Layer {
+                life: -100.0,
+                size: -10.0,
+                ..Layer::default()
+            },
+        }
+    }
+
+    /// Its block: a hit's crack of a size 30 ± 8 turned by π ± π, one of the grid's four frames at
+    /// random, every 0.01 s; a miss's streak of a size 40 ± 10 every 0.004 s, at its turn's point
+    /// of the circle of 15 ([`Self::update`]); the variants 2 and 3 emit none.
+    pub fn block(&self) -> Option<Block> {
+        match self.landing {
+            GoblinLanding::Hit => Some(Block {
+                size: spread(30.0, 8.0),
+                angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+                interval: 0.01,
+                frames: 4,
+                ..Block::default()
+            }),
+            GoblinLanding::Summons(1) => Some(Block {
+                size: spread(40.0, 10.0),
+                interval: 0.004,
+                ..Block::default()
+            }),
+            GoblinLanding::Summons(_) => None,
+        }
+    }
+
+    /// Its ramp: a hit's pale blue (0.6, 0.8, 1.0) showing over the first 25 entries of its
+    /// life, its alpha rising from 0 over 10 and falling to 0 over 15; a miss's blue (0.39, 0.39,
+    /// 1.0) rising over 10, held over 200 and fading over 46.
+    pub fn ramp(&self) -> Ramp {
+        match self.landing {
+            GoblinLanding::Hit => {
+                let blue = |a: f32| [0.6, 0.8, 1.0, a];
+                Ramp::new(
+                    blue(0.0),
+                    &[(blue(1.0), 10), (blue(0.0), 15), (blue(0.0), 231)],
+                )
+            }
+            GoblinLanding::Summons(_) => {
+                let blue = |a: f32| [0.390_625, 0.390_625, 1.0, a];
+                Ramp::new(
+                    blue(0.0),
+                    &[(blue(1.0), 10), (blue(1.0), 200), (blue(0.0), 46)],
+                )
+            }
+        }
+    }
+
+    /// Runs it `dt` seconds on: a hit ages its cracks and makes them while its glow's half side
+    /// stays above 10, which falls by 5 a second; a miss ages its streaks and makes them along
+    /// its circle while its turn, growing by 10 a second, stays below 2π. The original sets its
+    /// block's offset to the turn's point once a frame, so that a frame's streaks stand together;
+    /// they are born here along the turn's way in the frame, as at any frame's rate
+    /// (**estimate**).
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        match self.landing {
+            GoblinLanding::Hit => {
+                if self.glow > 10.0
+                    && let Some(block) = self.block()
+                {
+                    self.system
+                        .emit(&[block], &layers, GOBLIN_IMPACT_COUNT, dice);
+                }
+                self.glow -= GOBLIN_GLOW_FALLS * dt;
+            }
+            GoblinLanding::Summons(_) => {
+                if self.turn < std::f32::consts::TAU {
+                    let ring =
+                        |turn: f32| [GOBLIN_RING * turn.cos(), GOBLIN_RING * turn.sin(), 0.0];
+                    if let Some(block) = self.block() {
+                        let way = (
+                            ring((self.turn - GOBLIN_TURNS * dt).max(0.0)),
+                            ring(self.turn),
+                        );
+                        self.system.emit_along(
+                            &[block],
+                            &layers,
+                            GOBLIN_IMPACT_COUNT,
+                            way,
+                            dt,
+                            dice,
+                        );
+                    }
+                    self.turn += GOBLIN_TURNS * dt;
+                }
+            }
+        }
+    }
+
+    /// Whether it is over: a hit once its glow's half side reaches 10 (2 s), at once; a miss once
+    /// its turn has passed 2π and its last streak is gone.
+    pub fn done(&self) -> bool {
+        match self.landing {
+            GoblinLanding::Hit => self.glow <= 10.0,
+            GoblinLanding::Summons(_) => {
+                self.turn >= std::f32::consts::TAU && self.system.particles.is_empty()
+            }
+        }
+    }
+}
+
 /// The blood fountain's texture and the sounds of its start (`BLEEDING01` and `02`, `0x77BD60`).
 pub const BLOOD_TEXTURE: &str = "particle_dots03";
 pub const BLOOD_SOUNDS: [u32; 2] = [710, 711];
@@ -9092,6 +9283,57 @@ mod tests {
             system.update_toward(0.025, &layers, [0.0; 3]);
         }
         assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_goblin_balls_hit_cracks_for_two_seconds_and_a_miss_summons_once() {
+        let mut dice = Rng::of(4, 2, 7);
+        let mut hit = GoblinImpact::new(GoblinLanding::Hit);
+        let mut most = 0;
+        for _ in 0..39 {
+            hit.update(0.05, &mut dice);
+            most = most.max(hit.system.particles.len());
+            assert!(!hit.done());
+        }
+        // A hundred a second living about a second.
+        assert!((90..=105).contains(&most), "{most}");
+        assert!(hit.system.particles.iter().all(|p| p.frame < 4));
+        hit.update(0.05, &mut dice);
+        assert!(hit.done());
+        // Its cracks show over the first tenth of their life.
+        assert_eq!(hit.ramp().at(255.0)[3], 0.0);
+        assert_eq!(hit.ramp().at(246.0)[3], 1.0);
+        assert_eq!(hit.ramp().at(200.0)[3], 0.0);
+
+        assert_eq!(GoblinLanding::missed_by(127), GoblinLanding::Summons(1));
+        assert_eq!(GoblinLanding::missed_by(143).summoned(), Some(142));
+        assert_eq!(GoblinLanding::missed_by(144).summoned(), Some(145));
+        assert_eq!(GoblinLanding::missed_by(127).summoned(), Some(76));
+        // Its creature comes as its turn passes π, some 0.31 s on.
+        assert!((GOBLIN_SUMMONS - 0.314).abs() < 0.001);
+        let mut miss = GoblinImpact::new(GoblinLanding::missed_by(127));
+        for _ in 0..100 {
+            miss.update(0.01, &mut dice);
+        }
+        assert!(!miss.done());
+        // The streaks ring the circle of 15 about its place.
+        let far = miss
+            .system
+            .particles
+            .iter()
+            .map(|p| p.place[0].hypot(p.place[1]))
+            .fold(0.0_f32, f32::max);
+        assert!((far - 15.0).abs() < 0.01, "{far}");
+        for _ in 0..300 {
+            miss.update(0.01, &mut dice);
+        }
+        assert!(miss.done());
+        // The god's and the undead goblin mage's misses make no streaks.
+        let mut quiet = GoblinImpact::new(GoblinLanding::missed_by(144));
+        for _ in 0..70 {
+            quiet.update(0.01, &mut dice);
+        }
+        assert!(quiet.system.particles.is_empty() && quiet.done());
     }
 
     #[test]
