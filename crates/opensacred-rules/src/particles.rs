@@ -6608,6 +6608,25 @@ const SWAY_B: Curve = Curve {
     y_size: [2.0, 7.0],
     y_freq: [1.0, 1.0],
 };
+/// The plant cage's vine's stem and sways (`0x799720`), narrower than the thorns'.
+const CAGE_STEM: Curve = Curve {
+    x_size: [1.0, 2.5],
+    x_freq: [1.0, 0.5],
+    y_size: [1.0, 3.5],
+    y_freq: [1.0, 0.7],
+};
+const CAGE_SWAY_A: Curve = Curve {
+    x_size: [2.0, 1.5],
+    x_freq: [0.8, 0.2],
+    y_size: [1.0, 3.0],
+    y_freq: [0.4, 0.1],
+};
+const CAGE_SWAY_B: Curve = Curve {
+    x_size: [1.0, 1.5],
+    x_freq: [1.0, 0.5],
+    y_size: [1.0, 3.0],
+    y_freq: [1.0, 1.0],
+};
 
 /// A [`Curve`] of its rolls: its sizes and frequencies along each axis and its turn's sine and
 /// cosine.
@@ -6653,16 +6672,27 @@ pub struct Vine {
 impl Vine {
     /// A vine of the rolls of `dice`: its stem's five, then each sway's five.
     pub fn new(dice: &mut impl Dice) -> Self {
-        let stem = STEM.roll(dice);
+        Self::of(
+            [&STEM, &SWAY_A, &SWAY_B],
+            |k| k / f32::from(VINE_POINTS),
+            dice,
+        )
+    }
+
+    /// A vine of the curves `curves`, its stem's and its two sways', the stem winding out by
+    /// `winds` of its point.
+    fn of(curves: [&Curve; 3], winds: impl Fn(f32) -> f32, dice: &mut impl Dice) -> Self {
+        let [stem, sway_a, sway_b] = curves;
+        let stem = stem.roll(dice);
         let stem = (0..VINE_POINTS)
             .map(|k| {
                 let k = f32::from(k);
                 let [x, y] = stem.at(k);
-                let share = k / f32::from(VINE_POINTS);
+                let share = winds(k);
                 [x * share, y * share, 0.5 * k]
             })
             .collect();
-        let sways = [SWAY_A, SWAY_B].map(|curve| {
+        let sways = [sway_a, sway_b].map(|curve| {
             let sway = curve.roll(dice);
             let half: Vec<[f32; 2]> = (0..VINE_POINTS / 2)
                 .map(|k| sway.at(f32::from(k)))
@@ -6827,6 +6857,162 @@ impl KillerPlant {
                     break;
                 }
                 dots.push(([0, 1, 2].map(|i| at[i] + 0.75 * n * along[i]), half));
+                n += 1.0;
+            }
+        }
+        dots
+    }
+}
+
+/// A plant cage's vine about a held creature (849, `FX_PLANTCAGE`, `cParticleSystem_plantcage`,
+/// its constructor `0x799720`, start `0x79A610`, run `0x799D30` and draw `0x799E10`; #1092): a vine
+/// of 128 dots of [`PLANT_TEXTURE`] facing the camera from the creature's neck down to its base
+/// point on the ground, thin at the neck and thick at the ground, winding and swaying across as
+/// its two sways run down it, seven spurs of dots from its bends, and a glow of
+/// [`PLANT_GLOW_TEXTURE`] flat on the ground at its base, all added by their alpha in its colour,
+/// green a hero's and blue a creature's. Its rise goes from −2 to 0 over 0.667 s, so that it grows
+/// from the ground up; it stands for its hold's seconds, and sinks as it rose. The thorns' plant's
+/// code (848) on another vine.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlantCage {
+    vine: Vine,
+    spurs: [usize; 7],
+    clock: f32,
+    rise: f32,
+    stands: f32,
+    growth: Growth,
+    pub colour: [f32; 4],
+    /// Its base point's offset from the event's point, on the ground (`+0x20B0`).
+    pub base: [f32; 3],
+}
+
+impl PlantCage {
+    /// A cage that stands `seconds` after its rise, a hero's or a creature's, of the rolls of
+    /// `dice`: its seven spurs' points, its vine's, then its base point within 50 of the event's
+    /// point along each axis, its `y` rolled first.
+    pub fn new(seconds: f32, hero: bool, dice: &mut impl Dice) -> Self {
+        let spurs = std::array::from_fn(|m| {
+            let m = u32::try_from(m).unwrap_or(0);
+            let at = (128 * m / 7 + dice.below(7)).max(1);
+            usize::try_from(at).unwrap_or(1)
+        });
+        let points = f32::from(VINE_POINTS);
+        let vine = Vine::of(
+            [&CAGE_STEM, &CAGE_SWAY_A, &CAGE_SWAY_B],
+            |k| (k / points).sin(),
+            dice,
+        );
+        let y = 100.0 * share(dice) - 50.0;
+        let x = 100.0 * share(dice) - 50.0;
+        Self {
+            vine,
+            spurs,
+            clock: 0.0,
+            rise: -2.0,
+            stands: seconds,
+            growth: Growth::Rises,
+            colour: if hero { PLANT_GREEN } else { PLANT_BLUE },
+            base: [x, y, 0.0],
+        }
+    }
+
+    /// A run of `dt` seconds (`0x799D30`): its rise grows by 3 a second to 0, it stands its
+    /// seconds, and its rise falls by 3 a second until it ends at −2.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.growth {
+            Growth::Rises => {
+                self.rise += 3.0 * dt;
+                if self.rise >= 0.0 {
+                    self.rise = 0.0;
+                    self.growth = Growth::Stands;
+                }
+            }
+            Growth::Stands => {
+                self.stands -= dt;
+                if self.stands <= 0.0 {
+                    self.growth = Growth::Sinks;
+                }
+            }
+            Growth::Sinks => {
+                self.rise -= 3.0 * dt;
+                if self.rise <= -2.0 {
+                    self.rise = -2.0;
+                    self.growth = Growth::Done;
+                }
+            }
+            Growth::Done => {}
+        }
+    }
+
+    /// Whether it ended.
+    pub fn done(&self) -> bool {
+        self.growth == Growth::Done
+    }
+
+    /// The half side of its glow on the ground at its base: `10·(rise + 2)`, 20 at its full rise.
+    pub fn glow(&self) -> f32 {
+        10.0 * (self.rise + 2.0)
+    }
+
+    /// The sways' share at the point `k`, `sin(π k / 127)`, nothing at either end.
+    fn swayed(k: usize) -> f32 {
+        let k = f32::from(u16::try_from(k).unwrap_or(0));
+        (std::f32::consts::PI * k / 127.0).sin()
+    }
+
+    /// Its vine's point `k` without its straightening: the stem's and the sways' at `share`.
+    fn bent(&self, k: usize, share: f32) -> [f32; 3] {
+        let [x, y, z] = self.vine.stem(k);
+        let [sx, sy] = self.vine.sway(k, self.clock);
+        [x + share * sx, y + share * sy, z]
+    }
+
+    /// Its dots, each a centre from the neck in the models' frame and a half side (`0x799E10`),
+    /// its base `to_base` from the neck: the vine's point `k` the stem's, the sways' times
+    /// `sin(π k/127)` and the share `k/127` of the way from the stem's end to the base, so that it
+    /// runs from the neck to the base, where its half side, its width `1 + k/128` and its rise, is
+    /// above 0; and at each of its seven spurs' points so drawn while its rise is above −1, a
+    /// spur's dots 0.75 apart along the stem's way there, of the half side `1.5 + rise` falling by
+    /// 0.1 a dot while above 0.5.
+    pub fn dots(&self, to_base: [f32; 3]) -> Vec<([f32; 3], f32)> {
+        let points = f32::from(VINE_POINTS);
+        let end = self.vine.stem(usize::from(VINE_POINTS) - 1);
+        let straighten: [f32; 3] = std::array::from_fn(|i| to_base[i] - end[i]);
+        let mut dots = Vec::new();
+        let mut spurs = self.spurs.iter().copied().peekable();
+        for k in 0..usize::from(VINE_POINTS) {
+            let index = f32::from(u16::try_from(k).unwrap_or(0));
+            let half = 1.0 + index / points + self.rise;
+            if half <= 0.0 {
+                continue;
+            }
+            let share = Self::swayed(k);
+            let bent = self.bent(k, share);
+            let at: [f32; 3] = std::array::from_fn(|i| bent[i] + index / 127.0 * straighten[i]);
+            dots.push((at, half));
+            if k == 0 || spurs.peek() != Some(&k) {
+                continue;
+            }
+            spurs.next();
+            if self.rise <= -1.0 {
+                continue;
+            }
+            let before = self.bent(k - 1, share);
+            let along = [0, 1, 2].map(|i| bent[i] - before[i]);
+            let length = along.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let along = if length < 1e-7 {
+                [0.0; 3]
+            } else {
+                along.map(|v| 0.75 * v / length)
+            };
+            let mut n = 1.0_f32;
+            loop {
+                let half = 1.5 + self.rise - 0.1 * (n - 1.0);
+                if half <= 0.5 {
+                    break;
+                }
+                dots.push(([0, 1, 2].map(|i| at[i] + n * along[i]), half));
                 n += 1.0;
             }
         }
@@ -9816,6 +10002,48 @@ mod tests {
             ..old
         };
         assert_eq!(spark_trail(&young, &layer).len(), 5);
+    }
+
+    #[test]
+    fn a_plant_cage_runs_from_the_neck_to_its_base_and_grows_from_the_ground() {
+        let mut dice = Rng::of(6, 6, 2);
+        let mut cage = PlantCage::new(1.0, false, &mut dice);
+        assert_eq!(cage.colour, PLANT_BLUE);
+        assert!(cage.base.iter().all(|v| v.abs() <= 50.0) && cage.base[2] == 0.0);
+        let to_base = [20.0, -10.0, -90.0];
+        // At its start nothing shows; a twentieth of a second on, the ground's end alone.
+        assert!(cage.dots(to_base).is_empty());
+        for _ in 0..2 {
+            cage.update(0.025);
+        }
+        let dots = cage.dots(to_base);
+        assert!(!dots.is_empty());
+        assert!(
+            dots.iter().all(|(at, _)| at[2] < -40.0),
+            "the ground's end first"
+        );
+        for _ in 0..30 {
+            cage.update(0.025);
+        }
+        // Grown: from the neck to the base, thin at the neck and thick at the ground.
+        let dots = cage.dots(to_base);
+        let (first, last) = (dots[0], dots[dots.len() - 1]);
+        assert!(first.0.iter().all(|v| v.abs() < 1e-4) && (first.1 - 1.0).abs() < 1e-4);
+        let near = dots
+            .iter()
+            .filter(|(at, _)| (at[0] - 20.0).abs() < 1.0 && (at[2] + 90.0).abs() < 1.0)
+            .count();
+        assert!(near > 0, "{last:?}");
+        assert!((cage.glow() - 20.0).abs() < 1e-4);
+        // It stands its second and sinks in 0.667 s.
+        for _ in 0..40 {
+            cage.update(0.025);
+        }
+        assert!(!cage.done());
+        for _ in 0..30 {
+            cage.update(0.025);
+        }
+        assert!(cage.done());
     }
 
     #[test]

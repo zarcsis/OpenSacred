@@ -2120,6 +2120,8 @@ fn behave(
                 && let Some(seconds) = cage_seconds
             {
                 debug!("ai: {entity} caged for {seconds} s");
+                // Its ten cages, the hero's (`0x4E26F1`, no sound).
+                crate::plant_cages::cage_quietly(&mut commands, entity, 10, (true, seconds));
                 let effect = opensacred_rules::fight::Effect {
                     id: opensacred_rules::spells::HELD,
                     whole: 0,
