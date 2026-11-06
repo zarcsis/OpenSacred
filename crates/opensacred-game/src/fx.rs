@@ -643,13 +643,24 @@ impl Quads {
     /// A quad of the four corners `corners`, in order about it, with the texture's points `uvs`
     /// and the colour `colour`: a beam's segment (`beams`).
     pub(crate) fn push_corners(&mut self, corners: [Vec3; 4], uvs: [Vec2; 4], colour: [f32; 4]) {
+        self.push_corners_shaded(corners, uvs, [colour; 4]);
+    }
+
+    /// [`Self::push_corners`] with each corner its own colour of `colours` (the light strikes'
+    /// fade to their top, `light_strikes`).
+    pub(crate) fn push_corners_shaded(
+        &mut self,
+        corners: [Vec3; 4],
+        uvs: [Vec2; 4],
+        colours: [[f32; 4]; 4],
+    ) {
         let Ok(first) = u32::try_from(self.positions.len()) else {
             return;
         };
         self.positions
             .extend(corners.map(|corner| corner.to_array()));
         self.uvs.extend(uvs.map(|uv| uv.to_array()));
-        self.colours.extend([linear(colour); 4]);
+        self.colours.extend(colours.map(linear));
         self.indices
             .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
     }

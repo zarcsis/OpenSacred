@@ -550,8 +550,8 @@ pub fn locked_by(spell: u16) -> &'static [u16] {
 }
 
 /// How long the crusader's strength's object runs before it gives its effects, in seconds
-/// (its update `0x7853E0`, then the action 6; **hypothesis**: at the world's time, its clock not
-/// read as the stone skin's is).
+/// (its update `0x7853E0`, then the action 6), at the world's time: its clock takes no cast's
+/// rate, as the stone skin's does.
 pub const STRENGTH_TIME: f32 = 1.6;
 
 /// The effect that the objects of 17 and 20 give their bearer for their time, keyed by the
@@ -650,7 +650,9 @@ pub const LIGHTNING_SHOWS: f32 = 0.25;
 pub const LASTS: u32 = 0x22;
 
 /// How long the stone skin's shield runs before it gives its effects, in seconds of its clock,
-/// which runs at the frame's time times the cast's rate (its system's update, the action 6).
+/// which runs at the frame's time times the cast's rate (its system's update, the action 6), and
+/// the water form's and the quickening's (`0x8912CC`; their strikes of light,
+/// `particles::LightStrike`).
 pub const SHIELD_TIME: f32 = 1.6;
 
 /// Whether the game makes the spell `spell`.

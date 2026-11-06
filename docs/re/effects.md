@@ -1697,6 +1697,47 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 **Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (#2162).
 The impact 1020 follows since #2160 ("The mortar's impact").
 
+## The light strikes
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The stone skin (2) | 769 `FX_SHIELDED` | `cParticleSystem_shielded` (`0x897A20`) | `0x770C70`, `0x7712E0`, `0x770EA0`, `0x770F30` |
+| The water form (4) | 783 `FX_SUPERFLUID` | `cParticleSystem_superfluid` (`0x897AE0`) | `0x773880`, `0x773EC0`, `0x773AB0`, `0x773B40` |
+| The crusader's strength (21) | 818 `FX_CRUSADERSTRENGTH` | `cParticleSystem_crusaderstrength` (`0x897FEC`) | `0x7851B0`, `0x785800`, `0x7853E0`, `0x785480` |
+| The quickening (27) | 825 `FX_SPEEDUP` | `cParticleSystem_speedup` (`0x8980C4`) | `0x788180`, `0x7887E0`, `0x7883C0`, `0x788460` |
+
+- The four are copies of one code with a few constants changed, each derived from `cParticleSystem` alone.
+  None emits a particle (their particles lie dead), none has a layer, a block, a ramp or a Direct3D light, and the scripts' `CreateObj` makes none of them: the spells' executor alone does.
+- Their makers: 769 the executor's case 2 (`0x522CDD`), its object at its bearer's place, its FX event of the kind 5 with the bearer as its caster and its target; 783 the case 4 (`0x52313A`), the event `0xF`; 818 the case 21 (`0x5244EF`), the event `0x2D`; 825 the case 27 (`0x524C8C`), the event `0x34`; those three at the caster's place.
+  Each follows its creature at `Bip01 Neck` (3; the flags `0x1200`): 769 its bearer, 783 and 825 their caster, who is the bearer under the launch type 5, and 818 its target.
+  A creature's stone skin on its friend comes through the same executor (docs/re/ai.md), and `ECS_SUPERFLUID` gives a script's creature the water form.
+- Their start: the clock, the flicker and the frame 0, the world light 200, and for all but 818 the event's `+0x20`, the cast's rate.
+- Their run: the clock by the frame's time, times the rate but for 818's; the flicker by the frame's time alone, and each time it passes 0.07 s it loses 0.07 and the frame becomes `rand() & 7`.
+  Once the clock is above 1.6 s (`0x8912CC`) the system ends and asks its action 6, which gives the spell's effects and sends the bearer the event `0x109` of its overlay (below).
+  A bearer gone or in another sector before ends it at once, and the action never runs (**hypothesis** in play: the spell is lost).
+- Their draw, its depth test and write off, unlit, both faces drawn: a strike of light, a quad of four pre-lit corners in the models' upright plane `x`–`z` about the neck, from −30 to 30 across and from 20 under the neck to 200 over it, opaque at its foot and clear at its top, the texture's `u` up it and its `v` across, added by its alpha (`SRCALPHA`, `ONE`), untinted by the night, turned neither to the camera nor by the bone; then a glow facing the camera (`0x762E10`) of the half side 30, 2 under the neck, added whole.
+  The frame `f` takes `FX_LIGHTSTRIKE0(⌊f/2⌋ + 1)`, an even frame the top half of its breadth (`v` from 0.5 at the left to 0 at the right), an odd frame the bottom half (from 1 to 0.5); each texture holds two pale blue-white bolts, one along each half, so that a bolt flickers down onto the neck.
+  The ring of frost's strike is the same at twice the size, without the fade ("The ring of frost").
+
+| | 769 | 783 | 818 | 825 |
+|---|---|---|---|---|
+| The strike's colour | white, `0xFF8080` where its bearer is no hero (`+0xA9`) | white | white | white |
+| The glow | `PARTICLE_GLOW04` in the strike's colour | `PARTICLE_GLOW05`, white | `PARTICLE_SPARK07`, white | `PARTICLE_GLOW03`, (160, 160, 255) |
+| The clock | times the rate | times the rate | the frame's time | times the rate |
+| The action 6's data and texture | 7, none | 1, none | 6, `FX_CROSS` | 10, `FX_SPEEDUP` |
+
+- The overlays that their action 6 asks (the event `0x109`, kept at the creature's `+0x60`, `+0x68` and `+0x6C`; `0x44A520`, `0x44A9D0`), for the seconds `⌊v₀(L)·f⌋`:
+  - the state 1, the water form (`0x44AB44`): the model drawn instead by `0x40BD70`, lit, its depth tested and written, laid over by its alpha with the alpha test on, in `GRN_SHADETEXTURE02` (64 × 1, white, its alpha from 0 at its ends to 136 in its middle) by its vertices' normals as its texture's coordinates, a translucent white figure (**hypothesis** on the look); then the state 3 for 2 s, that look and the plain model in turns every 0.2 s (`⌊5t⌋` odd or even of the seconds left);
+  - the state 7, the stone skin (`0x44ACAA`): the model, then again by `0x40CA20` in `FX_MULTITEXGLOW01` by its own coordinates scrolled by 0.05 a second of the real clock along both, unlit, its depth tested and not written, added whole, white; then the state 8 for 2 s, blinking so;
+  - the state 6, the crusader's strength (`0x44AD29`): the model, then again by `0x40CD30` in `FX_CROSS` by its coordinates times 3, unlit, its depth tested and not written, added whole, in a grey of `⌊50·(1 + sin(0.007·ms))⌋` of the real clock's milliseconds, a pulse of about 0.9 s from 0 to 100: crosses glowing over the whole body, to its seconds' end without a blink;
+  - the state 10, the quickening (`0x44AD7B`): the fire skin's skin of lava's draw in `FX_SPEEDUP` ("The fire skin").
+
+`opensacred-game` draws the strikes since #1092 (`light_strikes`, `opensacred_rules::particles::{LightStrike, StrikeKind, strike_frame}`) as `spells` casts the four spells, the creatures' stone skins on their friends too, their clocks those of the spells' effects (`spells::SHIELD_TIME`, `STRENGTH_TIME`), the light of 200 standing where the object is made.
+**Seen** 2026-11-06 beside the original: the stone skin's and the quickening's bolts and their glows, white and violet, alike in both.
+Not followed: the strikes over all else (their depth test off), whether the light follows its object's creature (**hypothesis**: it stands), and the overlays.
+
 ## The burning light and the holy conversion
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
