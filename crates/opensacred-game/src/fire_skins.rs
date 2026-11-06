@@ -6,7 +6,7 @@
 //! blue, of `PARTICLE_FIRE09` (`+0xA9`). Each of the spiral's five objects leaves the wider orange
 //! flames of `cParticleSystem_fireCircle` (790, `0x775BC0`; `particles::fire_circle`) where it
 //! goes, with no glow, its light of 300.
-//! Its bearer's skin of lava is `lava_skins`'.
+//! Its bearer's skin of lava is `skins`'.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

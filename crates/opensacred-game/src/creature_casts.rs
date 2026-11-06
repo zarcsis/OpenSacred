@@ -428,6 +428,10 @@ fn act(
                     .entry::<crate::effects::Effects>()
                     .or_default()
                     .and_modify(move |mut effects| effects.add(effect, seconds));
+                // The stone's sight and skin as long (822, `stones`).
+                if cast.spell == spells::STONE {
+                    crate::stones::stone(&mut commands, cast.target, seconds);
+                }
             }
             casts::HEAL => {
                 // Its friend's health by the record's value 0 at its level (`0x5229EF`; no magic

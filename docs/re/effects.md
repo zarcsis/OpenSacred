@@ -817,7 +817,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
   Its draw (`0x44B230` through `0x44A9D0`, whose jump table at `0x44B1B8` holds 24 states): the state 10 draws the model as ever (`0x44A8C0`), then again (`0x40D310`) with the texture by the model's own coordinates, its colour a grey of `⌊128 + 64·sin(4·t)⌋` for `t` the seconds left (`0x44AD7B`, the floats at `0x89098C`, `0x890914` and `0x890D2C`), unlit, added (`ONE`, `ONE`), its depth tested and not written, the faces culled as the model's.
   The pass draws the creature's own sequence, onto which its worn items are merged (`GrannyWearSequence`): the Mage's hood takes the lava, her staff, an object of its own, does not.
 
-`opensacred-game` draws the skin since #2042 (`lava_skins`, `opensacred_rules::spells::{LAVA_SKIN_STATE, lava_skin_grey}`): the fire skin, the hero's or a creature's, asks its bearer for it for its seconds, a new one setting them anew, and each mesh of the bearer and of the items it wears, not of those in its hands or on its back, gets a copy skinned to the same joints, of `A_LAVA00` unlit and added in the objects' layer of the blended things (`models::Pass::Added`), whose grey pulses by the seconds left; the seconds over, the copies go.
+`opensacred-game` draws the skin since #2042 (`skins`, `opensacred_rules::spells::{LAVA_SKIN_STATE, lava_skin_grey}`): the fire skin, the hero's or a creature's, asks its bearer for it for its seconds, a new one setting them anew, and each mesh of the bearer and of the items it wears, not of those in its hands or on its back, gets a copy skinned to the same joints, of `A_LAVA00` unlit and added in the objects' layer of the blended things (`models::Pass::Added`), whose grey pulses by the seconds left; the seconds over, the copies go.
 **Seen** 2026-11-05 beside the original at the Mage's start, her spell 24 at the level 10: in both games the Mage orange all over under her flames, her hood with her and her staff as it was.
   The game's lava looked the brighter of the two in the frames, its pulse of the same grey (not measured apart from the flames in front of it).
 
@@ -1674,6 +1674,25 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-05 beside the original: the Mage's fireball's orange glows at his left hand in both; the Daemon's fire form's orange sparks at his hands, the tongues of flame that the original shows about his raised hands.
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
+
+## The flesh to stone
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The stone about a held creature | 822 `FX_STONED` | `cParticleSystem_stoned` (`0x898030`) | `0x785EE0`, `0x786120`, `0x786000`, `0x786030` |
+
+- Its constructor loads the model of the item type 5095 (`freeze_stone.grn`, a mound of about 60 across and 31 high), its texture `FREEZE_STONE01` and `FX_AURA` (never drawn); one particle, never used; no light of either kind.
+- Its maker is the spells' executor's flesh to stone alone (`0x5249CC`), the hero's or a creature's cast at a target of no big type; its FX event's kind `0x31` (`0x5A57D5`) follows the target at its root.
+- Its start: a turn about the upright at random (`rand()` / 32767 of a whole turn), its life the hold's (`v₀·f` for a hero's cast, 3.0 s for a creature's), the flag `0x200` (it stands at its creature's root each frame), and its action 7 with the stone's texture, which holds the creature (the effect 15, docs/re/arts.md) and sends it the event `0x109` of the state 9 for the hold's seconds.
+- Its run ends it at its life's end, at once.
+- Its draw: the model at the scale 1 turned by its turn at its place, in the item's texture, lit as the models are, laid over by its alpha with its depth written: a block of stone about the creature's feet.
+- The state 9 (`0x44A9D0`'s case 9, `0x44AD50`): the creature's model drawn as ever, then again in the stone's texture by its own coordinates, lit, laid over by its alpha (`0x40D060`), the texture opaque; the items it wears, merged onto it, take it too; the state ends with its seconds (`0x44A520`).
+
+`opensacred-game` follows it since #1092 (`stones`, `skins`, `opensacred_rules::spells::{STONED_MODEL, STONED_TEXTURE, STONED_STATE}`): the hero's stone on a creature (`spells`) and a creature's on the hero (`creature_casts`) put the block at the target's feet for the hold's seconds, following it, and dress its model and the items it wears in the stone: their own materials take the stone's texture, lit, while the hold lasts and give it back, which shows as the original's opaque pass over them.
+**Seen** 2026-11-06 beside the original: the Mage's goblin stands grey-olive in stone on its block in both.
+Not followed: `FX_AURA`, loaded and never drawn.
 
 ## The Vampiress's casts
 
