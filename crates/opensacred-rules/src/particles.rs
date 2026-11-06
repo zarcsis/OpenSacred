@@ -4424,6 +4424,58 @@ impl Regen {
     }
 }
 
+/// The lost souls' (41) mark at each soul's starting point (`0x5268E5`, `0x526B49`): its texture,
+/// its seconds before it fades and its half side.
+pub const SOUL_MARK: (&str, f32, f32) = ("FX_STREAKS01", 10.0, 30.0);
+/// How fast a mark fades, of its alpha a second.
+const MARK_FADE: f32 = 0.25;
+
+/// A mark on the ground (779, `cParticleSystem_temptex`; its start `0x76DD40`, its run `0x76DAC0`,
+/// its draw `0x76DB40` and `0x763CB0`; #1092): a square of a texture flat on the ground at a turn
+/// at random, laid over by its alpha in the light's colour, under what stands on the ground,
+/// holding for its seconds and then fading over 4 s. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mark {
+    clock: f32,
+    hold: f32,
+    alpha: f32,
+}
+
+impl Mark {
+    /// A mark that holds for `hold` seconds.
+    pub fn new(hold: f32) -> Self {
+        Self {
+            clock: 0.0,
+            hold,
+            alpha: 1.0,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock; past its hold its alpha falls by 0.25 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock >= self.hold {
+            self.alpha -= MARK_FADE * dt;
+        }
+    }
+
+    /// Whether it faded away.
+    pub fn done(&self) -> bool {
+        self.alpha <= 0.0
+    }
+
+    /// Its alpha, of 1, as the vertices' byte takes it (`⌊255·alpha⌋`).
+    pub fn alpha(&self) -> f32 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "an alpha of 0 to 255, truncated as `__ftol` does"
+        )]
+        let byte = (255.0 * self.alpha.clamp(0.0, 1.0)) as u8;
+        f32::from(byte) / 255.0
+    }
+}
+
 impl Rune {
     /// A rune of `seconds`.
     pub fn new(seconds: f32) -> Self {
@@ -12083,6 +12135,28 @@ mod tests {
         }
         assert!(wall.done());
         assert_eq!(wall.columns(), 0);
+    }
+
+    #[test]
+    fn a_mark_holds_its_seconds_and_fades_over_four() {
+        let (_, hold, _) = SOUL_MARK;
+        let mut mark = Mark::new(hold);
+        for _ in 0..999 {
+            mark.update(0.01);
+        }
+        assert_eq!(mark.alpha(), 1.0);
+        // Two seconds into its fade, half of it left, the byte truncated (the sum of the frames'
+        // times may reach its hold a frame either way).
+        for _ in 0..201 {
+            mark.update(0.01);
+        }
+        let byte = mark.alpha() * 255.0;
+        assert!((125.5..=128.5).contains(&byte), "{byte}");
+        assert!(!mark.done());
+        for _ in 0..200 {
+            mark.update(0.01);
+        }
+        assert!(mark.done());
     }
 
     #[test]
