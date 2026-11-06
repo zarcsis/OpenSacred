@@ -530,12 +530,19 @@ pub const GUARDS_FIRE: u16 = 70;
 pub const FAN_OF_FLAMES: u16 = 71;
 
 /// The black magician 10's distances (`0x4D71A5`): its band's walk farther than 350, its blink
-/// nearer than 200, at most 15 tries of a point with a straight way, and how far it blinks
-/// (**estimate**: the tries' geometry is not read).
+/// nearer than 200, and at most 15 tries of a point with a straight way (`0x4D722B`).
 pub const BLINKER_FAR: f32 = 350.0;
 pub const BLINKER_NEAR: f32 = 200.0;
 pub const BLINK_TRIES: u32 = 15;
-pub const BLINK_REACH: f32 = 400.0;
+/// The colour of the sight it leaves where it stood (856, its event's `+0x38`).
+pub const BLINK_COLOUR: u32 = 0xFF80_FF80;
+
+/// A try of the black magician's blink (`0x4D722B`): the offset from it of `rand() % 1001 − 500`
+/// world units along each axis, of the rolls `x_roll` and `y_roll`, a square of ±500.
+pub fn blink_try(x_roll: u32, y_roll: u32) -> (f32, f32) {
+    let offset = |roll: u32| f32::from(u16::try_from(roll % 1001).unwrap_or(0)) - 500.0;
+    (offset(x_roll), offset(y_roll))
+}
 
 /// The dryad druid (216), whose decision of the mark 8 blinks about its target and sets thorns
 /// (`0x4D6396`…`0x4D6824`, #1883).
@@ -1056,6 +1063,13 @@ mod tests {
             [1, 2, 3, 4, 5, 6, 7].map(damage),
             [597.0, 642.0, 707.0, 690.0, 790.0, 771.0, 767.0]
         );
+    }
+
+    #[test]
+    fn the_black_magicians_blink_tries_a_square_of_500_about_it() {
+        assert_eq!(blink_try(0, 1000), (-500.0, 500.0));
+        assert_eq!(blink_try(500, 1001), (0.0, -500.0));
+        assert_eq!(blink_try(1500, 250), (-1.0, -250.0));
     }
 
     #[test]
