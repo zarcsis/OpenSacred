@@ -90,6 +90,7 @@ mod glitter;
 mod goblin_impacts;
 mod gun_fires;
 mod guns;
+mod healings;
 mod held;
 mod hell_disks;
 mod hell_screams;
@@ -517,9 +518,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         glitter::GlitterPlugin,
     ))
     .add_plugins(goblin_impacts::GoblinImpactsPlugin)
-    .add_plugins(gun_fires::GunFiresPlugin)
+    .add_plugins((gun_fires::GunFiresPlugin, guns::GunsPlugin))
     .add_plugins((
-        guns::GunsPlugin,
+        healings::HealingsPlugin,
         hell_disks::HellDisksPlugin,
         hell_screams::HellScreamsPlugin,
         held::HeldPlugin,

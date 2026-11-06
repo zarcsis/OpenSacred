@@ -442,6 +442,7 @@ fn act(
                         "creature_casts: {entity} heals {} by {health}, to {}",
                         cast.target, friend.current
                     );
+                    crate::healings::heal(&mut commands, cast.target, false);
                 }
             }
             casts::FIRE_SKIN | casts::STONE_SKIN => {
@@ -780,6 +781,13 @@ fn act(
                         flown: 0.0,
                         damages,
                         level: way.level,
+                        heal: arts.as_ref().and_then(|arts| {
+                            arts.tables
+                                .spells
+                                .iter()
+                                .find(|s| s.id == spells::HEALING)
+                                .cloned()
+                        }),
                     },
                     crate::trap_balls::Thrown(BALL),
                     Transform::from_translation(from),
@@ -1171,8 +1179,10 @@ const BALL_SOUND: u32 = 2057;
 /// A goblin mage's ball (the spell 53's `FX_BALL`, 867; docs/re/arts.md, "The creatures' own
 /// spells"): it flies the traps' arc from its caster to its point over 2/3 s, and landing strikes
 /// once the hero within its size 20 and the hero's, on its level, with its damages, its impact
-/// cracking the ground under her (786, `0x5AED3E`); landing on no creature, it traces its ring
-/// there and summons its caster's creature (`0x5A7531`, `goblin_impacts`).
+/// cracking the ground under her (786, `0x5AED3E`), and heals each creature there not hostile to
+/// its caster by the spell 7 at a quarter of its caster's level (784, `0x5A7336`); landing on no
+/// creature, it traces its ring there and summons its caster's creature (`0x5A7531`,
+/// `goblin_impacts`).
 #[derive(Component, Debug)]
 pub struct Ball {
     caster: Entity,
@@ -1181,6 +1191,8 @@ pub struct Ball {
     flown: f32,
     damages: [f32; 4],
     level: Level,
+    /// The spell 7's record, which its heal takes.
+    heal: Option<opensacred_data::tables::Spell>,
 }
 
 /// How fast a ball's share of its arc grows a second, its size, and the bone it leaves.
@@ -1200,10 +1212,10 @@ fn throw(
     time: Res<Time>,
     mut balls: Query<(Entity, &mut Ball, &mut Transform)>,
     heroes: Query<(Entity, &GlobalTransform, &Body, &crate::fight::Health), Without<Dies>>,
-    (creatures, sizes, minds): (
+    (mut creatures, sizes, minds): (
         Query<
-            (Entity, &GlobalTransform, &crate::fight::Health),
-            (With<Mind>, Without<Body>, Without<Dies>),
+            (Entity, &GlobalTransform, &mut crate::fight::Health, &Mind),
+            (Without<Body>, Without<Dies>),
         >,
         Query<&crate::arrows::Size>,
         Query<&Mind>,
@@ -1243,16 +1255,37 @@ fn throw(
                 });
             }
         }
-        // Landing on no creature within its size and the creature's (`0x5AB8E0`), its ring at its
-        // place and its caster's creature summoned there once the ring's turn passes π
-        // (`0x5A7531`, `0x774730`); its friends' heal (784) is not followed.
-        gathered |= creatures.iter().any(|(creature, at, health)| {
+        // Each creature alive within its size and the creature's (`0x5AB8E0`) not hostile to its
+        // caster healed by the spell 7 at a quarter of the caster's level, no magic lore
+        // (`0x5A7336`); landing on none, its ring at its place and its caster's creature
+        // summoned there once the ring's turn passes π (`0x5A7531`, `0x774730`).
+        let caster = minds.get(ball.caster).ok().cloned();
+        for (creature, at, mut health, mind) in &mut creatures {
             let size = sizes
                 .get(creature)
                 .map_or(opensacred_rules::arrows::size(0), |size| size.0);
-            health.current > 0 && (at.translation().xz() - ball.to.xz()).length() < BALL_SIZE + size
-        });
-        if !gathered && let Ok(mind) = minds.get(ball.caster) {
+            if health.current == 0
+                || (at.translation().xz() - ball.to.xz()).length() >= BALL_SIZE + size
+            {
+                continue;
+            }
+            gathered = true;
+            let (Some(caster), Some(record)) = (caster.as_ref(), ball.heal.as_ref()) else {
+                continue;
+            };
+            if caster.hostile_to(mind) {
+                continue;
+            }
+            let level = opensacred_rules::particles::ball_heal_level(caster.level);
+            let heals = spells::healing(record, level, 0.0);
+            health.current = health.current.saturating_add(heals).min(health.most);
+            debug!(
+                "creature_casts: the ball of {} heals {creature} by {heals}",
+                ball.caster
+            );
+            crate::healings::heal(&mut commands, creature, false);
+        }
+        if !gathered && let Some(mind) = caster.as_ref() {
             let landing = GoblinLanding::missed_by(mind.creature);
             debug!(
                 "creature_casts: the ball of {} lands on nobody: {landing:?}",

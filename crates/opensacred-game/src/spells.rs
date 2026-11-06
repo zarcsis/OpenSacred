@@ -2089,12 +2089,14 @@ fn act(
                     bearer.current = bearer.current.saturating_add(health).min(bearer.most);
                     info!("spells: the healing gives {health}, to {}", bearer.current);
                 }
-                // Its object's sound as it starts, at the target it follows.
+                // Its object's sound as it starts, at the target it follows, and its sparks
+                // (784, `healings`).
                 sounds.write(crate::sfx::Play {
                     sound: crate::sfx::Of::Id(HEALING_SOUND),
                     at: Some(act.target),
                     rate: (0.5, crate::sfx::Roll::None),
                 });
+                crate::healings::heal(&mut commands, act.target, true);
             }
             LIGHTNING => {
                 // Its object at its target strikes it alone at its first frame, of the record's
