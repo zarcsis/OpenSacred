@@ -119,6 +119,7 @@ mod labels;
 mod lava_bursts;
 mod lens_creatures;
 mod light_blades;
+mod light_strikes;
 mod lightning_strikes;
 mod lines;
 mod liquids;
@@ -555,6 +556,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,
         light_blades::LightBladesPlugin,
+        light_strikes::LightStrikesPlugin,
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,

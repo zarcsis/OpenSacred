@@ -9,12 +9,13 @@
 //! its sides over (`effects`); the healing adds its health to its bearer's, its most at most. A spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
 //! lightning strikes its target at once; her holy light stands at its point, and her blades of
 //! light and her light go with their bearer, each striking about itself once a second for its
-//! time ([`Aura`]). Their particle systems are stood in for by a flash and translucent discs
-//! (#1092).
+//! time ([`Aura`]). Each one's sight is its own module's (#1092): the stone skin's, the water
+//! form's, the quickening's and the crusader's strength's strikes of light `light_strikes`'.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
+use opensacred_rules::particles::StrikeKind;
 use opensacred_rules::spells::{
     self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIRE_SKIN, FIREBALL, HEALING, HOLY_SHIELD,
     IRRITATION, LIGHTNING, QUICKENING, REIKI, SHIELD_TIME, SHIELD_WALL, SPRING, STONE_SKIN,
@@ -1188,6 +1189,7 @@ pub(crate) fn skin(
             left: SHIELD_TIME / rate.max(f32::EPSILON),
             effects: spells::effects(record, level),
         });
+        crate::light_strikes::strike(commands, StrikeKind::StoneSkin, (bearer, bearer), rate);
         return;
     }
     let Some(area) = spells::area(FIRE_SKIN) else {
@@ -1610,6 +1612,13 @@ fn act(
                     after: SHIELD_TIME / rate.max(f32::EPSILON),
                     left: seconds + spells::WATER_AFTER,
                 });
+                // Its strike follows its caster, its object at his place (783, `0x52313A`).
+                crate::light_strikes::strike(
+                    &mut commands,
+                    StrikeKind::WaterForm,
+                    (act.caster, act.caster),
+                    rate,
+                );
             }
             spells::STONE | spells::CAGE => {
                 // A creature of no big type held for its value 0 (the effect 15, action 7): the
@@ -2032,6 +2041,13 @@ fn act(
                     left: SHIELD_TIME / rate.max(f32::EPSILON),
                     effects: spells::effects(record, act.level),
                 });
+                // Its strike follows its caster, its object at his place (825, `0x524C8C`).
+                crate::light_strikes::strike(
+                    &mut commands,
+                    StrikeKind::Quickening,
+                    (act.caster, act.caster),
+                    rate,
+                );
             }
             SHIELD_WALL => {
                 given.extend(spells::turning(record, act.level));
@@ -2084,6 +2100,14 @@ fn act(
                     left: STRENGTH_TIME,
                     effects: spells::effects(record, act.level),
                 });
+                // Its strike follows its target, its object at its caster's place, at the
+                // world's time (818, `0x5244EF`).
+                crate::light_strikes::strike(
+                    &mut commands,
+                    StrikeKind::Crusader,
+                    (act.target, act.caster),
+                    1.0,
+                );
             }
             STONE_SKIN => {
                 // The shield's clock runs at the cast's rate (`+0x3E`).
@@ -2092,6 +2116,13 @@ fn act(
                     left: SHIELD_TIME / rate.max(f32::EPSILON),
                     effects: spells::effects(record, act.level),
                 });
+                // Its strike follows its bearer, its object at its place (769, `0x522CDD`).
+                crate::light_strikes::strike(
+                    &mut commands,
+                    StrikeKind::StoneSkin,
+                    (act.target, act.target),
+                    rate,
+                );
             }
             HEALING => {
                 let lore = opensacred_rules::fight::magic_lore(&arts.skills, &rules);

@@ -4010,17 +4010,133 @@ impl Iceberg {
     /// left edge to its right: an even frame's from a half to nothing, an odd frame's from all of
     /// it to a half.
     pub fn strike(&self) -> (usize, [f32; 2]) {
-        let texture = usize::from(self.frame / 2);
-        if self.frame.is_multiple_of(2) {
-            (texture, [0.5, 0.0])
-        } else {
-            (texture, [1.0, 0.5])
-        }
+        strike_frame(self.frame)
     }
 
     /// Whether it ended: standing past its seconds.
     pub fn done(&self) -> bool {
         self.stands && self.clock > self.seconds
+    }
+}
+
+/// A strike of light's frame `frame` (0 to 7, `rand() & 7`): its texture of [`ICE_STRIKES`], the
+/// half of it, and the texture's breadth it takes from its left edge to its right, an even
+/// frame's from a half to nothing, an odd frame's from all of it to a half (the ring of frost's
+/// and the light strikes' draws, `0x78DD00`, `0x770F30`).
+pub fn strike_frame(frame: u8) -> (usize, [f32; 2]) {
+    let texture = usize::from(frame / 2);
+    if frame.is_multiple_of(2) {
+        (texture, [0.5, 0.0])
+    } else {
+        (texture, [1.0, 0.5])
+    }
+}
+
+/// The spells whose sight is a strike of light down onto their bearer's neck (docs/re/effects.md,
+/// "The light strikes"): the Mage's stone skin (2, 769 `FX_SHIELDED`), his water form (4, 783
+/// `FX_SUPERFLUID`), the Seraphim's crusader's strength (21, 818 `FX_CRUSADERSTRENGTH`) and the
+/// Mage's quickening (27, 825 `FX_SPEEDUP`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrikeKind {
+    StoneSkin,
+    WaterForm,
+    Crusader,
+    Quickening,
+}
+
+impl StrikeKind {
+    /// Its glow's texture, of the styles 1, 2, 4 and 5 of `0x762E10`.
+    pub fn glow(self) -> &'static str {
+        match self {
+            Self::StoneSkin => "PARTICLE_GLOW04",
+            Self::WaterForm => "PARTICLE_GLOW05",
+            Self::Crusader => "PARTICLE_SPARK07",
+            Self::Quickening => "PARTICLE_GLOW03",
+        }
+    }
+
+    /// Its strike's colour: a creature's stone skin's a light red (`+0x20B4`, `0xFF8080` where
+    /// its bearer is no hero), else white.
+    pub fn colour(self, creature: bool) -> [f32; 4] {
+        if self == Self::StoneSkin && creature {
+            [1.0, 128.0 / 255.0, 128.0 / 255.0, 1.0]
+        } else {
+            [1.0; 4]
+        }
+    }
+
+    /// Its glow's colour: the stone skin's its strike's, the quickening's (160, 160, 255), else
+    /// white.
+    pub fn glow_colour(self, creature: bool) -> [f32; 4] {
+        match self {
+            Self::StoneSkin => self.colour(creature),
+            Self::Quickening => [160.0 / 255.0, 160.0 / 255.0, 1.0, 1.0],
+            Self::WaterForm | Self::Crusader => [1.0; 4],
+        }
+    }
+
+    /// Whether its clock runs at its caster's cast rate: all but the crusader's strength's, at
+    /// the frame's time alone.
+    pub fn at_rate(self) -> bool {
+        self != Self::Crusader
+    }
+}
+
+/// A light strike's quad in the models' frame (from −30 to 30 across and −20 to 200 up about its
+/// anchor, opaque at its foot and clear at its top, the texture's `u` up it and its `v` across),
+/// its glow's half side and its height under the anchor, and its light, for its time.
+pub const LIGHT_STRIKE_QUAD: [f32; 4] = [-30.0, 30.0, -20.0, 200.0];
+pub const LIGHT_STRIKE_GLOW: [f32; 2] = [30.0, -2.0];
+pub const LIGHT_STRIKE_LIGHT: f32 = 200.0;
+
+/// A light strike (769, 783, 818, 825: `cParticleSystem_shielded`, `_superfluid`,
+/// `_crusaderstrength` and `_speedup`, four copies of one code; their runs `0x770EA0`,
+/// `0x773AB0`, `0x7853E0`, `0x7883C0` and draws `0x770F30`, `0x773B40`, `0x785480`, `0x788460`;
+/// #1092): a strike of light flickering down onto its bearer's neck, its frame of eight rolled
+/// anew every 0.07 s, over a glow, for 1.6 s of its clock ([`crate::spells::SHIELD_TIME`]), when
+/// its spell gives its effects; no particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LightStrike {
+    pub kind: StrikeKind,
+    /// Its frame (`+0x20B0`, `+0x20AC`: 0 to 7, [`strike_frame`]).
+    pub frame: u8,
+    clock: f32,
+    flicker: f32,
+    rate: f32,
+}
+
+impl LightStrike {
+    /// A strike of `kind` of the cast's rate `rate` (the FX event's `+0x20`, 1 for 100), which
+    /// the crusader's strength does not take.
+    pub fn new(kind: StrikeKind, rate: f32) -> Self {
+        Self {
+            kind,
+            frame: 0,
+            clock: 0.0,
+            flicker: 0.0,
+            rate: if kind.at_rate() { rate } else { 1.0 },
+        }
+    }
+
+    /// A run of `dt` seconds: its clock at its rate, and its frame rolled anew each time its
+    /// flicker, at the frame's time alone, passes 0.07 s.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.clock += dt * self.rate;
+        self.flicker += dt;
+        if self.flicker > ICE_FLICKER {
+            self.flicker -= ICE_FLICKER;
+            self.frame = u8::try_from(dice.below(8)).unwrap_or(0);
+        }
+    }
+
+    /// Whether it ended, its clock past 1.6 s.
+    pub fn done(&self) -> bool {
+        self.clock > crate::spells::SHIELD_TIME
+    }
+
+    /// Its frame's texture and breadth ([`strike_frame`]).
+    pub fn strike(&self) -> (usize, [f32; 2]) {
+        strike_frame(self.frame)
     }
 }
 
@@ -11577,6 +11693,32 @@ mod tests {
             halo.update(0.02);
         }
         assert!(halo.done());
+    }
+
+    #[test]
+    fn a_light_strike_flickers_for_its_time_at_its_rate_but_the_crusaders() {
+        let mut dice = Rng::of(7, 7, 1);
+        let mut strike = LightStrike::new(StrikeKind::StoneSkin, 2.0);
+        let mut frames = std::collections::BTreeSet::new();
+        let mut steps = 0_u16;
+        while !strike.done() {
+            strike.update(0.01, &mut dice);
+            frames.insert(strike.frame);
+            steps += 1;
+        }
+        // 1.6 s of its clock at twice the frame's time, its frame rolled about every 0.07 s.
+        assert!((80..=81).contains(&steps), "{steps}");
+        assert!(frames.len() > 3 && frames.iter().all(|&frame| frame < 8));
+        let mut crusader = LightStrike::new(StrikeKind::Crusader, 2.0);
+        for _ in 0..100 {
+            crusader.update(0.01, &mut dice);
+        }
+        assert!(!crusader.done());
+        assert_eq!(strike_frame(0), (0, [0.5, 0.0]));
+        assert_eq!(strike_frame(7), (3, [1.0, 0.5]));
+        assert_eq!(StrikeKind::StoneSkin.colour(true)[1], 128.0 / 255.0);
+        assert_eq!(StrikeKind::StoneSkin.colour(false), [1.0; 4]);
+        assert_eq!(StrikeKind::Quickening.glow_colour(true)[2], 1.0);
     }
 
     #[test]
