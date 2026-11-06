@@ -379,12 +379,13 @@ fn age(
 }
 
 /// The layer that a particle of the blocks `blocks` takes (`0x7687F0`): the first for one, the
-/// first four times in five for two, and for three each by its share of their rates, the inverses
-/// of their intervals, by one roll.
+/// first four times in five for two, and for three or more each by its share of their rates, the
+/// inverses of their intervals, by one roll.
 fn pick(blocks: &[Block], dice: &mut impl Dice) -> usize {
     match blocks {
+        [] | [_] => 0,
         [_, _] => usize::from(dice.below(5) == 0),
-        [a, b, c] => {
+        _ => {
             let rate = |block: &Block| {
                 if block.interval > 0.0 {
                     1.0 / block.interval
@@ -392,18 +393,17 @@ fn pick(blocks: &[Block], dice: &mut impl Dice) -> usize {
                     0.0
                 }
             };
-            let rates = [rate(a), rate(b), rate(c)];
-            let whole: f32 = rates.iter().sum();
+            let whole: f32 = blocks.iter().map(rate).sum();
             let roll = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
-            if roll < rates[0] / whole {
-                0
-            } else if roll >= (rates[0] + rates[1]) / whole {
-                2
-            } else {
-                1
+            let mut reached = 0.0;
+            for (index, block) in blocks.iter().enumerate() {
+                reached += rate(block);
+                if roll < reached / whole {
+                    return index;
+                }
             }
+            blocks.len() - 1
         }
-        _ => 0,
     }
 }
 
@@ -7320,6 +7320,355 @@ pub fn ball_heal_level(caster: u32) -> u32 {
     (caster / 4).max(1)
 }
 
+/// The Dwarf's guns' sights at his cannon's muzzle, the bone `canon_fx01` (46): the flamethrower's
+/// (1016, `cParticleSystem_dwarf_flamethrower`, its constructor `0x7B34D0`, start `0x7B3870`, run
+/// `0x7B35F0` and draw `0x7B37A0`), the cannon's flash (1017, `cParticleSystem_dwarf_shoot`,
+/// `0x7B40D0`, `0x7B4480`, `0x7B41B0`, `0x7B4410`) and the mortar's (1018,
+/// `cParticleSystem_dwarf_grenade`, `0x7B4CB0`, `0x7B50F0`, `0x7B4DC0`, `0x7B5080`), the last two
+/// alike but for their times.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DwarfFire {
+    Flamer,
+    Shoot,
+    Grenade,
+}
+
+impl DwarfFire {
+    /// Its texture, a 2 × 2 grid whose frame is a particle's layer, and the flamethrower's smoke's.
+    pub fn texture(self) -> &'static str {
+        match self {
+            Self::Flamer => "particle_flamethrower",
+            Self::Shoot | Self::Grenade => "particle_shoot",
+        }
+    }
+}
+
+/// The flamethrower's smoke's texture.
+pub const DWARF_SMOKE_TEXTURE: &str = "particle_smoke04";
+/// Their particles at most: the flamethrower's 999, the others' 500.
+const DWARF_FLAMER_COUNT: usize = 999;
+const DWARF_SHOOT_COUNT: usize = 500;
+/// The flamethrower's flames' speed along the muzzle's axis.
+const DWARF_FLAMES_SPEED: f32 = 200.0;
+
+/// A colour of a ramp's key, of the original's fractions of 256.
+const fn rgba(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
+    [r, g, b, a]
+}
+
+/// The sight of one of the Dwarf's guns ([`DwarfFire`]): its particles in the models' frame, the
+/// flamethrower's smoke, its clock, its emission's end and the smoke's.
+#[derive(Clone, Debug)]
+pub struct DwarfFireSight {
+    pub kind: DwarfFire,
+    pub system: System,
+    pub smoke: System,
+    clock: f32,
+    smoking: bool,
+    until: f32,
+    smoke_until: f32,
+}
+
+impl DwarfFireSight {
+    /// The sight of `kind` at the clips' rate `rate`: the flamethrower's flames until `3.25/r` and
+    /// its smoke until `6.25/r`, the cannon's flash until `0.18/r`, the mortar's 0.15 s.
+    pub fn new(kind: DwarfFire, rate: f32) -> Self {
+        let rate = rate.max(f32::EPSILON);
+        let (count, until, smoke_until) = match kind {
+            DwarfFire::Flamer => (DWARF_FLAMER_COUNT, 3.25 / rate, 6.25 / rate),
+            DwarfFire::Shoot => (DWARF_SHOOT_COUNT, 0.18 / rate, 0.0),
+            DwarfFire::Grenade => (DWARF_SHOOT_COUNT, 0.15, 0.0),
+        };
+        Self {
+            kind,
+            system: System::new(count),
+            smoke: System::new(DWARF_FLAMER_COUNT),
+            clock: 0.0,
+            smoking: false,
+            until,
+            smoke_until,
+        }
+    }
+
+    /// Its layers, the shots' streaks' wind against `along`: the flamethrower's three flames' of
+    /// the life −250 and the sizes +13, +4 and +20 a second; the shots' smoke of −100 and +20,
+    /// their sparks of −300 drawn back by 80 a second, their fire of −350 and +17, and their
+    /// streaks of −1200 blown back along the shot.
+    pub fn layers(&self, along: [f32; 3]) -> Vec<Layer> {
+        let layer = |life: f32, size: f32| Layer {
+            life,
+            size,
+            ..Layer::default()
+        };
+        match self.kind {
+            DwarfFire::Flamer => vec![layer(-250.0, 13.0), layer(-250.0, 4.0), layer(-250.0, 20.0)],
+            DwarfFire::Shoot | DwarfFire::Grenade => vec![
+                layer(-100.0, 20.0),
+                Layer {
+                    pull: 80.0,
+                    ..layer(-300.0, 0.0)
+                },
+                layer(-350.0, 17.0),
+                Layer {
+                    wind: along.map(|v| -100.0 * v),
+                    ..layer(-1200.0, 0.0)
+                },
+            ],
+        }
+    }
+
+    /// The flamethrower's smoke's layer: the life −200 and the size +4 a second.
+    fn smoke_layer() -> Layer {
+        Layer {
+            life: -200.0,
+            size: 4.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its blocks along `along`, each particle of its block's frame: the flamethrower's flames at
+    /// 200 along it, of the sizes 2 ± 1, 2 ± 1 and 2 ± 0.7, spinning, every 0.003, 0.001 and 0.001
+    /// s; the shots' smoke, sparks, fire and streaks at 25, 100, 15 and 1500 along it, every
+    /// 0.001, 0.00007, 0.0006 and 0.0001 s.
+    fn blocks(&self, along: [f32; 3]) -> Vec<Block> {
+        let at = |speed: f32, spread_by: f32| spread(along.map(|v| speed * v), [spread_by; 3]);
+        let block =
+            |size: Spread<f32>, spin: Spread<f32>, velocity: Spread<[f32; 3]>, interval| Block {
+                size,
+                spin,
+                velocity,
+                interval,
+                frames: FRAME_OF_LAYER,
+                ..Block::default()
+            };
+        match self.kind {
+            DwarfFire::Flamer => vec![
+                block(
+                    spread(2.0, 1.0),
+                    spread(4.0, 3.0),
+                    at(DWARF_FLAMES_SPEED, 5.0),
+                    0.003,
+                ),
+                block(
+                    spread(2.0, 1.0),
+                    spread(3.0, 3.0),
+                    at(DWARF_FLAMES_SPEED, 8.0),
+                    0.001,
+                ),
+                block(
+                    spread(2.0, 0.7),
+                    spread(3.0, 3.0),
+                    at(DWARF_FLAMES_SPEED, 10.0),
+                    0.001,
+                ),
+            ],
+            DwarfFire::Shoot | DwarfFire::Grenade => vec![
+                Block {
+                    buoyancy: spread(-60.0, 20.0),
+                    ..block(spread(10.0, 4.0), spread(0.0, 3.0), at(25.0, 5.0), 0.001)
+                },
+                block(
+                    spread(4.0, 1.0),
+                    spread(0.0, 0.0),
+                    at(100.0, 40.0),
+                    0.000_07,
+                ),
+                Block {
+                    offset: spread([0.0; 3], [5.0; 3]),
+                    ..block(spread(4.0, 2.0), spread(0.0, 3.0), at(15.0, 7.0), 0.000_6)
+                },
+                Block {
+                    buoyancy: spread(11.0, 10.0),
+                    ..block(spread(5.0, 1.0), spread(0.0, 3.0), at(1500.0, 2.0), 0.000_1)
+                },
+            ],
+        }
+    }
+
+    /// The flamethrower's smoke's block: rising (a buoyancy of −55 ± 10), of the size 1, spinning
+    /// ± 10, every 0.05 s.
+    fn smoke_block() -> Block {
+        Block {
+            buoyancy: spread(-55.0, 10.0),
+            size: spread(1.0, 0.0),
+            spin: spread(0.0, 10.0),
+            velocity: spread([0.0; 3], [1.0; 3]),
+            interval: 0.05,
+            ..Block::default()
+        }
+    }
+
+    /// Its ramps, a layer's each, from its birth (`0x763F50`).
+    pub fn ramps(&self) -> Vec<Ramp> {
+        let grey = |g: f32, a: f32| rgba(g, g, g, a);
+        let none = [0.0; 4];
+        match self.kind {
+            DwarfFire::Flamer => vec![
+                Ramp::new(
+                    rgba(0.1992, 0.1953, 0.1875, 0.0),
+                    &[
+                        (rgba(0.2227, 0.1289, 0.0, 0.0), 10),
+                        (rgba(0.1797, 0.0586, 0.0625, 0.8867), 10),
+                        (rgba(0.0938, 0.0234, 0.0234, 0.1992), 201),
+                        (rgba(0.0, 0.0, 0.0, 0.0508), 30),
+                        (none, 5),
+                    ],
+                ),
+                Ramp::new(
+                    grey(0.2031, 0.0),
+                    &[
+                        (rgba(0.5312, 0.4609, 0.0078, 0.0), 13),
+                        (rgba(0.9766, 0.9258, 0.7852, 0.9961), 13),
+                        (rgba(0.9961, 0.957, 0.832, 0.9961), 179),
+                        (none, 37),
+                        (none, 14),
+                    ],
+                ),
+                Ramp::new(
+                    rgba(0.5312, 0.2852, 0.0391, 0.0),
+                    &[
+                        (rgba(0.5312, 0.2852, 0.0391, 0.0), 10),
+                        (rgba(0.5312, 0.2852, 0.0391, 0.5312), 10),
+                        (rgba(0.5312, 0.2852, 0.0391, 0.5312), 185),
+                        (none, 39),
+                        (none, 12),
+                    ],
+                ),
+            ],
+            DwarfFire::Shoot | DwarfFire::Grenade => vec![
+                Ramp::new(
+                    rgba(0.0, 0.0, 0.0, 0.4961),
+                    &[(grey(0.1992, 0.4961), 128), (grey(0.1992, 0.0), 128)],
+                ),
+                Ramp::new(
+                    grey(0.9961, 0.9961),
+                    &[
+                        (rgba(0.9922, 0.3906, 0.0703, 0.9961), 56),
+                        (rgba(0.4883, 0.2656, 0.1523, 0.9961), 47),
+                        (grey(0.1992, 0.9961), 27),
+                        (grey(0.1992, 0.9961), 46),
+                        (rgba(0.2266, 0.1992, 0.1992, 0.8086), 14),
+                        (rgba(0.8672, 0.2617, 0.2148, 0.6875), 11),
+                        (rgba(0.1289, 0.1484, 0.1055, 0.5781), 10),
+                        (rgba(0.1406, 0.1523, 0.1094, 0.0), 45),
+                    ],
+                ),
+                Ramp::new(
+                    rgba(0.9961, 0.9375, 0.7812, 0.9961),
+                    &[
+                        (rgba(0.9961, 0.3203, 0.0898, 0.9961), 104),
+                        (rgba(0.9961, 0.0, 0.0, 0.4531), 84),
+                        (rgba(0.9961, 0.0, 0.0, 0.0), 68),
+                    ],
+                ),
+                Ramp::new(
+                    rgba(0.9531, 0.8359, 0.5547, 0.9531),
+                    &[
+                        (rgba(0.9062, 0.4961, 0.0625, 0.9102), 40),
+                        (grey(0.2227, 0.0), 109),
+                        (none, 107),
+                    ],
+                ),
+            ],
+        }
+    }
+
+    /// The flamethrower's smoke's ramp: a grey of 0.117 coming in over 10 entries, to a
+    /// translucent black over 160, to nothing over 86.
+    pub fn smoke_ramp() -> Ramp {
+        Ramp::new(
+            rgba(0.1172, 0.1172, 0.1172, 0.0),
+            &[
+                (rgba(0.1172, 0.1172, 0.1172, 0.9961), 10),
+                (rgba(0.0, 0.0, 0.0, 0.9375), 160),
+                ([0.0; 4], 86),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds, its muzzle gone from `from` to `to` in its frame along `along`: the
+    /// flamethrower's flames age and stream along its way until their time, their last gone its
+    /// smoke streams there until its own; the shots' particles age, drawn back to `to`, and stream
+    /// there until their time.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        ((from, to), along): (([f32; 3], [f32; 3]), [f32; 3]),
+        dice: &mut impl Dice,
+    ) {
+        self.clock += dt;
+        let layers = self.layers(along);
+        let blocks = self.blocks(along);
+        match self.kind {
+            DwarfFire::Flamer => {
+                self.system.update(dt, &layers);
+                if !self.smoking {
+                    if self.clock < self.until {
+                        self.system.emit_along(
+                            &blocks,
+                            &layers,
+                            DWARF_FLAMER_COUNT,
+                            (from, to),
+                            dt,
+                            dice,
+                        );
+                    } else if self.system.particles.is_empty() {
+                        self.smoking = true;
+                    }
+                }
+                if self.smoking {
+                    let layers = [Self::smoke_layer()];
+                    self.smoke.update(dt, &layers);
+                    if self.clock < self.smoke_until {
+                        self.smoke.emit_along(
+                            &[Self::smoke_block()],
+                            &layers,
+                            DWARF_FLAMER_COUNT,
+                            (from, to),
+                            dt,
+                            dice,
+                        );
+                    }
+                }
+            }
+            DwarfFire::Shoot | DwarfFire::Grenade => {
+                self.system.update_toward(dt, &layers, to);
+                if self.clock < self.until {
+                    self.system.emit_along(
+                        &blocks,
+                        &layers,
+                        DWARF_SHOOT_COUNT,
+                        (from, to),
+                        dt,
+                        dice,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Whether its Direct3D light shines: the flamethrower's while its flames live, the shots'
+    /// while they stream.
+    pub fn lit(&self) -> bool {
+        match self.kind {
+            DwarfFire::Flamer => !self.smoking,
+            DwarfFire::Shoot | DwarfFire::Grenade => self.clock < self.until,
+        }
+    }
+
+    /// Whether it ended: its time past and its last particle gone, the flamethrower's smoke's too.
+    pub fn done(&self) -> bool {
+        match self.kind {
+            DwarfFire::Flamer => {
+                self.smoking && self.clock >= self.smoke_until && self.smoke.particles.is_empty()
+            }
+            DwarfFire::Shoot | DwarfFire::Grenade => {
+                self.clock >= self.until && self.system.particles.is_empty()
+            }
+        }
+    }
+}
+
 /// The thrown ball's model and its glows' texture (867, `0x79E630`), and its particles.
 pub const BALL_MODEL: &str = "BOTTLE01.GRN";
 pub const BALL_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -10432,6 +10781,59 @@ mod tests {
         );
         assert_eq!(ball_heal_level(3), 1);
         assert_eq!(ball_heal_level(22), 5);
+    }
+
+    #[test]
+    fn the_dwarfs_flamethrower_streams_its_flames_then_smokes_and_his_cannon_flashes() {
+        let mut dice = Rng::of(5, 8, 1);
+        let along = [1.0, 0.0, 0.0];
+        let muzzle = ([0.0, 0.0, 60.0], [0.0, 0.0, 60.0]);
+        let mut flamer = DwarfFireSight::new(DwarfFire::Flamer, 1.2);
+        let mut steps = 0_u32;
+        let mut most = 0;
+        while !flamer.done() && steps < 1000 {
+            flamer.update(0.02, (muzzle, along), &mut dice);
+            most = most.max(flamer.system.particles.len());
+            steps += 1;
+            if steps == 50 {
+                // A second on, its flames run along the muzzle's axis, 200 a second.
+                let far = flamer
+                    .system
+                    .particles
+                    .iter()
+                    .map(|p| p.place[0])
+                    .fold(0.0_f32, f32::max);
+                assert!(far > 150.0 && far < 230.0, "{far}");
+                assert!(flamer.lit());
+            }
+        }
+        // About 333 a second living a second; its smoke till 6.25/1.2 s and its last puff.
+        assert!((300..=360).contains(&most), "{most}");
+        assert!(flamer.done() && !flamer.lit());
+        let seconds = f32::from(u16::try_from(steps).unwrap_or(0)) * 0.02;
+        assert!((6.2..=6.6).contains(&seconds), "{seconds}");
+        let mut shot = DwarfFireSight::new(DwarfFire::Shoot, 1.2);
+        let mut layers = std::collections::HashSet::new();
+        for _ in 0..8 {
+            shot.update(0.02, (muzzle, along), &mut dice);
+            for particle in &shot.system.particles {
+                layers.insert(particle.layer);
+            }
+        }
+        assert!(!shot.lit());
+        assert_eq!(layers.len(), 4);
+        // Its streaks shoot 1500 a second along the shot.
+        assert!(
+            shot.system
+                .particles
+                .iter()
+                .any(|p| p.layer == 3 && p.place[0] > 50.0)
+        );
+        while !shot.done() {
+            shot.update(0.05, (muzzle, along), &mut dice);
+        }
+        assert!(shot.system.particles.is_empty());
+        assert_eq!(DwarfFireSight::new(DwarfFire::Grenade, 2.0).until, 0.15);
     }
 
     #[test]

@@ -1695,6 +1695,12 @@ fn make(
                             playing.struck = 1;
                             arts.start(making.art);
                             gun_sound(&mut points, FLAMER_SOUND, here);
+                            // Its flames at his cannon's muzzle (1016, `dwarf_fires`).
+                            crate::dwarf_fires::fire(
+                                &mut commands,
+                                opensacred_rules::particles::DwarfFire::Flamer,
+                                hero,
+                            );
                         }
                         let left = 1.0 - done;
                         if left < arts::FLAMES[1] || finished {
@@ -1755,6 +1761,12 @@ fn make(
                             making.art
                         );
                         gun_sound(&mut points, MORTAR_SOUND, here);
+                        // Its burst at his cannon's muzzle (1018, `dwarf_fires`).
+                        crate::dwarf_fires::fire(
+                            &mut commands,
+                            opensacred_rules::particles::DwarfFire::Grenade,
+                            hero,
+                        );
                         commands.spawn(crate::guns::Shell::thrown(
                             hero,
                             Vec2::from(at),
@@ -1774,6 +1786,12 @@ fn make(
                         if playing.struck == 0 && due(first - 0.05 * arts::GUN_RATE, done) {
                             playing.struck = 1;
                             gun_sound(&mut points, CANNON_SOUND, here);
+                            // Its flash at his cannon's muzzle (1017, `dwarf_fires`).
+                            crate::dwarf_fires::fire(
+                                &mut commands,
+                                opensacred_rules::particles::DwarfFire::Shoot,
+                                hero,
+                            );
                         }
                         let aim = target.unwrap_or(playing.point);
                         let line = (aim - here).xz();
