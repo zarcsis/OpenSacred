@@ -1551,7 +1551,10 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     crate::making::may_make(
                         world.resource::<crate::arts::HeroArts>(),
                         art,
-                        effects.as_ref(),
+                        (
+                            effects.as_ref(),
+                            world.get_resource::<crate::pickup::Pack>(),
+                        ),
                     )?;
                     first.push(make_art(world, art)?);
                 }

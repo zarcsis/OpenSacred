@@ -244,12 +244,16 @@ pub(crate) fn first_art(arts: &HeroArts) -> Option<u16> {
         .map(|e| e.art)
 }
 
-/// Whether the hero may make `art` now: it holds it, it is ready, its action is read, and no
-/// effect holds on it that refuses it (`effects`, `arts::refused_while`, `0x51D840`).
+/// Whether the hero may make `art` now: it holds it, it is ready, its action is read, no effect
+/// holds on it that refuses it (`effects`, `arts::refused_while`), and it wears the cannon that
+/// its art wants (`pack`'s slot 14, `arts::wants_cannon`; `0x51D840`).
 pub fn may_make(
     arts: &HeroArts,
     art: u16,
-    effects: Option<&crate::effects::Effects>,
+    (effects, pack): (
+        Option<&crate::effects::Effects>,
+        Option<&crate::pickup::Pack>,
+    ),
 ) -> Result<(), String> {
     if arts.arts.get(art).is_none() {
         return Err(format!("the hero holds no art {art}"));
@@ -266,6 +270,12 @@ pub fn may_make(
     if !arts::in_form(art, arts.kind) {
         return Err(format!("{art} is not made in this form"));
     }
+    let cannon = pack
+        .and_then(|pack| pack.worn.get(usize::from(arts::CANNON_SLOT)))
+        .is_some_and(Option::is_some);
+    if arts::wants_cannon(art) && !cannon {
+        return Err(format!("{art} wants a cannon worn"));
+    }
     Ok(())
 }
 
@@ -275,7 +285,6 @@ pub fn may_make(
 /// `0x52FE40`, docs/re/arts.md, "The right button", #654; with Ctrl held the original's posts
 /// another event, not followed). A press of the left button ends an order not yet under way.
 #[expect(
-    clippy::too_many_arguments,
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
@@ -284,8 +293,11 @@ pub(crate) fn aim(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    selected: Res<Selected>,
-    arts: Option<Res<HeroArts>>,
+    (selected, arts, pack): (
+        Res<Selected>,
+        Option<Res<HeroArts>>,
+        Option<Res<crate::pickup::Pack>>,
+    ),
     (creatures, corpses): (
         Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
         Query<(Entity, &GlobalTransform), With<crate::npcs::Corpse>>,
@@ -395,7 +407,7 @@ pub(crate) fn aim(
             (Some(0), _, None) if spell => (hero, ground),
             _ => continue,
         };
-        match may_make(&arts, art, effects) {
+        match may_make(&arts, art, (effects, pack.as_deref())) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
                 let target = if matches!(

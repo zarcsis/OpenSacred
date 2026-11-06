@@ -1895,6 +1895,13 @@ fn the_daemons_ring_burns_and_his_emperor_fans_out() {
 }
 
 #[test]
+fn the_dwarfs_guns_want_a_cannon_worn() {
+    assert!([1085, 1086, 1087].into_iter().all(wants_cannon));
+    assert!(!wants_cannon(1084) && !wants_cannon(1080) && !wants_cannon(55));
+    assert_eq!(CANNON_SLOT, 14);
+}
+
+#[test]
 fn the_dwarfs_guns_burn_shell_and_shoot() {
     // GOG 2.28's 1085: `[+0x58]` 12 + 12·L, `[+0x60]` 93 + 122·L, `[+0x68]` 50 + 20·L; 1086:
     // 9 + 13.5·L both; 1087: `[+0x50]` 18 + 27·L.
