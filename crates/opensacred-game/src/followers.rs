@@ -117,6 +117,7 @@ pub(crate) fn summoning_sound(commands: &mut Commands, at: Vec3) {
 pub fn summon(commands: &mut Commands, master: Entity, creature: u32, level: u32, at: Vec3) {
     info!("followers: {master} summons a {creature} of level {level} at {at}");
     summoning_sound(commands, at);
+    crate::summon_looks::spawn(commands, at, master);
     commands.spawn((
         Summoning {
             master,

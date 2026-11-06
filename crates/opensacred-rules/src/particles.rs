@@ -7020,6 +7020,222 @@ impl PlantCage {
     }
 }
 
+/// The summoning's runes, the Vampiress's and the others', plain and glowing (777,
+/// `cParticleSystem_bigsummon`, its constructor `0x7699A0`), and its glows' texture.
+pub const SUMMON_RUNES: [[&str; 2]; 2] = [
+    ["FX_TRIBALS3_VAMP", "FX_TRIBALS3_VAMP_G"],
+    ["FX_TRIBALS3_ELVE", "FX_TRIBALS3_ELVE_G"],
+];
+pub const SUMMON_GLOW: &str = "PARTICLE_FLARE04";
+/// Its glows' colour (`0xFFFFA0A0`), added whole.
+pub const SUMMON_GLOW_COLOUR: [f32; 4] = [1.0, 160.0 / 255.0, 160.0 / 255.0, 1.0];
+/// Its orbits, its bolts and their points, the height of its middle over its place.
+const SUMMON_ORBITS: usize = 20;
+const SUMMON_BOLTS: usize = 10;
+const SUMMON_BOLT_POINTS: usize = 6;
+const SUMMON_RISE: f32 = 20.0;
+/// The original's whole turn of its rolls and its end, 6.28 rather than 2π.
+#[expect(
+    clippy::approx_constant,
+    reason = "the original's 6.28, a little short of 2π"
+)]
+const SUMMON_TURN: f32 = 6.28;
+/// A triangle of the summoning: its corners and their colours.
+pub type SummonTriangle = ([[f32; 3]; 3], [[f32; 4]; 3]);
+
+/// The summoning's colour by its caster's type (`0x427130`, the event's `+0x3C`): the Wood
+/// Elf's (5) green, the Vampiress's (6 and 7) red, any other's violet.
+pub fn summon_colour(caster: u32) -> [f32; 3] {
+    let rgb: [u8; 3] = match caster {
+        5 => [0x40, 0xFF, 0x40],
+        6 | 7 => [0xFF, 0x48, 0x48],
+        _ => [0xE7, 0x49, 0xFF],
+    };
+    rgb.map(|c| f32::from(c) / 255.0)
+}
+
+/// A particle of the summoning, orbiting its middle: its azimuth and elevation and their rates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Orbit {
+    azimuth: f32,
+    elevation: f32,
+    rates: [f32; 2],
+}
+
+/// A quad of the summoning's runes flat on the ground: its texture's index in its pair (0 the
+/// plain, laid over by its alpha, 1 the glowing, added whole), its half side, its turn and its
+/// colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SummonRune {
+    pub texture: usize,
+    pub half: f32,
+    pub turn: f32,
+    pub colour: [f32; 4],
+}
+
+/// The summoning's sight (777, `FX_BIGSUMMON`, `cParticleSystem_bigsummon`, its start `0x76A440`,
+/// run `0x769C60` and draw `0x769FC0`; #1092) at the summoning's point: twenty particles orbiting
+/// its middle 20 over the ground, each a rim of ten translucent triangles of its colour from the
+/// middle, out to `80·(1 − cos φ)` and back as its phase φ runs at 2 a second, glows at its
+/// middle, white bolts from it as the creature comes, and for a hero's summoning the runes on the
+/// ground, turning either way and fading in and out; it ends as its phase passes 2π (3.14 s).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BigSummon {
+    pub clock: f32,
+    phase: f32,
+    orbits: Vec<Orbit>,
+    places: Vec<[f32; 3]>,
+    bolts: Vec<[f32; 3]>,
+    colour: [f32; 3],
+    runes: bool,
+}
+
+impl BigSummon {
+    /// A summoning of `colour`, with runes for a hero's (`+0xA9` 0), of the rolls of `dice` at its
+    /// first run: each orbit's azimuth and elevation of a whole turn and their rates of 1 to 3 a
+    /// second, either way by an odd roll, then each bolt's step of ±30 along each axis.
+    pub fn new<D: Dice>(colour: [f32; 3], runes: bool, dice: &mut D) -> Self {
+        let rate = |dice: &mut D| {
+            let rate = 2.0 * share(dice) + 1.0;
+            if dice.below(2) == 1 { rate } else { -rate }
+        };
+        let orbits = (0..SUMMON_ORBITS)
+            .map(|_| Orbit {
+                azimuth: SUMMON_TURN * share(dice),
+                elevation: SUMMON_TURN * share(dice),
+                rates: [rate(dice), rate(dice)],
+            })
+            .collect();
+        let bolts = (0..SUMMON_BOLTS)
+            .map(|_| std::array::from_fn(|_| 60.0 * share(dice) - 30.0))
+            .collect();
+        Self {
+            clock: 0.0,
+            phase: 0.0,
+            orbits,
+            places: vec![[0.0; 3]; SUMMON_ORBITS],
+            bolts,
+            colour,
+            runes,
+        }
+    }
+
+    /// Its swell, `1 − cos φ`, from 0 to 2 and back.
+    pub fn swell(&self) -> f32 {
+        1.0 - self.phase.cos()
+    }
+
+    /// A run of `dt` seconds, none of a frame longer than a second (`0x769C60`): each orbit out at
+    /// `80·(1 − cos φ)` of the phase before, its angles on by their rates within a whole turn,
+    /// the clock on and the phase by twice the time.
+    pub fn update(&mut self, dt: f32) {
+        if dt > 1.0 {
+            return;
+        }
+        let reach = 80.0 * self.swell();
+        for (orbit, place) in self.orbits.iter_mut().zip(self.places.iter_mut()) {
+            orbit.azimuth = (orbit.azimuth + dt * orbit.rates[0]).rem_euclid(6.29);
+            orbit.elevation = (orbit.elevation + dt * orbit.rates[1]).rem_euclid(6.29);
+            let (a, b) = (orbit.azimuth, orbit.elevation);
+            *place = [
+                reach * a.cos() * b.cos(),
+                reach * a.sin() * b.cos(),
+                reach * b.sin(),
+            ];
+        }
+        self.clock += dt;
+        self.phase += 2.0 * dt;
+    }
+
+    /// Whether it ended, its phase past 2π.
+    pub fn done(&self) -> bool {
+        self.phase > SUMMON_TURN
+    }
+
+    /// The radius of its world light, `⌊100·(1 − cos φ)⌋`, from 0 to 200 and back.
+    pub fn light(&self) -> f32 {
+        (100.0 * self.swell()).floor()
+    }
+
+    /// Its runes for a hero's summoning (`0x769FC0`): the plain ring black at the alpha
+    /// `⌊127·(1 − cos φ)⌋`, of the half sides 55 turned by its clock and 40 against it, then the
+    /// glowing ring alike grey at that alpha; none for a creature's.
+    pub fn runes(&self) -> Vec<SummonRune> {
+        if !self.runes {
+            return Vec::new();
+        }
+        let alpha = (127.0 * self.swell()).floor() / 255.0;
+        let rune = |texture: usize, half: f32, turn: f32| SummonRune {
+            texture,
+            half,
+            turn,
+            colour: if texture == 0 {
+                [0.0, 0.0, 0.0, alpha]
+            } else {
+                [alpha, alpha, alpha, 1.0]
+            },
+        };
+        vec![
+            rune(0, 55.0, self.clock),
+            rune(0, 40.0, -self.clock),
+            rune(1, 55.0, self.clock),
+            rune(1, 40.0, -self.clock),
+        ]
+    }
+
+    /// Its ten triangles from its middle, 20 over its place, each to two of its orbits, its
+    /// colour at the alpha 0xAA at the middle and at none at the rim: their corners from its
+    /// place and their colours.
+    pub fn triangles(&self) -> Vec<SummonTriangle> {
+        let [r, g, b] = self.colour;
+        let (middle, rim) = ([r, g, b, 170.0 / 255.0], [r, g, b, 0.0]);
+        let up = |[x, y, z]: [f32; 3]| [x, y, z + SUMMON_RISE];
+        self.places
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[a, b]| ([up([0.0; 3]), up(a), up(b)], [middle, rim, rim]))
+            .collect()
+    }
+
+    /// Whether its bolts show: while its phase is within 2.9 and 3.4 (1.45 to 1.7 s on), as its
+    /// creature comes.
+    pub fn bolts_show(&self) -> bool {
+        self.phase > 2.9 && self.phase < 3.4
+    }
+
+    /// Its ten white bolts, each of six points from its middle, a step its bolt's and ±10 more
+    /// along each axis rolled anew each frame.
+    pub fn bolts(&self, dice: &mut impl Dice) -> Vec<[[f32; 3]; SUMMON_BOLT_POINTS]> {
+        self.bolts
+            .iter()
+            .map(|step| {
+                let mut at = [0.0, 0.0, SUMMON_RISE];
+                std::array::from_fn(|n| {
+                    if n > 0 {
+                        for (axis, step) in at.iter_mut().zip(step) {
+                            *axis += step + 20.0 * share(dice) - 10.0;
+                        }
+                    }
+                    at
+                })
+            })
+            .collect()
+    }
+
+    /// Its two glows at its middle, of the half sides `20·(1 − cos φ)` and `15·(1 − cos φ)²`, in
+    /// [`SUMMON_GLOW_COLOUR`].
+    pub fn glows(&self) -> [f32; 2] {
+        let swell = self.swell();
+        [20.0 * swell, 15.0 * swell * swell]
+    }
+
+    /// Its middle, 20 over its place.
+    pub fn middle() -> [f32; 3] {
+        [0.0, 0.0, SUMMON_RISE]
+    }
+}
+
 /// The thrown ball's model and its glows' texture (867, `0x79E630`), and its particles.
 pub const BALL_MODEL: &str = "BOTTLE01.GRN";
 pub const BALL_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -10044,6 +10260,59 @@ mod tests {
             cage.update(0.025);
         }
         assert!(cage.done());
+    }
+
+    #[test]
+    fn a_summoning_swells_and_bolts_as_its_creature_comes_and_ends_at_pi() {
+        assert_eq!(summon_colour(5), [64.0 / 255.0, 1.0, 64.0 / 255.0]);
+        assert_eq!(summon_colour(6), summon_colour(7));
+        assert_eq!(summon_colour(127), [231.0 / 255.0, 73.0 / 255.0, 1.0]);
+        let mut dice = Rng::of(7, 1, 3);
+        let mut summon = BigSummon::new(summon_colour(5), true, &mut dice);
+        assert_eq!(summon.runes()[0].colour[3], 0.0);
+        let mut bolted = Vec::new();
+        let mut widest = 0.0_f32;
+        for step in 0..400_u16 {
+            summon.update(0.01);
+            if summon.bolts_show() {
+                bolted.push(step);
+            }
+            for (corners, _) in summon.triangles() {
+                widest = widest.max(
+                    corners[1][0]
+                        .hypot(corners[1][1])
+                        .hypot(corners[1][2] - 20.0),
+                );
+            }
+            if summon.done() {
+                // Its phase past 2π, 3.14 s on.
+                assert!((312..=315).contains(&step), "{step}");
+                break;
+            }
+        }
+        assert!(summon.done());
+        // The bolts from 1.45 to 1.7 s, the orbits out to 160.
+        assert!(
+            bolted.first().is_some_and(|&s| (143..=146).contains(&s)),
+            "{bolted:?}"
+        );
+        assert!(
+            bolted.last().is_some_and(|&s| (168..=170).contains(&s)),
+            "{bolted:?}"
+        );
+        assert!(widest > 155.0 && widest <= 160.0, "{widest}");
+        assert_eq!(summon.triangles().len(), 10);
+        assert_eq!(summon.bolts(&mut dice).len(), 10);
+        // A creature's has no runes.
+        assert!(
+            BigSummon::new(summon_colour(127), false, &mut dice)
+                .runes()
+                .is_empty()
+        );
+        // A frame longer than a second is skipped.
+        let mut stalled = BigSummon::new(summon_colour(6), true, &mut dice);
+        stalled.update(1.5);
+        assert_eq!(stalled.clock, 0.0);
     }
 
     #[test]

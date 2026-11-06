@@ -447,6 +447,25 @@ pub(crate) fn plain_material() -> Effect {
     }
 }
 
+/// A material of no texture, of its vertices' colours alone, laid over the frame by their alpha
+/// with its depth not tested (`SRCALPHA`, `INVSRCALPHA`, `ZENABLE` off): the summoning's
+/// triangles and bolts (`summon_looks`).
+pub(crate) fn plain_over_material() -> Effect {
+    Effect {
+        base: StandardMaterial {
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        },
+        extension: Particles {
+            whole: false,
+            over: true,
+        },
+    }
+}
+
 /// A colour of the frame's values in linear light, as the vertices of an [`Effect`] take it: its
 /// texels are decoded, multiplied by it and encoded again, so that the frame takes their values'
 /// product.

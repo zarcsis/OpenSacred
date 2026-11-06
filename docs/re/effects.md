@@ -1675,6 +1675,23 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
+## The summoning
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A summoning | 777 `FX_BIGSUMMON` | `cParticleSystem_bigsummon` (`0x897874`) | `0x7699A0`, `0x76A440`, `0x769C60`, `0x769FC0` |
+
+- Its constructor (20 particles) loads `FX_TRIBALS3_VAMP`, `FX_TRIBALS3_VAMP_G`, `FX_TRIBALS3_ELVE` and `FX_TRIBALS3_ELVE_G`; no Direct3D light.
+- Its makers send the FX event 4 (`0x5A3BE8`: at the event's point, following nothing), its `+0x38` the creature type, its `+0x3C` the colour of its caster's type (`0x427130`: the Wood Elf's (5) `0x40FF40`, the Vampiress's (6, 7) `0xFF4848`, any other's `0xE749FF`): the spell 3's executor (`0x523413`), the heroes' and the creatures' above the id 16, and the Vampiress's wolves 1026 and 1027 (`0x512B39`).
+- Its start: its middle's colour at the alpha `0xAA`, its rim's at none; its sound 2002 (docs/re/sound.md).
+- Its run, skipped for a frame longer than a second: its clock by the time, its phase by twice it; at its first run each particle's azimuth and elevation of a whole turn (6.28) at random and their rates of 1 to 3 a second either way by an odd roll, and ten bolts' steps of ±30 along each axis; each frame every particle at `80·(1 − cos φ)` along its angles from the middle (the phase before the step), the angles on by their rates within 6.29; its world light `⌊100·(1 − cos φ)⌋`; its bolts while φ lies within 2.9 and 3.4; once φ passes 3.0 its action 1 makes the creature (docs/re/arts.md); it ends as φ passes 6.28 (3.14 s).
+- Its draw, `k = 1 − cos φ`: for a hero's summoning (`+0xA9` 0) its runes flat on the ground (the Vampiress's for her colour, else the elves'), the plain pair black at the alpha `⌊127k⌋` laid over by its alpha, of the half sides 55 turned by its clock and 40 against it, then the glowing pair grey at that alpha added whole; ten triangles from its middle 20 over its place to two particles each, laid over by their alpha with no depth test and no texture; while they show, ten white bolts of six points from the middle, a step its bolt's and ±10 more along each axis rolled each frame, alike; two glows of `PARTICLE_FLARE04` (`0xFFFFA0A0`) at the middle added whole, of the half sides `20k` and `15k²`.
+
+`opensacred-game` draws it since #1092 (`summon_looks`, `opensacred_rules::particles::{BigSummon, summon_colour}`, `fx::plain_over_material`) at each summoning of `followers::summon`, the hero's, and of `creature_casts`, a creature's (its runes the hero's alone), untinted by the night, its light swelling with it; the bolts are thin quads facing the camera.
+**Seen** 2026-11-06 beside the original: the Wood Elf's unicorn summoned in a green flare, its rays fanning out over the ground and its green rings of runes under it, alike in both.
+
 ## The plant cage
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
