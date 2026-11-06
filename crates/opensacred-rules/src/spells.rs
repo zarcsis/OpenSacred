@@ -333,6 +333,13 @@ pub const SPRING: u16 = 31;
 /// runs for the action's seconds (`+0x68`, `0x44A520`).
 pub const LAVA_SKIN_STATE: u8 = 10;
 pub const LAVA_SKIN_TEXTURE: &str = "A_LAVA00";
+/// The flesh to stone's overlay state (the stone's action 7, its event `0x109`) and its
+/// texture, the stone's item type 5095's (`FREEZE_STONE01`); and its sight's model (822,
+/// `cParticleSystem_stoned`, `freeze_stone.grn`), drawn in that texture about the held
+/// creature's feet at its own size, turned about the upright at random.
+pub const STONED_STATE: u8 = 9;
+pub const STONED_TEXTURE: &str = "FREEZE_STONE01";
+pub const STONED_MODEL: &str = "FREEZE_STONE.GRN";
 
 /// The grey by which the skin of lava's pass adds its texture over its bearer's model at `left`
 /// seconds still to run (`0x44AD7B`): `128 + 64·sin(4·left)` truncated, of 255, so that it pulses

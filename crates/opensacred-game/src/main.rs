@@ -113,7 +113,6 @@ mod journal;
 mod killer_plants;
 mod labels;
 mod lava_bursts;
-mod lava_skins;
 mod lens_creatures;
 mod light_blades;
 mod lightning_strikes;
@@ -180,6 +179,7 @@ mod sfx;
 mod shaders;
 mod shadows;
 mod skies;
+mod skins;
 mod soul_sparks;
 mod soulcatchers;
 mod souls;
@@ -194,6 +194,7 @@ mod stashes;
 mod statics;
 mod statistics;
 mod steps;
+mod stones;
 mod summonings;
 mod tables;
 mod talk;
@@ -541,7 +542,6 @@ fn run(cli: Cli) -> Result<AppExit> {
         killer_plants::KillerPlantsPlugin,
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,
-        lava_skins::LavaSkinsPlugin,
         light_blades::LightBladesPlugin,
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
@@ -605,6 +605,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
+        skins::SkinsPlugin,
         soul_sparks::SoulSparksPlugin,
         soulcatchers::SoulcatchersPlugin,
         souls::SoulsPlugin,
@@ -621,15 +622,16 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         statistics::StatisticsPlugin,
         steps::StepsPlugin,
+        stones::StonesPlugin,
         summonings::SummoningsPlugin,
         talk::TalkPlugin,
         tentacles::TentaclesPlugin,
         terrain::GroundPlugin,
         tooltip::TooltipPlugin,
         torches::TorchesPlugin,
-        town_stash::TownStashPlugin,
     ))
     .add_plugins((
+        town_stash::TownStashPlugin,
         trap_balls::TrapBallsPlugin,
         trap_landings::TrapLandingsPlugin,
         twisters::TwistersPlugin,

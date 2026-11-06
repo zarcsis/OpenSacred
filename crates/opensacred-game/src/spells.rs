@@ -1212,13 +1212,12 @@ pub(crate) fn skin(
         DespawnOnExit(AppState::InGame),
     ));
     // A creature's fire skin looks as its system's, in blue (`fire_skins`), its bearer in a skin
-    // of lava for its seconds (`lava_skins`).
+    // of lava for its seconds (`skins`).
     made.insert(crate::fire_skins::Look::Skin { hero: false });
-    commands
-        .entity(bearer)
-        .insert(crate::lava_skins::Asked(fight_seconds(spells::value(
-            record, 0, level,
-        ))));
+    commands.entity(bearer).insert(crate::skins::Asked(
+        crate::skins::Overlay::Lava,
+        fight_seconds(spells::value(record, 0, level)),
+    ));
     let mut given = spells::turning(record, level);
     given.extend(spells::effects(record, level));
     give(commands, bearer, given);
@@ -1282,11 +1281,10 @@ pub(crate) fn strikes_about(
     } else if record.id == FIRE_SKIN {
         made.insert(crate::fire_skins::Look::Skin { hero: true });
         if let Some(bearer) = follows {
-            commands
-                .entity(bearer)
-                .insert(crate::lava_skins::Asked(fight_seconds(spells::value(
-                    record, 0, level,
-                ))));
+            commands.entity(bearer).insert(crate::skins::Asked(
+                crate::skins::Overlay::Lava,
+                fight_seconds(spells::value(record, 0, level)),
+            ));
         }
     } else if record.id == spells::LIGHT {
         // Its light at night its second value (`0x7850D0`, the caster's factor 1.0 a hero's).
@@ -1628,6 +1626,10 @@ fn act(
                     level: 0,
                 };
                 given.push((effect, seconds));
+                // The stone's sight and skin as long (822, `stones`).
+                if act.spell == spells::STONE {
+                    crate::stones::stone(&mut commands, act.target, seconds);
+                }
                 let mut held = commands.entity(act.target);
                 held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
                 held.entry::<ai::Mind>()
