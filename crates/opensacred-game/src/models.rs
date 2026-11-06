@@ -107,6 +107,11 @@ pub enum Pass {
     /// (`ONE`, `ONE`) laid in one, its colour the effect's by its half alpha plus the texture's,
     /// over what lies behind by the rest (premultiplied).
     Hologram,
+    /// All of them in place of the model's own, of the texture of the water form's skin taken by
+    /// the model's own normals (`skins`, `0x40BD70`), lit, blended by its alpha over what lies
+    /// behind them, the alpha test on, their depth written, in the objects' layer of the blended
+    /// things.
+    Water,
 }
 
 /// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
@@ -142,6 +147,7 @@ pub struct InOrderKey {
     fringe: bool,
     effect: bool,
     hologram: bool,
+    water: bool,
 }
 
 impl From<&InOrder> for InOrderKey {
@@ -150,6 +156,7 @@ impl From<&InOrder> for InOrderKey {
             fringe: matches!(extension.pass, Pass::Fringe(_)),
             effect: matches!(extension.pass, Pass::Effect | Pass::Hologram),
             hologram: extension.pass == Pass::Hologram,
+            water: extension.pass == Pass::Water,
         }
     }
 }
@@ -213,8 +220,11 @@ impl MaterialExtension for InOrder {
             if key.bind_group_data.hologram {
                 fragment.shader_defs.push("HOLOGRAM".into());
             }
+            if key.bind_group_data.water {
+                fragment.shader_defs.push("WATER".into());
+            }
         }
-        if key.bind_group_data.fringe
+        if (key.bind_group_data.fringe || key.bind_group_data.water)
             && let Some(depth) = descriptor.depth_stencil.as_mut()
         {
             depth.depth_write_enabled = Some(true);
@@ -326,6 +336,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         Pass::Added(layer) => (AlphaMode::Add, layer.bias()),
         Pass::Effect => (AlphaMode::Opaque, base.depth_bias),
         Pass::Hologram => (AlphaMode::Premultiplied, Layer::Objects.bias()),
+        Pass::Water => (AlphaMode::Blend, Layer::Objects.bias()),
     };
     ModelMaterial {
         base: StandardMaterial {
@@ -344,6 +355,23 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             pass,
         },
     }
+}
+
+/// The model material of `base` that draws its texels in the water form's look ([`Pass::Water`]):
+/// white, lit, of the texture `texture` taken by the model's own normals.
+pub fn water(base: StandardMaterial, anchors: &Anchors, texture: Handle<Image>) -> ModelMaterial {
+    let mut material = in_order(
+        StandardMaterial {
+            base_color: Color::WHITE,
+            base_color_texture: None,
+            unlit: false,
+            ..base
+        },
+        anchors,
+        Pass::Water,
+    );
+    material.extension.effect = Some(texture);
+    material
 }
 
 /// The effect of the kinds 1 to 4 that a model's meshes lie over (`model_effects`, #1834,

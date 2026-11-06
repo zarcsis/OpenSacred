@@ -39,9 +39,9 @@ const CUTOFF: f32 = 64.5 / 255.0;
 
 /// The effect's texture and the glow's under a model's texels, and their offsets (`models::Pass::
 /// Effect`, `model_effects`; #1834).
-@if(EFFECT)
+@if(EFFECT || WATER)
 @group(constants::MATERIAL_BIND_GROUP) @binding(103) var effect_texture: texture_2d<f32>;
-@if(EFFECT)
+@if(EFFECT || WATER)
 @group(constants::MATERIAL_BIND_GROUP) @binding(104) var effect_sampler: sampler;
 @if(EFFECT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(105) var glow_texture: texture_2d<f32>;
@@ -102,6 +102,25 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
 @if(HOLOGRAM) {
     // The kind 8's texture is added whole, whatever its alpha (`ONE`, `ONE`).
     pbr_input.material.base_color.a = 1.0;
+}
+@if(WATER) {
+    // The water form's look (`models::Pass::Water`, `0x40BD70`): the texture taken by the
+    // model's own normal, in the model's frame, its x and its y the texture's coordinates, as the
+    // original hands its vertices' normals to the device as their texture's; white, its alpha
+    // tested as a model's texels are.
+    let world_from_local = mesh_functions::get_world_from_local(in.instance_index);
+    let turn = mat3x3<f32>(
+        normalize(world_from_local[0].xyz),
+        normalize(world_from_local[1].xyz),
+        normalize(world_from_local[2].xyz),
+    );
+    let local = transpose(turn) * normalize(in.world_normal);
+    // glTF's frame is the model's turned by −90° about x: its y is the model's −z.
+    let texel = textureSample(effect_texture, effect_sampler, vec2<f32>(local.x, -local.z));
+    if texel.a < CUTOFF {
+        discard;
+    }
+    pbr_input.material.base_color = texel;
 }
     // The texture's alpha, over a model's effect, before an opaque pass makes it whole.
     let over = pbr_input.material.base_color.a;

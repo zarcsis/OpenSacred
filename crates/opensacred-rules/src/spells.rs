@@ -372,6 +372,14 @@ pub const GLOW_SKIN_SCROLL: f32 = 0.05;
 pub const SPEED_SKIN_TEXTURE: &str = "FX_SPEEDUP";
 pub const SKIN_BLINK: f32 = 2.0;
 
+/// The water form's state 1 and its texture (`0x44AB44`, `0x40BD70`): its bearer's model drawn
+/// instead, lit, its depth written, blended by its alpha with the alpha test on, in
+/// `GRN_SHADETEXTURE02` (64 × 1, white, its alpha from 0 at its ends to 136 in its middle) taken
+/// by its vertices' normals in the model's frame as its texture's coordinates; then the state 3
+/// for 2 s, that look and the plain model in turns ([`skin_shows`]).
+pub const WATER_SKIN_STATE: u8 = 1;
+pub const WATER_SKIN_TEXTURE: &str = "GRN_SHADETEXTURE02";
+
 /// The grey by which the crusader's crosses are added over their bearer's model at `ms`
 /// milliseconds of the real clock (`0x44AD29`): `50·(1 + sin(0.007·ms))` truncated, of 255, so
 /// that it pulses between none and 100 about every 0.9 s.
