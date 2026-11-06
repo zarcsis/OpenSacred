@@ -4609,6 +4609,10 @@ pub const MULTI_SHOT_HEAD: f32 = 5.0;
 /// how fast they age (−400, 0.6375 s) and the pull back to the hand.
 const MULTI_SHOT_SPARKS: usize = 200;
 
+/// A comet of the multi-shot's sight: its tail's glows from its end on, each its place about the
+/// hand in the models' frame and its half side, and its head's place.
+pub type Comet = (Vec<([f32; 3], f32)>, [f32; 3]);
+
 /// `v` turned about the unit axis `axis` by `angle` radians (Rodrigues's rotation).
 fn turned(v: [f32; 3], axis: [f32; 3], angle: f32) -> [f32; 3] {
     let (sin, cos) = angle.sin_cos();
@@ -4696,7 +4700,7 @@ impl MultiShot {
 
     /// Its comets, each its tail's glows from its end on, of their places about the hand in the
     /// models' frame and their half sides, then its head.
-    pub fn comets(&self) -> Vec<(Vec<([f32; 3], f32)>, [f32; 3])> {
+    pub fn comets(&self) -> Vec<Comet> {
         self.axes
             .iter()
             .map(|&axis| {
