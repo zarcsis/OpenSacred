@@ -2116,6 +2116,15 @@ pub fn dash_reach(record: &WeaponArt, level: u32) -> u32 {
     u32::try_from(base + step * i64::from(level)).unwrap_or(0)
 }
 
+/// The equipment's slot of the Dwarf's cannon (`+0x1DC`, the category 33's).
+pub const CANNON_SLOT: u8 = 14;
+
+/// Whether `art` wants a cannon worn (`0x51D840`): the Dwarf's flamethrower, mortar and cannon
+/// (1085 to 1087) are refused while the equipment's slot 14 is empty (`0x51DB68`, `0x51DB82`).
+pub fn wants_cannon(art: u16) -> bool {
+    matches!(art, 1085..=1087)
+}
+
 /// Whether a Vampiress of type `kind` may make `art` in her form (`0x51D840`): a day art of her
 /// pairs by day alone, a night art by night alone; any other art in either.
 pub fn in_form(art: u16, kind: u32) -> bool {

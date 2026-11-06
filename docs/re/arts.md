@@ -673,7 +673,8 @@ The order's test of an art and its target (`0x51D840`, read 2026-10-24, #759), b
 - the launch types 5 and 0 make the maker its own target;
 - the type 2 (`ECF_ONFRIENDLY`) takes the maker where there is no target, and else wants a target alive, on the maker's floor, and its friend (`0x5490B0`), or, for a maker that is no player's hero, one not hostile to it (`0x549000`); the Daemon's 1094 and 1097 to 1100 pass where the maker is of the type 9;
 - 1031, 1042, 1044 to 1048, 1082 and 1089 are refused while an effect keyed by them holds on the maker (`0x582B00`), and 1018 and 1019 while either's does;
-- 1083 and 1084 want a weapon of the classes 2 or 3 in hand, 1085 and 1087 an item at `+0x1DC`, 1086 that and a straight way to its point.
+- 1083 and 1084 want a weapon of the classes 2 or 3 in hand, 1085 and 1087 an item at `+0x1DC`, the equipment's slot 14, which takes only an item of the category 33, the Dwarf's cannons (the types 1700, 3015, 3016 and 3095; `0x54ACC0`, read 2026-11-06, #2163), 1086 that and a straight way to its point on the maker's floor; refused, the hero stands and the art's regeneration does not start, and the cursor's glow shows it unusable (`0x611E70`).
+  `opensacred-game` follows the cannon's test since #2163 (`making::may_make`, `arts::wants_cannon`), not yet the mortar's straight way.
 
 **Seen** 2026-10-24 in the running original (the driver of #448, the Gladiator's new game, `arts learn 1015` and `arts select 1015`): a right click on a peaceful goblin warrior beside him, and ones on the ground at five cells about him and at his feet, made nothing, while one on his body made it on himself (the effects 1 and 2 of 0.7 for 40 s keyed by 1015, then the effect 34): so an art of the launch type 2 is made on the hero by the right button on him, or on a friend under the cursor (a party's member, not followed); and the Dwarf's 1089, made again while its effects held, made nothing.
 
