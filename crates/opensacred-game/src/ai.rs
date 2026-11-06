@@ -1227,14 +1227,13 @@ fn pursue(
                 );
             }
             Pursues::Blinks => {
-                // The first of its tries about it that a straight way reaches (`0x4D71A5`).
+                // The first of its tries about it that a straight way reaches, each within ±500
+                // along each axis (`0x4D722B`).
                 let level = way.level;
                 let found = (0..opensacred_rules::casts::BLINK_TRIES).find_map(|_| {
-                    let degrees = f32::from(u16::try_from(minds.rng.below(360)).unwrap_or(0));
-                    let angle = degrees.to_radians();
-                    let to = here.xz()
-                        + Vec2::new(angle.cos(), angle.sin())
-                            * opensacred_rules::casts::BLINK_REACH;
+                    let (x, y) = (minds.rng.below(0x8000), minds.rng.below(0x8000));
+                    let (dx, dz) = opensacred_rules::casts::blink_try(x, y);
+                    let to = here.xz() + Vec2::new(dx, dz);
                     let reaches =
                         paths::straight(here.xz(), to, |cell| heights.walkable_on(cell, level));
                     let height = heights.standing(to.x, to.y, level)?;
