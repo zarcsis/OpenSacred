@@ -1789,6 +1789,46 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-06 beside the original at the Seraphim's and the Mage's starts at 22:00 and the zoom 2: the holy shield's pale blue band sweeping about her over its arc on the ground, the shield wall's red walls over their bright ring of glows, and the mana's spring's blue symbol over its glow, alike in both.
 Not followed: a spell turned aside by the shield wall, which the game turns aside nowhere yet, and the set 32's spring.
 
+## The Wood Elf's sights
+
+Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The changeling (36) | 845 `FX_CHANGELING` | `cParticleSystem_changeling` (`0x8983EC`) | `0x795B30`, `0x795E20`, `0x795BC0`, `0x795C00` |
+| The speed (37) | 846 `FX_HIGHSPEED` | `cParticleSystem_highspeed` (`0x8984BC`) | `0x79A750`, `0x79AB70`, `0x79A840`, `0x79A8F0` |
+| The plants' healing (42) | 851 `FX_NATUREHEALING` | `cParticleSystem_naturehealing` (`0x898520`) | `0x79BE50`, `0x79C1D0`, `0x79BEF0`, `0x79BF60` |
+| A soul's mark (41), and other marks | 779 `FX_TEMPTEX` | `cParticleSystem_temptex` (`0x897990`) | `0x76DA70`, `0x76DD40`, `0x76DAC0`, `0x76DB40` |
+| The multi-shot's sight (1005), and 1061's ring | 861 `FX_ELVE_SM_CAST` | `cParticleSystem_elve_sm_cast` (`0x8983C0`) | `0x7950A0`, `0x795880`, `0x795140`, `0x7952C0` |
+
+- Only 846 calls the light manager: a Direct3D point light of (0.2, 1, 0.2) for each of its two objects, moved to the system's place at each draw.
+  None sets a world light; none of the billboards passes the tint flag `0x40`, so 845, 846, 851 and 861 keep their colours by night, and 779 alone is tinted.
+- **The changeling (845).** As the local hero's spell 36 changes a creature (`0x525E5A`), or as its effect 20 ends and the taker changes it back (`0x587F91`), an object follows the creature at its neck.
+  Its start bursts up to 500 `PARTICLE_SPARK06` sparks at the skinned vertices of the creature's model as it stands (every `⌊V/500⌋`-th of its `V` vertices), in (128, 255, 128), added whole, of the size 5 ± 2 shrinking by 2 a second, never ageing.
+  At the change they fall (the buoyancy 150 ± 30, the velocity ± (3, 3, 0)) and bounce at the ground; at the change back they rise ever faster (the buoyancy −150 ± 30).
+  The change's start gives the effect 20 of one of the 14 animal types at random and plays 2064 once.
+- **The speed (846).** The spell 37 makes two objects at the bearer's root, riding with it, for the record's value 0 (19 + L s, at most 60), each its loop 2010.
+  Each emits squares drawn with the identity matrix in place of the camera's, so that they lie flat on the ground about the bearer's feet, turned at random, added whole in a ramp of their life of 1 s, born within ± 5 and drifting ± 5 a second.
+  The first: `PARTICLE_TWIRL02` every 0.1 s, of the half side 40 ± 1, its ramp green, yellow, green, cyan, deep blue, sea green, blue and near white.
+  The second: `PARTICLE_DOTS02` every 0.25 s, of the half side 30, its ramp at half brightness from dark blue through teal and green to grey.
+  Both grow from 0.2 of their size by 0.66 a second; both go at once at the spell's end.
+- **The plants' healing (851).** The spell 42's object follows the bearer's root for 3 s, emitting one particle every 0.01 s (times the detail's factor), left in the world.
+  A particle rises (the buoyancy −35 ± 10, the velocity (0, 0, 15) ± (15, 15, 5)), born within ± 12 of the root, of the half side 3, in a colour at random about the grey 128 (± 127 each channel), living 1.457 s.
+  It is drawn as `PARTICLE_BUTTERFLY01`'s 64 frames by its age, laid over by the alpha of its life, then `PARTICLE_GLOW03` in (80, 80, 80) added whole.
+  The object asks the heal (the action 3) at its start; the executor plays 2060 at the bearer.
+- **A soul's mark (779).** The spell 41 lays at each soul's starting point (`0x526B49`) a square of `FX_STREAKS01` (a black blot with streaks raying out, on an alpha mask) of the half side 30, flat on the ground at a turn at random, laid over by its alpha in the light's colour, for 10 s, its alpha then falling by 0.25 a second.
+  Its kind 6 puts it in the list 0, under what stands on the ground.
+  The same class lays a creature's blood under its burst of `VIOLENCE` (60 s, the half side 45) and the body parts' (30 s, 25).
+- **The multi-shot's sight (861).** The art 1005 makes it at the Wood Elf's `Bip01 L Finger3` for the art's seconds (20 s).
+  `min(L + 1, 6)` comets circle the hand on axes at random at 5 radians a second: each a `PARTICLE_SPARK07` star of the half side 5 and 20 `PARTICLE_GLOW03` glows behind it of the half sides `k/15`, in (128, 255, 128), added whole.
+  At its first frame 200 `PARTICLE_SPARK06` sparks burst out at up to 60 along each axis and are pulled back to the hand (250 a second), from (127, 255, 127) to black over 0.64 s.
+  A `Rundum` with a bow (1061) makes it for 1.3 s at the shooter's root: a horizontal ring of 50 `PARTICLE_GLOW03` glows through the left hand's place, biggest at the hand, and a `PARTICLE_SPARK07` star of the half side `25·(1.3 − t)` there, all shrinking away.
+
+`opensacred-game` lays the souls' marks since #1092 (`marks`, `opensacred_rules::particles::{Mark, SOUL_MARK}`), at each soul's starting point on the ground, on the frame that the night tints; seen in the game as dark blots under the souls' starts.
+It draws the speed's two systems since #1092 too (`speed_sights`, `opensacred_rules::particles::SpeedSight`), at the bearer's root for the spell's seconds, flat on the ground, untinted, each with its green light (`fx_lights`) and its loop.
+**Seen** 2026-11-06 beside the original at the Wood Elf's start: a flat ring of green, yellow, cyan, blue and white swirls about her feet, growing over its first second, alike in both.
+Not followed yet: the changeling, the plants' healing and the multi-shot's sight, and the blood's and the body parts' marks (#1935).
+
 ## The burning light and the holy conversion
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).

@@ -127,6 +127,7 @@ mod lost_souls;
 mod low_health;
 mod magic_lights;
 mod making;
+mod marks;
 mod master;
 mod menu;
 mod menu_sound;
@@ -568,6 +569,9 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
+        marks::MarksPlugin,
+    ))
+    .add_plugins((
         master::MasterPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
