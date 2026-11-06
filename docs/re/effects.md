@@ -1675,6 +1675,30 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
+## The goblin mages' ball
+
+Read 2026-11-06 for #2147 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The ball's impact | 786 `FX_GOBLINIMPACT` | `cParticleSystem_goblinimpact` (`0x897B40`) | `0x774670`, `0x774C40`, `0x774730`, `0x774910` |
+
+- Its constructor (200 particles) loads `PARTICLE_LIGHTNING01` (a 2 × 2 grid of white bolts), `PARTICLE_GLOW03` and `PARTICLE_LINE01`; no Direct3D light; its world light 200 for every variant.
+- Its makers are the goblin mages' ball's landing alone (docs/re/arts.md, "The creatures' own spells"): the variant 0 at each hostile creature it strikes, at its place on the ground; the variants 1 to 3 at its own place where it lands on no creature, by its caster (2 the god 144, 3 the undead goblin mage 143, else 1).
+  Its FX event's kind `0x12` (`0x5A3BE8`) puts it at the event's point, following nothing.
+- The variant 0, the hit: one layer of the life −256 a second (about 1 s), one block of a size 30 ± 8 turned by π ± π, one of the grid's four frames at random, one every 0.01 s, no velocity nor offset; its ramp pale blue (0.6, 0.8, 1.0), its alpha from 0 to 1 over 10 entries and back to 0 over 15, nothing over the last 231, so that a crack shows over the first tenth of its life.
+  It makes them while its glow's half side (`+0x20AC`), from 20 falling by 5 a second, stays above 10, and ends at once at 10 (2 s).
+  Its draw: each crack a quad flat on the ground (the identity matrix, the flags `0x18C`: its frame, anchored at its foot, its ramp's colour, turned), from its place out to twice its size along its angle, its size to each side, laid over by its alpha; and while the half side is above 0 a flat square of `GLOW03` of that half side in (160, 176, 255), added whole: lightning cracks radiating on the ground about the struck creature under a fading glow.
+- The variant 1, the miss: one layer of the life −100 (2.55 s) and the size −10 a second, one block of a size 40 ± 10 every 0.004 s; its ramp blue (0.39, 0.39, 1.0), its alpha from 0 to 1 over 10 entries, held over 200, to 0 over 46.
+  While its turn (`+0x20A4`), growing by 10 a second, stays below 2π, it sets the block's offset to the turn's point of a circle of 15 about its place and makes its streaks there, so that it traces the circle once in 0.628 s; once the turn passes π (0.314 s) its action 1 makes its creature (76, 145 or 142 by the variant; docs/re/arts.md); it ends with its last streak.
+  Its draw: each streak a quad upright in the frame's `x`–`z` plane (turned about `x` by π/2, the flags `0x89`: anchored at its foot, its ramp's colour, added by its alpha), an eighth of its size to each side and twice its size high: a ring of blue light streaks traced once about the spot.
+- The variants 2 and 3 emit nothing and draw nothing: they only summon.
+
+`opensacred-game` follows it since #2147 (`goblin_impacts`, `opensacred_rules::particles::{GoblinImpact, GoblinLanding}`, `creature_casts::Ball`): the ball's hit on the hero cracks the ground under her, and its landing on no creature traces the ring and summons the creature 0.314 s on, hostile and of the caster's level and side (`creature_casts::Summoning`), the impacts untinted by the night and lighting it by 200.
+The ring's streaks are born along the turn's way in the frame, where the original sets the block's offset to the turn's point once a frame and a frame's streaks stand together (**estimate**: at the game's frame rate they stood apart as bright bars).
+**Seen** 2026-11-06 beside the original: the miss's column of blue streaks alike in size, brighter at its right edge and its foot in both; in the game the hit's cracks radiating from the hero's feet.
+Not followed: the ball's heal of the caster's friends (784, **hypothesis**, #2149), its strikes on the hero's followers (the game's ball strikes the hero alone), the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are), the type 145's item `0x73A` in its slot 13, and the event's sound.
+
 ## The guns' sights
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
