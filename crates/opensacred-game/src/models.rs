@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
-use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling};
+use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling, RenderLayers};
 use bevy::gltf::Gltf;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
@@ -733,6 +733,9 @@ pub fn convert(
         }
         commands.entity(model).remove::<Unplaced>();
         unveil(&mut commands, &children, &veiled, model);
+        // The pulse's copies draw after the night's pass, which leaves them as they are: the
+        // original adds its two passes unlit in their own colours, which no night's light
+        // darkens (`0x40D310`; #2172).
         for (entity, added) in pulses {
             let Ok((_, mesh, skinned, dynamic, unculled, ..)) = meshes.get(entity) else {
                 continue;
@@ -742,6 +745,7 @@ pub fn convert(
                 MeshMaterial3d(added),
                 MeshTag::new(*slot),
                 ChildOf(entity),
+                RenderLayers::layer(iso::UNTINTED),
             ));
             if let Some(skinned) = skinned {
                 copy.insert(skinned.clone());

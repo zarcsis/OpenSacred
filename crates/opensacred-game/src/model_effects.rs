@@ -405,7 +405,10 @@ fn run(
     for (handle, kind) in &under.0 {
         if let Some(mut material) = models.get_mut(handle) {
             if *kind == PULSE {
-                material.base.base_color = Color::linear_rgb(pulsed, pulsed, pulsed);
+                // The frame's value in linear light, which the material's encoding gives back, so
+                // that the frame takes the texels' values times it, as the two passes add them
+                // (`fx::linear`; #2172).
+                material.base.base_color = Color::srgb(pulsed, pulsed, pulsed);
             } else if *kind == HOLOGRAM {
                 let dice = dice.get_or_insert_with(|| crate::seed::dice(0x1850));
                 let mut roll = || u16::try_from(dice.below(32_768)).unwrap_or(0);
