@@ -383,6 +383,14 @@ fn call_bat(
         }
     };
     let foe = (target != master && world.get::<Mind>(target).is_some()).then_some(target);
+    // Its sight at its place as it comes (863, the case 1, `0x510B89`; `vamp_casts`).
+    if let Some(place) = made
+        .first()
+        .and_then(|&bat| world.get::<Transform>(bat))
+        .map(|at| at.translation)
+    {
+        crate::vamp_casts::bats_in(world, place);
+    }
     for entity in made {
         hire(world, entity, master);
         let Ok(mut called) = world.get_entity_mut(entity) else {

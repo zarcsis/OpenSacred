@@ -4582,6 +4582,237 @@ impl GoblinImpact {
     }
 }
 
+/// The Vampiress's casts' sights (863, `cParticleSystem_vamp_sm_cast`, its constructor
+/// `0x7915C0`, start `0x791FB0`, run `0x7918D0` and draw `0x791AB0`; docs/re/effects.md, "The
+/// Vampiress's casts"): the claws' glows, the bats' sparks and the bats' runes, the plain and the
+/// glowing ring.
+pub const VAMP_CLAW_TEXTURE: &str = "PARTICLE_GLOW03";
+pub const VAMP_SPARK_TEXTURE: &str = "PARTICLE_SPARK07";
+pub const VAMP_RUNES: [&str; 2] = ["FX_TRIBALS2_VAMP", "FX_TRIBALS2_VAMP_G"];
+
+/// The red ramp of the claws' glows and the bats' sparks, worked out entry by entry rather than
+/// from keys (`0x791FB0`): the entry `i` (i, ⌊i/4⌋, ⌊i/4⌋), from (255, 63, 63) at the birth to
+/// black, added whole whatever its alpha (the flags `0x19`).
+pub fn vamp_red() -> Ramp {
+    Ramp(std::array::from_fn(|i| {
+        let full = u8::try_from(i).unwrap_or(u8::MAX);
+        let (i, q) = (f32::from(full) / 255.0, f32::from(full / 4) / 255.0);
+        [i, q, q, 1.0]
+    }))
+}
+
+/// How long the claws of the Vampiress's night arts glow at her fingers (the start's cases 2 to
+/// 4): her `Rundum` 1038 2.2 s, her `Hardhit` 1039 0.7 s and her `Attacke` 1040 1.5 s.
+pub fn vamp_claws_until(art: u16) -> Option<f32> {
+    match art {
+        1038 => Some(2.2),
+        1039 => Some(0.7),
+        1040 => Some(1.5),
+        _ => None,
+    }
+}
+
+/// The glow of a claw of the Vampiress's night arts at a finger, one of the two at her bones 22
+/// and 21 (`Bip01 R Finger3`, `Bip01 L Finger3`) that the art's start makes (`0x513E3B`): it
+/// stands at its bone each frame and leaves its glows where they are born (the flag `0x200`).
+#[derive(Clone, Debug)]
+pub struct VampClaw {
+    pub system: System,
+    until: f32,
+}
+
+/// The claws' glows at most at once.
+const VAMP_CLAW_COUNT: usize = 200;
+
+impl VampClaw {
+    /// The claw of `art`, where it is one of the night's three.
+    pub fn new(art: u16) -> Option<Self> {
+        Some(Self {
+            system: System::new(VAMP_CLAW_COUNT),
+            until: vamp_claws_until(art)?,
+        })
+    }
+
+    /// Its glows' layer: the life −400 and the size −20 a second, so that a glow of 6 is gone in
+    /// 0.3 s.
+    fn layer() -> Layer {
+        Layer {
+            life: -400.0,
+            size: -20.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block: a glow of the size 6, still, every 0.01 s.
+    fn block() -> Block {
+        Block {
+            size: spread(6.0, 0.0),
+            interval: 0.01,
+            ..Block::default()
+        }
+    }
+
+    /// Runs it `dt` seconds on, its bone gone from `from` to `to` in its frame: its glows age,
+    /// and it makes them along the bone's way until its time.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if self.system.clock < self.until {
+            self.system.emit_along(
+                &[Self::block()],
+                &layers,
+                VAMP_CLAW_COUNT,
+                (from, to),
+                dt,
+                dice,
+            );
+        }
+    }
+
+    /// Whether it is over: its time passed and its last glow gone.
+    pub fn done(&self) -> bool {
+        self.system.clock >= self.until && self.system.particles.is_empty()
+    }
+}
+
+/// The sight of a bat that the Vampiress calls (her 1035 to 1037, the start's case 1), at the
+/// bat's place as it comes (`0x510B89`, `0x51190A`, `0x51210B`): ten red sparks burst up and
+/// falling, each with its trail, over the bats' runes flat on the ground, two of each ring turning
+/// either way and fading.
+#[derive(Clone, Debug)]
+pub struct VampBats {
+    pub system: System,
+    turn: f32,
+    fade: f32,
+}
+
+/// Its sparks, how fast its runes turn and fade a second, and the half sides of its two rings.
+const VAMP_SPARKS: usize = 10;
+const VAMP_RUNES_TURN: f32 = 2.0;
+const VAMP_RUNES_FADE: f32 = 0.75;
+const VAMP_RUNE_HALVES: [f32; 2] = [18.0, 30.0];
+
+/// A quad of the bats' runes: its texture's index in [`VAMP_RUNES`], its half side, its turn and
+/// its colour, laid over by its alpha for the plain ring and added whole for the glowing one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VampRune {
+    pub texture: usize,
+    pub half: f32,
+    pub turn: f32,
+    pub colour: [f32; 4],
+}
+
+impl VampBats {
+    /// Its burst at its start: each spark of a buoyancy of 180 ± 40, so that it falls, a size of
+    /// 6 ± 1, the velocity (0, 0, 100) ± (20, 20, 10) and the place ± 10 on each axis; its runes
+    /// unturned and whole.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let block = Block {
+            buoyancy: spread(180.0, 40.0),
+            size: spread(6.0, 1.0),
+            velocity: spread([0.0, 0.0, 100.0], [20.0, 20.0, 10.0]),
+            offset: spread([0.0; 3], [10.0; 3]),
+            ..Block::default()
+        };
+        let mut system = System::new(VAMP_SPARKS);
+        system.particles = (0..VAMP_SPARKS)
+            .map(|_| Particle {
+                place: spread_3(block.offset, dice),
+                velocity: spread_3(block.velocity, dice),
+                buoyancy: spread_f32(block.buoyancy, dice),
+                size: spread_f32(block.size, dice),
+                life: 255.0,
+                angle: 0.0,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+            })
+            .collect();
+        Self {
+            system,
+            turn: 0.0,
+            fade: 1.0,
+        }
+    }
+
+    /// Its sparks' layer: the life −250 a second (about 1 s) and the size −4.
+    pub fn layer() -> Layer {
+        Layer {
+            life: -250.0,
+            size: -4.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Runs it `dt` seconds on: its sparks age, its runes turn by 2 a second and fade by 0.75.
+    pub fn update(&mut self, dt: f32) {
+        self.system.update(dt, &[Self::layer()]);
+        self.turn = (self.turn + VAMP_RUNES_TURN * dt) % std::f32::consts::TAU;
+        self.fade = (self.fade - VAMP_RUNES_FADE * dt).max(0.0);
+    }
+
+    /// Whether it is over: its last spark gone (about 1 s on), which cuts its runes off before
+    /// they have faded.
+    pub fn done(&self) -> bool {
+        self.system.particles.is_empty()
+    }
+
+    /// Its runes in their order (`0x7631E0`): the plain ring of the half sides 18, turned by its
+    /// turn, and 30, against it, white at its fade's alpha; then the glowing ring alike, grey at
+    /// its fade.
+    pub fn runes(&self) -> [VampRune; 4] {
+        let fade = self.fade;
+        let rune = |texture: usize, half: f32, turn: f32| VampRune {
+            texture,
+            half,
+            turn,
+            colour: if texture == 0 {
+                [1.0, 1.0, 1.0, fade]
+            } else {
+                [fade, fade, fade, 1.0]
+            },
+        };
+        let [small, large] = VAMP_RUNE_HALVES;
+        [
+            rune(0, small, self.turn),
+            rune(0, large, -self.turn),
+            rune(1, small, self.turn),
+            rune(1, large, -self.turn),
+        ]
+    }
+}
+
+/// The trail of a spark (the draw's `0x761B00` with a layer, the bats' alone): its places a
+/// hundredth of a second apart back along its way, its velocity's fall undone at each step, each
+/// a dot of the half side `min(size, 0.63)` less 0.03 a step, up to 21; a young spark's stops where
+/// its life, stepping back by its layer's rate, would pass its birth, an older one's (above ten
+/// steps) or one whose life does not fall takes the rate `−0.2·(255 − life)`, which never does.
+pub fn spark_trail(particle: &Particle, layer: &Layer) -> Vec<([f32; 3], f32)> {
+    const STEP: f32 = 0.01;
+    let age = (255.0 - particle.life) / -layer.life.min(-f32::EPSILON);
+    let rate = if age > 10.0 * STEP || layer.life >= 0.0 {
+        -0.2 * (255.0 - particle.life)
+    } else {
+        layer.life
+    };
+    let (mut place, mut velocity, mut life) = (particle.place, particle.velocity, particle.life);
+    let mut half = particle.size.min(0.63);
+    let mut dots = Vec::new();
+    for _ in 0..21 {
+        velocity[2] += particle.buoyancy * STEP;
+        for (axis, speed) in place.iter_mut().zip(velocity) {
+            *axis -= speed * STEP;
+        }
+        life -= rate * STEP;
+        if life > 255.0 || half <= 0.0 {
+            break;
+        }
+        dots.push((place, half));
+        half -= 0.03;
+    }
+    dots
+}
+
 /// The blood fountain's texture and the sounds of its start (`BLEEDING01` and `02`, `0x77BD60`).
 pub const BLOOD_TEXTURE: &str = "particle_dots03";
 pub const BLOOD_SOUNDS: [u32; 2] = [710, 711];
@@ -9334,6 +9565,72 @@ mod tests {
             quiet.update(0.01, &mut dice);
         }
         assert!(quiet.system.particles.is_empty() && quiet.done());
+    }
+
+    #[test]
+    fn the_vampiresss_claws_glow_for_their_arts_time_and_her_bats_runes_fade() {
+        assert_eq!(vamp_red().at(255.0), [1.0, 63.0 / 255.0, 63.0 / 255.0, 1.0]);
+        assert_eq!(vamp_red().at(0.0), [0.0, 0.0, 0.0, 1.0]);
+        assert!(VampClaw::new(1073).is_none());
+        let mut dice = Rng::of(2, 9, 4);
+        let mut claw = VampClaw::new(1039).unwrap_or_else(|| unreachable!());
+        let mut most = 0;
+        for step in 0..120 {
+            let x = f32::from(u8::try_from(step).unwrap_or(0));
+            claw.update(0.01, ([x, 0.0, 50.0], [x + 1.0, 0.0, 50.0]), &mut dice);
+            most = most.max(claw.system.particles.len());
+            if claw.done() {
+                // Its 0.7 s and the 0.3 s its last glow lives.
+                assert!((97..=103).contains(&step), "{step}");
+                break;
+            }
+        }
+        assert!((28..=31).contains(&most), "{most}");
+        assert!(claw.done());
+
+        let mut bats = VampBats::new(&mut dice);
+        assert_eq!(bats.system.particles.len(), 10);
+        let runes = bats.runes();
+        assert_eq!(runes.map(|rune| rune.half), [18.0, 30.0, 18.0, 30.0]);
+        for _ in 0..50 {
+            bats.update(0.01);
+        }
+        let runes = bats.runes();
+        assert!((runes[0].turn - 1.0).abs() < 1e-4 && (runes[1].turn + 1.0).abs() < 1e-4);
+        assert!((runes[0].colour[3] - 0.625).abs() < 1e-4);
+        assert!((runes[2].colour[0] - 0.625).abs() < 1e-4 && runes[2].colour[3] == 1.0);
+        // The sparks die about 1 s on, the runes cut off before they fade.
+        for _ in 0..55 {
+            bats.update(0.01);
+        }
+        assert!(bats.done());
+    }
+
+    #[test]
+    fn a_sparks_trail_runs_back_along_its_fall() {
+        let layer = VampBats::layer();
+        let old = Particle {
+            place: [0.0, 0.0, 50.0],
+            velocity: [0.0, 0.0, -30.0],
+            buoyancy: 180.0,
+            size: 4.0,
+            life: 100.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+        };
+        let trail = spark_trail(&old, &layer);
+        assert_eq!(trail.len(), 21);
+        assert!((trail[0].1 - 0.63).abs() < 1e-6);
+        // Back in time it was higher, and rising faster before.
+        assert!(trail[0].0[2] > 50.0 && trail[20].0[2] > trail[10].0[2]);
+        // A spark born a twentieth of a second ago has a shorter trail.
+        let young = Particle {
+            life: 255.0 - 250.0 * 0.05,
+            ..old
+        };
+        assert_eq!(spark_trail(&young, &layer).len(), 5);
     }
 
     #[test]
