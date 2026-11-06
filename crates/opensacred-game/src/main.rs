@@ -40,6 +40,7 @@ mod burning_bones;
 mod burns;
 mod busy_dialog;
 mod butterflies;
+mod cast_sights;
 mod chain_bolts;
 mod choice;
 mod choirs;
@@ -458,9 +459,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         burns::BurnsPlugin,
         busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
-        chain_bolts::ChainBoltsPlugin,
     ))
+    .add_plugins(cast_sights::CastSightsPlugin)
     .add_plugins((
+        chain_bolts::ChainBoltsPlugin,
         choice::ChoicePlugin,
         choirs::ChoirsPlugin,
         combos::CombosPlugin,

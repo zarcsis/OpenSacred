@@ -7674,6 +7674,447 @@ impl DemonForm {
     }
 }
 
+/// Where a cast's sight follows its caster (the FX event's bone, `+0x38`): the left hand's ring
+/// finger (21), the right's (22), the root (0), or the feet (36, 37).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CastBone {
+    Left,
+    Right,
+    Root,
+    LeftFoot,
+    RightFoot,
+}
+
+/// The sights a spell's cast makes (`0x51E110`, the jump table `0x521C34`): each at its bone, of
+/// its style; the fireball's of the style 12 for an undead caster (`0x426A80`), else 9.
+pub fn cast_sights(spell: u16, undead: bool) -> Vec<(CastBone, u8)> {
+    use CastBone::{Left, Right, Root};
+    let both = |style: u8| vec![(Left, style), (Right, style)];
+    match spell {
+        3 => both(3),
+        5 => vec![(Left, if undead { 12 } else { 9 })],
+        6 | 26 => vec![(Left, if spell == 6 { 0 } else { 1 })],
+        11 => vec![(Right, 9)],
+        13 => both(1),
+        15 => vec![(Right, 6)],
+        17 | 20 | 21 | 22 => vec![(Right, 8), (Left, 8)],
+        18 => vec![(Right, 7)],
+        23 | 43 => vec![(Left, 5)],
+        24 => vec![(Left, 6)],
+        29 => vec![(Left, 9)],
+        35 | 41 => both(5),
+        36 => both(10),
+        37 => both(11),
+        39 => vec![(Left, 2)],
+        40 => vec![(Right, 4)],
+        52 => both(12),
+        60 => vec![(Left, 14), (Right, 14), (Root, 22)],
+        61..=65 | 67 => both(14),
+        66 => both(16),
+        72 => vec![(Right, 24), (Left, 24)],
+        _ => Vec::new(),
+    }
+}
+
+/// The sights a Daemon's art makes as it starts (`0x51B46E`): 1101 and 1102 at both hands of the
+/// styles 15 and 14, 1103 at the right of 21, and his forms 1097 to 1100 at both hands of 20, 18,
+/// 17 and 19.
+pub fn art_sights(art: u16) -> Vec<(CastBone, u8)> {
+    let both = |style: u8| vec![(CastBone::Left, style), (CastBone::Right, style)];
+    match art {
+        1101 => both(15),
+        1102 => both(14),
+        1103 => vec![(CastBone::Right, 21)],
+        1097 => both(20),
+        1098 => both(18),
+        1099 => both(17),
+        1100 => both(19),
+        _ => Vec::new(),
+    }
+}
+
+/// A cast's sight's texture of its particles, by its style (`0x776CA0`).
+pub fn cast_texture(style: u8) -> &'static str {
+    match style {
+        5..=8 | 9 | 12 | 24 => "PARTICLE_GLOW03",
+        11 => "PARTICLE_SPARK08",
+        16 => "PARTICLE_GLOW01",
+        _ => "PARTICLE_SPARK06",
+    }
+}
+
+/// How a cast's sight's particles are drawn by its style: added whole, but the style 16's dark
+/// puffs, laid over by their alpha; turned (the style 11).
+pub fn cast_blend(style: u8) -> (Blend, bool) {
+    if style == 16 {
+        (Blend::Over, false)
+    } else {
+        (Blend::Whole, style == 11)
+    }
+}
+
+/// A spell's cast's sight in its caster's hands (791, `cParticleSystem_castSpell`, `0x7773D0`,
+/// `0x776BB0`, `0x776CA0`): by its style, its particles left where they are born at its bone,
+/// from its clock's first time to its second, on its caster's clip's rate, or a glow growing and
+/// shrinking between them, or the style 22's twirl on the ground; it ends past its second time
+/// with its last particle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CastSight {
+    pub system: System,
+    pub style: u8,
+    pub clock: f32,
+    rate: f32,
+    out: bool,
+}
+
+const CAST_SIGHT_COUNT: usize = 300;
+
+impl CastSight {
+    /// A sight of `style` on a clip of the rate `rate` (the caster's casts' speed over 100, 1 for
+    /// the Daemon's arts).
+    pub fn new(style: u8, rate: f32) -> Self {
+        Self {
+            system: System::new(CAST_SIGHT_COUNT),
+            style,
+            clock: 0.0,
+            rate,
+            out: false,
+        }
+    }
+
+    /// Its clock's times, from which and to which it shows.
+    pub fn times(&self) -> (f32, f32) {
+        match self.style {
+            0 => (1.0, 4.0),
+            1 => (0.7, 2.3),
+            2 => (0.5, 1.2),
+            3 => (0.5, 2.0),
+            4 => (0.3, 3.5),
+            5 | 11 => (1.0, 2.9),
+            6 => (0.7, 2.9),
+            7 => (2.0, 3.5),
+            8 | 24 => (4.2, 8.0),
+            9 | 12 => (0.1, 1.0),
+            10 => (0.5, 2.3),
+            13 => (0.5, 2.5),
+            14..=16 => (0.2, 1.7),
+            17..=20 => (0.2, 2.8),
+            21 => (0.7, 1.7),
+            22 => (1.8, 10.0),
+            _ => (0.0, 0.0),
+        }
+    }
+
+    /// Its layer: the life's and the size's rates.
+    fn layer(&self) -> Layer {
+        let (life, size) = match self.style {
+            0 | 1 => (-300.0, 2.0),
+            2 => (-150.0, 0.0),
+            3 => (-200.0, 0.0),
+            4 => (-100.0, 0.0),
+            5 => (-1.0, -20.0),
+            6 => (-1.0, -4.0),
+            7 | 8 | 24 => (-1.0, -6.0),
+            9 | 12 => (-700.0, -16.0),
+            11 => (-200.0, 0.0),
+            14 | 15 => (-80.0, -7.0),
+            16 => (-200.0, 10.0),
+            17..=20 => (-60.0, -1.5),
+            21 => (-200.0, -1.5),
+            _ => (0.0, 0.0),
+        };
+        Layer {
+            life,
+            size,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block, its interval at the detail 2 over its clock's rate.
+    fn block(&self) -> Option<Block> {
+        let turn = spread(std::f32::consts::PI, std::f32::consts::PI);
+        let (buoyancy, size, angle, velocity, place, interval) = match self.style {
+            0 | 1 => (
+                spread(0.0, 0.0),
+                spread(8.0, 0.0),
+                spread(0.0, 0.0),
+                5.0,
+                2.0,
+                0.02,
+            ),
+            2 | 3 => (
+                spread(-10.0, 0.0),
+                spread(4.0, 0.0),
+                spread(0.0, 0.0),
+                0.0,
+                2.0,
+                0.005,
+            ),
+            4 => (
+                spread(0.0, 0.0),
+                spread(2.5, 0.0),
+                spread(0.0, 0.0),
+                0.0,
+                0.0,
+                0.015,
+            ),
+            5 => (
+                spread(0.0, 0.0),
+                spread(8.0, 5.0),
+                spread(0.0, 0.0),
+                0.0,
+                4.0,
+                0.02,
+            ),
+            6 => (
+                spread(-15.0, 2.0),
+                spread(7.0, 5.0),
+                spread(0.0, 0.0),
+                0.0,
+                3.0,
+                0.035,
+            ),
+            7 => (
+                spread(0.0, 0.0),
+                spread(10.0, 5.0),
+                spread(0.0, 0.0),
+                0.0,
+                3.0,
+                0.1,
+            ),
+            8 | 24 => (
+                spread(-30.0, 10.0),
+                spread(6.0, 2.0),
+                spread(0.0, 0.0),
+                0.0,
+                2.0,
+                0.025,
+            ),
+            9 | 12 => (
+                spread(0.0, 0.0),
+                spread(10.0, 0.0),
+                spread(0.0, 0.0),
+                0.0,
+                1.0,
+                0.045,
+            ),
+            11 => (spread(0.0, 0.0), spread(10.0, 0.0), turn, 0.0, 3.0, 0.0666),
+            14 => (spread(0.0, 0.0), spread(10.0, 3.0), turn, 0.0, 0.0, 0.01),
+            15 => (spread(0.0, 0.0), spread(7.0, 2.0), turn, 0.0, 0.0, 0.01),
+            16 => (
+                spread(0.0, 0.0),
+                spread(8.0, 0.0),
+                spread(0.0, 0.0),
+                0.0,
+                0.0,
+                0.017,
+            ),
+            17..=20 => (spread(-10.0, 2.0), spread(4.0, 2.0), turn, 0.0, 0.0, 0.01),
+            21 => (spread(0.0, 0.0), spread(4.0, 2.0), turn, 0.0, 0.0, 0.01),
+            _ => return None,
+        };
+        Some(Block {
+            buoyancy,
+            size,
+            angle,
+            velocity: spread([0.0; 3], [velocity; 3]),
+            offset: spread([0.0; 3], [place; 3]),
+            interval: interval / self.rate.max(0.01),
+            ..Block::default()
+        })
+    }
+
+    /// Its ramp, by its style.
+    pub fn ramp(&self) -> Ramp {
+        let entry = |f: fn(f32) -> [f32; 3]| {
+            Ramp(std::array::from_fn(|i| {
+                let i = f32::from(u8::try_from(i).unwrap_or(u8::MAX));
+                let [r, g, b] = f(i);
+                [r / 255.0, g / 255.0, b / 255.0, 1.0]
+            }))
+        };
+        let keys = |start: [f32; 3], rest: &[([f32; 3], u16)]| {
+            let [r, g, b] = start;
+            let keys: Vec<([f32; 4], u16)> = rest
+                .iter()
+                .map(|&([r, g, b], n)| ([r, g, b, 1.0], n))
+                .collect();
+            Ramp::new([r, g, b, 1.0], &keys)
+        };
+        match self.style {
+            0 => entry(|i| [i, (i / 2.0).floor(), i]),
+            1 => entry(|i| [(i / 2.0).floor(), (i / 2.0).floor(), i]),
+            2..=4 => entry(|i| [(i / 2.0).floor(), i, (i / 2.0).floor()]),
+            11 => keys(
+                [0.504, 0.996, 0.023],
+                &[
+                    ([0.414, 0.996, 0.039], 119),
+                    ([0.992, 0.676, 0.0], 15),
+                    ([0.133, 0.137, 0.094], 108),
+                    ([0.973, 0.969, 0.938], 5),
+                    ([0.992, 0.992, 0.988], 9),
+                ],
+            ),
+            14 => keys(
+                [0.996, 0.379, 0.008],
+                &[
+                    ([0.992, 0.516, 0.301], 76),
+                    ([0.656, 0.387, 0.266], 66),
+                    ([0.219, 0.215, 0.219], 114),
+                ],
+            ),
+            15 => keys(
+                [0.008, 0.996, 0.379],
+                &[
+                    ([0.301, 0.992, 0.516], 76),
+                    ([0.266, 0.656, 0.387], 66),
+                    ([0.219, 0.215, 0.219], 114),
+                ],
+            ),
+            16 => Ramp::new(
+                [0.0, 0.0, 0.0, 0.996],
+                &[([0.0, 0.0, 0.0, 0.996], 80), ([0.0; 4], 176)],
+            ),
+            17..=21 => {
+                let [r, g, b] = self.tint();
+                Ramp::new(
+                    [0.0, 0.0, 0.0, 1.0],
+                    &[
+                        ([r, g, b, 1.0], 10),
+                        ([r, g, b, 1.0], 150),
+                        ([0.0, 0.0, 0.0, 1.0], 96),
+                    ],
+                )
+            }
+            _ => Ramp::new([1.0; 4], &[([1.0; 4], 256)]),
+        }
+    }
+
+    /// The styles 17 to 21's colour.
+    fn tint(&self) -> [f32; 3] {
+        match self.style {
+            17 => [0.195, 0.977, 0.195],
+            18 => [0.996, 0.430, 0.195],
+            20 => [0.781, 0.781, 0.781],
+            _ => [0.547, 0.547, 0.625],
+        }
+    }
+
+    /// A particle's colour by its style and its frame's byte, which holds its roll (the styles 5
+    /// to 8 and 24's own colour about their base, each channel apart; the styles 9 and 12's
+    /// corners'), else its ramp's at its life.
+    pub fn colour(&self, particle: &Particle, ramp: &Ramp) -> [f32; 4] {
+        let own = |base: [u8; 3], spread: [u8; 3]| {
+            let roll = particle.frame;
+            let rgb: [f32; 3] = std::array::from_fn(|k| {
+                let k8 = u8::try_from(k).unwrap_or(0);
+                let mixed = roll
+                    .wrapping_mul(73)
+                    .wrapping_add(k8.wrapping_mul(151))
+                    .wrapping_mul(29);
+                let share = f32::from(mixed) / 127.5 - 1.0;
+                (f32::from(base[k]) + f32::from(spread[k]) * share).clamp(0.0, 255.0) / 255.0
+            });
+            [rgb[0], rgb[1], rgb[2], particle.life / 255.0]
+        };
+        match self.style {
+            5 => own([0x80; 3], [0x6F; 3]),
+            6 => own([0x50, 0x50, 0xE0], [0x30, 0x30, 0x0F]),
+            7 => own([0x50; 3], [0x30; 3]),
+            8 | 24 => own([0x50, 0x50, 0x80], [0x10, 0x10, 0x30]),
+            9 => [1.0, 175.0 / 255.0, 47.0 / 255.0, particle.life / 255.0],
+            12 => [
+                143.0 / 255.0,
+                252.0 / 255.0,
+                244.0 / 255.0,
+                particle.life / 255.0,
+            ],
+            _ => ramp.at(particle.life),
+        }
+    }
+
+    /// A run of `dt` seconds (its clock on the clip's rate): from its first time its particles age,
+    /// and to its second it makes them at its bone, gone from `from` to `to` in the models' frame.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        self.clock += dt * self.rate;
+        let (first, second) = self.times();
+        if self.clock < first {
+            return;
+        }
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        if self.clock <= second
+            && !self.out
+            && let Some(block) = self.block()
+        {
+            let before = self.system.particles.len();
+            self.system
+                .emit_along(&[block], &layers, CAST_SIGHT_COUNT, (from, to), dt, dice);
+            for particle in self.system.particles.iter_mut().skip(before) {
+                particle.frame = u8::try_from(dice.below(256)).unwrap_or(0);
+            }
+        }
+    }
+
+    /// Its caster's end: it makes no more.
+    pub fn end(&mut self) {
+        self.out = true;
+    }
+
+    /// The style of its glow, where it has one: 7 of the styles 10 and 13, 8 of 17 to 21.
+    pub fn glow_style(&self) -> Option<u8> {
+        match self.style {
+            10 | 13 => Some(7),
+            17..=21 => Some(8),
+            _ => None,
+        }
+    }
+
+    /// Its glow's style, its half side and its colour, while it shows (`0x762E10`): the styles 10
+    /// and 13 a glow of the style 7 of 35 and 40, green and blue, 17 to 21 a flare of the style 8
+    /// of 15 in its colour, each `S·sin(π·(t − A)/(B − A))`.
+    pub fn glow(&self) -> Option<(u8, f32, [f32; 4])> {
+        let (first, second) = self.times();
+        if self.clock <= first || self.clock >= second {
+            return None;
+        }
+        let swell = (std::f32::consts::PI * (self.clock - first) / (second - first)).sin();
+        let argb = |c: u32| {
+            let [_, r, g, b] = c.to_be_bytes().map(|v| f32::from(v) / 255.0);
+            [r, g, b, 1.0]
+        };
+        match self.style {
+            10 => Some((7, 35.0 * swell, argb(0xFF80_FF80))),
+            13 => Some((7, 40.0 * swell, argb(0xFF40_40FF))),
+            17 => Some((8, 15.0 * swell, argb(0xFF14_FF14))),
+            18 => Some((8, 15.0 * swell, argb(0xFFFF_8014))),
+            19..=21 => Some((8, 15.0 * swell, argb(0xFF90_90A0))),
+            _ => None,
+        }
+    }
+
+    /// The style 22's two twirls on the ground while it shows: their half sides `80·(1 − f²)` and
+    /// `70·(1 − f²)`, `f = (t − 1.8)/8.2`, turned by `−1.7·t` and `−1.3·t`, in `0xFF804122`.
+    pub fn twirls(&self) -> Option<[(f32, f32); 2]> {
+        let (first, second) = self.times();
+        if self.style != 22 || self.clock <= first || self.clock >= second {
+            return None;
+        }
+        let f = (self.clock - first) / (second - first);
+        let shrink = 1.0 - f * f;
+        Some([
+            (80.0 * shrink, -1.7 * self.clock),
+            (70.0 * shrink, -1.3 * self.clock),
+        ])
+    }
+
+    /// Whether it ended: past its second time, and no particle alive.
+    pub fn done(&self) -> bool {
+        let (_, second) = self.times();
+        (self.clock > second || self.out) && self.system.particles.is_empty()
+    }
+}
+
 /// The homing fires' texture and particles (910 and 1164, `0x7A6A40`, `0x7BF690`).
 pub const HOMING_FIRE_TEXTURE: &str = "PARTICLE_FIRE03";
 const HOMING_FIRE_COUNT: usize = 300;
@@ -10600,5 +11041,63 @@ mod tests {
         system.update(0.3, &[ring.layer]);
         assert!(system.particles.is_empty());
         assert_eq!(ring.ramp.at(255.0), [1.0, 0.5, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn a_fireballs_cast_pops_orange_glows_at_the_left_hand() {
+        assert_eq!(cast_sights(5, false), [(CastBone::Left, 9)]);
+        assert_eq!(cast_sights(5, true), [(CastBone::Left, 12)]);
+        assert_eq!(
+            art_sights(1098),
+            [(CastBone::Left, 18), (CastBone::Right, 18)]
+        );
+        assert!(cast_sights(1, false).is_empty());
+        let mut dice = Rng::of(14, 14, 791);
+        let mut sight = CastSight::new(9, 1.2);
+        // Nothing before 0.1 of its clock; then about 27 a second to 1.0.
+        let mut most = 0;
+        for k in 0..90u8 {
+            let x = f32::from(k);
+            sight.update(
+                1.0 / 60.0,
+                ([x, 0.0, 80.0], [x + 1.0, 0.0, 80.0]),
+                &mut dice,
+            );
+            most = most.max(sight.system.particles.len());
+        }
+        assert!((8..=12).contains(&most), "{most}");
+        let ramp = sight.ramp();
+        let first = sight.system.particles.first().copied();
+        if let Some(p) = first {
+            assert_eq!(sight.colour(&p, &ramp)[0], 1.0);
+        }
+        for _ in 0..60 {
+            sight.update(1.0 / 60.0, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        assert!(sight.done());
+        // A form's flare swells and shrinks between 0.2 and 2.8.
+        let mut flare = CastSight::new(19, 1.0);
+        flare.update(1.5, ([0.0; 3], [0.0; 3]), &mut dice);
+        let (style, half, _) = flare.glow().unwrap_or_default();
+        assert_eq!(style, 8);
+        assert!((half - 15.0).abs() < 0.1, "{half}");
+        let own = CastSight::new(5, 1.0);
+        let p = Particle {
+            place: [0.0; 3],
+            velocity: [0.0; 3],
+            buoyancy: 0.0,
+            size: 1.0,
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 7,
+        };
+        let c = own.colour(&p, &own.ramp());
+        assert!(
+            c[..3]
+                .iter()
+                .all(|v| (0x11 as f32 / 255.0..=0xEF as f32 / 255.0 + 1e-3).contains(v))
+        );
     }
 }
