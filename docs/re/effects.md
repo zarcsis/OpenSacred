@@ -1675,6 +1675,27 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
+## The Vampiress's casts
+
+Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The Vampiress's casts' sights | 863 `FX_VAMP_SM_CAST` | `cParticleSystem_vamp_sm_cast` (`0x898328`) | `0x7915C0`, `0x791FB0`, `0x7918D0`, `0x791AB0` |
+
+Its constructor (200 particles) loads `FX_TRIBALS2_VAMP`, `FX_TRIBALS2_VAMP_G`, `PARTICLE_SPARK07`, `PARTICLE_GLOW03`, `PARTICLE_MULTI01` (2 × 2), `PARTICLE_SPARK06` and the model `cast01` (its bone `particle_source_01` and its clip `FX_D_IDLE_BH`, 3.98 s), and makes a Direct3D light (0.8, 0.8, 1.0) for every object, which only the case 0's draw moves (to its ribbon's head); the case is the art at its event's `+0x3C`.
+- The case 1, the bats (1035 to 1037): the executor (`0x50E6C0`, its running phase: `0x510B89`, `0x51190A`, `0x51210B`) makes one once what is left of the art's clip falls below 0.87, at the called bat's place, following nothing.
+  Its start bursts ten sparks at once: a buoyancy of 180 ± 40 (they fall), a size of 6 ± 1, the velocity (0, 0, 100) ± (20, 20, 10) and the place ± 10 on each axis, living about 1 s (the life's rate −250) and shrinking by 4 a second, in a ramp worked out entry by entry, the entry `i` (i, ⌊i/4⌋, ⌊i/4⌋) (the rounding **hypothesis**), from (255, 63, 63) to black.
+  Its run turns its runes by 2 a second and fades them from 1 by 0.75 a second; it ends with its last spark, so that its runes are cut off at about a quarter of their alpha.
+  Its draw: four squares flat on the ground at its place (`0x7631E0`), `FX_TRIBALS2_VAMP` of the half sides 18, turned by the turn, and 30, against it, white at the fade's alpha, laid over by their alpha, then `FX_TRIBALS2_VAMP_G` alike, grey at the fade, added whole; then the sparks added (the flags `0x19`), each with its trail: copies a hundredth of a second apart back along its way, its fall undone at each step, of the half side `min(size, 0.63)` less 0.03 a step, up to 21, a young spark's stopping where its life stepped back would pass its birth; none tinted by the night.
+- The cases 2 to 4, the claws (the night's `Rundum` 1038, `Hardhit` 1039 and `Attacke` 1040): the executor's start of the art (`0x513E3B`) makes two in the tick its clip starts, at the bones 22 and 21 (`Bip01 R Finger3`, `Bip01 L Finger3`, the names a **hypothesis**), each standing at its bone each frame (the flag `0x200`) and gone with its owner.
+  Each makes a glow of the size 6 every 0.01 s (times 1.5 and 2.2 at the detail levels 1 and 0) until 2.2, 0.7 and 1.5 s, left where it is born, of the life −400 and the size −20 a second, so gone in 0.3 s, in the red ramp of the case 1; drawn `PARTICLE_GLOW03` added (the flags `0x19`), untinted.
+- The case 0, the change (1022 and 1023): the executor's start of the art (`0x51431A`) makes four in the tick its clip starts, at the caster's root once (the flag `0x40`), of the angles 0, π/2, π and 3π/2 (`+0x2C`); each samples the bone `particle_source_01` of the model `cast01` on its clip at each run, turns the point about the upright by its angle, and makes its three blocks' particles along that way (block 0's interval 0.01 s; the sizes 8 ± 1, 8 ± 1 and 2 ± 0.3, the velocity 0 ± 12 on each axis, the frame its block's of `MULTI01`), of three layers (the life −260 and the size −1, the life −320, the life −150) in three ramps from magenta to orange to nothing; at the ribbon's head while its clock is within the clip's length a red glow (`GLOW03`, half 25) and a white spark (`SPARK06`, half 12), added; the object of the angle 0 alone lights the night by 250 at the caster's cell.
+
+`opensacred-game` draws the cases 1 to 4 since #1092 (`vamp_casts`, `opensacred_rules::particles::{VampClaw, VampBats, spark_trail, vamp_red}`): the claws' glows as the night's arts' clips start (`making::Playing` added), at her fingers, else her hands; the bats' sight at the bat's place as `followers` makes it; untinted by the night.
+**Seen** 2026-11-06 in the game: the Vampiress's night `Attacke` with red glows trailing from both her hands, and her bat's call with the red rings of runes on the ground under its sparks.
+Not followed: the case 0's ribbons of her change; the objects' Direct3D lights (they stand at the world's origin in the cases 1 to 4).
+
 ## The goblin mages' ball
 
 Read 2026-11-06 for #2147 in Ghidra (**confirmed** by code unless marked).
