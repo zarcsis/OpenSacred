@@ -1067,6 +1067,47 @@ pub fn rise_ring() -> Burst {
     }
 }
 
+/// The ring of the Vampiress's change (781, `TYPE_FX_PUZZLE_SOLVED_V`, its variant 2,
+/// `0x76D260`): 50 particles on a ring of 17.5 about her, 40 over her place, at the angles of a
+/// 50th of a turn, the even ones falling at 70 and the odd rising at 70 (their buoyancy −10), of a
+/// size of 25 that falls by 30 a second, living half a second (−512), from (1, 0.5, 0.5) to black;
+/// `PARTICLE_SPARK06` added to the frame whole (the flags `0x19`, `0x76CF60`), riding with her
+/// (the system flags `0x202`).
+pub fn change_ring() -> Burst {
+    let particles = (0..50_u8)
+        .map(|k| {
+            let angle = f32::from(k) * std::f32::consts::TAU / 50.0;
+            Particle {
+                place: [angle.cos() * 17.5, angle.sin() * 17.5, 40.0],
+                velocity: [0.0, 0.0, if k % 2 == 0 { -70.0 } else { 70.0 }],
+                buoyancy: -10.0,
+                size: 25.0,
+                life: 255.0,
+                angle: 0.0,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+            }
+        })
+        .collect();
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Whole,
+        layer: Layer {
+            life: -512.0,
+            size: -30.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new([1.0, 0.5, 0.5, 1.0], &[([0.0, 0.0, 0.0, 1.0], 256)]),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
 /// The dust of a corpse that vanishes (781, its variant 4, `0x76D260` at `0x76D704`; #1261):
 /// 150 particles at once (`0x767FB0`) at the corpse's points `points` in the system's frame, each
 /// at one of them on `dice`, of a buoyancy of −20 ± 8 that falls by 10 a second (they rise ever
@@ -10537,5 +10578,27 @@ mod tests {
         assert!(!look.done());
         look.update(43.0);
         assert!(look.done());
+    }
+
+    #[test]
+    fn the_vampiress_change_ring_splits_and_fades() {
+        let ring = change_ring();
+        assert_eq!(ring.particles.len(), 50);
+        assert!(ring.particles.iter().all(|p| {
+            ((p.place[0].hypot(p.place[1])) - 17.5).abs() < 1e-3 && p.place[2] == 40.0
+        }));
+        let falling = ring
+            .particles
+            .iter()
+            .filter(|p| p.velocity[2] < 0.0)
+            .count();
+        assert_eq!(falling, 25);
+        let mut system = System::new(50);
+        system.particles = ring.particles.clone();
+        system.update(0.25, &[ring.layer]);
+        assert_eq!(system.particles.len(), 50);
+        system.update(0.3, &[ring.layer]);
+        assert!(system.particles.is_empty());
+        assert_eq!(ring.ramp.at(255.0), [1.0, 0.5, 0.5, 1.0]);
     }
 }

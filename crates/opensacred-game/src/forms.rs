@@ -197,7 +197,13 @@ fn change(
         &mut bodies
     {
         // The change's event (0x115 of the ring's flag, `0x51285A`) makes the object 781 of the
-        // variant 2 at her, whose sight is not made: `0x76D545` plays its sound once.
+        // variant 2 at her, riding with her: its ring (`puffs`), and its sound once (`0x76D545`).
+        crate::puffs::spawn(
+            &mut commands,
+            opensacred_rules::particles::change_ring(),
+            Vec3::ZERO,
+            Some(body),
+        );
         sounds.write(crate::sfx::Play {
             sound: crate::sfx::Of::Id(CHANGE_SOUND),
             at: Some(body),
