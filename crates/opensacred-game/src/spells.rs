@@ -1493,6 +1493,9 @@ fn act(
             // The Wood Elf's: the speed's effects from each of its two objects, the second's 28
             // refused (`0x526625`).
             spells::SPEED => {
+                // Its two systems at the bearer's root for its seconds (846, `0x526625`).
+                let seconds = fight_seconds(spells::value(record, 0, act.level));
+                crate::speed_sights::show(&mut commands, act.target, seconds);
                 let once = spells::effects(record, act.level);
                 given.extend(once.iter().copied());
                 given.extend(once.into_iter().filter(|(e, _)| e.id != 28));

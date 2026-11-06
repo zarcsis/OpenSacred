@@ -4424,6 +4424,120 @@ impl Regen {
     }
 }
 
+/// The speed's two systems' textures, the twirls' and the dots', by their variant (`0x79A750`).
+pub const SPEED_TEXTURES: [&str; 2] = ["PARTICLE_TWIRL02", "PARTICLE_DOTS02"];
+/// A speed's system's particles at most, its size and the size's spread, its interval at the
+/// detail 2, by its variant, and its growth from its start, by a second.
+const SPEED_PARTICLES: usize = 250;
+const SPEED_SIZES: [(f32, f32); 2] = [(40.0, 1.0), (30.0, 0.0)];
+const SPEED_INTERVALS: [f32; 2] = [0.1, 0.25];
+const SPEED_GROWTH: (f32, f32) = (0.2, 0.66);
+
+/// A colour of the speed's ramps, given in 256ths, opaque.
+fn s256(r: u16, g: u16, b: u16) -> [f32; 4] {
+    [
+        f32::from(r) / 256.0,
+        f32::from(g) / 256.0,
+        f32::from(b) / 256.0,
+        1.0,
+    ]
+}
+
+/// The speed's ramp of its variant (`0x79AB70`): the twirls' green, a yellow flash, green, cyan,
+/// a deep blue, sea green, blue and at their death almost white; the dots' at half the
+/// brightness, from dark blue through teal and green to grey.
+fn speed_ramp(variant: usize) -> Ramp {
+    if variant == 0 {
+        Ramp::new(
+            s256(20, 255, 22),
+            &[
+                (s256(249, 233, 18), 53),
+                (s256(80, 243, 13), 54),
+                (s256(17, 245, 252), 12),
+                (s256(22, 23, 252), 12),
+                (s256(6, 254, 155), 57),
+                (s256(27, 69, 255), 56),
+                (s256(237, 240, 255), 12),
+            ],
+        )
+    } else {
+        Ramp::new(
+            s256(5, 25, 127),
+            &[
+                (s256(3, 127, 111), 119),
+                (s256(40, 127, 8), 14),
+                (s256(50, 127, 6), 110),
+                (s256(120, 127, 119), 13),
+            ],
+        )
+    }
+}
+
+/// One of the speed's two systems (846, `cParticleSystem_highspeed`; its start `0x79AB70`, its run
+/// `0x79A840`, its draw `0x79A8F0`; #1092): at its bearer's root and riding with it, squares flat
+/// on the ground about its feet, turned at random, added whole in the ramp of their life of 1 s,
+/// born within 5 of it and drifting up to 5 a second; the twirls (variant 0) of the half side
+/// 40 ± 1 every 0.1 s, the dots (1) of 30 every 0.25 s, both grown from a fifth of it by 0.66 a
+/// second; until its seconds, when it goes at once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpeedSight {
+    pub system: System,
+    variant: usize,
+    growth: f32,
+    seconds: f32,
+    ramp: Ramp,
+}
+
+impl SpeedSight {
+    /// The system of `variant` (0 or 1) for `seconds`, the spell's value 0 at its level.
+    pub fn new(variant: usize, seconds: f32) -> Self {
+        let variant = variant.min(1);
+        Self {
+            system: System::new(SPEED_PARTICLES),
+            variant,
+            growth: SPEED_GROWTH.0,
+            seconds,
+            ramp: speed_ramp(variant),
+        }
+    }
+
+    /// A run of `dt` seconds: its growth up to 1, its particles aged over their second, and new
+    /// ones of its size grown so far at its interval.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.growth = (self.growth + SPEED_GROWTH.1 * dt).min(1.0);
+        let layers = [Layer {
+            life: -255.0,
+            ..Layer::default()
+        }];
+        let (size, spreading) = SPEED_SIZES[self.variant];
+        let block = Block {
+            size: spread(size * self.growth, spreading),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [5.0, 5.0, 0.0]),
+            offset: spread([0.0; 3], [5.0, 5.0, 0.0]),
+            interval: SPEED_INTERVALS[self.variant],
+            ..Block::default()
+        };
+        self.system.update(dt, &layers);
+        self.system.emit(&[block], &layers, SPEED_PARTICLES, dice);
+    }
+
+    /// Whether its seconds are over.
+    pub fn done(&self) -> bool {
+        self.system.clock > self.seconds
+    }
+
+    /// Its texture.
+    pub fn texture(&self) -> &'static str {
+        SPEED_TEXTURES[self.variant]
+    }
+
+    /// The colour of a particle of the life `life`.
+    pub fn colour(&self, life: f32) -> [f32; 4] {
+        self.ramp.at(life)
+    }
+}
+
 impl Rune {
     /// A rune of `seconds`.
     pub fn new(seconds: f32) -> Self {
@@ -12083,6 +12197,39 @@ mod tests {
         }
         assert!(wall.done());
         assert_eq!(wall.columns(), 0);
+    }
+
+    #[test]
+    fn the_speeds_twirls_grow_ride_their_second_and_end_with_its_seconds() {
+        let mut dice = Rng::of(3, 5, 7);
+        let mut twirls = SpeedSight::new(0, 2.0);
+        let mut dots = SpeedSight::new(1, 2.0);
+        // At their first interval little more than a fifth of their size grown.
+        for _ in 0..11 {
+            twirls.update(0.01, &mut dice);
+            dots.update(0.01, &mut dice);
+        }
+        let first = twirls.system.particles[0];
+        assert!((7.0..=12.0).contains(&first.size), "{}", first.size);
+        for _ in 0..140 {
+            twirls.update(0.01, &mut dice);
+            dots.update(0.01, &mut dice);
+        }
+        // Grown whole, some ten twirls and four dots alive, each born within 5 of the root.
+        let newest = twirls.system.particles.last().copied().unwrap();
+        assert!((39.0..=41.0).contains(&newest.size), "{}", newest.size);
+        assert!((9..=11).contains(&twirls.system.particles.len()));
+        assert!((3..=5).contains(&dots.system.particles.len()));
+        assert!(twirls.system.particles.iter().all(|p| p.place[2] == 0.0));
+        // Green at birth, near white at death; the dots dark blue at birth.
+        assert_eq!(twirls.colour(255.0), s256(20, 255, 22));
+        assert_eq!(twirls.colour(0.0), s256(237, 240, 255));
+        assert_eq!(dots.colour(255.0), s256(5, 25, 127));
+        assert_eq!(twirls.texture(), "PARTICLE_TWIRL02");
+        for _ in 0..50 {
+            twirls.update(0.01, &mut dice);
+        }
+        assert!(twirls.done());
     }
 
     #[test]

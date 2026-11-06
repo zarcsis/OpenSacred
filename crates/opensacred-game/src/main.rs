@@ -192,6 +192,7 @@ mod soulcatchers;
 mod souls;
 mod sound;
 mod sparkles;
+mod speed_sights;
 mod spells;
 mod spells_page;
 mod spikes;
@@ -627,8 +628,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         souls::SoulsPlugin,
         sound::SoundPlugin,
         sparkles::SparklesPlugin,
-        spikes::SpikesPlugin,
+        speed_sights::SpeedSightsPlugin,
     ))
+    .add_plugins(spikes::SpikesPlugin)
     .add_plugins((
         spells::SpellsPlugin,
         spells_page::SpellsPagePlugin,
