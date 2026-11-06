@@ -1827,7 +1827,11 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 `opensacred-game` lays the souls' marks since #1092 (`marks`, `opensacred_rules::particles::{Mark, SOUL_MARK}`), at each soul's starting point on the ground, on the frame that the night tints; seen in the game as dark blots under the souls' starts.
 It draws the speed's two systems since #1092 too (`speed_sights`, `opensacred_rules::particles::SpeedSight`), at the bearer's root for the spell's seconds, flat on the ground, untinted, each with its green light (`fx_lights`) and its loop.
 **Seen** 2026-11-06 beside the original at the Wood Elf's start: a flat ring of green, yellow, cyan, blue and white swirls about her feet, growing over its first second, alike in both.
-Not followed yet: the changeling, the plants' healing and the multi-shot's sight, and the blood's and the body parts' marks (#1935).
+It draws the multi-shot's sight since #1092 too (`elf_sights`, `opensacred_rules::particles::MultiShot`), at her `Bip01 L Finger3` for the art's seconds: the comets and their first burst, facing the camera, untinted; the burst's sparks ride with the hand rather than stand in the world, which their 0.64 s hardly shows.
+**Seen** 2026-11-06 in the game: two small green stars going round her left hand at the level 1, the burst's specks about it; not yet beside the original, whose driver did not make the art.
+It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `opensacred_rules::particles::NatureHealing`), laid along the bearer's way for 3 s and left in the world, each of its own colour (the particles' `colour`, which a block rolls where it spreads one); the renderer's wind is not followed.
+**Seen** 2026-11-06 in the game: a cloud of tiny butterflies of every colour rising from about the Wood Elf's feet and fading; not yet beside the original.
+Not followed yet: the changeling, the `Rundum`'s ring with a bow (1061), and the blood's and the body parts' marks (#1935).
 
 ## The burning light and the holy conversion
 

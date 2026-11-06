@@ -761,6 +761,8 @@ fn make(
                     .entry::<crate::effects::Effects>()
                     .or_default()
                     .and_modify(move |mut effects| effects.add(effect, seconds));
+                // Its comets at her left hand for its seconds (861, `0x50C633`).
+                crate::elf_sights::multi_shot(&mut commands, hero, level, seconds);
                 arts.start(making.art);
                 end(&mut commands);
                 continue;
