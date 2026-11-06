@@ -75,8 +75,7 @@ use crate::files;
 use crate::frame::{Step, WorldTick};
 use crate::sectors::Streamer;
 use crate::tables::Tables;
-use crate::terrain::Heights;
-use crate::terrain::Level;
+use crate::terrain::{Floored, Heights, Level};
 use crate::{
     ai, arrows, buildings, crowd, daynight, drops, fight, hero, iso, models, motions, paths,
     sectors, sfx, shadows, spawning,
@@ -1291,7 +1290,7 @@ pub struct Walk {
     /// The leg it heads for and its course there, found as it set out on the leg
     /// (`paths::Course`, `0x4F7710`), so that a creature that steps into its way afterwards
     /// stops it rather than turns it round (#989).
-    course: Option<(Vec3, paths::Course<(Level, bool)>)>,
+    course: Option<(Vec3, paths::Course<Floored>)>,
     /// The level it walks onto, where it is given (`0x4F7710`'s position's floor): a follower's
     /// step off's (#1013); else any its way reaches the target's cell on.
     onto: Option<Level>,
@@ -6290,28 +6289,35 @@ pub fn walk(
         // floor of the building there, else on the ground (`0x4FABE0`'s test `0x4EBCA0` of
         // `0x6354D0`'s floor), as the hero's (`hero::run`, #1344, #2011).
         let floor = heights.floor_number(onto.unwrap_or(level));
+        // Its place on its way, at its level and its floor number.
+        let start = (level, heights.floor_number(level), false);
         let plan = |here: Vec3| {
             let leg = paths::leg(here, target, |cell| {
                 heights.walkable_on(cell, heights.on_floor(cell, floor))
             });
             let end = paths::cell_of(leg.x, leg.z);
-            let onto = if leg == target {
-                onto
+            // The goal's floor of the search over floor numbers, that of the level the leg's end
+            // is at, as the hero's (`hero::run`, #2013).
+            let goal = heights.floor_number(if leg == target {
+                onto.unwrap_or(level)
             } else {
-                Some(heights.on_floor(end, floor))
-            };
+                heights.on_floor(end, floor)
+            });
             let course = paths::course(
                 here,
-                (level, false),
+                start,
                 leg,
-                onto,
-                |cell, (at, _)| free(cell, at),
+                Some(goal),
+                |cell, (at, ..)| free(cell, at),
                 |place| {
-                    paths::passable(heights.neighbours(place), end, |cell, (at, _)| {
+                    let next = heights.floored_neighbours(place, (start.1, goal), |cell, at| {
+                        heights.walkable_on(cell, at)
+                    });
+                    paths::passable(next, end, |cell, (at, ..)| {
                         crowd.stops(cell, at, entity, false)
                     })
                 },
-                |(at, _)| at,
+                |(_, floor, _)| floor,
             );
             (leg, course)
         };
@@ -6320,10 +6326,10 @@ pub fn walk(
                 paths::follow(
                     course,
                     here,
-                    (level, false),
+                    start,
                     *leg,
-                    |cell, (at, _)| free(cell, at),
-                    |(at, _)| at,
+                    |cell, (at, ..)| free(cell, at),
+                    |(_, floor, _)| floor,
                 )
             })
         };
@@ -6347,7 +6353,7 @@ pub fn walk(
             step = follow(&mut walk.course);
         }
         let (from, toward) = match step {
-            Some(paths::Step::Through((next, _))) => {
+            Some(paths::Step::Through((next, ..))) => {
                 walk.level = next;
                 continue;
             }
