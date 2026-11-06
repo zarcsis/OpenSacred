@@ -100,6 +100,7 @@ mod help;
 mod hero;
 mod hero_held;
 mod hit_sparks;
+mod holding_sights;
 mod holy_lights;
 mod homing_fires;
 mod hover;
@@ -526,6 +527,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         grenade_impacts::GrenadeImpactsPlugin,
     ))
     .add_plugins((gun_fires::GunFiresPlugin, guns::GunsPlugin))
+    .add_plugins(holding_sights::HoldingSightsPlugin)
     .add_plugins((
         healings::HealingsPlugin,
         hell_disks::HellDisksPlugin,
