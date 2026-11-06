@@ -14,7 +14,7 @@ use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
 use crate::npcs::Dies;
 use crate::sectors::Streamer;
-use crate::terrain::{Heights, LANDING_REACH, Landing, Level};
+use crate::terrain::{Floored, Heights, LANDING_REACH, Landing, Level};
 use crate::{iso, models, paths, shadows};
 
 /// How close to its target the hero stops.
@@ -310,7 +310,7 @@ pub struct Body {
     pinned: Option<(i32, i32)>,
     /// Its leg toward its target and its course there, found as it took its order and at the
     /// leg's end short of its target (`paths::Course`, `0x4F7710`, `0x4FABE0`).
-    course: Option<(Vec3, paths::Course<(Level, bool)>)>,
+    course: Option<(Vec3, paths::Course<Floored>)>,
 }
 
 /// A hero that flies, for a test (the command `fly`, #526): it goes straight where it is sent,
@@ -1129,51 +1129,54 @@ pub fn run(
                 // leaves the building rather than ending at its wall.
                 let floor = heights.floor_number(onto.unwrap_or(level));
                 let level_at = |cell| heights.on_floor(cell, floor);
+                // Its place on its way, at its level and its floor number.
+                let start = (level, heights.floor_number(level), false);
                 let plan = |here: Vec3| {
                     let leg = paths::leg(here, target, |cell| {
                         heights.walkable_on(cell, level_at(cell))
                     });
-                    let leg_onto = if leg == target {
-                        onto
+                    let end = paths::cell_of(leg.x, leg.z);
+                    // The level it heads for at the leg's end, and the floor number that level
+                    // is, the goal's floor of the search over floor numbers: a target's cell on
+                    // the ground at the floor number, where no building has that floor, is on
+                    // the ground's (#2013).
+                    let at = if leg == target {
+                        onto.unwrap_or(level)
                     } else {
-                        Some(level_at(paths::cell_of(leg.x, leg.z)))
+                        level_at(end)
                     };
+                    let goal = heights.floor_number(at);
                     let neighbours = |place| {
-                        let mut next = heights.neighbours_by(place, open);
-                        next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
+                        let mut next = heights.floored_neighbours(place, (start.1, goal), open);
+                        next.retain(|&(cell, (at, ..))| !crowd.stops(cell, at, me, true));
                         next
                     };
                     // A cell it may not step into, a container's or a hostile creature's, it
                     // goes round what is between them to the first cell beside it that its way
                     // reaches (`0x4F8560`, `0x4F8AF0`, #1877); beside it already, it searches
                     // none, and goes straight on.
-                    let at = leg_onto.unwrap_or(level);
-                    match paths::goal(
-                        paths::cell_of(here.x, here.z),
-                        paths::cell_of(leg.x, leg.z),
-                        |cell| free(cell, at),
-                    ) {
+                    match paths::goal(paths::cell_of(here.x, here.z), end, |cell| free(cell, at)) {
                         paths::Goal::Cell(_) => {}
                         paths::Goal::Around(_) => {
                             return paths::course_beside(
                                 here,
-                                (level, false),
+                                start,
                                 leg,
-                                leg_onto,
+                                Some(goal),
                                 neighbours,
-                                |(at, _)| at,
+                                |(_, floor, _)| floor,
                             );
                         }
                         paths::Goal::Beside => return None,
                     }
                     paths::course(
                         here,
-                        (level, false),
+                        start,
                         leg,
-                        leg_onto,
-                        |cell, (at, _)| free(cell, at),
+                        Some(goal),
+                        |cell, (at, ..)| free(cell, at),
                         neighbours,
-                        |(at, _)| at,
+                        |(_, floor, _)| floor,
                     )
                     .map(|course| (leg, course))
                 };
@@ -1182,10 +1185,10 @@ pub fn run(
                         paths::follow(
                             course,
                             here,
-                            (level, false),
+                            start,
                             *leg,
-                            |cell, (at, _)| free(cell, at),
-                            |(at, _)| at,
+                            |cell, (at, ..)| free(cell, at),
+                            |(_, floor, _)| floor,
                         )
                     })
                 };
@@ -1203,7 +1206,7 @@ pub fn run(
                     step = follow(&mut body.course);
                 }
                 let ((from, toward), reachable) = match step {
-                    Some(paths::Step::Through((next, _))) => {
+                    Some(paths::Step::Through((next, ..))) => {
                         body.level = next;
                         ((here.xz(), here), true)
                     }
