@@ -67,6 +67,7 @@ mod dryad_ghosts;
 mod dwarf_fires;
 mod dwarf_magics;
 mod effects;
+mod elf_sights;
 mod equipment;
 mod esc_menu;
 mod explored;
@@ -504,6 +505,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         dwarf_fires::DwarfFiresPlugin,
         dwarf_magics::DwarfMagicsPlugin,
         effects::EffectsPlugin,
+        elf_sights::ElfSightsPlugin,
         equipment::EquipmentPlugin,
         esc_menu::EscMenuPlugin,
         explored::ExploredPlugin,
