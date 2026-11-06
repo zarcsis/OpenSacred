@@ -1,5 +1,6 @@
-//! The sights of the hero's casts in his hands (791, `FX_CAST_SPELL`, #1092; docs/re/effects.md,
-//! "The casts' sights"): as a spell's clip starts (`0x51E110`) or the Daemon's arts' (`0x51B46E`),
+//! The sights of the casts in their casters' hands (791, `FX_CAST_SPELL`, #1092; docs/re/effects.md,
+//! "The casts' sights"): as a spell's clip starts (`0x51E110`), the hero's or a creature's, or the
+//! Daemon's arts' (`0x51B46E`),
 //! each of its sights follows its bone, its particles left where they are born along the hand's
 //! way, or a glow swelling and shrinking at it, or the twirls on the ground, all untinted by the
 //! night (`opensacred_rules::particles::{CastSight, cast_sights, art_sights}`).
@@ -92,11 +93,84 @@ struct Sight {
     meshes: [Handle<Mesh>; 2],
 }
 
-/// Makes the sights of each art or spell the hero starts: a spell's cast's on its clip's rate,
-/// the casts' speed over 100, the Daemon's arts' at 1.
+/// A creature's cast as its clip begins (`creature_casts`, `0x51E110`): its caster, its spell
+/// and its clip's rate.
+#[derive(Message, Debug, Clone, Copy)]
+pub(crate) struct CreatureCast {
+    pub(crate) caster: Entity,
+    pub(crate) spell: u16,
+    pub(crate) rate: f32,
+}
+
+/// What a sight's making takes: the assets and the materials, the effects' and the meshes'.
+type Makers<'a> = (
+    Option<&'a Data>,
+    &'a AssetServer,
+    &'a mut Looks,
+    &'a mut Assets<Effect>,
+    &'a mut Assets<Mesh>,
+);
+
+/// Makes a sight of `style` at `caster`'s `bone` on its clip's `rate`.
+fn make(
+    commands: &mut Commands,
+    (caster, place): (Entity, Vec3),
+    (bone, style, rate): (CastBone, u8, f32),
+    (data, assets, looks, effects, meshes): Makers,
+) {
+    let (blend, _) = particles::cast_blend(style);
+    let dots = looks.get(
+        (particles::cast_texture(style), blend == Blend::Whole),
+        data,
+        assets,
+        effects,
+    );
+    let look = CastSight::new(style, rate);
+    let glow = if style == 22 {
+        looks.get((TWIRL, true), data, assets, effects)
+    } else {
+        look.glow_style().and_then(|glow| {
+            let name = if glow == 7 { GLOWS[0] } else { GLOWS[1] };
+            looks.get((name, true), data, assets, effects)
+        })
+    };
+    let parts = [meshes.add(empty()), meshes.add(empty())];
+    let mut sight = commands.spawn((
+        Transform::IDENTITY,
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    for (mesh, material) in parts.iter().zip([dots, glow]) {
+        if let Some(material) = material {
+            sight.with_child((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                NoFrustumCulling,
+                RenderLayers::layer(iso::UNTINTED),
+            ));
+        }
+    }
+    debug!("cast sights: {caster} makes style {style} at {bone:?}");
+    sight.insert(Sight {
+        caster: Some(caster),
+        bone,
+        look,
+        place,
+        before: None,
+        meshes: parts,
+    });
+}
+
+/// Makes the sights of each art or spell the hero starts, a spell's cast's on its clip's rate,
+/// the casts' speed over 100, the Daemon's arts' at 1; and of each creature's cast, every one of
+/// the style 13, the blue glow, that the handler gives a creature's sight (its `+0xA9` 2: its
+/// event's `+0x28` not 1.0, `0x5A3A4A`; **seen** 2026-11-05 at Anducar's demon's fire bolt).
 fn start(
     mut commands: Commands,
     started: Query<(Entity, &Making, Option<&Combat>, &GlobalTransform), Added<Playing>>,
+    mut casts: MessageReader<CreatureCast>,
+    places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
@@ -110,51 +184,37 @@ fn start(
             (particles::art_sights(making.art), 1.0)
         };
         for (bone, style) in sights {
-            let (blend, _) = particles::cast_blend(style);
-            let dots = looks.get(
-                (particles::cast_texture(style), blend == Blend::Whole),
-                data.as_deref(),
-                &assets,
-                &mut effects,
+            make(
+                &mut commands,
+                (caster, place.translation()),
+                (bone, style, rate),
+                (
+                    data.as_deref(),
+                    &assets,
+                    &mut looks,
+                    &mut effects,
+                    &mut meshes,
+                ),
             );
-            let glow = if style == 22 {
-                looks.get((TWIRL, true), data.as_deref(), &assets, &mut effects)
-            } else {
-                let look = CastSight::new(style, 1.0);
-                look.glow_style().and_then(|glow| {
-                    let name = if glow == 7 { GLOWS[0] } else { GLOWS[1] };
-                    looks.get((name, true), data.as_deref(), &assets, &mut effects)
-                })
-            };
-            let parts = [meshes.add(empty()), meshes.add(empty())];
-            let mut sight = commands.spawn((
-                Transform::IDENTITY,
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ));
-            for (mesh, material) in parts.iter().zip([dots, glow]) {
-                if let Some(material) = material {
-                    sight.with_child((
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material),
-                        Transform::IDENTITY,
-                        NoFrustumCulling,
-                        RenderLayers::layer(iso::UNTINTED),
-                    ));
-                }
-            }
-            debug!(
-                "cast sights: {} makes style {style} at {bone:?}",
-                making.art
+        }
+    }
+    for cast in casts.read() {
+        let Ok(place) = places.get(cast.caster) else {
+            continue;
+        };
+        for (bone, _) in particles::cast_sights(cast.spell, false) {
+            make(
+                &mut commands,
+                (cast.caster, place.translation()),
+                (bone, particles::CREATURES_CAST_STYLE, cast.rate),
+                (
+                    data.as_deref(),
+                    &assets,
+                    &mut looks,
+                    &mut effects,
+                    &mut meshes,
+                ),
             );
-            sight.insert(Sight {
-                caster: Some(caster),
-                bone,
-                look: CastSight::new(style, rate),
-                place: place.translation(),
-                before: None,
-                meshes: parts,
-            });
         }
     }
 }
@@ -258,7 +318,8 @@ pub struct CastSightsPlugin;
 
 impl Plugin for CastSightsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Dice>()
+        app.add_message::<CreatureCast>()
+            .init_resource::<Dice>()
             .init_resource::<Looks>()
             .add_systems(
                 Update,
