@@ -184,6 +184,7 @@ mod settings;
 mod sfx;
 mod shaders;
 mod shadows;
+mod shields;
 mod skies;
 mod skins;
 mod soul_sparks;
@@ -618,6 +619,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
+        shields::ShieldsPlugin,
         skies::SkiesPlugin,
         skins::SkinsPlugin,
         soul_sparks::SoulSparksPlugin,

@@ -292,9 +292,10 @@ fn fly(
         Option<Res<crate::arts::HeroArts>>,
         MessageWriter<crate::sfx::Play>,
     ),
-    (bubbles, mut pops): (
+    (bubbles, mut pops, mut flashes): (
         Query<(Entity, &Transform), (With<crate::bolts::Bubble>, Without<Arrow>)>,
         MessageWriter<crate::bolts::Pops>,
+        MessageWriter<crate::shields::Flash>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -454,7 +455,11 @@ fn fly(
                         arrow.shooter = hero_entity;
                         transform.rotation = pointing(arrow.flight.velocity());
                     }
-                    arrows::Deflected::Gone => commands.entity(entity).despawn(),
+                    // Ended, and the shield of its effect's spell lit (`0x5B6620(8)`).
+                    arrows::Deflected::Gone => {
+                        commands.entity(entity).despawn();
+                        flashes.write(crate::shields::Flash(hero_entity, ward.art));
+                    }
                     arrows::Deflected::Passes => {}
                 }
                 continue;

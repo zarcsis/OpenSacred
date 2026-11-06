@@ -1744,6 +1744,48 @@ It draws the overlays since #1092 too (`skins`, `opensacred_rules::spells::{cros
   The skins' grey taken in the frame's values since #2169 ("The fire skin"), **seen** again at the Mage's start at 22:00 and the zoom 2, the frames about half a second apart over the pulse: the quickening's blue streaks over the Mage's own colours rise and fall in both, the bluish pixels' mean from (43, 55, 74) to (82, 101, 135) in the original and from (66, 74, 101) to (93, 109, 151) in the game, where it lay between (91, 105, 141) and (105, 122, 164) before, a pale blue all over; the crusader's crosses on the Seraphim faint in both, where the game's had laid white crosses over her body.
 Not followed: the strikes over all else (their depth test off), whether the light follows its object's creature (**hypothesis**: it stands), and the water form's overlay (the states 1 and 3).
 
+## The holy shield, the shield wall, the mana's spring and the regeneration
+
+Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The holy shield (22) | 819 `FX_HOLYSHIELD` | `cParticleSystem_holyshield` (`0x898010`) | `0x785860`, `0x785DE0`, `0x785970`, `0x785A20` |
+| The shield wall (30) | 834 `FX_MAGICSHIELD` | `cParticleSystem_magicshield` (`0x898174`) | `0x78A8A0`, `0x78B040`, `0x78AAF0`, `0x78AC00` |
+| The mana's spring (31) | 835 `FX_MANAREGEN` | `cParticleSystem_manaregen` (`0x898198`) | `0x78B160`, `0x78B4B0`, `0x78B200`, `0x78B230` |
+| The regeneration (32) | 836 `FX_HPREGEN` | `cParticleSystem_hpregen` (`0x8981B8`) | `0x78B5B0`, `0x78B900`, `0x78B650`, `0x78B680` |
+
+- `0x5A0C50` makes them with 200, 100, 1 and 1 particles; none of the four emits or draws a particle, none calls the light manager, none rolls `rand()` or reads the detail level, and none uses the tint: all four keep their colours by night.
+- Their world light is 300 for 819 and 834, none for 835 and 836.
+- The scripts' `CreateObj` makes none of them; the spells' executor makes each (`0x524611`, `0x5252C3`, `0x5253AF`, `0x52549E`), its object following its bearer (the order's target, else the caster) at the bone 0 (`__Root`), for the record's value 0 at the level times the factor: 43 + 2·L s for 819 and 44 + L s for 834, at most 120, and 70 + 2·L s for 835 and 836, at most 180.
+- The flat quads' helper (`0x7631E0`) turns a square by `(x, y)` to `(x·cos θ + y·sin θ, −x·sin θ + y·cos θ)`, so that a growing angle turns it counterclockwise on the screen, the texture's `u = (x/s + 1)/2` and `v = (y/s + 1)/2` over it.
+
+**The holy shield.**
+
+- Its cylinder: 31 pairs of pre-lit vertices, the pair `i` at the angle `a = i·2π/30` about the bearer, at `(35 sin a, 35 cos a)` in the models' frame, from 0 to 120 up, its `u` 0.1·i (its texture `FX_SHIELD` wrapped three times about it) and its `v` 1 at the foot and 0 at the top; the pair 30 at the pair 0's place.
+- Its run: its band's phase falls by half a turn a second, wrapping from 0 to 1; its flash, an integer from 255, falls by `⌊400·dt⌋` each frame; past its seconds it dies at once, its loop 2040 with it.
+- Its draw, the depth tested and not written, unlit, the culling off: first `FX_SHIELDGROUND` (an arc of a radius of about 0.875 of its half side on black) flat at the bearer's root, the half side 41, white, turned by `2π·phase + π − 0.1`, added whole; then the cylinder, added whole, the feet of the pairs `k`, `k + 1`, … (modulo 31, `k = ⌊31·phase⌋`) in the greys 255, 223, 191, 159, 127, 95, 63 and 31 and the rest black, each plus the flash, held at 255, and every top in the flash's grey.
+- So a band of eight columns lights the cylinder's foot and fades up each column, its head stepping clockwise on the screen a turn every 2 s over the ground's arc beneath it.
+- An arrow that its effect `0x19` keyed by 22 turns aside is ended and flashes it (`0x5B6620(8)`, its system's `+0x74` bit 8): the whole cylinder lit, fading over some 0.6 s.
+  The FX event's case (`0x5A4AEF`) also flashes or ends it where its `+0x38` is set, which no maker read sends (**hypothesis**: the network's copies).
+
+**The shield wall.**
+
+- Its strip is the holy shield's but 70 high, its `v` 1 at the foot and 0.02 at the top, every vertex the opaque (255, 128, 128); its glows' square of the half side 10, flat, of the corners (255, 128, 128), (255, 64, 128), (255, 128, 64) and (255, 64, 64).
+- Its run: built by 30 columns a second up to 30, when it asks its action 6 (the effects 7 to 10, 1 s after the act); standing until its seconds, its flash, a float set to 1, falling by 0.75 a second; then unbuilt by 30 a second and gone, 1 s after its seconds; its loop 2022.
+- Its draw, the depth tested and not written, unlit, the culling off: at the foot of each of its `⌊build⌋` built columns `PARTICLE_GLOW01` flat, its half side scaled by `2 + 0.3 cos t`, added by its alpha; then its strip's first `⌊build⌋` segments twice, in `RUNESHIELD_GRADIENT` scaled up by `1 + 0.2 cos 3t + flash` and in `RUNESHIELD_GRADIENT2` by `1 + 0.2 sin 2.6t + flash`, added whole.
+- So the walls rise column by column from the front counterclockwise on the screen over a second, bob between 56 and 84 high out of step, and double their height at once at an arrow turned aside by its effect `0x19` keyed by 30, or a spell by its effect `0x1A` (`0x5622D6`).
+
+**The mana's spring and the regeneration.**
+
+- One class but for their textures, their colours, their turns and their sounds: a symbol (`FX_MANAREGEN`, blue on an alpha mask; `FX_HPREGEN`, pale pink-white) flat at the bearer's root, the half side 40, white, turned by `−0.5·t` (clockwise) or `+0.5·t`, added by its alpha; then five flat `PARTICLE_GLOW03` of the half sides 100, 90, 80, 70 and 60 at the heights 0, 3, 6, 9 and 12, unturned, in (143, 143, 255) or (255, 79, 79) at the alpha 64, added by their alpha.
+- Their run: the clock, and past their end they die at once; their start asks the action 6 (the effects 11 and 12); 835 loops 2028, 836 plays 2042 once.
+- The effects' adder also makes an 835 of 7.5 s for the Mage of the set 32's seventh piece, as it takes the effect 40 anew (`0x582D50`'s case 40, `0x57AF53`); no adder's path gives an 836.
+
+`opensacred-game` draws the four since #1092 (`shields`, `opensacred_rules::particles::{HolyShield, ShieldWall, Regen}`), as `spells` casts the spells and the ice elf's creature cast its holy shield, at their bearer's root for the spells' time, on the layer that the night leaves untinted, the two shields with a light of 300 that goes with them; an arrow that the hero's holy shield or shield wall turns aside flashes it (`arrows`, `shields::Flash`).
+**Seen** 2026-11-06 beside the original at the Seraphim's and the Mage's starts at 22:00 and the zoom 2: the holy shield's pale blue band sweeping about her over its arc on the ground, the shield wall's red walls over their bright ring of glows, and the mana's spring's blue symbol over its glow, alike in both.
+Not followed: a spell turned aside by the shield wall, which the game turns aside nowhere yet, and the set 32's spring.
+
 ## The burning light and the holy conversion
 
 Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
