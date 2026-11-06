@@ -416,7 +416,7 @@ fn choose(
             let art = opensacred_rules::arts::right_button(art, arts.kind, |key| {
                 effects.is_some_and(|effects| effects.holds_any(&[key]))
             });
-            crate::making::may_make(arts, art, effects).is_ok()
+            crate::making::may_make(arts, art, (effects, pack.as_deref())).is_ok()
                 && admits(crate::making::launch(arts, art), foe_under.is_some())
         });
     glow.set_if_neq(Glow(glows));
