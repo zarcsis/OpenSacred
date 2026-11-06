@@ -4476,6 +4476,141 @@ impl Mark {
     }
 }
 
+/// The multi-shot's sight's textures: its comets' tails' glows (the style 5), their heads (the
+/// style 4) and its burst's sparks; its colour, (128, 255, 128); the bone it stands at.
+pub const MULTI_SHOT_TEXTURES: [&str; 3] =
+    ["PARTICLE_GLOW03", "PARTICLE_SPARK07", "PARTICLE_SPARK06"];
+pub const MULTI_SHOT_GREEN: [f32; 4] = [128.0 / 255.0, 1.0, 128.0 / 255.0, 1.0];
+pub const MULTI_SHOT_BONE: &str = "Bip01 L Finger3";
+/// Its comets at most; how fast they go round, in radians a second; the point they go round
+/// through, along the models' `x` from the hand; their tails' glows, each a step of the turn
+/// behind the one before, of the half sides `k/15`; their heads' half side.
+const MULTI_SHOT_ORBITS: u32 = 6;
+const MULTI_SHOT_TURN: f32 = 5.0;
+const MULTI_SHOT_FROM: [f32; 3] = [4.0, 0.0, 0.0];
+const MULTI_SHOT_TAIL: u8 = 20;
+const MULTI_SHOT_STEP: f32 = 0.15;
+pub const MULTI_SHOT_HEAD: f32 = 5.0;
+/// Its burst at its first run: its sparks, their half side, their speed along each axis at most,
+/// how fast they age (−400, 0.6375 s) and the pull back to the hand.
+const MULTI_SHOT_SPARKS: usize = 200;
+
+/// `v` turned about the unit axis `axis` by `angle` radians (Rodrigues's rotation).
+fn turned(v: [f32; 3], axis: [f32; 3], angle: f32) -> [f32; 3] {
+    let (sin, cos) = angle.sin_cos();
+    let [x, y, z] = axis;
+    let dot = x * v[0] + y * v[1] + z * v[2];
+    let cross = [
+        y * v[2] - z * v[1],
+        z * v[0] - x * v[2],
+        x * v[1] - y * v[0],
+    ];
+    std::array::from_fn(|k| v[k] * cos + cross[k] * sin + axis[k] * dot * (1.0 - cos))
+}
+
+/// The Wood Elf's multi-shot's sight (861, `cParticleSystem_elve_sm_cast` of the art 1005; its
+/// start `0x795880`, its run `0x795140`, its draw `0x7952C0`; #1092): at her left hand's third
+/// finger for the art's seconds, `min(L + 1, 6)` green comets going round the hand on axes at
+/// random at 5 radians a second, each a star of the half side 5 with a tail of 20 glows shrinking
+/// behind it over 3 radians; and at its first run a burst of 200 sparks that fly out at up to 60
+/// along each axis and are pulled back to the hand, pale green fading to black over 0.64 s; all
+/// added whole, untinted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MultiShot {
+    pub sparks: System,
+    axes: Vec<[f32; 3]>,
+    angle: f32,
+    seconds: f32,
+    burst: bool,
+}
+
+impl MultiShot {
+    /// The sight of the art at its level `level` for `seconds`, its comets' axes rolled (three
+    /// `rand()` of −1 to 1 each, made unit).
+    pub fn new(level: u32, seconds: f32, dice: &mut impl Dice) -> Self {
+        let orbits = (level + 1).min(MULTI_SHOT_ORBITS);
+        let mut unit = || {
+            let roll = f32::from(u16::try_from(dice.below(32_768)).unwrap_or(0));
+            roll / 32_767.0 * 2.0 - 1.0
+        };
+        let axes = (0..orbits)
+            .map(|_| {
+                let axis = [unit(), unit(), unit()];
+                let length = axis.iter().map(|a| a * a).sum::<f32>().sqrt();
+                if length > f32::EPSILON {
+                    axis.map(|a| a / length)
+                } else {
+                    [0.0, 0.0, 1.0]
+                }
+            })
+            .collect();
+        Self {
+            sparks: System::new(MULTI_SHOT_SPARKS),
+            axes,
+            angle: 0.0,
+            seconds,
+            burst: false,
+        }
+    }
+
+    /// A run of `dt` seconds: its burst at its first, its sparks aged and pulled back, its comets'
+    /// angle on by 5 radians a second, wrapping.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        if !self.burst {
+            self.burst = true;
+            let block = Block {
+                size: spread(2.5, 0.0),
+                velocity: spread([0.0; 3], [60.0, 60.0, 60.0]),
+                ..Block::default()
+            };
+            self.sparks
+                .burst(&block, MULTI_SHOT_SPARKS, MULTI_SHOT_SPARKS, dice);
+        }
+        let layers = [Layer {
+            life: -400.0,
+            pull: 250.0,
+            ..Layer::default()
+        }];
+        self.sparks.update(dt, &layers);
+        self.angle = (self.angle + MULTI_SHOT_TURN * dt).rem_euclid(std::f32::consts::TAU);
+    }
+
+    /// Whether its seconds are over.
+    pub fn done(&self) -> bool {
+        self.sparks.clock > self.seconds
+    }
+
+    /// Its comets, each its tail's glows from its end on, of their places about the hand in the
+    /// models' frame and their half sides, then its head.
+    pub fn comets(&self) -> Vec<(Vec<([f32; 3], f32)>, [f32; 3])> {
+        self.axes
+            .iter()
+            .map(|&axis| {
+                let mut point = turned(MULTI_SHOT_FROM, axis, self.angle);
+                let mut tail = Vec::with_capacity(usize::from(MULTI_SHOT_TAIL));
+                for k in 0..MULTI_SHOT_TAIL {
+                    tail.push((point, f32::from(k) / 15.0));
+                    point = turned(point, axis, MULTI_SHOT_STEP);
+                }
+                (tail, point)
+            })
+            .collect()
+    }
+
+    /// The colour of a spark of the life `life`: `(⌊i/2⌋, i, ⌊i/2⌋)` of its ramp's entry `i`,
+    /// pale green at its birth, black at its death.
+    pub fn spark_colour(life: f32) -> [f32; 4] {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a life of 0 to 255, rounded down to its entry"
+        )]
+        let entry = life.clamp(0.0, 255.0) as u8;
+        let half = f32::from(entry / 2) / 255.0;
+        [half, f32::from(entry) / 255.0, half, 1.0]
+    }
+}
+
 impl Rune {
     /// A rune of `seconds`.
     pub fn new(seconds: f32) -> Self {
@@ -12157,6 +12292,40 @@ mod tests {
             mark.update(0.01);
         }
         assert!(mark.done());
+    }
+
+    #[test]
+    fn the_multi_shots_comets_go_round_the_hand_after_a_burst() {
+        let mut dice = Rng::of(11, 13, 17);
+        let mut sight = MultiShot::new(1, 20.0, &mut dice);
+        assert_eq!(MultiShot::new(9, 20.0, &mut dice).comets().len(), 6);
+        sight.update(0.01, &mut dice);
+        assert_eq!(sight.sparks.particles.len(), 200);
+        // Two comets at the level 1, each 20 glows and a head 4 from the hand.
+        let comets = sight.comets();
+        assert_eq!(comets.len(), 2);
+        for (tail, head) in &comets {
+            assert_eq!(tail.len(), 20);
+            assert_eq!(tail[19].1, 19.0 / 15.0);
+            for point in tail.iter().map(|(p, _)| p).chain([head]) {
+                let length = point.iter().map(|a| a * a).sum::<f32>().sqrt();
+                assert!((length - 4.0).abs() < 1e-3, "{length}");
+            }
+        }
+        // The burst gone in 0.64 s, pulled back near the hand.
+        for _ in 0..30 {
+            sight.update(0.01, &mut dice);
+        }
+        assert!(!sight.sparks.particles.is_empty());
+        for _ in 0..40 {
+            sight.update(0.01, &mut dice);
+        }
+        assert!(sight.sparks.particles.is_empty());
+        assert_eq!(
+            MultiShot::spark_colour(255.0),
+            [127.0 / 255.0, 1.0, 127.0 / 255.0, 1.0]
+        );
+        assert!(!sight.done());
     }
 
     #[test]
