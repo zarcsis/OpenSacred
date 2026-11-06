@@ -1825,7 +1825,9 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
   A `Rundum` with a bow (1061) makes it for 1.3 s at the shooter's root: a horizontal ring of 50 `PARTICLE_GLOW03` glows through the left hand's place, biggest at the hand, and a `PARTICLE_SPARK07` star of the half side `25·(1.3 − t)` there, all shrinking away.
 
 `opensacred-game` lays the souls' marks since #1092 (`marks`, `opensacred_rules::particles::{Mark, SOUL_MARK}`), at each soul's starting point on the ground, on the frame that the night tints; seen in the game as dark blots under the souls' starts.
-Not followed yet: the changeling, the speed, the plants' healing and the multi-shot's sight, and the blood's and the body parts' marks (#1935).
+It draws the speed's two systems since #1092 too (`speed_sights`, `opensacred_rules::particles::SpeedSight`), at the bearer's root for the spell's seconds, flat on the ground, untinted, each with its green light (`fx_lights`) and its loop.
+**Seen** 2026-11-06 beside the original at the Wood Elf's start: a flat ring of green, yellow, cyan, blue and white swirls about her feet, growing over its first second, alike in both.
+Not followed yet: the changeling, the plants' healing and the multi-shot's sight, and the blood's and the body parts' marks (#1935).
 
 ## The burning light and the holy conversion
 
