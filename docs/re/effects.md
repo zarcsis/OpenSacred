@@ -820,6 +820,8 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws the skin since #2042 (`skins`, `opensacred_rules::spells::{LAVA_SKIN_STATE, lava_skin_grey}`): the fire skin, the hero's or a creature's, asks its bearer for it for its seconds, a new one setting them anew, and each mesh of the bearer and of the items it wears, not of those in its hands or on its back, gets a copy skinned to the same joints, of `A_LAVA00` unlit and added in the objects' layer of the blended things (`models::Pass::Added`), whose grey pulses by the seconds left; the seconds over, the copies go.
 **Seen** 2026-11-05 beside the original at the Mage's start, her spell 24 at the level 10: in both games the Mage orange all over under her flames, her hood with her and her staff as it was.
   The game's lava looked the brighter of the two in the frames, its pulse of the same grey (not measured apart from the flames in front of it).
+  Its grey was then taken in linear light, which the models' material encodes for the frame, so that a grey of 0.5 added about 0.73 of the texture and one of 0.25 about 0.54; and the texture's smaller levels averaged its pattern out.
+  Since #2169 the skins' grey multiplies the texels' values in the frame, as the device's modulation by the vertices' colour does (`fx::linear`), and their textures are sampled at their one level, linearly, as `0x40D310` asks (its state flag `0x800`, `0x643470`).
 
 ## The gust
 
@@ -1738,6 +1740,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 **Seen** 2026-11-06 beside the original: the stone skin's and the quickening's bolts and their glows, white and violet, alike in both.
 It draws the overlays since #1092 too (`skins`, `opensacred_rules::spells::{cross_skin_grey, skin_shows}`), asked with the spells' effects as the strikes end: the stone skin's glow and its blink of 2 s, the crusader's strength's crosses and the quickening's speed, each a copy of the bearer's meshes added over them, dressed again on the new meshes where the model is made anew (the hero's is after the quickening; **hypothesis**: by its pace).
 **Seen** 2026-11-06 beside the original: the stone skin's pale glow over the Mage, alike in both; the quickening's blue skin brighter in the game than the original's (#2169).
+  The skins' grey taken in the frame's values since #2169 ("The fire skin"), **seen** again at the Mage's start at 22:00 and the zoom 2, the frames about half a second apart over the pulse: the quickening's blue streaks over the Mage's own colours rise and fall in both, the bluish pixels' mean from (43, 55, 74) to (82, 101, 135) in the original and from (66, 74, 101) to (93, 109, 151) in the game, where it lay between (91, 105, 141) and (105, 122, 164) before, a pale blue all over; the crusader's crosses on the Seraphim faint in both, where the game's had laid white crosses over her body.
 Not followed: the strikes over all else (their depth test off), whether the light follows its object's creature (**hypothesis**: it stands), and the water form's overlay (the states 1 and 3).
 
 ## The burning light and the holy conversion

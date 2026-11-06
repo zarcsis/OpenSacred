@@ -138,20 +138,18 @@ fn ask(mut commands: Commands, mut asked: Query<(Entity, &Asked, Option<&mut Ski
     }
 }
 
-/// The texture of `name`, loaded, where the assets have it: the crosses' and the glow's repeated
-/// along both its axes, as their coordinates run past its edges.
-fn texture(
-    data: Option<&Data>,
-    server: &AssetServer,
-    name: &str,
-    repeated: bool,
-) -> Option<Handle<Image>> {
+/// The texture of `overlay`, loaded, where the assets have it: the stone's as a model's own; an
+/// added skin's repeated along both its axes, as the crosses' and the glow's coordinates run past
+/// its edges, and without its smaller levels, as the original's textures have one, so that its
+/// streaks and crosses keep their contrast on a small model rather than averaging out (#2169).
+fn texture(data: Option<&Data>, server: &AssetServer, overlay: Overlay) -> Option<Handle<Image>> {
+    let name = overlay.texture();
     let path = data.and_then(|data| crate::fx::texture_path(&data.0.assets, name));
     let Some(path) = path else {
         warn!("skins: no texture {name}; the skin is not drawn");
         return None;
     };
-    if !repeated {
+    if overlay == Overlay::Stone {
         return Some(server.load(path));
     }
     Some(
@@ -159,6 +157,7 @@ fn texture(
             .load_builder()
             .with_settings(|settings: &mut ImageLoaderSettings| {
                 settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    lod_max_clamp: 0.0,
                     address_mode_u: ImageAddressMode::Repeat,
                     address_mode_v: ImageAddressMode::Repeat,
                     ..ImageSamplerDescriptor::linear()
@@ -211,7 +210,7 @@ fn dress(
         let overlay = skin.overlay;
         if overlay == Overlay::Stone {
             // Without its texture the skin lasts unseen.
-            let Some(stone) = texture(data.as_deref(), &server, STONED_TEXTURE, false) else {
+            let Some(stone) = texture(data.as_deref(), &server, Overlay::Stone) else {
                 continue;
             };
             let mut made: HashMap<AssetId<ModelMaterial>, Handle<ModelMaterial>> = HashMap::new();
@@ -240,15 +239,9 @@ fn dress(
             let material = skin
                 .material
                 .get_or_insert_with(|| {
-                    let repeated = matches!(overlay, Overlay::Cross | Overlay::Glow);
                     let added = StandardMaterial {
                         base_color: grey(overlay, left, 0.0),
-                        base_color_texture: texture(
-                            data.as_deref(),
-                            &server,
-                            overlay.texture(),
-                            repeated,
-                        ),
+                        base_color_texture: texture(data.as_deref(), &server, overlay),
                         uv_transform: coordinates(overlay, 0.0),
                         unlit: true,
                         ..default()
@@ -287,16 +280,18 @@ fn dress(
     }
 }
 
-/// An added skin's grey at `left` seconds still to run and `real` seconds of the real clock, as
-/// the frame's raw values: the lava's and the speed's by the seconds left, the crosses' by the
-/// real clock, the glow white.
+/// An added skin's grey at `left` seconds still to run and `real` seconds of the real clock: the
+/// lava's and the speed's by the seconds left, the crosses' by the real clock, the glow white. A
+/// grey of the frame's values in linear light, as the model's material takes it: its texels are
+/// decoded, multiplied by it and encoded again (`standard.wesl`), so that the frame takes the
+/// texels' values times the grey, as the original's device adds them (`fx::linear`; #2169).
 fn grey(overlay: Overlay, left: f32, real: f64) -> Color {
     let grey = match overlay {
         Overlay::Lava | Overlay::Speed => lava_skin_grey(left),
         Overlay::Cross => cross_skin_grey(real * 1000.0),
         Overlay::Glow | Overlay::Stone => 1.0,
     };
-    Color::linear_rgb(grey, grey, grey)
+    Color::srgb(grey, grey, grey)
 }
 
 /// An added skin's texture coordinates at `real` seconds of the real clock: the crosses' times 3,
@@ -379,5 +374,25 @@ impl Plugin for SkinsPlugin {
             Update,
             (ask, dress, run).chain().in_set(Playing).in_set(Unpaused),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The grey is the original's value in the frame (#2169): an sRGB colour, which the material
+    /// takes in linear light and its encoding gives back, so that the texels' values are
+    /// multiplied by it, not linear light, which the encoding would raise.
+    #[test]
+    fn grey_is_the_frames_value() {
+        for left in [0.0, 0.3, 0.7, 1.2] {
+            let grey = grey(Overlay::Speed, left, 0.0);
+            assert!((grey.to_srgba().red - lava_skin_grey(left)).abs() < 1e-6);
+            assert!(grey.to_linear().red < lava_skin_grey(left));
+        }
+        let crosses = grey(Overlay::Cross, 0.0, 0.25);
+        assert!((crosses.to_srgba().red - cross_skin_grey(250.0)).abs() < 1e-6);
+        assert_eq!(grey(Overlay::Glow, 0.0, 0.0).to_srgba().red, 1.0);
     }
 }
