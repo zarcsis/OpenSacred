@@ -1694,7 +1694,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
   The mortar's object asks its impact, the object 1020 (`cParticleSystem_grenadeimpact`), at its target's place 0.775 s on (its action 1, `0x5B40C4`); it does not fly.
 
 `opensacred-game` draws them since #1092 (`dwarf_fires`, `opensacred_rules::particles::{DwarfFire, DwarfFireSight}`) as `making` sounds them, at the Dwarf's `canon_fx01`, else his right hand, the flamethrower's along the bone's glTF `x` each frame, the shots' placed at their first frame, their lights at the muzzle while they fire, always at the detail 2.
-**Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (they start as spells).
+**Seen** 2026-11-06 in the game: the Dwarf's flamethrower streaming from his back's cannon over a goblin and smoking after, and his cannon's flash toward it; not beside the original, whose driver's right button does not make the Dwarf's 1085 to 1087 (#2162).
 Not followed: the impact 1020 (#2160).
 
 ## The healing
