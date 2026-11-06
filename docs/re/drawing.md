@@ -165,6 +165,18 @@ A script's object is in the list of its own cell, wherever its model is drawn (*
 In the original, the door of (272, 2379) on floor 2 of its building (`h` 168) has `+0xCC`, `+0xD0` at (14593.6, 127699.6) and its model there, unchanged over 45 s; the closed leaf is drawn whole in its doorway after the back wall's sprites of its cell (272, 2379), though its model's root stands in the cell (271, 2379) before it.
 Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the object without a position, so that a raised door's point would fail the test and its leaf stand at its cell; and which events run `0x44D520` again (the opening does not seem to: the open leaf stays hinged at its jamb).
 
+**The effects among the creatures** (read 2026-11-06 for #2047, **confirmed** by code unless marked):
+
+- An FX object is a dynamic object of its cell's chain like a creature, and the list draws it by its own draw: its system's draw is a virtual function of its class (`0x5A9C50`, from the table at `0x8919B0`), so the whole system, every particle wherever it flies, is drawn at the object's place in the list's order.
+- `0x5FCCB0`, which every move of an object runs, chains the object into its new cell's list at its head (the object's `+0x30` the cell's `+0x08` before it, the cell's `+0x08` the object): in a cell, the object moved last is drawn first.
+- An effect that follows a creature (the fire skin at its bearer, the systems of the flag `0x200`) is moved after it, at its own update (**hypothesis** for the order of the two updates in the frame), so it heads the cell's chain and is drawn before the creature.
+  Its billboards, depth tested and not written (`0x761B00`), leave no depth, and the creature's model drawn after them, depth tested and written, covers every flame in front of it and lies under none.
+  An effect whose object lies in a later row than the creature, nearer the camera, is drawn after it and adds its flames over it where they are nearer.
+- **Seen** 2026-11-06 with the driver of #448, the Mage's fire skin (24) at her start: her legs and her body, lava-skinned, lie over the flames at her feet, only the flames about her outline showing; the purgatory's fire about her, its object at her cell, likewise (#2047's frames, 2026-11-04).
+- `opensacred-game` draws every effect in the transparent pass after the opaque models, so its flames in front of a creature add over it: the fire skin covers the Mage's legs (#2047's frames).
+  To follow the original, the effects whose objects lie in the creature's cell or in an earlier row would be drawn under the models (#2178).
+- Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
+
 ## The models' turn
 
 Read 2026-10-19 (#159).
