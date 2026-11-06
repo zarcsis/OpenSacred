@@ -154,6 +154,7 @@ mod pick;
 mod pickup;
 mod place_names;
 mod plant_cages;
+mod plant_healings;
 mod points;
 mod poison_rings;
 mod pong;
@@ -594,6 +595,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         pause::PausePlugin,
         pickup::PickupPlugin,
         plant_cages::PlantCagesPlugin,
+        plant_healings::PlantHealingsPlugin,
+    ))
+    .add_plugins((
         points::PointsPlugin,
         poison_rings::PoisonRingsPlugin,
         pong::PongPlugin,

@@ -23,6 +23,9 @@ pub struct Particle {
     pub layer: u8,
     /// Its frame of the texture's grid.
     pub frame: u8,
+    /// Its own colour, of 1, where its block gives one (the plants' healing's butterflies), else
+    /// white.
+    pub colour: [f32; 3],
 }
 
 impl Particle {
@@ -71,6 +74,9 @@ pub struct Block {
     /// A frame of the texture's grid at random below it, the first for 0 or 1, the particle's
     /// layer for [`FRAME_OF_LAYER`] (`+0x60`).
     pub frames: u8,
+    /// A colour of each particle's own and its spread, of 1 (`+0x4C`, `+0x50`): rolled where it
+    /// spreads, else white.
+    pub colour: Spread<[f32; 3]>,
 }
 
 /// A block's frames that give each particle the frame of its layer's index (`0x764760`).
@@ -324,6 +330,11 @@ fn born(block: &Block, layer: usize, dice: &mut impl Dice) -> Particle {
             FRAME_OF_LAYER => u8::try_from(layer).unwrap_or(0),
             frames if frames > 1 => u8::try_from(dice.below(u32::from(frames))).unwrap_or(0),
             _ => 0,
+        },
+        colour: if block.colour.spread == [0.0; 3] {
+            [1.0; 3]
+        } else {
+            spread_3(block.colour, dice).map(|c| c.clamp(0.0, 1.0))
         },
     }
 }
@@ -1039,6 +1050,7 @@ pub fn rise_ring() -> Burst {
                 spin: 0.0,
                 layer: 0,
                 frame: 0,
+                colour: [1.0; 3],
             }
         })
         .collect();
@@ -1087,6 +1099,7 @@ pub fn change_ring() -> Burst {
                 spin: 0.0,
                 layer: 0,
                 frame: 0,
+                colour: [1.0; 3],
             }
         })
         .collect();
@@ -1127,6 +1140,7 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
         offset: Spread::default(),
         interval: 0.0,
         frames: 4,
+        colour: Spread::default(),
     };
     let count = u32::try_from(points.len()).unwrap_or(u32::MAX);
     let particles = if points.is_empty() {
@@ -1145,6 +1159,7 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
                     spin: spread_f32(block.spin, dice),
                     layer: 0,
                     frame: u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0),
+                    colour: [1.0; 3],
                 }
             })
             .collect()
@@ -1219,6 +1234,7 @@ pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) ->
                 spin: 0.0,
                 layer: 0,
                 frame: 0,
+                colour: [1.0; 3],
             })
             .collect()
     };
@@ -1301,6 +1317,7 @@ pub fn generic_ring(variant: u8, colour: u32, dice: &mut impl Dice) -> Option<Bu
                 spin: 0.0,
                 layer: 0,
                 frame: 0,
+                colour: [1.0; 3],
             }
         })
         .collect();
@@ -2030,6 +2047,7 @@ pub fn walloffire() -> Fire {
         offset: spread([0.0; 3], [9.0, 0.0, 0.0]),
         interval: 0.01,
         frames: 0,
+        colour: Spread::default(),
     };
     Fire {
         texture: "particle_fire03",
@@ -2146,6 +2164,7 @@ fn sparks_burst(middle: [f32; 3], dice: &mut impl Dice) -> Burst {
             spin: 0.0,
             layer: 0,
             frame: 0,
+            colour: [1.0; 3],
         })
         .collect();
     let white = [254.0 / 255.0, 254.0 / 255.0, 254.0 / 255.0, 1.0];
@@ -4590,6 +4609,77 @@ impl Mark {
     }
 }
 
+/// The plants' healing's textures, its butterflies' (8 × 8 frames) and their glows'; the glows'
+/// colour, a grey of 80; the butterflies' grid.
+pub const NATURE_HEALING_TEXTURES: [&str; 2] = ["PARTICLE_BUTTERFLY01", "PARTICLE_GLOW03"];
+pub const NATURE_HEALING_GLOW: [f32; 4] = [80.0 / 255.0, 80.0 / 255.0, 80.0 / 255.0, 1.0];
+pub const NATURE_HEALING_GRID: u8 = 8;
+/// Its butterflies at most, and how long it lays them.
+const NATURE_HEALING_PARTICLES: usize = 200;
+const NATURE_HEALING_EMITS: f32 = 3.0;
+
+/// The plants' healing's sight (851, `cParticleSystem_naturehealing`; its start `0x79C1D0`, its
+/// run `0x79BEF0`, its draw `0x79BF60`; #1092): for 3 s one butterfly every 0.01 s at its
+/// bearer's root, within 12 of it, left in the world, rising (the buoyancy −35 ± 10, the
+/// velocity (0, 0, 15) ± (15, 15, 5)), of the half side 3, of a colour of its own at random
+/// about the grey 128, living 1.457 s, beating its wings through its 64 frames once and fading
+/// by its life; each with a faint grey glow. The renderer's wind is not followed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NatureHealing {
+    pub system: System,
+}
+
+impl NatureHealing {
+    /// Its layer: the life rate −175.
+    fn layers() -> [Layer; 1] {
+        [Layer {
+            life: -175.0,
+            ..Layer::default()
+        }]
+    }
+
+    /// A run of `dt` seconds, its bearer's root gone from `from` to `to` in the models' frame: its
+    /// butterflies aged, and for its first 3 s new ones along the way.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = Self::layers();
+        let grey = 128.0 / 255.0;
+        let block = Block {
+            buoyancy: spread(-35.0, 10.0),
+            size: spread(3.0, 0.0),
+            velocity: spread([0.0, 0.0, 15.0], [15.0, 15.0, 5.0]),
+            offset: spread([0.0; 3], [12.0, 12.0, 0.0]),
+            colour: spread([grey; 3], [127.0 / 255.0; 3]),
+            interval: 0.01,
+            ..Block::default()
+        };
+        self.system.update(dt, &layers);
+        if self.system.clock <= NATURE_HEALING_EMITS {
+            self.system.emit_along(
+                &[block],
+                &layers,
+                NATURE_HEALING_PARTICLES,
+                (from, to),
+                dt,
+                dice,
+            );
+        }
+    }
+
+    /// Whether it ended: past its 3 s with no butterfly left.
+    pub fn done(&self) -> bool {
+        self.system.clock > NATURE_HEALING_EMITS && self.system.particles.is_empty()
+    }
+
+    /// A butterfly's frame of the grid by its age, and its colour at the alpha of its life.
+    pub fn butterfly(butterfly: &Particle) -> (u8, [f32; 4]) {
+        let [r, g, b] = butterfly.colour;
+        (
+            age_frame(butterfly.life, NATURE_HEALING_GRID),
+            [r, g, b, (butterfly.life / 255.0).clamp(0.0, 1.0)],
+        )
+    }
+}
+
 /// The multi-shot's sight's textures: its comets' tails' glows (the style 5), their heads (the
 /// style 4) and its burst's sparks; its colour, (128, 255, 128); the bone it stands at.
 pub const MULTI_SHOT_TEXTURES: [&str; 3] =
@@ -4923,6 +5013,7 @@ pub fn hit_sparks(sparks: Sparks, dice: &mut impl Dice) -> Burst {
             spin: 0.0,
             layer: 0,
             frame: 0,
+            colour: [1.0; 3],
         })
         .collect();
     Burst {
@@ -5067,6 +5158,7 @@ pub fn shoot_impact(direction: [f32; 3], dice: &mut impl Dice) -> Burst {
             spin: 0.0,
             layer: 0,
             frame: 0,
+            colour: [1.0; 3],
         })
         .collect();
     let red = |r: f32, g: f32, a: f32| [r / 255.0, g / 255.0, 0.0, a / 255.0];
@@ -5574,6 +5666,7 @@ impl VampBats {
                 spin: 0.0,
                 layer: 0,
                 frame: 0,
+                colour: [1.0; 3],
             })
             .collect();
         Self {
@@ -7993,6 +8086,7 @@ impl HealingSight {
                     spin: 0.0,
                     layer: 0,
                     frame: 0,
+                    colour: [1.0; 3],
                 }
             })
             .collect();
@@ -9871,6 +9965,7 @@ impl SoulSparks {
                 spin: 0.0,
                 layer: 0,
                 frame: 0,
+                colour: [1.0; 3],
             })
             .collect();
         Self {
@@ -11985,6 +12080,7 @@ mod tests {
             spin: 0.0,
             layer: 0,
             frame: 0,
+            colour: [1.0; 3],
         };
         let trail = spark_trail(&old, &layer);
         assert_eq!(trail.len(), 21);
@@ -12443,6 +12539,36 @@ mod tests {
             mark.update(0.01);
         }
         assert!(mark.done());
+    }
+
+    #[test]
+    fn the_plants_healing_lays_coloured_butterflies_for_three_seconds() {
+        let mut dice = Rng::of(19, 23, 29);
+        let mut healing = NatureHealing::default();
+        for _ in 0..100 {
+            healing.update(0.01, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        // One every 0.01 s, each living 1.457 s: a hundred after a second.
+        let count = healing.system.particles.len();
+        assert!((95..=101).contains(&count), "{count}");
+        // Their colours each its own about the grey 128.
+        let colours: std::collections::BTreeSet<u32> = healing
+            .system
+            .particles
+            .iter()
+            .map(|p| p.colour[0].to_bits())
+            .collect();
+        assert!(colours.len() > 50, "{}", colours.len());
+        let (frame, colour) = NatureHealing::butterfly(&healing.system.particles[0]);
+        assert!(frame < 64 && colour[3] < 1.0);
+        for _ in 0..200 {
+            healing.update(0.01, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        assert!(!healing.done());
+        for _ in 0..160 {
+            healing.update(0.01, ([0.0; 3], [0.0; 3]), &mut dice);
+        }
+        assert!(healing.done());
     }
 
     #[test]
@@ -13342,6 +13468,7 @@ mod tests {
             spin: 0.0,
             layer: 0,
             frame: 0,
+            colour: [1.0; 3],
         });
         system.update_over(0.1, &[sparks.layer], Some(0.0));
         assert!(system.particles[0].velocity[2] > 0.0);
@@ -14482,6 +14609,7 @@ mod tests {
             spin: 0.0,
             layer: 0,
             frame: 0,
+            colour: [1.0; 3],
         });
         let layers = [Layer {
             pull: 50.0,
@@ -14704,6 +14832,7 @@ mod tests {
             spin: 0.0,
             layer: 0,
             frame: 7,
+            colour: [1.0; 3],
         };
         let c = own.colour(&p, &own.ramp());
         assert!(

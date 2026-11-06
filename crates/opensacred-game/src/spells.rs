@@ -1501,6 +1501,8 @@ fn act(
                 given.extend(once.into_iter().filter(|(e, _)| e.id != 28));
             }
             spells::PLANT_HEAL => {
+                // Its butterflies about the bearer (851, `0x526806`).
+                crate::plant_healings::show(&mut commands, act.target);
                 let lore = opensacred_rules::fight::magic_lore(&arts.skills, &rules);
                 let health = spells::healing(record, act.level, lore);
                 if let Ok((mut bearer, ..)) = targets.get_mut(act.target) {
