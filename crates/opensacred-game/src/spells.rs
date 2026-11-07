@@ -2636,17 +2636,29 @@ fn mine(
 /// Each creature that the hero kills (its fall not a creature's) while the hero holds the
 /// tentacles' effect bursts and raises a tentacle at its place, which strikes about itself once a
 /// second for the record's value 1, 10 s, and its sink (`0x533818`, `0x53382F`, #2104); while it
-/// holds the call of death's, it raises its value and the object 1010 sounds at the corpse
-/// (`0x5339F3`).
+/// holds the call of death's, it raises its value and the object 1010 sounds and shows its sign
+/// at the corpse (`0x5339F3`, `doom_signs`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy observer takes its queries as arguments"
+)]
 fn killed(
     died: On<Insert<Dies>>,
     mut commands: Commands,
     arts: Option<Res<crate::arts::HeroArts>>,
-    dead: Query<(&Dies, &GlobalTransform, Option<&InTheWay>), Without<Body>>,
+    dead: Query<
+        (
+            &Dies,
+            &GlobalTransform,
+            Option<&InTheWay>,
+            Option<&crate::arrows::Size>,
+        ),
+        Without<Body>,
+    >,
     mut heroes: Query<(Entity, &mut Effects, Option<&Combat>), With<Body>>,
     mut points: MessageWriter<crate::sfx::PlayAt>,
 ) {
-    let Ok((dies, at, way)) = dead.get(died.entity) else {
+    let Ok((dies, at, way, size)) = dead.get(died.entity) else {
         return;
     };
     if dies.by_creature {
@@ -2663,6 +2675,9 @@ fn killed(
             point: at.translation(),
             rate: (0.5, crate::sfx::Roll::None),
         });
+        // Its sign at the corpse, of the dead type's size (`doom_signs`).
+        let size = size.map_or(50.0, |size| size.0);
+        crate::doom_signs::show(&mut commands, at.translation(), size);
     }
     let tentacles = effects
         .timed()

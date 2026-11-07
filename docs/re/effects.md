@@ -1866,6 +1866,20 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
 Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
 
+## The call of death's sign
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The creature events' handler (`0x52E590`, at `0x5339F3` and `0x533ABD`), at the death of a creature whose killer holds the effect 46 (the call of death's, `0x5539D0` on the killer's `+0x3A8`), makes an object 1010 (`FX_CALLOFDEATH`, `cParticleSystem_callofdeath`, its virtual table `0x898B40`, constructor `0x7AFB80`, start `0x7AFD70`, run `0x7AFC10`, draw `0x7AFC60`) at the corpse, its FX event `0x8B` from the dead creature with no target, its point the corpse's place at the ground's height (`0x636310`), its direction `(S, 0, 0)`, `S` the dead type's size (`0x428CE0`, `items.pak +0x14`, 50 for 0); the handler's case `0x8B` stands it at its point.
+- Its constructor takes `Fx_transdim_sign.tga` (`+0x20B0`); its particles are not used.
+- The start: its size `S` (`+0x20AC`), its clock 0 and its fade (`+0x20A8`) 3; `VAMP_SHORTCAST` (2078) once at its owner.
+- The run: the clock on by `dt`, the fade down by `1.7·dt`; at 0 or below the fade is 0 and it dies, 1.76 s on.
+- The draw, nothing while the clock is 0: `⌊f⌋` flat quads of the sign (`0x7631E0`) of the half side `1.4·S`, white and opaque, the `j`-th turned by `0.3/(t + 0.2·j)`; then one more of the alpha of the fade's fraction, turned by `0.3/(t + 0.2·⌊f⌋)`; at the corpse on the ground, depth tested, added by their alpha.
+  The turn falls as the clock runs: the signs spin, braking.
+
+`opensacred-game` draws it since #1092 (`doom_signs`, `opensacred_rules::particles::DoomSign`): at the corpse of each creature that the hero kills while it holds the call of death (`spells`' `killed`, where its value rises and its sound plays), of the dead type's size (`arrows::Size`, 50 without one), untinted, at the corpse's place in the order, just behind a creature standing there (`fx::Orders`, #2178).
+**Seen** 2026-11-07 in the game (not beside the original): the Daemon of level 1 under his call of death killing goblins, a white sign of rings and scratches flat on the ground under each corpse, spinning to a stop and fading in under 2 s.
+
 ## The Seraphim's casts
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

@@ -63,6 +63,7 @@ mod daynight;
 mod debug;
 mod demon_fires;
 mod demon_forms;
+mod doom_signs;
 mod doors;
 mod dragon_fires;
 mod drops;
@@ -503,11 +504,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         cursors::CursorsPlugin,
         daemon::DaemonPlugin,
     ))
-    .add_plugins((dark_helices::DarkHelicesPlugin, dark_wards::DarkWardsPlugin))
     .add_plugins((
+        dark_helices::DarkHelicesPlugin,
+        dark_wards::DarkWardsPlugin,
         daynight::DayNightPlugin,
+    ))
+    .add_plugins((
         demon_fires::DemonFiresPlugin,
         demon_forms::DemonFormsPlugin,
+        doom_signs::DoomSignsPlugin,
         doors::DoorsPlugin,
         dragon_fires::DragonFiresPlugin,
         dryad_ghosts::DryadGhostsPlugin,
