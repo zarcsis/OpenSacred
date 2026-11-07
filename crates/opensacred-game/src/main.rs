@@ -212,6 +212,7 @@ mod speed_sights;
 mod spells;
 mod spells_page;
 mod spikes;
+mod spits;
 mod srgb;
 mod stargates;
 mod stashes;
@@ -674,7 +675,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         sparkles::SparklesPlugin,
         speed_sights::SpeedSightsPlugin,
     ))
-    .add_plugins(spikes::SpikesPlugin)
+    .add_plugins((spikes::SpikesPlugin, spits::SpitsPlugin))
     .add_plugins((
         spells::SpellsPlugin,
         spells_page::SpellsPagePlugin,

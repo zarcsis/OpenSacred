@@ -20,12 +20,12 @@
 //! running function follows them (`0x94E07C`).
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 use mlua::chunk::ChunkMode;
 use mlua::{Function, Lua, MultiValue, Table, Value, VmState};
-use opensacred_data::luau::Index;
+use opensacred_data::luau::{Entry, Index};
 
 mod record;
 
@@ -161,6 +161,9 @@ type Loader = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
 struct Inner {
     tree: String,
     index: Index,
+    /// The index's names by their ASCII lower-cased, the first in its order of those that differ
+    /// only by their case ([`Inner::found`]).
+    names: HashMap<String, String>,
     load: Loader,
     files: RefCell<BTreeMap<String, Table>>,
     done: RefCell<BTreeSet<String>>,
@@ -171,6 +174,35 @@ struct Inner {
     bridge: Table,
     /// The files' environments' metatable.
     environment: Table,
+}
+
+impl Inner {
+    /// The functions of the name `function` and their own name, found by the name case aside,
+    /// as the client's search of its table compares the names (`0x859690`, `_stricmp`, and their
+    /// lengths; `CallFunktion` `0x4813D0`, the runner's search `0x46BF40`, #2222): the name as
+    /// written first, else the first of the index's order whose name differs only by its case.
+    fn found(&self, function: &str) -> Option<(&str, &Vec<Entry>)> {
+        let functions = &self.index.functions;
+        functions
+            .get_key_value(function)
+            .or_else(|| {
+                let name = self.names.get(&function.to_ascii_lowercase())?;
+                functions.get_key_value(name)
+            })
+            .map(|(name, entries)| (name.as_str(), entries))
+    }
+}
+
+/// The index's names by their ASCII lower-cased, the first of its order kept where two differ
+/// only by their case.
+fn names_of(index: &Index) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for name in index.functions.keys() {
+        names
+            .entry(name.to_ascii_lowercase())
+            .or_insert_with(|| name.clone());
+    }
+    names
 }
 
 /// One tree's scripts in Luau.
@@ -239,6 +271,7 @@ impl Runtime {
             lua,
             inner: Rc::new(Inner {
                 tree: tree.to_owned(),
+                names: names_of(&index),
                 index,
                 load: Box::new(load),
                 files: RefCell::new(BTreeMap::new()),
@@ -265,7 +298,9 @@ impl Runtime {
     /// How many functions of the name `function` the tree holds, in their order: more than one
     /// where the compiler wrote a name again (`Region2Init` and `Region2Init#2`), 0 for none.
     pub fn entries(&self, function: &str) -> usize {
-        self.inner.index.functions.get(function).map_or(0, Vec::len)
+        self.inner
+            .found(function)
+            .map_or(0, |(_, entries)| entries.len())
     }
 
     /// Runs the function of the name `function` that stands `entry`-th of those of its name
@@ -371,7 +406,7 @@ fn dispatch(
                 let handled = host.borrow_mut().record(name, &operands, &ran);
                 match handled {
                     Handled::Run(function) => {
-                        let through = inner.index.functions.contains_key(&function)
+                        let through = inner.found(&function).is_some()
                             && run(lua, inner, host, &function, 0)
                                 .map_err(mlua::Error::external)?
                                 .ran();
@@ -419,11 +454,9 @@ fn run(
     if refused(function) {
         return Ok(Outcome::Refused);
     }
-    let entry = inner
-        .index
-        .functions
-        .get(function)
-        .and_then(|entries| entries.get(nth))
+    let (function, entry) = inner
+        .found(function)
+        .and_then(|(name, entries)| Some((name, entries.get(nth)?)))
         .ok_or_else(|| Error::NoFunction {
             tree: inner.tree.clone(),
             function: function.to_owned(),
@@ -761,6 +794,37 @@ mod tests {
         assert_eq!(host.records.len(), 3);
         assert_eq!(loads.borrow().get("b.luau"), Some(&1));
         assert_eq!(runtime.files(), 2);
+    }
+
+    #[test]
+    fn a_call_finds_its_function_by_its_name_case_aside() {
+        // Quest 72's `AnimEnd72` calls `init73`, the function `Init73` (#2222).
+        let (runtime, _) = runtime(&[
+            (
+                "quests/72.luau",
+                "local t = {}\nt.AnimEnd72 = function()\n  call(\"init73\")\n  return true\nend\nreturn t",
+            ),
+            (
+                "quests/73.luau",
+                "local t = {}\nt.Init73 = function()\n  touch({})\n  return true\nend\nreturn t",
+            ),
+        ]);
+        let mut host = Recorder::default();
+        assert_eq!(
+            runtime.call("AnimEnd72", &mut host).ok(),
+            Some(Outcome::Ran)
+        );
+        assert_eq!(host.records.len(), 1);
+        // The host hears the function's own name; the index counts its entries by either.
+        assert!(host.events.iter().any(|event| event == "+Init73"));
+        assert_eq!(
+            (runtime.entries("INIT73"), runtime.entries("Init73")),
+            (1, 1)
+        );
+        assert!(matches!(
+            runtime.call("Init74", &mut host),
+            Err(Error::NoFunction { .. })
+        ));
     }
 
     /// A runtime of a region's `Init` written twice, the first marking itself done.

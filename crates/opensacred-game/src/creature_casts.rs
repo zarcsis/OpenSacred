@@ -31,8 +31,9 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 29] = [
+const FOLLOWED: [u16; 30] = [
     casts::SPIDER_SHOT,
+    casts::SPIT,
     casts::DRAGON_FIRE,
     casts::HOLY_LIGHT,
     casts::BLADES,
@@ -227,9 +228,12 @@ fn begin(
             rate: combat.map_or(1.2, |combat| combat.cast / 100.0),
         });
         let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
-        // The spider shoots and the dragon breathes as its clip starts (`0x4E3464`).
+        // The spider shoots and the dragon breathes as its clip starts (`0x4E3464`); the giant
+        // spider and the crab queen spit at its share (`0x4E4CF0`'s sub-state 5).
         let share = if matches!(cast.spell, casts::SPIDER_SHOT | casts::DRAGON_FIRE) {
             0.0
+        } else if cast.spell == casts::SPIT {
+            casts::SPIT_AT
         } else {
             spells::share(cast.spell).unwrap_or(1.0)
         };
@@ -283,15 +287,21 @@ fn act(
         Res<crate::fight::Rules>,
         ResMut<crate::spells::Dice>,
     ),
-    (mut launches, mut hits, mut healths, mut points): (
+    (mut launches, mut hits, mut healths, mut points, mut spat): (
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::fight::Hit>,
         Query<&mut crate::fight::Health>,
         MessageWriter<crate::sfx::PlayAt>,
+        MessageWriter<crate::spits::Spat>,
     ),
 ) {
     for (entity, cast, at, (mind, way), rank, combat) in &acting {
         commands.entity(entity).remove::<ClipActs>();
+        if cast.spell == casts::SPIT {
+            // The giant spider's and the crab queen's spit (`0x4E5A2A`; `spits`).
+            spat.write(crate::spits::Spat { spitter: entity });
+            continue;
+        }
         if cast.spell == casts::SPIDER_SHOT {
             // The spider's shot (`0x4E369E`): the railgun's bolt from it toward its target, its
             // own strike (no record), and its sound in four cases of five.
