@@ -1,9 +1,10 @@
 //! The hero's way around what blocks it (docs/re/movement.md). The client finds a way from the
 //! hero's cell to the target's by a search of the fewest steps over the walkable cells of a
 //! 64 × 64 window (`0x421B90`), on the hero's layer and, through the doors, the others; the game
-//! does the same (`opensacred_rules::ways`), once at each order ([`Course`]), and heads for the
-//! farthest cell of the way on its layer that it reaches in a straight line over the way's own
-//! cells, so that the hero does not zigzag from cell centre to cell centre.
+//! does the same (`opensacred_rules::ways`), at each order and again as the walker moves
+//! ([`Planned`]), and heads for the farthest cell of the way on its layer that it reaches in a
+//! straight line over the way's own cells, so that the hero does not zigzag from cell centre to
+//! cell centre.
 
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -112,10 +113,9 @@ pub fn passable<L: Copy>(
 
 /// A way as the original keeps it from an order to go somewhere (`0x4F7710`, docs/re/movement.md,
 /// "The way"): straight to the target when the line to it is clear as the order is given, else
-/// the places that the search found then (`0x4FABE0`). Neither is searched again until the next
-/// order, so that a creature that comes into the way afterwards stops the walker at its step
-/// (`0x4F7E10`) rather than turning it round, and the walker keeps to its way's cells, as the
-/// original's hero kept off a barrel's cell that its step's test let it onto (#981, #989).
+/// the places that the search found then (`0x4FABE0`). The walker keeps to its way's cells, as
+/// the original's hero kept off a barrel's cell that its step's test let it onto (#981, #989),
+/// and its way is searched again as it moves ([`Planned`]).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Course<L> {
     /// Straight to the target, from where the walker stood.
@@ -133,20 +133,144 @@ pub struct Aim {
     at: Vec2,
 }
 
+/// A walker's way as it walks it (`0x4F7710`, `0x4F4770`; docs/re/movement.md, "Searching
+/// again"): the point its way was searched for, where it heads, its course there, and when the
+/// way is searched again ([`Planned::due`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Planned<L> {
+    /// The point its way was searched for, the leg toward its target, which a search again takes
+    /// again.
+    pub sought: Vec3,
+    /// Where it heads: the point sought, or the centre of the cell beside it that its way reaches
+    /// where it may not step into the point's own cell ([`course_beside`]).
+    pub leg: Vec3,
+    pub course: Course<L>,
+    /// The cell it was searched from.
+    from: Cell,
+    /// The seconds of the game since it was searched.
+    age: f32,
+}
+
+/// The longest time between two searches of a walker's way, in seconds of the game, for the
+/// players' heroes and their followers: the frames of half a second's smoothed frame rate
+/// (`0x4F5F43`, a creature's id up to 16 or its owner's).
+pub const PLAYERS_AGAIN: f32 = 0.5;
+
+/// The same for the other creatures: two and a half seconds' frames.
+pub const OTHERS_AGAIN: f32 = 2.5;
+
+impl<L: Copy + PartialEq> Planned<L> {
+    /// The way searched from `position` for `sought`, heading for `leg` on `course`.
+    pub fn new(sought: Vec3, leg: Vec3, course: Course<L>, position: Vec3) -> Self {
+        Self {
+            sought,
+            leg,
+            course,
+            from: cell_of(position.x, position.z),
+            age: 0.0,
+        }
+    }
+
+    /// Whether the way is searched again at a tick of the world `seconds` long, the walker
+    /// standing on the cell `here`, `every` seconds the longest between two searches, as the
+    /// original's moving action tests it at each tick (`0x4F4770`, `0x4F5EFF` to `0x4F5FF7`):
+    /// once `every` has passed (the third test), and a way of cells once the walker has stepped
+    /// off the cell it was searched from, where the original's walker searches again as it
+    /// passes its way's first point, a cell on (the fourth), about once a cell (seen, #2014). A
+    /// straight course, the original's way of two points, the walker and its target, which the
+    /// fourth test never takes, by the time alone.
+    pub fn due(&mut self, here: Cell, seconds: f32, every: f32) -> bool {
+        self.age += seconds;
+        self.age >= every || matches!(self.course, Course::Way(..)) && here != self.from
+    }
+
+    /// Whether its search again tries no straight line: the original searches a way of three
+    /// points or more again with the window at once, never taking it straight (`0x4FABE0`'s last
+    /// argument 1, where `+0x175` is `0x7B`, `0x4F6408`).
+    pub fn searched(&self) -> bool {
+        matches!(&self.course, Course::Way(way, _) if way.len() >= 3)
+    }
+
+    /// The way a walker on this one takes as it is searched again from `position` on `layer`,
+    /// `found` the search's: this one, its course and what it heads for kept, where it is still
+    /// open and no longer than `found`; else `found`. A straight course is open while the line
+    /// from the walker to where it heads crosses cells it may step into (`walkable`); a way while
+    /// every step of what is left of it from the walker's place on it is one the search takes
+    /// (`neighbours`), no longer than `found`'s way. The original walks the way found again from
+    /// cell to cell (`0x4F4770`); ours, which heads for the farthest place of its way that it
+    /// sees ([`follow`]), so does not turn between two ways of as many steps, nor off a straight
+    /// line onto a way whose first step from where it stands is to its cell's centre, and turns
+    /// where something has stepped into its way or a shorter way has opened.
+    pub fn again<K: PartialEq>(
+        self,
+        found: Option<Self>,
+        position: Vec3,
+        layer: L,
+        walkable: impl Fn(Cell, L) -> bool,
+        neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+        level: impl Fn(L) -> K,
+    ) -> Option<Self> {
+        let here = cell_of(position.x, position.z);
+        let way = match &self.course {
+            Course::Straight(_) => {
+                return if clear(position.xz(), self.leg.xz(), |cell| walkable(cell, layer)) {
+                    Some(Self {
+                        from: here,
+                        age: 0.0,
+                        ..self
+                    })
+                } else {
+                    found
+                };
+            }
+            Course::Way(way, _) => way,
+        };
+        let Some(at) = way
+            .iter()
+            .rposition(|&(cell, place)| cell == here && level(place) == level(layer))
+        else {
+            return found;
+        };
+        let left = &way[at..];
+        let open = left
+            .windows(2)
+            .all(|step| neighbours(step[0]).contains(&step[1]));
+        let shorter = match found.as_ref().map(|found| &found.course) {
+            Some(Course::Way(way, _)) => way.len() < left.len(),
+            Some(Course::Straight(_)) => true,
+            None => false,
+        };
+        if open && !shorter {
+            Some(Self {
+                from: here,
+                age: 0.0,
+                ..self
+            })
+        } else {
+            found
+        }
+    }
+}
+
 /// The course of a walker at `position` on `layer` ordered to `target`, on level `onto` when
-/// given: straight when the line to the target is clear on its layer and the target is on it,
-/// else the way that the search finds; `None` when the target cannot be reached. A place's layer
-/// is `level` of its `L`, which may carry more than the layer.
+/// given: straight when `line` and the line to the target is clear on its layer and the target is
+/// on it, else the way that the search finds; `None` when the target cannot be reached. A place's
+/// layer is `level` of its `L`, which may carry more than the layer.
 ///
 /// The original's line runs from cell to cell (`0x4FABE0`'s first loop, each cell and, where it
 /// steps diagonally, the cells beside the corner through `0x4FAA60`), so that a walker standing
 /// off its cell's centre does not slip between two closed cells that touch at a corner of its
 /// line; the line between the two cells' centres has to be clear as well as the walker's own.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the search's tests and the walker's place each come apart"
+)]
 pub fn course<L: Copy + Eq + Hash, K: PartialEq>(
     position: Vec3,
     layer: L,
     target: Vec3,
     onto: Option<K>,
+    line: bool,
     walkable: impl Fn(Cell, L) -> bool,
     neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
     level: impl Fn(L) -> K,
@@ -155,7 +279,7 @@ pub fn course<L: Copy + Eq + Hash, K: PartialEq>(
     let arrives = |at: L| onto.as_ref().is_none_or(|onto| level(at) == *onto);
     let on = |cell| walkable(cell, layer);
     let centres = (centre(cell_of(from.x, from.y)), centre(cell_of(to.x, to.y)));
-    if arrives(layer) && clear(from, to, on) && clear(centres.0, centres.1, on) {
+    if line && arrives(layer) && clear(from, to, on) && clear(centres.0, centres.1, on) {
         return Some(Course::Straight(from));
     }
     path_onto(
@@ -352,7 +476,9 @@ mod tests {
         neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
         level: impl Fn(L) -> K,
     ) -> Option<Step<L>> {
-        let mut course = course(position, layer, target, onto, &walkable, neighbours, &level)?;
+        let mut course = course(
+            position, layer, target, onto, true, &walkable, neighbours, &level,
+        )?;
         follow(&mut course, position, layer, target, walkable, level)
     }
 
@@ -370,6 +496,7 @@ mod tests {
             (),
             target,
             None::<()>,
+            true,
             |c, ()| walkable(c),
             neighbours,
             |l| l,
@@ -575,6 +702,7 @@ mod tests {
                     (),
                     target,
                     None::<()>,
+                    true,
                     |c, ()| walkable(c),
                     neighbours,
                     |l| l,
@@ -684,6 +812,7 @@ mod tests {
                     (),
                     target,
                     None::<()>,
+                    true,
                     |c, ()| open(c),
                     neighbours,
                     |l| l,
@@ -700,6 +829,355 @@ mod tests {
             }
         }
         assert_eq!(arrived, walks);
+    }
+
+    #[test]
+    fn a_way_is_searched_again_a_cell_on_and_a_straight_course_by_the_time() {
+        let way = Course::Way(vec![((0, 0), ()), ((1, 0), ()), ((2, 0), ())], None);
+        let mut planned = Planned::new(at(2.0, 0.5), at(2.0, 0.5), way, at(0.5, 0.5));
+        // On the cell it was searched from: not until the longest time has passed.
+        assert!(!planned.due((0, 0), 0.1, PLAYERS_AGAIN));
+        assert!(!planned.due((0, 0), 0.3, PLAYERS_AGAIN));
+        assert!(planned.due((0, 0), 0.1, PLAYERS_AGAIN));
+        // A cell on: at once.
+        let mut planned = Planned::new(at(2.0, 0.5), at(2.0, 0.5), planned.course, at(0.5, 0.5));
+        assert!(planned.due((1, 0), 0.1, OTHERS_AGAIN));
+        // Straight: by the time alone, wherever the walker stands.
+        let straight = Course::<()>::Straight(at(0.5, 0.5).xz());
+        let mut planned = Planned::new(at(2.0, 0.5), at(2.0, 0.5), straight, at(0.5, 0.5));
+        assert!(!planned.due((1, 0), 0.1, OTHERS_AGAIN));
+        assert!(!planned.due((2, 0), 2.2, OTHERS_AGAIN));
+        assert!(planned.due((2, 0), 0.3, OTHERS_AGAIN));
+        // A way of three places is searched again with no straight line; of two, with one.
+        assert!(!planned.searched());
+        let short = Course::Way(vec![((0, 0), ()), ((1, 1), ())], None);
+        assert!(!Planned::new(at(1.5, 1.5), at(1.5, 1.5), short, at(0.5, 0.5)).searched());
+        let long = Course::Way(vec![((0, 0), ()), ((1, 0), ()), ((2, 0), ())], None);
+        assert!(Planned::new(at(2.0, 0.5), at(2.0, 0.5), long, at(0.5, 0.5)).searched());
+    }
+
+    #[test]
+    fn a_way_searched_again_is_kept_while_what_is_left_of_it_is_open_and_no_longer() {
+        let target = at(3.5, 0.5);
+        let old_way = vec![((0, 0), ()), ((1, 0), ()), ((2, 0), ()), ((3, 0), ())];
+        let aim = Some(Aim {
+            to: 3,
+            from: 0,
+            at: at(0.5, 0.5).xz(),
+        });
+        let old = Planned::new(
+            target,
+            target,
+            Course::Way(old_way.clone(), aim),
+            at(0.5, 0.5),
+        );
+        let here = at(1.5, 0.5);
+        let found =
+            |way: Vec<(Cell, ())>| Some(Planned::new(target, target, Course::Way(way, None), here));
+        let alike = vec![((1, 0), ()), ((2, 1), ()), ((3, 0), ())];
+        let neighbours = |shut: Cell| {
+            move |(cell, layer): (Cell, ())| {
+                around(cell, |c| c != shut)
+                    .map(|c| (c, layer))
+                    .collect::<Vec<_>>()
+            }
+        };
+        let open = |_: Cell, ()| true;
+        // What is left open and as long as the way found: kept, with what it heads for, searched
+        // from the cell it stands on now.
+        let kept = old
+            .clone()
+            .again(
+                found(alike.clone()),
+                here,
+                (),
+                open,
+                neighbours((9, 9)),
+                |l| l,
+            )
+            .expect("a way");
+        assert_eq!(kept.course, Course::Way(old_way.clone(), aim));
+        assert!(!kept.clone().due((1, 0), 0.1, PLAYERS_AGAIN));
+        // A cell of what is left closed: the way found.
+        let turned = old
+            .clone()
+            .again(
+                found(alike.clone()),
+                here,
+                (),
+                open,
+                neighbours((2, 0)),
+                |l| l,
+            )
+            .expect("a way");
+        assert_eq!(turned.course, Course::Way(alike.clone(), None));
+        // A shorter way found: taken.
+        let shorter = vec![((1, 0), ()), ((3, 0), ())];
+        let taken = old
+            .clone()
+            .again(
+                found(shorter.clone()),
+                here,
+                (),
+                open,
+                neighbours((9, 9)),
+                |l| l,
+            )
+            .expect("a way");
+        assert_eq!(taken.course, Course::Way(shorter, None));
+        // None found, what is left open: kept; closed: none.
+        assert!(
+            old.clone()
+                .again(None, here, (), open, neighbours((9, 9)), |l| l)
+                .is_some()
+        );
+        assert!(
+            old.again(None, here, (), open, neighbours((2, 0)), |l| l)
+                .is_none()
+        );
+        // A straight course kept while its line from the walker on is clear, whatever the way
+        // found; else the way found.
+        let line = Course::Straight(at(0.5, 0.5).xz());
+        let straight = Planned::new(target, target, line.clone(), at(0.5, 0.5));
+        let kept = straight
+            .clone()
+            .again(
+                found(alike.clone()),
+                here,
+                (),
+                open,
+                neighbours((9, 9)),
+                |l| l,
+            )
+            .expect("a course");
+        assert_eq!(kept.course, line);
+        let shut = |cell: Cell, ()| cell != (2, 0);
+        let turned = straight
+            .again(
+                found(alike.clone()),
+                here,
+                (),
+                shut,
+                neighbours((2, 0)),
+                |l| l,
+            )
+            .expect("a way");
+        assert_eq!(turned.course, Course::Way(alike, None));
+    }
+
+    /// How a hero on one layer walks from `from` to `target`, `length` a frame, its way
+    /// searched again at a tick of the world every sixth frame as `hero::run` searches it, the
+    /// cells that `shut` gives for a frame closed then: whether it arrives within 2,000 frames,
+    /// the cells it stood on, and how often it turned back to its cell's centre from heading
+    /// elsewhere.
+    fn walked_again(
+        from: Vec3,
+        target: Vec3,
+        shut: impl Fn(usize) -> HashSet<Cell>,
+        length: f32,
+    ) -> (bool, Vec<Cell>, usize) {
+        let mut here = from;
+        let mut cells = vec![cell_of(here.x, here.z)];
+        let mut planned: Option<Planned<()>> = None;
+        let (mut turned, mut last) = (0, None::<(Cell, Vec3)>);
+        for frame in 0..2000 {
+            let closed = shut(frame);
+            let open = |cell: Cell| !closed.contains(&cell);
+            let neighbours =
+                |(cell, layer): (Cell, ())| around(cell, open).map(|c| (c, layer)).collect();
+            let plan = |here: Vec3, old: Option<Planned<()>>| {
+                let line = old.as_ref().is_none_or(|old| !old.searched());
+                let found = course(
+                    here,
+                    (),
+                    target,
+                    None::<()>,
+                    line,
+                    |c, ()| open(c),
+                    neighbours,
+                    |l| l,
+                )
+                .map(|course| Planned::new(target, target, course, here));
+                match old {
+                    Some(old) => old.again(found, here, (), |c, ()| open(c), neighbours, |l| l),
+                    None => found,
+                }
+            };
+            let follow = |planned: &mut Option<Planned<()>>| {
+                planned.as_mut().and_then(|planned| {
+                    follow(
+                        &mut planned.course,
+                        here,
+                        (),
+                        planned.leg,
+                        |c, ()| open(c),
+                        |l| l,
+                    )
+                })
+            };
+            let mut searched = true;
+            if planned.is_none() {
+                planned = plan(here, None);
+            } else if let Some(old) = planned.as_mut()
+                && frame % 6 == 0
+                && old.due(cell_of(here.x, here.z), 0.1, PLAYERS_AGAIN)
+            {
+                planned = plan(here, planned.take());
+            } else {
+                searched = false;
+            }
+            let mut step = follow(&mut planned);
+            if step.is_none() && planned.is_some() {
+                planned = plan(here, None);
+                searched = true;
+                step = follow(&mut planned);
+            }
+            if matches!(step, Some(Step::Blocked)) && !searched {
+                planned = plan(here, planned.take());
+                searched = true;
+                step = follow(&mut planned);
+            }
+            if (target - here).xz().length() <= crate::hero::ARRIVED {
+                return (true, cells, turned);
+            }
+            let (line, toward) = match step {
+                Some(Step::Toward(line, toward)) => (line, toward),
+                Some(Step::Blocked | Step::Through(_)) => return (false, cells, turned),
+                None => (here.xz(), target),
+            };
+            let cell = cell_of(here.x, here.z);
+            let own = |point: Vec3| (point.xz() - centre(cell)).length() < 1e-3;
+            if last.is_some_and(|(was, before)| was == cell && !own(before)) && own(toward) {
+                turned += 1;
+            }
+            last = Some((cell, toward));
+            let next = advance(line, toward, here, length);
+            let into = cell_of(next.x, next.z);
+            if into != cell && !open(into) {
+                if searched {
+                    return (false, cells, turned);
+                }
+                planned = plan(here, planned.take());
+                continue;
+            }
+            here = next;
+            if cells.last() != Some(&into) {
+                cells.push(into);
+            }
+        }
+        (false, cells, turned)
+    }
+
+    #[test]
+    fn walkers_searching_again_do_not_turn_round_on_their_ways() {
+        // As `walkers_at_the_worlds_coordinates_do_not_turn_round_on_their_ways`, the ways
+        // searched again at every tick: nothing having moved, a walker keeps its way and gets to
+        // its target as before, never turning back to its cell's centre (#996, #2175).
+        let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let origin = 5600;
+        let (mut walks, mut arrived) = (0, 0);
+        for _ in 0..30 {
+            let closed: HashSet<Cell> = (origin..origin + 16)
+                .flat_map(|x| (origin..origin + 16).map(move |y| (x, y)))
+                .filter(|_| next() % 100 < 30)
+                .collect();
+            let range = origin..origin + 16;
+            let open = |cell: Cell| {
+                range.contains(&cell.0) && range.contains(&cell.1) && !closed.contains(&cell)
+            };
+            let walls: HashSet<Cell> = (origin - 1..=origin + 16)
+                .flat_map(|x| (origin - 1..=origin + 16).map(move |y| (x, y)))
+                .filter(|&cell| !open(cell))
+                .collect();
+            let neighbours =
+                |(cell, layer): (Cell, ())| around(cell, open).map(|c| (c, layer)).collect();
+            for _ in 0..15 {
+                let point = |r: u64| {
+                    let (x, y) = (r % 1600, r / 1600 % 1600);
+                    let o = origin as f32;
+                    at(
+                        o + f32::from(u16::try_from(x).unwrap()) / 100.0 + 0.003,
+                        o + f32::from(u16::try_from(y).unwrap()) / 100.0 + 0.007,
+                    )
+                };
+                let (from, target) = (point(next()), point(next()));
+                let length = if next() % 2 == 0 { 1.5 } else { 5.5 };
+                if !open(cell_of(from.x, from.z))
+                    || course(
+                        from,
+                        (),
+                        target,
+                        None::<()>,
+                        true,
+                        |c, ()| open(c),
+                        neighbours,
+                        |l| l,
+                    )
+                    .is_none()
+                {
+                    continue;
+                }
+                walks += 1;
+                let (got, cells, turned) = walked_again(from, target, |_| walls.clone(), length);
+                assert_eq!(turned, 0, "{cells:?}");
+                arrived += usize::from(got);
+            }
+        }
+        assert!(walks > 100, "{walks}");
+        assert_eq!(arrived, walks);
+    }
+
+    #[test]
+    fn the_hero_goes_round_a_creature_that_steps_into_its_straight_line() {
+        // Open ground, the line from (2, 5) to (14, 5) clear as the hero sets out; a creature
+        // steps onto (8, 5) at the 20th frame, the hero some two cells on (#2175).
+        let creature = (8, 5);
+        let shut = |frame: usize| {
+            if frame >= 20 {
+                HashSet::from([creature])
+            } else {
+                HashSet::new()
+            }
+        };
+        let (arrived, cells, _) = walked_again(at(2.5, 5.5), at(14.5, 5.5), shut, 5.5);
+        assert!(arrived, "{cells:?}");
+        assert!(!cells.contains(&creature), "{cells:?}");
+    }
+
+    #[test]
+    fn the_hero_goes_round_a_creature_that_steps_into_its_way() {
+        // Round the end of the wall along x = 5, a creature steps onto a cell of the way ahead of
+        // the walker as it walks: its way searched again a cell on goes round it too.
+        let (from, target) = (at(2.5, 4.5), at(8.5, 4.5));
+        let Some(Course::Way(way, _)) = course(
+            from,
+            (),
+            target,
+            None::<()>,
+            true,
+            |c, ()| wall(c),
+            flat,
+            |l| l,
+        ) else {
+            panic!("no way round the wall");
+        };
+        let creature = way[way.len() / 2].0;
+        let shut = |frame: usize| {
+            let mut closed: HashSet<Cell> = (0..=8).map(|y| (5, y)).collect();
+            if frame >= 10 {
+                closed.insert(creature);
+            }
+            closed
+        };
+        let (arrived, cells, _) = walked_again(from, target, shut, 5.5);
+        assert!(arrived, "{cells:?}");
+        assert!(!cells.contains(&creature), "{creature:?} in {cells:?}");
     }
 
     #[test]

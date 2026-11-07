@@ -1287,10 +1287,9 @@ pub struct Walk {
     /// the AI's state 0, #977), the idle action's step, a parting or a step aside. One that walks
     /// so does not step aside for the hero (`0x547070`, `ai::aside`).
     idle: bool,
-    /// The leg it heads for and its course there, found as it set out on the leg
-    /// (`paths::Course`, `0x4F7710`), so that a creature that steps into its way afterwards
-    /// stops it rather than turns it round (#989).
-    course: Option<(Vec3, paths::Course<Floored>)>,
+    /// The leg it heads for and its course there, found as it set out on the leg and again as it
+    /// moves (`paths::Planned`, `0x4F7710`, `0x4F4770`, #2175).
+    course: Option<paths::Planned<Floored>>,
     /// The level it walks onto, where it is given (`0x4F7710`'s position's floor): a follower's
     /// step off's (#1013); else any its way reaches the target's cell on.
     onto: Option<Level>,
@@ -1317,7 +1316,7 @@ impl Walk {
         if self
             .course
             .as_ref()
-            .is_some_and(|(leg, _)| *leg != self.target)
+            .is_some_and(|planned| planned.leg != self.target)
         {
             self.course = None;
         }
@@ -6216,9 +6215,13 @@ fn first_clip(
 /// `0x4FABE0`, #425). A target it cannot reach it walks straight toward, up to what blocks it,
 /// and stands there; one whose first step is blocked stands a second in its idle before its walk
 /// ends (#258).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 pub fn walk(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, tick): (Res<Time>, Res<WorldTick>),
     heights: Res<Heights>,
     // Who stands in the way, and who stays where it is made.
     (crowd, still): (Res<crowd::Crowd>, Query<(), With<Still>>),
@@ -6230,10 +6233,11 @@ pub fn walk(
         &mut buildings::Layered,
         &mut crowd::InTheWay,
         &Npc,
+        Has<crate::followers::Follower>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
-    for (entity, mut transform, mut walk, mut layered, mut way, npc) in &mut walkers {
+    for (entity, mut transform, mut walk, mut layered, mut way, npc, follows) in &mut walkers {
         if still.contains(entity) {
             commands.entity(entity).remove::<Walk>();
             continue;
@@ -6285,16 +6289,25 @@ pub fn walk(
         let free =
             |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
         // Its leg and its course there, found as it sets out on the leg, anew off it (a stair's
-        // landing) and at the leg's end short of its target. The leg is tested on the target's
-        // floor of the building there, else on the ground (`0x4FABE0`'s test `0x4EBCA0` of
-        // `0x6354D0`'s floor), as the hero's (`hero::run`, #1344, #2011).
+        // landing) and at the leg's end short of its target, and again as it moves (#2175). The
+        // leg is tested on the target's floor of the building there, else on the ground
+        // (`0x4FABE0`'s test `0x4EBCA0` of `0x6354D0`'s floor), as the hero's (`hero::run`,
+        // #1344, #2011).
         let floor = heights.floor_number(onto.unwrap_or(level));
         // Its place on its way, at its level and its floor number.
         let start = (level, heights.floor_number(level), false);
-        let plan = |here: Vec3| {
-            let leg = paths::leg(here, target, |cell| {
-                heights.walkable_on(cell, heights.on_floor(cell, floor))
-            });
+        // Searched again, for the point that `old` was searched for, `old` kept where the search
+        // finds one alike (`paths::Planned::again`).
+        let plan = |here: Vec3, old: Option<paths::Planned<Floored>>| {
+            let leg = old.as_ref().map_or_else(
+                || {
+                    paths::leg(here, target, |cell| {
+                        heights.walkable_on(cell, heights.on_floor(cell, floor))
+                    })
+                },
+                |old| old.sought,
+            );
+            let line = old.as_ref().is_none_or(|old| !old.searched());
             let end = paths::cell_of(leg.x, leg.z);
             // The goal's floor of the search over floor numbers, that of the level the leg's end
             // is at, as the hero's (`hero::run`, #2013).
@@ -6303,53 +6316,72 @@ pub fn walk(
             } else {
                 heights.on_floor(end, floor)
             });
-            let course = paths::course(
+            let neighbours = |place| {
+                let next = heights.floored_neighbours(place, (start.1, goal), |cell, at| {
+                    heights.walkable_on(cell, at)
+                });
+                paths::passable(next, end, |cell, (at, ..)| {
+                    crowd.stops(cell, at, entity, false)
+                })
+            };
+            let found = paths::course(
                 here,
                 start,
                 leg,
                 Some(goal),
+                line,
                 |cell, (at, ..)| free(cell, at),
-                |place| {
-                    let next = heights.floored_neighbours(place, (start.1, goal), |cell, at| {
-                        heights.walkable_on(cell, at)
-                    });
-                    paths::passable(next, end, |cell, (at, ..)| {
-                        crowd.stops(cell, at, entity, false)
-                    })
-                },
+                neighbours,
                 |(_, floor, _)| floor,
-            );
-            (leg, course)
-        };
-        let follow = |planned: &mut Option<(Vec3, paths::Course<_>)>| {
-            planned.as_mut().and_then(|(leg, course)| {
-                paths::follow(
-                    course,
+            )
+            .map(|course| paths::Planned::new(leg, leg, course, here));
+            match old {
+                Some(old) => old.again(
+                    found,
                     here,
                     start,
-                    *leg,
+                    |cell, (at, ..)| free(cell, at),
+                    neighbours,
+                    |(_, floor, _)| floor,
+                ),
+                None => found,
+            }
+        };
+        let follow = |planned: &mut Option<paths::Planned<Floored>>| {
+            planned.as_mut().and_then(|planned| {
+                paths::follow(
+                    &mut planned.course,
+                    here,
+                    start,
+                    planned.leg,
                     |cell, (at, ..)| free(cell, at),
                     |(_, floor, _)| floor,
                 )
             })
         };
-        let at_leg = |planned: &Option<(Vec3, paths::Course<_>)>| {
-            planned.as_ref().is_some_and(|(leg, _)| {
-                (*leg - here).with_y(0.0).length() <= AT_LEG && (*leg - target).length() > 0.0
+        let at_leg = |planned: &Option<paths::Planned<Floored>>| {
+            planned.as_ref().is_some_and(|planned| {
+                (planned.leg - here).with_y(0.0).length() <= AT_LEG
+                    && (planned.leg - target).length() > 0.0
             })
         };
+        // Searched again at the world's ticks as it moves, every half second at the longest for
+        // the hero's follower, every two and a half for the others (`0x4F4770`, #2175).
+        let every = if follows {
+            paths::PLAYERS_AGAIN
+        } else {
+            paths::OTHERS_AGAIN
+        };
         if walk.course.is_none() || at_leg(&walk.course) {
-            walk.course = match plan(here) {
-                (leg, Some(course)) => Some((leg, course)),
-                (_, None) => None,
-            };
+            walk.course = plan(here, None);
+        } else if let (Some(seconds), Some(planned)) = (tick.seconds, walk.course.as_mut())
+            && planned.due(paths::cell_of(here.x, here.z), seconds, every)
+        {
+            walk.course = plan(here, walk.course.take());
         }
         let mut step = follow(&mut walk.course);
         if step.is_none() && walk.course.is_some() {
-            walk.course = match plan(here) {
-                (leg, Some(course)) => Some((leg, course)),
-                (_, None) => None,
-            };
+            walk.course = plan(here, None);
             step = follow(&mut walk.course);
         }
         let (from, toward) = match step {
@@ -6368,6 +6400,8 @@ pub fn walk(
         let mut position =
             paths::advance(from, toward, here, walk.speed * speed.0 * time.delta_secs());
         let into = paths::cell_of(position.x, position.z);
+        // A step it may not take ends its walk, as quest 1's novice stopped at the hero put in
+        // her way and stood there (seen in the original, #227's check 1).
         let blocked =
             into != cell && !free(into, walk.level) && heights.walkable_on(cell, walk.level);
         // Within its target's reach, on the level it walks onto unless its way found none.
@@ -10112,10 +10146,12 @@ mod tests {
     fn a_queue_steers_a_walk_short_of_its_target_only() {
         let (far, leg) = (Vec3::new(5000.0, 0.0, 0.0), Vec3::new(1400.0, 0.0, 0.0));
         let mut walk = Walk::run(far, None, 276.0);
-        walk.course = Some((leg, paths::Course::Straight(Vec2::ZERO)));
+        let planned =
+            |to: Vec3| paths::Planned::new(to, to, paths::Course::Straight(Vec2::ZERO), Vec3::ZERO);
+        walk.course = Some(planned(leg));
         walk.steer();
         assert!(walk.course.is_none());
-        walk.course = Some((far, paths::Course::Straight(Vec2::ZERO)));
+        walk.course = Some(planned(far));
         walk.steer();
         assert!(walk.course.is_some());
     }
@@ -11871,7 +11907,15 @@ mod tests {
             .insert_resource(heights)
             .init_resource::<crowd::Crowd>()
             .init_resource::<hero::GameSpeed>()
-            .add_systems(Update, walk);
+            .init_resource::<WorldTick>()
+            .add_systems(
+                Update,
+                (
+                    |time: Res<Time>, mut tick: ResMut<WorldTick>| tick.gather(time.delta_secs()),
+                    walk,
+                )
+                    .chain(),
+            );
         let npc = app
             .world_mut()
             .spawn((
