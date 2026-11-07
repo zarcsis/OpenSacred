@@ -3891,6 +3891,29 @@ pub const ALCHEMY: u32 = 868;
 /// `0x5346F8`; `drops::drops`).
 pub const ALCHEMY_FACES: u32 = 100;
 
+/// The items' effect of the light (`0x361`, the text 1133), by which its wearer's light on the
+/// night reaches farther.
+pub const LIGHT: u32 = 865;
+
+/// The radius of a light on the night of the radius `radius` whose wearer's items have the effect
+/// of the light `value` ([`LIGHT`], [`item_effect`]; `0x54A9C3`): grown by `value` per cent,
+/// `r + r·v·0.01` truncated (`_ftol`), the radius as it was at a value of 0; a ridden mount's
+/// light is its rider's, grown by the rider's value.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a whole number of world units, exact in a float"
+)]
+pub fn lit_radius(radius: f32, value: f32) -> f32 {
+    if value == 0.0 {
+        return radius;
+    }
+    // At the render thread's 53 bits (#589), as the draw lists' lights are taken there.
+    let radius = f64::from(radius);
+    (radius * f64::from(value) * f64::from(0.01_f32) + radius)
+        .trunc()
+        .max(0.0) as f32
+}
+
 /// The per cent of a rare effect's rolls of `faces` faces, `R(0, faces − 1)`, that fall below its
 /// chance of the value `value` and the parameters `params` ([`rare_chance`]): the share of the
 /// strikes or the deaths on which it holds, `⌈p⌉` of `faces` for a chance `p` not whole, which the
@@ -6735,6 +6758,16 @@ mod tests {
                 .count(),
             43
         );
+    }
+
+    #[test]
+    fn the_items_light_grows_the_light_by_its_per_cent() {
+        // 1000 at 15 %: 1149.99… on the float 0.01, truncated to 1149; 700 at 7 %: 748.99…, 748.
+        assert_eq!(lit_radius(1000.0, 15.0), 1149.0);
+        assert_eq!(lit_radius(700.0, 7.0), 748.0);
+        assert_eq!(lit_radius(200.0, 0.0), 200.0);
+        // A value taken below −100 % puts the light out.
+        assert_eq!(lit_radius(300.0, -150.0), 0.0);
     }
 
     #[test]

@@ -444,7 +444,7 @@ const TORCHES: [u32; 2] = [0x1600, 0x1601];
 /// The hero's light's radius at the night's level (`0x54A7B0`): in a dungeon 200 at any hour, 300
 /// with a lit torch among its items (`torch`, [`TORCHES`]); elsewhere 700 by day, whatever it
 /// holds, and from the dusk to the dawn 1000 − level · 700/255, doubled where `doubled`, and half
-/// as much again with a torch. Not yet: the attribute `0x361`, which replaces it when it is set.
+/// as much again with a torch. The items' light then grows it ([`lit`]).
 fn hero_radius(phase: Phase, level: f32, dungeon: bool, (doubled, torch): (bool, bool)) -> f32 {
     if dungeon {
         if torch { 300.0 } else { 200.0 }
@@ -455,6 +455,16 @@ fn hero_radius(phase: Phase, level: f32, dungeon: bool, (doubled, torch): (bool,
         let radius = if doubled { 2.0 * radius } else { radius };
         if torch { 1.5 * radius } else { radius }
     }
+}
+
+/// The light's radius `radius` of a creature holding `holding`, grown by its items' effect of the
+/// light (865, `0x54A9C3`, `opensacred_rules::fight::lit_radius`); as it was without items.
+fn lit(radius: f32, holding: Option<&crate::fight::Holding>) -> f32 {
+    use opensacred_rules::fight as rules;
+    let value = holding.map_or(0.0, |holding| {
+        rules::item_effect(&holding.0.items, rules::LIGHT, None)
+    });
+    rules::lit_radius(radius, value)
 }
 
 /// Whether the hero holds a lit torch: one in a hand of its weapon set selected, among the items
@@ -484,7 +494,7 @@ pub fn light(
     dungeons: Res<Dungeons>,
     (hero_light, sets): (Res<HeroLight>, Option<Res<crate::sets::WeaponSets>>),
     mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
-    hero: Query<(Entity, &Transform), With<crate::hero::Body>>,
+    hero: Query<(Entity, &Transform, Option<&crate::fight::Holding>), With<crate::hero::Body>>,
     lights: Query<(&Transform, &Light), Without<crate::hero::Body>>,
     (followers, held): (
         Query<(Entity, &Transform, &crate::followers::Follower)>,
@@ -494,20 +504,25 @@ pub fn light(
     let minutes = clock.minutes();
     let level = level(minutes) as f32;
     let hero = hero.iter().next();
-    let dungeon = hero.is_some_and(|(_, t)| dungeons.holds(t.translation.x, t.translation.z));
+    let dungeon = hero.is_some_and(|(_, t, _)| dungeons.holds(t.translation.x, t.translation.z));
     let radius = |doubled, torch| hero_radius(phase(minutes), level, dungeon, (doubled, torch));
-    // The hero's light, and its followers', each lit as a hero by its own items, of a type that
-    // doubles none (`0x54A7DE`: a creature of the flags `0x104` whose master is the player).
+    // The hero's light, grown by its items' light, and its followers', each lit as a hero by its
+    // own items, of a type that doubles none (`0x54A7DE`: a creature of the flags `0x104` whose
+    // master is the player); the followers' items carry no values here, so their light grows
+    // by none.
     let heroes: Vec<(Vec3, f32)> = hero
-        .map(|(_, t)| {
+        .map(|(_, t, holding)| {
             let torch = holds_torch(sets.as_deref());
-            (t.translation, radius(hero_light.doubled, torch))
+            (
+                t.translation,
+                lit(radius(hero_light.doubled, torch), holding),
+            )
         })
         .into_iter()
         .chain(
             followers
                 .iter()
-                .filter(|(_, _, follower)| hero.is_some_and(|(hero, _)| follower.master == hero))
+                .filter(|(_, _, follower)| hero.is_some_and(|(hero, _, _)| follower.master == hero))
                 .map(|(follower, t, _)| {
                     let torch = held.iter().any(|(piece, &crate::models::OrderedWith(by))| {
                         by == follower && crate::torches::lit(piece.model())
