@@ -372,8 +372,8 @@ fn run(
             let width = if visible { scale * fade * s } else { 0.0 };
             *transform =
                 Transform::from_translation(origin + world([0.0, 0.0, shown.element.model_lift()]))
-                .with_rotation(Quat::from_rotation_y(shown.element.model_turn()))
-                .with_scale(Vec3::new(width, if visible { s } else { 0.0 }, width));
+                    .with_rotation(Quat::from_rotation_y(shown.element.model_turn()))
+                    .with_scale(Vec3::new(width, if visible { s } else { 0.0 }, width));
         }
         let order = orders.at(origin);
         let mut drawn = if visible {
@@ -408,11 +408,7 @@ fn run(
 struct Of(Entity);
 
 /// Takes away the models of the elements gone with their sectors.
-fn orphans(
-    mut commands: Commands,
-    models: Query<(Entity, &Of)>,
-    elements: Query<(), With<Shown>>,
-) {
+fn orphans(mut commands: Commands, models: Query<(Entity, &Of)>, elements: Query<(), With<Shown>>) {
     for (model, &Of(element)) in &models {
         if !elements.contains(element) {
             commands.entity(model).try_despawn();
