@@ -225,7 +225,7 @@ fn fly(
     time: Res<Time>,
     mut bursts: Query<(Entity, &mut Burst, &Transform)>,
     mut rocks: Query<&mut Transform, Without<Burst>>,
-    heights: Res<Heights>,
+    (heights, orders): (Res<Heights>, crate::fx::Orders),
     (looks, mut meshes, mut dice): (Res<Looks>, ResMut<Assets<Mesh>>, ResMut<Dice>),
 ) {
     let dt = time.delta_secs().min(0.1);
@@ -279,7 +279,10 @@ fn fly(
                 ramp.at(particle.life),
             );
         }
+        // At its object's place in the order, as the original draws the system (#2220).
+        let order = orders.at(origin + head);
         if let Some(mut mesh) = meshes.get_mut(&*trail) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
         let mut quads = Quads::default();
@@ -293,6 +296,7 @@ fn fly(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&*glow) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
     }
@@ -303,12 +307,12 @@ fn fly(
 fn burn(
     mut commands: Commands,
     time: Res<Time>,
-    mut fires: Query<(Entity, &mut Flames)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut fires: Query<(Entity, &mut Flames, &Transform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let grid = particles::LAVA_FLAMES_GRID;
-    for (entity, mut fire) in &mut fires {
+    for (entity, mut fire, place) in &mut fires {
         let Flames { flames, mesh } = &mut *fire;
         flames.update(dt);
         if flames.done() {
@@ -329,6 +333,9 @@ fn burn(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&*mesh) {
+            // At its object's place in the order, as the original draws the system (#2220).
+            let origin = place.translation;
+            quads.in_order(orders.at(origin), origin);
             quads.into_mesh(&mut mesh);
         }
     }
