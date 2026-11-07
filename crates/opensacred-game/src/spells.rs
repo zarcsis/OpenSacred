@@ -1221,7 +1221,10 @@ pub(crate) fn skin(
     ));
     // A creature's fire skin looks as its system's, in blue (`fire_skins`), its bearer in a skin
     // of lava for its seconds (`skins`).
-    made.insert(crate::fire_skins::Look::Skin { hero: false });
+    made.insert(crate::fire_skins::Look::Skin {
+        hero: false,
+        bearer: Some(bearer),
+    });
     commands.entity(bearer).insert(crate::skins::Asked(
         crate::skins::Overlay::Lava,
         fight_seconds(spells::value(record, 0, level)),
@@ -1287,7 +1290,10 @@ pub(crate) fn strikes_about(
     } else if record.id == spells::BLADES_OF_LIGHT {
         made.insert(crate::light_blades::Look(caster));
     } else if record.id == FIRE_SKIN {
-        made.insert(crate::fire_skins::Look::Skin { hero: true });
+        made.insert(crate::fire_skins::Look::Skin {
+            hero: true,
+            bearer: follows,
+        });
         if let Some(bearer) = follows {
             commands.entity(bearer).insert(crate::skins::Asked(
                 crate::skins::Overlay::Lava,

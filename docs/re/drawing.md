@@ -173,8 +173,12 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   Its billboards, depth tested and not written (`0x761B00`), leave no depth, and the creature's model drawn after them, depth tested and written, covers every flame in front of it and lies under none.
   An effect whose object lies in a later row than the creature, nearer the camera, is drawn after it and adds its flames over it where they are nearer.
 - **Seen** 2026-11-06 with the driver of #448, the Mage's fire skin (24) at her start: her legs and her body, lava-skinned, lie over the flames at her feet, only the flames about her outline showing; the purgatory's fire about her, its object at her cell, likewise (#2047's frames, 2026-11-04).
-- `opensacred-game` draws every effect in the transparent pass after the opaque models, so its flames in front of a creature add over it: the fire skin covers the Mage's legs (#2047's frames).
-  To follow the original, the effects whose objects lie in the creature's cell or in an earlier row would be drawn under the models (#2178).
+- `opensacred-game` draws every effect in the transparent pass after the opaque models, so its flames in front of a creature added over it: the fire skin covered the Mage's legs (#2047's frames).
+  Since #2178 the systems that follow a creature lay their quads at the depth of its place in the order (`fx::Orders`, `fx::Quads::in_order`): each vertex moved along the line of sight, which the orthographic view leaves where it shows, to the depth of the creature's anchor and its root's own depth, squeezed as `models.wesl` squeezes a model's texels, less 20 units of the body behind its root (**estimate**), so that the creature's model, whose texels write their depths, covers them and they lie over what an earlier row draws.
+  They are the fire skin, the shields and the regenerations, the speed's sight, the multi-shot's comets, the plants' healing's butterflies, the burning light and the holy conversion's halo; the purgatory lays its quads at its object's place, before a creature standing in its cell.
+  **Seen** 2026-11-07: the Mage's legs and body over her fire skin's flames at her start, as in the original.
+  A creature on an upper storey's floor, whose model lies no further back than the floor's plane, keeps its systems at their own depths, as does a purgatory in a building (docs/decisions/drawing.md, "Effects at their bearers' places").
+  The other systems, the world's fires and the effects of objects that follow no creature, are drawn at their own depths still (#2188).
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 
 ## The models' turn

@@ -26,7 +26,8 @@ use crate::frame::{Playing, Unpaused};
 const HOLY_SHIELD: u32 = 22;
 const SHIELD_WALL: u32 = 30;
 use crate::fx::{
-    Effect, Quads, empty, particle_material, particle_texture, repeated_texture, whole_material,
+    Effect, Orders, Quads, empty, particle_material, particle_texture, repeated_texture,
+    whole_material,
 };
 use crate::game::{AppState, Data};
 use crate::{daynight, iso};
@@ -244,13 +245,16 @@ fn flash(mut flashes: MessageReader<Flash>, mut shown: Query<&mut Shown>) {
 }
 
 /// Runs each sight a frame on (`0x785970`, `0x78AAF0`, `0x78B200` and their draws): at its
-/// bearer's place, which is its root's; it goes once it is over, or with its bearer.
+/// bearer's place, which is its root's, drawn just behind its bearer's model, as the original
+/// draws the system before the creature it follows (`fx::Orders`, #2178); it goes once it is
+/// over, or with its bearer.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown, &mut Transform)>,
     places: Query<&GlobalTransform>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: Orders,
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
@@ -274,8 +278,10 @@ fn run(
             Look::Wall(wall) => walls(wall, &frame),
             Look::Regen(regen, clock, _) => regenerates(*regen, *clock, &frame),
         };
-        for (handle, part) in sight.parts.iter().zip(quads) {
+        let order = orders.behind(sight.bearer);
+        for (handle, mut part) in sight.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, place);
                 part.into_mesh(&mut mesh);
             }
         }

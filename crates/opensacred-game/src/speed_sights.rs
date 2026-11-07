@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use opensacred_rules::particles::{SPEED_TEXTURES, SpeedSight};
 
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_texture, whole_material};
+use crate::fx::{Effect, Orders, Quads, empty, particle_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::spawning::Rng;
 use crate::{fx_lights, iso};
@@ -118,14 +118,16 @@ fn make(
 
 /// Runs each system a frame on (`0x79A840`) and draws it (`0x79A8F0`): at its bearer's root, each
 /// particle a square of its half side flat on the ground at its place about the root, turned
-/// about the upright by its angle, in the ramp's colour of its life; it goes at once with its
-/// seconds, or with its bearer.
+/// about the upright by its angle, in the ramp's colour of its life, drawn just behind its
+/// bearer's model, as the original draws the system before the creature it follows
+/// (`fx::Orders`, #2178); it goes at once with its seconds, or with its bearer.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut systems: Query<(Entity, &mut Shown, &mut Transform)>,
     places: Query<&GlobalTransform>,
     (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    orders: Orders,
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
@@ -162,6 +164,7 @@ fn run(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&shown.mesh) {
+            quads.in_order(orders.behind(shown.bearer), place);
             quads.into_mesh(&mut mesh);
         }
     }

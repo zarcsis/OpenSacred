@@ -264,6 +264,12 @@ impl Anchors {
         &self.floor_buffer
     }
 
+    /// The anchor and the floor of the model of `slot`, as its meshes' shader takes them.
+    pub fn of(&self, slot: u32) -> Option<(Vec4, Vec4)> {
+        let slot = usize::try_from(slot).ok()?;
+        Some((*self.anchors.get(slot)?, *self.floors.get(slot)?))
+    }
+
     /// Gives the model of `slot` the ambient share `share` of its light, 0 for none.
     pub fn light(&mut self, slot: u32, share: f32) {
         if let Some(light) = usize::try_from(slot)

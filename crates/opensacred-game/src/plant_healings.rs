@@ -12,7 +12,9 @@ use opensacred_rules::particles::{
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture, whole_material};
+use crate::fx::{
+    Effect, InOrder, Orders, Quads, empty, particle_material, particle_texture, whole_material,
+};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
@@ -21,12 +23,14 @@ use crate::spawning::Rng;
 #[derive(Component)]
 struct Unmade(Entity);
 
-/// A sight that shows: its bearer, where its root was last, its look and its meshes, the
-/// butterflies' and their glows'.
+/// A sight that shows: its bearer, where its root was last and the depth of its place in the
+/// order of drawing then (`fx::Orders`, #2178), its look and its meshes, the butterflies' and
+/// their glows'.
 #[derive(Component)]
 struct Shown {
     bearer: Entity,
     before: Option<Vec3>,
+    order: Option<InOrder>,
     look: NatureHealing,
     parts: [Handle<Mesh>; 2],
 }
@@ -87,6 +91,7 @@ fn make(
             Shown {
                 bearer,
                 before: None,
+                order: None,
                 look: NatureHealing::default(),
                 parts: parts.clone(),
             },
@@ -110,24 +115,30 @@ fn make(
 /// Runs each sight a frame on (`0x79BEF0`) and draws it (`0x79BF60`): its butterflies laid along
 /// its bearer's way while it lays them, each facing the camera at its place in the world, of its
 /// frame of the grid by its age and its colour at the alpha of its life, then its glow of the
-/// same half side in the grey of 80; it goes with its last butterfly.
+/// same half side in the grey of 80, all drawn just behind its bearer's model, as the original
+/// draws the system before the creature it follows, at its bearer's last place once the bearer
+/// is gone; it goes with its last butterfly.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut sights: Query<(Entity, &mut Shown)>,
     places: Query<&GlobalTransform>,
     (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    orders: Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let side = 1.0 / f32::from(NATURE_HEALING_GRID);
     for (entity, mut shown) in &mut sights {
         let shown = &mut *shown;
-        let place = places
+        let bearer = places
             .get(shown.bearer)
             .map(GlobalTransform::translation)
-            .ok()
-            .or(shown.before);
+            .ok();
+        if bearer.is_some() {
+            shown.order = orders.behind(shown.bearer);
+        }
+        let place = bearer.or(shown.before);
         let Some(place) = place else {
             commands.entity(entity).despawn();
             continue;
@@ -151,8 +162,9 @@ fn run(
             butterflies.push(at, half, 0.0, (corner, side), colour);
             glows.push(at, half, 0.0, (Vec2::ZERO, 1.0), NATURE_HEALING_GLOW);
         }
-        for (handle, part) in shown.parts.iter().zip([butterflies, glows]) {
+        for (handle, mut part) in shown.parts.iter().zip([butterflies, glows]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(shown.order, Vec3::ZERO);
                 part.into_mesh(&mut mesh);
             }
         }
