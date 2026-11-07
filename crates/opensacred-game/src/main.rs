@@ -186,6 +186,7 @@ mod script_particles;
 mod scripts;
 mod sectors;
 mod seed;
+mod sera_sights;
 mod set_icon;
 mod sets;
 mod settings;
@@ -632,12 +633,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         seed::SeedPlugin,
+        sera_sights::SeraSightsPlugin,
         set_icon::SetIconPlugin,
         sets::SetsPlugin,
         settings::SettingsPlugin,
-        sfx::SfxPlugin,
     ))
     .add_plugins((
+        sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         shields::ShieldsPlugin,
