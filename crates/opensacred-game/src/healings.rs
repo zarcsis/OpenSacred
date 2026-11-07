@@ -108,11 +108,12 @@ fn make(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut sights: Query<(Entity, &mut Shown)>,
+    mut sights: Query<(Entity, &mut Shown, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
-    for (entity, mut shown) in &mut sights {
+    for (entity, mut shown, at) in &mut sights {
         shown.look.update(dt);
         if shown.look.done() {
             commands.entity(entity).despawn();
@@ -128,6 +129,8 @@ fn run(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&shown.mesh) {
+            // At its place in the order, just behind a creature standing there (#2188).
+            quads.in_order(orders.at(at.translation), at.translation);
             quads.into_mesh(&mut mesh);
         }
     }

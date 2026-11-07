@@ -153,7 +153,7 @@ fn twirl(
         crate::making::Worn,
     ),
     mut absorbed: MessageReader<Absorbs>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -214,12 +214,15 @@ fn twirl(
                 particles::SOULCATCHER_GLOW,
             );
         }
-        for (quads, mesh) in runs
+        // Just behind his model, as the original draws the system before the creature (#2188).
+        let order = orders.behind(look.bearer);
+        for (mut quads, mesh) in runs
             .into_iter()
             .chain([glow])
             .zip(look.runs.iter().chain([&look.glow]))
         {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }
         }

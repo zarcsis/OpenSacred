@@ -179,17 +179,22 @@ fn show(
 /// swept between its first two bones (`0x77A650`), riding with its place (the system's flag 4),
 /// and its line of glows over its bones (`0x40DA80`, `particles::glow_segments`); it goes with
 /// its arrow or weapon.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown, &mut Transform)>,
     places: Query<&GlobalTransform>,
-    (children, bones, worn): (
+    (children, bones, worn, holders): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
+        Query<&crate::models::OrderedWith>,
     ),
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -225,6 +230,12 @@ fn run(
         // The sparks between its first two bones, at its one bone for a model of one.
         let ends = [points[0], points.get(1).copied().unwrap_or(points[0])];
         let from = look.last.unwrap_or(ends);
+        // A weapon's just behind its holder's model, an arrow's at its place, as the original
+        // draws the system before the creature, and a moving object at the head of its cell's
+        // list (#2188).
+        let order = holders
+            .get(look.arrow)
+            .map_or_else(|_| orders.at(origin), |holder| orders.behind(holder.0));
         let Shown {
             elemental,
             sparks,
@@ -245,6 +256,7 @@ fn run(
             }
         }
         if let Some(mut mesh) = meshes.get_mut(&*spark_mesh) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
         let line = arrows::element_line(elemental.element, elemental.share);
@@ -261,6 +273,7 @@ fn run(
             }
         }
         if let Some(mut mesh) = meshes.get_mut(&*line_mesh) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
         look.last = Some(ends);
