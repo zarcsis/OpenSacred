@@ -2098,6 +2098,8 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
   `min(L + 1, 6)` comets circle the hand on axes at random at 5 radians a second: each a `PARTICLE_SPARK07` star of the half side 5 and 20 `PARTICLE_GLOW03` glows behind it of the half sides `k/15`, in (128, 255, 128), added whole.
   At its first frame 200 `PARTICLE_SPARK06` sparks burst out at up to 60 along each axis and are pulled back to the hand (250 a second), from (127, 255, 127) to black over 0.64 s.
   A `Rundum` with a bow (1061) makes it for 1.3 s at the shooter's root: a horizontal ring of 50 `PARTICLE_GLOW03` glows through the left hand's place, biggest at the hand, and a `PARTICLE_SPARK07` star of the half side `25·(1.3 − t)` there, all shrinking away.
+  Read 2026-11-07 for #2240 (**confirmed** by code): the shot sends it the FX event `0x54` with the point of its `Bip01 L Finger3`, the bone 0 to follow and the art 1061; the system follows the shooter's root (`+0x7C` `0x200`), by its place alone, and at its first run keeps the hand's point as an offset from the root along the ground, its height the hand's own; it emits nothing, has no light and no sound, and ends past 1.3 s.
+  Its draw: the glow `i` of 50 (style 5) at the offset turned about the upright by `(i + 1)` steps of `2π/50`, from the models' `x` toward `y`, so that the last lies on the hand, of the half side `0.2·|i − 25|·(1.3 − t)` (6.5 a step past the hand, none on the far side); then the star (style 4) at the hand of the half side `25·(1.3 − t)`; all in (128, 255, 128), added whole, depth tested, untinted.
 
 `opensacred-game` lays the souls' marks since #1092 (`marks`, `opensacred_rules::particles::{Mark, SOUL_MARK}`), at each soul's starting point on the ground, on the frame that the night tints; seen in the game as dark blots under the souls' starts.
 It draws the speed's two systems since #1092 too (`speed_sights`, `opensacred_rules::particles::SpeedSight`), at the bearer's root for the spell's seconds, flat on the ground, untinted, each with its green light (`fx_lights`) and its loop.
@@ -2106,7 +2108,9 @@ It draws the multi-shot's sight since #1092 too (`elf_sights`, `opensacred_rules
 **Seen** 2026-11-06 in the game: two small green stars going round her left hand at the level 1, the burst's specks about it; not yet beside the original, whose driver did not make the art.
 It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `opensacred_rules::particles::NatureHealing`), laid along the bearer's way for 3 s and left in the world, each of its own colour (the particles' `colour`, which a block rolls where it spreads one); the renderer's wind is not followed.
 **Seen** 2026-11-06 in the game: a cloud of tiny butterflies of every colour rising from about the Wood Elf's feet and fading; not yet beside the original.
-Not followed yet: the `Rundum`'s ring with a bow (1061, #2240; its shot since #2238), and the blood's and the body parts' marks (#1935).
+It draws the `Rundum` with a bow's ring since #2240 (`elf_sights`, `opensacred_rules::particles::BowRundumRing`), made as its arrows leave, at the shooter's root, just behind its model.
+**Seen** 2026-11-07 in the game: a green ring at the Wood Elf's hand's height about her, a star at her left hand, shrinking away in a second and a third as her four arrows flew.
+Not followed yet: the blood's and the body parts' marks (#1935).
 
 ## The burning light and the holy conversion
 
