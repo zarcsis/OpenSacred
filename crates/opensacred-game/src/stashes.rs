@@ -8,7 +8,8 @@
 //! (#1519, `0x40A230`): for the first 1,024 milliseconds of each 8,192 of the game's clock, all
 //! together, a square of `PARTICLE_SPARK07` grows from its cell's centre at the height 0 and
 //! shrinks again as it turns, tinted `0xBB9360`, and a grey one of half its side over it, both
-//! added to the frame.
+//! added to the frame, at its cell's last place in the original's order of drawing, after the
+//! cell's statics and objects (`0x62CF12`, `fx::Orders::after_statics`, #2220).
 //!
 //! The scripts' `MouseEvent` records (#1584, `0x4A6950`) lay events of the same kind, which stand
 //! and are used the same way: the well, the gravestones, the stones and the like. An event loses
@@ -21,10 +22,8 @@
 //! shows more (`0x62CF20`, [`BoxedUnder`]); one without is picked as a creature is.
 //!
 //! Not followed: the static object's mark (the stash stands at its cell's centre on the ground,
-//! whatever its floor), the sparks
-//! of the events of neither flag (`0x409D00`), the arrival's straight way, the item maker's use of
-//! the `CreateObj`'s `0x79`, and the hero's walk of the order 7 (the click's own walk takes it
-//! there).
+//! whatever its floor), the arrival's straight way, the item maker's use of the `CreateObj`'s
+//! `0x79`, and the hero's walk of the order 7 (the click's own walk takes it there).
 
 use std::collections::HashSet;
 
@@ -35,7 +34,7 @@ use opensacred_rules::quests::Look;
 
 use crate::attack::{self, Aim};
 use crate::frame::{Control, Playing, Step, Unpaused};
-use crate::fx::{Quads, empty, particle_material, particle_texture};
+use crate::fx::{Orders, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::hero::{self, Body};
 use crate::hud::Pointer;
@@ -66,9 +65,10 @@ const BLINK_SPACE: f32 = 2.0;
 const BLINK_TINT: [f32; 4] = [187.0 / 255.0, 147.0 / 255.0, 96.0 / 255.0, 1.0];
 const BLINK_GREY: [f32; 4] = [187.0 / 255.0, 187.0 / 255.0, 187.0 / 255.0, 1.0];
 /// How far toward the camera the blink is drawn, along its line of sight, in world units, which
-/// leaves it where it shows: the original draws it over its 2D ground, which hides none of it,
-/// where the game's ground would hide the half below its centre; the farthest corner below it,
-/// `10 · 2 · √2` units down the screen, lies `√3` times that in front of the ground.
+/// leaves it where it shows: in front of its cell's place in the order, whatever its cell's
+/// ground, so that every corner is laid back at that place ([`Quads::in_order`]); the farthest
+/// corner below it, `10 · 2 · √2` units down the screen, lies `√3` times that in front of the
+/// ground.
 const BLINK_TOWARD: f32 = 49.0;
 
 /// A hidden stash or a mouse event in the world: its cell, the name of the text the cursor shows
@@ -443,11 +443,13 @@ pub(crate) fn drawn_at(at: &Transform) -> Vec3 {
 
 /// Lays every stash's blink out at the frame's time: its square at its cell's centre on its
 /// ground, brought toward the camera ([`drawn_at`]), and the grey half square over it, both
-/// turned alike.
+/// turned alike, at the depth of its cell's last place in the order: the row walk lays its
+/// entry of the kind `0x20` after the cell's statics and objects (`0x62CF12`, #2220), so that it
+/// lies over a creature standing in its cell and under what a later cell draws.
 fn blink(
     time: Res<Time>,
     mesh: Option<Res<BlinkMesh>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
     stashes: Query<(&Stash, &Transform)>,
 ) {
     let Some(mesh) = mesh else {
@@ -461,8 +463,11 @@ fn blink(
             .filter(|(stash, _)| stash.look == Look::Blink)
         {
             let centre = drawn_at(at);
-            quads.push(centre, half * BLINK_SPACE, angle, whole, BLINK_TINT);
-            quads.push(centre, half * 0.5 * BLINK_SPACE, angle, whole, BLINK_GREY);
+            let mut own = Quads::default();
+            own.push(centre, half * BLINK_SPACE, angle, whole, BLINK_TINT);
+            own.push(centre, half * 0.5 * BLINK_SPACE, angle, whole, BLINK_GREY);
+            own.in_order(orders.after_statics(at.translation), Vec3::ZERO);
+            quads.append(own);
         }
     }
     if let Some(mut mesh) = meshes.get_mut(&mesh.0) {

@@ -13,7 +13,9 @@
 //! blink is, with no phase.
 //!
 //! Each item's sparks lie at its place in the original's order of drawing, as its object draws
-//! them (`fx::Orders::at`, #2220), in the one mesh of all of them.
+//! them (`fx::Orders::at`, #2220), in the one mesh of all of them; an event's at its cell's last
+//! place, after the cell's statics and objects, as its entry of the kind `0x20` lies in the row
+//! walk (`0x62CF12`, `fx::Orders::after_statics`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -138,17 +140,24 @@ fn glitters(
         .filter(|(stash, _)| stash.look == Look::Sparks)
     {
         let point = crate::stashes::drawn_at(at);
+        let (mut own_coloured, mut own_grey) = (Quads::default(), Quads::default());
         for spark in &events {
             let centre = point + space(spark.offset);
             let [r, g, b] = spark.colour;
-            coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
-            grey.push(
+            own_coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
+            own_grey.push(
                 centre,
                 spark.half * SPACE,
                 0.0,
                 whole,
                 [SPARK_GREY, SPARK_GREY, SPARK_GREY, 1.0],
             );
+        }
+        let order = orders.after_statics(at.translation);
+        for (own, all) in [(own_coloured, &mut coloured), (own_grey, &mut grey)] {
+            let mut own = own;
+            own.in_order(order, Vec3::ZERO);
+            all.append(own);
         }
     }
     for (handle, quads) in handles.0.iter().zip([coloured, grey]) {

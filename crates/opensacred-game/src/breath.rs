@@ -8,7 +8,9 @@
 //! flames and smoke along its way while it flies, its glow at it and its light of 100 with it
 //! until its last flame dies (`opensacred_rules::particles::walloffire`); each fire of its wall
 //! burns flames standing on the ground for its 10 s, its light of 200 with it until its last
-//! (`walloffire_line`); all untinted by the night (`iso::UNTINTED`).
+//! (`walloffire_line`); all untinted by the night (`iso::UNTINTED`). The breath's look lies at its
+//! breath's place in the original's order of drawing, each fire's flames at the fire's place
+//! (`fx::Orders::at`, #2220).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -24,7 +26,7 @@ use crate::burns::Burns;
 use crate::crowd::InTheWay;
 use crate::fight::Health;
 use crate::frame::{Playing, Step};
-use crate::fx::{Effect, Quads, empty, layer_quads, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, layer_quads, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::npcs::Dies;
@@ -73,12 +75,13 @@ impl Breath {
     }
 }
 
-/// A fire of a breath's wall: its fire, its place, its level, how long it burns on, the creatures
-/// it has burned, and its look: its flames, their dice and their mesh.
+/// A fire of a breath's wall: its fire, its place and its ground's height, its level, how long it
+/// burns on, the creatures it has burned, and its look: its flames, their dice and their mesh.
 #[derive(Component)]
 struct WallFire {
     fire: Fire,
     at: Vec2,
+    ground: f32,
     level: Level,
     left: f32,
     touched: Vec<Entity>,
@@ -281,7 +284,8 @@ fn show(
 
 /// Runs each breath's look a frame on (`0x7AE290`, `0x7AE4F0`): while its breath flies, its flames
 /// and smoke left along the way it went, and its glow at it; once its breath stopped no more,
-/// and once its breath is gone and its last flame has died it goes, its lamp with it.
+/// and once its breath is gone and its last flame has died it goes, its lamp with it. The whole
+/// look lies at its breath's place in the order, where its object draws it (#2220).
 fn glow(
     mut commands: Commands,
     time: Res<Time>,
@@ -289,7 +293,7 @@ fn glow(
     mut shown: Query<(Entity, &mut Look)>,
     breaths: Query<(&Breath, &Transform)>,
     mut lamps: Query<&mut Transform, (With<daynight::Light>, Without<Breath>)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
 ) {
     let fire = &looks.breath;
     let dt = time.delta_secs().min(0.1);
@@ -328,9 +332,12 @@ fn glow(
             lamp.translation = look.place.with_y(0.0);
         }
         // The particles lie in the world, in the models' frame: the look stands at its origin.
+        let order = orders.at(look.place);
         for (layer, handle) in look.parts.iter().take(2).enumerate() {
             if let Some(mut mesh) = meshes.get_mut(handle) {
-                layer_quads(fire, &look.system, layer).into_mesh(&mut mesh);
+                let mut quads = layer_quads(fire, &look.system, layer);
+                quads.in_order(order, Vec3::ZERO);
+                quads.into_mesh(&mut mesh);
             }
         }
         if let Some(mut mesh) = meshes.get_mut(&look.parts[2]) {
@@ -342,6 +349,7 @@ fn glow(
                 (Vec2::ZERO, 1.0),
                 [1.0; 4],
             );
+            quads.in_order(order, Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }
@@ -441,6 +449,7 @@ fn breathe(
                     commands.entity(fire).insert(WallFire {
                         fire: breath.fire,
                         at,
+                        ground,
                         level: breath.level,
                         left: WALL_BURNS,
                         touched: Vec::new(),
@@ -477,7 +486,8 @@ fn breathe(
 }
 
 /// Burns what each fire of a wall meets while it burns, and runs its flames a frame on
-/// (`0x7AEB80`): made while it burns, it goes with its last.
+/// (`0x7AEB80`): made while it burns, it goes with its last. Its flames lie at its place in the
+/// order, where its object draws them (#2220).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -486,7 +496,7 @@ fn flare(
     mut commands: Commands,
     time: Res<Time>,
     looks: Res<Looks>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
     mut fires: Query<(Entity, &mut WallFire)>,
     creatures: Query<
         (
@@ -511,7 +521,11 @@ fn flare(
                 .emit(&wall.blocks, &wall.layers, wall.count, &mut fire.dice);
         }
         if let Some(mut mesh) = meshes.get_mut(&fire.mesh) {
-            wall_quads(wall, &fire.flames).into_mesh(&mut mesh);
+            // The flames' mesh stands on the fire's ground at its place.
+            let foot = Vec3::new(fire.at.x, fire.ground, fire.at.y);
+            let mut quads = wall_quads(wall, &fire.flames);
+            quads.in_order(orders.at(foot), foot);
+            quads.into_mesh(&mut mesh);
         }
         if fire.left <= 0.0 {
             if fire.flames.particles.is_empty() {
