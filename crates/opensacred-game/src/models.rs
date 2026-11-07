@@ -839,7 +839,7 @@ pub fn convert(
 /// The building's part whose floor a model stands on, if it stands on an upper storey's: the
 /// hero's by its level, an NPC's or an object's by its layer. A model on the ground or on a
 /// building's floor 1 stands on none.
-fn storey(
+pub(crate) fn storey(
     heights: &Heights,
     layered: Option<&Layered>,
     body: Option<&Body>,
@@ -856,6 +856,15 @@ fn storey(
         ) => (building, u8::try_from(layer).ok()?),
         _ => return None,
     };
+    upper(heights, (building, floor))
+}
+
+/// The part of the floor `floor` of `building` where it is an upper storey's, raised over the
+/// ground; none for its ground floor.
+pub(crate) fn upper(
+    heights: &Heights,
+    (building, floor): (buildings::Anchor, u8),
+) -> Option<(buildings::Anchor, u8)> {
     let level = heights.floor_level(building, usize::from(floor));
     if heights.lift(level) <= 0.0 {
         return None;
