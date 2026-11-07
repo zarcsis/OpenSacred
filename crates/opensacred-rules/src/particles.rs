@@ -7013,6 +7013,100 @@ impl LavaFlames {
     }
 }
 
+/// The force of hell's colour, (255, 170, 101) (`0x7C40E0`), and its glow line along a blade:
+/// a bead every 2 units of a half side of 3 and a roll of up to 1 more (`0x40DA80`).
+pub const FORCE_COLOUR: [f32; 3] = [1.0, 170.0 / 255.0, 101.0 / 255.0];
+pub const FORCE_LINE: GlowLine = GlowLine {
+    density: 0.5,
+    half: 3.0,
+    argb: 0xFFFF_AA65,
+};
+/// A segment's sweep over a frame: its two ends a frame ago and now.
+pub type Sweep = ([[f32; 3]; 2], [[f32; 3]; 2]);
+/// The force of hell's sparks at most (`0x5A0C50`).
+const FORCE_COUNT: usize = 500;
+/// The force of hell's texture, of its sparks and its line's beads.
+pub const FORCE_TEXTURE: &str = "PARTICLE_GLOW01";
+
+/// The Daemon's force of hell along a blade (1173, `cParticleSystem_forceofhell`, its start
+/// `0x7C40E0`, run `0x7C3F80` and draw `0x7C4000`; docs/re/effects.md, "The force of hell"): for
+/// its seconds tiny orange sparks rain from random points along the blade that the bearer holds,
+/// between its bones `weapon_fx01` and `weapon_fx02` as they swept since the frame before
+/// (`0x766200`), falling, fading over 0.85 s, riding with the bearer; past its seconds it ends
+/// with its last spark.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForceOfHell {
+    pub system: System,
+    seconds: f32,
+}
+
+impl ForceOfHell {
+    /// A force of `seconds`, its spell's value 0 at its level (`29 + L`, at most 90).
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            system: System::new(FORCE_COUNT),
+            seconds,
+        }
+    }
+
+    /// Its sparks' layer: the life by −300 a second (0.85 s).
+    fn layer() -> Layer {
+        Layer {
+            life: -300.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its block: a spark of the size 0.65 every 0.01 s, of the velocity up to 20 along each axis,
+    /// falling at 60 ± 10.
+    fn block() -> Block {
+        Block {
+            buoyancy: spread(60.0, 10.0),
+            size: spread(0.65, 0.0),
+            velocity: spread([0.0; 3], [20.0; 3]),
+            interval: 0.01,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds, its blade gone from the segment `from` to `to` in its frame where it
+    /// has one: its sparks age, and within its seconds it makes them along the blade's sweep.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        blade: Option<Sweep>,
+        dice: &mut impl Dice,
+    ) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if let Some(sweep) = blade.filter(|_| self.system.clock < self.seconds) {
+            self.system
+                .emit_along_segment(&[Self::block()], &layers, FORCE_COUNT, sweep, dt, dice);
+        }
+    }
+
+    /// Whether it shows its line: within its seconds.
+    pub fn lit(&self) -> bool {
+        self.system.clock < self.seconds
+    }
+
+    /// Whether it is over: its seconds passed and its last spark gone.
+    pub fn done(&self) -> bool {
+        !self.lit() && self.system.particles.is_empty()
+    }
+
+    /// A spark's colour at its life: the force's at the alpha of its life.
+    pub fn colour(life: f32) -> [f32; 4] {
+        let [r, g, b] = FORCE_COLOUR;
+        [r, g, b, life.clamp(0.0, 255.0) / 255.0]
+    }
+
+    /// A bead's half side, rolled for each bead each frame: 3 and up to 1 more (`0x40DA80`).
+    pub fn bead_half(dice: &mut impl Dice) -> f32 {
+        FORCE_LINE.half + share(dice)
+    }
+}
+
 /// The sparks' texture of an arrow's fire and poison, and their particles at most (`0x5A0C50`).
 pub const ARROW_SPARKS_TEXTURE: &str = "PARTICLE_GLOW01";
 const ARROW_SPARKS_COUNT: usize = 500;
@@ -15730,5 +15824,31 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_force_of_hell_rains_sparks_along_its_blade_for_its_seconds() {
+        let mut dice = Rng::of(6, 3, 8);
+        let mut force = ForceOfHell::new(2.0);
+        let blade = [[0.0, 0.0, 40.0], [0.0, 30.0, 70.0]];
+        let dt = 0.01;
+        let (mut lived, mut most) = (0.0_f32, 0);
+        while !force.done() {
+            force.update(dt, Some((blade, blade)), &mut dice);
+            lived += dt;
+            most = most.max(force.system.particles.len());
+            assert!(lived < 5.0);
+        }
+        // About 85 alive at once (100 a second, 0.85 s each); its last gone 0.85 s after its
+        // seconds.
+        assert!((80..=90).contains(&most), "{most}");
+        assert!((lived - 2.85).abs() < 0.03, "{lived}");
+        // Its line: a bead every 2 units along the blade, 21 along its 42.
+        let beads = FORCE_LINE.points(blade[0], blade[1]).len();
+        assert_eq!(beads, 21);
+        assert!((ForceOfHell::colour(255.0)[3] - 1.0).abs() < 1e-6);
+        for _ in 0..100 {
+            assert!((3.0..=4.0).contains(&ForceOfHell::bead_half(&mut dice)));
+        }
     }
 }
