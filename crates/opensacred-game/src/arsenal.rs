@@ -277,15 +277,15 @@ impl Default for Sparks {
 /// `opensacred_rules::particles::{vertex_picks, weapon_sparks}`), drawn by `puffs`.
 #[expect(
     clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+    reason = "a Bevy system's queries carry their filters"
 )]
 fn shatter(
     mut commands: Commands,
     arsenal: Option<Res<Arsenal>>,
     bodies: Query<(Entity, &Effects, &GlobalTransform), (With<Body>, Changed<Effects>)>,
     weapons: Query<(Entity, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
-    (children, shapes): (Query<&Children>, Query<(&Mesh3d, &GlobalTransform)>),
-    (meshes, mut dice): (Res<Assets<Mesh>>, ResMut<Sparks>),
+    (shapes, meshes): (crate::vertices::ModelPoints, Res<Assets<Mesh>>),
+    mut dice: ResMut<Sparks>,
 ) {
     let Some(arsenal) = arsenal else {
         return;
@@ -299,25 +299,10 @@ fn shatter(
         }
         let origin = at.translation();
         for (weapon, _) in weapons.iter().filter(|(_, with)| with.0 == body) {
-            let parts: Vec<(Vec<[f32; 3]>, &GlobalTransform)> = std::iter::once(weapon)
-                .chain(children.iter_descendants(weapon))
-                .filter_map(|entity| shapes.get(entity).ok())
-                .filter_map(|(mesh, place)| {
-                    let positions = meshes
-                        .get(&mesh.0)?
-                        .attribute(Mesh::ATTRIBUTE_POSITION)?
-                        .as_float3()?;
-                    Some((positions.to_vec(), place))
-                })
-                .collect();
-            let counts: Vec<usize> = parts.iter().map(|(positions, _)| positions.len()).collect();
-            let points: Vec<[f32; 3]> = opensacred_rules::particles::vertex_picks(&counts)
+            let points: Vec<[f32; 3]> = shapes
+                .picked(weapon, &meshes)
                 .into_iter()
-                .filter_map(|(mesh, vertex)| {
-                    let (positions, place) = parts.get(mesh)?;
-                    let point = Vec3::from_array(*positions.get(vertex)?);
-                    Some(crate::puffs::local(place.transform_point(point), origin))
-                })
+                .map(|point| crate::puffs::local(point, origin))
                 .collect();
             if points.is_empty() {
                 continue;

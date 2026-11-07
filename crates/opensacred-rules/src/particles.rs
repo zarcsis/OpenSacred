@@ -1229,6 +1229,57 @@ pub fn vertex_picks(counts: &[usize]) -> Vec<(usize, usize)> {
         .collect()
 }
 
+/// The changeling's sparks' colour, (128, 255, 128) (`0x795E20`'s corners).
+pub const CHANGELING_GREEN: u32 = 0xFF80_FF80;
+
+/// The Wood Elf's changeling's sparks (845, `cParticleSystem_changeling`, its start `0x795E20`,
+/// run `0x795BC0` and draw `0x795C00`; #1092): one at each of the points `points` of the
+/// creature's model in the system's frame ([`vertex_picks`]), of a size of 5 ± 2 that falls by 2
+/// a second, never ageing otherwise; at the change falling at a buoyancy of 150 ± 30 and moving at
+/// ± (3, 3, 0), bouncing at the ground of the system's frame (0) without loss, and at the change
+/// back (`back`) rising at 150 ± 30; `PARTICLE_SPARK06` added whole in its green; no light. The
+/// system ends with its last spark, within 3.5 s.
+pub fn changeling_sparks(points: &[[f32; 3]], back: bool, dice: &mut impl Dice) -> Burst {
+    let [a, r, g, b] = CHANGELING_GREEN.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    let block = Block {
+        buoyancy: spread(if back { -150.0 } else { 150.0 }, 30.0),
+        size: spread(5.0, 2.0),
+        velocity: spread([0.0; 3], if back { [0.0; 3] } else { [3.0, 3.0, 0.0] }),
+        ..Block::default()
+    };
+    let particles = points
+        .iter()
+        .take(GENERIC_PARTICLES)
+        .map(|&place| Particle {
+            place,
+            velocity: spread_3(block.velocity, dice),
+            buoyancy: spread_f32(block.buoyancy, dice),
+            size: spread_f32(block.size, dice),
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        })
+        .collect();
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            size: -2.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new([r, g, b, a], &[([r, g, b, a], 256)]),
+        particles,
+        ground: Some(0.0),
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
 /// The sparks of the generic system's variant 2 in the colour `colour` (`0x796E10`'s case 2;
 /// #2211): one at each of the points `points` of an item's model in the system's frame
 /// ([`vertex_picks`]), of a size of 7 ± 3 that falls by 5 a second, still, never ageing; each
@@ -17217,6 +17268,39 @@ mod tests {
         }
         // Gone at 3 / 1.7 s.
         assert!((lived - 3.0 / 1.7).abs() < 0.02, "{lived}");
+    }
+
+    #[test]
+    fn the_changelings_sparks_fall_at_the_change_and_rise_at_the_change_back() {
+        let mut dice = Rng::of(8, 1, 3);
+        let points = [[0.0, 0.0, 40.0]; 30];
+        let change = changeling_sparks(&points, false, &mut dice);
+        let back = changeling_sparks(&points, true, &mut dice);
+        assert_eq!(change.particles.len(), 30);
+        assert!(
+            change
+                .particles
+                .iter()
+                .all(|p| (120.0..=180.0).contains(&p.buoyancy))
+        );
+        assert!(
+            back.particles
+                .iter()
+                .all(|p| (-180.0..=-120.0).contains(&p.buoyancy))
+        );
+        assert!(back.particles.iter().all(|p| p.velocity == [0.0; 3]));
+        assert!(
+            change
+                .particles
+                .iter()
+                .all(|p| (3.0..=7.0).contains(&p.size))
+        );
+        assert_eq!(
+            change.ramp.at(0.0),
+            [128.0 / 255.0, 1.0, 128.0 / 255.0, 1.0]
+        );
+        assert_eq!(change.ground, Some(0.0));
+        assert_eq!(change.layer.size, -2.0);
     }
 
     #[test]

@@ -3383,6 +3383,10 @@ fn change(world: &mut World, original: Entity, animal: u32, seconds: f32) {
         return;
     };
     info!("spells: {original} changes into {made}, a {animal}, for {seconds} s");
+    // Its figure bursts into the changeling's sparks, falling (845, `change_sparks`).
+    if let Err(e) = world.run_system_cached_with(crate::change_sparks::burst, (original, false)) {
+        warn!("spells: no sparks of {original}'s change: {e}");
+    }
     // The changeling's object's sound as it starts, where the creature stands
     // (`cParticleSystem_changeling`, 845, `0x795E20`: `HELF_VERWANDLUNG_HIT`).
     world.write_message(crate::sfx::PlayAt {
@@ -3425,6 +3429,9 @@ fn changelings(
         }
         let (original, place, health) = (changeling.original, at.translation, *health);
         commands.entity(animal).remove::<Changeling>();
+        // The animal's figure bursts into the changeling's sparks, rising, before it goes
+        // (845, `0x587F91`, `change_sparks`).
+        commands.run_system_cached_with(crate::change_sparks::burst, (animal, true));
         if !dead {
             commands.entity(animal).despawn();
         }

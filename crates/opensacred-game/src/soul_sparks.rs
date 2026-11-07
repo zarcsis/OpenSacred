@@ -5,10 +5,8 @@
 //! and fade out (`opensacred_rules::particles::SoulSparks`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
-use bevy::mesh::VertexAttributeValues;
-use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::prelude::*;
-use opensacred_rules::particles::{self, SOUL_SPARKS, SoulSparks};
+use opensacred_rules::particles::{self, SoulSparks};
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
@@ -36,106 +34,13 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
-/// A mesh of a creature's model: its mesh, its joints and its place.
-type ModelMesh = (
-    &'static Mesh3d,
-    Option<&'static SkinnedMesh>,
-    &'static GlobalTransform,
-);
-
-/// The places of the vertices of `root`'s meshes but its worn items', skinned to its pose, every
-/// `n`-th of each mesh for `n` the count of all over [`SOUL_SPARKS`] (`0x767FB0`, `0x44FC30`).
-fn figure(
-    root: Entity,
-    children: &Query<&Children>,
-    (parts, joints, worn): (
-        &Query<ModelMesh>,
-        &Query<&GlobalTransform>,
-        &crate::making::Worn,
-    ),
-    (meshes, poses): (&Assets<Mesh>, &Assets<SkinnedMeshInverseBindposes>),
-) -> Vec<Vec3> {
-    let mut found = Vec::new();
-    let mut stack = vec![root];
-    while let Some(entity) = stack.pop() {
-        if entity != root && worn.contains(entity) {
-            continue;
-        }
-        if let Ok((mesh, skin, place)) = parts.get(entity)
-            && let Some(mesh) = meshes.get(&mesh.0)
-            && let Some(VertexAttributeValues::Float32x3(positions)) =
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-        {
-            found.push((mesh, positions, skin, place));
-        }
-        if let Ok(kids) = children.get(entity) {
-            stack.extend(kids.iter());
-        }
-    }
-    let total: usize = found.iter().map(|(_, positions, ..)| positions.len()).sum();
-    let every = (total / SOUL_SPARKS).max(1);
-    let mut points = Vec::new();
-    for (mesh, positions, skin, place) in found {
-        let skinning = skin.and_then(|skin| {
-            let poses = poses.get(&skin.inverse_bindposes)?;
-            let matrices: Vec<Mat4> = skin
-                .joints
-                .iter()
-                .zip(poses.iter())
-                .map(|(joint, pose)| {
-                    joints
-                        .get(*joint)
-                        .map_or(Mat4::IDENTITY, |joint| joint.to_matrix() * *pose)
-                })
-                .collect();
-            let Some(VertexAttributeValues::Uint16x4(indices)) =
-                mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
-            else {
-                return None;
-            };
-            let Some(VertexAttributeValues::Float32x4(weights)) =
-                mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
-            else {
-                return None;
-            };
-            Some((matrices, indices, weights))
-        });
-        for k in (0..positions.len()).step_by(every) {
-            let local = Vec3::from_array(positions[k]);
-            let at = match &skinning {
-                Some((matrices, indices, weights)) => {
-                    let (Some(index), Some(weight)) = (indices.get(k), weights.get(k)) else {
-                        continue;
-                    };
-                    index
-                        .iter()
-                        .zip(weight)
-                        .filter_map(|(&joint, &weight)| {
-                            matrices
-                                .get(usize::from(joint))
-                                .map(|matrix| matrix.transform_point3(local) * weight)
-                        })
-                        .sum()
-                }
-                None => place.transform_point(local),
-            };
-            points.push(at);
-        }
-    }
-    points
-}
-
-/// Gives each new soul its look (`0x5A46B3`, `0x76CD50`): the sparks of its creature's figure.
+/// Gives each new soul its look (`0x5A46B3`, `0x76CD50`): the sparks of its creature's figure,
+/// every `⌊V/500⌋`th vertex of its meshes but its worn items', skinned to its pose (`0x767FB0`,
+/// `0x44FC30`; `vertices`).
 fn show(
     mut commands: Commands,
     souls: Query<(Entity, &Sparks, &Transform), Added<Sparks>>,
-    (children, parts, joints, worn): (
-        Query<&Children>,
-        Query<ModelMesh>,
-        Query<&GlobalTransform>,
-        crate::making::Worn,
-    ),
-    poses: Res<Assets<SkinnedMeshInverseBindposes>>,
+    shapes: crate::vertices::ModelPoints,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
@@ -155,12 +60,7 @@ fn show(
                 image.map(|image| effects.add(whole_material(image)))
             })
             .clone();
-        let points = figure(
-            sparks.from,
-            &children,
-            (&parts, &joints, &worn),
-            (&meshes, &poses),
-        );
+        let points = shapes.picked(sparks.from, &meshes);
         debug!(
             "soul sparks: {soul} takes {} sparks of {}",
             points.len(),
