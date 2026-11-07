@@ -108,7 +108,7 @@ fn blow(
     heights: Res<crate::terrain::Heights>,
     mut gusts: Query<(Entity, &mut Gust)>,
     bearers: Query<&GlobalTransform>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -142,6 +142,12 @@ fn blow(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&gust.mesh) {
+            // Just behind its bearer, else at its place, as the original draws the system before
+            // the creature (#2188).
+            let order = gust
+                .bearer
+                .map_or_else(|| orders.at(gust.place), |bearer| orders.behind(bearer));
+            quads.in_order(order, Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }
