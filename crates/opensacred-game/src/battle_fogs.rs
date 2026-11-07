@@ -118,12 +118,12 @@ fn drift(
     mut commands: Commands,
     time: Res<Time>,
     looks: Res<Looks>,
-    mut fogs: Query<(Entity, &mut Fog)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut fogs: Query<(Entity, &mut Fog, &GlobalTransform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let fog = &looks.fog;
-    for (entity, mut puffs) in &mut fogs {
+    for (entity, mut puffs, place) in &mut fogs {
         let puffs = &mut *puffs;
         puffs.puffs.update(dt, &fog.layers);
         if puffs.puffs.clock < puffs.seconds {
@@ -135,7 +135,11 @@ fn drift(
             continue;
         }
         if let Some(mut mesh) = meshes.get_mut(&puffs.mesh) {
-            quads(fog, &puffs.puffs).into_mesh(&mut mesh);
+            // At its object's place in the order, as the original draws the system (#2188).
+            let origin = place.translation();
+            let mut quads = quads(fog, &puffs.puffs);
+            quads.in_order(orders.at(origin), origin);
+            quads.into_mesh(&mut mesh);
         }
     }
 }

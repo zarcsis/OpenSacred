@@ -181,8 +181,8 @@ fn seek(
 fn run(
     mut commands: Commands,
     mut shown: Query<(Entity, &Shown, &mut Transform)>,
-    places: Query<&GlobalTransform>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (places, holders): (Query<&GlobalTransform>, Query<&crate::models::OrderedWith>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let s = iso::MODEL_SCALE;
     for (entity, look, mut transform) in &mut shown {
@@ -192,6 +192,11 @@ fn run(
         };
         let origin = model.translation();
         transform.translation = origin;
+        // An item in a hand just behind its holder's model, one lying at its place, as the
+        // original draws the system before the creature (#2188).
+        let order = holders
+            .get(look.model)
+            .map_or_else(|_| orders.at(origin), |holder| orders.behind(holder.0));
         let at = |bone: Entity| {
             places
                 .get(bone)
@@ -217,6 +222,7 @@ fn run(
             }
         }
         if let Some(mut mesh) = meshes.get_mut(line_mesh) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
         let mut quads = Quads::default();
@@ -224,6 +230,7 @@ fn run(
             glow(&mut quads, point, BLUE_GLOW.half, BLUE_GLOW.colour());
         }
         if let Some(mut mesh) = meshes.get_mut(blue_mesh) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
         let mut quads = Quads::default();
@@ -232,6 +239,7 @@ fn run(
             glow(&mut quads, point, glitter.half, glitter.colour());
         }
         if let Some(mut mesh) = meshes.get_mut(glitter_mesh) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
     }

@@ -124,13 +124,13 @@ fn make(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut marks: Query<(Entity, &mut Shown)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut marks: Query<(Entity, &mut Shown, &GlobalTransform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
     let (across, depth) = iso::fx_axes();
-    for (entity, mut mark) in &mut marks {
+    for (entity, mut mark, place) in &mut marks {
         mark.look.update(dt);
         if mark.look.done() {
             commands.entity(entity).despawn();
@@ -154,6 +154,9 @@ fn run(
             [1.0, 1.0, 1.0, mark.look.alpha()],
         );
         if let Some(mut mesh) = meshes.get_mut(&mark.mesh) {
+            // At its object's place in the order, as the original draws the system (#2188).
+            let origin = place.translation();
+            quads.in_order(orders.at(origin), origin);
             quads.into_mesh(&mut mesh);
         }
     }

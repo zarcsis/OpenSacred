@@ -177,12 +177,16 @@ fn line(quads: &mut Quads, (from, to): (Vec3, Vec3), width: f32, colour: [f32; 4
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut sights: Query<(Entity, &mut Shown, &mut crate::daynight::Light)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut dice: ResMut<Dice>,
+    mut sights: Query<(
+        Entity,
+        &mut Shown,
+        &mut crate::daynight::Light,
+        &GlobalTransform,
+    )>,
+    (mut meshes, mut dice, orders): (ResMut<Assets<Mesh>>, ResMut<Dice>, crate::fx::Orders),
 ) {
     let s = iso::MODEL_SCALE;
-    for (entity, mut shown, mut light) in &mut sights {
+    for (entity, mut shown, mut light, place) in &mut sights {
         shown.look.update(time.delta_secs());
         if shown.look.done() {
             commands.entity(entity).despawn();
@@ -231,13 +235,17 @@ fn run(
         for half in shown.look.glows() {
             glows.push(middle, half * s, 0.0, (Vec2::ZERO, 1.0), SUMMON_GLOW_COLOUR);
         }
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
         let [plain, glowing] = runes;
-        for (handle, quads) in shown
+        for (handle, mut quads) in shown
             .meshes
             .iter()
             .zip([plain, glowing, triangles, bolts, glows])
         {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
