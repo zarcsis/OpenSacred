@@ -2297,6 +2297,21 @@ fn make(
                                 DespawnOnExit(crate::game::AppState::InGame),
                             ));
                         }
+                        // The arrowproof's object 883 and the spellproof's 870 about him for
+                        // their effects' seconds, made with them (`0x5085DE`, `0x50894B`;
+                        // `dark_wards`).
+                        if matches!(making.art, 1045 | 1046)
+                            && let Some(&(_, seconds)) = boon.effects.first()
+                        {
+                            commands.spawn((
+                                crate::dark_wards::Ward {
+                                    bearer: hero,
+                                    arrows: making.art == 1045,
+                                    seconds,
+                                },
+                                DespawnOnExit(crate::game::AppState::InGame),
+                            ));
+                        }
                         // The testosterone's and the adrenaline's two objects 864 at him, made
                         // with their effects (`0x5080F0`, `0x5081CB`; `0x508396`, `0x508471`),
                         // each living the effects' time (the event's `+0x2C`) and looping its

@@ -1789,6 +1789,21 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-06 beside the original at the Seraphim's and the Mage's starts at 22:00 and the zoom 2: the holy shield's pale blue band sweeping about her over its arc on the ground, the shield wall's red walls over their bright ring of glows, and the mana's spring's blue symbol over its glow, alike in both.
 Not followed: a spell turned aside by the shield wall, which the game turns aside nowhere yet, and the set 32's spring.
 
+## The Dark Elf's wards
+
+Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked); the models' shapes read off the converted files.
+
+- The arrowproof (1045) makes an object 883 (`cParticleSystem_fernumleitung`, its constructor `0x7A0790`, start `0x7A0D10`, run `0x7A0940`, draw `0x7A0A60`), and the spellproof (1046) an object 870 (`cParticleSystem_magieumleitung`, `0x7A01D0`, `0x7A0740`, `0x7A0380`, `0x7A0490`): the Dark Elf's executor (`0x506770`), once less than 0.2 of the art's clip is left, at the action's target where `0x426610` admits its type, else at himself (`0x5085DE`, `0x508760`; `0x50894B`, `0x508ACD`), with the FX event `0x67` or `0x5E` from the bearer to the bearer, its direction `(44 + L, 0, 0)`, the effect's seconds, before the bearer takes the effect `0x19` or `0x1A`.
+  The handler's cases (`0x5A4E2A`, `0x5A4DF2`) follow the bearer at its bone 0 (`__Root`).
+- Each draws a Granny model, not chains: 883 `magicshield2.grn` in `MAGICSHIELD2.TGA`, 870 `magicshield.grn` in `MAGICSHIELD.TGA`, each with its clip of the slot 1 as a controlled animation whose parameter 3 is the largest float (**hypothesis**: looping for ever, as the hell disk's).
+  `magicshield2`: a band of radius about 53 and 63 high with a disc at its foot and one at its top, of a magenta ring with cyan arcs, and the band of a magenta wave with cyan runes; `magicshield`: a band of radius about 29 and 59 high with four discs of cyan rings and magenta runes across it.
+- Its run: the clock by the frame's time; the turn falls by 0.5 a second; the breadth `0.75 + 0.03 sin t` for 883, 1 for 870; within its seconds the rise grows by 0.5 a second up to π/2, past them it falls by as much and at 0 the system dies, so it lives `44 + L + π` s; a flash falls by 1 a second, and the word `+0x74`'s bit 8 sets it to 1: an arrow sent back by the effect `0x19` keyed by 1045 (`0x5614E1`), or a spell turned aside by `0x1A` keyed by 1046 (`0x562254`).
+- Its draw: the model scaled `(s, s, sin rise)` with `s` the breadth plus a tenth of the flash, turned by the turn about the upright (clockwise on the screen), at the bearer's root; its vertices all one grey, `0x808080` plus `0x707070` times the beat of the clock (128 up to 240 over the first 0.3 s of each second, back over the rest); added (`ONE`, `ONE`), unlit, depth tested and not written, culled (`0x40D310`); its world light 300; no tint by the night.
+
+`opensacred-game` draws the two since #1092 (`dark_wards`, `opensacred_rules::particles::DarkWard`) about the hero who makes the art, with their models' clips looping, under his model (`models::Pass::Under`, as the original draws the system before the creature, #2178), and flashes the arrowproof at each arrow it sends back (`shields::Flash`).
+**Seen** 2026-11-07 in the game (not beside the original): the arrowproof's magenta rings rising about the Dark Elf and standing, the spellproof's cyan rings with it, both under his model and under a creature in a row in front of him.
+Not followed: a spell turned aside, which the game turns aside nowhere yet, and the wards made at an admitted target other than the Dark Elf.
+
 ## The Wood Elf's sights
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
