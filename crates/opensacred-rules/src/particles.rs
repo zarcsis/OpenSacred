@@ -5303,6 +5303,67 @@ pub const MULTI_SHOT_TEXTURES: [&str; 3] =
     ["PARTICLE_GLOW03", "PARTICLE_SPARK07", "PARTICLE_SPARK06"];
 pub const MULTI_SHOT_GREEN: [f32; 4] = [128.0 / 255.0, 1.0, 128.0 / 255.0, 1.0];
 pub const MULTI_SHOT_BONE: &str = "Bip01 L Finger3";
+/// The `Rundum` with a bow's ring (861 of the art 1061, its start `0x795880`, its run
+/// `0x795140`, its draw `0x7952C0`; #2240): for 1.3 s at the shooter's root, which it follows, a
+/// horizontal ring of 50 glows of [`MULTI_SHOT_TEXTURES`]' first through the shooter's left
+/// hand's third finger as it looses, beginning one step past the hand and ending on it, each of
+/// the half side `0.2·|i − 25|` (none on the far side), and a star of the second at the hand of
+/// the half side 25; all shrinking to nothing by `1.3 − t`, in [`MULTI_SHOT_GREEN`], added whole.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BowRundumRing {
+    /// The hand's point from the root as it looses, in the models' frame (`+0x2534`), and the
+    /// clock.
+    offset: [f32; 3],
+    clock: f32,
+}
+
+/// Its seconds, its glows, each a step of the turn on from the one before, their half sides'
+/// factor and the star's.
+const BOW_RING_SECONDS: f32 = 1.3;
+const BOW_RING_GLOWS: u16 = 50;
+const BOW_RING_GLOW: f32 = 0.2;
+const BOW_RING_STAR: f32 = 25.0;
+
+impl BowRundumRing {
+    /// A ring through the hand's point `offset` from the shooter's root, in the models' frame.
+    pub fn new(offset: [f32; 3]) -> Self {
+        Self { offset, clock: 0.0 }
+    }
+
+    /// A run of `dt` seconds: its clock.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+    }
+
+    /// Whether it ended: past its 1.3 s.
+    pub fn done(&self) -> bool {
+        self.clock > BOW_RING_SECONDS
+    }
+
+    fn left(&self) -> f32 {
+        (BOW_RING_SECONDS - self.clock).max(0.0)
+    }
+
+    /// Its glows in the root's frame, each its point and its half side: the `i`-th the hand's
+    /// point turned about the upright by `(i + 1)` steps of `2π/50`.
+    pub fn glows(&self) -> Vec<([f32; 3], f32)> {
+        let [x, y, z] = self.offset;
+        let step = std::f32::consts::TAU / f32::from(BOW_RING_GLOWS);
+        (0..BOW_RING_GLOWS)
+            .map(|i| {
+                let (sin, cos) = (step * f32::from(i + 1)).sin_cos();
+                let half = BOW_RING_GLOW * (f32::from(i) - 25.0).abs() * self.left();
+                ([x * cos - y * sin, x * sin + y * cos, z], half)
+            })
+            .collect()
+    }
+
+    /// Its star at the hand: its point and its half side.
+    pub fn star(&self) -> ([f32; 3], f32) {
+        (self.offset, BOW_RING_STAR * self.left())
+    }
+}
+
 /// Its comets at most; how fast they go round, in radians a second; the point they go round
 /// through, along the models' `x` from the hand; their tails' glows, each a step of the turn
 /// behind the one before, of the half sides `k/15`; their heads' half side.
@@ -15658,6 +15719,21 @@ mod tests {
         assert!(r >= 194.0 / 255.0 && g <= 144.0 / 255.0 && b <= 144.0 / 255.0);
         // Its part, of the giant spider's set.
         assert!((0..50).all(|_| (991..=999).contains(&spit_part(&mut dice))));
+    }
+
+    #[test]
+    fn the_rundum_with_a_bows_ring_shrinks_about_its_shooter() {
+        let mut ring = BowRundumRing::new([30.0, 0.0, 60.0]);
+        let glows = ring.glows();
+        assert_eq!(glows.len(), 50);
+        // The last on the hand, the first a step past it, the 26th none.
+        let [x, y, z] = glows[49].0;
+        assert!((x - 30.0).abs() < 1e-3 && y.abs() < 1e-3 && (z - 60.0).abs() < 1e-6);
+        assert!((glows[49].1 - 6.24).abs() < 1e-4 && (glows[0].1 - 6.5).abs() < 1e-4);
+        assert!(glows[25].1.abs() < 1e-6);
+        assert!((ring.star().1 - 32.5).abs() < 1e-4);
+        ring.update(1.31);
+        assert!(ring.done() && ring.star().1 == 0.0);
     }
 
     #[test]

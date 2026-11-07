@@ -225,6 +225,10 @@ fn loose(
             ),
             None => (first, None),
         };
+        // The `Rundum`'s ring at its shooter as its arrows leave (`0x4DEB2A`, #2240).
+        if rundum.is_some() {
+            crate::elf_sights::bow_rundum(&mut commands, shot.shooter);
+        }
         for i in 0..count {
             // The `Rundum`'s arrow `i` after the first flies at the hero's `i`-th hostile, nearest
             // first, at its neck, while the list holds one (`0x4DEAA3`); else fanned.
