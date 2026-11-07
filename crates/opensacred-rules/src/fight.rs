@@ -675,6 +675,9 @@ pub struct Rules {
     /// The dryad ghosts' damages of the four kinds (`dryadghost_dmg_ph`, `_fi`, `_ma` and `_po`,
     /// the balance's `0x1104` to `0x1110`).
     dryad_ghost: [f32; 4],
+    /// The spit's damages of the four kinds a level (`spiderpuke_dmg_ph`, `_fi`, `_ma` and `_po`,
+    /// the balance's `0x12CC` to `0x12D8`).
+    spit: [f32; 4],
     spawn_weapon: [f32; 2],
     /// The rare effects' parameters `(a, b, c)` of the balance's tail's fifth table, by their
     /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
@@ -715,6 +718,7 @@ impl Default for Rules {
             geschick: 200.0,
             dragon_fire: [2.0, 2.5, 0.0, 0.0],
             dryad_ghost: [2.0, 2.5, 0.0, 0.0],
+            spit: [1.0, 0.0, 0.0, 5.0],
             spawn_weapon: [25.0, 275.0],
             rare: Vec::new(),
             tollwut: 1.0,
@@ -976,6 +980,13 @@ impl Rules {
                         .unwrap_or(default.dryad_ghost[k])
                 })
             },
+            spit: {
+                let kinds = ["ph", "fi", "ma", "po"];
+                std::array::from_fn(|k| {
+                    b.f32(&format!("spiderpuke_dmg_{}", kinds[k]))
+                        .unwrap_or(default.spit[k])
+                })
+            },
             spawn_weapon: [
                 b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
                 b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
@@ -1061,6 +1072,31 @@ impl Rules {
     /// physical and 22 fire at a skill of 0.
     pub fn dryad_ghost_damages(&self, skill_2: u32) -> [f32; 4] {
         self.object_damages(self.dryad_ghost, 0, skill_2)
+    }
+
+    /// The damages of the four kinds of a creature's spit (880, `0x4E5C7A`; #2099): each kind's
+    /// `spiderpuke_dmg_*` times the spitter's level `level`, times one plus its dexterity
+    /// `dexterity` over `BalanceGeschick`, times one plus a hundredth of the damage multipliers'
+    /// curve at the level `skill_2` of its skill 2; the eiterblume's (186) times 0.8 and its
+    /// spinneling's (333) times 0.5; truncated and held to 65,534 as the object's strike takes them
+    /// (`0x5AE93E`).
+    pub fn spit_damages(
+        &self,
+        creature: u32,
+        level: u32,
+        (dexterity, skill_2): (f32, u32),
+    ) -> [f32; 4] {
+        let lore = f64::from(curve(self.curves.damage, skill_2)) * HUNDREDTH + 1.0;
+        let skill = f64::from(dexterity) / f64::from(self.geschick) + 1.0;
+        let kind = match creature {
+            186 => f64::from(0.8_f32),
+            333 => 0.5,
+            _ => 1.0,
+        };
+        self.spit.map(|base| {
+            let value = f64::from(base) * f64::from(level) * skill * lore * kind;
+            stored(value.trunc().clamp(0.0, 65_534.0))
+        })
     }
 
     /// Each kind's `per_level` times one plus a hundredth of the damage multipliers' curve at the
@@ -4343,6 +4379,23 @@ mod tests {
         assert_eq!(rules.ground_fire_damages(10, 0), [38.0, 47.0, 0.0, 0.0]);
         let skilled = rules.ground_fire_damages(10, 5);
         assert!(skilled[0] > 38.0 && skilled[1] > 47.0, "{skilled:?}");
+    }
+
+    #[test]
+    fn a_spit_strikes_by_its_spitters_level_dexterity_and_skill_2() {
+        let rules = Rules::default();
+        // A giant spider of level 20, its dexterity 100 and no skill 2: 1·20·1.5 physical and
+        // 5·20·1.5 poison.
+        assert_eq!(
+            rules.spit_damages(55, 20, (100.0, 0)),
+            [30.0, 0.0, 0.0, 150.0]
+        );
+        // The eiterblume's times 0.8, its spinneling's times 0.5, truncated.
+        assert_eq!(rules.spit_damages(186, 7, (0.0, 0)), [5.0, 0.0, 0.0, 28.0]);
+        assert_eq!(rules.spit_damages(333, 7, (0.0, 0)), [3.0, 0.0, 0.0, 17.0]);
+        // The weapon lore raises it by its curve, 12 % at its level 1, the float 0.01 making the
+        // poison's 56 fall just short.
+        assert_eq!(rules.spit_damages(55, 10, (0.0, 1)), [11.0, 0.0, 0.0, 55.0]);
     }
 
     #[test]

@@ -105,12 +105,14 @@ pub fn approaches(distance: f32, roll: u32) -> bool {
 
 /// What a creature of type `creature` makes as it comes on (`0x4E1FC4`, the melee's state 9 at
 /// `0x4E3464`): the medium spider (75, `med_spider.grn`), of the mark 4, shoots the railgun's bolt
-/// at its target ([`SPIDER_SHOT`], #2067), and a dragon breathes its fire ([`DRAGON_FIRE`],
-/// #1964); the fire ghoul (73), the giant spider (55) and the killer crab queen (348) take the
-/// state too, their own not followed.
+/// at its target ([`SPIDER_SHOT`], #2067), a dragon breathes its fire ([`DRAGON_FIRE`], #1964),
+/// and the giant spider (55) and the killer crab queen (348) spit ([`SPIT`], #2099); the fire
+/// ghoul (73) takes the state too, its own not followed.
 pub fn coming_on(creature: u32) -> Option<u16> {
     if creature == 75 {
         Some(SPIDER_SHOT)
+    } else if matches!(creature, GIANT_SPIDER | CRAB_QUEEN) {
+        Some(SPIT)
     } else if dragon(creature) {
         Some(DRAGON_FIRE)
     } else {
@@ -140,6 +142,83 @@ pub fn spider_shot_sound(roll: u32) -> Option<u32> {
         .copied()
 }
 
+/// The spit of the giant spider and the killer crab queen, a pseudo-spell of its FX type
+/// (`FX_SPIDERPUKE`, 880, #2099; docs/re/effects.md, "The creatures' spit"): they take the melee's
+/// state 9 as they come on, play [`SPIDER_SHOT_CLIP`] and spit once as the clip's share left falls
+/// below 0.6 (`0x4E4CF0`'s sub-state 5, the double `0x890F48`), at [`SPIT_AT`] of it.
+pub const SPIT: u16 = 880;
+pub const GIANT_SPIDER: u32 = 55;
+pub const CRAB_QUEEN: u32 = 348;
+pub const SPIT_AT: f32 = 0.4;
+
+/// The giant spider's young (`TYPE_NPC_MED_SPIDER`, 75), which it makes in place of its spit.
+pub const YOUNG_SPIDER: u32 = 75;
+
+/// Whether a spitter of type `creature` makes its young in place of its spit (`0x4E5A2A`): the
+/// giant spider, where the spit's first roll `rand() % 3`, `roll`, is 2, in a game of one player.
+pub fn bears_young(creature: u32, roll: u32) -> bool {
+    creature == GIANT_SPIDER && roll % 3 == 2
+}
+
+/// How many young the giant spider makes (`0x4E5A2A`): a count from −1 rises by one at each, and
+/// it stops once the count is above a roll `rand() % 3` (`roll`): two always, a third in two cases
+/// of three, a fourth in one of three of those.
+pub fn young(mut roll: impl FnMut() -> u32) -> u32 {
+    let mut made = 0;
+    loop {
+        made += 1;
+        if made > roll() % 3 + 1 {
+            return made;
+        }
+    }
+}
+
+/// A young spider's level, of its mother's `level`: half of it, truncated, and one (`0x549500`).
+pub fn young_level(level: u32) -> u32 {
+    level / 2 + 1
+}
+
+/// How far ahead of the spitter, along its facing, its spit lands, in the models' units, of a
+/// unit roll `unit` (`0x4E5B3B`): 300 + 100·U.
+pub fn spit_reach(unit: f32) -> f32 {
+    300.0 + 100.0 * unit
+}
+
+/// The spit's sounds as it is spat (`SOUND_FX_SPIDER_PUKE01` to `04`, its start `0x77B700`) and as
+/// it lands (`SOUND_FX_SPIDER_PUKEIMPACT01` to `04`, its run `0x77B180`), each one of four by a
+/// roll `rand() % 5` and none for 4, at the rate's factor `0.4 + 0.2·U`.
+pub const SPIT_SOUNDS: [u32; 4] = [11227, 11228, 11229, 11230];
+pub const SPIT_LANDS: [u32; 4] = [11231, 11232, 11233, 11234];
+
+/// The sound of `sounds` of the roll `roll` (`rand() % 5`), none for 4.
+pub fn spit_sound(sounds: [u32; 4], roll: u32) -> Option<u32> {
+    sounds.get(usize::try_from(roll % 5).ok()?).copied()
+}
+
+/// The marks that a spit lays where it lands (779, `0x5B33AB`, `0x4271E0`): the green blood's of the
+/// giant spider's gib set for the spiders' spit, the red blood's for the crab queen's, one of six
+/// by a roll `rand() % 6`; each of a half side of 50, held 30 s.
+pub const SPIT_MARKS: [[&str; 6]; 2] = [
+    [
+        "FX_BLOOD01_G",
+        "FX_BLOOD02_G",
+        "FX_BLOOD03_G",
+        "FX_BLOOD04_G",
+        "FX_BLOOD05_G",
+        "FX_BLOOD06_G",
+    ],
+    [
+        "FX_BLOOD01",
+        "FX_BLOOD02",
+        "FX_BLOOD03",
+        "FX_BLOOD04",
+        "FX_BLOOD05",
+        "FX_BLOOD06",
+    ],
+];
+pub const SPIT_MARK_HALF: f32 = 50.0;
+pub const SPIT_MARK_HOLDS: f32 = 30.0;
+
 /// The homing fires (docs/re/arts.md, "The creatures' own spells"; the object update's flag
 /// `0x10000`): held at the caster's hand for their charge, then flying at [`HOMING_SPEED`] a second
 /// toward their target for [`HOMING_FLIGHT`] seconds, turning by at most [`HOMING_TURN`] radians a
@@ -155,7 +234,7 @@ pub const DEMON_FIRE_SIZE: f32 = 70.0;
 /// (`0x522030`): by the spell, a few types their own, the dragons (`dragon`, `Creature.pak`'s
 /// class 10) always 81, Anducar (182) and his demon (183) always 154.
 pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
-    if matches!(spell, SPIDER_SHOT | DRAGON_FIRE) {
+    if matches!(spell, SPIDER_SHOT | DRAGON_FIRE | SPIT) {
         return SPIDER_SHOT_CLIP;
     }
     if dragon {
@@ -819,6 +898,28 @@ fn whole(value: f64) -> u32 {
 mod tests {
     use super::*;
     use crate::fight::{Rank, Rules};
+
+    #[test]
+    fn the_giant_spider_spits_or_bears_two_to_four_young() {
+        assert_eq!(coming_on(GIANT_SPIDER), Some(SPIT));
+        assert_eq!(coming_on(CRAB_QUEEN), Some(SPIT));
+        assert_eq!(clip(SPIT, GIANT_SPIDER, false), SPIDER_SHOT_CLIP);
+        // The giant spider alone bears young, on a first roll of 2.
+        assert!(bears_young(GIANT_SPIDER, 2) && !bears_young(GIANT_SPIDER, 1));
+        assert!(!bears_young(CRAB_QUEEN, 2));
+        // Two young where the second roll is 0, three where the third is 0 or 1, else four.
+        let young_of = |rolls: &[u32]| {
+            let mut rolls = rolls.iter().copied();
+            young(|| rolls.next().unwrap())
+        };
+        assert_eq!(young_of(&[2, 0]), 2);
+        assert_eq!(young_of(&[0, 1, 1]), 3);
+        assert_eq!(young_of(&[1, 2, 2, 0]), 4);
+        assert_eq!(young_level(21), 11);
+        assert_eq!(spit_sound(SPIT_LANDS, 3), Some(11234));
+        assert_eq!(spit_sound(SPIT_SOUNDS, 4), None);
+        assert!((spit_reach(1.0) - 400.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn the_goblin_mages_ball_lands_where_a_creature_may_stand() {
