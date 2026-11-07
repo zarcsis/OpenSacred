@@ -1881,6 +1881,21 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 Not followed: the specular.
 **Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 under a translucent faceted dome of pale blue and violet, built down over him as he leaps, a blue glow at his feet.
 
+## The Dwarf's war cry
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The Dwarf's executor at the war cry's (1089) first run on foot, as its clip starts (`0x518ABA`), makes an object 1023 (`FX_KRIEGSSCHREI`, `cParticleSystem_kriegsschrei`, its virtual table `0x898D2C`, constructor `0x7B7DD0`, start `0x7B8300`, run `0x7B7F10`, draw `0x7B80F0`) at him with the FX event `0x9A`, its point `(r, 0, 0)`, `r` his clips' rate (`+0x3E6` over 100), and its direction his heading in degrees (`0x450680`); the handler's case `0x9A` follows him at his bone 0.
+- Its constructor takes `fx_dwarf_ghost.TGA` (the Dwarf's skin in grey), `particle_spark07`, `particle_glow03`, and the model `fx_dwar_ghost.grn`, a dwarf's figure floating over its origin.
+- The start: three ghosts of the scale 1.5, the height 0 and the phases 0, −0.5 and −1; a layer of the life falling by 50 a second and the size by 1.5; a block of the buoyancy 280 ± 60, the size 2 ± 1, the velocity `(0, 0, 80) ± (25, 25, 5)` at a point within `(12, 12, 0)`; a ramp from white through (79, 115, 133), (67, 127, 232) and (40, 82, 151) to black over 14, 13, 60 and 169 entries; `DWARF_KRIEGSSCHREI` (2105) once.
+- The run, its time `d = dt·r`: the clock on by `d`; past 0.7 its ghosts rise, each phase `φ` on by `2·d`, the height `50.2·sin(φ/2)`, the scale on by `0.013·φ` a run (as many as the frames), until the last's phase passes π; until its burst its glow's half side `25·t`, and at 1.1 its glow 27.5 and a burst of 170 sparks; after it its sparks age, bouncing on the ground (`0x7645C0`, the mode 0), and its glow shrinks by 10 a second of the frame's time, at 0 it dies.
+- The draw: `particle_glow03` flat (`0x7631E0`) of its glow's half side in (64, 128, 240), added whole; while they rise, each ghost whose phase lies within 0 to π at its scale, turned by the heading and a right angle, its height over his place, unlit (`0x40D310`) in `fx_dwarf_ghost`, of `(⌊32·v⌋, ⌊64·v⌋, ⌊128·v⌋)` with `v = sin φ·(1 − 0.3·i)`, added, depth tested and not written; after the burst its sparks as `PARTICLE_SPARK07` billboards in its ramp, added whole (the flags `0x19`), where they were born.
+  At the rate 1.2 the ghosts show from 0.58, 0.79 and 1.00 s to 1.89, 2.10 and 2.31 s, the burst comes at 0.92 s and the cry ends at 3.67 s.
+
+`opensacred-game` draws it since #1092 (`war_cries`, `opensacred_rules::particles::WarCry`): as the hero's war cry starts, at its clip's rate (`making::Playing::rate`), the three ghosts' models facing as the Dwarf faced, added under his model (`models::Pass::Under`), the glow just behind it (`fx::Orders`, #2178), the sparks where it burst; untinted.
+The ghosts grow by `0.013·φ` per sixtieth of a second, the original's pace at 60 frames a second, rather than per frame.
+**Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 crying, three translucent blue dwarfs rising over him one after another, then blue sparks leaping about his feet in a ring of light.
+
 ## The Dwarf's war cry's sign
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

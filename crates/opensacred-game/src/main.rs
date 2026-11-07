@@ -233,6 +233,7 @@ mod undead;
 mod vamp_casts;
 mod vamp_sights;
 mod voices;
+mod war_cries;
 mod war_cry_signs;
 mod waterfalls;
 mod weather;
@@ -693,6 +694,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         vamp_casts::VampCastsPlugin,
         vamp_sights::VampSightsPlugin,
         voices::VoicesPlugin,
+        war_cries::WarCriesPlugin,
         war_cry_signs::WarCrySignsPlugin,
         waterfalls::WaterfallsPlugin,
         weather::WeatherPlugin,
