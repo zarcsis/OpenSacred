@@ -1866,6 +1866,20 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
 Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
 
+## The Dwarf's greed
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The spells' executor's case 55 (`0x528A87`), below 0.5 of the clip left, makes an object 1155 (`FX_DWARF_GIER`, `cParticleSystem_dwarf_gier`, its virtual table `0x898E2C`, constructor `0x7BB540`, start `0x7BB8D0`, run `0x7BB620`, draw `0x7BB830`) at the caster, its FX event `0xA1` from him to him, which follows him at `Bip01 Neck`; `DWARF_GIER` (2106) plays.
+- Its constructor takes `particle_spark07.tga` and a Direct3D light of the kind 2.
+- The start: its seconds the spell's value 0 at its level, `19 + L`; his effect 42 (`spells::dwarfs`); a block of the size 3 ± 2 at a point within (18, 18, 20) of (0, 0, −15) from the neck, still, every 0.007 s (1.5 and 2.2 times as long at the lower details); a layer of the life falling by 800 a second (0.32 s) and the size growing by 1; two ramps from black to (223, 153, 17), the gold, over 60 entries, held over 140, to black over 56, and the same in the white (254, 254, 254).
+- The run: the clock on; its sparks aged, and within its seconds made; past them it ends with its last spark.
+  Its light's time down by `dt`; below 0 it is 0.2 again and the light leaps to a point at random within the block about the neck (its rolls of `z`, `y`, then `x`); its colour `2·sin(5π·τ)·(1, 0.5, 0.1)`, `τ` the time left, flaring up and out over each 0.2 s.
+- The draw: its sparks as `PARTICLE_SPARK07` billboards in the gold ramp, added whole (the flags `0x19`); then again in the white ramp at 0.4 of their size.
+
+`opensacred-game` draws it since #1092 (`dwarf_greeds`, `opensacred_rules::particles::Greed`): at the caster's neck for its seconds, the sparks riding with it, untinted, just behind his model (`fx::Orders`, #2178), its light (`fx_lights`) at its point in its flare.
+**Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 with gold stars twinkling about his head and shoulders, his model warming and cooling with the light.
+
 ## The Dwarf's armour and steel
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

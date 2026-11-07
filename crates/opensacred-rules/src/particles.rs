@@ -7248,6 +7248,107 @@ impl ForceOfHell {
     }
 }
 
+/// The Dwarf's greed's sparks' texture (`+0x294C`), the bone they stand at, its light's colour
+/// at its brightest's half, (1, 0.5, 0.1), and its sparks at most (`0x5A0C50`).
+pub const GREED_TEXTURE: &str = "PARTICLE_SPARK07";
+pub const GREED_BONE: &str = "Bip01 Neck";
+pub const GREED_LIGHT: [f32; 3] = [1.0, 0.5, 0.1];
+const GREED_COUNT: usize = 100;
+/// Its sparks' white cores' size, a share of theirs (the second pass of `0x7BB830`).
+pub const GREED_CORE: f32 = 0.4;
+/// How long its light stays at a point before it leaps to another.
+const GREED_LEAP: f32 = 0.2;
+
+/// The Dwarf's greed (1155, `cParticleSystem_dwarf_gier`, its start `0x7BB8D0`, run `0x7BB620`
+/// and draw `0x7BB830`; docs/re/effects.md, "The Dwarf's greed"): for its seconds tiny sparks
+/// about his neck, a spark every 0.007 s within 18 across and 20 up and down of a point 15 under
+/// it, swelling, brightening from black to gold, held, then fading over 0.32 s, each with a white
+/// core; and its light leaping about them every 0.2 s, flaring up and out each time; past its
+/// seconds it ends with its last spark.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Greed {
+    pub sparks: System,
+    seconds: f32,
+    leap: f32,
+    light: [f32; 3],
+    ramps: [Ramp; 2],
+}
+
+impl Greed {
+    /// The greed for `seconds`, its spell's value 0 at its level (`19 + L`).
+    pub fn new(seconds: f32) -> Self {
+        let ramp = |[r, g, b]: [f32; 3]| {
+            let black = [0.0, 0.0, 0.0, 1.0];
+            let colour = [r / 255.0, g / 255.0, b / 255.0, 1.0];
+            Ramp::new(black, &[(colour, 60), (colour, 140), (black, 56)])
+        };
+        Self {
+            sparks: System::new(GREED_COUNT),
+            seconds,
+            leap: 0.0,
+            light: [0.0; 3],
+            ramps: [ramp([223.0, 153.0, 17.0]), ramp([254.0, 254.0, 254.0])],
+        }
+    }
+
+    /// Its sparks' block: the size 3 ± 2 at a point within (18, 18, 20) of (0, 0, −15) from the
+    /// neck, still, every 0.007 s.
+    fn block() -> Block {
+        Block {
+            size: spread(3.0, 2.0),
+            offset: spread([0.0, 0.0, -15.0], [18.0, 18.0, 20.0]),
+            interval: 0.007,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds: its clock on and its sparks aged, made within its seconds; its
+    /// light's time down, and spent, 0.2 again at a point at random within its sparks' block.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Layer {
+            life: -800.0,
+            size: 1.0,
+            ..Layer::default()
+        }];
+        self.sparks.update(dt, &layers);
+        if self.sparks.clock < self.seconds {
+            self.sparks
+                .emit(&[Self::block()], &layers, GREED_COUNT, dice);
+        }
+        self.leap -= dt;
+        if self.leap < 0.0 {
+            self.leap = GREED_LEAP;
+            let block = Self::block();
+            // Its rolls of `z`, `y`, then `x`.
+            let [z, y, x] =
+                [2, 1, 0].map(|k| block.offset.value[k] + block.offset.spread[k] * signed(dice));
+            self.light = [x, y, z];
+        }
+    }
+
+    /// Whether it is over: its seconds passed and its last spark gone.
+    pub fn done(&self) -> bool {
+        self.sparks.clock >= self.seconds && self.sparks.particles.is_empty()
+    }
+
+    /// Its light's point from the neck.
+    pub fn light_point(&self) -> [f32; 3] {
+        self.light
+    }
+
+    /// Its light's colour: `2·sin(5π·τ)` times [`GREED_LIGHT`], `τ` its time left at its point,
+    /// from dark up to twice and back over its 0.2 s.
+    pub fn light_colour(&self) -> [f32; 3] {
+        let flare = 2.0 * (5.0 * std::f32::consts::PI * self.leap).sin();
+        GREED_LIGHT.map(|c| c * flare.max(0.0))
+    }
+
+    /// A spark's colour at its life: gold, else the white of its core.
+    pub fn colour(&self, life: f32, core: bool) -> [f32; 4] {
+        self.ramps[usize::from(core)].at(life)
+    }
+}
+
 /// The Dwarf's armour's (1021) and steel's (1022) textures, each a ring of runes on black.
 pub const DWARF_ARMOUR_TEXTURES: [&str; 2] = ["fx_dwarf_panzer", "fx_dwarf_stahl"];
 /// Their rings' half side; the copies stacked over the first and how far apart, by the height
@@ -16238,6 +16339,51 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_dwarfs_greed_sparkles_gold_about_his_neck_with_a_leaping_light() {
+        let mut dice = Rng::of(4, 4, 2);
+        let mut greed = Greed::new(3.0);
+        greed.update(0.01, &mut dice);
+        let first = greed.light_point();
+        // The light 15 under the neck within (18, 18, 20), flaring up and out over 0.2 s.
+        assert!(first[0].abs() <= 18.0 && first[1].abs() <= 18.0);
+        assert!((-35.0..=5.0).contains(&first[2]), "{first:?}");
+        for _ in 0..9 {
+            greed.update(0.01, &mut dice);
+        }
+        let bright = greed.light_colour();
+        assert!(
+            bright[0] > 1.9 && (bright[1] - bright[0] / 2.0).abs() < 1e-5,
+            "{bright:?}"
+        );
+        for _ in 0..12 {
+            greed.update(0.01, &mut dice);
+        }
+        assert_ne!(greed.light_point(), first);
+        // About 45 sparks alive at once (one every 0.007 s, 0.32 s each), within reach of it.
+        for _ in 0..100 {
+            greed.update(0.01, &mut dice);
+        }
+        let alive = greed.sparks.particles.len();
+        assert!((40..=50).contains(&alive), "{alive}");
+        for spark in &greed.sparks.particles {
+            assert!(spark.place[2] <= 5.0 + 1e-3 && spark.place[2] >= -35.0 - 1e-3);
+        }
+        // Born black, gold through its middle, a white core.
+        assert_eq!(greed.colour(255.0, false), [0.0, 0.0, 0.0, 1.0]);
+        let gold = greed.colour(128.0, false);
+        assert!((gold[0] - 223.0 / 255.0).abs() < 1e-5 && (gold[2] - 17.0 / 255.0).abs() < 1e-5);
+        assert!((greed.colour(128.0, true)[1] - 254.0 / 255.0).abs() < 1e-5);
+        // Ends 0.32 s after its seconds.
+        let mut clock = 1.22_f32;
+        while !greed.done() {
+            greed.update(0.01, &mut dice);
+            clock += 0.01;
+            assert!(clock < 4.0);
+        }
+        assert!((clock - 3.32).abs() < 0.03, "{clock}");
     }
 
     #[test]
