@@ -90,12 +90,12 @@ fn show(
 /// Twinkles each magic a frame on (`0x78A360`, `0x78A3B0`): its stars about its place.
 fn twinkle(
     time: Res<Time>,
-    mut magics: Query<&mut Shown>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    mut magics: Query<(&mut Shown, &GlobalTransform)>,
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for mut look in &mut magics {
+    for (mut look, place) in &mut magics {
         let look = &mut *look;
         look.magic.update(dt, &mut dice.0);
         let ramp = look.magic.ramp();
@@ -110,6 +110,10 @@ fn twinkle(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&look.mesh) {
+            // After its cell's statics, an object of the world's from its sector's start, as the
+            // world's fires (#2188).
+            let origin = place.translation();
+            quads.in_order(orders.after_statics(origin), origin);
             quads.into_mesh(&mut mesh);
         }
     }

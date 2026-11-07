@@ -162,7 +162,7 @@ fn burn(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
     mut rolls: ResMut<Rolls>,
 ) {
     let dt = time.delta_secs().min(0.1);
@@ -221,8 +221,14 @@ fn burn(
                 particles::TORCH_GLOW_COLOUR,
             );
         }
-        for (handle, part) in flame.parts.iter().zip(parts) {
+        // Just behind the creature that holds it, else at its place, as the original draws the
+        // system before the creature (#2188).
+        let order = flame
+            .holder
+            .map_or_else(|| orders.at(flame.origin), |holder| orders.behind(holder));
+        for (handle, mut part) in flame.parts.iter().zip(parts) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, Vec3::ZERO);
                 part.into_mesh(&mut mesh);
             }
         }

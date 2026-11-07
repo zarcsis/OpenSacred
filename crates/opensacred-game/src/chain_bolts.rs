@@ -305,14 +305,14 @@ fn run_bolts(
 fn run_impacts(
     mut commands: Commands,
     time: Res<Time>,
-    mut impacts: Query<(Entity, &mut Impact)>,
+    mut impacts: Query<(Entity, &mut Impact, &GlobalTransform)>,
     mut lamps: Query<&mut daynight::Light>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let ramp = ChainImpact::ramp();
-    for (entity, mut impact) in &mut impacts {
+    for (entity, mut impact, place) in &mut impacts {
         let impact = &mut *impact;
         impact.impact.update(dt);
         if impact.impact.done() {
@@ -342,8 +342,12 @@ fn run_impacts(
             (Vec2::ZERO, 1.0),
             [g, g, g, 1.0],
         );
-        for (handle, part) in impact.parts.iter().zip([sparks, glow]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
+        for (handle, mut part) in impact.parts.iter().zip([sparks, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, origin);
                 part.into_mesh(&mut mesh);
             }
         }
