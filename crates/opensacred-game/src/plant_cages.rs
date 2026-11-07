@@ -196,7 +196,7 @@ fn run(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -241,8 +241,12 @@ fn run(
                 colour,
             );
         }
-        for (handle, quads) in cage.meshes.iter().zip([dots, glow]) {
+        // Just behind its creature's model, as the original draws the system before the
+        // creature it holds (#2188).
+        let order = orders.behind(cage.target);
+        for (handle, mut quads) in cage.meshes.iter().zip([dots, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }
         }

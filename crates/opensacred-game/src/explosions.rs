@@ -148,8 +148,8 @@ fn make(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut blasts: Query<(Entity, &mut Blast)>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    mut blasts: Query<(Entity, &mut Blast, &GlobalTransform)>,
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -157,7 +157,7 @@ fn run(
     let side = f32::from(grid);
     let (across, down) = iso::fx_axes();
     let ground = Vec3::Y * GROUND_LIFT;
-    for (entity, mut look) in &mut blasts {
+    for (entity, mut look, at) in &mut blasts {
         let Blast {
             blast,
             meshes: parts,
@@ -205,8 +205,12 @@ fn run(
                 [1.0; 4],
             );
         }
-        for (handle, part) in parts.iter().zip([flames, scorch, ring]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = at.translation();
+        let order = orders.at(origin);
+        for (handle, mut part) in parts.iter().zip([flames, scorch, ring]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, origin);
                 part.into_mesh(&mut mesh);
             }
         }

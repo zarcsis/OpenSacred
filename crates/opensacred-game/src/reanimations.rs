@@ -103,13 +103,13 @@ fn make(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut rings: Query<(Entity, &mut Ring)>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    mut rings: Query<(Entity, &mut Ring, &GlobalTransform)>,
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let ramp = Reanimate::ramp();
-    for (entity, mut look) in &mut rings {
+    for (entity, mut look, at) in &mut rings {
         let Ring { ring, mesh } = &mut *look;
         ring.update(dt, &mut dice.0);
         if ring.done() {
@@ -127,6 +127,8 @@ fn run(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&*mesh) {
+            // At its object's place in the order, as the original draws the system (#2188).
+            quads.in_order(orders.at(at.translation()), at.translation());
             quads.into_mesh(&mut mesh);
         }
     }

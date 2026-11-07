@@ -153,6 +153,7 @@ fn run(
     time: Res<Time>,
     mut rings: Query<(Entity, &mut Ring)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let s = iso::MODEL_SCALE;
     for (entity, mut ring) in &mut rings {
@@ -199,8 +200,11 @@ fn run(
                 twirl,
             );
         }
-        for (handle, quads) in ring.parts.iter().zip([band, twirls]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let order = orders.at(ring.place);
+        for (handle, mut quads) in ring.parts.iter().zip([band, twirls]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }
         }

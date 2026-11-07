@@ -197,13 +197,13 @@ fn flat(quads: &mut Quads, (half, turn, height): (f32, f32, f32), colour: [f32; 
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown)>,
+    mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
     landings: Query<(), With<Landing>>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for (entity, mut look) in &mut shown {
+    for (entity, mut look, at) in &mut shown {
         let look = &mut *look;
         let gone = look
             .landing
@@ -298,8 +298,12 @@ fn run(
                 }
             }
         }
-        for (mesh, quads) in look.meshes.iter().zip(quads) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = at.translation();
+        let order = orders.at(origin);
+        for (mesh, mut quads) in look.meshes.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
