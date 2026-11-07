@@ -4,7 +4,8 @@
 //! of one of its four textures at random, warm and narrow within grey and wide, added whole and
 //! untinted by the night, of its gun's scale, for 0.1 s, lighting the night by 300 and the models
 //! white 5 ahead of it (`opensacred_rules::particles::{gunfire_quads, gunfire_scale}`), kept at
-//! the muzzle while it shows. Each
+//! the muzzle while it shows, at the muzzle's place in the original's order of drawing, where its
+//! object draws it (`fx::Orders::at`, #2220). Each
 //! creature that the Dwarf's gun arts strike with a gun, and that his cannon strikes ([`Impact`]),
 //! sprays red at its neck along the shot (1151, `cParticleSystem_shoot_impact`,
 //! `particles::shoot_impact`), drawn by `puffs`, tinted by the night.
@@ -24,7 +25,7 @@ use opensacred_rules::spawning::Rng;
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_texture, whole_material};
+use crate::fx::{Effect, InOrder, Orders, Quads, empty, particle_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::hit_sparks::Spark;
 use crate::iso;
@@ -106,7 +107,7 @@ fn fire(
     ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
-    mut rolls: ResMut<Rolls>,
+    (mut rolls, orders): (ResMut<Rolls>, Orders),
 ) {
     for &Gunfire { shooter } in fires.read() {
         let Some((place, axis)) = muzzle(shooter, &children, (&bones, &worn)) else {
@@ -129,7 +130,7 @@ fn fire(
             })
             .clone();
         let mut mesh = empty();
-        let (origin, lamp) = lay((place, axis), scale, &mut mesh);
+        let (origin, lamp) = lay((place, axis), scale, orders.at(place), &mut mesh);
         let mesh = meshes.add(mesh);
         debug!("gun_fires: {shooter} fires {texture} at {place} along {axis}");
         let mut flash = commands.spawn((
@@ -167,10 +168,15 @@ fn fire(
 }
 
 /// Lays a flash of the gun's `scale` out at the muzzle `place` along its `axis` into `mesh`, from
-/// the place on the ground under it, which it answers with its light's place. Its frame turns its
-/// `y` onto the shot (**estimate**: the shortest turn), in the models' frame, its third coordinate
-/// up.
-fn lay((place, axis): (Vec3, Vec3), scale: f32, mesh: &mut Mesh) -> (Vec3, Vec3) {
+/// the place on the ground under it, which it answers with its light's place, at the depth of
+/// `order`. Its frame turns its `y` onto the shot (**estimate**: the shortest turn), in the models'
+/// frame, its third coordinate up.
+fn lay(
+    (place, axis): (Vec3, Vec3),
+    scale: f32,
+    order: Option<InOrder>,
+    mesh: &mut Mesh,
+) -> (Vec3, Vec3) {
     let along = Vec3::from(models(axis)).normalize_or(Vec3::Y);
     let turn = Quat::from_rotation_arc(Vec3::Y, along);
     let origin = place.with_y(0.0);
@@ -181,6 +187,7 @@ fn lay((place, axis): (Vec3, Vec3), scale: f32, mesh: &mut Mesh) -> (Vec3, Vec3)
             .map(|corner| place + world((turn * Vec3::from(corner) * scale).to_array()) - origin);
         quads.push_corners(corners, quad.uvs.map(Vec2::from), quad.colour);
     }
+    quads.in_order(order, origin);
     quads.into_mesh(mesh);
     (
         origin,
@@ -238,7 +245,7 @@ fn show(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
 ) {
     for (entity, mut flash, mut transform) in &mut flashes {
         flash.left -= time.delta_secs();
@@ -252,7 +259,7 @@ fn show(
         let Some(mut mesh) = meshes.get_mut(&flash.mesh) else {
             continue;
         };
-        let (origin, lamp) = lay(muzzle, flash.scale, &mut mesh);
+        let (origin, lamp) = lay(muzzle, flash.scale, orders.at(muzzle.0), &mut mesh);
         transform.translation = origin;
         if let Ok(mut light) = lights.get_mut(flash.light) {
             light.translation = lamp;
