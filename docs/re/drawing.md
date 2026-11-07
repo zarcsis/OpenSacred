@@ -192,7 +192,8 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   **Seen** 2026-11-07: the Mage's fireball bursting at her hand as it leaves, her arm over its flames, where before its flames lay over her arm and body.
   So do, at their objects' places, the scripts' prisons, the lightning's strikes, the icebergs and the lost souls as they fly, and the killer plants just behind their own models.
   So do the gusts and the torches' flames just behind the creatures that bear or hold them, else at their places, the bolts' trails at their places as they fly, and the dwarves' magic lamps of the scripts after their cells' statics, as the world's fires; the chain lightning's impacts, the dragons' fires on the ground and the blades of light at their objects' places.
-  The other systems are drawn at their own depths still (#2188).
+  So do, at their objects' places, the marks on the ground, the battle fogs and the summonings' sights, and the items' own glows just behind the creatures that hold them, else at the items' places.
+  The other systems are drawn at their own depths still (#2188): those drawn over everything, their depth not tested (the stargates' whirls, the summonings' triangles and bolts); those of many objects in one mesh (the items' glitter, the hidden stashes' blinks); and the breath's walls of fire, the guns' flashes, the Vampiress's bats and ribbons, the tentacles, the bubbles, the lava's bursts, the beams, the beacons, the Pong of the scripts and the butterflies of the weather.
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 
 ## The models' turn
