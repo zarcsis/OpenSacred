@@ -223,11 +223,12 @@ fn facing(quads: &mut Quads, [left, right, bottom, top]: [f32; 4], across: f32, 
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown)>,
+    mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
-    for (entity, mut rune) in &mut shown {
+    for (entity, mut rune, at) in &mut shown {
         let rune = &mut *rune;
         rune.clock += dt;
         rune.rune.update(dt, &mut rune.dice);
@@ -254,8 +255,12 @@ fn run(
                 particles::RUNE_SPARK_COLOUR,
             );
         }
-        for (handle, part) in rune.parts.iter().zip(quads) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = at.translation();
+        let order = orders.at(origin);
+        for (handle, mut part) in rune.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, origin);
                 part.into_mesh(&mut mesh);
             }
         }

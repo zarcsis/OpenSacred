@@ -731,10 +731,13 @@ impl Quads {
 
     /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
     /// as the renderer warns of a mesh without vertices (#1203).
-    /// Lays every vertex at the depth of `order` along the line of sight, where one is given, the
-    /// mesh's origin at `origin` (its entity's place, of no turn and no scale): in the camera's
-    /// orthographic view each vertex shows where it did, at the depth of its system's place in
-    /// the original's order of drawing ([`Orders`], #2178).
+    /// Lays every vertex nearer the camera than the depth of `order` back to it along the line of
+    /// sight, where one is given, the mesh's origin at `origin` (its entity's place, of no turn and
+    /// no scale): in the camera's orthographic view each vertex shows where it did, none nearer
+    /// than its system's place in the original's order of drawing ([`Orders`], #2178), so that a
+    /// creature drawn after the system covers it; a vertex further back keeps its depth, hidden
+    /// by a creature drawn before the system in front of it, as the original's depth test hides
+    /// it (#2188).
     pub(crate) fn in_order(&mut self, order: Option<InOrder>, origin: Vec3) {
         let Some(order) = order else {
             return;
@@ -743,7 +746,10 @@ impl Quads {
         let to = order.place - origin;
         for position in &mut self.positions {
             let vertex = Vec3::from_array(*position);
-            *position = (vertex + back * ((to - vertex).dot(back) + order.beyond)).to_array();
+            let shift = (to - vertex).dot(back) + order.beyond;
+            if shift < 0.0 {
+                *position = (vertex + back * shift).to_array();
+            }
         }
     }
 
@@ -1534,5 +1540,12 @@ mod tests {
         let nearer = in_order(anchor + Vec4::new(iso::CELL, 0.0, 0.0, 0.0), -40.0);
         let system = true_depth(root + Vec3::from(quads.positions[0]));
         assert!(row > 1.0 && farther < system && system < nearer);
+        // A part of the system far behind its place, a ring's on the ground rows back, keeps its
+        // own depth, which a creature drawn before it in front of it hides (#2188).
+        let mut ring = Quads::default();
+        ring.push(-back * 100.0, 8.0, 0.0, (Vec2::ZERO, 1.0), [1.0; 4]);
+        let was = ring.positions.clone();
+        ring.in_order(Some(order), root);
+        assert_eq!(ring.positions, was);
     }
 }

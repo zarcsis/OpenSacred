@@ -105,12 +105,13 @@ fn show(
 fn burn(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown)>,
+    mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for (entity, mut look) in &mut shown {
+    for (entity, mut look, at) in &mut shown {
         let look = &mut *look;
         look.summon.update(dt, &mut look.dice);
         let mut glows = Quads::default();
@@ -124,6 +125,9 @@ fn burn(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&look.mesh) {
+            // Just behind the creature it summons, as the original draws the system before the
+            // creature (#2188).
+            glows.in_order(orders.behind(entity), at.translation());
             glows.into_mesh(&mut mesh);
         }
         if look.summon.done() {

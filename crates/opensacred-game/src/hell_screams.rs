@@ -123,15 +123,15 @@ fn show(
 fn scream(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown)>,
+    mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
     objects: Query<(), With<Look>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let (across, depth) = iso::fx_axes();
     let (right, up) = (iso::right(), iso::up());
-    for (entity, mut look) in &mut shown {
+    for (entity, mut look, at) in &mut shown {
         let look = &mut *look;
         if look.object.is_some_and(|object| !objects.contains(object)) {
             look.object = None;
@@ -179,8 +179,12 @@ fn scream(
                 particles::FEAR_COLUMN_COLOUR,
             );
         }
-        for (handle, part) in look.parts.iter().zip([glow, ring, column]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = at.translation();
+        let order = orders.at(origin);
+        for (handle, mut part) in look.parts.iter().zip([glow, ring, column]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, origin);
                 part.into_mesh(&mut mesh);
             }
         }
