@@ -4396,6 +4396,101 @@ impl ShieldWall {
     }
 }
 
+/// The models of the Dark Elf's two wards, the arrowproof's (1045, 883) and the spellproof's
+/// (1046, 870), as `npcs::model_files` names them; each carries its own texture,
+/// `MAGICSHIELD2` and `MAGICSHIELD` (`0x7A0790`, `0x7A01D0`).
+pub const DARK_WARD_MODELS: [&str; 2] = ["MAGICSHIELD2.GRN", "MAGICSHIELD.GRN"];
+/// The wards' world light (`+0x9C`).
+pub const DARK_WARD_LIGHT: f32 = 300.0;
+/// How fast a ward turns about the upright and rises out of the ground or sinks back, in radians
+/// a second (`0x7A0940`).
+const DARK_WARD_TURN: f32 = 0.5;
+const DARK_WARD_RISE: f32 = 0.5;
+/// How fast a ward's flash falls, a second (`0x7A0940`).
+const DARK_WARD_FADE: f32 = 1.0;
+
+/// One of the Dark Elf's wards about its bearer (docs/re/effects.md, "The Dark Elf's wards"): the
+/// arrowproof's model (`cParticleSystem_fernumleitung`, 883, its run `0x7A0940`, its draw
+/// `0x7A0A60`) or the spellproof's (`cParticleSystem_magieumleitung`, 870, `0x7A0380`,
+/// `0x7A0490`), a cylinder of runes that rises out of the ground over π s, stands for its seconds
+/// turning at 0.5 rad a second and pulsing grey once a second, and sinks back over π s; the
+/// arrowproof's breathes a little wider and narrower. Each arrow or spell it turns aside widens
+/// it by a tenth for a moment. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DarkWard {
+    clock: f32,
+    seconds: f32,
+    turn: f32,
+    rise: f32,
+    flash: f32,
+    breathes: bool,
+}
+
+impl DarkWard {
+    /// A ward of `seconds`, its effect's (44 + L); the arrowproof's `breathes`.
+    pub fn new(seconds: f32, breathes: bool) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            turn: 0.0,
+            rise: 0.0,
+            flash: 0.0,
+            breathes,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock; its turn falling by 0.5 a second; within its seconds
+    /// risen by 0.5 a second up to π/2, past them sunk by as much; its flash falling by 1 a
+    /// second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.turn -= DARK_WARD_TURN * dt;
+        if self.clock <= self.seconds {
+            self.rise = (self.rise + DARK_WARD_RISE * dt).min(std::f32::consts::FRAC_PI_2);
+        } else {
+            self.rise -= DARK_WARD_RISE * dt;
+        }
+        self.flash = (self.flash - DARK_WARD_FADE * dt).max(0.0);
+    }
+
+    /// An arrow or a spell turned aside: its flash at 1 (its word's bit 8).
+    pub fn flash(&mut self) {
+        self.flash = 1.0;
+    }
+
+    /// Whether it has sunk back into the ground past its seconds.
+    pub fn done(&self) -> bool {
+        self.clock > self.seconds && self.rise <= 0.0
+    }
+
+    /// Its scale across, `0.75 + 0.03 sin t` for the arrowproof and 1 for the spellproof, plus a
+    /// tenth of its flash.
+    pub fn breadth(&self) -> f32 {
+        let breadth = if self.breathes {
+            0.75 + 0.03 * self.clock.sin()
+        } else {
+            1.0
+        };
+        breadth + 0.1 * self.flash
+    }
+
+    /// Its scale upright, `sin` of its rise.
+    pub fn height(&self) -> f32 {
+        self.rise.max(0.0).sin()
+    }
+
+    /// Its turn about the upright in the models' frame, in radians: clockwise on the screen.
+    pub fn turn(&self) -> f32 {
+        self.turn
+    }
+
+    /// The grey of its vertices, a share of 255: 128 up to 240 and back each second
+    /// ([`beat`] about `0x808080` by `0x707070`).
+    pub fn grey(&self) -> f32 {
+        (128.0 + 112.0 * beat(self.clock)) / 255.0
+    }
+}
+
 /// The two regenerations' sights: the mana's spring's (835, `cParticleSystem_manaregen`, its
 /// draw `0x78B230`) and the regeneration's (836, `cParticleSystem_hpregen`, `0x78B680`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15060,5 +15155,46 @@ mod tests {
         assert!((greys[(head + 1) % 31] - 235.0).abs() < 0.5);
         assert!((greys[(head + 12) % 31] - 15.0).abs() < 0.5);
         assert!((greys[(head + 20) % 31] - 15.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn a_dark_ward_rises_stands_its_seconds_and_sinks() {
+        use std::f32::consts::PI;
+        // The arrowproof of level 3: 47 s standing, π s rising and π sinking.
+        let mut ward = DarkWard::new(47.0, true);
+        let dt = 0.01;
+        let (mut lived, mut breadths, mut greys) = (0.0, Vec::new(), Vec::new());
+        while !ward.done() {
+            ward.update(dt);
+            lived += dt;
+            breadths.push(ward.breadth());
+            greys.push(ward.grey());
+            assert!(lived < 60.0);
+        }
+        assert!((lived - (47.0 + PI)).abs() < 0.05, "{lived}");
+        // Risen whole π s in, turned a turn every 4π s, clockwise.
+        let mut risen = DarkWard::new(47.0, true);
+        for _ in 0..315 {
+            risen.update(dt);
+        }
+        assert!((risen.height() - 1.0).abs() < 1e-3 && risen.turn() < -1.5);
+        // Breathing 0.72 to 0.78 wide, pulsing 128 to 240 grey.
+        let (low, high) = breadths
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!((low - 0.72).abs() < 1e-3 && (high - 0.78).abs() < 1e-3);
+        let (low, high) = greys
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!((low * 255.0 - 128.0).abs() < 2.0 && (high * 255.0 - 240.0).abs() < 2.0);
+        // The spellproof stands whole; a turned aside arrow widens it by a tenth, back in 1 s.
+        let mut spellproof = DarkWard::new(47.0, false);
+        spellproof.update(dt);
+        spellproof.flash();
+        assert!((spellproof.breadth() - 1.1).abs() < 1e-6);
+        for _ in 0..100 {
+            spellproof.update(dt);
+        }
+        assert!((spellproof.breadth() - 1.0).abs() < 1e-3);
     }
 }
