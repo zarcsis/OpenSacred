@@ -151,6 +151,74 @@ pub const GIANT_SPIDER: u32 = 55;
 pub const CRAB_QUEEN: u32 = 348;
 pub const SPIT_AT: f32 = 0.4;
 
+/// Whether a creature of type `creature` is the eiterblume (186) or its spinneling (333).
+pub fn flowers(creature: u32) -> bool {
+    matches!(creature, 186 | 333)
+}
+
+/// The flowers' clip of their spit (`0x4E34D6`), and the share of it at which they spit: the
+/// share left below 0.475 (the double `0x890F40`).
+pub const FLOWERS_CLIP: u16 = 0x91;
+const FLOWERS_SPIT_AT: f32 = 0.525;
+
+/// The share of the clip at which a creature of type `creature` spits ([`SPIT_AT`], the
+/// flowers' later).
+pub fn spit_at(creature: u32) -> f32 {
+    if flowers(creature) {
+        FLOWERS_SPIT_AT
+    } else {
+        SPIT_AT
+    }
+}
+
+/// What a flower does at a decision of its melee (the fight's specials `0x4D9674`), its target
+/// `distance` away and its reach `reach`: nearer than one and a half reaches, truncated, it fights
+/// in melee ([`Flower::Melee`]); else nearer than 400 it spits by a roll `rand() % 7` (`roll`) of 1,
+/// and stands otherwise; nearer than 800 it leaps at its target by the same roll (the art 1043,
+/// the Dark Elf's panther's leap), and stands otherwise; farther it stands. It never walks to its
+/// target from beyond its melee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flower {
+    Melee,
+    Spits,
+    Leaps,
+    Stands,
+}
+
+/// The flowers' distances of the spit and of the leap (`0x4D9674`).
+pub const FLOWER_SPITS_WITHIN: f32 = 400.0;
+pub const FLOWER_LEAPS_WITHIN: f32 = 800.0;
+
+/// Whether a flower `distance` from its target, of the reach `reach`, fights in melee, which
+/// draws no roll.
+pub fn flower_melee(distance: f32, reach: f32) -> bool {
+    distance < (1.5 * reach).floor()
+}
+
+/// What a flower does beyond its melee by the roll `roll` (`rand() % 7`, [`Flower`]).
+pub fn flower(distance: f32, roll: u32) -> Flower {
+    let wins = roll % 7 == 1;
+    if distance < FLOWER_SPITS_WITHIN && wins {
+        Flower::Spits
+    } else if (FLOWER_SPITS_WITHIN..FLOWER_LEAPS_WITHIN).contains(&distance) && wins {
+        Flower::Leaps
+    } else {
+        Flower::Stands
+    }
+}
+
+/// The killer crab queen's cages as it spits (`0x4E58EF`): by an odd `rand()` with a target, ten
+/// objects 849 at the target's place, the plant cage (40) of the level `⌊L/3⌋`, at least 1, which
+/// hold the target 3 s as a creature's cage does and strike nothing; `HELF_PFLANZENKONTROLLE` at
+/// the first and the sixth.
+pub const CRAB_CAGES: u32 = 10;
+pub const CRAB_CAGES_HOLD: f32 = 3.0;
+
+/// Whether the crab queen drops its cages on its target by the roll `roll` (`rand()`).
+pub fn crab_cages(creature: u32, roll: u32) -> bool {
+    creature == CRAB_QUEEN && roll & 1 == 1
+}
+
 /// The giant spider's young (`TYPE_NPC_MED_SPIDER`, 75), which it makes in place of its spit.
 pub const YOUNG_SPIDER: u32 = 75;
 
@@ -234,6 +302,9 @@ pub const DEMON_FIRE_SIZE: f32 = 70.0;
 /// (`0x522030`): by the spell, a few types their own, the dragons (`dragon`, `Creature.pak`'s
 /// class 10) always 81, Anducar (182) and his demon (183) always 154.
 pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
+    if spell == SPIT && flowers(creature) {
+        return FLOWERS_CLIP;
+    }
     if matches!(spell, SPIDER_SHOT | DRAGON_FIRE | SPIT) {
         return SPIDER_SHOT_CLIP;
     }
@@ -582,6 +653,9 @@ pub enum OwnMark {
     AnducarsGuard,
     /// The prince's guards (187, 205 to 208, 253 to 255, 330 to 332, `0x218`): the plant cage.
     PrincesGuard,
+    /// The eiterblume and its spinneling (186, 333, `0x211`): the spit, and the panther's leap
+    /// ([`flower`]).
+    Flower,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -594,6 +668,7 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         185 | 250..=252 => OwnMark::Prince,
         184 | 249 => OwnMark::AnducarsGuard,
         187 | 205..=208 | 253..=255 | 330..=332 => OwnMark::PrincesGuard,
+        186 | 333 => OwnMark::Flower,
         _ => return None,
     })
 }
@@ -898,6 +973,22 @@ fn whole(value: f64) -> u32 {
 mod tests {
     use super::*;
     use crate::fight::{Rank, Rules};
+
+    #[test]
+    fn the_flowers_spit_or_leap_beyond_their_melee_and_the_crab_cages() {
+        assert_eq!(own_mark(186), Some(OwnMark::Flower));
+        assert_eq!(clip(SPIT, 333, false), FLOWERS_CLIP);
+        assert!((spit_at(186) - 0.525).abs() < f32::EPSILON);
+        assert!((spit_at(GIANT_SPIDER) - SPIT_AT).abs() < f32::EPSILON);
+        // A reach of 75: melee within 112.
+        assert!(flower_melee(111.0, 75.0) && !flower_melee(112.0, 75.0));
+        assert_eq!(flower(300.0, 1), Flower::Spits);
+        assert_eq!(flower(300.0, 2), Flower::Stands);
+        assert_eq!(flower(400.0, 8), Flower::Leaps);
+        assert_eq!(flower(800.0, 1), Flower::Stands);
+        assert!(crab_cages(CRAB_QUEEN, 3) && !crab_cages(CRAB_QUEEN, 2));
+        assert!(!crab_cages(GIANT_SPIDER, 3));
+    }
 
     #[test]
     fn the_giant_spider_spits_or_bears_two_to_four_young() {

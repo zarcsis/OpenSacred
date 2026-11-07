@@ -13,8 +13,9 @@
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
 use opensacred_rules::casts::{
-    CRAB_QUEEN, SPIT_LANDS, SPIT_MARK_HALF, SPIT_MARK_HOLDS, SPIT_MARKS, SPIT_SOUNDS, YOUNG_SPIDER,
-    bears_young, spit_reach, spit_sound, young, young_level,
+    CRAB_CAGES, CRAB_CAGES_HOLD, CRAB_QUEEN, SPIT_LANDS, SPIT_MARK_HALF, SPIT_MARK_HOLDS,
+    SPIT_MARKS, SPIT_SOUNDS, YOUNG_SPIDER, bears_young, crab_cages, spit_reach, spit_sound, young,
+    young_level,
 };
 use opensacred_rules::particles::{
     SPIT_GRID, SPIT_SCALE, SPIT_SIZE, SPIT_TEXTURES, Spit, spit_part,
@@ -40,6 +41,7 @@ const HEAD: &str = "Head_02";
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Spat {
     pub spitter: Entity,
+    pub target: Entity,
 }
 
 /// The spits' dice (`rand()`; **estimate**: any seed).
@@ -97,10 +99,11 @@ fn spit(
         ),
         Without<Dies>,
     >,
-    (children, bones, worn): (
+    (children, bones, worn, targets): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
+        Query<(), (With<fight::Health>, Without<Dies>)>,
     ),
     (data, assets, tables, rules): (
         Option<Res<Data>>,
@@ -116,7 +119,7 @@ fn spit(
         MessageWriter<crate::sfx::Play>,
     ),
 ) {
-    for &Spat { spitter } in spat.read() {
+    for &Spat { spitter, target } in spat.read() {
         let Ok((at, mind, way, arms, combat)) = spitters.get(spitter) else {
             continue;
         };
@@ -131,6 +134,11 @@ fn spit(
             continue;
         }
         let crab = mind.creature == CRAB_QUEEN;
+        // The crab queen's cages on its target, by an odd roll, before its spit (`0x4E58EF`).
+        if crab && crab_cages(mind.creature, dice.below(0x8000)) && targets.contains(target) {
+            info!("spits: {spitter} drops its cages on {target}");
+            hold(&mut commands, target);
+        }
         if !looks.made {
             looks.made = true;
             if let Some(data) = data.as_deref() {
@@ -206,6 +214,24 @@ fn spit(
             });
         }
     }
+}
+
+/// Holds `target` by the crab queen's cages: the plant cage's effect 15 for 3 s (`0x5B5CC8`)
+/// and its ten cages about it, the first and the sixth sounding (`plant_cages`).
+fn hold(commands: &mut Commands, target: Entity) {
+    let effect = opensacred_rules::fight::Effect {
+        id: opensacred_rules::spells::HELD,
+        whole: 0,
+        value: 0.0,
+        art: u32::from(opensacred_rules::casts::CAGE),
+        level: 0,
+    };
+    commands
+        .entity(target)
+        .entry::<crate::effects::Effects>()
+        .or_default()
+        .and_modify(move |mut effects| effects.add(effect, CRAB_CAGES_HOLD));
+    crate::plant_cages::cage(commands, target, CRAB_CAGES, (false, CRAB_CAGES_HOLD));
 }
 
 /// Makes `count` young spiders of `level` on the spot `place` of the layer `layer`, hostile

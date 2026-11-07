@@ -139,12 +139,16 @@ pub struct ScriptAreaTypes(pub quests::AreaTypes);
 
 /// A `SetObjState` (2, `0x48AE90`) of the object named `name` (its ASCII lower-cased, as `npcs`
 /// keeps the objects' names): its trigger's bar (`0x8000`; `0x06` sets it, `0x07` clears it) and
-/// open bit (bit 0; `0x0F` sets it, `0x10` clears it), each where the record gives it.
+/// open bit (bit 0; `0x0F` sets it, `0x10` clears it), each where the record gives it; and
+/// whether it carries the tag `0x3C`, the signal of an FX object of the name (`0x48B8C4`: the
+/// event of the object's own kind with its `+0x3C` 1, by which the forge's elements fade,
+/// `forge_elements`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjState {
     pub name: String,
     pub barred: Option<bool>,
     pub open: Option<bool>,
+    pub signal: bool,
 }
 
 /// The `SetObjState`s that the scripts ran, in order, which `npcs` carries out on the objects'
@@ -1678,13 +1682,15 @@ impl Host for Recorder<'_> {
                 } else {
                     None
                 };
+                let signal = !tags.values("_3C").is_empty();
                 if let Some(name) = tags.texts("_01").first()
-                    && (barred.is_some() || open.is_some())
+                    && (barred.is_some() || open.is_some() || signal)
                 {
                     self.states.push(ObjState {
                         name: name.to_ascii_lowercase(),
                         barred,
                         open,
+                        signal,
                     });
                 }
                 Handled::Done
@@ -3639,6 +3645,7 @@ mod tests {
              set_obj_state { _01 = \"R24NQ11_Tür\", _07 = true }\n\
              set_obj_state { _01 = \"gate\", _06 = true, _10 = true, marks = { 0x06, 0x10 } }\n\
              set_obj_state { _01 = \"well\", _41 = \"take\", _75 = 1 }\n\
+             set_obj_state { _01 = \"Res:18301\", _3C = { 0, 0, 0 } }\n\
              return true\n\
              end\n\
              return F",
@@ -3656,13 +3663,19 @@ mod tests {
             name: name.into(),
             barred,
             open,
+            signal: false,
         };
-        // The bar and the open bit alone; a record of neither sets nothing of them.
+        // The bar and the open bit alone; a record of neither sets nothing of them; one of
+        // `0x3C` signals its FX object.
         assert_eq!(
             entered.states,
             [
                 state("r24nq11_tür", Some(false), None),
-                state("gate", Some(true), Some(false))
+                state("gate", Some(true), Some(false)),
+                ObjState {
+                    signal: true,
+                    ..state("res:18301", None, None)
+                }
             ]
         );
     }

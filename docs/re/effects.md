@@ -206,7 +206,7 @@ The common draw of particles, called with the device, the matrix, a flags word, 
 - **A flat quad** (`0x7631E0`): a square of half side `s` in the horizontal plane at the system's position, turned by an angle, of a texture and a colour, a frame of a grid, the source `ONE` or `SRCALPHA` and the destination `ONE` or `INVSRCALPHA` as asked: the magic circles, the ground symbols, the puddles, the decals (50 classes).
 - **A ring** (`0x763530`): a band of `n` segments between two radii, flat or stood up (turned a quarter about x), of a texture, additive or blended (7 classes: the explosions, the shock waves of the Gladiator's hits, the rings of poison).
 - **A helix** (`0x762C30`): two strips of 50 segments turning about the axis, additive (3 classes).
-- Others draw their own geometry (`DrawPrimitive` directly, 50 classes), Granny models (`cGranny::render`, 16 uses: the bubble trap's bushes, the demons' illusions; the killer plants' class draws none, "The thorns' plants"), and a few further helpers (`0x762650` a streak, `0x768600` and `0x768790` chains, `0x7638E0`, `0x763CB0`; not read).
+- Others draw their own geometry (`DrawPrimitive` directly, 50 classes), Granny models (`cGranny::render`, 16 uses: the bubble trap's bushes, the demons' illusions; the killer plants' class draws none, "The thorns' plants"), and a few further helpers (`0x762650` a streak, `0x768600` and `0x768790` a beat of a second (`opensacred_rules::particles::beat`, not chains, #2098), `0x7638E0`, `0x763CB0`; not read).
 
 ### What the textures are
 
@@ -467,8 +467,8 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | flash | 1 | 838 | FX_FLASH04, FX_FLASH_TOP |  | own geometry |  | 0x400 |
 | flyingskull | 200 | 905 | PARTICLE_GLOW03 | PARTICLE_GLOW03 `0x19/g1` |  |  | 0x10000 |
 | forceofhell | 500 | 1173 | PARTICLE_GLOW01 | PARTICLE_GLOW01 `3/g1` |  |  | 0x400004 |
-| forgebeam | 50 | 916 | FX_HORIZON, LASERBEAMPART2, PARTICLE_GLOW05, PARTICLE_RING01 | PARTICLE_RING01 `0x13/g1` | chain, glow, own geometry |  |  |
-| forgeelem | 1 | 911, 912, 913, 914, 915 | FX_FORGE01, FX_FORGE02, FX_FORGE03, HQ_AIRELEMENT, HQ_EARTHELEMENT, HQ_FIREELEMENT, HQ_LOSTELEMENT, HQ_WATERELEMENT |  | flat quad, own geometry |  |  |
+| forgebeam | 50 | 916 | FX_HORIZON, LASERBEAMPART2, PARTICLE_GLOW05, PARTICLE_RING01 | PARTICLE_RING01 `0x13/g1` | glow, own geometry |  |  |
+| forgeelem | 1 | 911, 912, 913, 914, 915 | FX_FORGE01, FX_FORGE02, FX_FORGE03, HQ_AIRELEMENT, HQ_EARTHELEMENT, HQ_FIREELEMENT, HQ_LOSTELEMENT, HQ_WATERELEMENT |  | flat quad, model, own geometry |  |  |
 | freeze | 1 | 799 | FX_LIGHTNING01 |  | glow, own geometry |  |  |
 | freeze_impact | 15 | 872 | PARTICLE_SPARK06 | PARTICLE_SPARK06 `0x19/g1` | glow |  |  |
 | generic | 500 | 856 | ARROW2_GOLD, FX_HELIX01, FX_STREAKS02, PARTICLE_CLOUD01, PARTICLE_GLOW03, PARTICLE_SMOKE04, PARTICLE_SPARK02, PARTICLE_SPARK06 | PARTICLE_SPARK02 `5/g1`; PARTICLE_SPARK06 `0x11/g1`; PARTICLE_GLOW03 `0x19/g1`; PARTICLE_CLOUD01 `0xd/g1`; PARTICLE_CLOUD01 `0xd/g1`; PARTICLE_CLOUD01 `0xc/g1`; PARTICLE_SMOKE04 `0x4c/g1` | flat quad, helix, model | 100, 150 | 0x40 |
@@ -1110,6 +1110,39 @@ Read 2026-11-04 for #2006 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #2006 (`summonings`, `opensacred_rules::particles::DemonSummon`): `npcs` makes an entity for each `CreateObj` of 918 at its point and the height of its record's `0x7E`, with its variant, which draws its glows untinted by the night, gives the circle's light and growls once as it is made.
 **Seen** 2026-11-04 beside the original's frames at the same cell and times: alike in size, colours, the circle's way and time and the moving ends; the star, first turned 45° about its middle, lies as the original's since #2072, a point toward the viewer and a side across the screen below its middle.
 
+## The forge's elements
+
+Read 2026-11-07 for #2098 in Ghidra (**confirmed** by code unless marked otherwise); the scripts' side read in the Seraphim's tree (quests 72 and 73).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| An element of the forge's ritual | 911 to 915 `FX_FORGE_AIRELEM`, `_EARTHELEM`, `_WATERELEM`, `_FIREELEM`, `_LOSTELEM` (the kind `0x7B`, the variants 0 to 4) | `cParticleSystem_forgeelem` (`0x7A72E0`, 1 particle) | `0x7A7C30`, `0x7A7500`, `0x7A7720` |
+| The forge's beam | 916 `FX_FORGE_BEAM` (the kind `0x7C`) | `cParticleSystem_forgebeam` (`0x7A7C80`, 50 particles) | `0x7A8430`, `0x7A7F50`, `0x7A8030` |
+
+- Quest 72's `ScriptAnimShareef` makes the five by `CreateObj`s of a world position and no cell (docs/02 §7.3, #2069), each named (`Res:18301` the air's, `Res:18302`, `Res:18303`, `Res:18304`, `Res:18309`) about the forge's middle in the sector 97,60, their `0x7E` 0: one after each of Shareef's walks under the anim mode, else all at once; then `AnimEnd72` calls `init73`.
+- Quest 73's `Init73` sends each of the five a `SetObjState` of the tag `0x3C`, plays Shareef's clip 154 and calls `MergeEnd73`, which makes the quest's symbol at the forge's middle at once.
+  `SetObjState` (`0x48AE90`) of a named FX object sends the object's own kind's event with its `+0x3C` 1 to its handler (`0x48B8C4` to `0x48B95E`); the kind `0x7B`'s case (`0x5A48E0`) takes that for the signal, writing 8 into the system's word `+0x74` (`0x5A4E17`), where an event of `+0x3C` 0 places and starts the system.
+  `CallFunktion` (`0x4813D0`) finds its function by its name case aside (`0x859690`, `_stricmp`), so `init73` runs `Init73`, and the ritual follows the elements' making at once.
+- **An element's start**: its clock, its sweep's share and its fade 0, its scale 1, its state 0; no light, no Direct3D light, no sound of its own; it never moves from its point, the models' height of its record's `0x7E`.
+- **Its run** (`0x7A7500`): its clock rises by the frame's time and its sweep's share falls by 0.5 a second, wrapped into a turn of 2 s.
+  The state 0 fades it in by 0.5 a second to 1 and goes to 1, where it waits; the state 2 shrinks its scale by 0.4 a second to 0.05 (2.375 s) and goes to 3; the state 3 fades it out by 0.8 a second to 0 (1.25 s) and goes to 4.
+  In the state 4 the variants 1 to 4 end at once; the air's counts a timer, and from 2 s on sends at every run the weather's event of the kind 7 of the value `⌊6(t − 2)⌋`, the screen's quake growing to 48 with the earthquake's rumble (docs/re/weather.md), and past 10 s (`0x7A7689`) asks its object's action 1 of the type 916 and ends.
+  At the end of every run the signal, whatever the state, puts it into the state 2 and is cleared.
+- **Its draw** (`0x7A7720`), while its state is below 4, `s` its scale and `f` its fade:
+  - a column of its own (`+0x20B8`): 31 pairs of points about a circle of the radius `20 s` at the angles `i · 12°`, from 35 to `35 + 60 f` over its place, `FX_FORGE01` (yellow at the foot fading to black at the top) wrapped three times about it (`u` 0.1 a pair, `v` from 1 at the foot to 0.1 at the top), a strip of 62 points; each pair's grey `255 − 6j` for the `j`-th pair from the pair `⌊31 p⌋` of its sweep's share `p` on, a bright edge with a fading tail that goes about the column once in 2 s;
+  - a flat square of `FX_FORGE02` (a yellow ring thinning to a gap), the half side `23 s`, turned by `2πp + π − 0.1`, and one of `FX_FORGE03` (a soft yellow ball), the half side `23 f`, both 35 over its place;
+  - the variant's model (`HQ_AirElement.grn`, `HQ_EarthElement_01.grn`, `HQ_WaterElement.grn`, `HQ_FireElement.grn`, `HQ_LostElement.grn`, each in its texture `HQ_<ELEMENT>`) at `55 + 5 sin(1.4 t)` over its place, turned by `2t` about the upright, scaled by `s f` across and not up, unlit, its depth tested and written; its textures are opaque;
+  - the column, the squares added whole (`ONE`, `ONE`), their depth tested and not written.
+- **The beam**: the air's action 1 (`0x5B2600`, its case at `0x5B38A0`) makes it at the world position (335920, 207822), a constant, the five elements' middle, on the ground's height at the air element.
+  It fades in by 5 a second, holds while its clock is within 6 s and fades out by 5 a second (`0x7A7F50`): about 6.2 s.
+  Its draw (`0x7A8030`), `p` its pulse (`0x768790` of 0.95 and 0.1: up to 1.05 over 0.3 s of each second and back) and `f` its fade, 70 over its place: a quad of `LASERBEAMPART2` 25 `p f` to each side and `1000 f` up, white, the texture's `u` along its height; a quad of `FX_HORIZON` 500 `p f` to each side and `50 f` up and down, in (240, 240, 255); both upright in the plane of the screen's horizontal and the upright, facing the viewer's way; a glow of `PARTICLE_GLOW05` of the half side `60 p f`; and its rings, billboards of `PARTICLE_RING01` (the flags `0x13`), one every 0.5 s at the detail 2, born 70 over its place at the size 20, rising ever faster (their buoyancy −1000), living 0.85 s; all added whole.
+  Its start plays `SPELL_BIGSUMMON` (2089) at it, at the rate's factor 0.5; its light is 500 while it lasts; no Direct3D light.
+- So, from the signal: the five narrow for 2.375 s and fade for 1.25 s; 2 s later the screen shakes ever harder for 8 s; then the beam stands at the forge's middle for about 6 s.
+- Not read: whether the types 911 to 916 have a sound profile that the handler's common play (`0x6770E0` with 6) sounds at their events; the classes' saves and loads.
+
+`opensacred-game` draws them since #2098 (`forge_elements`, `opensacred_rules::particles::{ForgeElement, ForgeBeam}`): `npcs` makes an entity for each `CreateObj` of 911 to 915 at its point and the height of its `0x7E`, with its variant and its name; a script's `SetObjState` of `0x3C` signals the elements of its name (`scripts::ObjState::signal`, `forge_elements::Signal`); the columns, the squares and the beam are drawn untinted by the night at their objects' places in the order (docs/re/drawing.md), the models unlit.
+An element that ends leaves its object without a look, which goes with its sector.
+
 ## The blood fountain
 
 Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's game, its options' "Display of violence" ticked for the check and unticked after it).
@@ -1169,10 +1202,13 @@ Read 2026-11-07 for #2099 in Ghidra (**confirmed** by code unless marked otherwi
 |---|---|---|---|
 | A creature's spit | 880 `FX_SPIDERPUKE` | `cParticleSystem_spiderpuke` (`0x77B040`, 500 particles) | `0x77B700`, `0x77B180`, `0x77B3C0` |
 
-- **Who spits.** The giant spider (55) and the killer crab queen (348), of the mark 4, take their melee's state 9 as they come on, as the dragons do ("The dragons' fire": from 371 away, by a roll `rand() % 101` below 5 at a tick, within 2,000), play the clip 0x4F and enter the attack action's sub-state 5 (`0x4E3464`); the eiterblume (186) and its spinneling (333) take the state by the fight's specials (`0x4D4E50`, their mark `0x211`: from 1.5 times their reach to 400 by a roll whose bounds were not read) and play 0x91.
+- **Who spits.** The giant spider (55) and the killer crab queen (348), of the mark 4, take their melee's state 9 as they come on, as the dragons do ("The dragons' fire": from 371 away, by a roll `rand() % 101` below 5 at a tick, within 2,000), play the clip 0x4F and enter the attack action's sub-state 5 (`0x4E3464`); the eiterblume (186) and its spinneling (333) take the state by the fight's specials (`0x4D4E50`, their mark `0x211`, at `0x4D9674`) and play 0x91.
+  The flowers' specials run at every decision of their melee, about every 0.108 s (read 2026-11-07 for #2226): nearer their target than one and a half reaches, truncated, they answer nothing, and the flower fights in melee; nearer than 400 a roll `rand() % 7` (`0x443B20(0, 6)`) of 1 takes the state 9, and else the flower stands and rolls again at the next; from 400 to 800 the same roll orders the art 1043 (the Dark Elf's panther's leap) at the local hero (#2231), and else it stops (`0x54E6D0(1, 0)`); farther it stops; beyond its melee a flower never walks to its target.
   In the sub-state 5 (`0x4E4CF0`), once an attack (`+0x168`), as the clip's share left falls below 0.6 (55, 348; the double `0x890F48`) or 0.475 (186, 333; `0x890F40`), the creature spits; under 0.05 the attack ends.
 - **The rolls, in order** (`0x4E5A2A`): `rand() % 3` for every spitter; a 2 of the giant spider in a game of one player makes its young in place of the spit: a count from −1 rises at each young, which stops once it is above a roll `rand() % 3`, so 2 young (1 in 3), 3 (4 in 9) or 4 (2 in 9), each of the type 75 (`TYPE_NPC_MED_SPIDER`), of the level `⌊L/2⌋ + 1`, hostile to the heroes (`+0x1F4 |= 1`) and woken, at the spider's place moved by `⌊(rand() % 251)/125⌋` along each axis, 0 to 2 world units (**hypothesis**: a lost `− 125`, so that they stand on the spider's own spot).
-  Else the crab queen, by an odd `rand()` and with a target, drops ten `FX_PLANTCAGE` (849) on it (the FX event `0x49`, the spell record 40 at `⌊L/3⌋`; not followed), and spits as well.
+  Else the crab queen, by an odd `rand()` and with a target, drops ten `FX_PLANTCAGE` (849) on it (`0x4E58EF`), and spits as well: no test of its hostility, distance, level or of a hold already, no cast and no clip.
+  The ten stand at the target's place on the ground, each sent the FX event `0x49` from the queen with the plant cage's record (40, `ECS_PLANTCAGE`, no damage) at the level `⌊L/3⌋`, at least 1; `HELF_PFLANZENKONTROLLE` (2061) plays at the first and the sixth (`i % 5` 0).
+  The event's case (`0x5A4CC5`) makes each the plant cage that a creature casts ("The plant cage"): blue, its foot within 50 of the target's place, following the target's neck, rising in 0.667 s, holding the target 3 s (the effect 15 keyed by 40, `0x5B5CC8`) and sinking in 0.667 s; it strikes nothing (849 has no case in the objects' strikes `0x5ABD80`).
 - **The spit**: `sdk_CREATE(880)` at the spitter's place (its constructor rolls the part, below), then a unit roll `U` for its reach; it lands at the spitter's facing turned 45° into the models' frame, normalised, times `300 + 100·U`, from the spitter's place, level with it: ahead of the spitter, not at its target.
   The FX event `0x66` (`0x5A53AA`) has it follow the spitter's bone 41 of the table at `0x8E7200`, `Head_02`, for its start (the giant spider's model has it; the crab queen's and the flowers' have none, and they spit from their place), the arc's height `60 + 20·U` and its rate `0.9 + 0.3·U`.
 - **Its damages** (`0x4E5C7A`): each kind's `spiderpuke_dmg_*` (1, 0, 0 and 5) times the spitter's level `L`, times `1 + h/K` (`h` its dexterity `+0x3BC`, `K` `BalanceGeschick`, 200), times `1 + v/100` (`v` the damage multipliers' curve at its skill 2's level); the eiterblume's times 0.8 (`0x890820`), its spinneling's times 0.5 (`0x890670`).
@@ -1184,10 +1220,11 @@ Read 2026-11-07 for #2099 in Ghidra (**confirmed** by code unless marked otherwi
   It plays `SOUND_FX_SPIDER_PUKE01` to `04` (11227 to 11230) by `rand() % 5`, none for 4, at the rate's factor `0.4 + 0.2·U`, full volume, at the object.
 - **Its run** (`0x77B180`): its blobs age, it leaves new ones along its way while it flies, its tumble turns; landed (its word's bit 2), it asks the action 1 for the type 779 (`0x5B33AB`, unless its spitter has left its sector): a mark at its place on the ground, of `FX_BLOOD01_G` to `06_G` (the green blood of the giant spider's set) by `rand() % 6`, the crab queen's `FX_BLOOD01` to `06`, of the half side 50 and held 30 s (the packed `0x1E0032`), then fading by 0.25 a second ("The Wood Elf's sights"); it plays `SOUND_FX_SPIDER_PUKEIMPACT01` to `04` (11231 to 11234) as it spat, and ends with its last blob.
 - **Its draw** (`0x77B3C0`): while it flies, the part at twice its size, turned about the models' x and then y by its two angles; its blobs as billboards of the flags `0x164` and the grid 2, each in its own colour at the alpha of its life, turned, laid over by their alpha and tinted by the light.
-- Not read: the bounds of the flowers' roll and their cast 1043, what the cages' event `0x49` does, whether the strike's path applies `ProzDmg` and the attacker's level factor, and how the part is lit.
+- Not read: whether the strike's path applies `ProzDmg` and the attacker's level factor, and how the part is lit.
 
 `opensacred-game` follows the giant spider's and the crab queen's spit since #2099 (`spits`, `opensacred_rules::particles::Spit`, `casts::{SPIT, coming_on}`, `fight::Rules::spit_damages`): the cast's decision of the dragons (`minds::Mind::cast`) by the clip 0x4F at the creature's speed, the spit at 0.4 of it (`creature_casts`); its young, its flight from `Head_02` (else the feet), its hits, its trail, its part (the item's model and skin, lit as the world's models are) and its mark and sounds.
-The flowers' spit and the crab queen's cages wait for their reading (#2226).
+Since #2226 the flowers spit too, by their own mark's decision (`casts::{flower, flower_melee}`, `minds::Mind::cast`): the clip 0x91 and the spit at 0.525 of it (`casts::spit_at`), from their place; and the crab queen drops its ten cages on its target by an odd roll before it spits, the target held 3 s (`plant_cages`, the effect 15 keyed by 40).
+The flowers' leap from 400 to 800 is not followed: they stand there (#2231).
 **Seen** 2026-11-07 in the game: a giant spider of level 20 kited by the hero now and then stopped to spit a tumbling green part toward her, its green trail arcing over her, striking her as it passed, onto the ground ahead, where a green splash stayed; once it bore its young spiders on its spot instead.
 
 ## The lava bursts

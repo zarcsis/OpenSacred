@@ -326,6 +326,10 @@ struct Placement {
     /// A dwarves' magic of the FX objects (`FX_DWARFMAGIC`, 832 and 833; `dwarf_magics`), its
     /// variant, 1 or 2, and its height in the models' units, the record's `0x7E`; it has no model.
     dwarf_magic: Option<(u8, f32)>,
+    /// An element of the forge's ritual of the FX objects (911 to 915; `forge_elements`, #2098):
+    /// its variant, the type less 911, and its height in the models' units, the record's `0x7E`;
+    /// it has no model of its item's.
+    forge: Option<(u8, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -877,6 +881,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         pong: None,
         prison: None,
         dwarf_magic: None,
+        forge: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
@@ -3016,6 +3021,19 @@ impl Makers {
                 });
                 (u8::try_from(k + 1).unwrap_or(1), height.unwrap_or(0.0))
             });
+        // An element of the forge's ritual of the FX objects: its variant and its height.
+        let forge = (record.kind == CREATE_OBJ
+            && category(item) == FX
+            && opensacred_rules::particles::FORGE_ELEMENTS.contains(&creature))
+        .then(|| {
+            let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                _ => None,
+            });
+            let first = *opensacred_rules::particles::FORGE_ELEMENTS.start();
+            let variant = u8::try_from(creature - first).unwrap_or(0);
+            (variant, height.unwrap_or(0.0))
+        });
         // A piece of the scripts' Pong of the FX objects, which has no model: its height.
         let pong = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| crate::pong::Piece::of(creature))
@@ -3036,6 +3054,7 @@ impl Makers {
                 || summon.is_some()
                 || prison.is_some()
                 || dwarf_magic.is_some()
+                || forge.is_some()
                 || pong.is_some())
             .then_some(&empty))
         else {
@@ -3142,6 +3161,7 @@ impl Makers {
             summon,
             prison,
             dwarf_magic,
+            forge,
             pong,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
@@ -5398,6 +5418,19 @@ fn spawn(
         return commands
             .spawn((
                 crate::summonings::Summon(variant),
+                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                layered,
+                layered.visibility(states),
+            ))
+            .id();
+    }
+    if let Some((variant, height)) = placement.forge {
+        return commands
+            .spawn((
+                crate::forge_elements::Element {
+                    variant,
+                    name: placement.key.clone(),
+                },
                 Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
                 layered,
                 layered.visibility(states),
@@ -8341,6 +8374,7 @@ fn act_on(object: &str, open: bool) -> crate::scripts::ObjState {
         name: object.to_owned(),
         barred: open.then_some(false),
         open: Some(open),
+        signal: false,
     }
 }
 
@@ -9048,10 +9082,12 @@ pub(crate) fn script_records(
 /// trigger it bars or unbars and opens or closes, its doors in the world turning with it. The
 /// state goes to the trigger by the object's name whether the object is in the world or gone
 /// with its sector, and the next object made under that name takes it
-/// (docs/decisions/netscript.md, "Object states kept for a gone object's name").
+/// (docs/decisions/netscript.md, "Object states kept for a gone object's name"). A state of
+/// the tag `0x3C` signals the FX objects of the name (`0x48B8C4`; `forge_elements`).
 fn script_states(
     mut commands: Commands,
     states: Option<ResMut<crate::scripts::ObjStates>>,
+    mut signals: MessageWriter<crate::forge_elements::Signal>,
     mut npcs: ResMut<Npcs>,
     mut heights: ResMut<Heights>,
     doors: Query<(Entity, &Door)>,
@@ -9060,6 +9096,12 @@ fn script_states(
         return;
     };
     for state in std::mem::take(&mut states.0) {
+        if state.signal {
+            signals.write(crate::forge_elements::Signal(state.name.clone()));
+        }
+        if state.barred.is_none() && state.open.is_none() {
+            continue;
+        }
         let Some(trigger) = npcs.named.get(&state.name).cloned() else {
             bevy::log::debug!(
                 "npcs: SetObjState of {}, which names no object with a trigger",
