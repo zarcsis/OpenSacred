@@ -627,6 +627,9 @@ pub struct Mind {
     /// Seraphim's conversion's): every answer of hostility between it and another, the hero
     /// among them, is the other way about (`0x423580` at `0x4238C6`).
     pub turned: bool,
+    /// What a townsperson does (`+0x261`, [`activity`]), whose icon its draw shows while Alt is
+    /// held ([`activity_icon`]); written as it takes up a doing, kept until the next.
+    pub activity: u16,
     /// Whether it fights (the AI's state 4, `0x4E0300`, or 8), the hero or a creature, and whether
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
@@ -726,6 +729,7 @@ impl Mind {
             armed: false,
             big: false,
             turned: false,
+            activity: activity::NONE,
             fighting: false,
             fled: false,
             cast_deadline: 0.0,
@@ -1943,6 +1947,22 @@ impl Mind {
             .find(|&to| reaches(to))
     }
 
+    /// Whether it stands where it was made (the flags `0x800` and `0x1000`, `CreateNPC`'s tags
+    /// `0x43` and `0x44`), whose doing is its standing ([`activity::STANDS`], `0x4F46C9`).
+    pub fn stands_by_flags(&self) -> bool {
+        self.flags & STANDING != 0
+    }
+
+    /// What a townsperson that talks at a meeting shows (`0x4FC618`, `0x4FC646`): its talk, or in
+    /// one case of two a topic of seven by `rand() % 7`.
+    pub fn talks_of(&self, rng: &mut impl Dice) -> u16 {
+        if rng.below(2) == 0 {
+            activity::TOPICS + u16::try_from(rng.below(7)).unwrap_or(0)
+        } else {
+            activity::TALKS
+        }
+    }
+
     /// Whether it turns to the partner it meets and talks: an adult, in one case of two.
     pub fn talks_at_meeting(&self, rng: &mut impl Dice) -> bool {
         !self.is_child() && rng.below(2) == 0
@@ -2436,6 +2456,71 @@ pub enum Decision<T> {
     /// A juggler plays its instrument.
     Juggle,
     Stop,
+}
+
+/// A townsperson's doings (`+0x261`; docs/re/interface.md, "The labels on Alt"), written by the
+/// townsfolk's behaviour (`0x4EF150`) and the meetings (`0x4FC490`) as they take one up; the
+/// animals' (22 to 25) and the fields' (28, 29) are not followed, a visit's barbecue (19) and the
+/// doors' retries (20, 21, 27) neither.
+pub mod activity {
+    /// None: its roll stopped (`0x4F31E5`), or a meeting starts (`0x4FC4DA`).
+    pub const NONE: u16 = 0;
+    /// It follows its partner (`0x4EF188`).
+    pub const FOLLOWS: u16 = 1;
+    /// It talks at a meeting, or listens (`0x4FC618`, `0x4FC650`).
+    pub const TALKS: u16 = 2;
+    pub const LISTENS: u16 = 3;
+    /// A guard with a foe within 500, and one on its post (`0x4EFB31`, `0x4EFB03`).
+    pub const FIGHTS: u16 = 4;
+    pub const GUARDS: u16 = 5;
+    /// A creature that stands (the flags `0x800` and `0x1000`, `0x4F46C9`).
+    pub const STANDS: u16 = 6;
+    /// The evening's way taken, 1 more before the Daemon (`0x4F0F72`).
+    pub const SLEEPS: u16 = 7;
+    /// Outdoors, on its way to a door, 1 more before the Daemon (`0x4F1037`).
+    pub const TO_DOOR: u16 = 9;
+    /// A walk about: within 400 of itself, and 1 more away from a danger (`0x4F2FEB`,
+    /// `0x4F1875`).
+    pub const WALKS: u16 = 11;
+    /// Indoors by the evening's way (`0x4F1AAB`).
+    pub const NERVOUS: u16 = 13;
+    /// It leaves the house by day (`0x4F1B49`).
+    pub const GOES_OUT: u16 = 14;
+    /// It takes a partner (`0x4F237A`), walks to an animal (`0x4F2439`), walks home
+    /// (`0x4F25EC`), goes into a house (`0x4F2603`) or visits a trader (`0x4F29D4`).
+    pub const ROMANCE: u16 = 15;
+    pub const ANIMAL: u16 = 16;
+    pub const GOES_HOME: u16 = 18;
+    pub const GOES_IN: u16 = 26;
+    pub const TRADER: u16 = 37;
+    /// The first of the meetings' seven topics (`0x4FC646`).
+    pub const TOPICS: u16 = 30;
+}
+
+/// The icon of each doing ([`activity`], the table at `0x959830`), its index past the table's
+/// 38 none.
+const ACTIVITY_ICONS: [u8; 38] = [
+    0, 0x5A, 0x40, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x50, 0x51, 0x50, 0x52,
+    0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x50, 0x50, 0x50, 0x50, 0x54, 0x50, 0x59, 0x59, 0x41, 0x42,
+    0x43, 0x44, 0x45, 0x46, 0x47, 0x21,
+];
+
+/// The flags of the creatures that show their doings' icons (`0x1006DCF8` of `+0x1F4`): the
+/// townsfolk, the jugglers, the guards and those that stand.
+const SHOWS_DOINGS: u32 = 0x1006_DCF8;
+/// The flags of the creatures that stand (`CreateNPC`'s tags `0x43` and `0x44`).
+const STANDING: u32 = 0x800 | 0x1000;
+/// The animals' `Creature.pak` class, which shows none (`0x426A30`).
+const ANIMAL_CLASS: u8 = 6;
+/// The icon over a creature of `mind` while Alt is held (`cCreature_render`, `0x599F4D`): its
+/// doing's of [`ACTIVITY_ICONS`], where its flags are of [`SHOWS_DOINGS`], it is no animal and
+/// the icon lies from 1 to `0x5A`; none else, and none where it shows a dialogue's or a trade's.
+pub fn activity_icon(mind: &Mind) -> Option<i32> {
+    if mind.flags & SHOWS_DOINGS == 0 || mind.class == ANIMAL_CLASS {
+        return None;
+    }
+    let icon = *ACTIVITY_ICONS.get(usize::from(mind.activity))?;
+    (1..=0x5A).contains(&icon).then_some(i32::from(icon))
 }
 
 /// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
@@ -3028,6 +3113,34 @@ mod tests {
     use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
+
+    #[test]
+    fn a_townsperson_shows_its_doing_while_alt_is_held() {
+        let mut folk = Mind::new(at(0.0, 0.0), TOWNSFOLK, (true, true), None, SPEEDS, (1, 0));
+        assert_eq!(activity_icon(&folk), None);
+        folk.activity = activity::GOES_HOME;
+        assert_eq!(activity_icon(&folk), Some(0x55));
+        folk.activity = activity::TRADER;
+        assert_eq!(activity_icon(&folk), Some(0x21));
+        folk.activity = activity::TOPICS + 6;
+        assert_eq!(activity_icon(&folk), Some(0x47));
+        // Past the table, none.
+        folk.activity = 40;
+        assert_eq!(activity_icon(&folk), None);
+        // An animal, and a creature of none of the flags, show none.
+        let mut cow = Mind::new(at(0.0, 0.0), TOWNSFOLK, (true, true), None, SPEEDS, (1, 6));
+        cow.activity = activity::GOES_HOME;
+        assert_eq!(activity_icon(&cow), None);
+        let mut foe = Mind::new(at(0.0, 0.0), 0x1, (true, true), None, SPEEDS, (76, 2));
+        foe.activity = activity::GOES_HOME;
+        assert_eq!(activity_icon(&foe), None);
+        // A talker's doing: its talk or a topic.
+        let mut dice = Rng::of(1, 2, 3);
+        assert!((0..20).all(|_| {
+            let doing = folk.talks_of(&mut dice);
+            doing == activity::TALKS || (activity::TOPICS..activity::TOPICS + 7).contains(&doing)
+        }));
+    }
 
     #[test]
     fn a_magic_skeleton_casts_its_fireball_in_its_band_and_then_stands() {

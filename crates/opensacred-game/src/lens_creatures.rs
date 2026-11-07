@@ -194,7 +194,7 @@ impl Creatures<'_, '_> {
                 creature: mind.creature,
                 follows_hero: follower.is_some_and(|follower| follower.master == hero_entity),
                 alive: dies.is_none() && health.is_none_or(|health| health.current > 0),
-                talks: icon.is_some_and(|icon| icon.value() < TALK_ICONS),
+                talks: icon.is_some_and(|icon| icon.of_talk() && icon.value() < TALK_ICONS),
                 hostile: mind.hostile(),
                 trades: trades.map_or(0, |trades| trades.0),
             };

@@ -8,6 +8,10 @@
 //! is its image at about a third of its values, the pulse added over it (**hypothesis**: the
 //! device's lighting takes the vertices' colours' place, and lights the square without normals by
 //! its ambient alone).
+//!
+//! While Alt is held (`labels::held`), a townsperson, a guard, a juggler or one that stands
+//! that shows no such icon shows its doing's (`opensacred_rules::minds::activity_icon`,
+//! `cCreature_render` at `0x599F4D`; #2234), drawn alike.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -212,6 +216,8 @@ impl Looks {
 #[derive(Component)]
 pub(crate) struct Icon {
     icon: i32,
+    /// Whether it shows a doing while Alt is held, not a dialogue's or a trade's.
+    doing: bool,
     file: String,
     squares: [Entity; 2],
     step: u8,
@@ -223,6 +229,11 @@ impl Icon {
     /// from it.
     pub(crate) fn value(&self) -> i32 {
         self.icon
+    }
+
+    /// Whether it is a dialogue's or a trade's, not a doing's.
+    pub(crate) fn of_talk(&self) -> bool {
+        !self.doing
     }
 }
 
@@ -254,22 +265,36 @@ fn show(
     mut commands: Commands,
     files: Option<Res<Files>>,
     square: Option<Res<Square>>,
-    npcs: Option<Res<Npcs>>,
+    (npcs, keys): (Option<Res<Npcs>>, crate::controls::Keys),
     (assets, mut looks): (Res<AssetServer>, ResMut<Looks>),
     materials: Option<ResMut<Assets<Sorted>>>,
     creatures: Query<
-        (Entity, Option<&Talk>, Option<&Trades>, Option<&Icon>),
-        Or<(With<Talk>, With<Trades>, With<Icon>)>,
+        (
+            Entity,
+            Option<&Talk>,
+            Option<&Trades>,
+            Option<&Icon>,
+            Option<&crate::ai::Mind>,
+        ),
+        Or<(With<Talk>, With<Trades>, With<Icon>, With<crate::ai::Mind>)>,
     >,
 ) {
     let (Some(files), Some(square), Some(mut materials)) = (files, square, materials) else {
         return;
     };
-    for (creature, talk, trades, shown) in &creatures {
-        let wanted = icon_of(talk, trades, npcs.as_deref())
+    let alt = crate::labels::held(&keys);
+    for (creature, talk, trades, shown, mind) in &creatures {
+        // A dialogue's or a trade's icon, else while Alt is held its doing's (`0x599F4D`).
+        let talks = icon_of(talk, trades, npcs.as_deref());
+        let doing = talks.is_none();
+        let wanted = talks
+            .or_else(|| {
+                alt.then(|| mind.and_then(|mind| opensacred_rules::minds::activity_icon(mind)))
+                    .flatten()
+            })
             .and_then(|icon| Some((icon, image(icon)?)))
             .and_then(|(icon, name)| Some((icon, files.0.get(name)?)));
-        if shown.map(|shown| shown.icon) == wanted.map(|(icon, ..)| icon) {
+        if shown.map(|shown| (shown.icon, shown.doing)) == wanted.map(|(icon, ..)| (icon, doing)) {
             continue;
         }
         if let Some(shown) = shown {
@@ -296,6 +321,7 @@ fn show(
         });
         commands.entity(creature).insert(Icon {
             icon,
+            doing,
             file: file.clone(),
             squares,
             step: 0,
