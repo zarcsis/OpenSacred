@@ -2352,11 +2352,14 @@ fn make(
                         // The frenzy's object 1019 at him, made with its effect 47 (`0x5160AA`),
                         // for the effect's time (its event's `+0x30`) and a second's fades.
                         if making.art == FRENZY
-                            && let Some(&(_, seconds)) = boon
+                            && let Some(&(effect, seconds)) = boon
                                 .effects
                                 .iter()
                                 .find(|(effect, _)| effect.id == FRENZY_EFFECT)
                         {
+                            // Its ribbons over his head (`dwarf_berserks`).
+                            let whole = f32::from(i16::try_from(effect.whole).unwrap_or(i16::MAX));
+                            crate::dwarf_berserks::show(&mut commands, hero, seconds, whole);
                             commands.entity(hero).with_child((
                                 crate::hums::Hum(FRENZY_LOOP),
                                 crate::spells::Fades(seconds + 1.0),

@@ -7248,6 +7248,167 @@ impl ForceOfHell {
     }
 }
 
+/// The Dwarf's berserk's model (`fx_dwarf_kriegsrausch.grn`, no mesh: nine points and a clip),
+/// its points, its ribbons' texture and its world light's reach.
+pub const BERSERK_MODEL: &str = "FX_DWARF_KRIEGSRAUSCH.GRN";
+pub const BERSERK_POINTS: [&str; 9] = [
+    "particle_source_01",
+    "particle_source_02",
+    "particle_source_03",
+    "particle_source_04",
+    "particle_source_05",
+    "particle_source_06",
+    "particle_source_07",
+    "particle_source_08",
+    "particle_source_09",
+];
+pub const BERSERK_TEXTURE: &str = "fx_kriegsrausch";
+pub const BERSERK_LIGHT: f32 = 150.0;
+/// Its ribbons at most.
+const BERSERK_RIBBONS: u8 = 8;
+
+/// A ribbon of the berserk: its nine pairs of points, each of the outer and the inner side.
+pub type BerserkRibbon = [[[f32; 3]; 2]; 9];
+
+/// The Dwarf's berserk (1082's object 1019, `cParticleSystem_kriegsrausch`, its start
+/// `0x7B64D0`, run `0x7B5F30` and draw `0x7B60D0`; docs/re/effects.md, "The Dwarf's berserk"):
+/// over his head for the effect's seconds, ribbons along the nine points of its model's clip, an
+/// arc sweeping round and widening, each ribbon turned and tilted its own way, as many and as
+/// wide as his frenzy is high; fading in over a second and out over a second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Berserk {
+    clock: f32,
+    seconds: f32,
+    stage: u8,
+    fade: f32,
+    turns: [f32; 8],
+    tilts: [f32; 8],
+    scale: f32,
+    speed: f32,
+    count: u8,
+    width: f32,
+    beat: f32,
+}
+
+impl Berserk {
+    /// A berserk for `seconds`, its eight ribbons' turns `2π·U` and tilts `2U − 1`, its scale
+    /// `35/(55 + 10·U)` and its clip's speed `0.7 + 0.6·U` (**hypothesis**: the controlled
+    /// animation's parameter 2) rolled; one ribbon of the width 0.5 until its first beat.
+    pub fn new(seconds: f32, dice: &mut impl Dice) -> Self {
+        let turns = std::array::from_fn(|_| share(dice) * std::f32::consts::TAU);
+        let tilts = std::array::from_fn(|_| 2.0f32.mul_add(share(dice), -1.0));
+        let scale = 35.0 / 10.0f32.mul_add(share(dice), 55.0);
+        let speed = 0.6f32.mul_add(share(dice), 0.7);
+        Self {
+            clock: 0.0,
+            seconds,
+            stage: 0,
+            fade: 0.0,
+            turns,
+            tilts,
+            scale,
+            speed,
+            count: 1,
+            width: 0.5,
+            beat: 1.0,
+        }
+    }
+
+    /// Its clip's speed.
+    pub fn speed(&self) -> f32 {
+        self.speed
+    }
+
+    /// A run of `dt` seconds at its bearer's frenzy's share `frenzy` of the effect's whole value:
+    /// it fades in by 1 a second, holds through its seconds and fades out by 1 a second; once a
+    /// second its beat takes `p = ⌊100·share⌋`, its ribbons `⌊p/12⌋ + 1` and their width `p/150`
+    /// (the step's case `0x3FB`, `0x5B04DC`).
+    pub fn update(&mut self, dt: f32, frenzy: f32) {
+        self.clock += dt;
+        match self.stage {
+            0 => {
+                self.fade += dt;
+                if self.fade > 1.0 {
+                    self.fade = 1.0;
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                if self.seconds < self.clock {
+                    self.stage = 2;
+                }
+            }
+            _ => self.fade = (self.fade - dt).max(0.0),
+        }
+        self.beat -= dt;
+        if self.beat <= 0.0 {
+            self.beat += 1.0;
+            let p = (100.0 * frenzy.max(0.0)).trunc();
+            self.count = ribbon_count(p);
+            self.width = p / 150.0;
+        }
+    }
+
+    /// Whether it has faded out.
+    pub fn done(&self) -> bool {
+        self.stage == 2 && self.fade <= 0.0
+    }
+
+    /// Its ribbons along the points `points` of its clip (the model's frame, `z` up), each point
+    /// turned about the upright by the ribbon's turn and then in the plane of `x` and `z` by its
+    /// tilt, its side the unit of its way to the next point (the last's the eighth's) crossed with
+    /// `(0, −2, −1)`, its pair `10·width·fade` either side; all at its scale.
+    pub fn ribbons(&self, points: &[[f32; 3]; 9]) -> Vec<BerserkRibbon> {
+        let reach = 10.0 * self.width * self.fade;
+        (0..usize::from(self.count))
+            .map(|n| {
+                let (sin_a, cos_a) = self.turns[n].sin_cos();
+                let (sin_b, cos_b) = self.tilts[n].sin_cos();
+                let turned = |[x, y, z]: [f32; 3]| {
+                    let across = x * cos_a - y * sin_a;
+                    [
+                        across * cos_b - z * sin_b,
+                        x * sin_a + y * cos_a,
+                        across * sin_b + z * cos_b,
+                    ]
+                };
+                let mut side = [0.0; 3];
+                std::array::from_fn(|k| {
+                    if k < 8 {
+                        let way: [f32; 3] =
+                            std::array::from_fn(|axis| points[k + 1][axis] - points[k][axis]);
+                        let [x, y, z] = turned(way);
+                        let cross = [-y + 2.0 * z, x, -2.0 * x];
+                        let length = cross.iter().map(|c| c * c).sum::<f32>().sqrt();
+                        side = if length >= 1e-7 {
+                            cross.map(|c| c / length)
+                        } else {
+                            [0.0; 3]
+                        };
+                    }
+                    let at = turned(points[k]);
+                    [1.0, -1.0].map(|sign| {
+                        std::array::from_fn(|axis| {
+                            (at[axis] + sign * side[axis] * reach) * self.scale
+                        })
+                    })
+                })
+            })
+            .collect()
+    }
+}
+
+/// The ribbons of the share `p` per cent: `⌊p/12⌋ + 1`, at most 8.
+fn ribbon_count(p: f32) -> u8 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a share of 0 to a few hundred per cent, its twelfths' whole part"
+    )]
+    let count = (p / 12.0).clamp(0.0, 7.0) as u8;
+    (count + 1).min(BERSERK_RIBBONS)
+}
+
 /// The Dwarf's war cry's ghosts' model (`fx_dwar_ghost.grn`, a floating dwarf), its textures,
 /// the ghosts', the sparks' and the glow's, and its glow's colour, (64, 128, 240).
 pub const WAR_CRY_MODEL: &str = "FX_DWAR_GHOST.GRN";
@@ -16755,6 +16916,43 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_berserks_ribbons_follow_its_frenzy_and_fade_over_its_seconds() {
+        let mut dice = Rng::of(2, 7, 1);
+        let mut berserk = Berserk::new(5.0, &mut dice);
+        assert!((0.7..=1.3).contains(&berserk.speed()));
+        let arc: [[f32; 3]; 9] = std::array::from_fn(|k| {
+            let angle = f32::from(u8::try_from(k).unwrap_or(0)) * 0.314;
+            [60.0 * angle.cos(), 60.0 * angle.sin(), 0.0]
+        });
+        berserk.update(0.5, 0.0);
+        // One ribbon of the width 0.5 until its first beat, its pairs 10·0.5·fade apart.
+        let ribbons = berserk.ribbons(&arc);
+        assert_eq!(ribbons.len(), 1);
+        let [a, b] = ribbons[0][3];
+        let apart = a
+            .iter()
+            .zip(&b)
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        let expected = 2.0 * 10.0 * 0.5 * 0.5 * berserk.scale;
+        assert!((apart - expected).abs() < 1e-3, "{apart} {expected}");
+        // A frenzy of 60% of its whole: 6 ribbons of the width 0.4.
+        berserk.update(0.6, 0.6);
+        assert_eq!(berserk.ribbons(&arc).len(), 6);
+        berserk.update(1.0, 1.0);
+        assert_eq!(berserk.ribbons(&arc).len(), 8);
+        // Gone a second after its seconds.
+        let mut clock = 2.1_f32;
+        while !berserk.done() {
+            berserk.update(0.01, 1.0);
+            clock += 0.01;
+            assert!(clock < 7.0);
+        }
+        assert!((clock - 6.0).abs() < 0.03, "{clock}");
     }
 
     #[test]

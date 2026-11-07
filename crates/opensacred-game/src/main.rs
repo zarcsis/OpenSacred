@@ -69,6 +69,7 @@ mod dragon_fires;
 mod drops;
 mod dryad_ghosts;
 mod dwarf_armours;
+mod dwarf_berserks;
 mod dwarf_burrows;
 mod dwarf_fires;
 mod dwarf_greeds;
@@ -523,6 +524,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         dryad_ghosts::DryadGhostsPlugin,
         drops::DropsPlugin,
         dwarf_armours::DwarfArmoursPlugin,
+        dwarf_berserks::DwarfBerserksPlugin,
         dwarf_burrows::DwarfBurrowsPlugin,
         dwarf_fires::DwarfFiresPlugin,
         dwarf_greeds::DwarfGreedsPlugin,

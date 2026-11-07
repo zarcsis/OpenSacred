@@ -1881,6 +1881,21 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 Not followed: the specular.
 **Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 under a translucent faceted dome of pale blue and violet, built down over him as he leaps, a blue glow at his feet.
 
+## The Dwarf's berserk
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The Dwarf's executor's case 1082 (`0x514790`), below 0.9 of the clip left (`0x51604A`), gives him the effect 47 and makes an object 1019 (`FX_KRIEGSRAUSCH`, `cParticleSystem_kriegsrausch`, its virtual table `0x898CB4`, constructor `0x7B5950`, start `0x7B64D0`, run `0x7B5F30`, draw `0x7B60D0`) at him (`0x5160AA`) with the FX event `0x98`, its direction `(0, 39 + L, 0)`, whose `+0x30` the start takes for its seconds; the handler's case `0x98` follows him at his bone 0 and keeps the bone 20 (`Bip01 Head`).
+- Its constructor takes `fx_kriegsrausch.tga` (16 by 128, a pale green-white streak down the middle) and the model `fx_dwarf_kriegsrausch.grn`, no mesh but the points `particle_source_01` to `09`, `Point01` and `path`, its bind pose an arc of radius 46.7 from 0° to 143°, 18° apart, and its clip `FX_G_IDLE_BH` of 3.18 s, played as a controlled animation whose parameter 2 is `0.7 + 0.6·U` and whose parameter 3 the largest float (**hypothesis**: its speed, and a loop for ever).
+  In the clip the points but the first sweep round about 210° in the model's horizontal plane at a radius from 0 out to about 65, 80 and 213 and back to 0; the first keeps within 70 of the middle.
+- The start: one ribbon of the width 0.5; its scale `35/(55 + 10·U)`; eight turns `2π·U` and tilts `2U − 1`; its seconds; the flags `0x3200`, its points each frame from its model's nine (`0x1000`), the point 0 his head, and its step run (`0x2000`); its world light 150; `SERA_LICHTSCHILD_LOOP` (2040) looping (`making`).
+- The run: the nine points from its clip's bone states; the fade up by 1 a second to 1, held through its seconds, down by 1 a second, at 0 it dies (`40 + L` s); where its word `+0x74` has the bit 8, its ribbons `⌊p/12⌋ + 1` and their width `p/150`, `p` its `+0x78`.
+- The step's case `0x3FB` (`0x5B04DC`), once a second while the Dwarf stays in its sector: `p = ⌊100·f/w⌋` into `+0x78`, `f` his frenzy (`+0x584`, `fight::Frenzy`) and `w` the effect 47's whole value, `28 + 2L`, and the bit 8 raised.
+- The draw, depth tested and not written, unlit, unculled, added (`ONE`, `ONE`) in `fx_kriegsrausch`: for each ribbon `n`, each point `P_k` turned about the upright by its turn `a_n`, then in the plane of `x` and `z` by its tilt `b_n`; its way to the next point turned alike (the last keeping the eighth's), its side the unit of that way crossed with `(0, −2, −1)`, its pair the point and `10·width·fade` either side along it; a strip of the nine pairs (`u` 0 and 1, `v` `k/8`), white, in the scale's matrix moved to his place at his head's height.
+
+`opensacred-game` draws it since #1092 (`dwarf_berserks`, `opensacred_rules::particles::Berserk`): made with the effect in `making`, its model's clip played out of sight at the world's origin, looping at its speed, its nine points read each frame, his `fight::Frenzy` over the effect's whole value taken each second; untinted, just behind his model (`fx::Orders`, #2178), its world light 150 (`daynight::Light`).
+**Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 3 under his berserk, one pale green ribbon arcing over his head for its first second, none while his frenzy is 0, and up to three swirling about him as it rose to 28 of 34 in a fight.
+
 ## The Dwarf's war cry
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
