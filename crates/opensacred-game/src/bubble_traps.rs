@@ -219,7 +219,12 @@ fn fly(
     mut shown: Query<(Entity, &mut Shown)>,
     bolts: Query<&Transform, (With<Bubble>, Without<Shown>)>,
     mut bushes: Query<&mut Transform, (Without<Bubble>, Without<Shown>)>,
-    (looks, mut dice, mut meshes): (Res<Looks>, ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (looks, mut dice, mut meshes, orders): (
+        Res<Looks>,
+        ResMut<Dice>,
+        ResMut<Assets<Mesh>>,
+        crate::fx::Orders,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -280,6 +285,8 @@ fn fly(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&look.mesh) {
+            // At its object's place in the order, as the original draws the system (#2220).
+            quads.in_order(orders.at(look.place), Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }
@@ -320,7 +327,7 @@ fn spread(
     mut commands: Commands,
     time: Res<Time>,
     mut rings: Query<(Entity, &mut Sonar)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -339,6 +346,8 @@ fn spread(
             sonar.ring.colour(),
         );
         if let Some(mut mesh) = meshes.get_mut(&sonar.mesh) {
+            // At its object's place in the order, as the original draws the system (#2220).
+            quads.in_order(orders.at(sonar.centre), Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }
