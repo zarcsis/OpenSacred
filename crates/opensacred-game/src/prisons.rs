@@ -114,14 +114,14 @@ fn show(
 fn glow(
     time: Res<Time>,
     looks: Res<Looks>,
-    mut shown: Query<&mut Shown>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut shown: Query<(&mut Shown, &GlobalTransform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let fire = &looks.fire;
     let (across, depth) = iso::fx_axes();
-    for mut look in &mut shown {
+    for (mut look, place) in &mut shown {
         let look = &mut *look;
         look.glows.update(dt, &fire.layers);
         look.glows
@@ -149,8 +149,12 @@ fn glow(
             [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
             particles::PRISON_GLOW_COLOUR,
         );
-        for (handle, part) in look.parts.iter().zip([glows, ground]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
+        for (handle, mut part) in look.parts.iter().zip([glows, ground]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, origin);
                 part.into_mesh(&mut mesh);
             }
         }

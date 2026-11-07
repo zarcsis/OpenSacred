@@ -161,13 +161,13 @@ fn make(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut strikes: Query<(Entity, &mut Strike)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut strikes: Query<(Entity, &mut Strike, &GlobalTransform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let s = iso::MODEL_SCALE;
     let (across, down) = iso::fx_axes();
     let at = |[x, y, z]: [f32; 3]| (across * x + down * y + Vec3::Y * z) * s;
-    for (entity, mut strike) in &mut strikes {
+    for (entity, mut strike, place) in &mut strikes {
         let strike = &mut *strike;
         let clock = strike.clock;
         strike.clock += time.delta_secs();
@@ -201,8 +201,12 @@ fn run(
                 colour,
             );
         }
-        for (handle, quads) in strike.parts.iter().zip([bolts, glow]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
+        for (handle, mut quads) in strike.parts.iter().zip([bolts, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
