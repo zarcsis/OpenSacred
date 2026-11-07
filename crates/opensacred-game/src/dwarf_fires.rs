@@ -5,7 +5,9 @@
 //! `6.25/r`; his cannon's flash (1017) and his mortar's (1018), placed once at the muzzle, smoke,
 //! sparks drawn back, fire and streaks shot along it, for `0.18/r` and 0.15 s
 //! (`opensacred_rules::particles::DwarfFireSight`). Each lights the models (1, 0.8, 0.4) at the
-//! muzzle while it fires; none is tinted by the night.
+//! muzzle while it fires; none is tinted by the night. The flamethrower's flames lie just behind
+//! the Dwarf's model, as their system follows him, the shots' at their muzzle's place, where
+//! their objects were placed, in the original's order of drawing (`fx::Orders`, #2220).
 
 use std::collections::HashMap;
 
@@ -15,7 +17,7 @@ use opensacred_rules::particles::{DWARF_SMOKE_TEXTURE, DwarfFire, DwarfFireSight
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
@@ -172,7 +174,9 @@ fn lay(
 
 /// Runs each sight a frame on (`0x7B35F0`, `0x7B41B0`, `0x7B4DC0`): the flamethrower at its
 /// muzzle each frame, the shots where they were placed, their particles in the world, their light
-/// at the muzzle while they fire; it goes once it is over, or with its shooter.
+/// at the muzzle while they fire; it goes once it is over, or with its shooter. The
+/// flamethrower's lie just behind its shooter's model (its flag `0x200`), the shots' at their
+/// muzzle's place (their flag `0x40`), in the order (#2220).
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -183,7 +187,7 @@ fn run(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    (mut meshes, mut dice, orders): (ResMut<Assets<Mesh>>, ResMut<Dice>, Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut firing) in &mut sights {
@@ -244,8 +248,13 @@ fn run(
             Some(0),
             (&mut smoke, &mut Quads::default()),
         );
-        for (handle, quads) in firing.meshes.iter().zip([over, added, smoke]) {
+        let order = match firing.look.kind {
+            DwarfFire::Flamer => orders.behind(firing.shooter),
+            _ => orders.at(world(point)),
+        };
+        for (handle, mut quads) in firing.meshes.iter().zip([over, added, smoke]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }
         }
