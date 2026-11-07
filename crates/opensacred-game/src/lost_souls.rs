@@ -136,7 +136,7 @@ fn fly(
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown)>,
     objects: Query<&GlobalTransform, With<Look>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -179,8 +179,11 @@ fn fly(
             (Vec2::ZERO, 1.0),
             colour,
         );
-        for (handle, part) in look.parts.iter().zip([dots, glow]) {
+        // At its place in the order as it flies, which a moving object heads in its cell (#2188).
+        let order = orders.at(look.place);
+        for (handle, mut part) in look.parts.iter().zip([dots, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, Vec3::ZERO);
                 part.into_mesh(&mut mesh);
             }
         }

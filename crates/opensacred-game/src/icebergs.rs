@@ -163,17 +163,17 @@ fn show(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown)>,
+    mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
     objects: Query<(), With<Look>>,
     mut visibilities: Query<&mut Visibility, Without<Shown>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let (across, depth) = iso::fx_axes();
     let frame = |[x, y, z]: [f32; 3]| (across * x + depth * y + Vec3::Y * z) * s;
     let colour = particles::ICE_COLOURS[0];
-    for (entity, mut look) in &mut shown {
+    for (entity, mut look, place) in &mut shown {
         let look = &mut *look;
         look.ice.update(dt, &mut look.dice);
         if look.ice.done() || !objects.contains(look.object) {
@@ -237,8 +237,12 @@ fn run(
                 ramp.at(spark.life),
             );
         }
-        for (handle, part) in look.parts.iter().zip(quads) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
+        for (handle, mut part) in look.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, origin);
                 part.into_mesh(&mut mesh);
             }
         }

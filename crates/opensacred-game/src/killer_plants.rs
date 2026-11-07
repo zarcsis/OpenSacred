@@ -101,12 +101,20 @@ fn grow(
 
 /// Runs each plant a frame on (`0x798E50`, `0x798F10`): its dots facing the camera about its
 /// thorn, and its glow flat on the ground, of the half side its rise gives it.
-fn run(time: Res<Time>, mut plants: Query<&mut Plant>, mut meshes: ResMut<Assets<Mesh>>) {
+fn run(
+    time: Res<Time>,
+    mut plants: Query<(Entity, &mut Plant, &GlobalTransform)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
+) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let (across, down) = iso::fx_axes();
     let lift = Vec3::Y * GROUND_LIFT;
-    for mut plant in &mut plants {
+    for (entity, mut plant, place) in &mut plants {
+        // Just behind the plant's model, as the original draws the system before the creature
+        // (#2188).
+        let (order, origin) = (orders.behind(entity), place.translation());
         let Plant { plant, dots, glow } = &mut *plant;
         plant.update(dt);
         let colour = plant.colour;
@@ -115,6 +123,7 @@ fn run(time: Res<Time>, mut plants: Query<&mut Plant>, mut meshes: ResMut<Assets
             quads.push(world(at), half * s, 0.0, (Vec2::ZERO, 1.0), colour);
         }
         if let Some(mut mesh) = meshes.get_mut(&*dots) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
         let mut quads = Quads::default();
@@ -128,6 +137,7 @@ fn run(time: Res<Time>, mut plants: Query<&mut Plant>, mut meshes: ResMut<Assets
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&*glow) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
     }
