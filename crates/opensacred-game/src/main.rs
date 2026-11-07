@@ -89,6 +89,7 @@ mod fx;
 mod fx_lights;
 mod fx_loops;
 mod game;
+mod glad_sights;
 mod glance;
 mod glitter;
 mod goblin_impacts;
@@ -530,10 +531,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         fx_lights::FxLightsPlugin,
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,
+        glad_sights::GladSightsPlugin,
         glance::GlancePlugin,
-        glitter::GlitterPlugin,
     ))
     .add_plugins((
+        glitter::GlitterPlugin,
         goblin_impacts::GoblinImpactsPlugin,
         grenade_impacts::GrenadeImpactsPlugin,
     ))

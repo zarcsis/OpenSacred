@@ -1818,6 +1818,21 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 `opensacred-game` draws the helix since #1092 (`dark_helices`, `opensacred_rules::particles::DarkHelix`), as the clip of 1047 or 1048 starts (`making::Playing` added), at his root, just behind his model (`fx::Orders`, #2178).
 **Seen** 2026-11-07 in the game (not beside the original): the slaughter's red coil about the Dark Elf's waist 3.85 s after the art, his body over it.
 
+## The Gladiator's sights
+
+Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The Gladiator's executor (`0x4FF0B0`), at the art's first run after its clip starts, makes an object 803 (`cParticleSystem_glad_sm_cast`, its constructor `0x78F640`, start `0x78FD20`, run `0x78F6E0`, draw `0x78F890`) and sends it the FX event `0x41`, whose handler (`0x5A522D`) follows its caster at the bone `+0x38` (22, `Bip01 R Finger3`, or 0, `__Root`): for the hand of god (1012) at him, at his right hand (`0x5035A1`); for the awe (1014) at the action's target where `0x5490B0` admits it (his follower, of his party, or an allied hero), else at himself, at the root (`0x5036A0`); for the heroism (1015) at him, at his right hand (`0x50375D`).
+  The 1003 and 1013 with empty hands, and the Dwarf's and the Daemon's empty-handed arts, make an 803 that its start kills at once.
+- Its sparks are `PARTICLE_SPARK06` billboards (the flags `0x19`: added whole, the ramp's colour), its ramp's entry `i` (`⌊i/2⌋`, `i`, `⌊i/2⌋`), pale green at a spark's birth to black at its death, their life falling by 400 a second (0.64 s); no tint by the night, no light, no sound.
+- The hand of god: for 2.6 s a spark every 0.05 s (0.0375 and 0.055 s at the lower details) within 5 of the bone along each axis, of the size `2 + 3.5 t`, left where it is born; a `PARTICLE_GLOW04` glow of (128, 255, 128) and the half side `7 t` at the bone, added whole.
+- The awe: five timers, the first set to 3.0, each falling by 2 a second, the first below 2.85 starting the next at 3.0; for each timer `i` above 0 a flat quad of `FX_AURA` at the root, of the half side `30 + 20 i`, turned by π/6 for the even `i`, white, opaque while its timer is above 1 and at the alpha of the timer below, laid over by its alpha: five snowflake auras 0.075 s apart, each held a second and fading over half of one, the last gone at about 1.8 s.
+- The heroism: from 0.65 s, a burst of its 100 sparks at the bone, of the size 3.5 and the velocity up to 100 along each axis, its layer's pull drawing them back to the bone at 400 a second each second; a `PARTICLE_SPARK07` star of (128, 255, 128) and the half side 20 at the bone, added whole; at 1.3 s it dies whatever lives.
+
+`opensacred-game` draws the three since #1092 (`glad_sights`, `opensacred_rules::particles::GladSight`), as the art's clip starts (`making::Playing` added), at the Gladiator, just behind his model (`fx::Orders`, #2178), at the highest detail's interval.
+**Seen** 2026-11-07 in the game (not beside the original): the green glow at his right hand, the five auras on the ground about him, and the heroism's star and sparks about his raised hand, his arm over them.
+Not followed: the awe at a target other than him, and the items' glows of the empty-handed arts.
+
 ## The Wood Elf's sights
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

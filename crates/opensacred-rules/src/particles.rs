@@ -5562,6 +5562,174 @@ impl GoblinImpact {
     }
 }
 
+/// The Gladiator's sights' textures (803, `cParticleSystem_glad_sm_cast`, its constructor
+/// `0x78F640`): the sparks, the hand of god's glow (`GLOW04`, the glow style 1), the awe's auras
+/// and the heroism's star (`SPARK07`, the glow style 4).
+pub const GLAD_TEXTURES: [&str; 4] = [
+    "PARTICLE_SPARK06",
+    "PARTICLE_GLOW04",
+    "FX_AURA",
+    "PARTICLE_SPARK07",
+];
+/// The green of the sights' glows and stars (`0xFF80FF80`), and the half side of the heroism's
+/// star in the models' units.
+pub const GLAD_GREEN: [f32; 4] = [128.0 / 255.0, 1.0, 128.0 / 255.0, 1.0];
+pub const GLAD_STAR_HALF: f32 = 20.0;
+/// The bone the hand of god and the heroism stand at (the event's `+0x38` 22).
+pub const GLAD_BONE: &str = "Bip01 R Finger3";
+
+/// The sparks' ramp (`0x78FD20`): the entry `i` (`⌊i/2⌋`, `i`, `⌊i/2⌋`), pale green at a spark's
+/// birth to black at its death.
+pub fn glad_green() -> Ramp {
+    Ramp(std::array::from_fn(|i| {
+        let full = u8::try_from(i).unwrap_or(u8::MAX);
+        let (i, h) = (f32::from(full) / 255.0, f32::from(full / 2) / 255.0);
+        [h, i, h, 1.0]
+    }))
+}
+
+/// The sparks of a sight at most at once.
+const GLAD_COUNT: usize = 100;
+/// The hand of god's seconds and the heroism's start and end.
+const HAND_OF_GOD: f32 = 2.6;
+const HEROISM: [f32; 2] = [0.65, 1.3];
+
+/// One of the Gladiator's arts' sights (803, `cParticleSystem_glad_sm_cast`, its start
+/// `0x78FD20`, run `0x78F6E0` and draw `0x78F890`; docs/re/effects.md, "The Gladiator's sights"),
+/// made as the art's clip starts: the hand of god's (1012) pale green sparks shed at his right hand
+/// for 2.6 s under a swelling glow; the awe's (1014) five white snowflake auras on the ground about
+/// his feet, one after another; the heroism's (1015) burst of sparks from his right hand, drawn
+/// back to it under a green star.
+#[derive(Clone, Debug)]
+pub struct GladSight {
+    art: u16,
+    pub system: System,
+    timers: [f32; 5],
+    burst: bool,
+}
+
+impl GladSight {
+    /// The sight of `art`, where it is the hand of god, the awe or the heroism.
+    pub fn new(art: u16) -> Option<Self> {
+        let mut timers = [0.0; 5];
+        match art {
+            1012 | 1015 => {}
+            1014 => timers[0] = 3.0,
+            _ => return None,
+        }
+        Some(Self {
+            art,
+            system: System::new(GLAD_COUNT),
+            timers,
+            burst: false,
+        })
+    }
+
+    /// The sparks' layer: their life by −400 a second (0.64 s), the heroism's drawn back to his
+    /// hand at 400 a second each second.
+    fn layer(&self) -> Layer {
+        Layer {
+            life: -400.0,
+            pull: if self.art == 1015 { 400.0 } else { 0.0 },
+            ..Layer::default()
+        }
+    }
+
+    /// Runs it `dt` seconds on, its bone gone from `from` to `to` in its frame: the hand of god
+    /// sheds a spark every 0.05 s within 5 of the bone, of the size `2 + 3.5 t`, left where it is
+    /// born; the awe's timers fall by 2 a second, each starting the next as it passes 2.85; the
+    /// heroism bursts all its sparks at the bone at 0.65 s, of the size 3.5 and the velocity
+    /// up to 100 along each axis, drawn back to it.
+    pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [self.layer()];
+        match self.art {
+            1012 => {
+                self.system.update(dt, &layers);
+                if self.system.clock < HAND_OF_GOD {
+                    let block = Block {
+                        size: spread(2.0 + 3.5 * self.system.clock, 0.0),
+                        offset: spread([0.0; 3], [5.0; 3]),
+                        interval: 0.05,
+                        ..Block::default()
+                    };
+                    self.system
+                        .emit_along(&[block], &layers, GLAD_COUNT, (from, to), dt, dice);
+                }
+            }
+            1014 => {
+                self.system.clock += dt;
+                for i in 0..self.timers.len() {
+                    if self.timers[i] <= 0.0 {
+                        continue;
+                    }
+                    let was = self.timers[i];
+                    self.timers[i] = (was - 2.0 * dt).max(0.0);
+                    if was >= 2.85
+                        && self.timers[i] < 2.85
+                        && let Some(next) = self.timers.get_mut(i + 1)
+                    {
+                        *next = 3.0;
+                    }
+                }
+            }
+            _ => {
+                self.system.update_toward(dt, &layers, to);
+                if !self.burst && self.system.clock >= HEROISM[0] {
+                    self.burst = true;
+                    let block = Block {
+                        size: spread(3.5, 0.0),
+                        velocity: spread([0.0; 3], [100.0; 3]),
+                        ..Block::default()
+                    };
+                    let first = self.system.particles.len();
+                    self.system.burst(&block, GLAD_COUNT, GLAD_COUNT, dice);
+                    for particle in &mut self.system.particles[first..] {
+                        particle.place = std::array::from_fn(|k| particle.place[k] + to[k]);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether it is over: the hand of god past its seconds with its last spark gone, the awe
+    /// with its fifth aura gone, the heroism at 1.3 s whatever lives.
+    pub fn done(&self) -> bool {
+        match self.art {
+            1012 => self.system.clock >= HAND_OF_GOD && self.system.particles.is_empty(),
+            1014 => self.timers.iter().all(|&t| t <= 0.0),
+            _ => self.system.clock > HEROISM[1],
+        }
+    }
+
+    /// Its glow at the bone, the half side and whether it is the heroism's star: the hand of
+    /// god's swelling by 7 a second, the heroism's from 0.65 s.
+    pub fn glow(&self) -> Option<(f32, bool)> {
+        match self.art {
+            1012 => Some((7.0 * self.system.clock, false)),
+            1015 if self.system.clock >= HEROISM[0] => Some((GLAD_STAR_HALF, true)),
+            _ => None,
+        }
+    }
+
+    /// The awe's auras that show: each one's half side (30 to 110 by 20), its turn (π/6 for the
+    /// even ones) and its alpha, whole while its timer is above 1 and fading with it below.
+    pub fn auras(&self) -> Vec<(f32, f32, f32)> {
+        self.timers
+            .iter()
+            .zip([0.0_f32, 1.0, 2.0, 3.0, 4.0])
+            .filter(|&(&timer, _)| timer > 0.0)
+            .map(|(&timer, i)| {
+                let turn = if i % 2.0 == 0.0 {
+                    std::f32::consts::FRAC_PI_6
+                } else {
+                    0.0
+                };
+                (30.0 + 20.0 * i, turn, timer.min(1.0))
+            })
+            .collect()
+    }
+}
+
 /// The domination's textures (857, `cParticleSystem_beherrschung`, its constructor `0x79D480`):
 /// the band's runes laid over, their red glow added, and the glow at the band's head.
 pub const DOMINATION_TEXTURES: [&str; 3] =
@@ -15319,5 +15487,40 @@ mod tests {
         assert!((outer[0].hypot(outer[1]) - 23.0).abs() < 1e-3);
         assert!(inner[2] > 10.0 && inner[2] < 25.0, "{inner:?}");
         assert!(half.colour()[1] > 0.99);
+    }
+
+    #[test]
+    fn the_gladiators_sights_last_as_the_originals() {
+        let mut dice = Rng::of(7, 3, 1);
+        let dt = 0.001;
+        let run = |art: u16, dice: &mut Rng| {
+            let mut sight = GladSight::new(art).unwrap();
+            let (mut lived, mut most, mut auras) = (0.0, 0, Vec::new());
+            while !sight.done() {
+                sight.update(dt, ([0.0; 3], [0.0; 3]), dice);
+                lived += dt;
+                most = most.max(sight.system.particles.len());
+                let shown = sight.auras().len();
+                if auras.len() < shown {
+                    auras.push(lived);
+                }
+                assert!(lived < 10.0);
+            }
+            (lived, most, auras)
+        };
+        // The awe: five auras 0.075 s apart, the last gone 1.5 s after it showed.
+        let (lived, _, auras) = run(1014, &mut dice);
+        assert_eq!(auras.len(), 5);
+        assert!((auras[4] - auras[0] - 0.3).abs() < 0.01, "{auras:?}");
+        assert!((lived - 1.8).abs() < 0.01, "{lived}");
+        // The heroism: all its sparks at 0.65 s, gone with it at 1.3 s.
+        let (lived, most, _) = run(1015, &mut dice);
+        assert_eq!(most, 100);
+        assert!((lived - 1.3).abs() < 0.01, "{lived}");
+        // The hand of god: a spark every 0.05 s for 2.6 s, its last gone 0.64 s later.
+        let (lived, most, _) = run(1012, &mut dice);
+        assert!((lived - (2.6 + 0.6375)).abs() < 0.06, "{lived}");
+        assert!((12..=14).contains(&most), "{most}");
+        assert!(GladSight::new(1013).is_none());
     }
 }
