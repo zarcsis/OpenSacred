@@ -8,11 +8,13 @@
 //! - the hero its name, white; a creature its script's name or its type's, light red where
 //!   hostile, grey once dead, else white, but those of a type of the items table's bit 26
 //!   (`0x43F5F0`: the animals, the horses, the doors), and a follower its master's;
-//! - a container not emptied its type's name in its records' colour (`0xFFEFEFEF`).
+//! - a container not emptied its type's name in its records' colour (`0xFFEFEFEF`);
+//! - a special (the signposts, `npcs::Special`) its script's name or its type's, in the same.
 //!
-//! Each wants its place 3 left and 1 above its box's top left corner, the box a creature's of its
-//! type's width and height about its feet (`0x428850`), a container's of its model about its
-//! point, an item's the 35 × 35 square about its point (the least box of `0x44CF20`); they are
+//! Each wants its place 3 left and 1 above its box's top left corner, the box a living creature's
+//! of its type's width and height about its feet (`0x428850`), a dead one's, a container's and a
+//! special's its model's bounds on the screen ([`model_box`]), an item's the 35 × 35 square about
+//! its point (the least box of `0x44CF20`); they are
 //! laid out in turn from the top of the screen by the
 //! original's search (`cLabelLayout`, `0x6620F0`): up to 128 tries, sideways by 8 and upright by
 //! 4 more each pair, up before down, a place touching another not free, a label of no free place
@@ -23,9 +25,8 @@
 //! (`cursors`). While the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the
 //! foe that the cursor picks tells its values under its name ([`foe_values`]).
 //!
-//! Not followed yet: a creature's box of its model where its `+0xB0` bit 2 asks it, the
-//! containers' of each model's bounds (a chest's taken for all), the specials' labels (the
-//! signposts', the quest items') and the mounts' labels.
+//! Not followed yet: the mounts' labels (#1822), the stargate 1180's, and the townsfolk's activity
+//! icons under Alt (#2234).
 
 use std::collections::{HashMap, HashSet};
 
@@ -51,6 +52,29 @@ const HEIGHT: f32 = LINE + 2.0 * MARGIN.y;
 const CHARACTER: f32 = 8.0;
 /// Where a label wants its panel's top left, from its box's (`0x6272C8`).
 const FROM_BOX: Vec2 = Vec2::new(-3.0, -1.0);
+/// The bounds of a model that the original takes for wrong and replaces by a box of 10 about its
+/// point (`0x44D19x`): wider than 1,500 across, or both its ends of an axis on the ground farther
+/// than 400 from the point to one side.
+const WIDEST: f32 = 1500.0;
+const FARTHEST: f32 = 400.0;
+const FALLBACK: f32 = 10.0;
+
+/// The world box of a model of the points `points` about its place `at` (`0x44CF20`, the bounds
+/// that its draw grows from its meshes' vertices, `vertices::ModelPoints::bounds_points`): their
+/// least and most, unless the original takes them for wrong ([`WIDEST`], [`FARTHEST`]); none
+/// for a model of no points, not drawn yet.
+fn model_box(points: &[Vec3], at: Vec3) -> Option<(Vec3, Vec3)> {
+    let first = *points.first()?;
+    let (low, high) = points
+        .iter()
+        .fold((first, first), |(low, high), &p| (low.min(p), high.max(p)));
+    let off = |low: f32, high: f32, at: f32| low - at > FARTHEST || at - high > FARTHEST;
+    if high.x - low.x > WIDEST || off(low.x, high.x, at.x) || off(low.z, high.z, at.z) {
+        return Some((at - Vec3::splat(FALLBACK), at + Vec3::splat(FALLBACK)));
+    }
+    Some((low, high))
+}
+
 /// The least side of a box, about its middle (`0x44D3BB`).
 const LEAST_BOX: f32 = 35.0;
 /// A creature's box about its feet on the screen, of its type's half width and height
@@ -309,10 +333,29 @@ fn label(
     (assets, ui_scale, pointer): (Res<AssetServer>, Res<UiScale>, Res<crate::hud::Pointer>),
     camera: Single<(&Camera, &GlobalTransform, &Projection), crate::iso::Eye<With<Camera>>>,
     items: Query<(Entity, &GlobalTransform, &Lying, Option<&TextName>)>,
-    (creatures, heroes, containers): (
+    (creatures, heroes, containers, specials): (
         Creatures,
         Query<(Entity, &GlobalTransform), With<crate::hero::Body>>,
         Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
+        Query<(
+            Entity,
+            &GlobalTransform,
+            &crate::npcs::Special,
+            Option<&TextName>,
+        )>,
+    ),
+    (points, meshes, corpses): (
+        crate::vertices::ModelPoints,
+        Res<Assets<Mesh>>,
+        Query<
+            (
+                Entity,
+                &GlobalTransform,
+                &crate::npcs::Corpse,
+                Option<&ScriptName>,
+            ),
+            Without<crate::ai::Mind>,
+        >,
     ),
     (request, arts): (
         Option<Res<crate::game::Request>>,
@@ -365,7 +408,25 @@ fn label(
             let high = feet + Vec2::new(half, height * HEIGHT_DOWN);
             Some(corner_of(low, high))
         };
-        // A container's box: its model's bounds about its point.
+        // A model's box: the screen's box of its bounds' eight corners (`0x44CF20`, `0x623B60`).
+        let modelled = |root: Entity, at: Vec3| {
+            project(at).filter(|&point| near(point))?;
+            let (low, high) = model_box(&points.bounds_points(root, &meshes), at)?;
+            let corners = (0..8).filter_map(|k: u8| {
+                let pick = |bit: u8, low: f32, high: f32| if k & bit == 0 { low } else { high };
+                project(Vec3::new(
+                    pick(1, low.x, high.x),
+                    pick(2, low.y, high.y),
+                    pick(4, low.z, high.z),
+                ))
+            });
+            let (min, max) = corners.fold(
+                (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)),
+                |(min, max), p| (min.min(p), max.max(p)),
+            );
+            (min.x <= max.x).then(|| corner_of(min / scale, max / scale))
+        };
+        // A container's box before its model is drawn: a chest's about its point.
         let chest = |at: Vec3| {
             let point = project(at).filter(|&point| near(point))? / scale;
             let low = point - CONTAINER_BOX / zoom;
@@ -412,7 +473,14 @@ fn label(
             if skipped.contains(&mind.creature) {
                 continue;
             }
-            let Some(corner) = tall(at.translation(), mind.creature) else {
+            // A dead creature's box of its model as it falls and lies (`+0xB0` bit 2, which its
+            // death sets, `0x53FB4C`), a living one's of its type's size.
+            let corner = if dies {
+                modelled(entity, at.translation()).or_else(|| tall(at.translation(), mind.creature))
+            } else {
+                tall(at.translation(), mind.creature)
+            };
+            let Some(corner) = corner else {
                 continue;
             };
             // A follower's label is its master's, the hero's (its `+0x1EC`, `0x627303`).
@@ -460,10 +528,60 @@ fn label(
             if container.emptied || skipped.contains(&container.kind()) {
                 continue;
             }
-            let Some(corner) = chest(at.translation()) else {
+            let Some(corner) =
+                modelled(entity, at.translation()).or_else(|| chest(at.translation()))
+            else {
                 continue;
             };
             let Some(text) = texts.named(&container.kind().to_string()) else {
+                continue;
+            };
+            wanted.push(Wanted {
+                entity,
+                corner,
+                text: text.to_owned(),
+                colour: CONTAINER,
+                item: false,
+            });
+        }
+        // The dead lying, their minds gone (`npcs::die`), grey about their models as they lie.
+        for (entity, at, corpse, key) in &corpses {
+            if skipped.contains(&corpse.creature) {
+                continue;
+            }
+            let corner = modelled(entity, at.translation())
+                .or_else(|| tall(at.translation(), corpse.creature));
+            let Some(corner) = corner else {
+                continue;
+            };
+            let named = key
+                .and_then(|key| texts.named(crate::talk::resource(&key.0)))
+                .or_else(|| texts.named(&corpse.creature.to_string()));
+            let Some(text) = named else {
+                continue;
+            };
+            wanted.push(Wanted {
+                entity,
+                corner,
+                text: text.to_owned(),
+                colour: DEAD,
+                item: false,
+            });
+        }
+        // The specials, the signposts: their script's name or their type's, in the records'
+        // colour, about their models (`0x451300`, `0x5C13C0`).
+        for (entity, at, special, name) in &specials {
+            if skipped.contains(&special.0) {
+                continue;
+            }
+            let Some(corner) = modelled(entity, at.translation()) else {
+                continue;
+            };
+            let named = name
+                .and_then(|name| texts.named(&name.0))
+                .or_else(|| texts.named(&special.0.to_string()))
+                .filter(|text| !text.is_empty());
+            let Some(text) = named else {
                 continue;
             };
             wanted.push(Wanted {
@@ -639,6 +757,32 @@ mod tests {
         assert!(rects[..5].iter().all(|rect| rect.min.x == spot.x));
         // One far off keeps its place.
         assert_eq!(rects[5].min, corners[5]);
+    }
+
+    #[test]
+    fn a_models_box_is_its_points_bounds_unless_they_lie_wrong() {
+        let at = Vec3::new(1000.0, 0.0, 2000.0);
+        let points = [
+            Vec3::new(990.0, 0.0, 1980.0),
+            Vec3::new(1030.0, 90.0, 2010.0),
+        ];
+        assert_eq!(
+            model_box(&points, at),
+            Some((
+                Vec3::new(990.0, 0.0, 1980.0),
+                Vec3::new(1030.0, 90.0, 2010.0)
+            ))
+        );
+        // Both ends 400 off to one side: a box of 10 about the point.
+        let off = [
+            Vec3::new(1401.0, 0.0, 2000.0),
+            Vec3::new(1500.0, 50.0, 2000.0),
+        ];
+        assert_eq!(
+            model_box(&off, at),
+            Some((at - Vec3::splat(10.0), at + Vec3::splat(10.0)))
+        );
+        assert_eq!(model_box(&[], at), None);
     }
 
     #[test]
