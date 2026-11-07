@@ -191,7 +191,7 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   The flying objects lay theirs at their places as they fly, which a moving object heads in its cell: the bolts' looks (the fireball, the railgun, the BFG, the emperor's rays, those that follow a creature just behind it), the flying skulls, the homing fires, the ice splinters, the traps' balls and the meteors.
   **Seen** 2026-11-07: the Mage's fireball bursting at her hand as it leaves, her arm over its flames, where before its flames lay over her arm and body.
   So do, at their objects' places, the scripts' prisons, the lightning's strikes, the icebergs and the lost souls as they fly, and the killer plants just behind their own models.
-  So do the gusts and the torches' flames just behind the creatures that bear or hold them, else at their places, the bolts' trails at their places as they fly, and the dwarves' magic lamps of the scripts after their cells' statics, as the world's fires.
+  So do the gusts and the torches' flames just behind the creatures that bear or hold them, else at their places, the bolts' trails at their places as they fly, and the dwarves' magic lamps of the scripts after their cells' statics, as the world's fires; the chain lightning's impacts, the dragons' fires on the ground and the blades of light at their objects' places.
   The other systems are drawn at their own depths still (#2188).
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 
