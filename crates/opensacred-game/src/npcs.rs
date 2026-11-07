@@ -302,6 +302,9 @@ struct Placement {
     /// (`0x428130`; `ai`), and the trigger it names (`CreateObj`'s `0x29`), whose cells it opens
     /// and closes (#372).
     door: bool,
+    /// Whether it is a special, an object of category 15 (`cSpecial3D`: the signposts), which takes
+    /// a label while Alt is held (`labels`, #1425).
+    special: bool,
     trigger: Option<String>,
     /// A fire of the FX objects (`items.pak` category 12), its variant of the smoke class and its
     /// height in the models' units, the record's `0x7E` (`fx`, #1092).
@@ -492,6 +495,8 @@ const ATTACHED: [u8; 5] = [WEAPON, SHIELD, 8, 20, 25];
 const CHEST: u8 = 4;
 /// The category of the doors (`items.pak` 5650 to 5766, `0x428130`).
 const DOOR: u8 = 10;
+/// The category of the specials (`cSpecial3D`, `0x451300`): the signposts 4993 to 4999.
+const SPECIAL: u8 = 15;
 /// The FX objects' category (`cObjectFX`, docs/re/effects.md).
 const FX: u8 = 12;
 /// A `CreateObj`'s height of an FX object, in the models' units (`0x4861BF`).
@@ -869,6 +874,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         casts: kind.casts,
         blocks: false,
         door: false,
+        special: false,
         fx: None,
         fx_loop: None,
         summon: None,
@@ -992,6 +998,11 @@ pub struct Placed {
     at: (u32, u32),
     source: Source,
 }
+
+/// A special of the type, an object of category 15 (`cSpecial3D`: the signposts), which takes a
+/// label while Alt is held (`labels`, #1425).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Special(pub u32);
 
 /// The placement a creature was placed of, by its index, which a loaded save's start makes again
 /// at the same index (#1958): by it the merchants' stock knows its merchant again after a load
@@ -3144,6 +3155,7 @@ impl Makers {
             },
             blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
             door: record.kind == CREATE_OBJ && category(item) == DOOR,
+            special: record.kind == CREATE_OBJ && category(item) == SPECIAL,
             fx,
             fx_loop,
             summon,
@@ -4508,9 +4520,15 @@ fn place_index(
             },
         ));
     }
+    // A special, which takes a label under Alt by its name or its type's (#1425).
+    if placement.special {
+        commands
+            .entity(entity)
+            .insert(Special(placement.creature.0));
+    }
     // A lying item of a `res:` name goes by its text (#1360), and so does a creature, whose click
-    // names it so (#1674).
-    if (placement.lies || placement.quest.is_some() || !placement.object)
+    // names it so (#1674), and a special, whose label shows it (#1425).
+    if (placement.lies || placement.quest.is_some() || !placement.object || placement.special)
         && let Some(name) = placement.key.as_deref().and_then(TextName::of)
     {
         commands.entity(entity).insert(name);

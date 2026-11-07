@@ -112,6 +112,19 @@ impl ModelPoints<'_, '_> {
         )
     }
 
+    /// The points of the model at `root` by which the original grows its bounds as it draws it
+    /// (`0x405C90`, `0x40C790`; #1425): of each mesh of `n` vertices every one where `n` is below
+    /// 12, every second below 23, every third below 33, else every `⌊n/11⌋`-th, posed in the world.
+    pub(crate) fn bounds_points(&self, root: Entity, meshes: &Assets<Mesh>) -> Vec<Vec3> {
+        self.of(root, meshes)
+            .into_iter()
+            .flat_map(|points| {
+                let step = bounds_step(points.len());
+                points.into_iter().step_by(step)
+            })
+            .collect()
+    }
+
     /// The points of the model at `root` that a burst of at most 500 particles takes
     /// (`0x767FB0`, `opensacred_rules::particles::vertex_picks`), in the world.
     pub(crate) fn picked(&self, root: Entity, meshes: &Assets<Mesh>) -> Vec<Vec3> {
@@ -121,5 +134,28 @@ impl ModelPoints<'_, '_> {
             .into_iter()
             .filter_map(|(mesh, vertex)| model.get(mesh)?.get(vertex).copied())
             .collect()
+    }
+}
+
+/// The step of the vertices of a mesh of `count` that its bounds take ([`ModelPoints::bounds_points`]).
+fn bounds_step(count: usize) -> usize {
+    match count {
+        0..12 => 1,
+        12..23 => 2,
+        23..33 => 3,
+        _ => count / 11,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_bounds_take_some_eleven_vertices_of_a_mesh() {
+        assert_eq!(
+            [5, 12, 22, 23, 32, 33, 1100].map(bounds_step),
+            [1, 2, 2, 3, 3, 3, 100]
+        );
     }
 }
