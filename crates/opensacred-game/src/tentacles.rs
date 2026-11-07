@@ -152,8 +152,14 @@ fn show(
 }
 
 /// Lays the rings `rings` of the object's runes `runes` flat over the ground, each segment into
-/// its rune's mesh of `handles`.
-fn lay(rings: &[RuneRing], runes: &[u8], handles: &[Handle<Mesh>], meshes: &mut Assets<Mesh>) {
+/// its rune's mesh of `handles`, at the object's place in the order `order` about `origin`
+/// (#2220).
+fn lay(
+    (rings, runes): (&[RuneRing], &[u8]),
+    handles: &[Handle<Mesh>],
+    meshes: &mut Assets<Mesh>,
+    (order, origin): (Option<crate::fx::InOrder>, Vec3),
+) {
     let lift = Vec3::Y * GROUND_LIFT;
     let mut quads: Vec<Quads> = handles.iter().map(|_| Quads::default()).collect();
     for ring in rings {
@@ -173,8 +179,9 @@ fn lay(rings: &[RuneRing], runes: &[u8], handles: &[Handle<Mesh>], meshes: &mut 
             }
         }
     }
-    for (quads, handle) in quads.into_iter().zip(handles) {
+    for (mut quads, handle) in quads.into_iter().zip(handles) {
         if let Some(mut mesh) = meshes.get_mut(handle) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
     }
@@ -186,14 +193,17 @@ fn lay(rings: &[RuneRing], runes: &[u8], handles: &[Handle<Mesh>], meshes: &mut 
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut tentacles: Query<&mut TentacleLook>,
+    mut tentacles: Query<(&mut TentacleLook, &GlobalTransform)>,
     mut auras: Query<(Entity, &TentacleAura, &mut AuraLook, &mut Transform)>,
     bearers: Query<&GlobalTransform>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for mut look in &mut tentacles {
+    for (mut look, place) in &mut tentacles {
+        // At its object's place in the order, as the original draws the system (#2220).
+        let origin = place.translation();
+        let order = orders.at(origin);
         let TentacleLook {
             tentacle,
             dots,
@@ -205,9 +215,15 @@ fn run(
             quads.push(world(at), half * s, 0.0, (Vec2::ZERO, 1.0), BLACK);
         }
         if let Some(mut mesh) = meshes.get_mut(&*dots) {
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
-        lay(&tentacle.rings(), &tentacle.runes, runes, &mut meshes);
+        lay(
+            (&tentacle.rings(), &tentacle.runes),
+            runes,
+            &mut meshes,
+            (order, origin),
+        );
     }
     for (entity, aura, mut look, mut place) in &mut auras {
         look.aura.update(dt);
@@ -218,11 +234,12 @@ fn run(
         if let Ok(bearer) = bearers.get(aura.bearer) {
             place.translation = bearer.translation();
         }
+        // Just behind its bearer in the order (#2220).
         lay(
-            &look.aura.rings(),
-            &look.aura.runes,
+            (&look.aura.rings(), &look.aura.runes),
             &look.runes,
             &mut meshes,
+            (orders.behind(aura.bearer), place.translation),
         );
     }
 }
