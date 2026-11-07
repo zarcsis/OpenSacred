@@ -7274,6 +7274,207 @@ impl LavaFlames {
     }
 }
 
+/// The spit's model, a part of the giant spider's gib set whoever spits (`0x427650(55, rand() & 3)`
+/// in its constructor `0x77B040`): of a roll `rand() & 3`, the ribcage (999), the lung (998), one of
+/// 994 to 998 (the skulls and the lung) by `rand() % 5`, or one of 991 to 994 (the hearts and a
+/// skull) by `rand() & 3`.
+pub fn spit_part(dice: &mut impl Dice) -> u32 {
+    match dice.below(0x8000) & 3 {
+        0 => 999,
+        1 => 998,
+        2 => 994 + dice.below(0x8000) % 5,
+        _ => 991 + (dice.below(0x8000) & 3),
+    }
+}
+
+/// The spit's blobs' textures (the spiders' and the flowers', the crab queen's) and their grid, its
+/// model's scale, its size, within which and a creature's own it hits (`items.pak +0x14` of 880),
+/// and the seconds after a strike before it strikes again (`+0x11C`).
+pub const SPIT_TEXTURES: [&str; 2] = ["PARTICLE_BLOB01", "FX_BLOB_ALL"];
+pub const SPIT_GRID: u8 = 2;
+pub const SPIT_SCALE: f32 = 2.0;
+pub const SPIT_SIZE: f32 = 40.0;
+const SPIT_COOLDOWN: f32 = 1.0;
+/// Its blobs at most (`0x77B040`).
+const SPIT_COUNT: usize = 500;
+
+/// A creature's spit, `cParticleSystem_spiderpuke` (`FX_SPIDERPUKE`, 880, its start `0x77B700`, its
+/// run `0x77B180` and its draw `0x77B3C0`; docs/re/effects.md, "The creatures' spit"): a gib part
+/// ([`spit_part`]) at twice its size, tumbling about two axes at 1 to 3 radians a second each,
+/// thrown in an arc (the object's flag 8) from the spitter's head to a point ahead of it, as high
+/// as 60 to 80 over the line at its middle, in 0.83 to 1.11 s (its share of the way rising by 0.9
+/// to 1.2 a second), leaving a trail of green blobs every 0.005 s, of a size of 15 ± 5 shrinking by
+/// 25 a second and living 0.51 s, each turned at random and of a frame of 2 × 2 at random, in a
+/// colour of its own ([`Spit::colour`]) fading by its life, laid over by their alpha; the crab
+/// queen's of red blobs. It strikes in flight the creatures it comes within its size and theirs of
+/// ([`Spit::strikes`]) and flies on; landed, it lays a mark and ends with its trail.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spit {
+    pub system: System,
+    /// Whether it is the crab queen's (the caster's type 348).
+    pub crab: bool,
+    /// Its model's two angles and their speeds (`+0x213C` to `+0x2148`).
+    pub turns: [f32; 2],
+    spins: [f32; 2],
+    /// Its share of the way (`+0xA8`), its rate (`+0xB0`), the arc's height (`+0xAC`), the way's
+    /// ends in its frame, its place now and at its last run, and its strike's cooldown.
+    share: f32,
+    rate: f32,
+    height: f32,
+    start: [f32; 3],
+    end: [f32; 3],
+    place: [f32; 3],
+    last: [f32; 3],
+    cooldown: f32,
+    landing: bool,
+    landed: bool,
+}
+
+impl Spit {
+    /// A spit of the crab queen's or not (`crab`) from `start` to `end` in its frame: its arc rolled
+    /// on `dice` (the FX event `0x66`, `0x5A53AA`), then its tumble (`0x77B700`).
+    pub fn new(crab: bool, (start, end): ([f32; 3], [f32; 3]), dice: &mut impl Dice) -> Self {
+        let mut unit = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        let height = unit() * 20.0 + 60.0;
+        let rate = unit() * 0.3 + 0.9;
+        let spins = [unit() * 2.0 + 1.0, unit() * 2.0 + 1.0];
+        Self {
+            system: System::new(SPIT_COUNT),
+            crab,
+            turns: [0.0; 2],
+            spins,
+            share: 0.0,
+            rate,
+            height,
+            start,
+            end,
+            place: start,
+            last: start,
+            cooldown: 0.0,
+            landing: false,
+            landed: false,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -500.0,
+            size: -25.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            size: spread(15.0, 5.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            offset: spread([0.0; 3], [2.0; 3]),
+            interval: 0.005,
+            frames: 4,
+            ..Block::default()
+        }
+    }
+
+    /// A blob's colour, of 1 (`0x764760` at `0x765209`): each byte of `0xFF2E8500` ± `0x302000`
+    /// (the crab queen's `0xFFE07070` ± `0x1E2020`), alpha, red, green and blue in turn, its value
+    /// less its spread plus twice its spread by a roll, truncated and put back unclamped: a red
+    /// below 0 (about one spider's blob in a hundred) sets the whole red byte, a yellow blob.
+    pub fn colour(crab: bool, dice: &mut impl Dice) -> [f32; 3] {
+        let (base, spread) = if crab {
+            ([255.0, 224.0, 112.0, 112.0], [0.0, 30.0, 32.0, 32.0])
+        } else {
+            ([255.0, 46.0, 133.0, 0.0], [0.0, 48.0, 32.0, 0.0])
+        };
+        let bytes: [f32; 4] = std::array::from_fn(|k| {
+            let unit = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+            let value = (base[k] - spread[k] + 2.0 * spread[k] * unit).trunc();
+            // A byte below 0 sets the bits of its own and those above it.
+            if value < 0.0 { value + 256.0 } else { value }
+        });
+        [bytes[1], bytes[2], bytes[3]].map(|byte| byte / 255.0)
+    }
+
+    /// Its model's place in its frame, where it flies or where it landed.
+    pub fn place(&self) -> [f32; 3] {
+        self.place
+    }
+
+    /// Its place along the way by its share, raised by the arc `(1 − 4(s − ½)²)` of its height
+    /// (`0x5A7108`).
+    fn arc(&self) -> [f32; 3] {
+        let s = self.share;
+        let lift = (1.0 - (s - 0.5) * (s - 0.5) * 4.0) * self.height;
+        std::array::from_fn(|k| {
+            let along = self.start[k] + (self.end[k] - self.start[k]) * s;
+            if k == 2 { along + lift } else { along }
+        })
+    }
+
+    /// A run of `dt` seconds (`0x77B180`, then the object's flag 8 of `0x5A6680`): its trail ages
+    /// and, while it flies, leaves new blobs along its way since its last run; its model tumbles;
+    /// its strike's cooldown runs down; then it goes on along the arc, and once its share reaches 1
+    /// it lands. Whether it landed this run, where its mark is to be laid at its place
+    /// ([`Self::place`]).
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) -> bool {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        self.cooldown = (self.cooldown - dt).max(0.0);
+        let mut lands = false;
+        if !self.landed {
+            if self.landing {
+                self.landed = true;
+                lands = true;
+            } else {
+                let before = self.system.particles.len();
+                self.system.emit_along(
+                    &[Self::block()],
+                    &layers,
+                    SPIT_COUNT,
+                    (self.last, self.place),
+                    dt,
+                    dice,
+                );
+                for blob in self.system.particles.iter_mut().skip(before) {
+                    blob.colour = Self::colour(self.crab, dice);
+                }
+            }
+        }
+        for (turn, spin) in self.turns.iter_mut().zip(self.spins) {
+            *turn += dt * spin;
+        }
+        if !self.landed {
+            self.last = self.place;
+            self.place = self.arc();
+            if self.share >= 1.0 {
+                self.landing = true;
+            }
+            self.share += dt * self.rate;
+        }
+        lands
+    }
+
+    /// Whether it strikes the creatures it touches now (`0x5AE93E`): while it flies and its
+    /// cooldown has run out, which a strike sets to 1 s; every creature touched in that run is
+    /// struck.
+    pub fn strikes(&mut self) -> bool {
+        if self.landed || self.cooldown > 0.0 {
+            return false;
+        }
+        self.cooldown = SPIT_COOLDOWN;
+        true
+    }
+
+    /// Whether its model flies, drawn.
+    pub fn flies(&self) -> bool {
+        !self.landed
+    }
+
+    /// Whether it ended: landed and its trail gone.
+    pub fn done(&self) -> bool {
+        self.landed && self.system.particles.is_empty()
+    }
+}
+
 /// The force of hell's colour, (255, 170, 101) (`0x7C40E0`), and its glow line along a blade:
 /// a bead every 2 units of a half side of 3 and a roll of up to 1 more (`0x40DA80`).
 pub const FORCE_COLOUR: [f32; 3] = [1.0, 170.0 / 255.0, 101.0 / 255.0];
@@ -15023,6 +15224,43 @@ mod tests {
             DemonSummon::new(10).ramp().at(251.0)[..3],
             [150.0 / 256.0, 100.0 / 256.0, 100.0 / 256.0]
         );
+    }
+
+    #[test]
+    fn a_spit_flies_its_arc_trailing_blobs_and_strikes_once_a_second() {
+        let mut dice = Rng::of(24, 0x370, 12);
+        let mut spit = Spit::new(false, ([0.0, 0.0, 120.0], [350.0, 0.0, 0.0]), &mut dice);
+        assert!(spit.strikes() && !spit.strikes());
+        let mut landed = None;
+        for step in 0..200 {
+            if spit.update(0.01, &mut dice) {
+                landed = Some(step);
+                break;
+            }
+        }
+        // It lands in 0.83 to 1.11 s, at the end of its way.
+        let step = landed.unwrap();
+        assert!((83..=113).contains(&step), "{step}");
+        let [x, y, z] = spit.place();
+        assert!((x - 350.0).abs() < 1.0 && y.abs() < 1e-3 && z.abs() < 1.0);
+        assert!(!spit.flies() && !spit.strikes());
+        // Its blobs are green, but for the rare yellow ones, and fade out after it lands.
+        assert!(!spit.system.particles.is_empty());
+        assert!(spit.system.particles.iter().all(|blob| {
+            let [r, g, b] = blob.colour;
+            b == 0.0
+                && (101.0 / 255.0..=165.0 / 255.0).contains(&g)
+                && (r <= 94.0 / 255.0 || r >= 254.0 / 255.0)
+        }));
+        for _ in 0..60 {
+            spit.update(0.01, &mut dice);
+        }
+        assert!(spit.done());
+        // The crab queen's are red.
+        let [r, g, b] = Spit::colour(true, &mut dice);
+        assert!(r >= 194.0 / 255.0 && g <= 144.0 / 255.0 && b <= 144.0 / 255.0);
+        // Its part, of the giant spider's set.
+        assert!((0..50).all(|_| (991..=999).contains(&spit_part(&mut dice))));
     }
 
     #[test]
