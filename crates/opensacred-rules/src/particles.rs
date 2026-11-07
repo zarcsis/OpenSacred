@@ -4944,8 +4944,9 @@ impl MultiShot {
         }
     }
 
-    /// A run of `dt` seconds: its burst at its first, its sparks aged and pulled back, its comets'
-    /// angle on by 5 radians a second, wrapping.
+    /// A run of `dt` seconds: its burst at its first, its sparks aged and pulled back to the hand
+    /// (`0x7640C0` applies a layer's pull to every system, #2198), its comets' angle on by 5
+    /// radians a second, wrapping.
     pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
         if !self.burst {
             self.burst = true;
@@ -4962,7 +4963,7 @@ impl MultiShot {
             pull: 250.0,
             ..Layer::default()
         }];
-        self.sparks.update(dt, &layers);
+        self.sparks.update_toward(dt, &layers, [0.0; 3]);
         self.angle = (self.angle + MULTI_SHOT_TURN * dt).rem_euclid(std::f32::consts::TAU);
     }
 
@@ -13366,11 +13367,20 @@ mod tests {
                 assert!((length - 4.0).abs() < 1e-3, "{length}");
             }
         }
-        // The burst gone in 0.64 s, pulled back near the hand.
+        // The burst gone in 0.64 s, pulled back near the hand: a spark of the speed `v` turns at
+        // `v²/500` from it, 22 at most (#2198), where without the pull the fastest would be 31
+        // away by 0.3 s.
         for _ in 0..30 {
             sight.update(0.01, &mut dice);
         }
         assert!(!sight.sparks.particles.is_empty());
+        let farthest = sight
+            .sparks
+            .particles
+            .iter()
+            .map(|p| p.place.iter().map(|a| a * a).sum::<f32>().sqrt())
+            .fold(0.0_f32, f32::max);
+        assert!(farthest < 23.0, "{farthest}");
         for _ in 0..40 {
             sight.update(0.01, &mut dice);
         }
