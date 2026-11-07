@@ -2106,7 +2106,7 @@ It draws the multi-shot's sight since #1092 too (`elf_sights`, `opensacred_rules
 **Seen** 2026-11-06 in the game: two small green stars going round her left hand at the level 1, the burst's specks about it; not yet beside the original, whose driver did not make the art.
 It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `opensacred_rules::particles::NatureHealing`), laid along the bearer's way for 3 s and left in the world, each of its own colour (the particles' `colour`, which a block rolls where it spreads one); the renderer's wind is not followed.
 **Seen** 2026-11-06 in the game: a cloud of tiny butterflies of every colour rising from about the Wood Elf's feet and fading; not yet beside the original.
-Not followed yet: the `Rundum`'s ring with a bow (1061), and the blood's and the body parts' marks (#1935).
+Not followed yet: the `Rundum`'s ring with a bow (1061, #2240; its shot since #2238), and the blood's and the body parts' marks (#1935).
 
 ## The burning light and the holy conversion
 
