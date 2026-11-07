@@ -405,11 +405,11 @@ fn strike(
 fn burn(
     mut commands: Commands,
     time: Res<Time>,
-    mut fires: Query<(Entity, &mut OnTheGround)>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    mut fires: Query<(Entity, &mut OnTheGround, &GlobalTransform)>,
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
-    for (entity, mut fire) in &mut fires {
+    for (entity, mut fire, place) in &mut fires {
         let OnTheGround {
             fire, ramp, mesh, ..
         } = &mut *fire;
@@ -430,6 +430,9 @@ fn burn(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&*mesh) {
+            // At its object's place in the order, as the original draws the system (#2188).
+            let origin = place.translation();
+            quads.in_order(orders.at(origin), origin);
             quads.into_mesh(&mut mesh);
         }
     }

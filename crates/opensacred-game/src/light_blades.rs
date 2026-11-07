@@ -113,13 +113,18 @@ fn show(
 
 /// Runs each blades of light's look a frame on (`0x784630`, `0x7846C0`), about its object's place,
 /// which goes with its caster.
-fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<Mesh>>) {
+fn run(
+    time: Res<Time>,
+    mut shown: Query<(&mut Shown, &GlobalTransform)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
+) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     let (across, down) = iso::fx_axes();
     // A point of its frame about its place, at the world's scale.
     let at = |[x, y, z]: [f32; 3]| (across * x + down * y + Vec3::Y * z) * s;
-    for mut shown in &mut shown {
+    for (mut shown, place) in &mut shown {
         let shown = &mut *shown;
         shown.blades.update(dt);
         let mut disc = Quads::default();
@@ -152,8 +157,12 @@ fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<
         for at_top in shown.blades.sparks(shown.radius) {
             sparks.push_facing(at(at_top), spark, [[1.0; 4]; 4]);
         }
-        for (handle, quads) in shown.parts.iter().zip([disc, dots, sparks]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
+        for (handle, mut quads) in shown.parts.iter().zip([disc, dots, sparks]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
