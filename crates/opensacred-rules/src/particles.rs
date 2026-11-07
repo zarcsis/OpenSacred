@@ -7071,12 +7071,7 @@ impl ForceOfHell {
 
     /// A run of `dt` seconds, its blade gone from the segment `from` to `to` in its frame where it
     /// has one: its sparks age, and within its seconds it makes them along the blade's sweep.
-    pub fn update(
-        &mut self,
-        dt: f32,
-        blade: Option<Sweep>,
-        dice: &mut impl Dice,
-    ) {
+    pub fn update(&mut self, dt: f32, blade: Option<Sweep>, dice: &mut impl Dice) {
         let layers = [Self::layer()];
         self.system.update(dt, &layers);
         if let Some(sweep) = blade.filter(|_| self.system.clock < self.seconds) {
