@@ -143,6 +143,21 @@ fn follow(
     }
 }
 
+/// Gives the Bevy light of each effect's light whose colour changed that colour, as a system
+/// sets its Direct3D light's colour at a draw (`0x642880`): the Dwarf's armour's and steel's.
+fn recolour(
+    lights: Query<(&FxLight, &Children), Changed<FxLight>>,
+    mut points: Query<&mut PointLight>,
+) {
+    for (light, children) in &lights {
+        for &child in children {
+            if let Ok(mut point) = points.get_mut(child) {
+                *point = point_light(light.colour);
+            }
+        }
+    }
+}
+
 /// The effects' lights.
 pub struct FxLightsPlugin;
 
@@ -150,7 +165,7 @@ impl Plugin for FxLightsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (kindle, follow)
+            (kindle, follow, recolour)
                 .chain()
                 .run_if(in_state(crate::game::AppState::InGame)),
         );

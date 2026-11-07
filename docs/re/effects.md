@@ -1866,6 +1866,25 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
 Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
 
+## The Dwarf's armour and steel
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The armour (58) | 1021 `FX_PANZER` | `cParticleSystem_panzer` (`0x898CFC`) | `0x7B7800`, `0x7B7B50`, `0x7B78E0`, `0x7B79A0` |
+| The steel (59) | 1022 `FX_STAHL` | `cParticleSystem_stahl` (`0x898DC8`) | `0x7B9F00`, `0x7BA240`, `0x7B9FE0`, `0x7BA0A0` |
+
+- The spells' executor's cases 58 (`0x52869E`, below 0.5 of the clip left) and 59 (`0x52888F`, below 0.2) make one at the action's target, else the caster, with the FX event `0x99` or `0x9E` from the caster, which follows the target at its bone 0; `DWARF_PANZER` (2108) or `DWARF_STAHL` (2109) plays.
+- Each takes its texture, `fx_dwarf_panzer.TGA` or `fx_dwarf_stahl.tga` (a white ring of runes about a glyph, opaque on black), and a Direct3D light of the kind 2.
+- The start: its seconds the spell's value 0 at its level (the armour's `44 + L`, the steel's `29 + L`), its target's effects (`spells::dwarfs`, the armour's effect 35 and its action 6).
+- The run: the clock on; the fade up by 0.5 a second to 1 (2 s); held until the clock passes its seconds less 0.5; then down by 0.5 a second, and below 0 it dies.
+- The draw: with `c = cos 0.5425·t`, the armour's colour `R = 0.15 + 0.35·(1 + c)`, `G = 0.15 + 0.35·(1 − c)` and the blue 0.137 (its vertices' 34), the steel's `R = 0.25 + 0.2·c`, `G = 0.25 − 0.2·c` and the blue 1; the light of that colour at its place, unfaded.
+  Its texture flat (`0x7631E0`) of the half side 45 at the alpha `⌊140·f⌋`, turned by `−0.6524·t` (the steel's `+0.6524·t`), depth tested, added by its alpha; then 70 copies, the `i`-th `i·0.2·(sin t + 2)·f` over it at the alpha `⌊45·(1 − i/70)·f⌋`: a column of rings breathing up and down, its colour swinging between red and green.
+
+`opensacred-game` draws both since #1092 (`dwarf_armours`, `opensacred_rules::particles::DwarfArmour`): on the spell's target for its seconds, at its feet, untinted, just behind its model (`fx::Orders`, #2178), its light (`fx_lights`, which since gives a light's changed colour to its Bevy light).
+**Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 in a column of green runes 4 s after his armour, a blue one after his steel.
+
 ## The call of death's sign
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

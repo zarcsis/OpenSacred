@@ -7248,6 +7248,119 @@ impl ForceOfHell {
     }
 }
 
+/// The Dwarf's armour's (1021) and steel's (1022) textures, each a ring of runes on black.
+pub const DWARF_ARMOUR_TEXTURES: [&str; 2] = ["fx_dwarf_panzer", "fx_dwarf_stahl"];
+/// Their rings' half side; the copies stacked over the first and how far apart, by the height
+/// `0.2·(sin t + 2)` at the whole fade; how fast they turn, in radians a second.
+pub const DWARF_ARMOUR_HALF: f32 = 45.0;
+const DWARF_ARMOUR_COPIES: u8 = 70;
+const DWARF_ARMOUR_TURN: f32 = 0.6524;
+
+/// The Dwarf's armour (1021, `cParticleSystem_panzer`, its start `0x7B7B50`, run `0x7B78E0` and
+/// draw `0x7B79A0`) or steel (1022, `cParticleSystem_stahl`, `0x7BA240`, `0x7B9FE0`, `0x7BA0A0`)
+/// on its bearer (docs/re/effects.md, "The Dwarf's armour and steel"): its ring flat at the
+/// bearer's feet and 70 fainter copies stacked over it, a column breathing up and down, turning,
+/// its colour swinging between red and green, fading in over 2 s and out over 2 s from half a
+/// second before its seconds end; its light the same colour, unfaded.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DwarfArmour {
+    steel: bool,
+    clock: f32,
+    seconds: f32,
+    stage: u8,
+    fade: f32,
+}
+
+impl DwarfArmour {
+    /// The armour's, or the steel's where `steel`, for `seconds`, its spell's value 0 at its level.
+    pub fn new(steel: bool, seconds: f32) -> Self {
+        Self {
+            steel,
+            clock: 0.0,
+            seconds,
+            stage: 0,
+            fade: 0.0,
+        }
+    }
+
+    /// Its texture of [`DWARF_ARMOUR_TEXTURES`].
+    pub fn texture(&self) -> &'static str {
+        DWARF_ARMOUR_TEXTURES[usize::from(self.steel)]
+    }
+
+    /// A run of `dt` seconds: its clock on; it fades in by 0.5 a second to 1, holds until half a
+    /// second before its seconds, then fades out by 0.5 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.stage {
+            0 => {
+                self.fade += 0.5 * dt;
+                if self.fade > 1.0 {
+                    self.fade = 1.0;
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                if self.seconds - 0.5 < self.clock {
+                    self.stage = 2;
+                }
+            }
+            _ => self.fade = (self.fade - 0.5 * dt).max(0.0),
+        }
+    }
+
+    /// Whether it has faded out.
+    pub fn done(&self) -> bool {
+        self.stage == 2 && self.fade <= 0.0
+    }
+
+    /// Its colour, of its light and its rings: with `c = cos 0.5425·t`, the armour's
+    /// `(0.15 + 0.35·(1 + c), 0.15 + 0.35·(1 − c), 0.137)`, the steel's
+    /// `(0.25 + 0.2·c, 0.25 − 0.2·c, 1)`.
+    pub fn colour(&self) -> [f32; 3] {
+        let c = (0.5425 * self.clock).cos();
+        if self.steel {
+            [0.2f32.mul_add(c, 0.25), 0.2f32.mul_add(-c, 0.25), 1.0]
+        } else {
+            [
+                0.35f32.mul_add(1.0 + c, 0.15),
+                0.35f32.mul_add(1.0 - c, 0.15),
+                0.137,
+            ]
+        }
+    }
+
+    /// Its rings' turn: the armour's `−0.6524·t`, the steel's `+0.6524·t`.
+    pub fn turn(&self) -> f32 {
+        let turn = DWARF_ARMOUR_TURN * self.clock;
+        if self.steel { turn } else { -turn }
+    }
+
+    /// Its rings' colour at the alpha `alpha`: the colour's bytes, the blue the armour's 34 or the
+    /// steel's 255.
+    fn ring_colour(&self, alpha: f32) -> [f32; 4] {
+        let [r, g, _] = self.colour().map(|c| (c * 255.0).trunc() / 255.0);
+        let b = if self.steel { 1.0 } else { 34.0 / 255.0 };
+        [r, g, b, alpha]
+    }
+
+    /// Its rings, each its height over the bearer's feet and its colour: the first at the alpha
+    /// `⌊140·f⌋`, then the copy `i` of 0 to 69 at `i·0.2·(sin t + 2)·f` and the alpha
+    /// `⌊45·(1 − i/70)·f⌋`.
+    pub fn rings(&self) -> Vec<(f32, [f32; 4])> {
+        let byte = |a: f32| a.trunc() / 255.0;
+        let step = 0.2 * (self.clock.sin() + 2.0) * self.fade;
+        let copies = f32::from(DWARF_ARMOUR_COPIES);
+        std::iter::once((0.0, self.ring_colour(byte(140.0 * self.fade))))
+            .chain((0..DWARF_ARMOUR_COPIES).map(|i| {
+                let i = f32::from(i);
+                let alpha = byte(45.0 * (1.0 - i / copies) * self.fade);
+                (i * step, self.ring_colour(alpha))
+            }))
+            .collect()
+    }
+}
+
 /// The call of death's sign at a kill, its texture (`+0x20B0`).
 pub const DOOM_SIGN_TEXTURE: &str = "fx_transdim_sign";
 
@@ -16125,6 +16238,41 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_dwarfs_armour_and_steel_breathe_turn_and_fade_over_their_seconds() {
+        let mut armour = DwarfArmour::new(false, 10.0);
+        let steel = DwarfArmour::new(true, 10.0);
+        assert_eq!(armour.texture(), "fx_dwarf_panzer");
+        assert_eq!(steel.texture(), "fx_dwarf_stahl");
+        // At its start the armour red, the steel blue.
+        assert!(
+            (armour.colour()[0] - 0.85).abs() < 1e-6 && (armour.colour()[1] - 0.15).abs() < 1e-6
+        );
+        assert!((steel.colour()[0] - 0.45).abs() < 1e-6 && steel.colour()[2] == 1.0);
+        // Faded in after 2 s: its first ring at 140, its copies from 45 down, 71 in all.
+        for _ in 0..210 {
+            armour.update(0.01);
+        }
+        let rings = armour.rings();
+        assert_eq!(rings.len(), 71);
+        assert!((rings[0].1[3] - 140.0 / 255.0).abs() < 1e-6);
+        assert!((rings[1].1[3] - 45.0 / 255.0).abs() < 1e-6);
+        assert!((rings[1].1[2] - 34.0 / 255.0).abs() < 1e-6);
+        // Its column 0.2·(sin t + 2) a copy apart, 69 copies up.
+        let top = rings[70].0;
+        let expected = 69.0 * 0.2 * (armour.clock.sin() + 2.0);
+        assert!((top - expected).abs() < 1e-3, "{top} {expected}");
+        assert!(armour.turn() < 0.0 && DwarfArmour::new(true, 1.0).turn() == 0.0);
+        // It fades out from 9.5 s and is gone 2 s on.
+        let mut clock = 2.1_f32;
+        while !armour.done() {
+            armour.update(0.01);
+            clock += 0.01;
+            assert!(clock < 12.0);
+        }
+        assert!((clock - 11.5).abs() < 0.03, "{clock}");
     }
 
     #[test]
