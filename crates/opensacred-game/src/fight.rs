@@ -140,6 +140,16 @@ pub struct Worth(pub [u16; 2]);
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Points(pub u64);
 
+/// A strike resolved at its target (`0x56B130`, the creature events' handler `0x52E590`'s event
+/// 5): its target, the damage it did, 0 for a miss or a damage resisted whole, and the target's
+/// most health, which the blows' sights take (`blow_sights`: the bleed and the parade).
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Struck {
+    pub target: Entity,
+    pub damage: u32,
+    pub most: u32,
+}
+
 /// A creature killed by another that is no hero (#690): the killer, which earns the victim's
 /// experience (the event `0x10D`, `0x5311F5`), and what the victim was worth, its level and its
 /// rank.
@@ -175,9 +185,10 @@ pub(crate) fn resolve(
     mut hits: MessageReader<Hit>,
     mut kills: MessageWriter<Kill>,
     mut lines: MessageWriter<crate::voices::Speak>,
-    (mut blows, mut remarks): (
+    (mut blows, mut remarks, mut struck): (
         MessageWriter<crate::sfx::Blow>,
         MessageWriter<crate::remarks::Remark>,
+        MessageWriter<Struck>,
     ),
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
@@ -422,6 +433,11 @@ pub(crate) fn resolve(
         );
         let Some(landed) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
+            struck.write(Struck {
+                target: hit.target,
+                damage: 0,
+                most: health.most,
+            });
             wound(
                 &mut commands,
                 (hit.target, hit.attacker),
@@ -623,6 +639,11 @@ pub(crate) fn resolve(
             "fight: {} hits {} for {damage}, health {}/{}",
             hit.attacker, hit.target, health.current, health.most
         );
+        struck.write(Struck {
+            target: hit.target,
+            damage,
+            most: health.most,
+        });
         // A hit that did damage makes its target speak, unless it falls (`0x532161`, #711).
         if damage > 0 && health.current > 0 {
             lines.write(crate::voices::Speak::hit(
@@ -1156,6 +1177,7 @@ impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
             .add_message::<Kill>()
+            .add_message::<Struck>()
             .insert_resource(Dice(crate::seed::dice(0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()
@@ -1255,6 +1277,7 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .add_message::<Hit>()
             .add_message::<Kill>()
+            .add_message::<Struck>()
             .add_message::<crate::voices::Speak>()
             .add_message::<crate::sfx::Blow>()
             .add_message::<crate::remarks::Remark>()

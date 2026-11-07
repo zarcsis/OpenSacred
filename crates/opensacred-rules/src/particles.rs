@@ -5562,6 +5562,169 @@ impl GoblinImpact {
     }
 }
 
+/// The bleed's droplets' texture (772, `cParticleSystem_bleed`, its draw `0x76AFF0`).
+pub const BLEED_TEXTURE: &str = "PARTICLE_DOTS03";
+
+/// The colour of a creature's blood (`0x427160`), of 1: by its gib set (`items.pak +0x6F`) green,
+/// black, the bones' brown or a pale blue, else red; black for a type outside the categories 2,
+/// 3 and `0x20` (`+0x2E`).
+pub fn blood_colour(category: u8, gib_set: u8) -> [f32; 3] {
+    let [r, g, b]: [u8; 3] = if !matches!(category, 2 | 3 | 0x20) {
+        [0, 0, 0]
+    } else {
+        match gib_set {
+            1 => [0, 170, 0],
+            2 => [17, 17, 17],
+            3 => [115, 86, 35],
+            4 => [171, 190, 205],
+            _ => [170, 0, 0],
+        }
+    };
+    [r, g, b].map(|c| f32::from(c) / 255.0)
+}
+
+/// Whether a blow of `damage` bleeds a creature of the health `most` at its most: one that does
+/// damage, a fiftieth of that at least (`0x532617`, `0x549460(1)`).
+pub fn blow_bleeds(damage: u32, most: u32) -> bool {
+    damage > 0 && f64::from(damage) >= f64::from(most) / 50.0
+}
+
+/// The droplets of a bleed at most at once.
+const BLEED_COUNT: usize = 50;
+
+/// A blow's bleed (772, `cParticleSystem_bleed`, its start `0x76B060` and run `0x76AEF0`;
+/// docs/re/effects.md, "The bleed and the parade"): from about the struck creature's neck, its
+/// fifty droplets of its blood spray out sideways in one direction at 50 to 80 a second, falling,
+/// tumbling, swelling from 8 to about 14 and fading in 0.43 s, riding with the creature.
+#[derive(Clone, Debug)]
+pub struct Bleed {
+    pub system: System,
+    burst: Option<Block>,
+}
+
+impl Bleed {
+    /// A bleed, its direction, its speed and the place it sprays from rolled once.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let mut roll = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        let (angle, speed) = (std::f32::consts::TAU * roll(), 50.0 + 30.0 * roll());
+        let offset = [
+            roll() * 12.0 - 6.0,
+            roll() * 12.0 - 6.0,
+            roll() * 30.0 - 30.0,
+        ];
+        Self {
+            system: System::new(BLEED_COUNT),
+            burst: Some(Block {
+                buoyancy: spread(60.0, 0.0),
+                size: spread(8.0, 3.0),
+                angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+                velocity: spread([speed * angle.cos(), speed * angle.sin(), 0.0], [40.0; 3]),
+                offset: spread(offset, [3.0; 3]),
+                ..Block::default()
+            }),
+        }
+    }
+
+    /// Its droplets' layer: the life by −600 a second (0.425 s), the size by +15.
+    fn layer() -> Layer {
+        Layer {
+            life: -600.0,
+            size: 15.0,
+            ..Layer::default()
+        }
+    }
+
+    /// A run of `dt` seconds: its burst at the first, then its droplets age.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        if let Some(block) = self.burst.take() {
+            self.system.burst(&block, BLEED_COUNT, BLEED_COUNT, dice);
+            return;
+        }
+        self.system.update(dt, &[Self::layer()]);
+    }
+
+    /// Whether its last droplet is gone.
+    pub fn done(&self) -> bool {
+        self.burst.is_none() && self.system.particles.is_empty()
+    }
+}
+
+/// The parade's streaks, the colours of their five points from the head (`0x76C150`).
+pub const PARADE_STREAKS: usize = 10;
+pub const PARADE_COLOURS: [[f32; 4]; 5] = [
+    [240.0 / 255.0, 209.0 / 255.0, 0.0, 1.0],
+    [240.0 / 255.0, 209.0 / 255.0, 0.0, 1.0],
+    [208.0 / 255.0, 177.0 / 255.0, 0.0, 191.0 / 255.0],
+    [176.0 / 255.0, 145.0 / 255.0, 0.0, 127.0 / 255.0],
+    [144.0 / 255.0, 113.0 / 255.0, 0.0, 63.0 / 255.0],
+];
+/// The streaks' speed, their drag a second, their life's fall a second and their points' places
+/// along them (`0x76C2F0`).
+const PARADE_SPEED: f32 = 350.0;
+const PARADE_DRAG: f32 = 4.0;
+const PARADE_FADE: f32 = 1000.0;
+const PARADE_POINTS: [f32; 5] = [20.0, 15.0, 10.0, 5.0, 0.0];
+
+/// A blow of no damage's parade (773, `cParticleSystem_parade`, its run `0x76C2F0` and draw
+/// `0x76C630`; docs/re/effects.md, "The bleed and the parade"): ten thin golden streaks, bright at
+/// their heads, burst from about the struck creature's neck, slowing, gone in a quarter of a
+/// second. Each streak's five points, from its head, in the system's frame.
+#[derive(Clone, Debug)]
+pub struct Parade {
+    pub streaks: Vec<[[f32; 3]; 5]>,
+    velocities: Vec<[f32; 3]>,
+    life: f32,
+}
+
+impl Parade {
+    /// A parade, its streaks along `normalise(d ± 0.2)` about `d = normalise(cos φ, sin φ, 4)`,
+    /// `φ` rolled.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let mut roll = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        let normalise = |v: [f32; 3]| {
+            let length = v
+                .iter()
+                .map(|c| c * c)
+                .sum::<f32>()
+                .sqrt()
+                .max(f32::EPSILON);
+            v.map(|c| c / length)
+        };
+        let angle = std::f32::consts::TAU * roll();
+        let d = normalise([angle.cos(), angle.sin(), 4.0]);
+        let (mut streaks, mut velocities) = (Vec::new(), Vec::new());
+        for _ in 0..PARADE_STREAKS {
+            let e = normalise(std::array::from_fn(|k| d[k] + (roll() * 0.4 - 0.2)));
+            streaks.push(PARADE_POINTS.map(|along| e.map(|c| c * along)));
+            velocities.push(e.map(|c| c * PARADE_SPEED));
+        }
+        Self {
+            streaks,
+            velocities,
+            life: 255.0,
+        }
+    }
+
+    /// A run of `dt` seconds: each point moves by its streak's velocity, which loses `4 dt` of
+    /// itself; the life falls by 1,000 a second.
+    pub fn update(&mut self, dt: f32) {
+        for (streak, velocity) in self.streaks.iter_mut().zip(&mut self.velocities) {
+            for point in streak.iter_mut() {
+                for k in 0..3 {
+                    point[k] += velocity[k] * dt;
+                }
+            }
+            *velocity = velocity.map(|c| c - c * PARADE_DRAG * dt);
+        }
+        self.life -= PARADE_FADE * dt;
+    }
+
+    /// Whether its streaks are gone (0.255 s).
+    pub fn done(&self) -> bool {
+        self.life <= 0.0
+    }
+}
+
 /// The Gladiator's sights' textures (803, `cParticleSystem_glad_sm_cast`, its constructor
 /// `0x78F640`): the sparks, the hand of god's glow (`GLOW04`, the glow style 1), the awe's auras
 /// and the heroism's star (`SPARK07`, the glow style 4).
@@ -15522,5 +15685,50 @@ mod tests {
         assert!((lived - (2.6 + 0.6375)).abs() < 0.06, "{lived}");
         assert!((12..=14).contains(&most), "{most}");
         assert!(GladSight::new(1013).is_none());
+    }
+
+    #[test]
+    fn a_blow_bleeds_from_a_fiftieth_of_the_health_in_the_types_blood() {
+        assert!(!blow_bleeds(0, 100));
+        assert!(!blow_bleeds(1, 100));
+        assert!(blow_bleeds(2, 100) && blow_bleeds(1, 50));
+        let red = blood_colour(2, 0);
+        assert!((red[0] - 170.0 / 255.0).abs() < 1e-6 && red[1] == 0.0);
+        assert!((blood_colour(3, 1)[1] - 170.0 / 255.0).abs() < 1e-6);
+        assert_eq!(blood_colour(5, 0), [0.0; 3]);
+        // Its fifty droplets at once, gone in 0.425 s, sideways at 50 to 80 ± 40.
+        let mut dice = Rng::of(4, 7, 2);
+        let mut bleed = Bleed::new(&mut dice);
+        bleed.update(0.0, &mut dice);
+        assert_eq!(bleed.system.particles.len(), 50);
+        let mut lived = 0.0_f32;
+        while !bleed.done() {
+            bleed.update(0.001, &mut dice);
+            lived += 0.001;
+        }
+        assert!((lived - 0.425).abs() < 0.01, "{lived}");
+    }
+
+    #[test]
+    fn a_parade_flies_its_streaks_about_56_and_is_gone_in_a_quarter_second() {
+        let mut dice = Rng::of(9, 1, 3);
+        let mut parade = Parade::new(&mut dice);
+        assert_eq!(parade.streaks.len(), 10);
+        let head = parade.streaks[0][0];
+        let mut lived = 0.0_f32;
+        while !parade.done() {
+            parade.update(0.001);
+            lived += 0.001;
+        }
+        assert!((lived - 0.255).abs() < 0.002, "{lived}");
+        let moved = parade.streaks[0][0];
+        let flown = (0..3)
+            .map(|k| (moved[k] - head[k]).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        assert!((flown - 56.0).abs() < 1.0, "{flown}");
+        // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
+        // about 60° at the least.
+        assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
     }
 }

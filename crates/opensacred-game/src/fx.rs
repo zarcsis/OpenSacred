@@ -448,6 +448,18 @@ pub(crate) fn plain_material() -> Effect {
 }
 
 /// A material of no texture, of its vertices' colours alone, laid over the frame by their alpha
+/// (`SRCALPHA`, `INVSRCALPHA`), its depth tested: the parade's streaks (`blow_sights`).
+pub(crate) fn plain_blend_material() -> Effect {
+    Effect {
+        base: StandardMaterial {
+            alpha_mode: AlphaMode::Blend,
+            ..plain_material().base
+        },
+        extension: Particles::default(),
+    }
+}
+
+/// A material of no texture, of its vertices' colours alone, laid over the frame by their alpha
 /// with its depth not tested (`SRCALPHA`, `INVSRCALPHA`, `ZENABLE` off): the summoning's
 /// triangles and bolts (`summon_looks`).
 pub(crate) fn plain_over_material() -> Effect {
