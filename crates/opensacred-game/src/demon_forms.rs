@@ -167,6 +167,7 @@ fn whirl(
         crate::making::Worn,
     ),
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -184,6 +185,8 @@ fn whirl(
             continue;
         };
         transform.translation = head.translation;
+        // Just behind his model, as the original draws the system before the creature (#2188).
+        let order = orders.behind(look.bearer);
         if let Ok(mut light) = lights.get_mut(look.light) {
             light.translation = world(look.look.ring(0)[0]);
         }
@@ -224,11 +227,13 @@ fn whirl(
             let mut quad = Quads::default();
             quad.push(lift, half * s, turn, (Vec2::ZERO, 1.0), colour);
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quad.in_order(order, head.translation);
                 quad.into_mesh(&mut mesh);
             }
         }
-        for (quads, mesh) in [(ribbons, &look.ribbons), (flares, &look.flares)] {
+        for (mut quads, mesh) in [(ribbons, &look.ribbons), (flares, &look.flares)] {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, head.translation);
                 quads.into_mesh(&mut mesh);
             }
         }

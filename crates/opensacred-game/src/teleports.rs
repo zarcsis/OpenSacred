@@ -125,6 +125,7 @@ fn run(
     mut sights: Query<(Entity, &mut Shown, &mut Transform)>,
     places: Query<&GlobalTransform>,
     (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs();
     for (entity, mut shown, mut transform) in &mut sights {
@@ -146,6 +147,14 @@ fn run(
             quads.push_facing_turned(world(at), half * iso::MODEL_SCALE, 0.0, TELEPORT_CORNERS);
         }
         if let Some(mut mesh) = meshes.get_mut(&shown.mesh) {
+            // Just behind its caster while it rides on him, else at its place, as the original
+            // draws the system before the creature (#2188).
+            let order = if shown.rides {
+                orders.behind(shown.caster)
+            } else {
+                orders.at(transform.translation)
+            };
+            quads.in_order(order, transform.translation);
             quads.into_mesh(&mut mesh);
         }
     }

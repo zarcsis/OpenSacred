@@ -220,8 +220,8 @@ fn start(
 }
 
 /// Runs each sight a frame on at its bone (`0x776BB0`, `0x776CA0`): its particles born along the
-/// bone's way and left there, its glow at the bone, its twirls on the ground; it ends with its
-/// last particle past its time.
+/// bone's way and left there, its glow at the bone, its twirls on the ground, all just behind its
+/// caster's model (`fx::Orders`, #2188); it ends with its last particle past its time.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -237,6 +237,7 @@ fn run(
         crate::making::Worn,
     ),
     (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -305,8 +306,14 @@ fn run(
                 );
             }
         }
-        for (quads, mesh) in [dots, glow].into_iter().zip(&sight.meshes) {
+        // Just behind its caster's model, as the original draws the system before the creature
+        // it follows (#2188), else at its place once its caster is gone.
+        let order = sight
+            .caster
+            .map_or_else(|| orders.at(sight.place), |caster| orders.behind(caster));
+        for (mut quads, mesh) in [dots, glow].into_iter().zip(&sight.meshes) {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }
         }

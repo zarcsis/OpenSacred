@@ -190,6 +190,7 @@ fn run_claws(
         crate::making::Worn,
     ),
     (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let ramp = particles::vamp_red();
@@ -219,6 +220,8 @@ fn run_claws(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&claw.mesh) {
+            // Just behind her model, as the original draws the system before the creature (#2188).
+            quads.in_order(orders.behind(claw.caster), Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }
