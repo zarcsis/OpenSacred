@@ -780,21 +780,40 @@ impl Orders<'_, '_> {
         self.order(crate::models::place_of(position), 0.0, position)
     }
 
-    /// [`InOrder::of`], the camera looking at the point that the world's camera does.
+    /// The depth of a system whose object has stood at `position` from the world's start, a
+    /// fire of the world's: after the statics of its cell, at the last place of its chain short of
+    /// the next cell of its diagonal (`statics`' places run to 33.8), as the row walk draws a
+    /// cell's chain and then its objects (`0x62AE90`); a creature that came into the cell later is
+    /// chained before it and drawn first (`0x5FCCB0`, docs/re/drawing.md, "The effects among the
+    /// creatures"), but for the texels of its model's own depth before its place.
+    pub(crate) fn after_statics(&self, position: Vec3) -> Option<InOrder> {
+        let place = crate::models::place_of(position);
+        let anchor = Vec4::new(place.x, 0.0, place.z, LAST_PLACE);
+        let eye = self.eye.single().ok()?;
+        let looked = eye.translation() + iso::forward() * iso::DISTANCE;
+        Some(InOrder::of(anchor, 0.0, anchor.xyz(), looked, 0.0))
+    }
+
+    /// [`InOrder::of`], the camera looking at the point that the world's camera does, just behind
+    /// the body of a creature rooted at `root`.
     fn order(&self, anchor: Vec4, sunk: f32, root: Vec3) -> Option<InOrder> {
         let eye = self.eye.single().ok()?;
         let looked = eye.translation() + iso::forward() * iso::DISTANCE;
-        Some(InOrder::of(anchor, sunk, root, looked))
+        Some(InOrder::of(anchor, sunk, root, looked, BODY))
     }
 }
 
+/// The last place of a cell's chain short of the next cell of its diagonal, where the statics'
+/// places run to 33.8 (`models::PLACE`).
+const LAST_PLACE: f32 = 33.0;
+
 impl InOrder {
-    /// The depth just behind a model rooted at `root` of the anchor `anchor` (its cell's centre
-    /// and its place in the cell), its place `sunk` units further back (under a liquid's surface,
-    /// `models::Sunk`), the camera looking at `looked`, as `models.wesl` lays the model's texels:
-    /// its place's depth and the root's own depth from the anchor, squeezed, less the body's
-    /// behind it.
-    fn of(anchor: Vec4, sunk: f32, root: Vec3, looked: Vec3) -> Self {
+    /// The depth `behind` units of a model's own depth behind a model rooted at `root` of the
+    /// anchor `anchor` (its cell's centre and its place in the cell), its place `sunk` units
+    /// further back (under a liquid's surface, `models::Sunk`), the camera looking at `looked`, as
+    /// `models.wesl` lays the model's texels: its place's depth and the root's own depth from the
+    /// anchor, less `behind`, squeezed.
+    fn of(anchor: Vec4, sunk: f32, root: Vec3, looked: Vec3, behind: f32) -> Self {
         let back = -iso::forward();
         let place = Vec3::new(anchor.x, 0.0, anchor.z) - back * sunk;
         let own = (root - anchor.xyz()).with_y(0.0).dot(back);
@@ -802,7 +821,7 @@ impl InOrder {
             place,
             beyond: ACROSS * (place - looked).dot(iso::right())
                 + CHAIN * anchor.w
-                + SQUEEZE * (own - BODY),
+                + SQUEEZE * (own - behind),
         }
     }
 }
@@ -1138,11 +1157,16 @@ fn scorch(
 fn light(
     mut commands: Commands,
     fires: Res<Fires>,
-    unlit: Query<(Entity, &Unlit)>,
+    unlit: Query<(Entity, &Unlit, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    for (entity, &Unlit(variant)) in &unlit {
+    for (entity, &Unlit(variant), at) in &unlit {
         commands.entity(entity).remove::<Unlit>();
+        let (x, z) = (at.translation.x, at.translation.z);
+        debug!(
+            "fx: a fire of the variant {variant} at {:?}",
+            crate::paths::cell_of(x, z)
+        );
         let Some((_, fire, materials)) = fires.variants.iter().find(|(v, ..)| *v == variant) else {
             continue;
         };
@@ -1200,12 +1224,25 @@ struct GeyserLatch(bool);
 /// sample's.
 fn burn(
     time: Res<Time>,
-    mut fires: Query<(Entity, &mut Burning)>,
+    mut fires: Query<(
+        Entity,
+        &mut Burning,
+        &GlobalTransform,
+        Option<&crate::buildings::Layered>,
+    )>,
     mut meshes: ResMut<Assets<Mesh>>,
     (mut latch, mut sounds): (ResMut<GeyserLatch>, MessageWriter<crate::sfx::Play>),
+    orders: Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
-    for (entity, mut burning) in &mut fires {
+    for (entity, mut burning, at, layered) in &mut fires {
+        // At its object's place in the order on the ground, after its cell's statics and under
+        // what a row nearer draws (#2188); in a building, at its own depths.
+        let place = at.translation();
+        let order = layered
+            .is_none_or(|layered| layered.layer == 0)
+            .then(|| orders.after_statics(place))
+            .flatten();
         let Burning {
             fire,
             system,
@@ -1235,7 +1272,9 @@ fn burn(
             let Some(mut mesh) = meshes.get_mut(handle) else {
                 continue;
             };
-            layer_quads(fire, system, layer).into_mesh(&mut mesh);
+            let mut quads = layer_quads(fire, system, layer);
+            quads.in_order(order, place);
+            quads.into_mesh(&mut mesh);
         }
     }
 }
@@ -1423,7 +1462,7 @@ mod tests {
         let anchor = iso::ground(22.5, 13.5)
             .with_y(12.0)
             .extend(crate::models::PLACE);
-        let order = InOrder::of(anchor, 0.0, root, looked);
+        let order = InOrder::of(anchor, 0.0, root, looked, BODY);
         // Flames about it, up to its head, laid out about a mesh's origin at its root.
         let mut quads = Quads::default();
         for (x, y, z) in [(-20.0, 0.0, 5.0), (15.0, 60.0, -10.0), (0.0, 110.0, 25.0)] {
