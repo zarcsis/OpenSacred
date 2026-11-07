@@ -180,6 +180,7 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   A creature on an upper storey's floor, whose model lies no further back than the floor's plane, keeps its systems at their own depths, as does a purgatory in a building (docs/decisions/drawing.md, "Effects at their bearers' places").
   Since #2188 the world's fires, smokes and geysers on the ground lay theirs after the statics of their cell, at the last place of its chain (`fx::Orders::after_statics`): a fire stood in its cell from the world's start, and a creature that comes into the cell later is chained before it and drawn first, so the fire lies over its brazier's sprite and under what a row nearer draws, its tall flames no longer over a creature standing in front of it; one in a building keeps its own depths.
   **Seen** 2026-11-07: the brazier's fire of 3239,2527 over its brazier and over the Seraphim's boots standing behind it, as before.
+  The fire spiral's flames lie at their object's place, as the purgatory's (`fx::Orders::at`): an object that moves heads its cell's list at each move and is drawn before a creature standing in its cell.
   The other systems, the effects of objects that follow no creature, are drawn at their own depths still (#2188).
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 
