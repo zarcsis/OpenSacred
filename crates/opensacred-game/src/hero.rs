@@ -309,8 +309,9 @@ pub struct Body {
     /// on the cell, whatever the cell's mass, entrance or exit would make of it ([`run`]).
     pinned: Option<(i32, i32)>,
     /// Its leg toward its target and its course there, found as it took its order and at the
-    /// leg's end short of its target (`paths::Course`, `0x4F7710`, `0x4FABE0`).
-    course: Option<(Vec3, paths::Course<Floored>)>,
+    /// leg's end short of its target, and again as it moves (`paths::Planned`, `0x4F7710`,
+    /// `0x4FABE0`, `0x4F4770`).
+    course: Option<paths::Planned<Floored>>,
 }
 
 /// A hero that flies, for a test (the command `fly`, #526): it goes straight where it is sent,
@@ -398,7 +399,7 @@ impl Body {
         if self
             .course
             .as_ref()
-            .is_some_and(|(leg, _)| Some(*leg) != self.target)
+            .is_some_and(|planned| Some(planned.leg) != self.target)
         {
             self.course = None;
         }
@@ -982,6 +983,7 @@ pub fn land(
 )]
 pub fn run(
     time: Res<Time>,
+    tick: Res<crate::frame::WorldTick>,
     hero: Res<Hero>,
     heights: Res<Heights>,
     clips: Option<Res<Clips>>,
@@ -1131,10 +1133,19 @@ pub fn run(
                 let level_at = |cell| heights.on_floor(cell, floor);
                 // Its place on its way, at its level and its floor number.
                 let start = (level, heights.floor_number(level), false);
-                let plan = |here: Vec3| {
-                    let leg = paths::leg(here, target, |cell| {
-                        heights.walkable_on(cell, level_at(cell))
-                    });
+                // Its way searched from where it stands for a leg brought nearer, or, searched
+                // again, for the point that `old` was searched for, `old` kept where the search
+                // finds one alike (`paths::Planned::again`, #2175).
+                let plan = |here: Vec3, old: Option<paths::Planned<Floored>>| {
+                    let leg = old.as_ref().map_or_else(
+                        || {
+                            paths::leg(here, target, |cell| {
+                                heights.walkable_on(cell, level_at(cell))
+                            })
+                        },
+                        |old| old.sought,
+                    );
+                    let line = old.as_ref().is_none_or(|old| !old.searched());
                     let end = paths::cell_of(leg.x, leg.z);
                     // The level it heads for at the leg's end, and the floor number that level
                     // is, the goal's floor of the search over floor numbers: a target's cell on
@@ -1155,54 +1166,90 @@ pub fn run(
                     // goes round what is between them to the first cell beside it that its way
                     // reaches (`0x4F8560`, `0x4F8AF0`, #1877); beside it already, it searches
                     // none, and goes straight on.
-                    match paths::goal(paths::cell_of(here.x, here.z), end, |cell| free(cell, at)) {
-                        paths::Goal::Cell(_) => {}
-                        paths::Goal::Around(_) => {
-                            return paths::course_beside(
-                                here,
-                                start,
-                                leg,
-                                Some(goal),
-                                neighbours,
-                                |(_, floor, _)| floor,
-                            );
-                        }
-                        paths::Goal::Beside => return None,
-                    }
-                    paths::course(
-                        here,
-                        start,
-                        leg,
-                        Some(goal),
-                        |cell, (at, ..)| free(cell, at),
-                        neighbours,
-                        |(_, floor, _)| floor,
-                    )
-                    .map(|course| (leg, course))
-                };
-                let follow = |course: &mut Option<(Vec3, paths::Course<_>)>| {
-                    course.as_mut().and_then(|(leg, course)| {
-                        paths::follow(
-                            course,
+                    let found = match paths::goal(paths::cell_of(here.x, here.z), end, |cell| {
+                        free(cell, at)
+                    }) {
+                        paths::Goal::Cell(_) => paths::course(
                             here,
                             start,
-                            *leg,
+                            leg,
+                            Some(goal),
+                            line,
+                            |cell, (at, ..)| free(cell, at),
+                            neighbours,
+                            |(_, floor, _)| floor,
+                        )
+                        .map(|course| paths::Planned::new(leg, leg, course, here)),
+                        paths::Goal::Around(_) => paths::course_beside(
+                            here,
+                            start,
+                            leg,
+                            Some(goal),
+                            neighbours,
+                            |(_, floor, _)| floor,
+                        )
+                        .map(|(beside, course)| paths::Planned::new(leg, beside, course, here)),
+                        paths::Goal::Beside => return None,
+                    };
+                    match old {
+                        Some(old) => old.again(
+                            found,
+                            here,
+                            start,
+                            |cell, (at, ..)| free(cell, at),
+                            neighbours,
+                            |(_, floor, _)| floor,
+                        ),
+                        None => found,
+                    }
+                };
+                let follow = |planned: &mut Option<paths::Planned<Floored>>| {
+                    planned.as_mut().and_then(|planned| {
+                        paths::follow(
+                            &mut planned.course,
+                            here,
+                            start,
+                            planned.leg,
                             |cell, (at, ..)| free(cell, at),
                             |(_, floor, _)| floor,
                         )
                     })
                 };
-                let at_leg = |course: &Option<(Vec3, paths::Course<_>)>| {
-                    course.as_ref().is_some_and(|(leg, _)| {
-                        *leg != target && (*leg - here).with_y(0.0).length() <= ARRIVED
+                let at_leg = |planned: &Option<paths::Planned<Floored>>| {
+                    planned.as_ref().is_some_and(|planned| {
+                        planned.leg != target
+                            && (planned.leg - here).with_y(0.0).length() <= ARRIVED
                     })
                 };
+                // Searched as it takes its order and at a leg's end short of its target, and
+                // again at the world's ticks as it moves (`0x4F4770`, #2175).
+                let mut searched = true;
                 if body.course.is_none() || at_leg(&body.course) {
-                    body.course = plan(here);
+                    body.course = plan(here, None);
+                } else if let (Some(seconds), Some(planned)) = (tick.seconds, body.course.as_mut())
+                    && planned.due(
+                        paths::cell_of(here.x, here.z),
+                        seconds,
+                        paths::PLAYERS_AGAIN,
+                    )
+                {
+                    body.course = plan(here, body.course.take());
+                } else {
+                    searched = false;
                 }
                 let mut step = follow(&mut body.course);
                 if step.is_none() && body.course.is_some() {
-                    body.course = plan(here);
+                    body.course = plan(here, None);
+                    searched = true;
+                    step = follow(&mut body.course);
+                }
+                // Its way's next step no longer clear: searched again at once, where it was not
+                // in this frame, as a step it may not take is (below). The original's hero in its
+                // straight mode steps round a closed cell onto one beside its line (`0x4FB7E0`);
+                // how its walk meets one on a way searched is not read.
+                if matches!(step, Some(paths::Step::Blocked)) && !searched {
+                    body.course = plan(here, body.course.take());
+                    searched = true;
                     step = follow(&mut body.course);
                 }
                 let ((from, toward), reachable) = match step {
@@ -1211,7 +1258,8 @@ pub fn run(
                         ((here.xz(), here), true)
                     }
                     Some(paths::Step::Toward(from, point)) => ((from, point), true),
-                    // Its way's next step no longer clear: it stops, running in place a while.
+                    // Its way's next step no longer clear as it was just searched: it stops,
+                    // running in place a while.
                     Some(paths::Step::Blocked) => {
                         body.arrives();
                         ((here.xz(), here), true)
@@ -1231,13 +1279,20 @@ pub fn run(
                 } else {
                     let mut position =
                         paths::advance(from, toward, here, hero.speed() * time.delta_secs());
-                    // A step into a cell it may not walk on, out of one it may, is not taken.
+                    // A step into a cell it may not walk on, out of one it may, is not taken: it
+                    // stands this frame as its way is searched again, and stops where it was
+                    // searched in this frame already.
                     let (from, into) = (
                         paths::cell_of(here.x, here.z),
                         paths::cell_of(position.x, position.z),
                     );
                     if into != from && !walkable(into) && walkable(from) {
-                        body.arrives();
+                        if searched {
+                            body.arrives();
+                        } else {
+                            body.course = plan(here, body.course.take());
+                            moving = body.moving;
+                        }
                     } else {
                         // On its level's heights: a bridge's deck, a building's floor.
                         if let Some(y) = heights.standing(position.x, position.z, body.level) {
@@ -1485,11 +1540,13 @@ mod tests {
         let (far, leg) = (Vec3::new(5000.0, 0.0, 0.0), Vec3::new(1400.0, 0.0, 0.0));
         let mut body = Body::standing();
         body.target = Some(far);
-        body.course = Some((leg, paths::Course::Straight(Vec2::ZERO)));
+        let planned =
+            |to: Vec3| paths::Planned::new(to, to, paths::Course::Straight(Vec2::ZERO), Vec3::ZERO);
+        body.course = Some(planned(leg));
         body.steer();
         assert!(body.course.is_none());
         // Its leg its target: its course kept.
-        body.course = Some((far, paths::Course::Straight(Vec2::ZERO)));
+        body.course = Some(planned(far));
         body.steer();
         assert!(body.course.is_some());
     }
