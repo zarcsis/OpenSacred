@@ -1851,6 +1851,21 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Seraphim of level 1 struck for 12 by a bandit, a spray of red droplets beside her neck; at her miss, ten golden streaks bursting from her neck up and aside.
 Not followed: the puddle 903, the cell's bit `0x800`, and the clash's sound, which `sfx` plays its own way.
 
+## The force of hell
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The spells' executor's case 63 (`0x5283B4`) makes two objects 1173 (`FX_FORCEOFHELL`, `cParticleSystem_forceofhell`, its virtual table `0x89908C`, constructor `0x7C3EF0`, start `0x7C40E0`, run `0x7C3F80`, draw `0x7C4000`) at the bearer, the order's target else the Daemon (`0x5283E9`, `0x5284B2`), each with the FX event `0x93` from the Daemon, `+0x38` 0 for the first and 1 for the second.
+- The handler's case `0x93` (`0x5A56E9`) follows the bearer and keeps the bones 11 (`Bone_weapon_01`), 15 (`weapon_fx01`) and 16 (`weapon_fx02`).
+  The object's flag `0x400000` (`0x5A9FC4`) takes its points each frame from those bones of the item the bearer holds (`0x5B6840`): the first object's of the left hand's item (`+0x1D4`), the second's of the right hand's (`+0x1D8`); a bone missing, the item's bone 0; no item, the points as they were (**hypothesis**: none at first).
+- The start: its seconds the spell's value 0 at its level, `29 + L`; on a creature, the effects that `spells::daemons` gives, from each object (counted twice); its colour (255, 170, 101) at each corner; a layer of the life falling by 300 a second (0.85 s); a block of the buoyancy 60 ± 10, the size 0.65, the velocity 0 ± 20 on each axis and the interval 0.01 s (1.5 and 2.2 times as long at the lower details); the flags `0x400004`, riding with the bearer.
+- The run: the clock on, past its seconds stopped; its sparks aged; until stopped a spark every interval at a point at random on the blade from its point 0 to its point 1 between the frame before and this one (`0x766200`); stopped, it dies with its last spark.
+- The draw: its sparks as `PARTICLE_GLOW01` billboards in its colour at the alpha of their life, added by their alpha, untinted; at the top detail a trail behind each (steps of 0.01 s back along its velocity, each 0.03 smaller); then a glow line (`0x40DA80`) from its point 0 to its point 1, `max(1, ⌊0.5·length⌋)` camera-facing quads of `PARTICLE_GLOW01` every 2 units, each of the half side 3 and a roll of up to 1 more, in the colour (255, 170, 101) opaque, added by their alpha, depth tested without writing it.
+
+`opensacred-game` draws it since #1092 (`hell_forces`, `opensacred_rules::particles::ForceOfHell`): at the spell's target, for each weapon that the bearer holds in a hand with both bones, sparks along its blade's sweep and its line of beads along the blade, for the effects' seconds, riding with the bearer and just behind its model (`fx::Orders`, #2178).
+**Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
+Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
+
 ## The Wood Elf's sights
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

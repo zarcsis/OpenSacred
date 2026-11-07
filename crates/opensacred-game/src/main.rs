@@ -100,6 +100,7 @@ mod guns;
 mod healings;
 mod held;
 mod hell_disks;
+mod hell_forces;
 mod hell_screams;
 mod help;
 mod hero;
@@ -546,6 +547,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         healings::HealingsPlugin,
         hell_disks::HellDisksPlugin,
+        hell_forces::HellForcesPlugin,
         hell_screams::HellScreamsPlugin,
         held::HeldPlugin,
         help::HelpPlugin,
@@ -558,9 +560,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         hums::HumsPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
-        ice_splinters::IceSplintersPlugin,
     ))
     .add_plugins((
+        ice_splinters::IceSplintersPlugin,
         icebergs::IcebergsPlugin,
         icons::IconsPlugin,
         inventory::InventoryPlugin,
@@ -575,9 +577,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         lost_souls::LostSoulsPlugin,
-        low_health::LowHealthPlugin,
     ))
     .add_plugins((
+        low_health::LowHealthPlugin,
         magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
         marks::MarksPlugin,

@@ -1445,6 +1445,10 @@ fn act(
             // on him; the fear's five objects about him.
             spells::DOOM | spells::FORCE | spells::TENTACLES => {
                 given.extend(spells::daemons(record, act.level));
+                if act.spell == spells::FORCE {
+                    let seconds = fight_seconds(spells::value(record, 0, act.level));
+                    crate::hell_forces::show(&mut commands, act.target, seconds);
+                }
                 if act.spell == spells::TENTACLES {
                     commands.spawn((
                         TentacleAura {
