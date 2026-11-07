@@ -7248,6 +7248,130 @@ impl ForceOfHell {
     }
 }
 
+/// The Dwarf's war cry's sign's textures, its glow's and its rays' (`+0x20C4`, `+0x20C0`), and
+/// its colour, (64, 128, 255).
+pub const WAR_CRY_SIGN_TEXTURES: [&str; 2] = ["PARTICLE_GLOW03", "PARTICLE_LINE02"];
+pub const WAR_CRY_BLUE: [f32; 3] = [64.0 / 255.0, 128.0 / 255.0, 1.0];
+/// Its rays' half width, and where they start and end from its place at the whole fade.
+pub const WAR_CRY_RAY_HALF: f32 = 4.0;
+pub const WAR_CRY_RAY_FROM: f32 = 20.0;
+const WAR_CRY_RAY_TO: f32 = 65.0;
+/// Its rays about it, the share of the round its sweep takes, and how fast its phase goes back.
+const WAR_CRY_RAYS: u8 = 80;
+const WAR_CRY_SWEEP: f32 = 0.4;
+const WAR_CRY_TURN: f32 = 0.35;
+
+/// A ray of the war cry's sign: its angle about the upright, its outer end's distance, and the
+/// alphas it is drawn at, once whole and three more times where it flashes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ray {
+    pub angle: f32,
+    pub outer: f32,
+    pub alphas: Vec<f32>,
+}
+
+/// The sign of the Dwarf's war cry on its bearer (1150, `cParticleSystem_kriegsschrei_sign`, its
+/// start `0x7B8E10`, run `0x7B88E0` and draw `0x7B89C0`; docs/re/effects.md, "The Dwarf's war
+/// cry's sign"): for the boon's seconds a blue glow flat at its feet and two opposite fans of
+/// blue rays flat about it, each of 40% of the round, its leading rays the longest, going round
+/// once in 2.86 s, the rays flashing where they pass a side; fading in over 2 s and out over 2 s
+/// past its seconds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WarCrySign {
+    clock: f32,
+    seconds: f32,
+    stage: u8,
+    fade: f32,
+    phase: f32,
+}
+
+impl WarCrySign {
+    /// A sign for `seconds`, the boon's.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            stage: 0,
+            fade: 0.0,
+            phase: 0.0,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock on, its phase back by 0.35 a second, wrapping; it fades in
+    /// by 0.5 a second to 1, holds through its seconds, then fades out by 0.5 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.phase -= WAR_CRY_TURN * dt;
+        if self.phase < 0.0 {
+            self.phase += 1.0;
+        }
+        match self.stage {
+            0 => {
+                self.fade += 0.5 * dt;
+                if self.fade > 1.0 {
+                    self.fade = 1.0;
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                if self.seconds < self.clock {
+                    self.stage = 2;
+                }
+            }
+            _ => self.fade = (self.fade - 0.5 * dt).max(0.0),
+        }
+    }
+
+    /// Whether it has faded out.
+    pub fn done(&self) -> bool {
+        self.stage == 2 && self.fade <= 0.0
+    }
+
+    /// Its glow's half side, 30 at the whole fade.
+    pub fn glow_half(&self) -> f32 {
+        30.0 * self.fade
+    }
+
+    /// Its rays: of the 80 at the shares `f = i/80` of the round, those within the sweep of 0.4
+    /// past its phase `p`, at `δ = f − p` (wrapped), each reaching `20 + 45·(1 − 2.5·δ)·fade`,
+    /// at the angle `2π·f` and again at `2π·f + π`; where `S = sin 2π(f + p)` passes 0.5, drawn
+    /// three more times at the alpha `⌊510·(S − 0.5)⌋`.
+    pub fn rays(&self) -> Vec<Ray> {
+        let p = self.phase;
+        let mut rays = Vec::new();
+        for i in 0..WAR_CRY_RAYS {
+            let f = f32::from(i) * 0.0125;
+            let within = |f: f32| p < f && f < p + WAR_CRY_SWEEP;
+            if !within(f) && !within(f + 1.0) {
+                continue;
+            }
+            let mut delta = f - p;
+            if delta < 0.0 {
+                delta += 1.0;
+            }
+            let outer = (1.0 - 2.5 * delta).mul_add(
+                (WAR_CRY_RAY_TO - WAR_CRY_RAY_FROM) * self.fade,
+                WAR_CRY_RAY_FROM,
+            );
+            let flash = (std::f32::consts::TAU * (f + p)).sin();
+            let mut alphas = vec![1.0];
+            if flash > 0.5 {
+                let alpha = (510.0 * (flash - 0.5)).trunc() / 255.0;
+                alphas.extend([alpha; 3]);
+            }
+            let angle = std::f32::consts::TAU * f;
+            for angle in [angle, angle + std::f32::consts::PI] {
+                rays.push(Ray {
+                    angle,
+                    outer,
+                    alphas: alphas.clone(),
+                });
+            }
+        }
+        rays
+    }
+}
+
 /// The Dwarf's greed's sparks' texture (`+0x294C`), the bone they stand at, its light's colour
 /// at its brightest's half, (1, 0.5, 0.1), and its sparks at most (`0x5A0C50`).
 pub const GREED_TEXTURE: &str = "PARTICLE_SPARK07";
@@ -16339,6 +16463,44 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_war_crys_sign_sweeps_two_fans_of_rays_and_fades_over_its_seconds() {
+        let mut sign = WarCrySign::new(5.0);
+        assert!(sign.glow_half() == 0.0);
+        // Faded in after 2 s, its phase 0.3 back from 1: 0.3.
+        for _ in 0..200 {
+            sign.update(0.01);
+        }
+        sign.update(0.01);
+        assert!((sign.glow_half() - 30.0).abs() < 1e-4);
+        let rays = sign.rays();
+        // 32 rays of the 80 within the sweep, each twice.
+        assert_eq!(rays.len(), 64, "{}", rays.len());
+        let longest = rays.iter().map(|r| r.outer).fold(0.0_f32, f32::max);
+        let shortest = rays.iter().map(|r| r.outer).fold(f32::MAX, f32::min);
+        assert!(longest > 63.0 && longest <= 65.0, "{longest}");
+        assert!((20.0..23.0).contains(&shortest), "{shortest}");
+        // Opposite fans.
+        assert!((rays[1].angle - rays[0].angle - std::f32::consts::PI).abs() < 1e-5);
+        assert!(rays.iter().all(|r| r.alphas[0] == 1.0));
+        // Its rays flash at some phases of a lap, three more times each.
+        let mut probe = sign.clone();
+        let mut flashed = false;
+        for _ in 0..286 {
+            probe.update(0.01);
+            flashed |= probe.rays().iter().any(|r| r.alphas.len() == 4);
+        }
+        assert!(flashed);
+        // Gone 2 s past its seconds.
+        let mut clock = 2.01_f32;
+        while !sign.done() {
+            sign.update(0.01);
+            clock += 0.01;
+            assert!(clock < 8.0);
+        }
+        assert!((clock - 7.0).abs() < 0.03, "{clock}");
     }
 
     #[test]

@@ -1866,6 +1866,22 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
 Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
 
+## The Dwarf's war cry's sign
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The Dwarf's executor's case 1089 (`0x514790`), below 0.2 of the clip left, gives the boons to the action's target, else to himself where he is of a hero's class, and makes an object 1150 (`FX_KRIEGSSCHREI_SIGN`, `cParticleSystem_kriegsschrei_sign`, its virtual table `0x898D54`, constructor `0x7B8740`, start `0x7B8E10`, run `0x7B88E0`, draw `0x7B89C0`) at him with the FX event `0x9B`, the bearer its caster, its array's word 0 the level and word 2 the boon's seconds, `29.5 + 0.5·L` (`0x51630A`); each follower within 500 gets one at his place, and each other player's hero within 500 likewise (`0x516499`, `0x516744`); the handler's case `0x9B` follows the bearer at its bone 0.
+- Its constructor takes `particle_line02.TGA` (16 by 128, white, its alpha a thin line down the middle) and `particle_glow03`, and builds a ray's quad from `x` −4 to 4 (`u` 0 to 1) and `y` 20 (`v` 1) to 65 (`v` 0) at `z` 0.
+- The start: its seconds the event's `+0x48`, the boon's.
+- The run: the clock on; its phase `p` back by 0.35 a second, wrapped at 0 (a lap in 2.86 s); the fade up by 0.5 a second to 1, held until the clock passes its seconds, then down by 0.5 a second, and below 0 it dies.
+- The draw: `particle_glow03` flat (`0x7631E0`) of the half side `30·fade` in (64, 128, 255), added whole.
+  Then, depth tested, unculled, added by their alpha, of the 80 rays at the shares `f = i/80` of the round, each within the sweep of 0.4 past the phase (wrapped): its outer end at `20 + 45·(1 − 2.5·δ)·fade`, `δ = f − p` wrapped, turned about the upright by `2π·f` (D3DX's turn about `z`), at its place, in (64, 128, 255) whole; where `S = sin 2π(f + p)` passes 0.5, three times more at the alpha `⌊510·(S − 0.5)⌋`; then the same turned a further π.
+  Two opposite fans of rays flat about the bearer, their leading rays the longest, going round and flashing.
+
+`opensacred-game` draws it since #1092 (`war_cry_signs`, `opensacred_rules::particles::WarCrySign`): on the hero for the boon's seconds, from `making`'s boon, at its feet, untinted, just behind its model (`fx::Orders`, #2178).
+Not followed: the followers' and the other heroes' signs, as the war cry gives them no boon here.
+**Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 after his war cry, two fans of pale blue rays sweeping round his feet, flashing as they pass.
+
 ## The Dwarf's greed
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).

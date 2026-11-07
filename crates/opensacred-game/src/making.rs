@@ -2299,6 +2299,14 @@ fn make(
                                 DespawnOnExit(crate::game::AppState::InGame),
                             ));
                         }
+                        // The Dwarf's war cry's sign 1150 on him for the boon's seconds
+                        // (`0x51630A`; `war_cry_signs`); his followers' and other heroes' are
+                        // not made, as they take no boon here.
+                        if making.art == 1089
+                            && let Some(&(_, seconds)) = boon.effects.first()
+                        {
+                            crate::war_cry_signs::show(&mut commands, hero, seconds);
+                        }
                         // The Seraphim's energy bolts' two objects 844 at her hands for the
                         // effect's seconds (`0x504B96`, `0x504C4F`; `sera_sights`).
                         if making.art == 1019
