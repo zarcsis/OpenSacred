@@ -3,7 +3,11 @@
 //! alone, with its values, its model and the clips of its class, her own items put away (the
 //! adder `0x582D50`); as it ends the item goes and her own come back (the taker `0x586D80`; seen
 //! 2026-10-24: her sword back in her hand and her values as before, 30 s after the art at the
-//! level 1). The Gladiator's 1013 (#755; docs/re/arts.md, "The Gladiator's"): the item it hurls
+//! level 1). Her 1019 (#2211; docs/re/arts.md, "The Seraphim's"): while her effect
+//! [`arts::RAILGUN`] holds, her hands hold nothing, each weapon in them bursting into sparks of
+//! its shape as it comes (the adder's case 17 makes an object 856 of the variant 2 at each and
+//! takes them out of her hands, `0x556A30`; seen 2026-11-07: her sword gone 1.9 s after the art
+//! and back as the effect's 30 s ended). The Gladiator's 1013 (#755; docs/re/arts.md, "The Gladiator's"): the item it hurls
 //! leaves his hand (`0x556A30`), and his arms are those without it until he picks it up again
 //! (`pickup`), the weapon going back into his empty hand (`0x54ACC0`).
 
@@ -39,14 +43,15 @@ pub struct Hurled {
     pub held: crate::npcs::Held,
 }
 
-/// The hero's own arms, those of the Seraphim's effect [`arts::BFG`], the Gladiator's without the
-/// item he hurls, and which it bears.
+/// The hero's own arms, those of the Seraphim's effects [`arts::BFG`] and [`arts::RAILGUN`], the
+/// Gladiator's without the item he hurls, and the effect whose arms it bears, none for its own.
 #[derive(Resource)]
 pub struct Arsenal {
     own: Arms,
     bfg: Option<Arms>,
+    bolts: Option<Arms>,
     hurled: Option<Hurled>,
-    bearing: bool,
+    borne: Option<u32>,
     thrown: bool,
 }
 
@@ -55,8 +60,9 @@ impl Arsenal {
         Self {
             own,
             bfg: None,
+            bolts: None,
             hurled: None,
-            bearing: false,
+            borne: None,
             thrown: false,
         }
     }
@@ -65,6 +71,14 @@ impl Arsenal {
     pub fn with_bfg(self, bfg: Arms) -> Self {
         Self {
             bfg: Some(bfg),
+            ..self
+        }
+    }
+
+    /// The Seraphim's, with her arms of empty hands, those of her effect [`arts::RAILGUN`].
+    pub fn with_bolts(self, bolts: Arms) -> Self {
+        Self {
+            bolts: Some(bolts),
             ..self
         }
     }
@@ -246,8 +260,88 @@ fn wear(
     hero.speeds = arms.form.speeds.map(|s| f32::from(s) * hero.pace * speed.0);
 }
 
-/// Gives the hero the arms of its effect [`arts::BFG`] as the effect comes, and its own back as
-/// it goes.
+/// The dice of the weapons' sparks (`rand()`).
+#[derive(Resource)]
+struct Sparks(crate::spawning::Rng);
+
+impl Default for Sparks {
+    fn default() -> Self {
+        Self(crate::seed::dice(0x856))
+    }
+}
+
+/// Bursts each weapon in the hero's hands into sparks of its shape as its effect
+/// [`arts::RAILGUN`] comes, before [`bear`] takes the weapons out of its hands: the adder's case
+/// 17 (`0x582D50`) makes an object 856 of the variant 2 at each, whose start takes every
+/// `⌊V/500⌋`th vertex of the item's model as last drawn (`0x767FB0`,
+/// `opensacred_rules::particles::{vertex_picks, weapon_sparks}`), drawn by `puffs`.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
+fn shatter(
+    mut commands: Commands,
+    arsenal: Option<Res<Arsenal>>,
+    bodies: Query<(Entity, &Effects, &GlobalTransform), (With<Body>, Changed<Effects>)>,
+    weapons: Query<(Entity, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
+    (children, shapes): (Query<&Children>, Query<(&Mesh3d, &GlobalTransform)>),
+    (meshes, mut dice): (Res<Assets<Mesh>>, ResMut<Sparks>),
+) {
+    let Some(arsenal) = arsenal else {
+        return;
+    };
+    if arsenal.bolts.is_none() || arsenal.borne == Some(arts::RAILGUN) {
+        return;
+    }
+    for (body, effects, at) in &bodies {
+        if !effects.holds(arts::RAILGUN) || effects.holds(arts::BFG) {
+            continue;
+        }
+        let origin = at.translation();
+        for (weapon, _) in weapons.iter().filter(|(_, with)| with.0 == body) {
+            let parts: Vec<(Vec<[f32; 3]>, &GlobalTransform)> = std::iter::once(weapon)
+                .chain(children.iter_descendants(weapon))
+                .filter_map(|entity| shapes.get(entity).ok())
+                .filter_map(|(mesh, place)| {
+                    let positions = meshes
+                        .get(&mesh.0)?
+                        .attribute(Mesh::ATTRIBUTE_POSITION)?
+                        .as_float3()?;
+                    Some((positions.to_vec(), place))
+                })
+                .collect();
+            let counts: Vec<usize> = parts.iter().map(|(positions, _)| positions.len()).collect();
+            let points: Vec<[f32; 3]> = opensacred_rules::particles::vertex_picks(&counts)
+                .into_iter()
+                .filter_map(|(mesh, vertex)| {
+                    let (positions, place) = parts.get(mesh)?;
+                    let point = Vec3::from_array(*positions.get(vertex)?);
+                    Some(crate::puffs::local(place.transform_point(point), origin))
+                })
+                .collect();
+            if points.is_empty() {
+                continue;
+            }
+            debug!(
+                "arsenal: the weapon {weapon} bursts into {} sparks",
+                points.len()
+            );
+            crate::puffs::spawn(
+                &mut commands,
+                opensacred_rules::particles::weapon_sparks(
+                    &points,
+                    opensacred_rules::particles::WEAPON_SPARKS,
+                    &mut dice.0,
+                ),
+                origin,
+                None,
+            );
+        }
+    }
+}
+
+/// Gives the hero the arms of its effect [`arts::BFG`] or [`arts::RAILGUN`] as the effect comes,
+/// and its own back as it goes.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -275,21 +369,22 @@ fn bear(
     let Some(mut arsenal) = arsenal else {
         return;
     };
+    if arsenal.bfg.is_none() && arsenal.bolts.is_none() {
+        return;
+    }
     for wearer in &mut bodies {
-        let Some(bfg) = arsenal.bfg.clone() else {
-            return;
-        };
-        let bearing = wearer.2.holds(arts::BFG);
-        if bearing == arsenal.bearing {
+        let borne = [(arts::BFG, &arsenal.bfg), (arts::RAILGUN, &arsenal.bolts)]
+            .into_iter()
+            .find(|(effect, arms)| arms.is_some() && wearer.2.holds(*effect));
+        let wanted = borne.map(|(effect, _)| effect);
+        if wanted == arsenal.borne {
             continue;
         }
-        arsenal.bearing = bearing;
-        let arms = if bearing { bfg } else { arsenal.own.clone() };
-        info!(
-            "arsenal: the hero {} the item {}",
-            if bearing { "takes" } else { "puts away" },
-            arts::BFG_ITEM
-        );
+        let arms = borne
+            .and_then(|(_, arms)| arms.clone())
+            .unwrap_or_else(|| arsenal.own.clone());
+        arsenal.borne = wanted;
+        info!("arsenal: the hero bears the arms of the effect {wanted:?}");
         wear(
             arms,
             &mut commands,
@@ -399,7 +494,7 @@ fn rearm(
         );
         if let Some(arsenal) = arsenal.as_deref_mut() {
             arsenal.own = arms.clone();
-            if arsenal.bearing || arsenal.thrown {
+            if arsenal.borne.is_some() || arsenal.thrown {
                 continue;
             }
         }
@@ -437,9 +532,10 @@ impl Plugin for ArsenalPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Throws>()
             .add_message::<Rearm>()
+            .init_resource::<Sparks>()
             .add_systems(
                 Update,
-                (bear, throw, rearm)
+                (shatter, bear, throw, rearm)
                     .chain()
                     .in_set(crate::frame::Step::HeroSpawn),
             )
