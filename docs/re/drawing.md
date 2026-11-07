@@ -188,6 +188,8 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   **Seen** 2026-11-07: a goblin changed into a deer, the deer drawn over its green sparks.
   So do, at their objects' places, the banishing's runes, the blood's fountains, the choir's wisps and discs, the fear's screams, the holy light's column, symbol and glow, and the burning bones and the summonings just behind the creatures they burn or summon.
   **Seen** 2026-11-07: the Daemon's fear among six goblins, its column in front of her behind the goblin standing before it, and its rings on the ground behind the goblins' legs.
+  The flying objects lay theirs at their places as they fly, which a moving object heads in its cell: the bolts' looks (the fireball, the railgun, the BFG, the emperor's rays, those that follow a creature just behind it), the flying skulls, the homing fires, the ice splinters, the traps' balls and the meteors.
+  **Seen** 2026-11-07: the Mage's fireball bursting at her hand as it leaves, her arm over its flames, where before its flames lay over her arm and body.
   The other systems are drawn at their own depths still (#2188).
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 

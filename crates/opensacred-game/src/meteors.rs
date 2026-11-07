@@ -187,7 +187,7 @@ fn run(
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown, &Transform)>,
     mut rocks: Query<&mut Transform, Without<Shown>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -262,8 +262,11 @@ fn run(
                 [1.0, 1.0, 1.0, alpha],
             );
         }
-        for (handle, part) in look.parts.iter().zip(quads) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let order = orders.at(place);
+        for (handle, mut part) in look.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, place);
                 part.into_mesh(&mut mesh);
             }
         }
