@@ -102,6 +102,11 @@ pub enum Pass {
     /// stands at, its texels writing no depth, so that the creature's model covers it whole (the
     /// Dark Elf's wards, `dark_wards`; #2178).
     Under(Layer),
+    /// As [`Pass::Under`], blended by their alpha over what lies behind them, lit, their depth
+    /// tested and not written: an effect's model that the original lays over the frame
+    /// (`SRCALPHA`, `INVSRCALPHA`, `0x40D060`) at its FX object's place before the creature (the
+    /// Dwarf's burrowing's dome, `dwarf_burrows`).
+    UnderBlended(Layer),
     /// All of them over the model's effect and its glow, which lie under them (`model_effects`,
     /// the kind 1, #1834): opaque through the depth buffer, each texel the effect's and the
     /// glow's colours under the texture's by its alpha, as the original's three passes lay them.
@@ -163,7 +168,7 @@ impl From<&InOrder> for InOrderKey {
             effect: matches!(extension.pass, Pass::Effect | Pass::Hologram),
             hologram: extension.pass == Pass::Hologram,
             water: extension.pass == Pass::Water,
-            under: matches!(extension.pass, Pass::Under(_)),
+            under: matches!(extension.pass, Pass::Under(_) | Pass::UnderBlended(_)),
         }
     }
 }
@@ -348,7 +353,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
     let (alpha_mode, depth_bias) = match pass {
         Pass::Tested => (AlphaMode::Mask(CUTOFF), base.depth_bias),
         Pass::Body => (AlphaMode::Mask(OPAQUE), base.depth_bias),
-        Pass::Fringe(layer) => (AlphaMode::Blend, layer.bias()),
+        Pass::Fringe(layer) | Pass::UnderBlended(layer) => (AlphaMode::Blend, layer.bias()),
         Pass::Added(layer) | Pass::Under(layer) => (AlphaMode::Add, layer.bias()),
         Pass::Effect => (AlphaMode::Opaque, base.depth_bias),
         Pass::Hologram => (AlphaMode::Premultiplied, Layer::Objects.bias()),

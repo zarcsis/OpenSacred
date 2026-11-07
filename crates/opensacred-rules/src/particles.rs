@@ -7248,6 +7248,137 @@ impl ForceOfHell {
     }
 }
 
+/// The Dwarf's burrowing's dome's models, a phase each (`fx_shield_phase1` to `4`, each a mesh
+/// `Hedra01`: its cap, its upper part, down to the ground, and whole), its textures, the dome's
+/// lit and added passes' and its glow's, the glow's half side and the dome's scale.
+pub const BURROW_MODELS: [&str; 4] = [
+    "FX_SHIELD_PHASE1.GRN",
+    "FX_SHIELD_PHASE2.GRN",
+    "FX_SHIELD_PHASE3.GRN",
+    "FX_SHIELD_PHASE4.GRN",
+];
+pub const BURROW_TEXTURES: [&str; 3] = ["Fx_dwarf_shield", "Fx_dwarf_shield2", "PARTICLE_GLOW03"];
+pub const BURROW_GLOW_HALF: f32 = 60.0;
+pub const BURROW_SCALE: f32 = 1.2;
+/// How fast its phases come and go, a phase a second.
+const BURROW_PACE: f32 = 2.7;
+
+/// The Dwarf's burrowing's dome (1152, `cParticleSystem_dwarf_shield`, its start `0x7B9C80`, run
+/// `0x7B98C0` and draw `0x7B99D0`; docs/re/effects.md, "The Dwarf's burrowing"): a dome over him,
+/// built down from its cap in three phases over 1.11 s, whole through the spell's seconds, and
+/// taken back up over 1.30 s; turning a radian a second, its two textures scrolling, its
+/// brightness breathing, a blue glow flat at his feet.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Burrow {
+    clock: f32,
+    seconds: f32,
+    stage: u8,
+    progress: f32,
+    phase: usize,
+}
+
+impl Burrow {
+    /// A dome for `seconds`, its spell's value 0 at its level (`7 + L`).
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            stage: 0,
+            progress: 0.0,
+            phase: 0,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock on; its phases come at 2.7 a second until the fourth,
+    /// whole, which holds through its seconds; then they go at 2.7 a second, and past the first it
+    /// ends.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.stage {
+            0 => {
+                self.progress += BURROW_PACE * dt;
+                self.phase = phase_of(self.progress);
+                if self.phase > 2 {
+                    self.stage = 1;
+                    self.phase = 3;
+                    self.progress = 3.5;
+                }
+            }
+            1 => {
+                if self.seconds < self.clock {
+                    self.stage = 2;
+                }
+            }
+            2 => {
+                self.progress -= BURROW_PACE * dt;
+                self.phase = phase_of(self.progress);
+                if self.progress < 0.0 {
+                    self.stage = 3;
+                    self.phase = 0;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether it has ended.
+    pub fn done(&self) -> bool {
+        self.stage == 3
+    }
+
+    /// Its phase's model of [`BURROW_MODELS`].
+    pub fn phase(&self) -> usize {
+        self.phase
+    }
+
+    /// Its turn about the upright, a radian a second (D3DX's turn about `z`).
+    pub fn turn(&self) -> f32 {
+        self.clock
+    }
+
+    /// Its brightness, `0.7 + 0.3·sin 2.5t`.
+    fn brightness(&self) -> f32 {
+        0.3f32.mul_add((2.5 * self.clock).sin(), 0.7)
+    }
+
+    /// Its lit pass's alpha, `⌊128·b⌋`, white.
+    pub fn lit_alpha(&self) -> f32 {
+        (128.0 * self.brightness()).trunc() / 255.0
+    }
+
+    /// Its added pass's grey, `⌊255·b⌋`.
+    pub fn added_grey(&self) -> f32 {
+        (255.0 * self.brightness()).trunc() / 255.0
+    }
+
+    /// Its glow's colour, `(⌊96·b⌋, ⌊100·b⌋, ⌊255·b⌋)`.
+    pub fn glow_colour(&self) -> [f32; 3] {
+        let b = self.brightness();
+        [96.0, 100.0, 255.0].map(|c: f32| (c * b).trunc() / 255.0)
+    }
+
+    /// Its textures' offsets, the lit pass's `(sin 0.285t, cos 0.193t)` and the added pass's
+    /// `(sin 0.247t, cos 0.125t)` (the texture transform's translation, `0x8000`).
+    pub fn offsets(&self) -> [[f32; 2]; 2] {
+        let t = self.clock;
+        [
+            [(0.285 * t).sin(), (0.193 * t).cos()],
+            [(0.247 * t).sin(), (0.125 * t).cos()],
+        ]
+    }
+}
+
+/// A phase's index of the progress `progress`, truncated as `__ftol` takes it.
+fn phase_of(progress: f32) -> usize {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a progress of 0 to 3.5, its whole part"
+    )]
+    let phase = progress.clamp(0.0, 3.0) as usize;
+    phase
+}
+
 /// The Dwarf's war cry's sign's textures, its glow's and its rays' (`+0x20C4`, `+0x20C0`), and
 /// its colour, (64, 128, 255).
 pub const WAR_CRY_SIGN_TEXTURES: [&str; 2] = ["PARTICLE_GLOW03", "PARTICLE_LINE02"];
@@ -16463,6 +16594,28 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_dwarfs_burrowing_builds_its_dome_down_holds_it_and_takes_it_back() {
+        let mut dome = Burrow::new(8.0);
+        let mut clock = 0.0_f32;
+        let mut phases = Vec::new();
+        while !dome.done() {
+            dome.update(0.01);
+            clock += 0.01;
+            if phases.last() != Some(&dome.phase()) {
+                phases.push(dome.phase());
+            }
+            assert!(clock < 12.0);
+        }
+        // Built over 1.11 s, held to 8 s, taken back over 1.30 s.
+        assert_eq!(phases, [0, 1, 2, 3, 2, 1, 0]);
+        assert!((clock - (8.0 + 3.5 / 2.7)).abs() < 0.03, "{clock}");
+        let fresh = Burrow::new(1.0);
+        assert!((fresh.lit_alpha() - 89.0 / 255.0).abs() < 1e-6);
+        assert!((fresh.added_grey() - 178.0 / 255.0).abs() < 1e-6);
+        assert_eq!(fresh.offsets()[0], [0.0, 1.0]);
     }
 
     #[test]

@@ -1866,6 +1866,21 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
 Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
 
+## The Dwarf's burrowing
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The spells' executor's case 57 (`0x5287A4`), below 0.9 of the clip left, makes an object 1152 (`FX_DWARF_SHIELD`, `cParticleSystem_dwarf_shield`, its virtual table `0x898D98`, constructor `0x7B96E0`, start `0x7B9C80`, run `0x7B98C0`, draw `0x7B99D0`) at the caster with the FX event `0x9D`, which follows him at his bone 0; `DWARF_EINGRABEN` (2112) plays.
+- Its constructor takes `Fx_dwarf_shield.tga` (violet-blue veins on dark blue, opaque), `Fx_dwarf_shield2.tga` (teal caustics, opaque), `particle_glow03`, and the models `fx_shield_phase1.grn` to `fx_shield_phase4.grn`, a mesh `Hedra01` each: the dome's cap, its upper part, it down to the ground, and it whole.
+- The start: its seconds the spell's value 0 at its level, `7 + L`; his effect 58 and the record's (`spells::dwarfs`, the action 6).
+- The run: the clock on; its brightness `b = 0.7 + 0.3·sin 2.5t`; in its first stage its progress up by 2.7 a second, its phase the progress's whole part, and past the third phase (1.11 s) its second stage, the phase 3 (the whole dome) and the progress 3.5; past its seconds its third stage, the progress down by 2.7 a second and the phase with it, and below 0 it dies (1.30 s on).
+- The draw: `particle_glow03` flat (`0x7631E0`) of the half side 60 in `(⌊96·b⌋, ⌊100·b⌋, ⌊255·b⌋)`, added whole, twice.
+  Then its phase's model at 1.2 times its size, turned about the upright by `t` (D3DX's turn about `z`), at its place, its texture coordinates moved by the texture transform (`0x8000`); first lit (`0x40D060`) in `Fx_dwarf_shield` moved by `(sin 0.285t, cos 0.193t)`, white at the alpha `⌊128·b⌋`, laid over by its alpha, depth tested and not written, culled, the specular on (`0x80`); then unlit (`0x40D310`) in `Fx_dwarf_shield2` moved by `(sin 0.247t, cos 0.125t)`, of the grey `⌊255·b⌋`, added.
+
+`opensacred-game` draws it since #1092 (`dwarf_burrows`, `opensacred_rules::particles::Burrow`): over the caster for its seconds, its four phases' models each made at the start and shown by its phase, the lit pass laid under his model by its alpha (`models::Pass::UnderBlended`, new) and the added one added under it (`Pass::Under`), their textures repeated both ways (`fx::wrapped_texture`), the glow just behind his model (`fx::Orders`, #2178); untinted.
+Not followed: the specular.
+**Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 under a translucent faceted dome of pale blue and violet, built down over him as he leaps, a blue glow at his feet.
+
 ## The Dwarf's war cry's sign
 
 Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
