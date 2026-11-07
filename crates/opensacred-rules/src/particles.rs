@@ -3191,6 +3191,325 @@ impl DemonSummon {
     }
 }
 
+/// The forge's elements' FX types, the air's first (`FX_FORGE_AIRELEM` to `FX_FORGE_LOSTELEM`,
+/// 911 to 915): an element's variant is its type less 911.
+pub const FORGE_ELEMENTS: std::ops::RangeInclusive<u32> = 911..=915;
+/// Each variant's model and its texture (`0x7A72E0`): the air's, the earth's, the water's, the
+/// fire's and the lost element's.
+pub const FORGE_ELEMENT_LOOKS: [(&str, &str); 5] = [
+    ("HQ_AIRELEMENT.GRN", "HQ_AIRELEMENT"),
+    ("HQ_EARTHELEMENT_01.GRN", "HQ_EARTHELEMENT"),
+    ("HQ_WATERELEMENT.GRN", "HQ_WATERELEMENT"),
+    ("HQ_FIREELEMENT.GRN", "HQ_FIREELEMENT"),
+    ("HQ_LOSTELEMENT.GRN", "HQ_LOSTELEMENT"),
+];
+/// An element's column's, ring's and glow's textures (`+0x2878` to `+0x2880`).
+pub const FORGE_TEXTURES: [&str; 3] = ["FX_FORGE01", "FX_FORGE02", "FX_FORGE03"];
+/// Its column (`+0x20B8`): 31 pairs of points about a circle of the radius 20, at the angles
+/// `i · 12°`, from its foot to 60 up, the texture's `u` 0.1 a pair (three times about it) and its
+/// `v` from 1 at the foot to 0.1 at the top; its foot, its ring and its glow 35 over its place.
+pub const FORGE_COLUMN_PAIRS: u8 = 31;
+pub const FORGE_COLUMN_RADIUS: f32 = 20.0;
+pub const FORGE_COLUMN_HEIGHT: f32 = 60.0;
+pub const FORGE_LIFT: f32 = 35.0;
+/// The half side of its ring and its glow, flat over it.
+pub const FORGE_RING_HALF: f32 = 23.0;
+/// How high its model floats over its place, and how far it bobs, at 1.4 radians a second.
+const FORGE_MODEL_LIFT: f32 = 55.0;
+const FORGE_MODEL_BOB: f32 = 5.0;
+/// The air element's quake from 2 s after its fading to its beam at 10 s (`0x7A7689`).
+const FORGE_QUAKE_FROM: f32 = 2.0;
+const FORGE_BEAM_AFTER: f32 = 10.0;
+
+/// What a run of an element asks: the screen's quake of its value (`cEventWeather` of the kind 7),
+/// and the beam, made at the forge's middle ([`FORGE_BEAM_AT`]) as the element ends.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ForgeAsks {
+    pub quake: Option<u32>,
+    pub beam: bool,
+}
+
+/// An element of the forge's ritual, `cParticleSystem_forgeelem` (911 to 915, the FX kind `0x7B`,
+/// its start `0x7A7C30`, its run `0x7A7500` and its draw `0x7A7720`; docs/re/effects.md, "The
+/// forge's elements"), standing where the scripts make it: its model ([`FORGE_ELEMENT_LOOKS`])
+/// floating and turning over a column of light and a ring and a glow flat under it, all added
+/// but the model, which is blended by its alpha. It fades in over 2 s and stays; the scripts'
+/// signal (`SetObjState`'s `0x3C`) shrinks it to a twentieth over 2.375 s and fades it over
+/// 1.25 s more; then it ends, but the air element, which shakes the screen ever harder from 2 s
+/// on and at 10 s asks the beam ([`ForgeBeam`]) and ends. No light, no sound of its own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForgeElement {
+    pub variant: u8,
+    /// Its clock (`+0x20A0`), the share of the column's sweep (`+0x20A4`), its fade (`+0x20A8`),
+    /// its scale (`+0x20AC`), the air's timer (`+0x20B0`) and its state (`+0x20B6`).
+    clock: f32,
+    phase: f32,
+    fade: f32,
+    scale: f32,
+    timer: f32,
+    state: u8,
+    signalled: bool,
+    ended: bool,
+}
+
+impl ForgeElement {
+    /// An element of the variant `variant` as it is made (`0x7A7C30`).
+    pub fn new(variant: u8) -> Self {
+        Self {
+            variant,
+            clock: 0.0,
+            phase: 0.0,
+            fade: 0.0,
+            scale: 1.0,
+            timer: 0.0,
+            state: 0,
+            signalled: false,
+            ended: false,
+        }
+    }
+
+    /// The scripts' signal (the FX event's `+0x3C` 1, `0x5A4E17`: the system's word `+0x74` 8),
+    /// which the next run takes.
+    pub fn signal(&mut self) {
+        self.signalled = true;
+    }
+
+    /// A run of `dt` seconds (`0x7A7500`): its clock goes on and its column's sweep back by half a
+    /// turn a second; it fades in by 0.5 a second to 1 (the state 0, then 1, where it waits);
+    /// shrinks by 0.4 a second to 0.05 (2), fades out by 0.8 a second (3); then (4) ends, or as the
+    /// air counts its timer, past 2 s quakes the screen by `⌊6(t − 2)⌋` at every run and past 10 s
+    /// asks the beam and ends. A signal then puts it to shrinking, whatever its state.
+    pub fn update(&mut self, dt: f32) -> ForgeAsks {
+        let mut asks = ForgeAsks::default();
+        if self.ended {
+            return asks;
+        }
+        self.clock += dt;
+        self.phase = (self.phase - 0.5 * dt).rem_euclid(1.0);
+        match self.state {
+            0 => {
+                self.fade += 0.5 * dt;
+                if self.fade >= 1.0 {
+                    self.fade = 1.0;
+                    self.state = 1;
+                }
+            }
+            2 => {
+                self.scale -= 0.4 * dt;
+                if self.scale <= 0.05 {
+                    self.scale = 0.05;
+                    self.state = 3;
+                }
+            }
+            3 => {
+                self.fade -= 0.8 * dt;
+                if self.fade <= 0.0 {
+                    self.fade = 0.0;
+                    self.state = 4;
+                }
+            }
+            4 if self.variant == 0 => {
+                self.timer += dt;
+                if self.timer > FORGE_QUAKE_FROM {
+                    let value = (6.0 * (self.timer - FORGE_QUAKE_FROM)).floor();
+                    asks.quake = Some(forge_whole(value));
+                }
+                if self.timer > FORGE_BEAM_AFTER {
+                    asks.beam = true;
+                    self.ended = true;
+                }
+            }
+            4 => self.ended = true,
+            _ => {}
+        }
+        if std::mem::take(&mut self.signalled) {
+            self.state = 2;
+        }
+        asks
+    }
+
+    /// Whether it is drawn: below its state 4.
+    pub fn shows(&self) -> bool {
+        self.state < 4 && !self.ended
+    }
+
+    /// Whether it ended, its object gone.
+    pub fn ended(&self) -> bool {
+        self.ended
+    }
+
+    /// Its fade and its scale.
+    pub fn fade(&self) -> f32 {
+        self.fade
+    }
+
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// The grey of its column's pair `pair`, of 1 (`0x7A7720`): from the pair `⌊31 p⌋` of its
+    /// sweep's share `p` on, the pairs `j` later take `255 − 6j` of 255, a bright edge and a tail
+    /// that dims around the column.
+    pub fn column_grey(&self, pair: u8) -> f32 {
+        let pairs = u16::from(FORGE_COLUMN_PAIRS);
+        let first = forge_whole(f32::from(pairs) * self.phase).min(u32::from(pairs) - 1);
+        let first = u16::try_from(first).unwrap_or(0);
+        let later = (u16::from(pair) + pairs - first) % pairs;
+        f32::from(255 - 6 * later) / 255.0
+    }
+
+    /// The turn of its ring about the upright: a turn in 2 s with its column's sweep, from
+    /// `π − 0.1`.
+    pub fn ring_turn(&self) -> f32 {
+        std::f32::consts::TAU * self.phase + std::f32::consts::PI - 0.1
+    }
+
+    /// Its model's turn about the upright, 2 radians a second, and its height over its place.
+    pub fn model_turn(&self) -> f32 {
+        2.0 * self.clock
+    }
+
+    pub fn model_lift(&self) -> f32 {
+        FORGE_MODEL_LIFT + FORGE_MODEL_BOB * (1.4 * self.clock).sin()
+    }
+}
+
+/// The world position of the forge's beam (`0x5B38A0`, a constant of the air element's action
+/// 1), the middle of the five elements, on the ground's height at the air element.
+pub const FORGE_BEAM_AT: [f32; 2] = [335_920.0, 207_822.0];
+/// The beam's textures (`0x7A7C80`): its core, its horizon, its rings and its glow.
+pub const FORGE_BEAM_TEXTURES: [&str; 4] = [
+    "LASERBEAMPART2",
+    "FX_HORIZON",
+    "PARTICLE_RING01",
+    "PARTICLE_GLOW05",
+];
+/// Its quads, upright facing the viewer, 70 over its place: the core 25 to each side and 1000
+/// up, white; the horizon 500 to each side and 50 up and down, in (240, 240, 255); and its glow's
+/// half side; all of them by its pulse and its fade.
+pub const FORGE_BEAM_LIFT: f32 = 70.0;
+pub const FORGE_BEAM_CORE: [f32; 2] = [25.0, 1000.0];
+pub const FORGE_BEAM_HORIZON: [f32; 2] = [500.0, 50.0];
+pub const FORGE_BEAM_HORIZON_COLOUR: [f32; 4] = [240.0 / 255.0, 240.0 / 255.0, 1.0, 1.0];
+pub const FORGE_BEAM_GLOW_HALF: f32 = 60.0;
+/// Its light, and its sound as it starts (`SPELL_BIGSUMMON`, at the sample's own rate).
+pub const FORGE_BEAM_LIGHT: f32 = 500.0;
+pub const FORGE_BEAM_SOUND: u32 = 2089;
+/// Its rings at most (`0x5A2540`), and how long it holds before it fades out.
+const FORGE_BEAM_RINGS: usize = 50;
+const FORGE_BEAM_HOLDS: f32 = 6.0;
+
+/// The forge's beam, `cParticleSystem_forgebeam` (916, the FX kind `0x7C`, its start `0x7A8430`,
+/// its run `0x7A7F50` and its draw `0x7A8030`; docs/re/effects.md, "The forge's elements"), which
+/// the air element makes at the forge's middle as it ends: a column of light 1000 up and a
+/// streak of the horizon across it, upright and facing the viewer, a glow at its foot, all
+/// swelling by a tenth once a second, and rings of `PARTICLE_RING01` rising ever faster from it,
+/// one every 0.5 s at the detail 2, living 0.85 s; added whole. It fades in over 0.2 s, holds to
+/// 6 s and fades out over 0.2 s. Its light is 500.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForgeBeam {
+    pub system: System,
+    /// Its fade (`+0x20A8`), its state (`+0x20AC`), and whether it ended (`+0x20A4`).
+    fade: f32,
+    state: u8,
+    ended: bool,
+}
+
+impl Default for ForgeBeam {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ForgeBeam {
+    /// A beam as it starts (`0x7A8430`).
+    pub fn new() -> Self {
+        Self {
+            system: System::new(FORGE_BEAM_RINGS),
+            fade: 0.0,
+            state: 0,
+            ended: false,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -300.0,
+            ..Layer::default()
+        }
+    }
+
+    fn block() -> Block {
+        Block {
+            buoyancy: spread(-1000.0, 0.0),
+            size: spread(20.0, 0.0),
+            offset: spread([0.0, 0.0, FORGE_BEAM_LIFT], [0.0; 3]),
+            interval: 0.5,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7A7F50`): it fades in by 5 a second, holds while its clock is
+    /// within 6 s, fades out by 5 a second and ends; its rings age and a new one rises at each
+    /// interval.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        if self.ended {
+            return;
+        }
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        match self.state {
+            0 => {
+                self.fade += 5.0 * dt;
+                if self.fade >= 1.0 {
+                    self.fade = 1.0;
+                    self.state = 1;
+                }
+            }
+            1 => {
+                if self.system.clock > FORGE_BEAM_HOLDS {
+                    self.state = 2;
+                }
+            }
+            _ => {
+                self.fade -= 5.0 * dt;
+                if self.fade <= 0.0 {
+                    self.fade = 0.0;
+                    self.ended = true;
+                }
+            }
+        }
+        self.system
+            .emit(&[Self::block()], &layers, FORGE_BEAM_RINGS, dice);
+    }
+
+    /// Its fade.
+    pub fn fade(&self) -> f32 {
+        self.fade
+    }
+
+    /// Its pulse (`0x768790` of 0.95 and 0.1): 0.95 up to 1.05 over 0.3 s of each second and back.
+    pub fn pulse(&self) -> f32 {
+        0.95 + 0.1 * beat(self.system.clock)
+    }
+
+    /// Whether it ended.
+    pub fn done(&self) -> bool {
+        self.ended
+    }
+}
+
+/// A small value truncated toward zero, at least 0 (`_ftol`).
+fn forge_whole(value: f32) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a value of 0 to 48, its whole part, as `_ftol` takes it"
+    )]
+    let whole = value.clamp(0.0, 1000.0) as u32;
+    whole
+}
+
 /// The look of an object of the Daemon's fear 67, `cParticleSystem_hellscream` (1012, its start
 /// `0x7B0AF0`, its run `0x7B07B0` and its draw `0x7B0870`; docs/re/effects.md, "The fear"), where
 /// it stands for its seconds: a glow on the ground ([`FEAR_GLOW_HALF`]), a ring spreading from
@@ -15224,6 +15543,84 @@ mod tests {
             DemonSummon::new(10).ramp().at(251.0)[..3],
             [150.0 / 256.0, 100.0 / 256.0, 100.0 / 256.0]
         );
+    }
+
+    #[test]
+    fn a_forge_element_shrinks_at_the_signal_and_the_air_asks_the_beam() {
+        // Runs of a hundredth of a second each.
+        let run = |element: &mut ForgeElement, hundredths: u32| {
+            let mut asks = Vec::new();
+            for _ in 0..hundredths {
+                asks.push(element.update(0.01));
+            }
+            asks
+        };
+        let mut earth = ForgeElement::new(1);
+        run(&mut earth, 205);
+        assert!((earth.fade() - 1.0).abs() < 1e-6 && (earth.scale() - 1.0).abs() < 1e-6);
+        // It waits until the signal, then shrinks to a twentieth in 2.375 s.
+        run(&mut earth, 500);
+        assert!(earth.shows() && (earth.scale() - 1.0).abs() < 1e-6);
+        earth.signal();
+        run(&mut earth, 240);
+        assert!((earth.scale() - 0.05).abs() < 1e-6 && earth.fade() > 0.95);
+        // Then it fades in 1.25 s, and ends at the next run.
+        run(&mut earth, 126);
+        assert!(!earth.shows() && earth.fade() == 0.0);
+        let asks = run(&mut earth, 2);
+        assert!(earth.ended() && asks.iter().all(|asks| *asks == ForgeAsks::default()));
+        // The air quakes the screen from 2 s after its fading, harder and harder, and at 10 s
+        // asks the beam with its hardest quake, 48, and ends.
+        let mut air = ForgeElement::new(0);
+        air.signal();
+        run(&mut air, 365);
+        assert!(!air.shows() && !air.ended());
+        let asks = run(&mut air, 1050);
+        let quakes: Vec<u32> = asks.iter().filter_map(|asks| asks.quake).collect();
+        assert_eq!(quakes.first(), Some(&0));
+        assert!(quakes.windows(2).all(|pair| pair[0] <= pair[1]));
+        let beam = asks.iter().position(|asks| asks.beam).unwrap();
+        assert_eq!(asks[beam].quake, Some(48));
+        assert_eq!(asks.iter().filter(|asks| asks.beam).count(), 1);
+        assert!(air.ended());
+        // Its column's bright edge leads a tail dimming by 6 a pair around it.
+        let edge = (0..FORGE_COLUMN_PAIRS)
+            .find(|&pair| (earth.column_grey(pair) - 1.0).abs() < 1e-6)
+            .unwrap();
+        let after = (edge + 1) % FORGE_COLUMN_PAIRS;
+        assert!((earth.column_grey(after) - 249.0 / 255.0).abs() < 1e-6);
+        let before = (edge + FORGE_COLUMN_PAIRS - 1) % FORGE_COLUMN_PAIRS;
+        assert!((earth.column_grey(before) - 75.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_forge_beam_holds_six_seconds_and_rises_its_rings() {
+        let mut dice = Rng::of(24, 0x394, 12);
+        let mut beam = ForgeBeam::new();
+        for _ in 0..25 {
+            beam.update(0.01, &mut dice);
+        }
+        assert!((beam.fade() - 1.0).abs() < 1e-6);
+        assert!((0.95..=1.05).contains(&beam.pulse()));
+        for _ in 0..200 {
+            beam.update(0.01, &mut dice);
+        }
+        // A ring every 0.5 s, living 0.85 s, rising ever faster from 70 up.
+        assert!((1..=2).contains(&beam.system.particles.len()));
+        assert!(
+            beam.system
+                .particles
+                .iter()
+                .all(|ring| ring.place[2] >= FORGE_BEAM_LIFT && ring.size == 20.0)
+        );
+        for _ in 0..385 {
+            beam.update(0.01, &mut dice);
+        }
+        assert!(!beam.done() && beam.fade() < 1.0);
+        for _ in 0..25 {
+            beam.update(0.01, &mut dice);
+        }
+        assert!(beam.done());
     }
 
     #[test]

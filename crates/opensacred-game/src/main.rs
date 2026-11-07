@@ -90,6 +90,7 @@ mod flying_skulls;
 mod foe_panel;
 mod followers;
 mod forge;
+mod forge_elements;
 mod forms;
 mod frame;
 mod fx;
@@ -550,6 +551,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         foe_panel::FoePanelPlugin,
         followers::FollowersPlugin,
         forge::ForgePlugin,
+        forge_elements::ForgeElementsPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
         fx::FxPlugin,
@@ -557,9 +559,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,
         glad_sights::GladSightsPlugin,
-        glance::GlancePlugin,
     ))
     .add_plugins((
+        glance::GlancePlugin,
         glitter::GlitterPlugin,
         goblin_impacts::GoblinImpactsPlugin,
         grenade_impacts::GrenadeImpactsPlugin,
