@@ -31,9 +31,10 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 30] = [
+const FOLLOWED: [u16; 31] = [
     casts::SPIDER_SHOT,
     casts::SPIT,
+    casts::FLOWER_LEAP,
     casts::DRAGON_FIRE,
     casts::HOLY_LIGHT,
     casts::BLADES,
@@ -234,6 +235,9 @@ fn begin(
             0.0
         } else if cast.spell == casts::SPIT {
             casts::spit_at(mind.creature)
+        } else if cast.spell == casts::FLOWER_LEAP {
+            // The leap as its clip's share left falls below 0.7 (`0x507DC9`).
+            1.0 - opensacred_rules::arts::PANTHER_LEAPS
         } else {
             spells::share(cast.spell).unwrap_or(1.0)
         };
@@ -267,6 +271,7 @@ fn act(
             (&Mind, &InTheWay),
             Option<&crate::fight::Ranked>,
             Option<&crate::fight::Combat>,
+            Option<&ScriptClip>,
         ),
         With<ClipActs>,
     >,
@@ -277,10 +282,11 @@ fn act(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    (heights, mut weather, mut sounds): (
+    (heights, mut weather, mut sounds, animations): (
         Res<Heights>,
         Option<ResMut<crate::weather::Weather>>,
         MessageWriter<crate::sfx::Play>,
+        Res<Assets<AnimationClip>>,
     ),
     (arts, rules, mut dice): (
         Option<Res<crate::arts::HeroArts>>,
@@ -295,8 +301,60 @@ fn act(
         MessageWriter<crate::spits::Spat>,
     ),
 ) {
-    for (entity, cast, at, (mind, way), rank, combat) in &acting {
+    for (entity, cast, at, (mind, way), rank, combat, clip) in &acting {
         commands.entity(entity).remove::<ClipActs>();
+        if cast.spell == casts::FLOWER_LEAP {
+            // The flowers' panther's leap (`0x506770` at `0x507DC9`; #2231): to the target's
+            // place, held to its reach at the creature's level of the art, where it may stand,
+            // three times as high as the hero's, in half its clip's time; its sound.
+            let here = at.translation;
+            let toward = places
+                .get(cast.target)
+                .map_or(cast.point, GlobalTransform::translation);
+            let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
+            let level = rules.0.creature_spell_level(mind.level, rank);
+            let reach = arts
+                .as_ref()
+                .and_then(|arts| {
+                    arts.tables
+                        .weapon_arts
+                        .iter()
+                        .find(|art| art.id == casts::FLOWER_LEAP)
+                })
+                .map_or(400 + 50 * level, |record| {
+                    opensacred_rules::arts::panther_reach(record, level)
+                });
+            let [x, z] = opensacred_rules::arts::panther_point(
+                here.xz().into(),
+                toward.xz().into(),
+                reach,
+                false,
+            );
+            let to = Vec3::new(x, here.y, z);
+            if !heights.walkable_on(crate::paths::cell_of(to.x, to.z), way.level) {
+                debug!("creature_casts: {entity} may not stand at its leap's point");
+                continue;
+            }
+            let seconds = clip
+                .and_then(|clip| clip.length(&animations))
+                .unwrap_or(1.0);
+            let distance = (to - here).xz().length();
+            commands.entity(entity).insert(crate::making::Leap {
+                from: here,
+                to,
+                time: seconds * opensacred_rules::arts::PANTHER_FLIGHT,
+                flown: 0.0,
+                peak: opensacred_rules::arts::jump_height(distance, 0.5)
+                    * casts::FLOWER_LEAP_HIGHER,
+            });
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(casts::FLOWER_LEAP_SOUND),
+                at: Some(entity),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
+            info!("creature_casts: {entity} leaps {distance:.0} to {to}");
+            continue;
+        }
         if cast.spell == casts::SPIT {
             // The giant spider's and the crab queen's spit (`0x4E5A2A`; `spits`).
             spat.write(crate::spits::Spat {

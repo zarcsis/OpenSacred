@@ -185,6 +185,17 @@ pub enum Flower {
     Stands,
 }
 
+/// The flowers' leap, the Dark Elf's panther's leap (1043, `GUI_MOVE_PANTHER`) as a pseudo-spell of
+/// their casts (#2231): ordered at the hero (`0x4D9674`), made by the Dark Elf's executor
+/// (`0x506770`), its clip their slot 144 (`0x50A02D`, not the hero's 182), its leap as its clip's
+/// share left falls below 0.7 (`arts::PANTHER_LEAPS`), along an arc three times as high as a
+/// hero's (`0x507DC9`, the float `0x890768`) in half its clip's time, `SPELL_TURBOBOOST` at
+/// the flower at the rate's factor 0.5; no strike.
+pub const FLOWER_LEAP: u16 = 1043;
+pub const FLOWER_LEAP_CLIP: u16 = 144;
+pub const FLOWER_LEAP_HIGHER: f32 = 3.0;
+pub const FLOWER_LEAP_SOUND: u32 = 2081;
+
 /// The flowers' distances of the spit and of the leap (`0x4D9674`).
 pub const FLOWER_SPITS_WITHIN: f32 = 400.0;
 pub const FLOWER_LEAPS_WITHIN: f32 = 800.0;
@@ -304,6 +315,9 @@ pub const DEMON_FIRE_SIZE: f32 = 70.0;
 pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
     if spell == SPIT && flowers(creature) {
         return FLOWERS_CLIP;
+    }
+    if spell == FLOWER_LEAP {
+        return FLOWER_LEAP_CLIP;
     }
     if matches!(spell, SPIDER_SHOT | DRAGON_FIRE | SPIT) {
         return SPIDER_SHOT_CLIP;
@@ -978,6 +992,7 @@ mod tests {
     fn the_flowers_spit_or_leap_beyond_their_melee_and_the_crab_cages() {
         assert_eq!(own_mark(186), Some(OwnMark::Flower));
         assert_eq!(clip(SPIT, 333, false), FLOWERS_CLIP);
+        assert_eq!(clip(FLOWER_LEAP, 186, false), FLOWER_LEAP_CLIP);
         assert!((spit_at(186) - 0.525).abs() < f32::EPSILON);
         assert!((spit_at(GIANT_SPIDER) - SPIT_AT).abs() < f32::EPSILON);
         // A reach of 75: melee within 112.
