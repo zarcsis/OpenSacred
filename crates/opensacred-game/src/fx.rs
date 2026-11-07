@@ -29,7 +29,7 @@ use bevy::pbr::{
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, CompareFunction, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
 use opensacred_rules::particles::{
@@ -362,28 +362,23 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 /// The extension of [`Effect`]: whether an added particle takes its colour whole, its alpha
 /// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
 /// 3), where Bevy's premultiplies it by its alpha: the texels of `PARTICLE_FIRE02` and of some
-/// glows carry an alpha as their brightness, which that would take twice (#1092); and whether it
-/// draws over everything, its depth not tested, as the stargates' whirls (`0x643430` without its
-/// bit 1).
+/// glows carry an alpha as their brightness, which that would take twice (#1092).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
-    over: bool,
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ParticlesKey {
     whole: bool,
-    over: bool,
 }
 
 impl From<&Particles> for ParticlesKey {
     fn from(extension: &Particles) -> Self {
         Self {
             whole: extension.whole,
-            over: extension.over,
         }
     }
 }
@@ -404,11 +399,6 @@ impl MaterialExtension for Particles {
             if key.bind_group_data.whole {
                 fragment.shader_defs.push("WHOLE".into());
             }
-        }
-        if key.bind_group_data.over
-            && let Some(depth) = descriptor.depth_stencil.as_mut()
-        {
-            depth.depth_compare = Some(CompareFunction::Always);
         }
         Ok(())
     }
@@ -434,23 +424,8 @@ pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> 
 /// (`ONE`, `ONE`, [`Particles`]).
 pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
     Effect {
-        extension: Particles {
-            whole: true,
-            over: false,
-        },
+        extension: Particles { whole: true },
         ..particle_material(image, AlphaMode::Add)
-    }
-}
-
-/// A particles' material of the texture `image` drawn over everything, its depth not tested,
-/// added to the frame by its alpha or laid over it by its alpha.
-pub(crate) fn over_material(image: Handle<Image>, alpha_mode: AlphaMode) -> Effect {
-    Effect {
-        extension: Particles {
-            whole: false,
-            over: true,
-        },
-        ..particle_material(image, alpha_mode)
     }
 }
 
@@ -471,7 +446,9 @@ pub(crate) fn plain_material() -> Effect {
 }
 
 /// A material of no texture, of its vertices' colours alone, laid over the frame by their alpha
-/// (`SRCALPHA`, `INVSRCALPHA`), its depth tested: the parade's streaks (`blow_sights`).
+/// (`SRCALPHA`, `INVSRCALPHA`), its depth tested: the parade's streaks (`blow_sights`), and the
+/// summoning's triangles and bolts, which the original draws with its depth not tested, laid at
+/// their place's depth ([`Quads::at_order`]).
 pub(crate) fn plain_blend_material() -> Effect {
     Effect {
         base: StandardMaterial {
@@ -479,25 +456,6 @@ pub(crate) fn plain_blend_material() -> Effect {
             ..plain_material().base
         },
         extension: Particles::default(),
-    }
-}
-
-/// A material of no texture, of its vertices' colours alone, laid over the frame by their alpha
-/// with its depth not tested (`SRCALPHA`, `INVSRCALPHA`, `ZENABLE` off): the summoning's
-/// triangles and bolts (`summon_looks`).
-pub(crate) fn plain_over_material() -> Effect {
-    Effect {
-        base: StandardMaterial {
-            unlit: true,
-            alpha_mode: AlphaMode::Blend,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        },
-        extension: Particles {
-            whole: false,
-            over: true,
-        },
     }
 }
 
@@ -742,14 +700,24 @@ impl Quads {
         let Some(order) = order else {
             return;
         };
-        let back = -iso::forward();
-        let to = order.place - origin;
         for position in &mut self.positions {
-            let vertex = Vec3::from_array(*position);
-            let shift = (to - vertex).dot(back) + order.beyond;
-            if shift < 0.0 {
-                *position = (vertex + back * shift).to_array();
-            }
+            *position = order
+                .no_nearer(Vec3::from_array(*position), origin)
+                .to_array();
+        }
+    }
+
+    /// Lays every vertex at the depth of `order` along the line of sight, where one is given, the
+    /// mesh's origin at `origin`: the quads of a system that the original draws with its depth
+    /// not tested, at its place in the order (the stargates' whirls, the summonings' triangles
+    /// and bolts, #2220), tested here at that one depth, so that they lie over what the order
+    /// draws before them and under what it draws after, as the original's lie.
+    pub(crate) fn at_order(&mut self, order: Option<InOrder>, origin: Vec3) {
+        let Some(order) = order else {
+            return;
+        };
+        for position in &mut self.positions {
+            *position = order.on(Vec3::from_array(*position), origin).to_array();
         }
     }
 
@@ -867,6 +835,24 @@ const _: () = assert!(32.0 < LAST_PLACE && crate::models::PLACE < LAST_PLACE);
 const _: () = assert!(CHAIN * LAST_PLACE < ACROSS * iso::CELL * std::f32::consts::SQRT_2);
 
 impl InOrder {
+    /// How far `vertex`, from a mesh's origin `origin`, lies behind the order's depth along the
+    /// line of sight toward the camera: below 0 where it lies nearer the camera.
+    fn shift(&self, vertex: Vec3, origin: Vec3) -> f32 {
+        (self.place - origin - vertex).dot(-iso::forward()) + self.beyond
+    }
+
+    /// `vertex`, from a mesh's origin `origin`, laid back along the line of sight to the order's
+    /// depth where it lies nearer the camera ([`Quads::in_order`]).
+    pub(crate) fn no_nearer(&self, vertex: Vec3, origin: Vec3) -> Vec3 {
+        vertex - iso::forward() * self.shift(vertex, origin).min(0.0)
+    }
+
+    /// `vertex`, from a mesh's origin `origin`, laid along the line of sight at the order's depth
+    /// ([`Quads::at_order`]).
+    pub(crate) fn on(&self, vertex: Vec3, origin: Vec3) -> Vec3 {
+        vertex - iso::forward() * self.shift(vertex, origin)
+    }
+
     /// The depth `behind` units of a model's own depth behind a model rooted at `root` of the
     /// anchor `anchor` (its cell's centre and its place in the cell), its place `sunk` units
     /// further back (under a liquid's surface, `models::Sunk`), the camera looking at `looked`, as

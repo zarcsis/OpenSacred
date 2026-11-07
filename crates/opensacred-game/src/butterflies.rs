@@ -7,14 +7,15 @@
 //! as billboards of `PARTICLE_BUTTERFLY01` playing its 8 × 8 wing beats over their looping life of
 //! 2.55 s, each its own colour at the alpha of its life; by night as fireflies, glows of
 //! `PARTICLE_GLOW03` of the colour (`N`, `N`, `N`/2) by the night's level `N`; both at dusk and
-//! dawn (`0x79B3E0`). They go with their sector.
+//! dawn (`0x79B3E0`). They go with their sector. Each swarm lies at its place in the original's
+//! order of drawing as it wanders (`fx::Orders::at`, #2220).
 
 use bevy::prelude::*;
 use opensacred_rules::spawning::Rng;
 
 use crate::daynight::{self, Clock};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Quads, empty, particle_material, particle_texture};
+use crate::fx::{Orders, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
@@ -258,15 +259,20 @@ fn wander(
     }
 }
 
-/// Lays each swarm's butterflies and glows out by the night's level (`0x79B3E0`).
-fn draw(clock: Option<Res<Clock>>, swarms: Query<&Swarm>, mut meshes: ResMut<Assets<Mesh>>) {
+/// Lays each swarm's butterflies and glows out by the night's level (`0x79B3E0`), at its place in
+/// the order (#2220).
+fn draw(
+    clock: Option<Res<Clock>>,
+    swarms: Query<(&Swarm, &Transform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
+) {
     let night = clock.map_or(0.0, |clock| daynight::level(clock.minutes()));
     #[expect(
         clippy::cast_possible_truncation,
         reason = "the night's level, 0 to 255"
     )]
     let n = (night / 255.0) as f32;
-    for swarm in &swarms {
+    for (swarm, at) in &swarms {
         let mut wings = Quads::default();
         let mut glows = Quads::default();
         // The models' frame, its third coordinate up, at the world's scale.
@@ -313,8 +319,10 @@ fn draw(clock: Option<Res<Clock>>, swarms: Query<&Swarm>, mut meshes: ResMut<Ass
                 );
             }
         }
-        for (mesh, quads) in swarm.meshes.iter().zip([wings, glows]) {
+        let order = orders.at(at.translation);
+        for (mesh, mut quads) in swarm.meshes.iter().zip([wings, glows]) {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, at.translation);
                 quads.into_mesh(&mut mesh);
             }
         }

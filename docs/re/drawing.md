@@ -198,7 +198,10 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   **Seen** 2026-11-07: a wall of the breath's fires over the legs of a creature behind it and under one in front of it; a stash's blink under the boot of a creature a cell in front of it.
   So do the Vampiress's bats' sights and her change's ribbons at their places, the Dwarf's flamethrower just behind him and his cannon's and mortar's flashes at their muzzles' places, the light's ball just behind its bearer, and the souls' sparks at their souls' places as they fly (#2220).
   **Seen** 2026-11-07: the Vampiress's ribbons over a troll a cell behind her and under one a cell in front of her.
-  The other systems are drawn at their own depths still (#2220): those drawn over everything, their depth not tested (the stargates' whirls, the summonings' triangles and bolts); and the beams, long lines whose one depth would be wrong along them, the Pong of the scripts and the butterflies of the weather.
+  So do, at their places, each segment of the laser beams (an object of its own at its start's cell, so that a beam across several cells lies among their creatures cell by cell), the pieces of the scripts' Pong, the weather's butterflies as their swarms wander, and the stargates' windows (#2220).
+  The stargates' whirls and the summonings' triangles and bolts, which the original draws with their depth not tested, lie at their places' depths whole and depth tested (`fx::Quads::at_order`): over what the order draws before them, as the original's draw over it, and under what it draws after, which the original draws over them; before they lay over everything.
+  **Seen** 2026-11-07 at the Kernland's waypoint: a troll a cell in front of the gate over its whirls, the trolls behind it under its window.
+  The systems of the objects on upper storeys' floors keep their own depths still (#2220): `fx::Orders` answers no place there.
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 
 ## The models' turn

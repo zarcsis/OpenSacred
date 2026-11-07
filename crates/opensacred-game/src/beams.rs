@@ -4,6 +4,9 @@
 //! `Heights::passes`); each segment stays where it was laid, two crossed quads along it added
 //! whole, untinted by the night, in its variant's texture and colour, fading after its variant's
 //! hold (`opensacred_rules::particles::LaserSegment`), and plays its variant's sound as it starts.
+//! Each segment, an object of its own, lies at its start's place in the original's order of
+//! drawing (`fx::Orders::at`, #2220): a beam across several cells lies among their creatures
+//! cell by cell.
 //! A magic skeleton's drain lays one of the variant 2 from its killer's spine to its own, the
 //! hellfire one of the variant 1 from its ball to its target's neck at each strike, the big demons
 //! one from each eye, and the Vampiress's bite one of the variant 0 from her spine to its target's.
@@ -17,7 +20,7 @@ use opensacred_rules::ways;
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_texture, whole_material};
+use crate::fx::{Effect, Orders, Quads, empty, particle_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::terrain::Level;
@@ -198,15 +201,16 @@ fn place(
 }
 
 /// Runs each segment a frame on (`0x7A3DF0`, `0x7A4D50`): its two quads along its axis in its
-/// colour, swaying where its variant sways; it goes as its fade ends.
+/// colour, swaying where its variant sways, at its start's place in the order; it goes as its
+/// fade ends.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut segments: Query<(Entity, &mut Segment)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut segments: Query<(Entity, &mut Segment, &Transform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
-    for (entity, mut segment) in &mut segments {
+    for (entity, mut segment, start) in &mut segments {
         let segment = &mut *segment;
         segment.look.update(dt);
         if segment.look.done() {
@@ -222,6 +226,7 @@ fn run(
             quads.push_corners(corners.map(at), uvs.map(Vec2::from), colour);
         }
         if let Some(mut mesh) = meshes.get_mut(&segment.mesh) {
+            quads.in_order(orders.at(start.translation), start.translation);
             quads.into_mesh(&mut mesh);
         }
     }

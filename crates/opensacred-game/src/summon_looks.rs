@@ -1,7 +1,8 @@
 //! The summonings' sights (777, `FX_BIGSUMMON`, #1092; docs/re/effects.md, "The summoning"): at
 //! each summoning's point, a hero's (`followers`) or a creature's (`creature_casts`), twenty
 //! orbits swell out from its middle 20 over the ground to 160 and back over 3.14 s, a rim of ten
-//! translucent triangles of the caster's colour laid over everything, two glows at the middle,
+//! translucent triangles of the caster's colour drawn with their depth not tested, at the
+//! summoning's depth in the order (`fx::Quads::at_order`, #2220), two glows at the middle,
 //! white bolts from it as the creature comes, and for a hero's the runes on the ground, turning
 //! either way and fading in and out (`opensacred_rules::particles::BigSummon`); its light on the
 //! night swells with it; none is tinted by the night.
@@ -17,7 +18,7 @@ use opensacred_rules::particles::{
 use crate::bolt_looks::world;
 use crate::frame::{Playing, Unpaused};
 use crate::fx::{
-    Effect, Quads, empty, particle_material, particle_texture, plain_over_material, whole_material,
+    Effect, Quads, empty, particle_material, particle_texture, plain_blend_material, whole_material,
 };
 use crate::game::{AppState, Data};
 use crate::iso;
@@ -129,9 +130,9 @@ fn make(
             None,
             material(SUMMON_GLOW, false),
         ];
-        let plain_over = looks
+        let plain_blend = looks
             .1
-            .get_or_insert_with(|| effects.add(plain_over_material()))
+            .get_or_insert_with(|| effects.add(plain_blend_material()))
             .clone();
         let meshes_of: [Handle<Mesh>; 5] = std::array::from_fn(|_| meshes.add(empty()));
         let mut shown = commands.entity(entity);
@@ -141,7 +142,7 @@ fn make(
         });
         for (index, (mesh, material)) in meshes_of.into_iter().zip(parts).enumerate() {
             let material = if matches!(index, 2 | 3) {
-                Some(plain_over.clone())
+                Some(plain_blend.clone())
             } else {
                 material
             };
@@ -172,8 +173,8 @@ fn line(quads: &mut Quads, (from, to): (Vec3, Vec3), width: f32, colour: [f32; 4
 }
 
 /// Runs each sight a frame on (`0x769C60`, `0x769FC0`): its runes flat on the ground, its
-/// triangles and its bolts laid over everything, its glows facing the camera at its middle, its
-/// light; it goes once it is over.
+/// triangles and its bolts at its depth in the order whole, its glows facing the camera at its
+/// middle, its light; it goes once it is over.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -238,6 +239,10 @@ fn run(
         // At its object's place in the order, as the original draws the system (#2188).
         let origin = place.translation();
         let order = orders.at(origin);
+        // The triangles and the bolts, of no depth test in the original, at its depth whole
+        // (#2220).
+        triangles.at_order(order, origin);
+        bolts.at_order(order, origin);
         let [plain, glowing] = runes;
         for (handle, mut quads) in shown
             .meshes

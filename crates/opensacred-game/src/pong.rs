@@ -7,7 +7,8 @@
 //!
 //! The bats are lilac boxes of lines over their faces of `Fx_dwarf_shield` (`0x7BCC60`), the ball
 //! a blue glow on the ground under a white one, with two shrinking rings of `Fx_twirl_rays` while
-//! it waits (`0x7BD630`); all untinted by the night.
+//! it waits (`0x7BD630`); all untinted by the night, each piece at its place in the original's
+//! order of drawing (`fx::Orders::at`, #2220).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -16,7 +17,7 @@ use opensacred_rules::spawning::Rng;
 
 use crate::bolt_looks::world;
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_texture, plain_material, whole_material};
+use crate::fx::{Effect, Orders, Quads, empty, particle_texture, plain_material, whole_material};
 use crate::game::{AppState, Data};
 use crate::terrain::Heights;
 use crate::{iso, paths};
@@ -277,11 +278,16 @@ fn flat(half: f32, angle: f32, lift: f32) -> [Vec3; 4] {
     ]
 }
 
-/// Draws the pieces a frame on.
-fn draw(bats: Query<&Batting>, balls: Query<&Flying>, mut meshes: ResMut<Assets<Mesh>>) {
+/// Draws the pieces a frame on, each at its place in the order (#2220).
+fn draw(
+    bats: Query<(&Batting, &Transform)>,
+    balls: Query<(&Flying, &Transform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
+) {
     let s = iso::MODEL_SCALE;
     let uvs = [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y];
-    for batting in &bats {
+    for (batting, at) in &bats {
+        let order = orders.at(at.translation);
         // Its box, its length along the cells' columns: the world's X.
         let [hx, hz] = BOX_HALF.map(|h| h * s);
         let corner = |x: f32, y: f32, z: f32| Vec3::new(x * hx, y * BOX_HEIGHT * s, z * hz);
@@ -340,13 +346,15 @@ fn draw(bats: Query<&Batting>, balls: Query<&Flying>, mut meshes: ResMut<Assets<
             line(&mut edges, corner(x0, 0.0, z0), corner(x0, 1.0, z0));
         }
         if let Some(mut mesh) = meshes.get_mut(&batting.faces) {
+            faces.in_order(order, at.translation);
             faces.into_mesh(&mut mesh);
         }
         if let Some(mut mesh) = meshes.get_mut(&batting.edges) {
+            edges.in_order(order, at.translation);
             edges.into_mesh(&mut mesh);
         }
     }
-    for flying in &balls {
+    for (flying, at) in &balls {
         let t = flying.clock;
         let wait = flying.ball.wait;
         let r = (1.0 - wait) * (7.0 * (4.0 * t).cos() + 35.0);
@@ -366,12 +374,14 @@ fn draw(bats: Query<&Batting>, balls: Query<&Flying>, mut meshes: ResMut<Assets<
             (Vec2::ZERO, 1.0),
             [1.0; 4],
         );
-        for (mesh, quads) in [
+        let order = orders.at(at.translation);
+        for (mesh, mut quads) in [
             (&flying.ground, ground),
             (&flying.rings, rings),
             (&flying.glow, glow),
         ] {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, at.translation);
                 quads.into_mesh(&mut mesh);
             }
         }
