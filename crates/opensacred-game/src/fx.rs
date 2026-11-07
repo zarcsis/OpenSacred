@@ -807,6 +807,11 @@ impl Orders<'_, '_> {
 /// places run to 33.8 (`models::PLACE`).
 const LAST_PLACE: f32 = 33.0;
 
+// In front of the statics' places of its cell's chain (to 32) and of a model's own place, behind
+// the next cell of its diagonal, a cell's diagonal along the screen's right.
+const _: () = assert!(32.0 < LAST_PLACE && crate::models::PLACE < LAST_PLACE);
+const _: () = assert!(CHAIN * LAST_PLACE < ACROSS * iso::CELL * std::f32::consts::SQRT_2);
+
 impl InOrder {
     /// The depth `behind` units of a model's own depth behind a model rooted at `root` of the
     /// anchor `anchor` (its cell's centre and its place in the cell), its place `sunk` units
