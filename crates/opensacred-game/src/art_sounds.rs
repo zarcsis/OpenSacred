@@ -97,12 +97,13 @@ pub fn cries_surely(art: u16) -> bool {
     !own_cry(art, 0).is_empty()
 }
 
-/// The sounds of the executor of the art `art`: the Gladiator's turbo boost, the Vampiress's
-/// vampirism, wolves' call, turbo boost, blood bite, leap and short casts, the Dwarf's might and
-/// the Daemon's cast, twice.
+/// The sounds of the executor of the art `art`: the Vampiress's vampirism, wolves' call, turbo
+/// boost, blood bite, leap and short casts, the Dwarf's might and the Daemon's cast, twice. The
+/// Dark Elf's panther's leap (1043) plays its turbo boost for the flowers' leap alone (186 and
+/// 333, `0x507DC9`; #2230), the hero's none.
 pub fn executor(art: u16) -> &'static [u32] {
     match art {
-        1043 | 1028 | 1029 => &[2081],
+        1028 | 1029 => &[2081],
         1022 => &[2079],
         1026 | 1027 => &[2080],
         1030 => &[2076],
@@ -214,6 +215,9 @@ mod tests {
         assert!(cries_surely(1003));
         assert!(!cries_surely(1071));
         assert_eq!(executor(1103), [2122, 2122]);
+        // The hero's panther's leap sounds no turbo boost (#2230).
+        assert!(executor(1043).is_empty());
+        assert_eq!(executor(1028), [2081]);
         assert_eq!(objects(1018), (&[2065][..], &[][..]));
         assert_eq!(objects(1019).1, [2071, 2071]);
         assert_eq!(objects(1089).0, [2105]);
