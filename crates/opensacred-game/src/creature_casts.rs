@@ -233,7 +233,7 @@ fn begin(
         let share = if matches!(cast.spell, casts::SPIDER_SHOT | casts::DRAGON_FIRE) {
             0.0
         } else if cast.spell == casts::SPIT {
-            casts::SPIT_AT
+            casts::spit_at(mind.creature)
         } else {
             spells::share(cast.spell).unwrap_or(1.0)
         };
@@ -299,7 +299,10 @@ fn act(
         commands.entity(entity).remove::<ClipActs>();
         if cast.spell == casts::SPIT {
             // The giant spider's and the crab queen's spit (`0x4E5A2A`; `spits`).
-            spat.write(crate::spits::Spat { spitter: entity });
+            spat.write(crate::spits::Spat {
+                spitter: entity,
+                target: cast.target,
+            });
             continue;
         }
         if cast.spell == casts::SPIDER_SHOT {

@@ -1416,6 +1416,18 @@ impl Mind {
             }
         }
         match own {
+            // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
+            OwnMark::Flower => {
+                if casts::flower_melee(d, reach) {
+                    return None;
+                }
+                match casts::flower(d, rng.below(7)) {
+                    casts::Flower::Spits => casts(casts::SPIT),
+                    casts::Flower::Melee | casts::Flower::Leaps | casts::Flower::Stands => {
+                        Some(Pursues::Faces)
+                    }
+                }
+            }
             OwnMark::Blinker => {
                 self.band_moves = self.band_moves.saturating_add(1);
                 if d > casts::BLINKER_FAR && self.band_moves < casts::BAND_MOVES {
