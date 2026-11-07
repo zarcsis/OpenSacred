@@ -177,8 +177,9 @@ fn show(
 
 /// Runs each look a frame on (`0x78BB00`, `0x78BBA0`; `0x775A70`, `0x775BC0`): while its object
 /// lives, flames at its place and, for a fire skin, the glow under it, both drawn just behind its
-/// bearer's model, as the original draws the system before the creature it follows (#2178); then
-/// its flames burn out and it goes, its lamp with it.
+/// bearer's model, as the original draws the system before the creature it follows (#2178), a
+/// spiral's flames at its object's place (#2188); then its flames burn out and it goes, its lamp
+/// with it.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -220,8 +221,13 @@ fn burn(
             );
         }
         skin.before = Some(skin.place);
+        // A skin just behind its bearer; a spiral's flame at its object's place, which moves and
+        // so heads its cell's list, drawn before a creature standing in its cell (#2188).
         if burning {
-            skin.order = skin.bearer.and_then(|bearer| orders.behind(bearer));
+            skin.order = match skin.bearer {
+                Some(bearer) => orders.behind(bearer),
+                None => orders.at(skin.place),
+            };
         }
         if !burning && skin.flames.particles.is_empty() {
             commands.entity(skin.lamp).despawn();
