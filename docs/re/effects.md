@@ -2008,10 +2008,13 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 - Only 846 calls the light manager: a Direct3D point light of (0.2, 1, 0.2) for each of its two objects, moved to the system's place at each draw.
   None sets a world light; none of the billboards passes the tint flag `0x40`, so 845, 846, 851 and 861 keep their colours by night, and 779 alone is tinted.
-- **The changeling (845).** As the local hero's spell 36 changes a creature (`0x525E5A`), or as its effect 20 ends and the taker changes it back (`0x587F91`), an object follows the creature at its neck.
+- **The changeling (845).** As the local hero's spell 36 changes a creature (`0x525E5A`, the object made at the creature's place, or the one of its reserved id reused where it lives), or as its effect 20 ends and the taker changes it back (`0x587F91`, its start run before the creature's type and model are given back, so of the animal's figure), an object is made with the FX event `0x45`, whose case (`0x5A4B90`) places it once at the creature's `Bip01 Neck` at its first draw (the flag `0x40`); it does not follow the creature after (read 2026-11-07 for #1092).
   Its start bursts up to 500 `PARTICLE_SPARK06` sparks at the skinned vertices of the creature's model as it stands (every `⌊V/500⌋`-th of its `V` vertices), in (128, 255, 128), added whole, of the size 5 ± 2 shrinking by 2 a second, never ageing.
-  At the change they fall (the buoyancy 150 ± 30, the velocity ± (3, 3, 0)) and bounce at the ground; at the change back they rise ever faster (the buoyancy −150 ± 30).
+  At the change they fall (the buoyancy 150 ± 30, the velocity ± (3, 3, 0)) and bounce at the ground without loss (`0x7645C0`, the mode 0, at the system's height less its `+0xA4`, which `0x5A6680` sets to the ground's height under the object); at the change back they rise ever faster (the buoyancy −150 ± 30).
+  The sparks stand in the world where the vertices were (**hypothesis**: the vertices in the models' frame as last drawn); each lives `size/2`, 1.5 to 3.5 s, and the system ends with its last.
   The change's start gives the effect 20 of one of the 14 animal types at random and plays 2064 once.
+  `opensacred-game` draws it since #1092 (`change_sparks`, `opensacred_rules::particles::changeling_sparks`, drawn by `puffs`): at the change, the creature's figure as it stands, its vertices skinned to its pose (`vertices`, as the souls' figures take theirs), and at the change back the animal's before it goes, from the ground under it; untinted.
+  **Seen** 2026-11-07 in the game: a goblin changed into a chicken, its figure bursting into green sparks that fell where it stood.
 - **The speed (846).** The spell 37 makes two objects at the bearer's root, riding with it, for the record's value 0 (19 + L s, at most 60), each its loop 2010.
   Each emits squares drawn with the identity matrix in place of the camera's, so that they lie flat on the ground about the bearer's feet, turned at random, added whole in a ramp of their life of 1 s, born within ± 5 and drifting ± 5 a second.
   The first: `PARTICLE_TWIRL02` every 0.1 s, of the half side 40 ± 1, its ramp green, yellow, green, cyan, deep blue, sea green, blue and near white.
@@ -2036,7 +2039,7 @@ It draws the multi-shot's sight since #1092 too (`elf_sights`, `opensacred_rules
 **Seen** 2026-11-06 in the game: two small green stars going round her left hand at the level 1, the burst's specks about it; not yet beside the original, whose driver did not make the art.
 It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `opensacred_rules::particles::NatureHealing`), laid along the bearer's way for 3 s and left in the world, each of its own colour (the particles' `colour`, which a block rolls where it spreads one); the renderer's wind is not followed.
 **Seen** 2026-11-06 in the game: a cloud of tiny butterflies of every colour rising from about the Wood Elf's feet and fading; not yet beside the original.
-Not followed yet: the changeling, the `Rundum`'s ring with a bow (1061), and the blood's and the body parts' marks (#1935).
+Not followed yet: the `Rundum`'s ring with a bow (1061), and the blood's and the body parts' marks (#1935).
 
 ## The burning light and the holy conversion
 

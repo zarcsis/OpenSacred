@@ -43,6 +43,7 @@ mod busy_dialog;
 mod butterflies;
 mod cast_sights;
 mod chain_bolts;
+mod change_sparks;
 mod choice;
 mod choirs;
 mod combos;
@@ -233,6 +234,7 @@ mod twisters;
 mod undead;
 mod vamp_casts;
 mod vamp_sights;
+mod vertices;
 mod voices;
 mod war_cries;
 mod war_cry_signs;
@@ -492,7 +494,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
     ))
-    .add_plugins(cast_sights::CastSightsPlugin)
+    .add_plugins((
+        cast_sights::CastSightsPlugin,
+        change_sparks::ChangeSparksPlugin,
+    ))
     .add_plugins((
         chain_bolts::ChainBoltsPlugin,
         choice::ChoicePlugin,
