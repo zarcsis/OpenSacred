@@ -2705,7 +2705,8 @@ fn blades(
     }
 }
 
-/// A hero's flight of its jump (`0x44DED0`, `0x44DFE0`): from `from` to `to` on the ground in
+/// A hero's or a creature's flight of its jump (`0x44DED0`, `0x44DFE0`; the flowers' leap,
+/// `creature_casts`, #2231): from `from` to `to` on the ground in
 /// `time` seconds, `flown` of them gone, its height on the arc of `arts::arc` of the height
 /// `peak` at its middle above the ground under it.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
@@ -2717,15 +2718,26 @@ pub struct Leap {
     pub peak: f32,
 }
 
-/// Flies each hero in its jump (`0x44DFE0`): along the line to its landing in its flight's time,
-/// on its arc, and lands it there.
+/// Flies each hero and each creature in its jump (`0x44DFE0`): along the line to its landing in
+/// its flight's time, on its arc, and lands it there.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their components"
+)]
 fn leap(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<crate::terrain::Heights>,
-    mut heroes: Query<(Entity, &mut Transform, &Body, &mut Leap)>,
+    mut leapers: Query<(
+        Entity,
+        &mut Transform,
+        Option<&Body>,
+        Option<&crate::crowd::InTheWay>,
+        &mut Leap,
+    )>,
 ) {
-    for (hero, mut transform, body, mut leap) in &mut heroes {
+    for (hero, mut transform, body, way, mut leap) in &mut leapers {
+        let level = body.map_or_else(|| way.and_then(|way| way.level), Body::level);
         leap.flown += time.delta_secs();
         let t = if leap.time > 0.0 {
             (leap.flown / leap.time).min(1.0)
@@ -2734,7 +2746,7 @@ fn leap(
         };
         let ground = leap.from.lerp(leap.to, t);
         let y = heights
-            .standing(ground.x, ground.z, body.level())
+            .standing(ground.x, ground.z, level)
             .unwrap_or(ground.y);
         let up = crate::iso::height(arts::arc(leap.peak, t) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
         transform.translation = Vec3::new(ground.x, y + up, ground.z);

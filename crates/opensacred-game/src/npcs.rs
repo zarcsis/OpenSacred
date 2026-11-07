@@ -7650,6 +7650,12 @@ impl ScriptClip {
         }
     }
 
+    /// The length of its clip in seconds, once it plays, at its own rate.
+    pub(crate) fn length(&self, clips: &Assets<AnimationClip>) -> Option<f32> {
+        let (_, clip) = self.playing.as_ref()?;
+        clips.get(clip).map(AnimationClip::duration)
+    }
+
     /// A creature's cast's clip of the slot `slot`, once, its spell acting at the share `share`
     /// (`creature_casts`, #1852).
     pub(crate) fn casting(slot: u16, share: f32) -> Self {

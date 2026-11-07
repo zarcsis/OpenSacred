@@ -1423,9 +1423,8 @@ impl Mind {
                 }
                 match casts::flower(d, rng.below(7)) {
                     casts::Flower::Spits => casts(casts::SPIT),
-                    casts::Flower::Melee | casts::Flower::Leaps | casts::Flower::Stands => {
-                        Some(Pursues::Faces)
-                    }
+                    casts::Flower::Leaps => casts(casts::FLOWER_LEAP),
+                    casts::Flower::Melee | casts::Flower::Stands => Some(Pursues::Faces),
                 }
             }
             OwnMark::Blinker => {
