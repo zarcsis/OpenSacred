@@ -70,6 +70,7 @@ mod drops;
 mod dryad_ghosts;
 mod dwarf_armours;
 mod dwarf_fires;
+mod dwarf_greeds;
 mod dwarf_magics;
 mod effects;
 mod elf_sights;
@@ -520,6 +521,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         drops::DropsPlugin,
         dwarf_armours::DwarfArmoursPlugin,
         dwarf_fires::DwarfFiresPlugin,
+        dwarf_greeds::DwarfGreedsPlugin,
         dwarf_magics::DwarfMagicsPlugin,
         effects::EffectsPlugin,
         elf_sights::ElfSightsPlugin,

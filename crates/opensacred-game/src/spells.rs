@@ -2056,10 +2056,13 @@ fn act(
             // armour's with their action 6, the armour's object's effect 35 too.
             spells::GREED | spells::STEEL => {
                 given.extend(spells::dwarfs(record, act.level));
-                // The steel's object 1022 on its target (`0x5288BF`, `dwarf_armours`).
+                // The steel's object 1022 on its target (`0x5288BF`, `dwarf_armours`), the
+                // greed's 1155 at its caster (`0x528A9C`, `dwarf_greeds`).
+                let seconds = fight_seconds(spells::value(record, 0, act.level));
                 if act.spell == spells::STEEL {
-                    let seconds = fight_seconds(spells::value(record, 0, act.level));
                     crate::dwarf_armours::show(&mut commands, act.target, true, seconds);
+                } else {
+                    crate::dwarf_greeds::show(&mut commands, act.caster, seconds);
                 }
             }
             spells::BURROWING | spells::ARMOUR => {
