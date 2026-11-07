@@ -183,6 +183,7 @@ fn run(
         crate::making::Worn,
     ),
     (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
@@ -231,8 +232,12 @@ fn run(
             (Vec2::ZERO, 1.0),
             shown.look.kind.glow_colour(shown.creature),
         );
-        for (handle, part) in shown.parts.iter().zip(quads) {
+        // Just behind its bearer's model, as the original draws the system before the creature
+        // (#2188).
+        let order = orders.behind(shown.bearer);
+        for (handle, mut part) in shown.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, transform.translation);
                 part.into_mesh(&mut mesh);
             }
         }
