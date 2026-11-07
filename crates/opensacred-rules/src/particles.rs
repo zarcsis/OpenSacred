@@ -5379,6 +5379,180 @@ impl GoblinImpact {
     }
 }
 
+/// The domination's textures (857, `cParticleSystem_beherrschung`, its constructor `0x79D480`):
+/// the band's runes laid over, their red glow added, and the glow at the band's head.
+pub const DOMINATION_TEXTURES: [&str; 3] =
+    ["FX_TRIBALS_VAMP", "FX_TRIBALS_VAMP_G", "PARTICLE_GLOW03"];
+/// The domination's band: its segments (31 pairs of vertices, its texture twice round it) and
+/// its half height, in the models' units.
+pub const DOMINATION_SEGMENTS: u8 = 30;
+pub const DOMINATION_HALF_HEIGHT: f32 = 7.5;
+/// The glow at the band's head: its colour (`0xFFFF4848`), its half side at the full growth and
+/// the Direct3D light's colour that goes with it (`0x79D480`, `0x642B90`).
+pub const DOMINATION_GLOW: [f32; 4] = [1.0, 72.0 / 255.0, 72.0 / 255.0, 1.0];
+pub const DOMINATION_GLOW_HALF: f32 = 13.0;
+pub const DOMINATION_LIGHT: [f32; 3] = [1.0, 0.28, 0.28];
+
+/// The Vampiress's domination's ring (1024, 1025; 857, `cParticleSystem_beherrschung`, its start
+/// `0x79DBF0`, run `0x79D610` and draw `0x79D770`; docs/re/effects.md, "The Vampiress's
+/// domination and raising"): a band of runes about the dominated creature's neck, of its size's
+/// radius and 15 high, growing up from nothing over a second, turning counterclockwise on the
+/// screen at 0.5 rad a second and swelling by a tenth once a second, a bright red band of twelve
+/// columns with a glow at its head sweeping round it the other way; for the domination's seconds,
+/// then it shrinks away over a second. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Domination {
+    clock: f32,
+    seconds: f32,
+    radius: f32,
+    turn: f32,
+    phase: f32,
+    growth: f32,
+    stage: u8,
+}
+
+impl Domination {
+    /// A ring of `seconds`, the domination's, about a creature of the size `radius`
+    /// (`items.pak +0x14`, 50 for 0).
+    pub fn new(seconds: f32, radius: f32) -> Self {
+        Self {
+            clock: 0.0,
+            seconds,
+            radius,
+            turn: 0.0,
+            phase: 0.0,
+            growth: 0.0,
+            stage: 0,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock; its turn up by 0.5 a second and its phase down by as
+    /// much, both wrapped; grown by 1 a second to 1, held until its seconds, shrunk by 1 a second.
+    pub fn update(&mut self, dt: f32) {
+        use std::f32::consts::TAU;
+        self.clock += dt;
+        self.turn = (self.turn + 0.5 * dt).rem_euclid(TAU);
+        self.phase = (self.phase - 0.5 * dt).rem_euclid(1.0);
+        match self.stage {
+            0 => {
+                self.growth += dt;
+                if self.growth >= 1.0 {
+                    self.growth = 1.0;
+                    self.stage = 1;
+                }
+            }
+            1 if self.clock >= self.seconds => self.stage = 2,
+            1 => {}
+            _ => self.growth -= dt,
+        }
+    }
+
+    /// Whether it has shrunk away.
+    pub fn done(&self) -> bool {
+        self.stage == 2 && self.growth <= 0.0
+    }
+
+    /// Its radius, swelling by a tenth once a second (`0x768790`).
+    pub fn radius(&self) -> f32 {
+        self.radius * (1.0 + 0.1 * beat(self.clock))
+    }
+
+    /// Its growth, its height's share and its glow's.
+    pub fn growth(&self) -> f32 {
+        self.growth.max(0.0)
+    }
+
+    /// Its turn about the upright, which takes a point at the angle `a` of the band (`sin a`,
+    /// `cos a`) to the angle `a + turn`.
+    pub fn turn(&self) -> f32 {
+        self.turn
+    }
+
+    /// The grey of the band's column `column` (0 to 30) in its glowing strip: 255 at its head's
+    /// column `⌊31·phase⌋`, 20 less for each column after it, held at 15 from the twelfth on.
+    pub fn grey(&self, column: u8) -> f32 {
+        let columns = i32::from(DOMINATION_SEGMENTS) + 1;
+        // The head's column of the phase in [0, 1), within the band's 31.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the phase lies in [0, 1), its column below 31"
+        )]
+        let head = ((self.phase * 31.0) as i32).clamp(0, columns - 1);
+        let after = (i32::from(column) - head).rem_euclid(columns);
+        f32::from(u8::try_from((255 - 20 * after).max(15)).unwrap_or(15)) / 255.0
+    }
+
+    /// The angle on the band of its head's glow, `2π·phase + turn`.
+    pub fn glow_angle(&self) -> f32 {
+        std::f32::consts::TAU * self.phase + self.turn
+    }
+}
+
+/// The raising's textures (866, `cParticleSystem_liveundead`, its constructor `0x79E180`): the
+/// pentagram and the ring of runes laid over, and their red glows added.
+pub const RAISING_TEXTURES: [&str; 4] = [
+    "FX_PENTA",
+    "FX_TRIBALS3_VAMP",
+    "FX_PENTA_G",
+    "FX_TRIBALS3_VAMP_G",
+];
+/// The half sides of the pentagram and of the ring, in the models' units.
+pub const RAISING_HALVES: [f32; 2] = [30.0, 40.0];
+
+/// The Vampiress's raising's sight (1034; 866, `cParticleSystem_liveundead`, its start
+/// `0x79E5D0`, run `0x79E250` and draw `0x79E300`; docs/re/effects.md, "The Vampiress's domination
+/// and raising"): a pentagram inside a ring of runes flat on the ground under the rising dead,
+/// both glowing red, the pentagram turning counterclockwise on the screen at 2 rad a second and
+/// the ring the other way; up in a third of a second, gone in 1.33 s more. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Raising {
+    turn: f32,
+    fade: f32,
+    rising: bool,
+}
+
+impl Default for Raising {
+    fn default() -> Self {
+        Self {
+            turn: 0.0,
+            fade: 0.0,
+            rising: true,
+        }
+    }
+}
+
+impl Raising {
+    /// A run of `dt` seconds: its turn up by 2 a second, wrapped; its fade up by 3 a second to
+    /// 1, then down by 0.75 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.turn = (self.turn + 2.0 * dt).rem_euclid(std::f32::consts::TAU);
+        if self.rising {
+            self.fade += 3.0 * dt;
+            if self.fade >= 1.0 {
+                self.fade = 1.0;
+                self.rising = false;
+            }
+        } else {
+            self.fade -= 0.75 * dt;
+        }
+    }
+
+    /// Whether it has faded out.
+    pub fn done(&self) -> bool {
+        !self.rising && self.fade < 0.0
+    }
+
+    /// Its fade, the pentagram's and the ring's alpha and their glows' grey, `⌊255·fade⌋`.
+    pub fn fade(&self) -> f32 {
+        (255.0 * self.fade.clamp(0.0, 1.0)).floor() / 255.0
+    }
+
+    /// The pentagram's turn; the ring turns by minus it.
+    pub fn turn(&self) -> f32 {
+        self.turn
+    }
+}
+
 /// The Vampiress's casts' sights (863, `cParticleSystem_vamp_sm_cast`, its constructor
 /// `0x7915C0`, start `0x791FB0`, run `0x7918D0` and draw `0x791AB0`; docs/re/effects.md, "The
 /// Vampiress's casts"): the claws' glows, the bats' sparks and the bats' runes, the plain and the
@@ -14840,5 +15014,51 @@ mod tests {
                 .iter()
                 .all(|v| (0x11 as f32 / 255.0..=0xEF as f32 / 255.0 + 1e-3).contains(v))
         );
+    }
+
+    #[test]
+    fn the_raising_fades_in_a_third_of_a_second_and_out_in_a_second_and_a_third() {
+        let mut raising = Raising::default();
+        let (dt, mut lived, mut brightest) = (0.001, 0.0, 0.0_f32);
+        while !raising.done() {
+            raising.update(dt);
+            lived += dt;
+            if raising.fade() >= 1.0 && brightest == 0.0 {
+                brightest = lived;
+            }
+        }
+        assert!((brightest - 1.0 / 3.0).abs() < 0.01, "{brightest}");
+        assert!((lived - (1.0 / 3.0 + 4.0 / 3.0)).abs() < 0.01, "{lived}");
+    }
+
+    #[test]
+    fn the_domination_grows_holds_shrinks_and_sweeps_its_red_band() {
+        // A domination of 5 s: a second growing, held to 5 s, a second shrinking.
+        let mut ring = Domination::new(5.0, 25.0);
+        let (dt, mut lived) = (0.001, 0.0);
+        while !ring.done() {
+            ring.update(dt);
+            lived += dt;
+            assert!(ring.radius() >= 25.0 - 1e-4 && ring.radius() <= 27.5 + 1e-4);
+        }
+        assert!((lived - 6.0).abs() < 0.01, "{lived}");
+        // One shorter than a second lives two.
+        let mut short = Domination::new(0.4, 25.0);
+        let mut lived = 0.0;
+        while !short.done() {
+            short.update(dt);
+            lived += dt;
+        }
+        assert!((lived - 2.0).abs() < 0.01, "{lived}");
+        // The band's greys: 255 at its head, 20 less a column after it, 15 from the twelfth on;
+        // its head steps back a column every 2/31 s.
+        let mut band = Domination::new(5.0, 25.0);
+        band.update(0.5);
+        let greys: Vec<f32> = (0..=30).map(|c| band.grey(c) * 255.0).collect();
+        let head = greys.iter().position(|&g| (g - 255.0).abs() < 0.5).unwrap();
+        assert_eq!(head, 23);
+        assert!((greys[(head + 1) % 31] - 235.0).abs() < 0.5);
+        assert!((greys[(head + 12) % 31] - 15.0).abs() < 0.5);
+        assert!((greys[(head + 20) % 31] - 15.0).abs() < 0.5);
     }
 }

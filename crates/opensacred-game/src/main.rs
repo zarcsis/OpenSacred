@@ -221,6 +221,7 @@ mod trap_landings;
 mod twisters;
 mod undead;
 mod vamp_casts;
+mod vamp_sights;
 mod voices;
 mod waterfalls;
 mod weather;
@@ -667,6 +668,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         twisters::TwistersPlugin,
         undead::UndeadPlugin,
         vamp_casts::VampCastsPlugin,
+        vamp_sights::VampSightsPlugin,
         voices::VoicesPlugin,
         waterfalls::WaterfallsPlugin,
         weather::WeatherPlugin,

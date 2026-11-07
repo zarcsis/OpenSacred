@@ -1988,6 +1988,23 @@ Its constructor (200 particles) loads `FX_TRIBALS2_VAMP`, `FX_TRIBALS2_VAMP_G`, 
 **Seen** 2026-11-06 in the game: the Vampiress's night `Attacke` with red glows trailing from both her hands, and her bat's call with the red rings of runes on the ground under its sparks; beside the original, her change's ribbons alike, chains of magenta glows with bright heads rising over her head and sweeping about her, turning orange, with golden stars among them.
 Not followed: the cases 1 to 4's Direct3D lights (they stand at the world's origin); the ribbons' end read from the model's control (the clip's length 3.98 s taken).
 
+## The Vampiress's domination and raising
+
+Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The domination (1024, 1025): her executor (`0x50E6C0`, `0x5123A2`), once less than 0.6 of the clip is left, makes an object 857 (`cParticleSystem_beherrschung`, its constructor `0x79D480`, start `0x79DBF0`, run `0x79D610`, draw `0x79D770`) at her own place (`0x5124CE`) and sends it the FX event `0x51` from her to the target, `+0x38` the domination's seconds in milliseconds, `+0x3C` the target's type's size (`items.pak +0x14`, 50 for 0); the handler (`0x5A4D63`) follows the target at its bone 3 (`Bip01 Neck`), else its root, the flags `0x204` measuring its place from the object's at the height 0 so that it stands at the bone.
+  - Its constructor lays a band of 31 pairs of vertices, the pair `i` at the angle `a = i·2π/30`, `(sin a, cos a, ∓7.5)` with `(u, v) = (i/15, 0)` below and `(i/15, 1)` above, white: a band of radius 1 and height 15 with its texture twice round it, and a copy of it; and a Direct3D light (1, 0.28, 0.28).
+  - Its run: the turn up by 0.5 a second and the phase down by as much, both wrapped; the second strip's columns from the head `⌊31·phase⌋` on take the greys 255, 235, … falling by 20, held at 15 from the twelfth on; it grows by 1 a second to 1, holds until the clock reaches its seconds, and shrinks by 1 a second, so it lives `max(v, 1) + 1` s.
+  - Its draw: the band scaled `(r, r, growth)` with `r` the size times `1 + 0.1` of the beat of the clock, turned by the turn, at the bone; `FX_TRIBALS_VAMP` laid over (`SRCALPHA`, `INVSRCALPHA`), then `FX_TRIBALS_VAMP_G` added twice in the strip's greys (`ONE`, `ONE`), the culling off; a `PARTICLE_GLOW03` of (255, 72, 72) and the half side `13·growth` at the angle `2π·phase + turn` on the ring, and the light there; `VAMP_BEHERRSCHUNG_LOOP` while it lives; no tint by the night.
+- The raising (1034): her executor (`0x511088`), after the raising, makes an object 866 (`cParticleSystem_liveundead`, `0x79E180`, `0x79E5D0`, `0x79E250`, `0x79E300`) at the corpse (`0x51127E`) with the FX event `0x5A`, which follows it at its root.
+  - Its start plays `VAMP_PENTA` (2082); its run turns it by 2 a second and fades it in by 3 a second to 1, then out by 0.75 a second: it lives 1.67 s.
+  - Its draw: four flat quads at its place (`0x7631E0`), depth tested: `FX_PENTA` of the half side 30 turned by the turn and `FX_TRIBALS3_VAMP` of 40 turned by minus it, white at the alpha `⌊255·fade⌋`, laid over; then `FX_PENTA_G` and `FX_TRIBALS3_VAMP_G` alike in the grey of that value, added whole; no tint by the night.
+
+`opensacred-game` draws both since #1092 (`vamp_sights`, `opensacred_rules::particles::{Domination, Raising}`), as `making` dominates or raises, each just behind its creature's model (`fx::Orders`, #2178).
+The game makes the risen creature anew in the corpse's place (`followers::raise`), so the raising's pentagram stays at that place, before the creature standing on it.
+**Seen** 2026-11-07 in the game (not beside the original): the band of dark runes about a bandit's neck, its red band and glow sweeping round it, the bandit over it; the pentagram in its ring of runes glowing red under a goblin rising in her night form.
+Not followed: the raising's other five makers.
+
 ## The goblin mages' ball
 
 Read 2026-11-06 for #2147 in Ghidra (**confirmed** by code unless marked).
