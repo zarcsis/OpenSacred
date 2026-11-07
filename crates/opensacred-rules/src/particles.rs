@@ -7248,6 +7248,79 @@ impl ForceOfHell {
     }
 }
 
+/// The call of death's sign at a kill, its texture (`+0x20B0`).
+pub const DOOM_SIGN_TEXTURE: &str = "fx_transdim_sign";
+
+/// The Daemon's call of death's sign at a kill (1010, `cParticleSystem_callofdeath`, its start
+/// `0x7AFD70`, run `0x7AFC10` and draw `0x7AFC60`; docs/re/effects.md, "The call of death's
+/// sign"): at the corpse of each creature killed by one who holds the call of death, flat on the
+/// ground, its sign of the half side 1.4 times the dead type's size three times over, each turned
+/// the less the later it is drawn, braking, fading from the third on over 1.76 s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DoomSign {
+    clock: f32,
+    fade: f32,
+    size: f32,
+}
+
+impl DoomSign {
+    /// A sign at the corpse of a type of the size `size` (`items.pak +0x14`, 50 for 0), of the fade
+    /// 3.
+    pub fn new(size: f32) -> Self {
+        Self {
+            clock: 0.0,
+            fade: 3.0,
+            size,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock on, its fade down by 1.7 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.fade = (self.fade - 1.7 * dt).max(0.0);
+    }
+
+    /// Whether its fade is gone.
+    pub fn done(&self) -> bool {
+        self.fade <= 0.0
+    }
+
+    /// Its signs' half side, 1.4 times its size.
+    pub fn half(&self) -> f32 {
+        1.4 * self.size
+    }
+
+    /// Its signs, each its turn and its alpha, none at its first: `⌊f⌋` whole, the `j`-th turned
+    /// by `0.3/(t + 0.2·j)`, and one more of the alpha of the fade's fraction, `⌊255·frac f⌋`,
+    /// turned a step further.
+    pub fn signs(&self) -> Vec<(f32, f32)> {
+        if self.clock == 0.0 {
+            return Vec::new();
+        }
+        let whole = self.fade.trunc();
+        let last = ((self.fade - whole) * 255.0).trunc() / 255.0;
+        let mut at = self.clock;
+        let mut signs = Vec::new();
+        for _ in 0..whole_count(whole) {
+            signs.push((0.3 / at, 1.0));
+            at += 0.2;
+        }
+        signs.push((0.3 / at, last));
+        signs
+    }
+}
+
+/// A count of whole signs, the fade's whole part (0 to 3).
+fn whole_count(whole: f32) -> u8 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a fade of 0 to 3, its whole part, as `__ftol` takes it"
+    )]
+    let count = whole.clamp(0.0, 3.0) as u8;
+    count
+}
+
 /// The sparks' texture of an arrow's fire and poison, and their particles at most (`0x5A0C50`).
 pub const ARROW_SPARKS_TEXTURE: &str = "PARTICLE_GLOW01";
 const ARROW_SPARKS_COUNT: usize = 500;
@@ -16052,6 +16125,29 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_call_of_deaths_sign_spins_braking_and_fades_over_its_three() {
+        let mut sign = DoomSign::new(50.0);
+        assert!(sign.signs().is_empty());
+        assert!((sign.half() - 70.0).abs() < 1e-4);
+        sign.update(0.1);
+        // At 0.1 s its fade 2.83: two whole, turned 3 and 1, and one of 211 turned 0.6.
+        let signs = sign.signs();
+        assert_eq!(signs.len(), 3);
+        assert!((signs[0].0 - 3.0).abs() < 1e-4 && signs[0].1 == 1.0);
+        assert!((signs[1].0 - 1.0).abs() < 1e-4);
+        assert!((signs[2].0 - 0.6).abs() < 1e-4);
+        assert!((signs[2].1 - 211.0 / 255.0).abs() < 1e-4, "{}", signs[2].1);
+        let mut lived = 0.1_f32;
+        while !sign.done() {
+            sign.update(0.01);
+            lived += 0.01;
+            assert!(lived < 2.0);
+        }
+        // Gone at 3 / 1.7 s.
+        assert!((lived - 3.0 / 1.7).abs() < 0.02, "{lived}");
     }
 
     #[test]
