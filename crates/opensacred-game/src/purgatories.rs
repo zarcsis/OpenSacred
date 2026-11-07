@@ -15,7 +15,8 @@ use opensacred_rules::spawning::Rng;
 use crate::bolt_looks::models;
 use crate::frame::Playing;
 use crate::fx::{
-    Effect, Quads, empty, particle_material, particle_texture, plain_material, whole_material,
+    Effect, Orders, Quads, empty, particle_material, particle_texture, plain_material,
+    whole_material,
 };
 use crate::game::{AppState, Data};
 use crate::terrain::{Heights, Level};
@@ -167,7 +168,10 @@ fn show(
 }
 
 /// Runs each purgatory's look a frame on (`0x7762D0`, `0x776390`): while its object lives, flames
-/// at its place, its column and its glow; then its flames burn out and it goes, its lamp with it.
+/// at its place, its column and its glow, all drawn at its object's place in the order of
+/// drawing, before a creature standing in its cell, as the original draws the system before the
+/// creature (`fx::Orders`, #2178), but in a building, where they keep their own depths; then its
+/// flames burn out and it goes, its lamp with it.
 fn burn(
     mut commands: Commands,
     (time, looks, heights): (Res<Time>, Res<Looks>, Res<Heights>),
@@ -175,6 +179,7 @@ fn burn(
     objects: Query<&GlobalTransform, With<Look>>,
     mut lamps: Query<&mut Transform, With<daynight::Light>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -234,8 +239,14 @@ fn burn(
             );
         }
         let quads = [crate::breath::wall_quads(fire, &look.flames), column, glow];
-        for (handle, part) in look.parts.iter().zip(quads) {
+        let order = look
+            .level
+            .is_none()
+            .then(|| orders.at(look.place))
+            .flatten();
+        for (handle, mut part) in look.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, Vec3::ZERO);
                 part.into_mesh(&mut mesh);
             }
         }

@@ -11,7 +11,7 @@ use opensacred_rules::particles::{
 };
 
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_texture, whole_material};
+use crate::fx::{Effect, Orders, Quads, empty, particle_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
@@ -119,8 +119,9 @@ fn make(
 
 /// Runs each sight a frame on (`0x795140`) and draws it (`0x7952C0`): at its bearer's left hand,
 /// else its place, each comet's tail of glows and its head, then the burst's sparks, all facing
-/// the camera in the comets' green or the sparks' ramp; it goes at once with its seconds, or with
-/// its bearer.
+/// the camera in the comets' green or the sparks' ramp, drawn just behind its bearer's model, as
+/// the original draws the system before the creature it follows (`fx::Orders`, #2178); it goes at
+/// once with its seconds, or with its bearer.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -136,6 +137,7 @@ fn run(
         crate::making::Worn,
     ),
     (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    orders: Orders,
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
@@ -178,8 +180,10 @@ fn run(
                 MultiShot::spark_colour(spark.life),
             );
         }
-        for (handle, part) in shown.parts.iter().zip(quads) {
+        let order = orders.behind(shown.bearer);
+        for (handle, mut part) in shown.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, transform.translation);
                 part.into_mesh(&mut mesh);
             }
         }

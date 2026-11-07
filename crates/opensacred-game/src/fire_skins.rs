@@ -15,7 +15,9 @@ use opensacred_rules::spawning::Rng;
 
 use crate::bolt_looks::models;
 use crate::frame::Playing;
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture, whole_material};
+use crate::fx::{
+    Effect, InOrder, Orders, Quads, empty, particle_material, particle_texture, whole_material,
+};
 use crate::game::{AppState, Data};
 use crate::{daynight, iso};
 
@@ -23,11 +25,11 @@ use crate::{daynight, iso};
 /// cut it.
 const GROUND_LIFT: f32 = 0.5;
 
-/// An object to give its look (`spells`): a fire skin, a hero's or a creature's, or a flame of
-/// the fire spiral.
+/// An object to give its look (`spells`): a fire skin, a hero's or a creature's, on its bearer,
+/// or a flame of the fire spiral.
 #[derive(Component, Clone, Copy)]
 pub(crate) enum Look {
-    Skin { hero: bool },
+    Skin { hero: bool, bearer: Option<Entity> },
     Spiral,
 }
 
@@ -35,20 +37,23 @@ impl Look {
     /// Its kind, the index of its fire: 0 a hero's skin, 1 a creature's, 2 the spiral's flame.
     fn kind(self) -> usize {
         match self {
-            Self::Skin { hero: true } => 0,
-            Self::Skin { hero: false } => 1,
+            Self::Skin { hero: true, .. } => 0,
+            Self::Skin { hero: false, .. } => 1,
             Self::Spiral => 2,
         }
     }
 }
 
 /// A look, which outlives its object while its flames burn out: its object while it lives, its
-/// kind ([`Look::kind`]), its flames, their dice, its place and the place before, its lamp, and
-/// its parts' meshes, the flames' and the glow's.
+/// kind ([`Look::kind`]), a skin's bearer and the depth of its place in the order of drawing,
+/// which its flames keep as they burn out (`fx::Orders`, #2178), its flames, their dice, its
+/// place and the place before, its lamp, and its parts' meshes, the flames' and the glow's.
 #[derive(Component)]
 struct Skin {
     object: Option<Entity>,
     kind: usize,
+    bearer: Option<Entity>,
+    order: Option<InOrder>,
     flames: System,
     dice: Rng,
     place: Vec3,
@@ -155,6 +160,11 @@ fn show(
         commands.entity(skin).insert(Skin {
             object: Some(object),
             kind,
+            bearer: match *look {
+                Look::Skin { bearer, .. } => bearer,
+                Look::Spiral => None,
+            },
+            order: None,
             flames: System::new(looks.fires[kind].count),
             dice: crate::seed::dice(SEED ^ index),
             place,
@@ -166,8 +176,13 @@ fn show(
 }
 
 /// Runs each look a frame on (`0x78BB00`, `0x78BBA0`; `0x775A70`, `0x775BC0`): while its object
-/// lives, flames at its place and, for a fire skin, the glow under it; then its flames burn out
-/// and it goes, its lamp with it.
+/// lives, flames at its place and, for a fire skin, the glow under it, both drawn just behind its
+/// bearer's model, as the original draws the system before the creature it follows (#2178); then
+/// its flames burn out and it goes, its lamp with it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn burn(
     mut commands: Commands,
     time: Res<Time>,
@@ -176,6 +191,7 @@ fn burn(
     objects: Query<&GlobalTransform, With<Look>>,
     mut lamps: Query<&mut Transform, With<daynight::Light>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut skin) in &mut skins {
@@ -204,6 +220,9 @@ fn burn(
             );
         }
         skin.before = Some(skin.place);
+        if burning {
+            skin.order = skin.bearer.and_then(|bearer| orders.behind(bearer));
+        }
         if !burning && skin.flames.particles.is_empty() {
             commands.entity(skin.lamp).despawn();
             commands.entity(entity).despawn();
@@ -213,7 +232,9 @@ fn burn(
             lamp.translation = skin.place.with_y(0.0);
         }
         if let Some(mut mesh) = meshes.get_mut(&skin.parts[0]) {
-            crate::breath::wall_quads(fire, &skin.flames).into_mesh(&mut mesh);
+            let mut flames = crate::breath::wall_quads(fire, &skin.flames);
+            flames.in_order(skin.order, Vec3::ZERO);
+            flames.into_mesh(&mut mesh);
         }
         if let Some(mut mesh) = meshes.get_mut(&skin.parts[1]) {
             let mut glow = Quads::default();
@@ -233,6 +254,7 @@ fn burn(
                     particles::FIRE_SKIN_GLOW_COLOURS[skin.kind],
                 );
             }
+            glow.in_order(skin.order, Vec3::ZERO);
             glow.into_mesh(&mut mesh);
         }
     }

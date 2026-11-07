@@ -696,6 +696,22 @@ impl Quads {
 
     /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
     /// as the renderer warns of a mesh without vertices (#1203).
+    /// Lays every vertex at the depth of `order` along the line of sight, where one is given, the
+    /// mesh's origin at `origin` (its entity's place, of no turn and no scale): in the camera's
+    /// orthographic view each vertex shows where it did, at the depth of its system's place in
+    /// the original's order of drawing ([`Orders`], #2178).
+    pub(crate) fn in_order(&mut self, order: Option<InOrder>, origin: Vec3) {
+        let Some(order) = order else {
+            return;
+        };
+        let back = -iso::forward();
+        let to = order.place - origin;
+        for position in &mut self.positions {
+            let vertex = Vec3::from_array(*position);
+            *position = (vertex + back * ((to - vertex).dot(back) + order.beyond)).to_array();
+        }
+    }
+
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
         if self.indices.is_empty() {
             self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);
@@ -704,6 +720,90 @@ impl Quads {
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colours);
         mesh.insert_indices(Indices::U32(self.indices));
+    }
+}
+
+/// How far forward a place comes per world unit that its cell lies right of the point the camera
+/// looks at (`ACROSS` of `order.wesl`).
+const ACROSS: f32 = 0.002;
+/// How far forward per place in a cell (`CHAIN` of `order.wesl`).
+const CHAIN: f32 = 0.0045;
+/// The part of a model's vertex's own depth from its anchor that it keeps (`SQUEEZE` of
+/// `models.wesl`).
+const SQUEEZE: f32 = 0.01;
+/// How far behind its root along the line of sight the back of a creature's body lies, in world
+/// units (**estimate**: about half a man's depth): a system at its bearer's place lies that far
+/// behind it, so that the bearer's model, whose texels lie at their own depths from its root,
+/// covers it.
+const BODY: f32 = 20.0;
+
+/// The depth of a system's place in the original's order of drawing, where it lays its quads
+/// ([`Quads::in_order`]): the place of its cell at height 0, and how far forward of that place
+/// along the line of sight the system lies (`order.wesl`'s order beyond the place's own depth).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct InOrder {
+    place: Vec3,
+    beyond: f32,
+}
+
+/// Where the original draws a particle system in its draw lists (docs/re/drawing.md, "The effects
+/// among the creatures", #2047): its FX object's whole system at the object's place, after the
+/// statics of its cell and before the creature it follows, or one in its cell, which is drawn
+/// after it and covers it; its billboards write no depth, so the model covers every quad of its
+/// system that it lies over. The game draws such a system's quads at the depth of that place
+/// ([`Quads::in_order`]), just behind its bearer's model, whose texels write their depths
+/// (`models.wesl`); the systems drawn by the [`iso::Untinted`] camera test the world's depth too.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Orders<'w, 's> {
+    anchors: Res<'w, crate::models::Anchors>,
+    models: Query<'w, 's, (&'static crate::models::Ordered, &'static GlobalTransform)>,
+    eye: Query<'w, 's, &'static GlobalTransform, iso::Eye>,
+}
+
+impl Orders<'_, '_> {
+    /// The depth of a system that `bearer` carries: at its model's place, just behind the model.
+    /// `None`, its quads at their own depths, where `bearer` has no model in the order or stands
+    /// on an upper storey's floor, where the model lies no further back than the floor's plane
+    /// (`models.wesl`'s `on_floor`), or the world has no camera.
+    pub(crate) fn behind(&self, bearer: Entity) -> Option<InOrder> {
+        let (ordered, at) = self.models.get(bearer).ok()?;
+        let (anchor, floor) = self.anchors.of(ordered.slot()?)?;
+        if floor.w > 0.5 {
+            return None;
+        }
+        self.order(anchor, floor.z, at.translation())
+    }
+
+    /// The depth of a system whose object stands at `position`, carried by no model: at the
+    /// place of its cell, as just behind a creature standing there.
+    pub(crate) fn at(&self, position: Vec3) -> Option<InOrder> {
+        self.order(crate::models::place_of(position), 0.0, position)
+    }
+
+    /// [`InOrder::of`], the camera looking at the point that the world's camera does.
+    fn order(&self, anchor: Vec4, sunk: f32, root: Vec3) -> Option<InOrder> {
+        let eye = self.eye.single().ok()?;
+        let looked = eye.translation() + iso::forward() * iso::DISTANCE;
+        Some(InOrder::of(anchor, sunk, root, looked))
+    }
+}
+
+impl InOrder {
+    /// The depth just behind a model rooted at `root` of the anchor `anchor` (its cell's centre
+    /// and its place in the cell), its place `sunk` units further back (under a liquid's surface,
+    /// `models::Sunk`), the camera looking at `looked`, as `models.wesl` lays the model's texels:
+    /// its place's depth and the root's own depth from the anchor, squeezed, less the body's
+    /// behind it.
+    fn of(anchor: Vec4, sunk: f32, root: Vec3, looked: Vec3) -> Self {
+        let back = -iso::forward();
+        let place = Vec3::new(anchor.x, 0.0, anchor.z) - back * sunk;
+        let own = (root - anchor.xyz()).with_y(0.0).dot(back);
+        Self {
+            place,
+            beyond: ACROSS * (place - looked).dot(iso::right())
+                + CHAIN * anchor.w
+                + SQUEEZE * (own - BODY),
+        }
     }
 }
 
@@ -1283,5 +1383,77 @@ impl Plugin for FxPlugin {
                     .in_set(Playing)
                     .in_set(Unpaused),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn the_order_of_drawing_is_the_shaders() {
+        assert_eq!(ACROSS, shader_constant(ORDER, "ACROSS"));
+        assert_eq!(CHAIN, shader_constant(ORDER, "CHAIN"));
+        assert_eq!(
+            SQUEEZE,
+            shader_constant(include_str!("models.wesl"), "SQUEEZE")
+        );
+    }
+
+    #[test]
+    fn a_system_in_order_shows_where_it_did_just_behind_its_bearers_model() {
+        let back = -iso::forward();
+        // `order.wesl`'s order beyond the point looked at, in world units toward the camera: of a
+        // place `anchor` and a part `own` of its own depth, as a model's vertex takes it, or of a
+        // point of the world at its true depth.
+        let looked = iso::ground(10.0, 10.0);
+        let in_order = |anchor: Vec4, own: f32| {
+            let place = Vec3::new(anchor.x, 0.0, anchor.z);
+            (place - looked).dot(back)
+                + ACROSS * (place - looked).dot(iso::right())
+                + CHAIN * anchor.w
+                + SQUEEZE * own
+        };
+        let true_depth = |point: Vec3| (point - looked).dot(back);
+        // A bearer standing off its cell's centre, a little toward the camera, its anchor its
+        // cell's centre at the cell's height 12; near the world's origin, where a point's
+        // rounding is a thousandth of a unit and less.
+        let root = iso::ground(22.7, 13.6) + Vec3::Y * 12.0;
+        let anchor = iso::ground(22.5, 13.5)
+            .with_y(12.0)
+            .extend(crate::models::PLACE);
+        let order = InOrder::of(anchor, 0.0, root, looked);
+        // Flames about it, up to its head, laid out about a mesh's origin at its root.
+        let mut quads = Quads::default();
+        for (x, y, z) in [(-20.0, 0.0, 5.0), (15.0, 60.0, -10.0), (0.0, 110.0, 25.0)] {
+            quads.push(Vec3::new(x, y, z), 8.0, 0.3, (Vec2::ZERO, 1.0), [1.0; 4]);
+        }
+        let before: Vec<Vec3> = quads.positions.iter().copied().map(Vec3::from).collect();
+        quads.in_order(Some(order), root);
+        // The model's texels, from 15 units behind its root to its head before it.
+        let own = |point: Vec3| (point - anchor.xyz()).dot(back);
+        let nearest_behind = in_order(anchor, own(root - back * 15.0));
+        for (was, &now) in before.iter().zip(&quads.positions) {
+            let (was, now) = (root + *was, root + Vec3::from(now));
+            // Where it shows on screen, it shows still.
+            assert!((now - was).dot(iso::right()).abs() < 1e-3, "{was} {now}");
+            assert!((now - was).dot(iso::up()).abs() < 1e-3, "{was} {now}");
+            // At its system's depth: just behind the back of the bearer's body, a few hundredths
+            // of a unit, and not a tenth of a unit further.
+            let depth = true_depth(now);
+            assert!(
+                (depth - in_order(anchor, own(root) - BODY)).abs() < 0.02,
+                "{depth}"
+            );
+            assert!(depth < nearest_behind && depth > nearest_behind - 0.1);
+        }
+        // A model a row of cells further back, drawn before the bearer, lies behind the system;
+        // one a row nearer, drawn after it, in front of it.
+        let row = iso::CELL * Vec3::X.dot(back);
+        let farther = in_order(anchor - Vec4::new(iso::CELL, 0.0, 0.0, 0.0), 40.0);
+        let nearer = in_order(anchor + Vec4::new(iso::CELL, 0.0, 0.0, 0.0), -40.0);
+        let system = true_depth(root + Vec3::from(quads.positions[0]));
+        assert!(row > 1.0 && farther < system && system < nearer);
     }
 }

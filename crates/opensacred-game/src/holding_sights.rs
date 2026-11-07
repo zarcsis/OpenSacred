@@ -14,7 +14,9 @@ use opensacred_rules::particles::{
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture, whole_material};
+use crate::fx::{
+    Effect, Orders, Quads, empty, particle_material, particle_texture, whole_material,
+};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
@@ -161,8 +163,9 @@ fn make(
 }
 
 /// Runs each burning light a frame on (`0x77F6B0`, `0x77F840`): its bursts at its creature's neck,
-/// else its place, its sparks facing the camera, turned, of their ramp's colour; it goes once it
-/// is over, or with its creature.
+/// else its place, its sparks facing the camera, turned, of their ramp's colour, drawn just
+/// behind its creature's model, as the original draws the system before the creature it follows
+/// (`fx::Orders`, #2178); it goes once it is over, or with its creature.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -178,6 +181,7 @@ fn burn_on(
         crate::making::Worn,
     ),
     (mut meshes, mut dice): (ResMut<Assets<Mesh>>, ResMut<Dice>),
+    orders: Orders,
 ) {
     let dt = time.delta_secs();
     let ramp = BurningLight::ramp();
@@ -207,14 +211,16 @@ fn burn_on(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&light.mesh) {
+            quads.in_order(orders.behind(light.target), origin.translation);
             quads.into_mesh(&mut mesh);
         }
     }
 }
 
 /// Runs each halo a frame on (`0x782A60`, `0x782AD0`): its glows facing the camera about its
-/// creature's head in the head bone's axes (the original's bone `y` the glTF's `z`); it goes once
-/// it has faded, or with its creature.
+/// creature's head in the head bone's axes (the original's bone `y` the glTF's `z`), drawn just
+/// behind its creature's model, as the original draws the system before the creature it follows
+/// (`fx::Orders`, #2178); it goes once it has faded, or with its creature.
 fn glow_on(
     mut commands: Commands,
     time: Res<Time>,
@@ -225,6 +231,7 @@ fn glow_on(
         crate::making::Worn,
     ),
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: Orders,
 ) {
     let dt = time.delta_secs();
     for (entity, mut halo, mut transform) in &mut halos {
@@ -255,6 +262,7 @@ fn glow_on(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&halo.mesh) {
+            quads.in_order(orders.behind(halo.target), head.translation());
             quads.into_mesh(&mut mesh);
         }
     }
