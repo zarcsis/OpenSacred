@@ -69,6 +69,7 @@ mod dragon_fires;
 mod drops;
 mod dryad_ghosts;
 mod dwarf_armours;
+mod dwarf_burrows;
 mod dwarf_fires;
 mod dwarf_greeds;
 mod dwarf_magics;
@@ -513,14 +514,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         daynight::DayNightPlugin,
         demon_fires::DemonFiresPlugin,
         demon_forms::DemonFormsPlugin,
-    ))
-    .add_plugins((
         doom_signs::DoomSignsPlugin,
         doors::DoorsPlugin,
+    ))
+    .add_plugins((
         dragon_fires::DragonFiresPlugin,
         dryad_ghosts::DryadGhostsPlugin,
         drops::DropsPlugin,
         dwarf_armours::DwarfArmoursPlugin,
+        dwarf_burrows::DwarfBurrowsPlugin,
         dwarf_fires::DwarfFiresPlugin,
         dwarf_greeds::DwarfGreedsPlugin,
         dwarf_magics::DwarfMagicsPlugin,

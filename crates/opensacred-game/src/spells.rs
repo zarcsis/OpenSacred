@@ -2068,6 +2068,11 @@ fn act(
             spells::BURROWING | spells::ARMOUR => {
                 given.extend(spells::dwarfs(record, act.level));
                 given.extend(spells::effects(record, act.level));
+                if act.spell == spells::BURROWING {
+                    // Its dome 1152 over its caster (`0x5287B9`, `dwarf_burrows`).
+                    let seconds = fight_seconds(spells::value(record, 0, act.level));
+                    crate::dwarf_burrows::show(&mut commands, act.caster, seconds);
+                }
                 if act.spell == spells::ARMOUR {
                     // Its object 1021 on its target (`0x5286CE`, `dwarf_armours`).
                     let seconds = fight_seconds(spells::value(record, 0, act.level));
