@@ -2054,11 +2054,21 @@ fn act(
             }
             // The Dwarf's: the greed's and the steel's effects at once; the burrowing's and the
             // armour's with their action 6, the armour's object's effect 35 too.
-            spells::GREED | spells::STEEL => given.extend(spells::dwarfs(record, act.level)),
+            spells::GREED | spells::STEEL => {
+                given.extend(spells::dwarfs(record, act.level));
+                // The steel's object 1022 on its target (`0x5288BF`, `dwarf_armours`).
+                if act.spell == spells::STEEL {
+                    let seconds = fight_seconds(spells::value(record, 0, act.level));
+                    crate::dwarf_armours::show(&mut commands, act.target, true, seconds);
+                }
+            }
             spells::BURROWING | spells::ARMOUR => {
                 given.extend(spells::dwarfs(record, act.level));
                 given.extend(spells::effects(record, act.level));
                 if act.spell == spells::ARMOUR {
+                    // Its object 1021 on its target (`0x5286CE`, `dwarf_armours`).
+                    let seconds = fight_seconds(spells::value(record, 0, act.level));
+                    crate::dwarf_armours::show(&mut commands, act.target, false, seconds);
                     let effect = Effect {
                         id: BORNE,
                         whole: 0,

@@ -68,6 +68,7 @@ mod doors;
 mod dragon_fires;
 mod drops;
 mod dryad_ghosts;
+mod dwarf_armours;
 mod dwarf_fires;
 mod dwarf_magics;
 mod effects;
@@ -508,15 +509,16 @@ fn run(cli: Cli) -> Result<AppExit> {
         dark_helices::DarkHelicesPlugin,
         dark_wards::DarkWardsPlugin,
         daynight::DayNightPlugin,
-    ))
-    .add_plugins((
         demon_fires::DemonFiresPlugin,
         demon_forms::DemonFormsPlugin,
+    ))
+    .add_plugins((
         doom_signs::DoomSignsPlugin,
         doors::DoorsPlugin,
         dragon_fires::DragonFiresPlugin,
         dryad_ghosts::DryadGhostsPlugin,
         drops::DropsPlugin,
+        dwarf_armours::DwarfArmoursPlugin,
         dwarf_fires::DwarfFiresPlugin,
         dwarf_magics::DwarfMagicsPlugin,
         effects::EffectsPlugin,
