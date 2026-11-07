@@ -291,7 +291,7 @@ fn run(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
     mut rolls: ResMut<Rolls>,
     heights: Res<crate::terrain::Heights>,
 ) {
@@ -366,8 +366,15 @@ fn run(
             commands.entity(entity).despawn();
             continue;
         }
-        for (handle, part) in look.parts.iter().zip(quads) {
+        // A bolt at its place in the order, which a moving object heads in its cell; a look that
+        // follows a creature just behind its model (#2188).
+        let order = match look.follows.filter(|_| look.bolt.is_none()) {
+            Some(target) => orders.behind(target),
+            None => orders.at(look.place),
+        };
+        for (handle, mut part) in look.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, Vec3::ZERO);
                 part.into_mesh(&mut mesh);
             }
         }

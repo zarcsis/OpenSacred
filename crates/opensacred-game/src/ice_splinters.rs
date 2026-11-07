@@ -198,7 +198,7 @@ fn fly(
     mut shown: Query<(Entity, &mut Shown)>,
     bolts: Query<&Transform, (With<Splinters>, Without<Shown>)>,
     mut icicles: Query<&mut Transform, (Without<Splinters>, Without<Shown>)>,
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -272,8 +272,11 @@ fn fly(
                 ramp.at(spark.life),
             );
         }
-        for (quads, mesh) in [rings, sparks].into_iter().zip(&look.meshes) {
+        // At its object's place in the order, which a moving object heads in its cell (#2188).
+        let order = orders.at(look.place);
+        for (mut quads, mesh) in [rings, sparks].into_iter().zip(&look.meshes) {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }
         }
