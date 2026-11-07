@@ -8,7 +8,9 @@
 //! the way of the bone `particle_source_01` of the model `cast01` on its clip, turned by a
 //! quarter of a turn from the one before, magenta to orange, a red glow and a white spark at its
 //! head lighting the models pale blue (`particles::VampRibbon`), the first lighting the night by
-//! 250. None is tinted by the night.
+//! 250. None is tinted by the night. Each lies in the original's order of drawing (`fx::Orders`,
+//! #2220): the claws' glows just behind her model, the bats' sights and the ribbons at their
+//! places, where their objects stand.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -259,18 +261,19 @@ fn make_bats(
 }
 
 /// Runs each bat's sight a frame on (`0x7918D0`, `0x791AB0`): its sparks with their trails facing
-/// the camera, its runes flat on the ground; it goes with its last spark.
+/// the camera, its runes flat on the ground, at its place in the order; it goes with its last
+/// spark.
 fn run_bats(
     mut commands: Commands,
     time: Res<Time>,
-    mut sights: Query<(Entity, &mut Bats)>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut sights: Query<(Entity, &mut Bats, &Transform)>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let ramp = particles::vamp_red();
     let layer = VampBats::layer();
     let s = iso::MODEL_SCALE;
-    for (entity, mut sight) in &mut sights {
+    for (entity, mut sight, at) in &mut sights {
         sight.look.update(dt);
         if sight.look.done() {
             commands.entity(entity).despawn();
@@ -309,8 +312,10 @@ fn run_bats(
             }
         }
         let [plain, glowing] = runes;
-        for (handle, quads) in sight.meshes.iter().zip([sparks, plain, glowing]) {
+        let order = orders.at(at.translation);
+        for (handle, mut quads) in sight.meshes.iter().zip([sparks, plain, glowing]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, at.translation);
                 quads.into_mesh(&mut mesh);
             }
         }
@@ -485,7 +490,8 @@ fn play_paths(
 /// Runs each ribbon a frame on (`0x7918D0`, `0x791AB0`): its head at its model's bone, in the
 /// models' frame the glTF's (x, z, y) turned by its angle, its particles born along its way, each a
 /// quad of its frame of the grid facing the camera, and while it shows its head's glow and spark,
-/// its light with them; it goes once it is over. It waits for its model's bone.
+/// its light with them, at its place in the order, where its object stands; it goes once it is
+/// over. It waits for its model's bone.
 fn run_ribbons(
     mut commands: Commands,
     time: Res<Time>,
@@ -496,7 +502,7 @@ fn run_ribbons(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -543,8 +549,10 @@ fn run_ribbons(
         if let Ok(mut light) = lights.get_mut(ribbon.light) {
             light.translation = at.translation + world(head);
         }
-        for (handle, quads) in ribbon.meshes.iter().zip([grid, glow, spark]) {
+        let order = orders.at(at.translation);
+        for (handle, mut quads) in ribbon.meshes.iter().zip([grid, glow, spark]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, at.translation);
                 quads.into_mesh(&mut mesh);
             }
         }

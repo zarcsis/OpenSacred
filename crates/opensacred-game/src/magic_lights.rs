@@ -3,14 +3,15 @@
 //! flat slices of `PARTICLE_GLOW03` added by their alpha (`opensacred_rules::particles::
 //! maglite_slices`) about its bearer's head (the FX event `0x2C`'s bone 20, kept on it at each
 //! frame by the flag `0x200`), untinted by the night, and lights the night about it by the
-//! spell's second value at its level.
+//! spell's second value at its level. The ball lies just behind its bearer's model, in the
+//! original's order of drawing (`fx::Orders::behind`, #2220).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, maglite_slices};
 
 use crate::frame::Playing;
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::{daynight, iso};
 
@@ -25,21 +26,21 @@ pub(crate) struct Look {
     pub bearer: Option<Entity>,
 }
 
-/// A light's look: its bearer and its ball's entity.
+/// A light's look: its bearer, its ball's entity and the ball's mesh.
 #[derive(Component)]
 struct Shown {
     bearer: Option<Entity>,
     ball: Entity,
+    mesh: Handle<Mesh>,
 }
 
 /// A light's lamp, of the object it goes with.
 #[derive(Component)]
 struct Lamp(Entity);
 
-/// The ball's material and mesh, made as the first light shows; no material where its texture is
-/// missing.
+/// The ball's material, made as the first light shows; none where its texture is missing.
 #[derive(Resource, Default)]
-struct Made(Option<(Option<Handle<Effect>>, Handle<Mesh>)>);
+struct Made(Option<Option<Handle<Effect>>>);
 
 /// Gives each new light its ball and its lamp (`0x7850D0`).
 #[expect(
@@ -58,7 +59,7 @@ fn show(
     ),
 ) {
     for (entity, look, transform) in &looks {
-        let (material, mesh) = made
+        let material = made
             .0
             .get_or_insert_with(|| {
                 let image = data.as_ref().and_then(|data| {
@@ -70,11 +71,10 @@ fn show(
                         particles::MAGLITE_TEXTURE
                     );
                 }
-                let material =
-                    image.map(|image| materials.add(particle_material(image, AlphaMode::Add)));
-                (material, meshes.add(ball()))
+                image.map(|image| materials.add(particle_material(image, AlphaMode::Add)))
             })
             .clone();
+        let mesh = meshes.add(empty());
         let mut ball = commands.spawn((
             Transform::IDENTITY,
             Visibility::default(),
@@ -83,12 +83,13 @@ fn show(
             ChildOf(entity),
         ));
         if let Some(material) = material {
-            ball.insert((Mesh3d(mesh), MeshMaterial3d(material)));
+            ball.insert((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
         }
         let ball = ball.id();
         commands.entity(entity).insert(Shown {
             bearer: look.bearer,
             ball,
+            mesh,
         });
         debug!(
             "magic lights: {entity} at {:.0},{:.0} on {:?}, its light {}",
@@ -106,7 +107,7 @@ fn show(
 }
 
 /// The ball: its slices flat in the systems' frame about its centre, at the world's scale.
-fn ball() -> Mesh {
+fn ball() -> Quads {
     let s = iso::MODEL_SCALE;
     let (across, down) = iso::fx_axes();
     let mut quads = Quads::default();
@@ -118,12 +119,12 @@ fn ball() -> Mesh {
             particles::MAGLITE_COLOUR,
         );
     }
-    let mut mesh = empty();
-    quads.into_mesh(&mut mesh);
-    mesh
+    quads
 }
 
-/// Keeps each light's ball at its bearer's head (`0x5AA480`), its object at the bearer's place.
+/// Keeps each light's ball at its bearer's head (`0x5AA480`), its object at the bearer's place,
+/// and lays the ball just behind its bearer's model in the order, as its system follows the
+/// bearer (the flag `0x200`), or at its object's place without one (#2220).
 fn keep(
     shown: Query<(&Shown, &GlobalTransform)>,
     mut balls: Query<&mut Transform>,
@@ -132,13 +133,26 @@ fn keep(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
 ) {
     for (shown, place) in &shown {
         let head = shown
             .bearer
             .and_then(|bearer| crate::making::bone(bearer, &HEAD, &children, (&bones, &worn)));
-        if let (Some(head), Ok(mut ball)) = (head, balls.get_mut(shown.ball)) {
-            ball.translation = head - place.translation();
+        let Ok(mut at) = balls.get_mut(shown.ball) else {
+            continue;
+        };
+        if let Some(head) = head {
+            at.translation = head - place.translation();
+        }
+        let order = match shown.bearer {
+            Some(bearer) => orders.behind(bearer),
+            None => orders.at(place.translation()),
+        };
+        if let Some(mut mesh) = meshes.get_mut(&shown.mesh) {
+            let mut quads = ball();
+            quads.in_order(order, place.translation() + at.translation);
+            quads.into_mesh(&mut mesh);
         }
     }
 }

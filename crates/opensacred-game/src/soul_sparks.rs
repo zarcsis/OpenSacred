@@ -2,7 +2,8 @@
 //! docs/re/effects.md, "The souls"): the dying creature's figure in pale green sparks, one at
 //! each of its vertices taken as it dies, rising and streaming ever faster to its soul as it
 //! flies to him, added whole and untinted; where it arrives or a cell stops it its sparks stop
-//! and fade out (`opensacred_rules::particles::SoulSparks`).
+//! and fade out (`opensacred_rules::particles::SoulSparks`), at its soul's place in the original's
+//! order of drawing as it flies (`fx::Orders::at`, #2220).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -10,7 +11,7 @@ use opensacred_rules::particles::{self, SoulSparks};
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_texture, whole_material};
+use crate::fx::{Effect, Orders, Quads, empty, particle_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::iso;
 
@@ -98,7 +99,7 @@ fn stream(
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown)>,
     souls: Query<&Transform, With<Sparks>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -129,6 +130,7 @@ fn stream(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&look.mesh) {
+            quads.in_order(orders.at(look.place), Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }
