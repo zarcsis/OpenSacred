@@ -2299,6 +2299,13 @@ fn make(
                                 DespawnOnExit(crate::game::AppState::InGame),
                             ));
                         }
+                        // The Seraphim's energy bolts' two objects 844 at her hands for the
+                        // effect's seconds (`0x504B96`, `0x504C4F`; `sera_sights`).
+                        if making.art == 1019
+                            && let Some(&(_, seconds)) = boon.effects.first()
+                        {
+                            crate::sera_sights::bolts(&mut commands, hero, seconds);
+                        }
                         // The arrowproof's object 883 and the spellproof's 870 about him for
                         // their effects' seconds, made with them (`0x5085DE`, `0x50894B`;
                         // `dark_wards`).

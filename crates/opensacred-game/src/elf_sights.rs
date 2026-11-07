@@ -177,7 +177,7 @@ fn run(
                 spark.size * s,
                 0.0,
                 whole,
-                MultiShot::spark_colour(spark.life),
+                shown.look.spark_colour(spark.life),
             );
         }
         let order = orders.behind(shown.bearer);

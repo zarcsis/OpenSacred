@@ -4882,6 +4882,24 @@ pub const MULTI_SHOT_HEAD: f32 = 5.0;
 /// how fast they age (−400, 0.6375 s) and the pull back to the hand.
 const MULTI_SHOT_SPARKS: usize = 200;
 
+/// The Seraphim's bolts' sight (844 of 1019): its comets, the point they go round through, their
+/// colour, (96, 96, 192), and the bones it stands at, an object each (`0x504B96`, `0x504C4F`).
+const SERA_BOLTS_ORBITS: u32 = 4;
+const SERA_BOLTS_FROM: [f32; 3] = [6.0, 0.0, 0.0];
+pub const SERA_BOLTS_BLUE: [f32; 4] = [96.0 / 255.0, 96.0 / 255.0, 192.0 / 255.0, 1.0];
+pub const SERA_BOLTS_BONES: [&str; 2] = ["Bip01 L Hand", "Bip01 R Hand"];
+
+/// The Seraphim's charge (844 of 1018): its textures, its glow before its sparks (the style 2)
+/// and its sparks and its glow after (the style 4); the glow's colour, (160, 160, 255); the bone
+/// it stands at; when its sparks and its light start and when its sparks stop, in seconds from
+/// its start (`0x790CE0`); its sparks at most.
+pub const SERA_CHARGE_TEXTURES: [&str; 2] = ["PARTICLE_GLOW05", "PARTICLE_SPARK07"];
+pub const SERA_CHARGE_GLOW: [f32; 4] = [160.0 / 255.0, 160.0 / 255.0, 1.0, 1.0];
+pub const SERA_CHARGE_BONE: &str = "Bip01 R Finger3";
+pub const SERA_CHARGE_START: f32 = 3.0;
+pub const SERA_CHARGE_SECONDS: f32 = 4.3;
+const SERA_CHARGE_SPARKS: usize = 200;
+
 /// A comet of the multi-shot's sight: its tail's glows from its end on, each its place about the
 /// hand in the models' frame and its half side, and its head's place.
 pub type Comet = (Vec<([f32; 3], f32)>, [f32; 3]);
@@ -4906,6 +4924,11 @@ fn turned(v: [f32; 3], axis: [f32; 3], angle: f32) -> [f32; 3] {
 /// behind it over 3 radians; and at its first run a burst of 200 sparks that fly out at up to 60
 /// along each axis and are pulled back to the hand, pale green fading to black over 0.64 s; all
 /// added whole, untinted.
+///
+/// The Seraphim's bolts' sight (844 of 1019, `cParticleSystem_sera_sm_cast`, its start
+/// `0x790CE0`, its run `0x790680`, its draw `0x790820`) is the same but for its comets, four
+/// headless ones going round 6 from the hand, their glows of the half sides `k/10`, and its
+/// colours, blue ([`MultiShot::seraphim`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MultiShot {
     pub sparks: System,
@@ -4913,34 +4936,51 @@ pub struct MultiShot {
     angle: f32,
     seconds: f32,
     burst: bool,
+    seraphim: bool,
+}
+
+/// `count` axes at random, each three `rand()` of −1 to 1 made unit.
+fn comet_axes(count: u32, dice: &mut impl Dice) -> Vec<[f32; 3]> {
+    let mut unit = || {
+        let roll = f32::from(u16::try_from(dice.below(32_768)).unwrap_or(0));
+        roll / 32_767.0 * 2.0 - 1.0
+    };
+    (0..count)
+        .map(|_| {
+            let axis = [unit(), unit(), unit()];
+            let length = axis.iter().map(|a| a * a).sum::<f32>().sqrt();
+            if length > f32::EPSILON {
+                axis.map(|a| a / length)
+            } else {
+                [0.0, 0.0, 1.0]
+            }
+        })
+        .collect()
 }
 
 impl MultiShot {
-    /// The sight of the art at its level `level` for `seconds`, its comets' axes rolled (three
-    /// `rand()` of −1 to 1 each, made unit).
+    /// The sight of the art at its level `level` for `seconds`, its comets' axes rolled.
     pub fn new(level: u32, seconds: f32, dice: &mut impl Dice) -> Self {
-        let orbits = (level + 1).min(MULTI_SHOT_ORBITS);
-        let mut unit = || {
-            let roll = f32::from(u16::try_from(dice.below(32_768)).unwrap_or(0));
-            roll / 32_767.0 * 2.0 - 1.0
-        };
-        let axes = (0..orbits)
-            .map(|_| {
-                let axis = [unit(), unit(), unit()];
-                let length = axis.iter().map(|a| a * a).sum::<f32>().sqrt();
-                if length > f32::EPSILON {
-                    axis.map(|a| a / length)
-                } else {
-                    [0.0, 0.0, 1.0]
-                }
-            })
-            .collect();
         Self {
             sparks: System::new(MULTI_SHOT_SPARKS),
-            axes,
+            axes: comet_axes((level + 1).min(MULTI_SHOT_ORBITS), dice),
             angle: 0.0,
             seconds,
             burst: false,
+            seraphim: false,
+        }
+    }
+
+    /// The Seraphim's bolts' sight at a hand for `seconds`, the effect's (`29.5 + 0.5·L`), its
+    /// four comets' axes rolled.
+    pub fn seraphim(seconds: f32, dice: &mut impl Dice) -> Self {
+        Self {
+            sparks: System::new(MULTI_SHOT_SPARKS),
+            axes: comet_axes(SERA_BOLTS_ORBITS, dice),
+            angle: 0.0,
+            seconds,
+            burst: false,
+            seraphim: true,
         }
     }
 
@@ -4973,15 +5013,20 @@ impl MultiShot {
     }
 
     /// Its comets, each its tail's glows from its end on, of their places about the hand in the
-    /// models' frame and their half sides, then its head.
+    /// models' frame and their half sides, then its head (the Seraphim's draws none).
     pub fn comets(&self) -> Vec<Comet> {
+        let (from, halves) = if self.seraphim {
+            (SERA_BOLTS_FROM, 10.0)
+        } else {
+            (MULTI_SHOT_FROM, 15.0)
+        };
         self.axes
             .iter()
             .map(|&axis| {
-                let mut point = turned(MULTI_SHOT_FROM, axis, self.angle);
+                let mut point = turned(from, axis, self.angle);
                 let mut tail = Vec::with_capacity(usize::from(MULTI_SHOT_TAIL));
                 for k in 0..MULTI_SHOT_TAIL {
-                    tail.push((point, f32::from(k) / 15.0));
+                    tail.push((point, f32::from(k) / halves));
                     point = turned(point, axis, MULTI_SHOT_STEP);
                 }
                 (tail, point)
@@ -4989,17 +5034,117 @@ impl MultiShot {
             .collect()
     }
 
-    /// The colour of a spark of the life `life`: `(⌊i/2⌋, i, ⌊i/2⌋)` of its ramp's entry `i`,
-    /// pale green at its birth, black at its death.
+    /// Its comets' heads' half side, none for the Seraphim's.
+    pub fn head(&self) -> Option<f32> {
+        (!self.seraphim).then_some(MULTI_SHOT_HEAD)
+    }
+
+    /// Its comets' colour: the multi-shot's green, the Seraphim's blue.
+    pub fn colour(&self) -> [f32; 4] {
+        if self.seraphim {
+            SERA_BOLTS_BLUE
+        } else {
+            MULTI_SHOT_GREEN
+        }
+    }
+
+    /// The colour of a spark of the life `life`: of its ramp's entry `i`, `(⌊i/2⌋, i, ⌊i/2⌋)`
+    /// pale green or the Seraphim's `(⌊i/2⌋, ⌊i/2⌋, i)` pale blue at its birth, black at its
+    /// death.
+    pub fn spark_colour(&self, life: f32) -> [f32; 4] {
+        let [half, whole] = ramp_entry(life);
+        if self.seraphim {
+            [half, half, whole, 1.0]
+        } else {
+            [half, whole, half, 1.0]
+        }
+    }
+}
+
+/// A ramp's entry `i` of the life `life` as two shares: `⌊i/2⌋` and `i`.
+fn ramp_entry(life: f32) -> [f32; 2] {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a life of 0 to 255, rounded down to its entry"
+    )]
+    let entry = life.clamp(0.0, 255.0) as u8;
+    [f32::from(entry / 2) / 255.0, f32::from(entry) / 255.0]
+}
+
+/// The Seraphim's charge (844 of 1018, `cParticleSystem_sera_sm_cast`; its start `0x790CE0`, its
+/// run `0x790680`, its draw `0x790820`; #1092), made at her right hand's third finger as her BFG
+/// starts: for 3 s a glow of `PARTICLE_GLOW05` growing to the half side 21, then until 4.3 s a
+/// `PARTICLE_SPARK07` star of the half side 30, sparks of the size 3 every 0.01 s flying out at
+/// up to 45 along each axis, pulled back at 50, shrinking, pale blue fading to black over 0.85 s,
+/// and from 3 s its light (0.7, 0.7, 1); past 4.3 s it ends with its last spark; all added whole,
+/// untinted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeraCharge {
+    pub sparks: System,
+    clock: f32,
+}
+
+impl Default for SeraCharge {
+    fn default() -> Self {
+        Self {
+            sparks: System::new(SERA_CHARGE_SPARKS),
+            clock: 0.0,
+        }
+    }
+}
+
+impl SeraCharge {
+    /// A run of `dt` seconds: from its start its sparks age, pulled back to the finger, and until
+    /// its seconds it makes them there; its clock on last.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        if self.clock >= SERA_CHARGE_START {
+            let layers = [Layer {
+                life: -300.0,
+                size: -0.1,
+                pull: 50.0,
+                ..Layer::default()
+            }];
+            self.sparks.update_toward(dt, &layers, [0.0; 3]);
+            if self.clock <= SERA_CHARGE_SECONDS {
+                let block = Block {
+                    size: spread(3.0, 0.3),
+                    velocity: spread([0.0; 3], [45.0; 3]),
+                    interval: 0.01,
+                    ..Block::default()
+                };
+                self.sparks
+                    .emit(&[block], &layers, SERA_CHARGE_SPARKS, dice);
+            }
+        }
+        self.clock += dt;
+    }
+
+    /// Its glow, while it charges: its texture of [`SERA_CHARGE_TEXTURES`] and its half side,
+    /// `7·t` to 3 s, then 30.
+    pub fn glow(&self) -> Option<(usize, f32)> {
+        let glow = if self.clock <= SERA_CHARGE_START {
+            (0, 7.0 * self.clock)
+        } else {
+            (1, 30.0)
+        };
+        (self.clock < SERA_CHARGE_SECONDS).then_some(glow)
+    }
+
+    /// Whether its light shines: from its sparks' start on.
+    pub fn lit(&self) -> bool {
+        self.clock >= SERA_CHARGE_START
+    }
+
+    /// Whether it is over: its seconds passed and its last spark gone.
+    pub fn done(&self) -> bool {
+        self.clock > SERA_CHARGE_SECONDS && self.sparks.particles.is_empty()
+    }
+
+    /// A spark's colour at its life, the bolts' ramp's.
     pub fn spark_colour(life: f32) -> [f32; 4] {
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a life of 0 to 255, rounded down to its entry"
-        )]
-        let entry = life.clamp(0.0, 255.0) as u8;
-        let half = f32::from(entry / 2) / 255.0;
-        [half, f32::from(entry) / 255.0, half, 1.0]
+        let [half, whole] = ramp_entry(life);
+        [half, half, whole, 1.0]
     }
 }
 
@@ -13386,10 +13531,88 @@ mod tests {
         }
         assert!(sight.sparks.particles.is_empty());
         assert_eq!(
-            MultiShot::spark_colour(255.0),
+            sight.spark_colour(255.0),
             [127.0 / 255.0, 1.0, 127.0 / 255.0, 1.0]
         );
         assert!(!sight.done());
+    }
+
+    #[test]
+    fn the_seraphims_bolts_go_round_her_hand_in_four_headless_blue_comets() {
+        let mut dice = Rng::of(5, 9, 21);
+        let mut sight = MultiShot::seraphim(30.0, &mut dice);
+        sight.update(0.01, &mut dice);
+        assert_eq!(sight.sparks.particles.len(), 200);
+        let comets = sight.comets();
+        assert_eq!(comets.len(), 4);
+        for (tail, head) in &comets {
+            assert_eq!(tail.len(), 20);
+            assert!((tail[19].1 - 1.9).abs() < 1e-6);
+            for point in tail.iter().map(|(p, _)| p).chain([head]) {
+                let length = point.iter().map(|a| a * a).sum::<f32>().sqrt();
+                assert!((length - 6.0).abs() < 1e-3, "{length}");
+            }
+        }
+        assert_eq!(sight.head(), None);
+        assert_eq!(sight.colour(), SERA_BOLTS_BLUE);
+        assert_eq!(
+            sight.spark_colour(255.0),
+            [127.0 / 255.0, 127.0 / 255.0, 1.0, 1.0]
+        );
+        assert_eq!(MultiShot::new(1, 20.0, &mut dice).head(), Some(5.0));
+        // Its seconds the effect's.
+        for _ in 0..3000 {
+            sight.update(0.01, &mut dice);
+        }
+        assert!(sight.done());
+    }
+
+    #[test]
+    fn the_seraphims_charge_glows_for_three_seconds_then_sparks() {
+        let mut dice = Rng::of(3, 1, 4);
+        let mut charge = SeraCharge::default();
+        let dt = 0.01;
+        let mut clock = 0.0_f32;
+        let mut step = |charge: &mut SeraCharge, clock: &mut f32| {
+            charge.update(dt, &mut dice);
+            *clock += dt;
+        };
+        // Its glow grows to 21 over its first 3 s, no spark nor light.
+        while clock < 1.995 {
+            step(&mut charge, &mut clock);
+        }
+        let (texture, half) = charge.glow().unwrap_or_default();
+        assert_eq!(texture, 0);
+        assert!((half - 14.0).abs() < 0.1, "{half}");
+        assert!(charge.sparks.particles.is_empty() && !charge.lit());
+        // Then the star of 30, the light and its sparks, about 85 at once by 4.3 s.
+        while clock < 4.2 {
+            step(&mut charge, &mut clock);
+        }
+        assert_eq!(charge.glow(), Some((1, 30.0)));
+        assert!(charge.lit());
+        let alive = charge.sparks.particles.len();
+        assert!((80..=95).contains(&alive), "{alive}");
+        // Pulled back at 50: none farther than 45·√3 · 0.85 s at most.
+        let farthest = charge
+            .sparks
+            .particles
+            .iter()
+            .map(|p| p.place.iter().map(|a| a * a).sum::<f32>().sqrt())
+            .fold(0.0_f32, f32::max);
+        assert!(farthest < 66.3, "{farthest}");
+        // Past 4.3 s no glow, and it ends with its last spark 0.85 s on.
+        while clock < 4.4 {
+            step(&mut charge, &mut clock);
+        }
+        assert_eq!(charge.glow(), None);
+        assert!(!charge.done());
+        while !charge.done() {
+            step(&mut charge, &mut clock);
+            assert!(clock < 6.0);
+        }
+        assert!((clock - 5.15).abs() < 0.05, "{clock}");
+        assert_eq!(SeraCharge::spark_colour(0.0), [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

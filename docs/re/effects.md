@@ -1866,6 +1866,26 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
 Not followed: the sparks' trails of the top detail, the lower details' longer intervals, and an item without the bones, whose sparks the original makes at its bone 0.
 
+## The Seraphim's casts
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- `cParticleSystem_sera_sm_cast` (844, `FX_SERA_SM_CAST`, its virtual table `0x8982E8`, constructor `0x7905E0`, start `0x790CE0`, run `0x790680`, draw `0x790820`) takes `PARTICLE_SPARK06` and `PARTICLE_SPARK07`, and does by its art (`+0x2568`, of the event's `+0x3C`) one of two sights; any other art's object dies at once.
+- **The charge (1018).** The BFG's first run makes it as its clip starts (`0x506077`) at the Seraphim, the FX event `0x43` following her at the bone 22 (`Bip01 R Finger3`, the handler `0x5A522D`); the bit `0x10` of her `+0x200` keeps it to one.
+  Its start: the sparks' start 3.0 s and its seconds 4.3; a block of the size 3 ± 0.3, the velocity 0 ± 45 on each axis and the interval 0.01 s; a layer of the life falling by 300 a second (0.85 s), the size by 0.1 and the pull 50; `HELF_CAST_LANG` (2065) once.
+  Its run: from 3.0 s its Direct3D light (0.7, 0.7, 1), of the kind 2, moved to its place at each update; from 3.0 s its sparks age, and until 4.3 s it makes them at its place; past 4.3 s it lives while a spark does; its clock on last.
+  Its draw: its sparks as `PARTICLE_SPARK07` billboards in its ramp, added whole (the flags `0x19`); then until 4.3 s one glow at its place of (160, 160, 255), depth tested, added whole: to 3.0 s of the style 2 (`PARTICLE_GLOW05`) and the half side `7t`, after of the style 4 (`PARTICLE_SPARK07`) and 30.
+- **The bolts (1019).** Once less than 0.35 of the art's clip is left, as her effect 17 comes, it makes two (`0x504B96`, `0x504C4F`), at the bones 1 (`Bip01 L Hand`) and 2 (`Bip01 R Hand`), each for `29.5 + 0.5·L` s, the effect's seconds; `SERA_CAST` (2071) once each.
+  Its start rolls four axes, each three uniform numbers of −1 to 1 made unit, and its phase 0; at its first update a burst of its 200 sparks, of the size 2.5 and the velocity 0 ± 60 on each axis, their life falling by 400 a second (0.6375 s) under the pull 250.
+  Its run: the phase on by 5 a second, wrapped at 2π; its sparks aged; past its seconds it dies.
+  Its draw: for each axis 20 glows of the style 5 (`PARTICLE_GLOW03`), the first at the hand plus `(6, 0, 0)` turned about the axis by the phase (the local matrix's translation 0), each next turned a further 0.15 about it, the `i`-th of the half side `0.1·i`, of (96, 96, 192), depth tested, added whole; then its sparks as `PARTICLE_SPARK06` billboards in its ramp.
+  It is the Wood Elf's multi-shot's sight (861) but for its four headless comets 6 from the hand, their glows' sizes and its colours.
+- Both share the ramp whose entry `i` is `(⌊i/2⌋, ⌊i/2⌋, i)`, pale blue at a spark's birth and black at its death, and the ageing `0x7640C0`, which pulls every spark toward the system's place by its layer's pull.
+
+`opensacred-game` draws both since #1092 (`sera_sights`, `opensacred_rules::particles::{SeraCharge, MultiShot::seraphim}`): the charge as the BFG starts, its light from 3 s (`fx_lights`), and the bolts at her hands from the effect's point for its seconds, facing the camera, untinted, just behind her model (`fx::Orders`, #2178); the sparks ride with the bone rather than stand in the world.
+**Seen** 2026-11-07 in the game (not beside the original): at the BFG a pale blue glow growing at her right hand as she rises, a white star and blue sparks at 3 s; at the energy bolts a burst of blue sparks at both hands, then blue arcs going round each.
+Their sounds are `art_sounds`' (#1172).
+
 ## The Wood Elf's sights
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
