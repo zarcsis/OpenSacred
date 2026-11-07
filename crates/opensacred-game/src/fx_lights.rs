@@ -68,7 +68,8 @@ pub(crate) fn light(
     )
 }
 
-/// A light of `colour` at its parent `owner`'s place, a child of it.
+/// A light of `colour` at its parent `owner`'s place, a child of it; visible, as the Bevy light
+/// that [`kindle`] puts under it is (#2201).
 pub(crate) fn child(colour: [f32; 3], owner: Entity) -> impl Bundle {
     (
         FxLight {
@@ -78,6 +79,7 @@ pub(crate) fn child(colour: [f32; 3], owner: Entity) -> impl Bundle {
             offset: Vec3::ZERO,
         },
         Transform::IDENTITY,
+        Visibility::default(),
         ChildOf(owner),
     )
 }
@@ -172,5 +174,23 @@ mod tests {
         }
         assert!((point.range - 200.0_f32.hypot(lift()) * s).abs() < 1e-2);
         assert!(!point.shadow_maps_enabled);
+    }
+
+    #[test]
+    fn a_light_under_its_owner_is_visible_as_its_bevy_light_is() {
+        let mut app = App::new();
+        app.add_systems(Update, kindle);
+        let owner = app.world_mut().spawn(Visibility::default()).id();
+        let light = app.world_mut().spawn(child(FIRE, owner)).id();
+        app.update();
+        let world = app.world();
+        assert!(world.entity(light).contains::<InheritedVisibility>());
+        let lit = world
+            .entity(light)
+            .get::<Children>()
+            .map(|children| children.to_vec())
+            .unwrap_or_default();
+        assert_eq!(lit.len(), 1);
+        assert!(world.entity(lit[0]).contains::<PointLight>());
     }
 }
