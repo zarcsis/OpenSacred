@@ -29,6 +29,7 @@ mod blacksmith;
 mod blast;
 mod blended;
 mod blood_fountains;
+mod blow_sights;
 mod bolt_looks;
 mod bolt_trails;
 mod bolts;
@@ -470,6 +471,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         blast::BlastPlugin,
         blended::BlendedPlugin,
         blood_fountains::BloodFountainsPlugin,
+        blow_sights::BlowSightsPlugin,
         bolt_looks::BoltLooksPlugin,
         bolt_trails::BoltTrailsPlugin,
         bolts::BoltsPlugin,

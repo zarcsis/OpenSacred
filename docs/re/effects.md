@@ -1833,6 +1833,24 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the green glow at his right hand, the five auras on the ground about him, and the heroism's star and sparks about his raised hand, his arm over them.
 Not followed: the awe at a target other than him, and the items' glows of the empty-handed arts.
 
+## The bleed and the parade
+
+Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The creature events' handler (`0x52E590`), at a strike's resolution (the event 5, `0x56B130`), makes after the floating numbers and the overlay's flash:
+  - for a blow that does a fiftieth of the struck creature's most health at least (`0x532617`, `0x549460(1)`), an object 772 (`cParticleSystem_bleed`, its constructor `0x76AE60`, start `0x76B060`, run `0x76AEF0`, draw `0x76AFF0`) at the struck creature (`0x532635`), its FX event of the kind 8 from the creature itself, `+0x38` its type's blood colour (`0x427160`) and `+0x3C` its gib set (`items.pak +0x6F`, `0x427630`);
+  - for a blow whose damage comes out at 0 or below, a miss or a damage resisted whole (`0x5320B8`), after a clash's sound at the creature, an object 773 (`cParticleSystem_parade`, `0x76C150`, `0x76C8E0`, `0x76C2F0`, `0x76C630`) at it (`0x5329FB`), its FX event of the kind `0xA`;
+  - (**hypothesis**) both where the cell has the bit `0x800` of its `+0x30` (`0x634840`).
+  The handler's cases 8 (`0x5A5315`) and `0xA` (`0x5A5354`) follow the creature at its neck, else its root.
+- The blood colour by the gib set: 1 (0, 170, 0), 2 (17, 17, 17), 3 (115, 86, 35), 4 (171, 190, 205), any other (170, 0, 0); a type outside the categories 2, 3 and `0x20` bleeds black.
+- The bleed: a burst of its 50 particles at its first update, of the buoyancy 60, the size 8 ± 3 growing by 15 a second, the angle π ± π, the velocity `(r cos φ, r sin φ, 0)` ± 40 on each axis (`φ` at random and `r` from 50 to 80, rolled once), born at `(U·12 − 6, U·12 − 6, U·30 − 30)` ± 3 about the neck (rolled once), their life falling by 600 a second (0.425 s); drawn as `PARTICLE_DOTS03` billboards in the blood colour at the alpha of their life, turned by their angles, laid over by their alpha (the flags 6), untinted.
+  At its death, but for the gib sets 3 and 4, it asks a blood puddle (903) within 15 of it, which only the setting `VIOLENCE` makes (`0x5B34A8`).
+- The parade: ten streaks of five points at 20, 15, 10, 5 and 0 along `e = normalise(d + U(±0.2)³)`, `d = normalise(cos φ, sin φ, 4)` with `φ` at random, all of the velocity `350·e`, which loses `4 dt` of itself each update, their life falling by 1,000 a second (0.255 s); each drawn as an untextured line strip through its five points coloured from the head (240, 209, 0) opaque, (240, 209, 0), (208, 177, 0) at 191, (176, 145, 0) at 127, to (144, 113, 0) at 63, laid over by their alpha, depth tested, in the draw's matrix at the creature's neck (**hypothesis**: the camera's, so that the streaks show in the screen's plane).
+
+`opensacred-game` draws both since #1092 (`blow_sights`, `opensacred_rules::particles::{Bleed, Parade, blood_colour, blow_bleeds}`), from each strike that `fight::resolve` resolves (`fight::Struck`, its damage and the target's most health), at the struck creature's neck, the bleed's droplets where they flew, the parade's streaks riding with it in the camera's plane, both just behind its model (`fx::Orders`, #2178); a hero bleeds red.
+**Seen** 2026-11-07 in the game (not beside the original): the Seraphim of level 1 struck for 12 by a bandit, a spray of red droplets beside her neck; at her miss, ten golden streaks bursting from her neck up and aside.
+Not followed: the puddle 903, the cell's bit `0x800`, and the clash's sound, which `sfx` plays its own way.
+
 ## The Wood Elf's sights
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
