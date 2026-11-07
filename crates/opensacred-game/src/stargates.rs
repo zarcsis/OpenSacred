@@ -2,8 +2,11 @@
 //! docs/re/effects.md, "The stargates"): the scripts' gate objects (`npcs`) stand an upright
 //! window facing the viewer 95 over their point, a world map's picture in it, its edges fading in
 //! a capsule and ripples running out from its middle, its picture changing every 5 s; two whirls
-//! turn about it, drawn over everything; it grows from nothing as it is made, and lights the
-//! ground about it by night (`opensacred_rules::particles::Stargate`). None darkens by night.
+//! turn about it, drawn with their depth not tested; it grows from nothing as it is made, and
+//! lights the ground about it by night (`opensacred_rules::particles::Stargate`). None darkens by
+//! night. All lie at the gate's place in the original's order of drawing (`fx::Orders::at`,
+//! #2220): the window no nearer than it, the whirls at it whole, over what the order draws before
+//! the gate and under what it draws after (`fx::Quads::at_order`).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
@@ -13,7 +16,7 @@ use opensacred_rules::particles::{self, STARGATE_HIGH, STARGATE_WHIRL_ALPHAS, St
 
 use crate::bolt_looks::world;
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, linear, over_material, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, linear, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::spawning::Rng;
 use crate::{daynight, iso};
@@ -46,7 +49,7 @@ impl Default for Dice {
 }
 
 /// The materials of a kind of gate: its sixteen pictures', laid over by their alpha, and its
-/// whirls', the first laid over and the second added, both over everything.
+/// whirls', the first laid over and the second added, both at the gate's depth in the order.
 #[derive(Clone, Default)]
 struct Materials {
     pictures: Vec<Option<Handle<Effect>>>,
@@ -115,8 +118,10 @@ fn show(
                     .collect();
                 let [laid, added] = particles::STARGATE_WHIRLS[kind];
                 let whirls = [
-                    texture(laid).map(|image| effects.add(over_material(image, AlphaMode::Blend))),
-                    texture(added).map(|image| effects.add(over_material(image, AlphaMode::Add))),
+                    texture(laid)
+                        .map(|image| effects.add(particle_material(image, AlphaMode::Blend))),
+                    texture(added)
+                        .map(|image| effects.add(particle_material(image, AlphaMode::Add))),
                 ];
                 Materials { pictures, whirls }
             })
@@ -170,18 +175,20 @@ fn show(
 
 /// Runs each gate a frame on (`0x780450`, `0x780790`): its window's ripples and its pictures'
 /// levels, each copy shown while its level is above 0, and its whirls, all at its scale about its
-/// middle, 95 over its point.
+/// middle, 95 over its point, at its place in the order (#2220).
 fn turn(
     time: Res<Time>,
-    mut gates: Query<&mut Shown>,
+    mut gates: Query<(&mut Shown, &Transform)>,
     mut windows: Query<(&mut Visibility, Option<&mut MeshMaterial3d<Effect>>)>,
-    (looks, mut dice, mut meshes): (Res<Looks>, ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (looks, mut dice, mut meshes, orders): (Res<Looks>, ResMut<Dice>, ResMut<Assets<Mesh>>, Orders),
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
     let indices = Stargate::triangles();
-    for mut look in &mut gates {
+    for (mut look, place) in &mut gates {
         let look = &mut *look;
+        let origin = place.translation;
+        let order = orders.at(origin);
         let before = look.gate.pictures;
         look.gate.update(dt, &mut dice.0);
         let scale = look.gate.scale();
@@ -212,7 +219,12 @@ fn turn(
                     Mesh::ATTRIBUTE_POSITION,
                     vertices
                         .iter()
-                        .map(|vertex| at(vertex.place).to_array())
+                        .map(|vertex| {
+                            let point = at(vertex.place);
+                            order
+                                .map_or(point, |order| order.no_nearer(point, origin))
+                                .to_array()
+                        })
                         .collect::<Vec<_>>(),
                 );
                 mesh.insert_attribute(
@@ -242,6 +254,7 @@ fn turn(
                 [1.0, 1.0, 1.0, STARGATE_WHIRL_ALPHAS[k]],
             );
             if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.at_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
