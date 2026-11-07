@@ -140,7 +140,7 @@ fn run(
     looks: Option<ResMut<Looks>>,
     mut set: Query<(&mut Set, &Transform, &mut daynight::Light)>,
     mut arrows: Query<&mut Transform, Without<Set>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let Some(mut looks) = looks else {
         return;
@@ -162,6 +162,8 @@ fn run(
         let colour = [r, g, b, set.beacon.alpha()];
         let mut quads = Quads::default();
         ribbon_quads(&mut quads, &set.beacon.helix(), colour);
+        // At its object's place in the order, as the original draws the system (#2220).
+        quads.in_order(orders.at(at.translation), at.translation);
         quads.into_mesh(&mut mesh);
     }
 }
