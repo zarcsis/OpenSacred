@@ -101,6 +101,11 @@ impl Playing {
         self.target
     }
 
+    /// The rate its clip plays at, its length over its seconds (the original's `+0x3E6` over 100).
+    pub fn rate(&self) -> f32 {
+        self.length / self.seconds.max(f32::EPSILON)
+    }
+
     /// The share of its clip played on `player`, none where the clip is gone.
     pub fn done(&self, player: &AnimationPlayer) -> Option<f32> {
         player

@@ -7248,6 +7248,167 @@ impl ForceOfHell {
     }
 }
 
+/// The Dwarf's war cry's ghosts' model (`fx_dwar_ghost.grn`, a floating dwarf), its textures,
+/// the ghosts', the sparks' and the glow's, and its glow's colour, (64, 128, 240).
+pub const WAR_CRY_MODEL: &str = "FX_DWAR_GHOST.GRN";
+pub const WAR_CRY_TEXTURES: [&str; 3] = ["fx_dwarf_ghost", "PARTICLE_SPARK07", "PARTICLE_GLOW03"];
+pub const WAR_CRY_GLOW: [f32; 3] = [64.0 / 255.0, 128.0 / 255.0, 240.0 / 255.0];
+/// Its sparks at most and in its burst; the delay before its ghosts rise, and the clock of its
+/// burst, both at its rate; how its ghosts grow a run, a share of their phase, at 60 runs a second.
+const WAR_CRY_COUNT: usize = 700;
+const WAR_CRY_BURST: usize = 170;
+const WAR_CRY_DELAY: f32 = 0.7;
+const WAR_CRY_BURST_AT: f32 = 1.1;
+const WAR_CRY_GROWTH: f32 = 0.013;
+
+/// The Dwarf's war cry (1023, `cParticleSystem_kriegsschrei`, its start `0x7B8300`, run
+/// `0x7B7F10` and draw `0x7B80F0`; docs/re/effects.md, "The Dwarf's war cry"): as the art starts,
+/// at its clips' rate, a blue glow flat at his feet growing for 1.1 s; three dwarf ghosts rising
+/// one after another from 0.7 s, growing, glowing up and dark again; at 1.1 s a burst of 170
+/// sparks leaping and bouncing on the ground, white through blue to black; the glow shrinking
+/// after it by 10 a second, and with it the cry ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WarCry {
+    pub sparks: System,
+    clock: f32,
+    rate: f32,
+    stage: u8,
+    phases: [f32; 3],
+    heights: [f32; 3],
+    scales: [f32; 3],
+    glow: f32,
+    burst: bool,
+    ramp: Ramp,
+}
+
+impl WarCry {
+    /// A cry at the clips' rate `rate` (the Dwarf's `+0x3E6` over 100).
+    pub fn new(rate: f32) -> Self {
+        let c = |r: f32, g: f32, b: f32| [r / 255.0, g / 255.0, b / 255.0, 1.0];
+        Self {
+            sparks: System::new(WAR_CRY_COUNT),
+            clock: 0.0,
+            rate,
+            stage: 0,
+            phases: [0.0, -0.5, -1.0],
+            heights: [0.0; 3],
+            scales: [1.5; 3],
+            glow: 0.0,
+            burst: false,
+            ramp: Ramp::new(
+                c(254.0, 254.0, 254.0),
+                &[
+                    (c(79.0, 115.0, 133.0), 14),
+                    (c(67.0, 127.0, 232.0), 13),
+                    (c(40.0, 82.0, 151.0), 60),
+                    (c(0.0, 0.0, 0.0), 169),
+                ],
+            ),
+        }
+    }
+
+    /// A run of `dt` seconds: its clock on by `dt` at its rate; past its delay its ghosts' phases
+    /// on by twice that, their heights `50.2·sin(φ/2)` and their scales growing by `0.013·φ` a
+    /// run, until the last's passes π; until its burst its glow `25·t`, and at 1.1 its burst;
+    /// after it its sparks age, bouncing on the ground, and its glow shrinks by 10 a second.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let d = dt * self.rate;
+        self.clock += d;
+        match self.stage {
+            0 => {
+                if WAR_CRY_DELAY < self.clock {
+                    self.stage = 1;
+                }
+            }
+            1 => {
+                for phase in &mut self.phases {
+                    *phase += 2.0 * d;
+                }
+                if self.phases[2] > std::f32::consts::PI {
+                    self.stage = 2;
+                }
+                let runs = dt * 60.0;
+                for ((phase, height), scale) in self
+                    .phases
+                    .iter()
+                    .zip(&mut self.heights)
+                    .zip(&mut self.scales)
+                {
+                    *height = 50.2 * (phase / 2.0).sin();
+                    *scale += WAR_CRY_GROWTH * phase * runs;
+                }
+            }
+            _ => {}
+        }
+        if !self.burst {
+            self.glow = 25.0 * self.clock;
+            if self.clock >= WAR_CRY_BURST_AT {
+                self.burst = true;
+                self.glow = 27.5;
+                let block = Block {
+                    buoyancy: spread(280.0, 60.0),
+                    size: spread(2.0, 1.0),
+                    velocity: spread([0.0, 0.0, 80.0], [25.0, 25.0, 5.0]),
+                    offset: spread([0.0; 3], [12.0, 12.0, 0.0]),
+                    ..Block::default()
+                };
+                self.sparks
+                    .burst(&block, WAR_CRY_BURST, WAR_CRY_COUNT, dice);
+            }
+        } else {
+            self.sparks.update_over(dt, &[Self::layer()], Some(0.0));
+            self.glow = (self.glow - 10.0 * dt).max(0.0);
+        }
+    }
+
+    /// Its sparks' layer: their life falling by 50 a second, their size by 1.5.
+    fn layer() -> Layer {
+        Layer {
+            life: -50.0,
+            size: -1.5,
+            ..Layer::default()
+        }
+    }
+
+    /// Whether it has ended: its glow gone after its burst.
+    pub fn done(&self) -> bool {
+        self.burst && self.glow <= 0.0
+    }
+
+    /// Whether it has burst.
+    pub fn burst(&self) -> bool {
+        self.burst
+    }
+
+    /// Its glow's half side.
+    pub fn glow_half(&self) -> f32 {
+        self.glow
+    }
+
+    /// Its ghosts that show, each its index, its height over his feet, its scale and its colour:
+    /// while they rise, those whose phase `φ` lies within 0 to π, of `(⌊32·v⌋, ⌊64·v⌋, ⌊128·v⌋)`,
+    /// `v = sin φ·(1 − 0.3·i)`.
+    pub fn ghosts(&self) -> Vec<(usize, f32, f32, [f32; 3])> {
+        if self.stage != 1 {
+            return Vec::new();
+        }
+        (0..3)
+            .filter(|&i| (0.0..std::f32::consts::PI).contains(&self.phases[i]))
+            .map(|i| {
+                let fade = [1.0, 0.7, 0.4][i];
+                let v = self.phases[i].sin() * fade;
+                let colour = [32.0, 64.0, 128.0].map(|c: f32| (c * v).trunc() / 255.0);
+                (i, self.heights[i], self.scales[i], colour)
+            })
+            .collect()
+    }
+
+    /// A spark's colour at its life.
+    pub fn colour(&self, life: f32) -> [f32; 4] {
+        self.ramp.at(life)
+    }
+}
+
 /// The Dwarf's burrowing's dome's models, a phase each (`fx_shield_phase1` to `4`, each a mesh
 /// `Hedra01`: its cap, its upper part, down to the ground, and whole), its textures, the dome's
 /// lit and added passes' and its glow's, the glow's half side and the dome's scale.
@@ -16594,6 +16755,43 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn the_war_cry_raises_three_ghosts_bursts_and_fades_with_its_glow() {
+        let mut dice = Rng::of(9, 1, 7);
+        let mut cry = WarCry::new(1.2);
+        let dt = 1.0 / 60.0;
+        let mut clock = 0.0_f32;
+        let (mut seen, mut burst_at, mut highest) = ([false; 3], None, 0.0_f32);
+        while !cry.done() {
+            cry.update(dt, &mut dice);
+            clock += dt;
+            for (i, height, _, _) in cry.ghosts() {
+                seen[i] = true;
+                highest = highest.max(height);
+            }
+            if cry.burst() && burst_at.is_none() {
+                burst_at = Some(clock);
+                assert_eq!(cry.sparks.particles.len(), 170);
+            }
+            for spark in &cry.sparks.particles {
+                assert!(spark.place[2] > -10.0);
+            }
+            assert!(clock < 5.0);
+        }
+        // Three ghosts, rising to 50; the burst at 1.1 / 1.2 s, the end 2.75 s after it.
+        assert_eq!(seen, [true; 3]);
+        assert!(highest > 49.0 && highest <= 50.2, "{highest}");
+        let burst_at = burst_at.unwrap_or_default();
+        assert!((burst_at - 1.1 / 1.2).abs() < 0.03, "{burst_at}");
+        assert!((clock - burst_at - 2.75).abs() < 0.03, "{clock}");
+        // White at its birth, black at its death.
+        assert_eq!(
+            cry.colour(255.0),
+            [254.0 / 255.0, 254.0 / 255.0, 254.0 / 255.0, 1.0]
+        );
+        assert_eq!(cry.colour(0.0), [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
