@@ -34,8 +34,8 @@ use bevy::prelude::*;
 pub use opensacred_rules::minds::of_type;
 use opensacred_rules::minds::{
     self, AT_THE_DOOR, BEHAVES_WITHIN, Blocked, Child, Decision, DoorSeen, Evening, Foe, Pursues,
-    Pursuit, Senses, Spot, Walking, Why, child, daemon_fear, daemon_near, door_in_the_way,
-    evening_way, follow, opens, runs_from, steps_off, townsperson, trader_for,
+    Pursuit, Senses, Spot, Walking, Why, activity, child, daemon_fear, daemon_near,
+    door_in_the_way, evening_way, follow, opens, runs_from, steps_off, townsperson, trader_for,
 };
 use opensacred_rules::ways::DoorPoints;
 
@@ -1631,6 +1631,8 @@ fn behave(
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
+    // The doings written on others than the one deciding: a meeting's partner's (`0x4FC650`).
+    let mut doings: Vec<(Entity, u16)> = Vec::new();
     let mut torches: Vec<(Entity, minds::Torch)> = Vec::new();
     for (entity, transform, way, mut mind, walk) in &mut creatures {
         // A follower keeps by its master instead (`followers`), and one whose script's queue runs
@@ -1666,8 +1668,16 @@ fn behave(
                 foe.side
             );
             mind.foe = (foe.entity != the_hero).then_some(foe.entity);
+            mind.activity = activity::FIGHTS;
             stops.push(entity);
             continue;
+        }
+        // Its doing at every run of its behaviour: a guard's post, one that stands its own
+        // (`0x4EFB03`, `0x4F46C9`).
+        if mind.active && mind.is_guard() {
+            mind.activity = activity::GUARDS;
+        } else if mind.stands_by_flags() {
+            mind.activity = activity::STANDS;
         }
         if let Some(walk) = walk {
             // A guard decides as it walks too, the others only standing (`0x4EE030`, #608): on a
@@ -1735,6 +1745,7 @@ fn behave(
                 mind.partner = None;
                 continue;
             };
+            mind.activity = activity::FOLLOWS;
             let why = follow(spot(here), spot(at), after_hero);
             debug!(
                 "ai: {entity} {why:?} from {:.0},{:.0} about {partner} at {:.0},{:.0}",
@@ -1762,10 +1773,13 @@ fn behave(
                     // and turns back, and talks.
                     mind.last = Some(partner);
                     mind.partner = None;
+                    mind.activity = activity::NONE;
                     if mind.talks_at_meeting(&mut minds.rng) {
+                        mind.activity = mind.talks_of(&mut minds.rng);
                         turns.push((entity, at));
                         if !partner_trades {
                             turns.push((partner, here));
+                            doings.push((partner, activity::LISTENS));
                             if partner_walks {
                                 stops.push(partner);
                             }
@@ -1817,6 +1831,8 @@ fn behave(
             && !mind.dialogue
             && let Some(target) = danger(here, &hostiles, &mut minds.rng)
         {
+            // Away from a danger (`0x4F1875`).
+            mind.activity = activity::WALKS + 1;
             debug!(
                 "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
                 Why::Flees,
@@ -1898,15 +1914,28 @@ fn behave(
                 if let Some(torch) = mind.townsperson_torch(!inside, (!inside, night), left()) {
                     torches.push((entity, torch));
                 }
-                let stage =
-                    match evening_way(spot(here), inside, door.map(spot), &mut minds.rng) {
-                        Evening::Indoors => indoors(here, &heights, &mut minds.rng)
-                            .map(|(to, _)| (to, Why::Wanders)),
-                        Evening::Toward(to) => Some((point(to, here.y), Why::GoesIn)),
-                        Evening::GoesIn => goes_in(&mut mind, &mut swings, &mut minds.rng)
-                            .map(|to| (to, Why::GoesIn)),
-                        Evening::Wanders(to) => Some((point(to, here.y), Why::Wanders)),
-                    };
+                // Its doing: the evening's way taken, then its stage's, one more before the
+                // Daemon (`0x4F0F72`, `0x4F1037`, `0x4F1AAB`, `0x4F2FEB`).
+                let danger = u16::from(before_daemon);
+                mind.activity = activity::SLEEPS + danger;
+                let stage = match evening_way(spot(here), inside, door.map(spot), &mut minds.rng) {
+                    Evening::Indoors => {
+                        mind.activity = activity::NERVOUS;
+                        indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
+                    }
+                    Evening::Toward(to) => {
+                        mind.activity = activity::TO_DOOR + danger;
+                        Some((point(to, here.y), Why::GoesIn))
+                    }
+                    Evening::GoesIn => {
+                        mind.activity = activity::TO_DOOR + danger;
+                        goes_in(&mut mind, &mut swings, &mut minds.rng).map(|to| (to, Why::GoesIn))
+                    }
+                    Evening::Wanders(to) => {
+                        mind.activity = activity::WALKS + danger;
+                        Some((point(to, here.y), Why::Wanders))
+                    }
+                };
                 if let Some((target, why)) = stage {
                     debug!(
                         "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -1936,6 +1965,7 @@ fn behave(
                     target.z
                 );
                 through(&mut mind, &mut swings);
+                mind.activity = activity::GOES_OUT;
                 walks.push((entity, Walk::to(target, way.level, mind.speed)));
                 continue;
             }
@@ -1967,6 +1997,7 @@ fn behave(
             match townsperson(&mind, human, animal, trader, &mut minds.rng) {
                 Decision::Visits((animal, target)) => {
                     mind.last = Some(animal);
+                    mind.activity = activity::ANIMAL;
                     debug!(
                         "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
                         Why::Visits,
@@ -1979,6 +2010,7 @@ fn behave(
                     continue;
                 }
                 Decision::GoesHome => {
+                    mind.activity = activity::GOES_HOME;
                     let target = point(mind.home, here.y);
                     debug!(
                         "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -1995,6 +2027,11 @@ fn behave(
                     debug!("ai: {entity} {:?} {partner}", Why::TakesPartner);
                     mind.partner = Some(partner);
                     mind.runs_after = false;
+                    mind.activity = if home {
+                        activity::GOES_HOME
+                    } else {
+                        activity::ROMANCE
+                    };
                     if home {
                         let home = point(mind.home, here.y);
                         walks.push((entity, Walk::to(home, way.level, mind.speed)));
@@ -2012,6 +2049,7 @@ fn behave(
                     );
                     mind.last = Some(trader);
                     mind.visiting = Some(trader);
+                    mind.activity = activity::TRADER;
                     let walk = Walk::to(at, way.level, mind.speed).within(AT_THE_TRADER);
                     walks.push((entity, walk));
                     continue;
@@ -2027,6 +2065,7 @@ fn behave(
                     debug!("ai: {entity} {:?} {does:?}", Why::Plays);
                     match does {
                         Child::Plays(to) => {
+                            mind.activity = activity::WALKS;
                             let to = point(to, here.y);
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                             playing.push((entity, here));
@@ -2048,6 +2087,7 @@ fn behave(
                     continue;
                 }
                 Decision::House => {
+                    mind.activity = activity::GOES_IN;
                     if let Some(target) = goes_in(&mut mind, &mut swings, &mut minds.rng) {
                         debug!(
                             "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -2067,7 +2107,7 @@ fn behave(
                     commands.entity(entity).insert(Plays { instrument, on });
                     continue;
                 }
-                Decision::Stop => {}
+                Decision::Stop => mind.activity = activity::NONE,
             }
         }
         if !mind.active || folk {
@@ -2186,6 +2226,11 @@ fn behave(
                 mind.partner = Some(leader);
                 mind.runs_after = true;
             }
+        }
+    }
+    for (entity, doing) in doings {
+        if let Ok((_, _, _, mut mind, ..)) = creatures.get_mut(entity) {
+            mind.activity = doing;
         }
     }
     for (entity, at) in turns {

@@ -25,8 +25,8 @@
 //! (`cursors`). While the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the
 //! foe that the cursor picks tells its values under its name ([`foe_values`]).
 //!
-//! Not followed yet: the mounts' labels (#1822), the stargate 1180's, and the townsfolk's activity
-//! icons under Alt (#2234).
+//! Not followed yet: the mounts' labels (#1822) and the stargate 1180's; the townsfolk's doings'
+//! icons under Alt are `icons`' (#2234).
 
 use std::collections::{HashMap, HashSet};
 
