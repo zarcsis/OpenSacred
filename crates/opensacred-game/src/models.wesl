@@ -39,6 +39,10 @@ const SQUEEZE: f32 = 0.01;
 /// within a few tenths of a unit of its place among the quads standing on the floor, while its
 /// parts keep half a unit's steps of the depth buffer apart.
 const ON_FLOOR_SQUEEZE: f32 = 0.002;
+/// How far behind its place an effect's model under the models of its place lies
+/// (`models::Pass::Under`): behind the back of a creature standing at its cell's farthest corner,
+/// 33 units of its own depth from the cell's centre and 20 more of its body, squeezed.
+const UNDER: f32 = 0.55;
 
 /// The depth no further back than which a vertex at `world` of a model standing on an upper
 /// storey's floor lies: the floor's plane where the vertex shows, as the floor's own quads have it
@@ -116,6 +120,10 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let place = vec4(vec3(anchor.x, 0.0, anchor.z) - back * floor.z, anchor.w);
     let own = dot(out.world_position.xyz - anchor.xyz, back);
     out.position.z = order::depth(place, SQUEEZE * own);
+    // An effect's model under the models of its place (`models::Pass::Under`), at one depth
+    // behind every texel of a creature standing anywhere in its cell.
+@if(UNDER)
+    out.position.z = order::depth(place, -UNDER);
     if floor.w > 0.5 {
         out.position.z = max(out.position.z, on_floor(out.world_position.xyz, floor, own));
     }
