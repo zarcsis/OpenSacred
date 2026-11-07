@@ -1206,6 +1206,70 @@ pub fn burn_variant(creature: u32) -> Option<u8> {
     }
 }
 
+/// The colour of the generic system's variant 2 that the Seraphim's energy bolts' effect makes of
+/// her weapons, (128, 128, 255) (the adder `0x582D50`'s case 17).
+pub const WEAPON_SPARKS: u32 = 0xFF80_80FF;
+
+/// The vertices of a model whose meshes hold `counts` vertices each that a burst at its vertices
+/// takes (`0x767FB0`), each a mesh's index and its vertex's: `N`, the least of
+/// [`GENERIC_PARTICLES`] and all its vertices `V`, every `⌊V/N⌋`th vertex of each mesh from its
+/// first in turn, until `N`.
+pub fn vertex_picks(counts: &[usize]) -> Vec<(usize, usize)> {
+    let total: usize = counts.iter().sum();
+    let wanted = total.min(GENERIC_PARTICLES);
+    if wanted == 0 {
+        return Vec::new();
+    }
+    let step = (total / wanted).max(1);
+    counts
+        .iter()
+        .enumerate()
+        .flat_map(|(mesh, &count)| (0..count).step_by(step).map(move |vertex| (mesh, vertex)))
+        .take(wanted)
+        .collect()
+}
+
+/// The sparks of the generic system's variant 2 in the colour `colour` (`0x796E10`'s case 2;
+/// #2211): one at each of the points `points` of an item's model in the system's frame
+/// ([`vertex_picks`]), of a size of 7 ± 3 that falls by 5 a second, still, never ageing; each
+/// `PARTICLE_SPARK06` added whole in the colour; no light. The system ends with its last spark,
+/// within 2 s.
+pub fn weapon_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
+    let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
+    let size = spread(7.0, 3.0);
+    let particles = points
+        .iter()
+        .take(GENERIC_PARTICLES)
+        .map(|&place| Particle {
+            place,
+            velocity: [0.0; 3],
+            buoyancy: 0.0,
+            size: spread_f32(size, dice),
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        })
+        .collect();
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            size: -5.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new([r, g, b, a], &[([r, g, b, a], 256)]),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
 /// The sparks of the generic system's variant 0 in the colour `colour` (`0x796E86`; #1262): up to
 /// [`GENERIC_PARTICLES`] at the points `points` of a body in the system's frame, taken in turn
 /// (the original's every `⌊V/500⌋`th vertex of its model, the game's points), each of a buoyancy of
@@ -17153,6 +17217,39 @@ mod tests {
         }
         // Gone at 3 / 1.7 s.
         assert!((lived - 3.0 / 1.7).abs() < 0.02, "{lived}");
+    }
+
+    #[test]
+    fn a_weapon_bursts_into_still_blue_sparks_at_its_vertices() {
+        // A model of 1,200 vertices in two meshes: 500 of them, every second one of each mesh.
+        let picks = vertex_picks(&[700, 500]);
+        assert_eq!(picks.len(), 500);
+        assert_eq!(picks[1], (0, 2));
+        assert_eq!(picks[350], (1, 0));
+        assert_eq!(picks[499], (1, 298));
+        // A small one: every vertex.
+        assert_eq!(
+            vertex_picks(&[3, 2]),
+            [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)]
+        );
+        assert!(vertex_picks(&[]).is_empty());
+        let mut dice = Rng::of(4, 2, 9);
+        let points = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+        let burst = weapon_sparks(&points, WEAPON_SPARKS, &mut dice);
+        assert_eq!(burst.particles.len(), 2);
+        assert_eq!(burst.particles[1].place, [4.0, 5.0, 6.0]);
+        assert!(
+            burst
+                .particles
+                .iter()
+                .all(|p| (4.0..=10.0).contains(&p.size))
+        );
+        assert_eq!(
+            burst.ramp.at(128.0),
+            [128.0 / 255.0, 128.0 / 255.0, 1.0, 1.0]
+        );
+        assert_eq!(burst.layer.size, -5.0);
+        assert_eq!(burst.light, 0.0);
     }
 
     #[test]

@@ -633,10 +633,21 @@ fn load(
                 held,
             }
         });
-    let arsenal = (bfg.is_some() || hurled.is_some()).then(|| {
+    // Her arms of empty hands, those of her 1019's effect: her template's items but those in her
+    // hands (#2211).
+    let bolts = seraphim.then(|| {
+        let bare = npcs.hero_put_away(&worn);
+        let (class_bare, _) = npcs.hero_gear(&bare);
+        let clips = clips_of(assets, &model, presets, (kind, class_bare), &hits, &points);
+        arms(&bare, clips)
+    });
+    let arsenal = (bfg.is_some() || bolts.is_some() || hurled.is_some()).then(|| {
         let mut arsenal = arsenal::Arsenal::new(arms(&worn, clips.clone()));
         if let Some(bfg) = bfg {
             arsenal = arsenal.with_bfg(bfg);
+        }
+        if let Some(bolts) = bolts {
+            arsenal = arsenal.with_bolts(bolts);
         }
         if let Some(hurled) = hurled {
             arsenal = arsenal.with_hurled(hurled);
