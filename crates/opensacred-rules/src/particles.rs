@@ -1503,6 +1503,94 @@ pub fn helix_ribbons(
     [flat, upright]
 }
 
+/// The Dark Elf's casts' helices' colours, the slaughter's (1047) red and the death's mark's
+/// (1048) yellow (`0x794300`).
+pub const DARK_HELIX_COLOURS: [[f32; 3]; 2] =
+    [[1.0, 64.0 / 255.0, 64.0 / 255.0], [1.0, 1.0, 64.0 / 255.0]];
+/// When the helix shows, how fast its phase grows and how fast its steps' rise grows, a second,
+/// and its first rise a step (`0x793E50`, `0x794300`).
+const DARK_HELIX_START: f32 = 3.0;
+const DARK_HELIX_RATE: f32 = 0.6;
+const DARK_HELIX_STRETCH: f32 = 1.5;
+const DARK_HELIX_RISE: f32 = 0.1;
+/// The helix's steps, their turn, its radius and its ribbons' half width (`0x794300`).
+const DARK_HELIX_STEPS: u8 = 50;
+const DARK_HELIX_TURN: f32 = -0.4;
+const DARK_HELIX_RADIUS: f32 = 20.0;
+const DARK_HELIX_HALF: f32 = 3.0;
+
+/// The Dark Elf's casts' helix (1047, 1048; 865, `cParticleSystem_dark_sm_cast`, its start
+/// `0x794300`, run `0x793E50` and draw `0x793FD0`; docs/re/effects.md, "The Dark Elf's casts"):
+/// 3 s after the art starts, a coil of [`HELIX_TEXTURE`] of radius 20 winds up from his root,
+/// spinning and stretching as it rises, red or yellow, fading in and out over 1.67 s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DarkHelix {
+    clock: f32,
+    phase: f32,
+    rise: f32,
+    base: f32,
+    colour: [f32; 3],
+}
+
+impl DarkHelix {
+    /// The helix of `art`, where it is the slaughter (1047) or the death's mark (1048), its first
+    /// step at the angle `base` (`rand()/32767·2π`).
+    pub fn new(art: u16, base: f32) -> Option<Self> {
+        let colour = match art {
+            1047 => DARK_HELIX_COLOURS[0],
+            1048 => DARK_HELIX_COLOURS[1],
+            _ => return None,
+        };
+        Some(Self {
+            clock: 0.0,
+            phase: 0.0,
+            rise: DARK_HELIX_RISE,
+            base,
+            colour,
+        })
+    }
+
+    /// A run of `dt` seconds: its clock; from 3 s its phase grows by 0.6 a second and its steps'
+    /// rise by `1 + 1.5 dt` a frame.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock < DARK_HELIX_START {
+            return;
+        }
+        self.phase += DARK_HELIX_RATE * dt;
+        self.rise *= 1.0 + DARK_HELIX_STRETCH * dt;
+    }
+
+    /// Whether its phase has reached 1.
+    pub fn done(&self) -> bool {
+        self.phase >= 1.0
+    }
+
+    /// Whether it shows: from 3 s until it is done.
+    pub fn shows(&self) -> bool {
+        self.clock >= DARK_HELIX_START && !self.done()
+    }
+
+    /// Its colour, at the alpha `⌊255 sin(π·phase)⌋`.
+    pub fn colour(&self) -> [f32; 4] {
+        let alpha = (255.0 * (std::f32::consts::PI * self.phase).sin().max(0.0)).floor() / 255.0;
+        let [r, g, b] = self.colour;
+        [r, g, b, alpha]
+    }
+
+    /// Its two ribbons (`0x762C30` with `t = 100·phase`): its 50 steps from the height `t` times
+    /// the rise and the angle `base − 0.4 t`, each a rise higher and 0.4 rad on clockwise.
+    pub fn ribbons(&self) -> [Ribbon; 2] {
+        let t = 100.0 * self.phase;
+        helix_ribbons(
+            (t * self.rise, DARK_HELIX_TURN * t + self.base),
+            (self.rise, DARK_HELIX_TURN),
+            (DARK_HELIX_RADIUS, DARK_HELIX_HALF),
+            DARK_HELIX_STEPS,
+        )
+    }
+}
+
 /// How long the generic system's variants 7 and 8 emit their flames, in seconds (`0x796660`).
 pub const DEATH_FLAMES_EMIT: f32 = 1.0;
 /// The burning's scorch: its quad's half side in the models' units, how long it holds whole and
@@ -15364,6 +15452,41 @@ mod tests {
             spellproof.update(dt);
         }
         assert!((spellproof.breadth() - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_dark_helix_shows_three_seconds_on_and_stretches_as_it_fades() {
+        let mut helix = DarkHelix::new(1047, 0.0).unwrap();
+        let dt = 0.001;
+        let (mut lived, mut first, mut brightest) = (0.0, None, (0.0, 0.0_f32));
+        while !helix.done() {
+            helix.update(dt);
+            lived += dt;
+            if helix.shows() && first.is_none() {
+                first = Some(lived);
+            }
+            let alpha = helix.colour()[3];
+            if alpha > brightest.1 {
+                brightest = (lived, alpha);
+            }
+        }
+        assert!((first.unwrap() - 3.0).abs() < 0.01);
+        assert!((lived - (3.0 + 1.0 / 0.6)).abs() < 0.01, "{lived}");
+        // Brightest about the middle of its phase, rounded down within 0.03 of it.
+        assert!((brightest.0 - (3.0 + 0.5 / 0.6)).abs() < 0.06 && brightest.1 > 0.99);
+        // Its steps' rise from 0.1 to about 1.2 (`0.1·e^{2.5·phase}`), its 50 steps a coil of
+        // radius 20 whose foot rises with the phase.
+        let mut half = DarkHelix::new(1048, 0.0).unwrap();
+        for _ in 0..3833 {
+            half.update(dt);
+        }
+        let [flat, upright] = half.ribbons();
+        assert_eq!((flat.len(), upright.len()), (50, 50));
+        let [inner, outer] = flat[0];
+        assert!((inner[0].hypot(inner[1]) - 17.0).abs() < 1e-3);
+        assert!((outer[0].hypot(outer[1]) - 23.0).abs() < 1e-3);
+        assert!(inner[2] > 10.0 && inner[2] < 25.0, "{inner:?}");
+        assert!(half.colour()[1] > 0.99);
     }
 
     #[test]

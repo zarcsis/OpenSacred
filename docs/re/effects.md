@@ -1804,6 +1804,20 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the arrowproof's magenta rings rising about the Dark Elf and standing, the spellproof's cyan rings with it, both under his model and under a creature in a row in front of him.
 Not followed: a spell turned aside, which the game turns aside nowhere yet, and the wards made at an admitted target other than the Dark Elf.
 
+## The Dark Elf's casts
+
+Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
+
+- The Dark Elf's executor (`0x506770`), at the art's first run after its clip starts, makes for the slaughter (1047) and the death's mark (1048) an object 865 (`cParticleSystem_dark_sm_cast`, its constructor `0x793D80`, start `0x794300`, run `0x793E50`, draw `0x793FD0`) at him (`0x50A996`, `0x50AA5A`) with the FX event `0x58` from him, `+0x3C` the art; the handler (`0x5A52A3`) follows him at his root.
+  His empty-handed 1065 to 1067 make one that its start kills at once (nothing shows), and its case of 1043 (a magic circle) has no maker found.
+- Its start for 1047 and 1048: the start time 3.0; a helix of radius 20, half width 3, rise 0.1 and turn −0.4 a step, its base angle `rand()/32767·2π`, its colour (255, 64, 64) for 1047 and (255, 255, 64) for 1048; `DELF_CAST` (2066) once at him.
+- Its run: nothing before 3.0 s; then the phase grows by 0.6 a second and at 1 the system dies (4.67 s); the colour's alpha `⌊255 sin(π·phase)⌋`; each frame the rise a step times `1 + 1.5 dt`.
+- Its draw, from 3.0 s: `FX_HELIX01` through the helix helper `0x762C30` with `t = 100·phase`: 50 steps, the angle `θ₀ − 0.4 t − 0.4 k` and the height `(t + k)·dz`, a flat ribbon from 17 to 23 out and an upright one 3 above and below 20 out, `u = k/49` along each; depth tested, not written, no culling, added by its alpha (`SRCALPHA`, `ONE`); no tint by the night, no light.
+  So a coil of about 3.2 turns winds up from his root, red or yellow, spinning and stretching as it rises, brightest 0.83 s after it shows.
+
+`opensacred-game` draws the helix since #1092 (`dark_helices`, `opensacred_rules::particles::DarkHelix`), as the clip of 1047 or 1048 starts (`making::Playing` added), at his root, just behind his model (`fx::Orders`, #2178).
+**Seen** 2026-11-07 in the game (not beside the original): the slaughter's red coil about the Dark Elf's waist 3.85 s after the art, his body over it.
+
 ## The Gladiator's sights
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
