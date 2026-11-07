@@ -1103,14 +1103,15 @@ fn make(
                         .entry::<crate::effects::Effects>()
                         .or_default()
                         .and_modify(move |mut effects| effects.add(effect, seconds));
-                    // Its object 857 at it (`0x5124CE`), whose sight is not made, looping
-                    // `VAMP_BEHERRSCHUNG_LOOP` while it lives, for the effect's time
-                    // (**hypothesis** for its life).
+                    // Its object 857 at it (`0x5124CE`), looping `VAMP_BEHERRSCHUNG_LOOP` while
+                    // it lives, for the effect's time (**hypothesis** for its life), and its
+                    // ring about its neck (`vamp_sights`).
                     dominated.with_child((
                         crate::hums::Hum(DOMINATION_LOOP),
                         crate::spells::Fades(seconds),
                         Transform::default(),
                     ));
+                    crate::vamp_sights::dominate(&mut commands, playing.target, seconds);
                     info!(
                         "making: {} dominates {} for {seconds} s",
                         making.art, playing.target
@@ -1228,13 +1229,14 @@ fn make(
                 if let Some(record) = record
                     && let Ok((corpse, _)) = corpses.get(playing.target)
                 {
-                    // Its object 866 at the corpse (`0x51127E`), whose sight is not made: its
-                    // `VAMP_PENTA` as it starts (`0x79E5D0`).
+                    // Its object 866 at the corpse (`0x51127E`): its `VAMP_PENTA` as it starts
+                    // (`0x79E5D0`), and its pentagram under it (`vamp_sights`).
                     points.write(crate::sfx::PlayAt {
                         sound: crate::sfx::Of::Id(RAISE_SOUND),
                         point: corpse.translation(),
                         rate: (0.5, crate::sfx::Roll::None),
                     });
+                    crate::vamp_sights::raise(&mut commands, playing.target, corpse.translation());
                     crate::followers::raise(
                         &mut commands,
                         hero,
