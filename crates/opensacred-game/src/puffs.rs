@@ -151,6 +151,7 @@ fn run(
     mut puffs: Query<(Entity, &mut Puff, &mut Transform)>,
     places: Query<&GlobalTransform>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut puff, mut transform) in &mut puffs {
@@ -202,6 +203,13 @@ fn run(
                 burst.ramp.at(particle.life),
             );
         }
+        // Just behind the creature it follows, else at its place, as the original draws the
+        // system before the creature (#2188).
+        let order = (*follows).map_or_else(
+            || orders.at(transform.translation),
+            |follows| orders.behind(follows),
+        );
+        quads.in_order(order, transform.translation);
         quads.into_mesh(&mut mesh);
     }
 }

@@ -183,7 +183,9 @@ Not read: a sector whose record lacks bit 16 of `+0x30` (`0x634840`) makes the o
   The fire spiral's flames lie at their object's place, as the purgatory's (`fx::Orders::at`): an object that moves heads its cell's list at each move and is drawn before a creature standing in its cell.
   Since #2188 too the casts' sights, the Daemon's forms, the soulcatchers, the Vampiress's claws, the burning light's strikes, the teleports while they ride on their casters, the elements of the weapons in hand and the effects of #1092's later families (the Dark Elf's, the Vampiress's, the Gladiator's, the Seraphim's, the Daemon's and the Dwarf's) lay theirs just behind their creature's model, and the healings' sights, the teleports left behind and the arrows in flight at their objects' places.
   **Seen** 2026-11-07: the Daemon's form of fire's white ribbons behind her body, where before they lay over it.
-  The other systems, the effects of objects that follow no creature, are drawn at their own depths still (#2188).
+  So do the bursts (`puffs`: the undead's rings and dust, the weapons' and the changeling's sparks, the scripts' smokes), just behind the creature they follow or at their places, and at their objects' places the explosions, the goblins' and the grenades' impacts, the rings of poison, the traps' landings and the raised creatures' rings, the plant cages just behind the creatures they hold.
+  **Seen** 2026-11-07: a goblin changed into a deer, the deer drawn over its green sparks.
+  The other systems are drawn at their own depths still (#2188).
 - Not read: which of the five lists an FX object's type goes to (`0x4280B0`, `0x4280D0`, `0x4280F0`; **hypothesis**: list 3 with the creatures, as the frames agree), and the order of two creatures' and an effect's updates within a frame.
 
 ## The models' turn

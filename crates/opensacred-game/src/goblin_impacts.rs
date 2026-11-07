@@ -171,12 +171,11 @@ fn streak(quads: &mut Quads, particle: &Particle, colour: [f32; 4]) {
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut impacts: Query<(Entity, &mut Impact)>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut dice: ResMut<Dice>,
+    mut impacts: Query<(Entity, &mut Impact, &GlobalTransform)>,
+    (mut meshes, mut dice, orders): (ResMut<Assets<Mesh>>, ResMut<Dice>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
-    for (entity, mut impact) in &mut impacts {
+    for (entity, mut impact, at) in &mut impacts {
         impact.look.update(dt, &mut dice.0);
         if impact.look.done() {
             commands.entity(entity).despawn();
@@ -202,8 +201,12 @@ fn run(
                 GOBLIN_IMPACT_GLOW_COLOUR,
             );
         }
-        for (handle, quads) in impact.meshes.iter().zip([particles, glow]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = at.translation();
+        let order = orders.at(origin);
+        for (handle, mut quads) in impact.meshes.iter().zip([particles, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
