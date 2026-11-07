@@ -14,7 +14,7 @@
 
 use bevy::prelude::*;
 use opensacred_rules::arrows::{self, Point};
-pub use opensacred_rules::arrows::{ARROW, size};
+pub use opensacred_rules::arrows::{ARROW, MULTI_ARROW, size};
 use opensacred_rules::minds::{self, Spot};
 
 use crate::crowd::InTheWay;
@@ -151,7 +151,11 @@ fn loose(
     ),
     places: Query<&GlobalTransform>,
     ways: Query<&InTheWay>,
-    (holdings, arms): (Query<&fight::Holding>, Query<&crate::npcs::Arms>),
+    (holdings, arms, nearest): (
+        Query<&fight::Holding>,
+        Query<&crate::npcs::Arms>,
+        Res<crate::crowd::Nearest>,
+    ),
 ) {
     let Some(npcs) = npcs else {
         shots.clear();
@@ -185,16 +189,27 @@ fn loose(
             .and_then(|weapon| arrows::element(weapon.damage.map(|[_, most]| most)));
         // A hero with the multi-shot looses as many arrows as its whole value, fanned, each of
         // `Multipfeil` to the power of their number (`0x4DD90E`, `0x56D173`).
-        let count = arrows::volley(effects.get(shot.shooter).ok().and_then(|effects| {
+        let whole = effects.get(shot.shooter).ok().and_then(|effects| {
             effects
                 .list()
                 .into_iter()
                 .find(|effect| effect.id == arrows::MULTI_SHOT)
                 .map(|effect| effect.whole)
-        }));
+        });
+        let volley = arrows::volley(whole);
+        // The `Rundum` with a bow looses its own count times the multi-shot's (`0x4DEAA3`, #2238).
+        let rundum = shot
+            .special
+            .filter(|special| special.art == opensacred_rules::arts::BOW_RUNDUM);
+        let count = rundum.map_or(volley, |special| {
+            arrows::volley_of(
+                opensacred_rules::arts::bow_rundum_arrows(special.level),
+                whole,
+            )
+        });
         let share = rules
             .as_ref()
-            .map_or(1.0, |rules| rules.0.multi_shot(count));
+            .map_or(1.0, |rules| rules.0.multi_shot(volley));
         // A special arrow's strike carries its art's factor, which a factor of 0 leaves out.
         let share = shot.special.map_or(share, |special| {
             opensacred_rules::fight::scaled(share, special.factor)
@@ -211,7 +226,19 @@ fn loose(
             None => (first, None),
         };
         for i in 0..count {
-            let flight = first.turned_by(arrows::fanned_for(i, count, art));
+            // The `Rundum`'s arrow `i` after the first flies at the hero's `i`-th hostile, nearest
+            // first, at its neck, while the list holds one (`0x4DEAA3`); else fanned.
+            let aimed = rundum
+                .filter(|_| i > 0)
+                .and_then(|_| nearest.hostiles.get(usize::try_from(i).ok()?))
+                .and_then(|&foe| {
+                    let place = places.get(foe).ok()?.translation();
+                    Some(bone(foe, NECK).unwrap_or(place))
+                });
+            let flight = match aimed {
+                Some(at) => arrows::Arrow::new(point(from), point(at)),
+                None => first.turned_by(arrows::fanned_for(i, count, art)),
+            };
             debug!(
                 "arrows: {} looses an arrow at {} from {:.0},{:.0},{:.0} toward {:.0},{:.0},{:.0}",
                 shot.shooter, shot.target, from.x, from.y, from.z, toward.x, toward.y, toward.z

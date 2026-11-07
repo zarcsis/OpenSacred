@@ -30,19 +30,29 @@ const SPECIAL_FAN: f32 = 0.15;
 
 /// The type of a plain shot's arrow (`ARROW_LONG.GRN`).
 pub const ARROW: u32 = 3070;
+/// The type of the `Rundum`'s arrows with a bow (`TYPE_WEAPON_ARROW_MULTI`).
+pub const MULTI_ARROW: u32 = 3069;
 
 /// The type of the arrows that a shot of the combat art `art` makes (`0x4DCB80`, the byte
 /// `+0x18E` the art less 1000): the Wood Elf's special arrows 1004, 1006, 1007 and 1008 the
 /// types 3078, 3074, 3075 and 3077 (`ARROW_EXPLOSION.GRN`, `ARROW_SPIDER.GRN`,
-/// `ARROW_LONG.GRN`, `ARROW_BLADE.GRN`), any other shot [`ARROW`].
+/// `ARROW_LONG.GRN`, `ARROW_BLADE.GRN`), the `Rundum` with a bow (1061) the type 3069
+/// (`TYPE_WEAPON_ARROW_MULTI`, #2238), any other shot [`ARROW`].
 pub fn projectile(art: Option<u16>) -> u32 {
     match art {
+        Some(1061) => MULTI_ARROW,
         Some(1004) => 3078,
         Some(1006) => 3074,
         Some(1007) => 3075,
         Some(1008) => 3077,
         _ => ARROW,
     }
+}
+
+/// The arrows of a shot of `art`'s `count` arrows (`+0x261`, 1 for a plain shot) of a hero with
+/// the multi-shot's whole value `whole` (`+0x25D`): their product, 1 to 20.
+pub fn volley_of(count: u32, whole: Option<i32>) -> u32 {
+    (count.max(1) * volley(whole)).clamp(1, MOST_ARROWS)
 }
 
 /// The arrows of a shot of a hero with the multi-shot's whole value `whole` (`+0x25D`): that many,
@@ -584,7 +594,19 @@ mod tests {
         assert_eq!(projectile(Some(1006)), 3074);
         assert_eq!(projectile(Some(1007)), 3075);
         assert_eq!(projectile(Some(1008)), 3077);
-        assert_eq!(projectile(Some(1061)), ARROW);
+        // The `Rundum` with a bow's own (#2238); another art's shot a plain arrow.
+        assert_eq!(projectile(Some(1061)), MULTI_ARROW);
+        assert_eq!(projectile(Some(1062)), ARROW);
+        // Its count times the multi-shot's, at most 20.
+        assert_eq!(volley_of(3, None), 3);
+        assert_eq!(volley_of(5, Some(3)), 15);
+        assert_eq!(volley_of(5, Some(6)), 20);
+        assert_eq!(volley_of(1, Some(2)), 2);
+        assert_eq!(
+            [1, 3, 4, 9].map(crate::arts::bow_rundum_arrows),
+            [2, 4, 5, 5]
+        );
+        assert!(crate::arts::bow_rundum(1069) && !crate::arts::bow_rundum(1062));
     }
 
     #[test]

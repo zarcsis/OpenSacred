@@ -1552,6 +1552,24 @@ const MADE_WHERE_IT_STANDS: [u16; 3] = [1003, 1017, 1032];
 
 /// The distance the order makes the art `art` of the record's distance `distance` from
 /// ([`made_from`]): 0 for [`MADE_WHERE_IT_STANDS`], else the record's.
+/// The `Rundum` with a bow (1061; docs/re/arts.md, "The bow's arts", #2238): every class's own
+/// `Rundum` (1057, 1061, 1065, 1069, 1073, 1078) made with a bow or a crossbow in hand is a shot
+/// made where the hero stands (each class's executor at its first run, the Wood Elf's
+/// `0x50AC00` at its case `0x425`): of [`bow_rundum_arrows`] arrows of the type 3069, each
+/// striking by 1061's own factor at the class's own art's level.
+pub const BOW_RUNDUM: u16 = 1061;
+
+/// Whether the art `art` is a class's own `Rundum`, which a bow makes [`BOW_RUNDUM`].
+pub fn bow_rundum(art: u16) -> bool {
+    matches!(art, 1057 | 1061 | 1065 | 1069 | 1073 | 1078)
+}
+
+/// How many arrows the `Rundum` with a bow at the level in play `level` looses (`+0x261`):
+/// `min(L + 1, 5)`, which the multi-shot multiplies.
+pub fn bow_rundum_arrows(level: u32) -> u32 {
+    (level + 1).min(5)
+}
+
 pub fn order_distance(art: u16, distance: i32) -> i32 {
     if MADE_WHERE_IT_STANDS.contains(&art) {
         0
