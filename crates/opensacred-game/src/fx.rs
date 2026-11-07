@@ -753,6 +753,19 @@ impl Quads {
         }
     }
 
+    /// Appends the quads of `other` to its own: the systems of many objects in one mesh, each
+    /// laid in its own order first ([`Self::in_order`]; the items' glitter, #2220).
+    pub(crate) fn append(&mut self, other: Quads) {
+        let Ok(first) = u32::try_from(self.positions.len()) else {
+            return;
+        };
+        self.positions.extend(other.positions);
+        self.uvs.extend(other.uvs);
+        self.colours.extend(other.colours);
+        self.indices
+            .extend(other.indices.into_iter().map(|index| first + index));
+    }
+
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
         if self.indices.is_empty() {
             self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);

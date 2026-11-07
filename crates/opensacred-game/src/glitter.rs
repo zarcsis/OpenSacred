@@ -11,6 +11,9 @@
 //! by `0x409D00` (`opensacred_rules::particles::event_sparks`): at their cell's centre on its
 //! ground (the original's height 0 over its flat ground), brought toward the camera as a stash's
 //! blink is, with no phase.
+//!
+//! Each item's sparks lie at its place in the original's order of drawing, as its object draws
+//! them (`fx::Orders::at`, #2220), in the one mesh of all of them.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -19,7 +22,7 @@ use opensacred_rules::quests::Look;
 
 use crate::drops::{Lying, Tables};
 use crate::frame::Playing;
-use crate::fx::{Quads, empty, particle_material, particle_texture};
+use crate::fx::{Orders, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::stashes::Stash;
@@ -89,7 +92,7 @@ fn glitters(
     time: Res<Time>,
     handles: Option<Res<Meshes>>,
     tables: Option<Res<Tables>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, orders): (ResMut<Assets<Mesh>>, Orders),
     (items, stashes): (
         Query<(Entity, &GlobalTransform, &Lying)>,
         Query<(&Stash, &Transform)>,
@@ -107,18 +110,26 @@ fn glitters(
         }
         let phase = f32::from(u16::try_from(item.index_u32() % 1000).unwrap_or(0)) * PHASE;
         let point = at.translation();
+        let (mut own_coloured, mut own_grey) = (Quads::default(), Quads::default());
         for spark in glitter(time.elapsed_secs() * RATE + phase, SPARKS) {
             // The glitter's frame, its third coordinate up, at the world's scale.
             let centre = point + space(spark.offset);
             let [r, g, b] = spark.colour;
-            coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
-            grey.push(
+            own_coloured.push(centre, SPARK_HALF * SPACE, 0.0, whole, [r, g, b, 1.0]);
+            own_grey.push(
                 centre,
                 spark.half * SPACE,
                 0.0,
                 whole,
                 [SPARK_GREY, SPARK_GREY, SPARK_GREY, 1.0],
             );
+        }
+        // At the item's place in the order, the mesh's origin the world's (#2220).
+        let order = orders.at(point);
+        for (own, all) in [(own_coloured, &mut coloured), (own_grey, &mut grey)] {
+            let mut own = own;
+            own.in_order(order, Vec3::ZERO);
+            all.append(own);
         }
     }
     let events = event_sparks(time.elapsed_secs() * RATE, SPARKS);
