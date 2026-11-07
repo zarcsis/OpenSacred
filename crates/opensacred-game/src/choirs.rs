@@ -114,6 +114,7 @@ fn sing(
     mut shown: Query<(Entity, &mut Shown, &mut Transform)>,
     objects: Query<&GlobalTransform, With<Look>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -159,8 +160,11 @@ fn sing(
                 [0.0, 0.0, 0.0, 1.0],
             );
         }
-        for (handle, part) in look.parts.iter().zip([wisps, discs]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let order = orders.at(look.place);
+        for (handle, mut part) in look.parts.iter().zip([wisps, discs]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                part.in_order(order, look.place);
                 part.into_mesh(&mut mesh);
             }
         }

@@ -121,10 +121,15 @@ fn show(
 
 /// Runs each holy light's look a frame on (`0x781030`, `0x781100`); once it fades out it draws
 /// nothing, its object's time running out with it.
-fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<Mesh>>) {
+fn run(
+    time: Res<Time>,
+    mut shown: Query<(&mut Shown, &GlobalTransform)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    orders: crate::fx::Orders,
+) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for mut shown in &mut shown {
+    for (mut shown, place) in &mut shown {
         let shown = &mut *shown;
         shown.clock += dt;
         shown.light.update(dt, &mut shown.dice);
@@ -178,8 +183,12 @@ fn run(time: Res<Time>, mut shown: Query<&mut Shown>, mut meshes: ResMut<Assets<
                 particles::HOLY_SPARK_COLOUR,
             );
         }
-        for (handle, quads) in shown.parts.iter().zip([column, symbol, glow, sparks]) {
+        // At its object's place in the order, as the original draws the system (#2188).
+        let origin = place.translation();
+        let order = orders.at(origin);
+        for (handle, mut quads) in shown.parts.iter().zip([column, symbol, glow, sparks]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
+                quads.in_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }

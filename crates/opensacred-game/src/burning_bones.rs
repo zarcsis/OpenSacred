@@ -127,7 +127,7 @@ fn run(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
+    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -169,6 +169,9 @@ fn run(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&*mesh) {
+            // Just behind the creature it burns, as the original draws the system before the
+            // creature (#2188).
+            quads.in_order(orders.behind(fire.target), place.translation);
             quads.into_mesh(&mut mesh);
         }
         fire.last = Some(to);
