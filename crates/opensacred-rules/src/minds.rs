@@ -478,6 +478,13 @@ const SHOOTS: (f32, f32) = (250.0, 650.0);
 /// takes one again for a target beyond its reach + 100 (`0x4D4A80`).
 const SWITCHES_WITHIN: f32 = 1.5;
 const DROPS_BOW_WITHIN: f32 = 150.0;
+/// How near a rider shoots from the saddle (`0x4DBFC0`'s sub-state 1), and how its horse turns
+/// about the hero between its shots, the vector from the hero shorter than four times the reach
+/// lengthened to five times it (`0x4F4A85`, `0x5455A4`; #2288).
+const RIDER_SHOOTS: f32 = 800.0;
+const CIRCLES_TURN: f32 = 45.0;
+const CIRCLES_SHORT: f32 = 4.0;
+const CIRCLES_LONG: f32 = 5.0;
 const TAKES_BOW_BEYOND: f32 = 100.0;
 /// The weapons of the switch, `items.pak` types made at the creature's level (`0x5D5080`): the
 /// four of melee, held in the right hand, and the two bows, held in the left.
@@ -716,6 +723,10 @@ pub struct Mind {
     deciding: bool,
     shot: bool,
     backs: u8,
+    /// Riding a horse (out of the world with a mount, `+0x14` bit 2 and `+0x1EC`), and
+    /// whether its id is odd, which turns its horse's circling about the hero one way or the
+    /// other ([`Self::circles`], #2288); none on foot.
+    pub rides: Option<bool>,
     runs_at_range: bool,
     shots: Chain,
     /// Whether it went to melee from its bow and takes one again (`+0x2B8` bit `0x10`, which only
@@ -739,6 +750,21 @@ impl Mind {
     /// Its size, of which and another's the reach of two creatures is the mean ([`size`]).
     pub fn size(&self) -> u32 {
         size(self.creature, self.armed)
+    }
+
+    /// The point that a riding archer's horse takes about the hero at `hero` from `here`, of the
+    /// reach `reach` of the two (`0x5455A4`, `0x4F4A85`, #2288): the vector from the hero turned
+    /// by −45° for an odd id or +45° for an even one, lengthened to five times the reach where it
+    /// is shorter than four times it and not 0.
+    fn circles(here: Spot, hero: Spot, odd: bool, reach: f32) -> Spot {
+        let away = here - hero;
+        let length = away.length();
+        let away = if length > 0.0 && length < CIRCLES_SHORT * reach {
+            away * (CIRCLES_LONG * reach / length)
+        } else {
+            away
+        };
+        hero + away.turned(if odd { -CIRCLES_TURN } else { CIRCLES_TURN })
     }
 
     /// The mind of a creature made at `home` with the flags word `flags`, by an `Enter` function
@@ -807,6 +833,7 @@ impl Mind {
             deciding: true,
             shot: false,
             backs: 0,
+            rides: None,
             runs_at_range: false,
             shots: Chain::default(),
             takes_bow: false,
@@ -1838,6 +1865,29 @@ impl Mind {
         if striking {
             return None;
         }
+        // A rider shoots from the saddle within 800 at once, never backing off nor switching to
+        // melee (`0x4DBFC0`'s sub-state 1, the mark 10 passed over at `0x4DC152`), and between
+        // its shots its horse takes it round the hero ([`Self::circles`]; **estimate** for their
+        // alternation, the original's horse moving while its rider shoots); farther it comes on
+        // (#2288).
+        if let Some(odd) = self.rides {
+            if walk.is_some() {
+                return None;
+            }
+            if std::mem::take(&mut self.shot) {
+                let reach = reach_f32(self.size(), hero_size);
+                return Some(Pursues::Circles {
+                    to: Self::circles(here, hero, odd, reach),
+                });
+            }
+            if (hero - here).length() <= RIDER_SHOOTS {
+                return Some(self.shoot(rng));
+            }
+            return Some(Pursues::ComesOn {
+                runs: true,
+                within: COMES_WITHIN,
+            });
+        }
         let d = (hero - here).length();
         if d < DROPS_BOW_WITHIN && self.class == 5 && rng.below(4) == 0 {
             return Some(self.goes_to_melee(None));
@@ -2430,6 +2480,8 @@ pub enum Pursues {
     Flees(Spot),
     /// It comes on at the hero, at a run or not, and stops within `within` of it.
     ComesOn { runs: bool, within: f32 },
+    /// A riding archer's horse takes it round the hero to the point, at a run (#2288).
+    Circles { to: Spot },
     /// Too near the hero, it steps back to the point.
     StepsBack(Spot),
     /// Too far from home, it walks home and leaves the fight.
@@ -3370,6 +3422,21 @@ mod tests {
     use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
+
+    #[test]
+    fn a_riding_archers_horse_takes_it_round_the_hero_by_its_parity() {
+        let hero = Spot::new(0.0, 0.0);
+        // Nearer than four times the reach of 130: lengthened to 650, then turned −45° (odd).
+        let odd = Mind::circles(Spot::new(100.0, 0.0), hero, true, 130.0);
+        assert!(
+            (odd.x - 459.62).abs() < 0.1 && (odd.y - 459.62).abs() < 0.1,
+            "{odd:?}"
+        );
+        // Even: +45°; farther, not lengthened.
+        let even = Mind::circles(Spot::new(1000.0, 0.0), hero, false, 130.0);
+        assert!((even.length() - 1000.0).abs() < 0.1, "{even:?}");
+        assert!(even.y < 0.0, "{even:?}");
+    }
 
     #[test]
     fn a_townsperson_shows_its_doing_while_alt_is_held() {

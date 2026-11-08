@@ -1096,6 +1096,15 @@ fn pursue(
                 };
                 commands.entity(entity).insert(walk.within(within));
             }
+            Pursues::Circles { to } => {
+                debug!(
+                    "ai: {entity} rides round the hero to {:.0},{:.0}",
+                    to.x, to.y
+                );
+                commands
+                    .entity(entity)
+                    .insert(Walk::run(point(to, here.y), way.level, mind.run));
+            }
             Pursues::StepsBack(to) => {
                 commands
                     .entity(entity)

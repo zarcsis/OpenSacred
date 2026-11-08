@@ -5461,6 +5461,7 @@ pub(crate) fn seat_rider(world: &mut bevy::prelude::World, rider: Entity, horse:
     if let Some(mut mind) = entity.get_mut::<ai::Mind>() {
         mind.thinks.speed = speeds[0];
         mind.thinks.run = speeds[1];
+        mind.thinks.rides = Some(rider.index_u32() % 2 == 1);
     }
     if let Some(mut transform) = entity.get_mut::<Transform>() {
         transform.translation = at.translation;
@@ -10325,7 +10326,10 @@ fn strike(
             let length = clips.get(clip).map_or(1.0, AnimationClip::duration);
             // At its attack speed (`0x4E4CF0`), a shot's times its chain (`0x4DCB80`).
             let attack = combat.map_or(1.0, |combat| combat.clip_speed());
-            let chain = strikes.shot.unwrap_or(1.0);
+            // A riding black rider's shot at twice the rate (`0x4DCDCC`, #2288).
+            let doubled = strikes.shot.is_some()
+                && mind.is_some_and(|mind| mind.rides.is_some() && mind.creature == BLACK_RIDER);
+            let chain = strikes.shot.unwrap_or(1.0) * if doubled { 2.0 } else { 1.0 };
             transitions
                 .play(&mut player, *node, BLEND)
                 .set_speed(speed.0 * attack * chain);
