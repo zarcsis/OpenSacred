@@ -533,6 +533,23 @@ impl Heights {
             }
     }
 
+    /// Whether a ridden horse may not step into a cell at a level (#2299): one of the low nibbles
+    /// 3, a teleport, and 5 to 8, the stairs (`0x4F7E10`), and 9 and 10, an entrance and an exit,
+    /// through which `0x5FCCB0` moves no horse; and any of an inside layer, which no horse
+    /// enters.
+    pub fn barred_to_riders(&self, (cx, cy): (i32, i32), level: Level) -> bool {
+        if level.is_some() {
+            return true;
+        }
+        match (u32::try_from(cx), u32::try_from(cy)) {
+            (Ok(x), Ok(y)) => self
+                .cells
+                .get(&(x, y))
+                .is_some_and(|cell| matches!(cell.ground & 0xF, 3 | 5..=10)),
+            _ => false,
+        }
+    }
+
     /// Whether a cell may be walked on at a level, on the ground or in an inside layer's grid,
     /// whatever objects take it (`0x636C10`).
     pub fn walkable_at(&self, cell: (i32, i32), level: Level) -> bool {

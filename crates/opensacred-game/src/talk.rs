@@ -256,7 +256,7 @@ fn dialogue_by(
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their \
               filters"
 )]
-fn pick(
+pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,

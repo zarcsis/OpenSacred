@@ -183,6 +183,7 @@ mod regions;
 mod remarks;
 mod remote;
 mod rewards;
+mod riding;
 mod ripples;
 mod runes;
 mod save_picture;
@@ -652,7 +653,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         reanimations::ReanimationsPlugin,
         regions::RegionsPlugin,
     ))
-    .add_plugins((remarks::RemarksPlugin, rewards::RewardsPlugin))
+    .add_plugins((
+        remarks::RemarksPlugin,
+        rewards::RewardsPlugin,
+        riding::RidingPlugin,
+    ))
     .add_plugins((
         ripples::RipplesPlugin,
         runes::RunesPlugin,

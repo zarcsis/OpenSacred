@@ -135,6 +135,8 @@ pub struct Hero {
     pub dying: Vec<String>,
     /// The model's pick-up, the slot 172, if it has one (`pickup`, #1219).
     pub pickup: Option<String>,
+    /// The model's mount, ride and dismount (`forms::Clips::riding`, #2299).
+    pub riding: [Option<String>; 3],
     pub position: Vec3,
     /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
     /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
@@ -186,6 +188,7 @@ impl Hero {
             vitals: None,
             dying: Vec::new(),
             pickup: None,
+            riding: [None, None, None],
             position,
             floor: None,
             target: None,
@@ -217,6 +220,7 @@ impl Hero {
         self.arts.clone_from(&form.clips.arts);
         self.dying.clone_from(&form.clips.dying);
         self.pickup.clone_from(&form.clips.pickup);
+        self.riding.clone_from(&form.clips.riding);
         self.gltf = Some(assets.load(self.model.clone()));
         self.bare = !form.armed;
         self.equipment = self.equip(assets);
@@ -478,6 +482,9 @@ pub struct Clips {
     dying: Vec<AnimationNodeIndex>,
     /// The pick-up's node and clip, where the model has one (`pickup`, #1219).
     pub pickup: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
+    /// The rider's mount's, ride's and dismount's nodes and clips, where the model has them
+    /// (`riding`, #2299).
+    pub riding: [Option<(AnimationNodeIndex, Handle<AnimationClip>)>; 3],
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -491,8 +498,11 @@ impl Clips {
     }
 
     /// The clip of the hero moving at a gait, or standing: in its stance while `fight`, where
-    /// its model has one, else idle.
-    fn node(&self, moving: Option<Gait>, fight: bool) -> AnimationNodeIndex {
+    /// its model has one, else idle; riding, its ride whatever its horse does (`0x5467A0`).
+    fn node(&self, moving: Option<Gait>, fight: bool, riding: bool) -> AnimationNodeIndex {
+        if riding && let Some((node, _)) = &self.riding[1] {
+            return *node;
+        }
         match (moving, self.stance) {
             (Some(gait), _) => self.of(gait).1,
             (None, Some(stance)) if fight => stance,
@@ -593,15 +603,29 @@ pub fn spawn(
         let first_bolt = clips.len();
         clips.extend(bolts.iter().flatten().map(|(clip, _)| clip.clone()));
         let pickup = hero.pickup.as_ref().and_then(|name| clip(name));
+        let pickup_at = clips.len();
         clips.extend(pickup.clone());
+        // The rider's mount, ride and dismount, after it (`riding`, #2299).
+        let riding = hero
+            .riding
+            .clone()
+            .map(|name| name.and_then(|name| clip(&name)));
+        let mut riding_at = clips.len();
+        clips.extend(riding.iter().flatten().cloned());
         let (graph, nodes) = AnimationGraph::from_clips(clips);
+        let riding = riding.map(|clip| {
+            let clip = clip?;
+            let node = *nodes.get(riding_at)?;
+            riding_at += 1;
+            Some((node, clip))
+        });
         let mut bolt_nodes = nodes[first_bolt..].iter();
         let bolts = bolts.map(|bolt| {
             let (clip, fractions) = bolt?;
             Some((*bolt_nodes.next()?, clip, fractions))
         });
         let pickup = pickup
-            .zip(nodes.last().copied())
+            .zip(nodes.get(pickup_at).copied())
             .map(|(clip, node)| (node, clip));
         let mut art_nodes = nodes[3 + stances + strikes + dyings..].iter();
         let art_nodes = arts
@@ -630,6 +654,7 @@ pub fn spawn(
             arts: art_nodes,
             bolts,
             pickup,
+            riding,
             player: None,
         });
     }
@@ -998,7 +1023,10 @@ pub fn run(
             Has<crate::making::Playing>,
             Has<crate::pickup::Picking>,
             Option<&crate::pickup::Collects>,
-            Has<crate::hero_held::HeroHeld>,
+            (
+                Has<crate::hero_held::HeroHeld>,
+                Option<&crate::riding::Seat>,
+            ),
         ),
         Has<Dies>,
         Has<Flies>,
@@ -1012,16 +1040,28 @@ pub fn run(
         mut transform,
         mut body,
         striking,
-        (making, picking, collects, held),
+        (making, picking, collects, (held, seat)),
         dying,
         flies,
         effects,
     ) in &mut bodies
     {
-        // Held, it stands still, its clip too (`hero_held`).
-        if held {
+        // Held, it stands still, its clip too (`hero_held`); mounting a horse or getting off,
+        // its clip plays (`riding`, #2299).
+        if held || seat.is_some_and(crate::riding::Seat::busy) {
             continue;
         }
+        // Riding, it goes at its horse's speeds, by no stair, teleport or entrance, and every
+        // creature stops it (`0x4F75F0`, `0x4F7E10`, `0x5FCCB0`).
+        let mount = seat.and_then(crate::riding::Seat::speeds);
+        let riding = mount.is_some();
+        let pace = mount.map_or_else(
+            || hero.speed(),
+            |[walk, run]| match hero.gait {
+                Gait::Walk => walk,
+                Gait::Run => run,
+            },
+        );
         let picking = picking || collects.is_some_and(crate::pickup::Collects::picks_up);
         // The Daemon in his form of 1094 wades where the ground is low (`0x4EBCA0` at
         // `0x4EBD62`, an effect keyed by 1094).
@@ -1055,7 +1095,7 @@ pub fn run(
                 if left <= ARRIVED {
                     body.arrives();
                 } else {
-                    let step = (hero.speed() * time.delta_secs()).min(left);
+                    let step = (pace * time.delta_secs()).min(left);
                     let mut position = here + to / left * step;
                     if let Some(y) = heights.standing(position.x, position.z, None) {
                         position.y = y;
@@ -1110,9 +1150,10 @@ pub fn run(
                 // A cell it may step into: walkable, or one the Daemon wades over in his form, no
                 // object and no hostile creature in it.
                 let open = |cell, at| {
-                    heights.walkable_on(cell, at) || (wades && heights.wadable_on(cell, at))
+                    (heights.walkable_on(cell, at) || (wades && heights.wadable_on(cell, at)))
+                        && !(riding && heights.barred_to_riders(cell, at))
                 };
-                let free = |cell, at| open(cell, at) && !crowd.stops(cell, at, me, true);
+                let free = |cell, at| open(cell, at) && !crowd.stops(cell, at, me, !riding);
                 let walkable = |cell| free(cell, level);
                 // Round what blocks the way and through the doors, on the course found as it took
                 // its order, found anew off it (a stair's landing); straight on toward a target
@@ -1159,7 +1200,7 @@ pub fn run(
                     let goal = heights.floor_number(at);
                     let neighbours = |place| {
                         let mut next = heights.floored_neighbours(place, (start.1, goal), open);
-                        next.retain(|&(cell, (at, ..))| !crowd.stops(cell, at, me, true));
+                        next.retain(|&(cell, (at, ..))| !crowd.stops(cell, at, me, !riding));
                         next
                     };
                     // A cell it may not step into, a container's or a hostile creature's, it
@@ -1277,8 +1318,7 @@ pub fn run(
                     // Through a door: on, the next frame.
                     moving = body.moving;
                 } else {
-                    let mut position =
-                        paths::advance(from, toward, here, hero.speed() * time.delta_secs());
+                    let mut position = paths::advance(from, toward, here, pace * time.delta_secs());
                     // A step into a cell it may not walk on, out of one it may, is not taken: it
                     // stands this frame as its way is searched again, and stops where it was
                     // searched in this frame already.
@@ -1323,7 +1363,7 @@ pub fn run(
         // Standing, in its stance while the last look found a hostile within 350 units (the
         // client's bit `0x8000`, `0x547070`; 1,000 with a bow, not followed).
         let fight = nearest.found && nearest.distance < opensacred_rules::fight::IN_FIGHT_WITHIN;
-        let node = clips.node(moving, fight);
+        let node = clips.node(moving, fight, riding);
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|e| players.get_mut(e).ok())
         else {
@@ -1333,7 +1373,11 @@ pub fn run(
             continue;
         }
         // A walk's and a run's clip play at its pace too (`0x413610`, #599).
-        let rate = if moving.is_some() { hero.pace } else { 1.0 };
+        let rate = if moving.is_some() && !riding {
+            hero.pace
+        } else {
+            1.0
+        };
         transitions
             .play(&mut player, node, BLEND)
             .repeat()
@@ -1661,6 +1705,7 @@ mod tests {
                 arts: Vec::new(),
                 dying: Vec::new(),
                 pickup: None,
+                riding: [None, None, None],
                 player: None,
             });
         }
@@ -1718,13 +1763,14 @@ mod tests {
             arts: Vec::new(),
             dying: Vec::new(),
             pickup: None,
+            riding: [None, None, None],
             player: None,
         };
         let with = clips(Some(node(4)));
-        assert_eq!(with.node(None, true), node(4));
-        assert_eq!(with.node(None, false), node(1));
+        assert_eq!(with.node(None, true, false), node(4));
+        assert_eq!(with.node(None, false, false), node(1));
         // Moving, its gait's clip; a model without a stance, its idle.
-        assert_eq!(with.node(Some(Gait::Run), true), node(3));
-        assert_eq!(clips(None).node(None, true), node(1));
+        assert_eq!(with.node(Some(Gait::Run), true, false), node(3));
+        assert_eq!(clips(None).node(None, true, false), node(1));
     }
 }

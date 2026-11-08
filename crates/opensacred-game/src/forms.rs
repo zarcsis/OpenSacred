@@ -42,6 +42,9 @@ pub struct Clips {
     pub arts: Vec<hero::ArtClipName>,
     pub dying: Vec<String>,
     pub pickup: Option<String>,
+    /// The rider's clips (`riding`, #2299): its mount, the slot 165, its ride, 169 else 166
+    /// (`opensacred_rules::horses::ride_slot`), and its dismount, 167.
+    pub riding: [Option<String>; 3],
 }
 
 /// A form of the hero: its type, its model and clips, its record's values for its fight, its
