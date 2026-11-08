@@ -20,6 +20,9 @@ use crate::npcs::{self, Arms, Npc};
 pub struct Timed {
     pub effect: Effect,
     pub left: f32,
+    /// Not saved: an entity names a slot of the running world alone, so that a loaded effect
+    /// has none (docs/decisions/interface.md, "Poison's source not saved"; #2308).
+    #[serde(skip)]
     pub source: Option<Entity>,
 }
 
@@ -491,6 +494,25 @@ impl Plugin for EffectsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saved_poison_keeps_its_dose_but_not_its_source() {
+        let mut effects = Effects::default();
+        let poison = opensacred_rules::fight::Poison {
+            whole: 4,
+            value: 0.4,
+            seconds: 12.0,
+            gathered: 3,
+        };
+        assert!(effects.poison(poison, Entity::PLACEHOLDER));
+        assert_eq!(effects.timed()[0].source, Some(Entity::PLACEHOLDER));
+        // An entity names a slot of the running world alone (#2308).
+        let bytes = postcard::to_stdvec(&effects).unwrap();
+        let read: Effects = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(read.timed()[0].source, None);
+        assert_eq!(read.timed()[0].effect, effects.timed()[0].effect);
+        assert!((read.timed()[0].left - 12.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn effects_stack_and_wear_off_with_their_time() {
