@@ -114,7 +114,11 @@ A creature flies while its flags word holds the bit `0x200000` (`+0x1F4`), which
   The heights are in the units of the models' height; the hornets come down at 220 a second (`0x596C63`) where the bit is cleared as they move.
   Moving or coming down, a flyer plays the slot 179 (`*_FLY_LOOP`, `0x546ABF`; `0x5967C0`, `0x593320` with 0.125), but the hornets, which play their own.
 - **Set down.** The terror of the effect 855 or set 41 (above) and its death (`0x53E7C0`) clear the bit and set its model on the ground at once (`0x44D520(1, 0)`).
-- Of the flying types only the crows have the slot 179 (`CROW_FLY_LOOP`), and only the animals' behaviours take off: the giant fly and the hornets, monsters, never take the bit by this code, their flight being their clips'; an action of `0x4E1336` gives it to a creature whose model has the slot 179 and that is no ghost, outside a dungeon (not read further).
+- Of the flying types only the crows have the slot 179 (`CROW_FLY_LOOP`), and only the animals' behaviours take off: the giant fly and the hornets, monsters, never take the bit by this code, their flight being their clips'; three more places give it (read 2026-11-08 for #2291, **confirmed** by code):
+  - the melee state's flight of a wounded creature (`0x4E0300`, at `0x4E1271`–`0x4E1336`; "it flees 700 from it", `opensacred_rules::minds`): its sub-state 3, the one fled from at `+0x259`, the flags word's bit `0x200` set, `+0x200` bit `0x800` cleared and its clips' factor 1; on the ground (`+0x24` 0), a creature whose model has the slot 179 and whose type is no ghost (`Creature.pak` flags `0x20`, `0x43AD80`), outside a dungeon's sector (`0x63D180`), takes the bit and the network is told (`0x54D760(0x11A)`): the crows alone, which so fly their flight;
+  - the fight's specials (`0x4D4E50`, `0x4D74F9`–`0x4D759D`), for the marks `0x80` and `0x100` on the ground: the bats 514, 515 and 594 to 596 always, another creature where `rand() % 4` is 3 or it flies already, outside a dungeon (`0x63D260`); no type has those marks (`0x43C540` gives none) and no script writes them (the tag `0x73`'s one value in the trees is 64), so it never runs in 2.28;
+  - the effect 39 (`0x5838AC`), the values of the spell 47 (39 of 1, 10 of 30), which no class holds and no marked creature's special casts (no `0x2F` in `0x4D4E50`): none gives it.
+  Since #2291 `opensacred-game` follows the first: a crow that flees wounded on the ground outside a dungeon takes off and flies its flight (`Mind::pursue`, `ai::pursue`).
 
 ## The townsfolk
 

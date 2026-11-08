@@ -1747,6 +1747,7 @@ impl Mind {
             hero_strikes,
             listed,
             hero_size,
+            outdoors,
             ..
         } = *sight;
         let reach = reach_f32(self.size(), hero_size);
@@ -1787,6 +1788,11 @@ impl Mind {
             && flees(health, d, self, hero_strikes, roll)
         {
             self.fled = true;
+            // A crow on the ground outside a dungeon takes off as it flees (`0x4E1336`, #2291),
+            // its type no ghost (`Creature.pak` flags `0x20`).
+            if outdoors && FLY_LOOP.contains(&self.creature) {
+                self.flying = true;
+            }
             return Some(Pursues::Flees(here + (here - hero).unit() * FLEES_FOR));
         }
         // Deciding, near the hero's nearest hostile, it takes its place (`0x4E1404`, `0x4E224E`).
@@ -2494,7 +2500,14 @@ pub struct Pursuit {
     pub targeted: bool,
     /// The hero's size ([`size`]), of which and the creature's the reach is the mean.
     pub hero_size: u32,
+    /// Whether it stands on the ground outside a dungeon (`+0x24` 0, not a sector of
+    /// `0x63D180`), where a crow fleeing wounded takes off.
+    pub outdoors: bool,
 }
+
+/// The types whose models have the slot 179 (`*_FLY_LOOP`), of the flying types the crows alone
+/// (docs/re/ai.md, "The flyers"), which take off as they flee wounded (`0x4E1336`).
+const FLY_LOOP: [u32; 3] = [513, 589, 590];
 
 /// What a caster of the mark 1 sees beyond its [`Pursuit`] ([`Mind::cast`], #1852).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -3648,6 +3661,7 @@ mod tests {
             listed: None,
             targeted: false,
             hero_size: SIZE,
+            outdoors: true,
         };
         let cast = CastSight {
             now: 100.4,
@@ -3750,6 +3764,7 @@ mod tests {
             listed: None,
             targeted: false,
             hero_size: SIZE,
+            outdoors: true,
         };
         let cast = CastSight {
             now: 0.0,
@@ -3811,6 +3826,7 @@ mod tests {
             listed: None,
             targeted: false,
             hero_size: SIZE,
+            outdoors: true,
         };
         let cast = CastSight {
             now: 0.0,
@@ -3881,6 +3897,7 @@ mod tests {
             listed: None,
             targeted: false,
             hero_size: SIZE,
+            outdoors: true,
         };
         let cast = CastSight {
             now: 50.0,
@@ -4125,6 +4142,41 @@ mod tests {
     }
 
     #[test]
+    fn a_wounded_crow_takes_off_as_it_flees_outside_a_dungeon() {
+        let sight = |outdoors| Pursuit {
+            hero_size: SIZE,
+            outdoors,
+            here: at(0.0, 0.0),
+            hero: at(150.0, 0.0),
+            walk: None,
+            striking: false,
+            health: Some((10, 72)),
+            hero_strikes: false,
+            listed: None,
+            targeted: false,
+        };
+        for (creature, outdoors, flies) in
+            [(513, true, true), (513, false, false), (76, true, false)]
+        {
+            let mut mind = Mind::new(
+                Spot::default(),
+                0x1,
+                (true, false),
+                None,
+                SPEEDS,
+                (creature, 6),
+            );
+            mind.fighting = true;
+            let mut rolls = crate::spawning::Script::new(vec![0; 4]);
+            assert!(matches!(
+                mind.pursue(&sight(outdoors), || true, &mut rolls),
+                Some(Pursues::Flees(_))
+            ));
+            assert_eq!(mind.flying, flies, "{creature} {outdoors}");
+        }
+    }
+
+    #[test]
     fn a_fleeing_creature_runs_on_and_a_coming_one_follows_the_hero() {
         let mut goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 2));
         goblin.fighting = true;
@@ -4133,6 +4185,7 @@ mod tests {
         // comes on turns after the hero.
         let sight = |comes_on| Pursuit {
             hero_size: SIZE,
+            outdoors: true,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: Some(Walking {
@@ -4165,6 +4218,7 @@ mod tests {
     fn at_range(d: f32, walk: Option<Walking>) -> Pursuit {
         Pursuit {
             hero_size: SIZE,
+            outdoors: true,
             here: Spot::default(),
             hero: at(d, 0.0),
             walk,
@@ -4538,6 +4592,7 @@ mod tests {
     fn listed(here: Spot, index: usize, first: Spot) -> Pursuit {
         Pursuit {
             hero_size: SIZE,
+            outdoors: true,
             here,
             hero: Spot::default(),
             walk: None,
