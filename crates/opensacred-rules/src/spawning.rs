@@ -342,7 +342,7 @@ where
         .into_iter()
         .enumerate()
         .map(|(index, (entry, cell, role))| Made {
-            creature: variant(entry.creature, rng),
+            creature: made_variant(variant(entry.creature, rng), rng),
             cell,
             hostile: entry.hostile,
             pack: match role {
@@ -379,6 +379,17 @@ pub fn variant(creature: u32, rng: &mut impl Dice) -> u32 {
         _ => None,
     };
     made.unwrap_or(creature)
+}
+
+/// The type a creature of `creature` takes in the creature maker (`0x480D40`, at `0x480D68`), a
+/// fill's and a `CreateNPC`'s alike: the type 344 its variant 359 where `rand() % 5` gives 0, a
+/// fifth of them (#1370); any other type as it is.
+pub fn made_variant(creature: u32, rng: &mut impl Dice) -> u32 {
+    if creature == 344 && rng.below(5) == 0 {
+        359
+    } else {
+        creature
+    }
 }
 
 /// The crab, of `krabbe.grn`, which no `Creature.pak` record describes, and the two fish that
@@ -486,6 +497,7 @@ pub fn types(fill: &Fill) -> impl Iterator<Item = u32> + '_ {
     fill.entries.iter().flat_map(|entry| match entry.creature {
         516 | 592 | 593 => vec![516, 592, 593],
         513 => vec![513, 589, 590],
+        344 => vec![344, 359],
         other => vec![other],
     })
 }
@@ -902,6 +914,12 @@ mod tests {
         assert!((800..1200).contains(&made[&592]) && (800..1200).contains(&made[&593]));
         assert_eq!(variant(76, &mut rng), 76);
         assert_eq!(types(&rabbits()).collect::<Vec<_>>(), [516, 592, 593]);
+        // The creature maker's: a fifth of the 344 its 359, no other type (#1370).
+        let turned = (0..5000)
+            .filter(|_| made_variant(344, &mut rng) == 359)
+            .count();
+        assert!((850..1150).contains(&turned), "{turned}");
+        assert_eq!(made_variant(343, &mut rng), 343);
     }
 
     #[test]

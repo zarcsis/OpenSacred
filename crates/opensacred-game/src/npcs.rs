@@ -4461,6 +4461,33 @@ fn place_index(
         },
         None => None,
     };
+    // The creature maker's variant of its type (`0x480D68`, #1370), the same each time the same
+    // record makes it.
+    let base = turned.as_ref().unwrap_or(&npcs.placements[index]);
+    let made_as = (!base.object).then(|| {
+        let mut dice = spawning::Rng::of(base.cell.1, base.cell.0, index);
+        spawning::made_variant(base.creature.0, &mut dice)
+    });
+    let turned = match made_as.filter(|&made| made != base.creature.0) {
+        // As a pair of no flags turns it, its flags word kept.
+        Some(made) => match npcs.makers.retype(
+            base,
+            quests::Turn {
+                from: base.creature.0,
+                to: made,
+                flags: 0,
+            },
+            &mut npcs.slots,
+        ) {
+            Ok(Some(varied)) => Some(varied),
+            Ok(None) => turned,
+            Err(e) => {
+                bevy::log::warn!("npcs: {e:#}");
+                turned
+            }
+        },
+        None => turned,
+    };
     let placement = turned.as_ref().unwrap_or(&npcs.placements[index]);
     // The start's and the `Init`s' creatures persist; the `Enter`s' are made again.
     let kept = !placement.object && !placement.made.0;
