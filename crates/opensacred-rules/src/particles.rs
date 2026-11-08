@@ -9872,6 +9872,90 @@ impl MineSign {
     }
 }
 
+/// The horse's floops' tongues at most at once (`FX_GLAD_SM_HIT`'s 600), their circle's radius
+/// and how many a second they come (`0x78EA70`).
+const FLOOPS_COUNT: usize = 600;
+pub const FLOOPS_RADIUS: f32 = 45.0;
+const FLOOPS_RATE: f32 = 400.0;
+
+/// A trampling horse's floops (842, `FX_GLAD_SM_HIT`, its variant 1077; the start `0x78F180`,
+/// the run `0x78EA70` and the draw `0x78ED70`), standing at the horse at each frame (its flags
+/// `0x202`): tongues of [`MINE_SIGN_TEXTURE`] lying flat on the ground about the horse's feet,
+/// each standing on the circle of [`FLOOPS_RADIUS`] at a point at random and pointing out from it
+/// at a turn of ±0.1, 400 a second while the trample runs, as the mines' sign makes its own
+/// ([`MineSign`]); of a size of 6 ± 3 growing by 8 a second, living 1.7 s (−150), of the ramp
+/// [`HorseFloops::ramp`], added by their alpha (the flags `0x8D`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HorseFloops {
+    pub system: System,
+    due: f32,
+}
+
+impl Default for HorseFloops {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HorseFloops {
+    /// The floops as they start.
+    pub fn new() -> Self {
+        Self {
+            system: System::new(FLOOPS_COUNT),
+            due: 0.0,
+        }
+    }
+
+    fn layer() -> Layer {
+        Layer {
+            life: -150.0,
+            size: 8.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its ramp (`+0x20B4`): from (228, 7, 7) of 256 at the alpha 1, to (203, 126, 1) at 0.79
+    /// over 96 entries, to (141, 141, 0) at 0.55 over 49, to (64, 64, 64) at 0.25 over 111.
+    pub fn ramp() -> Ramp {
+        let c = |r: f32, g: f32, b: f32, a: f32| [r / 256.0, g / 256.0, b / 256.0, a];
+        Ramp::new(
+            c(228.0, 7.0, 7.0, 1.0),
+            &[
+                (c(203.0, 126.0, 1.0, 0.79), 96),
+                (c(141.0, 141.0, 0.0, 0.55), 49),
+                (c(64.0, 64.0, 64.0, 0.25), 111),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds (`0x78EA70`): its tongues age, and while `on`, the trample running,
+    /// new ones stand on its circle, each at a point at random, its turn pointing out; the
+    /// count due starts again past 100.
+    pub fn update(&mut self, dt: f32, on: bool, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        self.system.update(dt, &layers);
+        if !on {
+            return;
+        }
+        self.due += dt * FLOOPS_RATE;
+        if self.due > MINE_SIGN_TOP {
+            self.due = 0.0;
+        }
+        while self.due >= 1.0 {
+            let a = std::f32::consts::TAU * share(dice);
+            let (sin, cos) = a.sin_cos();
+            let block = Block {
+                size: spread(6.0, 3.0),
+                angle: spread(std::f32::consts::FRAC_PI_2 - a, 0.1),
+                offset: spread([FLOOPS_RADIUS * cos, FLOOPS_RADIUS * sin, 0.0], [0.0; 3]),
+                ..Block::default()
+            };
+            self.system.burst(&block, 1, FLOOPS_COUNT, dice);
+            self.due -= 1.0;
+        }
+    }
+}
+
 /// The flying skull's model and its scale, its trail's texture and its particles at most
 /// (`0x7A5DE0`, `0x7A6040`).
 pub const SKULL_MODEL: &str = "SKULL.GRN";
@@ -17149,6 +17233,30 @@ mod tests {
         // 17 s: ten flashes of four or five frames each.
         assert!((36..=50).contains(&flashing), "{flashing}");
         assert!(mine.system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_trampling_horses_floops_stand_on_their_circle_while_it_runs() {
+        let mut dice = Rng::of(8, 9, 1077);
+        let mut floops = HorseFloops::new();
+        for _ in 0..10 {
+            floops.update(0.05, true, &mut dice);
+        }
+        // 400 a second over half a second, all on the whole circle.
+        let count = floops.system.particles.len();
+        assert!((195..=205).contains(&count), "{count}");
+        assert!(
+            floops
+                .system
+                .particles
+                .iter()
+                .all(|p| { (p.place[0].hypot(p.place[1]) - FLOOPS_RADIUS).abs() < 0.1 })
+        );
+        // The trample over, none more come, and those there die within 1.7 s.
+        for _ in 0..40 {
+            floops.update(0.05, false, &mut dice);
+        }
+        assert!(floops.system.particles.is_empty());
     }
 
     #[test]
