@@ -5558,6 +5558,126 @@ impl BowRundumRing {
     }
 }
 
+/// The `Hardhit`'s ray's sight's texture (887, `cParticleSystem_hardhitbow`'s motes; its line the
+/// items' lines' [`GLOW_LINE_TEXTURE`]).
+pub const HARD_RAY_TEXTURE: &str = "PARTICLE_GLOW03";
+/// Its motes, their offset from its line and their speed off it for each unit of the offset,
+/// their size, their layer's rates (the life −180 a second, 1.42 s, the size 0.5), its line's
+/// density, half side and colour (`0xD0D0FF`), and how fast the line fades (`1 − 3t`).
+const HARD_RAY_MOTES: u16 = 30;
+const HARD_RAY_OFFSET: f32 = 3.0;
+const HARD_RAY_SPEED: f32 = 0.7;
+const HARD_RAY_SIZE: f32 = 3.0;
+const HARD_RAY_LAYER: Layer = Layer {
+    buoyancy: 0.0,
+    life: -180.0,
+    size: 0.5,
+    angle: 0.0,
+    wind: [0.0; 3],
+    pull: 0.0,
+};
+const HARD_RAY_LINE: (f32, f32, u32) = (0.7, 1.5, 0x00D0_D0FF);
+const HARD_RAY_FADE: f32 = 3.0;
+
+/// The `Hardhit`'s ray's sight at a step of the ray (887, `cParticleSystem_hardhitbow`, its start
+/// `0x7A1320`, its run `0x7A0DF0`, its draw `0x7A1080`; #2279), along its segment from `from` to
+/// `to` (the FX event `0x68`'s point less and plus 20 along the ray, `0x5A4F90`), in the models'
+/// frame: a line of glows over the segment, pale blue at the alpha `1 − 3t`, gone after a third of
+/// a second (`0x40DA80`); and 30 motes of [`HARD_RAY_TEXTURE`] set at its first run, the `i`-th
+/// at `i/30` along the segment and 3 off it, each turned a step of `2π/30` about the segment from
+/// the one before, the first straight up, flying off at 0.7 times that offset a second, of the
+/// size 3 growing by 0.5 a second, aging from 255 by −180 a second, in the ramp's
+/// `(⌊k/8⌋, ⌊k/4⌋, ⌊k/8⌋)` of the life `k`, added whole; it ends with its last mote.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HardRay {
+    from: [f32; 3],
+    to: [f32; 3],
+    clock: f32,
+    motes: System,
+    ramp: Ramp,
+}
+
+impl HardRay {
+    /// The sight along the segment from `from` to `to`, its motes set about it.
+    pub fn new(from: [f32; 3], to: [f32; 3]) -> Self {
+        let n = f32::from(HARD_RAY_MOTES);
+        let way: [f32; 3] = std::array::from_fn(|k| to[k] - from[k]);
+        let length = way.iter().map(|d| d * d).sum::<f32>().sqrt();
+        let axis = if length > 1e-7 {
+            way.map(|d| d / length)
+        } else {
+            [1.0, 0.0, 0.0]
+        };
+        let step = std::f32::consts::TAU / n;
+        let mut offset = [0.0, 0.0, HARD_RAY_OFFSET];
+        let mut motes = System::new(usize::from(HARD_RAY_MOTES));
+        for i in 0..HARD_RAY_MOTES {
+            let share = f32::from(i) / n;
+            motes.particles.push(Particle {
+                place: std::array::from_fn(|k| from[k] + way[k] * share + offset[k]),
+                velocity: offset.map(|o| o * HARD_RAY_SPEED),
+                buoyancy: 0.0,
+                size: HARD_RAY_SIZE,
+                life: 255.0,
+                angle: 0.0,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+                colour: [1.0; 3],
+            });
+            offset = turned(offset, axis, step);
+        }
+        let ramp = Ramp(std::array::from_fn(|k| {
+            let x = f32::from(u16::try_from(k).unwrap_or(0)) / 256.0;
+            let channel = |c: f32| {
+                f32::from(u16::try_from(crate::fight::whole_part(x * c)).unwrap_or(0)) / 255.0
+            };
+            [channel(32.0), channel(64.0), channel(32.0), 0.0]
+        }));
+        Self {
+            from,
+            to,
+            clock: 0.0,
+            motes,
+            ramp,
+        }
+    }
+
+    /// A run of `dt` seconds: its clock, and its motes by their layer.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.motes.update(dt, &[HARD_RAY_LAYER]);
+    }
+
+    /// Whether it ended: its last mote gone.
+    pub fn done(&self) -> bool {
+        self.motes.particles.is_empty()
+    }
+
+    /// Its line of glows over its segment while it fades in, none after.
+    pub fn line(&self) -> Option<(GlowLine, [f32; 3], [f32; 3])> {
+        let left = 1.0 - self.clock * HARD_RAY_FADE;
+        (left > 0.0).then(|| {
+            let (density, half, rgb) = HARD_RAY_LINE;
+            let alpha = crate::fight::whole_part(left * 255.0).min(255);
+            let line = GlowLine {
+                density,
+                half,
+                argb: alpha << 24 | rgb,
+            };
+            (line, self.from, self.to)
+        })
+    }
+
+    /// Its motes, each its place, size and colour.
+    pub fn motes(&self) -> impl Iterator<Item = ([f32; 3], f32, [f32; 4])> + '_ {
+        self.motes
+            .particles
+            .iter()
+            .map(|mote| (mote.place, mote.size, self.ramp.at(mote.life)))
+    }
+}
+
 /// Its comets at most; how fast they go round, in radians a second; the point they go round
 /// through, along the models' `x` from the hand; their tails' glows, each a step of the turn
 /// behind the one before, of the half sides `k/15`; their heads' half side.
@@ -15976,6 +16096,28 @@ mod tests {
         assert!((ring.star().1 - 32.5).abs() < 1e-4);
         ring.update(1.31);
         assert!(ring.done() && ring.star().1 == 0.0);
+    }
+
+    #[test]
+    fn the_hardhits_ray_sight_spirals_its_motes_off_a_fading_line() {
+        let mut ray = HardRay::new([-20.0, 0.0, 80.0], [20.0, 0.0, 80.0]);
+        let motes: Vec<_> = ray.motes().collect();
+        assert_eq!(motes.len(), 30);
+        // The first at the start straight above it, the eighth a quarter turn on beside it.
+        let ([x, y, z], size, colour) = motes[0];
+        assert!((x + 20.0).abs() < 1e-4 && y.abs() < 1e-4 && (z - 83.0).abs() < 1e-4);
+        assert_eq!(size, 3.0);
+        assert!((colour[1] - 63.0 / 255.0).abs() < 1e-6 && colour[3] == 0.0);
+        let ([_, y, z], ..) = motes[7];
+        assert!((y.abs() - 3.0 * (7.0 * std::f32::consts::TAU / 30.0).sin().abs()).abs() < 1e-3);
+        assert!(z < 83.0);
+        // The line full, then at its third gone; the motes a little later.
+        let (line, ..) = ray.line().expect("a line");
+        assert_eq!(line.argb, 0xFFD0_D0FF);
+        ray.update(0.34);
+        assert!(ray.line().is_none() && !ray.done());
+        ray.update(1.1);
+        assert!(ray.done());
     }
 
     #[test]

@@ -1456,6 +1456,23 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
 `opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow is not followed, its Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
 
+## The `Hardhit`'s ray
+
+Read 2026-11-08 for #2279 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Wood Elf's new game, her 1062 at the level 4 with her bow).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A step of the ray | 887 `FX_HARDHIT_BOW` | `cParticleSystem_hardhitbow` (`0x8986AC`) | `0x7A0D60`, `0x7A1320`, `0x7A0DF0`, `0x7A1080` |
+
+- **Who makes it.** The shot of a class's `Hardhit` with a bow (`0x4DCB80` at its case `0x3E`, docs/re/fight.md, "The archers"): one at each step of the ray, 40 apart along the ground from the left hand at its height, with the FX event `0x68` of the ray's direction; the event's case (`0x5A4F90`) sets the system's two points to the step's point less and plus 20 along the ray, so each object spans its step.
+- **Its start** (`0x7A1320`): its clock 0; its one layer the life −180 a second (1.42 s) and the size 0.5; its ramp of 256 entries `(⌊32k/256⌋, ⌊64k/256⌋, ⌊32k/256⌋)` at the entry `k`, of no alpha, a faint green; its texture `PARTICLE_GLOW03`.
+- **Its first run** (`0x7A0DF0`): its 30 particles set along the segment, the `i`-th at `i/30` of it and 3 off it, the offset starting straight up and turned about the segment by `2π/30` from one to the next (`0x642690`), so a helix of one turn over the step; each flying off at 0.7 times its offset a second, of the size 3 and the life 255; then at each frame its clock runs and its particles age by the layer (`0x7640C0`), and it ends with the last.
+- **Its draw** (`0x7A1080`): while `1 − 3t` is above 0, a line of glows over its segment (`0x40DA80`, the items' line, its density 0.7 and half side 1.5) in `0xD0D0FF` at the alpha `⌊255·(1 − 3t)⌋`, gone after a third of a second; then its particles as billboards of the style `0x19`, their colour the ramp's at their life, added whole.
+- **Seen** 2026-11-08 in the original: the ray from the Wood Elf's hand to a goblin 9 cells off shone as a green helix along it for about a second and a half, the goblin struck for 49.
+
+`opensacred-game` draws it since #2279 (`opensacred_rules::particles::HardRay`, `hard_rays`): each step's line added by its alpha in the items' line texture and its motes whole, at its place in the order of what stands there, untinted by the night.
+**Seen** 2026-11-08 in the game: the same ray, its pale line along its thousand units for a third of a second, then the green helix, about as the original's.
+
 ## The traps' landings
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the running original under the driver of #448 (the Dark Elf's traps 1050, 1051 and 1052 at the level 5 by goblins).
