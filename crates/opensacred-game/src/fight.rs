@@ -593,9 +593,17 @@ pub(crate) fn resolve(
             });
             sounds.write(crate::pickup::gold_sound());
         }
-        // The attacker's effect 842 raises the strike by what it pays of its own health, keeping
-        // 1 (`0x5706F8`–`0x5707F1`, #1366); its red flash (856) is not drawn.
-        // The hero's sets add their part to its items' value (M21, `0x570721`).
+        // The struck one's health falls by the strike (`0x56F8B9`–`0x56F9AA`), what it held before
+        // kept for the leech (`0x56F855`).
+        let before = health.current;
+        if !immortal {
+            health.current = health.current.saturating_sub(damage);
+        }
+        // The attacker's effect 842 then raises the damage that the resolution returns by what it
+        // pays of its own health, keeping 1 (`0x5706F8`–`0x5707F1`, #1366): the struck one's
+        // health has fallen already, so the raise takes none of it, while the wound and the
+        // number shown take it. Its red flash (856) is not drawn. The hero's sets add their part
+        // to its items' value (M21, `0x570721`).
         let pain =
             opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None);
         let pain = match holding.filter(|_| hero) {
@@ -604,15 +612,15 @@ pub(crate) fn resolve(
         };
         let cost = opensacred_rules::fight::painkiller(damage, pain, &rules);
         let damage = damage + cost;
-        // Its life leech takes back a share of what the struck one's health held of the damage,
-        // by their distance, but from a poison's strike (`0x5708D3`–`0x570A80`); its beam (the
-        // variant 2) goes from its spine to a bone of the struck one's at random, with
-        // `SPELL_LASER` at the struck one.
+        // Its life leech takes back a share of the raised damage, held at what the struck one's
+        // health held before, by their distance, but from a poison's strike
+        // (`0x5708D3`–`0x570A80`); its beam (the variant 2) goes from its spine to a bone of the
+        // struck one's at random, with `SPELL_LASER` at the struck one.
         let life = if hit.poison {
             0.0
         } else {
             opensacred_rules::fight::leech(
-                (damage, health.current),
+                (damage, before),
                 (
                     opensacred_rules::fight::item_effect(
                         items,
@@ -664,9 +672,6 @@ pub(crate) fn resolve(
                 at: Some(hit.target),
                 rate: (0.5, crate::sfx::Roll::None),
             });
-        }
-        if !immortal {
-            health.current = health.current.saturating_sub(damage);
         }
         if health.current > 0 {
             wound(
@@ -1420,9 +1425,9 @@ mod tests {
         assert_eq!(current(immortal), health.current);
     }
 
-    /// The attacker's health after one sure strike of 100 by a hero holding an item of the effect
-    /// `effect` of the value `value`.
-    fn after_a_strike_with(effect: u32, value: i16) -> u32 {
+    /// The attacker's health and the health that the struck one lost after one sure strike of
+    /// 100 by a hero holding an item of the effect `effect` of the value `value`.
+    fn after_a_strike_with(effect: u32, value: i16) -> (u32, u32) {
         let combat = Combat(opensacred_rules::fight::Combat {
             attack: 200.0,
             defence: 10.0,
@@ -1484,19 +1489,21 @@ mod tests {
             poison: false,
         });
         app.update();
-        app.world().get::<Health>(hero).unwrap().current
+        let current = |entity| app.world().get::<Health>(entity).unwrap().current;
+        (current(hero), 1_000 - current(target))
     }
 
     #[test]
     fn a_strike_pays_for_its_842_and_leeches_by_its_841() {
-        // Half its damage taken back at a distance of 0; a fifth of it paid, less 1.
-        assert!(after_a_strike_with(opensacred_rules::fight::LEECH, 50) > 80);
-        let paid = after_a_strike_with(opensacred_rules::fight::PAINKILLER, 20);
+        // Half its damage taken back at a distance of 0; a fifth of it paid, less 1, which the
+        // struck one does not lose, its health fallen before the raise.
+        let (plain, lost) = after_a_strike_with(opensacred_rules::fight::CRITICAL, 0);
+        assert_eq!(plain, 50);
+        let (leeched, _) = after_a_strike_with(opensacred_rules::fight::LEECH, 50);
+        assert!(leeched > 80, "{leeched}");
+        let (paid, lost_too) = after_a_strike_with(opensacred_rules::fight::PAINKILLER, 20);
         assert!((1..40).contains(&paid), "{paid}");
-        assert_eq!(
-            after_a_strike_with(opensacred_rules::fight::CRITICAL, 0),
-            50
-        );
+        assert_eq!(lost_too, lost);
     }
 
     #[test]
