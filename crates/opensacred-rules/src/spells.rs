@@ -776,16 +776,10 @@ pub fn made(spell: u16) -> bool {
     MADE.contains(&spell)
 }
 
-/// The slot of the clip that a hero on foot plays for the spell `spell` (`0x522030`): 155, 161,
-/// 157 or 163 by its list, else 154.
+/// The slot of the clip that a hero on foot plays for the spell `spell` (`0x522030`): its list's,
+/// 154 to 164, as a creature's of no type of its own casts it ([`crate::casts::clip`], #2324).
 pub fn slot(spell: u16) -> u16 {
-    match spell {
-        5 | 29 | 33 | 37 | 41 | 58 | 59 | 61 | 64 | 65 => 155,
-        7 | 12 | 36 => 161,
-        20 | 21 | 25 | 30 | 31 | 32 | 34 => 157,
-        1 | 2 | 4 | 16 | 18 | 27 | 35 => 163,
-        _ => 154,
-    }
+    crate::casts::clip(spell, 0, false)
 }
 
 /// The share of its clip still to play below which the spell `spell` acts (`0x521D60`, its
@@ -1168,7 +1162,17 @@ mod tests {
     fn a_spells_clip_is_its_lists_slot() {
         assert_eq!(slot(FIREBALL), 155);
         assert_eq!((slot(7), slot(32), slot(2), slot(18)), (161, 157, 163, 163));
-        assert_eq!(slot(13), 154);
+        // The lists beyond those four (#2324): the lightning's 158, the holy shield's and the
+        // blades of light's 157, the spiral's 156, the conversion's 159, the summoning's 160, the
+        // fire skin's 162; a spell of no list 154.
+        assert_eq!(slot(LIGHTNING), 158);
+        assert_eq!((slot(HOLY_SHIELD), slot(BLADES_OF_LIGHT)), (157, 157));
+        assert_eq!(
+            (slot(SPIRAL), slot(CONVERSION), slot(SUMMON)),
+            (156, 159, 160)
+        );
+        assert_eq!((slot(FIRE_SKIN), slot(6)), (162, 164));
+        assert_eq!(slot(PURGATORY), 154);
     }
 
     #[test]
