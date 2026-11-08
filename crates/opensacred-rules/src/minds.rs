@@ -359,6 +359,10 @@ const PLAYS_FAR: f32 = 1_000.0;
 const GATHERS: f32 = 349.0;
 const LOOKS_UP: f32 = 200.0;
 const RUNS_UP: f32 = 150.0;
+/// How near the hero shoos a child, and how far about itself the child runs off
+/// (`0x4F2AD7`, #1364).
+const SHOOED_WITHIN: f32 = 500.0;
+const SHOOED_ABOUT: i32 = 400;
 /// How far a townsperson in danger runs from its threat without a door to go in by, within 100
 /// more along each axis (`0x4F0BDA`, `0x4F0F5E`).
 const RUNS_FROM: f32 = 700.0;
@@ -2908,19 +2912,25 @@ pub enum Child {
     Flees(Spot),
     /// It turns to the hero and says the line.
     Speaks(&'static str),
+    /// The hero shoos it: it runs off to the point.
+    Shooed(Spot),
+    /// The hero holds it off from afar: it stays.
+    Stays,
 }
 
 /// What a child at `here` does by its roll, the hero at `hero` the Daemon or not, and on a
 /// settlement's ground (`in_settlement`) or not (`0x4F2AD7`): before the Daemon it runs 700 away
 /// from it, within 400 more (`0x539F60`); in one case of 13, or with the hero off a settlement's
 /// ground, it plays: within 800 of home a point within 400 of itself, farther than 1,000 a point
-/// 800 toward home, else one within 400 of home; else it follows the hero from farther than 349,
-/// and nearer, within 200 in one case of nine, turns to it and says one of its 35 lines at
-/// random, else turns to it, but in one case of 15 runs to a point 150 from it at random.
+/// 800 toward home, else one within 400 of home; else, the hero standing with Shift held
+/// (`shoos`), within 500 it runs off to a point within 400 of itself, and farther it stays (#1364);
+/// else it follows the hero from farther than 349, and nearer, within 200 in one case of nine,
+/// turns to it and says one of its 35 lines at random, else turns to it, but in one case of 15
+/// runs to a point 150 from it at random.
 pub fn child(
     mind: &Mind,
     here: Spot,
-    (hero, daemon): (Spot, bool),
+    (hero, daemon, shoos): (Spot, bool, bool),
     in_settlement: bool,
     rng: &mut impl Dice,
 ) -> Child {
@@ -2940,8 +2950,16 @@ pub fn child(
         return Child::Plays(to);
     }
     let d = (hero - here).length();
+    // The hero standing (its action not 1, `0x547060`) with Shift held (`GetAsyncKeyState`).
+    if shoos && d < SHOOED_WITHIN {
+        return Child::Shooed(about(here, SHOOED_ABOUT, rng));
+    }
     if d > GATHERS {
-        Child::FollowsHero
+        if shoos {
+            Child::Stays
+        } else {
+            Child::FollowsHero
+        }
     } else if rng.below(9) == 0 && d < LOOKS_UP {
         let index = usize::try_from(rng.below(35)).unwrap_or(0);
         Child::Speaks(CHILD_LINES[index % CHILD_LINES.len()])
@@ -5060,19 +5078,21 @@ mod tests {
         let hero = at(1000.0, 0.0);
         // Outside, it plays about itself near home, toward home from afar.
         for _ in 0..50 {
-            let Child::Plays(to) = child(&kid, home, (hero, false), false, &mut rng) else {
+            let Child::Plays(to) = child(&kid, home, (hero, false, false), false, &mut rng) else {
                 panic!("plays");
             };
             assert!(to.x.abs() <= 400.0 && to.y.abs() <= 400.0, "{to:?}");
             let far = at(2000.0, 0.0);
-            let Child::Plays(to) = child(&kid, far, (hero, false), false, &mut rng) else {
+            let Child::Plays(to) = child(&kid, far, (hero, false, false), false, &mut rng) else {
                 panic!("plays");
             };
             assert!((to - at(1200.0, 0.0)).length() < 0.01, "{to:?}");
         }
         // Inside, from afar it follows the hero (but in one case of 13 it plays).
         let follows = (0..1300)
-            .filter(|_| child(&kid, home, (hero, false), true, &mut rng) == Child::FollowsHero)
+            .filter(|_| {
+                child(&kid, home, (hero, false, false), true, &mut rng) == Child::FollowsHero
+            })
             .count();
         assert!((1_150..1_250).contains(&follows), "{follows}");
         // Near, it mostly turns to the hero.
@@ -5080,20 +5100,36 @@ mod tests {
         let looks = (0..1300)
             .filter(|_| {
                 matches!(
-                    child(&kid, home, (near, false), true, &mut rng),
+                    child(&kid, home, (near, false, false), true, &mut rng),
                     Child::LooksUp | Child::Speaks(_)
                 )
             })
             .count();
         assert!((1_050..1_250).contains(&looks), "{looks}");
         // Before the Daemon it runs 700 away, within 400 more.
-        let Child::Flees(to) = child(&kid, home, (near, true), true, &mut rng) else {
+        let Child::Flees(to) = child(&kid, home, (near, true, false), true, &mut rng) else {
             panic!("flees");
         };
         assert!(
             (to.x + 700.0).abs() <= 400.0 && to.y.abs() <= 400.0,
             "{to:?}"
         );
+        // The hero standing with Shift held shoos it within 500, about itself within 400, but
+        // in one case of 13 it plays; farther it stays rather than follow.
+        let shooed = (0..1300)
+            .filter_map(
+                |_| match child(&kid, home, (near, false, true), true, &mut rng) {
+                    Child::Shooed(to) => Some(to),
+                    _ => None,
+                },
+            )
+            .inspect(|to| assert!(to.x.abs() <= 400.0 && to.y.abs() <= 400.0, "{to:?}"))
+            .count();
+        assert!((1_150..1_250).contains(&shooed), "{shooed}");
+        let stays = (0..1300)
+            .filter(|_| child(&kid, home, (hero, false, true), true, &mut rng) == Child::Stays)
+            .count();
+        assert!((1_150..1_250).contains(&stays), "{stays}");
     }
 
     #[test]
