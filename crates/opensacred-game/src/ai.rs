@@ -270,8 +270,8 @@ struct Doors<'w, 's> {
 impl Doors<'_, '_> {
     /// Each door, where it stands and on which layer, its points ([`door_points`]), whether it
     /// is open, a door turned this tick as it will stand (`npcs::swing` turns it later in the
-    /// frame), and whether a hero marked it; the game reads no trigger's bit 15, and so bars no
-    /// door.
+    /// frame), whether its trigger is barred, the bit 15 that the scripts' `SetObjState` sets
+    /// (`npcs::Npcs::locked`, #1369), and whether a hero marked it.
     fn seen(&self, heights: &Heights) -> Vec<Seen> {
         self.doors
             .iter()
@@ -286,7 +286,7 @@ impl Doors<'_, '_> {
                 at: spot(object.at),
                 layer: layered.layer,
                 open: swing.map_or(door.open, |swing| swing.open),
-                barred: false,
+                barred: self.npcs.as_ref().is_some_and(|npcs| npcs.locked(door)),
                 marked: self.npcs.as_ref().is_some_and(|npcs| npcs.marked(door)),
             })
             .collect()
