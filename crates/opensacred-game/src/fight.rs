@@ -602,12 +602,15 @@ pub(crate) fn resolve(
         // The attacker's effect 842 then raises the damage that the resolution returns by what it
         // pays of its own health, keeping 1 (`0x5706F8`–`0x5707F1`, #1366): the struck one's
         // health has fallen already, so the raise takes none of it, while the wound and the
-        // number shown take it. Its red flash (856) is not drawn.
-        let cost = opensacred_rules::fight::painkiller(
-            damage,
-            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None),
-            &rules,
-        );
+        // number shown take it. Its red flash (856) is not drawn. The hero's sets add their part
+        // to its items' value (M21, `0x570721`).
+        let pain =
+            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None);
+        let pain = match holding.filter(|_| hero) {
+            Some(holding) => holding.0.sets.painkiller(pain),
+            None => pain,
+        };
+        let cost = opensacred_rules::fight::painkiller(damage, pain, &rules);
         let damage = damage + cost;
         // Its life leech takes back a share of the raised damage, held at what the struck one's
         // health held before, by their distance, but from a poison's strike
