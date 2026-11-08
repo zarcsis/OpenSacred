@@ -93,6 +93,9 @@ impl Rules {
     serde::Serialize,
     serde::Deserialize,
 )]
+// Named apart from another saved type of its name, which the saves' layout test traces by
+// name (#2306); postcard writes no names.
+#[serde(rename = "CreatureBase")]
 pub struct Base(pub opensacred_rules::fight::Base);
 
 impl Base {

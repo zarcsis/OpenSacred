@@ -45,5 +45,8 @@ rfd.workspace = true
 # The user's short date's pattern, which the saves' window writes its dates in (#1990).
 winreg.workspace = true
 
+[dev-dependencies]
+serde-reflection.workspace = true
+
 [lints]
 workspace = true
