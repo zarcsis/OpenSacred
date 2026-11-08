@@ -1308,6 +1308,23 @@ impl Npc {
         }?;
         Some((self.player?, node, name, runs))
     }
+
+    /// The clip that a horse carried under its rider plays now by its gait `steered` (`riding`,
+    /// #2299; its walk, or its run where `Some(true)`), as [`Self::walking`] tells a walk's;
+    /// none where it stands (`steps`, #1180).
+    pub(crate) fn steered(
+        &self,
+        steered: &Steered,
+    ) -> Option<(Entity, AnimationNodeIndex, &str, bool)> {
+        let graph = self.graph.as_ref()?;
+        let runs = steered.0? && graph.run.is_some();
+        let (node, name) = if runs {
+            (graph.run?, self.names.run.as_deref()?)
+        } else {
+            (graph.walk?, self.names.walk.as_deref()?)
+        };
+        Some((self.player?, node, name, runs))
+    }
 }
 
 /// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
