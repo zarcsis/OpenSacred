@@ -114,6 +114,80 @@ pub fn gib_set(kind: u32) -> u8 {
     }
 }
 
+/// The `items.pak` type of the body part `part` (0 to 5) of a burst of the gib set `set`
+/// (`0x427650`; #1264, #1935): the set 0's 5094, 5093, 5089 to 5093, 5086 to 5089, 5083 to 5086
+/// and 5065 to 5083; the set 1's 999, 998, 994 to 998, 991 to 994, 988 to 991 and 970 to 988;
+/// the set 2's 969, 968, 964 to 968, 961 to 964, 958 to 961 and 940 to 958; the set 3's 937,
+/// 936, 935, 925 and, for the parts 4 and 5, 926 to 936; none for another set.
+pub fn part_type(set: u8, part: u8, dice: &mut impl crate::spawning::Dice) -> Option<u32> {
+    let mut roll = |count: u32| dice.below(count);
+    let (first, second, rolled): (u32, u32, [(u32, u32); 4]) = match set {
+        0 => (5094, 5093, [(5089, 5), (5086, 4), (5083, 4), (5065, 19)]),
+        1 => (999, 998, [(994, 5), (991, 4), (988, 4), (970, 19)]),
+        2 => (969, 968, [(964, 5), (961, 4), (958, 4), (940, 19)]),
+        3 => match part {
+            0 => return Some(937),
+            1 => return Some(936),
+            2 => return Some(935),
+            3 => return Some(925),
+            4 | 5 => return Some(926 + roll(11)),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    match part {
+        0 => Some(first),
+        1 => Some(second),
+        2..=5 => {
+            let (base, count) = rolled[usize::from(part - 2)];
+            Some(base + roll(count))
+        }
+        _ => None,
+    }
+}
+
+/// One of the six blood textures of the gib set `set` at random (`0x4271E0`): `FX_BLOOD01` to
+/// `06` for the set 0, with `_G` for the set 1 and `_B` for the set 2; none for the sets 3 and 4.
+pub fn blood_texture(set: u8, dice: &mut impl crate::spawning::Dice) -> Option<&'static str> {
+    const RED: [&str; 6] = [
+        "FX_BLOOD01",
+        "FX_BLOOD02",
+        "FX_BLOOD03",
+        "FX_BLOOD04",
+        "FX_BLOOD05",
+        "FX_BLOOD06",
+    ];
+    const GREEN: [&str; 6] = [
+        "FX_BLOOD01_G",
+        "FX_BLOOD02_G",
+        "FX_BLOOD03_G",
+        "FX_BLOOD04_G",
+        "FX_BLOOD05_G",
+        "FX_BLOOD06_G",
+    ];
+    const BLACK: [&str; 6] = [
+        "FX_BLOOD01_B",
+        "FX_BLOOD02_B",
+        "FX_BLOOD03_B",
+        "FX_BLOOD04_B",
+        "FX_BLOOD05_B",
+        "FX_BLOOD06_B",
+    ];
+    let set = match set {
+        0 => RED,
+        1 => GREEN,
+        2 => BLACK,
+        _ => return None,
+    };
+    set.get(usize::try_from(dice.below(6)).unwrap_or(0))
+        .copied()
+}
+
+/// The blood decal of a burst, and of each bounce of its body parts: its seconds before it fades
+/// and its half side (`0x4E8DA0`'s `0x3C002D`; docs/re/effects.md, "A soul's mark").
+pub const BURST_BLOOD: (f32, f32) = (60.0, 45.0);
+pub const PART_BLOOD: (f32, f32) = (30.0, 25.0);
+
 /// Whether a creature of the type `kind` may rise from its death.
 pub fn rises(kind: u32) -> bool {
     SKELETONS.contains(&kind) || GOBLINS.contains(&kind)

@@ -14,8 +14,8 @@
 //! that vanishes (781's variants 3 and 4, `puffs`, #1261); the burning ones' flames are the
 //! effect 856's (`fx::last_burning`, #1262); a skeleton warrior that loses its head throws it off,
 //! an item that lies where it lands (#1202). A burst makes its cloud in its gib set's colour
-//! (#1264); its parts and an arm's bone, which the original makes only under `VIOLENCE`, are not
-//! drawn.
+//! (#1264), and under `[gameplay] violence` its body parts and its blood (`body_parts`, #1935);
+//! an arm's bone, which the original makes only under `VIOLENCE` too, is not drawn.
 
 use crate::buildings::Layered;
 use bevy::prelude::*;
@@ -329,10 +329,11 @@ fn last(
     mut commands: Commands,
     lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform, Has<Bursts>), Added<Corpse>>,
     (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
-    (mut sounds, mut dice, gibs): (
+    (mut sounds, mut dice, gibs, mut thrown): (
         MessageWriter<Play>,
         ResMut<Dice>,
         Option<Res<crate::blood_fountains::Gibs>>,
+        MessageWriter<crate::body_parts::Burst>,
     ),
 ) {
     for (entity, corpse, dies, at, bursts) in &lying {
@@ -340,9 +341,9 @@ fn last(
             let set = gibs.as_ref().map_or(0, |gibs| gibs.of(corpse.creature));
             burst(
                 &mut commands,
-                &mut sounds,
-                (entity, corpse.creature, at),
-                set,
+                (&mut sounds, &mut thrown),
+                (entity, corpse, at),
+                (set, 2),
             );
             continue;
         }
@@ -364,9 +365,9 @@ fn last(
                 let set = undead::gib_set(corpse.creature);
                 burst(
                     &mut commands,
-                    &mut sounds,
-                    (entity, corpse.creature, at),
-                    set,
+                    (&mut sounds, &mut thrown),
+                    (entity, corpse, at),
+                    (set, 1),
                 );
             }
             End::Vanishes => {
@@ -411,15 +412,24 @@ pub(crate) fn bones(
 }
 
 /// Bursts a corpse at once (`0x4E8DA0`): its cloud in its gib set `set`'s colour (809) and
-/// `CHAR_SPLASH` at it, its body gone; the body parts and the blood decal, which the original
-/// makes only under `VIOLENCE` 1, are not made.
+/// `CHAR_SPLASH` at it, its body gone, and under the violence its `parts` and its blood decal
+/// (`body_parts`).
 fn burst(
     commands: &mut Commands,
-    sounds: &mut MessageWriter<Play>,
-    (entity, creature, at): (Entity, u32, &GlobalTransform),
-    set: u8,
+    (sounds, bursts): (
+        &mut MessageWriter<Play>,
+        &mut MessageWriter<crate::body_parts::Burst>,
+    ),
+    (entity, corpse, at): (Entity, &Corpse, &GlobalTransform),
+    (set, parts): (u8, u8),
 ) {
-    debug!("undead: {entity}, a {creature}, bursts");
+    debug!("undead: {entity}, a {}, bursts", corpse.creature);
+    bursts.write(crate::body_parts::Burst {
+        at: at.translation(),
+        level: corpse.level,
+        set,
+        parts,
+    });
     crate::puffs::spawn(
         commands,
         particles::burst_cloud(particles::burst_colour(set)),

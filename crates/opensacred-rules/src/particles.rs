@@ -1031,6 +1031,200 @@ pub fn burst_cloud(colour: u32) -> Burst {
     }
 }
 
+/// The hop of an FX object that the event 9 throws (`0x5A3840`'s case 9, its flight in
+/// `0x5A6680` by the system's flag `0x800`; #1935): along its horizontal `direction` on the
+/// world's ground at `speed·s` world units a second, `s = (T − t)/T` falling from 1 to 0 over its
+/// time `T`, at `s·H·|cos ωt|` over the ground, `H` its height and `ω` its rate; each `cos ωt`
+/// crossing 0 a bounce; past `T` it lies.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hop {
+    direction: [f32; 2],
+    lasts: f32,
+    height: f32,
+    rate: f32,
+    speed: f32,
+    clock: f32,
+}
+
+/// What a hop does in a frame ([`Hop::update`]): how far it moves along the world's ground, how
+/// high it is over the ground, whether it bounced and whether it lies.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HopStep {
+    pub moved: [f32; 2],
+    pub lift: f32,
+    pub bounced: bool,
+    pub lies: bool,
+}
+
+impl Hop {
+    /// A hop at the angle `angle` (radians) on the ground, of the time `lasts`, the height
+    /// `height`, the rate `rate` and the speed `speed`.
+    pub fn new(angle: f32, (lasts, height, rate, speed): (f32, f32, f32, f32)) -> Self {
+        Self {
+            direction: [angle.cos(), angle.sin()],
+            lasts,
+            height,
+            rate,
+            speed,
+            clock: 0.0,
+        }
+    }
+
+    /// The share `s` of its speed and height at its clock, 0 once it lies.
+    fn share(&self) -> f32 {
+        ((self.lasts - self.clock) / self.lasts).max(0.0)
+    }
+
+    /// A frame of `dt` seconds: it moves at the speed of its share before the frame, then its
+    /// clock runs and its height follows (`0x5A6680`).
+    pub fn update(&mut self, dt: f32) -> HopStep {
+        if self.clock >= self.lasts {
+            return HopStep {
+                moved: [0.0; 2],
+                lift: 0.0,
+                bounced: false,
+                lies: true,
+            };
+        }
+        let step = self.speed * dt * self.share();
+        let moved = self.direction.map(|d| d * step);
+        let before = (self.clock * self.rate).cos();
+        self.clock += dt;
+        let after = (self.clock * self.rate).cos();
+        let bounced = (before <= 0.0 && after > 0.0) || (before >= 0.0 && after < 0.0);
+        HopStep {
+            moved,
+            lift: self.share() * self.height * after.abs(),
+            bounced,
+            lies: false,
+        }
+    }
+
+    /// Turns it about, as it meets a cell that it may not walk on (`0x5A703E`).
+    pub fn turn_about(&mut self) {
+        self.direction = self.direction.map(|d| -d);
+    }
+}
+
+/// A body part of a creature's burst under the violence (800, `cParticleSystem_bodyparts`,
+/// its start `0x783B50`, its run `0x783900`, its draw `0x7839C0`; #1935): thrown by the event 9
+/// ([`Hop`], the speed 300), it turns about two axes at 2 to 4 radians a second each while it
+/// flies, trailing [`PARTICLE_CLOUD`] puffs in its burst's colour; it lies 30 to 60 s from its
+/// start, then goes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BodyPart {
+    pub hop: Hop,
+    turns: [f32; 2],
+    rates: [f32; 2],
+    ends: f32,
+    clock: f32,
+    lies: bool,
+    /// Its trail's puffs, in the models' frame of the world.
+    pub trail: System,
+    detail: f32,
+}
+
+/// The trail's texture, the body parts' speed (`+0x98`) and the scale of their models
+/// (`0x7839C0`'s `0x6539D0` of 2).
+pub const PARTICLE_CLOUD: &str = "PARTICLE_CLOUD01";
+const PART_SPEED: f32 = 300.0;
+pub const PART_SCALE: f32 = 2.0;
+/// The trail's puffs at most (**estimate**: the system's room).
+const TRAIL_ROOM: usize = 300;
+
+impl BodyPart {
+    /// A part thrown from a point `rise` over its ground (the event's `+0x28`, **hypothesis**: 0
+    /// for a creature on its ground), its rolls by `dice` (`0x5A3840`'s case 9, `0x783B50`), its
+    /// trail emitted at the detail's factor `detail` (1 at `DETAILLEVEL` 2).
+    pub fn new(rise: f32, detail: f32, dice: &mut impl Dice) -> Self {
+        let mut share = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        let angle = share() * std::f32::consts::TAU;
+        let lasts = share() - 0.8 + 1.0;
+        let height = share() * 50.0 - 30.0 + rise + 50.0;
+        let rate = share() * 6.0 + 6.0;
+        let ends = (share() + 1.0) * 30.0;
+        let rates = [(share() + 1.0) * 2.0, (share() + 1.0) * 2.0];
+        Self {
+            hop: Hop::new(angle, (lasts, height, rate, PART_SPEED)),
+            turns: [0.0; 2],
+            rates,
+            ends,
+            clock: 0.0,
+            lies: false,
+            trail: System::new(TRAIL_ROOM),
+            detail,
+        }
+    }
+
+    /// Its trail's layer: the life falling by 300 a second, the size growing by 15.
+    pub fn trail_layer() -> Layer {
+        Layer {
+            life: -300.0,
+            size: 15.0,
+            ..Layer::default()
+        }
+    }
+
+    /// Its trail's block: a buoyancy of 2, the size 3 ± 1, the angle π ± π, the velocity ± 2 and
+    /// the place ± 3 along each axis, one every `0.01·f` s by the detail's factor.
+    fn trail_block(&self) -> Block {
+        Block {
+            buoyancy: spread(2.0, 0.0),
+            size: spread(3.0, 1.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [2.0; 3]),
+            offset: spread([0.0; 3], [3.0; 3]),
+            interval: 0.01 * self.detail,
+            ..Block::default()
+        }
+    }
+
+    /// A frame of `dt` seconds (`0x783900`): its clock, its hop's step, and its turns while it
+    /// flies.
+    pub fn update(&mut self, dt: f32) -> HopStep {
+        self.clock += dt;
+        let step = self.hop.update(dt);
+        if step.lies {
+            self.lies = true;
+        }
+        if !self.lies {
+            for (turn, rate) in self.turns.iter_mut().zip(self.rates) {
+                *turn += rate * dt;
+            }
+        }
+        step
+    }
+
+    /// Its trail a frame of `dt` seconds on, the part having gone from `from` to `to` in the
+    /// models' frame: its puffs aged and, while it flies, emitted along that way.
+    pub fn trail_on(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
+        let layers = [Self::trail_layer()];
+        self.trail.update(dt, &layers);
+        if !self.lies {
+            let block = self.trail_block();
+            self.trail
+                .emit_along(&[block], &layers, TRAIL_ROOM, (from, to), dt, dice);
+        }
+    }
+
+    /// Its two turns in radians, its model drawn turned about the models' `x` by the first
+    /// (`0x653910`) and then about `y` by the second (`0x653850`), at [`PART_SCALE`] times its
+    /// size (`0x7839C0`).
+    pub fn turns(&self) -> [f32; 2] {
+        self.turns
+    }
+
+    /// Whether it lies on the ground, its flight over.
+    pub fn lies(&self) -> bool {
+        self.lies
+    }
+
+    /// Whether it goes: past its 30 to 60 s, its trail gone.
+    pub fn done(&self) -> bool {
+        self.clock > self.ends && self.trail.particles.is_empty()
+    }
+}
+
 /// The ring of an undead that rises again (781, `TYPE_FX_PUZZLE_SOLVED_V`, its variant 3,
 /// `0x76D260` at `0x76D5A3`; #1261): 75 particles on a ring of 17.5 about the system's place,
 /// each rising at 70, the even ones falling back by a buoyancy of 100, of a size of 10 that falls
@@ -15719,6 +15913,54 @@ mod tests {
         assert!(r >= 194.0 / 255.0 && g <= 144.0 / 255.0 && b <= 144.0 / 255.0);
         // Its part, of the giant spider's set.
         assert!((0..50).all(|_| (991..=999).contains(&spit_part(&mut dice))));
+    }
+
+    #[test]
+    fn a_body_part_hops_away_bouncing_and_lies_turned() {
+        // A hop of 1 s at the speed 300, the height 50 and the rate 6.
+        let mut hop = Hop::new(0.0, (1.0, 50.0, 6.0, 300.0));
+        let mut along = 0.0;
+        let mut bounces = 0;
+        let mut highest: f32 = 0.0;
+        for _ in 0..100 {
+            let step = hop.update(0.01);
+            along += step.moved[0];
+            bounces += usize::from(step.bounced);
+            highest = highest.max(step.lift);
+        }
+        // About 300·T/2 along its way, bouncing at each half turn of 6 radians a second (π/12,
+        // 3π/12 … within 1 s: 2 crossings), never higher than its height.
+        assert!((along - 150.0).abs() < 2.0, "{along}");
+        assert_eq!(bounces, 2);
+        assert!(highest <= 50.0 && highest > 40.0, "{highest}");
+        // Its last frame past its time (the sum of the frames falls a little short of 1 s).
+        hop.update(0.01);
+        assert!(hop.update(0.01).lies);
+        // A part thrown flies a while, turned, trailing puffs, then lies; it goes past its end.
+        let mut dice = crate::spawning::Rng::of(50, 39, 1);
+        let mut part = BodyPart::new(0.0, 1.0, &mut dice);
+        let mut place = [0.0_f32; 3];
+        let mut puffs = 0;
+        for _ in 0..200 {
+            let step = part.update(0.01);
+            let next = [
+                place[0] + step.moved[0],
+                place[1] + step.moved[1],
+                step.lift,
+            ];
+            part.trail_on(0.01, (place, next), &mut dice);
+            place = next;
+            puffs = puffs.max(part.trail.particles.len());
+        }
+        assert!(part.lies() && puffs > 10 && part.turns()[0] >= 0.39);
+        let turned = part.turns();
+        part.update(0.5);
+        assert_eq!(part.turns(), turned);
+        for _ in 0..70 {
+            part.update(1.0);
+            part.trail_on(1.0, (place, place), &mut dice);
+        }
+        assert!(part.done());
     }
 
     #[test]

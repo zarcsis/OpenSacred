@@ -88,7 +88,7 @@ Then the handler sets `+0x48` bit 2, the object started, which its draw requires
 ### Each frame
 
 - **The tick** (`0x5A6210`): while the object is started and its system alive, `0x5A6680` with the frame's time and 0; when the system is no longer alive (its virtual `+0x0C`, or its word `+0x74` bit 1, which `0x7CBA10(…, 1)` sets to end it), the system is destroyed (`0x7CB960`) and the object with it (`sdk_DESTROY`).
-- **The update** (`0x5A6680`): runs the system (`0x7CC080`, virtual `+0x08` with the frame's time), counts the hits' cooldown down, sets the system's tint `+0xA0` to the light's colour at the object's place (`0x41B4A0`, which `0x41B510` computes, docs/re/daynight.md) and `+0xA4` to a height above the ground (`0x7CBBE0`, `0x7CBC20`), runs the action the system asks for (`0x7CBD90`, `0x5B2600`), and the flagged behaviours of the system's flags (`+0x7C`): the targets and the hits (`0x400`, docs/re/arts.md), the wandering (`0x8000`, "The butterflies" below), and others (`0x8`, `0x10`, `0x20`, `0x800`, `0x4000`, `0x10000`, `0x20000`, `0x40000`, `0x80000`, `0x200000`; not read).
+- **The update** (`0x5A6680`): runs the system (`0x7CC080`, virtual `+0x08` with the frame's time), counts the hits' cooldown down, sets the system's tint `+0xA0` to the light's colour at the object's place (`0x41B4A0`, which `0x41B510` computes, docs/re/daynight.md) and `+0xA4` to a height above the ground (`0x7CBBE0`, `0x7CBC20`), runs the action the system asks for (`0x7CBD90`, `0x5B2600`), and the flagged behaviours of the system's flags (`+0x7C`): the targets and the hits (`0x400`, docs/re/arts.md), the wandering (`0x8000`, "The butterflies" below), the hop (`0x800`, "The body parts" below), and others (`0x8`, `0x10`, `0x20`, `0x4000`, `0x10000`, `0x20000`, `0x40000`, `0x80000`, `0x200000`; not read).
 - **The draw** (`0x5A9C50`, virtual `+0x14`): the object is an entry of the draw lists (below) and draws itself in its place.
   By the system's flags it first places the system: `0x40` once at the followed object's bone (`+0x70`) with the bone's orientation (`0x7CBB50`), `0x100` once keeps the bone's point at the object's `+0xB8` (the followed creature's place where the bone is not found), `0x200` at each frame at the bone plus an offset (`+0x90` … `+0x98`; for 788 `FX_BURNING_BONE` from Granny's bone state), `0x400000` and `0x1000` three bones' points into the system's points (`+0x72` … `+0x76` into `0x7CBB90`), `4` the system's origin at the object's world place on the ground (its `+0x1C`, `+0x20` in the models' frame at the height 0, `0x7CBC60`) and its position and three points made relative to it (`0x5AA134`), so that its particles ride with the object, `2` the origin `+0x5C` at the position.
   A followed object gone or in another sector ends the system.
@@ -2112,7 +2112,26 @@ It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `o
 **Seen** 2026-11-06 in the game: a cloud of tiny butterflies of every colour rising from about the Wood Elf's feet and fading; not yet beside the original.
 It draws the `Rundum` with a bow's ring since #2240 (`elf_sights`, `opensacred_rules::particles::BowRundumRing`), made as its arrows leave, at the shooter's root, just behind its model.
 **Seen** 2026-11-07 in the game: a green ring at the Wood Elf's hand's height about her, a star at her left hand, shrinking away in a second and a third as her four arrows flew.
-Not followed yet: the blood's and the body parts' marks (#1935).
+It lays the bursts' blood and the body parts' since #1935 ("The body parts" below).
+
+## The body parts
+
+Read 2026-11-07 for #1935 (**confirmed** by code unless marked).
+
+- **The throw.** A creature's burst under `VIOLENCE` (`0x4E8DA0`, docs/re/fight.md, "The burst") makes each part an 800 (`FX_BODYPARTS`) at the creature's place and sends it the FX event 9 with the part's model type (`0x427650` by the gib set and the part), the set's colour (`0x427160`) and the creature's point.
+- **The event 9** (`cObjectFX`'s receive `0x5A3840`): a horizontal direction at an angle at random (0 to 2π), a time `T` of 0.2 to 1.2 s (`rand()/32767 − 0.8 + 1`), a hop's height `H` of 20 to 70 plus the event's `+0x28` (**hypothesis**: 0 for a creature on its ground), a rate `ω` of 6 to 12 radians a second, and the ground's height under it.
+- **The hop** (`0x5A6680`, the system's flag `0x800`): with `t` its time and `s = (T − t)/T`, it moves along its direction at `300·s` world units a second (the system's speed `+0x98`), at `s·H·|cos ωt|` over the ground.
+  At each crossing of `cos ωt` through 0 it bounces (`0x5AA560`), laying a 779 of the set's blood at its place (30 s, the half side 25) where the set has a blood texture (`0x4271E0`).
+  A cell ahead that may not be walked on, unless arrows fly over it (`0x636D20`), turns its direction about (`0x5A703E`); past `T` the system takes the flag 4: it lies.
+  The Daemon's breath of fire (`0x3EE`) flies by the same code, its bounces making its flames (docs/re/arts.md).
+- **The system** (`cParticleSystem_bodyparts`, `0x897F60`; its constructor `0x783810`, start `0x783B50`, run `0x783900`, draw `0x7839C0`).
+  Its start takes the event's model type (`+0x3C`) and colour (`+0x38`, on the four corners), its end 30 to 60 s from its start (`(rand()/32767 + 1)·30`), two turns from 0 at 2 to 4 radians a second each (`2·(rand()/32767 + 1)`), and its trail: a puff of `PARTICLE_CLOUD01` every `0.01·f` s (`f` 1, 1.5 or 2.2 by `DETAILLEVEL` 2, 1 or 0), living 0.85 s (its life falling by 300 a second), growing by 15 a second.
+  The trail's block at `+0x20DC` holds 2, 3, 1, π, π, 2, 2, 2, 3, 3, 3, read as a buoyancy of 2, a size of 3 ± 1, an angle of π ± π, a velocity of ± 2 and a place of ± 3 along each axis (**hypothesis**: the slots' order of the other systems' blocks).
+  Its run: the turns go on and the trail is emitted along its way while it flies; landed (the flag 4), both stop; past its end it goes.
+  Its draw: the part's model at its place at twice its size (`0x6539D0` of 2), turned about the models' `x` by its first turn (`0x653910`) and then about `y` by its second (`0x653850`), lit as the world's models; then its trail as billboards of the flags `0x46` (the corners' colour at the alpha of the life, turned, tinted by the light at it), laid over by their alpha.
+
+`opensacred-game` makes them since #1935 (`body_parts`, `opensacred_rules::particles::{Hop, BodyPart}`, `opensacred_rules::undead::{part_type, blood_texture}`) under `[gameplay] violence`: the parts' models are their items' (`drops`), and the burst's decal and the bounces' are the marks' (`marks`); the trail is emitted at `DETAILLEVEL` 2's rate.
+**Seen** 2026-11-07 in the game: a zombie 33 killed in the Seraphim's starting hall burst into six lumps of its flesh that hopped away up to about three cells, tumbling and trailing green puffs, over a large green stain at its place and smaller ones where they bounced; not yet beside the original, whose GOG installation holds `VIOLENCE : 0`.
 
 ## The burning light and the holy conversion
 
@@ -2428,7 +2447,7 @@ The order above is #1092's: the machinery with the world's fires first, then the
 
 ## Open questions
 
-- What the object's `+0x14` bit `4` means (the smoke family, the torch smoke, the traps 892 and 893, the blood puddle 903), and the other system flags of the update (`0x8`, `0x10`, `0x20`, `0x800`, `0x4000`, `0x10000`, `0x20000`, `0x40000`, `0x80000`, `0x200000`).
+- What the object's `+0x14` bit `4` means (the smoke family, the torch smoke, the traps 892 and 893, the blood puddle 903), and the other system flags of the update (`0x8`, `0x10`, `0x20`, `0x4000`, `0x10000`, `0x20000`, `0x40000`, `0x80000`, `0x200000`).
 - What the update's second argument (0 from the tick, 1 from the draw) changes, so whether an effect off the screen runs at half the rate of one on it.
 - The matrix at `sdk_DXDISPLAY + 0x250` the systems are drawn with (**hypothesis**: the view's rotation inverted, for camera-facing quads), and the scale of the models' units on the screen for a particle's size (1 unit about 1.92 pixels at zoom 1 by docs/re/drawing.md).
 - The units and the frame of the scripts' tag `0x7E` (the effects' height; the game takes it in the models' units above the world's zero, which puts the braziers' fires of 50,39 on their bowls as the original's), and which statics the fires and fire smokes stand on.
