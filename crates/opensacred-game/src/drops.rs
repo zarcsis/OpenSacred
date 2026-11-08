@@ -846,7 +846,7 @@ pub(crate) fn hero(base: &fight::Base, level: u32) -> Hero {
 }
 
 /// Gives `hero` the runes it carries in `pack` and its arts' levels of `arts`, by which a rune's
-/// chance goes (`0x5598B0`, `0x5595A0`).
+/// chance goes (`0x5598B0`, `0x5595A0`), and the types it wears.
 pub(crate) fn carrying(
     hero: &mut Hero,
     pack: &crate::pickup::Pack,
@@ -860,6 +860,13 @@ pub(crate) fn carrying(
         .count();
     hero.runes = u32::try_from(runes).unwrap_or(u32::MAX);
     hero.arts = arts.map_or(0, |arts| arts.arts.levels());
+    // The types it wears, which weigh the choice of a set's piece (#2268).
+    hero.worn = pack
+        .worn
+        .iter()
+        .flatten()
+        .map(|(_, dropped)| dropped.item)
+        .collect();
 }
 
 /// Throws `dropped` from a container at `from` to `to` on `level` (`0x5C9BA0`), along the arc of

@@ -244,6 +244,9 @@ pub struct Hero {
     /// rune's chance (#1183).
     pub runes: u32,
     pub arts: u32,
+    /// The types it wears in its 19 slots, of which a set's pieces weigh the choice of a set's
+    /// piece (`0x55A8E7`, #2268).
+    pub worn: Vec<u32>,
 }
 
 /// The kill, as it raises the bonus: whether a player made it, and the killer's values.
@@ -1007,6 +1010,13 @@ pub struct Catalogue {
     /// Each slot's `items.pak` name (`+0x37`, `0x43CED0`), by which the namer tells a sword from
     /// an axe.
     models: HashMap<u32, String>,
+    /// The sets' pieces in the order of `sets.bin` (`+0x563244`, #2268), each its count's.
+    sets: Vec<Vec<u32>>,
+    /// The types of the quality 15 by their template's word 38, their family (the map
+    /// `0xAD4428`), in `Weapon.pak`'s order.
+    uniques: HashMap<i64, Vec<u32>>,
+    /// The records' own values of the uniques and the set pieces, which a drop raises.
+    owned: HashMap<u32, crate::fight::ItemValues>,
 }
 
 impl Catalogue {
@@ -1099,6 +1109,32 @@ impl Catalogue {
         for list in lists.values_mut() {
             list.sort_unstable();
         }
+        let set_pieces = sets
+            .iter()
+            .map(|set| {
+                let count = usize::from(set.bytes[0]).min(set.items.len());
+                set.items[..count].to_vec()
+            })
+            .collect();
+        // The family map (`0x5D4AC0`): every `Weapon.pak` type of a template by the lookup
+        // `0x42CA70`, by its word 38, in the file's order; the drop keeps those of the quality 15.
+        let mut uniques: HashMap<i64, Vec<u32>> = HashMap::new();
+        let mut owned = HashMap::new();
+        for weapon in weapons {
+            let Some(record) = records.get(&weapon.id) else {
+                continue;
+            };
+            let unique = record.flags & UNIQUE == UNIQUE;
+            if unique && let Some([family, ..]) = templates.looked_up(weapon.id) {
+                uniques.entry(family).or_default().push(weapon.id);
+            }
+            if unique || record.set {
+                owned.insert(
+                    weapon.id,
+                    crate::fight::ItemValues::of_record(&weapon.words_84),
+                );
+            }
+        }
         Self {
             categories,
             records,
@@ -1110,6 +1146,9 @@ impl Catalogue {
                 .iter()
                 .map(|item| (item.slot, item.name.clone()))
                 .collect(),
+            sets: set_pieces,
+            uniques,
+            owned,
         }
     }
 
@@ -1625,13 +1664,21 @@ impl Dropping<'_> {
         Check::Make
     }
 
-    /// The drop of `item` by the key `key` (`0x559BF0`): gold with its amount; potions, runes and
-    /// the categories 26, 30 and 31 as they are; another item by the maker, the key 1 (a set
-    /// piece, left out) taken as 2: the key 0 (a unique, left out) with the key 14 at `R(lo, hi)`,
-    /// 2 to 15 with `16 − key` at `R(lo, hi)`, 16 with 0 at `lo`, 17 with 0 at `R(⌊lo/2⌋, lo)`,
-    /// the rolls at least 1.
+    /// The drop of `item` by the key `key` (`0x559BF0`): the key 1 a set's piece in its place
+    /// where one is taken ([`Self::set_piece`]), else the key 2; gold with its amount; potions,
+    /// runes and the categories 26, 30 and 31 as they are; another item: a set's piece raised to
+    /// `lo` ([`raised`]); the key 0 a unique of its family raised to `lo` ([`Self::unique`]),
+    /// else with the key 14 at `R(lo, hi)`, or its record as it stands where its type has no
+    /// template of its own; 2 to 15 with `16 − key` at `R(lo, hi)`, 16 with 0 at `lo`, 17 with 0
+    /// at `R(⌊lo/2⌋, lo)`, the rolls at least 1.
     fn make(&self, kind: Kind, item: u32, key: u32, dice: &mut impl Dice) -> Dropped {
-        let key = if key == 1 { 2 } else { key };
+        let (kind, item, key) = match key {
+            1 => match self.set_piece(dice) {
+                Some(piece) => (self.catalogue.kind(piece).unwrap_or(kind), piece, 1),
+                None => (kind, item, 2),
+            },
+            key => (kind, item, key),
+        };
         let mut drop = Dropped {
             kind,
             item,
@@ -1655,6 +1702,31 @@ impl Dropping<'_> {
             return drop;
         }
         let (lo, hi) = self.rules.item_levels(dead.level, self.death.difficulty);
+        let lo_level = u32::try_from(lo).unwrap_or(0);
+        if key == 1 {
+            raised(
+                &mut drop,
+                (self.catalogue, self.templates),
+                (lo_level, self.death.difficulty),
+            );
+            return drop;
+        }
+        if key == 0 {
+            match self.unique(item, dice) {
+                Unique::Kept => return drop,
+                Unique::Taken(unique) => {
+                    drop.item = unique;
+                    drop.kind = self.catalogue.kind(unique).unwrap_or(drop.kind);
+                    raised(
+                        &mut drop,
+                        (self.catalogue, self.templates),
+                        (lo_level, self.death.difficulty),
+                    );
+                    return drop;
+                }
+                Unique::Made => {}
+            }
+        }
         let (quality, level) = match key {
             0 => (14, at_least_one(lo, hi, dice)),
             16 => (0, lo),
@@ -1676,6 +1748,158 @@ impl Dropping<'_> {
         );
         drop.named = names::roll(drop.values.as_ref(), dice);
         drop
+    }
+}
+
+/// What the key 0 makes of a drop's type ([`Dropping::unique`]).
+enum Unique {
+    /// Its type has no template of its own: its record as it stands.
+    Kept,
+    /// The maker makes it with the key 14.
+    Made,
+    /// A unique of its family in its place.
+    Taken(u32),
+}
+
+impl Dropping<'_> {
+    /// The set's piece that the key 1 takes in place of a drop's type (`0x55A8E7`–`0x55B2CB`,
+    /// #2268), none for the key 2: in 60 cases of 100 of the sets whose first piece is of the
+    /// local hero's class (its bit, every class's for another type), no icon (5101 to 5106), has
+    /// a template ([`Templates::limits`], its word 38 not −1) and asks a least level up to the
+    /// hero's, else of the sets with a piece that has a template; one at `rand() % n` (no roll
+    /// for one); of its pieces with a template, each the hero wears kept by a roll below 50 of
+    /// 100, in their order, one at `rand() % m`; taken where its own level times 0.8 lies below
+    /// the hero's.
+    fn set_piece(&self, dice: &mut impl Dice) -> Option<u32> {
+        let hero = &self.death.hero;
+        let catalogue = self.catalogue;
+        let has_template = |item: u32| {
+            self.templates
+                .limits(item)
+                .is_some_and(|[flags, ..]| flags != -1)
+        };
+        let mask = match crate::equipment::class_bit(hero.creature) {
+            0 => CLASS_BITS,
+            bit => bit,
+        };
+        let classed = dice.below(100) < 60;
+        let sets: Vec<&Vec<u32>> = catalogue
+            .sets
+            .iter()
+            .filter(|pieces| {
+                if classed {
+                    pieces.first().is_some_and(|&first| {
+                        catalogue.records.get(&first).is_some_and(|record| {
+                            record.flags & mask != 0
+                                && !(5101..=5106).contains(&first)
+                                && has_template(first)
+                                && u32::from(record.levels[0]) <= hero.level
+                        })
+                    })
+                } else {
+                    pieces.iter().any(|&piece| has_template(piece))
+                }
+            })
+            .collect();
+        let set = sets.get(pick(sets.len(), dice)?)?;
+        let mut pieces = Vec::new();
+        for &piece in set.iter() {
+            if !has_template(piece) {
+                continue;
+            }
+            if !hero.worn.contains(&piece) || dice.below(100) < 50 {
+                pieces.push(piece);
+            }
+        }
+        let piece = *pieces.get(pick(pieces.len(), dice)?)?;
+        let own = catalogue.records.get(&piece).map_or(0, |r| r.levels[1]);
+        (f32::from(own) * 0.8 < to_f32(hero.level)).then_some(piece)
+    }
+
+    /// What the key 0 makes of a drop of type `item` (`0x55B598`–`0x55B952`, #2268): its record as
+    /// it stands where the type has no template of its own; else of the uniques of its family
+    /// (its template's word 38) not of 7911 to 7930, no set's piece and of a least level up to
+    /// the hero's, by a roll below 30 of 100 one at `rand() % n` (no roll for one, none for no
+    /// unique); else the maker's.
+    fn unique(&self, item: u32, dice: &mut impl Dice) -> Unique {
+        let Some(family) = self.templates.word_38(item) else {
+            return Unique::Kept;
+        };
+        let hero = self.death.hero.level;
+        let candidates: Vec<u32> =
+            self.catalogue
+                .uniques
+                .get(&family)
+                .map_or(&[][..], Vec::as_slice)
+                .iter()
+                .copied()
+                .filter(|&unique| {
+                    !(7911..=7930).contains(&unique)
+                        && self.catalogue.records.get(&unique).is_some_and(|record| {
+                            !record.set && u32::from(record.levels[0]) <= hero
+                        })
+                })
+                .collect();
+        if candidates.is_empty() || dice.below(100) >= 30 {
+            return Unique::Made;
+        }
+        match pick(candidates.len(), dice).and_then(|i| candidates.get(i)) {
+            Some(&unique) => Unique::Taken(unique),
+            None => Unique::Made,
+        }
+    }
+}
+
+/// One of `n` at `rand() % n`, no roll for one, none for none.
+fn pick(n: usize, dice: &mut impl Dice) -> Option<usize> {
+    match n {
+        0 => None,
+        1 => Some(0),
+        n => usize::try_from(dice.below(u32::try_from(n).unwrap_or(u32::MAX))).ok(),
+    }
+}
+
+/// The level that a unique or a set's piece of its own level `own` is raised to at the drop's
+/// `lo` (`0x55B7B9`, #2268): `own + n·d`, `d` half its level, at least 15, `n` the whole number
+/// of steps nearest to `(max(lo, own) − own)/d`, a half up.
+pub fn raise_level(own: u32, lo: u32) -> u32 {
+    let half = f64::from(own) * 0.5;
+    let d = if half >= 15.0 { half } else { 15.0 };
+    let difference = f64::from(lo.max(own) - own);
+    let steps = (difference / d + 0.5).trunc();
+    whole_level(f64::from(own) + steps * d)
+}
+
+/// `x` truncated, held within a `u32`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a level, whole and within a u32"
+)]
+fn whole_level(x: f64) -> u32 {
+    x.clamp(0.0, f64::from(u32::MAX)) as u32
+}
+
+/// A unique's or a set's piece's drop raised from its record to the level `lo` on `difficulty`
+/// (`0x5C29A0`, [`Templates::raise`]): its values and its own level; its record as it stands
+/// where its type has no template of its own. Its name is its type's.
+fn raised(
+    drop: &mut Dropped,
+    (catalogue, templates): (&Catalogue, &Templates),
+    (lo, difficulty): (u32, Difficulty),
+) {
+    let Some(values) = catalogue.owned.get(&drop.item) else {
+        return;
+    };
+    let own = catalogue
+        .records
+        .get(&drop.item)
+        .map_or(0, |record| u32::from(record.levels[1]));
+    if let Some((values, level)) =
+        templates.raise(drop.item, values, (own, raise_level(own, lo), difficulty))
+    {
+        drop.values = Some(values);
+        drop.level = level;
     }
 }
 
@@ -1713,10 +1937,14 @@ pub fn thrown(
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
         Kind::Potion | Kind::Rune | Kind::Other => {}
-        // A set's piece and a unique as their records hold them, which the item maker leaves out
-        // (seen in the original's forced drop: their own names, levels, bonuses and sockets).
+        // A set's piece and a unique raised from their records to the level, which the item maker
+        // leaves out (seen in the original's forced drop: their own names, bonuses and sockets;
+        // #2268).
         Kind::Weapon | Kind::Armour | Kind::Jewel
-            if catalogue.set_piece(item) || catalogue.unique(item) => {}
+            if catalogue.set_piece(item) || catalogue.unique(item) =>
+        {
+            raised(&mut drop, (catalogue, templates), (level, difficulty));
+        }
         Kind::Weapon | Kind::Armour | Kind::Jewel => {
             drop.quality = match drop.key {
                 0 => 14,
