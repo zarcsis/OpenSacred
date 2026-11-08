@@ -328,6 +328,14 @@ const BUBBLE_LOOK: usize = 6;
 /// The fire bolt's look (922).
 const FIRE_BOLT_LOOK: usize = 7;
 
+/// Whether a bolt of the look `look` asks its target's magic defence before it strikes
+/// (`0x561860`, #2277; `opensacred_rules::spells::warded`): the railgun's (801), the BFG's (875),
+/// the fireball's (778), the whirlwind's (831), the splinters' (839) and the bubble's (847) do;
+/// the Daemon's of 1103 (1159) and the fire bolt (922) do not.
+fn warded(look: usize) -> bool {
+    !matches!(look, 2 | FIRE_BOLT_LOOK)
+}
+
 /// Makes the launches of each of the Seraphim's shots: its bolts along the line on the ground to
 /// `toward` (with none, her facing), of the damages of the bolt's record by the whole value of
 /// its effect and her multipliers, the second railgun bolt [`RAILGUN_SECOND`] after the first.
@@ -644,6 +652,7 @@ fn fly(
                         fixed: Some(bolt.damages.map(|d| (d * factor).trunc())),
                         sure: true,
                         poison: false,
+                        ward: true,
                     });
                 }
             }
@@ -745,6 +754,7 @@ fn fly(
                 fixed: Some(bolt.damages),
                 sure: true,
                 poison: false,
+                ward: warded(course.look),
             });
         }
         match course.strikes {

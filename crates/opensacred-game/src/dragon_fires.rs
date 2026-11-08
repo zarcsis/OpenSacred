@@ -395,6 +395,7 @@ fn strike(
                 fixed: Some(fire.damages),
                 sure: true,
                 poison: false,
+                ward: false,
             });
         }
     }

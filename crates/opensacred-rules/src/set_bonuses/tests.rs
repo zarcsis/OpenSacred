@@ -262,6 +262,15 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(64, &wearing(64, 3), Difficulty::Bronze)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
+    // The magic defence's flag: set 41 at 5 adds 15·D, set 44 at 3 10·D (M17, #2277).
+    assert!(close(
+        stats(&wearing(41, 5), Difficulty::Bronze).magic_defence(4.0),
+        19.0
+    ));
+    assert!(matches!(
+        told(44, &wearing(44, 3), Difficulty::Gold)[..],
+        [.., Told::MagicDefence(term)] if close(term, 10.0 * 1.67)
+    ));
     // Six pieces of set 23 leave small fires at the steps, five do not.
     assert!(stats(&wearing(23, 6), Difficulty::Bronze).fiery_steps());
     assert!(!stats(&wearing(23, 5), Difficulty::Bronze).fiery_steps());

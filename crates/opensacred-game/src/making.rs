@@ -1044,6 +1044,7 @@ fn make(
             fixed: None,
             sure: false,
             poison: false,
+            ward: false,
             attacker: hero,
             target,
             share: playing.factor,
@@ -1903,6 +1904,7 @@ fn make(
                                 fixed: Some(damages),
                                 sure: true,
                                 poison: false,
+                                ward: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
@@ -2138,6 +2140,7 @@ fn make(
                                     fixed: None,
                                     sure: false,
                                     poison: false,
+                                    ward: false,
                                     share: factor,
                                     ..hit(entity, &playing)
                                 });
@@ -2721,6 +2724,7 @@ fn blades(
                 fixed: None,
                 sure: false,
                 poison: false,
+                ward: false,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
@@ -2875,6 +2879,7 @@ fn knock(
                     fixed: None,
                     sure: true,
                     poison: false,
+                    ward: false,
                 });
                 commands
                     .entity(other)

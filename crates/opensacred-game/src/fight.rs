@@ -43,6 +43,10 @@ pub struct Hit {
     /// Whether it is a poison's own strike, the event 5 of the kind 17 (`0x5607C3`), which
     /// poisons no more (`0x56DFB3`; #1354).
     pub poison: bool,
+    /// Whether it is the strike of a spell's object that asks its target's magic defence first
+    /// (`0x561860`, the sets' M17, #2277; `opensacred_rules::spells::warded`), which may turn it
+    /// aside whole.
+    pub ward: bool,
 }
 
 /// The dice of the strikes.
@@ -55,6 +59,8 @@ const DWARF: u32 = 8;
 const LEVEL_UP_SOUND: u32 = 7002;
 /// The sound of a life leech, at the struck one (`SPELL_LASER`, `0x570BB7`).
 const LEECH_SOUND: u32 = 2074;
+/// The magic lore (`MK…`), the skill by which a caster's level weighs against a magic defence.
+const MAGIC_LORE: u8 = 14;
 
 /// The hero's experience, its level and the points its levels gave
 /// (`opensacred_rules::fight::Experience`).
@@ -215,6 +221,7 @@ pub(crate) fn resolve(
             Option<&Ranked>,
             Option<&crate::followers::Follower>,
             Option<&Holding>,
+            Option<&crate::npcs::Arms>,
         ),
     )>,
     mut targets: Query<
@@ -261,7 +268,7 @@ pub(crate) fn resolve(
             .ok()
             .map(|(health, ..)| (health.current, health.most));
         let (
-            Ok((attacker, hero, mind, from, (ranked, follower, holding))),
+            Ok((attacker, hero, mind, from, (ranked, follower, holding, caster_arms))),
             Ok((
                 mut health,
                 defender,
@@ -288,6 +295,50 @@ pub(crate) fn resolve(
             _ => None,
         };
         let level = mind.map_or(experience.level, |mind| mind.level);
+        // A spell object's strike that the target's magic defence turns aside reaches it not at
+        // all (`0x561860`, the sets' M17, #2277): the target's items' 858, the hero's grown by its
+        // sets' terms, against the caster's level raised by its magic lore.
+        if hit.ward {
+            let ward = match (hero_hit, guarded) {
+                (true, Some(guarded)) => {
+                    guarded
+                        .0
+                        .sets
+                        .magic_defence(opensacred_rules::fight::item_effect(
+                            &guarded.0.items,
+                            opensacred_rules::fight::MAGIC_DEFENCE,
+                            None,
+                        ))
+                }
+                _ => arms.map_or(0.0, |arms| {
+                    opensacred_rules::fight::item_effect(
+                        &arms.held_values(),
+                        opensacred_rules::fight::MAGIC_DEFENCE,
+                        None,
+                    )
+                }),
+            };
+            let lore = match (hero, caster_arms) {
+                (true, _) => hero_arts.as_deref().map_or(0.0, |arts| {
+                    opensacred_rules::fight::magic_lore(&arts.skills, &rules)
+                }),
+                (false, Some(arms)) => opensacred_rules::fight::magic_lore(
+                    &[(MAGIC_LORE, arms.skill_level(level, MAGIC_LORE))],
+                    &rules,
+                ),
+                (false, None) => 0.0,
+            };
+            if let Some(share) = opensacred_rules::fight::magic_ward(ward, level, lore) {
+                let roll = dice.0.below(opensacred_rules::fight::MAGIC_DEFENCE_FACES);
+                if opensacred_rules::fight::warded(share, roll) {
+                    debug!(
+                        "fight: {} turns aside the spell of {} by its magic defence {ward} ({share:.3})",
+                        hit.target, hit.attacker
+                    );
+                    continue;
+                }
+            }
+        }
         let (mut attacker, mut defender, mut blow) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);
         // The Dwarf's steel pierces what he strikes: its physical resistance over the effect's
@@ -1416,6 +1467,7 @@ mod tests {
                     fixed: None,
                     sure: false,
                     poison: false,
+                    ward: false,
                 });
             }
         }
@@ -1487,6 +1539,7 @@ mod tests {
             fixed: Some([100.0, 0.0, 0.0, 0.0]),
             sure: true,
             poison: false,
+            ward: false,
         });
         app.update();
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
@@ -1504,6 +1557,94 @@ mod tests {
         let (paid, lost_too) = after_a_strike_with(opensacred_rules::fight::PAINKILLER, 20);
         assert!((1..40).contains(&paid), "{paid}");
         assert_eq!(lost_too, lost);
+    }
+
+    /// The hero's health after ten spell strikes of 100 at it by a creature of level 1, each
+    /// asking its magic defence where `ward`, the hero's items' 858 of `value`.
+    fn after_ten_spells(ward: bool, value: i16) -> u32 {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+        });
+        let mut item = opensacred_rules::fight::ItemValues::default();
+        item.bonuses[0] = opensacred_rules::fight::Bonus {
+            condition: 0,
+            effect: opensacred_rules::fight::MAGIC_DEFENCE,
+            value,
+        };
+        let holding = Holding(opensacred_rules::fight::Holds {
+            items: vec![item],
+            ..Default::default()
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = Health {
+            current: 1_000,
+            most: 1_000,
+            level: 1,
+        };
+        let hero = world
+            .spawn((
+                combat,
+                health,
+                holding,
+                crate::hero::Body::standing(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let caster = world
+            .spawn((combat, health, GlobalTransform::default()))
+            .id();
+        for _ in 0..10 {
+            world.write_message(Hit {
+                attacker: caster,
+                target: hero,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some([100.0, 0.0, 0.0, 0.0]),
+                sure: true,
+                poison: false,
+                ward,
+            });
+        }
+        app.update();
+        app.world().get::<Health>(hero).unwrap().current
+    }
+
+    #[test]
+    fn the_magic_defence_turns_a_spells_strike_aside_whole() {
+        // Ten strikes that ask none land, and so do those at a hero without the effect.
+        let plain = after_ten_spells(false, 1_000);
+        assert!(plain < 1_000);
+        assert_eq!(after_ten_spells(true, 0), plain);
+        // 858 of 1000 against a caster of level 1: 99 rolls of 100 turn one aside, at most a
+        // strike or two landing.
+        let lost = (1_000 - plain) / 10;
+        assert!(after_ten_spells(true, 1_000) >= 1_000 - 2 * lost);
     }
 
     #[test]

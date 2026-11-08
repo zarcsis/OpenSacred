@@ -2496,6 +2496,7 @@ mod tests {
             fixed: None,
             sure: false,
             poison: false,
+            ward: false,
         });
         app.update();
         // The fellow comes at the hero; the archer, of no group, keeps its foe.

@@ -400,6 +400,7 @@ fn fly(
                         fixed: Some(*damages),
                         sure: true,
                         poison: false,
+                        ward: false,
                     });
                 }
             }

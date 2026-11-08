@@ -107,6 +107,7 @@ fn explode(
                     fixed: Some(shell.damages),
                     sure: true,
                     poison: false,
+                    ward: true,
                 });
             }
         }

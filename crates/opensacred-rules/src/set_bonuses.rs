@@ -483,6 +483,15 @@ pub const WARDS: u32 = 0x10_0000;
 /// its count, added in turn (M17, `0x561897`–`0x561A68`).
 const WARD_TERMS: [(u8, u8, f32); 4] = [(41, 5, 15.0), (44, 3, 10.0), (59, 3, 15.0), (65, 3, 10.0)];
 
+/// The term by which a set of the flag [`WARDS`] grows the magic defence, times `D` (M17): its
+/// own of [`WARD_TERMS`], 0 for a set of none.
+fn ward_term(set: u8) -> f32 {
+    WARD_TERMS
+        .iter()
+        .find(|&&(of, ..)| of == set)
+        .map_or(0.0, |&(.., c)| c)
+}
+
 /// The term by which a set of the flag [`STUNS`] grows the stun's value, times `D` (M18): set 64's
 /// 0.9, sets 49's and 50's 0.15, any other's 0.05.
 fn stun_term(set: u8) -> f32 {
@@ -1039,6 +1048,9 @@ pub enum Told {
     /// The stun's value more, the set's own term times `D` ([`Stats::stun`]); one set's term
     /// alone holds where several are worn.
     Stun(f32),
+    /// The magic defence's value more, the set's own term times `D` ([`Stats::magic_defence`]):
+    /// the effect 858's, which turns a spell object's strike aside against its caster's level.
+    MagicDefence(f32),
     /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
     Unseen,
     /// The values of a foe on its label ([`KNOW_ENEMY`]).
@@ -1066,6 +1078,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                     (d > 1.0).then_some(Told::WholeDamage(d - 1.0))?
                 }
                 Bonus::Flag(STUNS) => Told::Stun(stun_term(entry.set) * d),
+                Bonus::Flag(WARDS) => Told::MagicDefence(ward_term(entry.set) * d),
                 Bonus::Flag(KNOW_ENEMY) => Told::KnowEnemy,
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),
