@@ -80,7 +80,11 @@ fn make(
             })
             .clone();
         let light = commands
-            .spawn(crate::fx_lights::child(GREED_LIGHT, entity))
+            .spawn(crate::fx_lights::child(
+                GREED_LIGHT,
+                crate::fx_lights::LOW,
+                entity,
+            ))
             .id();
         let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);

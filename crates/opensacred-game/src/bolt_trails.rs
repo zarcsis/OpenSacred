@@ -114,6 +114,7 @@ fn show(
             let owner = shown.id();
             shown.commands().spawn(crate::fx_lights::light(
                 crate::fx_lights::FIRE,
+                crate::fx_lights::LOW,
                 at,
                 owner,
                 (Some(entity), Vec3::ZERO),

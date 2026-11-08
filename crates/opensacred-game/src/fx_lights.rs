@@ -5,6 +5,11 @@
 //! (1, 0, 0.000125), so `1 / (1 + 0.000125 d²)` within 200 of it; the ground and the sprites,
 //! lit by the world's lights alone, take none. Each is a Bevy `PointLight` beside the world's
 //! sun, of the same scale: the sun's illuminance the whole colour of a Direct3D light.
+//!
+//! The manager has as many slots as the device's lights, 8, the sun's among them, and a light
+//! made with every slot taken goes into the first slot of the lowest priority where its own is at
+//! least as high, putting that light out for good, else it shines nowhere (#2282): so at most
+//! seven effects' lights shine at once, as the game keeps them ([`Slots`]).
 
 use bevy::prelude::*;
 
@@ -37,20 +42,62 @@ pub(crate) const HELL: [f32; 3] = [1.0, 0.4, 0.2];
 /// The torches' flames' (787, `cParticleSystem_torchsmoke`): (1, 1, 0).
 pub(crate) const TORCH: [f32; 3] = [1.0, 1.0, 0.0];
 
-/// An effect's light (`0x642B90`): its colour, the look it lives with, and what it follows, else
-/// where it stands, plus an offset.
+/// The manager's priorities of the effects' lights (`0x642B90`'s last argument; the table of
+/// docs/re/effects.md, "The systems' Direct3D lights"): the higher most systems', the lower the
+/// others'; the world view's sun holds 4, which none of them reaches.
+pub(crate) const HIGH: u8 = 2;
+pub(crate) const LOW: u8 = 1;
+
+/// The device's lights, the manager's slots (`cDX7LightMgr`'s `+0x04`, the count with hardware
+/// transform and lighting; 8 seen 2026-11-08 by a probe of `0x642B90` in the original), and those
+/// of them left to the effects beside the sun's.
+const DEVICE_LIGHTS: usize = 8;
+const SLOTS: usize = DEVICE_LIGHTS - 1;
+
+/// An effect's light (`0x642B90`): its colour, the look it lives with, what it follows, else
+/// where it stands, plus an offset, and its priority among the manager's slots ([`Slots`]).
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FxLight {
     pub(crate) colour: [f32; 3],
     pub(crate) owner: Entity,
     pub(crate) follows: Option<Entity>,
     pub(crate) offset: Vec3,
+    pub(crate) priority: u8,
 }
 
-/// A light of `colour` at `place` that lives with `owner` and follows `follows` while it is
-/// there, `offset` above it, standing where it was last after.
+/// An effect's light that the manager put out or never lit, its slots taken ([`Slots`]): it
+/// shines no more while it lives.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Dark;
+
+/// The manager's slots of the effects' lights, beside the sun's (`0x642B90`): the light in each
+/// and its priority.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct Slots([Option<(Entity, u8)>; SLOTS]);
+
+/// The slot that a light of `priority` takes among `slots`, the priorities of the lights in them
+/// (`0x642B90`): the first free one; with none, the first of the lowest priority where `priority`
+/// is at least as high, whether it puts a light out; else none.
+fn slot_for(slots: &[Option<u8>], priority: u8) -> Option<(usize, bool)> {
+    if let Some(free) = slots.iter().position(Option::is_none) {
+        return Some((free, false));
+    }
+    let (lowest, at) = slots
+        .iter()
+        .enumerate()
+        .filter_map(|(at, slot)| slot.map(|held| (held, at)))
+        .fold(None, |best: Option<(u8, usize)>, (held, at)| match best {
+            Some((low, _)) if held >= low => best,
+            _ => Some((held, at)),
+        })?;
+    (priority >= lowest).then_some((at, true))
+}
+
+/// A light of `colour` and `priority` at `place` that lives with `owner` and follows `follows`
+/// while it is there, `offset` above it, standing where it was last after.
 pub(crate) fn light(
     colour: [f32; 3],
+    priority: u8,
     place: Vec3,
     owner: Entity,
     (follows, offset): (Option<Entity>, Vec3),
@@ -61,6 +108,7 @@ pub(crate) fn light(
             owner,
             follows,
             offset,
+            priority,
         },
         Transform::from_translation(place + offset),
         Visibility::default(),
@@ -68,15 +116,16 @@ pub(crate) fn light(
     )
 }
 
-/// A light of `colour` at its parent `owner`'s place, a child of it; visible, as the Bevy light
-/// that [`kindle`] puts under it is (#2201).
-pub(crate) fn child(colour: [f32; 3], owner: Entity) -> impl Bundle {
+/// A light of `colour` and `priority` at its parent `owner`'s place, a child of it; visible, as
+/// the Bevy light that [`kindle`] puts under it is (#2201).
+pub(crate) fn child(colour: [f32; 3], priority: u8, owner: Entity) -> impl Bundle {
     (
         FxLight {
             colour,
             owner,
             follows: None,
             offset: Vec3::ZERO,
+            priority,
         },
         Transform::IDENTITY,
         Visibility::default(),
@@ -115,13 +164,61 @@ pub(crate) fn point_light(colour: [f32; 3]) -> PointLight {
     }
 }
 
-/// Gives each new effect's light its Bevy light, a child of it at [`lift`] over it.
-fn kindle(mut commands: Commands, lights: Query<(Entity, &FxLight), Added<FxLight>>) {
-    for (entity, light) in &lights {
-        commands.entity(entity).with_child((
-            point_light(light.colour),
-            Transform::from_translation(Vec3::Y * lift() * iso::MODEL_SCALE),
-        ));
+/// Gives each new effect's light a slot of the manager's and its Bevy light, a child of it at
+/// [`lift`] over it; one that takes another's slot puts that one out, and one that takes none
+/// stays dark (`0x642B90`, [`slot_for`]).
+fn kindle(
+    mut commands: Commands,
+    mut slots: ResMut<Slots>,
+    lights: Query<(Entity, &FxLight), Added<FxLight>>,
+    children: Query<&Children>,
+    points: Query<(), With<PointLight>>,
+) {
+    let mut added: Vec<(Entity, u8, [f32; 3])> = lights
+        .iter()
+        .map(|(entity, light)| (entity, light.priority, light.colour))
+        .collect();
+    added.sort_by_key(|&(entity, ..)| entity);
+    // The slots first, in the lights' order: one put out in this frame gets no Bevy light.
+    let mut kindled: Vec<Entity> = Vec::new();
+    for &(entity, priority, _) in &added {
+        let held = slots.0.map(|slot| slot.map(|(_, held)| held));
+        let Some((at, puts_out)) = slot_for(&held, priority) else {
+            debug!("fx lights: {entity} finds no slot");
+            commands.entity(entity).insert(Dark);
+            continue;
+        };
+        if puts_out && let Some((old, _)) = slots.0[at] {
+            debug!("fx lights: {entity} puts {old} out");
+            kindled.retain(|&lit| lit != old);
+            for child in children.iter_descendants(old) {
+                if points.contains(child) {
+                    commands.entity(child).despawn();
+                }
+            }
+            commands.entity(old).try_insert(Dark);
+        }
+        slots.0[at] = Some((entity, priority));
+        kindled.push(entity);
+    }
+    for (entity, _, colour) in added {
+        if kindled.contains(&entity) {
+            commands.entity(entity).with_child((
+                point_light(colour),
+                Transform::from_translation(Vec3::Y * lift() * iso::MODEL_SCALE),
+            ));
+        }
+    }
+}
+
+/// Frees the slot of each effect's light gone (`0x642D90`).
+fn release(mut slots: ResMut<Slots>, mut gone: RemovedComponents<FxLight>) {
+    for entity in gone.read() {
+        for slot in &mut slots.0 {
+            if slot.is_some_and(|(held, _)| held == entity) {
+                *slot = None;
+            }
+        }
     }
 }
 
@@ -163,9 +260,9 @@ pub struct FxLightsPlugin;
 
 impl Plugin for FxLightsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<Slots>().add_systems(
             Update,
-            (kindle, follow, recolour)
+            (release, kindle, follow, recolour)
                 .chain()
                 .run_if(in_state(crate::game::AppState::InGame)),
         );
@@ -194,9 +291,9 @@ mod tests {
     #[test]
     fn a_light_under_its_owner_is_visible_as_its_bevy_light_is() {
         let mut app = App::new();
-        app.add_systems(Update, kindle);
+        app.init_resource::<Slots>().add_systems(Update, kindle);
         let owner = app.world_mut().spawn(Visibility::default()).id();
-        let light = app.world_mut().spawn(child(FIRE, owner)).id();
+        let light = app.world_mut().spawn(child(FIRE, HIGH, owner)).id();
         app.update();
         let world = app.world();
         assert!(world.entity(light).contains::<InheritedVisibility>());
@@ -207,5 +304,48 @@ mod tests {
             .unwrap_or_default();
         assert_eq!(lit.len(), 1);
         assert!(world.entity(lit[0]).contains::<PointLight>());
+    }
+
+    #[test]
+    fn a_light_takes_a_free_slot_else_the_first_of_the_lowest_priority() {
+        assert_eq!(slot_for(&[Some(2), None, None], LOW), Some((1, false)));
+        // Full: the first of the lowest, for one at least as high; none for a lower one.
+        assert_eq!(slot_for(&[Some(2), Some(1), Some(1)], LOW), Some((1, true)));
+        assert_eq!(
+            slot_for(&[Some(2), Some(1), Some(2)], HIGH),
+            Some((1, true))
+        );
+        assert_eq!(slot_for(&[Some(2), Some(2)], LOW), None);
+    }
+
+    #[test]
+    fn at_most_seven_effects_lights_shine_and_a_higher_one_puts_out_a_lower() {
+        let mut app = App::new();
+        app.init_resource::<Slots>()
+            .add_systems(Update, (release, kindle).chain());
+        let owner = app.world_mut().spawn(Visibility::default()).id();
+        let lows: Vec<Entity> = (0..9)
+            .map(|_| app.world_mut().spawn(child(FIRE, LOW, owner)).id())
+            .collect();
+        app.update();
+        let lit = |app: &App, light: Entity| {
+            app.world()
+                .entity(light)
+                .get::<Children>()
+                .is_some_and(|children| !children.is_empty())
+        };
+        // Seven lit, each later low one of a full manager putting out the first low one's.
+        assert_eq!(lows.iter().filter(|&&l| lit(&app, l)).count(), SLOTS);
+        let high = app.world_mut().spawn(child(FIRE, HIGH, owner)).id();
+        app.update();
+        assert!(lit(&app, high));
+        assert_eq!(lows.iter().filter(|&&l| lit(&app, l)).count(), SLOTS - 1);
+        // A light gone frees its slot.
+        let first_lit = *lows.iter().find(|&&l| lit(&app, l)).expect("a lit light");
+        app.world_mut().entity_mut(first_lit).despawn();
+        app.update();
+        let next = app.world_mut().spawn(child(FIRE, LOW, owner)).id();
+        app.update();
+        assert!(lit(&app, next));
     }
 }

@@ -92,7 +92,11 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         // Its green light at the bearer's root, which it moves at each draw.
-        commands.spawn(fx_lights::child(fx_lights::SOUL_GREEN, entity));
+        commands.spawn(fx_lights::child(
+            fx_lights::SOUL_GREEN,
+            fx_lights::LOW,
+            entity,
+        ));
         let mut made = commands.entity(entity);
         made.remove::<Unmade>().insert((
             Shown {

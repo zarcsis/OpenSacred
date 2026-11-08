@@ -119,6 +119,13 @@ const STUNNED: f32 = 2.0;
 /// The terror of a fearer whose items give the effect 855, which holds every wild animal fleeing
 /// from it (`0x4E2637`, no roll; the game rolls it all the same, a roll of the 101 below 101).
 pub const TERROR_ALWAYS: u32 = 101;
+/// Whether a creature of the clips' factor `factor` (`+0x2C9`) is frozen: at or below the double
+/// 0.2 (`0x890DB0`), against which `0x4E24EF` compares it, a wild animal then doing nothing while
+/// one it fears is within its distance; a hold's factor is its value (the effect 15 sets it,
+/// `0x5834BE`; the plant cage's 0).
+pub fn frozen(factor: f32) -> bool {
+    f64::from(factor) <= 0.2
+}
 /// How long a creature that a strike's stun takes is held (`0x56D74B`; [`Mind::shocked`]).
 const SHOCKED: f32 = 0.5;
 
@@ -4790,6 +4797,9 @@ mod tests {
         assert_eq!(flights(0, &mut rng), 1000);
         assert_eq!(flights(101, &mut rng), 0);
         assert!((750..850).contains(&flights(20, &mut rng)));
+        // A hold's factor of 0 freezes it, a slow one of a half not; the float 0.2 lies above
+        // the double it is compared with (#2282).
+        assert!(frozen(0.0) && frozen(0.19) && !frozen(0.2) && !frozen(0.5));
     }
 
     #[test]

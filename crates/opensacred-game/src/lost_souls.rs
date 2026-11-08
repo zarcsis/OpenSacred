@@ -96,6 +96,7 @@ fn show(
         // `0x7BF100`).
         commands.spawn(crate::fx_lights::light(
             crate::fx_lights::SOUL_GREEN,
+            crate::fx_lights::LOW,
             place.translation(),
             shown,
             (Some(object), Vec3::ZERO),

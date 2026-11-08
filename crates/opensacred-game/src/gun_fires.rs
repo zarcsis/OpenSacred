@@ -152,6 +152,7 @@ fn fire(
         let light = commands
             .spawn(crate::fx_lights::light(
                 WHITE,
+                crate::fx_lights::LOW,
                 lamp,
                 owner,
                 (None, Vec3::ZERO),

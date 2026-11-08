@@ -114,6 +114,7 @@ fn light(
                     owner: flame,
                     follows: None,
                     offset: Vec3::ZERO,
+                    priority: crate::fx_lights::HIGH,
                 },
                 ChildOf(flame),
             ))
