@@ -544,8 +544,8 @@ impl Tables {
 
     /// The worth of `dropped` that its record keeps (`+0x08`), which the smith's price takes
     /// (`0x6A2B20`, #1662): the worth of its values with its sockets' (`0x5D3AB0` as the item
-    /// maker or the socket's filling `0x5C0810` calls it), a made item's quality and difficulty
-    /// those of the passes it does not follow, so 0; its type's price otherwise, its record's
+    /// maker or the socket's filling `0x5C0810` calls it), a made item's quality its maker's
+    /// quality pass's (#2267) and its difficulty 0; its type's price otherwise, its record's
     /// worth.
     pub fn worth(&self, dropped: &Dropped) -> i64 {
         let record = self.record(dropped.item);
@@ -559,7 +559,8 @@ impl Tables {
                 item: dropped.item,
                 category: self.category(dropped.item),
                 values: &values,
-                flags: record.word & CLASS_BITS,
+                // A made item's quality as its maker's quality pass gave it (#2267).
+                flags: (record.word & CLASS_BITS) | (u32::from(values.quality) << 16),
                 price: record.price,
             },
         )
@@ -1258,7 +1259,13 @@ fn listed(made: &[Dropped]) -> String {
         .map(|d| match d.kind {
             Kind::Gold => format!("gold {} x{}", d.item, d.amount),
             kind => {
-                let line = format!("{kind:?} {} level {} key {}", d.item, d.level, d.key);
+                let quality = d.values.map_or(String::new(), |values| {
+                    format!(" quality {}", values.quality)
+                });
+                let line = format!(
+                    "{kind:?} {} level {} key {}{quality}",
+                    d.item, d.level, d.key
+                );
                 let sockets: Vec<String> = d
                     .values
                     .iter()

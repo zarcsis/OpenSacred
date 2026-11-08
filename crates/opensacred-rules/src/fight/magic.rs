@@ -9,7 +9,7 @@ use crate::spawning::Dice;
 /// The lists that an entry's effect is drawn from (`0x5E2310` for 1 to 13, the skills as the
 /// effects `599 + skill`; `0x5E3800` for 14 to 34, the spells and the combat arts), in the
 /// order the original builds them, which its draw `rand() % count` reads; any other list empty.
-const LISTS: [&[u32]; 35] = [
+pub(crate) const LISTS: [&[u32]; 35] = [
     &[],
     &[
         601, 613, 624, 611, 626, 619, 600, 614, 616, 615, 617, 625, 618, 627, 604, 605, 623, 606,
@@ -62,7 +62,7 @@ const LISTS: [&[u32]; 35] = [
 /// The hero type whose spell or combat art `art` is (`0x52DBA0`): the Seraphim's 1, the
 /// Gladiator's 2, the Mage's 3, the Dark Elf's 4, the Wood Elf's 5, the Vampiress's 6 and 7 by
 /// her forms, the Dwarf's 8 and the Daemon's 9; 0 for none, a skill's effect among them.
-fn art_hero(art: u32) -> u8 {
+pub(crate) fn art_hero(art: u32) -> u8 {
     match art {
         1 | 2 | 4 | 5 | 7 | 11 | 16 | 23..=35 => 3,
         3 | 36..=42 | 1004..=1008 | 1061..=1063 => 5,
