@@ -32,15 +32,55 @@ const SPECIAL_FAN: f32 = 0.15;
 pub const ARROW: u32 = 3070;
 /// The type of the `Rundum`'s arrows with a bow (`TYPE_WEAPON_ARROW_MULTI`).
 pub const MULTI_ARROW: u32 = 3069;
+/// The type of the `Hardhit`'s ray with a bow (`TYPE_WEAPON_ARROW_HARD`, #2275).
+pub const HARD_ARROW: u32 = 3068;
+/// The type of the `Attacke`'s arrows with a bow (`TYPE_WEAPON_ARROW_ZEAL`, #2275).
+pub const ZEAL_ARROW: u32 = 3079;
+/// How far the `Attacke`'s arrows with a bow turn from the first, to either side in turn, in
+/// radians (`⌈i/2⌉ · 0.01`, `0x4DCB80`).
+const ZEAL_FAN: f32 = 0.01;
+
+/// The `Hardhit`'s ray with a bow (`0x4DCB80` at its case `0x3E`, #2275): from the shooter's
+/// left hand along the ground toward its target, a step of 40 at a time while the point's cell may
+/// be walked on or its ground's nibble is 2, which the arrows fly over (`0x636A60`, which takes
+/// `0x636C10` or that nibble), at most 25, each step laying the object 887 (`FX_HARDHIT_BOW`); its
+/// arrow stands at the hand for 1 s (`0x5BD2D0`: its speed 0, `+0x234` 1.0) and tests the whole
+/// ray for its hits at each frame (`0x5BB010`, `+0x244` its length).
+pub const RAY_STEP: f32 = 40.0;
+pub const RAY_STEPS: u32 = 25;
+pub const RAY_LIFE: f32 = 1.0;
+
+/// The `Hardhit`'s ray's points from `from` toward `toward` on the ground ([`RAY_STEP`]): the
+/// first [`RAY_STEPS`] at most, each while `walkable` lets its cell be walked or flown over; the ray's length
+/// is their count times the step (`0x4DCB80`). With no way to its target every point is `from`.
+pub fn ray(from: Spot, toward: Spot, walkable: impl Fn(Spot) -> bool) -> Vec<Spot> {
+    let way = toward - from;
+    let length = way.length();
+    let step = if length >= 1e-7 {
+        way * (RAY_STEP / length)
+    } else {
+        Spot::new(0.0, 0.0)
+    };
+    let mut points = Vec::new();
+    let mut at = from;
+    while points.len() < usize::try_from(RAY_STEPS).unwrap_or(usize::MAX) && walkable(at) {
+        points.push(at);
+        at = at + step;
+    }
+    points
+}
 
 /// The type of the arrows that a shot of the combat art `art` makes (`0x4DCB80`, the byte
 /// `+0x18E` the art less 1000): the Wood Elf's special arrows 1004, 1006, 1007 and 1008 the
 /// types 3078, 3074, 3075 and 3077 (`ARROW_EXPLOSION.GRN`, `ARROW_SPIDER.GRN`,
 /// `ARROW_LONG.GRN`, `ARROW_BLADE.GRN`), the `Rundum` with a bow (1061) the type 3069
-/// (`TYPE_WEAPON_ARROW_MULTI`, #2238), any other shot [`ARROW`].
+/// (`TYPE_WEAPON_ARROW_MULTI`, #2238), the `Hardhit` and the `Attacke` with a bow (1062, 1063)
+/// the types 3068 and 3079 ([`HARD_ARROW`], [`ZEAL_ARROW`], #2275), any other shot [`ARROW`].
 pub fn projectile(art: Option<u16>) -> u32 {
     match art {
         Some(1061) => MULTI_ARROW,
+        Some(1062) => HARD_ARROW,
+        Some(1063) => ZEAL_ARROW,
         Some(1004) => 3078,
         Some(1006) => 3074,
         Some(1007) => 3075,
@@ -71,10 +111,12 @@ pub fn fanned(i: u32) -> f32 {
 
 /// How far the `i`-th arrow of a shot of `count` arrows of the combat art `art` turns from the
 /// first's line (`0x4DCB80`): by `⌈i/2⌉ · 0.15` radians for the Wood Elf's 1004, 1006 and 1007,
-/// by `⌈i/2⌉ · 2π/count` for her 1008, round the circle, as [`fanned`] for any other.
+/// by `⌈i/2⌉ · 2π/count` for her 1008, round the circle, by `⌈i/2⌉ · 0.01` for the `Attacke`
+/// with a bow (1063), as [`fanned`] for any other.
 pub fn fanned_for(i: u32, count: u32, art: Option<u16>) -> f32 {
     match art {
         Some(1004 | 1006 | 1007) => fanned_by(i, SPECIAL_FAN),
+        Some(1063) => fanned_by(i, ZEAL_FAN),
         Some(1008) => {
             let count = f32::from(u16::try_from(count.max(1)).unwrap_or(u16::MAX));
             fanned_by(i, std::f32::consts::TAU / count)
@@ -181,12 +223,14 @@ impl Point {
 }
 
 /// An arrow in flight (`cArrow3D`, `0x5BB010`): where it is, its velocity a second, fixed at its
-/// start in three dimensions without gravity, and how long it still flies.
+/// start in three dimensions without gravity, how long it still flies, and a ray's length, along
+/// which a ray tests its hits standing ([`Arrow::ray`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Arrow {
     at: Point,
     velocity: Point,
     left: f32,
+    reach: Option<f32>,
 }
 
 impl Arrow {
@@ -201,6 +245,23 @@ impl Arrow {
                 SPEED,
             ),
             left: LIFE,
+            reach: None,
+        }
+    }
+
+    /// The `Hardhit`'s ray with a bow from `from` toward `toward`, of the length `length` (the
+    /// type 3068, `0x5BD2D0`): it stands where it is for [`RAY_LIFE`], pointing along its way,
+    /// and tests its hits along the whole of it at each frame (`+0x244`, `0x5BB010`).
+    pub fn ray(from: Point, toward: Point, length: f32) -> Self {
+        Self {
+            at: from,
+            velocity: along(
+                toward.ground - from.ground,
+                toward.height - from.height,
+                1.0,
+            ),
+            left: RAY_LIFE,
+            reach: Some(length),
         }
     }
 
@@ -215,6 +276,7 @@ impl Arrow {
                 HOMING_SPEED,
             ),
             left: seconds,
+            reach: None,
         }
     }
 
@@ -302,11 +364,18 @@ impl Arrow {
     /// when `open` lets it fly there ([`open`], `0x5BAA60`), and else its time ends where it is.
     /// The part of its way it flew, from its last point to its next, on which its hits are
     /// tested ([`picks`]) whether or not it got there.
+    /// A ray stands, its way the whole ray.
     pub fn fly(&mut self, dt: f32, open: impl FnOnce(Point) -> bool) -> Option<(Spot, Spot)> {
         if self.left <= 0.0 {
             return None;
         }
         self.left -= dt;
+        if let Some(reach) = self.reach {
+            return Some((
+                self.at.ground,
+                self.at.ground + self.velocity.ground * reach,
+            ));
+        }
         let next = self.at.on(self.velocity, dt);
         let from = self.at.ground;
         if open(next) {
@@ -596,7 +665,11 @@ mod tests {
         assert_eq!(projectile(Some(1008)), 3077);
         // The `Rundum` with a bow's own (#2238); another art's shot a plain arrow.
         assert_eq!(projectile(Some(1061)), MULTI_ARROW);
-        assert_eq!(projectile(Some(1062)), ARROW);
+        // The `Hardhit`'s and the `Attacke`'s with a bow (#2275).
+        assert_eq!(projectile(Some(1062)), HARD_ARROW);
+        assert_eq!(projectile(Some(1063)), ZEAL_ARROW);
+        assert!((fanned_for(3, 5, Some(1063)) - 0.02).abs() < 1e-6);
+        assert_eq!(projectile(Some(1064)), ARROW);
         // Its count times the multi-shot's, at most 20.
         assert_eq!(volley_of(3, None), 3);
         assert_eq!(volley_of(5, Some(3)), 15);
@@ -607,6 +680,29 @@ mod tests {
             [2, 4, 5, 5]
         );
         assert!(crate::arts::bow_rundum(1069) && !crate::arts::bow_rundum(1062));
+        assert!(crate::arts::bow_hardhit(1070) && !crate::arts::bow_hardhit(1071));
+        assert!(crate::arts::bow_attacke(1080) && !crate::arts::bow_attacke(1079));
+    }
+
+    #[test]
+    fn the_hardhits_ray_stands_and_tests_its_whole_length() {
+        // Its points 40 apart while their cells may be walked on, at most 25.
+        let from = Spot::new(0.0, 0.0);
+        let points = ray(from, Spot::new(300.0, 0.0), |at| at.x < 200.0);
+        assert_eq!(points.len(), 5);
+        assert!((points[4].x - 160.0).abs() < 1e-3);
+        assert_eq!(ray(from, Spot::new(0.0, 9.0), |_| true).len(), 25);
+        // It stands a second, its way the ray's whole length along its line.
+        let mut arrow = Arrow::ray(
+            Point::new(from, 80.0),
+            Point::new(Spot::new(0.0, 100.0), 80.0),
+            200.0,
+        );
+        let (a, b) = arrow.fly(0.5, |_| true).expect("a way");
+        assert_eq!((a, arrow.at().ground), (from, from));
+        assert!((b.y - 200.0).abs() < 1e-3 && b.x.abs() < 1e-3);
+        assert!(arrow.fly(0.5, |_| true).is_some());
+        assert!(arrow.fly(0.1, |_| true).is_none());
     }
 
     #[test]

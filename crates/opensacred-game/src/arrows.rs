@@ -14,7 +14,7 @@
 
 use bevy::prelude::*;
 use opensacred_rules::arrows::{self, Point};
-pub use opensacred_rules::arrows::{ARROW, MULTI_ARROW, size};
+pub use opensacred_rules::arrows::{ARROW, HARD_ARROW, MULTI_ARROW, ZEAL_ARROW, size};
 use opensacred_rules::minds::{self, Spot};
 
 use crate::crowd::InTheWay;
@@ -46,14 +46,16 @@ pub struct Loose {
 
 /// The combat art that a shot is of (the shooter's `+0x18E`, the art less 1000): its id, its
 /// level in play, which the arrow carries (`+0x249`), its factor at that level, which the arrow's
-/// strike carries (the record's `+0x1C`, `0x5BB010`), and for the blades 1008 how long they fly
-/// (`0x5BD2D0`).
+/// strike carries (the record's `+0x1C`, `0x5BB010`), for the blades 1008 how long they fly
+/// (`0x5BD2D0`), and how many arrows it looses before the multi-shot (`+0x261`, 1 but for the
+/// `Rundum` and the `Attacke` with a bow).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Special {
     pub art: u16,
     pub level: u32,
     pub factor: f32,
     pub seconds: Option<f32>,
+    pub count: u32,
 }
 
 /// A homing blade's own (1008, `+0x1E4` bit `0x10`): how high over its target's feet it aims
@@ -151,10 +153,11 @@ fn loose(
     ),
     places: Query<&GlobalTransform>,
     ways: Query<&InTheWay>,
-    (holdings, arms, nearest): (
+    (holdings, arms, nearest, heights): (
         Query<&fight::Holding>,
         Query<&crate::npcs::Arms>,
         Res<crate::crowd::Nearest>,
+        Res<Heights>,
     ),
 ) {
     let Some(npcs) = npcs else {
@@ -197,16 +200,34 @@ fn loose(
                 .map(|effect| effect.whole)
         });
         let volley = arrows::volley(whole);
-        // The `Rundum` with a bow looses its own count times the multi-shot's (`0x4DEAA3`, #2238).
+        // A shot of an art looses its own count times the multi-shot's: the `Rundum`'s and the
+        // `Attacke`'s with a bow theirs (`0x4DEAA3`, #2238, #2275).
         let rundum = shot
             .special
             .filter(|special| special.art == opensacred_rules::arts::BOW_RUNDUM);
-        let count = rundum.map_or(volley, |special| {
-            arrows::volley_of(
-                opensacred_rules::arts::bow_rundum_arrows(special.level),
-                whole,
-            )
-        });
+        let count = shot
+            .special
+            .map_or(volley, |special| arrows::volley_of(special.count, whole));
+        // The `Hardhit`'s ray with a bow: its steps along the ground from the hand toward the
+        // target while their cells may be walked or flown over (`0x4DCB80` at its case `0x3E`,
+        // `0x636A60`, #2275).
+        let ray = shot
+            .special
+            .filter(|special| special.art == opensacred_rules::arts::BOW_HARDHIT)
+            .map(|_| {
+                let walkable = |at: Spot| {
+                    let cell = paths::cell_of(at.x, at.y);
+                    heights.walkable_on(cell, level) || heights.flown_over(cell, level)
+                };
+                let steps = arrows::ray(
+                    Spot::new(from.x, from.z),
+                    Spot::new(toward.x, toward.z),
+                    walkable,
+                );
+                let length = f32::from(u16::try_from(steps.len()).unwrap_or(0)) * arrows::RAY_STEP;
+                debug!("arrows: the ray of {} reaches {length:.0}", shot.shooter);
+                length
+            });
         let share = rules
             .as_ref()
             .map_or(1.0, |rules| rules.0.multi_shot(volley));
@@ -215,15 +236,16 @@ fn loose(
             opensacred_rules::fight::scaled(share, special.factor)
         });
         // The blades home on their target for their time (`0x5BD2D0`).
-        let (first, homing) = match shot.special.and_then(|special| special.seconds) {
-            Some(seconds) => (
+        let (first, homing) = match (shot.special.and_then(|special| special.seconds), ray) {
+            (Some(seconds), _) => (
                 arrows::Arrow::homing(point(from), point(toward), seconds),
                 Some(Homing {
                     aim: toward.y - target.translation().y,
                     wait: 0.0,
                 }),
             ),
-            None => (first, None),
+            (None, Some(length)) => (arrows::Arrow::ray(point(from), point(toward), length), None),
+            (None, None) => (first, None),
         };
         // The `Rundum`'s ring at its shooter as its arrows leave (`0x4DEB2A`, #2240).
         if rundum.is_some() {
@@ -608,8 +630,12 @@ fn fly(
             .ok()
             .and_then(|(.., size)| size.map(|size| size.0))
             .unwrap_or(arrows::size(0));
+        // The `Hardhit`'s ray ends at its hit, sticking nowhere (`0x5BB010`'s case `0xBFC`).
+        let ray = arrow
+            .special
+            .is_some_and(|special| special.art == opensacred_rules::arts::BOW_HARDHIT);
         match places.get(on) {
-            Ok(holder) if arrows::sticks(size, hero_hit) => {
+            Ok(holder) if !ray && arrows::sticks(size, hero_hit) => {
                 let stuck = GlobalTransform::from(*transform).reparented_to(holder);
                 commands.entity(entity).remove::<Arrow>().insert((
                     Stuck(arrows::STICKS_FOR),
