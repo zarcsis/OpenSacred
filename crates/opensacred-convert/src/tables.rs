@@ -9,13 +9,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
-    ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceItems, BalanceList, BalanceRow,
-    BalanceValue, BalanceVariable, CREATURES, ColumnPortrait, Creature, CreaturePortrait,
-    EffectChance, FIGURES, Figure, IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES,
-    MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass,
-    QualityWeight, RUNES, STAIRS, START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS,
-    TYPE_NAMES, Trigger, TypeName, UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS,
-    WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
+    ARMOUR_SWITCHES, ARTS, Arts, BALANCE, BOSS_DROPS, Balance, BalanceItems, BalanceList,
+    BalanceRow, BalanceValue, BalanceVariable, CREATURES, ColumnPortrait, Creature,
+    CreaturePortrait, EffectChance, FIGURES, Figure, IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet,
+    MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS, Portrait, Portraits,
+    QualityPass, QualityWeight, RUNES, STAIRS, START_POINTS, STATIC_REMAP, Spell, StartPoint,
+    TRIGGERS, TYPE_NAMES, Trigger, TypeName, UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS,
+    WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt,
+    WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -245,6 +246,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     write(&dir, TYPE_NAMES, &type_names)?;
     let idle_noises = crate::idle_noises::idle_noises();
     write(&dir, IDLE_NOISES, &idle_noises)?;
+    write(&dir, BOSS_DROPS, &crate::boss_drops::boss_drops())?;
 
     Ok(Summary {
         creatures: creatures.len(),

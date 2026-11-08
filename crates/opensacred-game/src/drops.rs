@@ -329,7 +329,15 @@ impl Tables {
             })
             .collect();
         Ok(Self {
-            rules: Rules::of(balance),
+            // The bosses' drops by their type (#2269), none from assets converted before them.
+            rules: Rules::of(balance).with_bosses(
+                &table::<Vec<opensacred_data::tables::BossDrop>>(
+                    assets,
+                    opensacred_data::tables::BOSS_DROPS,
+                )
+                .unwrap_or_default(),
+                balance,
+            ),
             catalogue,
             templates,
             looks,
@@ -1031,8 +1039,12 @@ fn death(
             ..Kill::default()
         },
         difficulty,
+        doll: false,
     }
 }
+
+/// The doll that the Medusa and the troll make where none is in the world (#2269).
+const DOLL: u32 = 3140;
 
 /// Throws the drops of a creature at `at`, on `level`: each its model, if it was converted, with
 /// its texture, at the throw's height and turn.
@@ -1305,7 +1317,11 @@ fn dies(
     >,
     hero_arts: Option<Res<crate::arts::HeroArts>>,
     scripted: Option<Res<crate::scripts::ScriptDrops>>,
-    (pack, mut sounds): (Res<crate::pickup::Pack>, MessageWriter<crate::sfx::Play>),
+    (pack, mut sounds, lying): (
+        Res<crate::pickup::Pack>,
+        MessageWriter<crate::sfx::Play>,
+        Query<&Lying>,
+    ),
 ) {
     let Ok((mind, health, rank, worth, transform, way, dies)) = creatures.get(died.entity) else {
         return;
@@ -1346,7 +1362,7 @@ fn dies(
         return;
     };
     carrying(&mut hero, &pack, hero_arts.as_deref(), &tables);
-    let death = death(
+    let mut death = death(
         died.entity,
         mind,
         health,
@@ -1359,6 +1375,10 @@ fn dies(
             difficulty.map_or_else(Default::default, |difficulty| difficulty.0),
         ),
     );
+    // A doll lying in the world or carried keeps the Medusa and the troll from making another
+    // (#2269; **hypothesis** that the object manager's scan counts the carried ones).
+    death.doll = lying.iter().any(|lying| lying.dropped.item == DOLL)
+        || pack.items.iter().any(|(_, dropped)| dropped.item == DOLL);
     // The scripts' drops of its type (`SetDrop`, #930).
     let scripted: Vec<(u32, u32)> = scripted
         .map(|scripted| scripted.0.of(mind.creature).collect())

@@ -3,6 +3,7 @@
 //! models, the world, the sound, the texts, the cutscenes, the scripts, the tables and the heroes.
 
 mod animation;
+mod boss_drops;
 mod build;
 mod coverage;
 mod embedded;
