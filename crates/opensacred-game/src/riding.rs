@@ -421,9 +421,28 @@ fn carry(
     }
 }
 
-/// Gets the hero `me` off its horse (the sub-state 5, `0x551E40`): its model off the horse's bone,
-/// the horse back in the way, standing; with its dismount (`clip`) the hero stands at the point by
-/// the horse and plays it, thrown off it stands at the horse's place.
+/// Fells the horse `horse` in its rider's place, as a lethal blow on the rider fells it
+/// (`0x56F8DB`, the horse's action set to the dying one, 6): it dies with no killer, giving
+/// nobody experience and dropping nothing, its dying clip the one of two that `choice` names,
+/// and its death throws its rider off ([`carry`]).
+pub(crate) fn fell(world: &mut World, horse: Entity, choice: u32) {
+    let Ok(mut entity) = world.get_entity_mut(horse) else {
+        return;
+    };
+    if entity.contains::<Dies>() {
+        return;
+    }
+    if let Some(mut health) = entity.get_mut::<Health>() {
+        health.current = 0;
+    }
+    entity.insert(Dies::by_creature(choice));
+    info!("riding: a lethal blow on its rider fells {horse}");
+}
+
+/// Gets the hero `me` off its horse (the sub-state 5, `0x551E40`, which the horse's death takes
+/// too, `0x53ECA0`): its model off the horse's bone, the horse back in the way, standing; the
+/// hero stands at the point by the horse, and plays its dismount where `clip`; a horse gone
+/// leaves it where it is.
 fn get_off(world: &mut World, me: Entity, clip: bool) {
     let Some(Seat::Riding { horse, .. }) = world.get::<Seat>(me).copied() else {
         return;
@@ -436,7 +455,7 @@ fn get_off(world: &mut World, me: Entity, clip: bool) {
         }
     }
     let speed = world.get_resource::<GameSpeed>().map_or(1.0, |s| s.0);
-    let placed = clip.then(|| place(world, horse, true)).flatten();
+    let placed = place(world, horse, true);
     let dismount = clip
         .then(|| {
             world

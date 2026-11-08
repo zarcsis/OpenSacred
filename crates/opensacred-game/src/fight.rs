@@ -240,6 +240,7 @@ pub(crate) fn resolve(
                 Option<&crate::ai::Mind>,
                 Option<&Holding>,
                 Option<&crate::npcs::Arms>,
+                Option<&crate::riding::Seat>,
             ),
         ),
         Without<Dies>,
@@ -279,7 +280,7 @@ pub(crate) fn resolve(
                 worth,
                 hero_hit,
                 rank,
-                (immortal, victim, guarded, arms),
+                (immortal, victim, guarded, arms, seat),
             )),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -652,6 +653,15 @@ pub(crate) fn resolve(
         let before = health.current;
         if !immortal {
             health.current = health.current.saturating_sub(damage);
+        }
+        // A lethal blow on a rider leaves it 1 health and fells its horse instead, whose death
+        // throws it off (`0x56F8DB`, #2299).
+        if health.current == 0
+            && let Some(horse) = seat.and_then(crate::riding::Seat::ridden)
+        {
+            health.current = 1;
+            let choice = dice.0.below(2);
+            commands.queue(move |world: &mut World| crate::riding::fell(world, horse, choice));
         }
         // The attacker's effect 842 then raises the damage that the resolution returns by what it
         // pays of its own health, keeping 1 (`0x5706F8`–`0x5707F1`, #1366): the struck one's
