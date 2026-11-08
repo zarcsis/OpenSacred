@@ -200,6 +200,18 @@ pub fn health_bonus(row: &Row, horse: u32, rider: u32) -> u32 {
     whole(f64::from(curve) * share + 0.5)
 }
 
+/// The most health `most` of a player riding a horse of the row `row` and the level `horse`,
+/// the rider of the level `rider` (`0x5658F0` at `0x565D05`, `0x5527F0`, `0x5526C0`): times
+/// `1 + 0.01·c·min(1, (L_h + 9)/(L_r + 9))`, `c` the curve of [`health_bonus`] kept as a float,
+/// a half up, the last of the most health's steps.
+pub fn raised_health(row: &Row, horse: u32, rider: u32, most: u32) -> u32 {
+    let [w3, w4] = row.bonus.map(crate::fight::to_f32);
+    let curve = crate::fight::curve([w3, 100.0, w4], horse);
+    let share = (f64::from(horse + 9) / f64::from(rider + 9)).min(1.0);
+    let factor = share * f64::from(curve) * f64::from(0.01_f32) + 1.0;
+    whole(f64::from(most) * factor + 0.5)
+}
+
 /// `x` truncated, held within a `u32`.
 #[expect(
     clippy::cast_possible_truncation,
@@ -344,6 +356,21 @@ mod tests {
         assert_eq!(health_bonus(&row, 1, 41), 1);
         // The curve rises toward its double less the offset: at the level 101, 5 + 20·0.5 = 15.
         assert_eq!(health_bonus(&row, 101, 101), 15);
+    }
+
+    #[test]
+    fn a_rider_takes_the_bonus_on_its_most_health_a_half_up() {
+        let row = Row {
+            bonus: [5, 15],
+            ..Row::default()
+        };
+        // A rider of the level 30 on a horse of the level 1: 1 + 0.05·10/39, 992 to
+        // ⌊1,004.72 + 0.5⌋.
+        assert_eq!(raised_health(&row, 1, 30, 992), 1_005);
+        // Its whole curve below the horse: 1.05.
+        assert_eq!(raised_health(&row, 1, 1, 100), 105);
+        // A row of no bonus leaves it.
+        assert_eq!(raised_health(&Row::default(), 1, 1, 100), 100);
     }
 
     #[test]

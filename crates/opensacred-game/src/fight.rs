@@ -1343,12 +1343,13 @@ fn level_up(
             &mut Combat,
             &mut Health,
             &mut Regenerates,
+            Option<&crate::riding::Saddle>,
         ),
         (With<Body>, Without<Dies>),
     >,
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
-    for (base, holding, mut values, mut health, mut regenerates) in &mut heroes {
+    for (base, holding, mut values, mut health, mut regenerates, saddle) in &mut heroes {
         let level = experience.level;
         if health.level == level {
             continue;
@@ -1363,7 +1364,11 @@ fn level_up(
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         let skills = hero_skills(base, level, &holds);
         *values = Combat(combat(base, level, holds.clone(), &skills, &rules));
-        let most = hero_health_held(base, level, &holds, &skills, &rules);
+        let most = crate::riding::Saddle::raise(
+            saddle,
+            hero_health_held(base, level, &holds, &skills, &rules),
+            level,
+        );
         *health = Health {
             current: most,
             most,
@@ -1385,14 +1390,18 @@ fn keep_health(
     experience: Res<Experience>,
     rules: Res<Rules>,
     mut heroes: Query<
-        (&Base, &Holding, &mut Health),
+        (&Base, &Holding, &mut Health, Option<&crate::riding::Saddle>),
         (With<Body>, Without<Dies>, Changed<Holding>),
     >,
 ) {
-    for (base, holding, mut health) in &mut heroes {
+    for (base, holding, mut health, saddle) in &mut heroes {
         let level = experience.level;
         let skills = hero_skills(base, level, &holding.0);
-        let most = hero_health_held(base, level, &holding.0, &skills, &rules);
+        let most = crate::riding::Saddle::raise(
+            saddle,
+            hero_health_held(base, level, &holding.0, &skills, &rules),
+            level,
+        );
         if most != health.most {
             debug!(
                 "fight: the hero's most health {} becomes {most}",

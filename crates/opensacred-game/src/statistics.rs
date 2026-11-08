@@ -1955,7 +1955,12 @@ fn plus_at(i: u8) -> Vec2 {
 pub(crate) fn refit(
     level: u32,
     rules: &Rules,
-    (base, holding, effects): (&Base, Option<&Holding>, Option<&Effects>),
+    (base, holding, effects, saddle): (
+        &Base,
+        Option<&Holding>,
+        Option<&Effects>,
+        Option<&crate::riding::Saddle>,
+    ),
     (combat, regenerates, health): (&mut Combat, &mut Regenerates, &mut Health),
     (arts, hero): (Option<&mut HeroArts>, Option<&mut Hero>),
 ) {
@@ -1972,7 +1977,11 @@ pub(crate) fn refit(
     ));
     regenerates.value =
         opensacred_rules::fight::regeneration_with(base, level, &skills, &list, rules);
-    let most = opensacred_rules::fight::hero_health_held(base, level, &holds, &skills, rules);
+    let most = crate::riding::Saddle::raise(
+        saddle,
+        opensacred_rules::fight::hero_health_held(base, level, &holds, &skills, rules),
+        level,
+    );
     health.most = most;
     health.current = health.current.min(most);
     if let Some(hero) = hero {
@@ -2017,6 +2026,7 @@ fn spend(
             &mut Combat,
             &mut Regenerates,
             &mut Health,
+            Option<&crate::riding::Saddle>,
         ),
         With<Body>,
     >,
@@ -2038,7 +2048,7 @@ fn spend(
         return;
     };
     plus.glowing = false;
-    let Some((mut base, holding, effects, mut combat, mut regenerates, mut health)) =
+    let Some((mut base, holding, effects, mut combat, mut regenerates, mut health, saddle)) =
         heroes.iter_mut().next()
     else {
         return;
@@ -2082,7 +2092,7 @@ fn spend(
     refit(
         level,
         &rules,
-        (&base, holding, effects),
+        (&base, holding, effects, saddle),
         (&mut combat, &mut regenerates, &mut health),
         (arts.as_deref_mut(), hero.as_deref_mut()),
     );
@@ -2109,6 +2119,7 @@ pub(crate) fn skills_command(
                 &mut Combat,
                 &mut Regenerates,
                 &mut Health,
+                Option<&crate::riding::Saddle>,
             ),
             With<Body>,
         >,
@@ -2119,7 +2130,7 @@ pub(crate) fn skills_command(
     let (Some(mut experience), Some(rules)) = (experience, rules) else {
         return Err("no game is played".into());
     };
-    let (mut base, holding, effects, mut combat, mut regenerates, mut health) =
+    let (mut base, holding, effects, mut combat, mut regenerates, mut health, saddle) =
         heroes.iter_mut().next().ok_or("no hero")?;
     if let Some((skill, at)) = give {
         if !base.0.give_skill(skill, at, &mut experience.0) {
@@ -2128,7 +2139,7 @@ pub(crate) fn skills_command(
         refit(
             experience.level,
             &rules,
-            (&base, holding, effects),
+            (&base, holding, effects, saddle),
             (&mut combat, &mut regenerates, &mut health),
             (arts.as_deref_mut(), hero.as_deref_mut()),
         );
