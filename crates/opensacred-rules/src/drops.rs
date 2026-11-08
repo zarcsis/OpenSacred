@@ -178,6 +178,19 @@ impl Difficulty {
         Self::Niobium,
     ];
 
+    /// The item maker's term of its damage (`0x5D0280`, docs/re/items.md, "The damage"), which
+    /// moves a made item's share toward magic and poison: 0 on bronze, then 0.34, 0.67, 1.0 and
+    /// 1.34.
+    pub fn term(self) -> f32 {
+        match self {
+            Self::Bronze => 0.0,
+            Self::Silver => 0.34,
+            Self::Gold => 0.67,
+            Self::Platinum => 1.0,
+            Self::Niobium => 1.34,
+        }
+    }
+
     /// Its number, the int `0x182EE44`: 0 for bronze to 4 for niobium.
     pub fn index(self) -> usize {
         match self {
@@ -1148,6 +1161,31 @@ impl Catalogue {
         self.categories.get(&item).copied()
     }
 
+    /// The class bits of an item of type `item` that the item maker made, its triples having
+    /// given it `triples` (`0x5D5080`, #2266): a weapon's, a shield's or a ring's (the categories
+    /// 5, 13 and 8) the triples' alone, another's its record's (`+0x04`'s class bits) and the
+    /// triples'; none of them, those of its model's name ([`crate::equipment::named_classes`]),
+    /// else every class's. The bit `0x40` of the record never stays.
+    pub fn made_classes(&self, item: u32, triples: u32) -> u32 {
+        let kept = match self.category(item) {
+            Some(5 | 8 | 13) => 0,
+            _ => self
+                .records
+                .get(&item)
+                .map_or(0, |record| record.flags & crate::equipment::CLASSES),
+        };
+        let classes = kept | triples;
+        if classes != 0 {
+            return classes;
+        }
+        let root = self.slot(item).unwrap_or(item);
+        let model = self.models.get(&root).map_or("", String::as_str);
+        match crate::equipment::named_classes(item, root, model) {
+            0 => crate::equipment::CLASSES,
+            named => named,
+        }
+    }
+
     /// The weapon kind of the record of `item` (`Weapon.pak +0x1E`), 0 for a type without one.
     pub fn weapon_kind(&self, item: u32) -> u8 {
         self.records.get(&item).map_or(0, |record| record.kind)
@@ -1620,7 +1658,11 @@ impl Dropping<'_> {
         };
         drop.quality = u8::try_from(quality).unwrap_or(0);
         drop.level = u32::try_from(level).unwrap_or(0);
-        drop.values = self.templates.make(item, drop.level, dice);
+        drop.values = made(
+            (self.catalogue, self.templates),
+            (item, drop.level, self.death.difficulty),
+            dice,
+        );
         socket(
             &mut drop,
             (self.catalogue, self.templates),
@@ -1677,7 +1719,7 @@ pub fn thrown(
                 _ => 0,
             };
             drop.level = level.max(1);
-            drop.values = templates.make(item, drop.level, dice);
+            drop.values = made((catalogue, templates), (item, drop.level, difficulty), dice);
             socket(
                 &mut drop,
                 (catalogue, templates),
@@ -1720,7 +1762,7 @@ pub fn keyed(
         return Some(drop);
     }
     drop.level = level;
-    drop.values = templates.make(item, level, dice);
+    drop.values = made((catalogue, templates), (item, level, difficulty), dice);
     socket(
         &mut drop,
         (catalogue, templates),
@@ -1729,6 +1771,19 @@ pub fn keyed(
     );
     drop.named = names::roll(drop.values.as_ref(), dice);
     Some(drop)
+}
+
+/// The values of an item of type `item` that the item maker makes at `level` on `difficulty`
+/// ([`Templates::make`]), who may use it worked out from its triples
+/// ([`Catalogue::made_classes`], #2266).
+fn made(
+    (catalogue, templates): (&Catalogue, &Templates),
+    (item, level, difficulty): (u32, u32, Difficulty),
+    dice: &mut impl Dice,
+) -> Option<crate::fight::ItemValues> {
+    let mut values = templates.make(item, level, difficulty, dice)?;
+    values.classes = catalogue.made_classes(item, values.classes);
+    Some(values)
 }
 
 /// The sockets that the item maker's quality pass rolls for `drop`, made on `difficulty` for a

@@ -214,6 +214,87 @@ pub fn takers_of(category: u8, group: u16, groups: &[Vec<[u32; 2]>]) -> Option<T
 pub const CLASSES: u32 = 0x00C0_003F;
 pub const NO_CLASS: u32 = 0x40;
 
+/// The class bits that the name of a made item's model gives it where its maker's triples gave
+/// it none (`0x440560`, #2266): none for the types 140 to 146, 1300 to 1319, 3105 to 3159 but
+/// 3144 to 3148, 3165 to 3188 and 3545 to 3549, nor for a root (`root`, its type's after its
+/// parents) of 4067 to 4072; then, by the root's `items.pak` name `model`, case kept: an
+/// `_ARMOR` (but a `HORSE` or an `_N0`) the first class its fragments name, of the long list
+/// below; an `_OBJECT_AM` or `_OBJECT_BROSCHE` (an amulet, a brooch) the first of the short
+/// list; any other none.
+pub fn named_classes(item: u32, root: u32, model: &str) -> u32 {
+    const ARMOUR: [(&str, u32); 25] = [
+        ("_DELF_", 0x8),
+        ("_delve_", 0x8),
+        ("_DELVE_", 0x8),
+        ("_DARKELVE_", 0x8),
+        ("_DARKELF_", 0x8),
+        ("_ELVE_MAGE_", 0x8),
+        ("_SORCESS_", 0x10),
+        ("_ELVE_", 0x10),
+        ("_elve_", 0x10),
+        ("_ELFE_", 0x10),
+        ("_WELF_", 0x10),
+        ("_MAGE_", 0x4),
+        ("_mage_", 0x4),
+        ("_MAGICIAN_", 0x4),
+        ("_VMPD_", 0x20),
+        ("_VLADY_", 0x20),
+        ("_VLady_", 0x20),
+        ("_vlad_", 0x20),
+        ("_VLADYD_", 0x20),
+        ("_SERA_", 0x1),
+        ("_Sera_", 0x1),
+        ("_AMAZONE_", 0x1),
+        ("_AMAZON_", 0x1),
+        ("_GLAD_", 0x2),
+        ("_Glad_", 0x2),
+    ];
+    const ARMOUR_TAIL: [(&str, u32); 5] = [
+        ("_WARRIOR_", 0x2),
+        ("_JASON_", 0x2),
+        ("_DAEMONIA", 0x80_0000),
+        ("_DAEM", 0x80_0000),
+        ("_DWARF", 0x40_0000),
+    ];
+    const JEWELS: [(&str, u32); 10] = [
+        ("_DARKELVE", 0x8),
+        ("_GLAD", 0x2),
+        ("_ELVE", 0x10),
+        ("_MAGI", 0x4),
+        ("_MaGI", 0x4),
+        ("_VLADY", 0x20),
+        ("_SERA", 0x1),
+        ("_DAEMONIA", 0x80_0000),
+        ("_DAEM", 0x80_0000),
+        ("_DWARF", 0x40_0000),
+    ];
+    let unnamed = matches!(
+        item,
+        140..=146 | 1300..=1319 | 3105..=3143 | 3149..=3159 | 3165..=3188 | 3545..=3549
+    );
+    if unnamed || (4067..=4072).contains(&root) {
+        return 0;
+    }
+    let first = |list: &[(&str, u32)]| {
+        list.iter()
+            .find(|(fragment, _)| model.contains(fragment))
+            .map_or(0, |&(_, bit)| bit)
+    };
+    if model.contains("_ARMOR") {
+        if model.contains("HORSE") || model.contains("_N0") {
+            return 0;
+        }
+        match first(&ARMOUR) {
+            0 => first(&ARMOUR_TAIL),
+            bit => bit,
+        }
+    } else if model.contains("_OBJECT_AM") || model.contains("_OBJECT_BROSCHE") {
+        first(&JEWELS)
+    } else {
+        0
+    }
+}
+
 /// The bit of the hero of the type `hero` among [`CLASSES`].
 pub fn class_bit(hero: u32) -> u32 {
     match hero {
@@ -495,6 +576,17 @@ pub fn glow(slot: u8, held: Option<&Asks>, (hero, level): (u32, u32)) -> Glow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_made_items_model_names_its_class() {
+        assert_eq!(named_classes(5000, 5000, "item_ARMOR_SERA_01"), 0x1);
+        assert_eq!(named_classes(5000, 5000, "item_ARMOR_DWARF_02"), 0x40_0000);
+        assert_eq!(named_classes(5000, 5000, "item_ARMOR_HORSE_SERA_"), 0);
+        assert_eq!(named_classes(5000, 5000, "item_OBJECT_AM_GLAD"), 0x2);
+        assert_eq!(named_classes(5000, 5000, "item_SWORD_SERA_"), 0);
+        assert_eq!(named_classes(3110, 3110, "item_ARMOR_SERA_"), 0);
+        assert_eq!(named_classes(5000, 4068, "item_ARMOR_SERA_"), 0);
+    }
 
     #[test]
     fn each_slot_takes_its_category() {

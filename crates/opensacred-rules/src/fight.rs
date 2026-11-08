@@ -654,6 +654,8 @@ pub struct Rules {
     regeneration: [f32; 3],
     /// How the difficulty hardens a creature hostile to the hero.
     hardened: Hardened,
+    /// The difficulty they are of, on which the item maker makes the items (#2266).
+    of: Difficulty,
     curves: Curves,
     effects: EffectCurves,
     level_cap: f32,
@@ -733,6 +735,7 @@ impl Default for Rules {
             leech_with_distance: true,
             exchange: [100, 500, 2_000],
             hardened: Hardened::No,
+            of: Difficulty::Bronze,
         }
     }
 }
@@ -854,6 +857,7 @@ impl Rules {
         let Some(b) = balance else {
             return Self {
                 hardened: Hardened::on(difficulty),
+                of: difficulty,
                 ..default
             };
         };
@@ -1024,6 +1028,7 @@ impl Rules {
                 prices
             },
             hardened,
+            of: difficulty,
         }
     }
 
@@ -1045,6 +1050,11 @@ impl Rules {
             .iter()
             .find(|&&(listed, _)| listed == effect)
             .map_or(RARE, |&(_, parameters)| parameters)
+    }
+
+    /// The difficulty the rules are of.
+    pub fn difficulty(&self) -> Difficulty {
+        self.of
     }
 
     /// How the difficulty hardens a creature, `hostile` to the hero or not: none that is not.
@@ -1427,6 +1437,15 @@ pub struct ItemValues {
     /// Its sockets' kinds (`+0x0C…+0x13`: 0 none, 1 bronze, 2 silver, 3 gold), which the item
     /// maker's quality pass rolls ([`crate::drops::Sockets`]).
     pub sockets: [u8; SOCKETS],
+    /// Its class bits and the bit `0x40` (`+0x04`): its record's, or for a made item those that
+    /// [`crate::drops::Catalogue::made_classes`] works out from its triples' (`0x5D5080`); 0
+    /// for a value of an old save, which takes its type's record's.
+    #[serde(default)]
+    pub classes: u32,
+    /// A skill that wearing it needs and that skill's level (`+0x1A`, `+0x1B`), its record's or
+    /// what its maker's triples wrote; 0 for none.
+    #[serde(default)]
+    pub skill: [u8; 2],
 }
 
 /// How many bonus slots an item's record has.
@@ -1770,6 +1789,9 @@ impl ItemValues {
             scale: 0,
             family: u8::try_from(word(0x04) >> 8).unwrap_or(0),
             sockets,
+            classes: (u32::from(word(0x04)) | (u32::from(word(0x06)) << 16))
+                & (crate::equipment::CLASSES | crate::equipment::NO_CLASS),
+            skill: word(0x1A).to_le_bytes(),
         }
     }
 }
@@ -1944,19 +1966,28 @@ impl Templates {
         self.by_type.get(&item)
     }
 
-    /// The values of an item of type `item` made at `level` on bronze (`0x5D5080`,
+    /// The values of an item of type `item` made at `level` on `difficulty` (`0x5D5080`,
     /// docs/re/items.md), none without a template or for its word 38 of 29: the level's factor
     /// `f = 25 + 2.5·level`; the damage's budget `p = max(S·f/100 + 0.5, 1)` by the scale `S`,
-    /// its kinds rolled by their chances, normalised to `p` and split by the spread `w` into a
-    /// least and a most; the resistances likewise, unsplit; `A` and `D` by their chances times
-    /// `f`. No magic bonus yet (#1367).
-    pub fn make<D: Dice>(&self, item: u32, level: u32, rng: &mut D) -> Option<ItemValues> {
+    /// its kinds rolled by their chances, the elements' shares moved by the difficulty's term
+    /// ([`Difficulty::term`]), normalised to `p` and split by the spread `w` into a least and a
+    /// most; the resistances likewise, unsplit and without the term; `A` and `D` by their
+    /// chances times `f`; then its three triples ([`triples`], #2266). No magic bonus yet
+    /// (#2265).
+    pub fn make<D: Dice>(
+        &self,
+        item: u32,
+        level: u32,
+        difficulty: Difficulty,
+        rng: &mut D,
+    ) -> Option<ItemValues> {
         let words = self.of(item)?;
         if words[38] == 29 {
             return None;
         }
         let w = |i: usize| signed(words[i]);
-        let level = f64::from(level.min(270));
+        let whole_level = level.min(270);
+        let level = f64::from(whole_level);
         let f = single(25.0 + 250.0 * level * HUNDREDTH);
         let p = single((f64::from(words[6]) * f * HUNDREDTH + 0.5).max(1.0));
         let chance = |i: usize, rng: &mut D| i64::from(rng.below(100)) < w(i);
@@ -1970,22 +2001,27 @@ impl Templates {
             family: self.families.get(&item).copied().unwrap_or(0),
             ..ItemValues::default()
         };
-        // The damage: fire, magic, poison (unless both others), then physical.
+        // The damage: fire, then magic and poison (unless both others) moved by the difficulty's
+        // term `d`, each element adding `⌊a·d⌋` to a sum `s`, then physical less `s`.
+        let d = f64::from(difficulty.term());
         if [8, 11, 14, 17].iter().any(|&i| w(i) > 0) {
             let mut a = [0_u32; KINDS];
+            let mut s = 0_u32;
             for (kind, i) in [(1, 11), (2, 14), (3, 17)] {
                 if kind == 3 && a[1] > 0 && a[2] > 0 {
                     continue;
                 }
                 if chance(i, rng) {
-                    a[kind] = whole_f64((rolled(i, rng) * p * HUNDREDTH).max(1.0));
+                    let moved = if kind == 1 { 1.0 } else { 1.0 + d };
+                    a[kind] = whole_f64((moved * rolled(i, rng) * p * HUNDREDTH).max(1.0));
+                    s += whole_f64(f64::from(a[kind]) * d);
                 }
             }
             if chance(8, rng) {
                 a[0] = if a[1..].iter().all(|&v| v == 0) {
                     whole_f64(p)
                 } else {
-                    whole_f64(rolled(8, rng) * p * HUNDREDTH)
+                    whole_f64((rolled(8, rng) * p * HUNDREDTH - f64::from(s)).max(0.0))
                 };
             }
             let n = normalised(a, p);
@@ -2026,8 +2062,44 @@ impl Templates {
                 *value = to_f32(whole_f64(roll_between(least, most, rng) * f * HUNDREDTH));
             }
         }
+        (values.classes, values.skill) = triples(words, whole_level, rng);
         Some(values)
     }
+}
+
+/// The class bits of the triples' ids 10 to 17 (`0x5D5500`'s cases): the Gladiator's, the
+/// Seraphim's, the Wood Elf's, the Dark Elf's, the Mage's, the Vampiress's, the Dwarf's and the
+/// Daemon's.
+const TRIPLE_CLASSES: [u32; 8] = [0x2, 0x1, 0x10, 0x8, 0x4, 0x20, 0x40_0000, 0x80_0000];
+
+/// The three triples of a template's words 41 to 52 at `level` (`0x5D5080`, #2266): each of a
+/// chance below 101 (its words `41 + 3i`) and an id not 0 (`50 + i`) holds by a roll
+/// `rand() % 100` below its chance, drawn only then, its value the level over its divisor
+/// (`42 + 3i`, 5 where 0), truncated; an id of 10 to 17 gives the item a class's bit
+/// ([`TRIPLE_CLASSES`]), one above 100 the skill `id − 100` that wearing it needs at that value
+/// (`+0x1A`, `+0x1B`). The class bits and the skill.
+fn triples<D: Dice>(words: &TemplateWords, level: u32, rng: &mut D) -> (u32, [u8; 2]) {
+    let mut classes = 0;
+    let mut skill = [0; 2];
+    for i in 0..3 {
+        let (chance, divisor, id) = (words[41 + 3 * i], words[42 + 3 * i], words[50 + i]);
+        if chance >= 101 || id == 0 || rng.below(100) >= chance {
+            continue;
+        }
+        let value = u8::try_from(level / if divisor == 0 { 5 } else { divisor }).unwrap_or(u8::MAX);
+        match id {
+            10..=17 => {
+                classes |= usize::try_from(id - 10)
+                    .ok()
+                    .and_then(|k| TRIPLE_CLASSES.get(k))
+                    .copied()
+                    .unwrap_or(0);
+            }
+            101.. => skill = [u8::try_from(id - 100).unwrap_or(u8::MAX), value],
+            _ => {}
+        }
+    }
+    (classes, skill)
 }
 
 /// The raw values `a` normalised to the budget `p` (`0x5D0280`): each `⌊a·p/T⌋` of their total
@@ -6456,7 +6528,7 @@ mod tests {
         let templates = Templates::new(&[dagger_template()], &[]);
         let mut rng = Rng::of(51, 39, 0);
         let made: Vec<ItemValues> = (0..400)
-            .filter_map(|_| templates.make(1712, 1, &mut rng))
+            .filter_map(|_| templates.make(1712, 1, Difficulty::Bronze, &mut rng))
             .collect();
         assert_eq!(made.len(), 400);
         // Physical alone in most: 12 to 15; with an element, its most and the physical's sum
@@ -6477,11 +6549,40 @@ mod tests {
         }
         // At level 5, 17 to 20.
         let level_5 = (0..50)
-            .filter_map(|_| templates.make(1712, 5, &mut rng))
+            .filter_map(|_| templates.make(1712, 5, Difficulty::Bronze, &mut rng))
             .find(|v| v.damage[1..].iter().all(|ends| ends[1] == 0.0));
         assert_eq!(level_5.map(|v| v.damage[0]), Some([17.0, 20.0]));
         // No template, no values.
-        assert_eq!(templates.make(9999, 1, &mut rng), None);
+        assert_eq!(templates.make(9999, 1, Difficulty::Bronze, &mut rng), None);
+    }
+
+    #[test]
+    fn the_difficulty_moves_a_made_items_damage_toward_magic_and_its_triples_class_it() {
+        // Magic always at 50 % of the budget, physical always, and two triples: the Mage's class
+        // (14) and the skill 11 at the level over 5.
+        let mut template = dagger_template();
+        template.words[8] = 100;
+        template.words[11] = 0;
+        template.words[14..17].copy_from_slice(&[100, 50, 50]);
+        template.words[17] = 0;
+        template.words[41..44].copy_from_slice(&[100, 0, 0]);
+        template.words[44..47].copy_from_slice(&[100, 5, 5]);
+        template.words[50..52].copy_from_slice(&[14, 111]);
+        let templates = Templates::new(&[template], &[]);
+        let mut rng = Rng::of(51, 39, 0);
+        let share = |difficulty| {
+            let values = templates
+                .make(1712, 20, difficulty, &mut Rng::of(51, 39, 0))
+                .unwrap();
+            let sum: f32 = values.damage.iter().map(|ends| ends[1]).sum();
+            values.damage[2][1] / sum
+        };
+        // Niobium's term 1.34 lifts the magic's share and takes its part from the physical.
+        assert!(share(Difficulty::Niobium) > share(Difficulty::Bronze) + 0.1);
+        let values = templates
+            .make(1712, 20, Difficulty::Bronze, &mut rng)
+            .unwrap();
+        assert_eq!((values.classes, values.skill), (0x4, [11, 4]));
     }
 
     /// The words from `+4` of the Seraphim's weapon of her template, the record 7901 (docs/02 §9):
@@ -6582,6 +6683,8 @@ mod tests {
                 scale: 0,
                 family: 0,
                 sockets: [1, 3, 0, 0, 0, 0, 0, 0],
+                classes: 0,
+                skill: [0; 2],
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
