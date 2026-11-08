@@ -105,7 +105,7 @@ A run's creatures share one level, which `FillSector` takes before its loop over
 Each creature that its rank's roll leaves common takes that level through the level's setter (`0x47E7FE`, `(L, 1, 0)`), which holds it at the sector's highest ("`CreateNPC`'s level"); on a dungeon's sector (`0x63D260`, the sector of the creature's position, as `0x63D1C0`'s) it takes one or two more by a roll of its own after its rank's (`0x47E7C0`…`0x47E7F7`; #570), held so too.
 **Confirmed** in the original (2026-10-23, the setter's calls from `FillSector` probed, #582): one level a run, 14 bandits 279 at 24, the thieves 307 of two runs at 24 and 25, each run of rabbits at one of 24 to 27 in sectors of 25 to 38, the ranks' creatures at the marker level 1.
 Some types and about 2 % of the creatures hostile to a living hero are made champions (`HarteSau`, 20 in 1,001), the types 37, 48, 55 and 84 a boss or a champion by a coin, 127 and 49 so in one case of two; they are made at the level 1, which their first fight raises (docs/re/fight.md, "Bosses and champions").
-A black rider's horse (261) brings its rider (256), hostile, a boss, with a short bow or a tribal axe.
+A black rider's horse (261) brings its rider (256), hostile, a boss, with the magic short bow 1811 or the tribal axe 1778 (docs/re/horses.md, "The black riders").
 
 ## `MakeGroup`
 
