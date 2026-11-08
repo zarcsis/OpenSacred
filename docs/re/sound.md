@@ -391,7 +391,7 @@ Read 2026-11-08 for #2341 in the code (the original not run); the options window
 
 Since #2341 `opensacred-game` plays each kind at its level (`volumes`): each channel's track has a volume control, the main channel's, the water's and the rain's at the effects' level, a channel `Speech` of the lines by name (`voices`' named lines and the flight's comment, `remarks`, `talk`'s voice-overs and the scripts' lines, a name holding `_SFX` on the main channel) and the introductions' at the speech's, the music once at the music's, and the music's and the ambient loops' channels at the music's or the effects' by what they play (`music::Music::plays_atmo`, `atmosphere::Atmosphere::plays_music`); the streams play at their factor instead of the fixed −8 dB and −12 dB that stood for them.
 The levels are the settings' over 128 at the start and over 126 as a slider of the options window moves, the switch off silencing every track (docs/decisions/sound.md).
-Not followed: the music's level of 0.001 or below turning the stream to the ambient loop and refusing the music played once, the fights' music and the jingles; a `_SFX` line's place at its speaker and its not being the line by name.
+Not followed: the music's level of 0.001 or below turning the stream to the ambient loop and refusing the music played once, the fights' music and the jingles; a `_SFX` line's place at its speaker and its not being the line by name (#2348).
 
 ## The sources: what plays, and what `opensacred-game` does not yet
 
