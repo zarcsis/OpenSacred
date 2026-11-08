@@ -645,6 +645,9 @@ pub struct Mind {
     /// What a townsperson does (`+0x261`, [`activity`]), whose icon its draw shows while Alt is
     /// held ([`activity_icon`]); written as it takes up a doing, kept until the next.
     pub activity: u16,
+    /// The fidgets' slots its model has (`+0xF8`): bit `i` the slot `180 + i`, `*_FUN_IDLE_*`
+    /// ([`FUN_SLOTS`]), which the idle action's fidget tries.
+    pub fun: u16,
     /// Whether it fights (the AI's state 4, `0x4E0300`, or 8), the hero or a creature, and whether
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
@@ -745,6 +748,7 @@ impl Mind {
             big: false,
             turned: false,
             activity: activity::NONE,
+            fun: 0,
             fighting: false,
             fled: false,
             cast_deadline: 0.0,
@@ -1095,9 +1099,15 @@ impl Mind {
             }
         }
         if idle && !walking && !self.fighting && !self.to_door {
-            thought.step = idle_step(self, here, hero, rng);
-            if let (Some(step), true) = (thought.step, self.enter) {
-                self.home = step;
+            match idle_action(self, here, hero, rng) {
+                Some(Idle::Step(step)) => {
+                    thought.step = Some(step);
+                    if self.enter {
+                        self.home = step;
+                    }
+                }
+                Some(Idle::Fidget(fidget)) => thought.fidget = Some(fidget),
+                None => {}
             }
         }
         thought
@@ -2143,26 +2153,65 @@ pub struct Thought {
     pub foe: Option<usize>,
     /// The idle action's step: the point it walks to, its home for one of an `Enter` function.
     pub step: Option<Spot>,
+    /// The idle action's fidget: the clip it plays once where it stands.
+    pub fidget: Option<Fidget>,
     /// It goes for the door in its way that its thought found (the AI's state 1).
     pub door: bool,
 }
 
-/// What the idle action makes a creature at `here` do: in one case of ten nothing yet (the
-/// original fidgets), else in one case of four a step: within 150 along each axis, or home in one
-/// case of four, for a creature of an `Init` function or the start script; its place turned about
-/// the hero by −30° to +30°, for one of an `Enter` function; `None` otherwise.
-fn idle_step(mind: &Mind, here: Spot, hero: Spot, rng: &mut impl Dice) -> Option<Spot> {
-    if rng.below(10) == 0 || rng.below(4) != 0 {
+/// The clip of an idle creature's fidget (`0x54EA30`): one of its model's `*_FUN_IDLE_*`, the
+/// slot given, or its attack's, its action 4's first slot (`0x5467A0`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fidget {
+    Fun(u16),
+    Attack,
+}
+
+/// The first of the fidgets' slots, `*_FUN_IDLE_*`, and how many follow it (180 to 192).
+pub const FUN_SLOTS: u16 = 180;
+pub const FUN_COUNT: u16 = 13;
+
+/// What the idle action makes a creature do ([`idle_action`]): a step to a point, or a fidget.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Idle {
+    Step(Spot),
+    Fidget(Fidget),
+}
+
+/// What the idle action makes a creature at `here` do (`0x54EA30`): in one case of ten it
+/// fidgets ([`fidget`]), else in one case of four it steps: within 150 along each axis, or home
+/// in one case of four, for a creature of an `Init` function or the start script; its place
+/// turned about the hero by −30° to +30°, for one of an `Enter` function; `None` otherwise.
+fn idle_action(mind: &Mind, here: Spot, hero: Spot, rng: &mut impl Dice) -> Option<Idle> {
+    if rng.below(10) == 0 {
+        return Some(Idle::Fidget(fidget(mind.fun, rng)));
+    }
+    if rng.below(4) != 0 {
         return None;
     }
     if mind.enter {
         let degrees = f32::from(u16::try_from(rng.below(61)).ok()?) - 30.0;
-        return Some(hero + (here - hero).turned(degrees));
+        return Some(Idle::Step(hero + (here - hero).turned(degrees)));
     }
     if rng.below(4) == 0 {
-        return Some(mind.home);
+        return Some(Idle::Step(mind.home));
     }
-    Some(about(here, STEP, rng))
+    Some(Idle::Step(about(here, STEP, rng)))
+}
+
+/// The clip of a fidget (`0x54EA30`, read 2026-11-07 for #1364): in one case of two the model's
+/// `*_FUN_IDLE_*` slots that it has (`fun`, bit `i` the slot `180 + i`, `+0xF8`) are tried in
+/// turn, each taken in one case of two, the first taken played; else, or where none is taken,
+/// its attack's clip.
+fn fidget(fun: u16, rng: &mut impl Dice) -> Fidget {
+    if rng.below(2) == 0 {
+        for i in 0..FUN_COUNT {
+            if fun & (1 << i) != 0 && rng.below(2) != 0 {
+                return Fidget::Fun(FUN_SLOTS + i);
+            }
+        }
+    }
+    Fidget::Attack
 }
 
 /// What a creature fighting the hero sees ([`Mind::pursue`]): where it and the hero stand, its
@@ -5130,9 +5179,16 @@ mod tests {
         let mut rng = Rng::of(48, 39, 1);
         let script = Mind::new(at(1480.0, 990.0), 0x1, (false, true), None, SPEEDS, (0, 0));
         let fill = Mind::new(here, 0x1, (true, false), None, SPEEDS, (0, 0));
-        let (mut steps, mut homes) = (0, 0);
+        let (mut steps, mut homes, mut fidgets) = (0, 0, 0);
+        let step = |mind: &Mind, rng: &mut Rng| match idle_action(mind, here, hero, rng) {
+            Some(Idle::Step(target)) => Some(target),
+            _ => None,
+        };
         for _ in 0..2000 {
-            if let Some(target) = idle_step(&script, here, hero, &mut rng) {
+            if let Some(Idle::Fidget(_)) = idle_action(&script, here, hero, &mut rng) {
+                fidgets += 1;
+            }
+            if let Some(target) = step(&script, &mut rng) {
                 if target == script.home {
                     homes += 1;
                 } else {
@@ -5142,14 +5198,37 @@ mod tests {
                 }
             }
             // An `Enter` function's creature keeps its distance from the hero.
-            if let Some(target) = idle_step(&fill, here, hero, &mut rng) {
+            if let Some(target) = step(&fill, &mut rng) {
                 let (before, after) = ((here - hero).length(), (target - hero).length());
                 assert!((before - after).abs() < 0.01, "{before} {after}");
             }
         }
-        // A step in about 22 % of the actions, home in a quarter of them.
+        // A step in about 22 % of the actions, home in a quarter of them; a fidget in a tenth.
         assert!((350..550).contains(&(steps + homes)), "{steps} {homes}");
         assert!(homes > 50 && homes < steps, "{steps} {homes}");
+        assert!((130..270).contains(&fidgets), "{fidgets}");
+    }
+
+    #[test]
+    fn a_fidget_tries_the_models_fun_clips_in_turn_else_its_attack() {
+        let mut rng = Rng::of(48, 39, 3);
+        // Without a fun clip, its attack's always.
+        assert!((0..200).all(|_| fidget(0, &mut rng) == Fidget::Attack));
+        // With the slots 181 and 185: half the attack's and a quarter more where neither is
+        // taken; of the fun ones, the earlier taken twice as often as the later.
+        let fun = (1 << 1) | (1 << 5);
+        let (mut attack, mut first, mut second) = (0, 0, 0);
+        for _ in 0..4000 {
+            match fidget(fun, &mut rng) {
+                Fidget::Attack => attack += 1,
+                Fidget::Fun(181) => first += 1,
+                Fidget::Fun(185) => second += 1,
+                other => panic!("{other:?}"),
+            }
+        }
+        assert!((2300..2700).contains(&attack), "{attack}");
+        assert!((800..1200).contains(&first), "{first}");
+        assert!((350..650).contains(&second), "{second}");
     }
 
     #[test]

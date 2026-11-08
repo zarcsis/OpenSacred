@@ -511,13 +511,16 @@ fn think(
         ),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    queued: Query<
-        (),
-        Or<(
-            With<crate::npcs::ScriptQueue>,
-            With<crate::npcs::ScriptClip>,
-        )>,
-    >,
+    (queued, npcs): (
+        Query<
+            (),
+            Or<(
+                With<crate::npcs::ScriptQueue>,
+                With<crate::npcs::ScriptClip>,
+            )>,
+        >,
+        Query<&crate::npcs::Npc>,
+    ),
 ) {
     let Some((hero, body, size, unseen, (striking, attack, holding))) = hero.iter().next() else {
         return;
@@ -548,6 +551,7 @@ fn think(
     // The steps taken this tick: a creature, its target, and its group's step to share; the
     // groups whose alarm goes.
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
+    let mut fidgets: Vec<(Entity, minds::Fidget)> = Vec::new();
     let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3)> = Vec::new();
     let seen = doors.seen(&heights);
@@ -671,6 +675,9 @@ fn think(
         }
         // A step of a group's member of an `Enter` function moves the whole group, the stepper
         // among them, below (`0x54F2AE`).
+        if let Some(fidget) = thought.fidget {
+            fidgets.push((entity, fidget));
+        }
         if let Some(step) = thought.step {
             let target = point(step, here.y);
             match (mind.group, mind.enter) {
@@ -690,6 +697,17 @@ fn think(
             let here = transform.translation;
             let target = mind.fellow_steps(spot(here), spot(step), &mut minds.rng);
             steps.push((entity, point(target, here.y)));
+        }
+    }
+    // A fidget plays its clip once where it stands (the standing action's sub-state `0x65`,
+    // `0x54EA30`, #1364): its model's fun clip, or its attack's.
+    for (entity, fidget) in fidgets {
+        if let Ok(npc) = npcs.get(entity) {
+            let slot = npc.fidget_slot(fidget);
+            debug!("ai: {entity} fidgets with the slot {slot}");
+            commands
+                .entity(entity)
+                .insert(crate::npcs::ScriptClip::fidget(slot));
         }
     }
     for (entity, target) in steps {
