@@ -1515,7 +1515,7 @@ fn behave(
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::fight::Experience>>,
     ),
-    (followers, queued, arms): (
+    (followers, queued, arms, clips): (
         Query<(), With<crate::followers::Follower>>,
         Query<
             (),
@@ -1525,6 +1525,7 @@ fn behave(
             )>,
         >,
         Query<&crate::npcs::Arms>,
+        Query<&crate::npcs::Npc>,
     ),
 ) {
     let Some((the_hero, hero, body, holding, attack)) = hero.iter().next() else {
@@ -1829,7 +1830,22 @@ fn behave(
                                 stops.push(partner);
                             }
                         }
-                        commands.entity(entity).insert(Talks);
+                        // A woman's slap in place of her talk, her attack's clip once (#2251).
+                        let distance = (at - here).xz().length();
+                        match clips.get(entity) {
+                            Ok(npc) if mind.slaps(distance, &mut minds.rng) => {
+                                debug!("ai: {entity} slaps {partner} from {distance:.0}");
+                                mind.activity = activity::SLAPS;
+                                doings.push((partner, activity::SLAPPED));
+                                let slot = npc.fidget_slot(minds::Fidget::Attack);
+                                commands
+                                    .entity(entity)
+                                    .insert(crate::npcs::ScriptClip::fidget(slot));
+                            }
+                            _ => {
+                                commands.entity(entity).insert(Talks);
+                            }
+                        }
                     }
                 }
                 _ => {
