@@ -57,7 +57,7 @@ Before the table, `0x5467A0` decides some creatures' slots itself:
 
 - creature 71, the small spider, always plays slot 27;
 - a creature whose flag `+0x14` has bit 2 and whose owner (`+0x1EC`) is a creature that `0x4266F0` accepts (**hypothesis**: a rider on its horse) plays 169 where its model has it, else 166, the `*_HORSE_IDLE` and `*_HORSE_RIDE` clips, and 193 to 196 or 234 attacking, by its class;
-- a mounted creature (`+0x1F4` bit `0x200000`) other than creatures 190, 335 and 336 plays 179;
+- a flyer aloft (`+0x1F4` bit `0x200000`, docs/re/ai.md, "The flyers") other than creatures 190, 335 and 336 plays 179, `MOTION_FLY_LOOP`; a rider plays 169, else 166 (docs/re/horses.md);
 - a standing creature whose flag `+0x200` has bit 6 clear takes the fight stance instead where its model has the stance's slot and the first value of a sorted list at `0xAD3CE4` is below 550 ("The fight stance" below);
 - with that bit set, it takes the stance where its flag `+0x200` has bit `0x8000` or it is creature 2 holding class 2, and creatures 5, 6 and 9 have cases of their own;
 - an attack has cases of its own: a random one of the five where the model fills more than one, and fixed slots for some creatures.

@@ -108,7 +108,7 @@ Its sub-states, read 2026-10-21 (#391), **confirmed** by code unless marked othe
   - farther than 800 it comes on to its target's place, stopping within 450 (`+0x174` 1, `+0x176` 450), at its gait as it is, whether it moves or not;
   - from 300 to 800 without a straight line (`0x4FCC80`) it waits while it moves, and standing walks to its place turned about its target by `rand() % 61 − 30` degrees, its distance kept, stopping within 25;
   - else it shoots, whether it moves or not: the action 5 with its target, the AI's state 0 and the count of back-offs 0, from which the idle handler takes it into the state 8 again.
-- A creature with an owner (`+0x14` bit 2 and `+0x1EC`) within 800 of its target skips the moves and shoots.
+- A rider (`+0x14` bit 2, out of the world, and his mount at `+0x1EC`, docs/re/horses.md) within 800 of its target skips the moves and shoots.
 
 So an archer shoots from 300 to 800 along a straight line, from 250 when it has just decided, and nearer only after ten back-offs in a row; a back-off ends in a shot as soon as it is 300 away, and "ten times a fight" is ten times between two shots.
 
