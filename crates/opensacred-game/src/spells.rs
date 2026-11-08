@@ -357,6 +357,7 @@ fn balls(
                             fixed: Some(damages),
                             sure: true,
                             poison: false,
+                            ward: true,
                         });
                     }
                 }
@@ -535,6 +536,7 @@ fn pentagrams(
                 fixed: Some(damages),
                 sure: true,
                 poison: false,
+                ward: false,
             });
         }
         commands.entity(entity).despawn();
@@ -1871,6 +1873,7 @@ fn act(
                     fixed: Some(damages),
                     sure: true,
                     poison: false,
+                    ward: true,
                 });
                 // Its bolt from his hand to the target's, as its system's (`chain_bolts`).
                 crate::chain_bolts::bolt(&mut commands, act.caster, act.target);
@@ -2226,6 +2229,7 @@ fn act(
                     fixed: Some(damages),
                     sure: true,
                     poison: false,
+                    ward: true,
                 });
                 crate::lightning_strikes::strike(&mut commands, place.translation(), true);
             }
@@ -2433,6 +2437,7 @@ fn strike(
                     fixed: Some(damages),
                     sure: true,
                     poison: false,
+                    ward: opensacred_rules::spells::warded(aura.key),
                 });
             }
             aura.cooldown = BEAT;
@@ -2462,6 +2467,7 @@ fn strike(
                         fixed: Some(damages),
                         sure: true,
                         poison: false,
+                        ward: opensacred_rules::spells::warded(aura.key),
                     });
                 }
                 aura.cooldown = BEAT;
@@ -2512,6 +2518,7 @@ fn strike(
                     fixed: Some(damages),
                     sure: true,
                     poison: false,
+                    ward: opensacred_rules::spells::warded(aura.key),
                 });
             }
             if !aura.gives.is_empty() && !given.contains(&(target, aura.key)) {
@@ -2644,6 +2651,7 @@ fn mine(
                 fixed: Some(mine.damages),
                 sure: true,
                 poison: false,
+                ward: true,
             });
         }
         crate::explosions::blast(&mut commands, at.translation, false);
@@ -2898,6 +2906,7 @@ fn disk(
                         fixed: Some(disk.damages),
                         sure: true,
                         poison: false,
+                        ward: true,
                     });
                     disk.cooldown = BEAT;
                 }
@@ -3031,6 +3040,7 @@ fn disk(
                 fixed: Some(disk.damages),
                 sure: true,
                 poison: false,
+                ward: true,
             });
         }
         disk.cooldown = BEAT;
@@ -3130,6 +3140,7 @@ fn meteor(
                 fixed: Some(meteor.damages),
                 sure: true,
                 poison: false,
+                ward: true,
             });
         }
         commands.entity(entity).despawn();
@@ -3192,6 +3203,7 @@ fn chain(
             fixed: Some(chain.damages),
             sure: true,
             poison: false,
+            ward: true,
         });
         crate::chain_bolts::bolt(&mut commands, chain.last, target);
         chain.last = target;
@@ -3259,6 +3271,7 @@ fn spiral(
                     fixed: Some(flame.damages),
                     sure: true,
                     poison: false,
+                    ward: true,
                 });
                 struck = true;
             }

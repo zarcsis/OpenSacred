@@ -9512,6 +9512,7 @@ fn strike(
                     fixed: None,
                     sure: false,
                     poison: false,
+                    ward: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.share,

@@ -127,6 +127,13 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
             "{}: {value:+.2}",
             words.of("UI_RARE_SCHOCK").trim_end()
         )),
+        // The magic defence's value more, as an item's effect 858 adds to it, to a tenth (M17,
+        // #2277).
+        Told::MagicDefence(value) => white(format!(
+            "{}: {}",
+            words.of("UI_RARE_MAGIEABWEHR").trim_end(),
+            tenths(value)
+        )),
         // Set 22's potions at 5, which no text of the game tells: the project's own words that
         // the converter adds (the maintainer's decision of 2026-11-02, #1727; #1823).
         Told::Potions(per_cent) => white(format!(
@@ -363,6 +370,10 @@ mod tests {
         assert_eq!(told(Told::OpenWounds(11.0 / 101.0)), ["<1151>: +10.9%"]);
         assert_eq!(told(Told::Exorcist(0.501)), ["<UI_RARE_EXORZIST>: +0.5"]);
         assert_eq!(told(Told::Stun(0.0835)), ["<UI_RARE_SCHOCK>: +0.08"]);
+        assert_eq!(
+            told(Told::MagicDefence(16.7)),
+            ["<UI_RARE_MAGIEABWEHR>: +16.7"]
+        );
         assert_eq!(told(Told::Unseen), ["<783>"]);
         assert_eq!(told(Told::Terror(2000.0 / 101.0)), ["<1150>: +19.8%"]);
         assert_eq!(told(Told::Potions(10.0)), ["<OPENSACRED_SET_POTIONS>: 10%"]);

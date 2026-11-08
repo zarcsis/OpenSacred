@@ -181,6 +181,7 @@ fn fly(
                 // plain one).
                 sure: true,
                 poison: false,
+                ward: false,
             });
         }
         if struck.is_none() && share < 1.0 {

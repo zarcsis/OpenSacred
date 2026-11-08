@@ -418,6 +418,7 @@ fn engage(
                         fixed: None,
                         sure: false,
                         poison: false,
+                        ward: false,
                         attacker: hero,
                         target: entity,
                         share: 1.0,

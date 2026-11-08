@@ -54,6 +54,7 @@ fn burn(
                     fixed: Some(burn.damages()),
                     sure: true,
                     poison: false,
+                    ward: false,
                 });
             }
             !burn.over()

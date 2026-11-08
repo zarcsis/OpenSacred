@@ -423,6 +423,59 @@ pub const TENTACLES: u16 = 65;
 pub const CHOIR: u16 = 66;
 pub const FEAR: u16 = 67;
 
+/// Whether the objects of the spell or the art `key` ask their target's magic defence before they
+/// strike it (`0x561860`, the sets' M17, #2277; docs/re/fight.md, "The rare effects"): the
+/// objects' strikes of `0x5ABD80` whose cases call it, of the types 778, 790, 792, 794, 801, 804,
+/// 814, 817, 820, 821, 823, 826, 831, 838, 839, 840, 847, 848, 850, 855, 867, 875, 906, 1005,
+/// 1012, 1013, 1015 and 1020, and the action 2 of the objects 798, 872 and 909 (`0x5B52EE`), by
+/// the spell or the art that makes them: the fireball (5, 778), the lightning (8 and 13, 798),
+/// the fire spiral (11, 790), the acid (12, 792), the holy light (15, 804), the blades of light
+/// (17, 814), the light (20, 817), the purgatory (23, 820), the fire skin (24, 821), the meteors
+/// (26, 823), the twister (28, 826), the whirlwind (29, 831), the chain lightning (33, 872), the
+/// ice splinters (34, 839), the frost ring (35, 840), the bubble (38, 847 and its burst 906), the
+/// thorns (39, 848), the lost souls (41, 850), the big demons' lasers (49, 909), the goblin mages'
+/// ball (53, 867), the Dwarf's mines (56, the blast 794), the hell disk (60, 1005), the demon fire
+/// (64, 1015), the tentacles (65, 1013), the fear (67, 1012), the Dark Elf's bomb and poison traps
+/// (1049, 794; 1052, 792) and the Dwarf's mortar (1086, the impact 1020).
+/// Not the others': the pentagram (6, 782), the plant cage (40, 849), the big demons' fire (50,
+/// 910 and 878), the fire bolt (52, 922), the songs from hell (66, 1011), the flames of 69 to 72,
+/// the dragons' fire (923), the spit (880), the Daemon's walls of fire (1006 to 1008) and blast
+/// (1168), the Dwarf's cannon's impact (1151) and the fires and smokes of the world.
+pub fn warded(key: u16) -> bool {
+    matches!(
+        key,
+        FIREBALL
+            | 8
+            | LIGHTNING
+            | SPIRAL
+            | 12
+            | HOLY_LIGHT
+            | BLADES_OF_LIGHT
+            | LIGHT
+            | PURGATORY
+            | 24
+            | METEORS
+            | 28
+            | WHIRLWIND
+            | CHAIN
+            | SPLINTERS
+            | FROST_RING
+            | BUBBLE
+            | THORNS
+            | SOULS
+            | 49
+            | 53
+            | MINES
+            | DISK
+            | HELLFIRE
+            | TENTACLES
+            | FEAR
+            | 1049
+            | 1052
+            | 1086
+    )
+}
+
 /// The hell disk (`0x7AE040`, `0x5A7DE0`, `0x5AF93F`): its speed, how far it looks for a
 /// creature to home on (a squared 100,000), and how near it strikes one, with the creature's
 /// size.
@@ -1104,6 +1157,20 @@ mod tests {
         assert_eq!(slot(FIREBALL), 155);
         assert_eq!((slot(7), slot(32), slot(2), slot(18)), (161, 157, 163, 163));
         assert_eq!(slot(13), 154);
+    }
+
+    #[test]
+    fn the_magic_defence_turns_aside_the_spells_objects_whose_strikes_ask_it() {
+        assert!(
+            [
+                FIREBALL, LIGHTNING, METEORS, SPLINTERS, BUBBLE, 49, 53, 1049, 1086
+            ]
+            .iter()
+            .all(|&key| warded(key))
+        );
+        // The pentagram, the plant cage, the big demons' fire, the fire bolt and the songs.
+        assert!(!warded(6) && !warded(CAGE) && !warded(50) && !warded(52) && !warded(CHOIR));
+        assert!(!warded(1050) && !warded(1087));
     }
 
     fn record(id: u16, effects: &[(usize, [u16; 2])], value: [u16; 2], cap: u16) -> Spell {
