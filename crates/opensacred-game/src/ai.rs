@@ -1474,7 +1474,15 @@ fn behave(
     nearest: Res<Nearest>,
     crowd: Res<Crowd>,
     heights: Res<Heights>,
-    hero: Query<(Entity, &Transform, Option<&crate::fight::Holding>), With<Body>>,
+    hero: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&crate::fight::Holding>,
+            Option<&crate::attack::Attack>,
+        ),
+        With<Body>,
+    >,
     cameras: Query<&Projection, crate::iso::Eye>,
     doors: Query<(Entity, &Object, &Door), Without<Mind>>,
     npcs: Option<Res<Npcs>>,
@@ -1500,9 +1508,11 @@ fn behave(
         Query<&crate::npcs::Arms>,
     ),
 ) {
-    let Some((the_hero, hero, holding)) = hero.iter().next() else {
+    let Some((the_hero, hero, holding, attack)) = hero.iter().next() else {
         return;
     };
+    // The hero attacks while its attack has a target (`0x4EB890`).
+    let hero_attacks = attack.is_some_and(|attack| attack.target().is_some());
     let hero = hero.translation;
     // The animals' terror of the hero's sets (#1727's M16), or of its items' effect 855, which
     // holds every one and may cage it (`0x4E2616`, #1806).
@@ -1563,12 +1573,26 @@ fn behave(
         .unwrap_or(1.0);
     let side = crate::iso::CELL * 64.0;
     let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
-    // What the animals fear: every creature but the animals, and the hero.
-    let feared: Vec<(Entity, Vec3)> = creatures
+    // What the animals may fear: every creature, an animal of the classes 4 and 6 only while it
+    // attacks, and the hero (`minds::Mind::fears`, #1364).
+    let feared: Vec<(Entity, Vec3, bool, u32, bool)> = creatures
         .iter()
-        .filter(|(_, _, _, mind, _)| !matches!(mind.class, 4 | 6))
-        .map(|(entity, transform, ..)| (entity, transform.translation))
-        .chain(std::iter::once((Entity::PLACEHOLDER, hero)))
+        .map(|(entity, transform, _, mind, _)| {
+            (
+                entity,
+                transform.translation,
+                matches!(mind.class, 4 | 6),
+                mind.flags,
+                mind.fighting(),
+            )
+        })
+        .chain(std::iter::once((
+            Entity::PLACEHOLDER,
+            hero,
+            false,
+            0,
+            hero_attacks,
+        )))
         .collect();
     // What the townsfolk visit and take for partners: the farm and wild animals and the humans
     // of class 3, at the hero's looks.
@@ -2126,24 +2150,25 @@ fn behave(
             }
             continue;
         }
-        // The nearest it fears in its own sector, and its terror: the hero's sets'.
-        let fear = feared
-            .iter()
-            .filter(|&&(other, at)| other != entity && sector(at) == sector(here))
-            .min_by(|(_, a), (_, b)| {
-                let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
-                da.total_cmp(&db)
-            })
-            .map(|&(other, at)| {
-                (
-                    spot(at),
-                    if other == Entity::PLACEHOLDER {
+        // The nearest it fears in its own sector, each within its distance, and its terror: the
+        // hero's sets'.
+        let fear = mind.nearest_feared(
+            spot(here),
+            feared
+                .iter()
+                .filter(|&&(other, at, ..)| other != entity && sector(at) == sector(here))
+                .map(|&(other, at, animal, flags, attacks)| minds::Fearsome {
+                    at: spot(at),
+                    animal,
+                    flags,
+                    attacks,
+                    terror: if other == Entity::PLACEHOLDER {
                         terror
                     } else {
                         0
                     },
-                )
-            });
+                }),
+        );
         let Some((target, why)) = mind.behaves(spot(here), fear, (crowded, None), &mut minds.rng)
         else {
             continue;
