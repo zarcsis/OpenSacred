@@ -447,6 +447,13 @@ struct ClipNames {
     /// Its dying clips, the slots 173 and 174 (`*_DYING_A`, `*_DYING_B`; **hypothesis** for the
     /// dying action 6's choice).
     dying: Vec<String>,
+    /// The fidgets' slots 180 to 192 that its model has, bit `i` the slot `180 + i`
+    /// (`minds::Mind::fun`), and its attack's first slot, which a fidget plays where it takes
+    /// none of them (`0x5467A0(4)`, #1364).
+    #[serde(default)]
+    fun_slots: u16,
+    #[serde(default)]
+    attack_slot: u16,
 }
 
 impl ClipNames {
@@ -465,6 +472,10 @@ impl ClipNames {
                 .collect(),
             talk: slots.talk().map(str::to_owned),
             fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
+            fun_slots: (0..minds::FUN_COUNT)
+                .filter(|&i| slots.slot(minds::FUN_SLOTS + i).is_some())
+                .fold(0, |mask, i| mask | (1 << i)),
+            attack_slot: motions::Slots::attack_slot(class),
         }
     }
 }
@@ -1207,6 +1218,15 @@ pub struct Npc {
 
 impl Npc {
     /// The factor of its walk and run speeds and of their clips' rate ([`repace`]).
+    /// The slot of the clip that its fidget `fidget` plays (`0x54EA30`, #1364): a fun clip's own,
+    /// or its attack's first.
+    pub(crate) fn fidget_slot(&self, fidget: minds::Fidget) -> u16 {
+        match fidget {
+            minds::Fidget::Fun(slot) => slot,
+            minds::Fidget::Attack => self.names.attack_slot,
+        }
+    }
+
     pub fn pace(&self) -> f32 {
         self.pace
     }
@@ -5525,6 +5545,7 @@ fn spawn(
         );
         mind.hold(placement.dialogue, placement.trades != 0, placement.kept);
         mind.spell = placement.spell;
+        mind.fun = placement.clips.fun_slots;
         if placement.trades != 0 {
             entity.insert(Trades(placement.trades));
         }
@@ -7663,6 +7684,11 @@ pub struct ScriptClip {
 }
 
 impl ScriptClip {
+    /// The clip of an idle creature's fidget, once, where it stands (`0x54EA30`, #1364).
+    pub(crate) fn fidget(slot: u16) -> Self {
+        Self::new(slot, 1)
+    }
+
     fn new(slot: u16, loops: u32) -> Self {
         Self {
             slot,

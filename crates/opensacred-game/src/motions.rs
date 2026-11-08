@@ -174,6 +174,16 @@ impl Slots {
             .collect()
     }
 
+    /// The attack's first slot for `class` (`0x5467A0`'s action 4, the table `0x956E40`): 79 + 5 ·
+    /// class, 241 for class 13, class 14 taking 12's.
+    pub fn attack_slot(class: u8) -> u16 {
+        match class {
+            13 => 241,
+            14 => 79 + 5 * 12,
+            _ => 79 + 5 * u16::from(class.min(12)),
+        }
+    }
+
     pub fn stance(&self, class: u8) -> Option<&str> {
         let slot = match class {
             0..=12 => 14 + u16::from(class),
