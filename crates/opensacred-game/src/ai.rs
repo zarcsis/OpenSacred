@@ -1492,15 +1492,16 @@ fn behave(
     nearest: Res<Nearest>,
     crowd: Res<Crowd>,
     heights: Res<Heights>,
-    hero: Query<
-        (
+    (hero, keys): (
+        Query<(
             Entity,
             &Transform,
+            &Body,
             Option<&crate::fight::Holding>,
             Option<&crate::attack::Attack>,
-        ),
-        With<Body>,
-    >,
+        )>,
+        crate::controls::Keys,
+    ),
     cameras: Query<&Projection, crate::iso::Eye>,
     doors: Query<(Entity, &Object, &Door), Without<Mind>>,
     npcs: Option<Res<Npcs>>,
@@ -1526,9 +1527,11 @@ fn behave(
         Query<&crate::npcs::Arms>,
     ),
 ) {
-    let Some((the_hero, hero, holding, attack)) = hero.iter().next() else {
+    let Some((the_hero, hero, body, holding, attack)) = hero.iter().next() else {
         return;
     };
+    // The hero shoos the children standing with Shift held, the walk's key (`0x4F2AD7`, #1364).
+    let shoos = body.moving().is_none() && keys.pressed(crate::controls::Action::Walk);
     // The hero attacks while its attack has a target (`0x4EB890`).
     let hero_attacks = attack.is_some_and(|attack| attack.target().is_some());
     let hero = hero.translation;
@@ -2100,7 +2103,7 @@ fn behave(
                     let does = child(
                         &mind,
                         spot(here),
-                        (spot(hero), daemon.0),
+                        (spot(hero), daemon.0, shoos),
                         in_settlement,
                         &mut minds.rng,
                     );
@@ -2125,6 +2128,12 @@ fn behave(
                             let to = point(to, here.y);
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                         }
+                        Child::Shooed(to) => {
+                            mind.activity = activity::WALKS;
+                            let to = point(to, here.y);
+                            walks.push((entity, Walk::run(to, way.level, mind.run)));
+                        }
+                        Child::Stays => {}
                     }
                     continue;
                 }
