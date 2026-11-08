@@ -66,10 +66,11 @@ use crate::{arts, drops, making};
 
 /// The saves' version, raised at each change of a saved structure's layout, which postcard reads
 /// by the fields' order alone, and which a test traces from the types and pins beside it
-/// (`the_saves_layout_is_its_versions`, #2306): a save of another is refused. The version 5 (#1125) keeps the
-/// levels of the scripts' items lying and the creatures' placements as they stand since #2249,
-/// #2290 and #2305, which the version 4 had changed under it (#2306).
-pub const VERSION: u32 = 5;
+/// (`the_saves_layout_is_its_versions`, #2306): a save of another is refused. The version 5
+/// (#1125) keeps the levels of the scripts' items lying and the creatures' placements as they
+/// stand since #2249, #2290 and #2305, which the version 4 had changed under it (#2306); the
+/// version 6 keeps no effect's source (#2308).
+pub const VERSION: u32 = 6;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1094,9 +1095,7 @@ mod tests {
     /// but the last, which tells those still incomplete.
     fn traced(again: &[String]) -> serde_reflection::Result<serde_reflection::Registry> {
         use serde_reflection::{Samples, Tracer, TracerConfig};
-        // An entity's bits read as a valid one (an effect's source, `effects::Timed`).
-        let config = TracerConfig::default().default_u64_value(Entity::PLACEHOLDER.to_bits());
-        let mut tracer = Tracer::new(config);
+        let mut tracer = Tracer::new(TracerConfig::default());
         let samples = Samples::new();
         for round in 0..=ROUNDS {
             tracer.trace_type_once::<Header>(&samples)?;
@@ -1117,7 +1116,7 @@ mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (5, 0xA0CC_8005_81A1_2631),
+            (6, 0xE942_C629_8976_5FB2),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
