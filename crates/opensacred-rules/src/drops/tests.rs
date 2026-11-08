@@ -74,6 +74,9 @@ fn catalogue(types: &[(u32, u8, Record)]) -> Catalogue {
         readable: HashSet::new(),
         runes: Vec::new(),
         models: HashMap::new(),
+        sets: Vec::new(),
+        uniques: HashMap::new(),
+        owned: HashMap::new(),
     }
 }
 
@@ -756,12 +759,84 @@ fn an_item_is_made_by_its_key_between_lo_and_hi() {
     // lo 20, hi 21. The keys 2 to 15 with 16 − key at R(lo, hi), rolled twice.
     assert_eq!(made(2, &[0, 1]), (2, 14, 21));
     assert_eq!(made(15, &[1, 0]), (15, 1, 20));
-    // 0, a unique left out, with the key 14; 1, a set piece left out, as 2.
-    assert_eq!(made(0, &[0, 0]), (0, 14, 20));
-    assert_eq!(made(1, &[0, 1]), (2, 14, 21));
+    // 0 of a type without a template of its own keeps its record; 1 without a set to take, after
+    // its roll of the class's sets, as 2.
+    assert_eq!(made(0, &[]), (0, 0, 0));
+    assert_eq!(made(1, &[0, 0, 1]), (2, 14, 21));
     // 16 at lo, 17 at R(10, 20).
     assert_eq!(made(16, &[]), (16, 0, 20));
     assert_eq!(made(17, &[0, 3]), (17, 0, 13));
+}
+
+#[test]
+fn a_unique_and_a_set_piece_drop_raised_to_the_drops_level() {
+    // The dagger and a unique of its family (the word 38 1), and a set of two pieces of the
+    // Seraphim's class, all of templates of the scale 50.
+    let template = |items: &[u32]| {
+        let mut words = vec![0_u32; 53];
+        words[..items.len()].copy_from_slice(items);
+        words[5] = u32::try_from(items.len()).unwrap();
+        words[6] = 50;
+        words[38] = 1;
+        WeaponModifier {
+            words,
+            entries: Vec::new(),
+        }
+    };
+    let templates = Templates::new(&[template(&[DAGGER, 7000, 7100, 7101])], &[]);
+    let unique = Record {
+        flags: UNIQUE | ANY,
+        ..record(ANY, [1, 10], [1, 0, 0])
+    };
+    let piece = Record {
+        set: true,
+        ..record(1, [1, 5], [1, 0, 0])
+    };
+    let mut catalogue = catalogue(&[
+        (DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])),
+        (7000, 5, unique),
+        (7100, 5, piece),
+        (7101, 5, piece),
+    ]);
+    let mut owned = crate::fight::ItemValues::default();
+    owned.damage[0] = [10.0, 20.0];
+    catalogue.uniques.insert(1, vec![7000]);
+    catalogue.owned = [(7000, owned), (7100, owned), (7101, owned)].into();
+    catalogue.sets = vec![vec![7100, 7101]];
+    let (rules, death) = (Rules::default(), death(dead(3, 40, Rank::Common), 20));
+    let dropping = Dropping {
+        death: &death,
+        rules: &rules,
+        catalogue: &catalogue,
+        templates: &templates,
+        last: &mut LastJewel::default(),
+    };
+    let made = |key, rolls: &[u32]| {
+        let mut dice = script(rolls);
+        let drop = dropping.make(Kind::Weapon, DAGGER, key, &mut dice);
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        drop
+    };
+    // lo 40: a roll below 30 takes the unique, of level 10 raised by two steps of 15 to 40,
+    // its damage rescaled to the template's budget there, 62.5 over its own 15.
+    let drop = made(0, &[29]);
+    assert_eq!(
+        (drop.item, drop.values.map(|v| v.damage[0])),
+        (7000, Some([42.0, 83.0]))
+    );
+    // A roll of 30 leaves it to the maker with the key 14.
+    let mut rolls = vec![0; 40];
+    rolls[0] = 30;
+    let fallback = dropping.make(Kind::Weapon, DAGGER, 0, &mut script(&rolls));
+    assert_eq!((fallback.item, fallback.quality), (DAGGER, 14));
+    // The class's sets by a roll below 60, its one set without a roll, its second piece by a
+    // roll of 1 of 2, its own level 5 under the hero's 20: taken and raised.
+    let drop = made(1, &[59, 1]);
+    assert_eq!((drop.item, drop.key), (7101, 1));
+    assert!(drop.values.is_some_and(|v| v.damage[0][1] > 20.0));
+    assert_eq!(raise_level(10, 38), 40);
+    assert_eq!(raise_level(40, 70), 80);
+    assert_eq!(raise_level(40, 30), 40);
 }
 
 #[test]

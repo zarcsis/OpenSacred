@@ -1812,6 +1812,9 @@ pub struct Templates {
     /// The effects' records of the balance's image (`crate::drops::norms`), which hold a magic
     /// bonus's value; none without the balance.
     norms: Vec<[f32; 6]>,
+    /// The level's factor's ends (`SpawnWeaponMin`, `SpawnWeaponMax`), which an item's own level
+    /// takes ([`own_level`]).
+    spawn: [f32; 2],
 }
 
 /// The constant 0.01 of the item maker and of the skills (`0x890CB0`), a single-precision float a
@@ -1896,6 +1899,7 @@ impl Templates {
             parents,
             families,
             norms: Vec::new(),
+            spawn: [25.0, 275.0],
         }
     }
 
@@ -1904,7 +1908,106 @@ impl Templates {
     #[must_use]
     pub fn with_balance(mut self, balance: Option<&Balance>) -> Self {
         self.norms = balance.map_or_else(Vec::new, |b| crate::drops::norms(&b.image));
+        if let Some(b) = balance {
+            self.spawn = [
+                b.f32("SpawnWeaponMin").unwrap_or(self.spawn[0]),
+                b.f32("SpawnWeaponMax").unwrap_or(self.spawn[1]),
+            ];
+        }
         self
+    }
+
+    /// The values of a unique's or a set piece's record `values` of the type `item` and its own
+    /// level `own` raised to `level` on `difficulty` (`0x5C2210`, docs/re/items.md, "A pass:
+    /// making the item"; #2268), with its new own level; none where the type itself has no
+    /// template (no parent taken), which leaves the record as it stands.
+    /// The level is held at its own at least; its damage, resistances, `A` and `D` are each
+    /// rescaled by `r = (S·f·0.01)/V₀`, the template's budget at the level (its scale `S`,
+    /// `f = 25 + 2.5·level`) over the record's own sum `V₀` (half the damage's ends and the
+    /// resistances; 1 where it is 0), `⌊v·r + 0.5⌋`; what the new sum falls short of the budget by
+    /// goes, rounded, to the first kind's most that has any, else to the first resistance; its
+    /// own level is then worked out anew ([`own_level`]). A bonus of no effect, of an attribute's
+    /// scaling or of a record's third float below `10⁻⁵` takes `⌊v·d + 0.5⌋` by the difficulty's
+    /// `d` (1.0, 1.33, 1.66, 2.0, 2.33); another, by its record's third and fifth floats `f₃`
+    /// and `f₅`, `min((ℓ₁ + 9)·f₃, (ℓ₁ + 9)·k·f₅)·d` of its steps `k = ⌊v/((ℓ₀ + 9)·f₅) + 0.5⌋`,
+    /// at least 1, truncated, where that is more.
+    pub fn raise(
+        &self,
+        item: u32,
+        values: &ItemValues,
+        (own, level, difficulty): (u32, u32, Difficulty),
+    ) -> Option<(ItemValues, u32)> {
+        let words = self.by_type.get(&item)?;
+        let mut values = *values;
+        let level = level.max(own);
+        let scale = f64::from(words[6]);
+        let sum = |values: &ItemValues| {
+            let ends: f64 = values
+                .damage
+                .iter()
+                .map(|[least, most]| f64::from(*least) + f64::from(*most))
+                .sum();
+            let resistances: f64 = values.resistance.iter().copied().map(f64::from).sum();
+            (0.5 * ends, resistances)
+        };
+        let (half, resistances) = sum(&values);
+        let before = half + resistances;
+        let f = single(25.0 + 250.0 * f64::from(level) * HUNDREDTH);
+        let budget = scale * f * HUNDREDTH;
+        let r = if before > f64::from(2f32.powi(-23)) {
+            budget / before
+        } else {
+            1.0
+        };
+        let rescaled = |v: f32| to_f32(whole_f64((f64::from(v) * r + 0.5).max(0.0)));
+        for ends in &mut values.damage {
+            *ends = ends.map(rescaled);
+        }
+        values.resistance = values.resistance.map(rescaled);
+        values.attack = rescaled(values.attack);
+        values.defence = rescaled(values.defence);
+        let target = single(budget);
+        let (half, resistances) = sum(&values);
+        if half + resistances + 0.5 < target {
+            let rest = to_f32(whole_f64(target - (half + resistances) + 0.5));
+            if half != 0.0 {
+                if let Some(ends) = values.damage.iter_mut().find(|ends| ends[1] != 0.0) {
+                    ends[1] += rest;
+                }
+            } else if let Some(resistance) = values.resistance.iter_mut().find(|r| **r != 0.0) {
+                *resistance += rest;
+            }
+        }
+        values.scale = words[6];
+        let raised = own_level(&values, self.spawn).max(1);
+        let d = f64::from(match difficulty {
+            Difficulty::Bronze => 1.0_f32,
+            Difficulty::Silver => 1.33,
+            Difficulty::Gold => 1.66,
+            Difficulty::Platinum => 2.0,
+            Difficulty::Niobium => 2.33,
+        });
+        let inverse = single(1.0 / d);
+        for bonus in &mut values.bonuses {
+            let v = f64::from(bonus.value);
+            let record = crate::drops::norm(&self.norms, bonus.effect & 0xFFFF);
+            let (f3, f5) = record.map_or((0.0, 0.0), |record| (record[2], record[4]));
+            if bonus.effect & 0xFFFF == 0 || bonus.effect & 0xFF_0000 != 0 || f3 < 1e-5 {
+                bonus.value = short((v * d + 0.5).trunc());
+            } else {
+                let steps = (v / ((f64::from(own) + 9.0) * f64::from(f5)) + 0.5).trunc();
+                let span = f64::from(raised) + 9.0;
+                let by_cap = single(span) * f64::from(f3);
+                let by_steps = single(span * steps) * f64::from(f5);
+                let x = by_cap.min(by_steps) / inverse;
+                let new = whole_f64(x.max(1.0));
+                let old = u32::from(u16::from_le_bytes(bonus.value.to_le_bytes()));
+                if new > old {
+                    bonus.value = short(f64::from(new));
+                }
+            }
+        }
+        Some((values, raised))
     }
 
     /// The words 38 to 40 of the template of an item of type `item`, read as signed
@@ -3395,6 +3498,21 @@ fn shortfall(required: u32, level: u32, skill: u32) -> Option<f64> {
 /// over `SpawnWeaponMax − SpawnWeaponMin`, rounded, held from 1 to 255. Its sockets' items, which
 /// raise it, are not followed.
 pub fn item_level(values: &ItemValues, rules: &Rules) -> u32 {
+    own_level(values, rules.spawn_weapon)
+}
+
+/// A whole `x` as a bonus's short, held within it.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a bonus's value, whole and held within a short"
+)]
+fn short(x: f64) -> i16 {
+    x.clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16
+}
+
+/// An item's own level ([`item_level`]) by the level's factor's ends `spawn` (`SpawnWeaponMin`,
+/// `SpawnWeaponMax`).
+pub fn own_level(values: &ItemValues, spawn: [f32; 2]) -> u32 {
     let least: f64 = values.damage.iter().map(|ends| f64::from(ends[0])).sum();
     let most: f64 = values.damage.iter().map(|ends| f64::from(ends[1])).sum();
     let worth = if values.damage.iter().all(|ends| ends[0] == 0.0) {
@@ -3407,7 +3525,7 @@ pub fn item_level(values: &ItemValues, rules: &Rules) -> u32 {
     if values.scale > 0 {
         total = 100.0 * total / f64::from(values.scale);
     }
-    let [least_worth, most_worth] = rules.spawn_weapon.map(f64::from);
+    let [least_worth, most_worth] = spawn.map(f64::from);
     let x = (total - least_worth).max(1.0) * 100.0 / (most_worth - least_worth);
     whole_f64(x + 0.5).clamp(1, 255)
 }
