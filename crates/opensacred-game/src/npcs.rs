@@ -7190,7 +7190,9 @@ fn script_clips(
             commands.entity(entity).remove::<ScriptClip>();
             continue;
         };
-        let rate = combat.map_or(1.0, |combat| combat.0.speed / 100.0);
+        let rate = clip
+            .rate
+            .unwrap_or_else(|| combat.map_or(1.0, |combat| combat.0.speed / 100.0));
         let active = transitions.play(&mut player, node, CLIP_IN);
         active.replay();
         active
@@ -8187,6 +8189,8 @@ pub struct ScriptClip {
     /// The share of a creature's cast's clip at which its spell acts (`0x521D60`; #1852), which
     /// [`ClipActs`] marks once it passes; none for another clip.
     acts_at: Option<f32>,
+    /// The rate it plays at where not its attack speed's (a trampled creature's fall, 1.0).
+    rate: Option<f32>,
 }
 
 impl ScriptClip {
@@ -8195,12 +8199,22 @@ impl ScriptClip {
         Self::new(slot, 1)
     }
 
+    /// The fall of a creature that a horse tramples, once at the rate 1.0 (`0x5941A0` at
+    /// `0x5975C9`; `trample`, #2302).
+    pub(crate) fn fall(slot: u16) -> Self {
+        Self {
+            rate: Some(1.0),
+            ..Self::new(slot, 1)
+        }
+    }
+
     fn new(slot: u16, loops: u32) -> Self {
         Self {
             slot,
             loops,
             playing: None,
             acts_at: None,
+            rate: None,
         }
     }
 

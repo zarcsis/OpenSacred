@@ -235,6 +235,31 @@ fn single(x: f64) -> f32 {
 /// the two sizes; docs/re/horses.md, "Fighting from horseback").
 pub const SIZE: u32 = 130;
 
+/// How far the trample knocks a creature back (the creature event 3's 50 and its `+0x24D`,
+/// `0x5941A0` at `0x597530`).
+pub const TRAMPLE_KNOCK: f32 = 50.0;
+
+/// The slot that a trampled creature falls by, at the rate 1.0 (`0x5941A0` at `0x5975C9`).
+pub const TRAMPLE_FALL: u16 = 173;
+
+/// Whether the trample takes a creature at the whole distance `distance` from the horse
+/// (`0x5370B0`), of the reach `reach` of the two (`0x4DBC60`): within two thirds of it, whole.
+pub fn tramples(distance: u32, reach: u32) -> bool {
+    distance < reach * 2 / 3
+}
+
+/// Whether a creature stops a trampling horse of the level `level` and the class `class`: a
+/// big one (`0x426CB0`) against a horse below the level 50 and of a class below 8 (`0x5974A1`).
+pub fn stops_trample(big: bool, level: u32, class: u8) -> bool {
+    big && level < 50 && class < 8
+}
+
+/// A trample's strike: the lesser of what is left of its damage in all, `value`, and the most of
+/// a strike, `factor`, truncated (`0x597B0C`).
+pub fn trample_strike(value: f32, factor: f32) -> u32 {
+    whole(f64::from(value.min(factor)))
+}
+
 /// The class of a horse by its byte `+0x400`: 1 where it is 0 (the creature's query `0xD`,
 /// `0x55D260`).
 pub fn class(byte: u8) -> u8 {
@@ -356,6 +381,21 @@ mod tests {
         assert_eq!(health_bonus(&row, 1, 41), 1);
         // The curve rises toward its double less the offset: at the level 101, 5 + 20·0.5 = 15.
         assert_eq!(health_bonus(&row, 101, 101), 15);
+    }
+
+    #[test]
+    fn the_trample_takes_the_near_within_two_thirds_and_the_big_stop_a_light_horse() {
+        // A reach of 130: within 86, not at 86.
+        assert!(tramples(85, 130));
+        assert!(!tramples(86, 130));
+        // A big creature stops a horse below the level 50 of a class below 8 alone.
+        assert!(stops_trample(true, 49, 7));
+        assert!(!stops_trample(true, 50, 7));
+        assert!(!stops_trample(true, 10, 8));
+        assert!(!stops_trample(false, 1, 1));
+        // Its strike the lesser of what is left and the most of one, truncated.
+        assert_eq!(trample_strike(100.0, 12.7), 12);
+        assert_eq!(trample_strike(5.9, 12.7), 5);
     }
 
     #[test]

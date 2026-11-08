@@ -261,7 +261,7 @@ pub(crate) fn first_art(arts: &HeroArts) -> Option<u16> {
 /// holds on it that refuses it (`effects`, `arts::refused_while`), and it wears the cannon that
 /// its art wants (`pack`'s slot 14, `arts::wants_cannon`; `0x51D840`); riding (`riding`, with a
 /// bow or a crossbow in hand or not), an art that may be made on horseback alone
-/// (`HeroArts::on_horseback`; the others go to the horse, whose trample is not made yet, #2302).
+/// (`HeroArts::on_horseback`; the others go to the horse, whose trample they start, `trample`).
 pub fn may_make(
     arts: &HeroArts,
     art: u16,
@@ -314,10 +314,11 @@ pub(crate) fn aim(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    (selected, arts, pack): (
+    (selected, arts, pack, mut tramples): (
         Res<Selected>,
         Option<Res<HeroArts>>,
         Option<Res<crate::pickup::Pack>>,
+        MessageWriter<crate::trample::Start>,
     ),
     (creatures, corpses): (
         Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
@@ -431,6 +432,15 @@ pub(crate) fn aim(
             _ => continue,
         };
         let riding = crate::riding::riding_with(seat, holding);
+        // From the saddle an art that may not be made on horseback reaches the horse, whose
+        // trample it starts where it may (`0x52FEEB`, `trample`).
+        if let Some(bow) = riding
+            && arts.arts.get(art).is_some()
+            && !arts.on_horseback(art, bow)
+        {
+            tramples.write(crate::trample::Start);
+            continue;
+        }
         match may_make(&arts, art, (effects, pack.as_deref(), riding)) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).

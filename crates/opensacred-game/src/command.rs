@@ -1565,16 +1565,27 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                             .as_ref()
                             .is_some_and(|effects| effects.holds_any(&[key]))
                     });
-                    crate::making::may_make(
-                        world.resource::<crate::arts::HeroArts>(),
-                        art,
-                        (
-                            effects.as_ref(),
-                            world.get_resource::<crate::pickup::Pack>(),
-                            riding,
-                        ),
-                    )?;
-                    first.push(make_art(world, art)?);
+                    // From the saddle an art that may not be made on horseback starts the
+                    // horse's trample (`trample`).
+                    let arts = world.resource::<crate::arts::HeroArts>();
+                    let tramples = riding.is_some_and(|bow| {
+                        arts.arts.get(art).is_some() && !arts.on_horseback(art, bow)
+                    });
+                    if tramples {
+                        world.write_message(crate::trample::Start);
+                        first.push(format!("{art} reaches the horse, whose trample it starts"));
+                    } else {
+                        crate::making::may_make(
+                            world.resource::<crate::arts::HeroArts>(),
+                            art,
+                            (
+                                effects.as_ref(),
+                                world.get_resource::<crate::pickup::Pack>(),
+                                riding,
+                            ),
+                        )?;
+                        first.push(make_art(world, art)?);
+                    }
                 }
                 _ => {}
             }

@@ -235,6 +235,7 @@ mod terrain;
 mod tooltip;
 mod torches;
 mod town_stash;
+mod trample;
 mod trap_balls;
 mod trap_landings;
 mod twisters;
@@ -715,9 +716,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         tooltip::TooltipPlugin,
         torches::TorchesPlugin,
         town_stash::TownStashPlugin,
+        trample::TramplePlugin,
         trap_balls::TrapBallsPlugin,
         trap_landings::TrapLandingsPlugin,
         twisters::TwistersPlugin,
+    ))
+    .add_plugins((
         undead::UndeadPlugin,
         vamp_casts::VampCastsPlugin,
         vamp_sights::VampSightsPlugin,
