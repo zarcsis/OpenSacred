@@ -1026,6 +1026,10 @@ fn entry_rings(
     }
 }
 
+/// The horse's pictures that an art slot shows from the saddle: grey, pale and vivid
+/// (`GUI_spell10` (128, 192), (64, 192), (0, 192); `0x6E359D`).
+const HORSE_SPRITES: [u32; 3] = [630, 631, 632];
+
 /// Each art slot's icon (`0x6E3430`): its art ready, the vivid picture whole; else the top
 /// `⌊(1 − s)·64⌋` rows of its grey picture over the rest of its pale one, `s` the share
 /// regenerated, a combo's of its three (`combos::sprites`) by its own share (`0x581A20`);
@@ -1044,9 +1048,14 @@ fn art_icon(
         Option<Res<crate::art_slots::HeldArt>>,
         Option<Res<crate::inventory::Shown>>,
     ),
-    (arts, combos): (
+    (arts, combos, timer, riders): (
         Option<Res<HeroArts>>,
         Option<Res<crate::combos::HeroCombos>>,
+        Option<Res<crate::trample::Timer>>,
+        Query<
+            (Option<&crate::riding::Seat>, Option<&crate::fight::Holding>),
+            With<crate::hero::Body>,
+        >,
     ),
     mut tops: Query<(&ArtTop, &mut ImageNode, &mut Node), Without<ArtBottom>>,
     mut bottoms: Query<
@@ -1059,6 +1068,17 @@ fn art_icon(
         return;
     };
     let editing = inventory.is_some_and(|inventory| inventory.0);
+    // Riding, whether with a bow or a crossbow in hand, and the share of the trample's timer.
+    let horse = riders
+        .iter()
+        .next()
+        .and_then(|(seat, holding)| crate::riding::riding_with(seat, holding))
+        .map(|bow| {
+            (
+                bow,
+                timer.as_deref().map_or(1.0, crate::trample::Timer::share),
+            )
+        });
     let takes = held.and_then(|held| held.0).is_some_and(|art| {
         !crate::combos::is_combo(art) && (crate::art_slots::is_spell(art) || editing)
     });
@@ -1107,7 +1127,7 @@ fn art_icon(
         };
         let grey_rows = slot_icon(
             art,
-            (arts.as_deref(), combos.as_deref()),
+            (arts.as_deref(), combos.as_deref(), horse),
             empty,
             (&mut top, &mut bottom),
             &mut set,
@@ -1120,9 +1140,16 @@ fn art_icon(
 
 /// Sets an art slot's two pieces by its art, of `arts`, or its combo, of `combos`, or by its
 /// empty orb `empty`: the grey rows of the top, by `set` of an image, its index and its rows.
+/// Riding (`horse`, with a bow or a crossbow in hand or not, and the share of the trample's
+/// timer), a combo and an art that may not be made on horseback show the horse's pictures
+/// ([`HORSE_SPRITES`]) by that share (`0x6E3584`, `0x6E369B`).
 fn slot_icon(
     art: Option<u16>,
-    (arts, combos): (Option<&HeroArts>, Option<&crate::combos::HeroCombos>),
+    (arts, combos, horse): (
+        Option<&HeroArts>,
+        Option<&crate::combos::HeroCombos>,
+        Option<(bool, f32)>,
+    ),
     empty: u32,
     (top, bottom): (&mut ImageNode, &mut ImageNode),
     set: &mut impl FnMut(&mut ImageNode, u32, Option<(f32, f32)>),
@@ -1131,7 +1158,13 @@ fn slot_icon(
         let combo = combos.get(art)?;
         Some((crate::combos::sprites(art)?, combo.share()))
     });
-    let icon = combo.or_else(|| {
+    let saddled = horse.zip(art).and_then(|((bow, share), art)| {
+        let horse = crate::combos::is_combo(art)
+            || arts
+                .is_some_and(|arts| arts.arts.get(art).is_some() && !arts.on_horseback(art, bow));
+        horse.then_some((HORSE_SPRITES, share))
+    });
+    let icon = saddled.or(combo).or_else(|| {
         art.zip(arts).and_then(|(art, arts)| {
             let sprites = arts
                 .tables

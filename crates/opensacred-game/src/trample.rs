@@ -58,6 +58,16 @@ impl Timer {
     pub fn ready(&self) -> bool {
         self.left <= 0.0
     }
+
+    /// The share of its regeneration run, `1 − left/whole`, 1 where none runs, by which the art
+    /// slots' horse images fill (`0x6E359D`).
+    pub fn share(&self) -> f32 {
+        if self.whole > 0.0 {
+            (1.0 - self.left / self.whole).clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
+    }
 }
 
 /// An art of the hero's that may not be made on horseback, made from the saddle: the event
@@ -361,5 +371,7 @@ mod tests {
             whole: 20.0,
         };
         assert!(!timer.ready());
+        assert!((timer.share() - 0.25).abs() < 1e-6);
+        assert_eq!(Timer::default().share(), 1.0);
     }
 }

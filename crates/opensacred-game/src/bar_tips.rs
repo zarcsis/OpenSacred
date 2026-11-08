@@ -63,9 +63,6 @@ const EXPERIENCE_LEFT: f32 = 24.0;
 const HORSE_BESIDE: Vec2 = Vec2::new(92.0, 32.0);
 const HORSE_BUTTON_TEXT: u32 = 151_704_389;
 const HORSE_TEXT_AT: Vec2 = Vec2::new(4.0, 26.0);
-/// The riding skill, and the balance's `HorseOverrideTime` where it lacks it.
-const RIDING: u8 = 22;
-const HORSE_OVERRIDE_TIME: f32 = 10.0;
 
 /// A control whose tooltip the pointer rests on: a button of the bar by its index, a belt's slot,
 /// 1 to 5, a creature's health by its entry in the column, the hero's experience, or the column's
@@ -181,12 +178,7 @@ fn tips(
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::game::Data>>,
     ),
-    (owned, npcs, horses, combats): (
-        Option<Res<crate::riding::Owned>>,
-        Option<Res<crate::npcs::Npcs>>,
-        Query<(&crate::riding::Horse, &crate::ai::Mind)>,
-        Query<&crate::fight::Combat, With<Body>>,
-    ),
+    (owned, sheet): (Option<Res<crate::riding::Owned>>, crate::riding::HorseSheet),
     tips: Query<Entity, With<TipRoot>>,
     mut rest: Local<Rest>,
     mut showing: Local<Option<Control>>,
@@ -223,37 +215,13 @@ fn tips(
         return;
     }
     if control == Control::Mount {
-        let horse = owned
+        let Some(lines) = owned
             .as_ref()
             .and_then(|owned| owned.0)
-            .and_then(|horse| horses.get(horse).ok());
-        let (Some((horse, mind)), Some(npcs)) = (horse, npcs.as_deref()) else {
+            .and_then(|horse| sheet.lines(horse, texts))
+        else {
             return;
         };
-        let balance = data
-            .as_deref()
-            .and_then(|data| data.0.tables.balance().ok());
-        let prices = opensacred_rules::horses::Prices::of(balance);
-        let time = balance
-            .as_ref()
-            .and_then(|balance| balance.f32("HorseOverrideTime"))
-            .unwrap_or(HORSE_OVERRIDE_TIME);
-        let row = npcs.horse_row(horse.class);
-        let skill = arts
-            .as_deref()
-            .and_then(|arts| arts.skills.iter().find(|&&(skill, _)| skill == RIDING))
-            .map_or(0, |&(_, level)| level);
-        // The resistances as the fight takes them, their own values times their factors.
-        let resistances = combats
-            .iter()
-            .next()
-            .map_or([0.0; 4], |combat| combat.0.resistance);
-        let described = crate::riding::Described {
-            horse: (horse.class, mind.level),
-            data: (&row, &prices, time),
-            hero: (experience.0.level, skill, resistances),
-        };
-        let lines = crate::riding::description(texts, &described);
         let centre = bar::MOUNT_FRAME.1 - HORSE_BESIDE;
         crate::tooltip::spawn_lines_tip_in(
             &mut commands,
