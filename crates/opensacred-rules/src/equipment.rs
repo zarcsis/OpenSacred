@@ -573,9 +573,76 @@ pub fn glow(slot: u8, held: Option<&Asks>, (hero, level): (u32, u32)) -> Glow {
     }
 }
 
+/// What the armour switch makes of an item for a creature (`0x43CA20`): the item itself, nothing,
+/// or its variant for the creature's type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Switched {
+    Itself,
+    Nothing,
+    Variant(u32),
+}
+
+/// The creature type that the armour switch looks its pairs up by (`0x43CA20`, read 2026-11-08 for
+/// #2286): a few types folded onto another, the others as they are.
+pub fn switch_type(creature: u32) -> u32 {
+    match creature {
+        7 => 6,
+        40 | 77 => 39,
+        85 | 86 | 130 => 38,
+        105 | 108 | 141 => 5,
+        118 | 127..=129 | 142 | 143 => 76,
+        133 | 140 | 146 | 319..=321 | 326 | 327 | 693 => 4,
+        304..=306 => 314,
+        307 | 308 => 313,
+        322 | 689 | 690 => 315,
+        699 => 316,
+        other => other,
+    }
+}
+
+/// What the armour switch makes of an item of the category `category` and the switch's group
+/// `group` (`items.pak +0x74`) for a creature of the type `creature`, by the switch's groups
+/// `groups` (`bin/Rust.bin`, each the pairs of a type and its variant; `0x43CA20`): a ring or an
+/// amulet (8, 20), or an item of no group, itself; else its group's pair of the creature's
+/// [`switch_type`], whose variant it is, none for a type below 32, and nothing where the group
+/// names not the type (`0x7E60`).
+pub fn armour_switch(
+    creature: u32,
+    (category, group): (u8, u16),
+    groups: &[Vec<[u32; 2]>],
+) -> Switched {
+    if matches!(category, 8 | 20) || group == 0 {
+        return Switched::Itself;
+    }
+    let Some(pairs) = groups.get(usize::from(group)) else {
+        return Switched::Nothing;
+    };
+    let creature = switch_type(creature);
+    match pairs.iter().find(|&&[kind, _]| kind == creature) {
+        Some(_) if creature < 32 => Switched::Itself,
+        Some(&[_, variant]) => Switched::Variant(variant),
+        None => Switched::Nothing,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_armour_switch_gives_a_creatures_variant_or_nothing() {
+        let groups = vec![vec![], vec![[314, 4201], [4, 4202], [39, 4203], [5, 4204]]];
+        // The soldiers 304 to 306 take the 314's, the 77 the 39's; the dark elves, folded onto
+        // the 4, a type below 32, keep the item.
+        assert_eq!(armour_switch(305, (6, 1), &groups), Switched::Variant(4201));
+        assert_eq!(armour_switch(77, (6, 1), &groups), Switched::Variant(4203));
+        assert_eq!(armour_switch(320, (6, 1), &groups), Switched::Itself);
+        // A type the group lacks nothing; a ring, an item of no group, a hero itself.
+        assert_eq!(armour_switch(279, (6, 1), &groups), Switched::Nothing);
+        assert_eq!(armour_switch(279, (8, 1), &groups), Switched::Itself);
+        assert_eq!(armour_switch(279, (6, 0), &groups), Switched::Itself);
+        assert_eq!(armour_switch(5, (6, 1), &groups), Switched::Itself);
+    }
 
     #[test]
     fn a_made_items_model_names_its_class() {

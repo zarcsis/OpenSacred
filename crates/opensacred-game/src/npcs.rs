@@ -67,6 +67,7 @@ use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item};
 use opensacred_data::world::SIDE;
+use opensacred_rules::equipment::Switched;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::quests::DeathFunctions;
 use opensacred_rules::{equipment, minds, quests, ways};
@@ -293,6 +294,9 @@ struct Placement {
     items: Vec<u32>,
     equipment: Vec<Held>,
     holding: Vec<InHand>,
+    /// The items it wears, each its type and its category (#2286): a `CreateNPC`'s that go into
+    /// no hand, a fill's third of its `MakeGroup` rule, as the armour switch makes them.
+    worn: Vec<(u32, u8)>,
     /// A fill's boss or champion, or a script's boss (`fight::Rank`).
     rank: fight::Rank,
     /// An NPC's `CreateNPC` level tag ([`LEVEL`]), its last, or the last `SetNPCState`'s that
@@ -929,6 +933,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         items: Vec::new(),
         equipment: Vec::new(),
         holding: Vec::new(),
+        worn: Vec::new(),
         rank: fight::Rank::Common,
         tag: 0,
         clips: ClipNames::of(slots, held_class(&[])),
@@ -1659,6 +1664,8 @@ struct Gear {
     /// Its size (`items.pak +0x14`, 50 for 0, `arrows::size`): a held item's for the hurled
     /// blades' touch (`0x600340`, `0x428CE0`; `making::Blade`).
     size: f32,
+    /// Its group of the armour switch (`items.pak +0x74`, `0x43CA20`), 0 for none.
+    group: u16,
 }
 
 /// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, and its three items' pools and
@@ -1790,6 +1797,50 @@ fn gear_of<'a>(
         })
         .and_then(|item| Some((item, gear.get(&item)?)));
     first.into_iter().chain(second).collect()
+}
+
+/// The third item of the first of the sector's rules that names a creature of `creature`, a worn
+/// piece (`0x47F8E0`, #2286): by its chance from its pool, at random among the pool's items, as
+/// the armour switch makes it for the creature's type by `switches` (`0x43CA20`): the item
+/// itself, its variant, or nothing; the switch looks a derived item up by its root (up to six
+/// parents within 2000 to 2999 and 6500 to 7999).
+fn worn_of<'a>(
+    rules: &[Rule],
+    creature: u32,
+    (pools, gear): (&HashMap<i32, Vec<u32>>, &'a HashMap<u32, Gear>),
+    switches: &[Vec<[u32; 2]>],
+    rng: &mut spawning::Rng,
+) -> Option<(u32, &'a Gear)> {
+    let rule = rules.iter().find(|r| r.types.contains(&creature))?;
+    let (pool, chance) = rule.items[2];
+    let made = rng.below(100) < chance;
+    let list = pools.get(&pool).filter(|list| !list.is_empty())?;
+    let index = usize::try_from(rng.below(u32::try_from(list.len()).ok()?)).ok()?;
+    let item = made.then(|| list[index])?;
+    let derived = |item: u32| (2000..=2999).contains(&item) || (6500..=7999).contains(&item);
+    let mut root = item;
+    for _ in 0..6 {
+        match gear.get(&root) {
+            Some(g) if derived(root) && g.parent != 0 => root = g.parent,
+            _ => break,
+        }
+    }
+    let looked = gear.get(&root)?;
+    let item = match opensacred_rules::equipment::armour_switch(
+        creature,
+        (looked.category, looked.group),
+        switches,
+    ) {
+        Switched::Itself => item,
+        Switched::Variant(variant) => variant,
+        Switched::Nothing => return None,
+    };
+    Some((item, gear.get(&item)?))
+}
+
+/// The group of the armour switch of an item of the record `record` (`items.pak +0x74`).
+fn switch_group(record: &Item) -> u16 {
+    u16::try_from(record.words_58[7] & 0xFFFF).unwrap_or(0)
 }
 
 /// A `FillSector` record's count (`35`) and entries (`19:(type, weight, hostile)`, or a bare `02`
@@ -2943,6 +2994,9 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
 /// shadow.
 struct Makers {
     assets: std::path::PathBuf,
+    /// The armour switch's groups (`bin/Rust.bin`, `armour_switches.ron`; `0x43CA20`), none
+    /// from assets made before them.
+    switches: Vec<Vec<[u32; 2]>>,
     items: HashMap<u32, Item>,
     kinds: HashMap<u32, u8>,
     /// Each `Weapon.pak` type's parent (`+0x24`), 0 for none: a derived type shows its root's
@@ -3012,7 +3066,7 @@ impl Makers {
         } else {
             Vec::new()
         };
-        let arming = self.arming(&items);
+        let arming = self.arming(&items, creature.unwrap_or(0));
         // An NPC sent somewhere at the start walks there from where it was made.
         let target = name_of(ops).and_then(|name| targets.get(&name).copied());
         let cell = position(ops, named).or(target).or_else(|| {
@@ -3256,6 +3310,7 @@ impl Makers {
             items,
             equipment: arming.equipment,
             holding: arming.holding,
+            worn: arming.worn,
             rank: fight::Rank::of_tag(tag),
             tag,
             clips,
@@ -3388,7 +3443,7 @@ impl Makers {
             model_slots.insert(model.clone(), slots);
         }
         let slots = &model_slots[model];
-        let arming = self.arming(items);
+        let arming = self.arming(items, creature);
         let [walking, running] = self.speeds.get(&creature).copied().unwrap_or_default();
         let gait = slots
             .clip(motions::Action::Walk, arming.class)
@@ -3418,6 +3473,7 @@ impl Makers {
         remade.items = items.to_vec();
         remade.equipment = arming.equipment;
         remade.holding = arming.holding;
+        remade.worn = arming.worn;
         remade.creature = (
             creature,
             self.record_flags
@@ -3432,7 +3488,7 @@ impl Makers {
     /// What an NPC holding the items `items` holds (`0x54ACC0`, `0x54B130`; [`hands`]): their
     /// models in its hands, the items in its hands, whose values it fights with, the class of
     /// what it holds, and whether that is a ranged weapon.
-    fn arming(&self, items: &[u32]) -> Arming {
+    fn arming(&self, items: &[u32], creature: u32) -> Arming {
         let equipped: Vec<(u32, &Item)> = items
             .iter()
             .filter_map(|&item| Some((item, self.record(item)?)))
@@ -3465,12 +3521,61 @@ impl Makers {
                 .iter()
                 .map(|&(item, record)| (item, category(record), self.kinds.get(&item).copied())),
         );
+        // The items that go into no hand it wears, as the armour switch makes them for its type
+        // (`0x54B130`, `0x555300` asking `0x43CA20`, #2286); an item switched to nothing is gone.
+        let mut equipment: Vec<Held> = equipment;
+        let mut worn = Vec::new();
+        for ((&(item, record), hand), &(category, _)) in
+            equipped.iter().zip(hands(&categories)).zip(&categories)
+        {
+            if hand.is_some() || matches!(category, WEAPON | SHIELD) {
+                continue;
+            }
+            let item = match opensacred_rules::equipment::armour_switch(
+                creature,
+                (category, switch_group(record)),
+                &self.switches,
+            ) {
+                Switched::Itself => item,
+                Switched::Variant(variant) => variant,
+                Switched::Nothing => continue,
+            };
+            let Some(record) = self.record(item) else {
+                continue;
+            };
+            worn.push((item, category));
+            if let Some(held) = self.worn_model(item, record) {
+                equipment.push(held);
+            }
+        }
         Arming {
             equipment,
             holding,
+            worn,
             class: held_class(&categories),
             ranged: ranged(&categories),
         }
+    }
+
+    /// The model that a creature wears of the item `item` of the record `record` on its
+    /// skeleton, in the first slot of its category; none for a ring, an amulet or the back's,
+    /// which a creature carries on no bone of its skeleton, or without a model.
+    fn worn_model(&self, item: u32, record: &Item) -> Option<Held> {
+        let category = category(record);
+        if ATTACHED.contains(&category) {
+            return None;
+        }
+        Some(Held {
+            item,
+            model: self.models.get(&record.name.to_ascii_uppercase())?.clone(),
+            texture: match record.words_08[0] {
+                0 => None,
+                number => self.textures.get(&number).cloned(),
+            },
+            hand: Hand::Right,
+            mount: Mount::Worn,
+            slot: opensacred_rules::equipment::slot_for(category, |_| false),
+        })
     }
 
     /// The `items.pak` record that an item of the type `item` shows: its own, or for a derived
@@ -3577,6 +3682,7 @@ fn shootable(
 struct Arming {
     equipment: Vec<Held>,
     holding: Vec<InHand>,
+    worn: Vec<(u32, u8)>,
     class: u8,
     ranged: bool,
 }
@@ -3638,8 +3744,17 @@ impl Npcs {
         let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
+        let switches: Vec<Vec<[u32; 2]>> = files::read_to_string(
+            assets
+                .join("tables")
+                .join(opensacred_data::tables::ARMOUR_SWITCHES),
+        )
+        .ok()
+        .and_then(|text| ron::from_str(&text).ok())
+        .unwrap_or_default();
         let makers = Makers {
             assets: assets.clone(),
+            switches,
             items: items
                 .iter()
                 .map(|(&slot, &item)| (slot, item.clone()))
@@ -4174,6 +4289,7 @@ fn gear_table<'a>(
                 counts: item.byte_03 & 2 == 0,
                 sound: items.get(&slot).map_or(0, |own| own.sound()),
                 size: arrows::size(item.words_14[0]),
+                group: switch_group(item),
             };
             Some((slot, gear))
         })
@@ -4868,6 +4984,26 @@ pub fn place(
                     (shots, weapon),
                     &mut rng,
                 );
+                // Its third, a worn piece (#2286).
+                let worn = worn_of(
+                    rules,
+                    made.creature,
+                    (&npcs.pools, &npcs.gear),
+                    &npcs.makers.switches,
+                    &mut rng,
+                );
+                let worn_model = worn.and_then(|(item, worn)| {
+                    placement.worn = vec![(item, worn.category)];
+                    (!ATTACHED.contains(&worn.category)).then_some(())?;
+                    Some(Held {
+                        item,
+                        model: worn.model.clone()?,
+                        texture: worn.texture.clone(),
+                        hand: Hand::Right,
+                        mount: Mount::Worn,
+                        slot: opensacred_rules::equipment::slot_for(worn.category, |_| false),
+                    })
+                });
                 if !gear.is_empty() {
                     let categories: Vec<(u8, Option<u8>)> =
                         gear.iter().map(|(_, g)| (g.category, g.kind)).collect();
@@ -4893,6 +5029,7 @@ pub fn place(
                         placement.clips = ClipNames::of(slots, placement.held);
                     }
                 }
+                placement.equipment.extend(worn_model);
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
                 // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`), and a
@@ -5677,6 +5814,14 @@ fn spawn(
                     let values =
                         templates.make(held.item, grade, (rules.difficulty(), 0), &mut dice);
                     (held, values)
+                })
+                .collect(),
+            worn: placement
+                .worn
+                .iter()
+                .map(|&(item, category)| {
+                    let values = templates.make(item, grade, (rules.difficulty(), 0), &mut dice);
+                    (category, values)
                 })
                 .collect(),
         };
@@ -9923,6 +10068,8 @@ pub struct Arms {
     plain: bool,
     model: String,
     holding: Vec<(InHand, Option<fight::ItemValues>)>,
+    /// The items it wears, each its category and its values, made at its level (#2286).
+    worn: Vec<(u8, Option<fight::ItemValues>)>,
 }
 
 impl Arms {
@@ -9954,6 +10101,15 @@ impl Arms {
         self.holding
             .iter()
             .filter_map(|&(_, values)| values)
+            .collect()
+    }
+
+    /// The values of every item it holds and wears, of those that have some, which the getter of
+    /// the items' effects sums (`0x570ED0`, #2286).
+    pub(crate) fn item_values(&self) -> Vec<fight::ItemValues> {
+        self.held_values()
+            .into_iter()
+            .chain(self.worn.iter().filter_map(|&(_, values)| values))
             .collect()
     }
 
@@ -10031,15 +10187,17 @@ impl Arms {
             shield: holds(Hand::Left, Some(true)),
             ranged: ranged_of(&in_hands),
             gun: holds_kind(&in_hands, &GUNS),
+            // The items in its hands and those it wears (#2286).
             items: self
                 .holding
                 .iter()
-                .filter_map(|&(held, values)| {
-                    values.map(|values| fight::ItemValues {
-                        class: held.category,
-                        ..values
-                    })
-                })
+                .filter_map(|&(held, values)| Some((held.category, values?)))
+                .chain(
+                    self.worn
+                        .iter()
+                        .filter_map(|&(category, values)| Some((category, values?))),
+                )
+                .map(|(class, values)| fight::ItemValues { class, ..values })
                 .collect(),
             skill: skill_of(class, &self.holding),
             // A creature not a player's takes no set's bonus (`0x57AE56`).
@@ -10869,6 +11027,7 @@ mod tests {
         };
         let makers = Makers {
             assets: std::path::PathBuf::new(),
+            switches: Vec::new(),
             parents: HashMap::new(),
             items: HashMap::from([
                 (279, item(279, "soldier.grn", 0)),
@@ -12604,6 +12763,7 @@ mod tests {
             counts: false,
             sound: 0,
             size: 50.0,
+            group: 0,
         };
         // A sword in the hand, a hood, a ring and wings for the back.
         let gear: HashMap<u32, Gear> = [
@@ -12645,6 +12805,7 @@ mod tests {
             counts: false,
             sound: 0,
             size: 50.0,
+            group: 0,
         };
         let gear: HashMap<u32, Gear> = [
             (1242, gear(WEAPON, Some(1), "sword.glb")),
@@ -12727,6 +12888,7 @@ mod tests {
             counts: true,
             sound: 0,
             size: 50.0,
+            group: 0,
         };
         let gear: HashMap<u32, Gear> = [
             (1811, gear(WEAPON, Some(BOW))),

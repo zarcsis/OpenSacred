@@ -1211,11 +1211,16 @@ impl Mind {
     }
 
     /// Whether it goes for a door in its way (`0x4D4800`): not of the classes 2, 5 and 6
-    /// (`Creature.pak +0x04`; by their models the beasts, the undead and the animals). The
-    /// original lets one of class 5 whose `+0x25F` is set go too, a field that the game does not
-    /// keep.
+    /// (`Creature.pak +0x04`; by their models the beasts, the undead and the animals), but one of
+    /// class 5 whose mark (`+0x25F`) is set ([`marked`], the mark its maker gives by its type,
+    /// `0x43C540`): the magic skeletons, the mummies, the zombie 34, the undead goblins' magician
+    /// and the black rider (#1369).
     pub fn seeks_doors(&self) -> bool {
-        !matches!(self.class, 2 | 5 | 6)
+        match self.class {
+            2 | 6 => false,
+            5 => marked(self.creature),
+            _ => true,
+        }
     }
 
     /// Whether it goes for a door in its way (the AI's state 1).
@@ -4577,10 +4582,12 @@ mod tests {
             Blocked::GivesUp
         );
         assert!(!stuck.fighting && !stuck.to_door());
-        // The beasts, the undead and the animals seek no door.
+        // The beasts, the undead of no mark and the animals seek no door.
         for class in [2, 5, 6] {
             let mut beast = goblin();
             beast.class = class;
+            // A skeleton warrior's type, of no mark (#1369).
+            beast.creature = 32;
             let blocked = beast.blocked(hero, |_| false, || panic!("no door asked"), &mut rng);
             assert_eq!(blocked, Blocked::GivesUp);
         }
@@ -4969,6 +4976,20 @@ mod tests {
         assert_eq!(climbs(100.0, (true, false), 0.5), Some(45.0));
         assert_eq!(climbs(55.0, (true, false), 0.5), None);
         assert_eq!(climbs(80.0, (false, true), 0.1), None);
+    }
+
+    #[test]
+    fn the_marked_undead_go_for_doors_and_the_rest_of_their_class_not() {
+        let home = at(0.0, 0.0);
+        let mind = |creature, class| {
+            Mind::new(home, 0, (false, false), None, SPEEDS, (creature, class)).seeks_doors()
+        };
+        // A goblin goes; a skeleton warrior and a ghoul not, a magic skeleton, a mummy and the
+        // black rider do (#1369); the beasts and the animals never.
+        assert!(mind(76, 1));
+        assert!(!mind(32, 5) && !mind(36, 5));
+        assert!(mind(48, 5) && mind(44, 5) && mind(256, 5));
+        assert!(!mind(190, 2) && !mind(516, 6));
     }
 
     #[test]
