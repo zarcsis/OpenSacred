@@ -339,4 +339,21 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(30, &wearing(30, 5), Difficulty::Silver).last(),
         Some(&Told::GoldPile(chance)) if close(chance, 13.4)
     ));
+    // Two pieces of set 19 add 3·D to the effect 842: 3 on bronze, 7.02 on niobium; one none.
+    assert!(close(
+        stats(&wearing(19, 2), Difficulty::Bronze).painkiller(10.0),
+        13.0
+    ));
+    assert!(close(
+        stats(&wearing(19, 2), Difficulty::Niobium).painkiller(0.0),
+        7.02
+    ));
+    assert!(close(
+        stats(&wearing(19, 1), Difficulty::Niobium).painkiller(0.0),
+        0.0
+    ));
+    assert!(matches!(
+        told(19, &wearing(19, 2), Difficulty::Silver).last(),
+        Some(&Told::Painkiller(value)) if close(value, 4.02)
+    ));
 }

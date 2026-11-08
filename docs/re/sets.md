@@ -64,7 +64,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 2 | 3 | a3 (+0x16) | +⌊10·D⌋ (10/13/16/20/23) | 〃 |  |
 | 2 | 4 | skill 9's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9408}: +3 ; {T9408}: +7<br>{T9410}: +3 ; {T9410}: +7 |  |
 | 2 | 4 | skill 11's bonus | +⌊3·D⌋ (3/4/5/6/7) | 〃 |  |
-| 2 | 5 | skill 10's bonus | +⌊2·D⌋ (2/2/3/4/4) | 10% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 23% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | The text announces a life leech; the code raises skill 10 instead, and no reader of set 2 exists: no leech. |
+| 2 | 5 | skill 10's bonus | +⌊2·D⌋ (2/2/3/4/4) | 10% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 23% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | The text announces a life leech; the code raises skill 10 instead, and the leech's reader never heals (the dead block, §4). |
 | 3 | 3 | arts 1014–1016: bonus byte | +⌊2·D⌋ (2/2/3/4/4) | {T8221}: +2 ; {T8221}: +4<br>{T8220}: +2 ; {T8220}: +4<br>{T8222}: +2 ; {T8222}: +4 |  |
 | 3 | 4 | flags +0x148 bit(s) | or 0x80000000 | {K:UI_KNOW_ENEMY} ; {K:UI_KNOW_ENEMY} |  |
 | 3 | 6 | — (text only in 0x571710) | — | {T1143} 10% ; {T1143} 23% | Text only; no reader of set 3 at 6 pieces (T1143 is the effect 856's line, cf. set 30). |
@@ -88,12 +88,12 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 8 | 3 | a0 (+0x10) | +⌊10·D⌋ (10/13/16/20/23) | {T1090}: +10 ; {T1090}: +23<br>{T1091}: + 8 ; {T1091}: + 18 |  |
 | 8 | 3 | a1 (+0x12) | +⌊8·D⌋ (8/10/13/16/18) | 〃 |  |
 | 8 | 5 | skill 4's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9403}: +3 ; {T9403}: +7 |  |
-| 8 | 8 | — (text only in 0x571710) | — | 3% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 7% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no reader of set 8 (no leech). |
+| 8 | 8 | — (text only in 0x571710) | — | 3% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 7% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 9 | 4 | skill 2's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9401}: +3 ; {T9401}: +7<br>{T9409}: +3 ; {T9409}: +7<br>{T9408}: +3 ; {T9408}: +7 |  |
 | 9 | 4 | skill 9's bonus | +⌊3·D⌋ (3/4/5/6/7) | 〃 |  |
 | 9 | 4 | skill 10's bonus | +⌊3·D⌋ (3/4/5/6/7) | 〃 |  |
 | 9 | 7 | — (text only in 0x571710) | — | 20% {T1124} ; 46% {T1124} | Text only here; luck ×(1 + 0.2·D) from 7 (M2). |
-| 9 | 8 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no leech reader. |
+| 9 | 8 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 10 | 3 | skill 7's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T1092}: +10 ; {T1092}: +23<br>{T9406}: +3 ; {T9406}: +7 |  |
 | 10 | 3 | a2 (+0x14) | +⌊10·D⌋ (10/13/16/20/23) | 〃 |  |
 | 10 | 5 | arts 1004–1008: bonus byte | +⌊2·D⌋ (2/2/3/4/4) | {T8199}: +2 ; {T8199}: +4<br>{T8201}: +2 ; {T8201}: +4<br>{T8202}: +2 ; {T8202}: +4<br>{T8203}: +2 ; {T8203}: +4<br>{T8204}: +2 ; {T8204}: +4 |  |
@@ -118,7 +118,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 15 | 3 | a2 (+0x14) | +⌊10·D⌋ (10/13/16/20/23) | 〃 |  |
 | 15 | 5 | skill 8's bonus | +⌊2·D⌋ (2/2/3/4/4) | {T9426}: +2 ; {T9426}: +4<br>{T9407}: +2 ; {T9407}: +4 |  |
 | 15 | 5 | skill 27's bonus | +⌊2·D⌋ (2/2/3/4/4) | 〃 |  |
-| 15 | 6 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no leech reader. |
+| 15 | 6 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 16 | 3 | skill 12's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9413}: +3 ; {T9413}: +7<br>{T9411}: +3 ; {T9411}: +7 |  |
 | 16 | 3 | skill 14's bonus | +⌊3·D⌋ (3/4/5/6/7) | 〃 |  |
 | 16 | 5 | phys. resistance factor (+0xD6) | +0.15·D (0.15/0.201/0.2505/0.3/0.351) | {K:INVENTAR_RES_PHYSICAL}: +15% ; {K:INVENTAR_RES_PHYSICAL}: +35% |  |
@@ -126,13 +126,13 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 17 | 2 | skill 2's bonus | +⌊4·D⌋ (4/5/6/8/9) | {T9403}: +4 ; {T9403}: +9<br>{T9401}: +4 ; {T9401}: +9 |  |
 | 17 | 2 | skill 4's bonus | +⌊4·D⌋ (4/5/6/8/9) | 〃 |  |
 | 17 | 4 | attack speed (+0x3C) | +⌊30·D⌋ (30/40/50/60/70) | +30% {T1100} ; +70% {T1100} |  |
-| 17 | 5 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no leech reader. |
+| 17 | 5 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 18 | 3 | a0 (+0x10) | +⌊10·D⌋ (10/13/16/20/23) | {T1090}: +10 ; {T1090}: +23 |  |
 | 18 | 5 | skill 2's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9401}: +3 ; {T9401}: +7<br>{T9404}: +3 ; {T9404}: +7 |  |
 | 18 | 5 | skill 3's bonus | +⌊3·D⌋ (3/4/5/6/7) | 〃 |  |
 | 18 | 7 | skill 11's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9410}: +3 ; {T9410}: +7<br>+30% {K:UI_RARE_EXORZIST} ; +70% {K:UI_RARE_EXORZIST} | The exorcism line is read at the death with count > 7 (M5), unreachable: set 18 has 7 pieces. |
-| 19 | 2 | — (text only in 0x571710) | — | 3% {T1127} ; 7% {T1127} | Text only; no reader of set 19 at 2. |
-| 19 | 4 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no leech reader. |
+| 19 | 2 | — (text only in 0x571710) | — | 3% {T1127} ; 7% {T1127} | Text only here; effect 842 + 3·D (M21). |
+| 19 | 4 | — (text only in 0x571710) | — | 6% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 14% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 19 | 5 | every art the creature holds: bonus byte | +⌊2·D⌋ (2/2/3/4/4) | {T1137}: +2 ; {T1137}: +4<br>{T1071}: +10% ; {T1071}: +23% | Every art the creature holds. The experience line is applied by M6: ×(1 + 0.1·D). |
 | 20 | 3 | skill 9's bonus | +⌊3·D⌋ (3/4/5/6/7) | {T9408}: +3 ; {T9408}: +7<br>{T9410}: +3 ; {T9410}: +7 |  |
 | 20 | 3 | skill 11's bonus | +⌊3·D⌋ (3/4/5/6/7) | 〃 |  |
@@ -266,7 +266,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 52 | 6 | flags +0x148 bit(s) | or 0x800 | 33% {K:NOROOT} ; 33% {K:NOROOT} | Bit 0x800 (reader not found). |
 | 53 | 2 | skill 33's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9432}: +5 ; {T9432}: +11 |  |
 | 53 | 3 | arts 55: bonus byte | +⌊3·D⌋ (3/4/5/6/7) | {T853}: +3 ; {T853}: +7 |  |
-| 53 | 5 | — (text only in 0x571710) | — | 3% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 7% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no leech reader. |
+| 53 | 5 | — (text only in 0x571710) | — | 3% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 7% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 53 | 6 | — (text only in 0x571710) | — | 20% {T1124} ; 46% {T1124} | Text at 6; the luck reader needs 7 (M2). |
 | 53 | 7 | — (text only in 0x571710) | — | {K:UI_SET_VERSILBERN} ; {K:UI_SET_VERSILBERN} | Text only here; the query 0x51 answers 1 (M19). |
 | 54 | 2 | skill 11's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9410}: +5 ; {T9410}: +11 |  |
@@ -289,7 +289,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 57 | 3 | D multiplier (+0xEA) | +0.15·D (0.15/0.201/0.2505/0.3/0.351) | {T1075}: +15.0% ; {T1075}: +35.1% |  |
 | 57 | 4 | a1 (+0x12) | +⌊10·D⌋ (10/13/16/20/23) | {T1091}: +10 ; {T1091}: +23 |  |
 | 57 | 6 | — (text only in 0x571710) | — | {T1130}: +100 ; {T1130}: +233 | Text only here; the map's radius +100·D (M13). |
-| 57 | 8 | — (text only in 0x571710) | — | 10% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 23% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; no leech reader. |
+| 57 | 8 | — (text only in 0x571710) | — | 10% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 23% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
 | 58 | 2 | skill 32's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9431}: +5 ; {T9431}: +11 |  |
 | 58 | 3 | skill 25's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9424}: +5 ; {T9424}: +11 |  |
 | 58 | 4 | a2 (+0x14) | +⌊10·D⌋ (10/13/16/20/23) | {T1092}: +10 ; {T1092}: +23 |  |
@@ -350,7 +350,12 @@ Creature kinds: `0x426A80`, `0x426B70`, `0x426B20` test the creature type's `Cre
 | M17 | 41 ≥ 5; 44 ≥ 3; 59 ≥ 3; 65 ≥ 3 | `0x561860` (`0x5618AC`…), while the target's stats' `+0x148` bit `0x100000` | the target's own effect 858 (`0x35A`, magic defence) + 15·D, + 10·D, + 15·D, + 10·D (each that holds, in turn); then `rand() % 100` below `100·v/(v + X)`, `X` the caster creature's level times `1 + 0.01·c` of its magic lore (docs/re/fight.md, "The rare effects") | as written |
 | M18 | 64 ≥ 3, else 49 ≥ 4 or 50 ≥ 5, else any | the strike (`0x56D4D6`), while the attacker's `+0x4F0` bit `0x200000` | the stun's value (the effect 862's sum) + 0.9·D, else + 0.15·D, else + 0.05·D (only one); then `rand() % 100` below its chance by `0x5F23A0(0x35E)` (docs/re/fight.md, "The rare effects"); the bit comes at 50 ≥ 6, so set 50 at 5 counts only with another set's bit | as written |
 | M19 | 53 ≥ 7 | the query `0x51` of `0x55D260` (`0x55DE75`) | answers 1 for a player hero (docs/re/inventory.md; the line `UI_SET_VERSILBERN`) | — |
+| M21 | 19 ≥ 2 | the strike (`0x570721`–`0x57076A`), attacker local | the attacker's effect 842 (`0x34A`, text 1127) + 3·D (the float 3.0 at `0x890768`), before its raise (docs/re/fight.md, "The rare effects") | 3·D |
 | M20 | 54 ≥ 7 | the death (`0x532D9F`) | the killer's effect 863 (`0x35F`, the exorcism, `UI_RARE_EXORZIST`) + 0.3·D, after + 0.15·D for the flag `0x2000000` (set 61); then `rand() % 100` against it (`0x590570`) | 0.3·D |
+
+The sets' life leech (`0x56FF0F`–`0x570663`, read 2026-11-07 for #2258) is a dead block: it runs for an attacker that is the local player, a strike not of the poison's kind `0x11`, and any of set 2 ≥ 5, 8 ≥ 8, 9 ≥ 8, 15 ≥ 6, 17 ≥ 6, 19 ≥ 4, 21 ≥ 5, 60 ≥ 4, 53 ≥ 5 or 57 ≥ 8, summing their per cents (10, 33, 6, 14, 20, 12, 10, 5, 3 and 10), times `D`, truncated, times the items' leech's difficulty's factor (80, 70, 60 or 50 times 0.01 above bronze), of `min(H, d)` over 100, times the same distance's factor as the items' 841, the health raised at most to its most, with a beam and a sound as the items' (docs/re/fight.md, "The rare effects").
+But its entry passes only where the struck one's health is not above 0 (`0x56FF2E`), after the strike has taken it down (`0x56F8B9`–`0x56F9AA`: to 0 where the damage reaches it), so `H` is 0, the leech truncates to 0 and the block skips its heal (`0x57048F`): no set's leech ever heals (**confirmed** by code; the test reads as inverted).
+The game follows the original and applies none; the lines stay dropped (§6).
 
 ## 5. The flags of `+0x148` and `+0x1FC` the sets set, and their readers
 
@@ -395,7 +400,7 @@ The flags `+0x148` are cleared at the start of each recomputation for the local 
 - Thresholds: set 4 (skill 2 shown at 2, applied at 3), 6 (a3 shown at 3, applied at 4), 7 (effect 859 shown at 8, applied at 7), 50 (shown at 5, applied at 4), 53 (luck shown at 6, applied at 7), 54 (shown at 4, applied at 5), 18 and 21 (applied only at a count above their pieces: never).
 - Values: the stun's sets (42: `+5` shown, `0.05·D` applied; 49 and 50: `+15%`, `0.15·D`; 64: `+9`, `0.9·D`), set 1 (fire vs kind 5: 50 % shown, 60 % applied), 3 (luck 25 % shown, 20 % applied), 12 and 13 (skills ⌊3·D⌋ shown, ⌊2·D⌋ applied), 51 (attack speed +⌊15·D⌋ shown, the pace × 1.15·D applied), 60 (open wounds 9 % shown, 10 % applied), 40 (health 4 %·D shown, ×1.04 applied), 39/41/44/45/47/49 (a 6 %·D damage of a kind shown, all damage × D applied).
 - Kinds: set 54 (fire shown, poison applied); set 2 (a life leech shown, skill 10 raised).
-- Shown and applied nowhere: every life leech line (sets 2, 8, 9, 15, 17, 19, 21, 53, 57, 60), set 3's T1143 at 6, 12's T1138, 14's and 43's all arts, 19's T1127, 30's luck, 32's T1138, 45's T1138, 59's T1138.
+- Shown and applied nowhere: every life leech line (sets 2, 8, 9, 15, 17, 19, 21, 53, 57, 60; their reader's dead block, §4), set 3's T1143 at 6, 12's T1138, 14's and 43's all arts, 30's luck, 32's T1138, 45's T1138, 59's T1138.
 - Applied and shown nowhere: set 6's arts at 9, set 22's potion drop (M7), whose bonus has no text in the game.
 
 ## 7. Not read
@@ -431,6 +436,7 @@ And M13: the hero's sight on the maps' lens grows by `50·D` of set 29 at 3 and 
 And M11: the struck hero's defence against a shot times `1 + 0.5·D` from four pieces of set 28 (`Reader::RangedDefence`, `Stats::ranged_defence`, `fight::resolve`), its line `vs.` the ranged fighters' `Defense`.
 Since #1779 M3 and M10 with the effects they add to (docs/re/fight.md, "The rare effects"): the hero's critical hit's value grows by its sets' terms in turn (`Reader::Critical`, `Stats::critical`) and the wounds' per cent by sets 26's and 62's (`Reader::Wounds`, `Stats::wounds`), their lines the value of `Chance to Land a Critical Hit` (1132) to a tenth and the per cent's points of `Wounds Increase Damage Dealt` (1135), a tenth or a fifth of a point times `D`, as the code adds them.
 And M9: the query `0x54A6D0`, which the creatures' look and fights ask of a target (`0x4DB8A0`, `0x4DBFC0`, `0x4E0300`) and the cells' test `0x4F7E10`, answers 1 for the Dark Elf of seven pieces of set 26 whose action is 0, 1 or 2 and whose AI's state is not 4, 6, 8 or 11, as it does for a creature in the water form out of a fight (its `+0x60` 1 to 3); such a target is passed over (read 2026-11-02 at `0x4DB8F8`). The game follows it as the water form's (`ai::shadowed`, `Reader::Unseen`, `Stats::unseen`): the creatures neither wake to nor pursue the Dark Elf so arrayed while it attacks nothing, its line the original's own (783). Not followed: the effect 63 that the update `0x5396DB` gives it, and the cells' test.
+And M21 since #2258: the hero's effect 842 grows by `3·D` from two pieces of set 19 (`Reader::Painkiller`, `Stats::painkiller`, `fight::resolve`), its line the per cent of 1127 to a tenth, as an item's is worded.
 And M20: the killer's exorcism grows by `0.15·D` for set 61's flag `0x2000000` and then by `0.3·D` for set 54 at 7 (`Reader::Exorcist`, `Stats::exorcist`, `undead::exorcised`; docs/re/fight.md, "The undead that rise again"), each its line under `UI_RARE_EXORZIST` of the value it adds, to a tenth, where the original's lines tell 15 % and 35 % or 30·D %.
 And M15 (#1727, read 2026-11-02 by code): a strike that its creature lives through, a miss among them, rolls the struck one's own items' 857 for the hero's strike, then each block of the attacker's sets reached, a roll each, and the first that holds, where it does not bleed already, gives it the effect 23 of the strike's damage over 10 from the attacker, for 10 s by the items and `10·D` s by the sets (`fight::open_wound`, `wound_value`, `Reader::OpenWounds`, `Stats::open_wounds`, `effects::Effects::wound`); the list tells each block's chance under the items' text of 857 (1151), `(⌊c·D⌋ + 1)/101` to a tenth of a per cent, where the original's line tells `10·D` or `6·D` per cent.
   Not followed: the blood fountains; the items in a creature's worn slots but its hands, which the game's creatures do not carry.

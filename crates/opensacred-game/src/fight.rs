@@ -595,11 +595,14 @@ pub(crate) fn resolve(
         }
         // The attacker's effect 842 raises the strike by what it pays of its own health, keeping
         // 1 (`0x5706F8`–`0x5707F1`, #1366); its red flash (856) is not drawn.
-        let cost = opensacred_rules::fight::painkiller(
-            damage,
-            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None),
-            &rules,
-        );
+        // The hero's sets add their part to its items' value (M21, `0x570721`).
+        let pain =
+            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None);
+        let pain = match holding.filter(|_| hero) {
+            Some(holding) => holding.0.sets.painkiller(pain),
+            None => pain,
+        };
+        let cost = opensacred_rules::fight::painkiller(damage, pain, &rules);
         let damage = damage + cost;
         // Its life leech takes back a share of what the struck one's health held of the damage,
         // by their distance, but from a poison's strike (`0x5708D3`–`0x570A80`); its beam (the

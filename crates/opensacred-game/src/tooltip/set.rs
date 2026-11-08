@@ -112,6 +112,8 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         // The per cent chances of the effects 866 and 856, as an item's are worded.
         Told::GoldForHealth(chance) => white(format!("{}: {}%", n(1134), tenths(chance))),
         Told::GoldPile(chance) => white(format!("{}: {}%", n(1143), tenths(chance))),
+        // The effect 842's per cent more, as an item's is worded.
+        Told::Painkiller(value) => white(format!("{}: {}%", n(1127), tenths(value))),
         // The exorcism's value more, as an item's effect 863 adds to it, to a tenth; the text
         // holds a space at its end.
         Told::Exorcist(value) => white(format!(
@@ -357,6 +359,7 @@ mod tests {
         assert_eq!(told(Told::Survival(16.7)), ["<1159>: +16.7%"]);
         assert_eq!(told(Told::GoldForHealth(50.1)), ["<1134>: +50.1%"]);
         assert_eq!(told(Told::GoldPile(20.0)), ["<1143>: +20%"]);
+        assert_eq!(told(Told::Painkiller(4.02)), ["<1127>: +4%"]);
         assert_eq!(told(Told::OpenWounds(11.0 / 101.0)), ["<1151>: +10.9%"]);
         assert_eq!(told(Told::Exorcist(0.501)), ["<UI_RARE_EXORZIST>: +0.5"]);
         assert_eq!(told(Told::Stun(0.0835)), ["<UI_RARE_SCHOCK>: +0.08"]);

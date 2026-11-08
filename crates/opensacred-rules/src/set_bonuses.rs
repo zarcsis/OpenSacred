@@ -533,6 +533,9 @@ pub enum Reader {
     GoldForHealth(f32),
     /// The effect 856's value of a hit grows by `c·D` (M14, `0x56F68F`; `fight::gold_pile`).
     GoldPile(f32),
+    /// The hero's effect 842's value grows by `c·D` while it is the local player (M21,
+    /// `0x570721`–`0x57076A`; `fight::painkiller`).
+    Painkiller(f32),
     /// The Dark Elf goes unseen by the creatures while it stands, walks or runs out of a fight
     /// (M9, the query `0x54A6D0`; the update `0x5396DB` gives it the effect 63, not followed).
     Unseen,
@@ -600,6 +603,7 @@ pub const READERS: &[Read] = &[
     read(62, 4, Reader::Wounds(0.2)),
     read(16, 6, Reader::GoldForHealth(30.0)),
     read(30, 5, Reader::GoldPile(10.0)),
+    read(19, 2, Reader::Painkiller(3.0)),
     read(26, 7, Reader::Unseen),
     read(41, 4, Reader::Terror(20.0)),
     read(23, 6, Reader::FierySteps),
@@ -844,6 +848,17 @@ impl Stats {
             })
     }
 
+    /// The effect 842's value `value` of the wearer's items, grown by its sets
+    /// ([`Reader::Painkiller`]).
+    pub fn painkiller(&self, value: f32) -> f32 {
+        self.worn
+            .reads()
+            .fold(value, |value, read| match read.reads {
+                Reader::Painkiller(c) => value + c * self.factor,
+                _ => value,
+            })
+    }
+
     /// Whether the wearer's kills drop potions ([`Reader::Potions`]).
     pub fn potions(&self) -> bool {
         self.worn.reads().any(|read| read.reads == Reader::Potions)
@@ -1013,6 +1028,9 @@ pub enum Told {
     /// The effect 856's value more, `c·D` ([`Reader::GoldPile`]): the per cent chance that a hit
     /// makes its defender drop a gold pile.
     GoldPile(f32),
+    /// The effect 842's value more, `c·D` ([`Reader::Painkiller`]): the per cent of a strike's
+    /// damage that the hero pays of its own health to add to it.
+    Painkiller(f32),
     /// The chance, a share of 1, that a strike wounds the struck one ([`Reader::OpenWounds`]):
     /// `(⌊c·D⌋ + 1)/101`.
     OpenWounds(f32),
@@ -1074,6 +1092,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                     Told::GoldForHealth((c * d).min(crate::fight::gold_for_health_cap(difficulty)))
                 }
                 Reader::GoldPile(c) => Told::GoldPile(c * d),
+                Reader::Painkiller(c) => Told::Painkiller(c * d),
                 Reader::Exorcist(c) => Told::Exorcist(c * d),
                 Reader::Unseen => Told::Unseen,
                 Reader::Terror(c) => {
