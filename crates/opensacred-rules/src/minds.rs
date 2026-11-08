@@ -504,6 +504,11 @@ pub struct Fearsome {
     pub terror: u32,
 }
 
+/// How far a woman's partner stands for her slap at their meeting: farther than 100 and nearer
+/// than 140 (`0x4FC490`).
+const SLAPS_FROM: f32 = 100.0;
+const SLAPS_TO: f32 = 140.0;
+
 /// The jugglers' types, and the flag they take at their first update, with which a juggler is a
 /// townsperson that always rolls 9 and plays its instrument ([`roll`]).
 const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
@@ -648,6 +653,9 @@ pub struct Mind {
     /// The fidgets' slots its model has (`+0xF8`): bit `i` the slot `180 + i`, `*_FUN_IDLE_*`
     /// ([`FUN_SLOTS`]), which the idle action's fidget tries.
     pub fun: u16,
+    /// Whether its type is a woman's: its `items.pak` name holds `_FEM` as written
+    /// (`0x43CED0`, `strstr`), which a meeting's slap takes ([`Self::slaps`]).
+    pub woman: bool,
     /// Whether it fights (the AI's state 4, `0x4E0300`, or 8), the hero or a creature, and whether
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
@@ -749,6 +757,7 @@ impl Mind {
             turned: false,
             activity: activity::NONE,
             fun: 0,
+            woman: false,
             fighting: false,
             fled: false,
             cast_deadline: 0.0,
@@ -2032,6 +2041,13 @@ impl Mind {
         !self.is_child() && rng.below(2) == 0
     }
 
+    /// Whether, talking at a meeting, it plays its attack's clip in place of its talk
+    /// (`0x4FC490`, #2251; **hypothesis** for its sense: a slap): a woman ([`Self::woman`]), in
+    /// one case of 11, its partner farther than 100 and nearer than 140 (`distance`).
+    pub fn slaps(&self, distance: f32, rng: &mut impl Dice) -> bool {
+        self.woman && rng.below(11) == 0 && distance > SLAPS_FROM && distance < SLAPS_TO
+    }
+
     /// A juggler's instrument, if its hands are empty, at random (`0x4F29E2`), and whether it
     /// plays on and on: one of the flag `0x10000000`.
     pub fn juggles(&self, rng: &mut impl Dice) -> (usize, bool) {
@@ -2598,6 +2614,9 @@ pub mod activity {
     pub const TRADER: u16 = 37;
     /// The first of the meetings' seven topics (`0x4FC646`).
     pub const TOPICS: u16 = 30;
+    /// A slap at a meeting, and its partner's (`0x4FC75E`, #2251).
+    pub const SLAPS: u16 = 35;
+    pub const SLAPPED: u16 = 30;
 }
 
 /// The icon of each doing ([`activity`], the table at `0x959830`), its index past the table's
@@ -5207,6 +5226,22 @@ mod tests {
         assert!((350..550).contains(&(steps + homes)), "{steps} {homes}");
         assert!(homes > 50 && homes < steps, "{steps} {homes}");
         assert!((130..270).contains(&fidgets), "{fidgets}");
+    }
+
+    #[test]
+    fn a_woman_slaps_her_partner_in_one_meeting_of_eleven_from_100_to_140() {
+        let mut rng = Rng::of(50, 39, 4);
+        let home = Spot::default();
+        let mut woman = Mind::new(home, TOWNSFOLK, (true, false), None, SPEEDS, (100, 3));
+        woman.woman = true;
+        let man = Mind::new(home, TOWNSFOLK, (true, false), None, SPEEDS, (101, 3));
+        let slaps = |mind: &Mind, distance: f32, rng: &mut Rng| {
+            (0..1100).filter(|_| mind.slaps(distance, rng)).count()
+        };
+        assert!((60..140).contains(&slaps(&woman, 120.0, &mut rng)));
+        assert_eq!(slaps(&woman, 100.0, &mut rng), 0);
+        assert_eq!(slaps(&woman, 140.0, &mut rng), 0);
+        assert_eq!(slaps(&man, 120.0, &mut rng), 0);
     }
 
     #[test]
