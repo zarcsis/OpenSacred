@@ -274,7 +274,6 @@ struct Placement {
     /// The model, relative to the asset directory.
     model: String,
     /// Whether its type is a woman's (`minds::Mind::woman`).
-    #[serde(default)]
     woman: bool,
     /// The global cell, its logical position.
     cell: (u32, u32),
@@ -287,7 +286,6 @@ struct Placement {
     object: bool,
     /// A horse's class, its `CreateNPC`'s tag `0x90` (`SetHorseClass:`, the byte `+0x400`), 0
     /// where none names it (#2299).
-    #[serde(default)]
     horse_class: u8,
     /// The texture its item names (`+0x08`), relative to the asset directory.
     texture: Option<String>,
@@ -418,7 +416,6 @@ struct Placement {
     lies: bool,
     /// An object's item only raised to its level, not made anew (`CreateObj`'s [`RAISED`],
     /// the scripts' own uniques; #1125).
-    #[serde(default)]
     raised: bool,
     /// A container's (an object of [`CHEST`]): its `Take:` function, its `CreateObj`'s
     /// [`ON_TAKE`], which fills it as it opens (`containers`, #1380).
@@ -456,7 +453,6 @@ struct ClipNames {
     walk: Option<String>,
     run: Option<String>,
     /// A flyer's clip aloft, the slot 179 (`*_FLY_LOOP`, `0x546ABF`, #2250).
-    #[serde(default)]
     fly: Option<String>,
     stance: Option<String>,
     talk: Option<String>,
@@ -471,9 +467,7 @@ struct ClipNames {
     /// The fidgets' slots 180 to 192 that its model has, bit `i` the slot `180 + i`
     /// (`minds::Mind::fun`), and its attack's first slot, which a fidget plays where it takes
     /// none of them (`0x5467A0(4)`, #1364).
-    #[serde(default)]
     fun_slots: u16,
-    #[serde(default)]
     attack_slot: u16,
 }
 
@@ -682,7 +676,6 @@ impl Mount {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Held {
     /// The item's type, by which its model draws its own glows (`item_glows`); 0 for none.
-    #[serde(default)]
     pub(crate) item: u32,
     /// The model, relative to the asset directory.
     pub(crate) model: String,
@@ -1091,6 +1084,9 @@ struct Stood {
 
 /// What became of the placed creatures ([`Placed`]) that went with their sectors.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+// Named apart from another saved type of its name, which the saves' layout test traces by
+// name (#2306); postcard writes no names.
+#[serde(rename = "KeptCreatures")]
 struct Kept {
     /// The kept placements that went, by index: where each stood, or `None` once killed.
     went: HashMap<usize, Option<Stood>>,
@@ -3057,6 +3053,9 @@ pub struct Added {
 /// a load places again ([`Npcs::resume`]); the triggers open, those a hero turned and those
 /// locked; the placements of the quests' items taken and of the containers emptied.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// Named apart from another saved type of its name, which the saves' layout test traces by
+// name (#2306); postcard writes no names.
+#[serde(rename = "SavedPlacements")]
 pub struct Saved {
     pub records: Vec<Vec<Record>>,
     pub opened: HashSet<String>,

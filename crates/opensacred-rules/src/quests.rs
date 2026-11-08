@@ -126,6 +126,9 @@ pub enum Standing {
 /// (`opensacred_data::text::sacred_hash`), its chapter (`+0x16C`), how it stands, and whether
 /// it was entered since the game began (`+0xC` bit 0, which no save keeps).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+// Named apart from another saved type of its name, which the saves' layout test traces by
+// name (#2306); postcard writes no names.
+#[serde(rename = "BookEntry")]
 pub struct Entry {
     pub quest: u32,
     pub title: Option<u32>,

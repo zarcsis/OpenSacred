@@ -157,6 +157,9 @@ pub struct Kills {
 /// A type's kills: their count, the highest level killed, and the hero's chance to hit it and its
 /// chance to hit the hero at that level's first kill, in per cent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// Named apart from another saved type of its name, which the saves' layout test traces by
+// name (#2306); postcard writes no names.
+#[serde(rename = "KillsOfType")]
 pub struct Kind {
     pub count: u32,
     pub level: u32,
