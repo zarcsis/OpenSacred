@@ -16,6 +16,12 @@ pub const RIDE_IDLE: u16 = 169;
 /// state 1, `0x53A170`'s sub-states 0 and 4).
 pub const MOUNTS_FROM: f32 = 1_879.0;
 pub const MOUNTS_WITHIN: f32 = 25.0;
+/// How near its horse the horse's button of the portraits' column mounts it rather than calls
+/// it (`0x6D6C70`), how near the horse called walks to its owner rather than is put beside
+/// him, and how far from his place, along each axis at most, it comes (`0x530D68`).
+pub const BUTTON_MOUNTS_WITHIN: f32 = 250.0;
+pub const CALLED_WALKS_WITHIN: f32 = 1_200.0;
+pub const CALLED_ABOUT: u32 = 50;
 /// The bone of a horse that its rider's `Bip01` is attached to (`0x401AE0(18)`), and the bone
 /// of its place by its side for the riders of the types of [`by_start_bone`] (`0x59A3E0`).
 pub const HORSE_BONE: &str = "horse_bone";

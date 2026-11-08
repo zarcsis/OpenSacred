@@ -3,7 +3,9 @@
 //! it mounts from (`0x59A3E0`), where it plays its mount and sits on the horse's `horse_bone`;
 //! riding, the hero goes at its horse's speeds, the horse under it playing its walk or run, by no
 //! stair, teleport or entrance (`hero::run`); Shift with a click on its horse, or its horse gone,
-//! gets it off at the point by the horse.
+//! gets it off at the point by the horse. A horse mounted is the hero's own (#2301): the
+//! portraits' column shows its button and its health's bar, whose click mounts it within 250
+//! and calls it from farther.
 
 use std::time::Duration;
 
@@ -16,6 +18,7 @@ use crate::controls::{Action, Keys};
 use crate::crowd::InTheWay;
 use crate::fight::Health;
 use crate::frame::Step;
+use crate::game::AppState;
 use crate::hero::{self, Body, Clips, GameSpeed, Hero};
 use crate::npcs::{Dies, Npcs, Steered, Walk};
 
@@ -24,6 +27,14 @@ use crate::npcs::{Dies, Npcs, Steered, Walk};
 pub struct Horse {
     pub class: u8,
 }
+
+/// The hero's own horse, the owners linked both ways at the mount's end (`+0x570`, `0x555300`):
+/// the portraits' column shows its button and the mount's bar while the hero owns it, ridden or
+/// not (`0x6D7A5C`); its death under the hero loses it (`0x5375C0`), one left alone keeps the
+/// link. No sector keeps it: it stays in the world wherever it is left, as the original's
+/// object does (#2301).
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Owned(pub Option<Entity>);
 
 /// The hero's seat on a horse, from its walk to the horse to its getting off.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
@@ -81,25 +92,35 @@ pub struct RidingPlugin;
 
 impl Plugin for RidingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            pick.before(hero::steer)
-                .before(crate::talk::pick)
-                .after(attack::aim)
-                .in_set(crate::frame::Unpaused),
-        )
-        .add_systems(
-            Update,
-            (approach, mount, dismount, carry)
-                .chain()
-                .after(hero::run)
-                .in_set(Step::HeroMove),
-        )
-        .add_systems(
-            PostUpdate,
-            seat.after(bevy::app::AnimationSystems)
-                .before(TransformSystems::Propagate),
-        );
+        app.init_resource::<Owned>()
+            .add_systems(OnEnter(AppState::InGame), |mut commands: Commands| {
+                commands.insert_resource(Owned::default());
+            })
+            .add_systems(
+                Update,
+                press_horse
+                    .before(hero::steer)
+                    .in_set(crate::frame::Unpaused),
+            )
+            .add_systems(
+                Update,
+                pick.before(hero::steer)
+                    .before(crate::talk::pick)
+                    .after(attack::aim)
+                    .in_set(crate::frame::Unpaused),
+            )
+            .add_systems(
+                Update,
+                (approach, mount, dismount, carry)
+                    .chain()
+                    .after(hero::run)
+                    .in_set(Step::HeroMove),
+            )
+            .add_systems(
+                PostUpdate,
+                seat.after(bevy::app::AnimationSystems)
+                    .before(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -327,6 +348,7 @@ fn mount(
     mut commands: Commands,
     time: Res<Time>,
     (npcs, speed, clips): (Option<Res<Npcs>>, Res<GameSpeed>, Option<Res<Clips>>),
+    (mut owned, mut streamer): (ResMut<Owned>, ResMut<crate::sectors::Streamer>),
     mut heroes: Query<(Entity, &mut Transform, &mut Seat), Without<Horse>>,
     horses: Query<(&Transform, &Horse, &Mind), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
@@ -358,7 +380,12 @@ fn mount(
             speeds,
             offset: Vec3::ZERO,
         };
-        commands.entity(horse).insert(Steered(None));
+        // The owners linked both ways (`0x555300`): the hero's own horse, which no sector keeps.
+        owned.0 = Some(horse);
+        streamer.disown(horse);
+        commands
+            .entity(horse)
+            .insert((Steered(None), DespawnOnExit(AppState::InGame)));
         if let Some(clips) = clips.as_ref()
             && let Some((node, _)) = &clips.riding[1]
             && let Some((mut player, mut transitions)) =
@@ -397,6 +424,7 @@ fn dismount(mut commands: Commands, time: Res<Time>, mut heroes: Query<(Entity, 
 )]
 fn carry(
     mut commands: Commands,
+    mut owned: ResMut<Owned>,
     heroes: Query<(Entity, &Transform, &Body, &Seat, Has<Dies>), Without<Horse>>,
     mut horses: Query<(&mut Transform, &mut Steered, Has<Dies>), With<Horse>>,
 ) {
@@ -413,7 +441,13 @@ fn carry(
                     steered.0 = gait;
                 }
             }
-            _ => {
+            found => {
+                // A ridden horse dead or gone is lost, its owner's link with it (`0x5375C0`); the
+                // hero's own death keeps it (`0x552050`).
+                if !matches!(found, Ok((_, _, false))) && owned.0 == Some(horse) {
+                    owned.0 = None;
+                    info!("riding: the hero loses {horse}");
+                }
                 debug!("riding: the hero is thrown off {horse}");
                 commands.queue(move |world: &mut World| get_off(world, me, false));
             }
@@ -437,6 +471,64 @@ pub(crate) fn fell(world: &mut World, horse: Entity, choice: u32) {
     }
     entity.insert(Dies::by_creature(choice));
     info!("riding: a lethal blow on its rider fells {horse}");
+}
+
+/// A left click on the horse's button of the portraits' column (`0x6D6C70`): within 250 of the
+/// hero's own horse the ride order (the creature event 7), as a click on the horse gives it,
+/// which gets a rider off; farther the call (the event `0x116`, `0x530D68`): a living horse,
+/// the hero on foot on the ground, comes to the hero's place and `R(0, 50)` along each axis,
+/// walking from within 1,200, else put there (`0x4EBF20`), and the hero goes to mount it. The
+/// call's sound (9, `0x25`) waits for the horses' sounds (#1180).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn press_horse(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
+    owned: Res<Owned>,
+    mut dice: ResMut<crate::drops::Dice>,
+    heroes: Query<(&Transform, &Body, Option<&Seat>), (Without<Horse>, Without<Dies>)>,
+    mut horses: Query<(&mut Transform, &Mind, &InTheWay), (With<Horse>, Without<Dies>)>,
+) {
+    if !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(horse) = owned.0 else {
+        return;
+    };
+    let (corner, size) = (crate::bar::HORSE_BUTTON.1, crate::bar::HORSE_BUTTON_SIZE);
+    if !crate::bar::column_point(&pointer, &ui_scale, &windows)
+        .is_some_and(|at| Rect::from_corners(corner, corner + size).contains(at))
+    {
+        return;
+    }
+    let Ok((hero, body, seat)) = heroes.single() else {
+        return;
+    };
+    let here = hero.translation;
+    if let Ok((mut at, mind, way)) = horses.get_mut(horse) {
+        let far = (at.translation - here).xz().length();
+        if far > horses::BUTTON_MOUNTS_WITHIN && seat.is_none() && body.level().is_none() {
+            let mut about = || {
+                let roll = dice.0.below(horses::CALLED_ABOUT + 1);
+                f32::from(u16::try_from(roll).unwrap_or(0))
+            };
+            let to = here + Vec3::new(about(), 0.0, about());
+            if far <= horses::CALLED_WALKS_WITHIN {
+                commands
+                    .entity(horse)
+                    .insert(Walk::to(to, way.level, mind.speed));
+            } else {
+                at.translation = to;
+            }
+            info!("riding: the hero calls {horse} from {far:.0}");
+        }
+    }
+    commands.queue(move |world: &mut World| match ride(world, Some(horse)) {
+        Ok(line) | Err(line) => debug!("riding: the horse's button: {line}"),
+    });
 }
 
 /// Gets the hero `me` off its horse (the sub-state 5, `0x551E40`, which the horse's death takes

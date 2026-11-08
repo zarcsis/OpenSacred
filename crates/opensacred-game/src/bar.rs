@@ -124,6 +124,14 @@ pub(crate) const BONUSES: (u32, Vec2) = (110, Vec2::new(1000.0, 34.0));
 pub(crate) const EXPERIENCE_FRAME: (u32, Vec2) = (66, Vec2::new(940.0, 122.0));
 const EXPERIENCE_FILL: (u32, Vec2) = (67, Vec2::new(940.0, 124.0));
 const EXPERIENCE_WIDTH: f32 = 73.0;
+/// The mount's bar under the experience's, its frame and its fill of the horse's health share
+/// (`0x55C630`), and the horse's button by the portrait (`0x6D7A5C`), while the hero owns a
+/// horse (`riding::Owned`, #2301).
+const MOUNT_FRAME: (u32, Vec2) = (77, Vec2::new(940.0, 133.0));
+const MOUNT_FILL: (u32, Vec2) = (78, Vec2::new(940.0, 133.0));
+const MOUNT_WIDTH: f32 = 72.0;
+pub(crate) const HORSE_BUTTON: (u32, Vec2) = (365, Vec2::new(986.0, 86.0));
+pub(crate) const HORSE_BUTTON_SIZE: Vec2 = Vec2::splat(34.0);
 /// The followers' entries under the hero's, 132 pixels apart, four at most (`0x6D6430`).
 pub(crate) const ENTRY_STEP: f32 = 132.0;
 const MOST_FOLLOWERS: usize = 4;
@@ -262,6 +270,13 @@ pub(crate) struct HealthRed;
 /// The experience's fill.
 #[derive(Component)]
 pub(crate) struct ExperienceFill;
+
+/// The horse's button and the mount's bar's frame, and its fill, shown while the hero owns a
+/// horse.
+#[derive(Component)]
+struct HorsePiece;
+#[derive(Component)]
+struct MountFill;
 
 /// A piece of a follower's entry in the column: the follower it shows, and for its ring's parts
 /// whether the part is the red one and the ring's top in the column; none for the portrait.
@@ -490,6 +505,27 @@ pub(crate) fn spawn(
             .spawn((
                 ExperienceFill,
                 image(EXPERIENCE_FILL.0, EXPERIENCE_FILL.1, COLUMN.min),
+            ))
+            .id(),
+        commands
+            .spawn((
+                HorsePiece,
+                image(MOUNT_FRAME.0, MOUNT_FRAME.1, COLUMN.min),
+                Visibility::Hidden,
+            ))
+            .id(),
+        commands
+            .spawn((
+                MountFill,
+                image(MOUNT_FILL.0, MOUNT_FILL.1, COLUMN.min),
+                Visibility::Hidden,
+            ))
+            .id(),
+        commands
+            .spawn((
+                HorsePiece,
+                image(HORSE_BUTTON.0, HORSE_BUTTON.1, COLUMN.min),
+                Visibility::Hidden,
             ))
             .id(),
     ]);
@@ -822,6 +858,38 @@ pub(crate) fn fill(
     if let (Some((_, f)), Ok((mut image, mut node))) =
         (images.part(EXPERIENCE_FILL.0), fills.single_mut())
     {
+        image.rect = Some(Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y));
+        node.width = Val::Px(width);
+    }
+}
+
+/// The horse's button and the mount's bar while the hero owns a horse, ridden or not
+/// (`0x6D7A5C`–`0x6D7AE0`): the bar's fill ⌊72·f⌋ pixels of `f` the horse's health over its most
+/// (`0x55C630`), cut as the experience's.
+fn mount_pieces(
+    images: Res<UiImages>,
+    owned: Option<Res<crate::riding::Owned>>,
+    horses: Query<&Health>,
+    mut pieces: Query<&mut Visibility, (With<HorsePiece>, Without<MountFill>)>,
+    mut fills: Query<(&mut Visibility, &mut ImageNode, &mut Node), With<MountFill>>,
+) {
+    let horse = owned.and_then(|owned| owned.0);
+    let shown = if horse.is_some() {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut visibility in &mut pieces {
+        visibility.set_if_neq(shown);
+    }
+    let share = horse
+        .and_then(|horse| horses.get(horse).ok())
+        .map_or(0.0, health_share);
+    let width = (MOUNT_WIDTH * share).floor();
+    if let (Some((_, f)), Ok((mut visibility, mut image, mut node))) =
+        (images.part(MOUNT_FILL.0), fills.single_mut())
+    {
+        visibility.set_if_neq(shown);
         image.rect = Some(Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y));
         node.width = Val::Px(width);
     }
@@ -1212,6 +1280,7 @@ impl Plugin for BarPlugin {
                     set_orbs,
                     turn,
                     fill,
+                    mount_pieces,
                     art_icon,
                     entries,
                     entry_rings,
