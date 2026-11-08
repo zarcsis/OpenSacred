@@ -122,6 +122,80 @@ pub(crate) fn description(
     lines
 }
 
+/// What the horse's description reads ([`description`]): the horses, the horse data, the
+/// balance's prices and trample's time, and the hero's level, riding skill, resistances, seat
+/// and what it holds.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct HorseSheet<'w, 's> {
+    npcs: Option<Res<'w, Npcs>>,
+    data: Option<Res<'w, crate::game::Data>>,
+    arts: Option<Res<'w, crate::arts::HeroArts>>,
+    experience: Res<'w, crate::fight::Experience>,
+    horses: Query<'w, 's, (&'static Horse, &'static crate::ai::Mind)>,
+    heroes: Query<'w, 's, SheetHero, With<Body>>,
+}
+
+/// What the description reads of the hero: its seat, what it holds and its fight values.
+type SheetHero = (
+    Option<&'static Seat>,
+    Option<&'static crate::fight::Holding>,
+    Option<&'static crate::fight::Combat>,
+);
+
+impl HorseSheet<'_, '_> {
+    /// The horse that the hero rides, and whether it holds a bow or a crossbow ([`riding_with`]).
+    pub(crate) fn ridden(&self) -> Option<(Entity, bool)> {
+        let (seat, holding, _) = self.heroes.iter().next()?;
+        let bow = riding_with(seat, holding)?;
+        Some((seat?.ridden()?, bow))
+    }
+
+    /// The description of the horse `horse` for the hero, of the texts `texts` (`0x55C9F0`): its
+    /// class and level, the horse data's row and the balance's prices and trample's time, the
+    /// hero's level, riding skill and resistances as the fight takes them (their own values
+    /// times their factors).
+    pub(crate) fn lines(
+        &self,
+        horse: Entity,
+        texts: Option<&crate::lines::Texts>,
+    ) -> Option<Vec<crate::tooltip::Line>> {
+        let (kind, mind) = self.horses.get(horse).ok()?;
+        let row = self.npcs.as_deref()?.horse_row(kind.class);
+        let balance = self
+            .data
+            .as_deref()
+            .and_then(|data| data.0.tables.balance().ok());
+        let prices = horses::Prices::of(balance);
+        let time = crate::trample::override_time(self.data.as_deref());
+        let skill = self
+            .arts
+            .as_deref()
+            .and_then(|arts| {
+                arts.skills
+                    .iter()
+                    .find(|&&(skill, _)| skill == RIDING_SKILL)
+            })
+            .map_or(0, |&(_, level)| level);
+        let resistances = self
+            .heroes
+            .iter()
+            .next()
+            .and_then(|(.., combat)| combat)
+            .map_or([0.0; 4], |combat| combat.0.resistance);
+        Some(description(
+            texts,
+            &Described {
+                horse: (kind.class, mind.level),
+                data: (&row, &prices, time),
+                hero: (self.experience.0.level, skill, resistances),
+            },
+        ))
+    }
+}
+
+/// The riding skill.
+const RIDING_SKILL: u8 = 22;
+
 /// The description's texts: the class's label and the class names from `9069 + 1`, the price's,
 /// the level's, the pace's and the riding's labels (`0x236D`, `0x236B`, `0x42E`, `0x44A`,
 /// `0x24CD`).

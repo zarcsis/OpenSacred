@@ -497,7 +497,7 @@ fn grid(
         Option<Res<crate::art_slots::ArtSlots>>,
     ),
     texts: Option<Res<Texts>>,
-    weighing: Weighing,
+    (weighing, sheet): (Weighing, crate::riding::HorseSheet),
     (images, assets): (Res<UiImages>, Res<AssetServer>),
     (mut targets, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
     (panels, scenes): (Query<(Entity, &Panel)>, Query<Entity, With<Scene>>),
@@ -678,8 +678,22 @@ fn grid(
         Shows::Art(_) | Shows::Sets => {
             let lines = match shows {
                 Shows::Art(art) => {
-                    let next = source == Source::SpellsPage;
-                    weighing.art_lines(art, texts.as_deref(), next)
+                    // From the saddle a slot's art that may not be made on horseback tells the
+                    // horse's description instead (`0x6E4560` before `0x6E4BC1`, `0x55C9F0`).
+                    let horse = (source == Source::ArtSlot)
+                        .then(|| sheet.ridden())
+                        .flatten()
+                        .filter(|&(_, bow)| {
+                            weighing
+                                .arts
+                                .as_deref()
+                                .is_some_and(|arts| !arts.on_horseback(art, bow))
+                        })
+                        .and_then(|(horse, _)| sheet.lines(horse, texts.as_deref()));
+                    horse.unwrap_or_else(|| {
+                        let next = source == Source::SpellsPage;
+                        weighing.art_lines(art, texts.as_deref(), next)
+                    })
                 }
                 _ => weighing.set_lines(texts.as_deref()),
             };
