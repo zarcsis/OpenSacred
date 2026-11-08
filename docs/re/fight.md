@@ -322,6 +322,21 @@ The sets' lines of the flag tell the terms they add (`set_bonuses::Told::MagicDe
 Not followed: the effects that an object gives in place of a strike (the fear's 1012 among them), which ask the ward in the original too, and the network's messages.
 The creatures carry no gold, so only the hero pays (**hypothesis** for the original's NPCs, above).
 
+### A knock-down
+
+Read 2026-11-08 for #2311 (`0x56B130` at `0x56E366`–`0x56E8CC`, after the wounds and before the critical hit; **confirmed** by code):
+
+- Only for a struck one of an id up to 16 (a player), outside the `lord` cheat (the bit 1 of `0x182EE3C`) and without the stats' `+0x2B7` bit 8; one down already (`+0x200` bit `0x40000`) takes the blow's damage as 0.
+- With an attacker, a roll `rand() & 1`: the struck one falls where the attacker's level less 4 and the roll stands above its own and the damage is at least its health (`0x549460(2)`), unless its `+0x2B7` bits `0x80` and `0x100` are both set.
+- The interface is told (`0x6770E0`, `0x6852B0`); a rider is first thrown off its horse, at once (the attachment undone, the bits cleared, both its slots 18 emptied; docs/re/horses.md); the struck one plays its slot 228 (`*_DYING_C`) at the rate 1.0, is knocked back 150 from its attacker (`+0x24D`, `+0x200` bit `0x20000`, `+0x259` the attacker), is stopped (`0x54E6D0(1, 1)`) and lies 5 s (its timer `+0x208` held at `+0x204 − 5`, `+0x200` bit `0x40000`), turned to the attacker, with an object 874 at it (the FX event `0x62`).
+- The blow's damage becomes its health less a ninth of it, one less where that is all, at least 1, so that it keeps a ninth (none of 1).
+- The first knock-down sets `+0x2B7` bit `0x80`, the second bit `0x100`, so that a third does not fall; both clear in the creature's handler (`0x54808A`) where its health is whole and it stands in a settlement (`0x4D4DA0`: its cell's flags `+0x1E` bit 1, for a player).
+- Each of the local hero's near hostiles is stopped (`0x54E6D0(1, 0)` on each of `0xAD3CE0`).
+
+Since #2311 `opensacred-game` follows it (`opensacred_rules::fight::{knocks_down, knocked_damage}`, `fight::{Downed, KnockMarks}`, the module `knock_down`): outside the god mode, the hero knocked down falls by its slot 228, is thrown off its horse first (`riding::throw_off`), is thrown back 150 from its attacker where it may stand, lies 5 s doing nothing else, its near hostiles' strikes ended, and keeps a ninth of its health; its marks clear in a settlement at its whole health.
+**Seen** in the game: the Seraphim of the level 1 at 17 health struck by a creature 76 of the level 15 fell to 1, took 0 from its strikes while she lay, got up after 5 s, fell again at the next heavy blow, and the third killed her.
+Not followed: the interface's messages, the object 874, the turn to the attacker, and the `+0x2B7` bit 8 (who sets it is not read).
+
 ## An NPC's attack, defence and damage
 
 Status: **confirmed** by code (#281) unless marked otherwise.

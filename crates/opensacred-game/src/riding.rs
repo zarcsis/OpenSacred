@@ -867,6 +867,12 @@ fn press_horse(
     });
 }
 
+/// Throws the hero `me` off its horse at once, without its dismount's clip, as a knock-down
+/// throws a rider off (`0x56E462`, #2311).
+pub(crate) fn throw_off(world: &mut World, me: Entity) {
+    get_off(world, me, false);
+}
+
 /// Gets the hero `me` off its horse (the sub-state 5, `0x551E40`, which the horse's death takes
 /// too, `0x53ECA0`): its model off the horse's bone, the horse back in the way, standing; the
 /// hero stands at the point by the horse, and plays its dismount where `clip`; a horse gone

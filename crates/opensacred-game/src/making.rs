@@ -334,7 +334,7 @@ pub(crate) fn aim(
             Option<&crate::riding::Seat>,
             Option<&fight::Holding>,
         ),
-        Without<Dies>,
+        (Without<Dies>, Without<fight::Downed>),
     >,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
@@ -591,7 +591,7 @@ fn make(
             Option<&fight::Frenzy>,
             Option<&crate::riding::Seat>,
         ),
-        Without<Dies>,
+        (Without<Dies>, Without<fight::Downed>),
     >,
     creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), (Without<Dies>, Without<Body>)>,
     children: Query<&Children>,

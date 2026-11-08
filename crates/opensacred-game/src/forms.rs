@@ -47,6 +47,8 @@ pub struct Clips {
     pub riding: [Option<String>; 3],
     /// The rider's strike from the saddle and the fractions at which it hits (#2302).
     pub riding_attack: Option<(String, [f32; 2])>,
+    /// The fall of a hero knocked down (`fight::KNOCKED_DOWN_SLOT`, #2311).
+    pub knocked: Option<String>,
 }
 
 /// A form of the hero: its type, its model and clips, its record's values for its fight, its

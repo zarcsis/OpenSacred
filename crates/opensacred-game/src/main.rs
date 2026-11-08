@@ -131,6 +131,7 @@ mod iso;
 mod item_glows;
 mod journal;
 mod killer_plants;
+mod knock_down;
 mod labels;
 mod lava_bursts;
 mod lens_creatures;
@@ -605,6 +606,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         item_glows::ItemGlowsPlugin,
         journal::JournalPlugin,
         killer_plants::KillerPlantsPlugin,
+        knock_down::KnockDownPlugin,
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,
         light_blades::LightBladesPlugin,
@@ -612,9 +614,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
-        lost_souls::LostSoulsPlugin,
     ))
     .add_plugins((
+        lost_souls::LostSoulsPlugin,
         low_health::LowHealthPlugin,
         magic_lights::MagicLightsPlugin,
         making::MakingPlugin,
