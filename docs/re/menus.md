@@ -148,7 +148,7 @@ Seen 2026-10-29 with the driver of #448 (#1410: the Seraphim's new game, its win
 - The window is the rectangle (380, 284)–(644, 484), 264 × 200, dark and translucent, with the frame of the choice of the hero's panel about the box (400, 304)–(624, 464): the crest's halves at the middle of its top and its foot, the corners, the edges along the top and the foot (the foot's 12 below the box) and the sides (the right's 15 out of the box), the same pieces at the same sizes (`UI_STATIC_FRAME`, its 36 controls listed).
 - Its five items are texts of the class `cUI_StaticText64`, not buttons: `UI_ESC_OPTIONS`, `UI_ESC_SAVE`, `UI_ESC_EXPORT`, `UI_ESC_QUIT` and `UI_ESC_CONTINUE`, each 32 high and the window's width, at the rows 8, 44, 80, 116 and 152 of the window, their words centred (`0x6BBBD0`, **confirmed**); their words are the texts 1050, 1051, 1049, 1052 and 1053 of `global.res` (the hashes of those numbers find them in the order the window shows them).
   They stand in a golden letter, the one under the cursor lit, as the main menu's.
-- Options opens `UI_WND_OPTIONS`, Save Game `UI_WND_SAVEGAME` (both through the window's events, `0x6BBBD0`; not followed: the options #1096 and the saves #1095 are not there), Export the character's window (`UI_CHARACTER`, not read), Continue closes the menu, and Quit asks first in `DEFAULT_BUSYDLG` (`cUI_BusyDlg`, the text `UI_BUSY_2MAINMENU`).
+- Options opens `UI_WND_OPTIONS`, Save Game `UI_WND_SAVEGAME` (both through the window's events, `0x6BBBD0`; the options' window below), Export the character's window (`UI_CHARACTER`, not read), Continue closes the menu, and Quit asks first in `DEFAULT_BUSYDLG` (`cUI_BusyDlg`, the text `UI_BUSY_2MAINMENU`).
 - That dialog darkens the whole screen (`UI_STATIC_BG`, 1024 × 768), lays its dark box (288, 288)–(736, 480) with the same frame about (320, 320)–(704, 448), its question in white in the middle, and two buttons of the choice of the hero's kind under it, OK (the text 1024) and Cancel (1025): OK leaves the game for the main menu, and Cancel closes the dialog alone, the menu staying (**seen**).
 
 ## The busy dialog (`DEFAULT_BUSYDLG`)
@@ -189,6 +189,229 @@ Read 2026-11-04 for #1990 in the code (**confirmed** unless marked) and seen wit
   A save hides the window and saves behind `PAK\SAVEGAME.BMP`, the game going on; a load hides it for the loading screen.
   A save of another version asks nothing and shows `UI_BUSY_SAVEGAME_VER` with a Cancel alone.
 - **Its sounds**: none (seen, `playSFX` traced): its buttons hold `UI_CLICK01`, which their own input plays, but the window never gives them its events.
+
+## The options window (`UI_WND_OPTIONS`, `cUI_Options`)
+
+Read 2026-11-08 for #1096 in the code, with a frame of the running original's window (opened from the main menu) to check places by sight.
+Status: **confirmed** means read in code; **hypothesis** and **estimate** as marked.
+All places are pixels of the 1024 × 768 screen; "image N" is the entry N of the interface's images' table at `0x9ECEB0` (docs/02 §11), its atlas and texel rectangle given where it first appears.
+The fonts are the font table's entries counted from 1 (`0xA1CDB4`, entries of `0x44` bytes): font 1 is AntiquaSSK 13, font 3 AntiquaSSK 16, font 7 AntiquaSSK 8 (**confirmed** by the table's bytes; their pixel sizes as GDI makes them are not read here).
+
+### The window, its openings and closings
+
+- The class is `cUI_Options` (RTTI `.?AVcUI_Options@@`), a `cUI_Window2`, its vtable `0x897078` (**confirmed**):
+  the constructor `0x716D30` (an object of `0x1B8` bytes), which calls the layout `0x718CA0` and hides the window (its flags 5 cleared);
+  the input `0x7172F0` (slot 4); the show and hide `0x717040` (slot 9); Escape's action `0x717180` (slot 13); Enter's the base window's `0x724B50` (slot 14, not read);
+  the draw `0x716E00` (slot 17, called by the base window's draw); the settings read into the controls `0x718660` (at every show); the settings written `0x717C20` (at OK).
+- Its rectangle is the whole screen, (0, 0)–(1023, 767), 1024 × 768 (`0x6A57C0` with 0, 0, `0x3FF`, `0x2FF`; **confirmed**).
+- Two windows are made, each with the same constructor (**confirmed**):
+  the game's, by `cUI_Manager_createGameWindows` (the call at `0x75A014`), kept at the manager's `+0xBC`;
+  the menus' own, by `0x75A480` (the call at `0x75A5CE`), kept at `+0x138`.
+- The UI events that show and hide a window by its name are the kinds `0x11` (show) and `0x12` (hide), sent through the kernel as `cEvent` with the name, then `cEventUI2` kind 5 (**confirmed** by their uses below: the key O shows the window with `0x11` and, while it shows, hides it with `0x12`).
+- The openings (**confirmed**):
+  - the main menu's Options item (its label `UI_LABEL_OPTIONS`, made by the main menu's layout `0x713670` at `0x7141C1`) carries two events: hide `UI_MAINMENU` (`0x71404F`) and show `UI_WND_OPTIONS` (`0x7140D4`), which reach the menus' window;
+  - the menu over a game's Options (`0x6BBBD0`) carries three: show `UI_WND_OPTIONS`, the event `0x12` of the taskbar's `UI_TB_OPTIONS` (**hypothesis**: the button let up) and hide `UI_WND_ESCMENU`;
+  - the key O in a game: `cUI_Manager_receiveEvent`'s key switch (`0x757E46`: the key upper-cased less `'C'`, its bytes at `0x758DAC`, its jumps at `0x758D80`) sends O to `0x758024`, which shows the game's window where it was made; the switch is reached only while neither the saves' window (`+0xAC`) nor the options (`+0xBC`) shows and the byte `0x17EA344` is 0 (not read; **hypothesis**: a text field or the chat takes the keys);
+  - the key O again while the window shows hides it (`0x758798`: the window at `+0xBC` shown and the upper-cased key `0x4F`), writing nothing, as Cancel.
+- Its show (`0x717040` with 1, **confirmed**): `0x718660` sets every control from the settings (section 3); outside a network game (the byte `0x182EBEC`) the game's time stands (`0x6413E0(1)`, `0x641720(1)`, as the busy dialog's pause, docs/re/menus.md); where the dword `0xAD6EF8` is set, the engine event `0x12` with the value 0 is sent (not followed).
+  Its hide (`0x717040` with 0): the time goes on (`0x6413E0(0)`, `0x641720(0)`) and the engine event `0x12` with 1.
+  Setting or clearing a control's flag 1 calls its show and hide (`0x732550`, `0x7325C0`), so every way of hiding the window unpauses the game.
+- The closings (**confirmed**):
+  - OK (`UI_BTN_OK`): `0x717C20` writes the settings (section 3), then the window sends show `UI_MAINMENU` and hide `UI_WND_OPTIONS` (`0x717713`–`0x717965`);
+  - Cancel (`UI_BTN_CANCEL`): the same two events, nothing written (`0x71796C`–`0x717BC1`);
+  - Escape (`0x717180`): the window clears its own flags 5 (hides) and, the byte `+0x154` being 0, sends show `UI_MAINMENU`; nothing is written.
+    The constructor sets `+0x154` to 0 and no code writes it again (a scan of the byte stores at `+0x154`), unlike the saves' window, whose game instance gets 1.
+  - Out of a game the main menu comes back.
+    In a game no window is named `UI_MAINMENU` (only `0x75A480`, the menus' manager, makes one), so the game goes on with no menu over it (**hypothesis**; the saves' window closes with the same pair of events and was seen to go on so, docs/re/menus.md).
+
+### The controls
+
+#### How the controls work
+
+- A control's flags (`+0x10`, **confirmed**): 1 shown, 4 takes input, `0x10` checked or pressed, `0x8000000` the hover glow (below); a static text's `0x80000` centres its words, `0x100000` puts them against the right edge, neither against the left (`0x754140` turns them into the font's draw flags 1 and 4).
+- The labels are `cUI_StaticText64` (vtable `0x897700`, draw `0x754140`), made by the window's `0x7254C0` with a name, a rectangle, a text of `global.res` by its key, a font, flags and a colour; every label of this window is white (`0xFFFFFFFF`) and has no colour of its own under the cursor (its flag `0x400` unset); the words start at the rectangle's top row and are not clipped (**hypothesis** for the clipping: the detail's label is 64 wide and its words run past it in the frame).
+- The ticks and the round choices are `cUI_Button2` (the constructor `0x72A8F0`, vtable `0x897308`, the input `0x72B560`, the draw `0x72B700`), made with the flags `0x8000005`, each the size of image 323, 35 × 36:
+  - drawn as image 323 (`GUI_main_12.TGA` (220, 58)–(254, 93), an orb with a yellow tick) while its flag `0x10` is set, and as image 272 (`GUI_main_12.TGA` (1, 77)–(35, 112), a plain blue orb) while it is clear (the draw takes the texture `+0x80` and the coordinates `+0x54`–`+0x60` for a set flag, `+0x84` and `+0x64`–`+0x70` for a clear one; the layout puts image 323's in the first pair and image 272's in the second; **confirmed**, and the frame's ticked orbs, the third detail's and the sound's among them, agree with the installation's `DETAILLEVEL` 2 and `SOUND` 1);
+  - a left press inside it plays its sound (`+0x18`, `UI_CLICK01` 7000, docs/re/sound.md) and turns its flag `0x10` over (`0x72B560`);
+  - the hover glow (`0x731F00`, `0x732220`, flag `0x8000000`): while the cursor is over it, the control is drawn again 49 times, moved −6 to 6 in steps of 2 along each axis, its colour's alpha the byte ⌊0.3 · 12.75⌋ = 3, with the engine's state `0x10` on (**hypothesis**: the destination blend ONE, a soft additive halo); on a display of fewer than 32 bits the alpha is 16 and the steps 4 (**confirmed**).
+- The window's input (`0x7172F0`, **confirmed**) gives the event to the four sliders first, then to the choices; each control's own input turns its tick over, and for the three groups of round choices the window then sets the pressed one's flag `0x10` and clears the others', so one of a group always holds (a press on the ticked one leaves it ticked).
+  The order: the base window's own input (`0x726FF0`), the four sliders (the first that takes the event stops the others), the detail's, the quality's, the collect's and the data flow's groups; then, only where neither the base window nor a slider took the event, the ticks of the atmospheric animation, sound on, follow, fog of war and autosave; then OK and Cancel; FSAA and violence (this one only while it takes input, its flag 4) last, again only where nothing took it before.
+- The sliders are `cUI_Scrollbar` (the constructor `0x752210`, vtable `0x897664`, the input `0x752A60`, the draw `0x752EE0` not read; **confirmed** unless marked):
+  - `0x752670` lays a horizontal slider (wider than high) out of four images: image 263 (`GUI_main_12.TGA` (1, 1)–(37, 37), a round "−" button) at its left edge, 37 × 37; image 265 ((80, 1)–(119, 37), a round "+" button) against its right edge, 40 × 37; image 264 ((40, 1)–(77, 37), the bar) over (x + 37, y), (w − 77) × 37 (kept at `+0x1B0`; **hypothesis** that the draw stretches it over that); image 262 ((121, 1)–(150, 37), the knob), 30 × 37, its top at y + h/2 − 18;
+  - the knob runs over the inner track from x + 52, w − 107 wide (the bar less the knob's width, its half at each end);
+  - `0x753070` sets the number of positions `n` (126 for the volumes, 255 for the transparency); the place is a fraction `f` from 0 to 0.9999 (`+0x8C`), the position `⌊f · n⌋` held below `n` (`0x753430`), set as `p / n` (`0x7533B0`);
+  - a left press on "−" takes one position off (none below 0), on "+" adds one (up to 0.9999); a press anywhere else on the slider puts the knob at the point, `f = (x − inner x) / inner width` held to 0 … 0.9999 (`0x7530C0`);
+  - the wheel over it moves one position, its direction by the bit `0x80` of the event's byte `+0x11`; the keys Page Up and Page Down move 5, Home to 0 and End to the last;
+  - while the left button is held (`0x655920`, bit 8 of the mouse's state; **hypothesis**: the left button), the window's draw `0x716E00` sends each of the four sliders a press at the cursor every drawn frame, so a held "−" or "+" moves one position a frame and a held press on the bar drags the knob after the cursor (**hypothesis** on the rate: one step per drawn frame);
+  - the sliders play no sound (no call of `playSFX` in `0x752A60`).
+
+#### The panels' controls
+
+Every rectangle is (x, y) w × h; "right-aligned" and "centred" are the label flags above; the labels' font is 3 unless marked.
+
+**Graphic settings** (the box (64, 64) 384 × 128):
+
+| Control (name) | Class | Rectangle | Look, text |
+|---|---|---|---|
+| `UI_LABEL_GFXDETAIL` | label | (64, 116) 64 × 16, left | `UI_CFG_GFX_DETAIL` |
+| `UI_BTN_DETAILSETTING_1` (`+0x160`) | round choice | (416, 56) 35 × 36 | images 323 / 272 |
+| `UI_LABEL_DETAILLOW` | label | (272, 60) 128 × 16, right-aligned | `UI_CFG_LOW` |
+| `UI_BTN_DETAILSETTING_2` (`+0x164`) | round choice | (416, 93) | |
+| `UI_LABEL_DETAILMID` | label | (272, 97) 128 × 16, right-aligned | `UI_CFG_MEDIUM` |
+| `UI_BTN_DETAILSETTING_3` (`+0x168`) | round choice | (416, 130) | |
+| `UI_LABEL_DETAILHIGH` | label | (272, 134) 128 × 16, right-aligned | `UI_CFG_HIGH` |
+| `UI_SLIDER_TRANSPARENCY` (`+0x1B4`) | slider, 255 positions | (260, 167) 192 × 32 | images 263, 265, 264, 262 |
+| `UI_LABEL_MAPTRANS` | label | (66, 167) 192 × 32, left | `UI_CFG_MAPTRANS` |
+
+**Sound volume** (the box (544, 64) 384 × 128); the three sliders have no name of their own, their labels are named after them:
+
+| Control | Class | Rectangle | Look, text |
+|---|---|---|---|
+| SFX (`+0x1A8`) | slider, 126 positions | (648, 64) 288 × 32 | images 263, 265, 264, 262 |
+| `UI_SLIDER_SFX` | label | (504, 68) 128 × 16, right-aligned | `UI_CFG_SFX` |
+| speech (`+0x1AC`) | slider, 126 positions | (648, 112) 288 × 32 | |
+| `UI_SLIDER_VOICE` | label | (504, 116) 128 × 16, right-aligned | `UI_CFG_SPEECH` |
+| music (`+0x1B0`) | slider, 126 positions | (648, 160) 288 × 32 | |
+| `UI_SLIDER_MUSIC` | label | (504, 164) 128 × 16, right-aligned | `UI_CFG_SOUND` |
+
+**Auto-collect** (the box (64, 288) 384 × 128; its separator at the row 310):
+
+| Control | Class | Rectangle | Look, text |
+|---|---|---|---|
+| `UI_LABEL_ANIM` | label | (80, 278) 320 × 16, left | `UI_CFG_ANIM` |
+| `UI_BTN_COLLECTANIM` (`+0x178`) | tick | (416, 276) 35 × 36 | images 323 / 272 |
+| `UI_LABEL_COLLECT` | label | (80, 368) 320 × 16, left | `UI_CFG_COLLECT` |
+| `UI_BTN_COLLECT1` (`+0x16C`) | round choice | (416, 330) | |
+| `UI_LABEL_COLLECT1` | label | (272, 334) 128 × 16, right-aligned | `UI_CFG_AUTO_ALL` |
+| `UI_BTN_COLLECT2` (`+0x170`) | round choice | (416, 367) | |
+| `UI_LABEL_COLLECT2` | label | (272, 371) 128 × 16, right-aligned | `UI_CFG_AUTO_UNIQUE` |
+| `UI_BTN_COLLECT3` (`+0x174`) | round choice | (416, 404) | |
+| `UI_LABEL_COLLECT3` | label | (272, 408) 128 × 16, right-aligned | `UI_CFG_AUTO_GOLD` |
+
+**Sound options** (the box (544, 288) 384 × 128; its separator at the row 310):
+
+| Control | Class | Rectangle | Look, text |
+|---|---|---|---|
+| `UI_LABEL_SNDPLAYBACK` | label | (560, 278) 320 × 16, left | `UI_CFG_SOUNDPLAYBACK` |
+| `UI_BTN_SOUNDONOFF` (`+0x18C`) | tick | (896, 276) | images 323 / 272 |
+| `UI_LABEL_SNDQUALITY` | label | (560, 368) 320 × 16, left | `UI_CFG_SOUND_QUALITY` |
+| `UI_BTN_SNDQ_LOW` (`+0x190`) | round choice | (896, 330) | |
+| `UI_LABEL_SNDQ_LOW` | label | (752, 334) 128 × 16, right-aligned | the text `UI_BTN_SNDQ_LOW` |
+| `UI_BTN_SNDQ_MID` (`+0x194`) | round choice | (896, 367) | |
+| `UI_LABEL_SNDQ_MID` | label | (752, 371) 128 × 16, right-aligned | the text `UI_BTN_SNDQ_MID` |
+| `UI_BTN_SNDQ_HIGH` (`+0x198`) | round choice | (896, 404) | shown only where `0x692B60` answers yes |
+| `UI_LABEL_SNDQ_HIGH` or `UI_LABEL_SNDQ_NO3D` | label | (752, 408) 128 × 16, right-aligned | the text `UI_BTN_SNDQ_HIGH`, or, where `0x692B60` answers no, `UI_LABEL_SNDQ_NO3D` and the choice hidden (its flags `0x8000005` cleared) |
+
+`0x692B60` is not read (**hypothesis**: whether the sound library found a 3D provider; the frame, with no 3D card, shows the line `UI_LABEL_SNDQ_NO3D` and no orb).
+
+**Other options** (the box (64, 512) 384 × 160):
+
+| Control | Class | Rectangle | Look, text |
+|---|---|---|---|
+| `UI_BTN_FOLLOW` (`+0x184`) | tick | (416, 507) | images 323 / 272 |
+| `UI_LABEL_FOLLOW` | label | (80, 511) 320 × 16, left | `UI_CFG_AUTOFOLLOW` |
+| `UI_BTN_AUTOSAVE` (`+0x1A0`) | tick | (416, 544) | |
+| `UI_LABEL_AUTOSAVE` | label | (80, 548) 320 × 16, left | `UI_CFG_AUTOSAVE` |
+| `UI_BTN_EXPLOREMAP` (`+0x19C`) | tick | (416, 581) | |
+| `UI_LABEL_EXPLORE` | label | (80, 585) 320 × 16, left | `UI_CFG_EXPLORE` |
+| `UI_BTN_VIOLENCE` (`+0x188`) | tick | (416, 618) | hidden (flags 5 cleared) where `VIOLENCE` is 2 |
+| `UI_LABEL_VIOLENCE` | label | (80, 622) 320 × 16, left | `UI_CFG_VIOLENCE`, made only where `VIOLENCE` is present and not 2 (`0x81A180`, which, where the key is missing, writes 0 and answers no, so a file without the key hides the option for the window's life) |
+| `UI_BTN_FSAAFILTER` (`+0x1A4`) | tick | (416, 655) | |
+| `UI_LABEL_FSAAFILTER` | label | (80, 659) 320 × 16, left | `UI_CFG_FSAA_FILTER` |
+
+**Multiplayer** (the box (544, 512) 384 × 64):
+
+| Control | Class | Rectangle | Look, text |
+|---|---|---|---|
+| `UI_LABEL_LANSPEED` | label | (560, 535) 320 × 16, left | `UI_CFG_LANSPEED` |
+| `UI_BTN_NETSPEED_LOW` (`+0x17C`) | round choice | (896, 512) | images 323 / 272 |
+| `UI_LABEL_NETSPEED_LOW` | label | (752, 516) 128 × 16, right-aligned | `UI_CFG_AB_DSL` |
+| `UI_BTN_NETSPEED_HIGH` (`+0x180`) | round choice | (896, 549) | |
+| `UI_LABEL_NETSPEED_HIGH` | label | (752, 553) 128 × 16, right-aligned | `UI_CFG_AB_ISDN` |
+
+**The foot**: `UI_BTN_CANCEL` (`+0x158`) at (604, 644) and `UI_BTN_OK` (`+0x15C`) at (804, 644), each `cUI_Button2` of the flags 5 (no glow), 95 × 37 (image 281's width 38 times 2.5, its height 37), their words `UI_CANCEL` and `UI_OK` (section 5).
+
+Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the ticks' orbs, the right-aligned words ending at the columns 400 and 880, the sliders' "−" and "+").
+
+### What each control reads and writes
+
+- The settings are `Settings.cfg`'s keys in a store in memory (the object `0x182EE78`, its store at `0x182EE88`): each getter (those named below, `0x819C00` to `0x81F0D0`) reads its key from the store every call (`0x662F60`) and, where the key is missing, writes its default (`0x662DF0`) and answers it (**confirmed**).
+- At OK, `0x717C20` writes each key into the store (`0x662DF0`) and then writes the whole file at once (`0x662AD0`: one line `KEY : value` a key; **confirmed**).
+- At every show, `0x718660` sets the controls from the store; so whatever was not confirmed by OK is gone at the next opening (**confirmed**).
+
+| Control | `Settings.cfg` key (getter, default where missing) | Values | Written at OK | When it takes effect |
+|---|---|---|---|---|
+| detail low / medium / high | `DETAILLEVEL` (the byte `0x182EE78`, read at the start by `loadSettings`, `0x814152`) | 0, 1, 2 | the key and the byte (`0x717DB3`–`0x717EF9`) | at OK: every reader reads the byte when it runs (section 4) |
+| map transparency | `MINIMAP_ALPHA` (`0x81B8A0`, 127) | 0–254 | the slider's position (`0x81BA50`) | at OK: the overview map's render reads it every frame (`0x6C6CF2` in `0x6C6C50`), its show too (`0x6C7330`) |
+| SFX, speech, music | `SFXVOLUME`, `VOICEVOLUME`, `MUSICVOLUME` (`0x81AEC0`, `0x81ACE0`, `0x81B0A0`, 64) | 0–125 | the sliders' positions | at once while dragged: `0x716E00` gives the sound system `p / 126` (`0x677A60` the effects', `0x677FB0` the speech's, `0x677750` the music's) at every step; at the start `initApp` gives it the key's value times 1/128 (`0x8906F8`), 0.5 where missing |
+| atmospheric animation | `PICKUPANIM` (`0x81A690`, 1) | 0, 1 | the tick | at OK |
+| collect everything / gold and uniques / gold | `PICKUPAUTO` (`0x81A4E0`, 0) | 0, 1, 2 | the choice | at OK |
+| sound | `SOUND` (`0x819C00`, 1; it first passes the key `SOUND3D` to `0x6634C0`, **hypothesis**: dropping an old key) | 0, 1 | the tick | at once at the click: the window gives the sound system `0x6902F0(not on)`, `0x678180(on)` and `0x6781A0(on)` (`0x717696`); at the start `initApp` gives `0x6902F0(not SOUND)` |
+| sound quality low / all effects / 3D | `SOUNDQUALITY` (`0x819E20`, 2) | 0, 1, 2 | the choice | at OK, where it changed: `0x6780C0(quality)` (`0x7182A7`); at the start `initApp` (`0x81727B`) |
+| follow opponents | `AUTOTRACKENEMY` (`0x81A330`, 0) | 0, 1 | the tick | at OK |
+| autosave | `AUTOSAVE` (`0x81B6F0`, 0; it answers yes the once it writes the default, docs/re/saves.md) | 0, 1 | the tick | at OK |
+| fog of war on the map | `EXPLOREMAP` (`0x81B540`, 1) | 0, 1 | the tick | at OK |
+| violence | `VIOLENCE` (`0x819FD0`, 0) | 0, 1; 2 hides the option | the tick, only where `VIOLENCE` is not 2 (`0x81A180`) | at OK |
+| FSAA filter | `FSAA_FILTER` (`0x81C870`, 0) | 0, 1 | the tick, then `0x81C870` refreshes the settings object's cached byte `+2` | at OK |
+| data flow DSL / modem | `NETWORK_SPEEDSETTINGS` (`0x81F0D0`, 2) | 2 DSL (`+0x17C`), 1 modem (`+0x180`); another value ticks neither | the choice and `setNetSpeedMode` with the same number | at OK |
+
+- The radio groups are set at the show from the values 0, 1 and 2 in order (detail, collect, quality); the transparency's and the volumes' positions from their numbers (`0x7533B0`), the volumes' read as text and turned to numbers (`0x84B24A`) (**confirmed**).
+- What Cancel (and Escape, and O) restores: the store and the file keep their values, and the next show sets the controls from them; but the volumes dragged and the sound's tick act on the sound system at once, and neither Cancel, Escape, O nor the hide sets them back, so the running game keeps the dragged volumes and the sound's state until the next start, when the file's old values are read again (**confirmed** by the absence of any call in those paths; **hypothesis** that the difference is heard).
+- The volume's scale differs between the two paths: the window gives `p / 126`, the start `p / 128`, so the loudest position, 125, is 0.992 while the window is open and 0.977 after a restart (**confirmed**).
+- No control writes `SCREEN_QUAKE`, `SHOW_ENEMYINFO`, `WARNING_LEVEL` or the other keys of the file: `0x717C20` writes the twelve above alone (**confirmed**).
+- The window's own sounds: every `cUI_Button2` (the ticks, the choices, OK and Cancel) plays `UI_CLICK01` as pressed; the sound quality's choices play a second `UI_CLICK01` from the window (`0x7172F0`): low and medium where the sound system's byte `+0x80` is 1, 3D where it is 0 (**confirmed**; **hypothesis**: `+0x80` is the 3D provider's use, docs/re/sound.md, so the second click marks a change of the mode).
+
+### What the settings change in play
+
+- **`DETAILLEVEL`**: the byte `0x182EE78` is read 118 times in the code (a scan of `mov al, byte ptr [0x182EE78]`); the readers already described:
+  - the liquids' animation at 1 or more, the clear waters' second layer at 2 (docs/re/liquids.md);
+  - the statics' shadow list at 1 or more (`0x62BA03`), the models' shadows at 1 or more, else a few dots (`0x407960`), and the flagged items' `cGranny::renderComplex` while not 0 (`0x44A8C0`) (docs/re/drawing.md);
+  - the weather drawn only at 1 or more (docs/re/weather.md);
+  - 30 farm and wild animals' types left out of the sectors at 0 (docs/re/spawning.md);
+  - the hidden corpses destroyed 25, 10 or 7 s after the death at 2, 1 or 0 (`0x553DC0`, docs/re/fight.md);
+  - the effects' emission intervals times 1.0, 1.5 or 2.2 at 2, 1 or 0 (docs/re/effects.md), which the hundred-odd readers from `0x76B896` to `0x7C71C0` are (**hypothesis**: the effects' classes);
+  - the items' glitter, 3, 5 or 8 sparks (docs/re/items.md);
+  - the menus' water's steps, drops and highlights at 0 and its reflection below 2 (docs/re/menus.md).
+  Not followed: the readers at `0x408E06`, `0x409F96`, `0x40EA06`, `0x4191CB`, `0x419325`, `0x419690`, `0x5BAF79`, `0x5C97B0`, `0x62DD56` and `0x62E138`.
+- **`MINIMAP_ALPHA`** (the map's transparency): the overview map (Tab) reads it at its show (`0x6C7330`, keeping 255 − the value at `+0x15C`) and in its render (`0x6C6C50`, the call at `0x6C6CF2`), which draws the sectors at the alpha 255 − the value, the lens raising an alpha below 96 to 96 (docs/re/maps.md); so the slider's left end is opaque and its right end the most transparent (**confirmed**).
+- **`PICKUPAUTO`** (the collect modes): the Collect's filter `0x4EC330`: 0 every item, 1 gold, runes, certain potions and the items above a bar of quality by the hero's level, 2 gold alone (docs/re/items.md).
+- **`PICKUPANIM`** (the atmospheric animation): the hero's pick-up clip (`0x4EC560`, `0x53A170`, `0x5368E6`…; without it the items are taken at once, docs/re/items.md) and the mount's and the dismount's clips (docs/re/horses.md).
+- **`AUTOTRACKENEMY`** (follow opponents with the mouse): `cEngine_scrollViewAndWarpCursor` (`0x6105B0`) reads it as the view scrolls by the hero; with it on, no window of the three `0x75A8B0`, `0x75A8D0`, `0x75A890` open, and the local hero (`0x603E30`) walking (its action `+0x150` 1) toward a target (`+0x104` in the AI states 4 or 8, `+0x158` in the states 6 or 11), it moves the system cursor by the view's scroll on the screen (`GetCursorPos`, `SetCursorPos`), so that the cursor stays on the foe (**confirmed** that it moves the cursor by the scroll; **hypothesis** the meaning of the states).
+- **`EXPLOREMAP`** (the minimap's fog of war): `0x638F30`; the overview's unexplored ground opaque black with 1, half black with 0 (docs/re/maps.md).
+- **`FSAA_FILTER`**: cached at the settings object's `+2` (`0x81C870`, read by `0x81CA30`), read by two draws of the client (`0x62E410` at `0x62EC75`, `0x62FF60` at `0x6308AD`); when on, they move a quad's texture coordinates in by 1/256 at each edge (`0x89208C`) (**confirmed**; **hypothesis**: the ground's tiles, against the seams that the anti-aliasing shows, docs/09-ecosystem.md).
+- **`SOUND`**: read at the start (`loadSettings` `0x81520B`, `initApp` `0x817285`) and given to the sound system as a mute (`0x6902F0`); the tick acts at once (section 3).
+- **`SOUNDQUALITY`**: given to the sound system at the start and at OK (`0x6780C0`) and read by its start (`0x676200`, which logs it); 2 with the DirectSound3D hardware provider places the samples in 3D (docs/re/sound.md); what tells 0 from 1 is not read.
+- **`NETWORK_SPEEDSETTINGS`**: read by the network's `0x7EDEA0`, set by `setNetSpeedMode` at OK (not followed).
+- **`AUTOSAVE`** and **`VIOLENCE`**: docs/re/saves.md and docs/re/effects.md, "The blood fountain".
+
+### The panels, the background and the buttons' looks
+
+- **The background** (**confirmed**): twelve statics `UI_STATIC_BG` of 256 × 256, the textures `UW_option_1_01.tga` to `UW_option_1_12.tga` (`texture.pak`'s `uw_option_1_01` …) whole, four to a row from (0, 0), rows 256 apart, each a static of the mode 5; the window covers the whole screen, so in a game the world is hidden under it (**hypothesis**: not seen in a game).
+- **The fills** (`0x725640`, **confirmed**): six rectangles of black at the alpha 159 (`0x9F000000`), each its box grown by 20 on every side: (44, 44) 424 × 168, (524, 44) 424 × 168, (44, 268) 424 × 168, (524, 268) 424 × 168, (44, 492) 424 × 200 and (524, 492) 424 × 104.
+- **The panels' frames** (`cUI_Frame`, the constructor `0x73A7A0` with a name, a kind, a rectangle and flags; the images chosen by `0x73D860`, laid out by `0x73ADC0`):
+  - the six boxes, kind 1 with the flags 1, `UI_FRAME_GFXSETTINGS` (64, 64) 384 × 128, `UI_FRAME_SNDVOLUME` (544, 64) 384 × 128, `UI_FRAME_AUTOCOLLECT` (64, 288) 384 × 128, `UI_FRAME_3DSOUND` (544, 288) 384 × 128, `UI_FRAME_GENERALSETTINGS` (64, 512) 384 × 160 and `UI_FRAME_INTERNET` (544, 512) 384 × 64: the images 310 to 321 of `GUI_main_12.TGA`, the frame with its crest of the choice of the hero's panel, the menu over a game and the saves' window, drawn outside the box (**confirmed** the images; the pieces' places by `0x73ADC0`'s kind 1 are not read again here and are taken from docs/re/menus.md, **hypothesis** that they are the same code's);
+  - the six titles' bars, kind 2 with the flags 1, `UI_FRAME_LABEL_GFXSETTINGS` (152, 32), `UI_FRAME_LABEL_SNDVOLUME` (632, 32), `UI_FRAME_LABEL_AUTOCOLLECT` (152, 256), `UI_FRAME_LABEL_3DSOUND` (632, 256), `UI_FRAME_LABEL_GENERAL` (152, 480) and `UI_FRAME_LABEL_INTERNET` (632, 480), each 200 wide (their box's x + 88 and y − 32, so centred over the crest): image 342 (`GUI_main_13.TGA` (165, 63)–(196, 94)) at the left, image 343 ((66, 63)–(97, 94)) repeated from x + 32 every 32 columns ⌊(w − 64)/32⌋ + 1 times (5 for 200), image 344 ((198, 63)–(229, 94)) last against the right end, each 32 × 32 at its own size (**confirmed**);
+  - the two separators, kind 2 with the flags 4, `UI_FRAME_SEP_AUTOCOLLECT` (44, 310) and `UI_FRAME_SEP_SNDQUALITY` (524, 310), 424 wide: image 296 (`GUI_main_12.TGA` (152, 19)–(183, 35)), twelve of image 294 ((173, 1)–(204, 17)) and image 297 ((185, 19)–(216, 35)), 32 × 17 each, the pieces of `UI_STATIC_TEXTBAR` (**confirmed**);
+  - the kind 2's other flags take 345, 343, 346 (flags 2) and 290, 291, 292 (flags 8), unused here.
+- **The titles** (`0x7254C0`, **confirmed**): `UI_LABEL_GFX` (`UI_CFG_GFX_SETTINGS`), `UI_LABEL_VOLUME` (`UI_CFG_SOUND_VOLUME`), `UI_LABEL_PICKUP` (`UI_CFG_AUTOPICKUP`), `UI_LABEL_SND_Q` (`UI_CFG_SOUND_QUALITY_TITLE`), `UI_LABEL_VARIOUS` (`UI_CFG_VARIOUS`) and `UI_LABEL_WAN` (`UI_CFG_WAN`), each in its bar's rectangle (200 wide, as high as its box, its words from the bar's top row), font 7, white, centred.
+- **OK and Cancel** (**confirmed**): image 281 (`GUI_main_12.TGA` (47, 39)–(84, 75)) stretched over the rectangle, image 280 ((1, 39)–(45, 75), 45 wide) left of it and image 282 ((88, 39)–(133, 75), 46 wide) right of it, the same three for the pressed state (`0x72B460(280, 282, 280, 282)`, both textures image 281's), so there is no pressed look; the words in the font 1, centred along the button, set 3 rows up (`0x72B4B0(0, −3)`) from the middle of the button less half the font's height of `A`, white (`+0xA8`), `0xFFFFFF80` under the cursor (`+0xAC`), `0xFF7F7F7F` when not enabled; no glow (the flags 5).
+  So Cancel's ends span the columns 559 to 744 and OK's 759 to 944, the rows 644 to 680, as the frame shows.
+- The ticks' and the choices' looks: images 323 and 272 and the hover glow (section 2).
+
+### Open
+
+- The kind 1 frame's pieces' places in `0x73ADC0` (taken from the choice of the hero's panel; not re-read).
+- The slider's draw (`0x752EE0`): where exactly the knob is drawn for a fraction (**estimate**: its middle at the inner track's x + f · width, which the frame's knobs at the volumes 0 agree with to a few pixels).
+- The repeat rate of a held "−", "+" or bar (one step per drawn frame, **hypothesis**), and whether a single click moves one position or two (the input's and the draw's press in the same frame).
+- The hover glow's blend (the engine's state `0x10`, **hypothesis** additive) and its alpha on a 32-bit display (3 per copy).
+- Whether the event `0x11` of `UI_MAINMENU` from OK, Cancel and Escape does anything in a game (**hypothesis**: nothing, the game goes on), and what the engine event `0x12` sent at the show and hide where `0xAD6EF8` is set does.
+- The byte `0x17EA344` that keeps the key O (and the others of the switch) from the manager.
+- `0x692B60`'s test for the 3D choice, and what `SOUNDQUALITY` 0 changes against 1.
+- The readers of `DETAILLEVEL` listed as not followed, and the effects' range `0x76B896`–`0x7C71C0` taken as the effects' intervals.
+- `NETWORK_SPEEDSETTINGS`' reader `0x7EDEA0` and `setNetSpeedMode`.
+- The fonts 1, 3 and 7's pixel sizes as GDI makes them (font 1 as the choice of the hero's buttons, docs/re/menus.md).
+- Enter's action (the base window's `0x724B50`).
+- Seen in the running original: none of the above beyond the one frame; the live volume after Cancel, the held sliders and the key O are worth a check with the driver of #448.
 
 ## In `opensacred-game`
 
