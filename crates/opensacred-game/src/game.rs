@@ -727,6 +727,7 @@ fn load(
     hero.dying = clips.dying;
     hero.pickup = clips.pickup;
     hero.riding = clips.riding;
+    hero.riding_attack = clips.riding_attack;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.walking = true;
@@ -841,6 +842,11 @@ pub fn clips_of(
             .and_then(|slots| slots.slot(slot))
             .map(|name| with_fractions(name.to_owned()))
     });
+    // The rider's strike from the saddle (#2302).
+    let riding_attack = slots
+        .as_ref()
+        .and_then(|slots| slots.riding_attack(class))
+        .map(|name| with_fractions(name.to_owned()));
     let attacks = slots
         .map(|slots| slots.attacks(class))
         .unwrap_or_default()
@@ -856,6 +862,7 @@ pub fn clips_of(
         dying,
         pickup,
         riding,
+        riding_attack,
     }
 }
 

@@ -137,6 +137,8 @@ pub struct Hero {
     pub pickup: Option<String>,
     /// The model's mount, ride and dismount (`forms::Clips::riding`, #2299).
     pub riding: [Option<String>; 3],
+    /// The rider's strike from the saddle (`forms::Clips::riding_attack`, #2302).
+    pub riding_attack: Option<(String, [f32; 2])>,
     pub position: Vec3,
     /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
     /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
@@ -189,6 +191,7 @@ impl Hero {
             dying: Vec::new(),
             pickup: None,
             riding: [None, None, None],
+            riding_attack: None,
             position,
             floor: None,
             target: None,
@@ -221,6 +224,7 @@ impl Hero {
         self.dying.clone_from(&form.clips.dying);
         self.pickup.clone_from(&form.clips.pickup);
         self.riding.clone_from(&form.clips.riding);
+        self.riding_attack.clone_from(&form.clips.riding_attack);
         self.gltf = Some(assets.load(self.model.clone()));
         self.bare = !form.armed;
         self.equipment = self.equip(assets);
@@ -485,6 +489,8 @@ pub struct Clips {
     /// The rider's mount's, ride's and dismount's nodes and clips, where the model has them
     /// (`riding`, #2299).
     pub riding: [Option<(AnimationNodeIndex, Handle<AnimationClip>)>; 3],
+    /// The rider's strike from the saddle's node, clip and fractions (#2302).
+    pub riding_attack: Option<Strike>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -612,6 +618,13 @@ pub fn spawn(
             .map(|name| name.and_then(|name| clip(&name)));
         let mut riding_at = clips.len();
         clips.extend(riding.iter().flatten().cloned());
+        // The rider's strike from the saddle, last (#2302).
+        let riding_attack = hero
+            .riding_attack
+            .clone()
+            .and_then(|(name, fractions)| Some((clip(&name)?, fractions)));
+        let riding_attack_at = clips.len();
+        clips.extend(riding_attack.iter().map(|(clip, _)| clip.clone()));
         let (graph, nodes) = AnimationGraph::from_clips(clips);
         let riding = riding.map(|clip| {
             let clip = clip?;
@@ -619,6 +632,8 @@ pub fn spawn(
             riding_at += 1;
             Some((node, clip))
         });
+        let riding_attack = riding_attack
+            .and_then(|(clip, fractions)| Some((*nodes.get(riding_attack_at)?, clip, fractions)));
         let mut bolt_nodes = nodes[first_bolt..].iter();
         let bolts = bolts.map(|bolt| {
             let (clip, fractions) = bolt?;
@@ -655,6 +670,7 @@ pub fn spawn(
             bolts,
             pickup,
             riding,
+            riding_attack,
             player: None,
         });
     }
@@ -1706,6 +1722,7 @@ mod tests {
                 dying: Vec::new(),
                 pickup: None,
                 riding: [None, None, None],
+                riding_attack: None,
                 player: None,
             });
         }
@@ -1764,6 +1781,7 @@ mod tests {
             dying: Vec::new(),
             pickup: None,
             riding: [None, None, None],
+            riding_attack: None,
             player: None,
         };
         let with = clips(Some(node(4)));
