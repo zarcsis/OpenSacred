@@ -127,7 +127,7 @@ const EXPERIENCE_WIDTH: f32 = 73.0;
 /// The mount's bar under the experience's, its frame and its fill of the horse's health share
 /// (`0x55C630`), and the horse's button by the portrait (`0x6D7A5C`), while the hero owns a
 /// horse (`riding::Owned`, #2301).
-const MOUNT_FRAME: (u32, Vec2) = (77, Vec2::new(940.0, 133.0));
+pub(crate) const MOUNT_FRAME: (u32, Vec2) = (77, Vec2::new(940.0, 133.0));
 const MOUNT_FILL: (u32, Vec2) = (78, Vec2::new(940.0, 133.0));
 const MOUNT_WIDTH: f32 = 72.0;
 pub(crate) const HORSE_BUTTON: (u32, Vec2) = (365, Vec2::new(986.0, 86.0));

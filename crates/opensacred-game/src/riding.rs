@@ -36,6 +36,112 @@ pub struct Horse {
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Owned(pub Option<Entity>);
 
+/// What a horse's description tells (`0x55C9F0`, #2301): the horse's class and level, its row
+/// of the horse data, the prices' floats and the balance's `HorseOverrideTime`, and the local
+/// hero's level, riding skill (22) and resistances as the fight takes them (`+0x66` times
+/// `+0xD6`).
+pub(crate) struct Described<'a> {
+    pub horse: (u8, u32),
+    pub data: (&'a horses::Row, &'a horses::Prices, f32),
+    pub hero: (u32, u32, [f32; 4]),
+}
+
+/// The resistances' images of a description's line, the physical, fire, magic and poison
+/// (`\g` of `0xD1` to `0xD4`, white).
+const RESISTANCE_IMAGES: [u32; 4] = [0xD1, 0xD2, 0xD3, 0xD4];
+
+/// The horse's description (`0x55C9F0`, the format `0x95692C`): its class's name (the text
+/// `9069 + class`), its price ([`horses::Prices::price`]), its level, its pace (the horse data's
+/// `w0`, the stats' `+0x40`), the trample's seconds, damage and regeneration of the hero on it
+/// ([`horses::trample`]), the health bonus ([`horses::health_bonus`]), the hero's resistances by
+/// their images, and the riding skill it needs, each number truncated. The trample's running
+/// time and value of its other format (`0x956A24`, the horse holding the effect 24) wait for the
+/// trample (#2302).
+pub(crate) fn description(
+    texts: Option<&crate::lines::Texts>,
+    described: &Described,
+) -> Vec<crate::tooltip::Line> {
+    use crate::tooltip::{Line, Piece, WHITE};
+    let text = |name: &str| {
+        texts
+            .and_then(|texts| texts.named(name))
+            .unwrap_or(name)
+            .to_owned()
+    };
+    let Described {
+        horse: (class, level),
+        data: (row, prices, time),
+        hero: (hero_level, skill, resistances),
+    } = *described;
+    let trample = horses::trample(row, (level, hero_level, skill), time);
+    let bonus = horses::health_bonus(row, level, hero_level);
+    let class_name = text(&(CLASS_NAMES + u32::from(class)).to_string());
+    let mut lines: Vec<Line> = [
+        format!("{}: {class_name}", text(CLASS_LABEL)),
+        format!("{}: {}", text(PRICE_LABEL), prices.price(class, level)),
+        format!("{}: {level}", text(LEVEL_LABEL)),
+        format!("{}: {}", text(PACE_LABEL), row.pace),
+        format!(
+            "{}: {}s",
+            text("UI_TT_OVERRIDETIME"),
+            truncated(trample.seconds)
+        ),
+        format!(
+            "{}: {}",
+            text("UI_TT_OVERRIDEDAMAGE"),
+            truncated(trample.damage)
+        ),
+        format!(
+            "{}: {}s",
+            text("UI_TT_OVERRIDEREGENERATION"),
+            truncated(trample.regeneration)
+        ),
+        format!("{}: {bonus}%", text("UI_TT_OVERRIDEHPBONUS")),
+    ]
+    .into_iter()
+    .map(|line| Line::of(line, WHITE))
+    .collect();
+    let mut resisted = vec![Piece::Text(
+        format!("{}: ", text("UI_TT_RESISTANCES")),
+        WHITE,
+    )];
+    for (k, (&image, &value)) in RESISTANCE_IMAGES.iter().zip(&resistances).enumerate() {
+        resisted.push(Piece::Image(image, WHITE));
+        let gap = if k + 1 < RESISTANCE_IMAGES.len() {
+            " "
+        } else {
+            ""
+        };
+        resisted.push(Piece::Text(format!("{}{gap}", truncated(value)), WHITE));
+    }
+    lines.push(Line(resisted));
+    lines.push(Line::of(
+        format!("{}: {}", text(RIDING_LABEL), row.riding),
+        WHITE,
+    ));
+    lines
+}
+
+/// The description's texts: the class's label and the class names from `9069 + 1`, the price's,
+/// the level's, the pace's and the riding's labels (`0x236D`, `0x236B`, `0x42E`, `0x44A`,
+/// `0x24CD`).
+const CLASS_NAMES: u32 = 9069;
+const CLASS_LABEL: &str = "9069";
+const PRICE_LABEL: &str = "9067";
+const LEVEL_LABEL: &str = "1070";
+const PACE_LABEL: &str = "1098";
+const RIDING_LABEL: &str = "9421";
+
+/// `x` truncated toward 0 as the original's `_ftol`, at least 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a value of a description, whole and within a u32"
+)]
+fn truncated(x: f32) -> u32 {
+    x.max(0.0) as u32
+}
+
 /// The hero's seat on a horse, from its walk to the horse to its getting off.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Seat {

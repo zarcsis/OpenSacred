@@ -1125,6 +1125,26 @@ fn kept(at: Vec2, size: Vec2) -> Vec2 {
 #[derive(Component)]
 struct Tip(Vec2);
 
+/// A control's tooltip of the style `0x20B` (the horse's button's own text, `0x6D7AB4`): the
+/// top right corner of its window on the original's screen, kept 16 pixels within it (#2301).
+#[derive(Component)]
+struct TipRight(Vec2);
+
+/// [`spawn_tip_in`] of the style `0x20B`: the text's panel with its top right corner at `corner`.
+pub(crate) fn spawn_tip_right_in(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    (text, corner): (&str, Vec2),
+    frame: Frame,
+) -> Entity {
+    let panel = spawn_tip_in(commands, assets, (text, corner), frame);
+    commands
+        .entity(panel)
+        .remove::<Tip>()
+        .insert(TipRight(corner));
+    panel
+}
+
 /// A control's tooltip's container.
 #[derive(Component)]
 pub(crate) struct TipRoot;
@@ -1235,7 +1255,15 @@ pub(crate) fn spawn_tip_in(
                 });
         })
         .id();
-    let root = match frame {
+    let root = tip_root(commands, frame);
+    commands.entity(root).add_child(panel);
+    panel
+}
+
+/// The root of a control's tooltip in `frame`: the original's screen, or the column's along the
+/// window's right edge.
+fn tip_root(commands: &mut Commands, frame: Frame) -> Entity {
+    match frame {
         Frame::Screen => commands
             .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(2)))
             .id(),
@@ -1255,7 +1283,38 @@ pub(crate) fn spawn_tip_in(
                 GlobalZIndex(2),
             ))
             .id(),
-    };
+    }
+}
+
+/// [`spawn_tip_in`] of lines with images (`\g`, [`line_row`]), the horse's description (#2301):
+/// a panel of the control's tooltips' look centred on `centre` in `frame`.
+pub(crate) fn spawn_lines_tip_in(
+    commands: &mut Commands,
+    (images, assets): (&UiImages, &AssetServer),
+    (lines, centre): (&[Line], Vec2),
+    frame: Frame,
+) -> Entity {
+    let font = assets.load(FONT);
+    let panel = commands
+        .spawn((
+            Tip(centre),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(centre.x),
+                top: Val::Px(centre.y),
+                padding: UiRect::axes(Val::Px(INSET), Val::Px(INSET / 2.0)),
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            BackgroundColor(PANEL),
+            Pickable::IGNORE,
+        ))
+        .id();
+    for line in lines {
+        let row = line_row(commands, (images, assets), &font, line, (LINE, FONT_SIZE));
+        commands.entity(panel).add_child(row);
+    }
+    let root = tip_root(commands, frame);
     commands.entity(root).add_child(panel);
     panel
 }
@@ -1355,10 +1414,14 @@ pub(crate) fn coloured(text: &str) -> Vec<(String, u32)> {
 
 /// Each control's tooltip centred on its place by its size as laid out, kept 16 pixels within
 /// the screen.
-fn centre_tips(mut tips: Query<(&Tip, &ComputedNode, &mut Node)>) {
-    for (tip, computed, mut node) in &mut tips {
+fn centre_tips(mut tips: Query<(Option<&Tip>, Option<&TipRight>, &ComputedNode, &mut Node)>) {
+    for (tip, right, computed, mut node) in &mut tips {
         let size = computed.size() * computed.inverse_scale_factor();
-        let corner = tip_corner(tip.0, size);
+        let corner = match (tip, right) {
+            (Some(tip), _) => tip_corner(tip.0, size),
+            (None, Some(right)) => kept_corner(right.0 - Vec2::new(size.x, 0.0), size),
+            (None, None) => continue,
+        };
         if node.left != Val::Px(corner.x) {
             node.left = Val::Px(corner.x);
         }
@@ -1370,7 +1433,12 @@ fn centre_tips(mut tips: Query<(&Tip, &ComputedNode, &mut Node)>) {
 
 /// The top left of a tooltip of `size` centred on `centre`, kept 16 pixels within the screen.
 fn tip_corner(centre: Vec2, size: Vec2) -> Vec2 {
-    (centre - size / 2.0)
+    kept_corner(centre - size / 2.0, size)
+}
+
+/// The top left `corner` of a tooltip of `size`, kept 16 pixels within the screen.
+fn kept_corner(corner: Vec2, size: Vec2) -> Vec2 {
+    corner
         .min(bar::SCREEN - Vec2::splat(MARGIN) - size)
         .max(Vec2::splat(MARGIN))
 }
