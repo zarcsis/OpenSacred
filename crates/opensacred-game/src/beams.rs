@@ -37,7 +37,68 @@ pub(crate) enum End {
     Bone(Entity, &'static [&'static str], f32),
 }
 
+/// The bones' names by their index (`0x401000`, the table of 32-byte names at `0x8E7200`;
+/// docs/re/effects.md, "The bones"), of which the life leech's beam rolls one of its target's.
+pub(crate) static BONES: [&str; 50] = [
+    "__Root",
+    "Bip01 L Hand",
+    "Bip01 R Hand",
+    "Bip01 Neck",
+    "horse_saddle",
+    "bip01_particle01",
+    "Bip01 L Thigh",
+    "Bip01 R Thigh",
+    "bip01_particle01",
+    "Bip01 L Forearm",
+    "Bip01 R Forearm",
+    "Bone_weapon_01",
+    "Bone_weapon_02",
+    "Bip01 L Finger31",
+    "Bip01 R Finger31",
+    "weapon_fx01",
+    "weapon_fx02",
+    "weapon_fx03",
+    "weapon_gl01",
+    "weapon_gm01",
+    "Bip01 Head",
+    "Bip01 L Finger3",
+    "Bip01 R Finger3",
+    "Bip01 Spine3",
+    "Bip01 Spine2",
+    "Bone_spine",
+    "fx_streak01",
+    "fx_streak02",
+    "fx_streak03",
+    "fx_streak04",
+    "fx_streak05",
+    "fx_streak06",
+    "fx_streak07",
+    "fx_streak08",
+    "fx_streak09",
+    "fx_streak10",
+    "Bip01 R Foot",
+    "Bip01 L Foot",
+    "Bip01 Head",
+    "horse_bone",
+    "Bip01",
+    "Head_02",
+    "Bip01 Pelvis",
+    "Bip01 L UpperArm",
+    "Bip01 R UpperArm",
+    "Bip01 HeadNub",
+    "canon_fx01",
+    "Bone09",
+    "Canon_fx01",
+    "Shildbone",
+];
+
 impl End {
+    /// A creature's bone of the table's `index` ([`BONES`]), else its root (`0x44CA30`, the bone
+    /// 0).
+    pub(crate) fn bone(of: Entity, index: usize) -> Self {
+        Self::Bone(of, BONES.get(index..=index).unwrap_or(&BONES[..1]), 0.0)
+    }
+
     /// A creature's spine.
     pub(crate) fn spine(of: Entity) -> Self {
         Self::Bone(of, &SPINE, SPINE_HIGH)

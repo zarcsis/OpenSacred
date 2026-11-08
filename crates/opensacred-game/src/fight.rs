@@ -53,6 +53,8 @@ pub(crate) struct Dice(Rng);
 const DWARF: u32 = 8;
 /// The sound of the hero's level-up (`LEVELUP01`).
 const LEVEL_UP_SOUND: u32 = 7002;
+/// The sound of a life leech, at the struck one (`SPELL_LASER`, `0x570BB7`).
+const LEECH_SOUND: u32 = 2074;
 
 /// The hero's experience, its level and the points its levels gave
 /// (`opensacred_rules::fight::Experience`).
@@ -590,6 +592,75 @@ pub(crate) fn resolve(
                 most,
             });
             sounds.write(crate::pickup::gold_sound());
+        }
+        // The attacker's effect 842 raises the strike by what it pays of its own health, keeping
+        // 1 (`0x5706F8`–`0x5707F1`, #1366); its red flash (856) is not drawn.
+        let cost = opensacred_rules::fight::painkiller(
+            damage,
+            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None),
+            &rules,
+        );
+        let damage = damage + cost;
+        // Its life leech takes back a share of what the struck one's health held of the damage,
+        // by their distance, but from a poison's strike (`0x5708D3`–`0x570A80`); its beam (the
+        // variant 2) goes from its spine to a bone of the struck one's at random, with
+        // `SPELL_LASER` at the struck one.
+        let life = if hit.poison {
+            0.0
+        } else {
+            opensacred_rules::fight::leech(
+                (damage, health.current),
+                (
+                    opensacred_rules::fight::item_effect(
+                        items,
+                        opensacred_rules::fight::LEECH,
+                        None,
+                    ),
+                    difficulty.leech(),
+                ),
+                (from.translation() - at.translation())
+                    .xz()
+                    .length()
+                    .round(),
+                &rules,
+            )
+        };
+        if cost > 0 || life > 0.0 {
+            debug!(
+                "fight: {} pays {cost} for its strike and leeches {life:.2}",
+                hit.attacker
+            );
+            commands
+                .entity(hit.attacker)
+                .entry::<Health>()
+                .and_modify(move |mut own| {
+                    if own.current == 0 {
+                        return;
+                    }
+                    if cost > 0 {
+                        own.current = opensacred_rules::fight::painkiller_paid(own.current, cost);
+                    }
+                    if life > 0.0 {
+                        own.current =
+                            opensacred_rules::fight::leeched((own.current, own.most), life);
+                    }
+                });
+        }
+        if life > 0.0 {
+            let bone = usize::try_from(dice.0.below(50)).unwrap_or(0);
+            crate::beams::lay(
+                &mut commands,
+                (
+                    crate::beams::End::spine(hit.attacker),
+                    crate::beams::End::bone(hit.target, bone),
+                ),
+                2,
+            );
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(LEECH_SOUND),
+                at: Some(hit.target),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
         }
         if !immortal {
             health.current = health.current.saturating_sub(damage);
@@ -1344,6 +1415,85 @@ mod tests {
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
         assert!(current(mortal) < health.current);
         assert_eq!(current(immortal), health.current);
+    }
+
+    /// The attacker's health after one sure strike of 100 by a hero holding an item of the effect
+    /// `effect` of the value `value`.
+    fn after_a_strike_with(effect: u32, value: i16) -> u32 {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+        });
+        let mut item = opensacred_rules::fight::ItemValues::default();
+        item.bonuses[0] = opensacred_rules::fight::Bonus {
+            condition: 0,
+            effect,
+            value,
+        };
+        let holding = Holding(opensacred_rules::fight::Holds {
+            items: vec![item],
+            ..Default::default()
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = |current| Health {
+            current,
+            most: 1_000,
+            level: 1,
+        };
+        let hero = world
+            .spawn((combat, health(50), holding, GlobalTransform::default()))
+            .id();
+        let target = world
+            .spawn((combat, health(1_000), GlobalTransform::default()))
+            .id();
+        world.write_message(Hit {
+            attacker: hero,
+            target,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some([100.0, 0.0, 0.0, 0.0]),
+            sure: true,
+            poison: false,
+        });
+        app.update();
+        app.world().get::<Health>(hero).unwrap().current
+    }
+
+    #[test]
+    fn a_strike_pays_for_its_842_and_leeches_by_its_841() {
+        // Half its damage taken back at a distance of 0; a fifth of it paid, less 1.
+        assert!(after_a_strike_with(opensacred_rules::fight::LEECH, 50) > 80);
+        let paid = after_a_strike_with(opensacred_rules::fight::PAINKILLER, 20);
+        assert!((1..40).contains(&paid), "{paid}");
+        assert_eq!(
+            after_a_strike_with(opensacred_rules::fight::CRITICAL, 0),
+            50
+        );
     }
 
     #[test]

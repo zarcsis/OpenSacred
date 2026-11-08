@@ -683,6 +683,12 @@ pub struct Rules {
     /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
     rare: Vec<(u32, [f32; 3])>,
     tollwut: f32,
+    /// The share of the effect 842's raise that the strike keeps (`Painkiller`, the balance's
+    /// `0x12B8`), and the life leech's factor of the distance (`Leechfactor`, `0x12BC`) and
+    /// whether the distance counts (`LeechWithDist`, `0x12C8`).
+    painkiller: f32,
+    leech_factor: f32,
+    leech_with_distance: bool,
     /// The combat master's exchange's prices of two, three and four runes (`lotto2` to `lotto4`,
     /// the words from `0xAD4B34`; [`Rules::exchange_price`]).
     exchange: [u32; 3],
@@ -722,6 +728,9 @@ impl Default for Rules {
             spawn_weapon: [25.0, 275.0],
             rare: Vec::new(),
             tollwut: 1.0,
+            painkiller: 100.0,
+            leech_factor: 1_300.0,
+            leech_with_distance: true,
             exchange: [100, 500, 2_000],
             hardened: Hardened::No,
         }
@@ -997,6 +1006,11 @@ impl Rules {
                 .map(|chance| (chance.effect, [chance.a, chance.b, chance.most]))
                 .collect(),
             tollwut: b.f32("TollwutFactor").unwrap_or(default.tollwut),
+            painkiller: b.f32("Painkiller").unwrap_or(default.painkiller),
+            leech_factor: b.f32("Leechfactor").unwrap_or(default.leech_factor),
+            leech_with_distance: b
+                .i32("LeechWithDist")
+                .map_or(default.leech_with_distance, |on| on != 0),
             exchange: {
                 let mut prices = default.exchange;
                 for (k, price) in prices.iter_mut().enumerate() {
@@ -1529,6 +1543,76 @@ pub fn wounded(damage: u32, p: f32, (current, most): (u32, u32), rules: &Rules) 
     }
     let raised = f64::from(damage) * (1.0 + f64::from(x) * f64::from(rules.tollwut));
     whole_u32(raised)
+}
+
+/// The effect that raises its wearer's strikes by its own health (842, the text 1127).
+pub const PAINKILLER: u32 = 842;
+/// The life leech (841, the text 1125).
+pub const LEECH: u32 = 841;
+
+/// What the effect 842 of the value `v` adds to a strike's whole damage `damage`, which its
+/// attacker pays of its own health (`0x5706F8`–`0x5707F1`, #1366):
+/// `⌊⌊d·v·0.01⌋·Painkiller·0.01⌋`, each product on the x87 unit truncated; 0 where `v` is not
+/// above 0.
+pub fn painkiller(damage: u32, v: f32, rules: &Rules) -> u32 {
+    if v <= 0.0 {
+        return 0;
+    }
+    let first = whole_u32(f64::from(damage) * f64::from(v) * f64::from(0.01_f32));
+    whole_u32(f64::from(first) * f64::from(rules.painkiller) * f64::from(0.01_f32))
+}
+
+/// The attacker's own health after it pays `cost` for its effect 842: at least 1
+/// (`0x5707CA`–`0x5707F1`).
+pub fn painkiller_paid(current: u32, cost: u32) -> u32 {
+    current.saturating_sub(cost).max(1)
+}
+
+/// The life that the leech of the value `v` takes back from a strike of the whole damage `damage`
+/// against a defender of the health `health` before it, `share` the difficulty's factor of its
+/// value (1 on bronze, `crate::drops::Difficulty::leech`) and `distance` the two creatures' ground
+/// distance (`0x5708D3`–`0x570A80`, #1366): `min(d, H)·v·share·0.01`, times
+/// `Leechfactor/(distance + 1300)` where the distance counts (`LeechWithDist`), else
+/// `Leechfactor/1300`, a factor below 0.01 making it 0 (the balance's `0x12C0` and `0x12C4`,
+/// which its file does not name, 1300 and 0.01 by its constructor, `0x5E2093`, `0x5E21C8`); 0
+/// where `v` is 0.
+pub fn leech(
+    (damage, health): (u32, u32),
+    (v, share): (f32, f32),
+    distance: f32,
+    rules: &Rules,
+) -> f32 {
+    if v == 0.0 {
+        return 0.0;
+    }
+    let taken = to_f32(damage.min(health)) * (v * share) * 0.01;
+    let distance = if rules.leech_with_distance {
+        distance
+    } else {
+        0.0
+    };
+    let factor = rules.leech_factor / (distance + LEECH_DISTANCE);
+    if factor < LEECH_LEAST {
+        return 0.0;
+    }
+    factor * taken
+}
+
+/// The life leech's distance at which its factor halves, and the least factor that takes
+/// anything (the balance's `0x12C0` and `0x12C4`).
+const LEECH_DISTANCE: f32 = 1_300.0;
+const LEECH_LEAST: f32 = 0.01;
+
+/// The attacker's health after its leech takes back `life`: raised by it, at most to its most,
+/// truncated (`0x570A0A`–`0x570A80`).
+pub fn leeched((current, most): (u32, u32), life: f32) -> u32 {
+    let room = to_f32(most.saturating_sub(current));
+    let life = if to_f32(current) + life > to_f32(most) {
+        room
+    } else {
+        life
+    };
+    whole_u32(f64::from(to_f32(current) + life))
 }
 
 /// `x` truncated toward zero, held within a `u32`.
@@ -6849,6 +6933,27 @@ mod tests {
         assert_eq!(wounded(100, 50.0, (50, 100), &rules), 125);
         assert_eq!(wounded(100, 20.0, (50, 100), &rules), 109);
         assert_eq!(wounded(100, 20.0, (100, 100), &rules), 100);
+        // 842 of 15 adds ⌊⌊57·15·0.01⌋·100·0.01⌋ to a strike of 57: 8, then 7, the float 0.01 a
+        // little below a hundredth (800 of it is 7.9999998), so that the second truncation
+        // takes 1 off a whole raise; its attacker keeps at least 1; none of no value.
+        assert_eq!(painkiller(57, 15.0, &rules), 7);
+        assert_eq!(painkiller(57, 2.0, &rules), 0);
+        assert_eq!(painkiller(57, 0.0, &rules), 0);
+        assert_eq!(painkiller_paid(30, 8), 22);
+        assert_eq!(painkiller_paid(5, 8), 1);
+        // 841 of 10 on bronze takes back 10 % of a strike of 80 against a health of 200, times
+        // 1300/(50 + 1300) at a distance of 50: 7.7; against a health of 40, of 40 alone; at
+        // the share 0.5 of niobium, half.
+        let near = 1_300.0 / 1_350.0;
+        assert!((leech((80, 200), (10.0, 1.0), 50.0, &rules) - 8.0 * near).abs() < 1e-4);
+        assert!((leech((80, 40), (10.0, 1.0), 50.0, &rules) - 4.0 * near).abs() < 1e-4);
+        assert!((leech((80, 200), (10.0, 0.5), 50.0, &rules) - 4.0 * near).abs() < 1e-4);
+        // At 130,000 away its factor 0.00990 falls below 0.01: nothing; nothing of no value.
+        assert_eq!(leech((80, 200), (10.0, 1.0), 130_000.0, &rules), 0.0);
+        assert_eq!(leech((80, 200), (0.0, 1.0), 50.0, &rules), 0.0);
+        // The leech raises the health, at most to its most, truncated.
+        assert_eq!(leeched((50, 100), 7.7), 57);
+        assert_eq!(leeched((98, 100), 7.7), 100);
         // The items' 859 against an opponent: a slot of no class counts, one of another side not.
         let mut bonuses = [Bonus::default(); BONUSES];
         bonuses[0] = Bonus {
