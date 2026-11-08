@@ -5607,7 +5607,10 @@ fn spawn(
             holding: placement
                 .holding
                 .iter()
-                .map(|&held| (held, templates.make(held.item, grade, &mut dice)))
+                .map(|&held| {
+                    let values = templates.make(held.item, grade, rules.difficulty(), &mut dice);
+                    (held, values)
+                })
                 .collect(),
         };
         for (held, values) in &arms.holding {
@@ -9611,7 +9614,9 @@ fn first_fight(
                 usize::try_from(creature).unwrap_or(0),
             );
             for (held, values) in &mut arms.holding {
-                *values = npcs.items.make(held.item, grade, &mut dice);
+                *values = npcs
+                    .items
+                    .make(held.item, grade, rules.difficulty(), &mut dice);
             }
             let regenerates = relevel(
                 grade,
@@ -10034,7 +10039,7 @@ impl Rearms {
 )]
 fn rearm(
     mut commands: Commands,
-    npcs: Res<Npcs>,
+    (npcs, rules): (Res<Npcs>, Res<fight::Rules>),
     assets: Res<AssetServer>,
     mut armed: Query<(
         Entity,
@@ -10085,7 +10090,7 @@ fn rearm(
                     u32::try_from(y).unwrap_or(0),
                     usize::try_from(item).unwrap_or(0),
                 );
-                npcs.items.make(item, grade, &mut dice)
+                npcs.items.make(item, grade, rules.difficulty(), &mut dice)
             });
             let held = InHand {
                 item,

@@ -499,6 +499,12 @@ impl Tables {
             .cloned()
             .unwrap_or_default();
         let values = dropped.values.unwrap_or(values);
+        // A made item's classes as its maker worked them out, a record's as it holds them; an old
+        // save's value, of none, its type's record's (#2266).
+        let classes = match values.classes {
+            0 => classes,
+            made => made,
+        };
         let level = opensacred_rules::fight::item_level(&values, rules)
             .max(self.sockets_level(dropped, rules));
         let fixed = (2000..=2999).contains(&dropped.item) || (6500..=7999).contains(&dropped.item);
