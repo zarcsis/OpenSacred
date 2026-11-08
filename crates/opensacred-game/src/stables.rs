@@ -19,8 +19,11 @@
 //! any deal; a press within it does not reach the world. It plays no sound of its own (its
 //! events (9, `0x20`) to (9, `0x24`) have no case), the gold its coin.
 //!
+//! A stall that a purchase empties its trader fills again ([`restock`]) once the horse bought
+//! is gone or stands 500 or more from it, the trader in the world.
+//!
 //! Not followed: the theft of another NPC's horse (the states 6 and 7, the effect 19), which no
-//! NPC's horse in the game reaches yet (#2288, #2320); a trader's restock of its horses (#2320).
+//! NPC's horse in the game reaches yet (#2288, #2320).
 
 use bevy::prelude::*;
 use opensacred_rules::horses;
@@ -43,6 +46,35 @@ use crate::tooltip::argb;
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Stabled {
     pub trader: String,
+}
+
+/// A stall that a purchase emptied, which its trader fills again (the stock's record,
+/// `0xAACF80 + 0x79E8`): its trader's name, its horse's creature type, class and place, and
+/// the horse bought from it.
+#[derive(Clone, Debug, PartialEq)]
+struct Stall {
+    trader: String,
+    kind: u32,
+    class: u8,
+    place: Vec3,
+    horse: Entity,
+}
+
+/// The stalls that purchases emptied, until their traders fill them.
+#[derive(Resource, Default, Debug)]
+struct Emptied(Vec<Stall>);
+
+/// How far the horse bought stands from its stall for the trader to fill it (`0x5382D8`).
+const STALL_LEFT: f32 = 500.0;
+
+/// The restock's rolls.
+#[derive(Resource)]
+struct Rolls(opensacred_rules::spawning::Rng);
+
+impl Default for Rolls {
+    fn default() -> Self {
+        Self(crate::seed::dice(0x537270))
+    }
 }
 
 /// The window's state (`0x6BE6E0`).
@@ -706,6 +738,19 @@ fn buy(world: &mut World, opened: &Opened) {
     if let Some(mut pack) = world.get_resource_mut::<Pack>() {
         pack.add_gold(-i64::from(sheet.asking));
     }
+    // Its stall waits for its trader to fill it again (`0x538199`).
+    let stall = world.get_entity(horse).ok().and_then(|entity| {
+        Some(Stall {
+            trader: entity.get::<Stabled>()?.trader.clone(),
+            kind: entity.get::<Mind>()?.creature,
+            class: entity.get::<Horse>()?.class,
+            place: entity.get::<Transform>()?.translation,
+            horse,
+        })
+    });
+    if let Some(stall) = stall {
+        world.get_resource_or_init::<Emptied>().0.push(stall);
+    }
     if let Ok(mut entity) = world.get_entity_mut(horse) {
         entity.remove::<Stabled>();
     }
@@ -752,6 +797,87 @@ fn sell(world: &mut World, opened: &Opened) {
     info!("stables: the hero sells {horse} for {paid}");
 }
 
+/// Fills again each stall that a purchase emptied (the trader's update, `0x5375C0` at
+/// `0x538199`–`0x53867D`), at a tick of the world, where its trader is in the world and the
+/// horse bought is gone or dead or stands [`STALL_LEFT`] or more from it: a new horse of its type
+/// at its place, of its class, its level the hero's held within the sector's
+/// (`Npcs::restock_level`, `0x537270`), its trader's stock. A horse sold back joins no stall, as
+/// the original's joins no record. Not followed: the new horse's gear (its slot 1's item) and
+/// gold; the stalls are not saved.
+fn restock(world: &mut World) {
+    if world
+        .get_resource::<crate::frame::WorldTick>()
+        .is_none_or(|tick| tick.seconds.is_none())
+    {
+        return;
+    }
+    let Some(stalls) = world
+        .get_resource::<Emptied>()
+        .map(|emptied| emptied.0.clone())
+    else {
+        return;
+    };
+    if stalls.is_empty() {
+        return;
+    }
+    let mut traders = world.query::<&ScriptName>();
+    let present: Vec<String> = traders.iter(world).map(|name| name.0.clone()).collect();
+    let hero = world
+        .get_resource::<crate::fight::Experience>()
+        .map_or(1, |experience| experience.level);
+    let mut kept = Vec::new();
+    for stall in stalls {
+        let horse = world.get_entity(stall.horse).ok();
+        let gone = horse.is_none_or(|horse| horse.contains::<Dies>());
+        let far = horse
+            .and_then(|horse| horse.get::<Transform>())
+            .is_none_or(|at| (at.translation - stall.place).xz().length() >= STALL_LEFT);
+        if !(gone || far) || !present.contains(&stall.trader) {
+            kept.push(stall);
+            continue;
+        }
+        let roll = world.get_resource_or_init::<Rolls>().0.below(2);
+        let level = world
+            .get_resource::<crate::npcs::Npcs>()
+            .map_or(hero, |npcs| npcs.restock_level(hero, stall.place, roll));
+        let (x, z) = crate::paths::cell_of(stall.place.x, stall.place.z);
+        let (Ok(x), Ok(z)) = (u32::try_from(x), u32::try_from(z)) else {
+            continue;
+        };
+        let request = crate::npcs::Spawn {
+            creature: stall.kind,
+            cells: vec![(x, z)],
+            floor: 0,
+            level: Some(level),
+            rank: crate::fight::Rank::Common,
+            hostile: Some(false),
+            immortal: false,
+            roams: false,
+        };
+        match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
+            Ok(Ok(made)) => {
+                for &horse in &made {
+                    world.entity_mut(horse).insert((
+                        Horse { class: stall.class },
+                        Stabled {
+                            trader: stall.trader.clone(),
+                        },
+                    ));
+                    info!(
+                        "stables: {} fills its stall with {horse} of level {level}",
+                        stall.trader
+                    );
+                }
+            }
+            Ok(Err(error)) => warn!("stables: {} fills no stall: {error}", stall.trader),
+            Err(error) => warn!("stables: {} fills no stall: {error}", stall.trader),
+        }
+    }
+    if let Some(mut emptied) = world.get_resource_mut::<Emptied>() {
+        emptied.0 = kept;
+    }
+}
+
 /// Whether the pointer is off the open window, whose presses do not reach the world.
 fn off_the_window(
     opened: Option<Res<Opened>>,
@@ -771,7 +897,14 @@ impl Plugin for StablesPlugin {
         app.hold_control(off_the_window)
             .add_systems(OnExit(AppState::InGame), |mut commands: Commands| {
                 commands.remove_resource::<Opened>();
+                commands.insert_resource(Emptied::default());
             })
+            .add_systems(
+                Update,
+                restock
+                    .in_set(crate::frame::Unpaused)
+                    .run_if(in_state(AppState::InGame)),
+            )
             .add_systems(
                 Update,
                 (press, draw, hover)

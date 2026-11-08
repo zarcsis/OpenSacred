@@ -3792,6 +3792,14 @@ impl Npcs {
             .script_level(hero, self.values.get(&sector_of(at)))
     }
 
+    /// The level of a horse that a trader's stock makes again at the place `at` for the hero of
+    /// level `hero`, of the roll `roll` (`opensacred_rules::fight::Rules::restock_level`,
+    /// #2320).
+    pub(crate) fn restock_level(&self, hero: u32, at: Vec3, roll: u32) -> u32 {
+        self.fight
+            .restock_level(hero, self.values.get(&sector_of(at)), roll)
+    }
+
     /// The level of the sector `sector`, by which the hero's remark at an area's border weighs
     /// it (`0x622D70`): the mean of its `SpawnValues`' lowest and highest, 0 without them.
     pub fn level(&self, sector: (u32, u32)) -> u32 {
