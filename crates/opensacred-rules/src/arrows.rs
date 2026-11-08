@@ -188,6 +188,21 @@ pub fn deflected(art: u32) -> Deflected {
     }
 }
 
+/// The `Creature.pak` class of the ghosts, which the arrows pass through (`0x426BC0`).
+pub const GHOST: u8 = 11;
+/// How long an arrow that passes through what it hits waits before it may hit again, in seconds
+/// (`+0x240`, `0x5BB010`).
+pub const PASSES_EVERY: f32 = 0.5;
+
+/// Whether an arrow of the type `projectile` passes through the creature it hits rather than
+/// ending there (`0x5BB010`): the plain arrow 3070 and the bow arts' 3069 and 3079 pass through a
+/// ghost ([`GHOST`], `ghost`) and through anything where their shooter's flag of set 63 holds
+/// (`pierces`, the stats' `+0x148` bit `0x10000000`, `0x5BBD87`), hitting again at most every
+/// [`PASSES_EVERY`]; the others end at their hit.
+pub fn passes(projectile: u32, ghost: bool, pierces: bool) -> bool {
+    matches!(projectile, ARROW | MULTI_ARROW | ZEAL_ARROW) && (ghost || pierces)
+}
+
 /// How long an arrow stays stuck in a creature after its hit, in seconds, and the size above
 /// which a creature takes it (`0x5BAB40`).
 pub const STICKS_FOR: f32 = 5.0;
@@ -682,6 +697,15 @@ mod tests {
         assert!(crate::arts::bow_rundum(1069) && !crate::arts::bow_rundum(1062));
         assert!(crate::arts::bow_hardhit(1070) && !crate::arts::bow_hardhit(1071));
         assert!(crate::arts::bow_attacke(1080) && !crate::arts::bow_attacke(1079));
+    }
+
+    #[test]
+    fn the_plain_and_the_bow_arts_arrows_pass_through_the_ghosts() {
+        assert!(passes(ARROW, true, false) && passes(MULTI_ARROW, false, true));
+        assert!(passes(ZEAL_ARROW, true, true));
+        // Not a living creature for a shooter without the flag, nor the other arrows.
+        assert!(!passes(ARROW, false, false));
+        assert!(!passes(HARD_ARROW, true, true) && !passes(3077, true, false));
     }
 
     #[test]
