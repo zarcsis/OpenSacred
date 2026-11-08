@@ -311,7 +311,10 @@ fn pick(
         Option<Res<Npcs>>,
         Option<Res<crate::arts::HeroArts>>,
     ),
-    horses: Query<(Entity, &GlobalTransform, &Horse, &Health, Option<&Ridden>), Without<Dies>>,
+    horses: Query<
+        (Entity, &GlobalTransform, &Horse, &Health, Option<&Ridden>),
+        (Without<Dies>, Without<crate::stables::Stabled>),
+    >,
     bones: (Query<&Children>, Query<(&Name, &GlobalTransform)>),
     mut heroes: Query<(Entity, &Transform, &mut Body, Option<&Seat>), Without<Dies>>,
     (sfx, mut sounds): (

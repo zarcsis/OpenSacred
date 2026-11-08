@@ -287,6 +287,9 @@ struct Placement {
     /// A horse's class, its `CreateNPC`'s tag `0x90` (`SetHorseClass:`, the byte `+0x400`), 0
     /// where none names it (#2299).
     horse_class: u8,
+    /// A stable's horse's trader, by its script name: the `0x63` of its `CreateNPC` or of a
+    /// `SetNPCState`, which stocks it (`stables::Stabled`, #2300).
+    stock: Option<String>,
     /// The texture its item names (`+0x08`), relative to the asset directory.
     texture: Option<String>,
     /// The position's third number, the layer.
@@ -896,6 +899,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
     Placement {
         model: kind.model.clone(),
         horse_class: 0,
+        stock: None,
         cell: (0, 0),
         drawn: None,
         home: None,
@@ -2012,6 +2016,21 @@ fn script_group(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
 }
 
 /// A `CreateNPC`'s horse class, its tag `0x90` (`SetHorseClass:`), held to a byte; 0 for none.
+/// The trader of a stable's horse named by `name` (`0x63`, `SetOwner:`; `0x4624FC`): none for
+/// an empty name, nor for `hero`, which gives the horse to the player (not followed).
+fn trader_of(name: &str) -> Option<String> {
+    (!name.is_empty() && !name.eq_ignore_ascii_case("hero")).then(|| name.to_owned())
+}
+
+/// The trader that a `CreateNPC`'s `0x63` makes its horse a stable's of ([`trader_of`],
+/// `0x484E52`).
+fn stock_of(ops: &[opensacred_data::netscript::Operand]) -> Option<String> {
+    ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (STOCK, opensacred_data::netscript::Value::Str(name)) => trader_of(name),
+        _ => None,
+    })
+}
+
 fn horse_class(ops: &[opensacred_data::netscript::Operand]) -> u8 {
     ops.iter()
         .find(|o| o.tag == HORSE_CLASS)
@@ -2069,6 +2088,8 @@ struct State {
     heading: Option<f32>,
     group: Option<u32>,
     stocked: bool,
+    /// The trader whose stock it joins, by its script name (#2300).
+    stock: Option<String>,
     /// Whether it hires its creature as the hero's follower, or lets it go ([`hire_of`]; #657).
     hire: Option<crate::followers::Hire>,
 }
@@ -2114,7 +2135,10 @@ impl State {
                 (ON_DEATH, Value::Str(name)) => state.deaths.push((true, name.clone())),
                 (ON_SIGHT, Value::Str(name)) => state.deaths.push((false, name.clone())),
                 (0x03, Value::U16(degrees)) => state.heading = Some(f32::from(*degrees)),
-                (STOCK, Value::Str(_)) => state.stocked = true,
+                (STOCK, Value::Str(name)) => {
+                    state.stocked = true;
+                    state.stock = trader_of(name);
+                }
                 _ => {}
             }
         }
@@ -2151,6 +2175,9 @@ impl State {
         }
         if self.stocked {
             placement.dialogue = false;
+        }
+        if self.stock.is_some() {
+            placement.stock.clone_from(&self.stock);
         }
         placement.talk = self.talk_of(placement.talk.take());
         if let Some(talk) = &self.talk {
@@ -3290,6 +3317,7 @@ impl Makers {
             } else {
                 0
             },
+            stock: (record.kind == CREATE_NPC).then(|| stock_of(ops)).flatten(),
             cell: (x, y),
             drawn: if record.kind == CREATE_OBJ {
                 drawn_at(ops)
@@ -6099,6 +6127,12 @@ fn spawn(
             entity.insert(crate::riding::Horse {
                 class: opensacred_rules::horses::class(placement.horse_class),
             });
+            // A stable's, of its trader (#2300).
+            if let Some(trader) = &placement.stock {
+                entity.insert(crate::stables::Stabled {
+                    trader: trader.clone(),
+                });
+            }
         }
         if let Some(((tx, ty), speed)) = placement.walk {
             entity.insert(
@@ -9145,6 +9179,11 @@ pub(crate) fn script_records(
                 }
                 if state.stocked {
                     mind.dialogue = false;
+                }
+                if let Some(trader) = &state.stock {
+                    commands.entity(entity).insert(crate::stables::Stabled {
+                        trader: trader.clone(),
+                    });
                 }
                 // Its side by the record's hostility, as its placement's (`0x461540`, #1841).
                 if let Some(hostile) = state.hostile {

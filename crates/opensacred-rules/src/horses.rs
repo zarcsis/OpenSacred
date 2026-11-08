@@ -118,6 +118,35 @@ impl Prices {
     }
 }
 
+/// The asking price of a horse of the base price `price` ([`Prices::price`]) for a hero of the
+/// trading skill (21) `trading` (`0x6BEB90`): `P − ⌊0.005·s·P⌋`, at least `⌊P/2⌋`.
+pub fn asking(price: u32, trading: u32) -> u32 {
+    let discount = whole(f64::from(0.005_f32) * f64::from(trading) * f64::from(price));
+    price.saturating_sub(discount).max(price / 2)
+}
+
+/// What the horse window shows a trader paying for the hero's horse of the asking price
+/// `asking` (`0x6BDE64`): `⌊0.66·asking⌋` of the float 0.66 (`0x89215C`).
+pub fn sale(asking: u32) -> u32 {
+    whole(f64::from(0.66_f32) * f64::from(asking))
+}
+
+/// What the trader pays (`0x6BE400`): `⌊0.66·asking⌋` of the double 0.66 (`0x891118`), which
+/// [`sale`]'s float can pass by one where the product is whole.
+pub fn paid_for(asking: u32) -> u32 {
+    whole(0.66 * f64::from(asking))
+}
+
+/// What a trader's healing of a horse of the base price `price` and the health `shown` of `most`
+/// costs (`0x6BEB90`): `⌊⌊price/most⌋·(most − shown)·0.25⌋`, at most a quarter of the price.
+pub fn healing(price: u32, (shown, most): (u32, u32)) -> u32 {
+    if most == 0 {
+        return 0;
+    }
+    let cost = whole(f64::from((price / most) * most.saturating_sub(shown)) * 0.25);
+    cost.min(price / 4)
+}
+
 /// A rider's trample on its horse (the override, docs/re/horses.md, "Fighting from horseback"):
 /// the damage it deals in all (the effect 24's value, `0x552B90`), the most that one creature
 /// takes (its factor, `0x552D70`), its seconds (`0x552EF0`) and its regeneration's seconds
@@ -311,6 +340,23 @@ mod tests {
         assert_eq!(health_bonus(&row, 1, 41), 1);
         // The curve rises toward its double less the offset: at the level 101, 5 + 20·0.5 = 15.
         assert_eq!(health_bonus(&row, 101, 101), 15);
+    }
+
+    #[test]
+    fn the_trading_skill_takes_off_the_price_down_to_half_and_a_sale_pays_two_thirds() {
+        // No skill: the price itself; the skill 10: 5 % off.
+        assert_eq!(asking(1_102, 0), 1_102);
+        assert_eq!(asking(1_102, 10), 1_102 - 55);
+        // Never below half.
+        assert_eq!(asking(1_102, 200), 551);
+        assert_eq!(sale(1_000), 660);
+        assert_eq!(paid_for(1_000), 660);
+        assert_eq!(paid_for(50), 33);
+        // Healing: a share of the price by the health missing, a quarter at most.
+        assert_eq!(healing(1_102, (52, 52)), 0);
+        assert_eq!(healing(1_102, (26, 52)), (1_102 / 52 * 26) / 4);
+        assert_eq!(healing(1_102, (0, 52)), (1_102 / 52 * 52) / 4);
+        assert_eq!(healing(1_102, (0, 0)), 0);
     }
 
     #[test]

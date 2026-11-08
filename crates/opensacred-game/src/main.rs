@@ -218,6 +218,7 @@ mod spells_page;
 mod spikes;
 mod spits;
 mod srgb;
+mod stables;
 mod stargates;
 mod stashes;
 mod statics;
@@ -694,6 +695,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         spells::SpellsPlugin,
         spells_page::SpellsPagePlugin,
         srgb::SrgbPlugin,
+        stables::StablesPlugin,
+    ))
+    .add_plugins((
         stargates::StargatesPlugin,
         stashes::StashesPlugin,
         statics::StaticsPlugin,
