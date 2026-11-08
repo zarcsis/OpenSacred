@@ -485,6 +485,30 @@ const RIDER_SHOOTS: f32 = 800.0;
 const CIRCLES_TURN: f32 = 45.0;
 const CIRCLES_SHORT: f32 = 4.0;
 const CIRCLES_LONG: f32 = 5.0;
+/// The charge (the melee's sub-states 11 and 12, `0x4E2E93`–`0x4E345F`; #2288): one decision
+/// in eleven of a riding black rider (`rand() % 11` above 9, `0x4D5A98`), its run at its target
+/// until within the reach less 15 or for 20 updates, its legs away of 400 turned ±30°, at most
+/// 10, ridden on within 300 of the target, and from 300 its charge again in one case of three
+/// with the effect 24 for 10 s.
+const CHARGES_ONE_IN: u32 = 11;
+const CHARGE_SHORT: f32 = 15.0;
+const CHARGE_UPDATES: u8 = 20;
+const CHARGE_AWAY: f32 = 400.0;
+const CHARGE_TURN: f32 = 30.0;
+const CHARGE_LEGS: u8 = 10;
+const CHARGE_LEAVES: f32 = 300.0;
+pub const CHARGE_EFFECT_SECONDS: f32 = 10.0;
+
+/// A riding black rider's charge's step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Charge {
+    #[default]
+    None,
+    /// Its run at its target, of the updates run.
+    Run(u8),
+    /// Its ride away, of the legs ridden.
+    Away(u8),
+}
 const TAKES_BOW_BEYOND: f32 = 100.0;
 /// The weapons of the switch, `items.pak` types made at the creature's level (`0x5D5080`): the
 /// four of melee, held in the right hand, and the two bows, held in the left.
@@ -727,6 +751,8 @@ pub struct Mind {
     /// whether its id is odd, which turns its horse's circling about the hero one way or the
     /// other ([`Self::circles`], #2288); none on foot.
     pub rides: Option<bool>,
+    /// Its charge's step, a riding black rider's (#2288).
+    charge: Charge,
     runs_at_range: bool,
     shots: Chain,
     /// Whether it went to melee from its bow and takes one again (`+0x2B8` bit `0x10`, which only
@@ -834,6 +860,7 @@ impl Mind {
             shot: false,
             backs: 0,
             rides: None,
+            charge: Charge::None,
             runs_at_range: false,
             shots: Chain::default(),
             takes_bow: false,
@@ -1733,6 +1760,15 @@ impl Mind {
         if self.takes_bow && !striking && d > reach + TAKES_BOW_BEYOND {
             return Some(self.takes_a_bow(rng));
         }
+        if self.rides.is_some() && self.creature == BLACK_RIDER && !striking {
+            let charging = self.charge != Charge::None;
+            if let Some(next) = self.charges((here, hero), walk.is_some(), reach, rng) {
+                return Some(next);
+            }
+            if charging && walk.is_some() {
+                return None;
+            }
+        }
         let steps_back = || Pursues::StepsBack(here + (here - hero).unit() * ((lo + hi) / 2.0));
         // Its place held for a tick, it is steered by the hero alone, as the sub-state 2 steers
         // a creature that moves (`0x4E23A4`).
@@ -1794,6 +1830,82 @@ impl Mind {
             None => Some(Pursues::Strikes(
                 (!striking && self.rests <= 0.0).then(|| rng.below(5)),
             )),
+        }
+    }
+
+    /// A riding black rider's charge's next step from `here` at the hero at `hero`, moving or not,
+    /// of the reach `reach` (the melee's sub-states 11 and 12, #2288): deciding, standing, it
+    /// charges in one case of eleven; running at the hero while farther than the reach less 15,
+    /// for 20 updates at most; then it strikes in passing and rides 400 beyond along its heading
+    /// turned ±30° by a coin; within 300 of the hero it rides on while it moves and takes another
+    /// leg as it stops, 10 at most; from 300 it charges again in one case of three, with the
+    /// effect 24, else decides. None where it decides as any other.
+    fn charges(
+        &mut self,
+        (here, hero): (Spot, Spot),
+        moving: bool,
+        reach: f32,
+        rng: &mut impl Dice,
+    ) -> Option<Pursues> {
+        let d = (hero - here).length();
+        let turn = |rng: &mut dyn FnMut() -> u32| {
+            if rng() == 0 {
+                CHARGE_TURN
+            } else {
+                -CHARGE_TURN
+            }
+        };
+        match self.charge {
+            // In its decision, as a strike would start: once a strike's rest is over.
+            Charge::None => {
+                if moving || self.rests > 0.0 || rng.below(CHARGES_ONE_IN) < CHARGES_ONE_IN - 1 {
+                    return None;
+                }
+                self.charge = Charge::Run(0);
+                Some(Pursues::Charges {
+                    to: hero,
+                    again: false,
+                })
+            }
+            Charge::Run(updates) if d > reach - CHARGE_SHORT && updates < CHARGE_UPDATES => {
+                self.charge = Charge::Run(updates + 1);
+                Some(Pursues::Charges {
+                    to: hero,
+                    again: false,
+                })
+            }
+            Charge::Run(_) => {
+                self.charge = Charge::Away(1);
+                let heading = (hero - here).unit();
+                let turned = turn(&mut || rng.below(2));
+                Some(Pursues::Passes {
+                    to: hero + (heading * CHARGE_AWAY).turned(turned),
+                })
+            }
+            Charge::Away(_) if moving && d < CHARGE_LEAVES => None,
+            Charge::Away(legs) if d < CHARGE_LEAVES => {
+                if legs >= CHARGE_LEGS {
+                    self.charge = Charge::None;
+                    return None;
+                }
+                self.charge = Charge::Away(legs + 1);
+                let heading = (here - hero).unit();
+                let turned = turn(&mut || rng.below(2));
+                Some(Pursues::RidesAway {
+                    to: here + (heading * CHARGE_AWAY).turned(turned),
+                })
+            }
+            Charge::Away(_) => {
+                if rng.below(3) == 2 {
+                    self.charge = Charge::Run(0);
+                    return Some(Pursues::Charges {
+                        to: hero,
+                        again: true,
+                    });
+                }
+                self.charge = Charge::None;
+                None
+            }
         }
     }
 
@@ -2482,6 +2594,12 @@ pub enum Pursues {
     ComesOn { runs: bool, within: f32 },
     /// A riding archer's horse takes it round the hero to the point, at a run (#2288).
     Circles { to: Spot },
+    /// A riding black rider charges the hero at a run, again with the effect 24 (#2288).
+    Charges { to: Spot, again: bool },
+    /// It strikes the hero in passing and rides on to the point (#2288).
+    Passes { to: Spot },
+    /// It rides another leg of its charge away to the point (#2288).
+    RidesAway { to: Spot },
     /// Too near the hero, it steps back to the point.
     StepsBack(Spot),
     /// Too far from home, it walks home and leaves the fight.
@@ -3422,6 +3540,54 @@ mod tests {
     use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
+
+    #[test]
+    fn a_riding_black_rider_charges_through_the_hero_and_rides_away() {
+        let mut mind = Mind::new(
+            Spot::default(),
+            1,
+            (false, false),
+            None,
+            SPEEDS,
+            (BLACK_RIDER, 5),
+        );
+        mind.rides = Some(true);
+        let mut dice = Rng::of(1, 2, 2288);
+        let (hero, far, near) = (
+            Spot::new(0.0, 0.0),
+            Spot::new(500.0, 0.0),
+            Spot::new(100.0, 0.0),
+        );
+        // Standing, it charges in one case of eleven, sooner or later; moving, never.
+        assert_eq!(mind.charges((far, hero), true, 130.0, &mut dice), None);
+        let started = (0..200)
+            .find_map(|_| mind.charges((far, hero), false, 130.0, &mut dice))
+            .expect("a charge");
+        assert_eq!(
+            started,
+            Pursues::Charges {
+                to: hero,
+                again: false
+            }
+        );
+        // Far, it runs on at the hero; within the reach less 15, it strikes in passing and rides
+        // 400 beyond the hero.
+        assert!(matches!(
+            mind.charges((far, hero), true, 130.0, &mut dice),
+            Some(Pursues::Charges { .. })
+        ));
+        let Some(Pursues::Passes { to }) = mind.charges((near, hero), true, 130.0, &mut dice)
+        else {
+            panic!("a strike in passing");
+        };
+        assert!((to.length() - 400.0).abs() < 0.1 && to.x < 0.0, "{to:?}");
+        // Riding away within 300 it rides on; stopped there, another leg.
+        assert_eq!(mind.charges((near, hero), true, 130.0, &mut dice), None);
+        assert!(matches!(
+            mind.charges((near, hero), false, 130.0, &mut dice),
+            Some(Pursues::RidesAway { .. })
+        ));
+    }
 
     #[test]
     fn a_riding_archers_horse_takes_it_round_the_hero_by_its_parity() {
