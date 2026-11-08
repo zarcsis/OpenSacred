@@ -21,9 +21,9 @@ use bevy::color::ColorToComponents;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::{
-    AlphaMode, App, AssetServer, Assets, Color, Commands, Entity, Handle, Image,
-    IntoScheduleConfigs, Mesh, Mesh3d, MeshMaterial3d, Plugin, Res, ResMut, Resource,
-    StandardMaterial, Time, Update, default,
+    AlphaMode, App, AssetServer, Assets, Color, Commands, Component, DetectChangesMut, Entity,
+    Handle, Image, IntoScheduleConfigs, Mesh, Mesh3d, MeshMaterial3d, Plugin, Query, Res, ResMut,
+    Resource, StandardMaterial, Time, Update, Visibility, With, default,
 };
 use opensacred_data::world::{Cell, SIDE, Sector};
 
@@ -463,13 +463,32 @@ pub fn spawn(
         let Some(handle) = handle else {
             continue;
         };
-        entities.push(
-            commands
-                .spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(handle)))
-                .id(),
-        );
+        let mut entity = commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(handle)));
+        if bed {
+            entity.insert(Bed);
+        }
+        entities.push(entity.id());
     }
     entities
+}
+
+/// A clear water's second layer, drawn at the options' highest detail alone (docs/re/liquids.md).
+#[derive(Component)]
+pub struct Bed;
+
+/// Shows the clear waters' second layers at the detail 2 and hides them below it.
+pub fn beds(
+    settings: Option<Res<crate::settings::Settings>>,
+    mut beds: Query<&mut Visibility, With<Bed>>,
+) {
+    let wanted = if crate::settings::detail(settings.as_deref()) == 2 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut visibility in &mut beds {
+        visibility.set_if_neq(wanted);
+    }
 }
 
 /// The frame of `count` to show at `ms` milliseconds, as the original picks it: the share of the
@@ -488,8 +507,14 @@ pub fn animate(
     liquids: Res<Liquids>,
     images: Res<Assets<Image>>,
     mut materials: ResMut<Assets<Sorted>>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
-    let ms = time.elapsed().as_millis();
+    // The animation stands on its first frame at the options' lowest detail.
+    let ms = if crate::settings::detail(settings.as_deref()) == 0 {
+        0
+    } else {
+        time.elapsed().as_millis()
+    };
     let light = bed_light(clock.map_or(0.0, |clock| clock.minutes()));
     let light = Color::srgb(light, light, light);
     for animated in liquids.animated.values() {
@@ -530,7 +555,7 @@ pub struct LiquidsPlugin;
 
 impl Plugin for LiquidsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, animate.in_set(crate::frame::Playing));
+        app.add_systems(Update, (animate, beds).in_set(crate::frame::Playing));
     }
 }
 

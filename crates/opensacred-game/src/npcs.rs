@@ -1961,7 +1961,11 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
             ..entry
         })
         .collect();
-    Some(spawning::Fill { per_area, entries })
+    Some(spawning::Fill {
+        per_area,
+        entries,
+        hostile: forced == Some(true),
+    })
 }
 
 /// The fractions of the attack's clips at which they hit (`0x4EA1F0`, docs/re/fight.md), none
@@ -5025,11 +5029,18 @@ pub fn place(
         Option<Res<crate::scripts::ScriptReplacements>>,
         Option<Res<crate::scripts::ScriptAreaTypes>>,
     ),
-    items: Option<Res<drops::Tables>>,
+    (items, settings): (
+        Option<Res<drops::Tables>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
     bodies: Query<(&fight::Base, Option<&fight::Holding>), With<hero::Body>>,
 ) {
     let npcs = &mut *npcs;
     let hero = experience.level;
+    // The options' detail, at whose lowest the fills leave the animals out (`0x47CADD`).
+    let detail = settings
+        .as_deref()
+        .map_or(2, |settings| settings.graphics.detail);
     let time = played.time(bodies.iter().next().and_then(|(_, holding)| holding));
     let area_types = area_types.as_ref().map(|lists| &lists.0);
     let side = u32::try_from(SIDE).unwrap_or(64);
@@ -5174,6 +5185,7 @@ pub fn place(
             continue;
         };
         for (index, fill) in fills.iter().enumerate() {
+            let fill = &*spawning::at_detail(fill, detail);
             let mut rng = spawning::Rng::of(at.0, at.1, index);
             let first = fill
                 .entries

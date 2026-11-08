@@ -351,6 +351,7 @@ impl Ripples<'_> {
                     Transform::IDENTITY,
                     NoFrustumCulling,
                     layer,
+                    Pass(pass),
                 ));
             }
         }
@@ -405,14 +406,43 @@ fn seen(view: View, point: Vec3) -> [f32; 3] {
     [point.x, -z, -(y + view.distance)]
 }
 
+/// A water's pass: 0 the bed, 1 the reflection, 2 the highlights.
+#[derive(Component)]
+struct Pass(usize);
+
+/// Shows the reflection at the options' highest detail and the highlights above its lowest
+/// (docs/re/menus.md, "The water").
+fn passes(
+    settings: Option<Res<crate::settings::Settings>>,
+    mut passes: Query<(&Pass, &mut Visibility)>,
+) {
+    let detail = crate::settings::detail(settings.as_deref());
+    for (pass, mut visibility) in &mut passes {
+        let shown = match pass.0 {
+            1 => detail == 2,
+            2 => detail >= 1,
+            _ => true,
+        };
+        visibility.set_if_neq(if shown {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+}
+
 /// Steps the surface as the frames' real time owes it and lets a drop fall when its time comes,
-/// while a screen shows its water.
+/// while a screen shows its water; neither at the options' lowest detail.
 fn ripple(
     time: Res<Time<Real>>,
     mut surface: ResMut<Surface>,
     waters: Query<&Water>,
     mut fallen: MessageWriter<Fallen>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
+    if crate::settings::detail(settings.as_deref()) == 0 {
+        return;
+    }
     let elapsed = time.delta_secs();
     surface.drop_in -= elapsed;
     if surface.drop_in <= 0.0 {
@@ -541,7 +571,9 @@ impl Plugin for RipplesPlugin {
             .add_message::<Fallen>()
             .add_systems(
                 Update,
-                (ripple, shape).chain().run_if(any_with_component::<Water>),
+                (ripple, shape, passes)
+                    .chain()
+                    .run_if(any_with_component::<Water>),
             );
     }
 }

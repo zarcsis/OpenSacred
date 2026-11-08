@@ -255,6 +255,12 @@ impl Default for Gameplay {
     }
 }
 
+/// The detail of `settings` in force, 0 to 2, the high's 2 without them (`DETAILLEVEL`, the byte
+/// `0x182EE78` that its readers take as they draw).
+pub fn detail(settings: Option<&Settings>) -> u8 {
+    settings.map_or(2, |settings| settings.graphics.detail.min(2))
+}
+
 /// The settings in force: the file's, with the command line's for this run.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

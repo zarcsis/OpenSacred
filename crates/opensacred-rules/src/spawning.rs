@@ -31,6 +31,29 @@ pub struct Fill {
     /// The `19:(type, weight, hostile)` entries, a bare `02:type` weighing 100, peaceful;
     /// `08` and `0E` already applied.
     pub entries: Vec<Entry>,
+    /// Whether the record has `08`, every entry hostile, which keeps its animals at the detail 0
+    /// ([`at_detail`]).
+    pub hostile: bool,
+}
+
+/// The farm and wild animals that a fill leaves out at the detail 0 (`DETAILLEVEL`, the table at
+/// `0x47F774` over the types 513 to 593, `0x47CADD`): crows, bats, rabbits, pigs, cows, deer,
+/// bulls, sheep and chickens.
+const LEFT_OUT_AT_LOW_DETAIL: [u32; 30] = [
+    513, 514, 515, 516, 520, 521, 522, 523, 524, 525, 526, 527, 528, 530, 531, 532, 533, 540, 541,
+    544, 560, 561, 562, 563, 565, 566, 589, 590, 592, 593,
+];
+
+/// `fill` at the detail `detail` (0 to 2) of a game of one player: at 0 its entries of the
+/// animals [`LEFT_OUT_AT_LOW_DETAIL`] are gone unless the record has `08` (`0x47CADD`).
+pub fn at_detail(fill: &Fill, detail: u8) -> std::borrow::Cow<'_, Fill> {
+    if detail > 0 || fill.hostile {
+        return std::borrow::Cow::Borrowed(fill);
+    }
+    let mut kept = fill.clone();
+    kept.entries
+        .retain(|entry| !LEFT_OUT_AT_LOW_DETAIL.contains(&entry.creature));
+    std::borrow::Cow::Owned(kept)
 }
 
 /// A type that a fill may make, its weight, and whether it is made hostile.
@@ -666,7 +689,24 @@ mod tests {
                 weight: 100,
                 hostile: false,
             }],
+            hostile: false,
         }
+    }
+
+    #[test]
+    fn the_lowest_detail_leaves_the_animals_out_but_of_a_hostile_record() {
+        let mut fill = rabbits();
+        fill.entries.push(Entry {
+            creature: 76,
+            weight: 50,
+            hostile: false,
+        });
+        assert_eq!(at_detail(&fill, 1).entries.len(), 2);
+        let low = at_detail(&fill, 0);
+        assert_eq!(low.entries.len(), 1);
+        assert_eq!(low.entries[0].creature, 76);
+        fill.hostile = true;
+        assert_eq!(at_detail(&fill, 0).entries.len(), 2);
     }
 
     #[test]
@@ -886,6 +926,7 @@ mod tests {
                 weight: 100,
                 hostile: true,
             }],
+            hostile: true,
         };
         let mut rng = Rng::of(48, 39, 0);
         let made = make(&thieves, 12, &open_ground(14), &mut rng);

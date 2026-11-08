@@ -204,6 +204,22 @@ pub fn cast(
     }
 }
 
+/// Hides the models' shadows at the options' lowest detail (`0x407960`'s dots in their place not
+/// followed), and shows them above it.
+fn detail(
+    settings: Option<Res<crate::settings::Settings>>,
+    mut shadows: Query<&mut Visibility, With<Shadow>>,
+) {
+    let wanted = if crate::settings::detail(settings.as_deref()) == 0 {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut visibility in &mut shadows {
+        visibility.set_if_neq(wanted);
+    }
+}
+
 /// Gives the shadow of each caster that has just sunk under a liquid's surface, or come out of
 /// one, the material of its layer.
 fn soak(
@@ -263,7 +279,10 @@ impl Plugin for ShadowsPlugin {
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
             .init_resource::<Grounds>()
             .add_systems(Startup, setup)
-            .add_systems(Update, (cast, soak, ground).chain().in_set(Step::Shadows));
+            .add_systems(
+                Update,
+                (cast, soak, ground, detail).chain().in_set(Step::Shadows),
+            );
     }
 }
 

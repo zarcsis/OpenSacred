@@ -1896,6 +1896,7 @@ mod tests {
         let fill = Fill {
             per_area: (1, 2, 100),
             entries: vec![line(279, false), line(35, false)],
+            hostile: false,
         };
         let mut replacements = Replacements::default();
         // `Init58`'s: the soldier 279 becomes the skeleton warrior 32, hostile, in area 1.
@@ -1911,6 +1912,7 @@ mod tests {
         let other = Fill {
             per_area: (1, 2, 100),
             entries: vec![line(35, false)],
+            hostile: false,
         };
         assert_eq!(replacements.fill(1, &other), other);
         // A later entry swaps back; the same types again take the first's place and append.

@@ -385,11 +385,18 @@ pub fn shadows(
     clock: Res<Clock>,
     shadows: Option<Res<crate::statics::StaticShadows>>,
     mut materials: ResMut<Assets<crate::statics::SpriteMaterial>>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let Some(shadows) = shadows else {
         return;
     };
-    let alpha = shadow_alpha(clock.minutes());
+    // None at the options' lowest detail, whose draw lists take no shadow (`0x62BA03`,
+    // `0x62AE90`).
+    let alpha = if crate::settings::detail(settings.as_deref()) == 0 {
+        0.0
+    } else {
+        shadow_alpha(clock.minutes())
+    };
     for handle in [&shadows.list1, &shadows.with_sprites, &shadows.on_floors] {
         if materials.get(handle).is_some_and(|m| m.tint.w != alpha)
             && let Some(mut material) = materials.get_mut(handle)
