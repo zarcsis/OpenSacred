@@ -102,6 +102,8 @@ pub(crate) enum Speech {
     Smith,
     Merchant,
     Master,
+    /// The horse window of a stable's horse or a horse trader (`0x529930`, #2300).
+    Horses,
 }
 
 impl std::fmt::Display for Speech {
@@ -110,6 +112,7 @@ impl std::fmt::Display for Speech {
             Self::Dialogue(dialogue) => f.write_str(dialogue),
             Self::Smith => f.write_str("the smith's window"),
             Self::Merchant => f.write_str("the merchant's window"),
+            Self::Horses => f.write_str("the horse window"),
             Self::Master => f.write_str("the combat master's window"),
         }
     }
@@ -119,13 +122,17 @@ impl std::fmt::Display for Speech {
 /// its dialogue ([`dialogue_of`]), else the smith's window where it is a smith (`+0x200` bit
 /// `0x1000`, `quests::SMITH`, #1662), else the merchant's window where it is a merchant (bit
 /// `0x2000`, `quests::MERCHANT`, #1618), else the master's window where it is a combat master
-/// (bit `0x4000`, `quests::WIZARD`).
+/// (bit `0x4000`, `quests::WIZARD`); a horse trader's talk stamp (`quests::TRADER`, 180,000)
+/// opens the horse window before any dialogue (`0x52BA16`, #2300).
 pub(crate) fn speech_of(
     talk: Option<&Talk>,
     mind: &Mind,
     trades: Option<&Trades>,
     npcs: Option<&Npcs>,
 ) -> Option<Speech> {
+    if trades.is_some_and(|trades| trades.0 & opensacred_rules::quests::TRADER != 0) {
+        return Some(Speech::Horses);
+    }
     dialogue_of(talk, mind, npcs)
         .map(Speech::Dialogue)
         .or_else(|| {
@@ -271,7 +278,7 @@ pub(crate) fn pick(
             &Health,
             Option<&Talk>,
             Option<&Trades>,
-            &crate::crowd::InTheWay,
+            (&crate::crowd::InTheWay, Has<crate::stables::Stabled>),
         ),
         Without<Dies>,
     >,
@@ -298,8 +305,13 @@ pub(crate) fn pick(
     let Some((creature, (at, level), dialogue)) = creatures
         .iter()
         .filter(|(_, _, _, health, ..)| health.current > 0)
-        .filter_map(|(entity, at, mind, _, talk, trades, way)| {
-            let dialogue = speech_of(talk, mind, trades, npcs.as_deref())?;
+        .filter_map(|(entity, at, mind, _, talk, trades, (way, stabled))| {
+            // A stable's horse's talk stamp opens the horse window (#2300).
+            let dialogue = if stabled {
+                Speech::Horses
+            } else {
+                speech_of(talk, mind, trades, npcs.as_deref())?
+            };
             let at = at.translation();
             let distance = if labelled == Some(entity) {
                 0.0
@@ -432,6 +444,12 @@ fn approach(
             Speech::Master => {
                 commands.queue(move |world: &mut World| {
                     crate::master::open(world, creature);
+                    end(world, hero, creature);
+                });
+            }
+            Speech::Horses => {
+                commands.queue(move |world: &mut World| {
+                    crate::stables::open(world, creature);
                     end(world, hero, creature);
                 });
             }
@@ -1067,7 +1085,7 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
             &Mind,
             &Health,
             (Option<&Talk>, Option<&Trades>),
-            &crate::crowd::InTheWay,
+            (&crate::crowd::InTheWay, Has<crate::stables::Stabled>),
         ), Without<Dies>>();
         let npcs = world.get_resource::<Npcs>();
         creatures
@@ -1075,13 +1093,13 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
             .filter(|(entity, _, _, health, ..)| {
                 health.current > 0 && creature.is_none_or(|c| c == *entity)
             })
-            .filter_map(|(entity, at, mind, _, (talk, trades), way)| {
-                Some((
-                    entity,
-                    at.translation,
-                    way.level,
-                    speech_of(talk, mind, trades, npcs)?,
-                ))
+            .filter_map(|(entity, at, mind, _, (talk, trades), (way, stabled))| {
+                let speech = if stabled {
+                    Speech::Horses
+                } else {
+                    speech_of(talk, mind, trades, npcs)?
+                };
+                Some((entity, at.translation, way.level, speech))
             })
             .collect()
     };
