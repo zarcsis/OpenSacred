@@ -170,8 +170,8 @@ fn show(
 /// Runs each purgatory's look a frame on (`0x7762D0`, `0x776390`): while its object lives, flames
 /// at its place, its column and its glow, all drawn at its object's place in the order of
 /// drawing, before a creature standing in its cell, as the original draws the system before the
-/// creature (`fx::Orders`, #2178), but in a building, where they keep their own depths; then its
-/// flames burn out and it goes, its lamp with it.
+/// creature (`fx::Orders`, #2178), on an upper storey's floor no further back than its plane
+/// (#2220); then its flames burn out and it goes, its lamp with it.
 fn burn(
     mut commands: Commands,
     (time, looks, heights): (Res<Time>, Res<Looks>, Res<Heights>),
@@ -239,11 +239,7 @@ fn burn(
             );
         }
         let quads = [crate::breath::wall_quads(fire, &look.flames), column, glow];
-        let order = look
-            .level
-            .is_none()
-            .then(|| orders.at(look.place))
-            .flatten();
+        let order = orders.at_level(look.place, look.level);
         for (handle, mut part) in look.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, Vec3::ZERO);

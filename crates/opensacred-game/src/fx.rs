@@ -766,7 +766,42 @@ const BODY: f32 = 20.0;
 pub(crate) struct InOrder {
     place: Vec3,
     beyond: f32,
+    /// The upper storey's floor that the system stands on, if any, whose plane the order lies
+    /// no further back than.
+    floor: Option<OnFloor>,
 }
+
+/// An upper storey's floor under a system, as `models.wesl`'s `on_floor` lays a model standing
+/// on it: the height of its plane, how far behind the ground point under a point of the plane
+/// what stands there lies at most, in its order among the quads standing on the floor
+/// ([`crate::statics::Floor::under`]), the point the camera looks at, and the part of the
+/// system's own depth that it keeps (`ON_FLOOR_SQUEEZE`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OnFloor {
+    height: f32,
+    behind: f32,
+    looked: Vec3,
+    own: f32,
+}
+
+impl OnFloor {
+    /// The floor `floor` of [`crate::statics::Floor::under`] (its plane's height and how far
+    /// behind), the camera looking at `looked`, a system `behind` units of its own depth
+    /// behind a model of the anchor `anchor` rooted at `root`.
+    fn new(floor: Vec4, anchor: Vec4, root: Vec3, looked: Vec3, behind: f32) -> Self {
+        let own = (root - anchor.xyz()).with_y(0.0).dot(-iso::forward());
+        Self {
+            height: floor.x,
+            behind: floor.y,
+            looked,
+            own: ON_FLOOR_SQUEEZE * (own - behind),
+        }
+    }
+}
+
+/// The part of its own depth that a model's vertex keeps on a floor's plane (`ON_FLOOR_SQUEEZE`
+/// of `models.wesl`).
+const ON_FLOOR_SQUEEZE: f32 = 0.002;
 
 /// Where the original draws a particle system in its draw lists (docs/re/drawing.md, "The effects
 /// among the creatures", #2047): its FX object's whole system at the object's place, after the
@@ -780,20 +815,24 @@ pub(crate) struct Orders<'w, 's> {
     anchors: Res<'w, crate::models::Anchors>,
     models: Query<'w, 's, (&'static crate::models::Ordered, &'static GlobalTransform)>,
     eye: Query<'w, 's, &'static GlobalTransform, iso::Eye>,
+    heights: Option<Res<'w, crate::terrain::Heights>>,
+    floors: Query<'w, 's, &'static crate::statics::Floor>,
 }
 
 impl Orders<'_, '_> {
-    /// The depth of a system that `bearer` carries: at its model's place, just behind the model.
-    /// `None`, its quads at their own depths, where `bearer` has no model in the order or stands
-    /// on an upper storey's floor, where the model lies no further back than the floor's plane
-    /// (`models.wesl`'s `on_floor`), or the world has no camera.
+    /// The depth of a system that `bearer` carries: at its model's place, just behind the model;
+    /// on an upper storey's floor, no further back than the floor's plane where each of its
+    /// vertices shows, as the model's (`models.wesl`'s `on_floor`, #2220). `None`, its quads at
+    /// their own depths, where `bearer` has no model in the order or the world has no camera.
     pub(crate) fn behind(&self, bearer: Entity) -> Option<InOrder> {
         let (ordered, at) = self.models.get(bearer).ok()?;
         let (anchor, floor) = self.anchors.of(ordered.slot()?)?;
+        let root = at.translation();
+        let mut order = self.order(anchor, floor.z, root)?;
         if floor.w > 0.5 {
-            return None;
+            order.floor = Some(OnFloor::new(floor, anchor, root, self.looked()?, BODY));
         }
-        self.order(anchor, floor.z, at.translation())
+        Some(order)
     }
 
     /// The depth of a system whose object stands at `position`, carried by no model: at the
@@ -811,17 +850,68 @@ impl Orders<'_, '_> {
     pub(crate) fn after_statics(&self, position: Vec3) -> Option<InOrder> {
         let place = crate::models::place_of(position);
         let anchor = Vec4::new(place.x, 0.0, place.z, LAST_PLACE);
+        Some(InOrder::of(anchor, 0.0, anchor.xyz(), self.looked()?, 0.0))
+    }
+
+    /// [`Self::after_statics`] for a system of an object `layered` in a building: on an upper
+    /// storey's floor, no further back than the floor's plane where each of its vertices shows,
+    /// in its order among the quads standing on the floor, as a model standing there
+    /// (`models.wesl`'s `on_floor`, #2220); on the ground and a building's ground floor, as on
+    /// the ground.
+    pub(crate) fn after_statics_in(
+        &self,
+        position: Vec3,
+        layered: Option<&crate::buildings::Layered>,
+    ) -> Option<InOrder> {
+        let order = self.after_statics(position)?;
+        let part = self
+            .heights
+            .as_deref()
+            .and_then(|heights| crate::models::storey(heights, layered, None));
+        let place = crate::models::place_of(position);
+        self.on_storey(order, part, (place, place.xyz()), 0.0)
+    }
+
+    /// [`Self::at`] for a system of an object on `level`: on an upper storey's floor, no further
+    /// back than the floor's plane where each of its vertices shows, as a creature standing
+    /// there (#2220).
+    pub(crate) fn at_level(&self, position: Vec3, level: crate::terrain::Level) -> Option<InOrder> {
+        let order = self.at(position)?;
+        let part = self.heights.as_deref().and_then(|heights| {
+            heights
+                .floor(level)
+                .and_then(|floor| crate::models::upper(heights, floor))
+        });
+        let place = crate::models::place_of(position);
+        self.on_storey(order, part, (place, position), BODY)
+    }
+
+    /// `order` on the upper storey's floor `part`, if any, for a system `behind` units of its own
+    /// depth behind a model of the anchor and root `at`.
+    fn on_storey(
+        &self,
+        mut order: InOrder,
+        part: Option<(crate::buildings::Anchor, u8)>,
+        (anchor, root): (Vec4, Vec3),
+        behind: f32,
+    ) -> Option<InOrder> {
+        if let Some(floor) = part.and_then(|part| self.floors.iter().find(|f| f.part == part)) {
+            let on = floor.under(anchor);
+            order.floor = Some(OnFloor::new(on, anchor, root, self.looked()?, behind));
+        }
+        Some(order)
+    }
+
+    /// The point the world's camera looks at, if there is one.
+    fn looked(&self) -> Option<Vec3> {
         let eye = self.eye.single().ok()?;
-        let looked = eye.translation() + iso::forward() * iso::DISTANCE;
-        Some(InOrder::of(anchor, 0.0, anchor.xyz(), looked, 0.0))
+        Some(eye.translation() + iso::forward() * iso::DISTANCE)
     }
 
     /// [`InOrder::of`], the camera looking at the point that the world's camera does, just behind
     /// the body of a creature rooted at `root`.
     fn order(&self, anchor: Vec4, sunk: f32, root: Vec3) -> Option<InOrder> {
-        let eye = self.eye.single().ok()?;
-        let looked = eye.translation() + iso::forward() * iso::DISTANCE;
-        Some(InOrder::of(anchor, sunk, root, looked, BODY))
+        Some(InOrder::of(anchor, sunk, root, self.looked()?, BODY))
     }
 }
 
@@ -836,9 +926,24 @@ const _: () = assert!(CHAIN * LAST_PLACE < ACROSS * iso::CELL * std::f32::consts
 
 impl InOrder {
     /// How far `vertex`, from a mesh's origin `origin`, lies behind the order's depth along the
-    /// line of sight toward the camera: below 0 where it lies nearer the camera.
+    /// line of sight toward the camera: below 0 where it lies nearer the camera. On a floor, the
+    /// nearer of its place's depth and the floor's where the vertex shows, as `models.wesl`
+    /// takes the nearer of the two for a model's vertex: the ground point under the plane's
+    /// point on its line of sight, as far behind as what stands on the floor lies, ordered as
+    /// `order.wesl` orders it.
     fn shift(&self, vertex: Vec3, origin: Vec3) -> f32 {
-        (self.place - origin - vertex).dot(-iso::forward()) + self.beyond
+        let back = -iso::forward();
+        let placed = (self.place - origin - vertex).dot(back) + self.beyond;
+        let Some(floor) = self.floor else {
+            return placed;
+        };
+        let world = origin + vertex;
+        let plane = world + back * ((floor.height - world.y) / back.y);
+        let under = Vec3::new(plane.x, 0.0, plane.z) - back * floor.behind;
+        let on = (under - world).dot(back)
+            + ACROSS * (under - floor.looked).dot(iso::right())
+            + floor.own;
+        placed.max(on)
     }
 
     /// `vertex`, from a mesh's origin `origin`, laid back along the line of sight to the order's
@@ -867,6 +972,7 @@ impl InOrder {
             beyond: ACROSS * (place - looked).dot(iso::right())
                 + CHAIN * anchor.w
                 + SQUEEZE * (own - behind),
+            floor: None,
         }
     }
 }
@@ -1281,13 +1387,11 @@ fn burn(
 ) {
     let dt = time.delta_secs().min(0.1);
     for (entity, mut burning, at, layered) in &mut fires {
-        // At its object's place in the order on the ground, after its cell's statics and under
-        // what a row nearer draws (#2188); in a building, at its own depths.
+        // At its object's place in the order, after its cell's statics and under what a row
+        // nearer draws (#2188); on an upper storey's floor, no further back than its plane
+        // (#2220).
         let place = at.translation();
-        let order = layered
-            .is_none_or(|layered| layered.layer == 0)
-            .then(|| orders.after_statics(place))
-            .flatten();
+        let order = orders.after_statics_in(place, layered);
         let Burning {
             fire,
             system,
@@ -1483,6 +1587,47 @@ mod tests {
             SQUEEZE,
             shader_constant(include_str!("models.wesl"), "SQUEEZE")
         );
+        assert_eq!(
+            ON_FLOOR_SQUEEZE,
+            shader_constant(include_str!("models.wesl"), "ON_FLOOR_SQUEEZE")
+        );
+    }
+
+    #[test]
+    fn a_system_on_a_floor_lies_no_further_back_than_its_plane() {
+        let back = -iso::forward();
+        let looked = iso::ground(10.0, 10.0);
+        // A bearer on a floor 120 units high, at its cell's centre; what stands on the floor
+        // lies 40 units behind the ground point under the plane's point.
+        let anchor = iso::ground(12.5, 12.5).extend(crate::models::PLACE);
+        let root = anchor.xyz() + Vec3::Y * 120.0;
+        let mut order = InOrder::of(anchor, 0.0, root, looked, BODY);
+        let ground = order;
+        order.floor = Some(OnFloor::new(
+            Vec4::new(120.0, 40.0, 0.0, 1.0),
+            anchor,
+            root,
+            looked,
+            BODY,
+        ));
+        // A flame on the floor 60 units in front of it, where the plane lies nearer than its
+        // place, brought far nearer the camera than either depth.
+        let flame = Vec3::new(back.x, 0.0, back.z).normalize() * 60.0 + back * 500.0;
+        let laid = root + order.no_nearer(flame, root);
+        let on_ground = root + ground.no_nearer(flame, root);
+        // Along its line of sight, where it showed.
+        let moved = laid - (root + flame);
+        assert!(moved.cross(back).length() < 1e-2, "{moved}");
+        // At the floor's depth where it shows, the shader's `on_floor`: nearer than its
+        // place's on the ground, which the floor's plane would hide.
+        let plane = laid + back * ((120.0 - laid.y) / back.y);
+        let under = Vec3::new(plane.x, 0.0, plane.z) - back * 40.0;
+        let own = (root - anchor.xyz()).with_y(0.0).dot(back);
+        let expected = (under - looked).dot(back)
+            + ACROSS * (under - looked).dot(iso::right())
+            + ON_FLOOR_SQUEEZE * (own - BODY);
+        assert!(((laid - looked).dot(back) - expected).abs() < 1e-2);
+        assert!((laid - looked).dot(back) > (on_ground - looked).dot(back));
     }
 
     #[test]
