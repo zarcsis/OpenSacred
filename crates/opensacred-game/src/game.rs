@@ -726,6 +726,7 @@ fn load(
     ));
     hero.dying = clips.dying;
     hero.pickup = clips.pickup;
+    hero.riding = clips.riding;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.walking = true;
@@ -812,6 +813,20 @@ pub fn clips_of(
     let pickup = slots
         .as_ref()
         .and_then(|slots| slots.pickup().map(str::to_owned));
+    // The rider's mount, ride and dismount (`opensacred_rules::horses`, #2299).
+    let riding = slots
+        .as_ref()
+        .map(|slots| {
+            use opensacred_rules::horses;
+            let named =
+                |slot: Option<u16>| slot.and_then(|slot| slots.slot(slot)).map(str::to_owned);
+            [
+                named(Some(horses::MOUNT)),
+                named(horses::ride_slot(|slot| slots.slot(slot).is_some())),
+                named(Some(horses::DISMOUNT)),
+            ]
+        })
+        .unwrap_or_default();
     let with_fractions = |name: String| {
         let fractions = hits
             .get(&name.to_ascii_uppercase())
@@ -840,6 +855,7 @@ pub fn clips_of(
         arts,
         dying,
         pickup,
+        riding,
     }
 }
 

@@ -285,6 +285,10 @@ struct Placement {
     heading: f32,
     /// A `CreateObj`'s object rather than an NPC.
     object: bool,
+    /// A horse's class, its `CreateNPC`'s tag `0x90` (`SetHorseClass:`, the byte `+0x400`), 0
+    /// where none names it (#2299).
+    #[serde(default)]
+    horse_class: u8,
     /// The texture its item names (`+0x08`), relative to the asset directory.
     texture: Option<String>,
     /// The position's third number, the layer.
@@ -891,6 +895,7 @@ struct Kind {
 fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
     Placement {
         model: kind.model.clone(),
+        horse_class: 0,
         cell: (0, 0),
         drawn: None,
         home: None,
@@ -971,6 +976,9 @@ pub struct Npcs {
     /// What the scripts' records are placed with, the places that their `DefPos`s name, and the
     /// placements that the play's records made whose sectors were in the world (#1014).
     makers: Makers,
+    /// The horse data's rows, each its class and its seven words (`Balance.bin`'s tail table 4,
+    /// #2299).
+    horses: Vec<(u32, [u32; 7])>,
     places: HashMap<String, (i32, i32)>,
     pending: Vec<usize>,
     /// The placements that the play's records made, which live wherever they stand from then on
@@ -1978,6 +1986,18 @@ fn script_group(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
         .filter(|&n| n != 0)
         .map(|n| SCRIPT_GROUP | (n & !SCRIPT_GROUP))
 }
+
+/// A `CreateNPC`'s horse class, its tag `0x90` (`SetHorseClass:`), held to a byte; 0 for none.
+fn horse_class(ops: &[opensacred_data::netscript::Operand]) -> u8 {
+    ops.iter()
+        .find(|o| o.tag == HORSE_CLASS)
+        .and_then(|o| value_i32(&o.value))
+        .and_then(|class| u8::try_from(class).ok())
+        .unwrap_or(0)
+}
+
+/// The tag of a horse's class (`SetHorseClass:`, docs/re/horses.md).
+const HORSE_CLASS: u8 = 0x90;
 
 fn level_tag(ops: &[opensacred_data::netscript::Operand]) -> u32 {
     ops.iter()
@@ -3237,6 +3257,11 @@ impl Makers {
         Ok(Some(Placement {
             model: model.clone(),
             woman: item.name.contains(WOMAN),
+            horse_class: if record.kind == CREATE_NPC {
+                horse_class(ops)
+            } else {
+                0
+            },
             cell: (x, y),
             drawn: if record.kind == CREATE_OBJ {
                 drawn_at(ops)
@@ -3688,6 +3713,20 @@ struct Arming {
 }
 
 impl Npcs {
+    /// The `Creature.pak` walk and run speeds of the type `creature` (`+0x26`, `+0x28`).
+    pub(crate) fn speeds_of(&self, creature: u32) -> [u16; 2] {
+        self.makers
+            .speeds
+            .get(&creature)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// The horse data's row of the class `class` (#2299).
+    pub(crate) fn horse_row(&self, class: u8) -> opensacred_rules::horses::Row {
+        opensacred_rules::horses::Row::of(&self.horses, class)
+    }
+
     /// The level of the sector `sector`, by which the hero's remark at an area's border weighs
     /// it (`0x622D70`): the mean of its `SpawnValues`' lowest and highest, 0 without them.
     pub fn level(&self, sector: (u32, u32)) -> u32 {
@@ -3950,6 +3989,10 @@ impl Npcs {
             locked,
             named,
             makers,
+            horses: balance
+                .iter()
+                .flat_map(|balance| balance.tail_4.iter().map(|row| (row.key, row.words)))
+                .collect(),
             places: positions,
             pending: Vec::new(),
             played: HashSet::new(),
@@ -5889,6 +5932,12 @@ fn spawn(
             mind,
             arrows::Size(placement.size),
         ));
+        // A horse, of its class (`+0x400`, 1 where none, #2299).
+        if placement.class == HORSES_CLASS {
+            entity.insert(crate::riding::Horse {
+                class: opensacred_rules::horses::class(placement.horse_class),
+            });
+        }
         if let Some(((tx, ty), speed)) = placement.walk {
             entity.insert(
                 Walk::to(
@@ -6749,6 +6798,11 @@ pub fn walk(
     }
 }
 
+/// A creature carried where another goes, a horse under its rider (`riding`, #2299): its walk
+/// or its run playing (`Some(true)` the run), or standing.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Steered(pub Option<bool>);
+
 /// How long a standing creature's clip blends into the next (`0x593320`).
 const BLEND: Duration = Duration::from_millis(150);
 /// How near the hero's nearest hostile puts the standing creatures in their fight stance, in
@@ -6773,7 +6827,7 @@ pub fn stance(
             Option<&Walk>,
             Has<Talks>,
             Option<&Plays>,
-            Has<crate::flight::Aloft>,
+            (Has<crate::flight::Aloft>, Option<&Steered>),
         ),
         (Without<Strikes>, Without<Dies>, Without<ScriptClip>),
     >,
@@ -6781,7 +6835,7 @@ pub fn stance(
     speed: Res<hero::GameSpeed>,
 ) {
     let fight = nearest.distance < STANCE_WITHIN;
-    for (entity, npc, walk, talks, plays, aloft) in &npcs {
+    for (entity, npc, walk, talks, plays, (aloft, steered)) in &npcs {
         let (Some(clips), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
@@ -6830,7 +6884,13 @@ pub fn stance(
         }
         // A walking NPC walks; a standing one stands, in its stance where it fights; a flyer
         // aloft comes down in its flight's clip (`0x598F44`).
-        let moving = walk.and_then(|walk| clips.moving(walk));
+        // A horse carried under its rider walks or runs as the rider does (`riding`, #2299).
+        let moving = match steered.map(|steered| steered.0) {
+            Some(Some(true)) => clips.run.or(clips.walk),
+            Some(Some(false)) => clips.walk,
+            Some(None) => None,
+            None => walk.and_then(|walk| clips.moving(walk)),
+        };
         let flying = clips.fly.filter(|_| aloft);
         let wanted = match (moving, flying, fight, clips.stance) {
             (Some(moving), ..) => moving,

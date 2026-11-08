@@ -25,6 +25,7 @@ pub mod equipment;
 pub mod exchange;
 pub mod explored;
 pub mod fight;
+pub mod horses;
 pub mod inventory;
 pub mod minds;
 pub mod music;

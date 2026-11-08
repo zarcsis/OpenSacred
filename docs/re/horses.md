@@ -207,4 +207,9 @@ Field offsets are of a `cCreature` unless said otherwise; "the horse" is a creat
 
 ## In `opensacred-game`
 
-The stables' horses stand (#541) and the traders' tags are read (#658); no hero buys, rides or fights from a horse yet (#1822).
+The stables' horses stand (#541) and the traders' tags are read (#658).
+Since #2299 the hero rides (`opensacred_rules::horses`, the module `riding`):
+- a click on a horse (`riding::Horse`, of its class by `CreateNPC`'s tag `0x90`, 1 where none), within 1,879 and where the riding test passes (`horses::rides`, the horse data's `w6` against the hero's skill 22), sends the hero to the point by it (`horses::place_by`, `horses::point_by`; the start bone's for the Seraphim, the Wood Elf and the Vampiress), the point following the horse as it moves; within 25 the hero turns to its heading and plays its slot 165, the horse held from then on, out of the way (`riding::Ridden`);
+- riding (`riding::Seat::Riding`), the hero plays its slot 169, else 166, its model's root shifted at each frame so that its `Bip01` stands on the horse's `horse_bone`; it goes at the horse's `Creature.pak` speeds times its class's pace times the game's speed, every creature stopping it, by no cell of the low nibbles 3 and 5 to 10 (`terrain::Heights::barred_to_riders`); the horse goes under it, playing its walk or run (`npcs::Steered`);
+- Shift with a click on its horse, or the command `ride`, gets it off at the point by the horse with its slot 167; the horse dead or gone, or the hero dying, throws it off at once.
+  Not yet: the control handed to the horse as the original hands it (the hero steers, its horse carried), the horse's button and its call (#2301), the window and the purchase (#2300), the fight from the saddle (#2302), the rider's death clip 168, the knock-down's throw-off and the lethal blow's, and the NPCs' riders (#2288).

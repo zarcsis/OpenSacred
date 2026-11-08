@@ -201,6 +201,9 @@ enum Command {
     /// The hero goes to take the item lying nearest it, as a left click on it does, and takes
     /// it once it stands within its reach
     Take,
+    /// The hero goes to mount the horse ID, or the nearest, as a left click on it does, and gets
+    /// off where it rides; ID as `creatures` prints it
+    Ride { id: Option<String> },
     /// The hero collects the items lying about it, as the bar's Collect button sends it: it walks
     /// to each that it may carry within 19 cells and picks up those about it, until none is left
     Collect,
@@ -1421,6 +1424,11 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Take => {
             in_game(world)?;
             Ok(Outcome::say(crate::pickup::take_nearest(world)?))
+        }
+        Command::Ride { id } => {
+            in_game(world)?;
+            let id = id.map(|id| debug::creature(world, &id)).transpose()?;
+            Ok(Outcome::say(crate::riding::ride(world, id)?))
         }
         Command::Collect => {
             in_game(world)?;
