@@ -840,6 +840,52 @@ fn a_unique_and_a_set_piece_drop_raised_to_the_drops_level() {
 }
 
 #[test]
+fn a_boss_of_a_type_adds_its_calls_its_treasure_and_its_own_drops() {
+    let case = |types: &[u16], more, treasure, special| BossDrop {
+        types: types.to_vec(),
+        bonus: None,
+        more,
+        treasure,
+        special,
+    };
+    let rules = Rules::default().with_bosses(
+        &[
+            case(&[52], Some([2, 3]), Some([500, 12, 14, 2]), None),
+            case(&[145], None, None, Some(BossSpecial::Undo)),
+            case(&[182], None, None, Some(BossSpecial::Anducar)),
+        ],
+        None,
+    );
+    let boss = |creature| Death {
+        dead: Dead {
+            creature,
+            ..dead(3, 30, Rank::Boss)
+        },
+        hero: hero(30),
+        ..Death::default()
+    };
+    // The boss's R(1, 4), then its type's R(2, 3): 1 + 4 + 3 calls.
+    assert_eq!(rules.calls(&boss(52), &mut script(&[3, 1])).count, 8);
+    // The god's child takes the boss's calls back; Anducar makes none.
+    assert_eq!(rules.calls(&boss(145), &mut script(&[3])).count, 1);
+    assert_eq!(rules.calls(&boss(182), &mut script(&[3])).count, 0);
+    // A treasure's eight gold piles, each a forced call, and its two rounds missed.
+    let catalogue = catalogue(&[]);
+    let templates = Templates::default();
+    let death = boss(52);
+    let mut dropping = Dropping {
+        death: &death,
+        rules: &rules,
+        catalogue: &catalogue,
+        templates: &templates,
+        last: &mut LastJewel::default(),
+    };
+    let mut rng = Rng::of(1, 2, 3);
+    let made = dropping.treasure([0, 12, 14, 2], &mut rng);
+    assert!(made.len() >= 8 && made.iter().all(|drop| drop.item == TREASURE_GOLD));
+}
+
+#[test]
 fn a_hero_rising_pays_a_share_of_its_gold_by_the_difficulty() {
     // Seen on bronze (#976): 18 kept 18, 500 became 475 and then 452.
     assert_eq!(Difficulty::Bronze.death_toll(18), 0);

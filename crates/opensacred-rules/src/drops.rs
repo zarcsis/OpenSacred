@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use opensacred_data::tables::{Balance, Item, ItemSet, Weapon};
+use opensacred_data::tables::{Balance, BossBonus, BossDrop, BossSpecial, Item, ItemSet, Weapon};
 
 use crate::fight::{self, ItemValues, Rank, Templates};
 use crate::spawning::Dice;
@@ -318,6 +318,9 @@ pub struct Death {
     pub hero: Hero,
     pub kill: Kill,
     pub difficulty: Difficulty,
+    /// Whether a doll 3140 is in the world, which keeps the Medusa and the troll from making
+    /// another (#2269).
+    pub doll: bool,
 }
 
 /// A death's calls of the drop (`0x533BA8`): their count `N` and their bonus `B`.
@@ -358,6 +361,20 @@ pub struct Rules {
     norms: Vec<[f32; 6]>,
     /// The rules of the sockets that the item maker rolls.
     sockets: Sockets,
+    /// The bosses' drops by their type ([`Boss`], #2269).
+    bosses: Vec<Boss>,
+}
+
+/// What a boss of some types adds to its death's drops (`0x533E2E`, #2269): its types, its
+/// bonus's value, its calls more `R(a, b)`, its treasure (`0x5516B0`: its chance per mille, its
+/// least and most key and its level's jitter) and its drop of its own.
+#[derive(Clone, Debug, PartialEq)]
+struct Boss {
+    types: Vec<u32>,
+    bonus: u32,
+    more: Option<[u32; 2]>,
+    treasure: Option<[u32; 4]>,
+    special: Option<BossSpecial>,
 }
 
 /// The balance's values of a rune's chance (`0x5598B0`): its chance per mille (`UpgradeDrop`),
@@ -418,12 +435,50 @@ impl Default for Rules {
             runes: RuneRules::default(),
             norms: Vec::new(),
             sockets: Sockets::default(),
+            bosses: Vec::new(),
         }
     }
 }
 
 impl Rules {
     /// The rules of the balance `balance`, the original's values where it lacks them.
+    /// The rules with the bosses' drops of `drops` (`tables/boss_drops.ron`), their bonuses read
+    /// off `balance`: a key's value, or the image's word at an offset; 0 without it (#2269).
+    #[must_use]
+    pub fn with_bosses(mut self, drops: &[BossDrop], balance: Option<&Balance>) -> Self {
+        let value = |bonus: &BossBonus| -> u32 {
+            let Some(b) = balance else {
+                return 0;
+            };
+            match bonus {
+                BossBonus::Key(key) => b.i32(key).and_then(|v| u32::try_from(v).ok()).unwrap_or(0),
+                BossBonus::Offset(offset) => usize::try_from(offset / 4)
+                    .ok()
+                    .and_then(|i| b.image.get(i))
+                    .copied()
+                    .unwrap_or(0),
+            }
+        };
+        self.bosses = drops
+            .iter()
+            .map(|drop| Boss {
+                types: drop.types.iter().copied().map(u32::from).collect(),
+                bonus: drop.bonus.as_ref().map_or(0, value),
+                more: drop.more.map(|ends| ends.map(u32::from)),
+                treasure: drop.treasure.map(|words| words.map(u32::from)),
+                special: drop.special,
+            })
+            .collect();
+        self
+    }
+
+    /// The boss case of the type `creature`, none for a type the switch does not name.
+    fn boss_of(&self, creature: u32) -> Option<&Boss> {
+        self.bosses
+            .iter()
+            .find(|boss| boss.types.contains(&creature))
+    }
+
     pub fn of(balance: Option<&Balance>) -> Self {
         let default = Self::default();
         let Some(b) = balance else {
@@ -498,6 +553,7 @@ impl Rules {
             },
             norms: names::norms(&b.image),
             sockets: Sockets::of(balance),
+            bosses: Vec::new(),
         }
     }
 
@@ -649,6 +705,22 @@ impl Rules {
             Rank::Boss => {
                 bonus += self.boss[0];
                 count += more(self.boss[1], dice);
+                // The switch by the type (`0x533E2E`, #2269): its key, then its calls more.
+                if let Some(case) = self.boss_of(death.dead.creature) {
+                    bonus += case.bonus;
+                    if let Some([a, b]) = case.more {
+                        count +=
+                            u32::try_from(between(i64::from(a), i64::from(b), dice)).unwrap_or(0);
+                    }
+                    match case.special {
+                        Some(BossSpecial::Undo) => {
+                            count = self.throws;
+                            bonus = bonus.saturating_sub(self.boss[0]);
+                        }
+                        Some(BossSpecial::Anducar | BossSpecial::AnducarDemon) => count = 0,
+                        _ => {}
+                    }
+                }
             }
         }
         let kill = death.kill;
@@ -1415,6 +1487,22 @@ pub fn drops<D: Dice>(
     };
     let chance = i64::from(rules.chance(death.dead.rank, death.kill.treasure));
     let mut out = Vec::new();
+    // A boss's drops of its type, before the ordinary calls (`0x533E2E`, #2269).
+    if death.dead.rank == Rank::Boss
+        && let Some(case) = rules.boss_of(death.dead.creature)
+    {
+        if let Some(treasure) = case.treasure {
+            out.extend(dropping.treasure(treasure, dice));
+        }
+        match case.special {
+            Some(BossSpecial::Doll) if between(0, 25, dice) == 0 && !death.doll => {
+                out.extend(dropping.forced_call(DOLL, dice));
+            }
+            Some(BossSpecial::Anducar) => out.extend(dropping.anducar(dice)),
+            Some(BossSpecial::AnducarDemon) => out.extend(dropping.anducar_demon(dice)),
+            _ => {}
+        }
+    }
     for _ in 0..calls.count {
         // The scripts' drops of the dead's type (`0x4B06D0`): the client's one entry makes its
         // item when `rand() % 100 + 1` is at most its chance, ours each entry so (#930); the
@@ -1525,6 +1613,28 @@ impl Dropping<'_> {
         *bonus = self.rules.compound(*bonus, dead.creature, dead.worth);
         let key = self.rules.key(*bonus, g, dice);
         let kind = self.catalogue.kind(item).unwrap_or(Kind::Other);
+        // A forced set's piece takes the key 1 and a unique the key 0, both only raised (#2268).
+        if self.catalogue.set_piece(item) || self.catalogue.unique(item) {
+            let key = u8::from(self.catalogue.set_piece(item));
+            let (lo, _) = self.rules.item_levels(dead.level, self.death.difficulty);
+            let mut drop = Dropped {
+                kind,
+                item,
+                level: 0,
+                key,
+                quality: 0,
+                amount: 1,
+                values: None,
+                named: None,
+                socketed: Vec::new(),
+            };
+            raised(
+                &mut drop,
+                (self.catalogue, self.templates),
+                (u32::try_from(lo).unwrap_or(0), self.death.difficulty),
+            );
+            return drop;
+        }
         let key = if matches!(kind, Kind::Potion | Kind::Gold | Kind::Rune | Kind::Other) {
             key.max(16)
         } else {
@@ -1748,6 +1858,208 @@ impl Dropping<'_> {
         );
         drop.named = names::roll(drop.values.as_ref(), dice);
         drop
+    }
+}
+
+/// The doll that the Medusa and the troll make (`V_Doll.grn`).
+const DOLL: u32 = 3140;
+/// The gold pile of a treasure's eight (`GoldCoins_02.grn`).
+const TREASURE_GOLD: u32 = 5133;
+/// The categories of a treasure's items (`0x5516B0`), by `rand() % 19`.
+const TREASURE_CATEGORIES: [u8; 19] = [
+    5, 5, 5, 5, 5, 6, 13, 17, 18, 19, 21, 22, 23, 24, 25, 20, 20, 8, 8,
+];
+/// The categories of the unique that Anducar's demon makes (`0x534248`), by `R(0, 21)`.
+const UNIQUE_CATEGORIES: [u8; 22] = [
+    5, 5, 5, 5, 5, 5, 5, 6, 13, 17, 18, 19, 21, 22, 23, 24, 25, 8, 8, 8, 20, 20,
+];
+/// The sets of Anducar's class items (`0x5340D1`), and each hero type's item.
+const CLASS_SETS: std::ops::RangeInclusive<usize> = 33..=38;
+const CLASS_ITEMS: [u32; 9] = [7921, 7920, 7924, 7923, 7922, 7925, 7925, 7926, 7927];
+
+impl Dropping<'_> {
+    /// A call of the drop whose type is forced, of no bonus and no greed (`0x559BF0(T, 0, 0, 0)`):
+    /// its passes while its chance per mille lasts.
+    fn forced_call(&mut self, item: u32, dice: &mut impl Dice) -> Vec<Dropped> {
+        let (mut bonus, mut p) = (0, i64::from(self.rules.chance(self.death.dead.rank, 0)));
+        let mut out = Vec::new();
+        while p > 0 {
+            out.push(self.forced(item, &mut bonus, dice));
+            p -= 1000;
+        }
+        out
+    }
+
+    /// A boss's treasure (`0x5516B0`, #2269) of the chance `p` per mille, the keys `lo` to `hi`
+    /// and the level's jitter: eight forced calls of a gold pile, then two rounds, each of which,
+    /// by a roll below 1,000 below `p`, takes a type (`0x5C7FA0`: the level test left out in two
+    /// cases of three, the hero's class in one case of two, a category of [`TREASURE_CATEGORIES`],
+    /// the creature's own level, the quality at most `hi`) and makes it with the maker's key
+    /// `R(lo, hi)` at the creature's level plus `R(0, jitter)`, `p` halved after, doubled on a
+    /// miss; `lo` and `hi` halved after each round, at least 1.
+    fn treasure(&mut self, [p, lo, hi, jitter]: [u32; 4], dice: &mut impl Dice) -> Vec<Dropped> {
+        let mut out = Vec::new();
+        for _ in 0..8 {
+            out.extend(self.forced_call(TREASURE_GOLD, dice));
+        }
+        let (mut p, mut lo, mut hi) = (p, lo, hi);
+        let dead = self.death.dead;
+        for _ in 0..2 {
+            if dice.below(1000) < p {
+                let loose = dice.below(3) != 0;
+                let class = if dice.below(2) == 0 {
+                    self.death.hero.creature
+                } else {
+                    0
+                };
+                let category = TREASURE_CATEGORIES
+                    [usize::try_from(dice.below(19)).unwrap_or(0) % TREASURE_CATEGORIES.len()];
+                let wanted = Wanted {
+                    category,
+                    level: dead.level,
+                    class,
+                    loose,
+                    quality: i64::from(hi),
+                    kind: None,
+                };
+                if let Some(item) = self.catalogue.choose(wanted, &self.death.hero, dice) {
+                    let key =
+                        u32::try_from(between(i64::from(lo), i64::from(hi), dice)).unwrap_or(0);
+                    let level = dead.level
+                        + if jitter == 0 {
+                            0
+                        } else {
+                            dice.below(jitter + 1)
+                        };
+                    out.extend(self.keyed(item, (level, key), dice));
+                }
+                p /= 2;
+            } else {
+                p = p.saturating_mul(2);
+            }
+            lo = if lo <= 1 { 1 } else { lo >> 1 };
+            hi = if hi <= 1 { 1 } else { hi >> 1 };
+        }
+        out
+    }
+
+    /// An item of type `item` that the maker makes at `level` by its own key `key`, as a
+    /// treasure makes it (`0x5D5080`), its sockets and its name rolled.
+    fn keyed(&self, item: u32, (level, key): (u32, u32), dice: &mut impl Dice) -> Option<Dropped> {
+        let kind = self.catalogue.kind(item)?;
+        let mut drop = Dropped {
+            kind,
+            item,
+            level,
+            key: u8::try_from(16_u32.saturating_sub(key)).unwrap_or(0),
+            quality: u8::try_from(key).unwrap_or(0),
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: Vec::new(),
+        };
+        drop.values = made(
+            (self.catalogue, self.templates),
+            (item, level, self.death.difficulty),
+            dice,
+        );
+        socket(
+            &mut drop,
+            (self.catalogue, self.templates),
+            (&self.rules.sockets, self.death.difficulty, false),
+            dice,
+        );
+        drop.named = names::roll(drop.values.as_ref(), dice);
+        Some(drop)
+    }
+
+    /// Anducar's drop (`0x5340D1`, #2269): a set of `R(1, 65)`; of the sets 33 to 38 the class's
+    /// item of the killer's type (a hero's, else `R(1, 9)`), else one of the set's pieces at
+    /// `R(0, count − 1)`, each by a forced call.
+    fn anducar(&mut self, dice: &mut impl Dice) -> Vec<Dropped> {
+        let sets = self.catalogue.sets.len();
+        let r = usize::try_from(between(1, i64::try_from(sets).unwrap_or(1), dice)).unwrap_or(1);
+        let item = if CLASS_SETS.contains(&r) {
+            let hero = match self.death.hero.creature {
+                hero @ 1..=9 => hero,
+                _ => u32::try_from(between(1, 9, dice)).unwrap_or(1),
+            };
+            CLASS_ITEMS
+                .get(usize::try_from(hero - 1).unwrap_or(0))
+                .copied()
+        } else {
+            self.catalogue.sets.get(r - 1).and_then(|pieces| {
+                let last = i64::try_from(pieces.len()).unwrap_or(1) - 1;
+                let piece = usize::try_from(between(0, last, dice)).unwrap_or(0);
+                pieces.get(piece).copied()
+            })
+        };
+        item.map_or_else(Vec::new, |item| self.forced_call(item, dice))
+    }
+
+    /// Anducar's demon's drop (`0x534248`, #2269): six treasures of the chance 1,000, the keys
+    /// `q` (6, 9, 11, 12, 13, 14: `0x565D70(6, i, 4, 13)` rounded) to `min(q + R(1, 2), 14)` and
+    /// the jitter 25; then, in 33 cases of 100, a unique: the killer's class by `R(0, 1)`, a
+    /// category of [`UNIQUE_CATEGORIES`] by `R(0, 21)`, a type of any quality with the level test,
+    /// and of its family's types of the quality 15, no set's piece, not 7911 to 7930 and of a
+    /// least level up to the hero's, one at `R(0, n − 1)` by a forced call.
+    fn anducar_demon(&mut self, dice: &mut impl Dice) -> Vec<Dropped> {
+        let mut out = Vec::new();
+        for i in 1..=6_u32 {
+            let x = f64::from(i);
+            let curve = 6.0 + 2.0 * (13.0 - 6.0) * (1.0 - 1.0 / (1.0 + (x - 1.0) / 4.0));
+            let q = whole_level(curve + 0.5);
+            let hi = (q + u32::try_from(between(1, 2, dice)).unwrap_or(1)).min(14);
+            out.extend(self.treasure([1000, q, hi, 25], dice));
+        }
+        if between(0, 99, dice) >= 33 {
+            return out;
+        }
+        let class = if between(0, 1, dice) == 0 {
+            self.death.hero.creature
+        } else {
+            0
+        };
+        let category = UNIQUE_CATEGORIES
+            [usize::try_from(between(0, 21, dice)).unwrap_or(0) % UNIQUE_CATEGORIES.len()];
+        let wanted = Wanted {
+            category,
+            level: self.death.dead.level,
+            class,
+            loose: false,
+            quality: 15,
+            kind: None,
+        };
+        let Some(item) = self.catalogue.choose(wanted, &self.death.hero, dice) else {
+            return out;
+        };
+        let Some([family, ..]) = self.templates.looked_up(item) else {
+            return out;
+        };
+        let hero = self.death.hero.level;
+        let uniques: Vec<u32> =
+            self.catalogue
+                .uniques
+                .get(&family)
+                .map_or(&[][..], Vec::as_slice)
+                .iter()
+                .copied()
+                .filter(|&unique| {
+                    !(7911..=7930).contains(&unique)
+                        && self.catalogue.records.get(&unique).is_some_and(|record| {
+                            !record.set && u32::from(record.levels[0]) <= hero
+                        })
+                })
+                .collect();
+        if uniques.is_empty() {
+            return out;
+        }
+        let last = i64::try_from(uniques.len()).unwrap_or(1) - 1;
+        let chosen = usize::try_from(between(0, last, dice)).unwrap_or(0);
+        if let Some(&unique) = uniques.get(chosen) {
+            out.extend(self.forced_call(unique, dice));
+        }
+        out
     }
 }
 

@@ -27,6 +27,8 @@ pub const START_POINTS: &str = "start_points.ron";
 pub const ARTS: &str = "arts.ron";
 pub const VOICES: &str = "voices.ron";
 pub const IDLE_NOISES: &str = "idle_noises.ron";
+/// The bosses' drops by their type ([`BossDrop`], #2269).
+pub const BOSS_DROPS: &str = "boss_drops.ron";
 pub const PORTRAITS: &str = "portraits.ron";
 /// The 256 bytes of `Sacred.exe` from which the weather's choice rolls its times and its
 /// intensities, by a rolling index (`0x95FA84`, `0x625290`; docs/re/weather.md), as a list of
@@ -284,6 +286,50 @@ impl Portraits {
             .find(|c| u32::from(c.creature) == creature)
             .map(|c| c.image)
     }
+}
+
+/// What a boss of some types adds to its death's drops, `boss_drops.ron` (#2269; docs/re/items.md,
+/// "How many drops, and the bonus"): the switch by the type at `0x533E2E`, which the converter
+/// carries as its constants (docs/08 §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct BossDrop {
+    /// The boss types that take it.
+    pub types: Vec<u16>,
+    /// What it adds to the calls' bonus: a balance key's value, or the balance image's value at a
+    /// byte offset that no key names.
+    pub bonus: Option<BossBonus>,
+    /// The calls more, `R(least, most)`.
+    pub more: Option<[u8; 2]>,
+    /// The treasure (`0x5516B0`): its chance per mille, its least and most key and its level's
+    /// jitter.
+    pub treasure: Option<[u16; 4]>,
+    /// A drop of its own.
+    pub special: Option<BossSpecial>,
+}
+
+/// What a boss adds to the calls' bonus ([`BossDrop::bonus`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum BossBonus {
+    /// The value of the balance's key of this name.
+    Key(String),
+    /// The balance image's word at this byte offset.
+    Offset(u32),
+}
+
+/// A boss's drop of its own ([`BossDrop::special`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum BossSpecial {
+    /// The doll 3140 in one case of 26 where none is in the world.
+    Doll,
+    /// The boss's calls and bonus taken back.
+    Undo,
+    /// No call: an item of a random set, or a class's item of 7920 to 7927.
+    Anducar,
+    /// No call: six treasures and, in 33 cases of 100, a unique.
+    AnducarDemon,
 }
 
 /// The creatures' idle noises, `idle_noises.ron` (#714; docs/re/sound.md, "The idle noises"):
