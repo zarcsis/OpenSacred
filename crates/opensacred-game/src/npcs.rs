@@ -416,6 +416,10 @@ struct Placement {
     /// An object of an item's type that lies to be picked up as any lying item, not a quest's
     /// (`CreateObj` without [`QUEST_ITEM`], #1296).
     lies: bool,
+    /// An object's item only raised to its level, not made anew (`CreateObj`'s [`RAISED`],
+    /// the scripts' own uniques; #1125).
+    #[serde(default)]
+    raised: bool,
     /// A container's (an object of [`CHEST`]): its `Take:` function, its `CreateObj`'s
     /// [`ON_TAKE`], which fills it as it opens (`containers`, #1380).
     container: Option<Option<String>>,
@@ -548,6 +552,9 @@ const ON_TAKE: u8 = 0x41;
 const ON_USE: u8 = 0x83;
 /// A quest's item's quality key as a drop: a plain item's, made by no item maker.
 const QUEST_KEY: u8 = 16;
+/// `CreateObj`'s mark of an item only raised to its level (`0x485E70`, the flag that `0x487D1D`
+/// tests): the scripts' own uniques 7911 to 7930 and a few others.
+const RAISED: u8 = 0x9E;
 /// The bit of an `items.pak` record's byte `+0x02` of a type that nobody picks up, its first
 /// word's bit 22 (`0x427920`): the signposts 4993 to 4999 and `windstrauch.grn` (#1476).
 const UNTAKEABLE: u8 = 0x40;
@@ -950,6 +957,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         quest: None,
         key: None,
         lies: false,
+        raised: false,
         container: None,
         uses: None,
         spell: 0,
@@ -990,6 +998,9 @@ pub struct Npcs {
     /// The placements of the quests' items that the hero took, which their sectors do not place
     /// again ([`QuestItem`], #1256).
     taken: HashSet<usize>,
+    /// The level that each placement's item lying was made at the first time it was placed,
+    /// which its sector's later comings make it at again (`CreateObj`'s, #1125).
+    laid: HashMap<usize, u32>,
     /// The placements of the containers that the hero emptied, which their sectors place again
     /// emptied ([`crate::containers::Container`], #1380).
     pub(crate) emptied: HashSet<usize>,
@@ -3053,6 +3064,7 @@ pub struct Saved {
     pub locked: HashSet<String>,
     pub taken: HashSet<usize>,
     pub emptied: HashSet<usize>,
+    pub laid: HashMap<usize, u32>,
 }
 
 /// Where a record ran: in a sector's `Enter`, whose creatures and objects are made again at each
@@ -3359,6 +3371,7 @@ impl Makers {
             lies: record.kind == CREATE_OBJ
                 && takeable(item)
                 && !ops.iter().any(|o| o.tag == QUEST_ITEM),
+            raised: record.kind == CREATE_OBJ && ops.iter().any(|o| o.tag == RAISED),
             quest: (record.kind == CREATE_OBJ
                 && takeable(item)
                 && ops
@@ -3727,6 +3740,14 @@ impl Npcs {
         opensacred_rules::horses::Row::of(&self.horses, class)
     }
 
+    /// The level that a script's `CreateObj` makes an item at the place `at` at for the hero of
+    /// level `hero`, by the levels of the sector there (`opensacred_rules::fight::Rules::
+    /// script_level`, #1125).
+    pub(crate) fn script_level(&self, hero: u32, at: Vec3) -> u32 {
+        self.fight
+            .script_level(hero, self.values.get(&sector_of(at)))
+    }
+
     /// The level of the sector `sector`, by which the hero's remark at an area's border weighs
     /// it (`0x622D70`): the mean of its `SpawnValues`' lowest and highest, 0 without them.
     pub fn level(&self, sector: (u32, u32)) -> u32 {
@@ -3999,6 +4020,7 @@ impl Npcs {
             records: Vec::new(),
             taken: HashSet::new(),
             emptied: HashSet::new(),
+            laid: HashMap::new(),
             dialogues,
             icons,
             region_talks: region_talks(&records),
@@ -4612,6 +4634,66 @@ pub fn spawn_creatures(
     Ok(made)
 }
 
+/// The drops' tables and the difficulty by which a script's item lying is made (#1125).
+type Laying<'a> = (&'a drops::Tables, opensacred_rules::drops::Difficulty);
+
+/// A script's item of type `item` as its type's record holds it, made by no item maker.
+fn plain_item(item: u32) -> opensacred_rules::drops::Dropped {
+    opensacred_rules::drops::Dropped {
+        kind: opensacred_rules::drops::Kind::Other,
+        item,
+        level: 0,
+        key: QUEST_KEY,
+        quality: 0,
+        amount: 1,
+        values: None,
+        named: None,
+        socketed: Vec::new(),
+    }
+}
+
+/// The item that the `CreateObj` `placement` of the index `index` lays, as the rules make it
+/// (`drops::scripted`, `0x487AB0`; #1125) by `made`: at the level of the hero then, `hero`,
+/// held within the levels `values` of its sector by `rules`, a start's at the hero's first
+/// level, as its records ran then. That level is kept in `laid` the first time, but for an
+/// `Enter`'s item, which its sector makes again at each coming, and the rolls are the
+/// placement's own, so that each coming lays the same item, as the original keeps its object.
+/// The item as its type's record holds it where the rules leave it so, or without the tables.
+fn laid_item(
+    (laid, values, rules): (
+        &mut HashMap<usize, u32>,
+        Option<&spawning::SpawnValues>,
+        &fight::Rules,
+    ),
+    (index, placement): (usize, &Placement),
+    (hero, made): (u32, Option<Laying>),
+) -> opensacred_rules::drops::Dropped {
+    let item = placement.creature.0;
+    let Some((tables, difficulty)) = made else {
+        return plain_item(item);
+    };
+    let hero = if placement.started {
+        fight::HERO_LEVEL
+    } else {
+        hero
+    };
+    let level = if placement.made.0 {
+        rules.script_level(hero, values)
+    } else {
+        *laid
+            .entry(index)
+            .or_insert_with(|| rules.script_level(hero, values))
+    };
+    let mut dice = spawning::Rng::of(placement.cell.0, placement.cell.1, index);
+    drops::scripted(
+        tables,
+        difficulty,
+        (item, level, placement.raised),
+        &mut dice,
+    )
+    .unwrap_or_else(|| plain_item(item))
+}
+
 /// Places the placement `index` of the sector `at` as it comes in: a kept one anew the first time,
 /// where it stood after and never once killed, the others anew each time. Made anew, a weapon
 /// that its model cannot shoot is chosen anew by `armoury` where it is read (#1217), which a kept
@@ -4622,7 +4704,7 @@ fn place_index(
     (index, at): (usize, (u32, u32)),
     (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
     (hero, time, area_types): (u32, fight::Played, Option<&quests::AreaTypes>),
-    armoury: Option<Armoury>,
+    (armoury, made): (Option<Armoury>, Option<Laying>),
     streamer: &mut Streamer,
 ) {
     // A quest's item that the hero took lies no more (#1256).
@@ -4728,6 +4810,16 @@ fn place_index(
             (&npcs.fight, &npcs.items),
         ),
     };
+    // An item lies as the rules make it, once, of its level kept (#1125).
+    let laid = if placement.lies || placement.quest.is_some() {
+        laid_item(
+            (&mut npcs.laid, npcs.values.get(&at), &npcs.fight),
+            (index, placement),
+            (hero, made),
+        )
+    } else {
+        plain_item(placement.creature.0)
+    };
     // A quest's item lies to be picked up as a drop, its taking's function with it (#1256).
     if let Some(take) = &placement.quest {
         commands.entity(entity).insert((
@@ -4737,17 +4829,7 @@ fn place_index(
                 name: placement.key.clone(),
             },
             drops::Lying {
-                dropped: opensacred_rules::drops::Dropped {
-                    kind: opensacred_rules::drops::Kind::Other,
-                    item: placement.creature.0,
-                    level: 0,
-                    key: QUEST_KEY,
-                    quality: 0,
-                    amount: 1,
-                    values: None,
-                    named: None,
-                    socketed: Vec::new(),
-                },
+                dropped: laid.clone(),
                 resting: true,
             },
         ));
@@ -4760,17 +4842,7 @@ fn place_index(
                 uses: placement.uses.clone(),
             },
             drops::Lying {
-                dropped: opensacred_rules::drops::Dropped {
-                    kind: opensacred_rules::drops::Kind::Other,
-                    item: placement.creature.0,
-                    level: 0,
-                    key: QUEST_KEY,
-                    quality: 0,
-                    amount: 1,
-                    values: None,
-                    named: None,
-                    socketed: Vec::new(),
-                },
+                dropped: laid.clone(),
                 resting: true,
             },
         ));
@@ -4851,7 +4923,7 @@ pub fn place(
     states: Res<buildings::Buildings>,
     dungeons: Res<daynight::Dungeons>,
     assets: Res<AssetServer>,
-    experience: Res<fight::Experience>,
+    (experience, difficulty): (Res<fight::Experience>, Option<Res<crate::game::Difficulty>>),
     (played, replacements, area_types): (
         Res<drops::Played>,
         Option<Res<crate::scripts::ScriptReplacements>>,
@@ -4879,6 +4951,8 @@ pub fn place(
         catalogue: items.catalogue(),
         hero: &chooser,
     });
+    let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
+    let made = items.as_deref().map(|items| (items, difficulty));
     // The placements that the play's scripts made in the sectors in the world (#1014).
     for index in std::mem::take(&mut npcs.pending) {
         let (x, y) = npcs.placements[index].cell;
@@ -4888,7 +4962,7 @@ pub fn place(
             (index, (x / side, y / side)),
             (&heights, &states, &assets),
             (hero, time, area_types),
-            armoury,
+            (armoury, made),
             &mut streamer,
         );
     }
@@ -4915,7 +4989,7 @@ pub fn place(
                 (index, at),
                 (&heights, &states, &assets),
                 (hero, time, area_types),
-                armoury,
+                (armoury, made),
                 &mut streamer,
             );
         }
@@ -7124,6 +7198,7 @@ impl Npcs {
             locked: self.locked.clone(),
             taken: self.taken.clone(),
             emptied: self.emptied.clone(),
+            laid: self.laid.clone(),
         }
     }
 
@@ -7153,6 +7228,7 @@ impl Npcs {
         self.locked = saved.locked;
         self.taken = saved.taken;
         self.emptied = saved.emptied;
+        self.laid = saved.laid;
     }
 
     /// Puts back what the sectors of a loaded save kept of their creatures (#1959), on the

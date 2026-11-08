@@ -916,6 +916,23 @@ pub(crate) fn contained(
 /// The least quality key of a container's items, the item maker's quality 11 (`0x5D57C0`).
 const CONTAINED_LEAST_KEY: u32 = 5;
 
+/// What a script's `CreateObj` makes of the item of type `item` that it lays at `level` on
+/// `difficulty`, only raised where `raised` (`opensacred_rules::drops::scripted`, #1125); none
+/// where it leaves the item as its type's record holds it.
+pub(crate) fn scripted(
+    tables: &Tables,
+    difficulty: drops::Difficulty,
+    (item, level, raised): (u32, u32, bool),
+    dice: &mut impl opensacred_rules::spawning::Dice,
+) -> Option<Dropped> {
+    drops::scripted(
+        (&tables.catalogue, &tables.templates),
+        (&tables.rules, difficulty),
+        (item, level, raised),
+        dice,
+    )
+}
+
 /// Lays a quest's reward, an item of type `item`, at `at` on `level` (`0x4AC940`, `0x45FC60`:
 /// made beside the hero), rising from 60 over the ground as a dropped item ([`Flight::dropped`]),
 /// its values made at `made_at` of the item maker's key `quality` (`16 − key`, 0 for none) on

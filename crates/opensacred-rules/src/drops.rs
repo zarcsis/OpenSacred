@@ -2278,6 +2278,72 @@ pub fn thrown(
     Some(drop)
 }
 
+/// What a script's `CreateObj` makes of the item of type `item` that it lays, at the level
+/// `level` ([`crate::fight::Rules::script_level`]) on `difficulty` (`0x487AB0`…`0x487EB8`,
+/// docs/re/netscript.md, "The items' levels"), `None` where it leaves the item as its type's
+/// record holds it: gold, a potion and the categories 26, 28, 30 and 31, and a type that the items
+/// table does not hold. One of the tag `0x9E` (`raised_only`), or a unique (its own template's
+/// word 40 15, else its record's quality bits all set, where it has no template), is raised from
+/// its record to the level as a drop's unique is ([`raise_level`], `0x5C29A0`). Another is made
+/// by the item maker at the level, of the key `min(16 − k, 10)` for a pass's key `k` of 2 to 15,
+/// else 0, `k` drawn with no bonus and the factor of the share 1 ([`Rules::key`],
+/// [`Rules::spread`]; the original's sum `(1 − ItemThrowFactor) + ItemThrowFactor`), its sockets
+/// and its name rolled as a drop's; an item that the maker makes nothing of stays as it is.
+pub fn scripted(
+    (catalogue, templates): (&Catalogue, &Templates),
+    (rules, difficulty): (&Rules, Difficulty),
+    (item, level, raised_only): (u32, u32, bool),
+    dice: &mut impl Dice,
+) -> Option<Dropped> {
+    let category = catalogue.category(item)?;
+    if GOLD.contains(&item) || UNMADE.contains(&category) {
+        return None;
+    }
+    let mut drop = Dropped {
+        kind: catalogue.kind(item).unwrap_or(Kind::Other),
+        item,
+        level: 0,
+        key: 16,
+        quality: 0,
+        amount: 1,
+        values: None,
+        named: None,
+        socketed: Vec::new(),
+    };
+    let unique = templates
+        .word_40(item)
+        .map_or_else(|| catalogue.unique(item), |quality| quality == 15);
+    if raised_only || unique {
+        raised(&mut drop, (catalogue, templates), (level, difficulty));
+        return Some(drop);
+    }
+    let k = rules.key(0, rules.spread(1.0), dice);
+    // The item maker's fourth argument, which it never reads (`0x487E89`).
+    dice.below(4);
+    drop.quality = match k {
+        2..=15 => u8::try_from(16 - k).unwrap_or(0).min(SCRIPTED_KEY),
+        _ => 0,
+    };
+    drop.key = 16 - drop.quality;
+    drop.level = level;
+    drop.values = Some(made(
+        (catalogue, templates),
+        (item, level, difficulty),
+        dice,
+    )?);
+    socket(
+        &mut drop,
+        (catalogue, templates),
+        (rules.sockets(), difficulty, false),
+        dice,
+    );
+    drop.named = names::roll(drop.values.as_ref(), dice);
+    Some(drop)
+}
+
+/// The highest key of the item maker that a script's `CreateObj` makes an item of (`0x487E6C`).
+const SCRIPTED_KEY: u8 = 10;
+
 /// An item of type `item` that the item maker makes at `level` by its own key `key` (`0x5D5080`),
 /// as a merchant's page makes it (`0x6D9DE0`, docs/re/trade.md): gold, potions, runes and the
 /// categories 26, 30 and 31 as they are; another, a type of no drop's kind of [`Kind::Other`], by

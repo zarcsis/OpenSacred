@@ -821,6 +821,32 @@ impl Rules {
         }
     }
 
+    /// The level that a script's `CreateObj` makes an item at for a hero of level `hero` in a
+    /// sector of the levels `values` (`0x487B8A`…`0x487CA6`, docs/re/netscript.md, "The items'
+    /// levels"): the hero's level held at most at the sector's highest and then at least at its
+    /// lowest, each raised by the difficulty's addition (`OffLevel` to the lowest, `LevelKap` to
+    /// the highest, 0 on bronze) and then by its per cent `OffLevelProz`, truncated, so that the
+    /// lowest prevails; the hero's level itself in a sector without levels or of a highest of 0.
+    pub fn script_level(&self, hero: u32, values: Option<&SpawnValues>) -> u32 {
+        let Some(values) = values.filter(|values| values.highest > 0) else {
+            return hero;
+        };
+        let per_cent = whole(self.scale[1]);
+        let scaled = |bound: u32| {
+            bound.saturating_add(
+                u32::try_from(u64::from(bound) * u64::from(per_cent) / 100).unwrap_or(u32::MAX),
+            )
+        };
+        let lowest = scaled(values.lowest.saturating_add(self.ranks.off));
+        let highest = scaled(values.highest.saturating_add(self.ranks.cap));
+        let level = if hero == 0 || hero > highest {
+            highest
+        } else {
+            hero
+        };
+        level.max(lowest)
+    }
+
     /// The difficulty's factor of a creature's attack and defence (`ProzAW`) as the getters of a
     /// creature not a hero give them (`0x56AA10`, `0x56AA90`), 0.65 on bronze.
     pub fn creatures_aw(&self) -> f32 {
@@ -2068,6 +2094,12 @@ impl Templates {
     /// of the made item's flags, which names its family, and its class for the namer.
     pub fn word_38(&self, item: u32) -> Option<i64> {
         self.by_type.get(&item).map(|words| signed(words[38]))
+    }
+
+    /// The word 40 of the template of type `item` itself (`0x42CA70`), read as signed: the
+    /// quality of its family's items, 15 a unique's.
+    pub fn word_40(&self, item: u32) -> Option<i64> {
+        self.by_type.get(&item).map(|words| signed(words[40]))
     }
 
     /// The low byte of the word 38 of the template that the item maker takes for an item of type
@@ -6136,6 +6168,17 @@ mod tests {
             ..values
         };
         assert_eq!(gold.raised(&none), none);
+        // A script's item at the hero's level within the sector's levels: on gold, the lowest
+        // `37 + ⌊37·50/100⌋` 55 and the highest `126 + ⌊126·50/100⌋` 189.
+        assert_eq!(gold.script_level(10, Some(&values)), 55);
+        assert_eq!(gold.script_level(100, Some(&values)), 100);
+        assert_eq!(gold.script_level(200, Some(&values)), 189);
+        assert_eq!(bronze.script_level(1, Some(&values)), 2);
+        assert_eq!(bronze.script_level(4, Some(&values)), 4);
+        assert_eq!(bronze.script_level(30, Some(&values)), 6);
+        // No levels, or a highest of 0, hold nothing.
+        assert_eq!(gold.script_level(10, None), 10);
+        assert_eq!(gold.script_level(10, Some(&none)), 10);
     }
 
     #[test]
