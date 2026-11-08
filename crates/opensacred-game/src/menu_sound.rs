@@ -40,7 +40,7 @@ const IDLE_PAN: (f32, f32) = (0.3, 0.4);
 const RATE: (f32, f32) = (0.3, 0.4);
 
 /// The channel of the figures' introductions on the choice of the hero (`choice`), which one stop
-/// silences whether it plays or still loads.
+/// silences whether it plays or still loads, at the speech's volume (`0x67E466`, `volumes`).
 #[derive(Resource)]
 pub struct Introductions;
 
@@ -148,10 +148,8 @@ fn start(
     };
     debug!("menu: music {file}");
     let track = assets.load(file);
-    channel
-        .play(track.clone())
-        .looped()
-        .with_volume(music::VOLUME);
+    // At the music's volume, its factor 1 (`MENU_ADDON`, `volumes`).
+    channel.play(track.clone()).looped();
     idle.music = Some(track);
 }
 

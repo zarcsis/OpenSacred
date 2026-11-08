@@ -46,11 +46,11 @@ const SCREEN: Vec2 = Vec2::new(1_024.0, 768.0);
 
 /// The channels of the water's three loops.
 #[derive(Resource)]
-struct Tiny;
+pub(crate) struct Tiny;
 #[derive(Resource)]
-struct Normal;
+pub(crate) struct Normal;
 #[derive(Resource)]
-struct Big;
+pub(crate) struct Big;
 
 /// The ambience's clock, the sectors' music, the region's music last heard, the ids that wait,
 /// and the dice.

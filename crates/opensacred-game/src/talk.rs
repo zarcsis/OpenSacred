@@ -14,7 +14,7 @@ use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::{FontSize, LineHeight};
-use bevy_kira_audio::prelude::{Audio, AudioControl};
+use bevy_kira_audio::prelude::{Audio, AudioChannel, AudioControl};
 use opensacred_data::tables::PORTRAITS;
 use opensacred_rules::minds;
 
@@ -582,12 +582,38 @@ fn voice(world: &mut World, sounds: &[String]) {
         let Some(sample) = line_sample(&mut sfx, sound, &assets) else {
             continue;
         };
-        let Some(audio) = world.get_resource::<Audio>() else {
+        let Some(instance) = play_line(world, sound, sample) else {
             return;
         };
-        let instance = audio.play(sample).handle();
         voices::name_line(world, Some(instance));
     }
+}
+
+/// Plays the line by name `sound`'s sample at the speech's volume, or at the effects' where its
+/// name holds `_SFX` (`0x694335`; `volumes`).
+fn play_line(
+    world: &World,
+    sound: &str,
+    sample: Handle<bevy_kira_audio::AudioSource>,
+) -> Option<Handle<bevy_kira_audio::AudioInstance>> {
+    if effect_line(sound) {
+        Some(world.get_resource::<Audio>()?.play(sample).handle())
+    } else {
+        Some(
+            world
+                .get_resource::<AudioChannel<crate::volumes::Speech>>()?
+                .play(sample)
+                .handle(),
+        )
+    }
+}
+
+/// Whether the line by name `sound` is an effect, its name past `SOUND_FX_` holding `_SFX`
+/// (`0x9DF24C`).
+fn effect_line(sound: &str) -> bool {
+    sound_name(sound)
+        .get("SOUND_FX_".len()..)
+        .is_some_and(|rest| rest.contains("_SFX"))
 }
 
 /// The name of the sound that a `PlaySound` names `sound` (`0x4A9730`): `SOUND_FX_` put before a
@@ -622,13 +648,15 @@ fn line_sample(
 fn lines(
     mut lines: MessageReader<scripts::ScriptLine>,
     (assets, audio): (Res<AssetServer>, Option<Res<Audio>>),
+    speech: Option<Res<AudioChannel<crate::volumes::Speech>>>,
     mut sfx: Option<ResMut<Sfx>>,
     mut named: Option<ResMut<voices::NamedLine>>,
     mut instances: Option<ResMut<Assets<bevy_kira_audio::AudioInstance>>>,
 ) {
-    let (Some(sfx), Some(audio), Some(named), Some(instances)) = (
+    let (Some(sfx), Some(audio), Some(speech), Some(named), Some(instances)) = (
         sfx.as_deref_mut(),
         audio,
+        speech,
         named.as_deref_mut(),
         instances.as_deref_mut(),
     ) else {
@@ -640,7 +668,11 @@ fn lines(
             continue;
         };
         info!("talk: the scripts play {sound}");
-        let instance = audio.play(sample).handle();
+        let instance = if effect_line(sound) {
+            audio.play(sample).handle()
+        } else {
+            speech.play(sample).handle()
+        };
         named.name(instances, Some(instance));
     }
 }

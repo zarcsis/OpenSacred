@@ -1648,7 +1648,7 @@ fn settle(
 }
 
 /// The class of the figure that the cursor rests on speaks its introduction once the cursor has
-/// rested there half a second, at the effects' volume, in the middle and at its sample's rate;
+/// rested there half a second, at the speech's volume, in the middle and at its sample's rate;
 /// the cursor leaving it stops it (the sound event (9, 0x44), `0x693FE0`). The introductions play
 /// on a channel of their own, whose stop also drops one still loading (#1144).
 fn introduce(

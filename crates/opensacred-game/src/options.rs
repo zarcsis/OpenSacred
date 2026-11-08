@@ -391,6 +391,16 @@ impl Slider {
         }
     }
 
+    /// The volume it sets live as it moves, none for the transparency.
+    fn kind(self) -> Option<crate::volumes::Kind> {
+        match self {
+            Self::Transparency => None,
+            Self::Effects => Some(crate::volumes::Kind::Effects),
+            Self::Speech => Some(crate::volumes::Kind::Speech),
+            Self::Music => Some(crate::volumes::Kind::Music),
+        }
+    }
+
     fn get(self, settings: &Settings) -> u8 {
         match self {
             Self::Transparency => settings.interface.map_alpha,
@@ -771,16 +781,24 @@ fn slider_pieces(
     ));
     screen
         .spawn((slider, choice::place(rect), Pickable::default()))
-        .observe(move |scroll: On<PointerScroll>, mut draft: ResMut<Draft>| {
-            if scroll.y == 0.0 {
-                return;
-            }
-            let position = slider.get(&draft.settings);
-            let moved = step(position, slider.positions(), scroll.y > 0.0);
-            if moved != position {
-                *slider.slot(&mut draft.settings) = moved;
-            }
-        });
+        .observe(
+            move |scroll: On<PointerScroll>,
+                  mut draft: ResMut<Draft>,
+                  levels: Option<ResMut<crate::volumes::Levels>>| {
+                if scroll.y == 0.0 {
+                    return;
+                }
+                let position = slider.get(&draft.settings);
+                let moved = step(position, slider.positions(), scroll.y > 0.0);
+                if moved != position {
+                    *slider.slot(&mut draft.settings) = moved;
+                }
+                // Heard at once, as a press moves it (docs/decisions/sound.md).
+                if let (Some(kind), Some(mut levels)) = (slider.kind(), levels) {
+                    levels.moved(kind, moved);
+                }
+            },
+        );
 }
 
 /// A button of the foot: its pieces and its words, which a click presses.
@@ -851,11 +869,22 @@ fn button(
         });
 }
 
-/// A tick pressed: its setting turned over, with its click (`0x72B560`).
-fn flip(In(tick): In<Tick>, mut draft: ResMut<Draft>, mut sounds: MessageWriter<crate::sfx::Play>) {
+/// A tick pressed: its setting turned over, with its click (`0x72B560`); the sound's at once,
+/// whatever closes the window after (`0x717696`).
+fn flip(
+    In(tick): In<Tick>,
+    mut draft: ResMut<Draft>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
+    levels: Option<ResMut<crate::volumes::Levels>>,
+) {
     crate::inventory::play(&mut sounds, crate::inventory::CLICK);
     let slot = tick.slot(&mut draft.settings);
     *slot = !*slot;
+    if tick == Tick::Sound
+        && let Some(mut levels) = levels
+    {
+        levels.on = *slot;
+    }
 }
 
 /// A round choice pressed: it holds and the others of its group do not, with its click; a press
@@ -880,11 +909,15 @@ const HELD_STEP: f32 = 1.0 / 60.0;
 /// that a held "−" or "+" moves a position a frame and a held press on the bar drags the knob
 /// after the cursor (`0x752A60`, `0x716E00`; seen: a click of one frame moves two positions, and
 /// a held one a position every frame).
+///
+/// A volume's slider so pressed sets its volume at once, over 126 (`0x716E00`), which neither
+/// Cancel nor Esc sets back.
 fn drag(
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (time, mut held): (Res<Time<Real>>, Local<f32>),
     mut draft: ResMut<Draft>,
+    mut levels: Option<ResMut<crate::volumes::Levels>>,
 ) {
     let presses = if buttons.just_pressed(MouseButton::Left) {
         *held = 0.0;
@@ -913,6 +946,11 @@ fn drag(
         });
         if moved != position {
             *slider.slot(&mut draft.settings) = moved;
+        }
+        if presses > 0
+            && let (Some(kind), Some(levels)) = (slider.kind(), levels.as_deref_mut())
+        {
+            levels.moved(kind, moved);
         }
     }
 }

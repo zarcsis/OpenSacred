@@ -45,7 +45,7 @@ use bevy::prelude::{
     resource_exists,
 };
 use bevy_kira_audio::prelude::{
-    AudioChannel, AudioControl, AudioInstance, AudioSource, AudioTween, Decibels,
+    AudioChannel, AudioControl, AudioInstance, AudioSource, AudioTween,
 };
 use opensacred_data::sound::Sound;
 use opensacred_data::world::{SIDE, World};
@@ -83,9 +83,6 @@ const SIEGES: &str = "RegionChange";
 const CHANGES: &str = "Globalchange1";
 /// The crossfade of the peace stream (`0x69C4BB`).
 const FADE: Duration = Duration::from_secs(7);
-/// Below the effects, so that the footsteps stay audible.
-pub const VOLUME: Decibels = Decibels(-8.0);
-
 /// The channel of the music, apart from the effects.
 #[derive(Resource)]
 pub struct Channel;
@@ -99,10 +96,11 @@ pub struct Music {
     /// Each sector's music, area and nature, by the sector, and the track of each music.
     sectors: HashMap<(u32, u32), (u32, u8, u8)>,
     tracks: HashMap<u32, String>,
-    /// Each sound's id by its name, lower-cased, and the ambient loops' ids (`ATMO…`), which play
-    /// at the effects' level.
+    /// Each sound's id by its name, lower-cased, the ambient loops' ids (`ATMO…`), which play at
+    /// the effects' volume, and the streams' factors other than 1 by their ids (`+0x6B4`).
     ids: HashMap<String, u32>,
     atmo: HashSet<u32>,
+    factors: HashMap<u32, f32>,
     /// The peace stream's phase and timer.
     stream: Stream,
     /// Until when the stream's crossfade runs, in the game's time.
@@ -135,6 +133,8 @@ pub struct Music {
 }
 
 struct Playing {
+    /// Its sound's id.
+    id: u32,
     /// Held while the track plays, so that it stays loaded.
     _track: Handle<AudioSource>,
     instance: Handle<AudioInstance>,
@@ -172,11 +172,18 @@ impl Music {
             })
             .map(|name| name.id)
             .collect();
+        let factors = sound
+            .names
+            .iter()
+            .map(|name| (name.id, opensacred_rules::music::factor(&name.name)))
+            .filter(|&(_, factor)| factor != 1.0)
+            .collect();
         Self {
             sectors,
             tracks,
             ids,
             atmo,
+            factors,
             stream: Stream::default(),
             fading: Duration::ZERO,
             dark: false,
@@ -198,6 +205,19 @@ impl Music {
                 .map(|profile| (profile.slot, profile.groups.clone()))
                 .collect(),
         }
+    }
+
+    /// The factor of the stream `id`'s volume (`+0x6B4`, `opensacred_rules::music::factor`).
+    pub fn factor(&self, id: u32) -> f32 {
+        self.factors.get(&id).copied().unwrap_or(1.0)
+    }
+
+    /// Whether the music's channel plays an ambient or a spot loop (`ATMO…`), at the effects'
+    /// volume (`volumes`).
+    pub fn plays_atmo(&self) -> bool {
+        self.playing
+            .as_ref()
+            .is_some_and(|playing| self.atmo.contains(&playing.id))
     }
 
     /// Whether the ambient loop of the place takes the stream now (`atmosphere`).
@@ -293,7 +313,8 @@ impl Music {
         debug!("music: {file} once");
         let track = assets.load(file);
         once.stop();
-        once.play(track.clone()).with_volume(VOLUME);
+        once.play(track.clone())
+            .with_volume(crate::sfx::decibels(self.factor(id)));
         self.once = Some(track);
     }
 }
@@ -523,20 +544,19 @@ pub fn play(
     };
     debug!("music: {file}");
     let track = assets.load(file.clone());
-    // An `ATMO` name, a spot loop or the scripts' loop, at the effects' level as the ambient
-    // loops (`0x69C4BB`).
-    let volume = if want.is_some_and(|id| music.atmo.contains(&id)) {
-        crate::atmosphere::VOLUME
-    } else {
-        VOLUME
-    };
+    // At its factor; an `ATMO` name, a spot loop or the scripts' loop, at the effects' volume as
+    // the ambient loops, the others at the music's (`volumes`, `0x694510`).
+    let id = want.unwrap_or_default();
     let mut playing = audio.play(track.clone());
-    playing.looped().with_volume(volume);
+    playing
+        .looped()
+        .with_volume(crate::sfx::decibels(music.factor(id)));
     if !cut {
         playing.fade_in(fade);
     }
     let instance = playing.handle();
     music.playing = Some(Playing {
+        id,
         _track: track,
         instance,
         file,

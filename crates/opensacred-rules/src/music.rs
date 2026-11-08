@@ -646,10 +646,96 @@ fn by_music(music: u32, night: bool) -> Option<u32> {
     if night { dark } else { day }
 }
 
+/// Each stream's factor of its volume by its name past `SOUND_FX_` (the table at the sound
+/// manager's `+0x6B4`, filled once by `0x69AA80`; docs/re/sound.md, "The volumes"): a music, a
+/// jingle and an ambient or spot loop play at it times the music's or the effects' volume.
+const FACTORS: [(&str, f32); 58] = [
+    ("ATMO_WOOD", 1.0),
+    ("ATMO_WOOD_NIGHT", 1.0),
+    ("ATMO_ICE", 1.0),
+    ("ATMO_ICE_NIGHT", 1.0),
+    ("ATMO_VULCANO", 1.0),
+    ("ATMO_VULCANO_NIGHT", 1.0),
+    ("ATMO_DUNGEON", 1.0),
+    ("ATMO_DUNGEON_NIGHT", 1.0),
+    ("ATMO_DESERT", 0.9),
+    ("ATMO_DESERT_NIGHT", 0.85),
+    ("ATMOSPOT_ARENA_OUTDOOR", 0.7),
+    ("ATMOSPOT_CEMETERY", 0.6),
+    ("MUSIC_MASCARELL", 1.0),
+    ("MUSIC_WOOD01", 0.85),
+    ("MUSIC_WOOD03", 0.7),
+    ("MUSIC_VILLAGE01", 0.7),
+    ("MUSIC_DESERT01", 0.7),
+    ("MUSIC_PILZWALD", 0.8),
+    ("MUSIC_HAUPTSTADT", 0.8),
+    ("MUSIC_DRYADEN", 0.8),
+    ("MUSIC_NUKNUK", 0.6),
+    ("MUSIC_WAYTOHELL", 0.6),
+    ("MUSIC_HELL", 0.6),
+    ("MUSIC_KARIBIK", 0.5),
+    ("MUSIC_DUNGEON_KARIBIK", 0.5),
+    ("MUSIC_DUNGEON_NUKNUK", 0.5),
+    ("MUSIC_PUB", 0.5),
+    ("MUSIC_PIRATENPUB", 0.35),
+    ("MUSIC_FIGHT01", 0.8),
+    ("MUSIC_FIGHT02", 0.7),
+    ("MUSIC_FIGHT03", 0.65),
+    ("MUSIC_FIGHT04", 0.65),
+    ("MUSIC_FIGHT06", 0.8),
+    ("MUSIC_FIGHT07", 0.8),
+    ("MUSIC_FIGHT08", 0.8),
+    ("MUSIC_FIGHT09", 0.8),
+    ("MUSIC_FIGHT10", 0.8),
+    ("MUSIC_FIGHT_KARIBIK", 0.7),
+    ("MUSIC_FIGHT_NUKNUK", 0.7),
+    ("MUSIC_FIGHT_GIANTSPIDER", 0.5),
+    ("MUSIC_WRONGLEVEL", 0.8),
+    ("JINGLE_DANGER01", 0.75),
+    ("JINGLE_FIGHT_OVER01", 0.7),
+    ("JINGLE_FIGHT_OVER02", 0.7),
+    ("JINGLE_FIGHT_OVER03", 0.7),
+    ("JINGLE_FIGHT_OVER04", 0.7),
+    ("JINGLE_FIGHT_OVER05", 0.7),
+    ("JINGLE_FIGHT_OVER06", 0.7),
+    ("JINGLE_FIGHT_OVER07", 0.7),
+    ("JINGLE_FIGHT_OVER08", 0.7),
+    ("JINGLE_FIGHT_OVER09", 0.7),
+    ("JINGLE_FIGHT_OVER10", 0.7),
+    ("JINGLE_FIGHT_OVER11", 0.7),
+    ("JINGLE_FIGHT_OVER12", 0.7),
+    ("JINGLE_FIGHT_OVER13", 0.7),
+    ("JINGLE_FIGHT_OVER14", 0.7),
+    ("JINGLE_FIGHT_OVER15", 0.7),
+    ("JINGLE_FIGHT_OVER16", 0.7),
+];
+
+/// The factor of the stream named `name`, with its `SOUND_FX_` or without, case aside: 1 for a
+/// name the table does not hold.
+pub fn factor(name: &str) -> f32 {
+    let name = name
+        .get(..9)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("SOUND_FX_"))
+        .map_or(name, |_| &name[9..]);
+    FACTORS
+        .iter()
+        .find(|(of, _)| of.eq_ignore_ascii_case(name))
+        .map_or(1.0, |&(_, factor)| factor)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::spawning::Script;
+
+    #[test]
+    fn a_streams_factor_is_its_names_with_its_prefix_or_without() {
+        assert_eq!(factor("SOUND_FX_MUSIC_PIRATENPUB"), 0.35);
+        assert_eq!(factor("music_wood01"), 0.85);
+        assert_eq!(factor("SOUND_FX_ATMO_DESERT_NIGHT"), 0.85);
+        assert_eq!(factor("SOUND_FX_MENU_ADDON"), 1.0);
+        assert_eq!(factor("SOUND"), 1.0);
+    }
 
     #[test]
     fn the_ambient_loop_follows_the_regions_music_and_the_sectors_nature() {

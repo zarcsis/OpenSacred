@@ -221,7 +221,7 @@ fn flake(dice: &mut Rng, screen: Vec2) -> Vec3 {
 
 /// The channel of the rain's loop.
 #[derive(Resource)]
-struct RainLoop;
+pub(crate) struct RainLoop;
 
 /// Whether the rain's loop plays.
 #[derive(Resource, Default)]
