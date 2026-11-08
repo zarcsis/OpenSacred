@@ -160,6 +160,18 @@ impl Slots {
         self.0.get(&slot).map(String::as_str)
     }
 
+    /// The rider's strike from the saddle with a weapon of `class` (`0x5467A0`'s action 4 on
+    /// horseback, #2302): a crossbow's (the classes 12 and 14) 234; a bow's (7 and 13) 195, else
+    /// 196; another's 194, else 193; none where the model has none.
+    pub fn riding_attack(&self, class: u8) -> Option<&str> {
+        let slots: &[u16] = match class {
+            12 | 14 => &[234],
+            7 | 13 => &[195, 196],
+            _ => &[194, 193],
+        };
+        slots.iter().find_map(|&slot| self.slot(slot))
+    }
+
     /// The fight stance's clip for `class`, only where the model has its slot: 14 to 26 for the
     /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
     /// standing creature takes it instead of its idle only then (`0x5467A0`,
@@ -287,6 +299,26 @@ mod tests {
         assert_eq!(fighter.stance(14), Some("F_FIDLE_2H"));
         assert_eq!(fighter.stance(13), Some("F_FIDLE_2H"));
         assert_eq!(fighter.stance(0), None);
+    }
+
+    #[test]
+    fn a_rider_strikes_by_its_weapons_class() {
+        // A crossbow's 234; a bow's 195, else 196; another's 194, else 193; none without them.
+        let rider = Slots::of([
+            (193, "R_ATTACK_B"),
+            (194, "R_ATTACK_A"),
+            (196, "R_SHOOT_B"),
+            (234, "R_CROSSBOW"),
+        ]);
+        assert_eq!(rider.riding_attack(12), Some("R_CROSSBOW"));
+        assert_eq!(rider.riding_attack(14), Some("R_CROSSBOW"));
+        assert_eq!(rider.riding_attack(7), Some("R_SHOOT_B"));
+        assert_eq!(rider.riding_attack(13), Some("R_SHOOT_B"));
+        assert_eq!(rider.riding_attack(1), Some("R_ATTACK_A"));
+        let plain = Slots::of([(193, "P_ATTACK_B")]);
+        assert_eq!(plain.riding_attack(0), Some("P_ATTACK_B"));
+        assert_eq!(plain.riding_attack(12), None);
+        assert_eq!(Slots::default().riding_attack(0), None);
     }
 
     #[test]

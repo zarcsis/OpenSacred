@@ -219,6 +219,10 @@ fn single(x: f64) -> f32 {
     x as f32
 }
 
+/// A horse's size, its rider's in the reach of a strike from the saddle (`0x4DBC60`, the mean of
+/// the two sizes; docs/re/horses.md, "Fighting from horseback").
+pub const SIZE: u32 = 130;
+
 /// The class of a horse by its byte `+0x400`: 1 where it is 0 (the creature's query `0xD`,
 /// `0x55D260`).
 pub fn class(byte: u8) -> u8 {

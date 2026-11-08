@@ -285,6 +285,7 @@ fn engage(
             Option<&fight::Frenzy>,
             Option<&crate::effects::Effects>,
             Has<crate::making::Playing>,
+            Option<&crate::riding::Seat>,
         ),
         Without<Dies>,
     >,
@@ -324,6 +325,7 @@ fn engage(
         frenzy,
         effects,
         playing,
+        seat,
     ) in &mut heroes
     {
         // Ordered while an art plays, it waits for the art's clip to end (`aim`, #1215).
@@ -346,9 +348,16 @@ fn engage(
         });
         // With a bow or a crossbow in hand it shoots (the AI's state 8 for a hero, #784).
         let ranged = holding.is_some_and(|holding| holding.0.ranged) || bolt.is_some();
+        // From the saddle it strikes as its horse's size reaches (#2302), not turning to its
+        // target, by its own clip (docs/re/horses.md, "Fighting from horseback").
+        let riding = seat.is_some_and(|seat| seat.ridden().is_some());
         // The reach of the hero and its target, by their sizes (`0x4DBC60`, #642).
         let reach = minds::reach(
-            size.map_or(minds::SIZE, |size| size.0),
+            if riding {
+                opensacred_rules::horses::SIZE
+            } else {
+                size.map_or(minds::SIZE, |size| size.0)
+            },
             target
                 .and_then(|(_, _, mind, _)| mind)
                 .map_or(minds::SIZE, |mind| mind.size()),
@@ -508,7 +517,9 @@ fn engage(
             continue;
         }
         body.stop();
-        transform.rotation = hero::facing((aimed - here).with_y(0.0));
+        if !riding {
+            transform.rotation = hero::facing((aimed - here).with_y(0.0));
+        }
         if !now && attack.phase != Phase::InBand {
             // In the band, turned to its target, it strikes at the next tick.
             attack.phase = Phase::InBand;
@@ -524,11 +535,14 @@ fn engage(
             debug!("attack: the hero shoots its {bolt:?} bolts by their own clip");
         }
         let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
-        let Some((node, clip, fractions)) = shot.or_else(|| {
+        let strike = if riding {
+            clips.riding_attack.as_ref()
+        } else {
             usize::try_from(dice.0.below(count))
                 .ok()
                 .and_then(|index| clips.attacks.get(index))
-        }) else {
+        };
+        let Some((node, clip, fractions)) = shot.or(strike) else {
             commands.entity(hero).remove::<Attack>();
             continue;
         };
