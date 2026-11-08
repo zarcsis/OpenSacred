@@ -32,8 +32,6 @@ use crate::stashes::Stash;
 /// The textures of a spark's two squares.
 const COLOURED: &str = "particle_spark04";
 const GREY: &str = "particle_spark07";
-/// The sparks of the installation's `DETAILLEVEL`, 2.
-const SPARKS: u8 = GLITTER_SPARKS[2];
 /// The glitter's time runs at half the game's seconds, each object's ahead by its phase.
 const RATE: f32 = 0.5;
 const PHASE: f32 = 0.1 * RATE;
@@ -99,10 +97,13 @@ fn glitters(
         Query<(Entity, &GlobalTransform, &Lying)>,
         Query<(&Stash, &Transform)>,
     ),
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let (Some(handles), Some(tables)) = (handles, tables) else {
         return;
     };
+    // The sparks of the options' detail, 3, 5 or 8 (`0x5BB87E`).
+    let sparks = GLITTER_SPARKS[usize::from(crate::settings::detail(settings.as_deref()))];
     let (mut coloured, mut grey) = (Quads::default(), Quads::default());
     let whole = (Vec2::ZERO, 1.0);
     // An item flying as it is thrown glitters too, an object drawn in the air (#1477).
@@ -113,7 +114,7 @@ fn glitters(
         let phase = f32::from(u16::try_from(item.index_u32() % 1000).unwrap_or(0)) * PHASE;
         let point = at.translation();
         let (mut own_coloured, mut own_grey) = (Quads::default(), Quads::default());
-        for spark in glitter(time.elapsed_secs() * RATE + phase, SPARKS) {
+        for spark in glitter(time.elapsed_secs() * RATE + phase, sparks) {
             // The glitter's frame, its third coordinate up, at the world's scale.
             let centre = point + space(spark.offset);
             let [r, g, b] = spark.colour;
@@ -134,7 +135,7 @@ fn glitters(
             all.append(own);
         }
     }
-    let events = event_sparks(time.elapsed_secs() * RATE, SPARKS);
+    let events = event_sparks(time.elapsed_secs() * RATE, sparks);
     for (_, at) in stashes
         .iter()
         .filter(|(stash, _)| stash.look == Look::Sparks)

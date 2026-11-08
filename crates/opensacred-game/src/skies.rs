@@ -332,6 +332,7 @@ fn draw(
     (mut layers, mut flakes): (Query<&mut Layer>, Option<ResMut<Flakes>>),
     (mut materials, mut buffers): (ResMut<Assets<Skies>>, ResMut<Assets<ShaderBuffer>>),
     (mut sfx, audio, assets): (ResMut<Sfx>, Res<bevy_kira_audio::Audio>, Res<AssetServer>),
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let (Some(mut weather), Ok(mut layer)) = (weather, layers.single_mut()) else {
         return;
@@ -372,7 +373,8 @@ fn draw(
     let flash = if layer.flash > 0.0 { FLASH } else { 0.0 };
     layer.flash = (layer.flash - dt).max(0.0);
     let state = &weather.state;
-    let (drops, fog, snow) = if underground {
+    // Nor at the options' lowest detail (docs/re/weather.md).
+    let (drops, fog, snow) = if underground || crate::settings::detail(settings.as_deref()) == 0 {
         (0, 0, 0)
     } else {
         (state.rain.now, state.fog.now.min(255), state.snow.now)
