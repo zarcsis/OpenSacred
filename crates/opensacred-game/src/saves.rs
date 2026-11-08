@@ -70,8 +70,8 @@ use crate::{arts, drops, making};
 /// (#1125) keeps the levels of the scripts' items lying and the creatures' placements as they
 /// stand since #2249, #2290 and #2305, which the version 4 had changed under it (#2306); the
 /// version 6 keeps no effect's source (#2308); the version 7 the hero's own horse (#2301); the
-/// version 8 a stable's horse's trader (#2300).
-pub const VERSION: u32 = 8;
+/// version 8 a stable's horse's trader (#2300); the version 9 a fill's rider on its horse (#2288).
+pub const VERSION: u32 = 9;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1126,7 +1126,7 @@ mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (8, 0x3F81_C070_3534_5379),
+            (9, 0x5326_DD3D_6A29_FCA3),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

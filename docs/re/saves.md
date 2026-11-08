@@ -97,3 +97,4 @@ Since #2306 a test pins that layout beside the version (`saves::tests::the_saves
 Since #2308 a save keeps no effect's source, an entity of the running world alone (the saves' version 6; docs/decisions/interface.md, "Poison's source not saved").
 Since #2301 a save keeps the hero's own horse apart from its sector's creatures, as a follower (`npcs::mount_of`, `saves::World`'s `horse`): what it is made of and where it stands with its health and effects; a load puts it back there unmounted, the hero's own again (`npcs::mount_again`), as the original's load restores it (`0x6058A0`), the saves' version 7.
 Since #2300 a creature's placement keeps its stable's trader (`npcs::Placement`'s `stock`), the saves' version 8.
+Since #2288 it keeps whether it is a fill's black rider on its horse (`rides`), seated again on the horse kept beside it as their sector comes in, the saves' version 9.

@@ -309,6 +309,18 @@ pub struct Ridden {
     way: Option<InTheWay>,
 }
 
+impl Ridden {
+    /// A horse ridden by `rider`, its place in the way `way` kept aside.
+    pub(crate) fn by(rider: Entity, way: Option<InTheWay>) -> Self {
+        Self { rider, way }
+    }
+
+    /// Its place in the way, kept aside while it is ridden.
+    pub(crate) fn way(&self) -> Option<&InTheWay> {
+        self.way.as_ref()
+    }
+}
+
 pub struct RidingPlugin;
 
 impl Plugin for RidingPlugin {

@@ -149,7 +149,12 @@ pub(crate) fn aim(
     (creatures, items, labels): (
         Query<
             (Entity, &GlobalTransform, &Mind, &Health),
-            (Without<Dies>, Without<crate::npcs::Talk>),
+            (
+                Without<Dies>,
+                Without<crate::npcs::Talk>,
+                // A ridden horse gives way to its rider (docs/re/cursor.md).
+                Without<crate::riding::Ridden>,
+            ),
         >,
         Query<&GlobalTransform, With<crate::drops::Lying>>,
         Res<crate::labels::Shown>,
