@@ -769,7 +769,7 @@ fn pursue(
     mut lines: MessageWriter<crate::voices::Speak>,
     tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
-    heights: Res<Heights>,
+    (heights, dungeons): (Res<Heights>, Option<Res<crate::daynight::Dungeons>>),
     nearest: Res<Nearest>,
     doors: Doors,
     hero: Query<
@@ -972,6 +972,11 @@ fn pursue(
             listed,
             targeted,
             hero_size: target_size,
+            // On the ground outside a dungeon, where a crow fleeing takes off (#2291).
+            outdoors: way.level.is_none()
+                && !dungeons
+                    .as_deref()
+                    .is_some_and(|dungeons| dungeons.holds(here.x, here.z)),
         };
         // The hero itself, which a magician casts at in place of its follower (#1869).
         let heros_place = hero;
@@ -1036,9 +1041,13 @@ fn pursue(
             }
             Pursues::Flees(to) => {
                 debug!("ai: {entity} {:?} the hero", Why::Flees);
-                commands
-                    .entity(entity)
-                    .insert(Walk::run(point(to, here.y), way.level, mind.run));
+                // A crow that took off flies its flight (`0x4E1336`, #2291).
+                let walk = if mind.flying {
+                    Walk::fly(point(to, here.y), way.level, mind.fly)
+                } else {
+                    Walk::run(point(to, here.y), way.level, mind.run)
+                };
+                commands.entity(entity).insert(walk);
             }
             Pursues::ComesOn { runs, within } => {
                 // In melee without a straight line: a way to the hero, or the door in its way, or
