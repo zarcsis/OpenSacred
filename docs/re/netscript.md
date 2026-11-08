@@ -791,6 +791,21 @@ Since #1634 the converter makes them so in the scripts themselves (`script_repai
 A `CreateObj` that gives its item straight to the hero (above) makes no object, so that the original keeps its type as it is: quest 9522 gives the old 5061 so into the list of the main quest's items, where the game, its record converted, gives the new 5138.
 Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy, and what draws the glitter over a quest's item lying in the world (seen, #1256; #1382); to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
 
+### The items' levels
+
+`CreateObj` (`0x485C10`) makes again an item that it lays once it has made its object (`0x487AB0`…`0x487EB8`; read 2026-11-08 for #1125, **confirmed** by code and in the running original):
+- Gold (`0x43AF50`), a potion (`0x428110`) and the categories 28, 26, 30 and 31 stay as their types' records hold them; another is switched to the local hero's class's variant of its type (`0x5C7370`, which keeps a hero's own, docs/re/items.md).
+- Its level is the local hero's (`+0x3FE`) held within the levels of the sector at the object's place (`sdk_SECTOR_RESOLVE`, `0x63CFC0`, its `SpawnValues`' lowest `+0xD3` and highest `+0xD5`) where that highest is above 0: the highest `h + LevelKap` and the lowest `l + OffLevel` of the difficulty's column (`0xAD4E1C`, `0xAD4C18`, docs/re/objects.md), each then `v + ⌊v·OffLevelProz/100⌋` in ints (`0xAD5648`), the highest plus the global `0xAB4680`, which nothing writes.
+  The level is held at the highest first and then at the lowest, so that the lowest prevails.
+- An item of the tag `0x9E` (`0x485E70`: the scripts' own uniques 7911 to 7930 at the hero and 3072, 22 records of the Seraphim's tree), or a unique (its type's own template's word 40 15 by `0x42CA70`, else, without one, its `Weapon.pak` record's `+0x84` bits `0xF0000` all set), is only raised to the level by `0x5C29A0`, as a drop's unique is (docs/re/items.md, "A pass: making the item").
+- Another is made again by the item maker (`0x5D5080`) at the level: a roll `R(1, 10000)` against the running sums of the quality keys' weights times `10·((1 − ItemThrowFactor) + ItemThrowFactor)`, which is 10, with no bonus, takes a key `k`, and the maker's key is `min(16 − k, 10)` for `k` of 2 to 15, else 0; its fourth argument is a `rand() % 4` that it never reads.
+- So the random item of `0x54` (`0x4863D4`, docs/re/containers.md, "The hidden stashes"), whose roll's level only chooses its type, is made at this level too.
+**Seen** in the original (bronze, the Seraphim at the start in the sector 50,39): `beweise209` made its 4304 by the maker at the level 1 for the hero of the level 1 and at the level 4 for the hero of the level 30, of the key 0 in 21 runs of 26, 10 in 4 and 6 in 1, and its 3072 of `0x9E` without the maker; twelve runs of `F_Gold` made their random items at the level 4.
+
+Since #1125 the game lays a `CreateObj`'s item so (`opensacred_rules::drops::scripted`, `opensacred_rules::fight::Rules::script_level`, `npcs::Placement`'s `raised`): at the hero's level as its placement is first placed, as its record runs where its sector is in the world, a start's at the hero's first level, that level kept (`npcs::Saved`'s `laid`, the saves' version 5) but for an `Enter`'s, which each coming makes again, and of the placement's own rolls, so that each coming of its sector lays the same item, as the original keeps its object.
+The hidden stashes' random items are made at the hero's level then in its sector (`stashes`).
+Before, a `CreateObj`'s item lay as its type's record holds it, of the level 0, and a random item was made at its type's roll's level as a container's item.
+
 ### Spawns and markers
 
 Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code and on the scripts unless marked otherwise.

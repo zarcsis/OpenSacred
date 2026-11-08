@@ -457,7 +457,7 @@ The fight and the stats:
 The levels:
 
 - the scaling of the levels and its inverse by `OffLevelProz` and `BaseOffLevel` (`0x552230`, `0x5522D0`, "Who fights"; docs/re/spawning.md);
-- the sectors' lowest raised by `OffLevel` and their highest by `LevelKap`, which `CreateNPC`, `FillSector`, the level's setter, the first fight's levelling of a boss or champion, a quest's reward and the objects made at the hero's sector's level take (`sdk_CREATENPC`, `0x47C610`, `0x564D60`, `0x550E50`, `0x4AC940`, `0x5D57C0`, `0x537270`); the boss's new level goes through the scaling with the time played too;
+- the sectors' lowest raised by `OffLevel` and their highest by `LevelKap`, which `CreateNPC`, `FillSector`, the level's setter, the first fight's levelling of a boss or champion, a quest's reward and the objects made at the hero's sector's level take (`sdk_CREATENPC`, `0x47C610`, `0x564D60`, `0x550E50`, `0x4AC940`, `0x5D57C0`, `0x537270`), and a script's `CreateObj`'s item, both then raised by `OffLevelProz` in ints (`0x487B8A`, docs/re/netscript.md, "The items' levels"); the boss's new level goes through the scaling with the time played too;
 - the hires' kept level (`sdk_HIRE`, docs/re/ai.md).
 
 The experience: the kill's by `ProzExp`, its cap `LevelKap` by `d` itself, 50, 120 and 190 on bronze, silver and gold and none above (`0x57D860`), and the dead creature's level on bronze's scale in the weighing (`0x551530`); a quest's reward of experience times 1, 2, 10, 20 or 30, and of items times 1.0, 1.4, 1.9, 2.9 or 4.2 (`0x4AC940`).

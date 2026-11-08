@@ -286,13 +286,18 @@ fn give(
         ResMut<crate::drops::Dice>,
         Res<AssetServer>,
     ),
-    experience: Res<crate::fight::Experience>,
+    (experience, npcs): (
+        Res<crate::fight::Experience>,
+        Option<Res<crate::npcs::Npcs>>,
+    ),
     difficulty: Option<Res<crate::game::Difficulty>>,
     (pack, arts): (Res<crate::pickup::Pack>, Option<Res<crate::arts::HeroArts>>),
     heroes: Query<(&Transform, &crate::fight::Base, &Body)>,
 ) {
     let count = made.read().count();
-    let (Some(tables), Some((at, base, body))) = (tables.as_deref(), heroes.iter().next()) else {
+    let (Some(tables), Some(npcs), Some((at, base, body))) =
+        (tables.as_deref(), npcs.as_deref(), heroes.iter().next())
+    else {
         return;
     };
     let level = experience.0.level;
@@ -326,8 +331,13 @@ fn give(
             debug!("stashes: no item fits a random item's roll");
             continue;
         };
+        // The type's roll's level only chose it: the item is made as any that `CreateObj` lays,
+        // at the hero's level within its sector's levels (`0x487AB0`, #1125).
+        let level = npcs.script_level(level, at.translation);
         let Some(dropped) =
-            crate::drops::contained(tables, (&mut dice, difficulty), (item, made_at, 1))
+            crate::drops::scripted(tables, difficulty, (item, level, false), &mut dice.0).or_else(
+                || crate::drops::contained(tables, (&mut dice, difficulty), (item, level, 1)),
+            )
         else {
             continue;
         };
@@ -337,7 +347,7 @@ fn give(
             if dice.0.below(2) == 0 { along } else { -along }
         };
         let to = at.translation + Vec3::new(aside(), 0.0, aside());
-        info!("stashes: a random item {item} of level {made_at} for the hero");
+        info!("stashes: a random item {item} chosen at {made_at}, made at {level}");
         crate::drops::throw_to(
             &mut commands,
             (&assets, tables),

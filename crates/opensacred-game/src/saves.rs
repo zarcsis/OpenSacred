@@ -64,10 +64,11 @@ use crate::town_stash::Chest;
 use crate::world_map::Map;
 use crate::{arts, drops, making};
 
-/// The saves' version: a save of another is refused, but those of the version before it, which
-/// are as these without the picture after their header (#1991).
-pub const VERSION: u32 = 4;
-const UNPICTURED: u32 = 3;
+/// The saves' version, raised at each change of a saved structure's layout, which postcard reads
+/// by the fields' order alone: a save of another is refused. The version 5 (#1125) keeps the
+/// levels of the scripts' items lying and the creatures' placements as they stand since #2249,
+/// #2290 and #2305, which the version 4 had changed under it (#2306).
+pub const VERSION: u32 = 5;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -184,14 +185,13 @@ pub fn write(
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
-/// A save's header, its picture and the bytes after them, refused where its version is neither
-/// [`VERSION`] nor the one before, which has no picture.
+/// A save's header, its picture and the bytes after them, refused where its version is not
+/// [`VERSION`].
 fn header(bytes: &[u8]) -> Result<(Header, Option<Picture>, &[u8])> {
     let (header, rest) =
         postcard::take_from_bytes::<Header>(bytes).context("reading the header")?;
     let (picture, rest) = match header.version {
         VERSION => postcard::take_from_bytes(rest).context("reading the picture")?,
-        UNPICTURED => (None, rest),
         version => bail!("a save of the version {version}, where the game reads {VERSION}"),
     };
     Ok((header, picture, rest))
@@ -1063,21 +1063,14 @@ mod tests {
         let error = format!("{:#}", read(&file(&dir, "old").unwrap()).unwrap_err());
         assert!(error.contains("version"), "{error}");
         assert!(list(&dir).is_empty());
-        // A save of the version before reads, without a picture.
-        let unpictured = Header {
-            version: UNPICTURED,
-            ..header("unpictured", 2)
+        // A save of the version before, of the layout before, is refused too.
+        let before = Header {
+            version: VERSION - 1,
+            ..header("before", 2)
         };
-        let mut bytes = postcard::to_stdvec(&unpictured).unwrap();
-        bytes.extend(postcard::to_stdvec(&hero()).unwrap());
-        bytes.extend(postcard::to_stdvec(&saved_scripts()).unwrap());
-        bytes.extend(postcard::to_stdvec(&World::default()).unwrap());
-        fs::write(file(&dir, "unpictured").unwrap(), &bytes).unwrap();
-        assert_eq!(
-            read(&file(&dir, "unpictured").unwrap()).unwrap().0,
-            unpictured
-        );
-        assert_eq!(super::header(&bytes).unwrap().1, None);
+        write(&file(&dir, "before").unwrap(), (&before, None), parts).unwrap();
+        let error = format!("{:#}", read(&file(&dir, "before").unwrap()).unwrap_err());
+        assert!(error.contains("version"), "{error}");
         for bad in ["", "../up", "a/b", "a.sav"] {
             assert!(file(&dir, bad).is_err(), "{bad}");
         }

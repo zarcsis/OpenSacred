@@ -1292,6 +1292,81 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
 }
 
 #[test]
+fn a_scripts_item_is_made_at_its_level_of_a_key_of_ten_at_most() {
+    const UNIQUE_SWORD: u32 = 1749;
+    const OWN_UNIQUE: u32 = 1750;
+    let rules = Rules::default();
+    // A template of the word 40 15 for 1750: a unique by its template, whatever its record.
+    let mut unique_template = dagger_template();
+    unique_template.words[0] = OWN_UNIQUE;
+    unique_template.words[40] = 15;
+    let templates = Templates::new(&[dagger_template(), unique_template], &[]);
+    let bare = Record {
+        limits: None,
+        ..record(0, [1, 1], [0, 0, 0])
+    };
+    let catalogue = catalogue(&[
+        (DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])),
+        (
+            UNIQUE_SWORD,
+            5,
+            record(ANY | 0x000F_0000, [30, 22], [1, 0, 0]),
+        ),
+        (OWN_UNIQUE, 5, record(ANY, [30, 22], [1, 0, 0])),
+        (GOLD[2], 15, bare),
+        (5171, 9, bare),
+        (5400, 28, bare),
+    ]);
+    let make = |item, raised_only, rolls: &[u32]| {
+        let mut dice = script(rolls);
+        let made = scripted(
+            (&catalogue, &templates),
+            (&rules, Difficulty::Bronze),
+            (item, 7, raised_only),
+            &mut dice,
+        );
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        made
+    };
+    // u = 801 draws the key 10, the maker's key 6; the maker's unused roll; then as a drop of
+    // that key at the level 7 (`a_test_throws_an_item_of_its_kind_made_at_its_level`).
+    let dagger = make(
+        DAGGER,
+        false,
+        &[800, 3, 0, 0, 0, 0, 0, 0, 999, 0, 0, 0, 0, 0, 0, 1],
+    )
+    .unwrap();
+    assert_eq!(
+        (dagger.kind, dagger.level, dagger.key, dagger.quality),
+        (Kind::Weapon, 7, 10, 6)
+    );
+    assert_eq!(dagger.named, Some(true));
+    // u = 10,000 draws the key 17: the maker's key 0.
+    let plain = make(DAGGER, false, &[9999, 0, 0, 0, 0, 0, 0, 0, 999, 0]).unwrap();
+    assert_eq!((plain.level, plain.key, plain.quality), (7, 16, 0));
+    // u = 161 draws the key 3, whose 13 is held at 10.
+    let mut dice = script(&[160, 0]);
+    dice.0.extend([0; 64]);
+    let best = scripted(
+        (&catalogue, &templates),
+        (&rules, Difficulty::Bronze),
+        (DAGGER, 7, false),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!((best.key, best.quality), (6, 10));
+    // A unique by its record or its template, and any item of `0x9E`, only raised: no roll.
+    for (item, raised_only) in [(UNIQUE_SWORD, false), (OWN_UNIQUE, false), (DAGGER, true)] {
+        let raised = make(item, raised_only, &[]).unwrap();
+        assert_eq!((raised.quality, raised.named), (0, None), "{item}");
+    }
+    // Gold, a potion and a rune as they are; a type the table does not hold, none.
+    for item in [GOLD[2], 5171, 5400, 9999] {
+        assert_eq!(make(item, false, &[]), None, "{item}");
+    }
+}
+
+#[test]
 fn a_keyed_item_takes_the_makers_key_and_level_as_they_are() {
     let templates = Templates::new(&[dagger_template()], &[]);
     let bare = Record {
