@@ -4291,17 +4291,61 @@ pub fn hero_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rule
     health_of(base, level, health_raise(skills, rules), 1.0, 1.0)
 }
 
-/// [`hero_health`] with the hero's spent points `extras` (`e_i`, #1522): its `a0` and `a3` raised
-/// by them, the base's sum `S` not.
-pub fn hero_health_with(
-    base: [u8; 6],
-    extras: [u8; 6],
+/// [`hero_health`] of a hero of `base` holding `holds`: its `a0` and `a3` raised by its spent
+/// points (`e_i`, #1522) and by its items' and sets' bonuses to them ([`health_points`],
+/// #1365), the base's sum `S` not.
+pub fn hero_health_held(
+    base: &Base,
     level: u32,
+    holds: &Holds,
     skills: &[(u8, u32)],
     rules: &Rules,
 ) -> u32 {
-    let spent = f64::from(extras[0]) + f64::from(extras[3]);
-    health_spent(base, spent, level, health_raise(skills, rules), 1.0, 1.0)
+    let points = health_points(base, level, holds);
+    health_spent(
+        base.attributes,
+        points,
+        level,
+        health_raise(skills, rules),
+        1.0,
+        1.0,
+    )
+}
+
+/// [`most_health`] of a creature of `base` holding `holds`: its `a0` and `a3` raised by its
+/// items' bonuses to them ([`health_points`], #1365), the base's sum `S` not.
+pub fn most_health_held(
+    base: &Base,
+    level: u32,
+    holds: &Holds,
+    skills: &[(u8, u32)],
+    rank: f32,
+    rules: &Rules,
+) -> u32 {
+    let level_f32 = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
+    health_spent(
+        base.attributes,
+        health_points(base, level, holds),
+        level,
+        health_raise(skills, rules),
+        rank,
+        f64::from(rules.level_factor(level_f32)) * f64::from(rules.factor),
+    )
+}
+
+/// The points by which a creature of `base` at level `level` holding `holds` has its attributes
+/// `a0` and `a3` above its base's grown by the level, which its most health takes over the
+/// base's sum `S` (`0x5658F0` reads the stats' `+0x10` and `+0x16`): its spent points and its
+/// items' and sets' bonuses to them (815 and 818), as the recomputation `0x5796A0` raises the
+/// attributes before it computes the most health, each held at 0 and above (#1365).
+fn health_points(base: &Base, level: u32, holds: &Holds) -> f64 {
+    let (_, a) = regeneration_values(base, level, holds);
+    let l = level.max(1) - 1;
+    let grown = |i: usize| {
+        let b = u32::from(base.attributes[i]);
+        b + b * l / 10
+    };
+    f64::from(a[0]) + f64::from(a[3]) - f64::from(grown(0) + grown(3))
 }
 
 /// The skill 10's per cent of the curve `HP…VW` for a most health (`0x5658F0`): of its first
@@ -6023,11 +6067,70 @@ mod tests {
         // Dwarf's 133 at level 1 becomes ⌊S^g·52/50·10/31⌋, 138, with a point on each of `a0`
         // and `a3`.
         assert!(after.damage[0][1] > before.damage[0][1]);
-        let dwarf = [26, 18, 25, 24, 0, 8];
-        assert_eq!(hero_health_with(dwarf, [0; 6], 1, &[], &rules), 133);
+        let dwarf = Base {
+            attributes: [26, 18, 25, 24, 0, 8],
+            ..Base::default()
+        };
+        let held = Holds::default();
+        assert_eq!(hero_health_held(&dwarf, 1, &held, &[], &rules), 133);
+        let spent = Base {
+            extras: [1, 0, 0, 1, 0, 0],
+            ..dwarf
+        };
+        assert_eq!(hero_health_held(&spent, 1, &held, &[], &rules), 138);
+    }
+
+    #[test]
+    fn the_items_bonuses_to_the_attributes_raise_the_most_health() {
+        let rules = Rules::default();
+        // The Dwarf at level 1, `S` 50: an item of 2 to `a0` (815) and 1 to `a3` (818), the
+        // most `⌊S^g·53/50·10/31⌋` where the bare base's is 133; one to `a1` (817) changes
+        // nothing, and a set's 1 to `a3` adds as an item's does.
+        let dwarf = Base {
+            attributes: [26, 18, 25, 24, 0, 8],
+            ..Base::default()
+        };
+        let bonus = |effect: u32, value: i16| Bonus {
+            condition: 0,
+            effect,
+            value,
+        };
+        let mut item = ItemValues::default();
+        item.bonuses[0] = bonus(815, 2);
+        item.bonuses[1] = bonus(818, 1);
+        item.bonuses[2] = bonus(817, 5);
+        let held = Holds {
+            items: vec![item],
+            ..Holds::default()
+        };
+        let bare = hero_health_held(&dwarf, 1, &Holds::default(), &[], &rules);
+        let with = hero_health_held(&dwarf, 1, &held, &[], &rules);
+        let s: f64 = 50.0;
+        let g = 1.5 + f64::from(HEALTH_EXPONENT) * 10.0;
+        assert_eq!(bare, 133);
         assert_eq!(
-            hero_health_with(dwarf, [1, 0, 0, 1, 0, 0], 1, &[], &rules),
-            138
+            f64::from(with),
+            (s.powf(g) * 53.0 / 50.0 * 10.0 / 31.0).trunc()
+        );
+        let mut sets = held.clone();
+        sets.sets.attributes[3] = 1.0;
+        assert!(hero_health_held(&dwarf, 1, &sets, &[], &rules) > with);
+        // A bonus taking an attribute below 0 holds it at 0.
+        let mut drain = ItemValues::default();
+        drain.bonuses[0] = bonus(815, -100);
+        let drained = Holds {
+            items: vec![drain],
+            ..Holds::default()
+        };
+        let low = hero_health_held(&dwarf, 1, &drained, &[], &rules);
+        assert_eq!(
+            f64::from(low),
+            (s.powf(g) * 24.0 / 50.0 * 10.0 / 31.0).trunc()
+        );
+        // A creature's most health takes them as well.
+        assert!(
+            most_health_held(&dwarf, 1, &held, &[], 1.0, &rules)
+                > most_health_held(&dwarf, 1, &Holds::default(), &[], 1.0, &rules)
         );
     }
 

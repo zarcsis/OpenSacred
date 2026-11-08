@@ -124,7 +124,7 @@ pub struct Hero {
     equipment: Option<crate::npcs::Equipment>,
     /// Its attack, defence, damage and resistances, by its type's record (`fight::combat`).
     pub combat: Option<crate::fight::Combat>,
-    /// Its health, full, and its regeneration, by its type's record (`fight::hero_health`).
+    /// Its health, full, and its regeneration, by its type's record (`fight::hero_health_held`).
     pub vitals: Option<(
         crate::fight::Health,
         crate::fight::Regenerates,

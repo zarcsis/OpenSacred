@@ -7,8 +7,8 @@ use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 pub use opensacred_rules::fight::{
     BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Played, Raise, Rank, Templates, combat,
-    creature_earns, experience_with, fill_level, filled_level, hero_health, hero_health_with,
-    hero_skills, level_start, most_health, regeneration, scripted_level, skills, tagged_level,
+    creature_earns, experience_with, fill_level, filled_level, hero_health_held, hero_skills,
+    level_start, most_health, most_health_held, regeneration, scripted_level, skills, tagged_level,
     takes_on,
 };
 use opensacred_rules::fight::{
@@ -1062,14 +1062,45 @@ fn level_up(
         }
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         let skills = hero_skills(base, level, &holds);
-        *values = Combat(combat(base, level, holds, &skills, &rules));
-        let most = hero_health_with(base.attributes, base.extras, level, &skills, &rules);
+        *values = Combat(combat(base, level, holds.clone(), &skills, &rules));
+        let most = hero_health_held(base, level, &holds, &skills, &rules);
         *health = Health {
             current: most,
             most,
             level,
         };
         regenerates.value = regeneration(base, level, &skills, &rules);
+    }
+}
+
+/// The hero's most health made anew as what it holds and wears changes (`0x5796A0`, #1365): its
+/// items' and sets' bonuses to the attributes `a0` and `a3` and to its skill 10 raise it, and its
+/// health stays, held at the most (docs/re/character.md: the stats made anew keep the current
+/// health while the most rises).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn keep_health(
+    experience: Res<Experience>,
+    rules: Res<Rules>,
+    mut heroes: Query<
+        (&Base, &Holding, &mut Health),
+        (With<Body>, Without<Dies>, Changed<Holding>),
+    >,
+) {
+    for (base, holding, mut health) in &mut heroes {
+        let level = experience.level;
+        let skills = hero_skills(base, level, &holding.0);
+        let most = hero_health_held(base, level, &holding.0, &skills, &rules);
+        if most != health.most {
+            debug!(
+                "fight: the hero's most health {} becomes {most}",
+                health.most
+            );
+            health.most = most;
+            health.current = health.current.min(most);
+        }
     }
 }
 
@@ -1185,7 +1216,7 @@ impl Plugin for FightPlugin {
                 OnEnter(AppState::InGame),
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
-            .add_systems(Update, (resolve, level_up, rise).chain())
+            .add_systems(Update, (resolve, level_up, keep_health, rise).chain())
             .add_systems(Update, calm.in_set(crate::frame::Unpaused))
             .add_systems(
                 Update,
