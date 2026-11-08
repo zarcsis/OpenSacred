@@ -312,7 +312,7 @@ pub(crate) fn resolve(
                 }
                 _ => arms.map_or(0.0, |arms| {
                     opensacred_rules::fight::item_effect(
-                        &arms.held_values(),
+                        &arms.item_values(),
                         opensacred_rules::fight::MAGIC_DEFENCE,
                         None,
                     )
@@ -470,7 +470,7 @@ pub(crate) fn resolve(
             (
                 arms.map_or(0.0, |arms| {
                     opensacred_rules::fight::item_effect(
-                        &arms.held_values(),
+                        &arms.item_values(),
                         opensacred_rules::fight::OPEN_WOUNDS,
                         None,
                     )
