@@ -290,6 +290,9 @@ struct Placement {
     /// A stable's horse's trader, by its script name: the `0x63` of its `CreateNPC` or of a
     /// `SetNPCState`, which stocks it (`stables::Stabled`, #2300).
     stock: Option<String>,
+    /// A fill's black rider on its horse, which a sector's coming in seats again on the horse
+    /// kept beside it (`0x493E2B`, #2288).
+    rides: bool,
     /// The texture its item names (`+0x08`), relative to the asset directory.
     texture: Option<String>,
     /// The position's third number, the layer.
@@ -475,6 +478,32 @@ struct ClipNames {
 }
 
 impl ClipNames {
+    /// The clips of a rider of a model of `slots` holding what is of `class`, on its horse
+    /// (`0x5467A0` on horseback, #2288): standing its slot 169, else 166, moving 166, its strike
+    /// the rider's of its weapon's class (`motions::Slots::riding_attack`), its death 168, else
+    /// 173; no stance, fidgets or juggling.
+    fn riding(slots: &motions::Slots, class: u8) -> Self {
+        let named = |slot| slots.slot(slot).map(str::to_owned);
+        let ride = named(RIDE);
+        Self {
+            stand: named(RIDE_IDLE).or_else(|| ride.clone()),
+            walk: ride.clone(),
+            run: ride,
+            stance: None,
+            attacks: slots
+                .riding_attack(class)
+                .map(|name| vec![name.to_owned()])
+                .unwrap_or_default(),
+            dying: named(RIDING_DEATH)
+                .or_else(|| named(173))
+                .into_iter()
+                .collect(),
+            fun: [None, None, None, None],
+            fun_slots: 0,
+            ..Self::of(slots, class)
+        }
+    }
+
     /// The clips of a model of `slots` that holds what is of `class` (`motions::class`).
     fn of(slots: &motions::Slots, class: u8) -> Self {
         let clip = |action| slots.clip(action, class).map(|(name, _)| name.to_owned());
@@ -498,6 +527,19 @@ impl ClipNames {
         }
     }
 }
+
+/// The rider's slots on horseback: the ride, the idle and the death (docs/re/horses.md).
+const RIDE: u16 = 166;
+const RIDE_IDLE: u16 = 169;
+const RIDING_DEATH: u16 = 168;
+
+/// A fill's black rider's horse and the rider that it brings, the undead's side that both take
+/// and the rider's weapons by a coin, the magic short bow and the tribal axe (`FillSector` at
+/// `0x47E863`–`0x47EFA5`, #2288).
+const BLACK_HORSE: u32 = 261;
+const BLACK_RIDER: u32 = 256;
+const UNDEAD_SIDE: u8 = 5;
+const BLACK_RIDER_WEAPONS: [u32; 2] = [1811, 1778];
 
 /// The instruments a juggler takes (`0x4F29E2`): the flute, the bell, the harp and the horn, their
 /// `items.pak` slots and the slots of the clips that play them.
@@ -900,6 +942,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         model: kind.model.clone(),
         horse_class: 0,
         stock: None,
+        rides: false,
         cell: (0, 0),
         drawn: None,
         home: None,
@@ -3318,6 +3361,7 @@ impl Makers {
                 0
             },
             stock: (record.kind == CREATE_NPC).then(|| stock_of(ops)).flatten(),
+            rides: false,
             cell: (x, y),
             drawn: if record.kind == CREATE_OBJ {
                 drawn_at(ops)
@@ -5065,7 +5109,22 @@ pub fn place(
         if entered.back.is_empty() && !npcs.waters.contains(&at) {
             npcs.waters.push(at);
         }
-        for (placement, stood) in entered.back {
+        // A kept black horse's rider seated on it again, on the cell it shares with it
+        // (`0x493E2B`, #2288); one whose horse comes back no more stands on foot.
+        let horses: Vec<(u32, u32)> = entered
+            .back
+            .iter()
+            .filter(|(placement, _)| placement.creature.0 == BLACK_HORSE)
+            .map(|(_, stood)| stood.cell)
+            .collect();
+        let mut horses_back = Vec::new();
+        let mut riders_back = Vec::new();
+        for (mut placement, stood) in entered.back {
+            if placement.rides && !horses.contains(&stood.cell) {
+                on_foot(&mut placement, &npcs.slots);
+            }
+            let cell = stood.cell;
+            let (horse, rider) = (placement.creature.0 == BLACK_HORSE, placement.rides);
             let entity = respawn(
                 &mut commands,
                 &placement,
@@ -5080,6 +5139,18 @@ pub fn place(
             npcs.kept.spawned(&placed);
             commands.entity(entity).insert(placed);
             streamer.adopt(&mut commands, at, entity);
+            if horse {
+                horses_back.push((cell, entity));
+            } else if rider {
+                riders_back.push((cell, entity));
+            }
+        }
+        for (cell, rider) in riders_back {
+            if let Some(i) = horses_back.iter().position(|&(at, _)| at == cell) {
+                let (_, horse) = horses_back.swap_remove(i);
+                commands
+                    .queue(move |world: &mut bevy::prelude::World| seat_rider(world, rider, horse));
+            }
         }
         if !entered.fill {
             continue;
@@ -5233,6 +5304,12 @@ pub fn place(
                         .rank
                         .level(1, (hero, time), &values, big, &npcs.fight)
                 };
+                // A black rider's horse, of the undead's side, brings its rider (`0x47E863`,
+                // #2288).
+                let black = made.creature == BLACK_HORSE;
+                if black {
+                    placement.side = UNDEAD_SIDE;
+                }
                 let entity = spawn(
                     &mut commands,
                     &placement,
@@ -5241,6 +5318,8 @@ pub fn place(
                     &assets,
                     (level, &npcs.fight, &npcs.items),
                 );
+                let cell = placement.cell;
+                let heading = placement.heading;
                 let placed = Placed {
                     at,
                     source: Source::Filled(Box::new(placement)),
@@ -5248,6 +5327,15 @@ pub fn place(
                 npcs.kept.spawned(&placed);
                 commands.entity(entity).insert(placed);
                 streamer.adopt(&mut commands, at, entity);
+                if black {
+                    black_rider(
+                        &mut commands,
+                        (npcs, &mut streamer),
+                        (at, cell, heading, entity),
+                        (shared, &values, &mut rng),
+                        (&heights, &states, &assets),
+                    );
+                }
             }
         }
     }
@@ -5269,6 +5357,259 @@ pub fn place(
     }
     // Sectors that went out place their NPCs again when they come back, as [`Kept`] has it.
     npcs.spawned.retain(|at| loaded.contains(at));
+}
+
+/// Makes a fill's black horse's rider (`FillSector` at `0x47E863`–`0x47EFA5`, #2288): a 256 at
+/// the horse's cell `cell` and heading, a hostile boss of the undead's side at the run's level
+/// `shared` held as a boss's (`0x564D60(L, 1, 0)`), holding the magic short bow or the tribal
+/// axe by a coin, seated on the horse `horse` ([`seat_rider`]); no `MakeGroup` items, spells or
+/// group. Not followed: its weapon made at its level (the item maker's `0x5D5080`).
+fn black_rider(
+    commands: &mut Commands,
+    (npcs, streamer): (&mut Npcs, &mut Streamer),
+    (at, cell, heading, horse): ((u32, u32), (u32, u32), f32, Entity),
+    (shared, values, rng): (u32, &spawning::SpawnValues, &mut spawning::Rng),
+    (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
+) {
+    let Some(mut rider) = npcs.templates.get(&BLACK_RIDER).cloned() else {
+        return;
+    };
+    rider.cell = cell;
+    rider.heading = heading;
+    let coin = usize::try_from(rng.below(2)).unwrap_or(0);
+    let weapon = BLACK_RIDER_WEAPONS[coin.min(1)];
+    if let Some(gear) = npcs.gear.get(&weapon) {
+        let categories = [(gear.category, gear.kind)];
+        rider.holding = InHand::of([(weapon, gear.category, gear.kind)]);
+        rider.equipment = gear
+            .model
+            .clone()
+            .zip(hands(&categories).first().copied().flatten())
+            .map(|(model, hand)| Held {
+                item: weapon,
+                model,
+                texture: gear.texture.clone(),
+                hand,
+                mount: Mount::held(gear.category),
+                slot: None,
+            })
+            .into_iter()
+            .collect();
+        rider.held = held_class(&categories);
+        rider.ranged = ranged(&categories);
+    }
+    if let Some(slots) = npcs.slots.get(&rider.model) {
+        rider.clips = ClipNames::riding(slots, rider.held);
+    }
+    // Hostile and a boss, its flags word `0x80001` alone, of the undead's side.
+    rider.creature.2 = crowd::constructed(BLACK_RIDER, rider.creature.1) | crowd::HOSTILE;
+    rider.side = UNDEAD_SIDE;
+    rider.rank = fight::Rank::Boss;
+    rider.rides = true;
+    let big = rider.creature.1 & crowd::BIG != 0;
+    let level = fight::Rank::Boss.held(shared, Some(values), BLACK_RIDER, big, &npcs.fight);
+    let entity = spawn(
+        commands,
+        &rider,
+        heights,
+        states,
+        assets,
+        (level, &npcs.fight, &npcs.items),
+    );
+    let placed = Placed {
+        at,
+        source: Source::Filled(Box::new(rider)),
+    };
+    npcs.kept.spawned(&placed);
+    commands.entity(entity).insert(placed);
+    streamer.adopt(commands, at, entity);
+    commands.queue(move |world: &mut bevy::prelude::World| seat_rider(world, entity, horse));
+}
+
+/// A rider's placement on foot: no rider's any more, its clips its feet's.
+fn on_foot(placement: &mut Placement, slots: &HashMap<String, motions::Slots>) {
+    placement.rides = false;
+    if let Some(slots) = slots.get(&placement.model) {
+        placement.clips = ClipNames::of(slots, placement.held);
+    }
+}
+
+/// Seats the rider `rider` on the horse `horse` (`0x55C640` both ways, slot 18, `0x555300(18)`,
+/// #2288): its model's `Bip01` on the horse's `horse_bone` (`riding::Seat`), at the horse's
+/// place, its moves at the horse's speeds by its class's pace, and the horse out of the way
+/// under it, carried ([`carry_riders`]).
+pub(crate) fn seat_rider(world: &mut bevy::prelude::World, rider: Entity, horse: Entity) {
+    let (Some(at), Some(kind), Some(creature)) = (
+        world.get::<Transform>(horse).copied(),
+        world.get::<crate::riding::Horse>(horse).copied(),
+        world.get::<ai::Mind>(horse).map(|mind| mind.creature),
+    ) else {
+        return;
+    };
+    let Some(npcs) = world.get_resource::<Npcs>() else {
+        return;
+    };
+    let pace = npcs.horse_row(kind.class).pace_factor();
+    let speeds = npcs.speeds_of(creature).map(|s| f32::from(s) * pace);
+    if let Ok(mut entity) = world.get_entity_mut(horse) {
+        let way = entity.take::<crowd::InTheWay>();
+        entity.insert((crate::riding::Ridden::by(rider, way), Steered(None)));
+    }
+    let Ok(mut entity) = world.get_entity_mut(rider) else {
+        return;
+    };
+    if let Some(mut mind) = entity.get_mut::<ai::Mind>() {
+        mind.thinks.speed = speeds[0];
+        mind.thinks.run = speeds[1];
+    }
+    if let Some(mut transform) = entity.get_mut::<Transform>() {
+        transform.translation = at.translation;
+        transform.rotation = at.rotation;
+    }
+    entity.insert(crate::riding::Seat::Riding {
+        horse,
+        speeds,
+        offset: Vec3::ZERO,
+    });
+    bevy::log::debug!("npcs: {rider} rides {horse}");
+}
+
+/// Carries each NPC's horse under its rider (the rider's moves handed to its horse, `0x4F4770`),
+/// its walk or its run playing as the rider moves; a rider that dies lets its horse go, and one
+/// whose horse dies or is gone is thrown off at once (`0x53ECA0`, #2288): at the point by the
+/// horse, made again on foot with its health, its clips its feet's and its speeds its own, its
+/// record no rider's.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn carry_riders(
+    mut commands: Commands,
+    (npcs, mut streamer, heights, states, assets): (
+        Res<Npcs>,
+        ResMut<Streamer>,
+        Res<Heights>,
+        Res<buildings::Buildings>,
+        Res<AssetServer>,
+    ),
+    riders: Query<
+        (
+            Entity,
+            &Transform,
+            &crate::riding::Seat,
+            (Option<&Walk>, Has<Dies>),
+            (&Placed, Option<&fight::Health>, &crowd::InTheWay),
+        ),
+        (Without<hero::Body>, Without<crate::riding::Horse>),
+    >,
+    mut horses: Query<
+        (
+            &mut Transform,
+            &mut Steered,
+            Option<&crate::riding::Ridden>,
+            Has<Dies>,
+        ),
+        With<crate::riding::Horse>,
+    >,
+) {
+    for (rider, at, seat, (walk, dying), (placed, health, way)) in &riders {
+        let Some(horse) = seat.ridden() else {
+            continue;
+        };
+        let alive = matches!(horses.get(horse), Ok((.., false)));
+        if dying {
+            // Its horse let go, back in the way.
+            if let Ok((_, _, Some(ridden), _)) = horses.get(horse) {
+                let back = ridden.way().copied();
+                let mut entity = commands.entity(horse);
+                entity.remove::<(crate::riding::Ridden, Steered)>();
+                if let Some(back) = back {
+                    entity.insert(back);
+                }
+            }
+            commands.entity(rider).remove::<crate::riding::Seat>();
+            continue;
+        }
+        if !alive {
+            throw_rider(
+                &mut commands,
+                (&npcs, &mut streamer),
+                (rider, at, placed, health, way),
+                (
+                    horse,
+                    horses.get(horse).ok().and_then(|(_, _, ridden, _)| {
+                        ridden.and_then(crate::riding::Ridden::way).copied()
+                    }),
+                ),
+                (&heights, &states, &assets),
+            );
+            continue;
+        }
+        if let Ok((mut transform, mut steered, ..)) = horses.get_mut(horse) {
+            transform.translation = at.translation;
+            transform.rotation = at.rotation;
+            let gait = walk.filter(|walk| walk.moved).map(|walk| walk.runs);
+            if steered.0 != gait {
+                steered.0 = gait;
+            }
+        }
+    }
+}
+
+/// How far beside its horse a thrown rider stands, in world units (**estimate**: the original
+/// takes `0x59A3E0`'s point by the horse).
+const THROWN_BESIDE: f32 = 60.0;
+
+/// Throws the rider `rider` off its dead or lost horse (`0x53ECA0`, #2288): its horse back in the
+/// way where it lives, the rider made again on foot beside it with its health.
+fn throw_rider(
+    commands: &mut Commands,
+    (npcs, streamer): (&Npcs, &mut Streamer),
+    (rider, at, placed, health, way): (
+        Entity,
+        &Transform,
+        &Placed,
+        Option<&fight::Health>,
+        &crowd::InTheWay,
+    ),
+    (horse, back): (Entity, Option<crowd::InTheWay>),
+    (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
+) {
+    if let Ok(mut entity) = commands.get_entity(horse) {
+        entity.remove::<(crate::riding::Ridden, Steered)>();
+        if let Some(back) = back {
+            entity.insert(back);
+        }
+    }
+    let Source::Filled(placement) = &placed.source else {
+        commands.entity(rider).remove::<crate::riding::Seat>();
+        return;
+    };
+    let mut placement = (**placement).clone();
+    on_foot(&mut placement, &npcs.slots);
+    let beside = at.translation + at.rotation * Vec3::Z * THROWN_BESIDE;
+    let spot = Transform::from_translation(beside);
+    let Some(stood) =
+        health.and_then(|health| stood_of((&spot, way), Some(health), false, Some(heights)))
+    else {
+        commands.entity(rider).remove::<crate::riding::Seat>();
+        return;
+    };
+    let entity = respawn(
+        commands,
+        &placement,
+        stood,
+        (heights, states, assets),
+        (&npcs.fight, &npcs.items),
+    );
+    commands.entity(entity).insert(Placed {
+        at: placed.at,
+        source: Source::Filled(Box::new(placement)),
+    });
+    streamer.adopt(commands, placed.at, entity);
+    // The rider made again leaves its place to its new self, as a `RegionChange`'s does.
+    commands.entity(rider).insert(Remade).despawn();
+    bevy::log::info!("npcs: {rider} is thrown off {horse}, on foot as {entity}");
 }
 
 /// The level of the crabs and fish, which no level's setter raises (`Placement::plain`).
@@ -5378,7 +5719,7 @@ fn keep(
     creatures: Query<(
         &Placed,
         &Transform,
-        &crowd::InTheWay,
+        (Option<&crowd::InTheWay>, Option<&crate::riding::Ridden>),
         Option<&fight::Health>,
         Has<Dies>,
         Option<&OnDeath>,
@@ -5387,9 +5728,13 @@ fn keep(
     heights: Option<Res<Heights>>,
     npcs: Option<ResMut<Npcs>>,
 ) {
-    let (Ok((placed, transform, way, health, dies, on_death, remade)), Some(mut npcs)) =
+    let (Ok((placed, transform, (way, ridden), health, dies, on_death, remade)), Some(mut npcs)) =
         (creatures.get(removed.entity), npcs)
     else {
+        return;
+    };
+    // A ridden horse's place in the way, kept aside under its rider (#2288).
+    let Some(way) = way.or_else(|| ridden.and_then(crate::riding::Ridden::way)) else {
         return;
     };
     // A creature made again by a `RegionChange` leaves its place to its new self (#1064).
@@ -5450,7 +5795,11 @@ pub struct Creatures {
 pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     let mut standing = world.query_filtered::<(
         &Placed,
-        (&Transform, &crowd::InTheWay),
+        (
+            &Transform,
+            Option<&crowd::InTheWay>,
+            Option<&crate::riding::Ridden>,
+        ),
         Option<&fight::Health>,
         Has<Dies>,
         Option<&OnDeath>,
@@ -5464,8 +5813,14 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     let heights = world.get_resource::<Heights>();
     let mut placements: HashMap<usize, Placement> = HashMap::new();
     let mut gone = Vec::new();
-    for (placed, at, health, dies, on_death, (follows, owned)) in standing.iter(world) {
-        let stood = stood_of(at, health, dies, heights);
+    for (placed, (at, way, ridden), health, dies, on_death, (follows, owned)) in
+        standing.iter(world)
+    {
+        // A ridden horse's place in the way, kept aside under its rider (#2288).
+        let Some(way) = way.or_else(|| ridden.and_then(crate::riding::Ridden::way)) else {
+            continue;
+        };
+        let stood = stood_of((at, way), health, dies, heights);
         // A living kept one leaves the death's functions it still has, as [`keep`] notes them.
         if let Source::Kept(index) = placed.source
             && let Some(placement) = npcs.placements.get(index)
@@ -10853,7 +11208,7 @@ impl Plugin for NpcsPlugin {
                     animate,
                     door_clips,
                     (take_steps, take_hero_steps).chain(),
-                    walk,
+                    (walk, carry_riders).chain(),
                     put,
                     swing,
                     instrument,
