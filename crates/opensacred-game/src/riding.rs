@@ -142,6 +142,29 @@ fn truncated(x: f32) -> u32 {
     x.max(0.0) as u32
 }
 
+/// The mark of the hero's own horse ([`Owned`]), by which a save keeps it apart from its
+/// sector's creatures, as a follower (`npcs::mount_of`).
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OwnHorse;
+
+/// Makes `horse` the hero's own (the owners linked both ways, `0x555300`): no sector keeps it
+/// any longer, and it goes with the game alone. A horse owned before is no longer.
+pub fn own(world: &mut World, horse: Entity) {
+    let before = world.get_resource::<Owned>().and_then(|owned| owned.0);
+    if let Some(before) = before.filter(|&before| before != horse)
+        && let Ok(mut entity) = world.get_entity_mut(before)
+    {
+        entity.remove::<OwnHorse>();
+    }
+    world.insert_resource(Owned(Some(horse)));
+    if let Some(mut streamer) = world.get_resource_mut::<crate::sectors::Streamer>() {
+        streamer.disown(horse);
+    }
+    if let Ok(mut entity) = world.get_entity_mut(horse) {
+        entity.insert((OwnHorse, DespawnOnExit(AppState::InGame)));
+    }
+}
+
 /// The hero's seat on a horse, from its walk to the horse to its getting off.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Seat {
@@ -454,7 +477,6 @@ fn mount(
     mut commands: Commands,
     time: Res<Time>,
     (npcs, speed, clips): (Option<Res<Npcs>>, Res<GameSpeed>, Option<Res<Clips>>),
-    (mut owned, mut streamer): (ResMut<Owned>, ResMut<crate::sectors::Streamer>),
     mut heroes: Query<(Entity, &mut Transform, &mut Seat), Without<Horse>>,
     horses: Query<(&Transform, &Horse, &Mind), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
@@ -487,11 +509,8 @@ fn mount(
             offset: Vec3::ZERO,
         };
         // The owners linked both ways (`0x555300`): the hero's own horse, which no sector keeps.
-        owned.0 = Some(horse);
-        streamer.disown(horse);
-        commands
-            .entity(horse)
-            .insert((Steered(None), DespawnOnExit(AppState::InGame)));
+        commands.entity(horse).insert(Steered(None));
+        commands.queue(move |world: &mut World| own(world, horse));
         if let Some(clips) = clips.as_ref()
             && let Some((node, _)) = &clips.riding[1]
             && let Some((mut player, mut transitions)) =
@@ -552,6 +571,7 @@ fn carry(
                 // hero's own death keeps it (`0x552050`).
                 if !matches!(found, Ok((_, _, false))) && owned.0 == Some(horse) {
                     owned.0 = None;
+                    commands.entity(horse).try_remove::<OwnHorse>();
                     info!("riding: the hero loses {horse}");
                 }
                 debug!("riding: the hero is thrown off {horse}");
