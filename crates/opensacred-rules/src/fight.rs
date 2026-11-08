@@ -1804,9 +1804,14 @@ type TemplateWords = [u32; 53];
 #[derive(Clone, Debug, Default)]
 pub struct Templates {
     by_type: HashMap<u32, TemplateWords>,
+    /// The entries of the magic bonus of each type's template (`magic::bonus`).
+    entries: HashMap<u32, Vec<[u32; 6]>>,
     parents: HashMap<u32, u32>,
     /// The types' families (`Weapon.pak +0x85`).
     families: HashMap<u32, u8>,
+    /// The effects' records of the balance's image (`crate::drops::norms`), which hold a magic
+    /// bonus's value; none without the balance.
+    norms: Vec<[f32; 6]>,
 }
 
 /// The constant 0.01 of the item maker and of the skills (`0x890CB0`), a single-precision float a
@@ -1863,6 +1868,7 @@ impl Templates {
     /// The templates of `modifiers` and the parents of `weapons`.
     pub fn new(modifiers: &[WeaponModifier], weapons: &[Weapon]) -> Self {
         let mut by_type = HashMap::new();
+        let mut entries = HashMap::new();
         for modifier in modifiers {
             let Ok(words) = TemplateWords::try_from(modifier.words.as_slice()) else {
                 continue;
@@ -1870,6 +1876,9 @@ impl Templates {
             let count = usize::try_from(words[5]).unwrap_or(0).min(5);
             for &item in &words[..count] {
                 by_type.entry(item).or_insert(words);
+                entries
+                    .entry(item)
+                    .or_insert_with(|| modifier.entries.clone());
             }
         }
         let parents = weapons
@@ -1883,9 +1892,19 @@ impl Templates {
             .collect();
         Self {
             by_type,
+            entries,
             parents,
             families,
+            norms: Vec::new(),
         }
+    }
+
+    /// The templates with the effects' records of `balance`, which the magic bonus holds its
+    /// values by (#2265).
+    #[must_use]
+    pub fn with_balance(mut self, balance: Option<&Balance>) -> Self {
+        self.norms = balance.map_or_else(Vec::new, |b| crate::drops::norms(&b.image));
+        self
     }
 
     /// The words 38 to 40 of the template of an item of type `item`, read as signed
@@ -1953,6 +1972,11 @@ impl Templates {
     /// The template of an item of type `item`, its parent's while the type lies within 2000–2999
     /// or 6500–7999, at most six times (`0x5D5080`).
     fn of(&self, item: u32) -> Option<&TemplateWords> {
+        self.by_type.get(&self.resolved(item))
+    }
+
+    /// The type whose template an item of type `item` takes ([`Self::of`]).
+    fn resolved(&self, item: u32) -> u32 {
         let mut item = item;
         for _ in 0..6 {
             if !matches!(item, 2000..=2999 | 6500..=7999) {
@@ -1963,7 +1987,7 @@ impl Templates {
                 None => break,
             }
         }
-        self.by_type.get(&item)
+        item
     }
 
     /// The values of an item of type `item` made at `level` on `difficulty` (`0x5D5080`,
@@ -1972,13 +1996,15 @@ impl Templates {
     /// its kinds rolled by their chances, the elements' shares moved by the difficulty's term
     /// ([`Difficulty::term`]), normalised to `p` and split by the spread `w` into a least and a
     /// most; the resistances likewise, unsplit and without the term; `A` and `D` by their
-    /// chances times `f`; then its three triples ([`triples`], #2266). No magic bonus yet
-    /// (#2265).
+    /// chances times `f`; then its three triples ([`triples`], #2266) and its magic bonus in its
+    /// first slot (`magic::bonus`, #2265), its class byte for an item of every class: its
+    /// record's class bits that the maker keeps, `kept` (0 for a weapon, a shield or a ring,
+    /// [`crate::drops::Catalogue::kept_classes`]), with the triples'.
     pub fn make<D: Dice>(
         &self,
         item: u32,
         level: u32,
-        difficulty: Difficulty,
+        (difficulty, kept): (Difficulty, u32),
         rng: &mut D,
     ) -> Option<ItemValues> {
         let words = self.of(item)?;
@@ -2063,6 +2089,13 @@ impl Templates {
             }
         }
         (values.classes, values.skill) = triples(words, whole_level, rng);
+        let every =
+            (kept | values.classes) & crate::equipment::CLASSES == crate::equipment::CLASSES;
+        if let Some(entries) = self.entries.get(&self.resolved(item)) {
+            values.bonuses[0] =
+                magic::bonus(entries, &self.norms, (whole_level, difficulty, every), rng)
+                    .unwrap_or_default();
+        }
         Some(values)
     }
 }
@@ -2848,6 +2881,8 @@ fn turn_damage(damage: &mut [[f32; 2]; KINDS], turns: &Effect) {
 
 /// The effects' ids that the recomputation follows (`0x5796A0`, its loop over the list after the
 /// items and the record's bonuses, before the skills).
+mod magic;
+
 pub mod effects {
     /// `A`'s multiplier (`+0xE6`) and `D`'s (`+0xEA`), plus the value.
     pub const ATTACK: u32 = 1;
@@ -6528,7 +6563,7 @@ mod tests {
         let templates = Templates::new(&[dagger_template()], &[]);
         let mut rng = Rng::of(51, 39, 0);
         let made: Vec<ItemValues> = (0..400)
-            .filter_map(|_| templates.make(1712, 1, Difficulty::Bronze, &mut rng))
+            .filter_map(|_| templates.make(1712, 1, (Difficulty::Bronze, 0), &mut rng))
             .collect();
         assert_eq!(made.len(), 400);
         // Physical alone in most: 12 to 15; with an element, its most and the physical's sum
@@ -6549,11 +6584,14 @@ mod tests {
         }
         // At level 5, 17 to 20.
         let level_5 = (0..50)
-            .filter_map(|_| templates.make(1712, 5, Difficulty::Bronze, &mut rng))
+            .filter_map(|_| templates.make(1712, 5, (Difficulty::Bronze, 0), &mut rng))
             .find(|v| v.damage[1..].iter().all(|ends| ends[1] == 0.0));
         assert_eq!(level_5.map(|v| v.damage[0]), Some([17.0, 20.0]));
         // No template, no values.
-        assert_eq!(templates.make(9999, 1, Difficulty::Bronze, &mut rng), None);
+        assert_eq!(
+            templates.make(9999, 1, (Difficulty::Bronze, 0), &mut rng),
+            None
+        );
     }
 
     #[test]
@@ -6572,7 +6610,7 @@ mod tests {
         let mut rng = Rng::of(51, 39, 0);
         let share = |difficulty| {
             let values = templates
-                .make(1712, 20, difficulty, &mut Rng::of(51, 39, 0))
+                .make(1712, 20, (difficulty, 0), &mut Rng::of(51, 39, 0))
                 .unwrap();
             let sum: f32 = values.damage.iter().map(|ends| ends[1]).sum();
             values.damage[2][1] / sum
@@ -6580,7 +6618,7 @@ mod tests {
         // Niobium's term 1.34 lifts the magic's share and takes its part from the physical.
         assert!(share(Difficulty::Niobium) > share(Difficulty::Bronze) + 0.1);
         let values = templates
-            .make(1712, 20, Difficulty::Bronze, &mut rng)
+            .make(1712, 20, (Difficulty::Bronze, 0), &mut rng)
             .unwrap();
         assert_eq!((values.classes, values.skill), (0x4, [11, 4]));
     }

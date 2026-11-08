@@ -3813,7 +3813,7 @@ impl Npcs {
             classes,
             factors: factors(balance),
             fight: fight::Rules::at(balance, difficulty),
-            items: fight::Templates::new(&modifiers, weapons),
+            items: fight::Templates::new(&modifiers, weapons).with_balance(balance),
             rules: rules(tree),
             pools,
             gear,
@@ -5608,7 +5608,8 @@ fn spawn(
                 .holding
                 .iter()
                 .map(|&held| {
-                    let values = templates.make(held.item, grade, rules.difficulty(), &mut dice);
+                    let values =
+                        templates.make(held.item, grade, (rules.difficulty(), 0), &mut dice);
                     (held, values)
                 })
                 .collect(),
@@ -9616,7 +9617,7 @@ fn first_fight(
             for (held, values) in &mut arms.holding {
                 *values = npcs
                     .items
-                    .make(held.item, grade, rules.difficulty(), &mut dice);
+                    .make(held.item, grade, (rules.difficulty(), 0), &mut dice);
             }
             let regenerates = relevel(
                 grade,
@@ -10090,7 +10091,8 @@ fn rearm(
                     u32::try_from(y).unwrap_or(0),
                     usize::try_from(item).unwrap_or(0),
                 );
-                npcs.items.make(item, grade, rules.difficulty(), &mut dice)
+                npcs.items
+                    .make(item, grade, (rules.difficulty(), 0), &mut dice)
             });
             let held = InHand {
                 item,
