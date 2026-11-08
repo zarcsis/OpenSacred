@@ -287,7 +287,7 @@ impl Dungeons {
     }
 
     /// Whether world `(x, z)` lies in a dungeon's sector.
-    fn holds(&self, x: f32, z: f32) -> bool {
+    pub(crate) fn holds(&self, x: f32, z: f32) -> bool {
         self.0.contains(&crate::music::sector_of(x, z))
     }
 

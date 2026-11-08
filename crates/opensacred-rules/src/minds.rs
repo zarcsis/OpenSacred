@@ -542,6 +542,23 @@ const STROLL_GUARD: i32 = 200;
 /// The chance of a stroll, a tick's 1 in 101 (`0x4EF150`, `rand() % 101`), about one in 11 s at
 /// the world's tick of 108 ms on average (#608, #617).
 const STROLLS: u32 = 101;
+/// How near the one it fears a flyer on the ground takes off rather than walking away: a wild
+/// animal from its flight below 200 (`0x4F03A1`), a farm animal from its step away below 231
+/// (`0x4F0953`).
+const TAKES_OFF_WILD: f32 = 200.0;
+const TAKES_OFF_FARM: f32 = 231.0;
+/// How far a wild flyer's take-off carries it (`0x4F03CA`–`0x4F0451`, read 2026-11-08, #2250):
+/// along each axis away from the one it fears five times the run's draw, and 400 times that
+/// axis's distance over the whole, its sign not taken.
+const TAKE_OFF_RUNS: f32 = 5.0;
+const TAKE_OFF_LINE: f32 = 400.0;
+/// A flyer's speed aloft, before its pace, at the run's gait whatever its type's speeds
+/// (`0x4F75F0`).
+pub const FLIES_AT: f32 = 200.0;
+/// How high over the ground a flyer flies, and how fast it climbs there and comes down
+/// (`0x5941A0`: `0x596600`, `0x596AB7`, `0x598EAF`).
+pub const FLIES_HIGH: f32 = 120.0;
+pub const CLIMBS: f32 = 110.0;
 /// The chance that an idle creature sharing its cell parts, a tick's 1 in 6 (`0x544890`), and how
 /// far about home or itself it goes.
 const PARTS: u32 = 6;
@@ -654,6 +671,12 @@ pub struct Mind {
     /// Whether its type is big (`Creature.pak` flags bit `0x02`, `0x426CB0`), which a kick knocks
     /// back less often (`arts::knockback_chance`).
     pub big: bool,
+    /// Whether its type flies (`Creature.pak` flags bit `0x01`, `0x426CF0`, [`crate::ways::FLIES`]),
+    /// whether it flies now (`+0x1F4` bit `0x200000`), and its speed aloft, by its pace
+    /// ([`FLIES_AT`]).
+    pub flies: bool,
+    pub flying: bool,
+    pub fly: f32,
     /// Whether its sides are turned over (`+0x1F4` bit `0x40000`, which the effect 14 sets, the
     /// Seraphim's conversion's): every answer of hostility between it and another, the hero
     /// among them, is the other way about (`0x423580` at `0x4238C6`).
@@ -765,6 +788,9 @@ impl Mind {
             ranged: false,
             armed: false,
             big: false,
+            flies: false,
+            flying: false,
+            fly: 0.0,
             turned: false,
             activity: activity::NONE,
             fun: 0,
@@ -1995,12 +2021,17 @@ impl Mind {
     /// its flight's point (`0x4E2666`–`0x4E26C3`, #1727's M16: four pieces of set 41,
     /// `set_bonuses::Stats::terror`; the items' effect 855 a terror of [`TERROR_ALWAYS`]), its
     /// place and [`Why::Stands`]: it stops what it does (`0x54E6D0`) and a flyer lands
-    /// (`0x44D520`).
+    /// (`0x44D520`). An animal of a type that flies ([`Self::flies`]), on the ground outside a
+    /// dungeon (`outdoors`: `+0x24` 0, not a sector of `0x63D180`), takes off ([`Self::flying`])
+    /// on a stroll and on its way home, a wild one on its flight from one nearer than 200, which
+    /// then carries it farther ([`take_off`]), a farm one on its step away from one nearer than
+    /// 231 (`0x4EF150`, read 2026-11-08, #2250); fleeing from one farther, it walks
+    /// ([`Self::gait`]).
     pub fn behaves(
-        &self,
+        &mut self,
         here: Spot,
         fear: Option<(Spot, u32)>,
-        (crowded, walking): (bool, Option<Spot>),
+        (crowded, walking, outdoors): (bool, Option<Spot>, bool),
         rng: &mut impl Dice,
     ) -> Option<(Spot, Why)> {
         // One that stays where it is made takes no behaviour (`0x4EE030`).
@@ -2008,12 +2039,48 @@ impl Mind {
             return None;
         }
         let strolls = rng.below(STROLLS) == 0 || (crowded && self.is_animal());
-        let chosen = behaviour(self, here, fear.map(|(at, _)| at), (strolls, walking), rng);
+        let mut chosen = behaviour(self, here, fear.map(|(at, _)| at), (strolls, walking), rng);
+        if self.flies
+            && outdoors
+            && self.is_animal()
+            && let Some((to, why)) = chosen.as_mut()
+        {
+            let near = |within| {
+                fear.filter(|&(at, _)| (here - at).length() < within)
+                    .map(|(at, _)| at)
+            };
+            match *why {
+                Why::Flees => {
+                    if let Some(fear) = near(TAKES_OFF_WILD) {
+                        *to = take_off(here, fear, rng);
+                        self.flying = true;
+                    }
+                }
+                Why::StepsAway => self.flying |= near(TAKES_OFF_FARM).is_some(),
+                Why::Strolls | Why::GoesBack => self.flying = true,
+                _ => {}
+            }
+        }
         match (chosen, fear) {
             (Some((_, Why::Flees)), Some((_, terror))) if terror > 0 && rng.below(101) < terror => {
+                self.flying = false;
                 Some((here, Why::Stands))
             }
             _ => chosen,
+        }
+    }
+
+    /// The gait of the walk it takes for `why` by its behaviour, `outdoors` as for
+    /// [`Self::behaves`]: aloft, it flies, at [`FLIES_AT`] by its pace (`0x4F75F0`); else a
+    /// flight from what it fears goes at a run, but a flyer's on the ground outside a dungeon at a
+    /// walk (`0x4F039B`), and the rest at a walk (`0x4EF150`).
+    pub fn gait(&self, why: Why, outdoors: bool) -> Gait {
+        if self.flying {
+            Gait::Flies
+        } else if why == Why::Flees && !(self.flies && outdoors) {
+            Gait::Runs
+        } else {
+            Gait::Walks
         }
     }
 
@@ -3087,6 +3154,45 @@ fn flight<D: Dice>(here: Spot, fear: Spot, rng: &mut D) -> Spot {
     let dx = along(d.x, rng) + between(-y / 2.0, y / 2.0, rng);
     let dy = along(d.y, rng) + between(-x / 2.0, x / 2.0, rng);
     here + Spot::new(dx, dy)
+}
+
+/// Where a wild flyer at `here` takes off to from `fear` nearer than 200 (`0x4F03CA`–`0x4F0451`):
+/// along each axis away from it by five times a number at random between half and twice its
+/// distance along that axis, and 400 times that distance over the whole (at least 1), whatever
+/// the side it lies on; the run's draw across is not made.
+pub fn take_off<D: Dice>(here: Spot, fear: Spot, rng: &mut D) -> Spot {
+    let d = here - fear;
+    let whole = d.length().max(1.0);
+    let mut along = |offset: f32| {
+        let away = between(offset.abs() / 2.0, offset.abs() * 2.0, rng) * TAKE_OFF_RUNS;
+        let away = if offset < 0.0 { -away } else { away };
+        away + TAKE_OFF_LINE * offset.abs() / whole
+    };
+    let dx = along(d.x);
+    let dy = along(d.y);
+    here + Spot::new(dx, dy)
+}
+
+/// A walk's gait ([`Mind::gait`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gait {
+    Walks,
+    Runs,
+    Flies,
+}
+
+/// A flyer's height over the ground after `seconds` from `height` (`0x5941A0`), `flying`
+/// ([`Mind::flying`]) and `moving` or not: flying and moving, it climbs at [`CLIMBS`] a second to
+/// [`FLIES_HIGH`]; flying and standing it comes down at [`CLIMBS`], and lands once that step
+/// reaches the ground, its flying over and its idle clip played (`0x598FD2`): `None`; not
+/// flying, it is on the ground at once, as the terror and its death set it down (`0x44D520`).
+pub fn climbs(height: f32, (flying, moving): (bool, bool), seconds: f32) -> Option<f32> {
+    let step = CLIMBS * seconds;
+    match (flying, moving) {
+        (true, true) => Some((height + step).min(FLIES_HIGH)),
+        (true, false) if height > step => Some(height - step),
+        _ => None,
+    }
 }
 
 /// What a peaceful creature awake does now by its behaviour, standing at `here` (`0x4EF150`): a
@@ -4788,14 +4894,14 @@ mod tests {
     fn a_wild_animal_stands_in_its_fearers_terror() {
         let mut rng = Rng::of(48, 39, 2);
         let home = at(1000.0, 1000.0);
-        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let mut rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
         let hero = at(1100.0, 1000.0);
         // No terror: it always runs; a terror of 101: it always stands; 20 of 101 about a fifth.
-        let flights = |terror, rng: &mut Rng| {
+        let mut flights = |terror, rng: &mut Rng| {
             (0..1000)
                 .filter(|_| {
                     matches!(
-                        rabbit.behaves(home, Some((hero, terror)), (false, None), rng),
+                        rabbit.behaves(home, Some((hero, terror)), (false, None, false), rng),
                         Some((_, Why::Flees))
                     )
                 })
@@ -4807,6 +4913,69 @@ mod tests {
         // A hold's factor of 0 freezes it, a slow one of a half not; the float 0.2 lies above
         // the double it is compared with (#2282).
         assert!(frozen(0.0) && frozen(0.19) && !frozen(0.2) && !frozen(0.5));
+    }
+
+    #[test]
+    fn a_crow_takes_off_from_one_near_and_walks_from_one_farther() {
+        let mut rng = Rng::of(5, 13, 250);
+        let home = at(1000.0, 1000.0);
+        let mut crow = Mind::new(home, of_type(513), (true, false), None, SPEEDS, (513, 6));
+        crow.flies = true;
+        // Nearer than 200 it takes off, its point five runs' draws and 400 along the line away:
+        // the one it fears 150 off along x, it flies 775 to 1,900 on along x.
+        for _ in 0..200 {
+            crow.flying = false;
+            let fear = Some((at(850.0, 1000.0), 0));
+            let (to, why) = crow
+                .behaves(home, fear, (false, None, true), &mut rng)
+                .unwrap();
+            assert_eq!(why, Why::Flees);
+            assert!(crow.flying && crow.gait(why, true) == Gait::Flies);
+            assert!((1775.0..=2900.0).contains(&to.x), "{to:?}");
+            assert!((to.y - 1000.0).abs() < 1.0, "{to:?}");
+        }
+        // Farther, it walks away on the ground, and inside a dungeon or on a floor it runs.
+        crow.flying = false;
+        let fear = Some((at(750.0, 1000.0), 0));
+        let (_, why) = crow
+            .behaves(home, fear, (false, None, true), &mut rng)
+            .unwrap();
+        assert!(!crow.flying && crow.gait(why, true) == Gait::Walks);
+        let fear = Some((at(850.0, 1000.0), 0));
+        let (_, why) = crow
+            .behaves(home, fear, (false, None, false), &mut rng)
+            .unwrap();
+        assert!(!crow.flying && crow.gait(why, false) == Gait::Runs);
+        // A stroll takes it off, a crowded one at once; the terror lands it.
+        let (_, why) = crow
+            .behaves(home, None, (true, None, true), &mut rng)
+            .unwrap();
+        assert!(why == Why::Strolls && crow.flying);
+        let (_, why) = crow
+            .behaves(
+                home,
+                Some((at(850.0, 1000.0), 101)),
+                (false, None, true),
+                &mut rng,
+            )
+            .unwrap();
+        assert!(why == Why::Stands && !crow.flying);
+        // A rabbit does not fly.
+        let mut rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let fear = Some((at(850.0, 1000.0), 0));
+        let (_, why) = rabbit
+            .behaves(home, fear, (false, None, true), &mut rng)
+            .unwrap();
+        assert!(!rabbit.flying && rabbit.gait(why, true) == Gait::Runs);
+    }
+
+    #[test]
+    fn a_flyer_climbs_to_its_height_and_comes_down_where_it_stands() {
+        assert_eq!(climbs(0.0, (true, true), 0.5), Some(55.0));
+        assert_eq!(climbs(100.0, (true, true), 0.5), Some(FLIES_HIGH));
+        assert_eq!(climbs(100.0, (true, false), 0.5), Some(45.0));
+        assert_eq!(climbs(55.0, (true, false), 0.5), None);
+        assert_eq!(climbs(80.0, (false, true), 0.1), None);
     }
 
     #[test]
@@ -5214,12 +5383,12 @@ mod tests {
     fn a_stroll_and_a_parting_come_in_one_tick_of_101_and_of_6() {
         let mut rng = Rng::of(0, 0, 3);
         let home = at(1000.0, 1000.0);
-        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let mut rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
         // 10,000 ticks, about 99 strolls standing alone, and about 1,667 partings crowded.
         let strolls = (0..10_000)
             .filter(|_| {
                 rabbit
-                    .behaves(home, None, (false, None), &mut rng)
+                    .behaves(home, None, (false, None, false), &mut rng)
                     .is_some()
             })
             .count();
@@ -5241,19 +5410,22 @@ mod tests {
             assert!(still(creature));
             // Made by the waters as by an `Enter` function, of class 6: the loose farm animals'
             // flag, which it keeps, and no stroll, no step away, crowded or not.
-            let fish = Mind::new(home, 0, (true, false), None, SPEEDS, (creature, 6));
+            let mut fish = Mind::new(home, 0, (true, false), None, SPEEDS, (creature, 6));
             assert_eq!(fish.flags, FARM_LOOSE);
             assert!((0..1_000).all(|_| {
-                fish.behaves(home, hero, (true, None), &mut rng).is_none()
-                    && fish.behaves(home, None, (false, None), &mut rng).is_none()
+                fish.behaves(home, hero, (true, None, false), &mut rng)
+                    .is_none()
+                    && fish
+                        .behaves(home, None, (false, None, false), &mut rng)
+                        .is_none()
             }));
         }
         // A chicken of the same flag steps away from the hero.
         assert!(!still(560) && !still(167) && !still(162));
-        let chicken = Mind::new(home, 0, (true, false), None, SPEEDS, (560, 6));
+        let mut chicken = Mind::new(home, 0, (true, false), None, SPEEDS, (560, 6));
         assert!(
             chicken
-                .behaves(home, hero, (false, None), &mut rng)
+                .behaves(home, hero, (false, None, false), &mut rng)
                 .is_some()
         );
     }

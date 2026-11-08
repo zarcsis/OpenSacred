@@ -87,6 +87,7 @@ mod files;
 mod fire_skins;
 mod first_start;
 mod fliers;
+mod flight;
 mod flying_skulls;
 mod foe_panel;
 mod followers;
@@ -550,6 +551,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         fight::FightPlugin,
         fire_skins::FireSkinsPlugin,
         fliers::FliersPlugin,
+        flight::FlightPlugin,
         flying_skulls::FlyingSkullsPlugin,
         foe_panel::FoePanelPlugin,
         followers::FollowersPlugin,
@@ -561,9 +563,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         fx_lights::FxLightsPlugin,
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,
-        glad_sights::GladSightsPlugin,
     ))
     .add_plugins((
+        glad_sights::GladSightsPlugin,
         glance::GlancePlugin,
         glitter::GlitterPlugin,
         goblin_impacts::GoblinImpactsPlugin,
