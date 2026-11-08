@@ -3539,6 +3539,26 @@ pub fn range_factor(distance: f32, rules: &Rules) -> f32 {
     }
 }
 
+/// The divisor of a shot's range factor from a horse ([`range_factor`]; `0x56B48E`–`0x56B562`,
+/// #2259): where the shooter has the bit 2 of its `+0x14` and a creature at its `+0x1EC` (a rider's
+/// horse, **hypothesis**), the factor is divided by 3, 2, 1.6 or 1 as `x = ⌊s₇/2⌋ + s₂₂` is below
+/// 2, below 5, below 8 or not, `s₇` and `s₂₂` the levels of the skills 7 and 22 (22 the riding,
+/// **hypothesis**), each its base and its items' bonus held at 255 (`0x582400`), 0 where the
+/// creature lacks the skill. The code reads them off the struck one's stats (`[esp + 0x34]`, whose
+/// health the resolution takes down), not the shooter's (**confirmed** by code; a quirk).
+pub fn mounted_range_divisor(s7: u8, s22: u8) -> f32 {
+    let x = f32::from(u16::from(s7 >> 1) + u16::from(s22));
+    if x < 2.0 {
+        3.0
+    } else if x < 5.0 {
+        2.0
+    } else if x < 8.0 {
+        1.6
+    } else {
+        1.0
+    }
+}
+
 /// The factor of the sum of a strike's damage by its attacker's level, `level`
 /// (`0x56A890(attacker, defender)`, which the strike's resolution `0x56B130` calls at
 /// `0x56D05C`; docs/re/fight.md, "A strike's resolution"): for a creature striking the hero
@@ -4659,6 +4679,12 @@ mod tests {
         // From 1,000 a quarter, a jump from three quarters.
         assert_eq!(range_factor(1000.0, &rules), 0.25);
         assert_eq!(range_factor(1500.0, &rules), 0.25);
+        // From a horse it is divided by the skills 7 and 22: ⌊3/2⌋ + 0 = 1 by 3, 1 + 3 = 4 by 2,
+        // 2 + 5 = 7 by 1.6, 0 + 8 by 1.
+        assert_eq!(mounted_range_divisor(3, 0), 3.0);
+        assert_eq!(mounted_range_divisor(3, 3), 2.0);
+        assert_eq!(mounted_range_divisor(4, 5), 1.6);
+        assert_eq!(mounted_range_divisor(0, 8), 1.0);
     }
 
     #[test]
