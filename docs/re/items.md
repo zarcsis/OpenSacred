@@ -560,6 +560,8 @@ The bar's Collect button and the command `collect` send the hero collecting sinc
 Since #1646 the items still in flight count as those at rest, as the original's do: the key A pressed as a creature's drops fly sends the hero to them at once, and those still in the air at the clip's half are taken out of it.
 **Seen** in the game: the Seraphim in the start's garden collected a pile of gold, a healing potion, a sword and a heavy crossbow thrown within 19 cells, one after another, and left a pile 30 cells away.
 Since #2343 the options' atmospheric animation (`[gameplay] pickup_animation`, `PICKUPANIM`) off takes the items, picked up or collected, at once with no clip (`pickup::animated`); the statues' power-up still kneels (`pickup::Kneels`, its reader of the setting not followed).
+Since #2343 the collecting takes, of the items it finds and of those about it, only those that pass the options' collect mode (`[gameplay] collect`, `PICKUPAUTO`; `opensacred_rules::drops::collects`, the filter `0x4EC330` above by the item's quality and its first three sockets' kinds and the hero's level); a quest's item that the scripts laid always (**hypothesis**: the filter's list at `0xAB45A0` and its bit `0x800`, not read).
+The filter read again 2026-11-08 (**confirmed**): with 1, an item of a magic record passes below the level 10 with a quality above 6 or a first socket, below 25 above 9 or two sockets, below 35 above 11 or two of which one above bronze, else above 12 or three of which the first or the second above silver; the element stones are the types 6008 to 6017 (`0x428680`), gold the piles 5132 to 5135 (`0x43AF50`, the list at `0x949920`).
 The button's pressed image and its 150 ms are not followed.
 
 ## Defects the community reports

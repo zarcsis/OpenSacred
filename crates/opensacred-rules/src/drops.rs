@@ -2702,5 +2702,53 @@ fn single(value: f64) -> f32 {
     value as f32
 }
 
+/// The element stones (`Elementstein01.grn`, `0x428680`), which every mode collects.
+const ELEMENT_STONES: std::ops::RangeInclusive<u32> = 6008..=6017;
+/// The potions' and the runes' categories (`items.pak +0x01`, `0x426220`).
+const POTION_CATEGORY: u8 = 9;
+const RUNE_CATEGORY: u8 = 28;
+
+/// Whether the collecting takes the item of type `item` and category `category`, its quality and
+/// its sockets' kinds `(quality, sockets)` (`ItemValues`), for a hero of level `level`, in the
+/// options' collect mode `mode`, `PICKUPAUTO`'s number (`0x4EC330`; docs/re/items.md): the
+/// element stones always; with 1 gold, the runes, the bottles 3999 and 5058 and the large potions
+/// 5137 to 5141 but no other potion, and another item by a bar of its quality or its sockets that
+/// rises with the hero's level at 10, 25 and 35; with 2 gold alone; else everything.
+pub fn collects(
+    mode: u8,
+    (item, category): (u32, u8),
+    (quality, sockets): (u8, [u8; fight::SOCKETS]),
+    level: u32,
+) -> bool {
+    if ELEMENT_STONES.contains(&item) {
+        return true;
+    }
+    let gold = GOLD.contains(&item);
+    match mode {
+        1 => {
+            if gold || category == RUNE_CATEGORY || matches!(item, 3999 | 5058 | 5137..=5141) {
+                return true;
+            }
+            category != POTION_CATEGORY && above_the_bar(quality, sockets, level)
+        }
+        2 => gold,
+        _ => true,
+    }
+}
+
+/// Whether an item of `quality` and the first three sockets' kinds of `sockets` passes the
+/// valuables' bar at the hero's `level` (`0x4EC330`): below 10 a quality above 6 or a socket;
+/// below 25 above 9 or two; below 35 above 11 or two of which one above bronze; else above 12 or
+/// three of which the first or the second above silver.
+fn above_the_bar(quality: u8, sockets: [u8; fight::SOCKETS], level: u32) -> bool {
+    let [a, b, c] = [sockets[0], sockets[1], sockets[2]];
+    match level {
+        0..=9 => quality > 6 || a != 0,
+        10..=24 => quality > 9 || (a != 0 && b != 0),
+        25..=34 => quality > 11 || (a != 0 && b != 0 && (a > 1 || b > 1)),
+        _ => quality > 12 || (a != 0 && b != 0 && c != 0 && (a > 2 || b > 2)),
+    }
+}
+
 #[cfg(test)]
 mod tests;
