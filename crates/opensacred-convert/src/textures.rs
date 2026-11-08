@@ -101,19 +101,25 @@ pub fn convert_record(
     let mut texture = record
         .decode()
         .with_context(|| format!("`{}`", name.escape_ascii()))?;
-    let repaired = if streaked(name) {
-        fill_from_columns(&mut texture)
-            .with_context(|| format!("repairing `{}`", name.escape_ascii()))?
-    } else if stem(name, b".tga") == FAINT.0 {
-        strengthen(&mut texture, FAINT.1)
-    } else if stem(name, b".tga") == HOLED {
-        make_opaque(&mut texture)
-    } else {
-        0
-    };
+    let repaired = repair(name, &mut texture)?;
     let path = dst_dir.join(file_name(index, name));
     write_png(&path, &texture).with_context(|| format!("writing {}", path.display()))?;
     Ok(Some((record.header.format, repaired)))
+}
+
+/// Repairs the texture of the record `name` where it is one of the defects named
+/// ([`STREAKED`], [`FAINT`], [`HOLED`]); the number of texels changed.
+pub(crate) fn repair(name: &[u8], texture: &mut Texture) -> Result<usize> {
+    Ok(if streaked(name) {
+        fill_from_columns(texture)
+            .with_context(|| format!("repairing `{}`", name.escape_ascii()))?
+    } else if stem(name, b".tga") == FAINT.0 {
+        strengthen(texture, FAINT.1)
+    } else if stem(name, b".tga") == HOLED {
+        make_opaque(texture)
+    } else {
+        0
+    })
 }
 
 /// Whether `name` is a frame of a [`STREAKED`] series: the series, two digits and `.tga`.
