@@ -95,6 +95,7 @@ pub enum Action {
     QuickSave,
     QuickLoad,
     Saves,
+    Options,
     Back,
     Confirm,
     Next,
@@ -135,7 +136,7 @@ pub const ART_KEYS: [Action; 6] = [
 ];
 
 /// Each action: its section, its name in the file, its default keys and what it does.
-const ACTIONS: [(Action, Section, &str, &[&str], &str); 50] = [
+const ACTIONS: [(Action, Section, &str, &[&str], &str); 51] = [
     (
         Action::Walk,
         Section::World,
@@ -408,6 +409,13 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 50] = [
         "saves",
         &["S"],
         "the saves' window, where no trader's or stash's window shows",
+    ),
+    (
+        Action::Options,
+        Section::World,
+        "options",
+        &["O"],
+        "the options window, and again close it",
     ),
     (
         Action::Back,

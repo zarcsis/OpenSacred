@@ -35,6 +35,8 @@ pub enum Screen {
     /// The saves' window for loading (`saves_window`, #1990).
     Load,
     Underworld,
+    /// The options window (`options`, #2340).
+    Options,
 }
 
 /// What an item of a menu does.
@@ -82,16 +84,11 @@ impl Item {
         }
     }
 
-    /// Whether it does anything yet: multiplayer waits for M9, the options for #1096, the credits
-    /// for #1110.
+    /// Whether it does anything yet: multiplayer waits for M9, the credits for #1110.
     fn works(self) -> bool {
         !matches!(
             self,
-            Self::Options
-                | Self::LocalNetwork
-                | Self::ClosedInternet
-                | Self::OpenInternet
-                | Self::Credits
+            Self::LocalNetwork | Self::ClosedInternet | Self::OpenInternet | Self::Credits
         )
     }
 
@@ -141,7 +138,7 @@ fn rows(screen: Screen, movies: &Movies) -> Vec<(Item, u8)> {
             rows.push((Item::Back, back));
             rows
         }
-        Screen::Heroes | Screen::Underworld | Screen::Load => Vec::new(),
+        Screen::Heroes | Screen::Underworld | Screen::Load | Screen::Options => Vec::new(),
     }
 }
 
@@ -230,7 +227,8 @@ impl Words {
                     .into_iter()
                     .map(|(item, _)| item.text().0)
             })
-            .chain(crate::choice::names());
+            .chain(crate::choice::names())
+            .chain(crate::options::names());
         Self(
             names
                 .filter_map(|name| Some((name, texts.named(name)?.to_owned())))
@@ -536,12 +534,12 @@ fn act(
         Item::Multiplayer => screen.set(Screen::Multiplayer),
         Item::Extras => screen.set(Screen::Extras),
         Item::LoadGame => screen.set(Screen::Load),
+        Item::Options => screen.set(Screen::Options),
         Item::Back => screen.set(Screen::Main),
         Item::Quit => {
             exit.write(AppExit::Success);
         }
-        Item::Options
-        | Item::LocalNetwork
+        Item::LocalNetwork
         | Item::ClosedInternet
         | Item::OpenInternet
         | Item::Credits

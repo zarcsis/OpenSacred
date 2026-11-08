@@ -222,7 +222,7 @@ The fonts are the font table's entries counted from 1 (`0xA1CDB4`, entries of `0
   - Escape (`0x717180`): the window clears its own flags 5 (hides) and, the byte `+0x154` being 0, sends show `UI_MAINMENU`; nothing is written.
     The constructor sets `+0x154` to 0 and no code writes it again (a scan of the byte stores at `+0x154`), unlike the saves' window, whose game instance gets 1.
   - Out of a game the main menu comes back.
-    In a game no window is named `UI_MAINMENU` (only `0x75A480`, the menus' manager, makes one), so the game goes on with no menu over it (**hypothesis**; the saves' window closes with the same pair of events and was seen to go on so, docs/re/menus.md).
+    In a game no window is named `UI_MAINMENU` (only `0x75A480`, the menus' manager, makes one), so the game goes on with no menu over it (**seen** 2026-11-08 with the driver of #448: OK, Cancel, Escape and the key O again each left the game going on with no menu, for the window that the key O showed and for the one that the menu over a game's Options showed).
 
 ### The controls
 
@@ -242,7 +242,8 @@ The fonts are the font table's entries counted from 1 (`0xA1CDB4`, entries of `0
   - `0x753070` sets the number of positions `n` (126 for the volumes, 255 for the transparency); the place is a fraction `f` from 0 to 0.9999 (`+0x8C`), the position `⌊f · n⌋` held below `n` (`0x753430`), set as `p / n` (`0x7533B0`);
   - a left press on "−" takes one position off (none below 0), on "+" adds one (up to 0.9999); a press anywhere else on the slider puts the knob at the point, `f = (x − inner x) / inner width` held to 0 … 0.9999 (`0x7530C0`);
   - the wheel over it moves one position, its direction by the bit `0x80` of the event's byte `+0x11`; the keys Page Up and Page Down move 5, Home to 0 and End to the last;
-  - while the left button is held (`0x655920`, bit 8 of the mouse's state; **hypothesis**: the left button), the window's draw `0x716E00` sends each of the four sliders a press at the cursor every drawn frame, so a held "−" or "+" moves one position a frame and a held press on the bar drags the knob after the cursor (**hypothesis** on the rate: one step per drawn frame);
+  - while the left button is held (`0x655920`, bit 8 of the mouse's state; **hypothesis**: the left button), the window's draw `0x716E00` sends each of the four sliders a press at the cursor every drawn frame, so a held "−" or "+" moves one position a frame and a held press on the bar drags the knob after the cursor;
+    **seen**: a trace of `0x752A60` while "+" was held gave the four sliders a press at each of the frames that the button stayed down, one after the input's own, and a click held for one frame moved the volume two positions, for two frames three;
   - the sliders play no sound (no call of `playSFX` in `0x752A60`).
 
 #### The panels' controls
@@ -358,8 +359,9 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 - The radio groups are set at the show from the values 0, 1 and 2 in order (detail, collect, quality); the transparency's and the volumes' positions from their numbers (`0x7533B0`), the volumes' read as text and turned to numbers (`0x84B24A`) (**confirmed**).
 - What Cancel (and Escape, and O) restores: the store and the file keep their values, and the next show sets the controls from them; but the volumes dragged and the sound's tick act on the sound system at once, and neither Cancel, Escape, O nor the hide sets them back, so the running game keeps the dragged volumes and the sound's state until the next start, when the file's old values are read again (**confirmed** by the absence of any call in those paths; **hypothesis** that the difference is heard).
 - The volume's scale differs between the two paths: the window gives `p / 126`, the start `p / 128`, so the loudest position, 125, is 0.992 while the window is open and 0.977 after a restart (**confirmed**).
-- No control writes `SCREEN_QUAKE`, `SHOW_ENEMYINFO`, `WARNING_LEVEL` or the other keys of the file: `0x717C20` writes the twelve above alone (**confirmed**).
-- The window's own sounds: every `cUI_Button2` (the ticks, the choices, OK and Cancel) plays `UI_CLICK01` as pressed; the sound quality's choices play a second `UI_CLICK01` from the window (`0x7172F0`): low and medium where the sound system's byte `+0x80` is 1, 3D where it is 0 (**confirmed**; **hypothesis**: `+0x80` is the 3D provider's use, docs/re/sound.md, so the second click marks a change of the mode).
+- No control writes `SCREEN_QUAKE`, `SHOW_ENEMYINFO`, `WARNING_LEVEL` or the other keys of the file: `0x717C20` writes the fifteen above alone (**confirmed**).
+- The window's own sounds: every `cUI_Button2` (the ticks, the choices, OK and Cancel) plays `UI_CLICK01` as pressed; (**seen**: a sample started at a tick's press and at Cancel's, none at a slider's);
+  the sound quality's choices play a second `UI_CLICK01` from the window (`0x7172F0`): low and medium where the sound system's byte `+0x80` is 1, 3D where it is 0 (**confirmed**; **hypothesis**: `+0x80` is the 3D provider's use, docs/re/sound.md, so the second click marks a change of the mode).
 
 ### What the settings change in play
 
@@ -386,7 +388,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 
 ### The panels, the background and the buttons' looks
 
-- **The background** (**confirmed**): twelve statics `UI_STATIC_BG` of 256 × 256, the textures `UW_option_1_01.tga` to `UW_option_1_12.tga` (`texture.pak`'s `uw_option_1_01` …) whole, four to a row from (0, 0), rows 256 apart, each a static of the mode 5; the window covers the whole screen, so in a game the world is hidden under it (**hypothesis**: not seen in a game).
+- **The background** (**confirmed**): twelve statics `UI_STATIC_BG` of 256 × 256, the textures `UW_option_1_01.tga` to `UW_option_1_12.tga` (`texture.pak`'s `uw_option_1_01` …) whole, four to a row from (0, 0), rows 256 apart, each a static of the mode 5; the window covers the whole screen, so in a game the world is hidden under it (**seen**: the key O's window in a game).
 - **The fills** (`0x725640`, **confirmed**): six rectangles of black at the alpha 159 (`0x9F000000`), each its box grown by 20 on every side: (44, 44) 424 × 168, (524, 44) 424 × 168, (44, 268) 424 × 168, (524, 268) 424 × 168, (44, 492) 424 × 200 and (524, 492) 424 × 104.
 - **The panels' frames** (`cUI_Frame`, the constructor `0x73A7A0` with a name, a kind, a rectangle and flags; the images chosen by `0x73D860`, laid out by `0x73ADC0`):
   - the six boxes, kind 1 with the flags 1, `UI_FRAME_GFXSETTINGS` (64, 64) 384 × 128, `UI_FRAME_SNDVOLUME` (544, 64) 384 × 128, `UI_FRAME_AUTOCOLLECT` (64, 288) 384 × 128, `UI_FRAME_3DSOUND` (544, 288) 384 × 128, `UI_FRAME_GENERALSETTINGS` (64, 512) 384 × 160 and `UI_FRAME_INTERNET` (544, 512) 384 × 64: the images 310 to 321 of `GUI_main_12.TGA`, the frame with its crest of the choice of the hero's panel, the menu over a game and the saves' window, drawn outside the box (**confirmed** the images; the pieces' places by `0x73ADC0`'s kind 1 are not read again here and are taken from docs/re/menus.md, **hypothesis** that they are the same code's);
@@ -402,16 +404,15 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 
 - The kind 1 frame's pieces' places in `0x73ADC0` (taken from the choice of the hero's panel; not re-read).
 - The slider's draw (`0x752EE0`): where exactly the knob is drawn for a fraction (**estimate**: its middle at the inner track's x + f · width, which the frame's knobs at the volumes 0 agree with to a few pixels).
-- The repeat rate of a held "−", "+" or bar (one step per drawn frame, **hypothesis**), and whether a single click moves one position or two (the input's and the draw's press in the same frame).
 - The hover glow's blend (the engine's state `0x10`, **hypothesis** additive) and its alpha on a 32-bit display (3 per copy).
-- Whether the event `0x11` of `UI_MAINMENU` from OK, Cancel and Escape does anything in a game (**hypothesis**: nothing, the game goes on), and what the engine event `0x12` sent at the show and hide where `0xAD6EF8` is set does.
+- What the engine event `0x12` sent at the show and hide where `0xAD6EF8` is set does.
 - The byte `0x17EA344` that keeps the key O (and the others of the switch) from the manager.
 - `0x692B60`'s test for the 3D choice, and what `SOUNDQUALITY` 0 changes against 1.
 - The readers of `DETAILLEVEL` listed as not followed, and the effects' range `0x76B896`–`0x7C71C0` taken as the effects' intervals.
 - `NETWORK_SPEEDSETTINGS`' reader `0x7EDEA0` and `setNetSpeedMode`.
 - The fonts 1, 3 and 7's pixel sizes as GDI makes them (font 1 as the choice of the hero's buttons, docs/re/menus.md).
 - Enter's action (the base window's `0x724B50`).
-- Seen in the running original: none of the above beyond the one frame; the live volume after Cancel, the held sliders and the key O are worth a check with the driver of #448.
+- Seen in the running original: the window, its places and its sounds, the held sliders, the key O and the closings in a game; the live volume after Cancel is #2341's to check.
 
 ## In `opensacred-game`
 
@@ -421,3 +422,7 @@ In a game the menu over it's Save Game, greyed while the interface allows no sav
 Since #1410 the menu over a game is the original's (`esc_menu`): Esc and the taskbar's Options button pause the game under the window at its place, its fill and the standard frame drawn with the choice of the hero's pieces (`choice::frame_about`), its items in Carolingia at the main menu's size, pale and lit white under the cursor (seen: the letters (228, 212, 169), the lit (249, 249, 249)); Options, Save Game and Export stand greyed while their screens are not there (#1096, #1095, M9), Continue goes on, and Quit opens the dialog, the screen darkened by half (**estimate**), its box, frame, question and the buttons OK and Cancel at their places (**estimate** to a few pixels), OK leaving for the main menu and Cancel, or Esc, closing it alone.
 Since #1687 the dialog is a module of its own (`busy_dialog`), which the quit's question takes, and the key P (`controls.toml`'s `pause`) pauses a running game under it with the line `UI_BUSY_PAUSE` and an OK alone, the OK or P going on, Esc and the Options button doing nothing under it; P under the menu over a game does nothing.
 Not followed: the dialog's other modes and reactions, which the network's and the loading's waits take.
+Since #2340 the main menu's Options (the menu's screen `Options`), the menu over a game's Options and the key O (`controls.toml`'s `options`) show the options window above (`options`): its background, fills, frames, titles, separators, labels, ticks and round choices with their glow under the cursor (`control_glow`), sliders and buttons at the original's places, its words the game's texts by their names (`menu::Words`, which the menus and a game share); each show sets the controls from the settings, OK writes their fifteen keys into `settings.toml` (docs/10 §3) and Cancel, Esc and O again write nothing, each going back to the main menu, or on with the game paused under the window.
+A slider takes a press as the original's: the input's and its frame's draw's, then one every sixtieth of a second while the button is held (docs/decisions/interface.md); the wheel over it moves a position, up raising it (**estimate**: the bit of the original's event is not read).
+The 3D sound's choice is hidden and its line says that no 3D sound card is found, as the original's on a computer without a 3D provider (docs/decisions/interface.md).
+What the settings change in play is #2341's (the volumes and the sound), #2342's (the detail) and #2343's (the rest) but the autosave's and the violence's, which act since #1989 and #1964; the FSAA filter and the data flow change nothing (docs/decisions/interface.md).

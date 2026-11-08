@@ -518,7 +518,7 @@ fn spawn(
 
 /// A bar of three pieces from `at`, `width` wide: its left end, its middle repeated at its width
 /// and its right end at the bar's end, each at its natural size.
-fn bar_of(
+pub(crate) fn bar_of(
     parent: &mut ChildSpawnerCommands,
     (ui, assets): (&UiImages, &AssetServer),
     [left, middle, right]: [u32; 3],
@@ -546,7 +546,7 @@ fn bar_of(
 }
 
 /// The image `index` stretched over `size` at `at`.
-fn stretched(
+pub(crate) fn stretched(
     (ui, assets): (&UiImages, &AssetServer),
     index: u32,
     at: Vec2,
@@ -557,7 +557,7 @@ fn stretched(
     (image, bar::placed(at, size))
 }
 
-fn lettering(font: &Handle<Font>, size: f32) -> TextFont {
+pub(crate) fn lettering(font: &Handle<Font>, size: f32) -> TextFont {
     TextFont {
         font: font.clone().into(),
         font_size: bevy::text::FontSize::Px(size),
