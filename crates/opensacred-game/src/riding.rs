@@ -165,6 +165,24 @@ pub fn own(world: &mut World, horse: Entity) {
     }
 }
 
+/// The horse under the riding hero, by which its most health rises while it rides (`0x5658F0`
+/// at `0x565D05`, #2302): its row of the horse data and its level.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Saddle {
+    pub row: horses::Row,
+    pub level: u32,
+}
+
+impl Saddle {
+    /// The most health `most` of a hero of the level `rider` raised by the horse under it, if
+    /// any ([`horses::raised_health`]).
+    pub fn raise(saddle: Option<&Self>, most: u32, rider: u32) -> u32 {
+        saddle.map_or(most, |saddle| {
+            horses::raised_health(&saddle.row, saddle.level, rider, most)
+        })
+    }
+}
+
 /// The hero's seat on a horse, from its walk to the horse to its getting off.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Seat {
@@ -240,7 +258,7 @@ impl Plugin for RidingPlugin {
             )
             .add_systems(
                 Update,
-                (approach, mount, dismount, carry)
+                (approach, mount, dismount, carry, saddle)
                     .chain()
                     .after(hero::run)
                     .in_set(Step::HeroMove),
@@ -250,6 +268,70 @@ impl Plugin for RidingPlugin {
                 seat.after(bevy::app::AnimationSystems)
                     .before(TransformSystems::Propagate),
             );
+    }
+}
+
+/// The hero's values made again as it mounts a horse and as it leaves it, by whatever way
+/// (`0x5796A0`, docs/re/horses.md): its most health raised by the horse under it
+/// ([`Saddle`]), or no longer, its health kept and held at the most (**seen** in the original:
+/// the Seraphim of the level 30 at 403 of 992 mounted a horse of the level 1 and kept her
+/// health below the most of 1,005; at 401 of 1,005 she got off and kept it below 992).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn saddle(
+    mut commands: Commands,
+    (experience, rules, npcs): (
+        Res<crate::fight::Experience>,
+        Res<crate::fight::Rules>,
+        Option<Res<Npcs>>,
+    ),
+    mut heroes: Query<
+        (
+            Entity,
+            Option<&Seat>,
+            Option<&Saddle>,
+            &crate::fight::Base,
+            Option<&crate::fight::Holding>,
+            &mut crate::fight::Health,
+        ),
+        With<Body>,
+    >,
+    horses: Query<(&Horse, &crate::ai::Mind)>,
+) {
+    for (hero, seat, saddle, base, holding, mut health) in &mut heroes {
+        let under = seat
+            .and_then(Seat::ridden)
+            .and_then(|horse| horses.get(horse).ok())
+            .map(|(horse, mind)| Saddle {
+                row: npcs
+                    .as_deref()
+                    .map(|npcs| npcs.horse_row(horse.class))
+                    .unwrap_or_default(),
+                level: mind.level,
+            });
+        if under.as_ref() == saddle {
+            continue;
+        }
+        match under {
+            Some(under) => commands.entity(hero).insert(under),
+            None => commands.entity(hero).remove::<Saddle>(),
+        };
+        let level = experience.level;
+        let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+        let skills = opensacred_rules::fight::hero_skills(base, level, &holds);
+        let most = Saddle::raise(
+            under.as_ref(),
+            opensacred_rules::fight::hero_health_held(base, level, &holds, &skills, &rules),
+            level,
+        );
+        debug!(
+            "riding: the hero's most health {} becomes {most}",
+            health.most
+        );
+        health.most = most;
+        health.current = health.current.min(most);
     }
 }
 

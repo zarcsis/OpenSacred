@@ -167,6 +167,7 @@ fn change(
             &mut hero::Size,
             Option<&Holding>,
             Option<&mut Effects>,
+            Option<&crate::riding::Saddle>,
         ),
         With<Body>,
     >,
@@ -198,8 +199,17 @@ fn change(
     if let Some(footsteps) = footsteps.as_mut() {
         std::mem::swap(&mut **footsteps, &mut forms.steps);
     }
-    for (body, mut base, mut health, mut combat, mut regenerates, mut size, holding, effects) in
-        &mut bodies
+    for (
+        body,
+        mut base,
+        mut health,
+        mut combat,
+        mut regenerates,
+        mut size,
+        holding,
+        effects,
+        saddle,
+    ) in &mut bodies
     {
         // The change's event (0x115 of the ring's flag, `0x51285A`) makes the object 781 of the
         // variant 2 at her, riding with her: its ring (`puffs`), and its sound once (`0x76D545`).
@@ -253,7 +263,11 @@ fn change(
             &rules,
         ));
         regenerates.value = regeneration_with(&base, level, &skills, &list, &rules);
-        let most = hero_health_held(&base, level, &holds, &skills, &rules);
+        let most = crate::riding::Saddle::raise(
+            saddle,
+            hero_health_held(&base, level, &holds, &skills, &rules),
+            level,
+        );
         *health = Health {
             current: health.current.min(most),
             most,

@@ -652,6 +652,7 @@ fn refit(
             &mut crate::fight::Combat,
             &mut crate::fight::Regenerates,
             &mut Health,
+            Option<&crate::riding::Saddle>,
         ),
         With<Body>,
     >,
@@ -660,11 +661,11 @@ fn refit(
         Option<ResMut<crate::hero::Hero>>,
     ),
 ) {
-    for (base, holding, effects, mut combat, mut regenerates, mut health) in &mut heroes {
+    for (base, holding, effects, mut combat, mut regenerates, mut health, saddle) in &mut heroes {
         crate::statistics::refit(
             experience.level,
             &rules,
-            (base, holding, effects),
+            (base, holding, effects, saddle),
             (&mut combat, &mut regenerates, &mut health),
             (arts.as_deref_mut(), hero.as_deref_mut()),
         );
