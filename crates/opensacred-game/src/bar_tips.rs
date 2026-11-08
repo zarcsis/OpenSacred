@@ -11,9 +11,13 @@
 //!
 //! Since #1698 the column's "+" shows the hero's list of bonuses (`bonus_list`).
 //!
-//! Not followed yet (#1594): the horse's button and
-//! the mount's bar, and the disc's and the compass's texts; the weapon sets' items' tooltips are
-//! #1516's.
+//! Since #2301 the horse's button shows its own text, its top right by it (the style `0x20B`,
+//! `0x6D7AB4`), and the mount's bar the horse's description (`riding::description`,
+//! `0x55C9F0`) centred 92 left of and 32 above the bar's corner (`0x6D7B80`), as the original's
+//! show them (seen).
+//!
+//! Not followed yet (#1594): the disc's and the compass's texts; the weapon sets' items'
+//! tooltips are #1516's.
 
 use bevy::prelude::*;
 
@@ -53,6 +57,15 @@ const HEALTH: &str = "9960";
 const HEALTH_LEFT: f32 = 64.0;
 const EXPERIENCE: &str = "9961";
 const EXPERIENCE_LEFT: f32 = 24.0;
+/// The horse's description's centre left of and above the mount's bar's corner (`0x6D7B80`),
+/// and the horse's button's own text, its key, and its top right corner beside the button's
+/// (**measured** in the original's frame).
+const HORSE_BESIDE: Vec2 = Vec2::new(92.0, 32.0);
+const HORSE_BUTTON_TEXT: u32 = 151_704_389;
+const HORSE_TEXT_AT: Vec2 = Vec2::new(4.0, 26.0);
+/// The riding skill, and the balance's `HorseOverrideTime` where it lacks it.
+const RIDING: u8 = 22;
+const HORSE_OVERRIDE_TIME: f32 = 10.0;
 
 /// A control whose tooltip the pointer rests on: a button of the bar by its index, a belt's slot,
 /// 1 to 5, a creature's health by its entry in the column, the hero's experience, or the column's
@@ -64,6 +77,8 @@ enum Control {
     Health(usize),
     Experience,
     Bonuses,
+    HorseButton,
+    Mount,
 }
 
 /// The bonuses' list's place, its centre kept 16 pixels within the screen (`0x6D7B80`, the
@@ -80,6 +95,8 @@ impl Control {
             Self::Health(k) => 16 + index(k),
             Self::Experience => 32,
             Self::Bonuses => 33,
+            Self::HorseButton => 34,
+            Self::Mount => 35,
         }
     }
 }
@@ -99,10 +116,19 @@ fn bar_control(images: &UiImages, at: Vec2) -> Option<Control> {
 /// The control of the portraits' column under the point `at` of the original's screen, the
 /// column's places at the window's right, of `entries` shown (the hero's first): the hero's
 /// experience bar, else an entry's ring or picture (`0x6D7B80`'s order).
-fn column_control(images: &UiImages, at: Vec2, entries: usize) -> Option<Control> {
+fn column_control(images: &UiImages, at: Vec2, entries: usize, horse: bool) -> Option<Control> {
     let (plus, at_plus) = bar::BONUSES;
     if Rect::from_corners(at_plus, at_plus + images.size(plus)).contains(at) {
         return Some(Control::Bonuses);
+    }
+    // The horse's button and the mount's bar while the hero owns a horse (#2301).
+    let (_, button) = bar::HORSE_BUTTON;
+    let (bar_image, bar_at) = bar::MOUNT_FRAME;
+    if horse && Rect::from_corners(button, button + bar::HORSE_BUTTON_SIZE).contains(at) {
+        return Some(Control::HorseButton);
+    }
+    if horse && Rect::from_corners(bar_at, bar_at + images.size(bar_image)).contains(at) {
+        return Some(Control::Mount);
     }
     let (frame, corner) = bar::EXPERIENCE_FRAME;
     if Rect::from_corners(corner, corner + images.size(frame)).contains(at) {
@@ -155,6 +181,12 @@ fn tips(
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::game::Data>>,
     ),
+    (owned, npcs, horses, combats): (
+        Option<Res<crate::riding::Owned>>,
+        Option<Res<crate::npcs::Npcs>>,
+        Query<(&crate::riding::Horse, &crate::ai::Mind)>,
+        Query<&crate::fight::Combat, With<Body>>,
+    ),
     tips: Query<Entity, With<TipRoot>>,
     mut rest: Local<Rest>,
     mut showing: Local<Option<Control>>,
@@ -167,7 +199,8 @@ fn tips(
             .and_then(|at| bar_control(&images, at))
             .or_else(|| {
                 let at = bar::column_point(&pointer, &ui_scale, &windows)?;
-                column_control(&images, at, entries.len() + 1)
+                let horse = owned.as_ref().is_some_and(|owned| owned.0.is_some());
+                column_control(&images, at, entries.len() + 1, horse)
             })
     };
     let (gone, due) = rest.step(over.map(Control::number), time.elapsed_secs());
@@ -180,6 +213,57 @@ fn tips(
         return;
     };
     let texts = texts.as_deref();
+    if control == Control::HorseButton {
+        let Some(text) = texts.and_then(|texts| texts.id(HORSE_BUTTON_TEXT)) else {
+            return;
+        };
+        let corner = bar::HORSE_BUTTON.1 + HORSE_TEXT_AT;
+        crate::tooltip::spawn_tip_right_in(&mut commands, &assets, (text, corner), Frame::Column);
+        *showing = Some(control);
+        return;
+    }
+    if control == Control::Mount {
+        let horse = owned
+            .as_ref()
+            .and_then(|owned| owned.0)
+            .and_then(|horse| horses.get(horse).ok());
+        let (Some((horse, mind)), Some(npcs)) = (horse, npcs.as_deref()) else {
+            return;
+        };
+        let balance = data
+            .as_deref()
+            .and_then(|data| data.0.tables.balance().ok());
+        let prices = opensacred_rules::horses::Prices::of(balance);
+        let time = balance
+            .as_ref()
+            .and_then(|balance| balance.f32("HorseOverrideTime"))
+            .unwrap_or(HORSE_OVERRIDE_TIME);
+        let row = npcs.horse_row(horse.class);
+        let skill = arts
+            .as_deref()
+            .and_then(|arts| arts.skills.iter().find(|&&(skill, _)| skill == RIDING))
+            .map_or(0, |&(_, level)| level);
+        // The resistances as the fight takes them, their own values times their factors.
+        let resistances = combats
+            .iter()
+            .next()
+            .map_or([0.0; 4], |combat| combat.0.resistance);
+        let described = crate::riding::Described {
+            horse: (horse.class, mind.level),
+            data: (&row, &prices, time),
+            hero: (experience.0.level, skill, resistances),
+        };
+        let lines = crate::riding::description(texts, &described);
+        let centre = bar::MOUNT_FRAME.1 - HORSE_BESIDE;
+        crate::tooltip::spawn_lines_tip_in(
+            &mut commands,
+            (&images, &assets),
+            (&lines, centre),
+            Frame::Column,
+        );
+        *showing = Some(control);
+        return;
+    }
     let (text, centre, frame) = match control {
         Control::Button(i) => {
             let (index, corner) = bar::BUTTONS[i];
@@ -226,6 +310,8 @@ fn tips(
                 Frame::Column,
             )
         }
+        // Drawn above, of its lines with images.
+        Control::HorseButton | Control::Mount => return,
         Control::Bonuses => {
             let items = holding
                 .iter()
@@ -319,13 +405,26 @@ mod tests {
         let images = UiImages::default();
         // Without the images' table the experience bar has no size; the ring is the column's.
         assert_eq!(
-            column_control(&images, Vec2::new(940.0, 20.0), 1),
+            column_control(&images, Vec2::new(940.0, 20.0), 1, false),
             Some(Control::Health(0))
         );
         assert_eq!(
-            column_control(&images, Vec2::new(940.0, 160.0), 2),
+            column_control(&images, Vec2::new(940.0, 160.0), 2, false),
             Some(Control::Health(1))
         );
-        assert_eq!(column_control(&images, Vec2::new(940.0, 160.0), 1), None);
+        assert_eq!(
+            column_control(&images, Vec2::new(940.0, 160.0), 1, false),
+            None
+        );
+        // The horse's button over the ring while the hero owns a horse, the ring else.
+        let button = bar::HORSE_BUTTON.1 + Vec2::splat(10.0);
+        assert_eq!(
+            column_control(&images, button, 1, true),
+            Some(Control::HorseButton)
+        );
+        assert_eq!(
+            column_control(&images, button, 1, false),
+            Some(Control::Health(0))
+        );
     }
 }
