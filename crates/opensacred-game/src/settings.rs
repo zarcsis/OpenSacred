@@ -95,6 +95,16 @@ pub struct Interface {
     /// the red alarm about its portrait, the original's `WARNING_LEVEL` of `Settings.cfg`, 25 as
     /// the installation's (`0x81D2E0`, #1463).
     pub warning_level: u8,
+    /// The overview map's transparency, 0 to 254: its sectors drawn at the alpha 255 less it, the
+    /// original's `MINIMAP_ALPHA`, 127 as the installation's and its default (`0x81B8A0`; the
+    /// options window, #2340).
+    pub map_alpha: u8,
+    /// Whether the overview map's unexplored ground is opaque, the original's `EXPLOREMAP`, on as
+    /// the installation's and its default (`0x81B540`; the options window).
+    pub explore_map: bool,
+    /// Whether the cursor follows the foe as the view scrolls by the hero walking to it, the
+    /// original's `AUTOTRACKENEMY`, on as the installation's (`0x81A330`; the options window).
+    pub follow_foe: bool,
 }
 
 impl Default for Interface {
@@ -102,8 +112,93 @@ impl Default for Interface {
         Self {
             enemy_info: true,
             warning_level: 25,
+            map_alpha: 127,
+            explore_map: true,
+            follow_foe: true,
         }
     }
+}
+
+/// `[graphics]`: the options window's graphic settings (#2340).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Graphics {
+    /// The detail, 0 low, 1 medium and 2 high, the original's `DETAILLEVEL`, 2 as the
+    /// installation's.
+    pub detail: u8,
+    /// The original's `FSAA_FILTER`, on as the installation's: its client's ground tiles' texture
+    /// inset against the anti-aliasing's seams, which the game's ground does not show, so kept
+    /// for the window alone (`0x81C870`; docs/decisions/interface.md).
+    pub fsaa_filter: bool,
+}
+
+impl Default for Graphics {
+    fn default() -> Self {
+        Self {
+            detail: 2,
+            fsaa_filter: true,
+        }
+    }
+}
+
+/// `[sound]`: the options window's sound (#2340).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Sound {
+    /// Whether the game plays its sound, the original's `SOUND`, on as the installation's.
+    pub on: bool,
+    /// The sound's quality, 0 the low effects, 1 all the effects and 2 the 3D sound, the
+    /// original's `SOUNDQUALITY`, 1 as the installation's.
+    pub quality: u8,
+    /// The effects', the speech's and the music's volumes, 0 to 125, the original's `SFXVOLUME`,
+    /// `VOICEVOLUME` and `MUSICVOLUME`, 64 as the installation's and their defaults.
+    pub effects: u8,
+    pub speech: u8,
+    pub music: u8,
+}
+
+impl Default for Sound {
+    fn default() -> Self {
+        Self {
+            on: true,
+            quality: 1,
+            effects: 64,
+            speech: 64,
+            music: 64,
+        }
+    }
+}
+
+/// What the bar's Collect takes up (`PICKUPAUTO`, the filter `0x4EC330`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Collect {
+    /// Every item (0).
+    #[default]
+    All,
+    /// Gold, the runes, some potions and the items above a bar of quality by the hero's level (1).
+    Valuables,
+    /// Gold alone (2).
+    Gold,
+}
+
+/// `[network]`: the multiplayer's data flow, kept for the window alone until the multiplayer
+/// (M9).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Network {
+    /// The original's `NETWORK_SPEEDSETTINGS`: 2 for DSL, cable or a LAN, as the installation's,
+    /// and 1 for a modem.
+    pub speed: NetworkSpeed,
+}
+
+/// The data flow's two choices.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkSpeed {
+    #[default]
+    Fast,
+    Slow,
 }
 
 /// `[movies]`: whether the movies play, and the campaigns' extros seen (`movies`, #1946).
@@ -130,7 +225,7 @@ impl Default for Movies {
 }
 
 /// `[gameplay]`: how the game plays.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Gameplay {
     /// Whether the scripts' `AutoSave`s save the game (`saves`, #1989), the original's `AUTOSAVE`
@@ -140,6 +235,24 @@ pub struct Gameplay {
     /// `VIOLENCE` of `Settings.cfg`, off as the GOG installation's file holds it and as it reads
     /// where the file lacks it (`0x819FD0`).
     pub violence: bool,
+    /// Whether the hero takes items up, mounts and dismounts by its clips, the original's
+    /// `PICKUPANIM` (the atmospheric animation), on as the installation's (`0x81A690`; the
+    /// options window, #2340).
+    pub pickup_animation: bool,
+    /// What the bar's Collect takes up, the original's `PICKUPAUTO`, everything as the
+    /// installation's (`0x81A4E0`; the options window).
+    pub collect: Collect,
+}
+
+impl Default for Gameplay {
+    fn default() -> Self {
+        Self {
+            autosave: false,
+            violence: false,
+            pickup_animation: true,
+            collect: Collect::All,
+        }
+    }
 }
 
 /// The settings in force: the file's, with the command line's for this run.
@@ -147,9 +260,12 @@ pub struct Gameplay {
 #[serde(default)]
 pub struct Settings {
     pub display: Display,
+    pub graphics: Graphics,
     pub interface: Interface,
+    pub sound: Sound,
     pub movies: Movies,
     pub gameplay: Gameplay,
+    pub network: Network,
     pub debug: Panels,
 }
 
@@ -441,9 +557,23 @@ mod tests {
                 width: 1280,
                 height: 720,
             },
+            graphics: Graphics {
+                detail: 0,
+                fsaa_filter: false,
+            },
             interface: Interface {
                 enemy_info: false,
                 warning_level: 40,
+                map_alpha: 254,
+                explore_map: false,
+                follow_foe: false,
+            },
+            sound: Sound {
+                on: false,
+                quality: 2,
+                effects: 0,
+                speech: 125,
+                music: 7,
             },
             movies: Movies {
                 show: false,
@@ -453,6 +583,11 @@ mod tests {
             gameplay: Gameplay {
                 autosave: true,
                 violence: true,
+                pickup_animation: false,
+                collect: Collect::Gold,
+            },
+            network: Network {
+                speed: NetworkSpeed::Slow,
             },
             debug: Panels {
                 overlay: true,
@@ -465,13 +600,26 @@ mod tests {
                 "display.mode",
                 "display.width",
                 "display.height",
+                "graphics.detail",
+                "graphics.fsaa_filter",
                 "interface.enemy_info",
                 "interface.warning_level",
+                "interface.map_alpha",
+                "interface.explore_map",
+                "interface.follow_foe",
+                "sound.on",
+                "sound.quality",
+                "sound.effects",
+                "sound.speech",
+                "sound.music",
                 "movies.show",
                 "movies.extro",
                 "movies.extro_underworld",
                 "gameplay.autosave",
                 "gameplay.violence",
+                "gameplay.pickup_animation",
+                "gameplay.collect",
+                "network.speed",
                 "debug.overlay",
                 "debug.log",
             ],

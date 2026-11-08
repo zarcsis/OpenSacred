@@ -63,10 +63,9 @@ impl Entry {
         }
     }
 
-    /// Whether it does anything yet: the options wait for #1096, and the export, the
-    /// multiplayer's character, for M9.
+    /// Whether it does anything yet: the export, the multiplayer's character, waits for M9.
     fn works(self) -> bool {
-        matches!(self, Self::SaveGame | Self::Quit | Self::Continue)
+        !matches!(self, Self::Export)
     }
 }
 
@@ -95,12 +94,16 @@ fn show(
     (still, busy): (Option<Res<Still>>, Option<Res<Busy>>),
     (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
     (mut lit, saves): (ResMut<Lit>, Option<Res<crate::saves_window::Asked>>),
-    mut sounds: MessageWriter<crate::sfx::Play>,
+    (options, mut sounds): (
+        Option<Res<crate::options::Asked>>,
+        MessageWriter<crate::sfx::Play>,
+    ),
 ) {
-    // Nor the key S's pause, under the saves' window alone.
+    // Nor the key S's pause, under the saves' window alone, nor the key O's, under the options.
     if still.is_some_and(|still| still.0)
         || busy.is_some_and(|busy| busy.0)
         || saves.is_some_and(|saves| saves.0)
+        || options.is_some_and(|options| options.0)
     {
         return;
     }
@@ -240,7 +243,15 @@ fn choose(
             }
             commands.queue(crate::saves_window::open_saving);
         }
-        Entry::Options | Entry::SaveGame | Entry::Export => {}
+        // The options window in the menu's place, the game still paused (`0x6BBBD0`).
+        Entry::Options => {
+            crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+            for window in &windows {
+                commands.entity(window).despawn();
+            }
+            commands.queue(crate::options::open_in_game);
+        }
+        Entry::SaveGame | Entry::Export => {}
     }
 }
 

@@ -62,6 +62,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * `[gameplay] autosave` (off by default, as the original writes its `AUTOSAVE`) lets the scripts' autosaves save the game as the main quests are done, each into a slot of its own, `saves/GAME01.sav` and on (#1989).
   A run with `--remote`, `--exec`, `--script`, `--screenshot`, `--record` or `--benchmark` plays none by itself whatever `show` says, as a logo or the intro would stand in its way; `movies on|off` sets it for the run.
 * `[gameplay] violence` (off by default, as the installation's `VIOLENCE`) lets the creatures bleed as they die: the blood fountains of docs/re/effects.md (#1964).
+* The options window (#2340, docs/re/menus.md) writes its fifteen keys at its OK, each the original's key of `Settings.cfg`, its default the GOG installation's: `[graphics] detail` (`DETAILLEVEL`, 0 low to 2 high, 2) and `fsaa_filter` (`FSAA_FILTER`, on); `[interface] map_alpha` (`MINIMAP_ALPHA`, the overview map's transparency, 0 to 254, 127), `explore_map` (`EXPLOREMAP`, on) and `follow_foe` (`AUTOTRACKENEMY`, on); `[sound] on` (`SOUND`, on), `quality` (`SOUNDQUALITY`, 0 to 2, 1), `effects`, `speech` and `music` (`SFXVOLUME`, `VOICEVOLUME`, `MUSICVOLUME`, 0 to 125, 64); `[gameplay] autosave`, `violence`, `pickup_animation` (`PICKUPANIM`, on) and `collect` (`PICKUPAUTO`: `"all"`, `"valuables"` or `"gold"`, `"all"`); `[network] speed` (`NETWORK_SPEEDSETTINGS`: `"fast"` or `"slow"`, `"fast"`).
+  What they change in play comes with #2341, #2342 and #2343; the FSAA filter and the data flow change nothing (docs/decisions/interface.md).
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 
@@ -274,6 +276,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | F9, Ctrl + Z | the game | save the game as `QUICKSAVE`, where no merchant's, smith's, combat master's or town stash's window shows (#1988) |
 | F8, Ctrl + X | the game | load the quick save (#1988) |
 | S | the game | the saves' window, where no merchant's, smith's, combat master's or town stash's window shows (#1990) |
+| O | the game | the options window, which pauses the game, and again close it, writing nothing (#2340) |
 | 1 to 5 | the game | choose a weapon set (#1348) |
 | 6 to 0 | the game | choose an art slot (#1529) |
 | F1 to F6 | the game | the art bound to the key into the selected slot; over an art of the spells page, bind the key to it or take it off (#1536, #1750) |

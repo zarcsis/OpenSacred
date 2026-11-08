@@ -51,6 +51,7 @@ help-pause = pause, and again go on
 help-quick-save = the quick save
 help-quick-load = load the quick save
 help-saves = the saves' window
+help-options = the options window
 help-pause-menu = pause: Continue, Main menu, Quit
 
 ## In the menus

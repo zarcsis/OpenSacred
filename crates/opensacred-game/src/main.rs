@@ -160,6 +160,7 @@ mod motions;
 mod movies;
 mod music;
 mod npcs;
+mod options;
 mod opus;
 mod overlay;
 mod overview;
@@ -637,6 +638,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         movies::MoviesPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
+        options::OptionsPlugin,
         opus::OpusPlugin,
     ))
     .add_plugins((
@@ -765,6 +767,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(menu::Words::read(&assets))
     .insert_resource(choice::Images::find(&assets))
     .insert_resource(saves_window::Images::find(&assets))
+    .insert_resource(options::Images::find(&assets))
     .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(
         Update,

@@ -134,6 +134,7 @@ pub const KEYS: [&[Place]; 2] = [
                 (of(&[Action::QuickSave]), "help-quick-save"),
                 (of(&[Action::QuickLoad]), "help-quick-load"),
                 (of(&[Action::Saves]), "help-saves"),
+                (of(&[Action::Options]), "help-options"),
                 (of(&[Action::Back]), "help-pause-menu"),
             ],
         ),
