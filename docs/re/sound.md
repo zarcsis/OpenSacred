@@ -247,7 +247,7 @@ Read again 2026-10-27 (#1211): the death's music plays on the once-stream `+0x60
 The 7 minutes without a stream opened are the driver's mute (#1213): under `--muted` a crossfade never ends ("The peace stream's alternation", seen below).
 
 `opensacred-game` plays it at the hero's fall (`music`, #734), on a channel of its own since #1177: `MUSIC_DEATH` once at the music's volume without fading in, by day or by night, over the peace stream, which turns to the ambient loop in its music's phase.
-The factor of `0x697820` is taken as 1, and the jingles of the fights wait for the fights' music.
+The factor of `0x697820` is taken as 1 until #2341 ("The volumes" below), and the jingles of the fights wait for the fights' music.
 
 ## The region's music
 
@@ -347,6 +347,51 @@ The sound manager's update weighs the fight about the hero at each tick (`0x68BE
   It cuts in at once at the music's level (`playMusic(id, 1, 0)`), taking the place of the region's music and the ambient loop, and refuses as "The peace stream's alternation" above tells.
 
 `opensacred-game` follows it since #1948 (`opensacred_rules::music::Fight`, `music::fight`): the foes engaged as `voices` counts them, the hostile creatures within 700 of the place's pixels for the measure and the highest level, their motions as `voices` keeps them; the fight's music on the music's channel, cut in at once, and its end as `0x697710` ends it.
+
+## The volumes
+
+Read 2026-11-08 for #2341 in the code (the original not run); the options window's side is in docs/re/menus.md, "The options window".
+
+- The sound manager (`0x6770E0`) keeps three levels from 0 to 1, Miles' linear volumes: the effects' `+0x78`, the speech's `+0x74` and the music's `+0x7C` (**confirmed**).
+- `initApp` sets them right after the manager starts, from `Settings.cfg`'s `MUSICVOLUME`, `SFXVOLUME` and `VOICEVOLUME` times 1/128 (`0x8906F8`), through `0x677750`, `0x677A60` and `0x677FB0` (`0x817230`, `0x81724A`, `0x817264`), then `0x6780C0(SOUNDQUALITY)` and `0x6902F0(SOUND == 0)` (**confirmed**).
+- The options window's draw `0x716E00` calls the same setters with the slider's position over 126, only for a slider that took the press the draw sends it while the left button is held; the window's input calls none, so a slider moved by the wheel or the keys changes what OK writes but not the level heard until it is next pressed, or the next start (**confirmed** by the callers).
+- Every setter does nothing while the sound failed, the mute `+0x11` or the block `+0x89` is set, or the application is inactive (`+0x69C`; `0x6934A0`) (**confirmed**).
+
+### The effects' volume (`0x677A60`)
+
+- It needs the samples' permission (`+0x64` bit 1); it shifts every one of the 28 channels' samples playing, but the line by name's (`+0xB7E0`), by the change, `level + (new − old)` held to 0…1, and stores `+0x78` (**confirmed**).
+- It sets the playing streams whose name past `SOUND_FX_` starts with `ATMO` (the current and the previous peace streams and the spot loop's `+0x628`) to their factor times the new level (**confirmed**; the previous stream's factor is looked up by the current one's id, a slip).
+- `playSFX` (`0x693510`) starts every sample at `+0x78` times its place's volume: `+0x78` in the middle, `(+0x84 + 0.25) × +0x78` placed in the middle (1.0 × `+0x78` at the default listener's 0.75), the place's volume times `+0x78` at a creature or a point (**confirmed**).
+- The update re-places every positional channel at its place times `+0x78` (`0x6A0035`); the rain's loop and the idle effects (`0x6772D0`), the water's loops (`0x6906C0`), the ambient loops' start (`0x6945C9`) and their crossfades (`0x69C1B2`–`0x69C9C5`) read it too (**confirmed**).
+- Its kind: the interface's sounds, the weapons, the footsteps, the doors and the items, the creatures' voices and idle noises (the heroes' grunts and the critical hit's cry among them), the hero's breath, the spells', the arts' and the objects' sounds and loops, the idle ambience, the rain and the thunder, the water's loops, the ambient and spot loops (`ATMO_*`, `ATMOSPOT_*`) at their factor, the scripts' queued `PlaySound`, and the lines by name whose name holds `_SFX` (**confirmed**).
+
+### The speech's volume (`0x677FB0`)
+
+- It needs the samples' permission, stores `+0x74` and sets the line by name that plays to it (**confirmed**).
+- Its one reader is the lines by name (`0x693FE0`), which play in the middle at `+0x74`, each stopping the one before: the hero's comments and battle cries, `ENEMYKILLME`, the hirelings' clicks and remarks, the foes' flight's comment, the dialogues' voice-overs and the scripts' `PlaySound` outside the anim mode (`0x4A9730`), and the choice of the hero's introductions (`0x67E466`); a name holding `_SFX` plays at the speaker at the effects' volume instead and is not the line by name (**confirmed**).
+
+### The music's volume (`0x677750`)
+
+- It needs the streams' permission (`+0x64` bit 0), stores `+0x7C`, and sets the music played once (`+0x60C`) to its factor times the new level; while a crossfade runs it stops there, the crossfade reading `+0x7C` each frame; else it sets the current stream and the spot loop's, unless their names start with `ATMO`, to their factor times the level (**confirmed**).
+- At 0.001 or below: the setter turns the peace stream to the place's ambient loop and ends a fight's music, and the music played once, the fights' music and their end and the jingles play nothing; the first phase's roll takes the ambient loop (**confirmed**).
+- Its kind: the regions' and the fights' music, `MUSIC_WRONGLEVEL`, the scripts' `PlayMusic` of a name not `ATMO`, the pub's and the undead siege's music as loops, the music played once (`MUSIC_DEATH`, the jingles, the fanfares, `PlayJingle`) and the menus' `MENU_ADDON` (**confirmed**).
+
+### The factors
+
+- `0x69AA80` fills a table of an id and a factor at `+0x6B4` once (`opensacred_rules::music::factor`), 1 for an id it does not hold (**confirmed**): the ambient loops 1 but the desert's 0.9 and 0.85 by night, the outdoor arena's spot 0.7 and the cemetery's 0.6; `MUSIC_WOOD01` 0.85, `MUSIC_WOOD03`, `MUSIC_VILLAGE01` and `MUSIC_DESERT01` 0.7, `MUSIC_PILZWALD`, `MUSIC_HAUPTSTADT` and `MUSIC_DRYADEN` 0.8, `MUSIC_NUKNUK`, `MUSIC_WAYTOHELL` and `MUSIC_HELL` 0.6, the Caribbean's and the dungeons' of Nuknuk and the Caribbean and `MUSIC_PUB` 0.5, `MUSIC_PIRATENPUB` 0.35; the fights' music 0.65 to 0.8, the giant spider's 0.5, `MUSIC_WRONGLEVEL` 0.8; `JINGLE_DANGER01` 0.75 and `JINGLE_FIGHT_OVER01`–`16` 0.7.
+- At the defaults (64, 0.5) the effects play at half a sample's level, the speech at half, the music and the ambient loops at half their factor (**confirmed**).
+
+### The switch (`SOUND`)
+
+- The options' tick calls `0x6902F0(not on)`, `0x678180(on)` and `0x6781A0(on)`; the last two set the streams' and the samples' permissions (`+0x64` bits 0 and 1), with both clear the update skipping its whole body (**confirmed**).
+- Off (`0x6902F0(1)`): the mute `+0x11`, which every play function refuses, every sample stopped and every stream paused; on: the mute cleared and the paused streams resumed where they stood, the stopped samples lost (**confirmed**).
+- The start gives the mute alone (`SOUND : 0`), a stream that never opened not starting as the tick turns the sound on (**hypothesis** for the menus' music).
+- The sliders change no level while the sound is off, and turning it on keeps the levels it had (**confirmed**).
+- The movies' audio goes to DirectShow's own renderer (`0x6A0D80`, `AMMSF_ADDDEFAULTRENDERER`), at no volume of these and not silenced by the switch (**confirmed** the calls; **hypothesis** that it is heard so).
+
+Since #2341 `opensacred-game` plays each kind at its level (`volumes`): each channel's track has a volume control, the main channel's, the water's and the rain's at the effects' level, a channel `Speech` of the lines by name (`voices`' named lines and the flight's comment, `remarks`, `talk`'s voice-overs and the scripts' lines, a name holding `_SFX` on the main channel) and the introductions' at the speech's, the music once at the music's, and the music's and the ambient loops' channels at the music's or the effects' by what they play (`music::Music::plays_atmo`, `atmosphere::Atmosphere::plays_music`); the streams play at their factor instead of the fixed −8 dB and −12 dB that stood for them.
+The levels are the settings' over 128 at the start and over 126 as a slider of the options window moves, the switch off silencing every track (docs/decisions/sound.md).
+Not followed: the music's level of 0.001 or below turning the stream to the ambient loop and refusing the music played once, the fights' music and the jingles; a `_SFX` line's place at its speaker and its not being the line by name (#2348).
 
 ## The sources: what plays, and what `opensacred-game` does not yet
 

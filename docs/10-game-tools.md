@@ -63,7 +63,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   A run with `--remote`, `--exec`, `--script`, `--screenshot`, `--record` or `--benchmark` plays none by itself whatever `show` says, as a logo or the intro would stand in its way; `movies on|off` sets it for the run.
 * `[gameplay] violence` (off by default, as the installation's `VIOLENCE`) lets the creatures bleed as they die: the blood fountains of docs/re/effects.md (#1964).
 * The options window (#2340, docs/re/menus.md) writes its fifteen keys at its OK, each the original's key of `Settings.cfg`, its default the GOG installation's: `[graphics] detail` (`DETAILLEVEL`, 0 low to 2 high, 2) and `fsaa_filter` (`FSAA_FILTER`, on); `[interface] map_alpha` (`MINIMAP_ALPHA`, the overview map's transparency, 0 to 254, 127), `explore_map` (`EXPLOREMAP`, on) and `follow_foe` (`AUTOTRACKENEMY`, on); `[sound] on` (`SOUND`, on), `quality` (`SOUNDQUALITY`, 0 to 2, 1), `effects`, `speech` and `music` (`SFXVOLUME`, `VOICEVOLUME`, `MUSICVOLUME`, 0 to 125, 64); `[gameplay] autosave`, `violence`, `pickup_animation` (`PICKUPANIM`, on) and `collect` (`PICKUPAUTO`: `"all"`, `"valuables"` or `"gold"`, `"all"`); `[network] speed` (`NETWORK_SPEEDSETTINGS`: `"fast"` or `"slow"`, `"fast"`).
-  What they change in play comes with #2341, #2342 and #2343; the FSAA filter and the data flow change nothing (docs/decisions/interface.md).
+  The volumes and the sound's switch act since #2341 (docs/re/sound.md, "The volumes"); the rest comes with #2342 and #2343; the FSAA filter and the data flow change nothing (docs/decisions/interface.md).
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 

@@ -33,7 +33,9 @@ use bevy::prelude::{
     IntoScheduleConfigs, Message, MessageReader, MessageWriter, Mut, Plugin, Query, Res, ResMut,
     Resource, Time, Update, Vec3, With, Without, World,
 };
-use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
+use bevy_kira_audio::prelude::{
+    Audio, AudioChannel, AudioControl, AudioInstance, AudioTween, PlaybackState,
+};
 use opensacred_data::tables::{IDLE_NOISES, IdleNoise, IdleNoises, IdleSound, VOICES, Voice};
 
 use crate::files;
@@ -430,8 +432,8 @@ pub(crate) struct Speaking(pub(crate) Handle<AudioInstance>, pub(crate) bool);
 pub struct NamedLine(Option<Handle<AudioInstance>>);
 
 impl NamedLine {
-    /// Whether a line by name plays.
-    pub(crate) fn plays(&self, audio: &Audio) -> bool {
+    /// Whether a line by name plays on the speech's channel `audio` (`volumes`).
+    pub(crate) fn plays(&self, audio: &AudioChannel<crate::volumes::Speech>) -> bool {
         self.0.as_ref().is_some_and(|line| {
             matches!(
                 audio.state(line),
@@ -783,7 +785,7 @@ fn speak(
     )>,
     heroes: Query<(Entity, &GlobalTransform), With<Body>>,
     assets: Res<AssetServer>,
-    audio: Res<Audio>,
+    (audio, speech): (Res<Audio>, Res<AudioChannel<crate::volumes::Speech>>),
     mut instances: ResMut<Assets<AudioInstance>>,
     mut named_line: ResMut<NamedLine>,
     time: Res<Time>,
@@ -890,7 +892,7 @@ fn speak(
                 at: Some(line.speaker),
                 rate: (0.45, sfx::Roll::Tenths),
             });
-            if named_line.plays(&audio) {
+            if named_line.plays(&speech) {
                 let stopped = named_line.name(&mut instances, None);
                 if speaking.is_some_and(|s| s.1 && stopped.as_ref() == Some(&s.0)) {
                     speaking = None;
@@ -988,8 +990,13 @@ fn speak(
             continue;
         }
         let sample = sfx.sample(line.id, line.file, &assets);
-        let instance = audio
-            .play(sample)
+        // A line by name at the speech's volume, the others at the effects' (`volumes`).
+        let mut playing = if line.named {
+            speech.play(sample)
+        } else {
+            audio.play(sample)
+        };
+        let instance = playing
             .with_volume(sfx::decibels(volume))
             .with_panning(pan)
             .with_playback_rate(f64::from(rate))
@@ -1141,7 +1148,12 @@ fn flight(
         ),
         (Without<Body>, Without<Dies>),
     >,
-    (assets, audio, mut named_line): (Res<AssetServer>, Res<Audio>, ResMut<NamedLine>),
+    (assets, audio, mut named_line): (
+        Res<AssetServer>,
+        // The hero's comment at the speech's volume (`volumes`).
+        Res<AudioChannel<crate::volumes::Speech>>,
+        ResMut<NamedLine>,
+    ),
     (time, mut most_engaged): (Res<Time>, ResMut<Engaged>),
 ) {
     let (Some(hero), Ok((entity, body, at, health, striking))) = (hero, heroes.single()) else {
@@ -1300,7 +1312,7 @@ fn breathe(
     (mut sfx, named_line): (ResMut<Sfx>, Res<NamedLine>),
     heard: Res<sfx::Listener>,
     (assets, audio, mut instances): (Res<AssetServer>, Res<Audio>, ResMut<Assets<AudioInstance>>),
-    time: Res<Time>,
+    (time, speech): (Res<Time>, Res<AudioChannel<crate::volumes::Speech>>),
 ) {
     let (Some(hero), Ok((entity, body, at, striking, acting))) = (hero, heroes.single()) else {
         return;
@@ -1326,7 +1338,7 @@ fn breathe(
         0.0
     };
     state.rests -= dt;
-    let named = named_line.plays(&audio);
+    let named = named_line.plays(&speech);
     if let Some((handle, plays, sound)) = state.playing.take() {
         if named {
             if let Some(mut instance) = instances.get_mut(&handle) {

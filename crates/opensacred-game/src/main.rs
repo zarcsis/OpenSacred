@@ -247,6 +247,7 @@ mod vamp_casts;
 mod vamp_sights;
 mod vertices;
 mod voices;
+mod volumes;
 mod war_cries;
 mod war_cry_signs;
 mod waterfalls;
@@ -735,6 +736,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         vamp_casts::VampCastsPlugin,
         vamp_sights::VampSightsPlugin,
         voices::VoicesPlugin,
+        volumes::VolumesPlugin,
         war_cries::WarCriesPlugin,
         war_cry_signs::WarCrySignsPlugin,
         waterfalls::WaterfallsPlugin,

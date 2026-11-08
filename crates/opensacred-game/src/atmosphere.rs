@@ -16,7 +16,7 @@ use bevy::prelude::{
     App, AssetServer, Handle, IntoScheduleConfigs, OnExit, Plugin, Res, ResMut, Resource, Update,
     resource_exists,
 };
-use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTween, Decibels};
+use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTween};
 
 use crate::daynight::{Clock, Phase};
 use crate::frame::{Playing, Unpaused};
@@ -25,17 +25,16 @@ use bevy_kira_audio::AudioApp;
 
 /// The peace stream's crossfade (`0x69C4BB`).
 const FADE: Duration = Duration::from_secs(7);
-/// Below the music, at the effects' level (`0x69C4BB`'s target for an `ATMO` name).
-pub const VOLUME: Decibels = Decibels(-12.0);
-
 /// The channel of the ambient loops.
 #[derive(Resource)]
 pub struct Channel;
 
 #[derive(Resource, Default)]
 pub struct Atmosphere {
-    /// The loop file playing, relative to the asset directory.
+    /// The loop file playing, relative to the asset directory, and whether it is a music that the
+    /// place takes for its loop (the pub's, the undead siege's), at the music's volume.
     playing: Option<String>,
+    music: bool,
     /// Every loop played so far, kept loaded: `bevy_kira_audio` decodes a whole file, and the
     /// loops are a score.
     loaded: HashMap<String, Handle<AudioSource>>,
@@ -73,13 +72,10 @@ pub fn choose(
         .entry(file.to_owned())
         .or_insert_with(|| assets.load(file.to_owned()))
         .clone();
-    // A music that the choice takes for a loop (the pub's, the undead siege's) plays at the
-    // music's level.
-    let volume = if music.atmo(id) {
-        VOLUME
-    } else {
-        crate::music::VOLUME
-    };
+    // At its factor, at the effects' volume; a music that the choice takes for a loop (the
+    // pub's, the undead siege's) at the music's (`volumes`).
+    let volume = crate::sfx::decibels(music.factor(id));
+    atmosphere.music = !music.atmo(id);
     channel.stop().fade_out(AudioTween::linear(FADE));
     channel
         .play(track)
@@ -87,6 +83,14 @@ pub fn choose(
         .with_volume(volume)
         .fade_in(AudioTween::linear(FADE));
     atmosphere.playing = Some(file.to_owned());
+}
+
+impl Atmosphere {
+    /// Whether its channel plays a music that the place takes for its loop, at the music's
+    /// volume (`volumes`).
+    pub fn plays_music(&self) -> bool {
+        self.playing.is_some() && self.music
+    }
 }
 
 /// Stops the ambient loop of the game left, at once.

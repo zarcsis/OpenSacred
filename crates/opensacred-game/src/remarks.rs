@@ -42,7 +42,7 @@ use bevy::prelude::{
     IntoScheduleConfigs, Message, MessageReader, MessageWriter, MouseButton, NonSend, OnEnter,
     Plugin, Query, Res, ResMut, Resource, Single, Time, Transform, Update, Vec3, With, Without,
 };
-use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance};
+use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioInstance};
 use opensacred_rules::quests::{self, Marker};
 use opensacred_rules::spawning::Rng;
 
@@ -540,7 +540,8 @@ fn remark(
     ),
     (assets, audio, mut instances, mut named): (
         Res<AssetServer>,
-        Res<Audio>,
+        // The lines by name, at the speech's volume (`volumes`).
+        Res<AudioChannel<crate::volumes::Speech>>,
         ResMut<Assets<AudioInstance>>,
         ResMut<NamedLine>,
     ),
