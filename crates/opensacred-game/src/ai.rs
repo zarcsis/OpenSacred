@@ -1096,6 +1096,50 @@ fn pursue(
                 };
                 commands.entity(entity).insert(walk.within(within));
             }
+            Pursues::Charges { to, again } => {
+                debug!("ai: {entity} charges the hero, again {again}");
+                commands
+                    .entity(entity)
+                    .insert(Walk::run(point(to, here.y), way.level, mind.run).within(0.0));
+                // Again, with the effect 24 on its horse for 10 s: its floops, its trample
+                // striking nothing, no player riding (`0x4E33D5`).
+                if again {
+                    commands.queue(move |world: &mut World| {
+                        crate::trample::charge(world, entity);
+                    });
+                }
+            }
+            Pursues::Passes { to } => {
+                debug!("ai: {entity} strikes the hero in passing");
+                // A plain strike with no clip, and the 842's sparks at its target
+                // (`0x4EA3F0`, the value 1002; **hypothesis**: the green hit sparks).
+                commands.queue(move |world: &mut World| {
+                    world.write_message(crate::fight::Hit {
+                        attacker: entity,
+                        target: aimed,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: None,
+                        sure: false,
+                        poison: false,
+                        ward: false,
+                    });
+                    world.write_message(crate::hit_sparks::Spark {
+                        art: crate::trample::TRAMPLE_SPARKS,
+                        by: entity,
+                        on: aimed,
+                    });
+                });
+                commands
+                    .entity(entity)
+                    .insert(Walk::run(point(to, here.y), way.level, mind.run));
+            }
+            Pursues::RidesAway { to } => {
+                commands
+                    .entity(entity)
+                    .insert(Walk::run(point(to, here.y), way.level, mind.run));
+            }
             Pursues::Circles { to } => {
                 debug!(
                     "ai: {entity} rides round the hero to {:.0},{:.0}",

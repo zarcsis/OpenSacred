@@ -26,7 +26,7 @@ pub(crate) const OVERRIDE_TIME: f32 = 10.0;
 const RIDING: u8 = 22;
 /// The sight of the trample's sparks, the Gladiator's awe's (842's `+0x3C` 1014), which
 /// `hit_sparks` bursts at a creature's neck.
-const TRAMPLE_SPARKS: u16 = 1014;
+pub(crate) const TRAMPLE_SPARKS: u16 = 1014;
 
 /// A horse's trample while it runs (the effect 24 on it, its adder's `+0x2B7` bit `0x10`): what
 /// is left of the damage it deals in all (the effect's value, truncated as it is given), the
@@ -170,6 +170,24 @@ fn start(
         trample.most,
         trample.regeneration
     );
+}
+
+/// A black rider's charge again (`0x4E33D5`–`0x4E343D`, #2288): the effect 24 of the value 0 on
+/// its horse for 10 s, its floops showing, its trample striking nothing.
+pub(crate) fn charge(world: &mut World, rider: Entity) {
+    let Some(horse) = world.get::<Seat>(rider).and_then(Seat::ridden) else {
+        return;
+    };
+    let Some(at) = world.get::<Transform>(horse).map(|at| at.translation) else {
+        return;
+    };
+    world.entity_mut(horse).insert(Trampling {
+        value: 0.0,
+        factor: 0.0,
+        left: opensacred_rules::minds::CHARGE_EFFECT_SECONDS,
+        at,
+        pending: Vec::new(),
+    });
 }
 
 /// The trample's seconds and the rider's timer run at each tick of the world.
