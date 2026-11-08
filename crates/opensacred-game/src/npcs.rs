@@ -5401,14 +5401,17 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         Option<&fight::Health>,
         Has<Dies>,
         Option<&OnDeath>,
-        Has<crate::followers::Follower>,
+        (
+            Has<crate::followers::Follower>,
+            Has<crate::riding::OwnHorse>,
+        ),
     ), Without<Remade>>();
     let world = &*world;
     let npcs = world.get_resource::<Npcs>()?;
     let heights = world.get_resource::<Heights>();
     let mut placements: HashMap<usize, Placement> = HashMap::new();
     let mut gone = Vec::new();
-    for (placed, at, health, dies, on_death, follows) in standing.iter(world) {
+    for (placed, at, health, dies, on_death, (follows, owned)) in standing.iter(world) {
         let stood = stood_of(at, health, dies, heights);
         // A living kept one leaves the death's functions it still has, as [`keep`] notes them.
         if let Source::Kept(index) = placed.source
@@ -5422,8 +5425,9 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
             };
             placements.insert(index, placement);
         }
-        // A living follower goes with the hero ([`following`]), its placement kept out.
-        if follows && stood.is_some() {
+        // A living follower goes with the hero ([`following`]), and so does its own horse
+        // ([`mount_of`], #2301), its placement kept out.
+        if (follows || owned) && stood.is_some() {
             continue;
         }
         gone.push((placed, stood));
@@ -5500,20 +5504,7 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
                 extra,
             )| {
                 let stood = stood_of((transform, way), health, false, heights)?;
-                let made = match placed {
-                    Some(Placed {
-                        at,
-                        source: Source::Kept(index),
-                    }) => Made::Kept(*at, *index),
-                    Some(Placed {
-                        at,
-                        source: Source::Filled(placement),
-                    }) => Made::Filled(*at, placement.clone()),
-                    None => Made::Roams {
-                        creature: mind.creature,
-                        rank: ranked.map_or(fight::Rank::Common, |ranked| ranked.0),
-                    },
-                };
+                let made = made_of(placed, mind, ranked);
                 let entry = order.iter().position(|&shown| shown == entity);
                 let following = Following {
                     made,
@@ -5536,6 +5527,87 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
         .collect();
     kept.sort_by_key(|&(entry, _)| entry);
     kept.into_iter().map(|(_, following)| following).collect()
+}
+
+/// What a saved creature is made of ([`Made`]) by its placement `placed`, else its type and rank.
+fn made_of(placed: Option<&Placed>, mind: &ai::Mind, ranked: Option<&fight::Ranked>) -> Made {
+    match placed {
+        Some(Placed {
+            at,
+            source: Source::Kept(index),
+        }) => Made::Kept(*at, *index),
+        Some(Placed {
+            at,
+            source: Source::Filled(placement),
+        }) => Made::Filled(*at, placement.clone()),
+        None => Made::Roams {
+            creature: mind.creature,
+            rank: ranked.map_or(fight::Rank::Common, |ranked| ranked.0),
+        },
+    }
+}
+
+/// The hero's own horse as a save keeps it (#2301; the original's save appends it to the hero's
+/// objects, `0x604C85`): as a follower ([`Following`]), what it is made of and where it stands
+/// with its health and effects; none where the hero owns none, or one dead.
+pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
+    let mut horses = world.query_filtered::<(
+        Option<&Placed>,
+        (&Transform, &crowd::InTheWay, Option<&fight::Health>),
+        (&ai::Mind, Option<&fight::Ranked>, Option<&Arms>),
+        Option<&crate::effects::Effects>,
+    ), (With<crate::riding::OwnHorse>, Without<Dies>)>();
+    let world = &*world;
+    let heights = world.get_resource::<Heights>();
+    let (placed, (transform, way, health), (mind, ranked, arms), effects) =
+        horses.iter(world).next()?;
+    let stood = stood_of((transform, way), health, false, heights)?;
+    bevy::log::debug!("npcs: the hero's horse saved standing {stood:?}");
+    Some(Following {
+        made: made_of(placed, mind, ranked),
+        stood,
+        flags: mind.flags,
+        side: mind.side,
+        stands: way.stands,
+        escorted: false,
+        hands: arms.map_or_else(Vec::new, |arms| {
+            arms.holding
+                .iter()
+                .map(|(held, values)| (held.item, held.hand, *values))
+                .collect()
+        }),
+        given: None,
+        effects: effects.cloned(),
+    })
+}
+
+/// Puts the saved own horse `horse` back where it stood and links it to the hero again,
+/// unmounted, as the original's load restores it (`ItemDataMgr::loadHero`, `0x6058A0`).
+pub fn mount_again(world: &mut bevy::prelude::World, horse: Following) {
+    let (flags, side, stands) = (horse.flags, horse.side, horse.stands);
+    let entity = match world.run_system_cached_with(respawn_following, horse) {
+        Ok(Ok(entity)) => entity,
+        Ok(Err(e)) => {
+            bevy::log::warn!("npcs: the saved horse is not made: {e}");
+            return;
+        }
+        Err(e) => {
+            bevy::log::warn!("npcs: the saved horse is not made: {e}");
+            return;
+        }
+    };
+    if let Some(mut mind) = world.get_mut::<ai::Mind>(entity) {
+        mind.flags = flags;
+        mind.side = side;
+    }
+    if let Some(mut way) = world.get_mut::<crowd::InTheWay>(entity) {
+        way.stands = stands;
+    }
+    crate::riding::own(world, entity);
+    let at = world
+        .get::<Transform>(entity)
+        .map(|t| paths::cell_of(t.translation.x, t.translation.z));
+    bevy::log::info!("npcs: the save's horse {entity} back at {at:?}, the hero's own");
 }
 
 /// What a follower made of a placement whose hands hold `made` changes to hold `hands` again
