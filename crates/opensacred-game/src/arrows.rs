@@ -221,11 +221,18 @@ fn loose(
                     let cell = paths::cell_of(at.x, at.y);
                     heights.walkable_on(cell, level) || heights.flown_over(cell, level)
                 };
-                let steps = arrows::ray(
+                arrows::ray(
                     Spot::new(from.x, from.z),
                     Spot::new(toward.x, toward.z),
                     walkable,
-                );
+                )
+            })
+            .map(|steps| {
+                // An object 887 at each step, at the hand's height (the FX event `0x68`, #2279).
+                let along = (toward - from).with_y(0.0);
+                for step in &steps {
+                    crate::hard_rays::lay(&mut commands, Vec3::new(step.x, from.y, step.y), along);
+                }
                 let length = f32::from(u16::try_from(steps.len()).unwrap_or(0)) * arrows::RAY_STEP;
                 debug!("arrows: the ray of {} reaches {length:.0}", shot.shooter);
                 length

@@ -105,6 +105,7 @@ mod goblin_impacts;
 mod grenade_impacts;
 mod gun_fires;
 mod guns;
+mod hard_rays;
 mod healings;
 mod held;
 mod hell_disks;
@@ -568,7 +569,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         goblin_impacts::GoblinImpactsPlugin,
         grenade_impacts::GrenadeImpactsPlugin,
     ))
-    .add_plugins((gun_fires::GunFiresPlugin, guns::GunsPlugin))
+    .add_plugins((
+        gun_fires::GunFiresPlugin,
+        guns::GunsPlugin,
+        hard_rays::HardRaysPlugin,
+    ))
     .add_plugins(holding_sights::HoldingSightsPlugin)
     .add_plugins((
         healings::HealingsPlugin,
