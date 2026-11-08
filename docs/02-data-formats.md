@@ -1204,6 +1204,7 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 - Loading screens: `pak/loading0/1.bmp`, `loadgame.bmp`, `savegame.bmp`, `LoadingUW00/01.bmp`: BMP 1024×768, 24-bit, uncompressed, rows from the bottom; three files carry 2 bytes after the pixels.
   The Steam release's `loading1.bmp` is 16-bit, uncompressed (`BI_RGB`, 5-5-5, the top bit unused), and its `loading0.bmp` carries 2 bytes after the pixels (docs/01 §1); since #1488 the reader takes 16 bits too, each channel widened to eight bits by repeating its top bits.
   **Implemented 2026-10-17:** `opensacred_formats::bmp` decodes them, `opensacred-convert ui` writes `ui/screens/*.png` (a test compares every pixel with FFmpeg's decoding) and copies the two fonts to `ui/fonts/` and `credits.txt`, `credits2.txt` (ASCII with CRLF) to `ui/texts/`, with LF since #835.
+- The main menu's picture: since #1824 `ui` assembles the twelve tiles `GUI_UW_OPTION1.TGA` to `12` of `texture.pak` (256 × 256, four to a row from the top left, the faint twelfth repaired first, §3.1, #352) into `ui/screens/mainmenu.png` of 1024 × 768, its alpha kept, which `build` writes as KTX2 like the other screens; the game draws that one picture, so that a screen larger than 1024 × 768 samples it across the tiles' joins, where twelve textures each ended at their edges and showed their seams at 4K.
 
 ## 12. Conversion: targets, order, checks
 

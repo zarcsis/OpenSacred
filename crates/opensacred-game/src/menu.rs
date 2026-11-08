@@ -165,7 +165,9 @@ struct Shown(f32);
 /// The menus' images, relative to the asset directory, if the converted textures have them.
 #[derive(Resource, Default)]
 pub struct Images {
-    /// The main menu's 12 tiles, four to a row from the top left.
+    /// The main menu's picture, which the converter assembles from its tiles (#1824), else its
+    /// 12 tiles, four to a row from the top left, as older assets have them.
+    picture: Option<String>,
     main: Vec<Option<String>>,
     /// The main menu's water: its bed, the portal reflected in it, and the first game's portal
     /// that the menu's first showing reflects (docs/re/menus.md, "The water").
@@ -184,7 +186,9 @@ impl Images {
         let first = found.pop().flatten();
         let reflection = found.pop().flatten();
         let bed = found.pop().flatten();
+        let picture = PICTURE;
         Self {
+            picture: crate::files::exists(assets.join(picture)).then(|| picture.into()),
             main: found,
             bed,
             reflection,
@@ -365,7 +369,10 @@ fn main_screen(
             })
             .with_children(|picture| {
                 self::water(picture, water);
-                tiles(picture, &images.main, &assets);
+                match &images.picture {
+                    Some(file) => whole(picture, file, &assets),
+                    None => tiles(picture, &images.main, &assets),
+                }
                 for (place, &(entry, row)) in items.iter().enumerate() {
                     picture
                         .spawn(Node {
@@ -431,6 +438,25 @@ fn main_screen(
 }
 
 /// A picture of 12 tiles, four to a row from the top left.
+/// The main menu's picture as the converter assembles it from the 12 tiles (`opensacred-convert
+/// ui`, #1824).
+const PICTURE: &str = "ui/screens/mainmenu.ktx2";
+
+/// A screen's picture `file` over the whole of the original's screen.
+fn whole(picture: &mut ChildSpawnerCommands, file: &str, assets: &AssetServer) {
+    picture.spawn((
+        ImageNode::new(hud::image(assets, file.to_owned())),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(SCREEN.x),
+            height: Val::Px(SCREEN.y),
+            ..default()
+        },
+    ));
+}
+
 pub fn tiles(picture: &mut ChildSpawnerCommands, tiles: &[Option<String>], assets: &AssetServer) {
     let places = (0..3u8).flat_map(|row| (0..4u8).map(move |column| (column, row)));
     for (tile, (column, row)) in tiles.iter().zip(places) {

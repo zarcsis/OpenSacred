@@ -10,6 +10,7 @@ Each screen's textures come in two sets, the Underworld's (`gui_uw_*`, `ui_uw_*`
 ## The main menu
 
 The background is a picture of 1024 × 768 made of 12 textures of 256 × 256, `gui_uw_option1` to `gui_uw_option12`, four to a row from the top left: a stone portal in a mossy cave over water, its round doorway dark red with a red emblem.
+`opensacred-game` draws it as the one picture that the converter assembles from them since #1824 (`menu::Images`, docs/02 §11), else, with older assets, as the twelve tiles.
 The water at the bottom moves: drops fall into it and rings spread over its bed and the portal's reflection ("The water" below).
 The version, `2.28 ASE`, stands small at the bottom right corner.
 
