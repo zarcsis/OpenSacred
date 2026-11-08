@@ -686,9 +686,17 @@ fn make(
             // The awakening takes a dead creature that it may raise within 400, with a straight
             // way to it, else it ends without its regeneration (`0x513868`).
             let raises = arts::style(making.art) == Some(Style::Raise);
-            // A class's own `Rundum` with a bow or a crossbow in hand, not a gun (#2238).
-            let bow = arts::bow_rundum(making.art)
-                && holding.is_some_and(|holding| holding.0.ranged && !holding.0.gun);
+            // A class's own `Rundum`, `Hardhit` or `Attacke` with a bow or a crossbow in hand, not
+            // a gun (#2238, #2275): the art whose shot it makes.
+            let bow = [
+                (arts::bow_rundum as fn(u16) -> bool, arts::BOW_RUNDUM),
+                (arts::bow_hardhit, arts::BOW_HARDHIT),
+                (arts::bow_attacke, arts::BOW_ATTACKE),
+            ]
+            .into_iter()
+            .find(|(own, _)| own(making.art))
+            .map(|(_, shot)| shot)
+            .filter(|_| holding.is_some_and(|holding| holding.0.ranged && !holding.0.gun));
             if raises {
                 let level = body.level();
                 let takes = corpses.get(making.target).is_ok_and(|(at, corpse)| {
@@ -717,8 +725,9 @@ fn make(
                     end(&mut commands);
                     continue;
                 };
-                // With a bow, the `Rundum` is a shot made where the hero stands (`0x4FD0F0`).
-                let distance = if bow {
+                // With a bow, the `Rundum`, the `Hardhit` and the `Attacke` are shots made where
+                // the hero stands (`0x4FD0F0`).
+                let distance = if bow.is_some() {
                     0
                 } else {
                     arts::order_distance(making.art, record.distance)
@@ -781,19 +790,40 @@ fn make(
                 continue;
             }
             // The `Rundum` with a bow is the hero's shot of its arrows at its target and its
-            // nearest hostiles, by 1061's factor at the art's level (#2238).
-            if bow {
+            // nearest hostiles, by 1061's factor at the art's level (#2238); the `Hardhit` its
+            // ray at its target by 1062's, the `Attacke` its arrows fanned by 1063's at the level
+            // of 1063 itself, which the hero may not hold (#2275).
+            if let Some(shot) = bow {
+                let struck = if shot == arts::BOW_ATTACKE {
+                    arts.arts
+                        .level_in_play(
+                            shot,
+                            Creature {
+                                kind: arts.kind,
+                                level: experience.level,
+                                player: true,
+                            },
+                        )
+                        .unwrap_or(0)
+                } else {
+                    level
+                };
                 let factor = arts
                     .tables
                     .weapon_arts
                     .iter()
-                    .find(|a| a.id == arts::BOW_RUNDUM)
-                    .map_or(1.0, |record| arts::factor(record, level));
+                    .find(|a| a.id == shot)
+                    .map_or(1.0, |record| arts::factor(record, struck));
                 let special = crate::arrows::Special {
-                    art: arts::BOW_RUNDUM,
-                    level,
+                    art: shot,
+                    level: struck,
                     factor,
                     seconds: None,
+                    count: if shot == arts::BOW_HARDHIT {
+                        1
+                    } else {
+                        arts::bow_rundum_arrows(level)
+                    },
                 };
                 info!(
                     "making: {} with a bow shoots {} at the level {level}",
@@ -823,6 +853,7 @@ fn make(
                         level,
                         factor,
                         seconds,
+                        count: 1,
                     };
                     info!(
                         "making: {} shoots {} at the level {level}",

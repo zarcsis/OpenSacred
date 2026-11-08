@@ -1564,10 +1564,36 @@ pub fn bow_rundum(art: u16) -> bool {
     matches!(art, 1057 | 1061 | 1065 | 1069 | 1073 | 1078)
 }
 
-/// How many arrows the `Rundum` with a bow at the level in play `level` looses (`+0x261`):
-/// `min(L + 1, 5)`, which the multi-shot multiplies.
+/// How many arrows the `Rundum` or the `Attacke` with a bow at the level in play `level` looses
+/// (`+0x261`): `min(L + 1, 5)`, which the multi-shot multiplies.
 pub fn bow_rundum_arrows(level: u32) -> u32 {
     (level + 1).min(5)
+}
+
+/// The `Hardhit` with a bow (1062; docs/re/arts.md, "The bow's arts", #2275): every class's own
+/// `Hardhit` (1058, 1062, 1066, 1070, 1074, 1079) made with a bow or a crossbow in hand is a shot
+/// made where the hero stands, its regeneration started at the order, of one arrow of the type
+/// 3068, a ray (`crate::arrows::Arrow::ray`), striking by 1062's own factor at the class's own
+/// art's level (`0x580A10` takes 1062 for it; `0x4D1AF0(0x426)` at `0x5BCC45`).
+pub const BOW_HARDHIT: u16 = 1062;
+
+/// The `Attacke` with a bow (1063, #2275): every class's own `Attacke` (1059, 1063, 1067, 1071,
+/// 1075, 1080) made with a bow or a crossbow in hand is a shot made where the hero stands, its
+/// regeneration started at the order, of [`bow_rundum_arrows`] arrows of the class's own art's
+/// level, of the type 3079, fanned by 0.01 rad, each striking by 1063's own factor at the level
+/// in play of 1063 itself (`0x4D1AF0(0x427)` at `0x5BCB5E`), which `0x580A10` does not take for
+/// a class's own: a hero that does not hold 1063, every one but the Wood Elf, strikes at its
+/// level 0 (a quirk).
+pub const BOW_ATTACKE: u16 = 1063;
+
+/// Whether the art `art` is a class's own `Hardhit`, which a bow makes [`BOW_HARDHIT`].
+pub fn bow_hardhit(art: u16) -> bool {
+    matches!(art, 1058 | 1062 | 1066 | 1070 | 1074 | 1079)
+}
+
+/// Whether the art `art` is a class's own `Attacke`, which a bow makes [`BOW_ATTACKE`].
+pub fn bow_attacke(art: u16) -> bool {
+    matches!(art, 1059 | 1063 | 1067 | 1071 | 1075 | 1080)
 }
 
 pub fn order_distance(art: u16, distance: i32) -> i32 {

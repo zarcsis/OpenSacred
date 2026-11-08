@@ -593,8 +593,17 @@ const GUNS: [u8; 2] = [13, 14];
 /// docs/re/fight.md, "Who fights"): the bows, the crossbows and the guns.
 const RANGED: [u8; 4] = [BOW, CROSSBOW, GUNS[0], GUNS[1]];
 /// The arrows' types: the archers' shots' `ARROW_LONG.GRN` (`0x4EB700`) and the Wood Elf's
-/// special arrows' (`opensacred_rules::arrows::projectile`).
-const ARROWS: [u32; 6] = [arrows::ARROW, arrows::MULTI_ARROW, 3074, 3075, 3077, 3078];
+/// special arrows' and the bow arts' (`opensacred_rules::arrows::projectile`).
+const ARROWS: [u32; 8] = [
+    arrows::ARROW,
+    arrows::MULTI_ARROW,
+    arrows::HARD_ARROW,
+    arrows::ZEAL_ARROW,
+    3074,
+    3075,
+    3077,
+    3078,
+];
 
 /// A hand of an NPC's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
