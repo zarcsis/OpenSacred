@@ -271,6 +271,10 @@ fn the_readers_of_the_counts_take_their_shares() {
         told(44, &wearing(44, 3), Difficulty::Gold)[..],
         [.., Told::MagicDefence(term)] if close(term, 10.0 * 1.67)
     ));
+    // Set 63's flag at 4: its wearer's arrows pass through what they hit (#2276).
+    assert!(stats(&wearing(63, 4), Difficulty::Bronze).pierces());
+    assert!(!stats(&wearing(63, 3), Difficulty::Bronze).pierces());
+    assert!(told(63, &wearing(63, 4), Difficulty::Bronze).contains(&Told::Pierces));
     // Six pieces of set 23 leave small fires at the steps, five do not.
     assert!(stats(&wearing(23, 6), Difficulty::Bronze).fiery_steps());
     assert!(!stats(&wearing(23, 5), Difficulty::Bronze).fiery_steps());

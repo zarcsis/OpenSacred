@@ -478,6 +478,10 @@ pub const CARRIED: [u32; 6] = [5101, 5102, 5103, 5104, 5105, 5106];
 /// The stats' flag `+0x148` bit `0x100000` (sets 41, 44, 59 and 65), by which the magic defence
 /// grows (M17, `0x5618A1`; [`Stats::magic_defence`]).
 pub const WARDS: u32 = 0x10_0000;
+/// The stats' flag `+0x148` bit `0x10000000` (set 63 at 4, `UI_SET_DURCHBOHREN`), by which its
+/// wearer's arrows pass through what they hit (`0x5BBD87`; [`Stats::pierces`],
+/// `crate::arrows::passes`).
+pub const PIERCES: u32 = 0x1000_0000;
 
 /// The magic defence's terms while the flag [`WARDS`] holds, each `c·D` where its set reaches
 /// its count, added in turn (M17, `0x561897`–`0x561A68`).
@@ -769,6 +773,12 @@ impl Stats {
         self.flags & KNOW_ENEMY != 0
     }
 
+    /// Whether the wearer's flag [`PIERCES`] holds, by which its arrows pass through what they
+    /// hit.
+    pub fn pierces(&self) -> bool {
+        self.flags & PIERCES != 0
+    }
+
     /// The effect 858's value `value` of the target's own items, the magic defence, grown while
     /// its flag [`WARDS`] holds by each term whose set reaches its count, in turn (M17,
     /// `0x561897`–`0x561A68`): `15·D` for set 41 at 5, `10·D` for set 44 at 3, `15·D` for set 59
@@ -1051,6 +1061,8 @@ pub enum Told {
     /// The magic defence's value more, the set's own term times `D` ([`Stats::magic_defence`]):
     /// the effect 858's, which turns a spell object's strike aside against its caster's level.
     MagicDefence(f32),
+    /// The wearer's arrows passing through what they hit ([`PIERCES`]).
+    Pierces,
     /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
     Unseen,
     /// The values of a foe on its label ([`KNOW_ENEMY`]).
@@ -1079,6 +1091,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 }
                 Bonus::Flag(STUNS) => Told::Stun(stun_term(entry.set) * d),
                 Bonus::Flag(WARDS) => Told::MagicDefence(ward_term(entry.set) * d),
+                Bonus::Flag(PIERCES) => Told::Pierces,
                 Bonus::Flag(KNOW_ENEMY) => Told::KnowEnemy,
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),

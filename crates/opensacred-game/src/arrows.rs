@@ -72,8 +72,9 @@ struct Homing {
 pub struct Size(pub f32);
 
 /// An arrow in flight: its flight, its shooter, its target, the level it flies on, its size, the
-/// share of its hit (1, an arrowproof's value for one it sent back, `0x561090`'s `+0x230`), and
-/// the combat art it was shot by.
+/// share of its hit (1, an arrowproof's value for one it sent back, `0x561090`'s `+0x230`), the
+/// combat art it was shot by, and how long one that passes through what it hits waits before it
+/// may hit again (`+0x240`).
 #[derive(Component)]
 struct Arrow {
     flight: arrows::Arrow,
@@ -84,6 +85,7 @@ struct Arrow {
     share: f32,
     special: Option<Special>,
     homing: Option<Homing>,
+    wait: f32,
 }
 
 /// The dice of the arrows' deflection (`0x561090`'s `rand`).
@@ -144,7 +146,7 @@ fn loose(
     mut shots: MessageReader<Loose>,
     npcs: Option<Res<Npcs>>,
     rules: Option<Res<fight::Rules>>,
-    effects: Query<&crate::effects::Effects, With<Body>>,
+    effects: Query<&crate::effects::Effects>,
     assets: Res<AssetServer>,
     (children, bones, worn): (
         Query<&Children>,
@@ -190,7 +192,7 @@ fn loose(
             .iter()
             .max_by(|a, b| a.damage[0][1].total_cmp(&b.damage[0][1]))
             .and_then(|weapon| arrows::element(weapon.damage.map(|[_, most]| most)));
-        // A hero with the multi-shot looses as many arrows as its whole value, fanned, each of
+        // A shooter with the multi-shot looses as many arrows as its whole value, fanned, each of
         // `Multipfeil` to the power of their number (`0x4DD90E`, `0x56D173`).
         let whole = effects.get(shot.shooter).ok().and_then(|effects| {
             effects
@@ -284,6 +286,7 @@ fn loose(
                     share,
                     special: shot.special,
                     homing,
+                    wait: 0.0,
                 },
                 DespawnOnExit(AppState::InGame),
             ));
@@ -340,10 +343,11 @@ fn fly(
         (Without<Body>, Without<Arrow>),
     >,
     places: Query<&GlobalTransform>,
-    (experience, tables, mut sounds): (
+    (experience, tables, mut sounds, holdings): (
         Res<fight::Experience>,
         Option<Res<crate::arts::HeroArts>>,
         MessageWriter<crate::sfx::Play>,
+        Query<&fight::Holding>,
     ),
     (bubbles, mut pops, mut flashes): (
         Query<(Entity, &Transform), (With<crate::bolts::Bubble>, Without<Arrow>)>,
@@ -355,6 +359,7 @@ fn fly(
     let hero = hero.iter().next();
     for (entity, mut arrow, mut transform, elemental) in &mut flying {
         let level = arrow.level;
+        arrow.wait = (arrow.wait - dt).max(0.0);
         if let Some(homing) = arrow.homing.as_mut() {
             homing.wait = (homing.wait - dt).max(0.0);
         }
@@ -518,6 +523,22 @@ fn fly(
                 continue;
             }
         }
+        // The plain arrow and the bow arts' pass through a ghost, and through anything for a
+        // shooter of set 63's flag, hitting again at most every half second (`0x5BB010`, #2276).
+        let ghost = shooters
+            .get(on)
+            .is_ok_and(|(mind, _)| mind.class == arrows::GHOST);
+        let pierces = holdings
+            .get(arrow.shooter)
+            .is_ok_and(|holding| holding.0.sets.pierces());
+        let passes = arrows::passes(
+            arrows::projectile(arrow.special.map(|special| special.art)),
+            ghost,
+            pierces,
+        );
+        if passes && arrow.wait > 0.0 {
+            continue;
+        }
         let distance = match (places.get(arrow.shooter), places.get(on)) {
             (Ok(a), Ok(b)) => (a.translation() - b.translation()).xz().length(),
             _ => 0.0,
@@ -601,6 +622,11 @@ fn fly(
                 at: Some(on),
                 rate: (BURNING_ARROW_RATE, crate::sfx::Roll::Twentieths),
             });
+        }
+        // One that passes through flies on, waiting before it may hit again.
+        if passes {
+            arrow.wait = arrows::PASSES_EVERY;
+            continue;
         }
         // A blade flies on, its next target the nearest other foe within its reach of the one it
         // struck, else the one it had (`0x600570`).
