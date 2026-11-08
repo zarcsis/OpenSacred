@@ -618,7 +618,12 @@ fn place_by(
 )]
 fn approach(
     mut commands: Commands,
-    (clips, hero, speed): (Option<Res<Clips>>, Res<Hero>, Res<GameSpeed>),
+    (clips, hero, speed, settings): (
+        Option<Res<Clips>>,
+        Res<Hero>,
+        Res<GameSpeed>,
+        Option<Res<crate::settings::Settings>>,
+    ),
     horses: Query<&GlobalTransform, (With<Horse>, Without<Dies>, Without<Ridden>)>,
     bones: (Query<&Children>, Query<(&Name, &GlobalTransform)>),
     mut heroes: Query<(Entity, &mut Transform, &mut Body, &mut Seat)>,
@@ -662,7 +667,12 @@ fn approach(
         transform.translation.x = now.x;
         transform.translation.z = now.z;
         transform.rotation = hero::facing(heading);
-        let mount = clips.as_ref().and_then(|clips| clips.riding[0].clone());
+        // No clip without the options' atmospheric animation: the mount ends at once
+        // (`PICKUPANIM`, docs/re/horses.md).
+        let mount = clips
+            .as_ref()
+            .filter(|_| crate::pickup::animated(settings.as_deref()))
+            .and_then(|clips| clips.riding[0].clone());
         let left = mount.as_ref().map_or(0.0, |(_, clip)| {
             clip_assets.get(clip).map_or(0.0, AnimationClip::duration) / speed.0.max(f32::EPSILON)
         });
@@ -902,6 +912,8 @@ fn get_off(world: &mut World, me: Entity, clip: bool) {
     }
     let speed = world.get_resource::<GameSpeed>().map_or(1.0, |s| s.0);
     let placed = place(world, horse, true);
+    // Nor without the options' atmospheric animation (`PICKUPANIM`).
+    let clip = clip && crate::pickup::animated(world.get_resource::<crate::settings::Settings>());
     let dismount = clip
         .then(|| {
             world

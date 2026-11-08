@@ -698,12 +698,14 @@ fn show_lens(
                 (point, Vec2::ZERO),
                 1.0,
             );
+            // The world map's lens forces its fog opaque, whatever `EXPLOREMAP` says (its call's
+            // eighth argument, 1; `0x6CA84F`).
             crate::minimap::spawn_fog(
                 &mut commands,
                 plane,
                 (&land, &mut pictures),
-                point,
-                Vec2::ZERO,
+                (point, Vec2::ZERO),
+                true,
             );
             if let Some(live) = live.as_deref() {
                 quests_in_lens(
