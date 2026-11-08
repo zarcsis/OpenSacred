@@ -490,14 +490,29 @@ const BLACK_RIDER: u32 = 256;
 const GOBLIN_WARRIOR: u32 = 76;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 pub const BEHAVES_WITHIN: f32 = 1_500.0;
+/// One that an animal may fear ([`Mind::fears`]): where it stands, whether it is an animal (the
+/// types that `0x426A30` and `0x4266F0` test, of the classes 4 and 6), its flags word (`+0x1F4`),
+/// whether it attacks (`0x4EB890`: it has a target in the AI's state 4 or 8, or its action's in
+/// the action 3 or 5 or the state 6 or `0xB`), and the per cent of the terror it strikes
+/// ([`Mind::behaves`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fearsome {
+    pub at: Spot,
+    pub animal: bool,
+    pub flags: u32,
+    pub attacks: bool,
+    pub terror: u32,
+}
+
 /// The jugglers' types, and the flag they take at their first update, with which a juggler is a
 /// townsperson that always rolls 9 and plays its instrument ([`roll`]).
 const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
 const JUGGLER: u32 = 0x1000_0000;
-/// How near a creature other than an animal makes a wild animal flee and a farm animal step away
-/// (800 when it attacks, which the game does not follow yet, #1364).
+/// How near a creature other than an animal makes a wild animal flee and a farm animal step away,
+/// and how near one that attacks makes either (`0x4EF150`, #1364).
 const FLEE: f32 = 300.0;
 const SHY: f32 = 200.0;
+const FLEE_ATTACKER: f32 = 800.0;
 /// How far from home along an axis brings a wild animal back, within 50 of it.
 const ROAMS: f32 = 380.0;
 const BACK: i32 = 50;
@@ -1898,6 +1913,45 @@ impl Mind {
             .then(|| parting(self.home, here, rng))
     }
 
+    /// How near `other` makes it flee or step away, if at all (`0x4EF150`, #1364): a wild animal
+    /// flees one within 300 and a farm animal steps away from one within 200, either from one
+    /// that attacks within 800; one that attacks nothing is feared by neither where it is an
+    /// animal itself, nor by a farm animal where it is a townsperson (its flag 8).
+    pub fn fears(&self, other: &Fearsome) -> Option<f32> {
+        let wild = self.flags & (WILD | WILD_TOO) != 0;
+        let farm = !wild && self.flags & (FARM | FARM_LOOSE) != 0;
+        if !(wild || farm) {
+            return None;
+        }
+        if !other.attacks && (other.animal || (farm && other.flags & TOWNSFOLK != 0)) {
+            return None;
+        }
+        Some(match (other.attacks, wild) {
+            (true, _) => FLEE_ATTACKER,
+            (false, true) => FLEE,
+            (false, false) => SHY,
+        })
+    }
+
+    /// The nearest that it fears at `here` among `others`, each within its distance
+    /// ([`Self::fears`]), as the behaviour walks its sector's creatures (`0x4EF150`): where it
+    /// stands and its terror's per cent.
+    pub fn nearest_feared(
+        &self,
+        here: Spot,
+        others: impl IntoIterator<Item = Fearsome>,
+    ) -> Option<(Spot, u32)> {
+        others
+            .into_iter()
+            .filter_map(|other| {
+                let distance = (other.at - here).length();
+                let within = self.fears(&other)?;
+                (distance < within).then_some((distance, other))
+            })
+            .min_by(|(a, _), (b, _)| a.total_cmp(b))
+            .map(|(_, other)| (other.at, other.terror))
+    }
+
     /// What it does at this tick of the world by its behaviour, awake at `here`, `crowded` or
     /// not, walking to `walking` or standing, the nearest it fears at `fear` with its terror's
     /// per cent (`behaviour`): an animal strolls in one tick of 101 ([`STROLLS`]), or at once
@@ -2938,11 +2992,11 @@ fn flight<D: Dice>(here: Spot, fear: Spot, rng: &mut D) -> Spot {
 }
 
 /// What a peaceful creature awake does now by its behaviour, standing at `here` (`0x4EF150`): a
-/// wild animal (flags `0x40`, `0x80`) runs from the nearest creature other than an animal within
-/// 300 of it, `fear`, the hero among them ([`flight`]), walks back within 50 of home from farther
-/// than 380 along an axis, and strolls within 100 of home by chance; a farm animal (`0x10`,
-/// `0x20`) steps away from such a creature within 200, to the point beyond itself, and strolls
-/// within 150 of home; a guard (`0x4000`) strolls within 200 of its post by chance, else walks
+/// wild animal (flags `0x40`, `0x80`) runs from the nearest it fears, `fear`, the hero among them
+/// ([`Mind::nearest_feared`], [`flight`]), walks back within 50 of home from farther than 380
+/// along an axis, and strolls within 100 of home by chance; a farm animal (`0x10`, `0x20`) steps
+/// away from the nearest it fears, to the point beyond itself, and strolls within 150 of home; a
+/// guard (`0x4000`) strolls within 200 of its post by chance, else walks
 /// back to it from farther than 90 along an axis. The animals decide only standing, a guard
 /// walking to `walking` too, at every tick whatever its action (`0x4EE030` tests the action
 /// `+0x150` for the animals alone; #608): so a guard on a stroll farther than 90 turns back to
@@ -2954,12 +3008,11 @@ fn behaviour(
     (strolls, walking): (bool, Option<Spot>),
     rng: &mut impl Dice,
 ) -> Option<(Spot, Why)> {
-    let near = |within: f32| fear.filter(|f| (*f - here).length() < within);
     if walking.is_some() && mind.flags & GUARD == 0 {
         return None;
     }
     if mind.flags & (WILD | WILD_TOO) != 0 {
-        if let Some(fear) = near(FLEE) {
+        if let Some(fear) = fear {
             return Some((flight(here, fear, rng), Why::Flees));
         }
         let from_home = (here - mind.home).abs();
@@ -2969,7 +3022,7 @@ fn behaviour(
         return strolls.then(|| (about(mind.home, STROLL_WILD, rng), Why::Strolls));
     }
     if mind.flags & (FARM | FARM_LOOSE) != 0 {
-        if let Some(fear) = near(SHY) {
+        if let Some(fear) = fear {
             return Some((here + (here - fear), Why::StepsAway));
         }
         return strolls.then(|| (about(mind.home, STROLL_FARM, rng), Why::Strolls));
@@ -4654,6 +4707,57 @@ mod tests {
     }
 
     #[test]
+    fn an_animal_fears_one_that_attacks_from_farther() {
+        let home = at(1000.0, 1000.0);
+        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let pig = Mind::new(home, of_type(520), (true, false), None, SPEEDS, (520, 6));
+        let one = |x: f32, animal: bool, flags: u32, attacks: bool| Fearsome {
+            at: at(x, 1000.0),
+            animal,
+            flags,
+            attacks,
+            terror: 0,
+        };
+        // The rabbit fears a creature within 300, one that attacks within 800, and an animal
+        // only while it attacks.
+        assert_eq!(rabbit.fears(&one(0.0, false, 0, false)), Some(300.0));
+        assert_eq!(rabbit.fears(&one(0.0, false, 0, true)), Some(800.0));
+        assert_eq!(rabbit.fears(&one(0.0, true, 0, false)), None);
+        assert_eq!(rabbit.fears(&one(0.0, true, 0, true)), Some(800.0));
+        // The pig within 200, an attacker within 800, a townsperson only while it attacks.
+        assert_eq!(pig.fears(&one(0.0, false, 0, false)), Some(200.0));
+        assert_eq!(pig.fears(&one(0.0, false, TOWNSFOLK, false)), None);
+        assert_eq!(pig.fears(&one(0.0, false, TOWNSFOLK, true)), Some(800.0));
+        assert_eq!(
+            rabbit.fears(&one(0.0, false, TOWNSFOLK, false)),
+            Some(300.0)
+        );
+        // The nearest within its own distance: an attacker 700 off over a walker 400 off, whom
+        // the rabbit does not fear; none beyond.
+        let feared = rabbit.nearest_feared(
+            home,
+            [one(1400.0, false, 0, false), one(1700.0, false, 0, true)],
+        );
+        assert_eq!(feared, Some((at(1700.0, 1000.0), 0)));
+        let feared = rabbit.nearest_feared(
+            home,
+            [one(1250.0, false, 0, false), one(1700.0, false, 0, true)],
+        );
+        assert_eq!(feared, Some((at(1250.0, 1000.0), 0)));
+        assert_eq!(
+            rabbit.nearest_feared(
+                home,
+                [one(1300.0, false, 0, false), one(1800.0, false, 0, true)]
+            ),
+            None
+        );
+        assert_eq!(
+            pig.nearest_feared(home, [one(1200.0, false, 0, false)]),
+            None
+        );
+    }
+
+    #[test]
     fn a_wild_animal_flees_at_a_run_and_a_farm_animal_steps_away() {
         let mut rng = Rng::of(48, 39, 2);
         let home = at(1000.0, 1000.0);
@@ -4670,21 +4774,11 @@ mod tests {
                 "{to:?}"
             );
         }
-        let far = at(1400.0, 1000.0);
-        assert_eq!(
-            behaviour(&rabbit, home, Some(far), (false, None), &mut rng),
-            None
-        );
-        // Within 200 the pig walks to the point beyond itself; at 300 it stands.
+        // Within 200 the pig walks to the point beyond itself.
         let (to, why) = behaviour(&pig, home, Some(hero), (false, None), &mut rng).unwrap();
         assert!(
             why == Why::StepsAway && (to - at(900.0, 1000.0)).length() < 0.01,
             "{to:?}"
-        );
-        let near = at(1300.0, 1000.0);
-        assert_eq!(
-            behaviour(&pig, home, Some(near), (false, None), &mut rng),
-            None
         );
         // Farther than 380 from home the rabbit walks back within 50 of it.
         let strayed = home + at(0.0, 400.0);
