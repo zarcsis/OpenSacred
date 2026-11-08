@@ -5374,8 +5374,9 @@ pub fn place(
 /// Makes a fill's black horse's rider (`FillSector` at `0x47E863`–`0x47EFA5`, #2288): a 256 at
 /// the horse's cell `cell` and heading, a hostile boss of the undead's side at the run's level
 /// `shared` held as a boss's (`0x564D60(L, 1, 0)`), holding the magic short bow or the tribal
-/// axe by a coin, seated on the horse `horse` ([`seat_rider`]); no `MakeGroup` items, spells or
-/// group. Not followed: its weapon made at its level (the item maker's `0x5D5080`).
+/// axe by a coin, made at its level on bronze's scale (the item maker's `0x5D5080`, as [`spawn`]
+/// makes every held item, #2338), seated on the horse `horse` ([`seat_rider`]); no `MakeGroup`
+/// items, spells or group.
 fn black_rider(
     commands: &mut Commands,
     (npcs, streamer): (&mut Npcs, &mut Streamer),
@@ -6413,6 +6414,12 @@ fn spawn(
             hardened: rules.hardened(minds::hostile_to_heroes(placement.side, creature)),
             ..placement.base.0
         });
+        // A black rider's weapon on bronze's scale whatever the difficulty (`0x54B130`, #2338).
+        let held_difficulty = if placement.rides {
+            opensacred_rules::drops::Difficulty::Bronze
+        } else {
+            rules.difficulty()
+        };
         let arms = Arms {
             base,
             plain: placement.plain,
@@ -6421,8 +6428,7 @@ fn spawn(
                 .holding
                 .iter()
                 .map(|&held| {
-                    let values =
-                        templates.make(held.item, grade, (rules.difficulty(), 0), &mut dice);
+                    let values = templates.make(held.item, grade, (held_difficulty, 0), &mut dice);
                     (held, values)
                 })
                 .collect(),
@@ -7151,8 +7157,14 @@ pub fn walk(
     mut commands: Commands,
     (time, tick): (Res<Time>, Res<WorldTick>),
     heights: Res<Heights>,
-    // Who stands in the way, and who stays where it is made.
-    (crowd, still): (Res<crowd::Crowd>, Query<(), With<Still>>),
+    // Who stands in the way, and who stays where it is made; the riders' seats and the horses
+    // that charge (#2338).
+    (crowd, still, seats, tramplers): (
+        Res<crowd::Crowd>,
+        Query<(), With<Still>>,
+        Query<&crate::riding::Seat>,
+        Query<(), With<crate::trample::Trampling>>,
+    ),
     speed: Res<hero::GameSpeed>,
     mut walkers: Query<(
         Entity,
@@ -7223,7 +7235,15 @@ pub fn walk(
                 heights.walkable_on(cell, at)
             }
         };
-        let free = |cell, at| open(cell, at) && (flies || !crowd.stops(cell, at, entity, false));
+        // A rider whose horse charges, the effect 24 on it, is stopped by no living creature, as
+        // the hero's trampling horse is (`0x4F803E`, `0x4F82AE`, #2338).
+        let charging = seats
+            .get(entity)
+            .ok()
+            .and_then(crate::riding::Seat::ridden)
+            .is_some_and(|horse| tramplers.contains(horse));
+        let passes = flies || charging;
+        let free = |cell, at| open(cell, at) && (passes || !crowd.stops(cell, at, entity, false));
         // Its leg and its course there, found as it sets out on the leg, anew off it (a stair's
         // landing) and at the leg's end short of its target, and again as it moves (#2175). The
         // leg is tested on the target's floor of the building there, else on the ground
@@ -7255,7 +7275,7 @@ pub fn walk(
             let neighbours = |place| {
                 let next = heights.floored_neighbours(place, (start.1, goal), open);
                 paths::passable(next, end, |cell, (at, ..)| {
-                    !flies && crowd.stops(cell, at, entity, false)
+                    !passes && crowd.stops(cell, at, entity, false)
                 })
             };
             let found = paths::course(
