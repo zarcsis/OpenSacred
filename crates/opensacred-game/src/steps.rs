@@ -1,5 +1,6 @@
 //! The footsteps of the creatures other than the hero (#1171; docs/re/sound.md, "The other
-//! creatures' footsteps"). A creature that walks or runs steps at its clip's motion's moments
+//! creatures' footsteps"). A creature that walks or runs, a horse carried under its rider among
+//! them (#1180), steps at its clip's motion's moments
 //! (`tables/motions.ron`'s `floats_46`: the right foot's `[1]` and the left's `[0]`, and the
 //! forelegs' `[3]` and `[2]` where not 0), each once a loop of the clip (`0x5941A0`); each step
 //! plays at the creature, at the volume of its place, the sound its type takes (`0x68EB90`): the
@@ -242,7 +243,7 @@ fn step(
         (
             Entity,
             &Npc,
-            &Walk,
+            (Option<&Walk>, Option<&crate::npcs::Steered>),
             &GlobalTransform,
             &crate::ai::Mind,
             Option<&Stepped>,
@@ -258,8 +259,13 @@ fn step(
         Option<ResMut<crate::weather::Weather>>,
     ),
 ) {
-    for (entity, npc, walk, at, mind, stepped) in &walkers {
-        let Some((player, node, name, _)) = npc.walking(walk) else {
+    for (entity, npc, (walk, steered), at, mind, stepped) in &walkers {
+        let moving = match (walk, steered) {
+            (Some(walk), _) => npc.walking(walk),
+            (None, Some(steered)) => npc.steered(steered),
+            (None, None) => None,
+        };
+        let Some((player, node, name, _)) = moving else {
             continue;
         };
         let Some(at_moments) = moments.0.get(&name.to_ascii_uppercase()) else {

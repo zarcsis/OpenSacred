@@ -261,6 +261,37 @@ fn rider(hero: &Hero, arts: Option<&crate::arts::HeroArts>) -> (u32, u32) {
     (hero.creature, riding)
 }
 
+/// The line of the hero of the type `hero` that may not ride a horse (`0x67C246`, by the table
+/// `0x684C34`): its class's `SOUND_FX_NOTMYHORSE01_*`, the Vampiress's in both her forms.
+fn refused(hero: u32) -> Option<&'static str> {
+    Some(match hero {
+        1 => "SOUND_FX_NOTMYHORSE01_SERA",
+        2 => "SOUND_FX_NOTMYHORSE01_GLAD",
+        3 => "SOUND_FX_NOTMYHORSE01_MAGE",
+        4 => "SOUND_FX_NOTMYHORSE01_DELF",
+        5 => "SOUND_FX_NOTMYHORSE01_HELF",
+        6 | 7 => "SOUND_FX_NOTMYHORSE01_VAMP",
+        8 => "SOUND_FX_NOTMYHORSE01_DWARF",
+        9 => "SOUND_FX_NOTMYHORSE01_DEMON",
+        _ => return None,
+    })
+}
+
+/// The hero `me` of the type `hero` refused a horse: its class's line ([`refused`], the sound
+/// event (9, `0x26`), `0x67C246`) at it, at its sample's rate.
+fn refusal(sfx: Option<&crate::sfx::Sfx>, hero: u32, me: Entity) -> Option<crate::sfx::Play> {
+    let (id, _) = sfx?.named(refused(hero)?)?;
+    Some(crate::sfx::Play {
+        sound: crate::sfx::Of::Id(id),
+        at: Some(me),
+        rate: (0.5, crate::sfx::Roll::None),
+    })
+}
+
+/// The call's whistles, one at random (the sound event (9, `0x25`), `0x67C1B0`: `rand() % 3`).
+const WHISTLES: u32 = 7012;
+const WHISTLE_COUNT: u32 = 3;
+
 /// A click on a horse (`0x6172C0`, the creature event 7): on foot, the hero goes to mount it where
 /// it may ride it (`0x53A170`'s sub-state 0); riding, Shift with a click on its own horse gets it
 /// off (the event `0x101`). A horse of another rider, dead or lying beyond 1,879 takes no click.
@@ -283,6 +314,10 @@ fn pick(
     horses: Query<(Entity, &GlobalTransform, &Horse, &Health, Option<&Ridden>), Without<Dies>>,
     bones: (Query<&Children>, Query<(&Name, &GlobalTransform)>),
     mut heroes: Query<(Entity, &Transform, &mut Body, Option<&Seat>), Without<Dies>>,
+    (sfx, mut sounds): (
+        Option<Res<crate::sfx::Sfx>>,
+        MessageWriter<crate::sfx::Play>,
+    ),
 ) {
     if !buttons.just_pressed(MouseButton::Left) || aim.0 {
         return;
@@ -334,6 +369,9 @@ fn pick(
                 let (kind, riding) = rider(&hero, arts.as_deref());
                 if !horses::rides(kind, riding, &npcs.horse_row(class)) {
                     debug!("riding: the hero may not ride {horse}");
+                    if let Some(play) = refusal(sfx.as_deref(), kind, me) {
+                        sounds.write(play);
+                    }
                     continue;
                 }
                 let Ok((_, horse_at, ..)) = horses.get(horse) else {
@@ -603,8 +641,8 @@ pub(crate) fn fell(world: &mut World, horse: Entity, choice: u32) {
 /// hero's own horse the ride order (the creature event 7), as a click on the horse gives it,
 /// which gets a rider off; farther the call (the event `0x116`, `0x530D68`): a living horse,
 /// the hero on foot on the ground, comes to the hero's place and `R(0, 50)` along each axis,
-/// walking from within 1,200, else put there (`0x4EBF20`), and the hero goes to mount it. The
-/// call's sound (9, `0x25`) waits for the horses' sounds (#1180).
+/// walking from within 1,200, else put there (`0x4EBF20`), and the hero goes to mount it, with
+/// one of its whistles (#1180).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -613,10 +651,10 @@ fn press_horse(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
-    owned: Res<Owned>,
-    mut dice: ResMut<crate::drops::Dice>,
-    heroes: Query<(&Transform, &Body, Option<&Seat>), (Without<Horse>, Without<Dies>)>,
+    (owned, mut dice): (Res<Owned>, ResMut<crate::drops::Dice>),
+    heroes: Query<(Entity, &Transform, &Body, Option<&Seat>), (Without<Horse>, Without<Dies>)>,
     mut horses: Query<(&mut Transform, &Mind, &InTheWay), (With<Horse>, Without<Dies>)>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -630,7 +668,7 @@ fn press_horse(
     {
         return;
     }
-    let Ok((hero, body, seat)) = heroes.single() else {
+    let Ok((me, hero, body, seat)) = heroes.single() else {
         return;
     };
     let here = hero.translation;
@@ -650,6 +688,12 @@ fn press_horse(
                 at.translation = to;
             }
             info!("riding: the hero calls {horse} from {far:.0}");
+            // Its whistle (the sound event (9, `0x25`)).
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(WHISTLES + dice.0.below(WHISTLE_COUNT)),
+                at: Some(me),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
         }
     }
     commands.queue(move |world: &mut World| match ride(world, Some(horse)) {
@@ -774,6 +818,10 @@ pub fn ride(world: &mut World, id: Option<Entity>) -> Result<String, String> {
         .map(|npcs| npcs.horse_row(class))
         .unwrap_or_default();
     if !horses::rides(kind, riding, &row) {
+        let play = refusal(world.get_resource::<crate::sfx::Sfx>(), kind, me);
+        if let Some(play) = play {
+            world.write_message(play);
+        }
         return Err(format!(
             "the hero may not ride {horse}: it needs riding {}",
             row.riding
