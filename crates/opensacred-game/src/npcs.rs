@@ -264,11 +264,17 @@ const WAIT: u16 = 90;
 /// row.
 const DEFENDING: std::ops::RangeInclusive<u16> = 53..=65;
 
+/// What a woman's type's `items.pak` name holds, as written (`0x955778`, `0x4FC490`).
+const WOMAN: &str = "_FEM";
+
 /// An NPC or an object to place.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Placement {
     /// The model, relative to the asset directory.
     model: String,
+    /// Whether its type is a woman's (`minds::Mind::woman`).
+    #[serde(default)]
+    woman: bool,
     /// The global cell, its logical position.
     cell: (u32, u32),
     /// Where an object's model is drawn, if its record gives it ([`drawn_at`]): world units on
@@ -855,6 +861,8 @@ struct Kind {
     base: fight::Base,
     flags: u8,
     casts: bool,
+    /// Whether its `items.pak` name holds `_FEM` as written (`minds::Mind::woman`).
+    woman: bool,
 }
 
 /// What a fill's creature of type `creature`, of `kind`, whose model has the clips `slots`, is
@@ -900,6 +908,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         listed: false,
         hostility: None,
         texture: kind.texture.clone(),
+        woman: kind.woman,
         layer: 0,
         items: Vec::new(),
         equipment: Vec::new(),
@@ -3135,6 +3144,7 @@ impl Makers {
         };
         Ok(Some(Placement {
             model: model.clone(),
+            woman: item.name.contains(WOMAN),
             cell: (x, y),
             drawn: if record.kind == CREATE_OBJ {
                 drawn_at(ops)
@@ -3678,6 +3688,7 @@ impl Npcs {
                         base: bases.get(&creature.id).copied().unwrap_or_default(),
                         flags: creature.flags,
                         casts: !shadowless.contains(&creature.id),
+                        woman: item.name.contains(WOMAN),
                     },
                 ))
             })
@@ -5546,6 +5557,7 @@ fn spawn(
         mind.hold(placement.dialogue, placement.trades != 0, placement.kept);
         mind.spell = placement.spell;
         mind.fun = placement.clips.fun_slots;
+        mind.woman = placement.woman;
         if placement.trades != 0 {
             entity.insert(Trades(placement.trades));
         }
