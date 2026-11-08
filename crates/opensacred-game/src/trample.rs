@@ -24,6 +24,9 @@ use crate::riding::{Horse, Seat};
 pub(crate) const OVERRIDE_TIME: f32 = 10.0;
 /// The riding skill.
 const RIDING: u8 = 22;
+/// The sight of the trample's sparks, the Gladiator's awe's (842's `+0x3C` 1014), which
+/// `hit_sparks` bursts at a creature's neck.
+const TRAMPLE_SPARKS: u16 = 1014;
 
 /// A horse's trample while it runs (the effect 24 on it, its adder's `+0x2B7` bit `0x10`): what
 /// is left of the damage it deals in all (the effect's value, truncated as it is given), the
@@ -220,7 +223,10 @@ fn pass(
         ),
         (Without<Dies>, Without<Body>, Without<Trampling>),
     >,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sparks): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::hit_sparks::Spark>,
+    ),
 ) {
     if tick.seconds.is_none() {
         return;
@@ -288,6 +294,20 @@ fn pass(
                 body.stop();
                 break;
             }
+            // The Gladiator's green sparks (842 of the sight 1014, `0x597600`, `0x5978A2`) at the
+            // knocked creature's neck, and at the horse for each it strikes.
+            if !knocked {
+                sparks.write(crate::hit_sparks::Spark {
+                    art: TRAMPLE_SPARKS,
+                    by: horse,
+                    on: creature,
+                });
+            }
+            sparks.write(crate::hit_sparks::Spark {
+                art: TRAMPLE_SPARKS,
+                by: horse,
+                on: horse,
+            });
             if !knocked {
                 commands
                     .entity(creature)
