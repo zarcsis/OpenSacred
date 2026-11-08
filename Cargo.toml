@@ -109,7 +109,7 @@ rav1d = { git = "https://github.com/memorysafety/rav1d", rev = "2e7216c20ac2a75d
 rayon = "1.12.0"
 # The packaged game's folder dialog at its first start on Windows (#1498), on the windows-sys
 # and raw-window-handle that the tree holds.
-rfd = { version = "0.17.2", default-features = false }
+rfd = { version = "0.18.0", default-features = false }
 ron = "0.12.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
