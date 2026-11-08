@@ -543,6 +543,9 @@ pub const CRITTER: u32 = 0x100_0000;
 /// The bit of a `Creature.pak` record's flags of the big creatures, which stop no step by their
 /// cell (`0x426CB0`).
 pub const BIG: u8 = 0x02;
+/// The bit of a `Creature.pak` record's flags of the types that fly (`0x426CF0`): the crows 513,
+/// 589 and 590, the giant fly 193 and the hornets 190, 335 and 336.
+pub const FLIES: u8 = 0x01;
 /// The bit of a `Creature.pak` record's flags whose creatures the constructor makes critters
 /// (`0x52DE40`).
 const CRITTER_RECORD: u8 = 0x20;

@@ -1491,7 +1491,7 @@ fn behave(
     mut minds: ResMut<Minds>,
     nearest: Res<Nearest>,
     crowd: Res<Crowd>,
-    heights: Res<Heights>,
+    (heights, dungeons): (Res<Heights>, Option<Res<crate::daynight::Dungeons>>),
     (hero, keys): (
         Query<(
             Entity,
@@ -1689,6 +1689,11 @@ fn behave(
         }
         let here = transform.translation;
         let left = || arms.get(entity).ok().and_then(crate::npcs::Arms::left);
+        // On the ground outside a dungeon a flyer takes off (`+0x24` 0, `0x63D180`, #2250).
+        let in_the_open = way.level.is_none()
+            && !dungeons
+                .as_deref()
+                .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
         // A guard awake within 1,500 of the hero takes a torch into its empty left hand by night
         // and puts it away by day (`0x4EFA50`), before it looks for a foe.
         if mind.active
@@ -1729,7 +1734,7 @@ fn behave(
         if let Some(walk) = walk {
             // A guard decides as it walks too, the others only standing (`0x4EE030`, #608): on a
             // stroll it turns back to its post from farther than 90.
-            let walking = (false, Some(spot(walk.target())));
+            let walking = (false, Some(spot(walk.target())), in_the_open);
             if mind.active
                 && mind.is_guard()
                 && !walk.comes_on()
@@ -2224,8 +2229,12 @@ fn behave(
         if frozen && fear.is_some() {
             continue;
         }
-        let Some((target, why)) = mind.behaves(spot(here), fear, (crowded, None), &mut minds.rng)
-        else {
+        let Some((target, why)) = mind.behaves(
+            spot(here),
+            fear,
+            (crowded, None, in_the_open),
+            &mut minds.rng,
+        ) else {
             continue;
         };
         // Held by the hero's terror, it stops; of the effect 855, `R(0, 100)` below its value cages
@@ -2264,10 +2273,10 @@ fn behave(
         );
         walks.push((
             entity,
-            if why == Why::Flees {
-                Walk::run(target, way.level, mind.run)
-            } else {
-                Walk::to(target, way.level, mind.speed)
+            match mind.gait(why, in_the_open) {
+                minds::Gait::Flies => Walk::fly(target, way.level, mind.fly),
+                minds::Gait::Runs => Walk::run(target, way.level, mind.run),
+                minds::Gait::Walks => Walk::to(target, way.level, mind.speed),
             },
         ));
     }

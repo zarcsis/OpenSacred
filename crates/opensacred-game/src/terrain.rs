@@ -517,6 +517,22 @@ impl Heights {
             }
     }
 
+    /// Whether a flyer aloft may step into a cell at a level (`0x4EBCA0` for a creature of
+    /// `+0x1F4` bit `0x200000`, #2250): on the ground, one that may be walked on or one of the
+    /// nibble 2 low enough that the Daemon wades over it in his form of 1094 ([`Self::wadable_on`],
+    /// the same test), a closed trigger's too, which a flyer on the ground outside a dungeon
+    /// passes; in an inside layer, one a walker may step into.
+    pub fn flown_onto(&self, (cx, cy): (i32, i32), level: Level) -> bool {
+        if level.is_some() {
+            return self.walkable_on((cx, cy), level);
+        }
+        self.walkable((cx, cy))
+            || match (u32::try_from(cx), u32::try_from(cy)) {
+                (Ok(x), Ok(y)) => self.cells.get(&(x, y)).is_some_and(|cell| cell.wadable),
+                _ => false,
+            }
+    }
+
     /// Whether a cell may be walked on at a level, on the ground or in an inside layer's grid,
     /// whatever objects take it (`0x636C10`).
     pub fn walkable_at(&self, cell: (i32, i32), level: Level) -> bool {

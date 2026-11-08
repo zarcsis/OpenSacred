@@ -443,6 +443,9 @@ struct ClipNames {
     stand: Option<String>,
     walk: Option<String>,
     run: Option<String>,
+    /// A flyer's clip aloft, the slot 179 (`*_FLY_LOOP`, `0x546ABF`, #2250).
+    #[serde(default)]
+    fly: Option<String>,
     stance: Option<String>,
     talk: Option<String>,
     /// The jugglers' clips of the slots 180 to 183 (`*_FUN_IDLE_*`), by which they play their
@@ -470,6 +473,7 @@ impl ClipNames {
             stand: clip(motions::Action::Stand),
             walk: clip(motions::Action::Walk),
             run: clip(motions::Action::Run),
+            fly: slots.slot(FLY).map(str::to_owned),
             stance: slots.stance(class).map(str::to_owned),
             attacks: slots.attacks(class),
             dying: [173, 174]
@@ -491,6 +495,9 @@ impl ClipNames {
 const INSTRUMENTS: [(u32, u16); 4] = [(5108, 183), (5109, 180), (5110, 182), (5111, 181)];
 /// The first of the jugglers' clips' slots; the bell's, which one without an instrument plays.
 const FUN: u16 = 180;
+/// The slot of a flyer's clip aloft (`0x546ABF`, `0x5967C0`): the crows' `CROW_FLY_LOOP`, the
+/// bats' `BATX_FLY_LOOP`.
+const FLY: u16 = 179;
 
 /// `FX_OPAQUE.TGA`, the texture record 203: 16 × 16 texels of nothing, which the items that the
 /// original draws by their effects name (the Seraphim's 3809, its glow): such an item takes it
@@ -1290,6 +1297,7 @@ struct Clips {
     idle: AnimationNodeIndex,
     walk: Option<AnimationNodeIndex>,
     run: Option<AnimationNodeIndex>,
+    fly: Option<AnimationNodeIndex>,
     stance: Option<AnimationNodeIndex>,
     talk: Option<AnimationNodeIndex>,
     fun: [Option<AnimationNodeIndex>; 4],
@@ -1302,10 +1310,13 @@ struct Clips {
 }
 
 impl Clips {
-    /// The clip of a walk: its run clip where it runs and has one, else its walk clip.
+    /// The clip of a walk: its flight's where it flies and has one (`0x546ABF`), its run clip
+    /// where it runs and has one, else its walk clip.
     fn moving(&self, walk: &Walk) -> Option<AnimationNodeIndex> {
         if !walk.moved {
             None
+        } else if walk.flies {
+            self.fly.or(self.run).or(self.walk)
         } else if walk.runs {
             self.run.or(self.walk)
         } else {
@@ -1322,8 +1333,11 @@ pub struct Walk {
     target: Vec3,
     level: Level,
     speed: f32,
-    /// Whether it runs, playing its run clip.
+    /// Whether it runs, playing its run clip, and whether it flies (`+0x1F4` bit `0x200000`,
+    /// #2250), playing its flight's: aloft no creature stops it, and it passes over the low
+    /// cells of the nibble 2 and the closed doors (`0x4F7E10`, `0x4EBCA0`).
     runs: bool,
+    flies: bool,
     /// Whether it stands on a stair it has climbed already or arrived on.
     climbed: bool,
     /// Whether it has stepped yet: its walk clip plays from then on.
@@ -1384,6 +1398,7 @@ impl Walk {
             level,
             speed,
             runs: false,
+            flies: false,
             climbed: false,
             moved: false,
             balked: 0.0,
@@ -1447,6 +1462,20 @@ impl Walk {
             runs: true,
             ..Self::to(target, level, speed)
         }
+    }
+
+    /// A flight to `target` from `level` at `speed`, a flyer's aloft (`minds::Gait::Flies`).
+    pub fn fly(target: Vec3, level: Level, speed: f32) -> Self {
+        Self {
+            runs: true,
+            flies: true,
+            ..Self::to(target, level, speed)
+        }
+    }
+
+    /// Whether it flies.
+    pub fn flies(&self) -> bool {
+        self.flies
     }
 }
 
@@ -5617,6 +5646,7 @@ fn spawn(
         mind.ranged = placement.ranged;
         mind.armed = placement.held != 0;
         mind.big = record_flags & BIG != 0;
+        mind.flies = record_flags & opensacred_rules::ways::FLIES != 0;
         let skills = fight::skills(&placement.base, grade, placement.plain);
         if let Some(name) = &placement.name {
             entity.insert(ScriptName(name.clone()));
@@ -5675,6 +5705,7 @@ fn spawn(
         let pace = values.0.pace_factor();
         mind.speed = placement.speed[0] * pace;
         mind.run = placement.speed[1] * pace;
+        mind.fly = minds::FLIES_AT * pace;
         if placement.rank != fight::Rank::Common {
             bevy::log::debug!(
                 "npcs: {creature} is a {:?} of level {grade}",
@@ -6258,9 +6289,10 @@ pub fn animate(
             let root = graph.root;
             let idle = graph.add_clip(idle, 1.0, root);
             let mut add = |name| clip(name).map(|clip| graph.add_clip(clip.clone(), 1.0, root));
-            let (walk, run, stance, talk) = (
+            let (walk, run, fly, stance, talk) = (
                 add(&npc.names.walk),
                 add(&npc.names.run),
+                add(&npc.names.fly),
                 add(&npc.names.stance),
                 add(&npc.names.talk),
             );
@@ -6294,6 +6326,7 @@ pub fn animate(
                 idle,
                 walk,
                 run,
+                fly,
                 stance,
                 talk,
                 fun,
@@ -6413,9 +6446,17 @@ pub fn walk(
             .onto
             .map(|onto| heights.transition(paths::cell_of(target.x, target.z), onto));
         // A cell it may step into: walkable, no object and no other creature in it (`0x4F7E10`:
-        // an NPC, of an id above 16, is stopped by any).
-        let free =
-            |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
+        // an NPC, of an id above 16, is stopped by any); aloft, any it flies onto, whoever stands
+        // in it (`0x4EBCA0`, `0x4F7E10` for `+0x1F4` bit `0x200000`, #2250).
+        let flies = walk.flies;
+        let open = |cell: (i32, i32), at: Level| {
+            if flies {
+                heights.flown_onto(cell, at)
+            } else {
+                heights.walkable_on(cell, at)
+            }
+        };
+        let free = |cell, at| open(cell, at) && (flies || !crowd.stops(cell, at, entity, false));
         // Its leg and its course there, found as it sets out on the leg, anew off it (a stair's
         // landing) and at the leg's end short of its target, and again as it moves (#2175). The
         // leg is tested on the target's floor of the building there, else on the ground
@@ -6430,7 +6471,7 @@ pub fn walk(
             let leg = old.as_ref().map_or_else(
                 || {
                     paths::leg(here, target, |cell| {
-                        heights.walkable_on(cell, heights.on_floor(cell, floor))
+                        open(cell, heights.on_floor(cell, floor))
                     })
                 },
                 |old| old.sought,
@@ -6445,11 +6486,9 @@ pub fn walk(
                 heights.on_floor(end, floor)
             });
             let neighbours = |place| {
-                let next = heights.floored_neighbours(place, (start.1, goal), |cell, at| {
-                    heights.walkable_on(cell, at)
-                });
+                let next = heights.floored_neighbours(place, (start.1, goal), open);
                 paths::passable(next, end, |cell, (at, ..)| {
-                    crowd.stops(cell, at, entity, false)
+                    !flies && crowd.stops(cell, at, entity, false)
                 })
             };
             let found = paths::course(
@@ -6530,8 +6569,7 @@ pub fn walk(
         let into = paths::cell_of(position.x, position.z);
         // A step it may not take ends its walk, as quest 1's novice stopped at the hero put in
         // her way and stood there (seen in the original, #227's check 1).
-        let blocked =
-            into != cell && !free(into, walk.level) && heights.walkable_on(cell, walk.level);
+        let blocked = into != cell && !free(into, walk.level) && open(cell, walk.level);
         // Within its target's reach, on the level it walks onto unless its way found none.
         let there = left <= walk.within
             && (onto.is_none_or(|onto| onto == walk.level) || walk.course.is_none());
@@ -6542,7 +6580,9 @@ pub fn walk(
             } else {
                 walk.balked = BALKS;
             }
+            // A flyer comes down in its flight's clip (`flight`, `stance`).
             if let Some(clips) = &npc.graph
+                && !flies
                 && let Some((mut player, mut transitions)) =
                     npc.player.and_then(|p| players.get_mut(p).ok())
             {
@@ -6581,14 +6621,21 @@ pub fn stance(
     mut commands: Commands,
     nearest: Res<crowd::Nearest>,
     npcs: Query<
-        (Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>),
+        (
+            Entity,
+            &Npc,
+            Option<&Walk>,
+            Has<Talks>,
+            Option<&Plays>,
+            Has<crate::flight::Aloft>,
+        ),
         (Without<Strikes>, Without<Dies>, Without<ScriptClip>),
     >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
     let fight = nearest.distance < STANCE_WITHIN;
-    for (entity, npc, walk, talks, plays) in &npcs {
+    for (entity, npc, walk, talks, plays, aloft) in &npcs {
         let (Some(clips), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
@@ -6635,11 +6682,14 @@ pub fn stance(
                 }
             }
         }
-        // A walking NPC walks; a standing one stands, in its stance where it fights.
+        // A walking NPC walks; a standing one stands, in its stance where it fights; a flyer
+        // aloft comes down in its flight's clip (`0x598F44`).
         let moving = walk.and_then(|walk| clips.moving(walk));
-        let wanted = match (moving, fight, clips.stance) {
-            (Some(moving), _, _) => moving,
-            (None, true, Some(stance)) => stance,
+        let flying = clips.fly.filter(|_| aloft);
+        let wanted = match (moving, flying, fight, clips.stance) {
+            (Some(moving), ..) => moving,
+            (None, Some(fly), ..) => fly,
+            (None, None, true, Some(stance)) => stance,
             _ => clips.idle,
         };
         if transitions.get_main_animation() != Some(wanted) {
@@ -9837,6 +9887,7 @@ pub(crate) fn repace(mind: &mut ai::Mind, npc: &mut Npc, pace: f32) {
     let ratio = pace / npc.pace.max(f32::EPSILON);
     mind.speed *= ratio;
     mind.run *= ratio;
+    mind.fly *= ratio;
     npc.pace = pace;
 }
 
@@ -12042,6 +12093,7 @@ mod tests {
             idle: node(0),
             walk: Some(node(1)),
             run: Some(node(2)),
+            fly: Some(node(3)),
             stance: None,
             talk: None,
             fun: [None; 4],
@@ -12057,6 +12109,10 @@ mod tests {
         let mut run = Walk::run(Vec3::ZERO, None, 140.0);
         run.moved = true;
         assert_eq!(clips.moving(&run), Some(node(2)));
+        // A flyer aloft plays its flight's clip, the slot 179 (#2250).
+        let mut flight = Walk::fly(Vec3::ZERO, None, 200.0);
+        flight.moved = true;
+        assert_eq!(clips.moving(&flight), Some(node(3)));
     }
 
     /// Where an NPC standing at `from` on `level` of the tests' house (`Heights::house`) stands
