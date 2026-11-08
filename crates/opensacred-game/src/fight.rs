@@ -1178,8 +1178,8 @@ impl<'a> Slayer<'a> {
 /// (`opensacred_rules::fight::terrifies`: within 800, 400 while the hero walks, its level on
 /// bronze's scale at most the threshold that the effect's value and the hero's level make, of no
 /// big type, no boss nor champion, and no script holds it) falls at once as the hero's kill
-/// (#1125). Its weapon thrown down in a roll of `R(0, 100)` below the levels' difference
-/// (`0x4E9900`) is not followed: the game throws no item to the ground yet.
+/// (#1125), its weapon thrown down where `R(0, 100)` falls below the levels' difference
+/// (`opensacred_rules::fight::terror_disarms`, `npcs::disarm`, #2298).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1258,6 +1258,11 @@ pub fn terrify(
             "fight: the hero's terror fells {entity}, a {} of level {}",
             mind.creature, health.level
         );
+        let disarms = opensacred_rules::fight::terror_disarms(
+            experience.level,
+            health.level,
+            dice.0.below(101),
+        );
         slayer.slay(
             &mut commands,
             (&mut dice, &mut experience, &rules),
@@ -1265,6 +1270,9 @@ pub fn terrify(
             (entity, &mut health, mind),
             (worth, rank, combat),
         );
+        if disarms {
+            commands.queue(move |world: &mut World| crate::npcs::disarm(world, entity));
+        }
     }
 }
 

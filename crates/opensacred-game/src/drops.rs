@@ -1096,6 +1096,47 @@ pub(crate) fn fling(
     );
 }
 
+/// Throws down the weapon of the type `item` that a creature of level `level` held with its
+/// `values`, from the point `at` of its model on `floor` (`npcs::disarm`, `0x4E9900`, #2298): a
+/// plain item made at the creature's level, its values the creature's own where it had some, on
+/// the disarmed weapon's flight ([`Flight::disarmed`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a system run with its input, the item and the place"
+)]
+pub(crate) fn throw_disarmed(
+    In(((item, level, values), (at, floor))): In<(
+        (u32, u32, Option<fight::ItemValues>),
+        (Vec3, Level),
+    )>,
+    mut commands: Commands,
+    tables: Option<Res<Tables>>,
+    mut dice: ResMut<Dice>,
+    assets: Res<AssetServer>,
+) {
+    let Some(tables) = tables else {
+        return;
+    };
+    let Some(mut dropped) = drops::thrown(
+        (&tables.catalogue, &tables.templates),
+        (tables.rules.sockets(), drops::Difficulty::default()),
+        (item, level, PLAIN_KEY, 1),
+        &mut dice.0,
+    ) else {
+        return;
+    };
+    if values.is_some() {
+        dropped.values = values;
+    }
+    let flight = Flight::disarmed([at.x, at.z, at.y / up(1.0)], &mut dice.0);
+    lay(
+        &mut commands,
+        (&assets, &tables),
+        (flight, floor, false),
+        dropped,
+    );
+}
+
 /// Puts `dropped` into the world on its `flight` on `level`, marked as the hero's or not, its
 /// model, if it was converted, with its texture.
 fn lay(

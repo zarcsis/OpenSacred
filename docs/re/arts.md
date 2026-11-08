@@ -1532,7 +1532,7 @@ It makes the whirlwind's knockback and the banishing circle too (#887, `opensacr
 
 A creature whose first step of the flight is blocked stands a second and then comes on again, as the game's walks do (#258).
 
-`opensacred-game` makes 24, 27, 28, 30 and 31 on the hero (#886, `opensacred_rules::spells`, `spells`), and refuses a spell that lasts while an effect keyed by it holds on the hero (`arts::refused_while`): the fire skin's effects and turning aside at once and its strikes within 120 once a second; the quickening's effects 1.6 s over the cast's rate after its act; the gust's turning aside and its strikes within 125 once a second, without its roll to disarm (the game throws no item to the ground yet); the shield wall's turning aside at once and its resistances 1 s later; the spring's effect 11 at once.
+`opensacred-game` makes 24, 27, 28, 30 and 31 on the hero (#886, `opensacred_rules::spells`, `spells`), and refuses a spell that lasts while an effect keyed by it holds on the hero (`arts::refused_while`): the fire skin's effects and turning aside at once and its strikes within 120 once a second; the quickening's effects 1.6 s over the cast's rate after its act; the gust's turning aside and its strikes within 125 once a second, and since #2298 its roll to disarm (`spells::gust_disarms`, `npcs::disarm`; docs/re/fight.md, "The disarming"); the shield wall's turning aside at once and its resistances 1 s later; the spring's effect 11 at once.
 A spell of the launch type 5 is cast on the hero whatever the cursor is on.
 The Mage of a new game took `A` from 18 to 21 and his attack speed from 140 to 160 under the quickening, and his fire resistance from 1.4 to 76.8 under the fire skin, which refused a second cast while it held.
 

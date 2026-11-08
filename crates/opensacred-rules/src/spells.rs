@@ -326,6 +326,18 @@ pub fn teleport(
 pub const FIRE_SKIN: u16 = 24;
 pub const QUICKENING: u16 = 27;
 pub const GUST: u16 = 28;
+
+/// Whether the gust's object of a spell of the level `spell` disarms a creature of the level
+/// `level` that it strikes at a beat (`0x5ACFEF`–`0x5AD050`, the event `0x112`, `0x4E9900`,
+/// read 2026-11-08 for #2298): surely where the spell's level is 0 or above the creature's by
+/// more than 3, else where `R(0, n)` falls on 0, `n = 3·(M − L + 6)`.
+pub fn gust_disarms(spell: u32, level: u32, dice: &mut impl crate::spawning::Dice) -> bool {
+    if spell == 0 || spell > level + 3 {
+        return true;
+    }
+    let n = 3 * (level + 6 - spell);
+    dice.below(n + 1) == 0
+}
 pub const SHIELD_WALL: u16 = 30;
 pub const SPRING: u16 = 31;
 
@@ -1339,6 +1351,14 @@ mod tests {
         assert_eq!(given, [(1, 0.17, 20.0), (28, 1.15, 20.0)]);
         assert_eq!(area(FIRE_SKIN).map(|a| a.reach), Some(120.0));
         assert_eq!(area(GUST).map(|a| a.reach), Some(125.0));
+        // The gust disarms surely a creature more than 3 levels below the spell's, and one of its
+        // own level in one case of 19 (#2298).
+        let mut dice = crate::spawning::Rng::of(3, 4, 5);
+        assert!(gust_disarms(10, 6, &mut dice) && gust_disarms(0, 50, &mut dice));
+        let disarmed = (0..19_000)
+            .filter(|_| gust_disarms(10, 10, &mut dice))
+            .count();
+        assert!((800..1200).contains(&disarmed), "{disarmed}");
         assert!(turning(&record(SPRING, &[], [70, 2], 180), 1).is_empty());
         // The spells that last refuse a cast while their effects hold.
         assert_eq!(
