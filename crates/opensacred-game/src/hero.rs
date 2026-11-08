@@ -1439,6 +1439,7 @@ pub fn fall(
             Some(crate::scripts::Teleport {
                 cell: (x, y),
                 layer,
+                ..
             }) => {
                 info!("hero: the hero rises at its home, {x},{y} on floor {layer}");
                 body.put(

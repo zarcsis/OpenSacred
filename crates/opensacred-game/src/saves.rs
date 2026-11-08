@@ -952,6 +952,7 @@ mod tests {
             home: Some(Teleport {
                 cell: (3236, 2511),
                 layer: 1,
+                heading: None,
             }),
             tally: Tally::default(),
             kills: Kills::default(),

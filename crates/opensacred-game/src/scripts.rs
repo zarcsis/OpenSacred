@@ -575,11 +575,14 @@ pub struct Live {
     talking: bool,
 }
 
-/// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
+/// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on, and the
+/// heading in degrees it is turned to (`03`), if the record gives one (#1372).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Teleport {
     pub cell: (i32, i32),
     pub layer: u8,
+    #[serde(default)]
+    pub heading: Option<u16>,
 }
 
 impl Live {
@@ -1638,9 +1641,16 @@ impl Host for Recorder<'_> {
                     // keeps (seen: `annehmen2003`'s after its walk, #1280).
                     Some((x, y, layer)) if hero => {
                         if !self.anim {
+                            // Its heading, where the record gives one not below 0: the
+                            // creature is turned to it as it lands (`0x44DDC0`).
+                            let heading = tags
+                                .numbers("_03")
+                                .first()
+                                .and_then(|&degrees| u16::try_from(degrees).ok());
                             self.teleports.push(Teleport {
                                 cell: (x, y),
                                 layer: u8::try_from(layer).unwrap_or(0),
+                                heading,
                             });
                         }
                         Handled::Done
@@ -1711,6 +1721,7 @@ impl Host for Recorder<'_> {
                             .first()
                             .and_then(|&l| u8::try_from(l).ok())
                             .unwrap_or(0),
+                        heading: None,
                     });
                 }
                 Handled::Done
@@ -1723,6 +1734,7 @@ impl Host for Recorder<'_> {
                             .first()
                             .and_then(|&l| u8::try_from(l).ok())
                             .unwrap_or(0),
+                        heading: None,
                     };
                     self.teleports.push(spot);
                     self.home = Some(spot);
@@ -2437,6 +2449,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
     let &Teleport {
         cell: (x, y),
         layer,
+        heading,
     } = teleports.last()?;
     let mut heroes = world.query::<(&mut Transform, &mut Body)>();
     let line = heroes
@@ -2448,7 +2461,11 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
                 iso::ground(x as f32 + 0.5, y as f32 + 0.5),
                 Arrival::On(Some(layer)),
             );
-            format!("the hero teleports to {x},{y} on layer {layer}")
+            // Turned to the record's heading, as `put` turns it (#1372).
+            if let Some(degrees) = heading {
+                transform.rotation = crate::hero::facing(crate::npcs::heading(f32::from(degrees)));
+            }
+            format!("the hero teleports to {x},{y} on layer {layer}, turned to {heading:?}")
         });
     if let Some(mut live) = world.get_non_send_mut::<Live>() {
         live.at = Some((x, y));
@@ -2760,19 +2777,26 @@ fn run_due(world: &mut World) {
     }
 }
 
-/// Puts the hero where the last of `teleports` names, on its level.
+/// Puts the hero where the last of `teleports` names, on its level, turned to its heading where
+/// it gives one (`0x44DDC0`, #1372).
 fn put(live: &mut Live, teleports: &[Teleport], transform: &mut Transform, body: &mut Body) {
     if let Some(&Teleport {
         cell: (x, y),
         layer,
+        heading,
     }) = teleports.last()
     {
-        bevy::log::info!("scripts: the hero teleports to {x},{y} on layer {layer}");
+        bevy::log::info!(
+            "scripts: the hero teleports to {x},{y} on layer {layer}, turned to {heading:?}"
+        );
         body.put(
             transform,
             iso::ground(x as f32 + 0.5, y as f32 + 0.5),
             Arrival::On(Some(layer)),
         );
+        if let Some(degrees) = heading {
+            transform.rotation = crate::hero::facing(crate::npcs::heading(f32::from(degrees)));
+        }
         live.at = Some((x, y));
     }
 }
@@ -3546,13 +3570,15 @@ mod tests {
             live.run("OMO-1leave_rg1", 0).home,
             Some(Teleport {
                 cell: (3230, 2769),
-                layer: 0
+                layer: 0,
+                heading: None,
             })
         );
         // A `StartPosition` puts the hero there and makes it its home.
         let start = Teleport {
             cell: (3236, 2511),
             layer: 1,
+            heading: None,
         };
         let effects = live.run("start_again", 0);
         assert_eq!(
@@ -4131,7 +4157,9 @@ mod tests {
             live.step_on((3047, 2893), 1).teleports,
             [Teleport {
                 cell: (4083, 83),
-                layer: 0
+                layer: 0,
+                // The record's heading, to which the hero is turned as it lands (#1372).
+                heading: Some(45),
             }]
         );
         // Quest 201's function waits for its quest; another creature's teleport is not followed.
@@ -4291,7 +4319,8 @@ mod tests {
             live.clock((now + left + 1) % DAY).teleports,
             [Teleport {
                 cell: (3236, 2511),
-                layer: 1
+                layer: 1,
+                heading: None,
             }]
         );
         assert_eq!(live.state.variables.get("late"), Some(1));

@@ -1453,7 +1453,7 @@ fn value_i32(value: &Value) -> Option<i32> {
 /// back through the projection of the cells, a cell's x running `(48, 24)` pixels and its y
 /// `(−48, 24)`, into the grid's axes (docs/02 §7.3). The model then shows at that angle on the
 /// screen.
-fn heading(degrees: f32) -> Vec3 {
+pub(crate) fn heading(degrees: f32) -> Vec3 {
     let (sin, cos) = degrees.to_radians().sin_cos();
     Vec3::new(cos + 2.0 * sin, 0.0, 2.0 * sin - cos).normalize()
 }
