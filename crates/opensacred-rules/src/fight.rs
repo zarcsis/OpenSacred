@@ -1595,6 +1595,44 @@ pub fn critical(
     u32::try_from(u64::from(m) * u64::from(damage) / 10).ok()
 }
 
+/// How long a knocked-down hero lies (its timer held 5 s from firing, `+0x208` at `+0x204 − 5`,
+/// `0x56E74A`), how far it is thrown back from its attacker (`+0x24D` 150 with `+0x200` bit
+/// `0x20000`, `0x56E6C6`), and the slot it falls by, at the rate 1.0 (228, its `*_DYING_C`).
+pub const KNOCKED_DOWN_SECONDS: f32 = 5.0;
+pub const KNOCKED_BACK: f32 = 150.0;
+pub const KNOCKED_DOWN_SLOT: u16 = 228;
+/// How many knock-downs a hero takes until its marks are cleared (the stats' `+0x2B7` bits `0x80`
+/// and `0x100`, the first and the second; with both set none knocks it down).
+pub const KNOCK_DOWNS: u8 = 2;
+
+/// Whether a blow knocks a player's hero down (`0x56B130` at `0x56E366`–`0x56E3FB`, #2311): its
+/// attacker's level `attacker` above the struck one's `struck` by more than 4 and the roll `roll`
+/// (`rand() & 1`, 0 or 1), its damage `damage` at least the struck one's health `health`, and the
+/// struck one knocked down fewer than [`KNOCK_DOWNS`] times since its marks were cleared (`marks`).
+pub fn knocks_down(
+    (attacker, struck): (u32, u32),
+    roll: u32,
+    (damage, health): (u32, u32),
+    marks: u8,
+) -> bool {
+    marks < KNOCK_DOWNS
+        && i64::from(attacker) - i64::from(roll) - 4 > i64::from(struck)
+        && health <= damage
+}
+
+/// The damage of a blow that knocks the hero down (`0x56E6F3`–`0x56E74A`): its health `health`
+/// less a ninth of it, one less where that is all of it, at least 1; so that it keeps a ninth, and
+/// a hero of 1 to 8 health keeps 1 but of 1 itself.
+pub fn knocked_damage(health: u32) -> u32 {
+    let damage = health - health / 9;
+    let damage = if health <= damage {
+        damage.saturating_sub(1)
+    } else {
+        damage
+    };
+    damage.max(1)
+}
+
 /// A strike's damage raised by its attacker's wounds (the effect 867, `0x56E15D`–`0x56E362`,
 /// #1779): of the value `p`, a per cent, and the attacker's health `(current, most)`, the whole
 /// damage `damage` becomes `⌊d·(1 + w·p·0.01·TollwutFactor)⌋`, `w` the share of its health lost;
@@ -7910,5 +7948,25 @@ mod tests {
             },
         );
         assert_eq!(same, [[10.0, 20.0]; KINDS]);
+    }
+
+    #[test]
+    fn a_much_stronger_attacker_knocks_the_hero_down_twice_at_most() {
+        // Above by more than 4 and the roll: 10 against 5 with the roll 0, not with 1.
+        assert!(knocks_down((10, 5), 0, (100, 100), 0));
+        assert!(!knocks_down((10, 5), 1, (100, 100), 0));
+        assert!(knocks_down((11, 5), 1, (100, 100), 1));
+        // A blow below the health, or a third knock-down, does not.
+        assert!(!knocks_down((30, 5), 0, (99, 100), 0));
+        assert!(!knocks_down((30, 5), 0, (100, 100), 2));
+    }
+
+    #[test]
+    fn a_knocked_down_hero_keeps_a_ninth_of_its_health() {
+        assert_eq!(knocked_damage(900), 800);
+        assert_eq!(knocked_damage(100), 89);
+        // Below 9 it keeps 1, and of 1 it keeps none.
+        assert_eq!(knocked_damage(8), 7);
+        assert_eq!(knocked_damage(1), 1);
     }
 }

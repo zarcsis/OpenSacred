@@ -173,6 +173,21 @@ pub struct Kill {
     pub rank: Rank,
 }
 
+/// A player's hero knocked down by a heavy blow (`0x56E366`–`0x56E8CC`, #2311): the seconds it
+/// still lies, where its attacker struck from, and how far its fall has thrown it
+/// (`knock_down`).
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Downed {
+    pub left: f32,
+    pub from: Vec3,
+    pub thrown: f32,
+}
+
+/// How many times a hero was knocked down since its marks were cleared (the stats' `+0x2B7`
+/// bits `0x80` and `0x100`), which its whole health in a settlement clears (`0x54808A`).
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KnockMarks(pub u8);
+
 /// A creature that takes no damage, for a test (the commands `spawn --immortal` and `god`,
 /// #521): a hit lands and shows its damage, but the health stays.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -241,6 +256,7 @@ pub(crate) fn resolve(
                 Option<&Holding>,
                 Option<&crate::npcs::Arms>,
                 Option<&crate::riding::Seat>,
+                (Option<&Downed>, Option<&KnockMarks>),
             ),
         ),
         Without<Dies>,
@@ -280,7 +296,7 @@ pub(crate) fn resolve(
                 worth,
                 hero_hit,
                 rank,
-                (immortal, victim, guarded, arms, seat),
+                (immortal, victim, guarded, arms, seat, (downed, knock_marks)),
             )),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -609,6 +625,45 @@ pub(crate) fn resolve(
         let damage = match attacker_health {
             Some(own) => opensacred_rules::fight::wounded(damage, wounds, own, &rules),
             None => damage,
+        };
+        // A heavy blow knocks a player's hero down (`0x56E366`–`0x56E8CC`, #2311), outside the
+        // god mode: one down takes none; one struck by an attacker more than 4 and a roll levels
+        // above it, for at least its health, twice at most until its marks are cleared, falls
+        // (`knock_down`), thrown off its horse first, keeping a ninth of its health.
+        let damage = if hero_hit && !immortal {
+            let marks = knock_marks.map_or(0, |marks| marks.0);
+            if downed.is_some() {
+                0
+            } else if opensacred_rules::fight::knocks_down(
+                (level, health.level),
+                dice.0.below(2),
+                (damage, health.current),
+                marks,
+            ) {
+                info!(
+                    "fight: {} knocks {} down, its {} marks",
+                    hit.attacker,
+                    hit.target,
+                    marks + 1
+                );
+                commands.entity(hit.target).insert((
+                    Downed {
+                        left: opensacred_rules::fight::KNOCKED_DOWN_SECONDS,
+                        from: from.translation(),
+                        thrown: 0.0,
+                    },
+                    KnockMarks(marks + 1),
+                ));
+                if seat.and_then(crate::riding::Seat::ridden).is_some() {
+                    let me = hit.target;
+                    commands.queue(move |world: &mut World| crate::riding::throw_off(world, me));
+                }
+                opensacred_rules::fight::knocked_damage(health.current)
+            } else {
+                damage
+            }
+        } else {
+            damage
         };
         let critical = opensacred_rules::fight::item_effect(
             items,

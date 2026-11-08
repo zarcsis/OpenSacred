@@ -139,6 +139,8 @@ pub struct Hero {
     pub riding: [Option<String>; 3],
     /// The rider's strike from the saddle (`forms::Clips::riding_attack`, #2302).
     pub riding_attack: Option<(String, [f32; 2])>,
+    /// The knocked-down hero's fall (`forms::Clips::knocked`, #2311).
+    pub knocked: Option<String>,
     pub position: Vec3,
     /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
     /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
@@ -192,6 +194,7 @@ impl Hero {
             pickup: None,
             riding: [None, None, None],
             riding_attack: None,
+            knocked: None,
             position,
             floor: None,
             target: None,
@@ -225,6 +228,7 @@ impl Hero {
         self.pickup.clone_from(&form.clips.pickup);
         self.riding.clone_from(&form.clips.riding);
         self.riding_attack.clone_from(&form.clips.riding_attack);
+        self.knocked.clone_from(&form.clips.knocked);
         self.gltf = Some(assets.load(self.model.clone()));
         self.bare = !form.armed;
         self.equipment = self.equip(assets);
@@ -491,6 +495,8 @@ pub struct Clips {
     pub riding: [Option<(AnimationNodeIndex, Handle<AnimationClip>)>; 3],
     /// The rider's strike from the saddle's node, clip and fractions (#2302).
     pub riding_attack: Option<Strike>,
+    /// The knocked-down hero's fall's node and clip (#2311).
+    pub knocked: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -625,6 +631,10 @@ pub fn spawn(
             .and_then(|(name, fractions)| Some((clip(&name)?, fractions)));
         let riding_attack_at = clips.len();
         clips.extend(riding_attack.iter().map(|(clip, _)| clip.clone()));
+        // The knocked-down fall, after it (#2311).
+        let knocked = hero.knocked.clone().and_then(|name| clip(&name));
+        let knocked_at = clips.len();
+        clips.extend(knocked.iter().cloned());
         let (graph, nodes) = AnimationGraph::from_clips(clips);
         let riding = riding.map(|clip| {
             let clip = clip?;
@@ -634,6 +644,7 @@ pub fn spawn(
         });
         let riding_attack = riding_attack
             .and_then(|(clip, fractions)| Some((*nodes.get(riding_attack_at)?, clip, fractions)));
+        let knocked = knocked.and_then(|clip| Some((*nodes.get(knocked_at)?, clip)));
         let mut bolt_nodes = nodes[first_bolt..].iter();
         let bolts = bolts.map(|bolt| {
             let (clip, fractions) = bolt?;
@@ -671,6 +682,7 @@ pub fn spawn(
             pickup,
             riding,
             riding_attack,
+            knocked,
             player: None,
         });
     }
@@ -1042,6 +1054,7 @@ pub fn run(
             (
                 Has<crate::hero_held::HeroHeld>,
                 Option<&crate::riding::Seat>,
+                Has<crate::fight::Downed>,
             ),
         ),
         Has<Dies>,
@@ -1057,7 +1070,7 @@ pub fn run(
         mut transform,
         mut body,
         striking,
-        (making, picking, collects, (held, seat)),
+        (making, picking, collects, (held, seat, downed)),
         dying,
         flies,
         effects,
@@ -1065,7 +1078,8 @@ pub fn run(
     {
         // Held, it stands still, its clip too (`hero_held`); mounting a horse or getting off,
         // its clip plays (`riding`, #2299).
-        if held || seat.is_some_and(crate::riding::Seat::busy) {
+        // Knocked down, it lies where its fall throws it (`knock_down`, #2311).
+        if held || downed || seat.is_some_and(crate::riding::Seat::busy) {
             continue;
         }
         // Riding, it goes at its horse's speeds, by no stair, teleport or entrance, and every
@@ -1732,6 +1746,7 @@ mod tests {
                 pickup: None,
                 riding: [None, None, None],
                 riding_attack: None,
+                knocked: None,
                 player: None,
             });
         }
@@ -1791,6 +1806,7 @@ mod tests {
             pickup: None,
             riding: [None, None, None],
             riding_attack: None,
+            knocked: None,
             player: None,
         };
         let with = clips(Some(node(4)));

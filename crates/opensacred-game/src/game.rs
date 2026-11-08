@@ -728,6 +728,7 @@ fn load(
     hero.pickup = clips.pickup;
     hero.riding = clips.riding;
     hero.riding_attack = clips.riding_attack;
+    hero.knocked = clips.knocked;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.walking = true;
@@ -847,6 +848,11 @@ pub fn clips_of(
         .as_ref()
         .and_then(|slots| slots.riding_attack(class))
         .map(|name| with_fractions(name.to_owned()));
+    // The fall of a hero knocked down (#2311).
+    let knocked = slots
+        .as_ref()
+        .and_then(|slots| slots.slot(opensacred_rules::fight::KNOCKED_DOWN_SLOT))
+        .map(str::to_owned);
     let attacks = slots
         .map(|slots| slots.attacks(class))
         .unwrap_or_default()
@@ -863,6 +869,7 @@ pub fn clips_of(
         pickup,
         riding,
         riding_attack,
+        knocked,
     }
 }
 
