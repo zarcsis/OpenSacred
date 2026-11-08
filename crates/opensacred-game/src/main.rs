@@ -91,6 +91,7 @@ mod flight;
 mod floops;
 mod flying_skulls;
 mod foe_panel;
+mod follow_foe;
 mod followers;
 mod forge;
 mod forge_elements;
@@ -565,6 +566,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         floops::FloopsPlugin,
         flying_skulls::FlyingSkullsPlugin,
         foe_panel::FoePanelPlugin,
+        follow_foe::FollowFoePlugin,
         followers::FollowersPlugin,
         forge::ForgePlugin,
         forge_elements::ForgeElementsPlugin,
@@ -572,9 +574,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         frame::FramePlugin,
         fx::FxPlugin,
         fx_lights::FxLightsPlugin,
-        fx_loops::FxLoopsPlugin,
     ))
     .add_plugins((
+        fx_loops::FxLoopsPlugin,
         game::GamePlugin,
         glad_sights::GladSightsPlugin,
         glance::GlancePlugin,
