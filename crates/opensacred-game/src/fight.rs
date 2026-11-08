@@ -1052,9 +1052,7 @@ pub fn kill(
         .ok_or("the hero is not in the world yet")?;
     let at = at.translation;
     let effects = effects.map(|effects| effects.list()).unwrap_or_default();
-    let (banished, bonus) = (potions::banishes(&effects), potions::mentored(&effects));
-    let sets = holding.map(|holding| &holding.0.sets);
-    let bonus = (bonus, sets.map_or(0.0, |sets| sets.experience()));
+    let slayer = Slayer::of(&effects, holding, hero_combat);
     let home = crate::paths::cell_of(at.x, at.z);
     let radius = i32::try_from(radius).unwrap_or(i32::MAX);
     let mut lines = Vec::new();
@@ -1064,43 +1062,13 @@ pub fn kill(
         if !mind.hostile() || (cell.0 - home.0).abs() > radius || (cell.1 - home.1).abs() > radius {
             continue;
         }
-        health.current = 0;
-        let rises = crate::undead::rolls(
-            &mut dice.0,
-            mind,
-            rank.map_or(Rank::Common, |rank| rank.0),
-            (true, banished),
-            (
-                sets,
-                (
-                    exorcist(holding),
-                    rules.rare(opensacred_rules::undead::EXORCISM),
-                ),
-            ),
-        );
-        // A creature that a raising stood up gives no experience (#1856).
-        let worth = worth
-            .filter(|_| mind.flags & opensacred_rules::casts::RAISED == 0)
-            .map(|worth| (*worth, rank.copied(), bonus));
-        let earned = fell(
+        let earned = slayer.slay(
             &mut commands,
             (&mut dice, &mut experience, &rules),
-            (entity, false, rises),
-            &health,
-            worth,
+            (tally.as_deref_mut(), records.as_deref_mut()),
+            (entity, &mut health, mind),
+            (worth, rank, combat),
         );
-        if let Some(tally) = tally.as_deref_mut() {
-            tally.killed();
-        }
-        if let (Some(records), Some(hero)) = (records.as_deref_mut(), hero_combat) {
-            let foe =
-                crate::statistics::Foe::of(mind.creature, &health, combat, rules.creatures_aw());
-            let chances = (
-                crate::statistics::chance(hero.attack, foe.defence),
-                crate::statistics::chance(foe.attack, hero.defence),
-            );
-            records.record(foe, chances);
-        }
         lines.push(format!(
             "{entity} type {} level {} falls, {earned} experience",
             mind.creature, health.level
@@ -1117,6 +1085,187 @@ pub fn kill(
         ),
     );
     Ok(lines)
+}
+
+/// The hero's state that a creature's fall to it reads ([`kill`], [`terrify`]): whether its
+/// effects banish the undead, its mentoring's and its sets' shares of the experience, its sets and
+/// its items' exorcism, and its fight values for the statistics.
+struct Slayer<'a> {
+    banished: bool,
+    bonus: (f32, f32),
+    sets: Option<&'a opensacred_rules::set_bonuses::Stats>,
+    holding: Option<&'a Holding>,
+    combat: Option<&'a Combat>,
+}
+
+impl<'a> Slayer<'a> {
+    fn of(
+        effects: &[opensacred_rules::fight::Effect],
+        holding: Option<&'a Holding>,
+        combat: Option<&'a Combat>,
+    ) -> Self {
+        let sets = holding.map(|holding| &holding.0.sets);
+        Self {
+            banished: potions::banishes(effects),
+            bonus: (
+                potions::mentored(effects),
+                sets.map_or(0.0, |sets| sets.experience()),
+            ),
+            sets,
+            holding,
+            combat,
+        }
+    }
+
+    /// Fells `entity` as the hero's kill: its health 0, its rising rolled (`undead::rolls`), its
+    /// experience earned but a raised one's (#1856), counted among the hero's kills (#1611) and in
+    /// its statistics; the experience earned.
+    fn slay(
+        &self,
+        commands: &mut Commands,
+        (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
+        (tally, records): (
+            Option<&mut crate::statistics::Tally>,
+            Option<&mut crate::statistics::Kills>,
+        ),
+        (entity, health, mind): (Entity, &mut Health, &crate::ai::Mind),
+        (worth, rank, combat): (Option<&Worth>, Option<&Ranked>, &Combat),
+    ) -> u32 {
+        health.current = 0;
+        let rises = crate::undead::rolls(
+            &mut dice.0,
+            mind,
+            rank.map_or(Rank::Common, |rank| rank.0),
+            (true, self.banished),
+            (
+                self.sets,
+                (
+                    exorcist(self.holding),
+                    rules.rare(opensacred_rules::undead::EXORCISM),
+                ),
+            ),
+        );
+        // A creature that a raising stood up gives no experience (#1856).
+        let worth = worth
+            .filter(|_| mind.flags & opensacred_rules::casts::RAISED == 0)
+            .map(|worth| (*worth, rank.copied(), self.bonus));
+        let earned = fell(
+            commands,
+            (dice, experience, rules),
+            (entity, false, rises),
+            health,
+            worth,
+        );
+        if let Some(tally) = tally {
+            tally.killed();
+        }
+        if let (Some(records), Some(hero)) = (records, self.combat) {
+            let foe =
+                crate::statistics::Foe::of(mind.creature, health, combat, rules.creatures_aw());
+            let chances = (
+                crate::statistics::chance(hero.attack, foe.defence),
+                crate::statistics::chance(foe.attack, hero.defence),
+            );
+            records.record(foe, chances);
+        }
+        earned
+    }
+}
+
+/// The terror of the hero's items (the effect 852, `opensacred_rules::fight::TERROR`): at each of
+/// the hero's looks (`crowd::Nearest`, `0x547070`, every 0.3 s of the world's ticks), each
+/// hostile creature that it lists and that its look terrifies
+/// (`opensacred_rules::fight::terrifies`: within 800, 400 while the hero walks, its level on
+/// bronze's scale at most the threshold that the effect's value and the hero's level make, of no
+/// big type, no boss nor champion, and no script holds it) falls at once as the hero's kill
+/// (#1125). Its weapon thrown down in a roll of `R(0, 100)` below the levels' difference
+/// (`0x4E9900`) is not followed: the game throws no item to the ground yet.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+pub fn terrify(
+    mut commands: Commands,
+    nearest: Res<crate::crowd::Nearest>,
+    mut dice: ResMut<Dice>,
+    mut experience: ResMut<Experience>,
+    (rules, mut tally, mut records): (
+        Res<Rules>,
+        Option<ResMut<crate::statistics::Tally>>,
+        Option<ResMut<crate::statistics::Kills>>,
+    ),
+    hero: Query<
+        (
+            &Transform,
+            &Body,
+            Option<&crate::effects::Effects>,
+            Option<&Combat>,
+            Option<&Holding>,
+        ),
+        Without<crate::ai::Mind>,
+    >,
+    mut creatures: Query<
+        (
+            &Transform,
+            &mut Health,
+            &crate::ai::Mind,
+            Option<&Worth>,
+            (Option<&Ranked>, &Combat),
+            Has<crate::npcs::ScriptQueue>,
+        ),
+        (Without<Dies>, Without<Body>),
+    >,
+) {
+    if !nearest.looked || nearest.hostiles.is_empty() {
+        return;
+    }
+    let Some((at, body, effects, hero_combat, holding)) = hero.iter().next() else {
+        return;
+    };
+    let value = holding.map_or(0.0, |holding| {
+        opensacred_rules::fight::item_effect(
+            &holding.0.items,
+            opensacred_rules::fight::TERROR,
+            None,
+        )
+    });
+    let threshold = rules.terror_threshold(value, experience.level);
+    if threshold == 0 {
+        return;
+    }
+    let effects = effects.map(|effects| effects.list()).unwrap_or_default();
+    let slayer = Slayer::of(&effects, holding, hero_combat);
+    let walks = body.moving().is_some();
+    for &entity in &nearest.hostiles {
+        let Ok((transform, mut health, mind, worth, (rank, combat), queued)) =
+            creatures.get_mut(entity)
+        else {
+            continue;
+        };
+        let distance = (transform.translation - at.translation).xz().length();
+        let ranked = rank.is_some_and(|rank| rank.0 != Rank::Common);
+        if mind.flags & opensacred_rules::ways::HOSTILE == 0
+            || !opensacred_rules::fight::terrifies(
+                threshold,
+                rules.on_bronze(health.level),
+                (distance, walks),
+                (mind.big, ranked, queued),
+            )
+        {
+            continue;
+        }
+        info!(
+            "fight: the hero's terror fells {entity}, a {} of level {}",
+            mind.creature, health.level
+        );
+        slayer.slay(
+            &mut commands,
+            (&mut dice, &mut experience, &rules),
+            (tally.as_deref_mut(), records.as_deref_mut()),
+            (entity, &mut health, mind),
+            (worth, rank, combat),
+        );
+    }
 }
 
 /// A creature's regeneration (`opensacred_rules::fight::Regenerates`): its value and what it has
@@ -1348,6 +1497,13 @@ impl Plugin for FightPlugin {
             )
             .add_systems(Update, (resolve, level_up, keep_health, rise).chain())
             .add_systems(Update, calm.in_set(crate::frame::Unpaused))
+            .add_systems(
+                Update,
+                terrify
+                    .in_set(crate::frame::Unpaused)
+                    .after(crate::frame::Step::Crowd)
+                    .before(resolve),
+            )
             .add_systems(
                 Update,
                 regenerate
@@ -1633,6 +1789,78 @@ mod tests {
         }
         app.update();
         app.world().get::<Health>(hero).unwrap().current
+    }
+
+    #[test]
+    fn the_heros_terror_fells_the_weak_hostiles_at_its_look() {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 10.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+        });
+        let mut item = opensacred_rules::fight::ItemValues::default();
+        item.bonuses[0] = opensacred_rules::fight::Bonus {
+            condition: 0,
+            effect: opensacred_rules::fight::TERROR,
+            value: 10,
+        };
+        let holding = Holding(opensacred_rules::fight::Holds {
+            items: vec![item],
+            ..Default::default()
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .init_resource::<crate::crowd::Nearest>()
+            .add_systems(Update, terrify);
+        app.world_mut().resource_mut::<Experience>().level = 20;
+        let world = app.world_mut();
+        world.spawn((
+            Transform::default(),
+            crate::hero::Body::standing(),
+            combat,
+            holding,
+        ));
+        // A goblin of level 7 and one of level 8, 300 off: the hero of level 20 with 10 of the
+        // terror on bronze fells those of a level up to 7 (`Rules::terror_threshold`).
+        let goblin = |world: &mut World, level| {
+            let mind = crate::ai::Mind::new(
+                Vec3::ZERO,
+                opensacred_rules::ways::HOSTILE,
+                (false, false),
+                None,
+                [70.0, 180.0],
+                (76, 1),
+            );
+            let health = Health {
+                current: 50,
+                most: 50,
+                level,
+            };
+            world
+                .spawn((Transform::from_xyz(300.0, 0.0, 0.0), health, mind, combat))
+                .id()
+        };
+        let weak = goblin(world, 7);
+        let strong = goblin(world, 8);
+        let mut nearest = world.resource_mut::<crate::crowd::Nearest>();
+        nearest.looked = true;
+        nearest.hostiles = vec![weak, strong];
+        app.update();
+        let fell = |entity| app.world().get::<Dies>(entity).is_some();
+        assert!(fell(weak) && !fell(strong));
+        assert_eq!(app.world().get::<Health>(weak).unwrap().current, 0);
     }
 
     #[test]
