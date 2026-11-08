@@ -671,6 +671,8 @@ pub struct Rules {
     spell_ranks: [f32; 2],
     multi_shot: f32,
     geschick: f32,
+    /// The terror's base (`SchreckenBase`, `0x5903F0`).
+    terror_base: i32,
     /// The dragons' fires on the ground's damages of the four kinds a level (`dragonfire_dmg_ph`,
     /// `_fi`, `_ma` and `_po`, `0x5AF7C5`).
     dragon_fire: [f32; 4],
@@ -724,6 +726,7 @@ impl Default for Rules {
             spell_ranks: [1.4, 1.2],
             multi_shot: 0.83,
             geschick: 200.0,
+            terror_base: 25,
             dragon_fire: [2.0, 2.5, 0.0, 0.0],
             dryad_ghost: [2.0, 2.5, 0.0, 0.0],
             spit: [1.0, 0.0, 0.0, 5.0],
@@ -979,6 +982,7 @@ impl Rules {
             ],
             multi_shot: b.f32("Multipfeil").unwrap_or(default.multi_shot),
             geschick: b.f32("BalanceGeschick").unwrap_or(default.geschick),
+            terror_base: b.i32("SchreckenBase").unwrap_or(default.terror_base),
             dragon_fire: {
                 let kinds = ["ph", "fi", "ma", "po"];
                 std::array::from_fn(|k| {
@@ -1147,6 +1151,21 @@ impl Rules {
     /// The balance's `BalanceGeschick`, over which the attributes add to some arts' factors.
     pub fn geschick(&self) -> f32 {
         self.geschick
+    }
+
+    /// The level on bronze's scale at or below which the look of a hero of level `level`, its
+    /// items' effect 852 of `value` ([`TERROR`]), kills a hostile creature at once ([`terrifies`],
+    /// `0x5903F0`, read 2026-11-08 for #1125): none without the effect; else the per cent
+    /// `⌊v + SchreckenBase/D + 0.5⌋` of its level, rounded, at most 100, `D` the difficulty's
+    /// factor of the sets (`set_bonuses::factor`).
+    pub fn terror_threshold(&self, value: f32, level: u32) -> u32 {
+        if value == 0.0 {
+            return 0;
+        }
+        let factor = f64::from(crate::set_bonuses::factor(self.of));
+        let per_cent = (f64::from(self.terror_base) / factor + f64::from(value) + 0.5).trunc();
+        let threshold = (per_cent * f64::from(0.01_f32) * f64::from(level) + 0.5).trunc();
+        whole_f64(threshold.clamp(0.0, 100.0))
     }
 
     /// The factor of each arrow's damage of a shot of `arrows` arrows, the multi-shot's
@@ -4178,6 +4197,32 @@ pub fn gold_for_health(damage: f32, (value, gold): (f32, u32), rng: &mut impl Di
 /// (`0x357`, `0x4E2616`; #1806).
 pub const CAGING: u32 = 855;
 
+/// The items' effect of the terror (`SCHRECKEN_NEU`, `0x354`), by which the hero's look kills
+/// the weak hostile creatures at once ([`Rules::terror_threshold`], [`terrifies`]).
+pub const TERROR: u32 = 852;
+/// How near the hero its look's terror reaches, and while the hero walks (`0x5474BB`,
+/// `0x5474DE`).
+pub const TERRIFIES_WITHIN: f32 = 800.0;
+pub const TERRIFIES_WALKING: f32 = 400.0;
+
+/// Whether the look of a hero kills a hostile creature at once by its terror (`0x547070` at
+/// `0x5474A7`–`0x54763B`, read 2026-11-08 for #1125): `distance` from the hero below 800, and no
+/// farther than 400 while the hero `walks`; its level on bronze's scale `bronze`
+/// ([`Rules::on_bronze`]) at or below the hero's `threshold` ([`Rules::terror_threshold`]); and
+/// it is no big type, no boss nor champion, and no script holds it (`0x4A71F0`). The look
+/// otherwise wakes it.
+pub fn terrifies(
+    threshold: u32,
+    bronze: u32,
+    (distance, walks): (f32, bool),
+    (big, ranked, held): (bool, bool, bool),
+) -> bool {
+    distance < TERRIFIES_WITHIN
+        && !(walks && distance > TERRIFIES_WALKING)
+        && bronze <= threshold
+        && !(big || ranked || held)
+}
+
 /// The effects of the gold for the health and of the gold pile from a hit (#1779).
 pub const GOLD_FOR_HEALTH: u32 = 866;
 pub const GOLD_PILE: u32 = 856;
@@ -4754,6 +4799,31 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn the_terror_kills_by_a_share_of_the_heros_level_on_bronzes_scale() {
+        let bronze = Rules::at(None, Difficulty::Bronze);
+        let niobium = Rules::at(None, Difficulty::Niobium);
+        // Without the effect, none; of 10 on bronze at level 20, ⌊25 + 10 + 0.5⌋ = 35 per cent of
+        // 20, rounded, the float 0.01 just below a hundredth: 7.
+        assert_eq!(bronze.terror_threshold(0.0, 200), 0);
+        assert_eq!(bronze.terror_threshold(10.0, 20), 7);
+        assert_eq!(bronze.terror_threshold(10.0, 200), 70);
+        assert_eq!(bronze.terror_threshold(10.0, 400), 100);
+        // On niobium ⌊25/2.34 + 10.5⌋ = 21 per cent.
+        assert_eq!(niobium.terror_threshold(10.0, 20), 4);
+        // Within 800, within 400 walking; the bronze level at most the threshold; none of the big,
+        // the bosses and champions, or those a script holds.
+        assert!(terrifies(7, 7, (799.0, false), (false, false, false)));
+        assert!(!terrifies(7, 8, (100.0, false), (false, false, false)));
+        assert!(!terrifies(7, 1, (800.0, false), (false, false, false)));
+        assert!(!terrifies(7, 1, (401.0, true), (false, false, false)));
+        assert!(terrifies(7, 1, (400.0, true), (false, false, false)));
+        assert!(!terrifies(7, 1, (100.0, false), (true, false, false)));
+        assert!(!terrifies(7, 1, (100.0, false), (false, true, false)));
+        assert!(!terrifies(7, 1, (100.0, false), (false, false, true)));
+        assert!(!terrifies(0, 1, (100.0, false), (false, false, false)));
+    }
 
     #[test]
     fn a_dragons_fire_on_the_ground_burns_by_its_level_and_its_skill_2() {

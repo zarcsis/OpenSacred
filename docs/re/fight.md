@@ -470,7 +470,14 @@ The scripts: the `IF` tags `0x96` to `0x9A` hold on bronze to niobium, and `0x9B
 
 The interface shows the difficulty's name (`0x6C6C50`); a sound of a fight (6569, **hypothesis**) starts at once on bronze, else above a measure of 15, 20, 25 or 30 (`0x68BEA0`).
 
-Open: the constants of nine chances of the sets in the strike's resolution (`0x56E9C7`…`0x56EDD6`), the effects 852 and 866, and which mode of `InfoPlayer` marks a difficulty won (841 and 842: docs/re/items.md, "The bonus effects that the code reads").
+**The terror (852).**
+Read 2026-11-08 for #1125 (**confirmed** by code).
+- The threshold (`0x5903F0`, of the hero's stats): without the items' effect 852 (`SCHRECKEN_NEU`, the getter `0x570ED0(0x354, 0)`), 0; else `p = ⌊v + SchreckenBase/D + 0.5⌋` (25, `D` 1.0, 1.34, 1.67, 2.0 or 2.34 from bronze to niobium, the floats at `0x89066C` and `0x890DE8`…`0x890DF0`), and the threshold `⌊p · 0.01 · L + 0.5⌋` held to 0 to 100, `L` the hero's level (`+0x3FE`), the float 0.01 just below a hundredth.
+- The hero's look (`0x547070`, at each look of 0.3 s, docs/re/motions.md, "The fight stance") takes it first, and for each hostile creature that it lists (the categories 2 and 3, alive and hostile to it, `0x548F30`) of an id above 16, where the hero's `+0x200` lacks the bit `0x40000` (not read), within 800 and with its flags word's bit 0 (`0x5474A7`–`0x5474E4`), but farther than 400 while the hero walks (its action 1), compares the threshold with the creature's level on bronze's scale (as `0x5522D0`, `BaseOffLevel` and `OffLevelProz` of the difficulty's column).
+- At most the threshold, and the creature of no big type (`0x426CB0`), no boss (`+0x1F4` bit `0x80000`) nor champion (`+0x2B8` bit `0x40`), and held by no script (`0x4A71F0`): the quests count its kill (`0x4AA630`), its health falls to 0 (`+0x4D8`, `+0x4D4`), it is disarmed (`0x4E9900`, its weapon thrown to the ground) where `rand() % 101` falls below the hero's level less its own, and it dies, the hero its killer (the AI's state 9, `+0x100` the hero's id, `+0xB0 |= 2`; on a network the event `0x17D`); otherwise the look wakes it (`sdk_WAKE`).
+- `opensacred-game` follows it since #1125 (`opensacred_rules::fight::{TERROR, Rules::terror_threshold, terrifies}`, `fight::terrify`): the creature falls as the hero's kill, its experience, its drops and its rising as the command `kill` makes them, but its disarming, the game throwing no item to the ground yet; the hero's bit `0x40000` is not followed.
+
+Open: the constants of nine chances of the sets in the strike's resolution (`0x56E9C7`…`0x56EDD6`), the effect 866, and which mode of `InfoPlayer` marks a difficulty won (841 and 842: docs/re/items.md, "The bonus effects that the code reads").
 
 ## The undead that rise again
 
