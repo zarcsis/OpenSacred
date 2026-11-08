@@ -1253,8 +1253,9 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
         made
     };
     // The dagger at level 7, of the maker's key 6 for the pass's key 10, its damage's rolls, its
-    // sockets' failed and its name's roll.
-    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0, 999, 1]).unwrap();
+    // sockets' failed, the quality pass's (the value 6 shared out as five more steps of one slot
+    // and its kind 8 by a roll below 120, which no list of the family gives) and its name's roll.
+    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0, 999, 0, 0, 0, 0, 0, 0, 1]).unwrap();
     assert_eq!(
         (dagger.kind, dagger.level, dagger.key, dagger.quality),
         (Kind::Weapon, 7, 10, 6)
@@ -1268,12 +1269,12 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
             .quality,
         0
     );
-    assert_eq!(
-        throw(DAGGER, 1, &[0, 0, 0, 0, 0, 0, 999, 0])
-            .unwrap()
-            .quality,
-        14
-    );
+    let mut rolls = vec![0; 6];
+    rolls.push(999);
+    // The value 25 shared out: 24 more steps of one slot and its kind 8.
+    rolls.extend([0; 25]);
+    rolls.push(0);
+    assert_eq!(throw(DAGGER, 1, &rolls).unwrap().quality, 14);
     // Gold of the amount asked, a potion as it is, a rune as it is (#1183).
     let gold = throw(GOLD[2], 16, &[]).unwrap();
     assert_eq!((gold.kind, gold.amount, gold.level), (Kind::Gold, 250, 0));
@@ -1299,8 +1300,9 @@ fn a_keyed_item_takes_the_makers_key_and_level_as_they_are() {
     };
     let catalogue = catalogue(&[(DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])), (5171, 9, bare)]);
     // Its damage's rolls, two sockets of the dagger's three (the third's roll failed), their
-    // kinds on bronze, and its name's roll.
-    let mut dice = script(&[0, 0, 0, 0, 0, 0, 0, 0, 999, 250, 0, 1]);
+    // kinds on bronze, the quality pass's (the value 3 at the sockets' factor 1.2: two steps
+    // more and the kind 8), and its name's roll.
+    let mut dice = script(&[0, 0, 0, 0, 0, 0, 0, 0, 999, 250, 0, 0, 0, 0, 1]);
     let dagger = keyed(
         (&catalogue, &templates),
         (&Sockets::default(), Difficulty::Bronze),

@@ -55,11 +55,6 @@ const MAGE_STAFF: usize = 24;
 const GLOVES: usize = 27;
 /// The class 32's word.
 const CANNON: &str = "Kanone";
-/// The quality of a made item's record (`+0x04` bits 16–19), which the quality pass `0x5D2E40`
-/// writes after the maker's bonuses and sockets: its sockets are rolled ([`super::Sockets`]), but
-/// the factor they raise goes into the quality with the bonuses, which are not followed (#1367),
-/// so every made item is of the quality 0.
-const MADE_QUALITY: u32 = 0;
 /// The effects' records of the balance's image from `+0x9DC`, of six floats each (`0x5E22B0`):
 /// the effects 800 to 869, then those below 200, those above 999, 600 to 799, and the others.
 pub(super) const NORMS: usize = 74;
@@ -150,7 +145,7 @@ pub fn name(
     };
     let composed = format!(
         "Gen_{}{}{word}",
-        band(MADE_QUALITY),
+        band(u32::from(values.quality)),
         element_word(element(values))
     );
     let jewel = matches!(catalogue.categories.get(&root), Some(8 | 20));

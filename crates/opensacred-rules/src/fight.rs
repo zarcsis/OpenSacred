@@ -1446,6 +1446,10 @@ pub struct ItemValues {
     /// what its maker's triples wrote; 0 for none.
     #[serde(default)]
     pub skill: [u8; 2],
+    /// Its quality (`+0x04` bits 16–19): its record's, or what the item maker's quality pass
+    /// gave it (`crate::drops::quality`, #2267), 15 a unique's.
+    #[serde(default)]
+    pub quality: u8,
 }
 
 /// How many bonus slots an item's record has.
@@ -1792,6 +1796,7 @@ impl ItemValues {
             classes: (u32::from(word(0x04)) | (u32::from(word(0x06)) << 16))
                 & (crate::equipment::CLASSES | crate::equipment::NO_CLASS),
             skill: word(0x1A).to_le_bytes(),
+            quality: u8::try_from(word(0x06) & 0xF).unwrap_or(0),
         }
     }
 }
@@ -2008,6 +2013,11 @@ impl Templates {
             }
         }
         Some((values, raised))
+    }
+
+    /// The effects' records of the balance's image, which the quality pass weighs the bonuses by.
+    pub(crate) fn norms(&self) -> &[[f32; 6]] {
+        &self.norms
     }
 
     /// The words 38 to 40 of the template of an item of type `item`, read as signed
@@ -2984,7 +2994,7 @@ fn turn_damage(damage: &mut [[f32; 2]; KINDS], turns: &Effect) {
 
 /// The effects' ids that the recomputation follows (`0x5796A0`, its loop over the list after the
 /// items and the record's bonuses, before the skills).
-mod magic;
+pub(crate) mod magic;
 
 pub mod effects {
     /// `A`'s multiplier (`+0xE6`) and `D`'s (`+0xEA`), plus the value.
@@ -6841,6 +6851,7 @@ mod tests {
                 sockets: [1, 3, 0, 0, 0, 0, 0, 0],
                 classes: 0,
                 skill: [0; 2],
+                quality: 0,
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());

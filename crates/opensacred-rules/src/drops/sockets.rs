@@ -24,7 +24,7 @@ const MOST: [u32; 33] = [
 /// The balance's rules of the sockets: the chances per mille of the first socket and of each
 /// next (`SlotFeasibility`, `SlotFeasibility2`), what a merchant's item adds to the first's
 /// (`SlotProbBonusMerchant`, docs/re/trade.md), and the most sockets of each family.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Sockets {
     chances: [u32; 2],
     merchant: u32,
@@ -32,6 +32,11 @@ pub struct Sockets {
     /// word 38): the item maker's table of the sockets and the effects (`0x440470`), which the
     /// families' own lists of `scripts\waffenmod.txt` would come first in, a file not shipped.
     most: Vec<(u8, u32)>,
+    /// Each family's whole list of the table: its records after the first, the effects' ranges
+    /// that the quality pass may give (`0x440470`, #2267).
+    lists: Vec<(u8, Vec<[u32; 3]>)>,
+    /// The quality pass's values ([`super::quality::Quality`]).
+    pub quality: super::quality::Quality,
 }
 
 impl Default for Sockets {
@@ -41,6 +46,8 @@ impl Default for Sockets {
             chances: [250, 333],
             merchant: 0,
             most: (0..).zip(MOST).collect(),
+            lists: Vec::new(),
+            quality: super::quality::Quality::default(),
         }
     }
 }
@@ -75,7 +82,21 @@ impl Sockets {
                     })
                     .collect()
             },
+            lists: b
+                .tail_1
+                .iter()
+                .filter_map(|list| Some((u8::try_from(list.key).ok()?, list.records.clone())))
+                .collect(),
+            quality: super::quality::Quality::of(balance),
         }
+    }
+
+    /// The table's list of the family `family` (`0x440470`), empty for a family of none.
+    pub fn table(&self, family: u8) -> &[[u32; 3]] {
+        self.lists
+            .iter()
+            .find(|(f, _)| *f == family)
+            .map_or(&[][..], |(_, records)| records.as_slice())
     }
 
     /// The sockets' kinds that the pass rolls for an item of category `category` and of the

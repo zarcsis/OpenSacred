@@ -18,6 +18,7 @@ use crate::fight::{self, ItemValues, Rank, Templates};
 use crate::spawning::Dice;
 
 mod names;
+pub mod quality;
 mod sockets;
 pub use names::name;
 pub(crate) use names::{norm, norms};
@@ -2347,6 +2348,19 @@ fn socket(
     let family = templates.made_family(drop.item).unwrap_or(u8::MAX);
     let category = catalogue.category(drop.item).unwrap_or(0);
     values.sockets = sockets.roll((family, category), difficulty, merchant, dice);
+    // The rest of the pass: the quality of the maker's key's value shared out (#2267).
+    let making = quality::Making {
+        item: drop.item,
+        category,
+        family,
+        ranged: matches!(catalogue.weapon_kind(drop.item), 7 | 12 | 13 | 14),
+        level: drop.level,
+        difficulty,
+        table: sockets.table(family),
+        norms: templates.norms(),
+    };
+    let q = sockets.quality.value(u32::from(drop.quality));
+    quality::pass(values, q, &making, &sockets.quality, dice);
 }
 
 /// The types that never drop (`0x533BA8`): 71 and 75, `small_spider.grn` and `med_spider.grn`
