@@ -628,13 +628,7 @@ fn level_factor(id: u16, l: f64, (w50, w58): (f64, f64), weapon: &WeaponArt) -> 
 /// two-handed weapon only.
 fn restriction(spell: Option<u8>, weapon: Option<u8>) -> Option<&'static str> {
     // Whether it may be made on horseback, with a bow (`b`) or not (`0x4D25A0`, `0x4D1BE0`).
-    let may = |flags: u8, bow: bool| {
-        if flags & 2 == 0 || bow {
-            flags & 1 == 0
-        } else {
-            false
-        }
-    };
+    let may = opensacred_rules::arts::on_horseback;
     let mut kind = 0;
     for flags in [spell, weapon].into_iter().flatten() {
         if !may(flags, false) {

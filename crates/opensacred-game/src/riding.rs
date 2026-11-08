@@ -335,6 +335,13 @@ fn saddle(
     }
 }
 
+/// Whether the hero rides, and holds a bow or a crossbow where it does, for the arts' test of
+/// horseback (`0x54FC20`, `0x52FEEB`); none on foot.
+pub fn riding_with(seat: Option<&Seat>, holding: Option<&crate::fight::Holding>) -> Option<bool> {
+    seat.and_then(Seat::ridden)
+        .map(|_| holding.is_some_and(|holding| holding.0.ranged))
+}
+
 /// The rider's type and skill 22, by which it may ride a horse (`0x4267D0`).
 fn rider(hero: &Hero, arts: Option<&crate::arts::HeroArts>) -> (u32, u32) {
     let riding = arts

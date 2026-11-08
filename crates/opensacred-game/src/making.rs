@@ -159,6 +159,8 @@ pub fn clips(
         Style::Cast(162),
         Style::Cast(163),
         Style::Cast(164),
+        Style::Cast(197),
+        Style::Cast(199),
         Style::Smite,
         Style::Blades,
         Style::Throw,
@@ -257,13 +259,16 @@ pub(crate) fn first_art(arts: &HeroArts) -> Option<u16> {
 
 /// Whether the hero may make `art` now: it holds it, it is ready, its action is read, no effect
 /// holds on it that refuses it (`effects`, `arts::refused_while`), and it wears the cannon that
-/// its art wants (`pack`'s slot 14, `arts::wants_cannon`; `0x51D840`).
+/// its art wants (`pack`'s slot 14, `arts::wants_cannon`; `0x51D840`); riding (`riding`, with a
+/// bow or a crossbow in hand or not), an art that may be made on horseback alone
+/// (`HeroArts::on_horseback`; the others go to the horse, whose trample is not made yet, #2302).
 pub fn may_make(
     arts: &HeroArts,
     art: u16,
-    (effects, pack): (
+    (effects, pack, riding): (
         Option<&crate::effects::Effects>,
         Option<&crate::pickup::Pack>,
+        Option<bool>,
     ),
 ) -> Result<(), String> {
     if arts.arts.get(art).is_none() {
@@ -286,6 +291,11 @@ pub fn may_make(
         .is_some_and(Option::is_some);
     if arts::wants_cannon(art) && !cannon {
         return Err(format!("{art} wants a cannon worn"));
+    }
+    if let Some(bow) = riding
+        && !arts.on_horseback(art, bow)
+    {
+        return Err(format!("{art} is not made on horseback"));
     }
     Ok(())
 }
@@ -320,12 +330,14 @@ pub(crate) fn aim(
             &mut Body,
             Has<Playing>,
             Option<&crate::effects::Effects>,
+            Option<&crate::riding::Seat>,
+            Option<&fight::Holding>,
         ),
         Without<Dies>,
     >,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        for (hero, _, _, playing, _) in &heroes {
+        for (hero, _, _, playing, ..) in &heroes {
             if !playing {
                 commands.entity(hero).remove::<Making>();
             }
@@ -364,7 +376,7 @@ pub(crate) fn aim(
         .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
         .min_by(|a, b| a.2.total_cmp(&b.2));
     let selected = art;
-    for (hero, at, mut body, playing, effects) in &mut heroes {
+    for (hero, at, mut body, playing, effects, seat, holding) in &mut heroes {
         if playing {
             continue;
         }
@@ -418,7 +430,8 @@ pub(crate) fn aim(
             (Some(0), _, None) if spell => (hero, ground),
             _ => continue,
         };
-        match may_make(&arts, art, (effects, pack.as_deref())) {
+        let riding = crate::riding::riding_with(seat, holding);
+        match may_make(&arts, art, (effects, pack.as_deref(), riding)) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
                 let target = if matches!(
@@ -566,6 +579,7 @@ fn make(
             Option<&hero::Size>,
             Option<&fight::Holding>,
             Option<&fight::Frenzy>,
+            Option<&crate::riding::Seat>,
         ),
         Without<Dies>,
     >,
@@ -599,9 +613,12 @@ fn make(
         return;
     };
     let by_day = clock.is_none_or(|clock| clock.phase() == crate::daynight::Phase::Day);
-    for (hero, mut transform, mut body, making, playing, combat, size, holding, frenzy) in
+    for (hero, mut transform, mut body, making, playing, combat, size, holding, frenzy, seat) in
         &mut heroes
     {
+        // From the saddle its spells take the rider's clips, its `Hardhit` the rider's 194, and
+        // it does not turn to its target (#2302).
+        let riding = seat.is_some_and(|seat| seat.ridden().is_some());
         // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
         let size = size.map_or(minds::SIZE, |size| size.0);
         let reach = |mind: &Mind| minds::reach(size, mind.size());
@@ -616,6 +633,12 @@ fn make(
         };
         let Some(mut playing) = playing else {
             if let Some(Style::Cast(slot)) = arts::style(making.art) {
+                // A rider's cast plays its own slot (`0x522030`).
+                let slot = if riding {
+                    spells::riding_slot(making.art)
+                } else {
+                    slot
+                };
                 // A spell is cast where the hero stands (its order's reach not read), the
                 // fireball turning it to its target's place, or its point (`0x51E110`), with
                 // the clip of its slot, blended in over 0.2, at its casts' speed (`+0x3E`).
@@ -626,7 +649,7 @@ fn make(
                         .map_or(here, |(_, at, ..)| at.translation())
                 });
                 let toward = (point - here).with_y(0.0);
-                if spells::turns(making.art) && toward.length() > f32::EPSILON {
+                if !riding && spells::turns(making.art) && toward.length() > f32::EPSILON {
                     transform.rotation = hero::facing(toward);
                 }
                 let level = making.level.or_else(|| {
@@ -751,7 +774,9 @@ fn make(
                     body.send_to(target, onto);
                     continue;
                 }
-                transform.rotation = hero::facing((target - here).with_y(0.0));
+                if !riding {
+                    transform.rotation = hero::facing((target - here).with_y(0.0));
+                }
             }
             body.stop();
             // A combo's step at its own level (`0x56ABE0`).
@@ -883,8 +908,17 @@ fn make(
                 end(&mut commands);
                 continue;
             };
+            // From the saddle a `Hardhit` plays the rider's 194 at the rate 1.0 (the Gladiator's
+            // `0x4FF0B0` at `0x502B01`, the Seraphim's `0x5038F0` at `0x505EC6`, the Wood Elf's
+            // `0x50AC00` at `0x50C35D`, the others' alike), at its first hit.
+            let saddle = (riding && style == Style::Hardhit)
+                .then_some(clips.riding_attack.as_ref())
+                .flatten();
             // The art's clip, or one of the attack's at random for the Seraphim's `Hardhit`.
             let (node, clip, mut points) = match (action.node, &action.clip) {
+                _ if let Some((node, clip, fractions)) = saddle => {
+                    (*node, clip.clone(), vec![fractions[0]])
+                }
                 (Some(node), Some(clip)) => (node, clip.clone(), action.points.clone()),
                 _ => {
                     let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
@@ -975,7 +1009,7 @@ fn make(
                     arts::jump_rate(whole_distance(here, point))
                 };
             }
-            let played = if action.fixed {
+            let played = if action.fixed || saddle.is_some() {
                 speed.0 * rate
             } else {
                 speed.0 * clip_speed * rate

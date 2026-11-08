@@ -782,6 +782,16 @@ pub fn slot(spell: u16) -> u16 {
     crate::casts::clip(spell, 0, false)
 }
 
+/// The slot of the clip that a rider plays for the spell `spell` (`0x522030`, a creature of
+/// `+0x14` bit 2 with a mount): 199 for the spells 1, 2, 4, 7, 21, 22, 24, 27, 30 to 32, 37 and
+/// 42, 197 for every other (#2302).
+pub fn riding_slot(spell: u16) -> u16 {
+    match spell {
+        1 | 2 | 4 | 7 | 21 | 22 | 24 | 27 | 30..=32 | 37 | 42 => 199,
+        _ => 197,
+    }
+}
+
 /// The share of its clip still to play below which the spell `spell` acts (`0x521D60`, its
 /// doubles by the spell): 0.66 for the fireball, 0.56 for the stone skin (2), 0.5 for the
 /// healing (7), 0.35 for the regeneration (32); none for 9 and 10, whose case acts otherwise
@@ -1173,6 +1183,9 @@ mod tests {
         );
         assert_eq!((slot(FIRE_SKIN), slot(6)), (162, 164));
         assert_eq!(slot(PURGATORY), 154);
+        // From the saddle, 199 for its list, else 197 (#2302).
+        assert_eq!((riding_slot(HEALING), riding_slot(HOLY_SHIELD)), (199, 199));
+        assert_eq!((riding_slot(FIREBALL), riding_slot(LIGHTNING)), (197, 197));
     }
 
     #[test]

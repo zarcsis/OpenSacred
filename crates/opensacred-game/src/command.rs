@@ -1545,9 +1545,18 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     let art = art
                         .or(world.resource::<crate::making::Selected>().0)
                         .ok_or("no art is selected")?;
-                    let mut heroes =
-                        world.query_filtered::<Option<&crate::effects::Effects>, With<Body>>();
-                    let effects = heroes.iter(world).next().flatten().cloned();
+                    let mut heroes = world.query_filtered::<(
+                        Option<&crate::effects::Effects>,
+                        Option<&crate::riding::Seat>,
+                        Option<&crate::fight::Holding>,
+                    ), With<Body>>();
+                    let (effects, riding) = heroes
+                        .iter(world)
+                        .next()
+                        .map(|(effects, seat, holding)| {
+                            (effects.cloned(), crate::riding::riding_with(seat, holding))
+                        })
+                        .unwrap_or_default();
                     // The art of the hero's form for the one asked, as the right button takes it
                     // (`0x552370`).
                     let kind = world.resource::<crate::arts::HeroArts>().kind;
@@ -1562,6 +1571,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                         (
                             effects.as_ref(),
                             world.get_resource::<crate::pickup::Pack>(),
+                            riding,
                         ),
                     )?;
                     first.push(make_art(world, art)?);
