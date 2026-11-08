@@ -272,6 +272,7 @@ fn choose(
         &Transform,
         &Body,
         Option<&crate::effects::Effects>,
+        Option<&crate::riding::Seat>,
     )>,
     (selected, arts, pack, mut glow): (
         Res<crate::making::Selected>,
@@ -387,7 +388,7 @@ fn choose(
             })
             .or_else(|| {
                 let (heights, buildings) = (heights.as_deref()?, buildings.as_deref()?);
-                let (_, transform, body, _) = hero?;
+                let (_, transform, body, ..) = hero?;
                 let height = transform.translation.y;
                 let picked = pick::pick(ray, heights, buildings, (height, body.level()))?;
                 let cell = paths::cell_of(picked.point.x, picked.point.z);
@@ -411,12 +412,15 @@ fn choose(
     let glows = in_world
         && pack.as_ref().is_none_or(|pack| pack.held.is_none())
         && selected.0.zip(arts.as_deref()).is_some_and(|(art, arts)| {
-            let effects = heroes.iter().next().and_then(|(.., effects)| effects);
+            let hero = heroes.iter().next();
+            let effects = hero.and_then(|(.., effects, _)| effects);
+            let riding =
+                hero.and_then(|(holding, .., seat)| crate::riding::riding_with(seat, holding));
             // The art of the hero's form for the selected one (`0x552370`).
             let art = opensacred_rules::arts::right_button(art, arts.kind, |key| {
                 effects.is_some_and(|effects| effects.holds_any(&[key]))
             });
-            crate::making::may_make(arts, art, (effects, pack.as_deref())).is_ok()
+            crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
                 && admits(crate::making::launch(arts, art), foe_under.is_some())
         });
     glow.set_if_neq(Glow(glows));

@@ -666,6 +666,18 @@ pub fn refused_while(art: u16) -> &'static [u16] {
     }
 }
 
+/// Whether an art of the flags `flags` (the spell's `+0x90`, the weapon art's `+0x74`) may be made
+/// on horseback, its rider holding a bow or a crossbow where `bow` (`0x4D25A0`, `0x4D1BE0`): with
+/// the bit 1 (on horseback only with a bow) and no bow, never; else where the bit 0 (not on
+/// horseback) is clear.
+pub fn on_horseback(flags: u8, bow: bool) -> bool {
+    if flags & 2 == 0 || bow {
+        flags & 1 == 0
+    } else {
+        false
+    }
+}
+
 /// How the art `art` strikes: the classes' own `Rundum`, `Hardhit`, `Attacke` and `Kick`, which
 /// `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the Gladiator's 1057 to 1060 and
 /// the Seraphim's 1069 to 1072 read in their executors, the others' `Attacke` by the same test of

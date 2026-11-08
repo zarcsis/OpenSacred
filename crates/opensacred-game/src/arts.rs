@@ -40,6 +40,27 @@ pub struct HeroArts {
 }
 
 impl HeroArts {
+    /// Whether the art `art` may be made on horseback, the hero holding a bow or a crossbow where
+    /// `bow`, by its own record's flags (a spell's, else a weapon art's; `0x52FEEB`,
+    /// [`opensacred_rules::arts::on_horseback`]); an art of no record may.
+    pub fn on_horseback(&self, art: u16, bow: bool) -> bool {
+        let flags = self
+            .tables
+            .spells
+            .iter()
+            .find(|spell| spell.id == art)
+            .map(|spell| spell.flags)
+            .or_else(|| {
+                self.tables
+                    .weapon_arts
+                    .iter()
+                    .find(|weapon| weapon.id == art)
+                    .map(|weapon| weapon.flags)
+            })
+            .unwrap_or(0);
+        opensacred_rules::arts::on_horseback(flags, bow)
+    }
+
     /// The arts of a new game of the hero of creature type `kind` and skills `skills`, of its
     /// template's `template`; the tables of `assets`, or none where `tables/arts.ron` is lacking
     /// (assets of a converter before #505), the arts then keeping their template's times; the
