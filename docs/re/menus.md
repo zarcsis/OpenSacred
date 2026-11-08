@@ -96,7 +96,7 @@ Back returns to the main menu.
 
 The Underworld Campaign shows the same picture with no class's figures: on the pedestals stand the heroes saved in `save/` (`hero*.pax`, docs/02 §9), each labelled with its class and its level, and the free pedestals are labelled `<empty>`, a click on one doing nothing.
 The GOG installation ships two of them, a Dwarf and a Daemon of level 29 (`save/hero06.pax`, `hero07.pax`, docs/02 §13), which stand on the two right pedestals.
-Start Game is greyed until a hero is chosen; what a chosen hero's game starts with is not read.
+Start Game is greyed until a hero of level 25 or more is chosen; what a chosen hero's game starts with, the export that writes a hero and the deletion are in docs/re/underworld.md (#1675).
 
 ## The water
 
