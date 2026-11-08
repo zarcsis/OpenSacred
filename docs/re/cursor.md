@@ -52,7 +52,7 @@ Status: **confirmed** by code unless marked otherwise; **seen** where the runnin
 For a horse that the hero does not take for a foe, its owner the creature of the id `+0x570`:
 
 - It may be ridden (`0x4267D0`) unless the hero is the Dwarf (the type 8), where the hero's skill 22 (`0x582450`; **hypothesis**: riding) reaches what the horse's query `0xD` asks and the horse's `+0x1F4` has none of the bits `0xF0`.
-- Where the owner is none or no player's hero (`0x426650`) and the horse's query 5 is not 0, a text (`0x55C9F0`; **hypothesis**: its price) is drawn 32 pixels above the cursor.
+- Where the owner is none or no player's hero (`0x426650`) and the horse is alive (its query 5, `0x549080`), its description (`0x55C9F0`: its class, its price, its level, its pace, its trample's values, its health bonus, its resistances and the riding needed, docs/re/horses.md) is drawn 32 pixels above the cursor.
 - Not to be ridden: **`MOUSE_STEALHORSEFAIL.TGA`** where its owner is no horse trader (`+0x200` bit `0x4000000` clear) in a game of one player, else **`MOUSE_CANTRIDE.TGA`**.
 - To be ridden: the horse trader's horse **`MOUSE_HORSETRADER.TGA`**; another's horse (an owner other than the local player) **`MOUSE_STEALHORSE.TGA`** (the Dwarf `MOUSE_CANTRIDE.TGA`); a horse of no owner or the hero's own **`MOUSE_RIDE.TGA`** where its query 5 is not 0, but while the hero rides (`0x54FC20`: `+0x14` bit 2 and a mount) only with Shift held; else the default.
 - A horse that the hero takes for a foe is a creature as any other.
