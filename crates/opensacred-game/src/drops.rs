@@ -154,7 +154,7 @@ impl Tables {
                     .collect()
             })
             .unwrap_or_default();
-        let templates = fight::Templates::new(&modifiers, weapons);
+        let templates = fight::Templates::new(&modifiers, weapons).with_balance(balance);
         // The runes that the drops draw from (#1183), none from assets made before them.
         let runes: Vec<u32> = table(assets, RUNES).unwrap_or_else(|e| {
             warn!("drops: {e}; no runes drop");

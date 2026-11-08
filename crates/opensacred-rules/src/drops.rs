@@ -1167,14 +1167,7 @@ impl Catalogue {
     /// triples'; none of them, those of its model's name ([`crate::equipment::named_classes`]),
     /// else every class's. The bit `0x40` of the record never stays.
     pub fn made_classes(&self, item: u32, triples: u32) -> u32 {
-        let kept = match self.category(item) {
-            Some(5 | 8 | 13) => 0,
-            _ => self
-                .records
-                .get(&item)
-                .map_or(0, |record| record.flags & crate::equipment::CLASSES),
-        };
-        let classes = kept | triples;
+        let classes = self.kept_classes(item) | triples;
         if classes != 0 {
             return classes;
         }
@@ -1183,6 +1176,18 @@ impl Catalogue {
         match crate::equipment::named_classes(item, root, model) {
             0 => crate::equipment::CLASSES,
             named => named,
+        }
+    }
+
+    /// The class bits of the record of `item` that the item maker keeps (`0x5D5080`): none for a
+    /// weapon, a shield or a ring (the categories 5, 13 and 8), else its record's.
+    pub fn kept_classes(&self, item: u32) -> u32 {
+        match self.category(item) {
+            Some(5 | 8 | 13) => 0,
+            _ => self
+                .records
+                .get(&item)
+                .map_or(0, |record| record.flags & crate::equipment::CLASSES),
         }
     }
 
@@ -1781,7 +1786,8 @@ fn made(
     (item, level, difficulty): (u32, u32, Difficulty),
     dice: &mut impl Dice,
 ) -> Option<crate::fight::ItemValues> {
-    let mut values = templates.make(item, level, difficulty, dice)?;
+    let kept = catalogue.kept_classes(item);
+    let mut values = templates.make(item, level, (difficulty, kept), dice)?;
     values.classes = catalogue.made_classes(item, values.classes);
     Some(values)
 }
