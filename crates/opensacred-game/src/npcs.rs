@@ -5400,6 +5400,7 @@ fn rearms_for(hands: &[(u32, Hand, Option<fight::ItemValues>)], made: &[InHand])
     let mut rearms = Rearms {
         away: Vec::new(),
         takes: Vec::new(),
+        disarmed: false,
     };
     for hand in [Hand::Left, Hand::Right] {
         let held = hands.iter().find(|&&(_, held, _)| held == hand);
@@ -10163,6 +10164,9 @@ impl Arms {
 pub struct Rearms {
     away: Vec<Hand>,
     takes: Vec<(u32, Hand, Option<fight::ItemValues>)>,
+    /// Whether it is disarmed (`0x4E9900`, #2298): its values made anew keep a share alone
+    /// (`opensacred_rules::fight::disarmed`).
+    disarmed: bool,
 }
 
 impl Rearms {
@@ -10178,6 +10182,7 @@ impl Rearms {
                 .map(|weapon| (weapon, Hand::Right, None))
                 .into_iter()
                 .collect(),
+            disarmed: false,
         }
     }
 
@@ -10187,6 +10192,7 @@ impl Rearms {
         Self {
             away: vec![Hand::Right, Hand::Left],
             takes: vec![(bow, Hand::Left, None)],
+            disarmed: false,
         }
     }
 
@@ -10201,6 +10207,17 @@ impl Rearms {
                 }
                 opensacred_rules::minds::Torch::PutsAway => Vec::new(),
             },
+            disarmed: false,
+        }
+    }
+
+    /// A disarming (`0x4E9900`, #2298): what `hand` holds thrown away, its values made anew of
+    /// what it holds then, of which it keeps a share alone.
+    fn disarm(hand: Hand) -> Self {
+        Self {
+            away: vec![hand],
+            takes: Vec::new(),
+            disarmed: true,
         }
     }
 
@@ -10220,7 +10237,67 @@ impl Rearms {
                 .and_then(|(item, slot, values)| Some((item, Hand::of_slot(slot)?, Some(values))))
                 .into_iter()
                 .collect(),
+            disarmed: false,
         }
+    }
+}
+
+/// Disarms `entity` (`0x4E9900`, read 2026-11-08 for #2298): an NPC that is no follower of the
+/// hero's throws down what its right hand holds, else its left (the slots 13 and 12), from its
+/// model's place, the item with its values ([`crate::drops::throw_disarmed`]); a living one's
+/// values are made anew of what it holds then, of which it keeps a share
+/// (`opensacred_rules::fight::disarmed`), a dying one's model alone goes. Its items of the slots
+/// 1 and 0, which the original takes where its hands are empty, are not followed: no NPC of the
+/// game holds an item in them.
+pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
+    if world.get::<crate::followers::Follower>(entity).is_some() {
+        return;
+    }
+    let Some(arms) = world.get::<Arms>(entity) else {
+        return;
+    };
+    let held = |hand: Hand| {
+        arms.holding
+            .iter()
+            .find(|(held, _)| held.hand == hand)
+            .map(|&(held, values)| (held, values))
+    };
+    let Some((held, values)) = held(Hand::Right).or_else(|| held(Hand::Left)) else {
+        return;
+    };
+    let level = world.get::<ai::Mind>(entity).map_or(1, |mind| mind.level);
+    let floor = world
+        .get::<crowd::InTheWay>(entity)
+        .and_then(|way| way.level);
+    let mut models = world.query::<(Entity, &Wielded, &models::OrderedWith, &GlobalTransform)>();
+    let model = models
+        .iter(world)
+        .find(|(_, wielded, by, _)| by.0 == entity && wielded.0 == held.hand)
+        .map(|(model, _, _, at)| (model, at.translation()));
+    let at = model.map(|(_, at)| at).or_else(|| {
+        world
+            .get::<GlobalTransform>(entity)
+            .map(GlobalTransform::translation)
+    });
+    let Some(at) = at else {
+        return;
+    };
+    bevy::log::debug!("npcs: {entity} is disarmed of {}", held.item);
+    if world.get::<Dies>(entity).is_some() {
+        if let Some((model, _)) = model {
+            world.despawn(model);
+        }
+        if let Some(mut arms) = world.get_mut::<Arms>(entity) {
+            arms.holding.retain(|(other, _)| other.hand != held.hand);
+        }
+    } else {
+        world.entity_mut(entity).insert(Rearms::disarm(held.hand));
+    }
+    if let Err(error) = world.run_system_cached_with(
+        crate::drops::throw_disarmed,
+        ((held.item, level, values), (at, floor)),
+    ) {
+        bevy::log::warn!("npcs: {entity}'s weapon is not thrown down: {error}");
     }
 }
 
@@ -10323,6 +10400,10 @@ fn rearm(
         // Its pace by what it holds now, and its walk and run by it.
         repace(&mut mind, &mut npc, values.0.pace_factor());
         *combat = values;
+        // A disarmed one keeps a share of them (`0x4E9900`, #2298).
+        if rearms.disarmed {
+            combat.0 = opensacred_rules::fight::disarmed(combat.0);
+        }
         npc.share = share;
         let in_hands: Vec<InHand> = arms.holding.iter().map(|&(held, _)| held).collect();
         npc.hands_empty = in_hands.is_empty();
@@ -12191,6 +12272,51 @@ mod tests {
         assert!(!Until::Mode.holds(None, 0.0));
         assert!(!Until::Bit.holds(None, 0.0));
         assert!(Until::Busy.stops() && !time.stops());
+    }
+
+    #[test]
+    fn a_disarmed_creature_throws_down_its_right_hands_weapon_first() {
+        let held = |item, hand| {
+            (
+                InHand {
+                    item,
+                    category: WEAPON,
+                    kind: Some(1),
+                    hand,
+                },
+                None,
+            )
+        };
+        let arms = || Arms {
+            base: fight::Base::default(),
+            plain: false,
+            model: String::new(),
+            holding: vec![held(3001, Hand::Left), held(3002, Hand::Right)],
+            worn: Vec::new(),
+        };
+        let mut world = bevy::prelude::World::new();
+        let living = world.spawn((arms(), GlobalTransform::default())).id();
+        let dying = world
+            .spawn((arms(), GlobalTransform::default(), Dies::new(0)))
+            .id();
+        let follower = world.spawn((arms(), GlobalTransform::default())).id();
+        crate::followers::rehire(&mut world, follower, living, false);
+        // The drops' tables are not read here: the weapons are not thrown, the hands empty all
+        // the same.
+        disarm(&mut world, living);
+        disarm(&mut world, dying);
+        disarm(&mut world, follower);
+        let rearms = world.get::<Rearms>(living).unwrap();
+        assert!(rearms.disarmed && rearms.away == [Hand::Right] && rearms.takes.is_empty());
+        let kept: Vec<u32> = world
+            .get::<Arms>(dying)
+            .unwrap()
+            .holding
+            .iter()
+            .map(|(held, _)| held.item)
+            .collect();
+        assert_eq!(kept, [3001]);
+        assert!(world.get::<Rearms>(dying).is_none() && world.get::<Rearms>(follower).is_none());
     }
 
     #[test]

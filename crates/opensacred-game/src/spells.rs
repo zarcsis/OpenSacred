@@ -74,6 +74,11 @@ struct Aura {
     strikes: Strikes,
 }
 
+/// The level of a gust's spell, whose object disarms the creatures it strikes by its roll
+/// (`spells::gust_disarms`, #2298).
+#[derive(Component, Clone, Copy, Debug)]
+struct Disarms(u32);
+
 /// Whom an [`Aura`] strikes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Strikes {
@@ -1309,6 +1314,7 @@ pub(crate) fn strikes_about(
             bearer: follows,
         });
     } else if record.id == spells::GUST {
+        made.insert(Disarms(level));
         made.insert(crate::twisters::Look {
             bearer: follows,
             seconds: fight_seconds(spells::value(record, 0, level)),
@@ -2313,7 +2319,7 @@ fn strike(
     (time, heights): (Res<Time>, Res<crate::terrain::Heights>),
     mut dice: ResMut<Dice>,
     heroes: Query<&GlobalTransform, (With<Body>, Without<Aura>)>,
-    mut auras: Query<(Entity, &mut Aura, &mut Transform)>,
+    mut auras: Query<(Entity, &mut Aura, &mut Transform, Option<&Disarms>)>,
     bearers: Query<&GlobalTransform, (Without<Aura>, Without<Dies>)>,
     bodies: Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
     creatures: Query<
@@ -2334,7 +2340,7 @@ fn strike(
     // The creatures given an effect keyed by a spell in this frame, which the adder would find
     // holding it for the next object.
     let mut given: Vec<(Entity, u16)> = Vec::new();
-    for (entity, mut aura, mut transform) in &mut auras {
+    for (entity, mut aura, mut transform, disarms) in &mut auras {
         aura.left -= dt;
         let bearer = aura.follows.map(|bearer| bearers.get(bearer));
         if aura.left <= 0.0 || bearer.as_ref().is_some_and(Result::is_err) {
@@ -2506,6 +2512,13 @@ fn strike(
         for target in struck {
             if aura.key == FIRE_SKIN {
                 crate::burning_bones::burn(&mut commands, target);
+            }
+            // The gust's roll to disarm each (`0x5ACFEF`, #2298).
+            if let Some(&Disarms(spell)) = disarms
+                && let Ok((.., health, _, _)) = creatures.get(target)
+                && spells::gust_disarms(spell, health.level, &mut dice.0)
+            {
+                commands.queue(move |world: &mut World| crate::npcs::disarm(world, target));
             }
             if let Some(damages) = aura.damages {
                 debug!("spells: {entity} strikes {target} for {damages:?}");

@@ -4200,6 +4200,33 @@ pub const CAGING: u32 = 855;
 /// The items' effect of the terror (`SCHRECKEN_NEU`, `0x354`), by which the hero's look kills
 /// the weak hostile creatures at once ([`Rules::terror_threshold`], [`terrifies`]).
 pub const TERROR: u32 = 852;
+/// Whether the hero of level `hero` disarms a creature of level `level` that its terror fells
+/// ([`disarmed`], `0x547613`): `roll`, `R(0, 100)` drawn whatever the levels, below their
+/// difference.
+pub fn terror_disarms(hero: u32, level: u32, roll: u32) -> bool {
+    i64::from(roll) < i64::from(hero) - i64::from(level)
+}
+
+/// What a creature disarmed keeps of its values (`0x4E9900`, read 2026-11-08 for #2298): its
+/// attack a fifth (the stats' `+0x5A`), its defence a third (`+0x5E`), its physical resistance
+/// a fifth (`+0x66`), its attributes `a0` and `a3` halved, whole (`+0x10`, `+0x16`), until its
+/// values are made again.
+pub fn disarmed(combat: Combat) -> Combat {
+    let mut attributes = combat.attributes;
+    for index in [0, 3] {
+        attributes[index] = (attributes[index] / 2.0).floor();
+    }
+    let mut resistance = combat.resistance;
+    resistance[0] *= 0.2;
+    Combat {
+        attack: combat.attack * 0.2,
+        defence: combat.defence * 0.333_333_34,
+        resistance,
+        attributes,
+        ..combat
+    }
+}
+
 /// How near the hero its look's terror reaches, and while the hero walks (`0x5474BB`,
 /// `0x5474DE`).
 pub const TERRIFIES_WITHIN: f32 = 800.0;
@@ -4799,6 +4826,31 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_disarmed_creature_keeps_a_fifth_of_its_attack_and_its_terror_rolls_by_the_levels() {
+        let combat = Combat {
+            attack: 100.0,
+            defence: 90.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [50.0, 10.0, 10.0, 10.0],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: CAST_SPEED,
+            attributes: [41.0, 20.0, 30.0, 33.0, 10.0, 10.0],
+        };
+        let kept = disarmed(combat);
+        assert!((kept.attack - 20.0).abs() < 1e-4 && (kept.defence - 30.0).abs() < 1e-4);
+        assert!((kept.resistance[0] - 10.0).abs() < 1e-4 && kept.resistance[1] == 10.0);
+        assert_eq!(kept.attributes, [20.0, 20.0, 30.0, 16.0, 10.0, 10.0]);
+        // A hero of level 20 disarms one of level 15 where the roll falls below 5.
+        assert!(terror_disarms(20, 15, 4) && !terror_disarms(20, 15, 5));
+        assert!(!terror_disarms(10, 15, 0));
+    }
 
     #[test]
     fn the_terror_kills_by_a_share_of_the_heros_level_on_bronzes_scale() {

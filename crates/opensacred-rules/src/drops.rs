@@ -2459,6 +2459,25 @@ impl Flight {
         }
     }
 
+    /// The weapon that a creature is disarmed of (`0x4E9900`, #2298), from the point `at` of its
+    /// model, its height in the units of the models' height: with the velocity
+    /// `(R(−100, 100), R(−100, 100), 150)` and the spin `R(−15, 15)` about each axis, drawn in
+    /// that order.
+    pub fn disarmed(at: [f32; 3], dice: &mut impl Dice) -> Self {
+        let mut roll = |half: u32| to_f32(dice.below(2 * half + 1)) - to_f32(half);
+        let velocity = [roll(100), roll(100), FLUNG_RISES];
+        let spin = [roll(15), roll(15), roll(15)];
+        Self {
+            at,
+            velocity,
+            angles: [0.0; 3],
+            spin,
+            resting: false,
+            arc: None,
+            turns: false,
+        }
+    }
+
     /// An item that a container throws to its opener (`0x5C9BA0`, `0x44DED0(x, y, 0, −1000, 80,
     /// 0.9)`): from the container's point `from` on the ground to `to`, in 0.9 s along an arc
     /// that peaks at 80.
