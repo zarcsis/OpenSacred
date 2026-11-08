@@ -154,8 +154,8 @@ Field offsets are of a `cCreature` unless said otherwise; "the horse" is a creat
 - The rider's attack slot (`0x5467A0`, the action 4): a crossbow (the classes 12 and 14) 234; a bow (7 and 13) 195, else 196; anything else 194, else 193.
   He fights from his own state 4 (`0x4E0300`), not turning himself and waiting while his horse walks; the horse never fights.
   The reach is the mean of the two types' (`0x4DBC60`), the horses' 130.
-- A struck horse with a rider, of no hero's class, sends the event `0x100` on to its rider (docs/re/ai.md); a hostile's horse under the cursor gives way to its rider (docs/re/cursor.md).
-- The black rider's horse (261) whose rider has the mark 10 and holds a ranged weapon circles the local hero within 600, running, at 45° either way by its id's parity (`0x4F4770`; **hypothesis**: the mark 10 is the black rider's).
+- A struck horse with a rider sends the event `0x100` on to its rider, the forwarding testing that the creature at its `+0x1EC` is no horse (docs/re/ai.md); a hostile's horse under the cursor gives way to its rider (docs/re/cursor.md).
+- The black rider's horse (261) circles the local hero with a bow in its rider's hands ("The black riders" below; the mark 10 is the black rider's alone).
 - Each class's executor plays a `Hardhit` on horseback by the rider's 194, blended in over 0.2 at the rate 1.0, the rider turned to its target first (`0x4DBAD0`), where on foot it plays its own clip (the Gladiator's `0x4FF0B0` at `0x502B01`, the Seraphim's `0x5038F0` at `0x505EC6`, the Wood Elf's `0x50AC00` at `0x50C35D`, read 2026-11-08; the Dark Elf's, the Vampiress's and the Dwarf's push the same slot, blend and rate); the executors test the rider at their start (`+0x14` bit 2 with a mount).
 - The arts: the event `0x105` reaches the horse, whose handler (`0x52FEEB` on) takes the rider's art and asks `0x4D1BE0` (a weapon art) or `0x4D25A0` (a spell) with whether the rider holds a ranged weapon; allowed (no flag bit 0, or bit 1 with a bow or crossbow), the event goes on to the rider; forbidden, the art's slot makes the horse's override.
   Such a slot shows the horse's images and its tooltip the horse's description; an art's tooltip tells `UI_HORSE_CANTCAST` or `UI_HORSE_ONLYWITHBOW` by the same flags (docs/re/arts.md).
@@ -173,6 +173,53 @@ Field offsets are of a `cCreature` unless said otherwise; "the horse" is a creat
 - A shot from horseback divides its range factor by 3, 2, 1.6 or 1 by the struck one's skills 7 and 22 (docs/re/fight.md, "A strike's resolution").
 - While riding, the rider's most health (`0x5658F0` at `0x565D05`) is times `1 + 0.01·0x565D70(w3, L_h, 100, w4)·min(1, (L_h + 9)/(L_r + 9))` (`0x5527F0`, `0x5526C0`), rounded; the mount's slot 0, its bridle, counts in the rider's items' bonuses (docs/re/sets.md).
   The share is 0 for a rider of no player's (an id above 16), whose most stays; the stats made again at the mount and at the dismount keep the current health, held at the most (**seen** 2026-11-08: the Seraphim of the level 30 at 403 of 992 mounted a horse of the level 1 and rose by her regeneration toward 1,005; at 401 of 1,005 she got off at 403 of 992).
+
+## The black riders
+
+Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen in the original at 48,22 the same day.
+
+### The pair's making
+
+- Only `FillSector` (`0x47C610`) makes a rider: right after the ranks' rolls, a creature of the type 261 that the creature maker made takes a rider in the branch `0x47E863`–`0x47EFA5`; a `CreateNPC` of 261 (in the trees, as `res:19589` at 1543,1190) is a riderless horse.
+- The creature maker destroys the items it was given for a 261, so the horse holds none.
+- The rider, a 256, is made without a place (`sdk_OBJ_CREATE_NPOS`) and never put into the world; its model is loaded, and the horse's where it was not.
+- The two are linked as a mount (`0x55C640` both ways at `+0x570`, slot 18 at `+0x1EC` both ways with `+0x14` bit `0x80`), the rider's `Bip01` attached to the horse's `horse_bone` (`0x555300(18)`), and the rider takes the horse's sector, place and floor.
+- The branch sets neither the rider's `+0x200` bit 4 nor the horse's bit 8 nor the horse's `+0x263`, and plays no mount's clip or sound; every copy of a horse's place into its rider (the cell update `0x596D7D`, `0x59879F`, the trample, the teleport) tests the horse's bit 8, which only the mount's end, two network handlers and the model's load of a horse that already has a rider (`0x5559E0`) set.
+  **Seen**: the horse of a woken pair came beside the hero while its rider's cell stayed where it stood, the rider striking from the saddle.
+- The rider's flags word `+0x1F4` is exactly `0x80001` (hostile and a boss), the horse's 0; both are put on the side 5, the undead's.
+- The rider's level is the run's `L` through the level's setter `0x564D60(L, 1, 0)`, with a boss's hold and the boss's health factor (**seen**: at the level 31, 7,206 health, its horse 1,579); the horse's is `L`, one or two more on a dungeon's sector, or the champion's marker 1 where its rank's roll made it one; its class byte stays 0, so its class is 1 and its pace 140.
+- The rider's weapon by `rand() % 2`: 0 the magic short bow 1811 (a bow), 1 the tribal axe 1778, made by the item maker `0x5D5080` at the rider's level on bronze's scale with the key 0 and held (`0x54B130`); the rider takes no `MakeGroup` item, spell, name or group.
+- A sector's `Enter` that makes its kept creatures again makes a kept 261's rider from the record after it, where that record is of the type 256 (`0x493E2B`–`0x494221`): at its kept place, with its kept flags, side, level and items, out of the world and linked as above.
+- The fills of 261: 35,38, 48,22 and 66,38, all hostile; 256 alone, a rider on foot, is in 16 fills more.
+
+### Who steers
+
+- The rider runs the whole AI and its moves go to its horse: the moving action (`0x4F4770`) of a creature of `+0x14` bit 2 with a class-4 mount hands its movement block and its gait to the horse and stands; its own speeds (50, 50) are used only on foot.
+- The horse runs its idle state alone (its flags word 0, its class 4): at every tick, a 261 whose rider has the mark 10, stands and is idle gives the rider its own sector, place and floor and wakes it (`0x54443E`–`0x5444AC`).
+- Neither strolls (`0x54EA30` returns for a rider and for any 261), the rider flees at no low health (the mark 10 is not among the specials' fleeing marks) and never gets off by itself.
+- The mark 10's remount on foot (`0x4D5923`–`0x4D5A93`) keeps the horse of the near hostiles' list whose distance is above the best so far from 10,000, and then mounts only where it is below 1,024, so it never mounts (**hypothesis**: a defect, the nearest within 1,024 meant).
+- The mark 10 is the black rider's alone (`0x43C540` gives it to 256 and no other).
+- With a bow, the moving horse goes to the local hero's place plus the vector from the hero turned by +45° for an odd id or −45° for an even one, lengthened to five times the reach where shorter than four times, within 600 of the hero, else to the hero (`0x4F4A85`–`0x4F4C4D`); a standing one sends itself a move to the same point turned the other way and not lengthened, at any distance (`0x5455A4`–`0x5457BB`), running.
+
+### How they fight
+
+- With a bow (the AI's state 8): within 800 of its target the rider shoots from the saddle at once (the slot 195), at twice its clip's rate for the type 256 (`0x4DCDCC`), never backing off; the shot leaves it idle, and its horse wakes it again.
+- With the axe (the AI's state 4): it waits while its horse moves, then strikes by the slot 194, not turning itself; the reach is the mean of the two sizes, 130.
+- The charge, one decision in eleven of a riding mark 10 (`0x4D5A98`, `rand() % 11` above 9): it runs at its target for at most 20 updates until within the reach less 15, strikes it in passing with no clip (`0x4EA3F0`) with an object 842 at it (the value 1002), and rides away to points 400 from the target along its heading turned ±30° by a coin, up to 10 legs (sub-state 12); 300 or more away, in one case of three it charges again, adding the effect 24 of the value 0 for 10 s to itself and its horse (the floops, the horse passing through creatures; its trample strikes nothing, being no player's).
+- The horse never strikes; a struck horse sends the event `0x100` on to its rider (docs/re/ai.md); the hero's cursor over the horse gives way to its rider (docs/re/cursor.md).
+
+### Deaths
+
+- A lethal blow on any rider leaves it 1 health and fells its horse (`0x56F8DB`–`0x56F98C`), posting no kill (**hypothesis**: so the horse gives no experience and no drop).
+- The dying horse throws its rider off at the point by it (`0x53ECA0`), who fights on foot at 50, never mounting again.
+- The rider's death on foot is an undead's last (class 5's case 7 of `0x532E3C`, docs/re/fight.md): no dying clip, the dust of 781's variant 4, a boss's reward (`30 + 90·E` experience, twice); on horseback, by no strike, its model would take 173, having no 168.
+- The horse left alone keeps the side 5 and no flags: it stands where it was, a foe for the cursor.
+
+### Open
+
+- Whether anything in play sets the fill's pair's `+0x200` bits 8 and 4 (the seen horse came apart from its rider's place).
+- Whether anything posts the kill of a horse felled in its rider's place.
+- The rider's own heading while attached, which the charge's legs read, and the 842's value 1002.
 
 ## The horse's button, the call and the horse left alone
 
