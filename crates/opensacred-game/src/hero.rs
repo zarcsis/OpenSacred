@@ -1050,6 +1050,7 @@ pub fn run(
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
+    tramplers: Query<(), With<crate::trample::Trampling>>,
 ) {
     for (
         me,
@@ -1071,6 +1072,11 @@ pub fn run(
         // creature stops it (`0x4F75F0`, `0x4F7E10`, `0x5FCCB0`).
         let mount = seat.and_then(crate::riding::Seat::speeds);
         let riding = mount.is_some();
+        // Its horse trampling, no living creature stops its steps (`+0x2B7` bit `0x10`,
+        // `trample`).
+        let charging = seat
+            .and_then(crate::riding::Seat::ridden)
+            .is_some_and(|horse| tramplers.contains(horse));
         let pace = mount.map_or_else(
             || hero.speed(),
             |[walk, run]| match hero.gait {
@@ -1169,7 +1175,8 @@ pub fn run(
                     (heights.walkable_on(cell, at) || (wades && heights.wadable_on(cell, at)))
                         && !(riding && heights.barred_to_riders(cell, at))
                 };
-                let free = |cell, at| open(cell, at) && !crowd.stops(cell, at, me, !riding);
+                let free =
+                    |cell, at| open(cell, at) && !(!charging && crowd.stops(cell, at, me, !riding));
                 let walkable = |cell| free(cell, level);
                 // Round what blocks the way and through the doors, on the course found as it took
                 // its order, found anew off it (a stair's landing); straight on toward a target
@@ -1216,7 +1223,9 @@ pub fn run(
                     let goal = heights.floor_number(at);
                     let neighbours = |place| {
                         let mut next = heights.floored_neighbours(place, (start.1, goal), open);
-                        next.retain(|&(cell, (at, ..))| !crowd.stops(cell, at, me, !riding));
+                        next.retain(|&(cell, (at, ..))| {
+                            !(!charging && crowd.stops(cell, at, me, !riding))
+                        });
                         next
                     };
                     // A cell it may not step into, a container's or a hostile creature's, it
