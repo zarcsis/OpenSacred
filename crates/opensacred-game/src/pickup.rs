@@ -651,13 +651,48 @@ pub(crate) struct Taking<'w, 's> {
     remarks: MessageWriter<'w, crate::remarks::Remark>,
     wearer: Wearer<'w>,
     sets: Option<ResMut<'w, crate::sets::WeaponSets>>,
+    settings: Option<Res<'w, crate::settings::Settings>>,
+    experience: Option<Res<'w, crate::fight::Experience>>,
 }
 
 impl Taking<'_, '_> {
+    /// Whether the options' collect mode lets the collecting take `item` (`PICKUPAUTO`,
+    /// `0x4EC330`, `opensacred_rules::drops::collects`), by the hero's level; a quest's item that
+    /// the scripts laid always (**hypothesis**: the filter's list at `0xAB45A0` or its bit
+    /// `0x800`, neither read).
+    fn passes(&self, item: Entity) -> bool {
+        let Ok((lying, quest, _)) = self.items.get(item) else {
+            return false;
+        };
+        let (Some(tables), false) = (self.tables.as_deref(), quest.is_some()) else {
+            return true;
+        };
+        let mode = match self
+            .settings
+            .as_deref()
+            .map_or(crate::settings::Collect::All, |settings| {
+                settings.gameplay.collect
+            }) {
+            crate::settings::Collect::All => 0,
+            crate::settings::Collect::Valuables => 1,
+            crate::settings::Collect::Gold => 2,
+        };
+        let values = tables.values(&lying.dropped);
+        let level = self
+            .experience
+            .as_deref()
+            .map_or(1, |experience| experience.level);
+        opensacred_rules::drops::collects(
+            mode,
+            (lying.dropped.item, tables.category(lying.dropped.item)),
+            (values.quality, values.sockets),
+            level,
+        )
+    }
+
     /// Whether the hero may carry `item`, as the collecting asks before it walks to one
     /// (`0x4EC560`): gold, a quest's item that the scripts laid, the weapon it hurled, or an item
-    /// for which the backpack's grid has room (`0x5DABA0`); the filter `PICKUPAUTO` of the
-    /// options passes every item at its default (`0x4EC330`).
+    /// for which the backpack's grid has room (`0x5DABA0`).
     fn carries(&self, item: Entity) -> bool {
         let Ok((lying, quest, _)) = self.items.get(item) else {
             return false;
@@ -1183,7 +1218,7 @@ pub(crate) fn collect(
                 here,
                 on_layer_items()
                     .into_iter()
-                    .filter(|&(item, _)| taking.carries(item)),
+                    .filter(|&(item, _)| taking.carries(item) && taking.passes(item)),
             ) {
                 Some((item, at)) => {
                     debug!("pickup: the hero collects {item}");
@@ -1316,15 +1351,15 @@ fn on_layer(heights: &Heights, level: Level, at: Vec3, flies_on: Option<Level>) 
         .is_some_and(|(layer, lies)| (layer - lies).abs() <= SAME_LAYER)
 }
 
-/// Takes every item of `items` that lies on the 3 × 3 cells about the hero at `here`
-/// (`0x4EC560`'s sub-state 3): whether any lay there.
+/// Takes every item of `items` that lies on the 3 × 3 cells about the hero at `here` and passes
+/// the options' collect mode (`0x4EC560`'s sub-state 3): whether any lay there.
 fn take_about(taking: &mut Taking, here: Vec3, items: Vec<(Entity, Vec3)>) -> bool {
     let centre = paths::cell_of(here.x, here.z);
     let about: Vec<Entity> = items
         .into_iter()
-        .filter(|&(_, at)| {
+        .filter(|&(item, at)| {
             let cell = paths::cell_of(at.x, at.z);
-            (cell.0 - centre.0).abs() <= 1 && (cell.1 - centre.1).abs() <= 1
+            (cell.0 - centre.0).abs() <= 1 && (cell.1 - centre.1).abs() <= 1 && taking.passes(item)
         })
         .map(|(item, _)| item)
         .collect();

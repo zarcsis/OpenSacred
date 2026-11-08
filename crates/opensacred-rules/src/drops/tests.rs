@@ -1807,3 +1807,22 @@ fn a_scripts_random_item_rolls_its_kind_its_class_and_its_level() {
     assert_eq!(random_category(&mut Answers(vec![16_384])), 17);
     assert_eq!(random_category(&mut Answers(vec![32_767])), 0);
 }
+
+#[test]
+fn the_collect_modes_pass_gold_the_valuables_or_everything() {
+    let none = [0; fight::SOCKETS];
+    let mut two = none;
+    two[..2].copy_from_slice(&[1, 2]);
+    // Everything, and the element stones in every mode.
+    assert!(collects(0, (1712, 1), (0, none), 1));
+    assert!(collects(2, (6010, 0), (0, none), 1));
+    // Gold alone.
+    assert!(collects(2, (5133, 0), (0, none), 1) && !collects(2, (1712, 1), (15, none), 1));
+    // The valuables: gold, runes, the named potions, but no other potion.
+    assert!(collects(1, (5132, 0), (0, none), 50) && collects(1, (900, 28), (0, none), 50));
+    assert!(collects(1, (5139, 9), (0, none), 1) && !collects(1, (5169, 9), (15, none), 1));
+    // Another item by the bar: a quality above 6 below the level 10, above 9 below 25.
+    assert!(collects(1, (1712, 1), (7, none), 9) && !collects(1, (1712, 1), (7, none), 10));
+    assert!(collects(1, (1712, 1), (0, two), 24) && collects(1, (1712, 1), (0, two), 34));
+    assert!(!collects(1, (1712, 1), (12, two), 35) && collects(1, (1712, 1), (13, none), 35));
+}
