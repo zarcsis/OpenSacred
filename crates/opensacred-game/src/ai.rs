@@ -1511,9 +1511,10 @@ fn behave(
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    (arts, experience): (
+    (arts, experience, effects): (
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::fight::Experience>>,
+        Query<&crate::effects::Effects>,
     ),
     (followers, queued, arms, clips): (
         Query<(), With<crate::followers::Follower>>,
@@ -2212,6 +2213,17 @@ fn behave(
                     },
                 }),
         );
+        // One that a hold freezes, its clips' factor at most 0.2 (`+0x2C9`, which the effect 15
+        // sets to its value, `0x5834BE`), does nothing while one it fears is within its distance
+        // (`0x4E24EF`): a caged animal is caged no more while its cages hold it (#2282).
+        let frozen = effects.get(entity).is_ok_and(|effects| {
+            effects.list().iter().any(|effect| {
+                effect.id == opensacred_rules::spells::HELD && minds::frozen(effect.value)
+            })
+        });
+        if frozen && fear.is_some() {
+            continue;
+        }
         let Some((target, why)) = mind.behaves(spot(here), fear, (crowded, None), &mut minds.rng)
         else {
             continue;

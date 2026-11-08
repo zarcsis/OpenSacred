@@ -85,6 +85,7 @@ fn make(
         let light = commands
             .spawn(crate::fx_lights::light(
                 look.colour(),
+                crate::fx_lights::HIGH,
                 at,
                 entity,
                 (Some(unmade.bearer), Vec3::ZERO),

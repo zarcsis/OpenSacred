@@ -175,6 +175,7 @@ fn make(
                             owner: entity,
                             follows: None,
                             offset: Vec3::ZERO,
+                            priority: crate::fx_lights::HIGH,
                         },
                         Transform::IDENTITY,
                         Visibility::default(),

@@ -222,7 +222,11 @@ fn run(
                 }
                 if charge.lit() && !shown.lit {
                     shown.lit = true;
-                    commands.spawn(crate::fx_lights::child(crate::fx_lights::ICE_BLUE, entity));
+                    commands.spawn(crate::fx_lights::child(
+                        crate::fx_lights::ICE_BLUE,
+                        crate::fx_lights::LOW,
+                        entity,
+                    ));
                 }
                 for spark in &charge.sparks.particles {
                     quads[1].push(

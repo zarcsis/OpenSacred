@@ -165,6 +165,7 @@ fn make(
         let light = crate::fx_lights::PLANTS[usize::from(!unmade.hero)];
         made.commands().spawn(crate::fx_lights::light(
             light,
+            crate::fx_lights::LOW,
             base,
             entity,
             (None, Vec3::ZERO),

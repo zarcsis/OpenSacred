@@ -422,6 +422,7 @@ fn change(
             let light = commands
                 .spawn(crate::fx_lights::light(
                     crate::fx_lights::PALE_BLUE,
+                    crate::fx_lights::LOW,
                     place,
                     owner,
                     (None, Vec3::ZERO),

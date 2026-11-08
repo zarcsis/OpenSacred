@@ -207,6 +207,7 @@ fn make(
         if unmade.kind == Kind::Fireball {
             look.commands().spawn(crate::fx_lights::light(
                 crate::fx_lights::FIRE,
+                crate::fx_lights::HIGH,
                 place,
                 entity,
                 (Some(unmade.bolt), Vec3::ZERO),

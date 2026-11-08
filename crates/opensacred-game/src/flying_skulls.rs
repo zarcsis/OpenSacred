@@ -100,6 +100,7 @@ fn show(
         let owner = shown.id();
         shown.commands().spawn(crate::fx_lights::light(
             crate::fx_lights::SKULL,
+            crate::fx_lights::LOW,
             place.translation,
             owner,
             (Some(entity), Vec3::ZERO),

@@ -183,6 +183,7 @@ fn make(
         // `+0x3C` 0).
         commands.spawn(crate::fx_lights::light(
             crate::fx_lights::ICE_BLUE,
+            crate::fx_lights::HIGH,
             from,
             shown,
             (None, Vec3::ZERO),
@@ -215,7 +216,11 @@ fn make(
             }
         }
         // The impact's Direct3D light (`0x77E1C0`, `0x77E3A0`).
-        commands.spawn(crate::fx_lights::child(crate::fx_lights::ICE_BLUE, struck));
+        commands.spawn(crate::fx_lights::child(
+            crate::fx_lights::ICE_BLUE,
+            crate::fx_lights::HIGH,
+            struck,
+        ));
         commands.entity(struck).insert(Impact {
             impact: ChainImpact::new(&mut dice),
             lamp,

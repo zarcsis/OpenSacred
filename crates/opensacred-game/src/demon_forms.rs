@@ -125,7 +125,11 @@ fn show(
         let ribbons = part(&mut commands, &mut meshes, ribbon);
         let flares = part(&mut commands, &mut meshes, flare);
         let light = commands
-            .spawn(crate::fx_lights::child(look.light(), entity))
+            .spawn(crate::fx_lights::child(
+                look.light(),
+                crate::fx_lights::LOW,
+                entity,
+            ))
             .id();
         sounds.write(crate::sfx::Play {
             sound: crate::sfx::Of::Id(CAST),

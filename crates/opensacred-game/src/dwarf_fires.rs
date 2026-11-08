@@ -216,6 +216,7 @@ fn run(
                 let light = commands
                     .spawn(crate::fx_lights::light(
                         crate::fx_lights::FIRE,
+                        crate::fx_lights::HIGH,
                         world(point),
                         entity,
                         (None, Vec3::ZERO),

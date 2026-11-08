@@ -78,6 +78,7 @@ fn grow(
         // Its Direct3D light at its place, a hero's green, a creature's blue (`0x799640`).
         shown.commands().spawn(crate::fx_lights::child(
             crate::fx_lights::PLANTS[usize::from(!thorn.hero)],
+            crate::fx_lights::LOW,
             entity,
         ));
         shown.insert(Plant {

@@ -114,6 +114,7 @@ fn show(
         // Its Direct3D light 45 over its place (`0x7B2B00`, `0x7B2DF0`; its wobble of 3 left out).
         commands.spawn(crate::fx_lights::light(
             crate::fx_lights::HELL,
+            crate::fx_lights::LOW,
             place.translation,
             entity,
             (Some(entity), Vec3::Y * 45.0 * iso::MODEL_SCALE),
