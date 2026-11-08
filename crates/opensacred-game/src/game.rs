@@ -707,7 +707,8 @@ fn load(
     // Its walk and run, and their clips' rate, by its pace (`0x4F75F0`, #599).
     hero.pace = values.pace_factor();
     hero.combat = Some(fight::Combat(values));
-    let most = fight::hero_health(base.attributes, fight::HERO_LEVEL, &skills, &rules);
+    // Full, with its items' bonuses to the attributes (#1365), as a new creature starts.
+    let most = fight::hero_health_held(&base, fight::HERO_LEVEL, &holding.0, &skills, &rules);
     hero.vitals = Some((
         fight::Health {
             current: most,

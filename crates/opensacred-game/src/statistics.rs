@@ -1960,17 +1960,16 @@ pub(crate) fn refit(
     let skills = opensacred_rules::fight::hero_skills(base, level, &holds);
     let list = effects.map(Effects::list).unwrap_or_default();
     *combat = Combat(opensacred_rules::fight::combat_with(
-        base, level, holds, &skills, &list, rules,
+        base,
+        level,
+        holds.clone(),
+        &skills,
+        &list,
+        rules,
     ));
     regenerates.value =
         opensacred_rules::fight::regeneration_with(base, level, &skills, &list, rules);
-    let most = opensacred_rules::fight::hero_health_with(
-        base.attributes,
-        base.extras,
-        level,
-        &skills,
-        rules,
-    );
+    let most = opensacred_rules::fight::hero_health_held(base, level, &holds, &skills, rules);
     health.most = most;
     health.current = health.current.min(most);
     if let Some(hero) = hero {

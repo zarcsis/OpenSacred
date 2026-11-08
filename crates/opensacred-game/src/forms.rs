@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use bevy::prelude::*;
 use opensacred_rules::arts as rules;
-use opensacred_rules::fight::{Effect, combat_with, hero_health_with, regeneration_with};
+use opensacred_rules::fight::{Effect, combat_with, hero_health_held, regeneration_with};
 
 use crate::arts::HeroArts;
 use crate::daynight::HeroLight;
@@ -239,9 +239,16 @@ fn change(
         let level = experience.level;
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         let skills = fight::hero_skills(&base, level, &holds);
-        *combat = Combat(combat_with(&base, level, holds, &skills, &list, &rules));
+        *combat = Combat(combat_with(
+            &base,
+            level,
+            holds.clone(),
+            &skills,
+            &list,
+            &rules,
+        ));
         regenerates.value = regeneration_with(&base, level, &skills, &list, &rules);
-        let most = hero_health_with(base.attributes, base.extras, level, &skills, &rules);
+        let most = hero_health_held(&base, level, &holds, &skills, &rules);
         *health = Health {
             current: health.current.min(most),
             most,

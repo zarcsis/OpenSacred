@@ -5548,18 +5548,7 @@ fn spawn(
         mind.ranged = placement.ranged;
         mind.armed = placement.held != 0;
         mind.big = record_flags & BIG != 0;
-        // Its health, full ([`most_health`]).
         let skills = fight::skills(&placement.base, grade, placement.plain);
-        let most = most_health(placement, grade, rules);
-        // A `SetHP`'s share of it (`0x48E280`, #1001), truncated.
-        let current = placement
-            .health_share
-            .map_or(most, |share| most * share / 100);
-        entity.insert(fight::Health {
-            current,
-            most,
-            level: grade,
-        });
         if let Some(name) = &placement.name {
             entity.insert(ScriptName(name.clone()));
         }
@@ -5593,6 +5582,21 @@ fn spawn(
                 bevy::log::debug!("npcs: {creature} holds {}: {values:?}", held.item);
             }
         }
+        // Its health, full, with its items' bonuses to its attributes (`Arms::most_health`,
+        // #1365).
+        let rank = placement
+            .rank
+            .health(placement.creature.0, placement.class, rules);
+        let most = arms.most_health(grade, rank, rules);
+        // A `SetHP`'s share of it (`0x48E280`, #1001), truncated.
+        let current = placement
+            .health_share
+            .map_or(most, |share| most * share / 100);
+        entity.insert(fight::Health {
+            current,
+            most,
+            level: grade,
+        });
         let (values, share) = arms.fight(grade, placement.rank, rules);
         // Its walk and run by its pace (`0x4F75F0`, #599).
         let pace = values.0.pace_factor();
@@ -9729,13 +9733,8 @@ fn relevel(
     rules: &fight::Rules,
     effects: &[Effect],
 ) -> fight::Regenerates {
-    let skills = fight::skills(&arms.base, grade, arms.plain);
     let factor = rank.health(mind.creature, mind.class, rules);
-    let most = if arms.plain {
-        PLAIN_HEALTH
-    } else {
-        fight::most_health(arms.base.attributes, grade, &skills, factor, rules)
-    };
+    let most = arms.most_health(grade, factor, rules);
     *health = fight::Health {
         current: most,
         most,
@@ -9861,6 +9860,31 @@ impl Arms {
         rules: &fight::Rules,
         effects: &[Effect],
     ) -> (fight::Combat, f32) {
+        let (held, two) = self.holds();
+        let skills = fight::skills(&self.base, grade, self.plain);
+        let mut values =
+            opensacred_rules::fight::combat_with(&self.base, grade, held, &skills, effects, rules);
+        let [attack, defence] = rank.fight(rules);
+        values.attack *= attack;
+        values.defence *= defence;
+        (fight::Combat(values), if two { 0.5 } else { 1.0 })
+    }
+
+    /// Its most health at level `grade` and of the rank's factor `rank` (`0x5658F0`): by its
+    /// base, its level, its skill 10 and its items' bonuses to the attributes `a0` and `a3`
+    /// (#1365); a crab's or a fish's the stats' own.
+    fn most_health(&self, grade: u32, rank: f32, rules: &fight::Rules) -> u32 {
+        if self.plain {
+            return PLAIN_HEALTH;
+        }
+        let skills = fight::skills(&self.base, grade, self.plain);
+        fight::most_health_held(&self.base, grade, &self.holds().0, &skills, rank, rules)
+    }
+
+    /// What it holds as its values take it: unarmed when what it holds is of class 0 and its
+    /// right hand empty (`0x546F80`), its items' values; and whether it strikes with two weapons,
+    /// the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
+    fn holds(&self) -> (fight::Holds, bool) {
         let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
         let class = class_of(&in_hands);
         let holds = |hand, shield: Option<bool>| {
@@ -9889,13 +9913,7 @@ impl Arms {
             // A creature not a player's takes no set's bonus (`0x57AE56`).
             sets: Default::default(),
         };
-        let skills = fight::skills(&self.base, grade, self.plain);
-        let mut values =
-            opensacred_rules::fight::combat_with(&self.base, grade, held, &skills, effects, rules);
-        let [attack, defence] = rank.fight(rules);
-        values.attack *= attack;
-        values.defence *= defence;
-        (fight::Combat(values), if two { 0.5 } else { 1.0 })
+        (held, two)
     }
 }
 
