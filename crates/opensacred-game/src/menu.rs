@@ -211,9 +211,9 @@ impl Default for FirstShowing {
 pub struct Words(HashMap<&'static str, String>);
 
 impl Words {
-    /// The words of the menus' items and of the choice of the hero among the texts of `assets`.
-    pub fn read(assets: &Path) -> Self {
-        let texts = Texts::read(assets);
+    /// The words of the menus' items, of the choice of the hero and of the options window among
+    /// `texts`.
+    pub fn read(texts: &Texts) -> Self {
         // Every item that any settings show.
         let all = Movies {
             show: true,

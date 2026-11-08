@@ -387,6 +387,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows: shadows.clone(),
     });
     let sound_index = sound::Index::read(&assets)?;
+    // The game's texts from the start, which the menus' windows take as a game's do: the saves'
+    // window and its questions (#2345); a game's loading reads them again.
+    let texts = lines::Texts::read(&assets);
     let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
     // The keys, `controls.toml` beside the settings (#1553).
     let (controls, control_warnings) = controls::Controls::read(settings_file.path());
@@ -764,7 +767,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         cursors: hud::cursor_files(&assets),
     })
     .insert_resource(menu::Images::find(&assets))
-    .insert_resource(menu::Words::read(&assets))
+    .insert_resource(menu::Words::read(&texts))
+    .insert_resource(texts)
     .insert_resource(choice::Images::find(&assets))
     .insert_resource(saves_window::Images::find(&assets))
     .insert_resource(options::Images::find(&assets))
