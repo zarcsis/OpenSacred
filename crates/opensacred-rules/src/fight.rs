@@ -847,6 +847,26 @@ impl Rules {
         level.max(lowest)
     }
 
+    /// The level of a horse that a trader's stock makes again (`0x537270`), for a hero of level
+    /// `hero` in a sector of the levels `values`: the hero's level held at least at the sector's
+    /// lowest raised by `OffLevel` and at most at its highest raised by `LevelKap`, else the
+    /// hero's plus the roll `roll` (`rand() & 1`, 0 or 1); the hero's level itself in a sector
+    /// of no lowest or no highest.
+    pub fn restock_level(&self, hero: u32, values: Option<&SpawnValues>, roll: u32) -> u32 {
+        let Some(values) = values.filter(|values| values.lowest > 0 && values.highest > 0) else {
+            return hero;
+        };
+        let lowest = values.lowest.saturating_add(self.ranks.off);
+        let highest = values.highest.saturating_add(self.ranks.cap);
+        if hero < lowest {
+            lowest
+        } else if hero > highest {
+            highest
+        } else {
+            hero + roll
+        }
+    }
+
     /// The difficulty's factor of a creature's attack and defence (`ProzAW`) as the getters of a
     /// creature not a hero give them (`0x56AA10`, `0x56AA90`), 0.65 on bronze.
     pub fn creatures_aw(&self) -> f32 {
@@ -7959,6 +7979,23 @@ mod tests {
         // A blow below the health, or a third knock-down, does not.
         assert!(!knocks_down((30, 5), 0, (99, 100), 0));
         assert!(!knocks_down((30, 5), 0, (100, 100), 2));
+    }
+
+    #[test]
+    fn a_restocked_horse_takes_the_heros_level_within_the_sectors() {
+        let rules = Rules::default();
+        let values = SpawnValues {
+            lowest: 4,
+            highest: 8,
+            ..SpawnValues::default()
+        };
+        // Bronze adds nothing: below the lowest, above the highest, within with the roll.
+        assert_eq!(rules.restock_level(1, Some(&values), 1), 4);
+        assert_eq!(rules.restock_level(30, Some(&values), 1), 8);
+        assert_eq!(rules.restock_level(6, Some(&values), 1), 7);
+        assert_eq!(rules.restock_level(6, Some(&values), 0), 6);
+        // A sector of no levels: the hero's.
+        assert_eq!(rules.restock_level(6, None, 1), 6);
     }
 
     #[test]
