@@ -1,8 +1,10 @@
 //! The overview map (#1562; docs/re/maps.md, "The overview map"): while Tab or the middle button
 //! is held (`cUI_OverviewMap`, `UI_WND_OVERVIEWMAP`, `0x6C6C50`), unless the world map shows or
 //! the game is paused, the lens over the world in a view of 700 × 525 at (162, 120) about the
-//! middle of the hero's cell: the minimap's ground at the alpha 128 (255 less `MINIMAP_ALPHA`'s
-//! 127), its fog of war over the land explored, opaque (`EXPLOREMAP` 1), the quests' icons and
+//! middle of the hero's cell: the minimap's ground at the alpha 255 less `MINIMAP_ALPHA`
+//! (`[interface] map_alpha`, 127 by default, so 128), at least 96, its fog of war over the land
+//! explored, opaque with `EXPLOREMAP` (`[interface] explore_map`) and half black without, the
+//! quests' icons and
 //! titles, and the compass's markers' arrows on the view's edges; over it the hero's cross, the
 //! difficulty's name, and the dialogue's frame about the view. The game goes on, and the clicks
 //! reach the world.
@@ -12,9 +14,7 @@
 //!
 //! The creatures' marks as the lens draws them (#1571, `lens_creatures`).
 //!
-//! Not followed yet: the
-//! settings' `MINIMAP_ALPHA` and `EXPLOREMAP`, and the scripts' boxes' tooltip, which no box of
-//! the release has.
+//! Not followed yet: the scripts' boxes' tooltip, which no box of the release has.
 
 use bevy::prelude::*;
 use bevy::text::FontSize;
@@ -26,12 +26,19 @@ use crate::lines::Texts;
 use crate::pause::Play;
 use crate::tooltip::argb;
 
-/// The view (`0x759AF0`), its middle, the lens's point's place, and the alpha of the ground.
+/// The view (`0x759AF0`), its middle and the lens's point's place.
 const VIEW: Rect = Rect {
     min: Vec2::new(162.0, 120.0),
     max: Vec2::new(862.0, 645.0),
 };
-const ALPHA: f32 = 128.0 / 255.0;
+/// The least alpha of the ground, which the lens raises a lower one to (`0x6CCBD0`).
+const LEAST_ALPHA: u8 = 96;
+
+/// The ground's alpha for the map's transparency `map_alpha` (`0x6C6CF2`): 255 less it, at least
+/// [`LEAST_ALPHA`].
+fn ground_alpha(map_alpha: u8) -> f32 {
+    f32::from(u8::MAX.saturating_sub(map_alpha).max(LEAST_ALPHA)) / 255.0
+}
 /// The hero's cross, two white lines (**measured**).
 const CROSS: [(Vec2, Vec2); 2] = [
     (Vec2::new(501.0, 379.0), Vec2::new(522.0, 389.0)),
@@ -161,7 +168,10 @@ fn show(
         Res<crate::explored::Land>,
         Option<Res<Texts>>,
     ),
-    difficulty: Option<Res<crate::game::Difficulty>>,
+    (difficulty, settings): (
+        Option<Res<crate::game::Difficulty>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
     roots: Query<Entity, With<OverviewRoot>>,
     mut planes: Query<&mut Node, With<Plane>>,
     heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
@@ -210,19 +220,23 @@ fn show(
         .spawn((Plane, bar::placed(-VIEW.min, bar::SCREEN), Pickable::IGNORE))
         .id();
     commands.entity(view).add_child(plane);
+    let interface = settings
+        .as_deref()
+        .map(|settings| settings.interface.clone())
+        .unwrap_or_default();
     crate::minimap::spawn(
         &mut commands,
         plane,
         (&minimaps, &assets),
         (point, Vec2::ZERO),
-        ALPHA,
+        ground_alpha(interface.map_alpha),
     );
     crate::minimap::spawn_fog(
         &mut commands,
         plane,
         (&land, &mut pictures),
-        point,
-        Vec2::ZERO,
+        (point, Vec2::ZERO),
+        interface.explore_map,
     );
     if let Some(live) = live.as_deref() {
         crate::world_map::quests_in_lens(
@@ -448,6 +462,14 @@ impl Plugin for OverviewPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_grounds_alpha_is_the_transparencys_complement_at_least_96() {
+        assert_eq!(ground_alpha(127), 128.0 / 255.0);
+        assert_eq!(ground_alpha(0), 1.0);
+        assert_eq!(ground_alpha(200), 96.0 / 255.0);
+        assert_eq!(ground_alpha(254), 96.0 / 255.0);
+    }
 
     #[test]
     fn a_markers_arrow_stands_where_its_ray_leaves_the_view() {

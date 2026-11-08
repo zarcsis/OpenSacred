@@ -877,7 +877,7 @@ fn blend(rate: f32) -> Duration {
 )]
 pub(crate) fn take(
     mut taking: Taking,
-    heights: Res<Heights>,
+    (heights, settings): (Res<Heights>, Option<Res<crate::settings::Settings>>),
     (clips, speed, animations): (
         Option<Res<hero::Clips>>,
         Res<hero::GameSpeed>,
@@ -916,8 +916,8 @@ pub(crate) fn take(
         // Dwarf's frenzy (`0x584FE0`).
         transform.rotation = hero::facing((at - here).with_y(0.0));
         let rate = hero_rate(combat, frenzy);
-        if let Some((node, length)) =
-            play_pickup(clips.as_deref(), &mut players, &animations, (speed.0, rate))
+        let clips = clips.as_deref().filter(|_| animated(settings.as_deref()));
+        if let Some((node, length)) = play_pickup(clips, &mut players, &animations, (speed.0, rate))
         {
             taking.commands.entity(hero).insert(Picking {
                 item: picks.0,
@@ -937,6 +937,13 @@ fn hero_rate(combat: Option<&fight::Combat>, frenzy: Option<&fight::Frenzy>) -> 
     rate(combat.map_or(100.0, |combat| {
         opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
     }))
+}
+
+/// Whether the hero plays its pick-up, mount and dismount: the options' atmospheric animation
+/// (`PICKUPANIM`, `0x81A690`, on by default); without it the items are taken at once and the
+/// mount and the dismount end at once.
+pub(crate) fn animated(settings: Option<&crate::settings::Settings>) -> bool {
+    settings.is_none_or(|settings| settings.gameplay.pickup_animation)
 }
 
 /// Plays the hero's pick-up (the motion 172, `MOTION_PICKUP`) at the game's speed `speed` times its
@@ -1137,7 +1144,7 @@ pub fn start_collecting(world: &mut World) -> Result<String, String> {
 )]
 pub(crate) fn collect(
     mut taking: Taking,
-    heights: Res<Heights>,
+    (heights, settings): (Res<Heights>, Option<Res<crate::settings::Settings>>),
     (clips, speed, animations): (
         Option<Res<hero::Clips>>,
         Res<hero::GameSpeed>,
@@ -1202,7 +1209,8 @@ pub(crate) fn collect(
                     "pickup: the hero stands {:.0} from {item} and picks up",
                     (at - here).xz().length()
                 );
-                match play_pickup(clips.as_deref(), &mut players, &animations, (speed.0, rate)) {
+                let clips = clips.as_deref().filter(|_| animated(settings.as_deref()));
+                match play_pickup(clips, &mut players, &animations, (speed.0, rate)) {
                     Some((node, length)) => {
                         collects.0 = Collecting::Picking {
                             node,

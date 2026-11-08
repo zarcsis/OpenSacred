@@ -159,10 +159,11 @@ pub fn spawn(
     }
 }
 
-/// A sector's fog (`0x638F30`): black, opaque or at half where `opaque` is false, where its
-/// bitmap's bit is clear, clear where it is set.
+/// A sector's fog (`0x638F30`): black where its bitmap's bit is clear, opaque, or where `opaque`
+/// is false at the 4-bit alpha 8 of its texture's 15 (`0x8000` against `0xF000`), and clear
+/// where it is set.
 pub fn fog(explored: &Explored, sector: (i32, i32), opaque: bool) -> Image {
-    let shade = if opaque { u8::MAX } else { 0x80 };
+    let shade = if opaque { u8::MAX } else { HALF_FOG };
     let sector = (
         u16::try_from(sector.0).unwrap_or(u16::MAX),
         u16::try_from(sector.1).unwrap_or(u16::MAX),
@@ -192,20 +193,24 @@ pub fn fog(explored: &Explored, sector: (i32, i32), opaque: bool) -> Image {
     )
 }
 
+/// The half fog's alpha: the 4-bit 8, as a byte.
+const HALF_FOG: u8 = 8 * 17;
+
 /// Spawns the fog over the ground about the iso plane's point `point` as the children of
 /// `parent`, whose top left corner stands at `origin` of the screen: each sector's fog texture on
-/// its diamond, a square turned by 45° within a box squeezed to half its height.
+/// its diamond, a square turned by 45° within a box squeezed to half its height; opaque where
+/// `opaque` (the lens's call forcing it, or `EXPLOREMAP`, `0x638F30`), else at half.
 pub fn spawn_fog(
     commands: &mut Commands,
     parent: Entity,
     (explored, images): (&Explored, &mut Assets<Image>),
-    point: Vec2,
-    origin: Vec2,
+    (point, origin): (Vec2, Vec2),
+    opaque: bool,
 ) {
     // A pixel wider, so that the neighbours' diamonds leave no seam between their smoothed edges.
     let side = (DIAMOND.x + SEAM) / std::f32::consts::SQRT_2;
     for (sector, corner) in ground(point) {
-        let image = images.add(fog(explored, sector, true));
+        let image = images.add(fog(explored, sector, opaque));
         let squeezed = commands
             .spawn((
                 crate::bar::placed(
