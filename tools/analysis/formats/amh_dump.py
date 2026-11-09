@@ -24,6 +24,12 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
            0xCA: six u16, the fifth the grid's width, 0x400 bytes, then 256 cells of 12 bytes, row by row) names its
            items by their ids (u32) at their top left cells, each followed by u8 1, u8 width, u8 height, u8 0 and the
            item's type (u32); the others are worn
+  creature tag 0xC7: 0xFEEDF00D at 16, 0xC0DEF00D at 263, the equipment's 19 slots at 435 (u32 object ids of the
+           inventory's items, 0 none), the stats' marker 0xDEADBEEF at 961 and the stats' +0x08..+0xF5 from 989 (so the
+           stats' +x at 981 + x): +0x08 class u32, +0x0C experience u32, +0x10 attributes 6 x u16, +0x1C the points spent
+           6 x u8, +0x23 the attribute points left u8, +0x24 the slots' skills 8 x u8, +0x2C their bases, +0x34 the items'
+           bonuses, +0x42 the skill points u16, +0x44 the skills to learn u16, +0x46 gold u32, +0x4A the base attributes
+           6 x u16, +0x56 the level u16 (docs/02 §9)
   arts     tag 0xC7 (the creature): a u16 count of the hero's combat arts at its byte 1227, then entries of 22 bytes
            {u32 table (1 or 2); u16 id; u8 level; u8 bonus; u16 flags; f32 time; f32 factor; f32 remaining}
            (docs/re/arts.md); in a template the section is 1881 bytes for two arts and 22 more for each further one
@@ -36,6 +42,7 @@ Example
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --arts /tmp/amh-arts.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --backpack /tmp/amh-backpack.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --summaries /tmp/amh-summaries.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --stats /tmp/amh-stats.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
 installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts
@@ -46,7 +53,10 @@ art: file, its index, table, id, level, bonus, flags, and the time, the factor a
 their bits; --backpack a row per item of the backpack's grid: file, id, column, row, width, height, type (the templates'
 32: three potions in the first column's top cells and a torch of 1 x 2 below them each); --summaries a row per file:
 file, level, class, the equipment's slots and types as slot:type joined by commas (the templates' weapons alone, 15 and
-14 items in the two saves), and the six won bytes as 0/1 (all 0 in the 10 files). Section contents (hero names
+14 items in the two saves), and the six won bytes as 0/1 (all 0 in the 10 files); --stats a row per file of its creature's
+stats: file, class, level, experience, gold, the attributes, the base attributes and the points spent on each (comma-joined),
+the attribute points left, the skills as slot:skill:base:bonus, the skill points, the skills to learn, and the equipment as
+slot:object id. Section contents (hero names
 etc.) are not printed.
 Dependencies: standard library.
 """
@@ -67,6 +77,9 @@ SUMMARY, MINI = 0xC3, 0xC4
 EQUIPMENT_COUNT, EQUIPMENT, WON, WON_COUNT = 0x88, 19, 0xED, 6
 INVENTORY, BACKPACK = 0xC8, 0xCA
 CREATURE, ARTS, ART, CREATURE_SIZE = 0xC7, 1227, 22, 1881
+# The creature's markers, its equipment's slots, and its stats' +0 (docs/02 §9).
+CREATURE_MARKS = {16: 0xFEEDF00D, 263: 0xC0DEF00D, 961: 0xDEADBEEF}
+SLOTS_AT, STATS = 435, 981
 ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14, 252, 0x82
 # The marker before the records and the count of the socketed items' records before the item's own.
 SOCKETS_MARK, SOCKETS = b'\xde\xc0\xad\xba', 251
@@ -123,8 +136,10 @@ def main():
     ap.add_argument('--arts', help='write a TSV row per combat art of the creature sections')
     ap.add_argument('--backpack', help='write a TSV row per item of the backpack grids')
     ap.add_argument('--summaries', help='write a TSV row per file of its summary\'s equipment and won difficulties')
+    ap.add_argument('--stats', help='write a TSV row per file of its creature\'s stats and equipment')
     args = ap.parse_args()
     summary_rows = []
+    stats_rows = []
     item_rows = []
     backpack_rows = []
     art_rows = []
@@ -172,6 +187,23 @@ def main():
         inflated = {tag: data for _, tag, _, _, data, _, _, _ in secs}
         if CREATURE in inflated:
             creature = inflated[CREATURE]
+            check('creature: its markers at 16, 263 and 961',
+                  all(struct.unpack_from('<I', creature, at)[0] == mark for at, mark in CREATURE_MARKS.items()), rel)
+            stat = lambda x, f: struct.unpack_from(f, creature, STATS + x)
+            level = stat(0x56, '<H')[0]
+            summary = inflated.get(SUMMARY)
+            if summary:
+                check('creature: its class and level are the summary\'s',
+                      stat(8, '<I')[0] == struct.unpack_from('<I', summary, 4)[0]
+                      and level == struct.unpack_from('<I', summary, 0)[0], rel)
+            slots = struct.unpack_from('<19I', creature, SLOTS_AT)
+            skills = [f'{k}:{s}:{b}:{n}' for k, (s, b, n) in enumerate(zip(stat(0x24, '<8B'), stat(0x2C, '<8B'),
+                                                                             stat(0x34, '<8B'))) if s]
+            stats_rows.append((rel, stat(8, '<I')[0], level, stat(0xC, '<I')[0], stat(0x46, '<I')[0],
+                               ','.join(map(str, stat(0x10, '<6H'))), ','.join(map(str, stat(0x4A, '<6H'))),
+                               ','.join(map(str, stat(0x1C, '<6B'))), stat(0x23, '<B')[0], ','.join(skills),
+                               stat(0x42, '<H')[0], stat(0x44, '<H')[0],
+                               ','.join(f'{k}:{i}' for k, i in enumerate(slots) if i)))
             count = struct.unpack_from('<H', creature, ARTS)[0]
             check('arts: the entries fit the creature section, each of the table 1 or 2',
                   ARTS + 2 + ART * count <= len(creature)
@@ -223,6 +255,11 @@ def main():
             slots = collections.Counter(int(p.split(':')[1]) for r in summary_rows if r[0] == rel
                                         for p in r[3].split(',') if p)
             check('summary: the equipment\'s items are items outside the backpack', not slots - outside, rel)
+            if CREATURE in inflated:
+                held = struct.unpack_from('<19I', inflated[CREATURE], SLOTS_AT)
+                summary_types = struct.unpack_from('<19I', inflated[SUMMARY], 0x8C) if SUMMARY in inflated else ()
+                check('creature: each slot\'s item is outside the backpack, of the summary\'s type for the slot',
+                      all(i not in packed and types.get(i) == t for i, t in zip(held, summary_types) if i), rel)
     check.report()
     print(f'{len(paths)} files, {len(rows)} sections; tags {sorted(collections.Counter(r[2] for r in rows).items())}')
     if args.rows:
@@ -245,6 +282,14 @@ def main():
             for row in backpack_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(backpack_rows)} rows -> {args.backpack}')
+    print(f'{len(stats_rows)} creatures\' stats')
+    if args.stats:
+        with open(args.stats, 'w', encoding='ascii', newline='\n') as f:
+            f.write('file\tclass\tlevel\texperience\tgold\tattributes\tbase\tspent\tpoints\tskills\tskill_points'
+                    '\tto_learn\tequipment\n')
+            for row in stats_rows:
+                f.write('\t'.join(str(x) for x in row) + '\n')
+        print(f'{len(stats_rows)} rows -> {args.stats}')
     print(f'{len(summary_rows)} summaries')
     if args.summaries:
         with open(args.summaries, 'w', encoding='ascii', newline='\n') as f:
