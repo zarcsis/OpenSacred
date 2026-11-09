@@ -266,6 +266,27 @@ pub fn class(byte: u8) -> u8 {
     byte.max(1)
 }
 
+/// Whether a hero of the type `hero` steals another NPC's horse, and the text that the horse
+/// window shows it by (`0x426990`): the Gladiator (2) 9080, the Dark Elf (4) 9083 and the
+/// Vampiress (6 and 7) 9084 may; the Seraphim (1) 9081, the Mage (3) 9085 and the Wood Elf (5)
+/// 9082 refuse; any other, the Daemon among them, refuses with no text.
+pub fn steals(hero: u32) -> (bool, Option<u32>) {
+    match hero {
+        1 => (false, Some(9081)),
+        2 => (true, Some(9080)),
+        3 => (false, Some(9085)),
+        4 => (true, Some(9083)),
+        5 => (false, Some(9082)),
+        6 | 7 => (true, Some(9084)),
+        _ => (false, None),
+    }
+}
+
+/// The effect that a horse's theft puts on its thief and its seconds (`0x6BE400`): 19 for 25,
+/// under which the soldiers' side and the heroes' are hostile ([`crate::minds::Mind::provoked`]).
+pub const THEFT: u32 = 19;
+pub const THEFT_SECONDS: f32 = 25.0;
+
 /// Whether a hero of the type `hero` and of the riding skill (22) `riding` may ride a horse of
 /// the row `row` (`0x4267D0`): never the Dwarf, else where its skill reaches the row's need.
 pub fn rides(hero: u32, riding: u32, row: &Row) -> bool {
@@ -326,6 +347,17 @@ pub fn ride_slot(has: impl Fn(u16) -> bool) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_gladiator_the_dark_elf_and_the_vampiress_steal_horses() {
+        let may: Vec<u32> = (1..=9).filter(|&hero| steals(hero).0).collect();
+        assert_eq!(may, [2, 4, 6, 7]);
+        assert_eq!(steals(1), (false, Some(9081)));
+        assert_eq!(steals(2), (true, Some(9080)));
+        assert_eq!(steals(7), (true, Some(9084)));
+        // The Daemon refuses with no text.
+        assert_eq!(steals(9), (false, None));
+    }
 
     #[test]
     fn a_horses_price_grows_with_its_level_by_its_class() {

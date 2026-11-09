@@ -131,6 +131,10 @@ const SHOCKED: f32 = 0.5;
 
 /// The heroes' side (`+0x1F0`), their types' `Creature.pak` class (`0x43ADC0`).
 pub const HEROES: u8 = 1;
+/// The soldiers' side: the guards, the soldiers and the knights (the types 274 to 303, 184, 197,
+/// 199, 213, 249, 257 and 339 to 341), whose friendship with the heroes a horse's theft breaks
+/// for its while ([`Mind::provoked`]).
+pub const SOLDIERS: u8 = 7;
 
 /// Which sides are friends (`0x890A30`, the client's table of 16 × 16 bytes that `0x423580`
 /// reads by two creatures' sides `+0x1F0`, docs/re/fight.md, "Sides"): bit `b` of row `a` set
@@ -712,6 +716,11 @@ pub struct Mind {
     /// Seraphim's conversion's): every answer of hostility between it and another, the hero
     /// among them, is the other way about (`0x423580` at `0x4238C6`).
     pub turned: bool,
+    /// Whether the friendship of its side with the heroes' is broken: a soldier's ([`SOLDIERS`])
+    /// while a hero bears a horse's theft's effect 19 (`0x582D50` at `0x584616` sets the
+    /// relation of the sides 7 and 1 to 0, keeping the one before, which its end `0x586D80`
+    /// puts back; #2320).
+    pub provoked: bool,
     /// What a townsperson does (`+0x261`, [`activity`]), whose icon its draw shows while Alt is
     /// held ([`activity_icon`]); written as it takes up a doing, kept until the next.
     pub activity: u16,
@@ -844,6 +853,7 @@ impl Mind {
             flying: false,
             fly: 0.0,
             turned: false,
+            provoked: false,
             activity: activity::NONE,
             fun: 0,
             woman: false,
@@ -888,10 +898,10 @@ impl Mind {
     }
 
     /// Whether it is hostile to the hero, by its side and its type (`0x548F60`,
-    /// [`hostile_to_heroes`]), not by its flags, the other way about while its sides are turned
-    /// over ([`Self::turned`]).
+    /// [`hostile_to_heroes`]) or while its side's friendship is broken ([`Self::provoked`]), not
+    /// by its flags, the other way about while its sides are turned over ([`Self::turned`]).
     pub fn hostile(&self) -> bool {
-        hostile_to_heroes(self.side, self.creature) != self.turned
+        (hostile_to_heroes(self.side, self.creature) || self.provoked) != self.turned
     }
 
     /// Whether it is awake (`sdk_WAKE`): a dormant creature does not look for the hero.
