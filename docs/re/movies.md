@@ -42,7 +42,7 @@ The keys' and the mouse's messages are thrown away at each frame.
 
 ## In `opensacred-game`
 
-The player (`movies`, #1945) follows the one above: a movie asked for by its name waits half a second, then plays over everything, its frames filling the interface's 4:3 screen and the rest of a wider window black, until it ends or Escape, Space or either mouse button held stops it; a quarter of a second after it, and while Escape or Space is still held, it still takes the keys and the clicks, which reach neither the game nor the menus.
+The player (`movies`, #1945) follows the one above: a movie asked for by its name waits half a second, then plays over everything, its frames fitted by their own shape to the whole window and the rest black, the files' black bars cut away by the converter (#2413; docs/decisions/interface.md, "Movies by their content"), until it ends or Escape, Space or either mouse button held stops it; a quarter of a second after it, and while Escape or Space is still held, it still takes the keys and the clicks, which reach neither the game nor the menus.
 A game stands under a movie as under the pause without its menu, its time and its sound; in the menus their music and sounds pause.
 A movie whose file is not there is skipped.
 The console's `movie NAME` plays one.
