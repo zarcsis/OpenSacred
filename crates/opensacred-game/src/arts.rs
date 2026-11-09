@@ -223,9 +223,10 @@ fn regenerate(
     // The arts' bonuses of the items it holds and wears (#1725) and of its sets (#1727), as they
     // change.
     let bonuses = opensacred_rules::fight::art_bonuses(base, experience.level, &holds);
+    let weapon_arts = opensacred_rules::fight::concentration(base, experience.level, &holds);
     let every = u16::try_from(holds.sets.all_arts).unwrap_or(u16::MAX);
     let mut raised = arts.arts.clone();
-    raised.set_bonuses(&bonuses, every);
+    raised.set_bonuses(&bonuses, (weapon_arts, every));
     if raised != arts.arts {
         arts.arts = raised;
     }

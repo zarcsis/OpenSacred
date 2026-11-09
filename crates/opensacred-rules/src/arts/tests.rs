@@ -157,7 +157,7 @@ fn the_items_bonuses_raise_the_arts_they_name_by_their_generic_ones() {
     };
     // Another class's `Attacke` (1059) finds hers through the generic 1002; an art not held and
     // a bonus that passes 255 count for nothing.
-    held.set_bonuses(&[(1059, 2), (18, 1), (1057, 5), (18, 255)], 0);
+    held.set_bonuses(&[(1059, 2), (18, 1), (1057, 5), (18, 255)], (0, 0));
     let bonuses: Vec<_> = held.entries.iter().map(|e| (e.art, e.bonus)).collect();
     assert_eq!(bonuses, [(18, 1), (1071, 2)]);
     assert_eq!(held.entries[1].in_play(), 3);
@@ -165,6 +165,25 @@ fn the_items_bonuses_raise_the_arts_they_name_by_their_generic_ones() {
         (generic(1071), generic(1094), generic(18)),
         (1002, 1001, 18)
     );
+}
+
+#[test]
+fn the_items_bonus_of_every_weapon_art_leaves_the_spells_and_1019() {
+    // The Dwarf's 1080 and 1085, a spell and the Seraphim's 1019 (`0x57A9E3`, #2370); the sets'
+    // bonus of every art after it.
+    let mut held = Arts {
+        entries: vec![
+            entry(Table::WeaponArts, 1080, 1, 3),
+            entry(Table::Spells, 55, 3, 4),
+            entry(Table::WeaponArts, 1019, 1, 3),
+            entry(Table::WeaponArts, 1085, 5, 3),
+        ],
+    };
+    held.set_bonuses(&[(1080, 1)], (1, 0));
+    let bonuses: Vec<_> = held.entries.iter().map(|e| (e.art, e.bonus)).collect();
+    assert_eq!(bonuses, [(1080, 2), (55, 0), (1019, 0), (1085, 1)]);
+    held.set_bonuses(&[], (0, 2));
+    assert!(held.entries.iter().all(|e| e.bonus == 2));
 }
 
 #[test]

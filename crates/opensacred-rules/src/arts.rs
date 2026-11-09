@@ -3163,6 +3163,9 @@ pub struct Arts {
     pub entries: Vec<Entry>,
 }
 
+/// The weapon art that the items' bonus of every weapon art leaves out (`0x57AA18`: 1019).
+const CONCENTRATION_SPARED: u16 = 1019;
+
 impl Arts {
     /// The hero's arts at a new game, of its template's: the entries that no rune taught, their
     /// times recomputed ([`Self::recompute`]); a new game drops the arts its template marks
@@ -3209,9 +3212,11 @@ impl Arts {
     /// value, [`crate::fight::art_bonuses`]), the old ones cleared (`0x5796A0` at `0x57AC6E`):
     /// each art taken to its generic one (`0x52DA80`, [`generic`]) and found as `0x581D40` finds
     /// it ([`Arts::index`]), its value added to that entry's bonus not for good
-    /// (`0x581F80(index, v, 0, 0)`), refused where the bonus would pass 255; then `every`, the
+    /// (`0x581F80(index, v, 0, 0)`), refused where the bonus would pass 255; then `weapon_arts`,
+    /// the items' bonus of every weapon art ([`crate::fight::concentration`]), to each entry of
+    /// the second table but 1019 so (`0x57A9E3`: `0x581F80(index, v, 0, 1)`); then `every`, the
     /// sets' bonus of every art held (`0x571710`, sets 19 and 47), to each entry so.
-    pub fn set_bonuses(&mut self, bonuses: &[(u16, u16)], every: u16) {
+    pub fn set_bonuses(&mut self, bonuses: &[(u16, u16)], (weapon_arts, every): (u16, u16)) {
         for entry in &mut self.entries {
             entry.bonus = 0;
         }
@@ -3226,6 +3231,13 @@ impl Arts {
                 continue;
             };
             raise(&mut self.entries[index], value);
+        }
+        if weapon_arts > 0 {
+            for entry in &mut self.entries {
+                if entry.table == Table::WeaponArts && entry.art != CONCENTRATION_SPARED {
+                    raise(entry, weapon_arts);
+                }
+            }
         }
         if every > 0 {
             for entry in &mut self.entries {
