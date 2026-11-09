@@ -32,7 +32,8 @@ const SHADER: &str = "embedded://opensacred_game/shadows.wesl";
 
 /// The root of a model that casts a shadow: the hero, an NPC whose creature has no flag `0x10`
 /// (`NOSHADOW`, `0x426D30`), a script's object (a `CreateObj` record) of category 4, which the
-/// client makes a `cChest3D` (`0x451300`, whose draw `0x5C97B0` draws the shadow).
+/// client makes a `cChest3D` (`0x451300`, whose draw `0x5C97B0` draws the shadow), and an arrow
+/// (`cArrow3D`, `0x5BAF00`).
 #[derive(Component)]
 pub struct Casts;
 

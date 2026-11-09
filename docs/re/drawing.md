@@ -324,7 +324,7 @@ Before, the model took the place of the cell its root stood in, so that the leaf
 A model's shadow (`shadows`, #101) is a copy of each of the model's meshes, skinned to the same joints, that the shadows' shader flattens onto the plane at the root's height: a point moves 0.037 units along X and 0.670 against Z per unit of its height above the plane, which on the screen is the original's lean (`shadows.wesl`).
 It takes its model's anchor and squeeze, in the shadows' layer: over what the original draws before the model, a floor or the stairs it stands on, and under the model and what it draws after.
 For the stencil, its fragments take the depth of the plane in their pixel's row, computed from the row alone, a unit of the model's own depth behind, and write it, drawn only where they are nearer than what lies there: a shadow's own triangles give a pixel the same depth to the bit, and darken it once (docs/decisions/drawing.md, "Models' shadows by depth, not stencil").
-It casts from the hero, from every NPC whose creature has no flag `0x10` and from the scripts' objects of category 4; an NPC's weapons cast none, as the client flattens the creature's own model alone.
+It casts from the hero, from every NPC whose creature has no flag `0x10`, from the scripts' objects of category 4 and since #2380 from the arrows (`arrows`), each flattened onto the plane at its own height; an NPC's weapons cast none, as the client flattens the creature's own model alone.
 Before, a soft ellipse lay under each character, and the objects had none (#102).
 
 ### The shadow dots
