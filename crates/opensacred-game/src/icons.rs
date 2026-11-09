@@ -2,12 +2,10 @@
 //! "Dialogues"): a creature whose dialogue a script stamped, or a trader, shows over its head the
 //! icon that its dialogue's entry or its trade gives (`0x499E90`, `opensacred_rules::quests::icon`),
 //! as `cCreature_render` draws it (`0x599F9B`, `0x4090D0`): a square of the icon's image facing
-//! the camera above the head's bone, and the same image added over it in a grey that pulses.
-//! The tints that `0x4090D0` gives the square's vertices do not show in the original's frames
-//! (seen 2026-10-26: the novice's icon 0, yellow by the code, and a dimmed 10 alike): the square
-//! is its image at about a third of its values, the pulse added over it (**hypothesis**: the
-//! device's lighting takes the vertices' colours' place, and lights the square without normals by
-//! its ambient alone).
+//! the camera above the head's bone, in the tint that `0x4090D0` gives its vertices by the icon,
+//! and the same image added over it in a grey that pulses (seen 2026-11-09, #2364: the "?!" of
+//! the Underworld's start yellow, its pixels (255, 255, 16) to (255, 255, 221) as the pulse adds
+//! its grey to the yellow's blue).
 //!
 //! While Alt is held (`labels::held`), a townsperson, a guard, a juggler or one that stands
 //! that shows no such icon shows its doing's (`opensacred_rules::minds::activity_icon`,
@@ -41,26 +39,27 @@ const PULSE_PHASE: f32 = 100.0;
 /// The pulse's greys, as many shared materials of each image, the last 254 of 255.
 const PULSE_STEPS: u8 = 32;
 
-/// The share of its image's values that the square shows under the pulse (**estimate**: the
-/// darkest of the original's frames by day, 2026-10-26).
-const SHOWN: f32 = 1.0 / 3.0;
-
-/// The dialogues' and the trades' icons and their images; `0x4090D0` tints 0 to 5 and the
-/// trades' yellow, 10 to 15 a dark grey (`0xFF3F3F3F`).
-const DIALOGUES: [(i32, &str); 12] = [
-    (0, "npc_dialog_01"),
-    (1, "npc_dialog_02"),
-    (4, "npc_dialog_05"),
-    (5, "npc_dialog_07"),
-    (10, "npc_dialog_01"),
-    (11, "npc_dialog_02"),
-    (14, "npc_dialog_05"),
-    (15, "npc_dialog_07"),
-    (0x20, "npc_dialog_smith"),
-    (0x21, "npc_dialog_trader"),
-    (0x22, "npc_dialog_combo"),
-    (0x23, "npc_dialog_trader"),
+/// The dialogues' and the trades' icons, their images and their tints (`0x4090D0`): 0 to 5 and
+/// the trades' yellow, 10 to 15 a dark grey.
+const DIALOGUES: [(i32, &str, u32); 12] = [
+    (0, "npc_dialog_01", YELLOW),
+    (1, "npc_dialog_02", YELLOW),
+    (4, "npc_dialog_05", YELLOW),
+    (5, "npc_dialog_07", YELLOW),
+    (10, "npc_dialog_01", DARK),
+    (11, "npc_dialog_02", DARK),
+    (14, "npc_dialog_05", DARK),
+    (15, "npc_dialog_07", DARK),
+    (0x20, "npc_dialog_smith", YELLOW),
+    (0x21, "npc_dialog_trader", YELLOW),
+    (0x22, "npc_dialog_combo", YELLOW),
+    (0x23, "npc_dialog_trader", YELLOW),
 ];
+const YELLOW: u32 = 0xFFFF_FF00;
+const DARK: u32 = 0xFF3F_3F3F;
+/// The tint of the townsfolk's and the hurts' icons, and of any other's.
+const WHITE: u32 = 0xFFFF_FFFF;
+const RED: u32 = 0xFFFF_0000;
 /// The townsfolk's icons from `0x40` and from `0x80`, untinted.
 const TOWNSFOLK: [&str; 27] = [
     "sim_talk",
@@ -97,14 +96,15 @@ const NONE: [i32; 3] = [8, 13, 126];
 /// The image of any other icon, which `0x4090D0` tints red.
 const OTHER: &str = "npc_dialog_02";
 
-/// The image of the icon `icon` (`0x4090D0`'s switch): the dialogues', the trades' and the
-/// townsfolk's; none for 8, 13 and 126; any other the second dialogues' image.
-pub fn image(icon: i32) -> Option<&'static str> {
+/// The image of the icon `icon` and its square's tint, as ARGB (`0x4090D0`'s switch): the
+/// dialogues' and the trades' by [`DIALOGUES`], the townsfolk's and the hurts' white, any other
+/// the second dialogues' image in red; none for 8, 13 and 126.
+fn look(icon: i32) -> Option<(&'static str, u32)> {
     if NONE.contains(&icon) {
         return None;
     }
-    if let Some(&(_, name)) = DIALOGUES.iter().find(|(value, _)| *value == icon) {
-        return Some(name);
+    if let Some(&(_, name, tint)) = DIALOGUES.iter().find(|(value, ..)| *value == icon) {
+        return Some((name, tint));
     }
     let from = |first: i32, names: &[&'static str]| {
         usize::try_from(icon - first)
@@ -114,7 +114,7 @@ pub fn image(icon: i32) -> Option<&'static str> {
     Some(
         from(0x40, &TOWNSFOLK)
             .or_else(|| from(0x80, &HURTS))
-            .unwrap_or(OTHER),
+            .map_or((OTHER, RED), |name| (name, WHITE)),
     )
 }
 
@@ -127,7 +127,7 @@ impl Files {
     pub fn find(assets: &Path) -> Self {
         let mut names: Vec<&'static str> = DIALOGUES
             .iter()
-            .map(|&(_, name)| name)
+            .map(|&(_, name, _)| name)
             .chain(TOWNSFOLK)
             .chain(HURTS)
             .collect();
@@ -166,27 +166,37 @@ fn icon_of(talk: Option<&Talk>, trades: Option<&Trades>, npcs: Option<&Npcs>) ->
 #[derive(Resource)]
 struct Square(Handle<Mesh>);
 
-/// The squares' materials, shared by the icons: of each image's file, the image's, among the
-/// objects, and the pulse's of each of its greys ([`PULSE_STEPS`]), which the pulse's square takes
-/// in turn, among the glows, so that it is drawn over the image.
+/// A square's look: the image's in its tint (ARGB), or the pulse's in one of its greys.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Face {
+    Image(u32),
+    Pulse(u8),
+}
+
+/// The squares' materials, shared by the icons: of each image's file, the image's in each tint,
+/// among the objects, and the pulse's of each of its greys ([`PULSE_STEPS`]), which the pulse's
+/// square takes in turn, among the glows, so that it is drawn over the image.
 #[derive(Resource, Default)]
-struct Looks(HashMap<(String, Option<u8>), Handle<Sorted>>);
+struct Looks(HashMap<(String, Face), Handle<Sorted>>);
 
 impl Looks {
-    /// The material of the image of `file`, or of its pulse's grey `step`.
+    /// The material of the image of `file` in its tint, or of its pulse's grey.
     fn of(
         &mut self,
         file: &str,
-        step: Option<u8>,
+        face: Face,
         assets: &AssetServer,
         materials: &mut Assets<Sorted>,
     ) -> Handle<Sorted> {
         self.0
-            .entry((file.to_owned(), step))
+            .entry((file.to_owned(), face))
             .or_insert_with(|| {
-                let (base_color, alpha_mode) = match step {
-                    None => (Color::srgb(SHOWN, SHOWN, SHOWN), AlphaMode::Blend),
-                    Some(step) => {
+                let (base_color, alpha_mode) = match face {
+                    Face::Image(tint) => {
+                        let [_, r, g, b] = tint.to_be_bytes();
+                        (Color::srgb_u8(r, g, b), AlphaMode::Blend)
+                    }
+                    Face::Pulse(step) => {
                         let grey = f32::from(step) / f32::from(PULSE_STEPS - 1) * 254.0 / 255.0;
                         (Color::srgb(grey, grey, grey), AlphaMode::Add)
                     }
@@ -200,7 +210,7 @@ impl Looks {
                         alpha_mode,
                         ..default()
                     },
-                    if step.is_some() {
+                    if matches!(face, Face::Pulse(_)) {
                         Layer::Glows
                     } else {
                         Layer::Objects
@@ -292,8 +302,8 @@ fn show(
                 alt.then(|| mind.and_then(|mind| opensacred_rules::minds::activity_icon(mind)))
                     .flatten()
             })
-            .and_then(|icon| Some((icon, image(icon)?)))
-            .and_then(|(icon, name)| Some((icon, files.0.get(name)?)));
+            .and_then(|icon| Some((icon, look(icon)?)))
+            .and_then(|(icon, (name, tint))| Some((icon, files.0.get(name)?, tint)));
         if shown.map(|shown| (shown.icon, shown.doing)) == wanted.map(|(icon, ..)| (icon, doing)) {
             continue;
         }
@@ -303,11 +313,12 @@ fn show(
             }
             commands.entity(creature).remove::<Icon>();
         }
-        let Some((icon, file)) = wanted else {
+        let Some((icon, file, tint)) = wanted else {
             continue;
         };
-        let image = looks.of(file, None, &assets, &mut materials);
-        let pulse = looks.of(file, Some(0), &assets, &mut materials);
+        debug!("icons: {creature} shows the icon {icon}, {file}");
+        let image = looks.of(file, Face::Image(tint), &assets, &mut materials);
+        let pulse = looks.of(file, Face::Pulse(0), &assets, &mut materials);
         let squares = [image, pulse].map(|material| {
             commands
                 .spawn((
@@ -315,6 +326,8 @@ fn show(
                     MeshMaterial3d(material),
                     Transform::default(),
                     Visibility::Hidden,
+                    // Unlit by the night and the dark places, as the original's (#2364).
+                    bevy::camera::visibility::RenderLayers::layer(iso::UNTINTED),
                     ChildOf(creature),
                 ))
                 .id()
@@ -388,7 +401,7 @@ fn place(
         if step != icon.step
             && let Ok((_, _, mut material)) = squares.get_mut(icon.squares[1])
         {
-            material.0 = looks.of(&icon.file, Some(step), &assets, &mut materials);
+            material.0 = looks.of(&icon.file, Face::Pulse(step), &assets, &mut materials);
             icon.step = step;
         }
     }
@@ -416,20 +429,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_icon_takes_its_image_by_the_originals_switch() {
-        // The novice's "?!", a dimmed one, a smith's, a townsperson's and a hurt's.
-        assert_eq!(image(0), Some("npc_dialog_01"));
-        assert_eq!(image(11), Some("npc_dialog_02"));
-        assert_eq!(image(0x20), Some("npc_dialog_smith"));
-        assert_eq!(image(0x40), Some("sim_talk"));
-        assert_eq!(image(0x5A), Some("sim_follow"));
-        assert_eq!(image(0x83), Some("sim_poison"));
-        // None for 8, 13 and 126; any other a "!", the popups' images and −1 among them.
-        assert_eq!(image(8), None);
-        assert_eq!(image(126), None);
-        assert_eq!(image(-1), Some(OTHER));
-        assert_eq!(image(1043), Some(OTHER));
-        assert_eq!(image(0x5B), Some(OTHER));
+    fn an_icon_takes_its_image_and_tint_by_the_originals_switch() {
+        // The novice's "?!" yellow, a dimmed one dark grey, a smith's yellow, a townsperson's
+        // and a hurt's white.
+        assert_eq!(look(0), Some(("npc_dialog_01", YELLOW)));
+        assert_eq!(look(11), Some(("npc_dialog_02", DARK)));
+        assert_eq!(look(0x20), Some(("npc_dialog_smith", YELLOW)));
+        assert_eq!(look(0x40), Some(("sim_talk", WHITE)));
+        assert_eq!(look(0x5A), Some(("sim_follow", WHITE)));
+        assert_eq!(look(0x83), Some(("sim_poison", WHITE)));
+        // None for 8, 13 and 126; any other a red "!", the popups' images and −1 among them.
+        assert_eq!(look(8), None);
+        assert_eq!(look(126), None);
+        assert_eq!(look(-1), Some((OTHER, RED)));
+        assert_eq!(look(1043), Some((OTHER, RED)));
+        assert_eq!(look(0x5B), Some((OTHER, RED)));
     }
 
     #[test]
