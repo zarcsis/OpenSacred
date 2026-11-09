@@ -45,7 +45,7 @@ The keys' and the mouse's messages are thrown away at each frame.
 The player (`movies`, #1945) follows the one above: a movie asked for by its name waits half a second, then plays over everything, its frames fitted by their own shape to the whole window and the rest black, the files' black bars cut away by the converter (#2413; docs/decisions/interface.md, "Movies by their content"), until it ends or Escape, Space or either mouse button held stops it; a quarter of a second after it, and while Escape or Space is still held, it still takes the keys and the clicks, which reach neither the game nor the menus.
 A game stands under a movie as under the pause without its menu, its time and its sound; in the menus their music and sounds pause.
 A movie whose file is not there is skipped.
-The console's `movie NAME` plays one.
+The console's `movie NAME` plays one, and `movie NAME NAME…` several in a row as one request (#2416).
 
 They play where the original's do (#1946): the start's logos before the main menu, in one request whose movies play in turn (the publisher's skipped, as neither of its files is shipped), each stopped alone by a key; the scripts' `InfoPlayer`s of the modes above and `GameEnd`'s extro; and the Extras' rows, the extros' among them once played.
 The start's logos are asked for as the main menu is entered, and their screen is black from the request to their end, the wait before them too, so that nothing of the menu shows before them; the menu's items fade in once they end, as the menu's time stands while a movie plays (#1972).

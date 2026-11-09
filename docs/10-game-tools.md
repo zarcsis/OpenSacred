@@ -150,7 +150,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `setquake N` | shakes the screen by a third of N pixels (1 to 100), falling by 10 a second, as the original's console | |
 | `music on\|off` | the music and the ambient loops | `--no-music` |
 | `movies on\|off` | the movies that play by themselves (the start's logos, the scripts', `GameEnd`'s) for this run; a driven run starts with them off (§3, #1946) | |
-| `movie NAME` | plays the movie NAME (`intro`, `extro`, `introuw`, `extrouw`, `act1` to `act4`, `ascaron`, `oem`) as the original's player does: over everything, the game standing, until it ends or Escape, Space or either mouse button stops it; `state` names it while it plays (#1945) | |
+| `movie NAME…` | plays the movie NAME (`intro`, `extro`, `introuw`, `extrouw`, `act1` to `act4`, `ascaron`, `oem`) as the original's player does: over everything, the game standing, until it ends or Escape, Space or either mouse button stops it; `state` names it while it plays (#1945); several NAMEs one after another as one request, as the start's logos play (`movie ascaron oem`, #2416) | |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
 | `record DIR N` | saves N frames | `--record`, `--record-frames` |
 | `benchmark SECONDS` | measures and prints | `--benchmark` |

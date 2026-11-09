@@ -104,8 +104,12 @@ enum Command {
     /// The music and the ambient loops
     Music { on: Switch },
     /// Play the movie NAME (intro, extro, introuw, extrouw, act1 to act4, ascaron, oem) as the
-    /// original's player does: Escape, Space or either mouse button stops it
-    Movie { name: String },
+    /// original's player does: Escape, Space or either mouse button stops it; more NAMEs one
+    /// after another, as one request plays them (the start's logos: ascaron oem)
+    Movie {
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
     /// The movies that play by themselves (the start's logos, the scripts', GameEnd's) for this
     /// run, as the settings' [movies] show, which a driven run leaves off
     Movies { on: Switch },
@@ -1190,12 +1194,17 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 }
             }
         }
-        Command::Movie { name } => {
-            if !crate::movies::exists(&name) {
+        Command::Movie { names } => {
+            if let Some(name) = names.iter().find(|name| !crate::movies::exists(name)) {
                 return Err(format!("no movie {name}"));
             }
-            world.write_message(crate::movies::Show::one(&name));
-            Ok(Outcome::say("the movie plays"))
+            let plays = if names.len() == 1 {
+                "the movie plays"
+            } else {
+                "the movies play"
+            };
+            world.write_message(crate::movies::Show::of(names));
+            Ok(Outcome::say(plays))
         }
         Command::Movies { on } => {
             let on = on == Switch::On;
@@ -1919,6 +1928,12 @@ mod tests {
             parse("sector 50,39"),
             Ok(Command::Sector { at: (50, 39) })
         ));
+        // One movie, or several as one request plays them (#2416); none is an error.
+        let Ok(Command::Movie { names }) = parse("movie ascaron oem") else {
+            panic!("not movie");
+        };
+        assert_eq!(names, ["ascaron", "oem"]);
+        assert!(parse("movie").is_err());
         assert!(matches!(
             parse("gait walk"),
             Ok(Command::Gait {
