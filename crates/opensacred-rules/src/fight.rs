@@ -63,6 +63,25 @@ const HELD_SKILLS: u32 = 2;
 const TOP_LEVEL: u32 = 216;
 
 impl Experience {
+    /// The experience of a hero carried from its file (`0x585260`; docs/02 §9, "The creature";
+    /// #2362): its `points` at its `level`, the attribute and skill points and the skills to learn
+    /// that the file leaves it, and the skills it learnt, those of its `held` slots past the two it
+    /// started with.
+    pub fn carried(
+        (points, level): (u64, u32),
+        (attribute_points, skill_points, to_learn): (u32, u32, u32),
+        held: u32,
+    ) -> Self {
+        Self {
+            points,
+            level,
+            attribute_points,
+            skill_points,
+            to_learn,
+            learnt: held.saturating_sub(HELD_SKILLS),
+        }
+    }
+
     /// The skills it may still learn (`+0x44`).
     /// The experience of a creature that is no hero, `points` at its level `level`, with no
     /// points to spend nor skills to learn (the game counts none of those that `addExperience`
@@ -8005,5 +8024,26 @@ mod tests {
         // Below 9 it keeps 1, and of 1 it keeps none.
         assert_eq!(knocked_damage(8), 7);
         assert_eq!(knocked_damage(1), 1);
+    }
+
+    #[test]
+    fn a_carried_hero_counts_its_learnt_skills_in_its_next_levels_points() {
+        // The installation's Dwarf: level 29, five skills held, one to learn, nine points.
+        let mut dwarf = Experience::carried((1_800_000, 29), (0, 9, 1), 5);
+        assert_eq!(
+            (dwarf.level, dwarf.skill_points, dwarf.to_learn()),
+            (29, 9, 1)
+        );
+        // Level 30 counts his five slots, the one to learn and the one it opens: four points.
+        assert!(dwarf.add(level_end(29) - 1_800_000, &Rules::default()));
+        assert_eq!(
+            (
+                dwarf.level,
+                dwarf.attribute_points,
+                dwarf.skill_points,
+                dwarf.to_learn()
+            ),
+            (30, 1, 13, 2)
+        );
     }
 }

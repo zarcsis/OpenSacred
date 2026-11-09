@@ -245,6 +245,11 @@ pub struct NewGame {
     /// The difficulty: bronze (by default), silver, gold, platinum or niobium
     #[arg(long, value_parser = parse_difficulty)]
     pub difficulty: Option<opensacred_rules::drops::Difficulty>,
+    /// A hero that the installation ships for the Underworld campaign, by its slot (6 the Dwarf,
+    /// 7 the Daemon; `heroes.ron`'s saved heroes), whose values, skills and combat arts the hero
+    /// of its class takes (#2362)
+    #[arg(long)]
+    pub saved: Option<u8>,
 }
 
 /// The game's difficulty (`0x182EE44`, docs/re/fight.md, "The difficulty"), which its rules take
@@ -374,6 +379,7 @@ struct Loaded {
     backpack: crate::pickup::Starting,
     sets: crate::sets::Starting,
     maker: arsenal::Maker,
+    carry: Option<crate::carry::Carry>,
 }
 
 /// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
@@ -414,6 +420,15 @@ fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::Hero
                 .into_iter()
                 .find(|hero| hero.class == class.creature())
         })
+}
+
+/// The installation's saved hero of the slot `slot` (`heroes.ron`'s `saved`, #1676); none where
+/// the index lacks it.
+fn saved_hero(assets: &Path, slot: u8) -> Option<opensacred_data::heroes::SavedHero> {
+    files::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
+        .ok()
+        .and_then(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text).ok())
+        .and_then(|index| index.saved.into_iter().find(|saved| saved.slot == slot))
 }
 
 /// Loads the game `game` would start, of the seed `seed`: the hero at its start, the first sector
@@ -498,6 +513,18 @@ fn load(
     // The hero's template's items (#486): their values in its fight, the class of those in its
     // hands, by which it picks its clips, and their models (#488).
     let template = template(assets, class);
+    // A saved hero of the installation's, of the class (#2362): its combat arts from the start,
+    // its values carried once it stands (`carry`).
+    let saved = game
+        .saved
+        .and_then(|slot| {
+            let saved = saved_hero(assets, slot);
+            if saved.is_none() {
+                bevy::log::warn!("game: no saved hero in the slot {slot}");
+            }
+            saved
+        })
+        .filter(|saved| saved.hero.class == class.creature());
     let backpack = crate::pickup::Starting(
         template
             .as_ref()
@@ -709,7 +736,11 @@ fn load(
     let arts = arts::HeroArts::new_game(
         assets,
         class.creature(),
-        template.as_ref().map_or(&[][..], |hero| &hero.arts),
+        saved
+            .as_ref()
+            .map(|saved| &saved.hero)
+            .or(template.as_ref())
+            .map_or(&[][..], |hero| &hero.arts),
         skills.clone(),
         balance,
     );
@@ -789,6 +820,7 @@ fn load(
         backpack,
         sets,
         maker,
+        carry: saved.map(|saved| crate::carry::Carry::of(&saved.hero)),
     })
 }
 
@@ -1044,6 +1076,10 @@ fn finish(
     commands.insert_resource(loaded.backpack);
     commands.insert_resource(loaded.sets);
     commands.insert_resource(loaded.maker);
+    match loaded.carry {
+        Some(carry) => commands.insert_resource(carry),
+        None => commands.remove_resource::<crate::carry::Carry>(),
+    }
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);
         commands.insert_resource(atmosphere);

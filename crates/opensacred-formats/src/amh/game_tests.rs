@@ -241,3 +241,60 @@ fn every_summary_matches_amh_dump_py() {
     assert!(ours.iter().all(|row| row.ends_with("\t000000")));
     fs::remove_dir_all(out).unwrap();
 }
+
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python"]
+fn every_creatures_stats_match_amh_dump_py() {
+    let out = scratch_dir("amh-stats");
+    let rows = out.join("stats.tsv");
+    let game = opensacred_locate::original();
+    run_python(
+        "tools/analysis/formats/amh_dump.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--stats"),
+            rows.as_os_str(),
+            OsStr::new("--saves"),
+        ],
+    );
+    let paths = (0..8)
+        .map(|i| format!("Templates/Hero{i:02}.ptx"))
+        .chain(["save/hero06.pax".to_owned(), "save/hero07.pax".to_owned()]);
+    let joined = |values: &[String]| values.join(",");
+    let mut ours = Vec::new();
+    for path in paths {
+        let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let s = amh.stats().unwrap();
+        let skills: Vec<String> = (0..8)
+            .filter(|&k| s.skills[k] != 0)
+            .map(|k| format!("{k}:{}:{}:{}", s.skills[k], s.bases[k], s.bonuses[k]))
+            .collect();
+        let equipment: Vec<String> = amh
+            .equipment()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter(|&(_, &id)| id != 0)
+            .map(|(slot, id)| format!("{slot}:{id}"))
+            .collect();
+        ours.push(format!(
+            "{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            s.class,
+            s.level,
+            s.experience,
+            s.gold,
+            joined(&s.attributes.map(|v| v.to_string())),
+            joined(&s.base.map(|v| v.to_string())),
+            joined(&s.spent.map(|v| v.to_string())),
+            s.attribute_points,
+            skills.join(","),
+            s.skill_points,
+            s.to_learn,
+            equipment.join(",")
+        ));
+    }
+    let theirs = fs::read_to_string(&rows).unwrap();
+    assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
+    fs::remove_dir_all(out).unwrap();
+}

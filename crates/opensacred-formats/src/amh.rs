@@ -56,6 +56,14 @@ const MINI_ON_DISK: usize = 64;
 const ARTS: usize = 1227;
 /// A combat art's entry, as a creature's stats hold it (docs/re/arts.md, "A creature's arts").
 pub const ART: usize = 22;
+/// The creature section's markers at their places: the object's, the creature's and its stats'
+/// (docs/02 §9, "The creature").
+const CREATURE_MARKS: [(usize, u32); 3] =
+    [(16, 0xFEED_F00D), (263, 0xC0DE_F00D), (961, 0xDEAD_BEEF)];
+/// The equipment's slots, 19 object ids, in the creature section.
+const EQUIPMENT_SLOTS: usize = 435;
+/// The creature section's byte of the stats' `+0`: the stats' `+x` is at `STATS + x`.
+const STATS: usize = 981;
 /// The header words that are not zero (offset, value), the same in every file.
 const HEADER_WORDS: [(usize, u32); 6] = [
     (4, 0x10),
@@ -97,6 +105,38 @@ pub struct Summary {
     pub equipment: [u32; EQUIPMENT],
     /// `+0xED`: whether the hero won each difficulty, bronze's first (`0x6F4F20`).
     pub won: [bool; WON_COUNT],
+}
+
+/// The stats of the creature section (docs/02 §9, "The creature"): the stats' `+0x08`…`+0x56`
+/// that a hero's values are made of again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stats {
+    /// `+0x08`: the class, the hero's creature type.
+    pub class: u32,
+    /// `+0x0C`.
+    pub experience: u32,
+    /// `+0x10`: the attributes as the stats made them, with the items'.
+    pub attributes: [u16; 6],
+    /// `+0x1C`: the attribute points spent on each.
+    pub spent: [u8; 6],
+    /// `+0x23`: the attribute points still to spend.
+    pub attribute_points: u8,
+    /// `+0x24`: the skill of each slot, 0 for none.
+    pub skills: [u8; 8],
+    /// `+0x2C`: each slot's base.
+    pub bases: [u8; 8],
+    /// `+0x34`: the items' bonus to each slot.
+    pub bonuses: [u8; 8],
+    /// `+0x42`: the skill points still to spend.
+    pub skill_points: u16,
+    /// `+0x44`: the skills still to learn.
+    pub to_learn: u16,
+    /// `+0x46`.
+    pub gold: u32,
+    /// `+0x4A`: the base attributes, the class's at level 1.
+    pub base: [u16; 6],
+    /// `+0x56`.
+    pub level: u16,
 }
 
 /// A combat art of the creature section: an entry of the stats' list (docs/re/arts.md, "A
@@ -325,6 +365,66 @@ impl Amh {
                 })
             })
             .collect()
+    }
+
+    /// The creature section with its markers checked at their places.
+    fn creature(&self) -> Result<&[u8]> {
+        let data = &self.section(CREATURE, "AMH creature section")?.data;
+        for (at, mark) in CREATURE_MARKS {
+            let found = Reader::at(data, at).u32()?;
+            if found != mark {
+                return Err(Reader::at(data, at).error_at(
+                    at,
+                    field(
+                        "AMH creature section's marker",
+                        found.into(),
+                        format!("{mark:#010X}"),
+                    ),
+                ));
+            }
+        }
+        Ok(data)
+    }
+
+    /// The stats of the creature section, from its byte 989 (the stats' `+0x08`).
+    pub fn stats(&self) -> Result<Stats> {
+        let data = self.creature()?;
+        let at = |x: usize| Reader::at(data, STATS + x);
+        let words = |x: usize| -> Result<[u16; 6]> {
+            let mut r = at(x);
+            let mut words = [0; 6];
+            for word in &mut words {
+                *word = r.u16()?;
+            }
+            Ok(words)
+        };
+        Ok(Stats {
+            class: at(0x08).u32()?,
+            experience: at(0x0C).u32()?,
+            attributes: words(0x10)?,
+            spent: at(0x1C).array("AMH attribute points spent")?,
+            attribute_points: at(0x23).u8()?,
+            skills: at(0x24).array("AMH skills")?,
+            bases: at(0x2C).array("AMH skills' bases")?,
+            bonuses: at(0x34).array("AMH skills' bonuses")?,
+            skill_points: at(0x42).u16()?,
+            to_learn: at(0x44).u16()?,
+            gold: at(0x46).u32()?,
+            base: words(0x4A)?,
+            level: at(0x56).u16()?,
+        })
+    }
+
+    /// The equipment's 19 slots of the creature section, each slot's item by its object id in the
+    /// inventory section, 0 for none (the creature's `+0x1A4`).
+    pub fn equipment(&self) -> Result<[u32; 19]> {
+        let data = self.creature()?;
+        let mut r = Reader::at(data, EQUIPMENT_SLOTS);
+        let mut slots = [0; 19];
+        for slot in &mut slots {
+            *slot = r.u32()?;
+        }
+        Ok(slots)
     }
 
     /// The items in the backpack's grid, cell by cell, row by row, each at its top left cell.
@@ -605,6 +705,64 @@ mod tests {
         let error = creature(&[(3, 1071, 0, 15.0)]).arts().unwrap_err();
         assert_eq!(error.place.record, Some(0));
         assert!(error.to_string().contains("table"), "{error}");
+    }
+
+    #[test]
+    fn the_creature_section_holds_the_stats_and_the_equipment() {
+        let mut amh = creature(&[]);
+        // Without its markers the section is refused.
+        assert!(
+            amh.stats().unwrap_err().to_string().contains("marker"),
+            "{:?}",
+            amh.stats()
+        );
+        let data = &mut amh.sections[0].data;
+        for (at, mark) in CREATURE_MARKS {
+            data[at..at + 4].copy_from_slice(&mark.to_le_bytes());
+        }
+        let put = |data: &mut Vec<u8>, at: usize, bytes: &[u8]| {
+            data[at..at + bytes.len()].copy_from_slice(bytes);
+        };
+        put(data, STATS + 0x08, &8u32.to_le_bytes());
+        put(data, STATS + 0x0C, &1_800_000u32.to_le_bytes());
+        put(data, STATS + 0x10, &100u16.to_le_bytes());
+        put(data, STATS + 0x1C + 2, &[14]);
+        put(data, STATS + 0x24, &[2, 10]);
+        put(data, STATS + 0x2C, &[23, 13]);
+        put(data, STATS + 0x34, &[13]);
+        put(data, STATS + 0x42, &9u16.to_le_bytes());
+        put(data, STATS + 0x44, &1u16.to_le_bytes());
+        put(data, STATS + 0x46, &977_384u32.to_le_bytes());
+        put(data, STATS + 0x4A, &26u16.to_le_bytes());
+        put(data, STATS + 0x56, &29u16.to_le_bytes());
+        put(data, EQUIPMENT_SLOTS + 13 * 4, &74u32.to_le_bytes());
+        let stats = amh.stats().unwrap();
+        assert_eq!(
+            stats,
+            Stats {
+                class: 8,
+                experience: 1_800_000,
+                attributes: [100, 0, 0, 0, 0, 0],
+                spent: [0, 0, 14, 0, 0, 0],
+                attribute_points: 0,
+                skills: [2, 10, 0, 0, 0, 0, 0, 0],
+                bases: [23, 13, 0, 0, 0, 0, 0, 0],
+                bonuses: [13, 0, 0, 0, 0, 0, 0, 0],
+                skill_points: 9,
+                to_learn: 1,
+                gold: 977_384,
+                base: [26, 0, 0, 0, 0, 0],
+                level: 29,
+            }
+        );
+        let equipment = amh.equipment().unwrap();
+        assert_eq!(
+            (
+                equipment[13],
+                equipment.iter().filter(|&&id| id != 0).count()
+            ),
+            (74, 1)
+        );
     }
 
     #[test]
