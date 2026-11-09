@@ -375,7 +375,11 @@ fn click(
         Option<Res<Tables>>,
     ),
     frames: Query<&SlotFrame>,
-    (mut sounds, mut refusals): (MessageWriter<sfx::Play>, MessageWriter<NotMine>),
+    (mut sounds, mut refusals, mut bridles): (
+        MessageWriter<sfx::Play>,
+        MessageWriter<NotMine>,
+        MessageWriter<crate::riding::PutBridle>,
+    ),
 ) {
     let (left, right) = (
         buttons.just_pressed(MouseButton::Left),
@@ -394,7 +398,8 @@ fn click(
             rate,
         });
     };
-    // The right button on an item of the grid puts it on, the cursor empty.
+    // The right button on an item of the grid puts it on, the cursor empty; a bridle, which no
+    // slot takes, goes onto the hero's own horse where the hero may use it (`0x6C0D96`).
     if right
         && pack.held.is_none()
         && let Some(cell) = on_grid(&pointer, &ui_scale, &windows, &page).and_then(cell_under)
@@ -411,12 +416,26 @@ fn click(
             return;
         };
         let asks = tables.asks(&dropped, &rules);
-        let Some(slot) = slot_for(asks.category, |slot| {
+        let slot = slot_for(asks.category, |slot| {
             pack.worn
                 .get(usize::from(slot))
                 .is_some_and(Option::is_none)
                 && frames.iter().any(|frame| frame.0 == slot)
-        }) else {
+        });
+        if slot.is_none() && asks.category == crate::riding::BRIDLES {
+            match refusal(hero.creature, level, &asks) {
+                Some(why) => {
+                    refusals.write(NotMine {
+                        level: why == Refusal::Level,
+                    });
+                }
+                None => {
+                    bridles.write(crate::riding::PutBridle(placed.key));
+                }
+            }
+            return;
+        }
+        let Some(slot) = slot else {
             return;
         };
         if let Some(why) = refusal(hero.creature, level, &asks) {
@@ -509,14 +528,24 @@ fn refit(
             &mut Regenerates,
             Option<&Effects>,
             Option<&Worn>,
+            Option<&crate::riding::Seat>,
         ),
         With<Body>,
     >,
-    mut seen: Local<Vec<(u32, usize)>>,
+    (bridles, mut seen): (Query<&crate::riding::Bridle>, Local<Vec<(u32, usize)>>),
 ) {
     let Some(tables) = tables else {
         return;
     };
+    // The ridden horse's slot 0, its bridle, the first of the rider's items (`0x552660`).
+    let bridle = heroes
+        .iter()
+        .next()
+        .and_then(|(.., seat)| match seat {
+            Some(&crate::riding::Seat::Riding { horse, .. }) => bridles.get(horse).ok(),
+            _ => None,
+        })
+        .map(|bridle| bridle.0.clone());
     // The items in the hands, the selected weapon set's halves, whose sets count (#1727).
     let hands: Vec<u32> = weapon_sets
         .as_deref()
@@ -542,29 +571,29 @@ fn refit(
         .map(|(key, d)| (*key, d.socketed.len()))
         .chain(hands.iter().map(|&item| (item, usize::MAX)))
         .chain(carried.iter().map(|&item| (item, usize::MAX - 1)))
+        .chain(bridle.iter().map(|d| (d.item, usize::MAX - 2)))
         .collect();
     if *seen == worn {
         return;
     }
     // What the sets of the pieces worn and held give the hero (`0x5711F0`, `0x571710`).
-    let pieces = pack
-        .worn
+    let pieces = bridle
         .iter()
-        .flatten()
-        .map(|(_, d)| d.item)
+        .map(|d| d.item)
+        .chain(pack.worn.iter().flatten().map(|(_, d)| d.item))
         .chain(hands.iter().copied())
         .chain(carried.iter().copied())
         .filter_map(|item| Some((item, tables.set_of(item)?)));
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
     let set_stats = set_bonuses::stats(&set_bonuses::Worn::of(pieces), difficulty);
-    for (entity, base, mut holding, mut combat, mut regenerates, effects, old) in &mut heroes {
+    for (entity, base, mut holding, mut combat, mut regenerates, effects, old, _) in &mut heroes {
         // Each item's values with its sockets', then the bonus slots of the items in its
-        // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661).
-        let values: Vec<fight::ItemValues> = pack
-            .worn
+        // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661);
+        // the ridden horse's bridle first, its slot −1.
+        let values: Vec<fight::ItemValues> = bridle
             .iter()
-            .flatten()
-            .flat_map(|(_, d)| {
+            .chain(pack.worn.iter().flatten().map(|(_, d)| d))
+            .flat_map(|d| {
                 std::iter::once(tables.values(d))
                     .chain(opensacred_rules::smith::bonuses(&d.socketed))
             })

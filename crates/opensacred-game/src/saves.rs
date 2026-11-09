@@ -70,8 +70,9 @@ use crate::{arts, drops, making};
 /// (#1125) keeps the levels of the scripts' items lying and the creatures' placements as they
 /// stand since #2249, #2290 and #2305, which the version 4 had changed under it (#2306); the
 /// version 6 keeps no effect's source (#2308); the version 7 the hero's own horse (#2301); the
-/// version 8 a stable's horse's trader (#2300); the version 9 a fill's rider on its horse (#2288).
-pub const VERSION: u32 = 9;
+/// version 8 a stable's horse's trader (#2300); the version 9 a fill's rider on its horse (#2288);
+/// the version 10 the hero's own horse's bridle (#2316).
+pub const VERSION: u32 = 10;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -140,8 +141,10 @@ pub struct Scripts {
 pub struct World {
     pub creatures: crate::npcs::Creatures,
     pub followers: Vec<crate::npcs::Following>,
-    /// The hero's own horse, unmounted at the load (#2301).
+    /// The hero's own horse, unmounted at the load (#2301), and the item of its slot 0, its
+    /// bridle (#2316).
     pub horse: Option<crate::npcs::Following>,
+    pub bridle: Option<opensacred_rules::drops::Dropped>,
     pub drops: Vec<drops::Laid>,
     pub stash: Chest,
     pub wares: Stock,
@@ -423,6 +426,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
     let creatures = crate::npcs::creatures(world).context("no NPCs to save")?;
     let followers = crate::npcs::following(world);
     let horse = crate::npcs::mount_of(world);
+    let bridle = crate::riding::bridle_of(world);
     let drops = drops::laid(world);
     // The weather's timers from the save's time of real time, which a load's run starts anew.
     let now = world
@@ -439,6 +443,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
         creatures,
         followers,
         horse,
+        bridle,
         drops,
         stash: world.get_resource::<Chest>().cloned().unwrap_or_default(),
         wares: world
@@ -604,6 +609,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         creatures: _,
         followers,
         horse,
+        bridle,
         drops: laid,
         stash,
         wares,
@@ -632,6 +638,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     crate::npcs::follow_again(world, followers);
     if let Some(horse) = horse {
         crate::npcs::mount_again(world, horse);
+        crate::riding::bridle_again(world, bridle);
     }
     info!("saves: the world is back");
 }
@@ -1128,7 +1135,7 @@ mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (9, 0x5326_DD3D_6A29_FCA3),
+            (10, 0x6416_4498_C024_0DEE),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
