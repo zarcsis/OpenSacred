@@ -1716,8 +1716,10 @@ fn back(mut screen: ResMut<NextState<Screen>>) {
     screen.set(Screen::Main);
 }
 
-/// Starts a game of the class chosen, of its name, if one is. A saved hero of the Underworld
-/// campaign starts nothing yet: its game is #1677's.
+/// Starts a game of the hero chosen, of its name, if one is: a class's of the Ancaria campaign,
+/// or a saved hero's of the Underworld campaign, in its class's tree of the add-on, whose start
+/// script places it (`IMPORT_DO`, `0x70DC20`; docs/re/underworld.md). The saved hero is its
+/// class's template until its own values come (#2362).
 fn start(
     choice: Res<Choice>,
     mut request: ResMut<Request>,
@@ -1727,22 +1729,19 @@ fn start(
         return;
     };
     let class = stand.class;
-    if let Some(saved) = &stand.saved {
-        info!(
-            "choice: the Underworld campaign does not start yet, with {} of level {}",
-            saved.name, saved.level
-        );
-        return;
-    }
+    let tree = stand.saved.as_ref().map(|_| class.underworld_tree());
     info!(
-        "choice: a {} named {}, on {:?}",
+        "choice: a {} named {}, on {:?}{}",
         class.name(),
         choice.name,
-        choice.difficulty
+        choice.difficulty,
+        tree.as_ref()
+            .map_or(String::new(), |tree| format!(", in the tree {tree}"))
     );
     request.0.class = Some(class);
     request.0.name = Some(choice.name.clone());
     request.0.difficulty = Some(choice.difficulty);
+    request.0.tree = tree;
     state.set(AppState::Loading);
 }
 
@@ -2246,6 +2245,37 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_hero_starts_in_its_classs_tree_of_the_add_on() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .init_state::<AppState>()
+            .init_resource::<Request>();
+        let mut choice = Choice::default();
+        choice.stands[6] = Some(Stand {
+            class: Class::Dwarf,
+            saved: Some(Saved {
+                name: "Hero".into(),
+                level: 29,
+                highest: 0,
+            }),
+        });
+        choose(&mut choice, &Words::default(), 6);
+        choice.difficulty = Difficulty::Silver;
+        app.insert_resource(choice);
+        app.world_mut().run_system_cached(start).unwrap();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<AppState>>().get(),
+            AppState::Loading
+        );
+        let request = &app.world().resource::<Request>().0;
+        assert_eq!(request.class, Some(Class::Dwarf));
+        assert_eq!(request.name.as_deref(), Some("Hero"));
+        assert_eq!(request.difficulty, Some(Difficulty::Silver));
+        assert_eq!(request.tree.as_deref(), Some("addon-type_npc_zwerg"));
+    }
+
+    #[test]
     fn the_arrows_choose_a_hero_whose_name_the_keys_type_and_enter_starts_it() {
         let mut app = App::new();
         app.add_plugins((
@@ -2302,6 +2332,8 @@ mod tests {
         assert_eq!(request.class, Some(Class::Seraphim));
         assert_eq!(request.name.as_deref(), Some("Seraphimx"));
         assert_eq!(request.difficulty, Some(Difficulty::Bronze));
+        // The Ancaria campaign's game runs in the class's own tree.
+        assert_eq!(request.tree, None);
     }
 
     #[test]

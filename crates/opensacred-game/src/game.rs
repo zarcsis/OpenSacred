@@ -82,6 +82,13 @@ impl Class {
         }
     }
 
+    /// The hero's script tree of the Underworld campaign, the add-on's of its type
+    /// (`bin\Addon\%s`, `0x43CED0`; docs/re/underworld.md, "The engine's start"), as
+    /// `opensacred-convert netscript` names it.
+    pub fn underworld_tree(self) -> String {
+        format!("addon-{}", self.tree())
+    }
+
     /// The hero's type: its `Creature.pak` record, whose id is also the `items.pak` slot of the
     /// class's own model (1 `SERAPHIM.GRN` … 9 `Daemonia.grn`), and the type of the class's
     /// template (`heroes.ron`; docs/02 §6.2): the Vampiress's by day, 6, her night's form 7 the
