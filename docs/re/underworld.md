@@ -84,7 +84,7 @@ From `bin/Addon/TYPE_NPC_ZWERG/StartCode.bin` and the run's log:
 
 The loader `0x6058A0` reads every section onto the hero made from the template (**confirmed** by code), and the Dwarf's start matched `save/hero06.pax` (**seen**):
 
-- **The creature `0xC7`**, through the hero's own load (its virtual table's `+0x1C`): the level 29, the experience 1,800,000 and the gold 977,384 (`+0x42B`, `+0x3E1`, `+0x41B`), the health full, the attributes and their bases, the skills with their points and the skills to learn, the combat arts and the spells at the file's levels, bonuses and times, the combos (**seen**).
+- **The creature `0xC7`**, through the hero's own load (its virtual table's `+0x1C`, `0x54B3D0`): the level 29, the experience 1,800,000 and the gold 977,384, the health full, the attributes and their bases, the skills with their points and the skills to learn, the combat arts and the spells at the file's levels, bonuses and times, the combos, and the equipment's slots by the items' ids (**seen**; the layout in docs/02 §9, "The creature", #2361).
 - **The inventory `0xC8` and the containers `0xCA`, `0xCB`**: the file's 52 items with their ids, 15 worn, the weapon sets and the backpack's 33 in its grid (**seen**; the sets a **hypothesis**), a healing potion in the belt (**seen**); the template's own weapon is gone (**hypothesis**: the load replaces it).
 - **The summary `0xC3`**: the levels the hero reached on each difficulty (`0x425290`, `0x424D30`) and the hardcore flag.
 - **`0xC4`** (64 bytes) is read only for the profile's own hero, into the player's record (`0x424670`, `0x4246C0`, `0x424C40`, `0x424C50`, `0x424C60`, `0x423F20`) (**confirmed** that it is read; not read further).

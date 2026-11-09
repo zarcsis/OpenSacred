@@ -1086,7 +1086,7 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 
 | Slot | Tag | Size (template / save) | Storage | Contents |
 |---|---|---|---|---|
-| 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | `cCreatureHero` dump (starts with 0xFEEDF00D; per sacred-sdk: class @0x3DD, experience @0x3E1, gold @0x41B, level @0x42B; not checked byte by byte); the hero's combat arts from byte 1,227 (docs/re/arts.md, "The heroes' starting arts") |
+| 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | the hero's creature, as `cCreature`'s load reads it (below): its equipment's slots, its stats (class, experience, attributes, skills, gold, level) and its combat arts |
 | 1 | 0xCA (202) | 4,444 | zlib | the hero's backpack: an inventory container (below), 20 × 8 cells |
 | 2 | 0xCB (203) | 4,444 | zlib | a second inventory container, 20 × 10 cells, of the reference `0x11`, empty in all 10 files |
 | 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: a block per item (below; 5 to 7 in a template, 52/58 in saves) |
@@ -1098,6 +1098,35 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 Compressed sections: a 32-byte prefix `u32 0xBAADC0DE, u32 csize, 24 × 0` + zlib (`78 DA`); inflate yields exactly `size`.
 **Confirmed on every section 2026-10-17** by `tools/analysis/formats/amh_dump.py`: the sections follow the table in slot order, back to back, the last to the end of the file; a stored section is `size` bytes on disk but for 0xC4 (64 bytes for a size of 556).
 The 8 templates are of 8 different classes (1–6, 8, 9), level 1, without a name; the 2 saves are level-29 heroes.
+
+**The creature** `0xC7`, **confirmed** 2026-11-09 (#2361) by the loader's code and on the 10 files (`amh_dump.py --saves --stats`), its values against the original's driver's `stats`, `skills` and `wear` of the shipped Dwarf and Daemon started in the Underworld campaign: the loader (`0x6058A0`) inflates it and calls the hero's own load, `cCreature`'s virtual `+0x1C` (`0x54B3D0`), which reads the object's base (`cObject3D`, `0x44FC50`) and then, at fixed places in every file:
+- 16: `0xFEEDF00D`, the base's; 263: `0xC0DEF00D`, the creature's marker, then two blocks of `0x54` bytes (the creature's `+0xFC` and `+0x150`, its action's and AI's state, not read further).
+- 435: the equipment, 19 `u32`, each slot's item by its object id in the inventory `0xC8`, 0 for none (the creature's `+0x1A4`); the items' types are the summary's equipment's in the 10 files.
+  A template's names its weapon alone, its cosmetic item the class's default (`0x426580`), which the loader puts in an empty slot; the items that neither the backpack nor a slot holds are the other weapon sets' (`0xCA`'s sets), and the belt holds no item of its own (`potions`).
+- 511: `0xFD` bytes (`+0x1F0`, the creature's flags among them), 764: `0xAD` bytes (`+0x2ED`), then seven values of 4, 2, 4, 2, 4, 4 and 4 bytes.
+- 961: the stats (`0x585260`, the creature's stats at `+0x3A8`): the marker `0xDEADBEEF`, `0x18` bytes (the stats' `+0x128`), and from 989 the stats' `+0x08`…`+0xF5`, so that the stats' `+x` is the section's byte `981 + x`:
+
+| Stats | Byte | Type | What |
+|---|---|---|---|
+| `+0x08` | 989 | `u32` | the class, the hero's creature type (docs/02 §6.1) |
+| `+0x0C` | 993 | `u32` | the experience |
+| `+0x10` | 997 | 6 × `u16` | the attributes `a0`…`a5` as the stats make them, with the items' |
+| `+0x1C` | 1,009 | 6 × `u8` | the attribute points spent on each |
+| `+0x22` | 1,015 | `u8` | the attributes that the items raise, a bit each |
+| `+0x23` | 1,016 | `u8` | the attribute points still to spend |
+| `+0x24` | 1,017 | 8 × `u8` | the skill of each slot, 0 for none |
+| `+0x2C` | 1,025 | 8 × `u8` | each slot's base |
+| `+0x34` | 1,033 | 8 × `u8` | the items' bonus to each slot |
+| `+0x3C` | 1,041 | 3 × `u16` | not read (140, 120 and 130 in most templates) |
+| `+0x42` | 1,047 | `u16` | the skill points still to spend |
+| `+0x44` | 1,049 | `u16` | the skills still to learn |
+| `+0x46` | 1,051 | `u32` | the gold |
+| `+0x4A` | 1,055 | 6 × `u16` | the base attributes, the class's at level 1, the template's `+0x10` |
+| `+0x56` | 1,067 | `u16` | the level |
+
+  The rest of the block, to 1,226, is the values that the stats' recomputation makes again (`0x5796A0`: damage, resistances and their multipliers, docs/re/character.md).
+- 1,227: the combat arts, a `u16` count and 22 bytes each (docs/re/arts.md, "The heroes' starting arts"), then a `u16` count of records of `0x26` bytes (the stats' `+0x10E`) and the combos (docs/re/arts.md), then the creature's lists of 9-byte and `0x44`-byte records, and `0x1BC` bytes of the scripts' data where the creature's `+0x200` has the bit 6.
+- The values in the files: the templates of level 1, no experience, 5,000 gold, their two skills at the base 1 and no point to spend; the Dwarf of level 29, 1,800,000 experience, 977,384 gold, the attributes 100, 74, 117, 105, 0, 32 of the base 26, 18, 25, 24, 0, 8 with 14 points on each of `a2` and `a3`, the skills 2, 10, 11, 5, 29 at the bases 23, 13, 10, 10, 13 and 13 more on the first, 9 skill points and a skill to learn; the Daemon of level 29, 1,800,000 experience, 979,644 gold, the attributes 141, 84, 83, 92, 115, 57 of the base 35, 21, 22, 18, 28, 15 with 24 points on `a3` and 4 on `a4`, the skills 14, 2, 25, 10, 4, 11 at the bases 17, 18, 13, 11, 10, 10 and 18 more on the second, no point to spend: as the driver's `stats` and `skills` print them in the original's game.
 
 **The summary's equipment**, **confirmed** 2026-11-08 (#1676) on the 10 files (`amh_dump.py --saves --summaries`) and by the choice of the hero's code (`0x6F4E60` copies the summary to a pedestal's `+0x2FC` and reads its `+0x388` and `+0x390`, the slots 0 and 2): at `0x88` the count of the equipment's slots, a `u32` 19 in every file, then the type of the item in each slot, a `u32` each, 0 for none, in the slots' order of docs/re/equipment.md (13 the right hand, 12 the left); each type is that of an item that the inventory holds outside the backpack.
 A template's summary names its weapon alone (the slot 13, the Wood Elf's bow in 12, the Vampiress's shield in 12 too), not its cosmetic item, which the class's default fills; the saved Dwarf's names 15 items and the Daemon's 14, the potions of their belts and the weapons of their other sets not among them.
@@ -1129,7 +1158,7 @@ The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold:
 **The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
 
 For the new engine: original `.pax` saves are not supported (by design), but for the two heroes the installation ships for the Underworld's choice, which `opensacred-convert heroes` writes beside the templates, `save/hero06.hero` and `hero07.hero`, indexed in `heroes.ron`'s `saved` with their slots, names, their summaries' equipment by the slots and the difficulties they won (#1676).
-The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears, the items of its backpack (#1285) and its combat arts in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
+The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears, the items of its backpack (#1285) and its combat arts in `heroes.ron`; the stats of 0xC7 (above) are read since #2361 by `amh_dump.py --stats`, which the converter and the game take up in #2362.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 
 ## 10. Sound, music, video
