@@ -237,7 +237,7 @@ Read off the client with Ghidra 2026-10-19 (#101), **confirmed** by code unless 
 The object factory (`0x451300`) makes an object of category 4 (`items.pak +0x2E`) a `cChest3D`: of the 1,990 objects of the Seraphim's start script, the chests, the barrels, the vases, the coffins, the cabinets, the book stands and the shrines.
 The signposts are of category 15, `cSpecial3D`, whose draw is `cObject3D`'s, and cast none.
 The size that the draws pass is the object's height (`+0xF0`, the third coordinate of its position).
-They draw it when `DETAILLEVEL` is 1 or more (2 in the GOG `Settings.cfg`; the setting is stored at `0x814152`, and at 0 `0x407960` draws a few dots of `SHADOWDOT.TGA` about the bones instead) and the value at `+0x1FC` of the renderer is set (else `cGranny::renderShadowFake`, `0x4073B0`, draws a quad of `GRN_SHADETEXTURE03.TGA`, the texture at `+0xA4`).
+They draw it when `DETAILLEVEL` is 1 or more (2 in the GOG `Settings.cfg`; the setting is stored at `0x814152`, and at 0 `0x407960` draws a few dots of `SHADOWDOT.TGA` about the bones instead, "The shadow dots" below) and the value at `+0x1FC` of the renderer is set (else `cGranny::renderShadowFake`, `0x4073B0`, draws a quad of `GRN_SHADETEXTURE03.TGA`, the texture at `+0xA4`).
 
 The shadow's matrix is the identity with its third row `(0.5, −0.5, 0, 0)` and its fourth `(−s/2, s/2, s, 1)` for the size `s`, after the model's own matrix (`+0x0C`, when there is one) and before a mesh's own (`0x653B30` multiplies `A × B`, `A` applied first).
 So a point `h` above the plane `z = s` goes to `(x + h/2, y − h/2, s)`: flattened onto the plane at the object's height, moved by half its height along `x` and against `y`.
@@ -326,6 +326,21 @@ It takes its model's anchor and squeeze, in the shadows' layer: over what the or
 For the stencil, its fragments take the depth of the plane in their pixel's row, computed from the row alone, a unit of the model's own depth behind, and write it, drawn only where they are nearer than what lies there: a shadow's own triangles give a pixel the same depth to the bit, and darken it once (docs/decisions/drawing.md, "Models' shadows by depth, not stencil").
 It casts from the hero, from every NPC whose creature has no flag `0x10` and from the scripts' objects of category 4; an NPC's weapons cast none, as the client flattens the creature's own model alone.
 Before, a soft ellipse lay under each character, and the objects had none (#102).
+
+### The shadow dots
+
+Read 2026-11-09 for #2377 (**confirmed** by code unless marked).
+At `DETAILLEVEL` 0 `cObject3D`'s draw (`0x44B230`, at `0x44B776`) draws, in the shadow's place, the dots of `0x407960` for the same creatures: the chests' draw (`0x5C97B0`) and the arrows' do not call it.
+Its size is the type's size for the arrows' hits (`items.pak +0x14`, 50 for 0, `0x428CE0`).
+
+- It binds `SHADOWDOT.TGA` (white, its alpha falling from the middle) and draws quads of four `D3DLVERTEX`es (FVF `0x1E2`) as triangle strips, their colour `0x50000000`: black at an alpha of 80.
+- The first quad has a half side of 0.6 times the size and lies at the root bone's (`__Root`) state, in the frame of the model's matrix with its translation's first two coordinates taken from the bone, on the plane `z = 0`.
+- The offsets of `Bip01 R Foot` and `Bip01 L Foot` from the root (the string table `0x401000`'s entries `0x25` and `0x24`) stay 0 where the model lacks the bone.
+- Two quads of two thirds the half side lie halfway from the root to each foot, and two of two thirds of that at the feet.
+- So five dots lie under a creature, darkest where they overlap, about its root and its feet.
+
+`opensacred-game` lays them since #2377 (`shadow_dots`): a mesh of the five quads for each caster but the scripts' objects, at the root's height about the bones' points on the ground, of half sides in models' units, in the effects' material laid over by alpha, just behind its model in the order (`fx::Orders::behind`), only at the detail 0 and hidden with the model.
+**Seen** 2026-11-09 beside the original at its low detail: the Seraphim and a zombie 33 at the start, each over a soft dark patch about its feet, alike in size and darkness.
 
 The kind 9 of the models' effects follows since #1309 (`model_effects`; "The models' effects" above): the types' effects are read from `items.pak` (`Item::model_effect`) by their models' files, and a held or worn model of the kind 9, the wings 3111, takes for its first glTF primitive the effect texture, white, unlit and added to the frame in the objects' layer, its depth tested and not written (`models::Pass::Added`), the other primitives the type's texture as before; the texture's offset runs on the real-time clock by the kind's matrix.
 So the band of light runs from the wings' join out along the two tubes twice and then rests for a second, where before the tubes were drawn lit in the wings' texture, the original's look at `DETAILLEVEL` 0 alone; seen in the game, not yet beside the original's.
