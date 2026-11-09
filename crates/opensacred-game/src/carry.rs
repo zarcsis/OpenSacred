@@ -72,13 +72,40 @@ impl Carry {
                 .find(|&&(at, _)| at == slot)
                 .map_or(0, |&(_, id)| id)
         });
-        sets.selected = self
-            .hero
-            .sets
-            .iter()
-            .position(|&halves| halves == hands && hands != [0, 0])
+        // The set its file names selected, else the one whose halves its hands' slots hold.
+        sets.selected = Some(usize::from(self.hero.selected[0]))
+            .filter(|&set| {
+                set < SETS
+                    && self
+                        .hero
+                        .sets
+                        .get(set)
+                        .is_some_and(|&halves| halves == hands)
+            })
+            .or_else(|| {
+                self.hero
+                    .sets
+                    .iter()
+                    .position(|&halves| halves == hands && hands != [0, 0])
+            })
             .unwrap_or(0);
         sets
+    }
+
+    /// Its bar's art slots, each slot's art of its first bank (a combo's as the combos' arts,
+    /// `0x200` and its index, `combos`), and the slot its file selects (#2370).
+    fn art_slots(&self) -> crate::art_slots::ArtSlots {
+        let mut arts = [None; crate::art_slots::SLOTS];
+        for (slot, &(kind, id)) in arts.iter_mut().zip(&self.hero.art_slots) {
+            *slot = match kind {
+                2 | 3 => u16::try_from(id).ok(),
+                4 => u16::try_from(id)
+                    .ok()
+                    .map(|index| opensacred_rules::combos::FIRST + index),
+                _ => None,
+            };
+        }
+        crate::art_slots::ArtSlots::carried(arts, usize::from(self.hero.selected[1]))
     }
 
     /// Puts its items into the pack `pack` in place of its template's: its backpack's at their
@@ -225,6 +252,7 @@ fn carry(
     carry.base(&mut base.0);
     carry.pack(&mut pack, tables.as_deref());
     commands.insert_resource(carry.sets(tables.as_deref()));
+    commands.insert_resource(carry.art_slots());
     commands.insert_resource(Filling(FILLING));
     crate::statistics::refit(
         carry.level,
@@ -332,6 +360,19 @@ mod tests {
             .filter_map(|(slot, worn)| Some((slot, worn.as_ref()?.1.item)))
             .collect();
         assert_eq!(worn, [(0, 7725)]);
+    }
+
+    #[test]
+    fn the_bars_slots_take_their_arts_and_the_selected_slot() {
+        let hero = HeroEntry {
+            art_slots: vec![(3, 1080), (2, 60), (4, 1), (0, 0), (0, 0)],
+            selected: [3, 1],
+            ..HeroEntry::default()
+        };
+        let slots = Carry::of(&hero).art_slots();
+        // A combo's slot holds its art, 0x200 and its index (`combos`).
+        assert_eq!(slots.arts, [Some(1080), Some(60), Some(0x201), None, None]);
+        assert_eq!((slots.selected, slots.selected_art()), (1, Some(60)));
     }
 
     #[test]

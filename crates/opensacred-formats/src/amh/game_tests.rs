@@ -356,3 +356,50 @@ fn every_weapon_set_and_socketed_record_matches_amh_dump_py() {
     assert_eq!((our_sets.len(), our_sockets.len()), (22, 2));
     fs::remove_dir_all(out).unwrap();
 }
+
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python"]
+fn every_art_slot_matches_amh_dump_py() {
+    let out = scratch_dir("amh-art-slots");
+    let rows = out.join("art-slots.tsv");
+    let game = opensacred_locate::original();
+    run_python(
+        "tools/analysis/formats/amh_dump.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--art-slots"),
+            rows.as_os_str(),
+            OsStr::new("--saves"),
+        ],
+    );
+    let paths = (0..8)
+        .map(|i| format!("Templates/Hero{i:02}.ptx"))
+        .chain(["save/hero06.pax".to_owned(), "save/hero07.pax".to_owned()]);
+    let mut ours = Vec::new();
+    for path in paths {
+        let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let (slots, selected) = amh.art_slots().unwrap();
+        let bank = |b: usize| {
+            slots
+                .iter()
+                .enumerate()
+                .filter(|(_, banks)| banks[b].0 != 0)
+                .map(|(s, banks)| format!("{s}:{}:{}", banks[b].0, banks[b].1))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        ours.push(format!(
+            "{path}\t{}\t{}\t{},{}",
+            bank(0),
+            bank(1),
+            selected[0],
+            selected[1]
+        ));
+    }
+    let theirs = fs::read_to_string(&rows).unwrap();
+    assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
+    // The Dwarf's four weapon arts, his fourth set and his second slot selected (docs/02 §9).
+    assert!(ours[8].ends_with("\t3,1"), "{}", ours[8]);
+    fs::remove_dir_all(out).unwrap();
+}

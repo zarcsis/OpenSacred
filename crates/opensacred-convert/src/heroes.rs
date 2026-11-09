@@ -204,6 +204,8 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
             .filter(|&(_, id)| id != 0)
             .collect();
         let sets = amh.sets().with_context(|| source.clone())?.to_vec();
+        let (slots, selected) = amh.art_slots().with_context(|| source.clone())?;
+        let art_slots = slots.iter().map(|banks| banks[0]).collect();
         let stats = HeroStats {
             experience: stats.experience,
             gold: stats.gold,
@@ -249,6 +251,8 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
                 stats,
                 equipment,
                 sets,
+                art_slots,
+                selected,
             },
             info,
         ))
@@ -326,6 +330,14 @@ mod tests {
             (15, Some(&(13, 74)))
         );
         assert_eq!(saved.sets, [[69, 0], [70, 71], [0, 72], [73, 74], [0, 0]]);
+        // His bar's four weapon arts, his fourth set and his second slot selected.
+        assert_eq!(
+            (saved.art_slots.clone(), saved.selected),
+            (
+                vec![(3, 1080), (3, 1082), (3, 1085), (3, 1087), (0, 0)],
+                [3, 1]
+            )
+        );
         let socketed: Vec<_> = saved
             .worn
             .iter()

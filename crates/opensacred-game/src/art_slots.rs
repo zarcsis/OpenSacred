@@ -39,6 +39,16 @@ pub struct ArtSlots {
 }
 
 impl ArtSlots {
+    /// The slots of a hero carried from its file (#2370): `arts` in its slots, the slot
+    /// `selected` selected, which no new game's seeding fills again.
+    pub fn carried(arts: [Option<u16>; SLOTS], selected: usize) -> Self {
+        Self {
+            arts,
+            selected: selected.min(SLOTS - 1),
+            seeded: true,
+        }
+    }
+
     /// The selected slot's art.
     pub fn selected_art(&self) -> Option<u16> {
         self.arts.get(self.selected).copied().flatten()
