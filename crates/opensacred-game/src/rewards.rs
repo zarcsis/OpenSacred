@@ -293,12 +293,18 @@ fn quest_runes(
     }
 }
 
+/// Whether the hero's experience was put back or carried since [`experience_line`] last looked
+/// (`saves`, `carry`), not gained: no line shows of it.
+#[derive(Resource, Default)]
+pub struct Unearned(pub bool);
+
 /// Shows a line of the experience the hero gained over it, under the lines it shows
 /// (`0x57E160`: the engine's event 6 of the points and the game's word for experience, at each
-/// gain of a player's): the gains of a frame together.
+/// gain of a player's): the gains of a frame together; none of an experience put back or carried
+/// ([`Unearned`]).
 fn experience_line(
     mut commands: Commands,
-    experience: Res<Experience>,
+    (experience, mut unearned): (Res<Experience>, ResMut<Unearned>),
     mut last: Local<Option<u64>>,
     texts: Option<Res<Texts>>,
     heroes: Query<Entity, With<Body>>,
@@ -307,6 +313,9 @@ fn experience_line(
     let Some(before) = last.replace(points) else {
         return;
     };
+    if std::mem::take(&mut unearned.0) {
+        return;
+    }
     let (Some(hero), Some(gained)) = (heroes.iter().next(), points.checked_sub(before)) else {
         return;
     };
@@ -333,6 +342,7 @@ pub struct RewardsPlugin;
 impl Plugin for RewardsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RunesGiven>()
+            .init_resource::<Unearned>()
             .add_message::<QuestWon>()
             .add_systems(
                 Update,

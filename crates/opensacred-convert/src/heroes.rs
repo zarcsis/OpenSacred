@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::heroes::{
-    Carried, Hero, HeroArt, HeroEntry, HeroStats, Heroes, INDEX, SavedHero, Section, Worn,
+    Carried, Hero, HeroArt, HeroEntry, HeroStats, Heroes, INDEX, SavedHero, Section, Socketed, Worn,
 };
 use opensacred_formats::amh::{Amh, Item, Summary};
 use sha2::{Digest, Sha256};
@@ -45,13 +45,33 @@ fn file_name(source: &str) -> String {
 
 /// An item's record's words from its `+4`.
 fn words(item: &Item) -> Vec<u16> {
-    item.record
+    record_words(&item.record)
+}
+
+/// A record's words from its `+4`.
+fn record_words(record: &[u8]) -> Vec<u16> {
+    record
         .get(4..)
         .unwrap_or_default()
         .as_chunks::<2>()
         .0
         .iter()
         .map(|&w| u16::from_le_bytes(w))
+        .collect()
+}
+
+/// The items in an item's sockets, of their records: each one's type, words from `+4` and its
+/// smith's tier (`+0x81`).
+fn socketed(item: &Item) -> Vec<Socketed> {
+    item.socketed
+        .iter()
+        .map(|record| Socketed {
+            item: record
+                .first_chunk::<4>()
+                .map_or(0, |&bytes| u32::from_le_bytes(bytes)),
+            words: record_words(record),
+            tier: record.get(0x81).copied().unwrap_or(0),
+        })
         .collect()
 }
 
@@ -67,6 +87,7 @@ fn worn(amh: &Amh) -> Result<Vec<Worn>> {
             id: item.id,
             item: item.item,
             words: words(item),
+            socketed: socketed(item),
         })
         .collect())
 }
@@ -89,6 +110,7 @@ fn backpack(amh: &Amh) -> Result<Vec<Carried>> {
                 at: packed.at,
                 size: packed.size,
                 words: words(item),
+                socketed: socketed(item),
             })
         })
         .collect()
@@ -177,6 +199,11 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
         let backpack = backpack(&amh).with_context(|| source.clone())?;
         let arts = arts(&amh).with_context(|| source.clone())?;
         let stats = amh.stats().with_context(|| source.clone())?;
+        let equipment = (0u8..)
+            .zip(amh.equipment().with_context(|| source.clone())?)
+            .filter(|&(_, id)| id != 0)
+            .collect();
+        let sets = amh.sets().with_context(|| source.clone())?.to_vec();
         let stats = HeroStats {
             experience: stats.experience,
             gold: stats.gold,
@@ -220,6 +247,8 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
                 backpack,
                 arts,
                 stats,
+                equipment,
+                sets,
             },
             info,
         ))
@@ -286,6 +315,27 @@ mod tests {
             (1_800_000, 977_384, [0, 0, 14, 14, 0, 0], 9, 1)
         );
         assert_eq!(dwarf.skills, [2, 10, 11, 5, 29, 0, 0, 0]);
+        // His equipment by the items' ids, his fourth set in his hands, and his two socketed
+        // items' records.
+        let saved = &index.saved[0].hero;
+        assert_eq!(
+            (
+                saved.equipment.len(),
+                saved.equipment.iter().find(|e| e.0 == 13)
+            ),
+            (15, Some(&(13, 74)))
+        );
+        assert_eq!(saved.sets, [[69, 0], [70, 71], [0, 72], [73, 74], [0, 0]]);
+        let socketed: Vec<_> = saved
+            .worn
+            .iter()
+            .flat_map(|worn| {
+                worn.socketed
+                    .iter()
+                    .map(|s| (worn.item, s.item, s.words.len()))
+            })
+            .collect();
+        assert_eq!(socketed, [(7725, 5560, 63), (3008, 5557, 63)]);
         assert_eq!(dwarf.bases, [23, 13, 10, 10, 13, 0, 0, 0]);
         // A template starts with its two skills at the base 1 and 5,000 gold.
         let template = index.heroes[0].stats;

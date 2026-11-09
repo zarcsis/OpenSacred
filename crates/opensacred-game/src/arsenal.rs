@@ -153,6 +153,7 @@ impl Maker {
                         id: 0,
                         item,
                         words: self.words.get(&item).cloned().unwrap_or_default(),
+                        socketed: Vec::new(),
                     }),
             )
             .collect();
