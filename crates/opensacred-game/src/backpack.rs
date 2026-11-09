@@ -755,6 +755,7 @@ mod tests {
                     tier: 0,
                 })
                 .collect(),
+            name_key: 0,
         };
         let mut grid = Grid::new(COLUMNS, ROWS);
         assert!(grid.place(1, (2, 0), (1, 3)));
@@ -790,6 +791,7 @@ mod tests {
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         }
     }
 }

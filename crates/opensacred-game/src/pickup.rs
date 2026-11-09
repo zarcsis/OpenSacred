@@ -1403,6 +1403,7 @@ fn start(
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         };
         if !pack.put(dropped, carried.at, carried.size) {
             warn!(
@@ -1428,6 +1429,7 @@ fn receive(mut given: MessageReader<Given>, mut pack: ResMut<Pack>) {
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         });
     }
 }
@@ -1482,6 +1484,7 @@ mod tests {
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         }
     }
 
@@ -1612,6 +1615,7 @@ mod tests {
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         };
         assert_eq!(into_hands(&[Some(held), None], 1, 1, &sword), None);
         // A level above the hero's keeps it out.

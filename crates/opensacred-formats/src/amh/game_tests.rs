@@ -73,11 +73,12 @@ fn every_item_matches_amh_dump_py() {
         let packed = amh.backpack().unwrap();
         for item in amh.items().unwrap() {
             ours.push(format!(
-                "{path}\t{}\t{}\t{}\t{:08x}",
+                "{path}\t{}\t{}\t{}\t{:08x}\t{:08x}",
                 item.id,
                 item.item,
                 u8::from(packed.iter().any(|packed| packed.id == item.id)),
-                crc32fast::hash(&item.record)
+                crc32fast::hash(&item.record),
+                item.name
             ));
         }
     }

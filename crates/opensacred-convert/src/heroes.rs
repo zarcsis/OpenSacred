@@ -88,6 +88,7 @@ fn worn(amh: &Amh) -> Result<Vec<Worn>> {
             item: item.item,
             words: words(item),
             socketed: socketed(item),
+            name: item.name,
         })
         .collect())
 }
@@ -111,6 +112,7 @@ fn backpack(amh: &Amh) -> Result<Vec<Carried>> {
                 size: packed.size,
                 words: words(item),
                 socketed: socketed(item),
+                name: item.name,
             })
         })
         .collect()
@@ -330,6 +332,18 @@ mod tests {
             (15, Some(&(13, 74)))
         );
         assert_eq!(saved.sets, [[69, 0], [70, 71], [0, 72], [73, 74], [0, 0]]);
+        // The names that the item maker composed for his backpack's made items, as the original's
+        // objects keep them (`+0x3C`, read by a trace, #2390): the ring 4922's `GEN_GR_FE_RING2`
+        // and the pistol 1855's `GEN_GR_PH_PISTOLE2`, the bit 31 set; a plain item's 0.
+        let name = |id: u32| saved.backpack.iter().find(|c| c.id == id).map(|c| c.name);
+        assert_eq!(
+            [name(27), name(32), name(23)],
+            [Some(0x866A_F7CF), Some(0xA08B_3791), Some(0)]
+        );
+        assert_eq!(
+            opensacred_data::text::sacred_hash(b"GEN_GR_FE_RING2"),
+            0x866A_F7CF & 0x7FFF_FFFF
+        );
         // His bar's four weapon arts, his fourth set and his second slot selected.
         assert_eq!(
             (saved.art_slots.clone(), saved.selected),

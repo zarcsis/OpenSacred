@@ -147,6 +147,10 @@ pub struct Worn {
     /// The items in its sockets, in their order.
     #[serde(default)]
     pub socketed: Vec<Socketed>,
+    /// The key of the name that the item maker composed for it, with the bit 31; 0 for its
+    /// type's name.
+    #[serde(default)]
+    pub name: u32,
 }
 
 /// An item in a hero's backpack.
@@ -166,6 +170,9 @@ pub struct Carried {
     /// The items in its sockets, in their order.
     #[serde(default)]
     pub socketed: Vec<Socketed>,
+    /// The key of its name, as [`Worn::name`].
+    #[serde(default)]
+    pub name: u32,
 }
 
 /// A hero: the sections of the original file in slot order.

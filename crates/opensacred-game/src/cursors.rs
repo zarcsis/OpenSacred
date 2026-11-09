@@ -162,15 +162,22 @@ impl Named {
 }
 
 /// The name of the item `dropped`, its object's key's text (`0x44A250`): the text of its text
-/// name `text` where the scripts gave it one, which may have none, else of the name that the item
-/// maker gave it where it made it ([`Tables::made_name`], #1424), else its type's; none for an
-/// empty one.
+/// name `text` where the scripts gave it one, which may have none, else of the key its object
+/// came with where it has a text ([`Dropped::name_key`], a carried hero's item, #2390), else of
+/// the name that the item maker gave it where it made it ([`Tables::made_name`], #1424), else its
+/// type's; none for an empty one.
 pub(crate) fn item_name<'a>(
     texts: &'a Texts,
     tables: Option<&Tables>,
     dropped: &Dropped,
     text: Option<&str>,
 ) -> Option<&'a str> {
+    if text.is_none()
+        && dropped.name_key != 0
+        && let Some(name) = texts.id(dropped.name_key & 0x7FFF_FFFF)
+    {
+        return Some(name).filter(|name| !name.is_empty());
+    }
     let key = text.map(str::to_owned).unwrap_or_else(|| {
         tables
             .and_then(|tables| tables.made_name(texts, dropped))
@@ -536,14 +543,15 @@ mod tests {
 
     #[test]
     fn an_item_the_scripts_named_goes_by_its_text_name_else_by_its_type() {
-        use opensacred_data::text::message;
+        use opensacred_data::text::{message, sacred_key};
         let texts = Texts::of(&format!(
-            "{} = a type's name\n{} = a quest's name\n{} = {{\"\"}}\n",
+            "{} = a type's name\n{} = a quest's name\n{} = {{\"\"}}\n{} = a made name\n",
             message("6001"),
             message("QUEST_PLANT"),
-            message("EMPTY")
+            message("EMPTY"),
+            message("GEN_GR_FE_RING2")
         ));
-        let named = |item, text: Option<&str>| {
+        let named_by = |item, text: Option<&str>, name_key| {
             let dropped = Dropped {
                 kind: opensacred_rules::drops::Kind::Other,
                 item,
@@ -554,9 +562,11 @@ mod tests {
                 values: None,
                 named: None,
                 socketed: Vec::new(),
+                name_key,
             };
             Named(Some((Some(dropped), text.map(str::to_owned))))
         };
+        let named = |item, text: Option<&str>| named_by(item, text, 0);
         assert_eq!(named(6001, None).shown(&texts, None), Some("a type's name"));
         assert_eq!(
             named(6001, Some("quest_plant")).shown(&texts, None),
@@ -567,6 +577,21 @@ mod tests {
         assert_eq!(named(6001, Some("EMPTY")).shown(&texts, None), None);
         assert_eq!(named(6002, None).shown(&texts, None), None);
         assert_eq!(Named(None).shown(&texts, None), None);
+        // A carried hero's item goes by the key its file kept (#2390), with the bit 31 set, else
+        // where it has no text by its type's; a text name the scripts gave it goes first.
+        let ring = sacred_key(b"GEN_GR_FE_RING2") | 0x8000_0000;
+        assert_eq!(
+            named_by(6001, None, ring).shown(&texts, None),
+            Some("a made name")
+        );
+        assert_eq!(
+            named_by(6001, None, sacred_key(b"NO_TEXT") | 0x8000_0000).shown(&texts, None),
+            Some("a type's name")
+        );
+        assert_eq!(
+            named_by(6001, Some("quest_plant"), ring).shown(&texts, None),
+            Some("a quest's name")
+        );
     }
 
     #[test]

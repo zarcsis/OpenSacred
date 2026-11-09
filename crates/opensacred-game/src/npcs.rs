@@ -4788,6 +4788,7 @@ fn plain_item(item: u32) -> opensacred_rules::drops::Dropped {
         values: None,
         named: None,
         socketed: Vec::new(),
+        name_key: 0,
     }
 }
 
@@ -13640,6 +13641,7 @@ mod tests {
                 item,
                 words: Vec::new(),
                 socketed: Vec::new(),
+                name: 0,
             })
             .collect();
         let holding = InHand::of([(7904, WEAPON, None)]);

@@ -572,6 +572,7 @@ mod tests {
             values,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         }
     }
 
