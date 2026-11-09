@@ -5,7 +5,7 @@
 //! (`Bip01 R Foot`, `Bip01 L Foot`) and one at each foot, of half sides 0.6, 0.4 and 0.27 times
 //! the type's size for the arrows' hits (`items.pak +0x14`, 50 for 0, `0x428CE0`), black at an
 //! alpha of 80 (the vertices' colour `0x50000000`) times the texture's. A dot at a foot that the
-//! model lacks lies at its root. The chests (`0x5C97B0`) draw none.
+//! model lacks lies at its root. The chests (`0x5C97B0`) and the arrows (`0x5BAF00`) draw none.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
@@ -56,7 +56,15 @@ fn lowest(settings: Option<&crate::settings::Settings>) -> bool {
 )]
 fn make(
     mut commands: Commands,
-    casters: Query<Entity, (With<Casts>, Without<Dots>, Without<crate::npcs::Object>)>,
+    casters: Query<
+        Entity,
+        (
+            With<Casts>,
+            Without<Dots>,
+            Without<crate::npcs::Object>,
+            Without<crate::arrows::Arrow>,
+        ),
+    >,
     settings: Option<Res<crate::settings::Settings>>,
     (data, assets, mut look): (Option<Res<Data>>, Res<AssetServer>, ResMut<Look>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),

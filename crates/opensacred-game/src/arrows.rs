@@ -4,7 +4,9 @@
 //! not be walked on but the ground's nibble 2 or at the ground, and in each frame hits its target,
 //! or the first creature, nearer its way than the sum of the two sizes, alive and hostile to the
 //! shooter (`0x5BB010`): the hit is the fight's ([`fight::Hit`], at range), and the arrow sticks
-//! in a creature of a size above 20 for 5 s, but not in the hero (`0x5BAB40`). The rules are
+//! in a creature of a size above 20 for 5 s, but not in the hero (`0x5BAB40`). An arrow casts its
+//! shadow as a creature does (`shadows`), its draw (`cArrow3D`, `0x5BAF00`) flattening its model
+//! onto the plane at its height above the detail 0 (`0x5BAF79`, #2380). The rules are
 //! `opensacred_rules::arrows`. A creature's arrow hits the hero when its shooter is hostile to
 //! the hero, and a creature of a side or type hostile to its shooter's (`0x548F60`, #670): the
 //! arrows of the archers that fight a creature, and those that a creature comes in the way of.
@@ -76,7 +78,7 @@ pub struct Size(pub f32);
 /// combat art it was shot by, and how long one that passes through what it hits waits before it
 /// may hit again (`+0x240`).
 #[derive(Component)]
-struct Arrow {
+pub(crate) struct Arrow {
     flight: arrows::Arrow,
     shooter: Entity,
     target: Entity,
@@ -284,6 +286,7 @@ fn loose(
                     .with_rotation(pointing(flight.velocity()))
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
                 models::Ordered::default(),
+                crate::shadows::Casts,
                 Arrow {
                     flight,
                     shooter: shot.shooter,
