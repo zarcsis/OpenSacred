@@ -124,7 +124,9 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 ### M5. UI and effects — 50–100 agent-hours, 20–40 maintainer hours
 
 * Full UI: main menu, hero creation, inventory, character, skills, trading and the blacksmith (from M4, 2026-10-26), map, journal; 178 effects as data; the weather drawn; profile-driven sound; movies; the settings' menu is M6's (#1096).
-* **Exit criterion:** all game screens are accessible from keyboard, mouse and gamepad; the effects of all skills are displayed.
+* **Exit criterion:** all game screens are accessible from keyboard and mouse; the effects of all skills are displayed.
+  The gamepad went to M8 on 2026-11-09 (#1097).
+* **Status 2026-11-09:** closed with 892 issues done; the saves came from M6 (#1095), the settings' menu stays M6's (#1096).
 
 ### M6. Version 1.0 for Windows 11 — 40–80 agent-hours, 100–200 maintainer hours
 
@@ -138,6 +140,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 ### M8. Platforms — 30–60 agent-hours, 10–20 maintainer hours
 
 * Linux 5–10; Android 25–50, by a separate decision; the browser version was dropped on 2026-10-23.
+* The gamepad, moved from M6 on 2026-11-09 by the maintainer's decision: after version 1.0, beside the other platforms' input (#1097).
 
 ### M9. Multiplayer — not estimated yet
 

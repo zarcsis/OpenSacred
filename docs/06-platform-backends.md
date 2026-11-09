@@ -52,6 +52,7 @@ Estimate: 10–20 agent-hours (M2 and M5).
 * **Keyboard and mouse:** click to move, attack, the quick skill bar, the original's hotkeys as the default layout.
 * **Gamepad** (new): stick movement, skills on buttons, a radial menu for the skill bar; through gilrs inside Bevy.
   `bevy_gilrs` is linked; the game reads no gamepad yet.
+  It comes after version 1.0, in M8 (the maintainer's decision of 2026-11-09, #1097); its layout is the project's own, the original having none, and waits for the maintainer.
 * **Remapping:** the game's own module `controls` (#1553): every action and its keys in `controls.toml` beside `settings.toml`, the defaults the original's (docs/10 §9); `leafwing-input-manager` is not used, its action states adding nothing a list of keys per action lacks.
 * **Touch input:** only for Android, after the platform decision.
 * IME for text input (the hero's name), by means of Bevy and winit.
