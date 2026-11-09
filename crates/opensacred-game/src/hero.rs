@@ -1600,7 +1600,9 @@ impl Plugin for HeroPlugin {
             .add_systems(
                 Update,
                 (
-                    (pace, steer).in_set(Unpaused).in_set(Control),
+                    (pace, steer.in_set(crate::frame::OnWorld))
+                        .in_set(Unpaused)
+                        .in_set(Control),
                     take_orders.run_if(crate::frame::ticked),
                     land,
                     run,

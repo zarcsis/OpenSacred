@@ -3047,7 +3047,9 @@ impl Plugin for MakingPlugin {
             .add_systems(
                 Update,
                 (
-                    aim.in_set(Control).before(hero::steer),
+                    aim.in_set(Control)
+                        .in_set(crate::frame::OnWorld)
+                        .before(hero::steer),
                     make.in_set(Made)
                         .after(hero::steer)
                         .before(hero::take_orders),

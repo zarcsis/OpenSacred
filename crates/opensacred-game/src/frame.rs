@@ -58,6 +58,12 @@ pub struct Unpaused;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Control;
 
+/// The player's clicks on the world, which the scripts' cinema refuses (`0x6172ED`,
+/// `scripts::no_cinema`, #1892): the hero's moves, its attacks, its arts, its talks and its
+/// pick-ups, the doors, the containers and the stashes it opens.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OnWorld;
+
 /// Whether [`Control`] is held back in this frame, by the tests of [`HoldsControl`] as the windows
 /// and the console stood when it began (#1593): taken in `PreUpdate` ([`Hold`]) before any key or
 /// click of the frame shows or hides one, so that a press that hides its window (a close button)

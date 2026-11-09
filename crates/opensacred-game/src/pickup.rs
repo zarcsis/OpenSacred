@@ -1453,6 +1453,7 @@ impl Plugin for PickupPlugin {
                 Update,
                 (
                     pick.in_set(Control)
+                        .in_set(crate::frame::OnWorld)
                         .after(attack::aim)
                         .after(hero::steer)
                         .after(crate::doors::pick),

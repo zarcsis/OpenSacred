@@ -591,6 +591,7 @@ impl Plugin for ContainersPlugin {
                 // After the click's walk, which it replaces, and before the items', which take
                 // the click from it (`pickup::pick`).
                 pick.in_set(Control)
+                    .in_set(crate::frame::OnWorld)
                     .after(attack::aim)
                     .after(hero::steer)
                     .before(crate::pickup::pick),

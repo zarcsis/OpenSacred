@@ -506,6 +506,7 @@ impl Plugin for StashesPlugin {
                 Update,
                 (
                     pick.in_set(Control)
+                        .in_set(crate::frame::OnWorld)
                         .after(attack::aim)
                         .after(boxed_under)
                         .before(hero::steer),
