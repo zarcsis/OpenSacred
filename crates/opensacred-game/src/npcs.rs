@@ -6919,8 +6919,9 @@ fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> 
 /// under them (`models::Effect`, #1834). A model finds its effect by its model's file, a worn or
 /// held item's, a creature's, else its glTF's: an item on the ground, the interface's, a figure
 /// of the choice of the hero (#1875); the interface's, which the original draws orthographic
-/// (`0x40F270`), has the kinds 1 to 4 alone. At the options' detail 0 a model of the world has
-/// no effect, drawn plain by `cGranny::render` (`0x44A8C0`, #2352), as it spawns.
+/// (`0x40F270`), has the kinds 1 to 4 alone. At the options' detail 0 a model of a game has no
+/// effect as it spawns: the world's drawn plain by `cGranny::render` (`0x44A8C0`, #2352), the
+/// interface's by the orthographic draw's plain path (`0x40E9C0` at `0x40EA06`, #2377).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's query names the components it reads"
@@ -6952,10 +6953,9 @@ pub fn retexture(
     let Ok((retexture, piece, npc, source, flat)) = models.get(ready.entity) else {
         return;
     };
-    // The world's models at the detail 0, not the interface's nor the choice's figures, which
-    // the original draws so whatever the detail (`0x6F1B30`).
-    let plain = !flat
-        && crate::settings::detail(settings.as_deref()) == 0
+    // A game's models at the detail 0, the world's and the interface's, not the choice's figures,
+    // which the original draws so whatever the detail (`0x6F1B30`).
+    let plain = crate::settings::detail(settings.as_deref()) == 0
         && state.is_some_and(|state| *state.get() == crate::game::AppState::InGame);
     let path = source.and_then(|source| assets.get_path(source.0.id()));
     let model = piece
