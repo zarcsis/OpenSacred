@@ -1718,8 +1718,8 @@ fn back(mut screen: ResMut<NextState<Screen>>) {
 
 /// Starts a game of the hero chosen, of its name, if one is: a class's of the Ancaria campaign,
 /// or a saved hero's of the Underworld campaign, in its class's tree of the add-on, whose start
-/// script places it (`IMPORT_DO`, `0x70DC20`; docs/re/underworld.md). The saved hero is its
-/// class's template until its own values come (#2362).
+/// script places it (`IMPORT_DO`, `0x70DC20`; docs/re/underworld.md), the saved hero's values,
+/// skills and combat arts carried (`carry`, #2362).
 fn start(
     choice: Res<Choice>,
     mut request: ResMut<Request>,
@@ -1742,6 +1742,12 @@ fn start(
     request.0.name = Some(choice.name.clone());
     request.0.difficulty = Some(choice.difficulty);
     request.0.tree = tree;
+    // The saved hero's slot, its pedestal's, whose values its game carries (#2362).
+    request.0.saved = stand
+        .saved
+        .as_ref()
+        .and(choice.chosen)
+        .and_then(|pedestal| u8::try_from(pedestal).ok());
     state.set(AppState::Loading);
 }
 
@@ -2273,6 +2279,7 @@ mod tests {
         assert_eq!(request.name.as_deref(), Some("Hero"));
         assert_eq!(request.difficulty, Some(Difficulty::Silver));
         assert_eq!(request.tree.as_deref(), Some("addon-type_npc_zwerg"));
+        assert_eq!(request.saved, Some(6));
     }
 
     #[test]
@@ -2332,8 +2339,8 @@ mod tests {
         assert_eq!(request.class, Some(Class::Seraphim));
         assert_eq!(request.name.as_deref(), Some("Seraphimx"));
         assert_eq!(request.difficulty, Some(Difficulty::Bronze));
-        // The Ancaria campaign's game runs in the class's own tree.
-        assert_eq!(request.tree, None);
+        // The Ancaria campaign's game runs in the class's own tree, of the class's template.
+        assert_eq!((request.tree.as_deref(), request.saved), (None, None));
     }
 
     #[test]

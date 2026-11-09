@@ -42,6 +42,7 @@ mod burning_bones;
 mod burns;
 mod busy_dialog;
 mod butterflies;
+mod carry;
 mod cast_sights;
 mod chain_bolts;
 mod change_sparks;
@@ -512,6 +513,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         butterflies::ButterfliesPlugin,
+        carry::CarryPlugin,
         cast_sights::CastSightsPlugin,
         change_sparks::ChangeSparksPlugin,
     ))

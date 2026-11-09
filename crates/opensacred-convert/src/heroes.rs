@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::heroes::{
-    Carried, Hero, HeroArt, HeroEntry, Heroes, INDEX, SavedHero, Section, Worn,
+    Carried, Hero, HeroArt, HeroEntry, HeroStats, Heroes, INDEX, SavedHero, Section, Worn,
 };
 use opensacred_formats::amh::{Amh, Item, Summary};
 use sha2::{Digest, Sha256};
@@ -176,6 +176,17 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
         let worn = worn(&amh).with_context(|| source.clone())?;
         let backpack = backpack(&amh).with_context(|| source.clone())?;
         let arts = arts(&amh).with_context(|| source.clone())?;
+        let stats = amh.stats().with_context(|| source.clone())?;
+        let stats = HeroStats {
+            experience: stats.experience,
+            gold: stats.gold,
+            spent: stats.spent,
+            attribute_points: stats.attribute_points,
+            skills: stats.skills,
+            bases: stats.bases,
+            skill_points: stats.skill_points,
+            to_learn: stats.to_learn,
+        };
         let hero = Hero {
             sections: amh
                 .sections
@@ -208,6 +219,7 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
                 worn,
                 backpack,
                 arts,
+                stats,
             },
             info,
         ))
@@ -259,6 +271,31 @@ mod tests {
                 (15, Some(1856), Some(3096), vec![false; 6]),
                 (14, Some(1243), Some(1246), vec![false; 6])
             ]
+        );
+        // Their values, as the original's driver prints them of the heroes started (docs/02 §9):
+        // the Dwarf's 14 points on each of two attributes, his five skills and nine points.
+        let dwarf = index.saved[0].hero.stats;
+        assert_eq!(
+            (
+                dwarf.experience,
+                dwarf.gold,
+                dwarf.spent,
+                dwarf.skill_points,
+                dwarf.to_learn
+            ),
+            (1_800_000, 977_384, [0, 0, 14, 14, 0, 0], 9, 1)
+        );
+        assert_eq!(dwarf.skills, [2, 10, 11, 5, 29, 0, 0, 0]);
+        assert_eq!(dwarf.bases, [23, 13, 10, 10, 13, 0, 0, 0]);
+        // A template starts with its two skills at the base 1 and 5,000 gold.
+        let template = index.heroes[0].stats;
+        assert_eq!(
+            (
+                template.experience,
+                template.gold,
+                template.bases[..2].to_vec()
+            ),
+            (0, 5_000, vec![1, 1])
         );
         for saved in &index.saved {
             let hero = Hero::decode(&fs::read(dir.join(&saved.hero.file)).unwrap()).unwrap();

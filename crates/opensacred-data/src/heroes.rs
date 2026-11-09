@@ -63,6 +63,27 @@ pub struct HeroEntry {
     /// "The heroes' starting arts").
     #[serde(default)]
     pub arts: Vec<HeroArt>,
+    /// Its creature section's values (docs/02 §9, "The creature"), which a game of a saved hero
+    /// takes in place of its class's start (#2362).
+    #[serde(default)]
+    pub stats: HeroStats,
+}
+
+/// A hero's values of its creature section's stats (docs/02 §9, "The creature"): its
+/// experience and gold, the attribute points spent on each attribute and those left, its eight
+/// skill slots with their bases, and the skill points and skills left to it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct HeroStats {
+    pub experience: u32,
+    pub gold: u32,
+    pub spent: [u8; 6],
+    pub attribute_points: u8,
+    /// The skill of each slot, 0 for none, and its base.
+    pub skills: [u8; 8],
+    pub bases: [u8; 8],
+    pub skill_points: u16,
+    pub to_learn: u16,
 }
 
 /// A combat art of a template: an entry of a creature's list of arts (docs/re/arts.md, "A
