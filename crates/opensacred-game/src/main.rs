@@ -48,6 +48,7 @@ mod chain_bolts;
 mod change_sparks;
 mod choice;
 mod choirs;
+mod cinema;
 mod combos;
 mod combos_page;
 mod command;
@@ -516,12 +517,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         butterflies::ButterfliesPlugin,
         carry::CarryPlugin,
         cast_sights::CastSightsPlugin,
+        chain_bolts::ChainBoltsPlugin,
         change_sparks::ChangeSparksPlugin,
     ))
     .add_plugins((
-        chain_bolts::ChainBoltsPlugin,
         choice::ChoicePlugin,
         choirs::ChoirsPlugin,
+        cinema::CinemaPlugin,
         combos::CombosPlugin,
         combos_page::CombosPagePlugin,
         command::CommandPlugin,

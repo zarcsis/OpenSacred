@@ -158,7 +158,9 @@ fn show(
     if !shown.0 || page.0 != ITEMS_PAGE {
         return;
     }
-    let root = commands.spawn((Root, screen(), GlobalZIndex(-1))).id();
+    let root = commands
+        .spawn((Root, crate::cinema::Interface, screen(), GlobalZIndex(-1)))
+        .id();
     let scale = window.map_or(1.0, |window| window.height() / bar::SCREEN.y);
     spawn_grid(
         &mut commands,

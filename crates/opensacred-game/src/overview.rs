@@ -210,7 +210,12 @@ fn show(
         commands.entity(root).despawn();
     }
     let root = commands
-        .spawn((OverviewRoot, crate::backpack::screen(), GlobalZIndex(1)))
+        .spawn((
+            OverviewRoot,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(1),
+        ))
         .id();
     let mut view = bar::placed(VIEW.min, VIEW.size());
     view.overflow = Overflow::clip();

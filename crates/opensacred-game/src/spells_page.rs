@@ -711,7 +711,12 @@ fn show(
         return;
     };
     let root = commands
-        .spawn((PageRoot, crate::backpack::screen(), GlobalZIndex(-1)))
+        .spawn((
+            PageRoot,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(-1),
+        ))
         .id();
     let tint = if kind == WOOD_ELF {
         WOOD_ELF_TINT

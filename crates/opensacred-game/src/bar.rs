@@ -392,6 +392,7 @@ pub(crate) fn spawn(
     let bar = commands
         .spawn((
             BarRoot,
+            crate::cinema::Interface,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Percent(50.0),
@@ -469,6 +470,7 @@ pub(crate) fn spawn(
     let column = commands
         .spawn((
             ColumnRoot,
+            crate::cinema::Interface,
             Node {
                 position_type: PositionType::Absolute,
                 right: Val::Px(0.0),

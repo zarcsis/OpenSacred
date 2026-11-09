@@ -721,7 +721,12 @@ fn show(
     };
     let font: Handle<Font> = assets.load(FONT);
     let root = commands
-        .spawn((WindowRoot, crate::backpack::screen(), GlobalZIndex(-1)))
+        .spawn((
+            WindowRoot,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(-1),
+        ))
         .id();
     let add = |commands: &mut Commands, bundle: (Node, ImageNode)| {
         let child = commands.spawn((bundle, Pickable::IGNORE)).id();

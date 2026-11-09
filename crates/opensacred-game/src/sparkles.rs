@@ -172,6 +172,7 @@ impl Making<'_, '_> {
             commands
                 .spawn((
                     Root,
+                    crate::cinema::Interface,
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Percent(50.0),

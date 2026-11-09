@@ -155,7 +155,9 @@ fn show(
     if !showing(&shown, &opened) {
         return;
     }
-    let root = commands.spawn((Root, backpack::screen())).id();
+    let root = commands
+        .spawn((Root, crate::cinema::Interface, backpack::screen()))
+        .id();
     let dice = dice.get_or_insert_with(|| crate::seed::dice(1411));
     let pieces = frame(
         dice,

@@ -396,7 +396,12 @@ fn draw(
     };
     let font: Handle<Font> = assets.load(FONT);
     let root = commands
-        .spawn((WindowRoot, crate::backpack::screen(), GlobalZIndex(1)))
+        .spawn((
+            WindowRoot,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(1),
+        ))
         .id();
     let child = |commands: &mut Commands, bundle: (Node, BackgroundColor)| {
         let entity = commands.spawn((bundle, Pickable::IGNORE)).id();

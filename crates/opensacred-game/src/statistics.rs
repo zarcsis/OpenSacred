@@ -1454,6 +1454,7 @@ fn show(
     let window = commands
         .spawn((
             StatsWindow,
+            crate::cinema::Interface,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Percent(50.0),
@@ -2305,7 +2306,15 @@ impl Plugin for StatisticsPlugin {
             .add_systems(
                 Update,
                 (
-                    (leave_learning, close, toggle, spend, drop_gold, show).chain(),
+                    (
+                        leave_learning,
+                        close,
+                        toggle.run_if(crate::cinema::free),
+                        spend,
+                        drop_gold,
+                        show,
+                    )
+                        .chain(),
                     (play, record_levels).in_set(crate::frame::Playing),
                 )
                     .run_if(in_state(AppState::InGame)),

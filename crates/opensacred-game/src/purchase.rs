@@ -123,7 +123,12 @@ fn show(
     }
     let font: Handle<Font> = assets.load(FONT);
     let root = commands
-        .spawn((Root, crate::backpack::screen(), GlobalZIndex(3)))
+        .spawn((
+            Root,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(3),
+        ))
         .id();
     // A row across twice 320, which centres the panel on 320.
     let mut row = bar::placed(Vec2::new(0.0, TOP), Vec2::new(2.0 * CENTRE, HEIGHT));

@@ -162,7 +162,12 @@ fn show(
     };
     let textures = textures.as_deref();
     let root = commands
-        .spawn((PageRoot, crate::backpack::screen(), GlobalZIndex(-1)))
+        .spawn((
+            PageRoot,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(-1),
+        ))
         .id();
     let picture = |file: &Option<String>, at: Vec2, side: f32| {
         file.as_ref().map(|file| {

@@ -848,7 +848,12 @@ fn show(
     let smith = &look.smith;
     let font: Handle<Font> = assets.load(FONT);
     let root = commands
-        .spawn((Root, backpack::screen(), GlobalZIndex(-1)))
+        .spawn((
+            Root,
+            crate::cinema::Interface,
+            backpack::screen(),
+            GlobalZIndex(-1),
+        ))
         .id();
     let panel = commands
         .spawn((

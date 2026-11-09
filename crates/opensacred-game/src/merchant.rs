@@ -258,7 +258,12 @@ fn show(
     };
     let font: Handle<Font> = assets.load(FONT);
     let root = commands
-        .spawn((Root, backpack::screen(), GlobalZIndex(-1)))
+        .spawn((
+            Root,
+            crate::cinema::Interface,
+            backpack::screen(),
+            GlobalZIndex(-1),
+        ))
         .id();
     let mut panel = bar::placed(PANEL.min, PANEL.size());
     panel.border = UiRect::all(Val::Px(2.0));

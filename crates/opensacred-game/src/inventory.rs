@@ -404,6 +404,7 @@ fn show(
     let screen = commands
         .spawn((
             Screen,
+            crate::cinema::Interface,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Percent(50.0),
@@ -658,7 +659,8 @@ impl Plugin for InventoryPlugin {
                     .after(crate::console::keys)
                     // The book takes Esc before the inventory (`0x7572C0`).
                     .after(crate::quest_book::toggle)
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(crate::cinema::free),
             )
             .add_systems(
                 Update,
