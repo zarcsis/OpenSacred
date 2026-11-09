@@ -208,6 +208,7 @@ mod sets;
 mod settings;
 mod sfx;
 mod shaders;
+mod shadow_dots;
 mod shadows;
 mod shields;
 mod skies;
@@ -694,6 +695,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
+        shadow_dots::ShadowDotsPlugin,
         shadows::ShadowsPlugin,
         shields::ShieldsPlugin,
         skies::SkiesPlugin,

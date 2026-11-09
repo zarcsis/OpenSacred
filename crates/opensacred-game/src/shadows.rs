@@ -204,8 +204,8 @@ pub fn cast(
     }
 }
 
-/// Hides the models' shadows at the options' lowest detail (`0x407960`'s dots in their place not
-/// followed, #2377), and shows them above it.
+/// Hides the models' shadows at the options' lowest detail, where `shadow_dots` lays the dots of
+/// `0x407960` in their place, and shows them above it.
 fn detail(
     settings: Option<Res<crate::settings::Settings>>,
     mut shadows: Query<&mut Visibility, With<Shadow>>,
