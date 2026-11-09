@@ -6,6 +6,13 @@
 //! gets it off at the point by the horse. A horse mounted is the hero's own (#2301): the
 //! portraits' column shows its button and its health's bar, whose click mounts it within 250
 //! and calls it from farther.
+//!
+//! A horse's slot 0 holds its bridle ([`Bridle`], #2316): a bridle of the backpack used with the
+//! right button goes onto the hero's own horse, the one there before back into its cell
+//! (`0x6C0D96`); the button's right click takes it back into the backpack where it fits
+//! (`0x6D6EDB`); and the ridden horse's counts among its rider's items (`0x552660`,
+//! `equipment::refit`). A stable's horse holds its gear in its slot 1 (`EquipNPC`, `0x54ACC0`),
+//! which neither reads.
 
 use std::time::Duration;
 
@@ -27,6 +34,35 @@ use crate::npcs::{Dies, Npcs, Steered, Walk};
 pub struct Horse {
     pub class: u8,
 }
+
+/// The item of a horse's slot 0, its bridle (`TYPE_HORSEBIT_*`, the category 29).
+#[derive(Component, Clone, Debug, PartialEq)]
+pub struct Bridle(pub opensacred_rules::drops::Dropped);
+
+/// The category of the bridles.
+pub const BRIDLES: u8 = 29;
+
+/// The bridle of the hero's own horse, as a save keeps it.
+pub fn bridle_of(world: &World) -> Option<opensacred_rules::drops::Dropped> {
+    let horse = world.get_resource::<Owned>()?.0?;
+    Some(world.get::<Bridle>(horse)?.0.clone())
+}
+
+/// Puts a loaded save's bridle back on the hero's own horse, made again just before.
+pub fn bridle_again(world: &mut World, bridle: Option<opensacred_rules::drops::Dropped>) {
+    let (Some(dropped), Some(horse)) = (bridle, world.get_resource::<Owned>().and_then(|o| o.0))
+    else {
+        return;
+    };
+    if let Ok(mut entity) = world.get_entity_mut(horse) {
+        entity.insert(Bridle(dropped));
+    }
+}
+
+/// A bridle of the backpack used with the right button, its key in the grid, for the hero's own
+/// horse (the items' page, `0x6C0D96`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PutBridle(pub u32);
 
 /// The hero's own horse, the owners linked both ways at the mount's end (`+0x570`, `0x555300`):
 /// the portraits' column shows its button and the mount's bar while the hero owns it, ridden or
@@ -326,15 +362,17 @@ pub struct RidingPlugin;
 impl Plugin for RidingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Owned>()
+            .add_message::<PutBridle>()
             .add_systems(OnEnter(AppState::InGame), |mut commands: Commands| {
                 commands.insert_resource(Owned::default());
             })
             .add_systems(
                 Update,
-                press_horse
+                (press_horse, unbridle)
                     .before(hero::steer)
                     .in_set(crate::frame::Unpaused),
             )
+            .add_systems(Update, bridle.run_if(in_state(AppState::InGame)))
             .add_systems(
                 Update,
                 pick.before(hero::steer)
@@ -887,6 +925,82 @@ fn press_horse(
     commands.queue(move |world: &mut World| match ride(world, Some(horse)) {
         Ok(line) | Err(line) => debug!("riding: the horse's button: {line}"),
     });
+}
+
+/// Puts each bridle used from the backpack on the hero's own horse (`0x6C0D96`): the bridle out
+/// of the grid (`0x5DA630`), the one in the horse's slot 0 before into the cell it left, else at
+/// its first fit, and nothing moving where it finds no room; nothing without an own horse. The
+/// hero's leave to use it the equipment's click asks first (`0x54ABE0`).
+fn bridle(
+    mut commands: Commands,
+    mut used: MessageReader<PutBridle>,
+    owned: Res<Owned>,
+    mut pack: ResMut<crate::pickup::Pack>,
+    tables: Option<Res<crate::drops::Tables>>,
+    horses: Query<Option<&Bridle>, (With<Horse>, Without<Dies>)>,
+) {
+    let Some(tables) = tables else {
+        used.clear();
+        return;
+    };
+    for &PutBridle(key) in used.read() {
+        let Some(horse) = owned.0 else {
+            continue;
+        };
+        let Ok(before) = horses.get(horse) else {
+            continue;
+        };
+        let Some((placed, dropped)) = pack.take_out(key) else {
+            continue;
+        };
+        if let Some(Bridle(old)) = before {
+            let size = tables.size(old.item);
+            if !pack.put(old.clone(), placed.at, size) && !pack.take(old.clone(), size) {
+                pack.put(dropped, placed.at, placed.size);
+                continue;
+            }
+        }
+        info!("riding: {} on {horse}'s slot 0", dropped.item);
+        commands.entity(horse).insert(Bridle(dropped));
+    }
+}
+
+/// A right click on the horse's button of the portraits' column (`0x6D6EDB`): the item of the
+/// hero's own horse's slot 0 into the backpack at its first fit (`0x5DABA0`), out of the slot
+/// (`0x556A30`); nothing where the slot is empty or the backpack has no room.
+fn unbridle(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
+    owned: Res<Owned>,
+    (mut pack, tables): (
+        ResMut<crate::pickup::Pack>,
+        Option<Res<crate::drops::Tables>>,
+    ),
+    horses: Query<&Bridle, With<Horse>>,
+) {
+    if !buttons.just_pressed(MouseButton::Right) {
+        return;
+    }
+    let (Some(horse), Some(tables)) = (owned.0, tables) else {
+        return;
+    };
+    let (corner, size) = (crate::bar::HORSE_BUTTON.1, crate::bar::HORSE_BUTTON_SIZE);
+    if !crate::bar::column_point(&pointer, &ui_scale, &windows)
+        .is_some_and(|at| Rect::from_corners(corner, corner + size).contains(at))
+    {
+        return;
+    }
+    let Ok(Bridle(dropped)) = horses.get(horse) else {
+        return;
+    };
+    if pack.take(dropped.clone(), tables.size(dropped.item)) {
+        info!(
+            "riding: {} off {horse}'s slot 0 into the backpack",
+            dropped.item
+        );
+        commands.entity(horse).remove::<Bridle>();
+    }
 }
 
 /// Throws the hero `me` off its horse at once, without its dismount's clip, as a knock-down
