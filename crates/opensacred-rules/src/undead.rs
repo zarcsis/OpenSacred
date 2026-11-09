@@ -14,6 +14,16 @@ pub const RISEN: u32 = 0x200;
 /// How long an undead lies before it rises, in seconds (`0x89098C`).
 pub const LIES: f32 = 4.0;
 
+/// How long after its death a hidden corpse is destroyed, in seconds, at the options' detail
+/// `detail` (`DETAILLEVEL`, `0x553DC0`): 25 at 2, 10 at 1 and 7 at 0.
+pub fn destroyed_after(detail: u8) -> f32 {
+    match detail {
+        0 => 7.0,
+        1 => 10.0,
+        _ => 25.0,
+    }
+}
+
 /// The magic skeletons, which drain their killer.
 const SKELETONS: [u32; 3] = [48, 80, 81];
 /// The undead goblins.

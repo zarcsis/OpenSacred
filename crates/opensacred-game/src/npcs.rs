@@ -6919,7 +6919,8 @@ fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> 
 /// under them (`models::Effect`, #1834). A model finds its effect by its model's file, a worn or
 /// held item's, a creature's, else its glTF's: an item on the ground, the interface's, a figure
 /// of the choice of the hero (#1875); the interface's, which the original draws orthographic
-/// (`0x40F270`), has the kinds 1 to 4 alone.
+/// (`0x40F270`), has the kinds 1 to 4 alone. At the options' detail 0 a model of the world has
+/// no effect, drawn plain by `cGranny::render` (`0x44A8C0`, #2352), as it spawns.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's query names the components it reads"
@@ -6940,15 +6941,22 @@ pub fn retexture(
         &mut MeshMaterial3d<StandardMaterial>,
     )>,
     (mut materials, mut retextured): (ResMut<Assets<StandardMaterial>>, ResMut<Retextured>),
-    (table, assets, mut effects): (
+    (table, assets, mut effects, settings, state): (
         Option<Res<crate::model_effects::Table>>,
         Res<AssetServer>,
         ResMut<crate::model_effects::Materials>,
+        Option<Res<crate::settings::Settings>>,
+        Option<Res<bevy::prelude::State<crate::game::AppState>>>,
     ),
 ) {
     let Ok((retexture, piece, npc, source, flat)) = models.get(ready.entity) else {
         return;
     };
+    // The world's models at the detail 0, not the interface's nor the choice's figures, which
+    // the original draws so whatever the detail (`0x6F1B30`).
+    let plain = !flat
+        && crate::settings::detail(settings.as_deref()) == 0
+        && state.is_some_and(|state| *state.get() == crate::game::AppState::InGame);
     let path = source.and_then(|source| assets.get_path(source.0.id()));
     let model = piece
         .map(|piece| piece.model.as_str())
@@ -6956,6 +6964,7 @@ pub fn retexture(
         .or_else(|| path.as_ref().and_then(|path| path.path().to_str()));
     let effects_of = model
         .zip(table.as_deref())
+        .filter(|_| !plain)
         .and_then(|(model, table)| table.of(model).map(|effect| (effect, table)));
     let effect = effects_of
         .map(|(effect, _)| effect)

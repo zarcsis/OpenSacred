@@ -508,13 +508,22 @@ fn display(settings: Res<Settings>, mut window: Single<&mut Window, With<Primary
     }
 }
 
-/// F11 and the display's settings on the window; `Settings` and `SettingsFile` come from `main`.
+/// Hands the options' detail to the particle systems as it changes: the systems started from
+/// then on emit at its factor (`opensacred_rules::particles::set_detail`, #2352).
+fn particles(settings: Res<Settings>) {
+    if settings.is_changed() {
+        opensacred_rules::particles::set_detail(detail(Some(&settings)));
+    }
+}
+
+/// F11, the display's settings on the window and the detail of the particle systems; `Settings`
+/// and `SettingsFile` come from `main`.
 pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, report)
-            .add_systems(Update, (toggle, display).chain());
+            .add_systems(Update, ((toggle, display).chain(), particles));
     }
 }
 
