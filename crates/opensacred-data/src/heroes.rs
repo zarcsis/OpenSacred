@@ -75,6 +75,13 @@ pub struct HeroEntry {
     /// none, as its backpack's section keeps them (docs/02 §9).
     #[serde(default)]
     pub sets: Vec<[u32; 2]>,
+    /// The bar's art slots of its first bank, each slot's kind (0 none, 2 a spell, 3 a weapon
+    /// art, 4 a combo) and art, as its backpack's section keeps them (docs/02 §9).
+    #[serde(default)]
+    pub art_slots: Vec<(u32, u32)>,
+    /// The weapon set selected and the art slot selected, as its backpack's section keeps them.
+    #[serde(default)]
+    pub selected: [u16; 2],
 }
 
 /// An item in a socket of another, as the other's block keeps it (docs/02 §9): its type, its

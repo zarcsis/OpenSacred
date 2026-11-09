@@ -45,6 +45,7 @@ Example
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --stats /tmp/amh-stats.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --sets /tmp/amh-sets.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --sockets /tmp/amh-sockets.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --art-slots /tmp/amh-art-slots.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
 installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts
@@ -61,7 +62,10 @@ the attribute points left, the skills as slot:skill:base:bonus, the skill points
 slot:object id; --sets a row per half of a weapon set that holds an item: file, set, half (0 the left hand), the item's
 object id (the 0x78 bytes after the backpack's grid, five sets of two halves of 12 bytes, a half's first u32 the id);
 --sockets a row per socketed item's record: file, the item's object id, the socket's index, the record's type (u32) and
-the crc32 of its 0x82 bytes. Section contents (hero names
+the crc32 of its 0x82 bytes; --art-slots a row per file of the bar's art slots after the weapon sets (five slots in two
+banks, a record of 20 bytes each, the slot s of the bank b the record 2s + b, its kind and its art's id the first two
+u32) and the selections after them (u16 each, the weapon set and the art slot selected): file, the slots of the bank 0
+and of the bank 1 as slot:kind:id joined by commas, the selections joined by a comma. Section contents (hero names
 etc.) are not printed.
 Dependencies: standard library.
 """
@@ -91,6 +95,8 @@ SOCKETS_MARK, SOCKETS = b'\xde\xc0\xad\xba', 251
 GRID, CELL, CELLS = 12 + 0x400, 12, 256
 # The weapon sets after the grid: five sets of two halves of 12 bytes, a half's first u32 its item's object id.
 WEAPON_SETS, HALVES, HALF = 5, 2, 12
+# The bar's art slots after the sets: five slots in two banks of 20-byte records, then two u16 selections.
+ART_SLOTS, ART_SLOT = 5, 20
 EXPECTED_HEADER = {4: 0x10, 8: 0x22C, 0x1C: 1, 0x20: 9, 0x24: 2, 0x28: 20000}
 
 
@@ -146,7 +152,9 @@ def main():
     ap.add_argument('--stats', help='write a TSV row per file of its creature\'s stats and equipment')
     ap.add_argument('--sets', help='write a TSV row per weapon set\'s half that holds an item')
     ap.add_argument('--sockets', help='write a TSV row per socketed item\'s record')
+    ap.add_argument('--art-slots', help='write a TSV row per file of its bar\'s art slots and its selections')
     args = ap.parse_args()
+    art_slot_rows = []
     set_rows = []
     socket_rows = []
     summary_rows = []
@@ -271,6 +279,18 @@ def main():
                     check('sets: a half names an item of the inventory outside the backpack',
                           oid in types and oid not in packed, f'{rel} set {k // HALVES}')
                     set_rows.append((rel, k // HALVES, k % HALVES, oid))
+            slots_at = GRID + CELL * CELLS + WEAPON_SETS * HALVES * HALF
+            banks = [[], []]
+            for k in range(ART_SLOTS * 2):
+                kind, art = struct.unpack_from('<II', inflated[BACKPACK], slots_at + ART_SLOT * k)
+                check('art slots: each slot\'s kind is none, a spell, a weapon art or a combo', kind in (0, 2, 3, 4),
+                      f'{rel} slot {k // 2}')
+                if kind:
+                    banks[k % 2].append(f'{k // 2}:{kind}:{art}')
+            selections = struct.unpack_from('<2H', inflated[BACKPACK], slots_at + ART_SLOT * ART_SLOTS * 2)
+            check('art slots: the selections a set and a slot', selections[0] < WEAPON_SETS and
+                  selections[1] < ART_SLOTS, rel)
+            art_slot_rows.append((rel, ','.join(banks[0]), ','.join(banks[1]), ','.join(map(str, selections))))
             names = [r[1] for r in backpack_rows if r[0] == rel]
             check('backpack: each item at one cell, its top left', len(names) == len(set(names)), rel)
             outside = collections.Counter(types[oid] for oid in types if oid not in packed)
@@ -304,7 +324,9 @@ def main():
             for row in backpack_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(backpack_rows)} rows -> {args.backpack}')
-    for name, rows_out, head, path in [('weapon sets\' halves', set_rows, 'file\tset\thalf\tid\n', args.sets),
+    for name, rows_out, head, path in [('art slots\' files', art_slot_rows, 'file\tbank0\tbank1\tselected\n',
+                                        args.art_slots),
+                                       ('weapon sets\' halves', set_rows, 'file\tset\thalf\tid\n', args.sets),
                                        ('socketed records', socket_rows, 'file\tid\tindex\ttype\tcrc\n', args.sockets)]:
         print(f'{len(rows_out)} {name}')
         if path:

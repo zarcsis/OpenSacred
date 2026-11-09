@@ -55,6 +55,14 @@ const MINI_ON_DISK: usize = 64;
 /// right's, of 12 bytes each, a half's first `u32` its item's object id, 0 for none (docs/02 §9).
 pub const WEAPON_SETS: usize = 5;
 const HALF: usize = 12;
+/// The bar's art slots after the weapon sets: five slots in two banks, a record of 20 bytes each,
+/// the slot `s` of the bank `b` the record `2s + b`, its kind (0 none, 2 a spell, 3 a weapon art,
+/// 4 a combo) and its art's id the first two `u32`; then the selections, `u16` each: the weapon
+/// set selected and the art slot selected (the container's `+0xC90` and `+0xD58`, docs/02 §9).
+pub const ART_SLOTS: usize = 5;
+const ART_SLOT: usize = 20;
+/// An art slot's two banks, each its kind and its art's id.
+pub type ArtSlot = [(u32, u32); 2];
 /// Where the creature section holds the count of its combat arts (`u16`), the entries following
 /// it (docs/re/arts.md, "The heroes' starting arts").
 const ARTS: usize = 1227;
@@ -391,6 +399,20 @@ impl Amh {
             *half = Reader::at(data, GRID + CELL * CELLS + HALF * k).u32()?;
         }
         Ok(sets)
+    }
+
+    /// The bar's art slots of the backpack's section, each slot's two banks' kind and art, and the
+    /// selections: the weapon set selected and the art slot selected.
+    pub fn art_slots(&self) -> Result<([ArtSlot; ART_SLOTS], [u16; 2])> {
+        let data = &self.section(BACKPACK, "AMH backpack section")?.data;
+        let at = GRID + CELL * CELLS + HALF * 2 * WEAPON_SETS;
+        let mut slots = [[(0, 0); 2]; ART_SLOTS];
+        for (k, slot) in slots.iter_mut().flatten().enumerate() {
+            let mut r = Reader::at(data, at + ART_SLOT * k);
+            *slot = (r.u32()?, r.u32()?);
+        }
+        let mut r = Reader::at(data, at + ART_SLOT * 2 * ART_SLOTS);
+        Ok((slots, [r.u16()?, r.u16()?]))
     }
 
     /// The creature section with its markers checked at their places.
