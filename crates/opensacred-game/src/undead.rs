@@ -15,7 +15,9 @@
 //! effect 856's (`fx::last_burning`, #1262); a skeleton warrior that loses its head throws it off,
 //! an item that lies where it lands (#1202). A burst makes its cloud in its gib set's colour
 //! (#1264), and under `[gameplay] violence` its body parts and its blood (`body_parts`, #1935);
-//! an arm's bone, which the original makes only under `VIOLENCE` too, is not drawn.
+//! an arm's bone, which the original makes only under `VIOLENCE` too, is not drawn. A body
+//! hidden so goes 25, 10 or 7 s after its death by the options' detail (`0x553DC0`, #2352),
+//! unless the scripts name it or it has a dialogue.
 
 use crate::buildings::Layered;
 use bevy::prelude::*;
@@ -58,6 +60,11 @@ struct Burns(f32);
 /// A fire ghoul that burns away once its dying clip has played ([`burn_after_clip`]).
 #[derive(Component, Clone, Copy, Debug)]
 struct BurnsAfterClip;
+
+/// A creature at its last death whose body is hidden, the seconds left before it is destroyed
+/// ([`destroy`]).
+#[derive(Component, Clone, Copy, Debug)]
+struct Destroyed(f32);
 
 /// A creature of any class that bursts as it lies dead ([`last`]), the corpse of a tentacle's
 /// (`0x53382F`, #2104).
@@ -328,6 +335,7 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
 fn last(
     mut commands: Commands,
     lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform, Has<Bursts>), Added<Corpse>>,
+    settings: Option<Res<crate::settings::Settings>>,
     (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
     (mut sounds, mut dice, gibs, mut thrown): (
         MessageWriter<Play>,
@@ -350,13 +358,17 @@ fn last(
         if dies.rises {
             continue;
         }
+        let destroyed = Destroyed(undead::destroyed_after(crate::settings::detail(
+            settings.as_deref(),
+        )));
         if corpse.creature == undead::FIRE_GHOUL {
-            commands.entity(entity).insert(BurnsAfterClip);
+            commands.entity(entity).insert((BurnsAfterClip, destroyed));
             continue;
         }
         if corpse.class != undead::CLASS {
             continue;
         }
+        commands.entity(entity).insert(destroyed);
         match undead::end(corpse.creature) {
             End::Burns => {
                 commands.entity(entity).insert(Burns(BURNS));
@@ -412,8 +424,8 @@ pub(crate) fn bones(
 }
 
 /// Bursts a corpse at once (`0x4E8DA0`): its cloud in its gib set `set`'s colour (809) and
-/// `CHAR_SPLASH` at it, its body gone, and under the violence its `parts` and its blood decal
-/// (`body_parts`).
+/// `CHAR_SPLASH` at it, its body gone and destroyed at once, and under the violence its `parts` and
+/// its blood decal (`body_parts`).
 fn burst(
     commands: &mut Commands,
     (sounds, bursts): (
@@ -442,6 +454,7 @@ fn burst(
         rate: (0.5, Roll::None),
     });
     gone(commands, entity);
+    commands.entity(entity).insert(Destroyed(0.0));
 }
 
 /// Hides the body of `entity` and leaves no corpse to raise (`+0x14` bit `0x10000000`, out of
@@ -546,6 +559,39 @@ fn burn_after_clip(
     }
 }
 
+/// Destroys each hidden body of a last death once its seconds have run out (`0x553DC0`), out of
+/// its sector's entities: a body still lying waits until it is hidden, and one that the scripts
+/// name or that has a dialogue stays.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn destroy(
+    mut commands: Commands,
+    mut hidden: Query<
+        (
+            Entity,
+            &mut Destroyed,
+            Has<Corpse>,
+            Has<ScriptName>,
+            Has<Talk>,
+        ),
+        Without<Rises>,
+    >,
+    mut streamer: ResMut<crate::sectors::Streamer>,
+    time: Res<Time>,
+) {
+    for (entity, mut destroyed, lying, named, talks) in &mut hidden {
+        destroyed.0 -= time.delta_secs();
+        if destroyed.0 > 0.0 || lying || named || talks {
+            continue;
+        }
+        debug!("undead: {entity}'s hidden body is destroyed");
+        streamer.disown(entity);
+        commands.entity(entity).despawn();
+    }
+}
+
 /// The undead's rise, change, burn, burst and vanishing.
 pub struct UndeadPlugin;
 
@@ -553,7 +599,7 @@ impl Plugin for UndeadPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>().add_systems(
             Update,
-            (last, rise, burn, burn_after_clip)
+            (last, rise, burn, burn_after_clip, destroy)
                 .chain()
                 .after(Step::Npcs)
                 .in_set(Playing),

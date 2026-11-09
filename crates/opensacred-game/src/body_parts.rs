@@ -164,7 +164,7 @@ fn throw(
                 ));
             }
             part.insert(Part {
-                part: BodyPart::new(0.0, 1.0, dice),
+                part: BodyPart::new(0.0, dice),
                 set,
                 colour: [r, g, b],
                 level,

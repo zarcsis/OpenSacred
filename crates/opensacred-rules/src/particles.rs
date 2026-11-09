@@ -5,8 +5,34 @@
 //! smokes"), its variants 4 to 6 and 10 to 12, a flame's layer and a smoke's.
 //!
 //! Places, sizes and speeds are in the models' units, the third coordinate up.
+//!
+//! Every system emits at the options' detail that held as it started ([`set_detail`],
+//! [`interval_factor`]), as every class of the original multiplies its blocks' intervals at its
+//! start.
+
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::spawning::Dice;
+
+/// The options' detail (`DETAILLEVEL`, the byte `0x182EE78`), 0 to 2, that the systems started
+/// from now take: the high's 2 until the game sets it.
+static DETAIL: AtomicU8 = AtomicU8::new(2);
+
+/// Sets the options' detail, 0 to 2, that the systems started from now take ([`System::new`]).
+pub fn set_detail(detail: u8) {
+    DETAIL.store(detail.min(2), Ordering::Relaxed);
+}
+
+/// The factor of the emitters' intervals at the options' detail `detail`: 1 at 2, 1.5 at 1 and
+/// 2.2 at 0, which every class of the original multiplies its blocks' intervals by at its start
+/// (docs/re/effects.md, "The particle systems").
+pub fn interval_factor(detail: u8) -> f32 {
+    match detail {
+        0 => 2.2,
+        1 => 1.5,
+        _ => 1.0,
+    }
+}
 
 /// A particle (`0x7640C0`, `0x764760`): its place, velocity, buoyancy (each second its upward
 /// velocity falls by it, so a negative one rises), size (the half side of its quad), life (255 at
@@ -140,22 +166,42 @@ fn spread_3(value: Spread<[f32; 3]>, dice: &mut impl Dice) -> [f32; 3] {
     std::array::from_fn(|k| value.value[k] + value.spread[k] * signed(dice))
 }
 
-/// A system's particles, its clock and when it last emitted.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// A system's particles, its clock, when it last emitted, and the detail's factor of its
+/// intervals ([`interval_factor`]).
+#[derive(Clone, Debug, PartialEq)]
 pub struct System {
     pub particles: Vec<Particle>,
     pub clock: f32,
     last: f32,
+    factor: f32,
+}
+
+impl Default for System {
+    fn default() -> Self {
+        Self::new(0)
+    }
 }
 
 impl System {
-    /// A system of up to `count` particles.
+    /// A system of up to `count` particles, at the options' detail that holds now
+    /// ([`set_detail`]).
     pub fn new(count: usize) -> Self {
+        Self::at_factor(count, interval_factor(DETAIL.load(Ordering::Relaxed)))
+    }
+
+    /// A system of up to `count` particles whose blocks' intervals take the factor `factor`.
+    pub fn at_factor(count: usize, factor: f32) -> Self {
         Self {
             particles: Vec::with_capacity(count),
             clock: 0.0,
             last: 0.0,
+            factor,
         }
+    }
+
+    /// The detail's factor of its intervals.
+    pub fn factor(&self) -> f32 {
+        self.factor
     }
 
     /// One frame of `dt` seconds of each living particle by its layer's rates (`0x7640C0`): its
@@ -206,7 +252,7 @@ impl System {
     }
 
     /// Emits, at the system's place (the origin), as many particles as whole intervals of the
-    /// first block have passed since the last emission, each of a block that `pick` chooses and
+    /// first block, times the detail's factor, have passed since the last emission, each of a block that `pick` chooses and
     /// aged by its share of the time (`0x764760`), up to `count` alive.
     pub fn emit(&mut self, blocks: &[Block], layers: &[Layer], count: usize, dice: &mut impl Dice) {
         self.emit_at(blocks, layers, count, dice, |_, _| [0.0; 3]);
@@ -287,11 +333,12 @@ impl System {
         let Some(first) = blocks.first() else {
             return;
         };
-        if first.interval <= 0.0 {
+        let interval = first.interval * self.factor;
+        if interval <= 0.0 {
             return;
         }
-        while self.last + first.interval <= self.clock {
-            self.last += first.interval;
+        while self.last + interval <= self.clock {
+            self.last += interval;
             if self.particles.len() >= count {
                 continue;
             }
@@ -1121,7 +1168,6 @@ pub struct BodyPart {
     lies: bool,
     /// Its trail's puffs, in the models' frame of the world.
     pub trail: System,
-    detail: f32,
 }
 
 /// The trail's texture, the body parts' speed (`+0x98`) and the scale of their models
@@ -1134,9 +1180,8 @@ const TRAIL_ROOM: usize = 300;
 
 impl BodyPart {
     /// A part thrown from a point `rise` over its ground (the event's `+0x28`, **hypothesis**: 0
-    /// for a creature on its ground), its rolls by `dice` (`0x5A3840`'s case 9, `0x783B50`), its
-    /// trail emitted at the detail's factor `detail` (1 at `DETAILLEVEL` 2).
-    pub fn new(rise: f32, detail: f32, dice: &mut impl Dice) -> Self {
+    /// for a creature on its ground), its rolls by `dice` (`0x5A3840`'s case 9, `0x783B50`).
+    pub fn new(rise: f32, dice: &mut impl Dice) -> Self {
         let mut share = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
         let angle = share() * std::f32::consts::TAU;
         let lasts = share() - 0.8 + 1.0;
@@ -1152,7 +1197,6 @@ impl BodyPart {
             clock: 0.0,
             lies: false,
             trail: System::new(TRAIL_ROOM),
-            detail,
         }
     }
 
@@ -1166,15 +1210,15 @@ impl BodyPart {
     }
 
     /// Its trail's block: a buoyancy of 2, the size 3 ± 1, the angle π ± π, the velocity ± 2 and
-    /// the place ± 3 along each axis, one every `0.01·f` s by the detail's factor.
-    fn trail_block(&self) -> Block {
+    /// the place ± 3 along each axis, one every `0.01·f` s by the detail's factor (its system's).
+    fn trail_block() -> Block {
         Block {
             buoyancy: spread(2.0, 0.0),
             size: spread(3.0, 1.0),
             angle: spread(std::f32::consts::PI, std::f32::consts::PI),
             velocity: spread([0.0; 3], [2.0; 3]),
             offset: spread([0.0; 3], [3.0; 3]),
-            interval: 0.01 * self.detail,
+            interval: 0.01,
             ..Block::default()
         }
     }
@@ -1201,7 +1245,7 @@ impl BodyPart {
         let layers = [Self::trail_layer()];
         self.trail.update(dt, &layers);
         if !self.lies {
-            let block = self.trail_block();
+            let block = Self::trail_block();
             self.trail
                 .emit_along(&[block], &layers, TRAIL_ROOM, (from, to), dt, dice);
         }
@@ -4324,7 +4368,7 @@ impl Meteor {
             MeteorPhase::Burning => {
                 self.system.update(dt, &layers);
                 if self.system.particles.is_empty() {
-                    self.phase = MeteorPhase::Lying(METEOR_LIES);
+                    self.phase = MeteorPhase::Lying(METEOR_LIES / self.system.factor());
                 }
                 false
             }
@@ -16142,7 +16186,7 @@ mod tests {
         assert!(hop.update(0.01).lies);
         // A part thrown flies a while, turned, trailing puffs, then lies; it goes past its end.
         let mut dice = crate::spawning::Rng::of(50, 39, 1);
-        let mut part = BodyPart::new(0.0, 1.0, &mut dice);
+        let mut part = BodyPart::new(0.0, &mut dice);
         let mut place = [0.0_f32; 3];
         let mut puffs = 0;
         for _ in 0..200 {
@@ -18563,5 +18607,32 @@ mod tests {
         for _ in 0..100 {
             assert!((3.0..=4.0).contains(&ForceOfHell::bead_half(&mut dice)));
         }
+    }
+
+    #[test]
+    fn the_detail_stretches_the_emitters_intervals() {
+        assert_eq!([0, 1, 2, 3].map(interval_factor), [2.2, 1.5, 1.0, 1.0]);
+        let blocks = [Block {
+            size: spread(5.0, 0.0),
+            interval: 0.125,
+            ..Block::default()
+        }];
+        let layers = [Layer::default()];
+        let emitted = |factor: f32| {
+            let mut system = System::at_factor(100, factor);
+            system.clock = 1.0;
+            system.emit(
+                &blocks,
+                &layers,
+                100,
+                &mut crate::spawning::Rng::of(1, 2, 3),
+            );
+            system.particles.len()
+        };
+        // Every 0.125 s at the detail 2, every 0.1875 s at 1, every 0.275 s at 0.
+        assert_eq!(
+            [2, 1, 0].map(|detail| emitted(interval_factor(detail))),
+            [8, 5, 3]
+        );
     }
 }

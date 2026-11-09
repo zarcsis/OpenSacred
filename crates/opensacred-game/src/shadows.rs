@@ -205,7 +205,7 @@ pub fn cast(
 }
 
 /// Hides the models' shadows at the options' lowest detail (`0x407960`'s dots in their place not
-/// followed), and shows them above it.
+/// followed, #2377), and shows them above it.
 fn detail(
     settings: Option<Res<crate::settings::Settings>>,
     mut shadows: Query<&mut Visibility, With<Shadow>>,

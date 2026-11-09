@@ -164,6 +164,7 @@ A spread `s` adds a uniform `[−s, s]`.
 - Each particle takes the block of a layer that `0x7687F0` picks: with `n` 1 the first; with 2 the first four times in five, the second once; with 3 or 4 by the blocks' rates of emission (the inverse of their intervals), by one roll of `rand() / 32767`.
 
 The intervals are multiplied by the detail (`DETAILLEVEL`, the byte `0x182EE78`): 1.0 at 2, 1.5 at 1, 2.2 at 0, in every class read.
+Since #2352 every system of `opensacred_rules::particles` takes the factor of the detail that holds as it starts (`particles::set_detail`, which the game calls as its settings change, and `System::new`), the first block's interval times it at each emission; the systems running as the detail changes keep theirs, as the original's classes multiply their blocks at their start.
 
 ### The colour ramps
 
@@ -689,7 +690,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 The breath and its wall look as their systems since #1092 (`breath`, `opensacred_rules::particles::{walloffire, walloffire_line}`): the breath's look an entity of its own that follows the breath while it flies, leaving its flames and smoke along the way, its glow and its light of 100 at it (at height 0, as the bolts'), outliving the breath until its last flame dies; each fire of the wall its flames on the ground for its 10 s (`arts::WALL_BURNS`), its light of 200 with it until its last; all untinted by the night.
 The wall's flames and the glow are added whole (`fx::whole_material`: the particles' material that takes no alpha, `ONE`, `ONE`).
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the breath an orange plume with a dark smoke where it stops, and the wall a row of tall flames that run together into a white and yellow sheet, alike in size; the original's smoke drifts and spreads more.
-Not followed: the layers' wind (as the world's smokes'), the detail's factor of the intervals, and the steps' small fire of the variant 1 that the wall's end makes ("The steps' small fire" below).
+Not followed: the layers' wind (as the world's smokes'), and the steps' small fire of the variant 1 that the wall's end makes ("The steps' small fire" below).
 
 ## The ring of poison
 
