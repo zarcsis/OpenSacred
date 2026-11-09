@@ -26,6 +26,12 @@ pub const CROSSFADE: f32 = 7.0;
 /// (`+0xB7C8`, `0x6791C0`).
 pub const CONTROL: f64 = 300.0;
 
+/// The music's level at or below which the music plays nothing (`0x891B00`, docs/re/sound.md,
+/// "The music's volume"): the stream keeps to the ambient loop ([`Stream::hush`], the switch of
+/// [`Stream::frame`]), the music played once and the fights' music are refused, the fights'
+/// weighing leaves the foes engaged alone and a fight's music does not end ([`Scene::silent`]).
+pub const SILENT: f32 = 0.001;
+
 /// The timer that a fight's end leaves where it stood past [`TURN`] (`0x697710`).
 pub const AFTER_FIGHT: f64 = 120.0;
 /// How long a fight's music is held off after the last one ends (`+0xAF70`).
@@ -62,19 +68,46 @@ pub enum Phase {
     Ambient,
 }
 
-/// The peace stream: its phase, none before the first region's event, its timer, and what is
-/// left of the scripts' control, none when they do not hold it.
+/// The peace stream: its phase, none before the first region's event, its timer, what is left
+/// of the scripts' control, none when they do not hold it, and whether the music's phase holds
+/// the ambient loop, as a switch at a silent music leaves it ([`Self::frame`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Stream {
     phase: Option<Phase>,
     timer: f64,
     control: Option<f64>,
+    looped: bool,
 }
 
 impl Stream {
     /// The phase it plays, none before [`Self::begin`].
     pub fn phase(&self) -> Option<Phase> {
         self.phase
+    }
+
+    /// What it plays: its phase's, but the ambient loop in a music's phase that holds it.
+    pub fn plays(&self) -> Option<Phase> {
+        if self.looped {
+            Some(Phase::Ambient)
+        } else {
+            self.phase
+        }
+    }
+
+    /// The ambient phase at a music's level of [`SILENT`] or below, of a stream begun: a
+    /// region's event at that level takes it (`0x6822CE`), and so does the level set to it where
+    /// the place has an ambient loop, unless a crossfade runs (`0x677750`); the timer stays.
+    pub fn hush(&mut self) {
+        if self.phase.is_some() {
+            self.phase = Some(Phase::Ambient);
+            self.looped = false;
+        }
+    }
+
+    /// The region's music opened in the music's phase (a region's change there, a fight's end by
+    /// day), in place of the ambient loop that the phase held.
+    pub fn music_opens(&mut self) {
+        self.looped = false;
     }
 
     /// Its timer, in seconds.
@@ -116,12 +149,15 @@ impl Stream {
     /// takes [`WAITS`] off it, and a timer still past it switches to the other phase, the music
     /// only where the place has one (`music`), the ambient loop only where [`ambient_loop`] gives
     /// one (`ambient`), nothing while the scripts hold the stream, and starts again
-    /// (`0x69BD5E`). The phase it switched to, if it did.
+    /// (`0x69BD5E`); at a music's level below [`SILENT`] (`silent`) the ambient phase takes its
+    /// loop again where the place has one, which plays on, and turns to the music's phase all the
+    /// same (`0x69BDBE`). The phase it switched to, if it did.
     pub fn frame(
         &mut self,
         seconds: f64,
         (counts, holds): (bool, bool),
         (crossfading, music, ambient): (bool, bool, bool),
+        silent: bool,
     ) -> Option<Phase> {
         if let Some(left) = self.control {
             self.control = Some(left - seconds).filter(|&left| left > 0.0);
@@ -148,10 +184,12 @@ impl Stream {
         let next = match phase {
             Phase::Music if !ambient => return None,
             Phase::Music => Phase::Ambient,
-            Phase::Ambient if !music => return None,
+            Phase::Ambient if silent && !ambient => return None,
+            Phase::Ambient if !silent && !music => return None,
             Phase::Ambient => Phase::Music,
         };
         self.phase = Some(next);
+        self.looped = phase == Phase::Ambient && silent;
         self.timer = 0.0;
         Some(next)
     }
@@ -240,7 +278,8 @@ pub struct Foe {
 /// What the fights' weighing sees at an update: the hostile foes about the hero, the hero's
 /// level, the most foes engaged over the last five updates, the stream's phase, whether the
 /// once-stream plays, whether the region's music is the military siege's, the difficulty
-/// (bronze 0 to niobium 4), and whether the hero stands out of the fight (`0x678F80`).
+/// (bronze 0 to niobium 4), whether the hero stands out of the fight (`0x678F80`), and whether
+/// the music's level is [`SILENT`] or below (`silent`).
 #[derive(Clone, Copy, Debug)]
 pub struct Scene<'a> {
     pub foes: &'a [Foe],
@@ -251,6 +290,7 @@ pub struct Scene<'a> {
     pub siege: bool,
     pub difficulty: usize,
     pub calm: bool,
+    pub silent: bool,
 }
 
 /// The foes within which the weighing counts them, in the place's pixels.
@@ -376,10 +416,11 @@ impl Fight {
             self.clock = 0.0;
             self.weigh(scene, refused, dice, &mut cues, profile);
         }
-        // Out of the fight: calm again, and the fight's music ends.
+        // Out of the fight: calm again, and the fight's music ends, but at a silent music, where
+        // the end returns at once and the music goes on until a level above it (`0x697736`).
         if scene.calm {
             self.calm = true;
-            if self.playing {
+            if self.playing && !scene.silent {
                 self.playing = false;
                 self.held = HELD_OFF;
                 cues.push(Cue::End);
@@ -458,7 +499,8 @@ impl Fight {
                 }
             }
         }
-        if n == 0 {
+        // The foes engaged weighed only at a music's level above 0.001 (`0x68D108`).
+        if n == 0 || scene.silent {
             return;
         }
         // The normal fight's jingle, or the danger's in the music's phase.
@@ -801,13 +843,16 @@ mod tests {
         let mut stream = Stream::default();
         stream.begin(0);
         assert_eq!(
-            stream.frame(181.0, (true, false), (false, true, false)),
+            stream.frame(181.0, (true, false), (false, true, false), false),
             None
         );
-        assert_eq!(stream.frame(0.1, (true, false), (false, true, false)), None);
+        assert_eq!(
+            stream.frame(0.1, (true, false), (false, true, false), false),
+            None
+        );
         assert_eq!(stream.phase(), Some(Phase::Music));
         assert_eq!(
-            stream.frame(0.1, (true, false), (false, true, true)),
+            stream.frame(0.1, (true, false), (false, true, true), false),
             Some(Phase::Ambient)
         );
     }
@@ -815,7 +860,7 @@ mod tests {
     /// Frames of `seconds` each, `count` of them, by day, nothing held nor fading, with music.
     fn run(stream: &mut Stream, seconds: f64, count: u32) -> Vec<Phase> {
         (0..count)
-            .filter_map(|_| stream.frame(seconds, (true, false), (false, true, true)))
+            .filter_map(|_| stream.frame(seconds, (true, false), (false, true, true), false))
             .collect()
     }
 
@@ -824,7 +869,7 @@ mod tests {
         let mut stream = Stream::default();
         // Nothing before the first region's event.
         assert_eq!(
-            stream.frame(200.0, (true, false), (false, true, true)),
+            stream.frame(200.0, (true, false), (false, true, true), false),
             None
         );
         assert_eq!(stream.begin(1), Phase::Ambient);
@@ -847,17 +892,23 @@ mod tests {
         // The dusk asks for the loop: the next frame switches, whatever the timer.
         stream.now();
         assert_eq!(
-            stream.frame(0.1, (false, false), (false, true, true)),
+            stream.frame(0.1, (false, false), (false, true, true), false),
             Some(Phase::Ambient)
         );
         // The night counts nothing: no music all night.
         for _ in 0..10_000 {
-            assert_eq!(stream.frame(0.1, (false, false), (false, true, true)), None);
+            assert_eq!(
+                stream.frame(0.1, (false, false), (false, true, true), false),
+                None
+            );
         }
         assert!(stream.timer() < 1.0);
         // A request in the ambient phase changes nothing.
         stream.now();
-        assert_eq!(stream.frame(0.1, (false, false), (false, true, true)), None);
+        assert_eq!(
+            stream.frame(0.1, (false, false), (false, true, true), false),
+            None
+        );
         // The dawn counts again: the music 180 s into it.
         assert!(run(&mut stream, 0.5, 360).is_empty());
         assert_eq!(run(&mut stream, 0.5, 1), [Phase::Music]);
@@ -871,12 +922,15 @@ mod tests {
         stream.control(true);
         assert!(stream.controlled());
         assert!((stream.timer() - NOW).abs() < 1e-9);
-        assert_eq!(stream.frame(0.5, (true, false), (false, true, true)), None);
+        assert_eq!(
+            stream.frame(0.5, (true, false), (false, true, true), false),
+            None
+        );
         assert_eq!(stream.phase(), Some(Phase::Music));
         // Given back: the switch goes through at the next frame.
         stream.control(false);
         assert_eq!(
-            stream.frame(0.5, (true, false), (false, true, true)),
+            stream.frame(0.5, (true, false), (false, true, true), false),
             Some(Phase::Ambient)
         );
         // The control runs out 300 s after it was taken, the switch due then going through.
@@ -899,6 +953,7 @@ mod tests {
             siege: false,
             difficulty: 0,
             calm: false,
+            silent: false,
         }
     }
 
@@ -1033,36 +1088,118 @@ mod tests {
         stream.begin(0);
         stream.now();
         // A crossfade running: 20 s off, the switch where the timer is still past 180 s.
-        assert_eq!(stream.frame(0.0, (true, false), (true, true, true)), None);
-        assert!((stream.timer() - (NOW - WAITS)).abs() < 1e-9);
-        assert_eq!(stream.frame(0.0, (true, false), (false, true, true)), None);
         assert_eq!(
-            stream.frame(0.5, (true, false), (false, true, true)),
+            stream.frame(0.0, (true, false), (true, true, true), false),
+            None
+        );
+        assert!((stream.timer() - (NOW - WAITS)).abs() < 1e-9);
+        assert_eq!(
+            stream.frame(0.0, (true, false), (false, true, true), false),
+            None
+        );
+        assert_eq!(
+            stream.frame(0.5, (true, false), (false, true, true), false),
             Some(Phase::Ambient)
         );
         let mut stream = Stream::default();
         stream.begin(0);
         stream.now();
         assert_eq!(
-            stream.frame(0.5, (true, false), (true, true, true)),
+            stream.frame(0.5, (true, false), (true, true, true), false),
             Some(Phase::Ambient)
         );
         // No music where the hero stands: the loop stays, tried again at each frame.
         let mut stream = Stream::default();
         stream.begin(1);
         assert_eq!(
-            stream.frame(181.0, (true, false), (false, false, true)),
+            stream.frame(181.0, (true, false), (false, false, true), false),
             None
         );
-        assert_eq!(stream.frame(0.1, (true, false), (false, false, true)), None);
         assert_eq!(
-            stream.frame(0.1, (true, false), (false, true, true)),
+            stream.frame(0.1, (true, false), (false, false, true), false),
+            None
+        );
+        assert_eq!(
+            stream.frame(0.1, (true, false), (false, true, true), false),
             Some(Phase::Music)
         );
         // The cemetery holds the cycle.
         let mut stream = Stream::default();
         stream.begin(1);
-        assert_eq!(stream.frame(500.0, (true, true), (false, true, true)), None);
+        assert_eq!(
+            stream.frame(500.0, (true, true), (false, true, true), false),
+            None
+        );
         assert_eq!(stream.phase(), Some(Phase::Ambient));
+    }
+
+    #[test]
+    fn a_silent_music_keeps_the_ambient_loop_while_the_phases_turn() {
+        let mut stream = Stream::default();
+        // Not begun: nothing to turn.
+        stream.hush();
+        assert_eq!(stream.phase(), None);
+        stream.begin(0);
+        stream.hush();
+        assert_eq!(stream.plays(), Some(Phase::Ambient));
+        // The ambient phase's switch takes the loop again, the phase turning all the same.
+        assert_eq!(
+            stream.frame(181.0, (true, false), (false, true, true), true),
+            Some(Phase::Music)
+        );
+        assert_eq!(stream.plays(), Some(Phase::Ambient));
+        assert_eq!(
+            stream.frame(181.0, (true, false), (false, true, true), true),
+            Some(Phase::Ambient)
+        );
+        // A place without a loop keeps the switch waiting.
+        assert_eq!(
+            stream.frame(181.0, (true, false), (false, true, false), true),
+            None
+        );
+        // The level raised in a music's phase that holds the loop: the loop again, then the
+        // music.
+        let mut stream = Stream::default();
+        stream.begin(1);
+        stream.frame(181.0, (true, false), (false, true, true), true);
+        assert_eq!(
+            stream.frame(181.0, (true, false), (false, true, true), false),
+            Some(Phase::Ambient)
+        );
+        assert_eq!(
+            stream.frame(181.0, (true, false), (false, true, true), false),
+            Some(Phase::Music)
+        );
+        assert_eq!(stream.plays(), Some(Phase::Music));
+        // A region's music opened there plays.
+        let mut stream = Stream::default();
+        stream.begin(1);
+        stream.frame(181.0, (true, false), (false, true, true), true);
+        stream.music_opens();
+        assert_eq!(stream.plays(), Some(Phase::Music));
+    }
+
+    #[test]
+    fn a_silent_music_leaves_the_foes_engaged_unweighed_and_the_fights_music_unended() {
+        let foes = [striking(1); 9];
+        let mut dice = Script::new(Vec::new());
+        let mut fight = Fight::default();
+        let mut silent = scene(&foes, 9, Phase::Music);
+        silent.silent = true;
+        assert!(second(&mut fight, &silent, &mut dice).is_empty());
+        assert!(!fight.playing());
+        // A fight's music cut in before the level fell plays on out of the fight until the level
+        // rises.
+        assert_eq!(
+            second(&mut fight, &scene(&foes, 9, Phase::Music), &mut dice),
+            [Cue::Fight(2)]
+        );
+        let mut calm = scene(&[], 0, Phase::Ambient);
+        calm.calm = true;
+        calm.silent = true;
+        assert!(second(&mut fight, &calm, &mut dice).is_empty());
+        assert!(fight.playing());
+        calm.silent = false;
+        assert_eq!(second(&mut fight, &calm, &mut dice), [Cue::End]);
     }
 }
