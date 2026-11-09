@@ -374,7 +374,12 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
   - the effects' emission intervals times 1.0, 1.5 or 2.2 at 2, 1 or 0 (docs/re/effects.md), which the hundred-odd readers from `0x76B896` to `0x7C71C0` are (**hypothesis**: the effects' classes);
   - the items' glitter, 3, 5 or 8 sparks (docs/re/items.md);
   - the menus' water's steps, drops and highlights at 0 and its reflection below 2 (docs/re/menus.md).
-  Not followed: the readers at `0x408E06`, `0x409F96`, `0x40EA06`, `0x4191CB`, `0x419325`, `0x419690`, `0x5BAF79`, `0x5C97B0`, `0x62DD56` and `0x62E138` (#2377).
+  The readers left, read 2026-11-09 for #2377 (**confirmed** by code):
+  - `0x408E06` counts the sparks of the glitter that the objects' draw lays (`sdk_GLOW`, `0x408B70`, docs/re/items.md), 8 at 2, 5 at 1 and 3 at 0, and `0x409F96` those of the events' sparks (`0x409D00`, docs/re/containers.md) alike (`glitter`);
+  - `0x40EA06` lets the orthographic item draw (`0x40E9C0`) take a flagged type's effects (`0x40F270`) only while the detail is not 0 (docs/re/drawing.md);
+  - `0x4191CB`, `0x419325` and `0x419690` let the weather's draw (`0x4190D0`) draw the rain, the fog and the snow only above 0 (`skies`);
+  - `0x5BAF79` lets an arrow's draw (`0x5BAF00`) draw its shadow only above 0, and the chests' draw (`0x5C97B0`) does the same with no dots (`shadows`; the game's arrows cast none, #2380);
+  - `0x62DD56` is the clear waters' second layer at 2, and `0x62E138` the liquids' animation above 0 (`liquids`).
   The 30 animals (read 2026-11-08 for #2342, **confirmed**): the types 513 to 516, 520 to 528, 530 to 533, 540, 541, 544, 560 to 563, 565, 566, 589, 590, 592 and 593, by the table of a byte a type from 513 at `0x47F774` (0 leaves the type out), the record's entries removed before the creatures are chosen, unless the record has `08`, in a game of one player.
 - **`MINIMAP_ALPHA`** (the map's transparency): the overview map (Tab) reads it at its show (`0x6C7330`, keeping 255 − the value at `+0x15C`) and in its render (`0x6C6C50`, the call at `0x6C6CF2`), which draws the sectors at the alpha 255 − the value, the lens raising an alpha below 96 to 96 (docs/re/maps.md); so the slider's left end is opaque and its right end the most transparent (**confirmed**).
 - **`PICKUPAUTO`** (the collect modes): the Collect's filter `0x4EC330`: 0 every item, 1 gold, runes, certain potions and the items above a bar of quality by the hero's level, 2 gold alone (docs/re/items.md).
