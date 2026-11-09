@@ -2702,6 +2702,14 @@ pub fn door_in_the_way<T>(
         .map(|(_, door)| door)
 }
 
+/// Whether a rider goes for a door of the type `door` in its way (`0x53A170`, a creature of
+/// `+0x200` bit 4, a rider in the saddle; #2293): the 19 gates, palisades, fences and cages
+/// among the door types, 5674, 5676 to 5679, 5740 to 5750 and 5756 to 5758; before another door
+/// it takes its mount (`+0x1EC`) for its target instead, which gets it off its horse.
+pub fn rides_through(door: u32) -> bool {
+    matches!(door, 5674 | 5676..=5679 | 5740..=5750 | 5756..=5758)
+}
+
 /// Whether a creature that went for a door, standing at `here` on `layer`, opens it, at `door`
 /// on `door_layer` (`0x53A170`): within 300 of it, on its layer or the ground and the first floor
 /// either way.
