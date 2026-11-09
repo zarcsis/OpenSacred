@@ -186,6 +186,9 @@ const PLAY_ANIM: u16 = 91;
 const PLAY_SOUND: u16 = 104;
 /// `Morph` (`0x4A15A0`): a creature's type replaced (#1829).
 const MORPH: u16 = 79;
+/// `Partikel` (`0x4A8BB0`): under the anim mode, its effect waits its turn in the queue of the
+/// creature of its second `0x01` (the kind 13, #1890).
+const PARTIKEL: u16 = 99;
 /// `Attack` (`0x4A2B40`): a creature or a group sent at a creature, the hero or a group (#1830).
 const ATTACK: u16 = 92;
 /// `Attack`'s art or spell by name (`+0xA880`), which #1831 follows; `ECS_NOSPELL` is none.
@@ -2625,6 +2628,10 @@ enum Act {
     /// `PlaySound` under the anim mode, of the sound of the name (`0x4A9730`, the kind 14;
     /// #1826).
     Sound(String),
+    /// `Partikel` under the anim mode whose second name is the creature's: the creature of its
+    /// first name, at which its effect is made at the turn, and its numbers (`0x4A8BB0`, the kind
+    /// 13; #1890).
+    Partikel { at: String, numbers: Vec<i32> },
     /// `CreateObj` whose second `0x01` names the creature, under the anim mode: the record, made
     /// at the creature's turn (`0x486CB2`, the kind 11; #1826).
     Make(Box<Record>),
@@ -2729,6 +2736,30 @@ fn played(
         return queued.then(|| Moved {
             name: name.clone(),
             act: Act::Sound(sound.clone()),
+            queued,
+        });
+    }
+    // A `Partikel` whose second name is not empty waits its turn under the mode in that one's
+    // queue, its effect at its first name's creature (`0x4A8BB0`, #1890); at once it is the
+    // scripts' (`scripts::Partikel`).
+    if kind == PARTIKEL {
+        let (first, second) = (
+            names.first()?,
+            names.get(1).filter(|name| !name.is_empty())?,
+        );
+        let numbers = ops
+            .iter()
+            .filter_map(|o| match (o.tag, &o.value) {
+                (0x0B, Value::I32(n)) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        return queued.then(|| Moved {
+            name: second.clone(),
+            act: Act::Partikel {
+                at: first.clone(),
+                numbers,
+            },
             queued,
         });
     }
@@ -8555,6 +8586,13 @@ enum Queued {
     /// A `PlaySound`'s sound of the id, played once in the middle at its sample's rate and the
     /// volume 1 (the step `0x59ED41`, `playSFX` `0x693510`), done at once (#1826).
     Sound(u32),
+    /// A `Partikel`'s effect at the creature of its first name, `caster` as the record ran (the
+    /// entry's `+0x14`), done at once (the step `0x59CE78`, #1890).
+    Partikel {
+        at: String,
+        caster: Option<Entity>,
+        numbers: Vec<i32>,
+    },
     /// A `CreateObj`'s record, made at its turn (the step `0x59A9EF`), done at once (#1826).
     Make(Box<Record>),
     /// An `ActObj`'s door of the object of the name opened or closed (the step `0x59E9D5`), done
@@ -8726,11 +8764,12 @@ fn take_steps(
     mut commands: Commands,
     tick: Res<WorldTick>,
     (heights, real): (Res<Heights>, Res<Time<bevy::time::Real>>),
-    (mut due, mut sounds, mut made, mut states): (
+    (mut due, mut sounds, mut made, mut states, mut particles): (
         Option<ResMut<crate::scripts::Due>>,
         MessageWriter<sfx::Play>,
         Option<ResMut<crate::scripts::WorldRecords>>,
         Option<ResMut<crate::scripts::ObjStates>>,
+        Particles,
     ),
     others: Query<
         (
@@ -8851,6 +8890,14 @@ fn take_steps(
             Some(Queued::Other(_) | Queued::Land { .. }) => true,
             Some(&mut Queued::Sound(id)) => {
                 sounds.write(queued_sound(id));
+                true
+            }
+            Some(Queued::Partikel {
+                at,
+                caster,
+                numbers,
+            }) => {
+                partikel_turn((at, *caster, numbers), &mut particles);
                 true
             }
             // Made as the scripts' records of the world are, at once now that it is alone.
@@ -9431,6 +9478,38 @@ fn cinema_holds(
     }
 }
 
+/// Where a queued `Partikel`'s effect goes: the scripts' generic systems and the casts' sights,
+/// none where their messages are not kept (the tests of the queues alone).
+type Particles<'w> = (
+    Option<ResMut<'w, bevy::ecs::message::Messages<crate::scripts::Partikel>>>,
+    Option<ResMut<'w, bevy::ecs::message::Messages<crate::cast_sights::ScriptSights>>>,
+);
+
+/// A queued `Partikel`'s effect at its turn (the step `0x59CE78`, #1890): of `n0` −2 the casts'
+/// sights of its `n1` at `caster` (`opensacred_rules::particles::ritual_sights`, two objects 791),
+/// else its generic system at the creature of its first name `at`, as the record makes one at
+/// once (`scripts::Partikel::of`).
+fn partikel_turn(
+    (at, caster, numbers): (&str, Option<Entity>, &[i32]),
+    (particles, sights): &mut Particles,
+) {
+    if numbers.first() == Some(&-2) {
+        if let (Some(caster), Some(sights)) = (caster, sights.as_deref_mut()) {
+            sights.write(crate::cast_sights::ScriptSights {
+                caster,
+                code: numbers.get(1).copied().unwrap_or(-1),
+            });
+        }
+        return;
+    }
+    if let (Some(partikel), Some(particles)) = (
+        crate::scripts::Partikel::of(&[at], numbers),
+        particles.as_deref_mut(),
+    ) {
+        particles.write(partikel);
+    }
+}
+
 /// Takes the first step of the hero's [`ScriptQueue`] at each tick of the world, as the hero's
 /// update steps its queue as a creature's (`0x5375C0` calling `0x59A840` for the local hero, seen
 /// in `annehmen2003`'s run, #1280): a walk orders the hero to its target at a run, the player's
@@ -9448,6 +9527,7 @@ fn take_hero_steps(
     ),
     hero: Option<ResMut<hero::Hero>>,
     mut heroes: Query<(Entity, &mut ScriptQueue, &mut hero::Body, &mut Transform)>,
+    mut particles: Particles,
 ) {
     if tick.seconds.is_none() {
         return;
@@ -9497,6 +9577,14 @@ fn take_hero_steps(
         }
         Some(&mut Queued::Sound(id)) => {
             plays.write(queued_sound(id));
+            true
+        }
+        Some(Queued::Partikel {
+            at,
+            caster,
+            numbers,
+        }) => {
+            partikel_turn((at, *caster, numbers), &mut particles);
             true
         }
         Some(Queued::Obj { object, open }) => {
@@ -9556,7 +9644,10 @@ pub(crate) fn script_records(
         ResMut<ScriptAttacks>,
         ResMut<crate::creature_casts::PendingCasts>,
     ),
-    dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
+    (dying, mut particles): (
+        Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
+        Particles,
+    ),
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
     let talk_to = |commands: &mut Commands, entity: Entity, talk: Option<String>| match talk {
@@ -9815,6 +9906,36 @@ pub(crate) fn script_records(
                     }
                 }
                 bevy::log::info!("npcs: the scripts play {sound} at {}'s turn", moved.name);
+                continue;
+            }
+            // In the queue of the first creature of its second name in the world, the hero's for
+            // `HERO`, its effect at its first name's creature as the record runs (`0x464BD0`,
+            // #1890); made at once where the second is none.
+            Act::Partikel { at, numbers } => {
+                let find = |name: &str| {
+                    if name == HERO {
+                        bodies.iter().map(|(entity, _)| entity).next()
+                    } else {
+                        creatures
+                            .iter()
+                            .find(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
+                            .map(|(entity, ..)| entity)
+                    }
+                };
+                let Some(taker) = find(&moved.name) else {
+                    partikel_turn((&at, None, &numbers), &mut particles);
+                    continue;
+                };
+                let step = Queued::Partikel {
+                    caster: find(&at),
+                    at,
+                    numbers,
+                };
+                match queues.get_mut(taker) {
+                    Ok(mut queue) => queue.0.push_back(step),
+                    Err(_) => queued.entry(taker).or_default().push(step),
+                }
+                bevy::log::info!("npcs: a Partikel waits for {}'s turn", moved.name);
                 continue;
             }
             // The hero's or a creature's in the world (`0x464BD0`), none else; under the mode at
@@ -12604,6 +12725,85 @@ mod tests {
             seconds.map(|wait| wait.act),
             Some(Act::Wait(None, Until::Time(15.0)))
         );
+    }
+
+    #[test]
+    fn a_queued_partikel_makes_its_casts_sights_or_its_system_at_its_turn() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        let number = |n| op(0x0B, Value::I32(n));
+        // The ritual's: under the mode alone, in the second name's queue (#1890).
+        let ritual = [
+            name("res:17791"),
+            name("res:17791"),
+            number(-2),
+            number(-5),
+            number(16_711_680),
+            number(1),
+        ];
+        let partikel = played(PARTIKEL, &ritual, true, 0.0).unwrap();
+        assert_eq!(
+            (partikel.name.as_str(), partikel.act),
+            (
+                "res:17791",
+                Act::Partikel {
+                    at: "res:17791".into(),
+                    numbers: vec![-2, -5, 16_711_680, 1]
+                }
+            )
+        );
+        assert!(played(PARTIKEL, &ritual, false, 0.0).is_none());
+        assert!(played(PARTIKEL, &[name("res:17791"), number(1)], true, 0.0).is_none());
+        // At its turn: of `n0` −2 the sights of its code at the creature, else the generic
+        // system at its first name's creature.
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(Heights::house())
+            .add_message::<sfx::Play>()
+            .add_message::<crate::scripts::Partikel>()
+            .add_message::<crate::cast_sights::ScriptSights>()
+            .add_systems(Update, take_steps);
+        let mage = app.world_mut().spawn(Transform::default()).id();
+        let steps = [
+            Queued::Partikel {
+                at: "res:17791".into(),
+                caster: Some(mage),
+                numbers: vec![-2, -5, 16_711_680, 1],
+            },
+            Queued::Partikel {
+                at: "res:17791".into(),
+                caster: Some(mage),
+                numbers: vec![-1, -1, 16_711_680, 1],
+            },
+        ];
+        app.world_mut()
+            .entity_mut(mage)
+            .insert(ScriptQueue(steps.into()));
+        app.update();
+        let sights: Vec<crate::cast_sights::ScriptSights> = app
+            .world()
+            .resource::<bevy::ecs::message::Messages<crate::cast_sights::ScriptSights>>()
+            .iter_current_update_messages()
+            .copied()
+            .collect();
+        assert_eq!(
+            sights,
+            [crate::cast_sights::ScriptSights {
+                caster: mage,
+                code: -5
+            }]
+        );
+        app.update();
+        let systems: Vec<(Option<String>, u8)> = app
+            .world()
+            .resource::<bevy::ecs::message::Messages<crate::scripts::Partikel>>()
+            .iter_current_update_messages()
+            .map(|partikel| (partikel.at.clone(), partikel.variant))
+            .collect();
+        assert_eq!(systems, [(Some("res:17791".to_owned()), 1)]);
     }
 
     #[test]

@@ -1765,7 +1765,8 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 `opensacred-game` draws them since #1092 (`cast_sights`, `opensacred_rules::particles::{CastSight, cast_sights, art_sights}`) for the hero's own casts and the Daemon's arts as their clips start, and for a creature's casts as `creature_casts` begins their clips, each of the style 13 at the bones of its spell's sights (`CREATURES_CAST_STYLE`); each at its bone (`Bip01 L Finger3`, else the hand), its particles left in the world, untinted by the night.
 **Seen** 2026-11-05 beside the original: the Mage's fireball's orange glows at his left hand in both; the Daemon's fire form's orange sparks at his hands, the tongues of flame that the original shows about his raised hands.
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
-Not followed: an undead hero's fireball (no hero is one); the scripts' `Partikel` of `n0` −2; a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
+Since #1890 also for the scripts' queued `Partikel` of `n0` −2 at its turn, in the styles of its `n1` at the creature's hands or feet (docs/re/netscript.md, "`Partikel`").
+Not followed: an undead hero's fireball (no hero is one); a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
 
 ## The Dwarf's guns' fires
 

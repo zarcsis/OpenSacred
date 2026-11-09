@@ -13652,6 +13652,28 @@ pub fn art_sights(art: u16) -> Vec<(CastBone, u8)> {
     }
 }
 
+/// The sights that a scripts' `Partikel` of `n0` −2 makes at its creature as its turn comes in a
+/// queue (the step `0x59CE78`, its table `0x59F558` by `n1`, #1890): two objects 791 of one style,
+/// at both hands for `n1` −1 to −8, the styles 0, 1, 2, 3, 5, 6, 7 and 8, at both feet for −10,
+/// the style 8; none for −9 or another. The add-on's ritual of `magisches_ritual_beginnen` takes
+/// −1, −5, −2, −6, −3 and −7 in turn, and its quest 55 −1.
+pub fn ritual_sights(code: i32) -> Vec<(CastBone, u8)> {
+    use CastBone::{Left, LeftFoot, Right, RightFoot};
+    let style = match code {
+        -1 => 0,
+        -2 => 1,
+        -3 => 2,
+        -4 => 3,
+        -5 => 5,
+        -6 => 6,
+        -7 => 7,
+        -8 => 8,
+        -10 => return vec![(LeftFoot, 8), (RightFoot, 8)],
+        _ => return Vec::new(),
+    };
+    vec![(Left, style), (Right, style)]
+}
+
 /// The style of a creature's casts' sights: the blue glow 13, which the FX handler gives a
 /// caster above the id 16 whose event's `+0x28` is not 1.0 (`0x5A3A4A`), as the spells' cast
 /// writes the point's `x` alone (**seen** 2026-11-05: Anducar's demon's fire bolt's sights of the
@@ -18017,6 +18039,31 @@ mod tests {
         system.update(0.3, &[ring.layer]);
         assert!(system.particles.is_empty());
         assert_eq!(ring.ramp.at(255.0), [1.0, 0.5, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn a_queued_partikels_codes_make_the_sights_of_their_styles() {
+        // The ritual's codes in turn, both hands each.
+        let styles: Vec<u8> = [-1, -5, -2, -6, -3, -7]
+            .into_iter()
+            .map(|code| {
+                let sights = ritual_sights(code);
+                assert_eq!(sights.len(), 2);
+                assert_eq!(
+                    (sights[0].0, sights[1].0),
+                    (CastBone::Left, CastBone::Right)
+                );
+                sights[0].1
+            })
+            .collect();
+        assert_eq!(styles, [0, 5, 1, 6, 2, 7]);
+        assert_eq!(
+            ritual_sights(-10),
+            [(CastBone::LeftFoot, 8), (CastBone::RightFoot, 8)]
+        );
+        assert!(ritual_sights(-9).is_empty());
+        assert!(ritual_sights(-11).is_empty());
+        assert!(ritual_sights(0).is_empty());
     }
 
     #[test]

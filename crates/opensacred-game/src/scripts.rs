@@ -1886,9 +1886,13 @@ impl Host for Recorder<'_> {
             }
             // At once, the anim mode on or not: no record of the Sacred campaign names the second
             // creature whose queue would take it (`0x4A8E29`).
+            // At once, but under the anim mode one of a second name, which waits its turn in that
+            // one's queue (the kind 13), `npcs` making it at once where it finds none
+            // (`0x4A8BB0`, #1890).
             "particles" => {
                 let names = tags.texts("_01");
-                if let Some(particles) = Partikel::of(&names, &tags.numbers("_0B")) {
+                let queued = self.mode.anim && names.get(1).is_some_and(|name| !name.is_empty());
+                if !queued && let Some(particles) = Partikel::of(&names, &tags.numbers("_0B")) {
                     self.particles.push(particles);
                 }
                 Handled::Done
@@ -3453,6 +3457,46 @@ mod tests {
                 .filter(|record| record.kind == 104)
                 .count(),
             4
+        );
+    }
+
+    #[test]
+    fn a_partikel_of_a_second_name_waits_its_turn_under_the_anim_mode() {
+        // As the add-on's ritual, whose `Partikel`s name the caster twice (#1890).
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"ritual\"] = function()\n\
+             particles { _01 = { \"res:17791\", \"res:17791\" }, _0B = { -2, -1, 16711680, 1 } }\n\
+             set_anim_mode {}\n\
+             particles { _01 = { \"res:17791\", \"res:17791\" }, _0B = { -2, -5, 16711680, 1 } }\n\
+             particles { _01 = \"res:17791\", _0B = { 10, 10, 16711680, 1 } }\n\
+             set_play_mode {}\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run_named("ritual");
+        // At once outside the mode and of one name; under it, the second name's waits in its
+        // queue (`npcs`), its record handed on.
+        let at_once: Vec<Option<&str>> = effects
+            .particles
+            .iter()
+            .map(|partikel| partikel.at.as_deref())
+            .collect();
+        assert_eq!(at_once, [Some("res:17791"), Some("res:17791")]);
+        assert_eq!(effects.particles[1].cell, Some((10, 10)));
+        assert_eq!(
+            effects
+                .records
+                .iter()
+                .filter(|record| record.kind == 99)
+                .count(),
+            3
         );
     }
 
