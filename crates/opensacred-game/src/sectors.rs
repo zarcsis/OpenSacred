@@ -31,11 +31,10 @@ const KEEP_RADIUS: i64 = 2;
 const GRID: i64 = 100;
 /// Sectors built at once: Bevy compiles its pipelines on the same pool of threads.
 const BUILDING_AT_ONCE: usize = 2;
-/// How near a hero that arrives somewhere a sector comes in with it, along either axis of the
-/// ground: half a sector, 1,717 units, while the view at its widest zoom on a 16:9 screen reaches
-/// 1,621 from the point it looks at (`iso`: 1,079 to the right, 1,214 up the ground). The rest of
-/// the 3 × 3 follows in the background, out of view.
-const VIEW: f32 = (SIDE / 2) as f32 * iso::CELL;
+/// How far what a sector draws reaches past its cells' diamonds on the original's screen at zoom
+/// 1, up, down, left and right, where the world's index does not tell (`SectorEntry::reach`,
+/// written before #1656): the most of the 6,050 sectors.
+const MOST_REACH: [u16; 4] = [2_034, 841, 1_139, 1_080];
 /// The bytes of a sector's textures that go ahead of it in a frame, and one texture more, while
 /// it comes in out of view ([`Built::stage`]): an overworld sector brings 30 to 110 MB of its
 /// ground's atlas and its sprites' pages, which made the frame it came in some 40 to 70 ms when
@@ -227,6 +226,18 @@ impl Streamer {
         }
     }
 
+    /// How far what sector `at` draws reaches past its cells, as the world's index tells, else
+    /// [`MOST_REACH`].
+    fn reach(&self, at: (u32, u32)) -> [u16; 4] {
+        self.shared
+            .world
+            .sectors
+            .iter()
+            .find(|entry| (entry.x, entry.y) == at)
+            .and_then(|entry| entry.reach)
+            .unwrap_or(MOST_REACH)
+    }
+
     /// Whether sector `at` is in place: spawned, or known to be missing.
     fn holds(&self, at: (u32, u32)) -> bool {
         self.loaded.contains_key(&at) || self.missing.contains(&at)
@@ -257,15 +268,15 @@ impl Streamer {
         }
     }
 
-    /// Builds every sector within [`VIEW`] of world point `hero` that is neither in place nor
-    /// ready, all at once, and waits for them, those building already among them; answers how
+    /// Builds every sector that `view` about world point `hero` shows ([`in_view`]) that is neither
+    /// in place nor ready, all at once, and waits for them, those building already among them; answers how
     /// many it waited for. The original's view takes the 3 × 3 about its centre whenever the
     /// centre changes (`0x62A5C0`) through its sector cache (`0x634340`), which reads a sector not
     /// in memory on the spot (`0x637790`), so that its frame waits for them; here a sector's
     /// ground is a picture to upload, and those out of view follow in the background. Those not
     /// building yet are built at once over the pool of the frame's wait ([`parallel`]).
-    fn complete(&mut self, hero: Vec3) -> usize {
-        let wanted: Vec<_> = in_view(hero)
+    fn complete(&mut self, hero: Vec3, view: View) -> usize {
+        let wanted: Vec<_> = in_view(hero, view, |at| self.reach(at))
             .filter(|&at| !self.holds(at) && !self.ready.iter().any(|(ready, _)| *ready == at))
             .collect();
         let new: Vec<_> = wanted
@@ -337,14 +348,80 @@ fn around((x, y): (i64, i64), radius: i64) -> impl Iterator<Item = (u32, u32)> {
         .filter_map(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
 }
 
-/// The sectors within [`VIEW`] of world point `p` along both axes of the ground: its own, and
-/// those across the edges and the corner of the quarter of it that `p` lies in, at most four.
-fn in_view(p: Vec3) -> impl Iterator<Item = (u32, u32)> {
-    let size = iso::CELL * SIDE as f32;
-    let beyond = move |low: f32, at: f32| (low - at).max(at - (low + size));
-    around(sector_of(p), LOAD_RADIUS).filter(move |&(x, y)| {
-        beyond(x as f32 * size, p.x) < VIEW && beyond(y as f32 * size, p.z) < VIEW
-    })
+/// What the world's camera shows about the point it looks at: half its width and half its
+/// height on the original's screen at zoom 1 (`iso`), `384·z` high at the zoom `z` and as wide as
+/// the window's proportions make it; at the widest zoom on a 16:9 screen 1,365 by 768.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View(Vec2);
+
+impl View {
+    /// The view of the camera's `zoom` (its projection's scale) on a window `aspect` times as
+    /// wide as it is high.
+    pub fn of(zoom: f32, aspect: f32) -> Self {
+        let half = iso::SCREEN_HEIGHT / 2.0 * zoom;
+        Self(Vec2::new(half * aspect, half))
+    }
+
+    /// The widest view, at the widest zoom on a 16:9 window, while no camera tells.
+    fn widest() -> Self {
+        Self::of(*iso::ZOOM.end(), 16.0 / 9.0)
+    }
+}
+
+/// Where world point `p` shows on the original's screen at zoom 1, in pixels right and down,
+/// the ground's origin at 0: `48 (cx − cy)`, `24 (cx + cy)` for the ground's point of the global
+/// cell `(cx, cy)`, a point above the ground higher by its height.
+fn on_screen(p: Vec3) -> Vec2 {
+    Vec2::new(p.dot(iso::right()), -p.dot(iso::up())) * iso::PIXELS_PER_UNIT
+}
+
+/// Whether sector `at`'s cells' diamonds, widened by `reach` (up, down, left and right), meet the
+/// rectangle of `view` about the screen's point `centre`: the two convex shapes apart along none
+/// of their edges' normals, the screen's axes and the diamonds' two.
+fn meets(at: (u32, u32), reach: [u16; 4], centre: Vec2, view: View) -> bool {
+    let side = SIDE as f32;
+    let (x, y) = (at.0 as f32 * side, at.1 as f32 * side);
+    let diamond = [(x, y), (x + side, y), (x + side, y + side), (x, y + side)]
+        .map(|(cx, cy)| on_screen(iso::ground(cx, cy)));
+    let [up, down, left, right] = reach.map(f32::from);
+    let widened = [(-left, -up), (right, -up), (right, down), (-left, down)].map(Vec2::from);
+    let half = view.0;
+    let rectangle = [
+        centre - half,
+        centre + Vec2::new(half.x, -half.y),
+        centre + half,
+        centre + Vec2::new(-half.x, half.y),
+    ];
+    let span = |points: &[Vec2], axis: Vec2| {
+        points
+            .iter()
+            .map(|point| point.dot(axis))
+            .fold((f32::MAX, f32::MIN), |(low, high), v| {
+                (low.min(v), high.max(v))
+            })
+    };
+    [Vec2::X, Vec2::Y, Vec2::new(1.0, 2.0), Vec2::new(1.0, -2.0)]
+        .into_iter()
+        .all(|axis| {
+            let (low, high) = span(&diamond, axis);
+            let (wide_low, wide_high) = span(&widened, axis);
+            let (seen_low, seen_high) = span(&rectangle, axis);
+            low + wide_low <= seen_high && seen_low <= high + wide_high
+        })
+}
+
+/// The sectors of the 3 × 3 about world point `p` that a view of `view` about it shows, by how
+/// far what each draws reaches past its cells (`reach`, #1656): at the original's zoom 1 some
+/// 2.4 an arrival on average, against 3.5 within half a sector along both axes of the ground
+/// before, and at the widest zoom 3.6 with the tall sprites of a sector below the screen's edge.
+/// The rest of the 3 × 3 follows in the background, out of view.
+fn in_view(
+    p: Vec3,
+    view: View,
+    reach: impl Fn((u32, u32)) -> [u16; 4],
+) -> impl Iterator<Item = (u32, u32)> {
+    let centre = on_screen(p);
+    around(sector_of(p), LOAD_RADIUS).filter(move |&at| meets(at, reach(at), centre, view))
 }
 
 /// Spawns the sectors that are ready, starts building those that come near the hero, and
@@ -373,9 +450,26 @@ pub fn stream(
     ),
     glow: Option<Res<statics::Glow>>,
     shadows: Option<Res<statics::StaticShadows>>,
-    fade: Res<statics::Fade>,
+    (fade, cameras, windows): (
+        Res<statics::Fade>,
+        Query<&Projection, iso::Eye>,
+        Query<&Window>,
+    ),
 ) {
     let streamer = &mut *streamer;
+    // What the world's camera shows, its zoom on the window's proportions.
+    let zoom = cameras.iter().find_map(|projection| match projection {
+        Projection::Orthographic(ortho) => Some(ortho.scale),
+        _ => None,
+    });
+    let aspect = windows
+        .iter()
+        .next()
+        .map(|window| window.width() / window.height().max(1.0));
+    let view = match (zoom, aspect) {
+        (Some(zoom), Some(aspect)) => View::of(zoom, aspect),
+        _ => View::widest(),
+    };
     let finished: Vec<_> = streamer
         .building
         .iter_mut()
@@ -397,10 +491,11 @@ pub fn stream(
     streamer.ready.retain(|(at, _)| near.contains(at));
     // A hero that arrives somewhere sees its place whole in its frame, as the original's (#1650),
     // and a walk never shows a sector missing.
-    let whole = arriving || in_view(point).any(|at| !streamer.holds(at));
+    let whole =
+        arriving || in_view(point, view, |at| streamer.reach(at)).any(|at| !streamer.holds(at));
     if whole {
         let started = Instant::now();
-        let waited = streamer.complete(point);
+        let waited = streamer.complete(point, view);
         if waited > 0 {
             info!(
                 "sectors: {waited} in view about {},{} built at once in {} ms",
@@ -415,7 +510,7 @@ pub fn stream(
     // after its last (#1651).
     let mut spawning = Vec::new();
     if whole {
-        let view: HashSet<(u32, u32)> = in_view(point).collect();
+        let view: HashSet<(u32, u32)> = in_view(point, view, |at| streamer.reach(at)).collect();
         let (now, later) = std::mem::take(&mut streamer.ready)
             .into_iter()
             .partition(|(at, _)| view.contains(at));
@@ -647,26 +742,59 @@ mod tests {
     }
 
     #[test]
-    fn a_hero_that_arrives_waits_for_the_sectors_in_view() {
+    fn a_hero_that_arrives_waits_for_the_sectors_its_view_shows() {
         AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
         let at = |x: f32, y: f32| iso::ground(x * SIDE as f32, y * SIDE as f32);
-        // The view takes in the neighbours across the edges of the quarter the hero stands in.
+        let seen = |p, view, reach: &dyn Fn((u32, u32)) -> [u16; 4]| {
+            let mut seen: Vec<_> = in_view(p, view, reach).collect();
+            seen.sort_unstable();
+            seen
+        };
+        let none = |_| [0; 4];
+        let close = View::of(1.0, 16.0 / 9.0);
+        // In the middle of a sector at zoom 1, the view shows it alone.
+        let middle = at(45.5, 52.5);
+        assert_eq!(seen(middle, close, &none), [(45, 52)]);
+        // The sector below it on screen comes in by sprites that reach 1,200 pixels up: its
+        // diamond's top lies 1,536 below the middle, the view's edge 384.
+        let tall = |at| {
+            if at == (46, 53) {
+                [1_200, 0, 0, 0]
+            } else {
+                [0; 4]
+            }
+        };
+        assert_eq!(seen(middle, close, &tall), [(45, 52), (46, 53)]);
+        // 1,100 do not reach.
+        let short = |at| {
+            if at == (46, 53) {
+                [1_100, 0, 0, 0]
+            } else {
+                [0; 4]
+            }
+        };
+        assert_eq!(seen(middle, close, &short), [(45, 52)]);
+        // The widest view near a corner takes in the neighbours across it.
         let corner = at(45.9, 52.2);
+        let widest = View::widest();
         assert_eq!(
-            in_view(corner).collect::<HashSet<_>>(),
-            HashSet::from([(45, 51), (46, 51), (45, 52), (46, 52)])
+            seen(corner, widest, &none),
+            [(45, 51), (45, 52), (46, 51), (46, 52)]
         );
         let mut streamer = Streamer::empty(shared());
         // One building in the background already, from an earlier frame.
         streamer.start((46, 51));
-        assert_eq!(streamer.complete(corner), 4);
-        // The grid of the test has no sectors: each is known to be missing as the frame goes on,
-        // the rest of the 3 × 3 not yet asked for.
+        // The grid of the test has no sectors and its index no reach: each takes the most.
+        let wanted = in_view(corner, close, |at| streamer.reach(at)).count();
+        assert_eq!(streamer.complete(corner, close), wanted);
+        // Each is known to be missing as the frame goes on, the rest of the 3 × 3 not yet asked
+        // for.
         assert!(streamer.building.is_empty());
-        assert_eq!(streamer.missing.len(), 4);
-        assert_eq!(streamer.complete(corner), 0);
-        // At the grid's corner, the one that the grid has.
-        assert_eq!(streamer.complete(at(0.1, 0.1)), 1);
+        assert_eq!(streamer.missing.len(), wanted);
+        assert_eq!(streamer.complete(corner, close), 0);
+        // At the grid's corner, those that the grid has: its own and the two beside it on
+        // screen, which the most reach takes in.
+        assert_eq!(streamer.complete(at(0.1, 0.1), close), 3);
     }
 
     #[test]
