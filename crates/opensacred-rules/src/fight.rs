@@ -3574,8 +3574,24 @@ pub fn combat_with(
     // The physical part by `b2` rather than `b0` with a ranged weapon (#492).
     let physical = if holds.ranged { b[2] } else { b[0] };
     let damage_parts = [physical, b[0] + b[2], b[4], b[1] + b[5]];
-    let spent = if holds.ranged { e[2] } else { e[0] };
-    let spent_parts = [spent, 2.0 * (e[0] + e[2]), e[4], 2.0 * (e[1] + e[5])];
+    // The spent points' parts, and with them the items' and the sets' attributes once each
+    // (`g`): the carried Dwarf's multipliers lacked exactly his items' 2, 6, 8, 0, 0 and 2 over
+    // the divisors, the physical damage's `g2` with his gun, the fire's `g0 + g2`, the magic's
+    // `g4`, the poison's `g1 + g5` and every resistance's `g1` (**seen** 2026-11-09 beside the
+    // original's `stats`, #2370; **hypothesis** for the way, which `0x57B2BF` to `0x57B3E8`,
+    // reading the spent points and the base, do not take).
+    let g = attribute_bonuses;
+    let (spent, gained) = if holds.ranged {
+        (e[2], g[2])
+    } else {
+        (e[0], g[0])
+    };
+    let spent_parts = [
+        spent + gained,
+        2.0 * (e[0] + e[2]) + g[0] + g[2],
+        e[4] + g[4],
+        2.0 * (e[1] + e[5]) + g[1] + g[5],
+    ];
     let [dmg, res] = rules.balance;
     let multipliers: [f32; KINDS] = std::array::from_fn(|kind| {
         (1.0 + damage_skill
@@ -3596,7 +3612,7 @@ pub fn combat_with(
     let resistance_factors: [f32; KINDS] = std::array::from_fn(|kind| {
         (1.0 + resistance_items[kind]
             + resistance_skill[kind]
-            + (f * b[1] / 10.0 + e[1]) / rules.resistance_divisors[kind])
+            + (f * b[1] / 10.0 + e[1] + g[1]) / rules.resistance_divisors[kind])
             .max(0.0)
     });
     for (value, factor) in resistance.iter_mut().zip(resistance_factors) {
@@ -5239,6 +5255,38 @@ mod tests {
         assert!((rules.level_factor(216.0) - 2.44).abs() < 1e-5);
         // Without two points, 1.
         assert_eq!(Rules::default().level_factor(60.0), 1.0);
+    }
+
+    #[test]
+    fn the_items_attributes_count_once_in_the_multipliers_attributes_parts() {
+        let rules = Rules::default();
+        let wolf = a_wolf();
+        let with = |bonus: Option<(u32, i16)>| {
+            let mut item = ItemValues::default();
+            if let Some((effect, value)) = bonus {
+                item.bonuses[0] = Bonus {
+                    condition: 0,
+                    effect,
+                    value,
+                };
+            }
+            let holds = Holds {
+                items: vec![item],
+                ..Holds::default()
+            };
+            combat_with(&wolf, 10, holds, &[], &[], &rules)
+        };
+        let plain = with(None);
+        // An item's endurance of 6 (817): every resistance's factor by 6 over its divisor, and the
+        // poison's damage by 6 over its own.
+        let enduring = with(Some((817, 6)));
+        for kind in 0..KINDS {
+            let raised = enduring.resistance_factors[kind] - plain.resistance_factors[kind];
+            assert!((raised - 6.0 / rules.resistance_divisors[kind]).abs() < 1e-5);
+        }
+        let poison = enduring.multipliers[3] - plain.multipliers[3];
+        assert!((poison - 6.0 / rules.damage_divisors[3]).abs() < 1e-5);
+        assert!((enduring.multipliers[0] - plain.multipliers[0]).abs() < 1e-6);
     }
 
     #[test]
