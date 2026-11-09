@@ -16,7 +16,8 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
   summary  tag 0xC3, stored, 556 bytes: u32 level, u32 class (1..9), wchar name[32] (UTF-16LE, empty in the
            templates), statistics
   items    tag 0xC8: a block per item, the item's type (u32), the marker 0xFEEDF00D, the object's id (u16) 10 bytes
-           after the marker, the type again 14 bytes after it, and the item's record of 0x82 bytes 252 bytes after it,
+           after the marker, the type again 14 bytes after it, the marker 0xBAADC0DE 247 bytes after it and the count
+           of its sockets' items (u8) after that, then each socketed item's record of 0x82 bytes and the item's own,
            which begins with the type (the layout of Weapon.pak +0x80, docs/re/items.md); the backpack's grid (tag
            0xCA: six u16, the fifth the grid's width, 0x400 bytes, then 256 cells of 12 bytes, row by row) names its
            items by their ids (u32) at their top left cells, each followed by u8 1, u8 width, u8 height, u8 0 and the
@@ -61,6 +62,8 @@ SUMMARY, MINI = 0xC3, 0xC4
 INVENTORY, BACKPACK = 0xC8, 0xCA
 CREATURE, ARTS, ART, CREATURE_SIZE = 0xC7, 1227, 22, 1881
 ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14, 252, 0x82
+# The marker before the records and the count of the socketed items' records before the item's own.
+SOCKETS_MARK, SOCKETS = b'\xde\xc0\xad\xba', 251
 GRID, CELL, CELLS = 12 + 0x400, 12, 256
 EXPECTED_HEADER = {4: 0x10, 8: 0x22C, 0x1C: 1, 0x20: 9, 0x24: 2, 0x28: 20000}
 
@@ -174,10 +177,17 @@ def main():
                 if inventory[at:at + 4] != ITEM_MARK:
                     continue
                 item = struct.unpack_from('<I', inventory, at - 4)[0]
-                record = inventory[at + ITEM_RECORD:at + ITEM_RECORD + RECORD]
-                check('items: the type before the marker, after it and at the record agree',
-                      len(record) == RECORD and struct.unpack_from('<I', inventory, at + ITEM_TYPE)[0] == item
-                      and struct.unpack_from('<I', record, 0)[0] == item, f'{rel} at {at}')
+                check('items: the sockets\' count follows its marker', inventory[at + SOCKETS - 4:at + SOCKETS] == SOCKETS_MARK,
+                      f'{rel} at {at}')
+                own = at + ITEM_RECORD + RECORD * inventory[at + SOCKETS]
+                record = inventory[own:own + RECORD]
+                check('items: the type before the marker and after it agree, a whole record',
+                      len(record) == RECORD and struct.unpack_from('<I', inventory, at + ITEM_TYPE)[0] == item,
+                      f'{rel} at {at}')
+                # The record's own type, the item's in every template; one item of save/hero07.pax holds
+                # another's (docs/02 §9).
+                if len(record) == RECORD and struct.unpack_from('<I', record, 0)[0] != item:
+                    print(f'  note: {rel} at {at}: the item {item} holds the record of {struct.unpack_from("<I", record, 0)[0]}')
                 oid = struct.unpack_from('<H', inventory, at + ITEM_ID)[0]
                 ids.append(oid)
                 item_rows.append((rel, oid, item, int(oid in packed), f'{zlib.crc32(record):08x}'))

@@ -59,10 +59,16 @@ fn every_item_matches_amh_dump_py() {
             game.as_os_str(),
             OsStr::new("--items"),
             rows.as_os_str(),
+            OsStr::new("--saves"),
         ],
     );
     let mut ours = Vec::new();
-    for path in (0..8).map(|i| format!("Templates/Hero{i:02}.ptx")) {
+    // The templates, and the two heroes that the installation ships in `save/`, whose blocks hold
+    // their socketed items' records (docs/02 §9).
+    let paths = (0..8)
+        .map(|i| format!("Templates/Hero{i:02}.ptx"))
+        .chain(["save/hero06.pax".to_owned(), "save/hero07.pax".to_owned()]);
+    for path in paths {
         let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
         let packed = amh.backpack().unwrap();
         for item in amh.items().unwrap() {
@@ -77,9 +83,10 @@ fn every_item_matches_amh_dump_py() {
     }
     let theirs = fs::read_to_string(&rows).unwrap();
     assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
-    // The templates wear 14 items, one to three each (docs/02 §9).
-    assert_eq!(ours.len(), 46);
-    assert_eq!(ours.iter().filter(|row| row.contains("\t0\t")).count(), 14);
+    // The templates wear 14 items, one to three each, and the two heroes 38 of their 110
+    // (docs/02 §9).
+    assert_eq!(ours.len(), 156);
+    assert_eq!(ours.iter().filter(|row| row.contains("\t0\t")).count(), 52);
     fs::remove_dir_all(out).unwrap();
 }
 
