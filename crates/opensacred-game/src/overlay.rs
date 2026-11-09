@@ -645,26 +645,28 @@ mod tests {
             ]
         );
         // The compass's targets (#2403): a creature by its name, where it stands or away.
-        let aim = |quest, cell, name: Option<&str>| crate::compass::Aim {
+        let aim = |quest, cell, name: Option<&str>, away| crate::compass::Aim {
             quest,
             cell,
             name: name.map(str::to_owned),
+            away,
         };
         snapshot.compass = Some(crate::compass::Targets {
-            main: Some(aim(11, Some((3561, 2302)), Some("Romata"))),
-            side: Some(aim(14, Some((3240, 2512)), None)),
+            main: Some(aim(11, Some((3561, 2302)), Some("Romata"), false)),
+            side: Some(aim(14, Some((3240, 2512)), None, false)),
         });
         assert_eq!(
             snapshot.lines()[5..],
             ["compass  main quest 11 at 3561,2302 Romata  side quest 14 at 3240,2512"]
         );
+        // Living away from the world (#2406), and killed.
         snapshot.compass = Some(crate::compass::Targets {
-            main: Some(aim(11, None, Some("Romata"))),
-            side: None,
+            main: Some(aim(11, Some((3349, 2534)), Some("Romata"), true)),
+            side: Some(aim(14, None, Some("Weston"), false)),
         });
         assert_eq!(
             snapshot.lines()[5..],
-            ["compass  main quest 11 Romata, not in the world"]
+            ["compass  main quest 11 at 3349,2534 Romata away  side quest 14 Weston, nowhere"]
         );
         snapshot.compass = Some(crate::compass::Targets::default());
         assert_eq!(snapshot.lines().len(), 5);

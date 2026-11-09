@@ -638,10 +638,7 @@ fn show_lens(
     roots: Query<Entity, With<MapRoot>>,
     mut views: Placed<LensView, LensPlane>,
     mut planes: Placed<LensPlane, LensView>,
-    (live, named): (
-        Option<NonSend<crate::scripts::Live>>,
-        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
-    ),
+    (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
 ) {
     if lens.alpha <= 0.0 {
         for (view, _) in &views {
@@ -712,7 +709,7 @@ fn show_lens(
                     &mut commands,
                     plane,
                     (&images, &assets, texts.as_deref()),
-                    (live, &named),
+                    (live, &seek),
                     point,
                 );
             }
@@ -746,17 +743,14 @@ pub(crate) fn quests_in_lens(
     commands: &mut Commands,
     plane: Entity,
     (images, assets, texts): (&UiImages, &AssetServer, Option<&Texts>),
-    (live, named): (
-        &crate::scripts::Live,
-        &Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
-    ),
+    (live, seek): (&crate::scripts::Live, &crate::compass::Seek),
     point: Vec2,
 ) {
     let quests = live.quests();
     for entry in quests.book() {
         let Some(at) = quests
             .compass(entry.quest)
-            .and_then(|compass| crate::compass::target_of(compass, named))
+            .and_then(|compass| seek.target_of(compass))
         else {
             continue;
         };
@@ -1194,10 +1188,7 @@ fn follow(
     mut crosses: CrossNodes,
     mut icons: IconNodes,
     heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
-    (live, named): (
-        Option<NonSend<crate::scripts::Live>>,
-        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
-    ),
+    (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
 ) {
     if !map.shown {
         return;
@@ -1220,7 +1211,7 @@ fn follow(
     for entry in quests.book() {
         let Some(at) = quests
             .compass(entry.quest)
-            .and_then(|compass| crate::compass::target_of(compass, &named))
+            .and_then(|compass| seek.target_of(compass))
         else {
             continue;
         };

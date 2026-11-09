@@ -1222,6 +1222,20 @@ impl Kept {
         }
     }
 
+    /// Where the kept placement `index` of the cell `cell` lives away from the world
+    /// (`Npcs::lives_away`): nowhere while it is in the world, where it stood once it went
+    /// living, nowhere once killed, and at its own cell before it was ever placed where its
+    /// maker `made` it already.
+    fn away(&self, index: usize, cell: (u32, u32), made: bool) -> Option<(u32, u32)> {
+        if self.out.contains(&index) {
+            return None;
+        }
+        match self.went.get(&index) {
+            Some(stood) => stood.map(|stood| stood.cell),
+            None => made.then_some(cell),
+        }
+    }
+
     /// Notes that a placed creature is spawned.
     fn spawned(&mut self, placed: &Placed) {
         if let Source::Kept(index) = placed.source {
@@ -8120,27 +8134,46 @@ impl Npcs {
         regrouped
     }
 
-    /// The scripts' groups that hold a creature living away from the world, wherever it stands,
-    /// as `GroupIsDead` asks of each member (`0x48C860`): a placement not in the world now, not
-    /// an `Enter`'s, made by the start or the play and never killed, or gone with its sector
-    /// alive. A sector's `Init` makes its creatures only as it comes near; the world's creatures
-    /// are the caller's.
+    /// Where the placement `index` lives away from the world, wherever it stands: a placement
+    /// not in the world now, not an `Enter`'s, made by the start or the play and never killed,
+    /// at its own cell, or gone with its sector alive, at the cell where it stood. A sector's
+    /// `Init` makes its creatures only as it comes near; the world's creatures are the caller's.
+    fn lives_away(&self, index: usize, placement: &Placement) -> Option<(u32, u32)> {
+        if placement.object || placement.made.0 {
+            return None;
+        }
+        let made = placement.started || self.played.contains(&index);
+        self.kept.away(index, placement.cell, made)
+    }
+
+    /// The scripts' groups that hold a creature living away from the world
+    /// ([`Self::lives_away`]), as `GroupIsDead` asks of each member (`0x48C860`).
     pub fn living_groups(&self) -> HashSet<u32> {
         self.placements
             .iter()
             .enumerate()
             .filter_map(|(index, placement)| {
                 let group = placement.group?;
-                if placement.object || placement.made.0 || self.kept.out.contains(&index) {
-                    return None;
-                }
-                let lives = match self.kept.went.get(&index) {
-                    Some(stood) => stood.is_some(),
-                    None => placement.started || self.played.contains(&index),
-                };
-                lives.then_some(group)
+                self.lives_away(index, placement).map(|_| group)
             })
             .collect()
+    }
+
+    /// The cell where the creature of the script name `name`, case aside, lives away from the
+    /// world ([`Self::lives_away`]), the first placement of that name that does, which a
+    /// compass's marker points at as the original's finds the object of its name wherever it
+    /// stands (`0x4A5980`, #2406).
+    pub fn away(&self, name: &str) -> Option<(u32, u32)> {
+        self.placements
+            .iter()
+            .enumerate()
+            .filter(|(_, placement)| {
+                placement
+                    .name
+                    .as_deref()
+                    .is_some_and(|own| own.eq_ignore_ascii_case(name))
+            })
+            .find_map(|(index, placement)| self.lives_away(index, placement))
     }
 
     /// Whether `door`'s trigger is locked (#1006): it opens to nobody (`0x44BCD0`).
@@ -12494,13 +12527,22 @@ mod tests {
             source: Source::Kept(7),
         };
         assert_eq!(kept.again(7), Again::Anew);
+        // Away from the world (#2406): at its own cell where its maker made it already (the
+        // start or the play), not for a sector's `Init` that waits to come near.
+        let own = (3349, 2534);
+        assert_eq!(kept.away(7, own, true), Some(own));
+        assert_eq!(kept.away(7, own, false), None);
         kept.spawned(&goblin);
         assert_eq!(kept.again(7), Again::Not);
+        assert_eq!(kept.away(7, own, true), None);
         kept.gone(&goblin, Some(stood(3300, 40)));
         assert_eq!(kept.again(7), Again::AtStood(stood(3300, 40)));
+        assert_eq!(kept.away(7, own, true), Some((3300, 2518)));
+        assert_eq!(kept.away(7, own, false), Some((3300, 2518)));
         kept.spawned(&goblin);
         kept.gone(&goblin, None);
         assert_eq!(kept.again(7), Again::Not);
+        assert_eq!(kept.away(7, own, true), None);
     }
 
     #[test]
