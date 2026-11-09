@@ -154,6 +154,7 @@ impl Maker {
                         item,
                         words: self.words.get(&item).cloned().unwrap_or_default(),
                         socketed: Vec::new(),
+                        name: 0,
                     }),
             )
             .collect();

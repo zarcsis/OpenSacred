@@ -127,6 +127,11 @@ pub struct Dropped {
     /// The items in its sockets, in the order the smith put them there (its object's list of
     /// records, `+0x100`; [`crate::smith::fill`]), none as it drops.
     pub socketed: Vec<crate::smith::Socketed>,
+    /// The key of the name that its object keeps (`+0x3C`, `0x44A1B0`) where it came with one,
+    /// as a hero's file keeps its items' (#2390): the hash of the text's name with the bit 31.
+    /// 0 where it goes by the name that [`name`] composes for it, else by its type's.
+    #[serde(default)]
+    pub name_key: u32,
 }
 
 /// The difficulties, bronze to niobium (the int `0x182EE44`, 0 to 4).
@@ -1028,6 +1033,7 @@ pub fn gold_pile(amount: u32) -> Dropped {
         values: None,
         named: None,
         socketed: Vec::new(),
+        name_key: 0,
     }
 }
 
@@ -1628,6 +1634,7 @@ impl Dropping<'_> {
                 values: None,
                 named: None,
                 socketed: Vec::new(),
+                name_key: 0,
             };
             raised(
                 &mut drop,
@@ -1800,6 +1807,7 @@ impl Dropping<'_> {
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         };
         let dead = self.death.dead;
         if GOLD.contains(&item) {
@@ -1958,6 +1966,7 @@ impl Dropping<'_> {
             values: None,
             named: None,
             socketed: Vec::new(),
+            name_key: 0,
         };
         drop.values = made(
             (self.catalogue, self.templates),
@@ -2246,6 +2255,7 @@ pub fn thrown(
         values: None,
         named: None,
         socketed: Vec::new(),
+        name_key: 0,
     };
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
@@ -2309,6 +2319,7 @@ pub fn scripted(
         values: None,
         named: None,
         socketed: Vec::new(),
+        name_key: 0,
     };
     let unique = templates
         .word_40(item)
@@ -2368,6 +2379,7 @@ pub fn keyed(
         values: None,
         named: None,
         socketed: Vec::new(),
+        name_key: 0,
     };
     if GOLD.contains(&item) || UNMADE.contains(&category) {
         drop.quality = 0;

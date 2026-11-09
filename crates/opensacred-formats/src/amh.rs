@@ -36,6 +36,8 @@ const MINI: u32 = 0xC4;
 const ITEM_MARK: [u8; 4] = 0xFEED_F00Du32.to_le_bytes();
 const ITEM_ID: usize = 10;
 const ITEM_TYPE: usize = 14;
+/// The key of the object's name (`+0x3C`), 51 bytes after the marker.
+const ITEM_NAME: usize = 51;
 const ITEM_RECORD: usize = 252;
 /// The count of a block's socketed items' records (`u8`), which come before the item's own, and
 /// the marker before it (docs/02 §9).
@@ -185,6 +187,9 @@ pub struct Item {
     pub record: Vec<u8>,
     /// The records of the items in its sockets, [`RECORD`] bytes each, in their order.
     pub socketed: Vec<Vec<u8>>,
+    /// The key of its name (the object's `+0x3C`): the hash of the name that the item maker
+    /// composed for it with the bit 31 set, 0 for its type's name (docs/02 §9).
+    pub name: u32,
 }
 
 /// An item in the backpack's grid, at its top left cell.
@@ -354,6 +359,7 @@ impl Amh {
                 item,
                 record: record.bytes(RECORD, "AMH item record")?.to_vec(),
                 socketed,
+                name: Reader::at(data, at + ITEM_NAME).u32()?,
             });
         }
         Ok(items)

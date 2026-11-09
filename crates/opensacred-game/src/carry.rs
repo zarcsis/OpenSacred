@@ -60,9 +60,9 @@ impl Carry {
         let mut sets = WeaponSets::default();
         for (set, halves) in self.hero.sets.iter().enumerate().take(SETS) {
             for (half, &id) in halves.iter().enumerate() {
-                sets.halves[set][half] = self
-                    .worn(id)
-                    .map(|worn| dropped(tables, (worn.item, &worn.words), &worn.socketed));
+                sets.halves[set][half] = self.worn(id).map(|worn| {
+                    dropped(tables, (worn.item, &worn.words, worn.name), &worn.socketed)
+                });
             }
         }
         let hands = HANDS.map(|slot| {
@@ -116,7 +116,11 @@ impl Carry {
         pack.grid = Grid::default();
         pack.worn = Default::default();
         for carried in &self.hero.backpack {
-            let item = dropped(tables, (carried.item, &carried.words), &carried.socketed);
+            let item = dropped(
+                tables,
+                (carried.item, &carried.words, carried.name),
+                &carried.socketed,
+            );
             if !pack.put(item, carried.at, carried.size) {
                 warn!(
                     "carry: the item {} does not fit at {:?}",
@@ -132,7 +136,7 @@ impl Carry {
                 warn!("carry: no item {id} for the slot {slot}");
                 continue;
             };
-            let item = dropped(tables, (worn.item, &worn.words), &worn.socketed);
+            let item = dropped(tables, (worn.item, &worn.words, worn.name), &worn.socketed);
             if !pack.wear_picked(item, slot) {
                 warn!(
                     "carry: the slot {slot} does not take the item {}",
@@ -169,11 +173,12 @@ impl Carry {
 
 /// An item of the hero's file, as the game holds it (as `sets` makes its template's): of its
 /// type's kind, its record's values at its template's scale, by which its own level is worked
-/// out as the client works it out for every record it loads (`0x5D3AB0`), and the items in its
-/// sockets of theirs with their smiths' tiers (#1661).
+/// out as the client works it out for every record it loads (`0x5D3AB0`), the key of the name
+/// its object keeps (#2390), and the items in its sockets of theirs with their smiths' tiers
+/// (#1661).
 fn dropped(
     tables: Option<&Tables>,
-    (item, words): (u32, &[u16]),
+    (item, words, name_key): (u32, &[u16], u32),
     socketed: &[Socketed],
 ) -> Dropped {
     let kind = tables
@@ -193,7 +198,7 @@ fn dropped(
         socketed: socketed
             .iter()
             .map(|socket| {
-                let inner = dropped(tables, (socket.item, &socket.words), &[]);
+                let inner = dropped(tables, (socket.item, &socket.words, 0), &[]);
                 let values = tables.map_or_else(
                     || opensacred_rules::fight::ItemValues::of_record(&socket.words),
                     |tables| tables.values(&inner),
@@ -205,6 +210,7 @@ fn dropped(
                 }
             })
             .collect(),
+        name_key,
     }
 }
 
@@ -327,6 +333,7 @@ mod tests {
             item,
             words: Vec::new(),
             socketed: Vec::new(),
+            name: 0,
         }
     }
 

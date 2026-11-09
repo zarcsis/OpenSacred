@@ -272,6 +272,7 @@ fn upgrade_item(kind: u32) -> Dropped {
         values: None,
         named: None,
         socketed: Vec::new(),
+        name_key: 0,
     }
 }
 

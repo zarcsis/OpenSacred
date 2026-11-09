@@ -90,6 +90,7 @@ CREATURE, ARTS, ART, CREATURE_SIZE = 0xC7, 1227, 22, 1881
 CREATURE_MARKS = {16: 0xFEEDF00D, 263: 0xC0DEF00D, 961: 0xDEADBEEF}
 SLOTS_AT, STATS = 435, 981
 ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14, 252, 0x82
+ITEM_NAME = 51
 # The marker before the records and the count of the socketed items' records before the item's own.
 SOCKETS_MARK, SOCKETS = b'\xde\xc0\xad\xba', 251
 GRID, CELL, CELLS = 12 + 0x400, 12, 256
@@ -260,7 +261,10 @@ def main():
                     print(f'  note: {rel} at {at}: the item {item} holds the record of {struct.unpack_from("<I", record, 0)[0]}')
                 oid = struct.unpack_from('<H', inventory, at + ITEM_ID)[0]
                 ids.append(oid)
-                item_rows.append((rel, oid, item, int(oid in packed), f'{zlib.crc32(record):08x}'))
+                # The key of the object's name (`+0x3C`), 51 bytes after the marker: a made item's
+                # composed name's hash with the bit 31, 0 for its type's (#2390).
+                name = struct.unpack_from('<I', inventory, at + ITEM_NAME)[0]
+                item_rows.append((rel, oid, item, int(oid in packed), f'{zlib.crc32(record):08x}', f'{name:08x}'))
             check('items: the backpack names items of the inventory', packed <= set(ids), rel)
             types = {struct.unpack_from('<H', inventory, at + ITEM_ID)[0]: struct.unpack_from('<I', inventory, at - 4)[0]
                      for at in range(4, len(inventory) - 3) if inventory[at:at + 4] == ITEM_MARK}
@@ -313,7 +317,7 @@ def main():
     print(f'{len(item_rows)} items, {sum(1 for r in item_rows if not r[3])} of them worn')
     if args.items:
         with open(args.items, 'w', encoding='ascii', newline='\n') as f:
-            f.write('file\tid\ttype\tpacked\tcrc\n')
+            f.write('file\tid\ttype\tpacked\tcrc\tname\n')
             for row in item_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(item_rows)} rows -> {args.items}')
