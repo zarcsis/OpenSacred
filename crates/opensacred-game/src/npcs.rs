@@ -6442,6 +6442,7 @@ fn spawn(
                     (category, values)
                 })
                 .collect(),
+            mounted: placement.rides,
         };
         for (held, values) in &arms.holding {
             if let Some(values) = values {
@@ -10758,6 +10759,9 @@ pub struct Arms {
     holding: Vec<(InHand, Option<fight::ItemValues>)>,
     /// The items it wears, each its category and its values, made at its level (#2286).
     worn: Vec<(u8, Option<fight::ItemValues>)>,
+    /// Whether it rides a horse, a fill's rider seated as it is made (`npcs::seat_rider`), whose
+    /// riding skill weighs its `A` multiplier (`0x552660`, #2385).
+    mounted: bool,
 }
 
 impl Arms {
@@ -10890,8 +10894,7 @@ impl Arms {
             skill: skill_of(class, &self.holding),
             // A creature not a player's takes no set's bonus (`0x57AE56`).
             sets: Default::default(),
-            // A rider's mount does not weigh its `A` yet (#2385).
-            mounted: false,
+            mounted: self.mounted,
         };
         (held, two)
     }
@@ -13033,6 +13036,7 @@ mod tests {
             model: String::new(),
             holding: vec![held(3001, Hand::Left), held(3002, Hand::Right)],
             worn: Vec::new(),
+            mounted: false,
         };
         let mut world = bevy::prelude::World::new();
         let living = world.spawn((arms(), GlobalTransform::default())).id();
