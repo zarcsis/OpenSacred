@@ -950,8 +950,10 @@ fn fit(windows: Query<&Window>, ui_scale: Res<UiScale>, mut frames: Query<(&Fram
     }
 }
 
-/// Once the keys of `Action::SkipMovie` are up after a movie: the request's next movie, or, a
-/// quarter of a second after the last, the end, its screen gone and what it stood going on.
+/// Once the keys of `Action::SkipMovie` are up after a movie and `advance` has taken its frame
+/// away: the request's next movie, or, a quarter of a second after the last, the end, its screen
+/// gone and what it stood going on. A movie that ends by itself does so in `advance` of the same
+/// frame, whose next frame takes its frame and its sound away (#2416).
 fn end(
     mut commands: Commands,
     mut movie: ResMut<Movie>,
@@ -961,7 +963,10 @@ fn end(
     (music, effects): Sounds,
 ) {
     let now = time.elapsed_secs_f64();
-    if !matches!(movie.stage, Stage::After) || keys.pressed(Action::SkipMovie) {
+    if !matches!(movie.stage, Stage::After)
+        || movie.image.is_some()
+        || keys.pressed(Action::SkipMovie)
+    {
         return;
     }
     if movie.next_movie(now) {
@@ -1235,5 +1240,56 @@ mod tests {
             let wanted = if black { Color::BLACK } else { Color::NONE };
             assert_eq!(screen, Some(wanted), "{black}");
         }
+    }
+
+    #[test]
+    fn a_movie_that_ends_by_itself_leaves_no_frame_beside_the_next() {
+        let mut app = App::new();
+        app.add_plugins(bevy::MinimalPlugins)
+            .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<AudioSource>>()
+            .init_resource::<AudioChannel<Channel>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, (advance, end).chain());
+        let root = app.world_mut().spawn(BackgroundColor(Color::BLACK)).id();
+        let frame = app.world_mut().spawn(ChildOf(root)).id();
+        // A movie showing whose length has passed, the request's next movie waiting.
+        let mut movie = Movie::still(root, false);
+        movie.stage = Stage::Showing;
+        movie.length = 0.0;
+        movie.image = Some((frame, Handle::default()));
+        movie.queue.push_back("oem".to_owned());
+        app.insert_resource(movie);
+        // It ends in `advance`, and `end` of the same frame leaves the next for the frame after.
+        app.update();
+        assert!(app.world().get_entity(frame).is_ok());
+        assert_eq!(app.world().resource::<Movie>().queue.len(), 1);
+        // Its frame is gone before the next movie is looked for (#2416).
+        app.update();
+        assert!(app.world().get_entity(frame).is_err());
+        let children = app
+            .world()
+            .get::<bevy::prelude::Children>(root)
+            .map_or(0, |children| children.len());
+        assert_eq!(children, 0);
+    }
+
+    #[test]
+    fn the_next_movie_waits_for_the_frame_before_it_to_go() {
+        let mut app = App::new();
+        app.add_plugins(bevy::MinimalPlugins)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, end);
+        let root = app.world_mut().spawn_empty().id();
+        let frame = app.world_mut().spawn(ChildOf(root)).id();
+        let mut movie = Movie::still(root, false);
+        movie.stage = Stage::After;
+        movie.image = Some((frame, Handle::default()));
+        movie.queue.push_back("oem".to_owned());
+        app.insert_resource(movie);
+        app.update();
+        let movie = app.world().resource::<Movie>();
+        assert_eq!(movie.queue.len(), 1);
+        assert!(matches!(movie.stage, Stage::After));
     }
 }
