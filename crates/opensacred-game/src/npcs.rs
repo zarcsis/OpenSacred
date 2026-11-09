@@ -5589,7 +5589,7 @@ fn carry_riders(
             Entity,
             &Transform,
             &crate::riding::Seat,
-            (Option<&Walk>, Has<Dies>),
+            (Option<&Walk>, Has<Dies>, Has<GetsOff>),
             (&Placed, Option<&fight::Health>, &crowd::InTheWay),
         ),
         (Without<hero::Body>, Without<crate::riding::Horse>),
@@ -5604,7 +5604,7 @@ fn carry_riders(
         With<crate::riding::Horse>,
     >,
 ) {
-    for (rider, at, seat, (walk, dying), (placed, health, way)) in &riders {
+    for (rider, at, seat, (walk, dying, gets_off), (placed, health, way)) in &riders {
         let Some(horse) = seat.ridden() else {
             continue;
         };
@@ -5622,7 +5622,9 @@ fn carry_riders(
             commands.entity(rider).remove::<crate::riding::Seat>();
             continue;
         }
-        if !alive {
+        // Dead or lost, it throws its rider; a door in the rider's way gets it off, its horse
+        // left standing (#2293).
+        if !alive || gets_off {
             throw_rider(
                 &mut commands,
                 (&npcs, &mut streamer),
@@ -7705,6 +7707,18 @@ pub struct Door {
     /// The direction of its leaf on the ground, along its type's heading (docs/02 §5.7).
     pub along: Vec2,
 }
+
+impl Door {
+    /// Its type.
+    pub fn kind(&self) -> u32 {
+        self.kind
+    }
+}
+
+/// An NPC rider that a door in its way gets off its horse (`0x53A170`, its mount its target;
+/// `opensacred_rules::minds::rides_through`, #2293), which [`carry_riders`] puts down on foot.
+#[derive(Component)]
+pub struct GetsOff;
 
 impl Npcs {
     /// The cell of `door`, its trigger's (docs/02 §5.7: one cell each, with its floor), if its

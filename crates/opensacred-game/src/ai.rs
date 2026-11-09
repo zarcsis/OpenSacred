@@ -242,7 +242,7 @@ fn sector_of(p: Vec3) -> (f32, f32) {
 }
 
 /// A door as a creature in its way sees it, with its entity, its world point and its points.
-type Seen = DoorSeen<(Entity, Vec3, Option<DoorPoints>)>;
+type Seen = DoorSeen<(Entity, Vec3, Option<DoorPoints>, u32)>;
 
 /// The doors that the creatures in their way look at (`0x4D4800`), at their logical positions
 /// (`npcs::Object`), and the hero's marks on them.
@@ -265,9 +265,18 @@ struct Doors<'w, 's> {
         Without<Mind>,
     >,
     npcs: Option<Res<'w, Npcs>>,
+    /// The riders' seats, by which a rider goes for a gate alone (#2293).
+    seats: Query<'w, 's, &'static crate::riding::Seat>,
 }
 
 impl Doors<'_, '_> {
+    /// Whether `creature` rides a horse.
+    fn rides(&self, creature: Entity) -> bool {
+        self.seats
+            .get(creature)
+            .is_ok_and(|seat| seat.ridden().is_some())
+    }
+
     /// Each door, where it stands and on which layer, its points ([`door_points`]), whether it
     /// is open, a door turned this tick as it will stand (`npcs::swing` turns it later in the
     /// frame), whether its trigger is barred, the bit 15 that the scripts' `SetObjState` sets
@@ -282,6 +291,7 @@ impl Doors<'_, '_> {
                     self.npcs
                         .as_ref()
                         .and_then(|npcs| door_points(door, npcs.door_cell(door), heights)),
+                    door.kind(),
                 ),
                 at: spot(object.at),
                 layer: layered.layer,
@@ -299,7 +309,7 @@ fn door_in_way(
     here: Vec3,
     layer: i32,
     doors: &[Seen],
-) -> Option<(Entity, Vec3, Option<DoorPoints>)> {
+) -> Option<(Entity, Vec3, Option<DoorPoints>, u32)> {
     let sector = sector_of(here);
     let ours = doors
         .iter()
@@ -378,11 +388,18 @@ fn beside(door: Vec3, here: Vec3, level: Level, heights: &Heights) -> Vec3 {
 /// it along each axis, and opens it standing ([`open`]).
 fn go_for_door(
     commands: &mut Commands,
-    (entity, here, way): (Entity, Vec3, &InTheWay),
+    (entity, here, way, rides): (Entity, Vec3, &InTheWay, bool),
     mind: &mut Mind,
-    (door, at, points): (Entity, Vec3, Option<DoorPoints>),
+    (door, at, points, kind): (Entity, Vec3, Option<DoorPoints>, u32),
     heights: &Heights,
 ) {
+    // A rider goes for a gate alone; another door gets it off its horse, its mount its target
+    // (`0x53A170`, #2293), and on foot it goes for the door at its next decision.
+    if rides && !opensacred_rules::minds::rides_through(kind) {
+        debug!("ai: {entity} rides to {door} in its way and gets off its horse");
+        commands.entity(entity).insert(crate::npcs::GetsOff);
+        return;
+    }
     let target = door_point(points, at, here, way.level, heights);
     mind.opening = Some(door);
     let off = (target - here).abs();
@@ -639,7 +656,7 @@ fn think(
         if let (true, Some(found)) = (thought.door, found) {
             go_for_door(
                 &mut commands,
-                (entity, here, way),
+                (entity, here, way, doors.rides(entity)),
                 &mut mind,
                 found,
                 &heights,
@@ -1070,7 +1087,7 @@ fn pursue(
                             if let Some(found) = found {
                                 go_for_door(
                                     &mut commands,
-                                    (entity, here, way),
+                                    (entity, here, way, doors.rides(entity)),
                                     &mut mind,
                                     found,
                                     &heights,
@@ -2683,6 +2700,43 @@ mod tests {
     }
 
     #[test]
+    fn a_rider_goes_for_a_gate_alone_and_gets_off_before_another_door() {
+        // The 19 gates, palisades, fences and cages (#2293).
+        let gates = (5600..5800)
+            .filter(|&kind| opensacred_rules::minds::rides_through(kind))
+            .count();
+        assert_eq!(gates, 19);
+        let heights = walled();
+        let mut world = World::new();
+        let way = InTheWay::of(0, 0, None);
+        let mind = || Mind::new(Vec3::ZERO, 0, (true, false), None, [70.0, 180.0], (256, 5));
+        let mut go = |rides: bool, kind: u32| {
+            let rider = world.spawn_empty().id();
+            let door = world.spawn_empty().id();
+            let mut mind = mind();
+            let mut commands = world.commands();
+            go_for_door(
+                &mut commands,
+                (rider, at_cell(14.0, 17.0), &way, rides),
+                &mut mind,
+                (door, at_cell(10.0, 10.0), None, kind),
+                &heights,
+            );
+            world.flush();
+            (
+                world.get::<crate::npcs::GetsOff>(rider).is_some(),
+                world.get::<Walk>(rider).is_some(),
+                mind.opening == Some(door),
+            )
+        };
+        // A rider before a house's door gets off its horse and goes for it not yet.
+        assert_eq!(go(true, 5650), (true, false, false));
+        // Before a palisade's gate it rides on to it, as one on foot before any door.
+        assert_eq!(go(true, 5740), (false, true, true));
+        assert_eq!(go(false, 5650), (false, true, true));
+    }
+
+    #[test]
     fn a_creature_goes_for_the_doors_point_on_its_side() {
         let heights = walled();
         let door = at_cell(10.0, 10.0);
@@ -2711,7 +2765,7 @@ mod tests {
             world.spawn_empty().id(),
         );
         let door = |door, at: Vec3, open| DoorSeen {
-            door: (door, at, None),
+            door: (door, at, None, 5650),
             at: spot(at),
             layer: 0,
             open,
