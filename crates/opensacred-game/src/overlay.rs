@@ -136,6 +136,8 @@ pub struct Snapshot {
     pub cursor: Option<&'static str>,
     /// Whether the cursor glows, its right button's art ready for what lies under it (#1461).
     pub glowing: bool,
+    /// Where the bar's compass points: the main quest's target and the side quest's (#2403).
+    pub compass: Option<crate::compass::Targets>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -275,6 +277,17 @@ impl Snapshot {
                     .collect();
                 lines.push(format!("arts {}", arts.join(", ")));
             }
+            if let Some(compass) = &self.compass {
+                let aims: Vec<String> = [("main", &compass.main), ("side", &compass.side)]
+                    .into_iter()
+                    .filter_map(|(marker, aim)| {
+                        aim.as_ref().map(|aim| format!("{marker} {}", aim.line()))
+                    })
+                    .collect();
+                if !aims.is_empty() {
+                    lines.push(format!("compass  {}", aims.join("  ")));
+                }
+            }
         }
         lines
     }
@@ -310,6 +323,7 @@ pub struct Probe<'w, 's> {
     cursor: Option<Res<'w, crate::cursors::Shown>>,
     glow: Option<Res<'w, crate::cursors::Glow>>,
     movie: Option<Res<'w, crate::movies::Movie>>,
+    compass: Option<Res<'w, crate::compass::Targets>>,
 }
 
 impl Probe<'_, '_> {
@@ -456,6 +470,7 @@ impl Probe<'_, '_> {
                 .and(self.cursor.as_deref())
                 .map(|shown| shown.0.name()),
             glowing: self.glow.as_deref().is_some_and(|glow| glow.0),
+            compass: self.hero.as_ref().and(self.compass.as_deref()).cloned(),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies
@@ -629,6 +644,30 @@ mod tests {
                 "NPCs 34  objects 120  entities 18234",
             ]
         );
+        // The compass's targets (#2403): a creature by its name, where it stands or away.
+        let aim = |quest, cell, name: Option<&str>| crate::compass::Aim {
+            quest,
+            cell,
+            name: name.map(str::to_owned),
+        };
+        snapshot.compass = Some(crate::compass::Targets {
+            main: Some(aim(11, Some((3561, 2302)), Some("Romata"))),
+            side: Some(aim(14, Some((3240, 2512)), None)),
+        });
+        assert_eq!(
+            snapshot.lines()[5..],
+            ["compass  main quest 11 at 3561,2302 Romata  side quest 14 at 3240,2512"]
+        );
+        snapshot.compass = Some(crate::compass::Targets {
+            main: Some(aim(11, None, Some("Romata"))),
+            side: None,
+        });
+        assert_eq!(
+            snapshot.lines()[5..],
+            ["compass  main quest 11 Romata, not in the world"]
+        );
+        snapshot.compass = Some(crate::compass::Targets::default());
+        assert_eq!(snapshot.lines().len(), 5);
     }
 
     #[test]

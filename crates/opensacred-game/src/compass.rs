@@ -10,6 +10,7 @@
 
 use bevy::prelude::*;
 use opensacred_rules::quests::{Compass, Marker, Target, side_alpha};
+use serde::Serialize;
 
 use crate::bar::{self, BAR, BarRoot, UiImages};
 use crate::game::AppState;
@@ -121,6 +122,68 @@ pub(crate) fn target_of(
             .find(|(script, _)| script.0.eq_ignore_ascii_case(name))
             .map(|(_, at)| at.translation().xz()),
     }
+}
+
+/// Where a marker of the compass points, as the state tells it (#2403): its quest, the target's
+/// cell (a creature's where it stands now, none while it is not in the world), and the
+/// creature's name in the scripts where the target is one.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct Aim {
+    pub quest: u32,
+    pub cell: Option<paths::Cell>,
+    pub name: Option<String>,
+}
+
+impl Aim {
+    fn of(quest: u32, compass: &Compass, named: &Query<(&ScriptName, &GlobalTransform)>) -> Self {
+        let (cell, name) = match &compass.target {
+            Target::Cell(x, y) => (Some((*x, *y)), None),
+            Target::Named(name) => (
+                target_of(compass, named).map(|at| paths::cell_of(at.x, at.y)),
+                Some(name.clone()),
+            ),
+        };
+        Self { quest, cell, name }
+    }
+
+    /// The state's words for it: `quest N at X,Y`, the creature's name after the cell.
+    pub fn line(&self) -> String {
+        let mut line = format!("quest {}", self.quest);
+        match (self.cell, &self.name) {
+            (Some((x, y)), name) => {
+                line.push_str(&format!(" at {x},{y}"));
+                if let Some(name) = name {
+                    line.push_str(&format!(" {name}"));
+                }
+            }
+            (None, Some(name)) => line.push_str(&format!(" {name}, not in the world")),
+            (None, None) => {}
+        }
+        line
+    }
+}
+
+/// The compass's markers' targets now, the needle's and the inner pin's, for the state (#2403).
+#[derive(Resource, Serialize, Default, Clone, Debug, PartialEq, Eq)]
+pub struct Targets {
+    pub main: Option<Aim>,
+    pub side: Option<Aim>,
+}
+
+/// Keeps [`Targets`] to the markers' quests and their targets' places.
+fn aim(
+    scripts: Option<NonSend<scripts::Live>>,
+    named: Query<(&ScriptName, &GlobalTransform)>,
+    mut targets: ResMut<Targets>,
+) {
+    let of = |marker| {
+        let (quest, compass) = scripts.as_ref()?.quests().marked(marker)?;
+        Some(Aim::of(quest, compass, &named))
+    };
+    targets.set_if_neq(Targets {
+        main: of(Marker::Main),
+        side: of(Marker::Side),
+    });
 }
 
 /// Turns the needle and the pin toward their markers' targets.
@@ -240,10 +303,11 @@ pub struct CompassPlugin;
 
 impl Plugin for CompassPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), spawn.after(bar::spawn))
+        app.init_resource::<Targets>()
+            .add_systems(OnEnter(AppState::InGame), spawn.after(bar::spawn))
             .add_systems(
                 Update,
-                (point, point_outer, sonar)
+                (aim, point, point_outer, sonar)
                     .after(bar::fill)
                     .run_if(in_state(AppState::InGame)),
             );
