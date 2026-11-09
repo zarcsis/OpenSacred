@@ -51,6 +51,10 @@ const WIDTH: usize = 8;
 const CELL: usize = 12;
 const CELLS: usize = 256;
 const MINI_ON_DISK: usize = 64;
+/// The weapon sets after the backpack's grid: five sets of two halves, the left hand's and the
+/// right's, of 12 bytes each, a half's first `u32` its item's object id, 0 for none (docs/02 §9).
+pub const WEAPON_SETS: usize = 5;
+const HALF: usize = 12;
 /// Where the creature section holds the count of its combat arts (`u16`), the entries following
 /// it (docs/re/arts.md, "The heroes' starting arts").
 const ARTS: usize = 1227;
@@ -171,6 +175,8 @@ pub struct Item {
     pub item: u32,
     /// Its record, [`RECORD`] bytes from its type.
     pub record: Vec<u8>,
+    /// The records of the items in its sockets, [`RECORD`] bytes each, in their order.
+    pub socketed: Vec<Vec<u8>>,
 }
 
 /// An item in the backpack's grid, at its top left cell.
@@ -327,10 +333,19 @@ impl Amh {
                     field("AMH item block's type", found.into(), item.to_string()),
                 ));
             }
+            let socketed = (0..sockets)
+                .map(|k| {
+                    file.window(at + ITEM_RECORD + k * RECORD, RECORD, "AMH socketed record")
+                        .and_then(|mut r| {
+                            r.bytes(RECORD, "AMH socketed record").map(<[u8]>::to_vec)
+                        })
+                })
+                .collect::<Result<_>>()?;
             items.push(Item {
                 id: id.into(),
                 item,
                 record: record.bytes(RECORD, "AMH item record")?.to_vec(),
+                socketed,
             });
         }
         Ok(items)
@@ -365,6 +380,17 @@ impl Amh {
                 })
             })
             .collect()
+    }
+
+    /// The weapon sets of the backpack's section: each set's halves, the left hand's and the
+    /// right's, by their items' object ids, 0 for none.
+    pub fn sets(&self) -> Result<[[u32; 2]; WEAPON_SETS]> {
+        let data = &self.section(BACKPACK, "AMH backpack section")?.data;
+        let mut sets = [[0; 2]; WEAPON_SETS];
+        for (k, half) in sets.iter_mut().flatten().enumerate() {
+            *half = Reader::at(data, GRID + CELL * CELLS + HALF * k).u32()?;
+        }
+        Ok(sets)
     }
 
     /// The creature section with its markers checked at their places.
@@ -628,6 +654,14 @@ mod tests {
                 (56, 7725, RECORD, 9)
             ]
         );
+        // The third's socketed item's record before its own.
+        let socketed: Vec<_> = items[2]
+            .socketed
+            .iter()
+            .map(|r| (r.len(), u32::from_le_bytes([r[0], r[1], r[2], r[3]])))
+            .collect();
+        assert_eq!(socketed, [(RECORD, 5560)]);
+        assert!(items[0].socketed.is_empty());
         assert_eq!(
             amh.backpack().unwrap(),
             [Packed {

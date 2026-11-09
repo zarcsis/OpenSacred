@@ -43,6 +43,8 @@ Example
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --backpack /tmp/amh-backpack.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --summaries /tmp/amh-summaries.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --stats /tmp/amh-stats.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --sets /tmp/amh-sets.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --sockets /tmp/amh-sockets.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
 installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts
@@ -56,7 +58,10 @@ file, level, class, the equipment's slots and types as slot:type joined by comma
 14 items in the two saves), and the six won bytes as 0/1 (all 0 in the 10 files); --stats a row per file of its creature's
 stats: file, class, level, experience, gold, the attributes, the base attributes and the points spent on each (comma-joined),
 the attribute points left, the skills as slot:skill:base:bonus, the skill points, the skills to learn, and the equipment as
-slot:object id. Section contents (hero names
+slot:object id; --sets a row per half of a weapon set that holds an item: file, set, half (0 the left hand), the item's
+object id (the 0x78 bytes after the backpack's grid, five sets of two halves of 12 bytes, a half's first u32 the id);
+--sockets a row per socketed item's record: file, the item's object id, the socket's index, the record's type (u32) and
+the crc32 of its 0x82 bytes. Section contents (hero names
 etc.) are not printed.
 Dependencies: standard library.
 """
@@ -84,6 +89,8 @@ ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14
 # The marker before the records and the count of the socketed items' records before the item's own.
 SOCKETS_MARK, SOCKETS = b'\xde\xc0\xad\xba', 251
 GRID, CELL, CELLS = 12 + 0x400, 12, 256
+# The weapon sets after the grid: five sets of two halves of 12 bytes, a half's first u32 its item's object id.
+WEAPON_SETS, HALVES, HALF = 5, 2, 12
 EXPECTED_HEADER = {4: 0x10, 8: 0x22C, 0x1C: 1, 0x20: 9, 0x24: 2, 0x28: 20000}
 
 
@@ -137,7 +144,11 @@ def main():
     ap.add_argument('--backpack', help='write a TSV row per item of the backpack grids')
     ap.add_argument('--summaries', help='write a TSV row per file of its summary\'s equipment and won difficulties')
     ap.add_argument('--stats', help='write a TSV row per file of its creature\'s stats and equipment')
+    ap.add_argument('--sets', help='write a TSV row per weapon set\'s half that holds an item')
+    ap.add_argument('--sockets', help='write a TSV row per socketed item\'s record')
     args = ap.parse_args()
+    set_rows = []
+    socket_rows = []
     summary_rows = []
     stats_rows = []
     item_rows = []
@@ -228,6 +239,10 @@ def main():
                       f'{rel} at {at}')
                 own = at + ITEM_RECORD + RECORD * inventory[at + SOCKETS]
                 record = inventory[own:own + RECORD]
+                for k in range(inventory[at + SOCKETS]):
+                    socket = inventory[at + ITEM_RECORD + RECORD * k:at + ITEM_RECORD + RECORD * (k + 1)]
+                    socket_rows.append((rel, struct.unpack_from('<H', inventory, at + ITEM_ID)[0], k,
+                                        struct.unpack_from('<I', socket, 0)[0], f'{zlib.crc32(socket):08x}'))
                 check('items: the type before the marker and after it agree, a whole record',
                       len(record) == RECORD and struct.unpack_from('<I', inventory, at + ITEM_TYPE)[0] == item,
                       f'{rel} at {at}')
@@ -249,6 +264,13 @@ def main():
                 check('backpack: a cell holds 1, the size, 0 and the type of the item of its id',
                       (one, zero) == (1, 0) and w >= 1 and h >= 1 and types.get(oid) == item, f'{rel} cell {i}')
                 backpack_rows.append((rel, oid, i % width, i // width, w, h, item))
+            sets = inflated[BACKPACK][GRID + CELL * CELLS:GRID + CELL * CELLS + WEAPON_SETS * HALVES * HALF]
+            for k in range(WEAPON_SETS * HALVES):
+                oid = struct.unpack_from('<I', sets, HALF * k)[0]
+                if oid:
+                    check('sets: a half names an item of the inventory outside the backpack',
+                          oid in types and oid not in packed, f'{rel} set {k // HALVES}')
+                    set_rows.append((rel, k // HALVES, k % HALVES, oid))
             names = [r[1] for r in backpack_rows if r[0] == rel]
             check('backpack: each item at one cell, its top left', len(names) == len(set(names)), rel)
             outside = collections.Counter(types[oid] for oid in types if oid not in packed)
@@ -282,6 +304,15 @@ def main():
             for row in backpack_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(backpack_rows)} rows -> {args.backpack}')
+    for name, rows_out, head, path in [('weapon sets\' halves', set_rows, 'file\tset\thalf\tid\n', args.sets),
+                                       ('socketed records', socket_rows, 'file\tid\tindex\ttype\tcrc\n', args.sockets)]:
+        print(f'{len(rows_out)} {name}')
+        if path:
+            with open(path, 'w', encoding='ascii', newline='\n') as f:
+                f.write(head)
+                for row in rows_out:
+                    f.write('\t'.join(str(x) for x in row) + '\n')
+            print(f'{len(rows_out)} rows -> {path}')
     print(f'{len(stats_rows)} creatures\' stats')
     if args.stats:
         with open(args.stats, 'w', encoding='ascii', newline='\n') as f:

@@ -298,3 +298,61 @@ fn every_creatures_stats_match_amh_dump_py() {
     assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
     fs::remove_dir_all(out).unwrap();
 }
+
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python"]
+fn every_weapon_set_and_socketed_record_matches_amh_dump_py() {
+    let out = scratch_dir("amh-sets");
+    let (sets, sockets) = (out.join("sets.tsv"), out.join("sockets.tsv"));
+    let game = opensacred_locate::original();
+    run_python(
+        "tools/analysis/formats/amh_dump.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--sets"),
+            sets.as_os_str(),
+            OsStr::new("--sockets"),
+            sockets.as_os_str(),
+            OsStr::new("--saves"),
+        ],
+    );
+    let paths = (0..8)
+        .map(|i| format!("Templates/Hero{i:02}.ptx"))
+        .chain(["save/hero06.pax".to_owned(), "save/hero07.pax".to_owned()]);
+    let (mut our_sets, mut our_sockets) = (Vec::new(), Vec::new());
+    for path in paths {
+        let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        for (set, halves) in amh.sets().unwrap().iter().enumerate() {
+            for (half, &id) in halves.iter().enumerate() {
+                if id != 0 {
+                    our_sets.push(format!("{path}\t{set}\t{half}\t{id}"));
+                }
+            }
+        }
+        for item in amh.items().unwrap() {
+            for (k, record) in item.socketed.iter().enumerate() {
+                let kind = u32::from_le_bytes(record[..4].try_into().unwrap());
+                our_sockets.push(format!(
+                    "{path}\t{}\t{k}\t{kind}\t{:08x}",
+                    item.id,
+                    crc32fast::hash(record)
+                ));
+            }
+        }
+    }
+    let rows = |path: &std::path::Path| {
+        fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(our_sets, rows(&sets));
+    assert_eq!(our_sockets, rows(&sockets));
+    // A template's first set holds its weapon, the saves' five sets 6 and 7 halves; the
+    // Dwarf's two socketed items hold one record each (docs/02 §9).
+    assert_eq!((our_sets.len(), our_sockets.len()), (22, 2));
+    fs::remove_dir_all(out).unwrap();
+}

@@ -651,6 +651,7 @@ fn load(
                 id: 0,
                 item: opensacred_rules::arts::BFG_ITEM,
                 words,
+                socketed: Vec::new(),
             });
             let (class_borne, _) = npcs.hero_gear(&bearing);
             let borne = clips_of(assets, &model, presets, (kind, class_borne), &hits, &points);

@@ -42,7 +42,7 @@ pub struct SavedHero {
     pub won: Vec<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct HeroEntry {
     /// The file in the installation, such as `Templates/Hero00.ptx`.
@@ -67,6 +67,25 @@ pub struct HeroEntry {
     /// takes in place of its class's start (#2362).
     #[serde(default)]
     pub stats: HeroStats,
+    /// The items in its equipment's slots, each slot's by its object id ([`Worn::id`]), as its
+    /// creature section keeps them; the hands' are its selected weapon set's.
+    #[serde(default)]
+    pub equipment: Vec<(u8, u32)>,
+    /// Its five weapon sets, each set's left hand's and right hand's item by its object id, 0 for
+    /// none, as its backpack's section keeps them (docs/02 §9).
+    #[serde(default)]
+    pub sets: Vec<[u32; 2]>,
+}
+
+/// An item in a socket of another, as the other's block keeps it (docs/02 §9): its type, its
+/// record's words from its `+4` as [`Worn::words`], and the tier of the smith who put it there,
+/// its record's byte `+0x81`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Socketed {
+    pub item: u32,
+    pub words: Vec<u16>,
+    pub tier: u8,
 }
 
 /// A hero's values of its creature section's stats (docs/02 §9, "The creature"): its
@@ -118,6 +137,9 @@ pub struct Worn {
     /// Its record's `u16` words from its `+4`, as `tables::Weapon::words_84` holds a fixed
     /// item's from `Weapon.pak +0x84` (docs/re/items.md).
     pub words: Vec<u16>,
+    /// The items in its sockets, in their order.
+    #[serde(default)]
+    pub socketed: Vec<Socketed>,
 }
 
 /// An item in a hero's backpack.
@@ -134,6 +156,9 @@ pub struct Carried {
     pub size: (u8, u8),
     /// Its record's words from its `+4`, as [`Worn::words`].
     pub words: Vec<u16>,
+    /// The items in its sockets, in their order.
+    #[serde(default)]
+    pub socketed: Vec<Socketed>,
 }
 
 /// A hero: the sections of the original file in slot order.

@@ -13582,6 +13582,7 @@ mod tests {
                 id: 0,
                 item,
                 words: Vec::new(),
+                socketed: Vec::new(),
             })
             .collect();
         let holding = InHand::of([(7904, WEAPON, None)]);
