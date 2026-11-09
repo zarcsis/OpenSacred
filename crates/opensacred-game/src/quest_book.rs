@@ -679,26 +679,27 @@ fn chapter_of(entry: &Entry) -> Option<usize> {
 }
 
 /// The pages of the chapter `chapter`'s list (`0x6B07E0`, `0x6B1D90`): its entries with a title
-/// in the log's order, an ornament first on each page and before a main quest whose entry follows
-/// another kind's, a page ending before an entry once its rows reach [`PAGE_DEPTH`]; `height` is
-/// a row's height by its entry.
+/// in the log's order, an ornament first on each page as it takes its first entry and before a
+/// main quest whose entry follows another kind's, a page ending before an entry once its rows
+/// reach [`PAGE_DEPTH`]; a chapter without entries one empty page (#2367); `height` is a row's
+/// height by its entry.
 fn pages(entries: &[Entry], chapter: usize, height: impl Fn(&Entry) -> f32) -> Vec<Vec<Row>> {
     let ornament = ORNAMENT_HEIGHT + ROW_GAP;
-    let mut pages = vec![vec![Row::Ornament]];
-    let mut used = ornament;
+    let mut pages = vec![Vec::new()];
+    let mut used = 0.0;
     for (index, entry) in entries.iter().enumerate() {
         if entry.title.is_none() || chapter_of(entry) != Some(chapter) {
             continue;
         }
         if used >= PAGE_DEPTH {
-            pages.push(vec![Row::Ornament]);
-            used = ornament;
+            pages.push(Vec::new());
+            used = 0.0;
         }
         let Some(page) = pages.last_mut() else {
             break;
         };
         let after_other = index > 0 && entries.get(index - 1).is_some_and(|before| !before.main());
-        if entry.main() && after_other && page.last() != Some(&Row::Ornament) {
+        if page.is_empty() || (entry.main() && after_other && page.last() != Some(&Row::Ornament)) {
             page.push(Row::Ornament);
             used += ornament;
         }
@@ -2563,6 +2564,9 @@ mod tests {
             marked(&entries),
             [true, true, false, false, false, false, false]
         );
+        // A chapter without entries is one empty page, no ornament on it (#2367).
+        assert_eq!(super::pages(&entries, 3, |_| 25.0), [Vec::<Row>::new()]);
+        assert_eq!(super::pages(&[], 0, |_| 25.0), [Vec::<Row>::new()]);
     }
 
     #[test]

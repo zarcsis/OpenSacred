@@ -45,7 +45,7 @@ All places are pixels of the 1024 × 768 screen; "image N" is the entry N of the
 
 - The chapter's title in red (`0xFF990000`), centred in (152, 160) 300 wide.
 - The list from (160, 196), 284 wide; a row's text from x 184, a side quest's 16 further, wrapped in 284; each row takes its height and 1 more.
-- An ornament row (`GUI_main_08`, images `0xEE` and `0xEF` side by side, 25 high) is first on every page and comes before a main quest whose log entry follows one of another kind.
+- An ornament row (`GUI_main_08`, images `0xEE` and `0xEF` side by side, 25 high) is first on every page, pushed as the page takes its first entry, and comes before a main quest whose log entry follows one of another kind; a chapter without entries has no row at all, its page empty under the title (**seen** 2026-11-09 at the Underworld campaign's start, #2367).
 - A page ends before an entry once its rows reach 334 below the list's top (`0x6B1D90`), a row of text measured as its lines at its font's line height.
 - An entry's row: its icon (16 × 16, `GUI_book_x3`) at (160, top + 2); a main quest's running `0x496`, lost `0x497`, won `0x498`; a side quest's running `0x49A`, tracked `0x499`, lost `0x49B`, won `0x49C`.
   Its colour, each rule over the one before: `0xFF000033`; ended `0xFF3F3F3F`; entered since the game began (`+0xC` bit 0, which no save keeps) `0xFF660000`; the page's selected row `0xFF000066`; under the pointer `0xFF000099`, or `0xFFFFFF80` for one entered since the game began.
