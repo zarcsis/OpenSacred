@@ -4258,6 +4258,8 @@ impl Npcs {
                 .collect(),
             skill: skill_of(class, &in_hands),
             sets: Default::default(),
+            // On foot as it starts; `equipment::refit` seats it.
+            mounted: false,
         }
     }
 
@@ -10888,6 +10890,8 @@ impl Arms {
             skill: skill_of(class, &self.holding),
             // A creature not a player's takes no set's bonus (`0x57AE56`).
             sets: Default::default(),
+            // A rider's mount does not weigh its `A` yet (#2385).
+            mounted: false,
         };
         (held, two)
     }

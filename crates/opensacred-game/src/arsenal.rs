@@ -222,8 +222,10 @@ fn wear(
     holds
         .items
         .extend(worn.into_iter().flat_map(|worn| worn.0.iter().cloned()));
-    // The sets' bonuses kept, which `equipment::refit` makes anew as the hands' items change.
+    // The sets' bonuses kept, which `equipment::refit` makes anew as the hands' items change, and
+    // the seat on a mount, which it sets as the hero mounts and gets off.
     holds.sets = held.map(|held| held.0.sets.clone()).unwrap_or_default();
+    holds.mounted = held.is_some_and(|held| held.0.mounted);
     debug!("arsenal: the hero holds {:?}", arms.held);
     hero.held = arms.held;
     hero.armed = arms.armed;

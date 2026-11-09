@@ -715,6 +715,9 @@ pub struct Rules {
     /// The combat master's exchange's prices of two, three and four runes (`lotto2` to `lotto4`,
     /// the words from `0xAD4B34`; [`Rules::exchange_price`]).
     exchange: [u32; 3],
+    /// The riding skill's curve of a rider's `A` multiplier, per cent (`ReitenSkOff`,
+    /// `ReitenSKLev`, `ReitenSKMW`, `0xAD578C` to `0xAD5794`; [`combat_with`]).
+    riding: [f32; 3],
 }
 
 impl Default for Rules {
@@ -756,6 +759,7 @@ impl Default for Rules {
             leech_factor: 1_300.0,
             leech_with_distance: true,
             exchange: [100, 500, 2_000],
+            riding: [67.0, 30.0, 100.0],
             hardened: Hardened::No,
             of: Difficulty::Bronze,
         }
@@ -1095,6 +1099,19 @@ impl Rules {
                     }
                 }
                 prices
+            },
+            riding: {
+                let mut values = default.riding;
+                for (value, name) in
+                    values
+                        .iter_mut()
+                        .zip(["ReitenSkOff", "ReitenSKLev", "ReitenSKMW"])
+                {
+                    if let Some(read) = b.i32(name).and_then(|v| i16::try_from(v).ok()) {
+                        *value = f32::from(read);
+                    }
+                }
+                values
             },
             hardened,
             of: difficulty,
@@ -1498,6 +1515,9 @@ pub struct Holds {
     pub items: Vec<ItemValues>,
     pub skill: u8,
     pub sets: crate::set_bonuses::Stats,
+    /// Whether it sits on a mount (`0x552660`), which its riding skill's curve weighs its `A`
+    /// multiplier by ([`combat_with`]).
+    pub mounted: bool,
 }
 
 /// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
@@ -2579,6 +2599,9 @@ pub fn hero_skills(base: &Base, level: u32, holds: &Holds) -> Vec<(u8, u32)> {
         .collect()
 }
 
+/// The riding skill (`Reiten`), which weighs a rider's `A` multiplier ([`combat_with`]).
+pub const RIDING: u8 = 22;
+
 /// A skill's per cent at level `level` (`0x566070`), of the balance's triple `[off, S, w]`:
 /// `off` at level 1, `w` at level `S + 1`, `off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`; none
 /// below level 1. The world's x87 unit computes it at 53 bits and stores it as a float (#589,
@@ -3495,6 +3518,17 @@ pub fn combat_with(
     }
     if !speeds_changed {
         speed = start_speed + speed_bonus;
+    }
+    // On a mount, `A`'s multiplier times the riding skill's curve at its level and one, plus a
+    // half, in hundredths (`0x57C549` to `0x57C634`): 0.675 without the skill, 1.005 at 30.
+    if holds.mounted {
+        let riding = skills
+            .iter()
+            .find(|&&(skill, _)| skill == RIDING)
+            .map_or(0, |&(_, at)| at.min(255));
+        attack_times = stored(
+            (per_cent(rules.riding, riding + 1) + 0.5) * f64::from(attack_times) * HUNDREDTH,
+        );
     }
     if let Some(turns) = effects.iter().find(|effect| effect.id == effects::TURNS) {
         turn_damage(&mut damage, turns);
@@ -5205,6 +5239,35 @@ mod tests {
         assert!((rules.level_factor(216.0) - 2.44).abs() < 1e-5);
         // Without two points, 1.
         assert_eq!(Rules::default().level_factor(60.0), 1.0);
+    }
+
+    #[test]
+    fn a_mount_weighs_the_attack_by_the_riding_skill() {
+        let rules = Rules::default();
+        let wolf = a_wolf();
+        let with = |mounted: bool, skills: &[(u8, u32)]| {
+            let holds = Holds {
+                mounted,
+                ..Holds::default()
+            };
+            combat_with(&wolf, 10, holds, skills, &[], &rules)
+        };
+        let plain = with(false, &[]);
+        let whole = |value: f64| to_f32(whole_f64(value));
+        // Without the skill 67.5 hundredths, at 30 a hundred and a half.
+        let factor = |riding: u32| stored((per_cent(rules.riding, riding + 1) + 0.5) * HUNDREDTH);
+        assert!((factor(0) - 0.675).abs() < 1e-6 && (factor(30) - 1.005).abs() < 1e-6);
+        assert_eq!(
+            with(true, &[]).attack,
+            whole(f64::from(plain.attack) * f64::from(factor(0)))
+        );
+        assert_eq!(
+            with(true, &[(RIDING, 30)]).attack,
+            whole(f64::from(plain.attack) * f64::from(factor(30)))
+        );
+        // On foot the skill weighs nothing; the defence never.
+        assert_eq!(with(false, &[(RIDING, 30)]).attack, plain.attack);
+        assert_eq!(with(true, &[]).defence, plain.defence);
     }
 
     /// A wolf (512) and a goblin warrior (76) of `Creature.pak`, as far as their fight goes.

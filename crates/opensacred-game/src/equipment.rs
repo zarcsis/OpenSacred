@@ -537,14 +537,13 @@ fn refit(
     let Some(tables) = tables else {
         return;
     };
-    // The ridden horse's slot 0, its bridle, the first of the rider's items (`0x552660`).
-    let bridle = heroes
-        .iter()
-        .next()
-        .and_then(|(.., seat)| match seat {
-            Some(&crate::riding::Seat::Riding { horse, .. }) => bridles.get(horse).ok(),
-            _ => None,
-        })
+    // The ridden horse (`0x552660`), its slot 0, its bridle, the first of the rider's items.
+    let ridden = heroes.iter().next().and_then(|(.., seat)| match seat {
+        Some(&crate::riding::Seat::Riding { horse, .. }) => Some(horse),
+        _ => None,
+    });
+    let bridle = ridden
+        .and_then(|horse| bridles.get(horse).ok())
         .map(|bridle| bridle.0.clone());
     // The items in the hands, the selected weapon set's halves, whose sets count (#1727).
     let hands: Vec<u32> = weapon_sets
@@ -572,6 +571,7 @@ fn refit(
         .chain(hands.iter().map(|&item| (item, usize::MAX)))
         .chain(carried.iter().map(|&item| (item, usize::MAX - 1)))
         .chain(bridle.iter().map(|d| (d.item, usize::MAX - 2)))
+        .chain(ridden.map(|_| (0, usize::MAX - 3)))
         .collect();
     if *seen == worn {
         return;
@@ -606,6 +606,7 @@ fn refit(
         holds.items.truncate(arms);
         holds.items.extend(values.iter().cloned());
         holds.sets = set_stats.clone();
+        holds.mounted = ridden.is_some();
         commands.entity(entity).insert(Worn(values));
         let level = experience.level;
         let skills = fight::hero_skills(base, level, &holds);
