@@ -22,8 +22,11 @@
 //! A stall that a purchase empties its trader fills again ([`restock`]) once the horse bought
 //! is gone or stands 500 or more from it, the trader in the world.
 //!
-//! Not followed: the theft of another NPC's horse (the states 6 and 7, the effect 19), which no
-//! NPC's horse in the game reaches yet (#2288, #2320).
+//! On another NPC's horse, one whose owner is no horse trader (of the 20 trees, the knight of
+//! quest 602's alone, its region's `SetNPCState`'s `0x63`), the hero's class steals it or refuses
+//! (`opensacred_rules::horses::steals`, the states 6 and 7): the theft makes the horse the hero's
+//! own for nothing and puts the effect 19 on the hero for 25 seconds, under which the soldiers'
+//! side is hostile to the heroes ([`provoke`], `opensacred_rules::minds::Mind::provoked`; #2320).
 
 use bevy::prelude::*;
 use opensacred_rules::horses;
@@ -92,6 +95,10 @@ enum State {
     Far,
     /// A horse's sheet that the hero may not ride (5).
     CannotRide,
+    /// Another NPC's horse, which the hero's class steals (6), and its class's text.
+    Steal(Option<u32>),
+    /// Another NPC's horse, which the hero's class refuses to steal (7), and its class's text.
+    Refused(Option<u32>),
 }
 
 /// What the sheet shows of the horse ([`crate::riding::description`]'s facts) and its prices.
@@ -187,6 +194,7 @@ const PRICE_LABEL: &str = "9067";
 const HEAL: &str = "9066";
 const BUY: &str = "9050";
 const SELL: &str = "9051";
+const STEAL: &str = "9056";
 const LEAVE: &str = "9053";
 const LEAVE_ALONE: &str = "1028";
 const NO_HORSE: &str = "9063";
@@ -293,6 +301,14 @@ fn opened(world: &mut World, horse: Option<Entity>, trader: Option<Entity>) -> O
             healing: horses::healing(asking, (health.current, health.most)),
         }
     });
+    // A horse's owner that is no horse trader, another NPC (`0x6BE6E0`): one of no owner in the
+    // world, or a trader's, is for sale.
+    let another = trader.is_none()
+        && owner.is_some_and(|owner| {
+            world
+                .get::<crate::npcs::Trades>(owner)
+                .is_none_or(|trades| trades.0 & opensacred_rules::quests::TRADER == 0)
+        });
     let state = match (trader, &horse_facts, &sheet) {
         _ if hero_kind == horses::DWARF => State::Dwarf,
         (Some(_), None, _) => State::NoHorse,
@@ -301,6 +317,10 @@ fn opened(world: &mut World, horse: Option<Entity>, trader: Option<Entity>) -> O
         }
         (Some(_), Some(_), _) => State::Sell,
         (None, _, Some(sheet)) if !sheet.riding.2 => State::CannotRide,
+        (None, ..) if another => match horses::steals(hero_kind) {
+            (true, text) => State::Steal(text),
+            (false, text) => State::Refused(text),
+        },
         (None, ..) => State::Buy,
     };
     // The owner's name, its script name's text (`res:` and the text's number, `sdk_REFKEY`).
@@ -340,7 +360,7 @@ fn shown(opened: &Opened, i: usize, gold: u32) -> bool {
         0 => opened.state == State::Sell && sheet.is_some_and(|s| s.healing > 0) && gold > 0,
         1 => match opened.state {
             State::Buy => sheet.is_some_and(|s| s.asking <= gold),
-            State::Sell => true,
+            State::Sell | State::Steal(_) => true,
             _ => false,
         },
         _ => true,
@@ -352,10 +372,11 @@ fn button_text(opened: &Opened, i: usize) -> &'static str {
     match i {
         0 => HEAL,
         1 if opened.state == State::Sell => SELL,
+        1 if matches!(opened.state, State::Steal(_)) => STEAL,
         1 => BUY,
         _ => match opened.state {
             State::Dwarf | State::NoHorse | State::Far | State::CannotRide => LEAVE_ALONE,
-            State::Sell | State::Buy => LEAVE,
+            State::Sell | State::Buy | State::Steal(_) | State::Refused(_) => LEAVE,
         },
     }
 }
@@ -592,6 +613,7 @@ fn draw(
                 State::Dwarf => said(DWARF_TEXT),
                 State::NoHorse => said(NO_HORSE),
                 State::Far => said(FAR),
+                State::Steal(Some(text)) | State::Refused(Some(text)) => said(&text.to_string()),
                 _ => String::new(),
             };
             let entity = commands
@@ -704,6 +726,7 @@ fn act(world: &mut World, i: usize) {
             match opened.state {
                 State::Buy => buy(world, &opened),
                 State::Sell => sell(world, &opened),
+                State::Steal(_) => steal(world, &opened),
                 _ => {}
             }
         }
@@ -761,6 +784,45 @@ fn buy(world: &mut World, opened: &Opened) {
     }
     crate::riding::own(world, horse);
     info!("stables: the hero buys {horse} for {}", sheet.asking);
+}
+
+/// The theft (`0x6BE400`): the horse the hero's own for nothing, no NPC's any longer, and the
+/// effect 19 on the hero for 25 seconds (`opensacred_rules::horses::THEFT`).
+fn steal(world: &mut World, opened: &Opened) {
+    let Some(horse) = opened.horse else {
+        return;
+    };
+    if let Ok(mut entity) = world.get_entity_mut(horse) {
+        entity.remove::<Stabled>();
+    }
+    crate::riding::own(world, horse);
+    let mut heroes = world.query_filtered::<Entity, With<Body>>();
+    let Some(hero) = heroes.iter(world).next() else {
+        return;
+    };
+    world
+        .entity_mut(hero)
+        .entry::<crate::effects::Effects>()
+        .or_default()
+        .get_mut()
+        .add(
+            opensacred_rules::fight::Effect::new(horses::THEFT, 0.0),
+            horses::THEFT_SECONDS,
+        );
+    info!("stables: the hero steals {horse}");
+}
+
+/// Breaks the soldiers' friendship with the heroes while the hero bears a horse's theft's effect
+/// 19, and mends it as the effect ends (`0x584616`, `0x586D80`): each soldier's mind provoked,
+/// those that come into the world meanwhile too ([`opensacred_rules::minds::Mind::provoked`]).
+fn provoke(heroes: Query<&crate::effects::Effects, With<Body>>, mut minds: Query<&mut Mind>) {
+    let theft = heroes.iter().any(|effects| effects.holds(horses::THEFT));
+    for mut mind in &mut minds {
+        let provoked = theft && mind.side == opensacred_rules::minds::SOLDIERS;
+        if mind.provoked != provoked {
+            mind.provoked = provoked;
+        }
+    }
 }
 
 /// The sale: the hero's horse let go and the trader's stable's again, its sector's once more, for
@@ -906,7 +968,7 @@ impl Plugin for StablesPlugin {
             })
             .add_systems(
                 Update,
-                restock
+                (restock, provoke)
                     .in_set(crate::frame::Unpaused)
                     .run_if(in_state(AppState::InGame)),
             )
@@ -916,5 +978,96 @@ impl Plugin for StablesPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A world of the hero of the type `kind` before the horse of quest 602's knight, the knight
+    /// a horse trader by `trades`; and the horse.
+    fn knights_horse(kind: u32, trades: Option<u32>) -> (World, Entity) {
+        let mut world = World::new();
+        let mut hero = Hero::new(String::new(), Default::default(), Vec3::ZERO);
+        hero.creature = kind;
+        world.insert_resource(hero);
+        world.spawn((Body::standing(), Transform::default()));
+        let mind = |creature, class| {
+            Mind::new(
+                Vec3::ZERO,
+                0,
+                (true, false),
+                None,
+                [70.0, 180.0],
+                (creature, class),
+            )
+        };
+        let mut knight = world.spawn((ScriptName("res:17136".into()), mind(301, 7)));
+        if let Some(trades) = trades {
+            knight.insert(crate::npcs::Trades(trades));
+        }
+        let horse = world
+            .spawn((
+                Horse { class: 1 },
+                mind(551, 0),
+                Health {
+                    current: 100,
+                    most: 100,
+                    level: 1,
+                },
+                Transform::default(),
+                Stabled {
+                    trader: "res:17136".into(),
+                },
+            ))
+            .id();
+        (world, horse)
+    }
+
+    #[test]
+    fn another_npcs_horse_is_stolen_by_the_classes_that_steal() {
+        // The Gladiator steals the knight's horse; the Seraphim refuses, with her text.
+        let (mut world, horse) = knights_horse(2, None);
+        let window = opened(&mut world, Some(horse), None);
+        assert_eq!(window.state, State::Steal(Some(9080)));
+        assert!(shown(&window, 1, 0));
+        assert_eq!(button_text(&window, 1), STEAL);
+        let (mut world, horse) = knights_horse(1, None);
+        let refused = opened(&mut world, Some(horse), None);
+        assert_eq!(refused.state, State::Refused(Some(9081)));
+        assert!(!shown(&refused, 1, 1_000_000));
+        // A horse trader's horse is for sale.
+        let (mut world, horse) = knights_horse(2, Some(opensacred_rules::quests::TRADER));
+        assert_eq!(opened(&mut world, Some(horse), None).state, State::Buy);
+    }
+
+    #[test]
+    fn the_theft_makes_the_horse_the_heros_and_the_soldiers_hostile_for_its_while() {
+        let (mut world, horse) = knights_horse(2, None);
+        let window = opened(&mut world, Some(horse), None);
+        steal(&mut world, &window);
+        assert_eq!(world.resource::<Owned>().0, Some(horse));
+        assert!(world.get::<Stabled>(horse).is_none());
+        let mut heroes = world.query_filtered::<&crate::effects::Effects, With<Body>>();
+        assert!(heroes.single(&world).unwrap().holds(horses::THEFT));
+        // The knight, a soldier, is hostile to the heroes while the effect holds, the horse not.
+        world.run_system_cached(provoke).unwrap();
+        let mut minds = world.query::<(&Mind, Option<&ScriptName>)>();
+        let hostile: Vec<bool> = minds
+            .iter(&world)
+            .map(|(mind, named)| named.is_some() && mind.hostile())
+            .collect();
+        assert!(hostile.contains(&true));
+        assert!(!world.get::<Mind>(horse).unwrap().hostile());
+        // Its end mends it.
+        let mut heroes = world.query_filtered::<Entity, With<Body>>();
+        let hero = heroes.single(&world).unwrap();
+        world
+            .entity_mut(hero)
+            .insert(crate::effects::Effects::default());
+        world.run_system_cached(provoke).unwrap();
+        let mut minds = world.query::<&Mind>();
+        assert!(minds.iter(&world).all(|mind| !mind.hostile()));
     }
 }
