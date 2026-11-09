@@ -76,7 +76,14 @@ fn press(
     entries: Option<Res<Entries>>,
     mut pack: ResMut<Pack>,
     (npcs, tables, rules): (Option<Res<Npcs>>, Option<Res<Tables>>, Res<Rules>),
-    followers: Query<(&Arms, &Mind, &Health, Option<&Given>, Option<&ScriptName>), With<Follower>>,
+    followers: Query<
+        (
+            (&Arms, &Mind, &Health, &crate::fight::Combat),
+            Option<&Given>,
+            Option<&ScriptName>,
+        ),
+        With<Follower>,
+    >,
     mut remarks: MessageWriter<Remark>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -93,7 +100,7 @@ fn press(
     let Some(&follower) = k.checked_sub(1).and_then(|k| entries.0.get(k)) else {
         return;
     };
-    let Ok((arms, mind, health, given, name)) = followers.get(follower) else {
+    let Ok(((arms, mind, health, combat), given, name)) = followers.get(follower) else {
         return;
     };
     debug!(
@@ -134,8 +141,15 @@ fn press(
         return;
     }
     let asks = tables.asks(&held.dropped, &rules.0);
-    // The mercenary's attributes and skills are not weighed (#2411).
-    let wearer = equipment::Wearer::of(mind.creature, health.level);
+    // Its own attributes with its items' and its skills as its fight counts them (`0x54ABE0` on
+    // the follower, #2411).
+    let skills = arms.skills(health.level);
+    let wearer = equipment::Wearer {
+        creature: mind.creature,
+        level: health.level,
+        attributes: Some(combat.0.attributes),
+        skills: Some(&skills),
+    };
     if !equipment::may_use(&wearer, &asks) {
         info!(
             "mercenaries: {follower} of type {} at level {} may not use {item}",

@@ -11077,9 +11077,16 @@ impl Arms {
     /// Whether it has the skill of two weapons (6) at the level `grade`, its level in the skill
     /// above 0 (`0x582450(6)`); the items' bonuses to it are not followed.
     pub(crate) fn two_weapons(&self, grade: u32) -> bool {
-        fight::skills(&self.base, grade, self.plain)
+        self.skills(grade)
             .iter()
             .any(|&(skill, level)| skill == 6 && level > 0)
+    }
+
+    /// Its skills and their levels at the level `grade`, as its fight counts them
+    /// (`fight::skills`: its type's slots at the level's setter's levels, `0x564D60`); the items'
+    /// bonuses to them are not followed.
+    pub(crate) fn skills(&self, grade: u32) -> Vec<(u8, u32)> {
+        fight::skills(&self.base, grade, self.plain)
     }
 
     /// [`Self::fight`] with its effects `effects` (#763).
