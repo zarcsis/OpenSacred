@@ -428,14 +428,21 @@ fn tint(
     }
     let shelf = shelf(&wares, showing.0);
     let buyer = trader(&experience, arts.as_deref(), combats.iter().next());
+    let wearer = hero.as_deref().map(|hero| {
+        crate::equipment::wearer(
+            hero.creature,
+            experience.0.level,
+            combats.iter().next(),
+            arts.as_deref(),
+        )
+    });
     for (tint, mut colour) in &mut tints {
         let wanted = shelf
             .grid
             .at(tint.0)
             .and_then(|placed| shelf.items.iter().find(|(k, _)| *k == placed.key))
             .map_or(Color::NONE, |(_, dropped)| {
-                let ours = (hero.as_deref(), &*experience, &*rules, tables.as_deref());
-                if backpack::refuses(ours, dropped) {
+                if backpack::refuses(wearer.as_ref(), (&rules, tables.as_deref()), dropped) {
                     backpack::REFUSED_TINT
                 } else if tables
                     .as_deref()

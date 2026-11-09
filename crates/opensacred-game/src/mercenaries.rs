@@ -134,7 +134,9 @@ fn press(
         return;
     }
     let asks = tables.asks(&held.dropped, &rules.0);
-    if !equipment::may_use(mind.creature, health.level, &asks) {
+    // The mercenary's attributes and skills are not weighed (#2411).
+    let wearer = equipment::Wearer::of(mind.creature, health.level);
+    if !equipment::may_use(&wearer, &asks) {
         info!(
             "mercenaries: {follower} of type {} at level {} may not use {item}",
             mind.creature, health.level

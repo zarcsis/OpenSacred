@@ -90,6 +90,7 @@ fn read(
     (tables, rules, experience): (Option<Res<Tables>>, Res<Rules>, Res<Experience>),
     hero: Option<Res<Hero>>,
     arts: Option<ResMut<HeroArts>>,
+    combats: Query<&crate::fight::Combat, With<crate::hero::Body>>,
     mut sounds: MessageWriter<sfx::Play>,
 ) {
     if !shown.0 || pack.held.is_some() || !buttons.just_pressed(MouseButton::Right) {
@@ -134,7 +135,13 @@ fn read(
         return;
     };
     let asks = tables.asks(&dropped, &rules);
-    if !may_use(hero.creature, experience.level, &asks) {
+    let wearer = crate::equipment::wearer(
+        hero.creature,
+        experience.level,
+        combats.iter().next(),
+        Some(&arts),
+    );
+    if !may_use(&wearer, &asks) {
         debug!("runes: the hero may not read {}", dropped.item);
         return;
     }

@@ -1075,16 +1075,11 @@ fn show(
 /// where it would go, green, purple, or red where it would not or the smith works no such item
 /// (seen: a torch and a bow of no socket red under the pointer, #1821); else under an item blue,
 /// or red where the hero may not use it.
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, grouped"
-)]
 fn tint(
     (smith, pack): (Option<Res<Blacksmith>>, Res<Pack>),
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
-    (hero, experience, rules, tables): (
-        Option<Res<crate::hero::Hero>>,
-        Res<crate::fight::Experience>,
+    (wearing, rules, tables): (
+        crate::equipment::Wearing,
         Res<crate::fight::Rules>,
         Option<Res<Tables>>,
     ),
@@ -1110,16 +1105,14 @@ fn tint(
         };
         Some((cell, held.size, highlight))
     });
+    let wearer = wearing.wearer();
     let refused = |key: u32| {
         smith
             .items
             .iter()
             .find(|(k, _)| *k == key)
             .is_some_and(|(_, dropped)| {
-                backpack::refuses(
-                    (hero.as_deref(), &experience, &rules, tables.as_deref()),
-                    dropped,
-                )
+                backpack::refuses(wearer.as_ref(), (&rules, tables.as_deref()), dropped)
             })
     };
     for (tint, mut colour) in &mut tints {

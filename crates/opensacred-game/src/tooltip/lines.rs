@@ -110,16 +110,17 @@ pub(crate) struct Item<'a> {
 }
 
 impl Item<'_> {
-    /// What it asks of the hero that would use it, its level aside: its classes and its weapon's
-    /// kind, as the equipment's slots weigh them.
+    /// What it asks of the hero that would use it by its classes and its weapon's kind alone, as
+    /// the equipment's slots weigh them; its record's classes a made item's own
+    /// (`drops::Tables::record_of`).
     fn asks(&self) -> Asks {
         Asks {
             item: self.item,
             category: self.category,
             kind: self.record.kind,
             classes: self.record.word,
-            level: 0,
             takers: self.takers,
+            ..Asks::default()
         }
     }
 }
@@ -490,12 +491,13 @@ fn difficulty_step(word: u32) -> u32 {
 
 /// Whether the hero of the creature type `creature` is told that its class may not use an item
 /// that `asks` so: where the equipment's own test of the classes and the weapons' kinds refuses
-/// it, its level aside (`opensacred_rules::equipment::may_use`), so that the line tells what the
-/// slots do. The original's tooltip (`0x5C5360`) names an item of one other class rather than
+/// it, its requirements aside (`opensacred_rules::equipment::class_allows`), so that the line
+/// tells what the slots do; the requirements have their own lines, red where the hero falls
+/// short. The original's tooltip (`0x5C5360`) names an item of one other class rather than
 /// refusing it, and refuses one of no class's bit, which every class may use
 /// (docs/decisions/interface.md, "Class refusal as the slots refuse").
 fn refused(asks: &Asks, creature: u32) -> bool {
-    !opensacred_rules::equipment::may_use(creature, u32::MAX, asks)
+    !opensacred_rules::equipment::class_allows(creature, asks)
 }
 
 /// The icons of the kinds' shares of `values` (each its value over the greatest, `⌊255·v/m⌋`,

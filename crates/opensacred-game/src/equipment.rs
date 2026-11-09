@@ -32,7 +32,7 @@ use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
-use opensacred_rules::equipment::{Glow, Refusal, frames, glow, refusal, slot_for, takes};
+use opensacred_rules::equipment::{Glow, Refusal, Wearer, frames, glow, refusal, slot_for, takes};
 use opensacred_rules::fight::{combat_with, regeneration_with};
 use opensacred_rules::set_bonuses;
 
@@ -61,6 +61,46 @@ const WORN: usize = 12;
 /// A slot's frame, of its slot, and its rectangle in the window.
 #[derive(Component)]
 pub(crate) struct SlotFrame(u8, Rect);
+
+/// The hero as the use's test of an item weighs it (`0x54ABE0`, #2410): its type, its level, its
+/// attributes with its items' bonuses and its skills' levels with theirs.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Wearing<'w, 's> {
+    hero: Option<Res<'w, Hero>>,
+    experience: Res<'w, Experience>,
+    arts: Option<Res<'w, crate::arts::HeroArts>>,
+    combats: Query<'w, 's, &'static Combat, With<Body>>,
+}
+
+impl Wearing<'_, '_> {
+    /// The hero's, none before it is made.
+    pub(crate) fn wearer(&self) -> Option<Wearer<'_>> {
+        let hero = self.hero.as_deref()?;
+        Some(wearer(
+            hero.creature,
+            self.experience.0.level,
+            self.combats.iter().next(),
+            self.arts.as_deref(),
+        ))
+    }
+}
+
+/// The hero of the type `creature` and the level `level` as the use's test weighs it: its
+/// attributes of `combat` (the stats' words `+0x10`…, with its items' bonuses) and its skills of
+/// `arts` (`fight::hero_skills`, with theirs); either not followed where it is missing.
+pub(crate) fn wearer<'a>(
+    creature: u32,
+    level: u32,
+    combat: Option<&Combat>,
+    arts: Option<&'a crate::arts::HeroArts>,
+) -> Wearer<'a> {
+    Wearer {
+        creature,
+        level,
+        attributes: combat.map(|combat| combat.0.attributes),
+        skills: arts.map(|arts| arts.skills.as_slice()),
+    }
+}
 
 /// The slot whose frame holds the point `at` of the original's screen, and the frame's rectangle
 /// on the screen.
@@ -328,14 +368,14 @@ fn lay_out(
     }
 }
 
-/// Tints each frame by its glow for the item the cursor holds, the hero's type and level.
+/// Tints each frame by its glow for the item the cursor holds, as the hero may use it.
 fn tint(
     pack: Res<Pack>,
-    hero: Option<Res<Hero>>,
-    (experience, rules, tables): (Res<Experience>, Res<Rules>, Option<Res<Tables>>),
+    wearing: Wearing,
+    (rules, tables): (Res<Rules>, Option<Res<Tables>>),
     mut frames: Query<(&SlotFrame, &mut ImageNode)>,
 ) {
-    let Some(hero) = hero else {
+    let Some(wearer) = wearing.wearer() else {
         return;
     };
     let asks = pack
@@ -344,7 +384,7 @@ fn tint(
         .zip(tables.as_deref())
         .map(|(held, tables)| tables.asks(&held.dropped, &rules));
     for (frame, mut image) in &mut frames {
-        let wanted = match glow(frame.0, asks.as_ref(), (hero.creature, experience.0.level)) {
+        let wanted = match glow(frame.0, asks.as_ref(), &wearer) {
             Glow::White => Color::srgba(1.0, 1.0, 1.0, ALPHA),
             Glow::Green => Color::srgba(0.0, 1.0, 0.0, ALPHA),
             Glow::Red => Color::srgba(1.0, 0.0, 0.0, ALPHA),
@@ -359,7 +399,6 @@ fn tint(
 /// `0x2C`).
 #[expect(
     clippy::too_many_arguments,
-    clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn click(
@@ -368,12 +407,7 @@ fn click(
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
     mut pack: ResMut<Pack>,
-    (hero, experience, rules, tables): (
-        Option<Res<Hero>>,
-        Res<Experience>,
-        Res<Rules>,
-        Option<Res<Tables>>,
-    ),
+    (wearing, rules, tables): (Wearing, Res<Rules>, Option<Res<Tables>>),
     frames: Query<&SlotFrame>,
     (mut sounds, mut refusals, mut bridles): (
         MessageWriter<sfx::Play>,
@@ -385,10 +419,11 @@ fn click(
         buttons.just_pressed(MouseButton::Left),
         buttons.just_pressed(MouseButton::Right),
     );
-    let (true, true, Some(hero), Some(tables)) = (shown.0, left || right, hero, tables) else {
+    let (true, true, Some(wearer), Some(tables)) =
+        (shown.0, left || right, wearing.wearer(), tables)
+    else {
         return;
     };
-    let level = experience.0.level;
     let size = |item: u32| tables.size(item);
     let put = |sounds: &mut MessageWriter<sfx::Play>, item: u32| {
         let (id, rate) = crate::held::put_sound(tables.category(item));
@@ -423,7 +458,7 @@ fn click(
                 && frames.iter().any(|frame| frame.0 == slot)
         });
         if slot.is_none() && asks.category == crate::riding::BRIDLES {
-            match refusal(hero.creature, level, &asks) {
+            match refusal(&wearer, &asks) {
                 Some(why) => {
                     refusals.write(NotMine {
                         level: why == Refusal::Level,
@@ -438,7 +473,7 @@ fn click(
         let Some(slot) = slot else {
             return;
         };
-        if let Some(why) = refusal(hero.creature, level, &asks) {
+        if let Some(why) = refusal(&wearer, &asks) {
             debug!("equipment: {} refused: {why:?}", dropped.item);
             refusals.write(NotMine {
                 level: why == Refusal::Level,
@@ -482,7 +517,7 @@ fn click(
         return;
     };
     let asks = tables.asks(&held.dropped, &rules);
-    if let Some(why) = refusal(hero.creature, level, &asks) {
+    if let Some(why) = refusal(&wearer, &asks) {
         debug!("equipment: {} refused: {why:?}", held.dropped.item);
         refusals.write(NotMine {
             level: why == Refusal::Level,

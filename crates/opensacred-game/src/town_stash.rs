@@ -227,18 +227,13 @@ fn on_grid(pointer: &Pointer, ui_scale: &UiScale, windows: &Query<&Window>) -> O
 }
 
 /// Tints the cells while the window shows, as the backpack's (`backpack::cell_tint`).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, grouped"
-)]
 fn tint(
     (shown, opened): (Res<Shown>, Res<Opened>),
     (chest, pack): (Res<Chest>, Res<Pack>),
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
-    (hero, experience, rules, tables): (
-        Option<Res<crate::hero::Hero>>,
-        Res<crate::fight::Experience>,
+    (wearing, rules, tables): (
+        crate::equipment::Wearing,
         Res<crate::fight::Rules>,
         Option<Res<Tables>>,
     ),
@@ -253,16 +248,14 @@ fn tint(
         let cell = held_at((at.x, at.y), held.size);
         Some((cell, held.size, chest.grid.highlight(cell, held.size)))
     });
+    let wearer = wearing.wearer();
     let refused = |key: u32| {
         chest
             .items
             .iter()
             .find(|(k, _)| *k == key)
             .is_some_and(|(_, dropped)| {
-                backpack::refuses(
-                    (hero.as_deref(), &experience, &rules, tables.as_deref()),
-                    dropped,
-                )
+                backpack::refuses(wearer.as_ref(), (&rules, tables.as_deref()), dropped)
             })
     };
     for (tint, mut colour) in &mut tints {

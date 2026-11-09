@@ -24,6 +24,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_data::heroes::Worn;
 use opensacred_rules::drops::{Dropped, Kind};
+use opensacred_rules::equipment::Wearer;
 use opensacred_rules::sets as rule;
 
 use crate::backpack::{self, Matte};
@@ -319,11 +320,7 @@ fn choose(
         Option<ResMut<WeaponSets>>,
         Option<Res<Tables>>,
     ),
-    (hero, experience, rules): (
-        Option<Res<crate::hero::Hero>>,
-        Res<crate::fight::Experience>,
-        Res<crate::fight::Rules>,
-    ),
+    (wearing, rules): (crate::equipment::Wearing, Res<crate::fight::Rules>),
     (mut sounds, mut refusals): (
         MessageWriter<crate::sfx::Play>,
         MessageWriter<crate::voices::NotMine>,
@@ -338,8 +335,8 @@ fn choose(
         .flatten()
         .and_then(|at| Some((slot_at(at, shown.0)?, at)));
     let editing = inventory.is_some_and(|inventory| inventory.0);
-    if let (Some((set, at)), true, Some(mut pack), Some(tables), Some(hero)) =
-        (clicked, editing, pack, tables, hero)
+    if let (Some((set, at)), true, Some(mut pack), Some(tables), Some(wearer)) =
+        (clicked, editing, pack, tables, wearing.wearer())
         && edit(
             set,
             at,
@@ -347,7 +344,7 @@ fn choose(
             &mut sets,
             &mut pack,
             &tables,
-            (hero.creature, experience.0.level, &rules),
+            (&wearer, &rules),
             &mut refusals,
         )
     {
@@ -446,17 +443,16 @@ fn halves_tried(corner: Vec2, at: Vec2) -> [usize; HALVES] {
 }
 
 /// How a put of an item into a set was refused, by the hero's line (`0x6E14C0`, the message 5):
-/// `NOTMYITEMLVL` where only the level or the attributes refuse it, else `NOTMYITEM`; or none
-/// where the hero may use it.
+/// `NOTMYITEMLVL` where only what it asks of the hero refuses it (the level, the attributes, the
+/// skill), else `NOTMYITEM`; or none where the hero that `wearer` tells of may use it.
 fn refused(
     tables: &Tables,
     dropped: &Dropped,
-    hero: u32,
-    level: u32,
+    wearer: &Wearer,
     rules: &crate::fight::Rules,
 ) -> Option<bool> {
     let asks = tables.asks(dropped, rules);
-    opensacred_rules::equipment::refusal(hero, level, &asks)
+    opensacred_rules::equipment::refusal(wearer, &asks)
         .map(|why| why == opensacred_rules::equipment::Refusal::Level)
 }
 
@@ -477,7 +473,7 @@ fn edit(
     sets: &mut WeaponSets,
     pack: &mut crate::pickup::Pack,
     tables: &Tables,
-    (hero, level, rules): (u32, u32, &crate::fight::Rules),
+    (wearer, rules): (&Wearer, &crate::fight::Rules),
     refusals: &mut MessageWriter<crate::voices::NotMine>,
 ) -> bool {
     let tried = halves_tried(bar::weapon_slot(set, count), at);
@@ -495,7 +491,7 @@ fn edit(
         info!("sets: {} taken out of the set {}", taken.item, set + 1);
         return true;
     };
-    if let Some(level_only) = refused(tables, &held.dropped, hero, level, rules) {
+    if let Some(level_only) = refused(tables, &held.dropped, wearer, rules) {
         refusals.write(crate::voices::NotMine { level: level_only });
         return false;
     }
@@ -533,24 +529,20 @@ fn send(
         Option<ResMut<WeaponSets>>,
         Option<Res<Tables>>,
     ),
-    (hero, experience, rules): (
-        Option<Res<crate::hero::Hero>>,
-        Res<crate::fight::Experience>,
-        Res<crate::fight::Rules>,
-    ),
+    (wearing, rules): (crate::equipment::Wearing, Res<crate::fight::Rules>),
     (mut sounds, mut refusals, mut remarks): (
         MessageWriter<crate::sfx::Play>,
         MessageWriter<crate::voices::NotMine>,
         MessageWriter<crate::remarks::Remark>,
     ),
 ) {
-    let (true, true, Some(mut pack), Some(mut sets), Some(tables), Some(hero)) = (
+    let (true, true, Some(mut pack), Some(mut sets), Some(tables), Some(wearer)) = (
         shown.0,
         buttons.just_pressed(MouseButton::Right),
         pack,
         sets,
         tables,
-        hero,
+        wearing.wearer(),
     ) else {
         return;
     };
@@ -573,8 +565,7 @@ fn send(
     if pack.held.is_some() || !matches!(tables.category(dropped.item), WEAPON | SHIELD) {
         return;
     }
-    if let Some(level_only) = refused(&tables, &dropped, hero.creature, experience.0.level, &rules)
-    {
+    if let Some(level_only) = refused(&tables, &dropped, &wearer, &rules) {
         refusals.write(crate::voices::NotMine { level: level_only });
         return;
     }
@@ -627,18 +618,14 @@ fn glow(
         Option<Res<bar::Shown>>,
         Option<Res<Tables>>,
     ),
-    (hero, experience, rules): (
-        Option<Res<crate::hero::Hero>>,
-        Res<crate::fight::Experience>,
-        Res<crate::fight::Rules>,
-    ),
+    (wearing, rules): (crate::equipment::Wearing, Res<crate::fight::Rules>),
     (images, assets): (Res<bar::UiImages>, Res<AssetServer>),
     bars: Query<Entity, With<BarRoot>>,
     glows: Query<Entity, With<Glow>>,
     mut last: Local<Option<(Option<u32>, usize, usize, bool)>>,
 ) {
-    let (Some(pack), Some(sets), Some(shown), Some(tables), Some(hero), Ok(bar)) =
-        (pack, sets, shown, tables, hero, bars.single())
+    let (Some(pack), Some(sets), Some(shown), Some(tables), Some(wearer), Ok(bar)) =
+        (pack, sets, shown, tables, wearing.wearer(), bars.single())
     else {
         return;
     };
@@ -660,8 +647,7 @@ fn glow(
     let Some(held) = held else {
         return;
     };
-    let level = experience.0.level;
-    if refused(&tables, &held.dropped, hero.creature, level, &rules).is_some() {
+    if refused(&tables, &held.dropped, &wearer, &rules).is_some() {
         return;
     }
     let Some(piece) = piece(&tables, PUT, held.dropped.item) else {
