@@ -226,6 +226,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
             let objects = count(&sector.statics, &|_| true);
             let drawn = count(&sector.statics, &|o| o.sprite != 0);
             let miniatures = count(&sector.statics, &|o| o.miniature.is_some());
+            let reach = sector.reach(&sprites);
             let file = sector
                 .encode()
                 .map_err(|e| anyhow::anyhow!("encoding: {e}"))
@@ -233,16 +234,23 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
             let path = sector_dir.join(file_name(key.x, key.y));
             fs::write(&path, &file).with_context(|| format!("writing {}", path.display()))?;
             let bytes = u64::try_from(file.len()).unwrap_or(u64::MAX);
-            Ok([
-                overlays,
-                objects,
-                drawn,
-                miniatures,
-                usize::try_from(bytes).unwrap_or(0),
-            ])
+            Ok((
+                (key.x, key.y, reach),
+                [
+                    overlays,
+                    objects,
+                    drawn,
+                    miniatures,
+                    usize::try_from(bytes).unwrap_or(0),
+                ],
+            ))
         })
         .collect::<Result<Vec<_>>>()?;
-    for [overlays, objects, drawn, miniatures, bytes] in converted {
+    let reaches: HashMap<(u32, u32), [u16; 4]> = converted
+        .iter()
+        .map(|&((x, y, reach), _)| ((x, y), reach))
+        .collect();
+    for (_, [overlays, objects, drawn, miniatures, bytes]) in converted {
         summary.sectors += 1;
         summary.overlays += overlays;
         summary.statics += objects;
@@ -265,6 +273,9 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
             dungeon: k.dungeon,
             weather: weather(&k.weather),
             nature: k.nature,
+            // Of the sectors converted: a run of one sector leaves the others' to the game's
+            // most.
+            reach: reaches.get(&(k.x, k.y)).copied(),
         })
         .collect();
     entries.sort_by_key(|e| (e.y, e.x));

@@ -303,6 +303,7 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
             dungeon: false,
             weather: Vec::new(),
             nature: 0,
+            reach: None,
         }],
         sheets: vec!["sheet.ktx2".into()],
         atlases: Vec::new(),

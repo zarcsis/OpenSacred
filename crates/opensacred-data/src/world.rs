@@ -69,6 +69,12 @@ pub struct SectorEntry {
     /// `fliers` in a `world.ron` written before #1093.
     #[serde(default, alias = "fliers", skip_serializing_if = "is_zero")]
     pub nature: u8,
+    /// How far what the sector draws reaches past its cells' diamonds on the original's screen at
+    /// zoom 1, in pixels up, down, left and right ([`Sector::reach`], #1656): by which the game
+    /// tells the sectors that a view shows. `None` in a `world.ron` written before it, which the
+    /// game takes for the most that any sector reaches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reach: Option<[u16; 4]>,
 }
 
 /// Whether `byte` is 0, which `world.ron` leaves out.
@@ -308,7 +314,71 @@ pub fn sprite_image(record: u32, extension: &str) -> String {
     format!("{SPRITES_DIR}/{record:05}.{extension}")
 }
 
+/// The flags of the static objects that the game does not draw with the world's art
+/// (`0x62AE90`), and of a miniature, which it cuts from its type's atlas.
+const NOT_DRAWN: u32 = 0x290;
+const MINIATURE: u32 = 0x20;
+/// The side of a miniatures' atlas in pixels, which an animated one's columns and rows divide.
+const MINIATURE_ATLAS: i64 = 256;
+
 impl Sector {
+    /// How far what the sector draws reaches past its cells' diamonds on the original's screen at
+    /// zoom 1, in pixels up, down, left and right (#1656): each drawn static object's sprite
+    /// from its chain cell's centre, `48 (cx − cy)`, `24 (cx + cy + 1)` for the global cell
+    /// `(cx, cy)`, its sprite's rectangle at the object's position; a miniature's square, turned
+    /// about the position, and a lamp's glow of three times its side about it, within twice its
+    /// side's diagonal of the position; and the ground's corners raised or lowered by their
+    /// heights. Of the 6,050 sectors the median's sprites reach 391 pixels up, the farthest's
+    /// 2,034.
+    pub fn reach(&self, sprites: &Sprites) -> [u16; 4] {
+        let side = i64::try_from(SIDE).unwrap_or(64);
+        let mut most = [0i64; 4];
+        for &height in self.cells.iter().flat_map(|cell| &cell.heights) {
+            most[0] = most[0].max(i64::from(height));
+            most[1] = most[1].max(-i64::from(height));
+        }
+        let mut stack: Vec<&StaticObject> = self.statics.iter().collect();
+        while let Some(object) = stack.pop() {
+            stack.extend(&object.children);
+            if object.flags & NOT_DRAWN != 0 {
+                continue;
+            }
+            let (row, column) = (i64::from(object.cell) / side, i64::from(object.cell) % side);
+            let cx = i64::from(self.x) * side + column;
+            let cy = i64::from(self.y) * side + row;
+            let (centre_x, centre_y) = (48 * (cx - cy), 24 * (cx + cy + 1));
+            let (x, y) = (i64::from(object.x), i64::from(object.y));
+            let [x0, y0, x1, y1] = if object.flags & MINIATURE != 0 {
+                let Some(miniature) = object.miniature else {
+                    continue;
+                };
+                let [a, b, c, _, _] = miniature.params.map(i64::from);
+                let side = if a > 0 && b > 0 {
+                    (MINIATURE_ATLAS / a).max(MINIATURE_ATLAS / b)
+                } else {
+                    c
+                };
+                // Twice the diagonal, rounded up.
+                let around = side * 29 / 10;
+                [x - around, y - around, x + around, y + around]
+            } else {
+                let Some(Some(sprite)) = usize::try_from(object.sprite)
+                    .ok()
+                    .and_then(|index| sprites.sprites.get(index))
+                else {
+                    continue;
+                };
+                let [x0, y0, x1, y1] = sprite.rect.map(i64::from);
+                [x + x0, y + y0, x + x1, y + y1]
+            };
+            let reach = [centre_y - y0, y1 - centre_y, centre_x - x0, x1 - centre_x];
+            for (most, reach) in most.iter_mut().zip(reach) {
+                *most = (*most).max(reach);
+            }
+        }
+        most.map(|pixels| u16::try_from(pixels.max(0)).unwrap_or(u16::MAX))
+    }
+
     /// The sector file: the version and the sector, postcard-encoded, in a zlib stream.
     pub fn encode(&self) -> Result<Vec<u8>, postcard::Error> {
         encode(SECTOR_VERSION, self)
@@ -419,6 +489,59 @@ mod tests {
                 open: true,
             }],
         }
+    }
+
+    #[test]
+    fn a_sectors_reach_is_its_sprites_and_its_heights_past_its_cells() {
+        let mut sector = sector();
+        // The cell 65 of the sector at 50,39, the global cell 3201,2497: its centre on screen.
+        let (cx, cy) = (3201, 2497);
+        let (x, y) = (48 * (cx - cy), 24 * (cx + cy + 1));
+        let object = |flags, (x, y), sprite, miniature| StaticObject {
+            cell: 65,
+            kind: 1,
+            flags,
+            x,
+            y,
+            record: 1,
+            type_flags: 9,
+            mask: 0,
+            sprite,
+            miniature,
+            shadow: None,
+            floor: None,
+            children: Vec::new(),
+        };
+        // A sprite of 80 × 320 from 40 pixels left of the centre and 300 above it, with a
+        // miniature of 16 at the centre (twice its diagonal about it), and a hidden object's
+        // sprite, which counts nothing.
+        let mut tall = object(0, (x - 40, y - 300), 1, None);
+        tall.children.push(object(
+            0x20,
+            (x, y),
+            0,
+            Some(Miniature {
+                atlas: 0,
+                params: [0, 0, 16, 0, 0],
+            }),
+        ));
+        sector.statics = vec![tall, object(0x10, (x - 5_000, y - 5_000), 2, None)];
+        let sprite = |side| {
+            Some(Sprite {
+                width: side,
+                height: 4 * side,
+                rect: [0, 0, side, 4 * side],
+            })
+        };
+        let sprites = Sprites {
+            sprites: vec![None, sprite(80), sprite(10_000)],
+        };
+        // Up by the sprite, down past the corners' lowest of −5 by the miniature, as left and
+        // right.
+        assert_eq!(sector.reach(&sprites), [300, 46, 46, 46]);
+        // The corners' highest, 125, without the objects.
+        sector.statics.clear();
+        assert_eq!(sector.reach(&sprites), [125, 5, 0, 0]);
     }
 
     #[test]
