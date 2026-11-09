@@ -186,3 +186,58 @@ fn every_backpack_matches_amh_dump_py() {
     );
     fs::remove_dir_all(out).unwrap();
 }
+
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python"]
+fn every_summary_matches_amh_dump_py() {
+    let out = scratch_dir("amh-summaries");
+    let rows = out.join("summaries.tsv");
+    let game = opensacred_locate::original();
+    run_python(
+        "tools/analysis/formats/amh_dump.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--summaries"),
+            rows.as_os_str(),
+            OsStr::new("--saves"),
+        ],
+    );
+    let paths = (0..8)
+        .map(|i| format!("Templates/Hero{i:02}.ptx"))
+        .chain(["save/hero06.pax".to_owned(), "save/hero07.pax".to_owned()]);
+    let mut ours = Vec::new();
+    for path in paths {
+        let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let summary = amh.summary().unwrap();
+        let equipment: Vec<String> = summary
+            .equipment
+            .iter()
+            .enumerate()
+            .filter(|&(_, &item)| item != 0)
+            .map(|(slot, item)| format!("{slot}:{item}"))
+            .collect();
+        let won: String = summary
+            .won
+            .iter()
+            .map(|&won| if won { '1' } else { '0' })
+            .collect();
+        ours.push(format!(
+            "{path}\t{}\t{}\t{}\t{won}",
+            summary.level,
+            summary.class,
+            equipment.join(",")
+        ));
+    }
+    let theirs = fs::read_to_string(&rows).unwrap();
+    assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
+    // A template's summary names its weapon alone, the saved Dwarf's 15 items and the Daemon's
+    // 14, and no file a difficulty won (docs/02 §9).
+    let counts: Vec<usize> = ours
+        .iter()
+        .map(|row| row.split('\t').nth(3).unwrap().split(',').count())
+        .collect();
+    assert_eq!(counts, [1, 1, 1, 1, 1, 1, 1, 2, 15, 14]);
+    assert!(ours.iter().all(|row| row.ends_with("\t000000")));
+    fs::remove_dir_all(out).unwrap();
+}

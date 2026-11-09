@@ -14,7 +14,9 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
            exactly `size`; stored: the bytes up to the next section, which are `size` bytes but for tag 0xC4, whose
            64 bytes on disk stand for a size of 556
   summary  tag 0xC3, stored, 556 bytes: u32 level, u32 class (1..9), wchar name[32] (UTF-16LE, empty in the
-           templates), statistics
+           templates), statistics; at 0x88 the equipment slots' count (u32, 19) and the types of the items in the
+           slots (u32 each, 0 for none), each type that of an item the hero carries outside its backpack; at 0xED a
+           byte for each of six difficulties, bronze's first, set where the hero won it
   items    tag 0xC8: a block per item, the item's type (u32), the marker 0xFEEDF00D, the object's id (u16) 10 bytes
            after the marker, the type again 14 bytes after it, the marker 0xBAADC0DE 247 bytes after it and the count
            of its sockets' items (u8) after that, then each socketed item's record of 0x82 bytes and the item's own,
@@ -33,6 +35,7 @@ Example
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --items /tmp/amh-items.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --arts /tmp/amh-arts.tsv
   uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --backpack /tmp/amh-backpack.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves --summaries /tmp/amh-summaries.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
 installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts
@@ -41,7 +44,9 @@ in the templates.
 or stored); --items a row per item: file, id, type, in the backpack (0/1), crc32 of its record; --arts a row per combat
 art: file, its index, table, id, level, bonus, flags, and the time, the factor and the remaining as the hexadecimal of
 their bits; --backpack a row per item of the backpack's grid: file, id, column, row, width, height, type (the templates'
-32: three potions in the first column's top cells and a torch of 1 x 2 below them each). Section contents (hero names
+32: three potions in the first column's top cells and a torch of 1 x 2 below them each); --summaries a row per file:
+file, level, class, the equipment's slots and types as slot:type joined by commas (the templates' weapons alone, 15 and
+14 items in the two saves), and the six won bytes as 0/1 (all 0 in the 10 files). Section contents (hero names
 etc.) are not printed.
 Dependencies: standard library.
 """
@@ -59,6 +64,7 @@ from sacred_pe import DEFAULT_GAME_DIR
 HEADER, SLOTS = 0x100, 16
 COMPRESSED, PREFIX = 0xBAADC0DE, 32
 SUMMARY, MINI = 0xC3, 0xC4
+EQUIPMENT_COUNT, EQUIPMENT, WON, WON_COUNT = 0x88, 19, 0xED, 6
 INVENTORY, BACKPACK = 0xC8, 0xCA
 CREATURE, ARTS, ART, CREATURE_SIZE = 0xC7, 1227, 22, 1881
 ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14, 252, 0x82
@@ -116,7 +122,9 @@ def main():
     ap.add_argument('--items', help='write a TSV row per item of the inventory sections')
     ap.add_argument('--arts', help='write a TSV row per combat art of the creature sections')
     ap.add_argument('--backpack', help='write a TSV row per item of the backpack grids')
+    ap.add_argument('--summaries', help='write a TSV row per file of its summary\'s equipment and won difficulties')
     args = ap.parse_args()
+    summary_rows = []
     item_rows = []
     backpack_rows = []
     art_rows = []
@@ -153,6 +161,13 @@ def main():
                 check('summary: stored, class 1..9, level 1..', not compressed and 1 <= cls <= 9 and level >= 1, where)
                 check('summary: the name is padded with zeros',
                       not any(kept[8 + 2 * len(name):72]), where)
+                count = struct.unpack_from('<I', kept, EQUIPMENT_COUNT)[0]
+                check('summary: 19 equipment slots', count == EQUIPMENT, where)
+                equipment = struct.unpack_from(f'<{EQUIPMENT}I', kept, EQUIPMENT_COUNT + 4)
+                won = kept[WON:WON + WON_COUNT]
+                summary_rows.append((rel, level, cls,
+                                     ','.join(f'{k}:{t}' for k, t in enumerate(equipment) if t),
+                                     ''.join(str(int(b != 0)) for b in won)))
             rows.append((rel, slot, tag, size, int(compressed), len(kept), f'{zlib.crc32(kept):08x}'))
         inflated = {tag: data for _, tag, _, _, data, _, _, _ in secs}
         if CREATURE in inflated:
@@ -204,6 +219,10 @@ def main():
                 backpack_rows.append((rel, oid, i % width, i // width, w, h, item))
             names = [r[1] for r in backpack_rows if r[0] == rel]
             check('backpack: each item at one cell, its top left', len(names) == len(set(names)), rel)
+            outside = collections.Counter(types[oid] for oid in types if oid not in packed)
+            slots = collections.Counter(int(p.split(':')[1]) for r in summary_rows if r[0] == rel
+                                        for p in r[3].split(',') if p)
+            check('summary: the equipment\'s items are items outside the backpack', not slots - outside, rel)
     check.report()
     print(f'{len(paths)} files, {len(rows)} sections; tags {sorted(collections.Counter(r[2] for r in rows).items())}')
     if args.rows:
@@ -226,6 +245,13 @@ def main():
             for row in backpack_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(backpack_rows)} rows -> {args.backpack}')
+    print(f'{len(summary_rows)} summaries')
+    if args.summaries:
+        with open(args.summaries, 'w', encoding='ascii', newline='\n') as f:
+            f.write('file\tlevel\tclass\tequipment\twon\n')
+            for row in summary_rows:
+                f.write('\t'.join(str(x) for x in row) + '\n')
+        print(f'{len(summary_rows)} rows -> {args.summaries}')
     print(f'{len(art_rows)} combat arts')
     if args.arts:
         with open(args.arts, 'w', encoding='ascii', newline='\n') as f:

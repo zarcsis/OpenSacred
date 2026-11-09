@@ -1090,7 +1090,7 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 | 1 | 0xCA (202) | 4,444 | zlib | the hero's backpack: an inventory container (below), 20 × 8 cells |
 | 2 | 0xCB (203) | 4,444 | zlib | a second inventory container, 20 × 10 cells, of the reference `0x11`, empty in all 10 files |
 | 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: a block per item (below; 5 to 7 in a template, 52/58 in saves) |
-| 4 | 0xC3 (195) | 556 | uncompressed | summary: `u32 level`, `u32 classId` (1..9, see §6.1), `wchar name[32]`, statistics (kills, gold, time) |
+| 4 | 0xC3 (195) | 556 | uncompressed | summary: `u32 level`, `u32 classId` (1..9, see §6.1), `wchar name[32]`, the equipment (below), statistics (kills, gold, time) |
 | 5 | 0xC4 (196) | 64 on disk (556 in the table) | uncompressed | mini block |
 | 8 | 0xCD (205) | 822,824 | zlib | world/quest/chest state (98.6% zeros; markers 0xB00B/0xDEAD; templates differ in ~60 bytes, saves in ~240) |
 | 9 | 0xCE (206) | 100 | uncompressed | zeros (there is no room for a checksum) |
@@ -1098,6 +1098,10 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 Compressed sections: a 32-byte prefix `u32 0xBAADC0DE, u32 csize, 24 × 0` + zlib (`78 DA`); inflate yields exactly `size`.
 **Confirmed on every section 2026-10-17** by `tools/analysis/formats/amh_dump.py`: the sections follow the table in slot order, back to back, the last to the end of the file; a stored section is `size` bytes on disk but for 0xC4 (64 bytes for a size of 556).
 The 8 templates are of 8 different classes (1–6, 8, 9), level 1, without a name; the 2 saves are level-29 heroes.
+
+**The summary's equipment**, **confirmed** 2026-11-08 (#1676) on the 10 files (`amh_dump.py --saves --summaries`) and by the choice of the hero's code (`0x6F4E60` copies the summary to a pedestal's `+0x2FC` and reads its `+0x388` and `+0x390`, the slots 0 and 2): at `0x88` the count of the equipment's slots, a `u32` 19 in every file, then the type of the item in each slot, a `u32` each, 0 for none, in the slots' order of docs/re/equipment.md (13 the right hand, 12 the left); each type is that of an item that the inventory holds outside the backpack.
+A template's summary names its weapon alone (the slot 13, the Wood Elf's bow in 12, the Vampiress's shield in 12 too), not its cosmetic item, which the class's default fills; the saved Dwarf's names 15 items and the Daemon's 14, the potions of their belts and the weapons of their other sets not among them.
+At `0xED` a byte for each of six difficulties, bronze's first, set where the hero won it (`0x6F4F20`; docs/re/fight.md, "What opens the levels"), 0 in the 10 files.
 
 **The inventory containers** `0xCA` and `0xCB`, **confirmed** 2026-10-19 (#133) by the client's reader (`0x5DDA30`, which the hero's loader `0x6058A0` calls for both, `0xCB` for the reference `0x11`) and on every section of the 10 files, read back to their exact 4,444 bytes: six u16, the container's number (1 for the backpack, 17 = `0x11` for the second), flags (16 in every backpack, 0 or 4 in the second container; `+0x1162` of the object), two more (the second 392 in the saves' backpacks, 0 in the templates', 20 in every second container), the grid's width and height (20 × 8 and 20 × 10); `0x400` bytes (zeros in all 10); the grid, `0xC00` bytes of 256 cells of 12 bytes, row by row, width × height of them used, a cell's first u32 an item reference (0 none); `0x78` bytes, five records of 24 bytes of two references each; 200 bytes; two u32; then the quest items, a u32 count and 8 bytes each (the client logs it as `NumQuestItem`), and the scrolls, a u32 count and 4 bytes each (`NumScrolls`), both 0 in all 10 files.
 The backpack of a template holds 4 items, one cell each (the three healing potions and the large torch of `Hero01.ptx`'s inventory), the saves' 33 and 39; the second container is empty in all 10.
@@ -1124,7 +1128,7 @@ The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold:
 
 **The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
 
-For the new engine: original `.pax` saves are not supported (by design), but for the two heroes the installation ships for the Underworld's choice, which `opensacred-convert heroes` writes beside the templates, `save/hero06.hero` and `hero07.hero`, indexed in `heroes.ron`'s `saved` with their slots and names (#1676).
+For the new engine: original `.pax` saves are not supported (by design), but for the two heroes the installation ships for the Underworld's choice, which `opensacred-convert heroes` writes beside the templates, `save/hero06.hero` and `hero07.hero`, indexed in `heroes.ron`'s `saved` with their slots, names, their summaries' equipment by the slots and the difficulties they won (#1676).
 The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears, the items of its backpack (#1285) and its combat arts in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 

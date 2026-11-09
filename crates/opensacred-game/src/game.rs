@@ -99,6 +99,20 @@ impl Class {
         }
     }
 
+    /// The class's colour (`0x43C250`), as ARGB: a saved hero's label's on its pedestal.
+    pub fn colour(self) -> u32 {
+        match self {
+            Class::Seraphim => 0xFF87_CEFA,
+            Class::Gladiator => 0xFFE3_8217,
+            Class::Mage => 0xFF6C_4CE5,
+            Class::DarkElf => 0xFFA0_20F0,
+            Class::WoodElf => 0xFF22_8B22,
+            Class::Vampiress => 0xFFB7_5555,
+            Class::Dwarf => 0xFF00_FFFF,
+            Class::Daemon => 0xFFFF_6C00,
+        }
+    }
+
     /// The item that the class has in a slot of its own whenever that slot is empty, and the slot
     /// (`0x426580`; docs/re/equipment.md, "Worn items and the classes' defaults"): the
     /// Seraphim's hair, the Gladiator's belt, the Battle Mage's hood, the Vampiress's hair and
