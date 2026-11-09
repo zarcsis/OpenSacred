@@ -205,6 +205,21 @@ impl Stats {
                     numbers(&most)
                 ));
                 lines.push(format!("resistances {}", numbers(&combat.resistance)));
+                // The multipliers that the products above took, as the original's driver prints
+                // its own, so that the raw values of the two can be compared (#2370).
+                let exact = |values: &[f32]| {
+                    values
+                        .iter()
+                        .map(f32::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                lines.push(format!(
+                    "multipliers: damage {}, resistances {}, spells {}",
+                    exact(&combat.multipliers),
+                    exact(&combat.resistance_factors),
+                    exact(&combat.spells)
+                ));
                 lines.push(format!("attack speed {:.0}", combat.speed));
             }
             None => lines.push("no fight values".into()),
@@ -525,6 +540,7 @@ mod tests {
                 "damage (physical, fire, magic, poison) least 4.0, 0.0, 1.0, 0.0, most 9.0, 0.0, \
                  2.5, 0.0",
                 "resistances 3.0, 0.0, 0.0, 10.0",
+                "multipliers: damage 1, 1, 1, 1, resistances 1, 1, 1, 1, spells 1, 1, 1, 1",
                 "attack speed 140",
             ]
         );
