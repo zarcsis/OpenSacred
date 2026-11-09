@@ -1228,7 +1228,7 @@ fn hide_under_inventory(
 fn build(
     mut book: ResMut<Book>,
     live: Option<NonSend<crate::scripts::Live>>,
-    named: Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
+    seek: crate::compass::Seek,
     mut sounds: MessageWriter<sfx::Play>,
     hero: Option<Res<crate::hero::Hero>>,
     arts: Option<Res<crate::arts::HeroArts>>,
@@ -1246,7 +1246,7 @@ fn build(
     // The compass's cell (`0x497540`), its middle on the iso plane, moved by (−2248, 420) and
     // truncated (`0x6B0C33`).
     let place = |compass: &opensacred_rules::quests::Compass| {
-        let at = crate::compass::target_of(compass, &named)?;
+        let at = seek.target_of(compass)?;
         let middle = crate::paths::centre(crate::paths::cell_of(at.x, at.y));
         Some((crate::minimap::iso(middle) + PICTURE_SHIFT).trunc())
     };

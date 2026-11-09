@@ -175,10 +175,7 @@ fn show(
     roots: Query<Entity, With<OverviewRoot>>,
     mut planes: Query<&mut Node, With<Plane>>,
     heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
-    (live, named): (
-        Option<NonSend<crate::scripts::Live>>,
-        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
-    ),
+    (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
 ) {
     let point = hero_point(&heroes).filter(|_| overview.shown);
     let Some(point) = point else {
@@ -248,7 +245,7 @@ fn show(
             &mut commands,
             plane,
             (&images, &assets, texts.as_deref()),
-            (live, &named),
+            (live, &seek),
             point,
         );
     }
@@ -339,10 +336,7 @@ fn arrows(
     (images, assets): (Res<UiImages>, Res<AssetServer>),
     heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
     map: Res<crate::world_map::Map>,
-    (live, named): (
-        Option<NonSend<crate::scripts::Live>>,
-        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
-    ),
+    (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
     mut arrows: Query<(&Arrow, &mut ImageNode, &mut Node, &mut Visibility)>,
 ) {
     let Some(hero) = hero_point(&heroes).filter(|_| overview.shown) else {
@@ -356,7 +350,7 @@ fn arrows(
                 } else {
                     Marker::Side
                 };
-                crate::compass::target_of(live.marker(marker)?, &named)
+                seek.target_of(live.marker(marker)?)
             }),
             _ => map.pin_target(),
         };

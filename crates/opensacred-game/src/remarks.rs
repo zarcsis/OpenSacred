@@ -429,10 +429,7 @@ fn land(
     mut remarks: ResMut<Remarks>,
     heroes: Query<(&Transform, Option<&Health>), With<Body>>,
     (npcs, dungeons, heights): (Option<Res<Npcs>>, Option<Res<Dungeons>>, Res<Heights>),
-    (scripts, named): (
-        Option<NonSend<scripts::Live>>,
-        Query<(&crate::npcs::ScriptName, &GlobalTransform)>,
-    ),
+    (scripts, seek): (Option<NonSend<scripts::Live>>, crate::compass::Seek),
     mut posts: MessageWriter<Remark>,
 ) {
     let Ok((at, health)) = heroes.single() else {
@@ -474,7 +471,7 @@ fn land(
         let near = scripts.as_ref().and_then(|live| {
             [Marker::Main, Marker::Side].into_iter().find_map(|marker| {
                 let (entry, compass) = live.marked_entry(marker)?;
-                let place = crate::compass::target_of(compass, &named)?;
+                let place = seek.target_of(compass)?;
                 ((place.x - x).abs() <= NEAR_QUEST && (place.y - z).abs() <= NEAR_QUEST)
                     .then_some(entry)
             })
