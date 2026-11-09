@@ -188,6 +188,7 @@ Read again 2026-10-23 (#507):
 The heroes' second starting skills are 25 for the Gladiator and the Dark Elf and 20 for the Vampiress, each at level 1 so that `v` is 12: their times are the records' over 1.12 (the Gladiator's 1059 13.39 s and 1057 7.14 s, seen 2026-10-23 with the driver, #507), as the templates hold them; the other classes' skills are none of these.
 The Gladiator's 1057 taught by a rune then rose from 7.14 to 9.82 s at level 2, the growth still to run (seen).
 `opensacred_rules::arts` follows them (`Arts::recompute`, `Arts::shorten`, `Arts::start`, `Arts::regenerate`, `Arts::ready`, `Speeds`), `opensacred_rules::fight::arts_speeds` gives a creature's speeds, and the game runs the hero's regeneration on the world's tick, as the original does (`frame::WorldTick`, #616, #627); every entry of the 8 templates, taught or not, recomputes to the very time the template holds.
+Since #2374 the game makes the hero's times again as its skills or its arts' bonuses change, as the recomputation does at every change of them (`arts::regenerate`, whatever changed them: a skill learnt, an item put on, a level, a hero carried): the installation's Dwarf carried into the Underworld (#2362) has his skill 29's shortened times of 1085, 1087 and the spells 55, 58 and 59, 45.3 s, 19.7 s, 12.6 s, 59.0 s and 56.2 s, and the others' 20.0 s, 18.5 s and 86.0 s, all the original's (seen 2026-11-09).
 
 ## The spells page
 

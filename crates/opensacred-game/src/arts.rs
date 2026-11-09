@@ -201,6 +201,7 @@ fn regenerate(
     experience: Res<Experience>,
     arts: Option<ResMut<HeroArts>>,
     heroes: Query<(&Base, Option<&Holding>, Option<&crate::effects::Effects>), With<Body>>,
+    mut timed: Local<Option<Vec<(u8, u32)>>>,
 ) {
     let (Some(seconds), Some(mut arts), Some((base, holding, effects))) =
         (tick.seconds, arts, heroes.iter().next())
@@ -227,8 +228,18 @@ fn regenerate(
     let every = u16::try_from(holds.sets.all_arts).unwrap_or(u16::MAX);
     let mut raised = arts.arts.clone();
     raised.set_bonuses(&bonuses, (weapon_arts, every));
-    if raised != arts.arts {
+    let raised_anew = raised != arts.arts;
+    if raised_anew {
         arts.arts = raised;
+    }
+    // The times made again from their records at the levels with their bonuses and shortened by
+    // the skills, as the skills or the bonuses change (`0x5796A0`, #2374), whoever changed the
+    // skills (`statistics::refit` too).
+    if raised_anew || timed.as_ref() != Some(&arts.skills) {
+        let mut list = std::mem::take(&mut arts.arts);
+        list.recompute(&arts.context());
+        arts.arts = list;
+        *timed = Some(arts.skills.clone());
     }
 }
 
