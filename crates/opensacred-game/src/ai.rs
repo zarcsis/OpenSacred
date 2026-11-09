@@ -435,7 +435,7 @@ pub(crate) fn way_onto(
 /// anew (`0x53A170`).
 fn open(
     mut commands: Commands,
-    doors: Query<(&Object, &Layered), With<Door>>,
+    doors: Query<(&Object, &Layered, Has<crate::npcs::MadeAgain>), With<Door>>,
     mut creatures: Query<(Entity, &Transform, &Layered, &mut Mind), Without<Walk>>,
 ) {
     for (entity, transform, layered, mut mind) in &mut creatures {
@@ -443,10 +443,15 @@ fn open(
             continue;
         };
         mind.left_door();
-        let Ok((at, door_layer)) = doors.get(door) else {
+        let Ok((at, door_layer, made_again)) = doors.get(door) else {
             continue;
         };
         let here = transform.translation;
+        // A door that its sector's `Enter` made again is sent no event (`0x53BF19`).
+        if made_again {
+            debug!("ai: {entity} stands at {door}, made again by its sector, and opens it not");
+            continue;
+        }
         if opens(spot(here), layered.layer, spot(at.at), door_layer.layer) {
             debug!("ai: {entity} opens {door} in its way");
             commands.entity(door).insert(Swing::to(true));

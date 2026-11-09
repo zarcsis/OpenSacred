@@ -126,7 +126,17 @@ The event 7 takes the AI's state 1 (`0x53A170`) with the door as its target:
 - a creature of `+0x200` bit 2 (not read, #2293) does so only for the 19 gates, palisades, fences and cages among the door types (5674, 5676 to 5679, 5740 to 5750, 5756 to 5758), and for another door takes its `+0x1EC` as its target instead;
 - standing (sub-state 2) within 300 of the door, on its layer or the ground and the first floor either way, it calls the quests' hook (`0x471790` with itself, the door and the kind 3, `0x53BF19`) and, unless the door's object has flag `0x4000` (`+0x14`), sends the door the event `0x21`; then the AI's state 0.
   Read 2026-11-08 for #1369 (**confirmed** by code): the quests' hook takes the object's quest (`+0x94`) and acts by the kinds 0, 1, 2, 4, 5 and 6 alone, so the kind 3 does nothing; a door of the flag `0x4000` is sent the event all the same where its type is 5200 (`0x428760`), which is no door's, so never.
-  The flag is set by a sector's `Enter` (`0x4939F0` at `0x494924`) on each object it makes again from the interpreter's list `+0x364` (records of `0x118` bytes, by the sector), which it plays the slot 170 of (`MOTION_ACTIVATE`); what fills that list is not read (#2292).
+  The flag is set by a sector's `Enter` (`0x4939F0` at `0x494924`) on each object it makes again from the interpreter's list `+0x364` (records of `0x118` bytes, by the sector), which it plays the slot 170 of (`MOTION_ACTIVATE`).
+  The list is the start's: `CreateObj` (`0x485C10`, at `0x486A88`–`0x486B88`) keeps the object in it rather than making it while the script manager's byte `+0x14` is set (the new game's walk of its start script and the quests' sections that `SetUpQuest` runs there, docs/re/netscript.md) and the object's sector has no `+0x30` bit `0x800` (no `Enter` has marked it yet, docs/02 §5.1).
+  The record holds its place, its sector and its names (`+0x18`, `+0x98`).
+  So the start's objects outside the 3 × 3 sectors about its start are made by their sectors' `Enter`, each time it runs (read 2026-11-09 for #2292, **confirmed** by code and by a trace).
+  - **Seen**: a trace of `0x4946C8` in the Seraphim's new game counted 1,881 records.
+  - The game's start objects outside the 3 × 3 about her `StartPosition` are 1,912: 1,909 containers (chests, barrels and the like), a prison and two items. Its 65 effects and 10 sound loops, which `CreateObj` makes before that point (`0x48907C`), are not counted.
+  - None is a door, as the doors are the sectors' functions'. So the flag spares no door that a creature would open, and the rule changes nothing that the creatures do.
+
+
+Since #2292 `opensacred-game` marks the start's objects outside its 3 × 3 so (`npcs::MadeAgain`), and a creature standing at such a door sends it no event (`ai::open`).
+Not followed: the slot 170 that the `Enter` plays on each object it makes again.
 
 The door turns (`0x44BCD0`): one not barred opens when closed (its clip `0xAA`, the trigger's bit 0 set) and closes when open (`0xAB`); a barred one only closes; and the event from a creature that is no hero leaves open a door that a hero marked.
 So the creature opens the door, and its idle state (`0x542B20`) finds its target again, the door's cells now walkable (docs/re/movement.md: a door's cell may be walked on while its trigger's bit 0 is set).
