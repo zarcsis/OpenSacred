@@ -114,6 +114,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the health of the creature nearest the hero, its most and its level (#278);
   * the hero's level, its health and its most (#292) and its experience (#283);
   * the hero's gold, its combat arts still regenerating, the weather's levels and the drops nearest it;
+  * where the bar's compass points (#2403): the main quest's target and the side quest's, each its quest, its cell and the creature's name in the scripts where the target is one;
   * the version, the GPU adapter and backend, the window's size and mode.
 
   Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
@@ -155,7 +156,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `benchmark SECONDS` | measures and prints | `--benchmark` |
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
 | `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F7, F12, F10 and the key under Esc; without a switch, toggles | |
-| `state` | the app's state, the hero, the clock, the frames, the drops nearest the hero (the overlay's values) | |
+| `state` | the app's state, the hero, the clock, the frames, the drops nearest the hero, the compass's targets (the overlay's values) | |
 | `seed` | the run's seed of its rolls and the game's (#1644) | `--seed` |
 | `creatures [RADIUS]` | the creatures within RADIUS cells of the hero (20), the nearest first: an id, the type, the cell (and the floor inside), the health, the level, hostile or peaceful, awake, fighting, a champion or a boss, dying, a dialogue; as the original's driver lists them (#523) | |
 | `stashes [RADIUS]` | the hidden stashes and the scripts' mouse events within RADIUS cells of the hero (20), the nearest first: each its cell, its function, its text's name, its uses and its look, and their count in all (#1518, #1584) | |
