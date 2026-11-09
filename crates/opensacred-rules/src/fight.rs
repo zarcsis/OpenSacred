@@ -2526,6 +2526,31 @@ pub fn art_bonuses(base: &Base, level: u32, holds: &Holds) -> Vec<(u16, u16)> {
         .collect()
 }
 
+/// The item effect `845_Konzentration`, which raises every weapon art's bonus.
+pub const CONCENTRATION: u32 = 845;
+/// The item effect `848_Agilitat`, which raises `A`'s and `D`'s multipliers.
+pub const AGILITY: u32 = 848;
+
+/// The bonus of the items of `holds` to every weapon art of a creature of `base` at level `level`
+/// (`0x5796A0` at `0x57A9E3`): each slot of the effect [`CONCENTRATION`] that holds for it, its
+/// value grown by its attribute and truncated, summed, at least 0; [`crate::arts::Arts::
+/// set_bonuses`] gives it to each weapon art but 1019.
+pub fn concentration(base: &Base, level: u32, holds: &Holds) -> u16 {
+    let level = level.max(1);
+    let attributes = base.attributes.map(u32::from);
+    let grown: [u32; 6] = std::array::from_fn(|i| {
+        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
+    });
+    let sum: i32 = holds
+        .items
+        .iter()
+        .flat_map(|item| item.bonuses)
+        .filter(|bonus| bonus.holds(base.id) && bonus.effect & 0xFFFF == CONCENTRATION)
+        .map(|bonus| whole_signed(bonus.value(grown)))
+        .sum();
+    u16::try_from(sum.max(0)).unwrap_or(u16::MAX)
+}
+
 /// A value truncated toward zero into an `i32`, as the client's `__ftol` stores a bonus.
 fn whole_signed(value: f32) -> i32 {
     #[expect(
@@ -3266,7 +3291,7 @@ pub fn combat_with(
     // The items' own damage, resistances, `A` and `D`, and their bonus slots (`0x5796A0`, #490):
     // 801 to 804 a kind's damage (with the condition's bit 15, its resistance), 805 to 808 a
     // hundredth to one of its multipliers or its resistance's factor, 809 and 810 to those of `A`
-    // and `D`, 811 the attack speed, 815
+    // and `D`, 848 to both, 811 the attack speed, 815
     // to 820 the attributes, by the attributes before them; the other effects are not followed.
     // `A` and `D` and their multipliers as the recomputation stores them (`+0x5A`, `+0x5E`, `+0xE6`,
     // `+0xEA`): each item's `A` and `D` times the row's 100 per cent, then its bonuses.
@@ -3326,6 +3351,11 @@ pub fn combat_with(
                 }
                 809 => attack_times = raised(attack_times, value),
                 810 => defence_times = raised(defence_times, value),
+                // Both multipliers, a hundredth of the value each (`0x57AB3C`).
+                AGILITY => {
+                    attack_times = raised(attack_times, value);
+                    defence_times = raised(defence_times, value);
+                }
                 811 => speed_bonus += value,
                 // The pace, added and truncated (`0x57A8C6`).
                 812 => pace = (pace + value).trunc(),
@@ -6719,6 +6749,46 @@ mod tests {
             most_health_held(&dwarf, 1, &held, &[], 1.0, &rules)
                 > most_health_held(&dwarf, 1, &Holds::default(), &[], 1.0, &rules)
         );
+    }
+
+    #[test]
+    fn agility_raises_both_multipliers_and_concentration_every_weapon_art() {
+        let rules = Rules::default();
+        let dwarf = Base {
+            id: 8,
+            attributes: [26, 18, 25, 24, 0, 8],
+            ..Base::default()
+        };
+        let bonus = |effect: u32, value: i16| Bonus {
+            condition: 0,
+            effect,
+            value,
+        };
+        let holding = |bonuses: &[(u32, i16)]| {
+            let mut item = ItemValues::default();
+            for (slot, &(effect, value)) in bonuses.iter().enumerate() {
+                item.bonuses[slot] = bonus(effect, value);
+            }
+            Holds {
+                items: vec![item],
+                ..Holds::default()
+            }
+        };
+        // The Dwarf's ring of 848 at 6 (#2370): a hundredth of it to `A`'s and `D`'s
+        // multipliers each, as 809 and 810 at 6 together give it.
+        let agile = holding(&[(AGILITY, 6)]);
+        let pair = holding(&[(809, 6), (810, 6)]);
+        let values = |holds: &Holds| {
+            let skills = hero_skills(&dwarf, 29, holds);
+            let c = combat(&dwarf, 29, holds.clone(), &skills, &rules);
+            (c.attack, c.defence)
+        };
+        assert_eq!(values(&agile), values(&pair));
+        assert!(values(&agile).0 > values(&Holds::default()).0);
+        // His helmet's 845 at 1: every weapon art's bonus, which no other effect gives.
+        let focused = holding(&[(CONCENTRATION, 1), (AGILITY, 6)]);
+        assert_eq!(concentration(&dwarf, 29, &focused), 1);
+        assert_eq!(concentration(&dwarf, 29, &agile), 0);
     }
 
     #[test]
