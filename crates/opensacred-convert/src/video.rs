@@ -2,8 +2,9 @@
 //! (docs/02 §10.3; the format is [`opensacred_data::video`]), FFV1 version 3 video in the decoded
 //! `yuv420p` and FLAC audio in 16 bits in Matroska, by FFmpeg ([`crate::ffmpeg`]) without random ids
 //! (`+bitexact`) (#698); and stage B's encoding of a master into AV1 and Opus in WebM ([`encode`]),
-//! with SVT-AV1 on all threads, whose output may vary from run to run (#694). No index lists them:
-//! a cutscene's file is named by the cutscene (#828).
+//! its frames cut to their content without the files' black bars (#2413), with SVT-AV1 on all
+//! threads, whose output may vary from run to run (#694). No index lists them: a cutscene's file is
+//! named by the cutscene (#828).
 
 use std::ffi::OsStr;
 use std::fs;
@@ -24,15 +25,64 @@ pub fn output_dir(out: &Path) -> PathBuf {
     out.join(DIR)
 }
 
-/// Encodes the master `mkv` into the game's `webm`: AV1 by SVT-AV1 at CRF 30, preset 6, and Opus
-/// at 128 kbit/s.
+/// The content of the 16:9 movies inside their 640 × 480 frames, letterboxed by 60 rows above and
+/// below (FFmpeg's `crop`: width, height, left, top; docs/02 §10.3).
+const WIDE: &str = "640:360:0:60";
+/// The content of the Underworld's 2:1 movies, black on every side.
+const UNDERWORLD: &str = "600:300:20:90";
+/// The intro's first frame of the intro itself, after the logo's scene (10.60 s at 25 fps).
+const INTRO_CUT: u32 = 265;
+
+/// How stage B cuts the frames of the movie `stem` to their content (#2413, docs/02 §10.3), as
+/// the maintainer decided on 2026-11-09: FFmpeg's graph from the master's video `[0:v]` to `[v]`,
+/// none for a movie shown whole. The six 16:9 movies their 640 × 360, the Underworld's two their
+/// 600 × 300; the intro one 16:9 stream of 480 rows, its logo's scene whole at its 640 × 480 in
+/// the middle, black at its sides, and the intro itself from [`INTRO_CUT`] on cut to its 640 × 360
+/// and scaled up to 854 × 480; `oem`, 4:3 to its edges, whole.
+fn content(stem: &str) -> Option<String> {
+    match stem {
+        "act1" | "act2" | "act3" | "act4" | "ascaron" | "extro" => {
+            Some(format!("[0:v]crop={WIDE}[v]"))
+        }
+        "introuw" | "extrouw" => Some(format!("[0:v]crop={UNDERWORLD}[v]")),
+        "intro" => Some(format!(
+            "[0:v]split=2[logo][intro];\
+             [logo]trim=end_frame={INTRO_CUT},setpts=PTS-STARTPTS,pad=854:480:(ow-iw)/2:0[a];\
+             [intro]trim=start_frame={INTRO_CUT},setpts=PTS-STARTPTS,crop={WIDE},\
+             scale=854:480:flags=lanczos[b];\
+             [a][b]concat=n=2:v=1:a=0[v]"
+        )),
+        _ => None,
+    }
+}
+
+/// Encodes the master `mkv` into the game's `webm`: its frames cut to their content where
+/// [`content`] names a cut, AV1 by SVT-AV1 at CRF 30, preset 6, and Opus at 128 kbit/s.
 pub fn encode(mkv: &Path, webm: &Path) -> Result<()> {
-    let args: Vec<&OsStr> = [
+    let stem = mkv
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let graph = content(&stem);
+    let mut args: Vec<&OsStr> = [
         OsStr::new("-y"),
         OsStr::new("-i"),
         mkv.as_os_str(),
         OsStr::new("-map_metadata"),
         OsStr::new("-1"),
+    ]
+    .to_vec();
+    if let Some(graph) = &graph {
+        args.extend([
+            OsStr::new("-filter_complex"),
+            OsStr::new(graph),
+            OsStr::new("-map"),
+            OsStr::new("[v]"),
+            OsStr::new("-map"),
+            OsStr::new("0:a?"),
+        ]);
+    }
+    args.extend([
         OsStr::new("-c:v"),
         OsStr::new("libsvtav1"),
         OsStr::new("-crf"),
@@ -48,8 +98,7 @@ pub fn encode(mkv: &Path, webm: &Path) -> Result<()> {
         OsStr::new("-f"),
         OsStr::new("webm"),
         webm.as_os_str(),
-    ]
-    .to_vec();
+    ]);
     ffmpeg::run(&args, &mkv.display().to_string())
 }
 
@@ -159,8 +208,45 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
+    #[test]
+    fn the_named_movies_are_cut_to_their_content() {
+        for stem in ["act1", "act2", "act3", "act4", "ascaron", "extro"] {
+            assert_eq!(
+                content(stem).as_deref(),
+                Some("[0:v]crop=640:360:0:60[v]"),
+                "{stem}"
+            );
+        }
+        for stem in ["introuw", "extrouw"] {
+            assert_eq!(
+                content(stem).as_deref(),
+                Some("[0:v]crop=600:300:20:90[v]"),
+                "{stem}"
+            );
+        }
+        let intro = content("intro").unwrap();
+        assert!(intro.contains("trim=end_frame=265"), "{intro}");
+        assert!(intro.contains("trim=start_frame=265"), "{intro}");
+        assert!(intro.contains("crop=640:360:0:60,scale=854:480"), "{intro}");
+        assert!(intro.ends_with("concat=n=2:v=1:a=0[v]"), "{intro}");
+        assert_eq!(content("oem"), None);
+        assert_eq!(content("act5"), None);
+    }
+
+    /// The width and the height of a movie's video, by `ffprobe`.
+    fn frame_size(file: &Path) -> String {
+        let probe = std::process::Command::new("ffprobe")
+            .args(["-v", "error", "-select_streams", "v:0"])
+            .args(["-show_entries", "stream=width,height", "-of", "csv=p=0"])
+            .arg(file)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&probe.stdout).trim().to_owned()
+    }
+
     /// The shortest cutscene's master holds the WMV's frames and samples, and the game's WebM
-    /// that stage B encodes from it is AV1 video and Opus audio; no index lists it.
+    /// that stage B encodes from it is AV1 video and Opus audio, its frames cut to their 640 ×
+    /// 360 (#2413); no index lists it.
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn a_cutscene_becomes_a_lossless_master_and_av1_and_opus() {
@@ -194,6 +280,8 @@ mod tests {
             codecs.split_whitespace().collect::<Vec<_>>(),
             ["av1", "opus"]
         );
+        assert_eq!(frame_size(&mkv), "640,480");
+        assert_eq!(frame_size(&webm), "640,360");
         let mut written: Vec<_> = fs::read_dir(output_dir(&out))
             .unwrap()
             .map(|entry| entry.unwrap().file_name())

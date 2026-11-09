@@ -81,7 +81,8 @@ impl Make {
             Self::Model => ("model", 1),
             Self::WorldIndex => ("world-index", 1),
             Self::Sound(_) => ("sound", 1),
-            Self::Video => ("video", 0),
+            // 1: the movies cut to their content (#2413).
+            Self::Video => ("video", 1),
             Self::Luau => ("luau", 1),
         }
     }

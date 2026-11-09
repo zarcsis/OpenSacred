@@ -1,8 +1,9 @@
 //! The movies (#1945; docs/re/movies.md): the converted WebM's AV1 frames and Opus sound
-//! (`video/<name>.webm`, `opensacred_data::video`) played over everything, filling the original's
-//! 4:3 screen of the interface (`bar::SCREEN`) with the rest of a wider window black, until the
-//! movie ends or Escape, Space (the controls' `skip` of `[movie]`) or either mouse button held
-//! stops it (`0x6A0EA0`).
+//! (`video/<name>.webm`, `opensacred_data::video`) played over everything, each frame fitted by
+//! its own shape to the whole window with the rest black, as the converter cuts the files' black
+//! bars away (#2413; docs/decisions/interface.md, "Movies by their content"), where the original
+//! fills its 4:3 screen with the whole 640 × 480 frame; until the movie ends or Escape, Space (the
+//! controls' `skip` of `[movie]`) or either mouse button held stops it (`0x6A0EA0`).
 //! As the original's player (`0x6A16E0`), it waits half a second before a movie, and a quarter of
 //! a second after it and then while Escape or Space is still held; the keys and the clicks of the
 //! whole while are thrown away, and a movie whose file is not there is skipped.
@@ -29,11 +30,13 @@ use std::thread;
 use anyhow::{Context, Result, bail, ensure};
 use bevy::asset::RenderAssetUsages;
 use bevy::input::InputSystems;
+use bevy::math::DVec2;
 use bevy::prelude::{
-    App, Assets, BackgroundColor, ButtonInput, ChildOf, Color, Commands, Entity, GlobalZIndex,
-    Handle, Image, ImageNode, IntoScheduleConfigs, KeyCode, Message, MessageReader, MessageWriter,
-    MouseButton, NextState, Node, OnEnter, Plugin, PositionType, PreUpdate, Real, Res, ResMut,
-    Resource, State, Time, UVec2, UiRect, Update, Val, default, info, resource_exists, warn,
+    AlignItems, App, Assets, BackgroundColor, ButtonInput, ChildOf, Color, Commands, Component,
+    Entity, GlobalZIndex, Handle, Image, ImageNode, IntoScheduleConfigs, JustifyContent, KeyCode,
+    Message, MessageReader, MessageWriter, MouseButton, NextState, Node, OnEnter, Plugin,
+    PositionType, PreUpdate, Query, Real, Res, ResMut, Resource, State, Time, UVec2, UiScale,
+    Update, Val, Vec2, Window, default, info, resource_exists, warn,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy_kira_audio::prelude::{Audio, AudioApp, AudioChannel, AudioControl, AudioSource};
@@ -52,7 +55,7 @@ use crate::frame::{Hold, HoldsControl};
 use crate::game::AppState;
 use crate::pause::{Play, Still};
 use crate::settings::{Settings, SettingsFile};
-use crate::{bar, files, music, opus, scripts, talk};
+use crate::{files, music, opus, scripts, talk};
 
 /// The directory of the movies in the assets.
 const DIR: &str = "video";
@@ -735,6 +738,8 @@ fn start(
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
                 ..default()
             },
             BackgroundColor(screen),
@@ -841,18 +846,16 @@ fn advance(
                 TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::default(),
             ));
+            // Its size by `fit`, centred by the root.
             let frame = commands
                 .spawn((
                     ImageNode::new(image.clone()),
                     Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Percent(50.0),
-                        top: Val::Px(0.0),
-                        margin: UiRect::left(Val::Px(-bar::SCREEN.x / 2.0)),
-                        width: Val::Px(bar::SCREEN.x),
-                        height: Val::Px(bar::SCREEN.y),
+                        width: Val::Px(0.0),
+                        height: Val::Px(0.0),
                         ..default()
                     },
+                    Frame(read.size),
                     ChildOf(movie.root),
                 ))
                 .id();
@@ -906,6 +909,43 @@ fn advance(
                         .insert(BackgroundColor(Color::NONE));
                 }
             }
+        }
+    }
+}
+
+/// The node of a movie's frames, of their size in pixels.
+#[derive(Component)]
+struct Frame(UVec2);
+
+/// The size of a frame of `frame` pixels fitted by its own shape into `area`: as wide as the area
+/// where the area is narrower than the frame, else as high (#2413).
+fn fitted(area: Vec2, frame: UVec2) -> Vec2 {
+    if frame.x == 0 || frame.y == 0 || area.y <= 0.0 {
+        return area;
+    }
+    let shape = f64::from(frame.x) / f64::from(frame.y);
+    let area = area.as_dvec2();
+    let size = if area.x / area.y > shape {
+        DVec2::new(area.y * shape, area.y)
+    } else {
+        DVec2::new(area.x, area.x / shape)
+    };
+    size.as_vec2()
+}
+
+/// Sizes each movie's frame to the window as it is now, the interface's units scaled
+/// (`hud::scale`).
+fn fit(windows: Query<&Window>, ui_scale: Res<UiScale>, mut frames: Query<(&Frame, &mut Node)>) {
+    let (Some(window), true) = (windows.iter().next(), ui_scale.0 > 0.0) else {
+        return;
+    };
+    let area = Vec2::new(window.width(), window.height()) / ui_scale.0;
+    for (frame, mut node) in &mut frames {
+        let size = fitted(area, frame.0);
+        let (width, height) = (Val::Px(size.x), Val::Px(size.y));
+        if node.width != width || node.height != height {
+            node.width = width;
+            node.height = height;
         }
     }
 }
@@ -977,7 +1017,7 @@ impl Plugin for MoviesPlugin {
                             .run_if(resource_exists::<SettingsFile>),
                         start,
                     ),
-                    (advance, end).chain().run_if(resource_exists::<Movie>),
+                    (advance, fit, end).chain().run_if(resource_exists::<Movie>),
                 )
                     .chain(),
             )
@@ -991,6 +1031,24 @@ mod tests {
     use bevy::prelude::Messages;
 
     use super::*;
+
+    #[test]
+    fn a_frame_fits_the_window_by_its_own_shape() {
+        // A 1,920 × 1,080 window is 1,365.3 × 768 of the interface's units.
+        let wide = Vec2::new(1920.0 / 1080.0 * 768.0, 768.0);
+        // The 16:9 movies fill it; the Underworld's 2:1 are as wide, lower; a 4:3 one as high.
+        let filled = fitted(wide, UVec2::new(640, 360));
+        assert!((filled - wide).abs().max_element() < 0.01, "{filled}");
+        let underworld = fitted(wide, UVec2::new(600, 300));
+        assert!((underworld.x - wide.x).abs() < 0.01 && (underworld.y - wide.x / 2.0).abs() < 0.01);
+        assert_eq!(fitted(wide, UVec2::new(640, 480)), Vec2::new(1024.0, 768.0));
+        // A 4:3 window takes a 4:3 frame whole and a 16:9 one as wide, letterboxed.
+        let square = Vec2::new(1024.0, 768.0);
+        assert_eq!(fitted(square, UVec2::new(640, 480)), square);
+        assert_eq!(fitted(square, UVec2::new(854, 480)).x, 1024.0);
+        assert!((fitted(square, UVec2::new(640, 360)).y - 576.0).abs() < 0.01);
+        assert_eq!(fitted(square, UVec2::ZERO), square);
+    }
 
     #[test]
     fn the_standard_definitions_colours_come_out_of_their_yuv() {
