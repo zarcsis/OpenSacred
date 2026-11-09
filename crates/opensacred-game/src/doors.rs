@@ -100,7 +100,10 @@ impl Plugin for DoorsPlugin {
         app.add_systems(
             Update,
             (
-                pick.in_set(Control).after(attack::aim).before(hero::steer),
+                pick.in_set(Control)
+                    .in_set(crate::frame::OnWorld)
+                    .after(attack::aim)
+                    .before(hero::steer),
                 turn.after(hero::run),
             )
                 .in_set(Unpaused)

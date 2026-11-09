@@ -171,10 +171,12 @@ const TRIGGER: u8 = 0x29;
 const WORLD_POSITION: u8 = 0x20;
 const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
+/// `NPC_Goto`'s tag of a walk at a walk: its count of orders starts at 1 (`0x49E210`, #1892).
+const STROLLS: u8 = 0x66;
 /// The records that turn the scripts' anim mode on and off (`SetAnimMode`, `SetCinemaMode`,
 /// `SetPlayMode`; the mode word `0xAB73DC`), under which a creature's walks and teleports wait
 /// their turns in its queue ([`ScriptQueue`], #1220).
-const SET_ANIM_MODE: u16 = 88;
+pub(crate) const SET_ANIM_MODE: u16 = 88;
 const SET_PLAY_MODE: u16 = 89;
 const SET_CINEMA_MODE: u16 = 134;
 /// `PlayAnim` (`0x4A2550`): a creature plays a clip of its model's slot (#1277).
@@ -2605,8 +2607,13 @@ struct Moved {
 /// What a record of the play does to a creature (#1220, #1277).
 #[derive(Clone, Debug, PartialEq)]
 enum Act {
-    /// `NPC_Goto` (a walk) or `Teleport`, to `whither`.
-    Go { whither: Whither, walks: bool },
+    /// `NPC_Goto` (a walk) or `Teleport`, to `whither`; a walk of the tag `0x66` at a walk
+    /// (`strolls`, [`Queued::Walk`]).
+    Go {
+        whither: Whither,
+        walks: bool,
+        strolls: bool,
+    },
     /// `PlayAnim`: the slot of its clip, and how many times it plays outside the anim mode.
     Clip { slot: u16, loops: u32 },
     /// A `CallFunktion` naming the creature, which the scripts deferred under the anim mode: its
@@ -7937,6 +7944,9 @@ impl Npcs {
                 continue;
             };
             let walks = record.kind == NPC_GOTO;
+            // Its count of orders starting at 1 with the tag `0x66` (`0x49E210`), so that its
+            // first order is a walk's (#1892).
+            let strolls = walks && ops.iter().any(|o| o.tag == STROLLS);
             let Some(whither) = [0x04, 0x0C, 0x0D]
                 .into_iter()
                 .find_map(|tag| whither(ops, tag, &self.places))
@@ -7956,7 +7966,11 @@ impl Npcs {
             }
             moves.push(Moved {
                 name,
-                act: Act::Go { whither, walks },
+                act: Act::Go {
+                    whither,
+                    walks,
+                    strolls,
+                },
                 queued,
             });
         }
@@ -8515,12 +8529,13 @@ pub struct ScriptQueue(std::collections::VecDeque<Queued>);
 /// A step of a creature's [`ScriptQueue`].
 #[derive(Clone, Debug, PartialEq)]
 enum Queued {
-    /// A run to `to` (`NPC_Goto`, the kind 1) onto the level `onto`, the creature's own as it
+    /// A walk to `to` (`NPC_Goto`, the kind 1) onto the level `onto`, the creature's own as it
     /// sets out where the record names no floor, where the original takes the creature's layer as
     /// the record runs (`0x49E210`), so that its walk after a teleport down never counts as
     /// arrived and is dropped standing at its target (docs/decisions/netscript.md, "Queue's walk
-    /// onto the level it sets out on"); how many times it was ordered, and where the creature
-    /// stood as the count began.
+    /// onto the level it sets out on"); how many times it was ordered, from 1 for a record of the
+    /// tag `0x66` (#1892), and where the creature stood as the count began. Each order is a run
+    /// where its count is 0, else a walk (`+0x1F8`, `0x59A8D9`).
     Walk {
         to: Vec3,
         onto: Option<Level>,
@@ -8792,15 +8807,15 @@ fn take_steps(
                         *orders = 0;
                     }
                     if !arrived && !dropped {
-                        if *orders == 0 {
+                        // At a run where its count is 0, else at a walk (`+0x1F8`, `0x59A8D9`).
+                        let walk = if *orders == 0 {
                             *noted = here;
-                        }
+                            Walk::run(*to, level, mind.map_or(0.0, |mind| mind.run))
+                        } else {
+                            Walk::to(*to, level, mind.map_or(0.0, |mind| mind.speed))
+                        };
                         *orders += 1;
-                        // At a run (`+0x1F8` 2, `0x59A8D9`).
-                        let speed = mind.map_or(0.0, |mind| mind.run);
-                        commands
-                            .entity(entity)
-                            .insert(Walk::run(*to, level, speed).onto(onto).idle());
+                        commands.entity(entity).insert(walk.onto(onto).idle());
                     }
                     arrived || dropped
                 }
@@ -9394,6 +9409,28 @@ fn queued_sound(id: u32) -> sfx::Play {
     }
 }
 
+/// Stops the hero at each tick of the world while the scripts' cinema holds and its queue is
+/// empty (`0x539613`, `0x54E6D0(1, 0)`, of a hero whose AI state is neither 0 nor 10; #1892): its
+/// walk and its attack end, so that it stands through a cinema that a function leaves on, which
+/// takes none of the player's clicks on the world either (`scripts::no_cinema`).
+fn cinema_holds(
+    mut commands: Commands,
+    (tick, mode): (Res<WorldTick>, Option<Res<crate::scripts::Mode>>),
+    mut heroes: Query<(Entity, &mut hero::Body, Has<crate::attack::Attack>), Without<ScriptQueue>>,
+) {
+    if tick.seconds.is_none() || !mode.is_some_and(|mode| mode.cinema) {
+        return;
+    }
+    for (entity, mut body, attacks) in &mut heroes {
+        if body.moving().is_some() || body.target().is_some() || body.ordered() {
+            body.stop();
+        }
+        if attacks {
+            commands.entity(entity).remove::<crate::attack::Attack>();
+        }
+    }
+}
+
 /// Takes the first step of the hero's [`ScriptQueue`] at each tick of the world, as the hero's
 /// update steps its queue as a creature's (`0x5375C0` calling `0x59A840` for the local hero, seen
 /// in `annehmen2003`'s run, #1280): a walk orders the hero to its target at a run, the player's
@@ -9704,8 +9741,12 @@ pub(crate) fn script_records(
     // The steps queued in this run, for the creatures without a queue yet.
     let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
     for moved in npcs.moves(all.as_deref().unwrap_or(&records), real.elapsed_secs_f64()) {
-        let (whither, walks) = match moved.act {
-            Act::Go { whither, walks } => (whither, walks),
+        let (whither, (walks, strolls)) = match moved.act {
+            Act::Go {
+                whither,
+                walks,
+                strolls,
+            } => (whither, (walks, strolls)),
             // The hero stopped where its queue is empty (#1280).
             Act::Halt => {
                 if let Ok((entity, mut body)) = bodies.single_mut()
@@ -10001,7 +10042,7 @@ pub(crate) fn script_records(
                     Queued::Walk {
                         to,
                         onto: (layer > 0).then_some(level),
-                        orders: 0,
+                        orders: u8::from(strolls),
                         noted: heroes.iter().next().map_or(to, |at| at.translation),
                     }
                 } else {
@@ -10041,7 +10082,7 @@ pub(crate) fn script_records(
                     Queued::Walk {
                         to,
                         onto: (layer > 0).then_some(level),
-                        orders: 0,
+                        orders: u8::from(strolls),
                         noted: transform.translation,
                     }
                 } else {
@@ -11300,7 +11341,7 @@ impl Plugin for NpcsPlugin {
                     rearm,
                     animate,
                     door_clips,
-                    (take_steps, take_hero_steps).chain(),
+                    (take_steps, take_hero_steps, cinema_holds).chain(),
                     (walk, carry_riders).chain(),
                     put,
                     swing,
@@ -13000,6 +13041,76 @@ mod tests {
         app.update();
         assert!(fights(&app));
         assert!(app.world().get::<ScriptQueue>(guard).is_none());
+    }
+
+    #[test]
+    fn a_queued_walk_runs_at_its_first_order_and_one_of_the_tag_0x66_walks() {
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(Heights::house())
+            .add_message::<sfx::Play>()
+            .add_systems(Update, take_steps);
+        let walker = |app: &mut App, orders| {
+            let mind = ai::Mind::new(Vec3::ZERO, 0x1, (true, false), None, [70.0, 140.0], (76, 2));
+            let walk = Queued::Walk {
+                to: Vec3::new(2000.0, 0.0, 0.0),
+                onto: None,
+                orders,
+                noted: Vec3::ZERO,
+            };
+            app.world_mut()
+                .spawn((Transform::default(), mind, ScriptQueue([walk].into())))
+                .id()
+        };
+        let runs = walker(&mut app, 0);
+        // `NPC_Goto`'s of the tag `0x66` counts its orders from 1 (#1892).
+        let strolls = walker(&mut app, 1);
+        app.update();
+        let walk = |entity| app.world().get::<Walk>(entity).unwrap();
+        assert!(walk(runs).runs());
+        assert!(!walk(strolls).runs());
+    }
+
+    #[test]
+    fn the_cinema_stops_the_hero_at_each_tick_while_its_queue_is_empty() {
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(crate::scripts::Mode {
+                anim: true,
+                cinema: true,
+            })
+            .add_systems(Update, cinema_holds);
+        let sent = || {
+            let mut body = hero::Body::standing();
+            body.send(Vec3::new(500.0, 0.0, 0.0));
+            body
+        };
+        let hero = app
+            .world_mut()
+            .spawn((sent(), crate::attack::Attack::ordered(Entity::PLACEHOLDER)))
+            .id();
+        // One that takes its queue's steps keeps them.
+        let queued = app
+            .world_mut()
+            .spawn((sent(), ScriptQueue([Queued::Sound(7)].into())))
+            .id();
+        app.update();
+        assert!(!app.world().get::<hero::Body>(hero).unwrap().ordered());
+        assert!(app.world().get::<crate::attack::Attack>(hero).is_none());
+        assert!(app.world().get::<hero::Body>(queued).unwrap().ordered());
+        // Outside the cinema it goes where it is sent.
+        app.world_mut()
+            .resource_mut::<crate::scripts::Mode>()
+            .cinema = false;
+        *app.world_mut().get_mut::<hero::Body>(hero).unwrap() = sent();
+        app.update();
+        assert!(app.world().get::<hero::Body>(hero).unwrap().ordered());
     }
 
     #[test]

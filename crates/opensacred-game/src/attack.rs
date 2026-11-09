@@ -593,7 +593,9 @@ impl Plugin for AttackPlugin {
             .add_systems(
                 Update,
                 (
-                    aim.in_set(Control).before(hero::steer),
+                    aim.in_set(Control)
+                        .in_set(crate::frame::OnWorld)
+                        .before(hero::steer),
                     engage.after(hero::steer).before(hero::take_orders),
                 )
                     .in_set(Unpaused)

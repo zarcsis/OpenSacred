@@ -45,8 +45,8 @@ use anyhow::{Context, Result};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{
     Added, App, Commands, Entity, IntoScheduleConfigs, Message, MessageReader, MessageWriter,
-    NonSendMut, OnEnter, OnExit, Plugin, Query, Res, ResMut, Resource, Transform, Update, With,
-    Without, World,
+    NonSend, NonSendMut, OnEnter, OnExit, Plugin, PostUpdate, Query, Res, ResMut, Resource,
+    Transform, Update, With, Without, World,
 };
 use opensacred_data::luau::{BYTECODE, CALLS, INDEX, Index, calls, differing_calls};
 use opensacred_data::netscript::{self, Function, Record, Tree, Value};
@@ -314,6 +314,50 @@ pub struct HeroHome(pub Option<Teleport>);
 #[derive(Resource, Default)]
 pub struct WorldRecords(pub Vec<Record>);
 
+/// The scripts' modes, the bits of the script manager's mode word (`0xAB73DC`): the anim mode's,
+/// under which the records that name a creature wait their turns in its queue, and the cinema's,
+/// under which the world takes none of the player's clicks and the hero is stopped (`0x6172ED`,
+/// `0x539613`). `SetAnimMode` turns the first on, `SetCinemaMode` both, and `SetPlayMode` of no
+/// creature both off (`0x4A4040`), whichever run of the scripts comes to them: a mode that a
+/// function leaves on holds through the runs after it (#1892).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mode {
+    pub anim: bool,
+    pub cinema: bool,
+}
+
+impl Mode {
+    /// The mode after the record `name` of the operands `tags`.
+    fn after(self, name: &str, tags: &Tags) -> Self {
+        match name {
+            "set_anim_mode" => Self { anim: true, ..self },
+            "set_cinema_mode" => Self {
+                anim: true,
+                cinema: true,
+            },
+            // Naming no creature it ends both at once (`0x4A4040`); no record of the trees names
+            // one.
+            "set_play_mode" if tags.texts("_01").is_empty() => Self::default(),
+            _ => self,
+        }
+    }
+}
+
+/// Whether the scripts' cinema lets the player's clicks reach the world (`0x6172ED`): the
+/// condition of `frame::OnWorld`.
+pub fn no_cinema(mode: Res<Mode>) -> bool {
+    !mode.cinema
+}
+
+/// The scripts' modes as their last run left them, for the systems that follow them, none out of
+/// a game.
+fn hold_mode(live: Option<NonSend<Live>>, mut mode: ResMut<Mode>) {
+    let now = live.map_or_else(Mode::default, |live| live.mode());
+    if *mode != now {
+        *mode = now;
+    }
+}
+
 /// What a dialogue's function gives its window (#1028, docs/re/netscript.md, "Dialogues"): its
 /// texts' keys in order, its buttons' labels and functions, the sounds it plays, and whether it
 /// takes its speaker's dialogue away (`DelDlg`).
@@ -573,6 +617,8 @@ pub struct Live {
     living: HashSet<u32>,
     /// Whether a talk's dialogue function runs ([`Self::talk`]).
     talking: bool,
+    /// The scripts' modes as the last run left them, which the next begins in ([`Mode`], #1892).
+    mode: Mode,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on, and the
@@ -609,7 +655,13 @@ impl Live {
             creatures: started.creatures,
             living: HashSet::new(),
             talking: false,
+            mode: Mode::default(),
         }
+    }
+
+    /// The scripts' modes as the last run left them.
+    pub fn mode(&self) -> Mode {
+        self.mode
     }
 
     /// The function of the name `name` as the client's search of its table finds it by name
@@ -837,6 +889,7 @@ impl Live {
         recorder.living = Some(&self.living);
         recorder.quest = quest;
         recorder.talking = self.talking;
+        recorder.mode = self.mode;
         let outcome = match self.runtime.call_entry(function, entry, &mut recorder) {
             Ok(outcome) => Some(outcome),
             Err(e) => {
@@ -844,11 +897,27 @@ impl Live {
                 Some(Outcome::Stopped)
             }
         };
+        // A run that begins under the anim mode another left on queues its records as the
+        // mode's own (#1892): `npcs` reads the mode from the records it is handed.
+        let mut records = recorder.records;
+        if self.mode.anim && !records.is_empty() {
+            records.insert(
+                0,
+                Record {
+                    kind: npcs::SET_ANIM_MODE,
+                    body: netscript::Body::Operands(Vec::new()),
+                },
+            );
+        }
+        if recorder.mode != self.mode {
+            bevy::log::info!("scripts: {function} leaves the modes {:?}", recorder.mode);
+        }
+        self.mode = recorder.mode;
         let effects = Effects {
             teleports: recorder.teleports,
             states: recorder.states,
             healths: recorder.healths,
-            records: recorder.records,
+            records,
             home: recorder.home,
             window: recorder.window,
             infos: recorder.infos,
@@ -1041,9 +1110,8 @@ struct Recorder<'a> {
     won: Vec<u32>,
     /// The numbers of its `AutoSave`s ([`Effects::autosaves`]).
     autosaves: Vec<u32>,
-    /// Whether the scripts' anim mode is on in the run, from a `SetAnimMode` or a
-    /// `SetCinemaMode` to a `SetPlayMode` (the mode word's bit 1, `0xAB73DC`; #1278).
-    anim: bool,
+    /// The scripts' modes as the run goes, from those it began in ([`Mode`]; #1278, #1892).
+    mode: Mode,
 }
 
 /// The kind of a `CallFunktion` record (22), which a deferred call hands to the world as
@@ -1094,7 +1162,7 @@ impl<'a> Recorder<'a> {
             particles: Vec::new(),
             won: Vec::new(),
             autosaves: Vec::new(),
-            anim: false,
+            mode: Mode::default(),
         }
     }
 
@@ -1242,7 +1310,7 @@ impl Host for Recorder<'_> {
         let Some(creature) = tags.texts("_01").first().map(|&c| c.to_owned()) else {
             return false;
         };
-        if !self.anim {
+        if !self.mode.anim {
             return false;
         }
         let name = |text: &str| netscript::Operand {
@@ -1262,12 +1330,7 @@ impl Host for Recorder<'_> {
             Some(Operand::Tags(tags)) => Tags(Some(tags)),
             _ => Tags(None),
         };
-        match name {
-            "set_anim_mode" | "set_cinema_mode" => self.anim = true,
-            // Naming no creature it ends the mode at once (`0x4A4040`).
-            "set_play_mode" if tags.texts("_01").is_empty() => self.anim = false,
-            _ => {}
-        }
+        self.mode = self.mode.after(name, &tags);
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
             return tags.test(self.tree, self.state);
@@ -1640,7 +1703,7 @@ impl Host for Recorder<'_> {
                     // Under the anim mode it waits its turn in the hero's queue, which `npcs`
                     // keeps (seen: `annehmen2003`'s after its walk, #1280).
                     Some((x, y, layer)) if hero => {
-                        if !self.anim {
+                        if !self.mode.anim {
                             // Its heading, where the record gives one not below 0: the
                             // creature is turned to it as it lands (`0x44DDC0`).
                             let heading = tags
@@ -1808,7 +1871,7 @@ impl Host for Recorder<'_> {
             "play_sound" => {
                 let names = tags.texts("_01");
                 if let Some(sound) = names.first()
-                    && !(self.anim && names.get(1).is_some_and(|name| !name.is_empty()))
+                    && !(self.mode.anim && names.get(1).is_some_and(|name| !name.is_empty()))
                 {
                     self.window.sounds.push((*sound).to_owned());
                 }
@@ -2217,6 +2280,7 @@ pub(crate) fn begin(world: &mut World) {
 /// Drops the scripts of the game left.
 fn end(world: &mut World) {
     world.remove_non_send::<Live>();
+    world.insert_resource(Mode::default());
     world.remove_resource::<ScriptDrops>();
     world.remove_resource::<ScriptReplacements>();
     world.remove_resource::<ScriptAreaTypes>();
@@ -2822,6 +2886,9 @@ impl Plugin for ScriptsPlugin {
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
+            .init_resource::<Mode>()
+            .configure_sets(Update, crate::frame::OnWorld.run_if(no_cinema))
+            .add_systems(PostUpdate, hold_mode)
             .add_systems(
                 Update,
                 run_due
@@ -3654,6 +3721,66 @@ mod tests {
                 &Value::Str("res:18103".into())
             ]
         );
+    }
+
+    #[test]
+    fn a_cinema_that_a_function_leaves_on_holds_through_the_runs_after_it() {
+        // As the add-on's `hq15_close_gate`, whose timer's function ends the mode (#1892).
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"close_gate\"] = function()\n\
+             set_cinema_mode {}\n\
+             return true\n\
+             end\n\
+             F[\"walk_on\"] = function()\n\
+             npc_goto { _01 = \"res:18103\", _04 = { 10, 10, 0 } }\n\
+             call(\"open_gate\", { _01 = \"res:18103\" })\n\
+             return true\n\
+             end\n\
+             F[\"open_gate\"] = function()\n\
+             set_play_mode {}\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        assert_eq!(live.mode(), Mode::default());
+        live.run("close_gate", 0);
+        let cinema = Mode {
+            anim: true,
+            cinema: true,
+        };
+        assert_eq!(live.mode(), cinema);
+        // A run under the mode another left on queues its walk and defers its call, its records
+        // led by the mode's own.
+        let effects = live.run("walk_on", 0);
+        let kinds: Vec<u16> = effects.records.iter().map(|record| record.kind).collect();
+        assert_eq!(kinds, [npcs::SET_ANIM_MODE, 72, CALL_FUNCTION]);
+        assert_eq!(live.mode(), cinema);
+        // `SetPlayMode` ends both, and the runs after it are no longer led by the mode.
+        live.run("open_gate", 0);
+        assert_eq!(live.mode(), Mode::default());
+        let kinds: Vec<u16> = live
+            .run("walk_on", 0)
+            .records
+            .iter()
+            .map(|record| record.kind)
+            .collect();
+        assert_eq!(kinds, [72, 89]);
+        // `SetAnimMode` turns the anim mode on alone.
+        let tags = Tags(None);
+        assert_eq!(
+            Mode::default().after("set_anim_mode", &tags),
+            Mode {
+                anim: true,
+                cinema: false
+            }
+        );
+        assert_eq!(cinema.after("set_anim_mode", &tags), cinema);
     }
 
     #[test]
