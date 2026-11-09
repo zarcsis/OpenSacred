@@ -1,14 +1,20 @@
 //! `heroes` subcommand: the hero templates `Templates/Hero*.ptx` → one hero file each under
 //! `<out>/heroes/` with the `heroes.ron` index (docs/02 §9; the format is
-//! [`opensacred_data::heroes`]). The saves of `save/` are not read: the game rewrites them, and the
-//! original saves are not supported (PLAN.md, ADR-08).
+//! [`opensacred_data::heroes`]). Of `save/`, the two heroes that the installation ships for the
+//! Underworld campaign's choice, `hero06.pax` and `hero07.pax`, as it ships them, by their
+//! SHA-256 (docs/re/underworld.md; docs/decisions/interface.md, "The installation's Underworld
+//! heroes"): the player's own saves are not supported (PLAN.md, ADR-08), and a file that an
+//! export of the original's overwrote is left alone.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use opensacred_data::heroes::{Carried, Hero, HeroArt, HeroEntry, Heroes, INDEX, Section, Worn};
+use opensacred_data::heroes::{
+    Carried, Hero, HeroArt, HeroEntry, Heroes, INDEX, SavedHero, Section, Worn,
+};
 use opensacred_formats::amh::{Amh, Item};
+use sha2::{Digest, Sha256};
 
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
 
@@ -106,13 +112,57 @@ fn arts(amh: &Amh) -> Result<Vec<HeroArt>> {
         .collect())
 }
 
-/// Converts the templates; returns how many.
+/// The installation's heroes of the Underworld's choice: their slots, their files in `save/`
+/// and their SHA-256 as the GOG installation ships them (22,417 and 23,218 bytes).
+const SHIPPED: [(u8, &str, &str); 2] = [
+    (
+        6,
+        "save/hero06.pax",
+        "d66a82a06c1d935a5c83e0ff48b0e96cf6b7ddfae17adeb4b5b3cbbd408db392",
+    ),
+    (
+        7,
+        "save/hero07.pax",
+        "63a064c23a61c93579c946af7840a449e4126c9ef5d2469840e056258aaacd57",
+    ),
+];
+
+/// Converts the templates, and the installation's Underworld heroes found as it ships them;
+/// returns how many.
 pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
     let dir = output_dir(out);
     let mut heroes = Vec::new();
     for source in sources()? {
         let data = read_game_file(&game_dir.join(&source))?;
-        let amh = Amh::parse(&data).with_context(|| source.clone())?;
+        heroes.push(convert_one(&dir, source, &data)?.0);
+    }
+    let mut saved = Vec::new();
+    for (slot, source, sha) in SHIPPED {
+        let Ok(data) = fs::read(game_dir.join(source)) else {
+            continue;
+        };
+        let found = Sha256::digest(&data)
+            .iter()
+            .fold(String::new(), |hex, byte| hex + &format!("{byte:02x}"));
+        if found != sha {
+            continue;
+        }
+        let (hero, name) = convert_one(&dir, source.to_owned(), &data)?;
+        saved.push(SavedHero { slot, name, hero });
+    }
+    let count = heroes.len() + saved.len();
+    let text = ron::ser::to_string_pretty(&Heroes { heroes, saved }, crate::utf8::pretty())
+        .context("writing heroes.ron")?;
+    let path = dir.join(INDEX);
+    fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+    Ok(count)
+}
+
+/// Converts the hero file `source` of the bytes `data` into its hero file under `dir`; returns
+/// its index's entry and its summary's name.
+fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, String)> {
+    {
+        let amh = Amh::parse(data).with_context(|| source.clone())?;
         let info = amh.summary().with_context(|| source.clone())?;
         let worn = worn(&amh).with_context(|| source.clone())?;
         let backpack = backpack(&amh).with_context(|| source.clone())?;
@@ -140,22 +190,19 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
             .encode()
             .with_context(|| format!("encoding {source}"))?;
         fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
-        heroes.push(HeroEntry {
-            source,
-            file,
-            level: info.level,
-            class: info.class,
-            worn,
-            backpack,
-            arts,
-        });
+        Ok((
+            HeroEntry {
+                source,
+                file,
+                level: info.level,
+                class: info.class,
+                worn,
+                backpack,
+                arts,
+            },
+            info.name,
+        ))
     }
-    let count = heroes.len();
-    let text = ron::ser::to_string_pretty(&Heroes { heroes }, crate::utf8::pretty())
-        .context("writing heroes.ron")?;
-    let path = dir.join(INDEX);
-    fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
-    Ok(count)
 }
 
 #[cfg(test)]
@@ -175,9 +222,21 @@ mod tests {
     fn every_hero_converts() {
         let out = scratch_dir("heroes");
         let game = opensacred_locate::original();
-        assert_eq!(convert(&game, &out).unwrap(), 8);
+        assert_eq!(convert(&game, &out).unwrap(), 10);
         let dir = output_dir(&out);
         let index: Heroes = ron::from_str(&fs::read_to_string(dir.join(INDEX)).unwrap()).unwrap();
+        // The installation's Underworld heroes: the Dwarf in the slot 6 and the Daemon in the
+        // slot 7, of level 29, each with its name and its whole file.
+        let saved: Vec<_> = index
+            .saved
+            .iter()
+            .map(|s| (s.slot, s.hero.class, s.hero.level, s.name.is_empty()))
+            .collect();
+        assert_eq!(saved, [(6, 8, 29, false), (7, 9, 29, false)]);
+        for saved in &index.saved {
+            let hero = Hero::decode(&fs::read(dir.join(&saved.hero.file)).unwrap()).unwrap();
+            assert_eq!(hero.sections.len(), 8);
+        }
         let mut classes: Vec<u32> = index.heroes.iter().map(|h| h.class).collect();
         classes.sort_unstable();
         classes.dedup();

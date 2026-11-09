@@ -29,6 +29,10 @@ const ITEM_MARK: [u8; 4] = 0xFEED_F00Du32.to_le_bytes();
 const ITEM_ID: usize = 10;
 const ITEM_TYPE: usize = 14;
 const ITEM_RECORD: usize = 252;
+/// The count of a block's socketed items' records (`u8`), which come before the item's own, and
+/// the marker before it (docs/02 §9).
+const ITEM_SOCKETS: usize = 251;
+const SOCKETS_MARK: [u8; 4] = 0xBAAD_C0DEu32.to_le_bytes();
 /// The size of an item's record (docs/re/items.md), as `Weapon.pak +0x80…+0x101` holds one.
 pub const RECORD: usize = 0x82;
 /// The backpack's grid: after six `u16`, the fifth its width, and `0x400` bytes, 256 cells of 12
@@ -236,8 +240,9 @@ impl Amh {
 
     /// The items of the inventory section, in its order: each block holds the item's type as a
     /// `u32`, the marker `0xFEEDF00D`, the object's id 10 bytes after the marker and the type
-    /// again 14 bytes after it, and the item's record 252 bytes after it, which begins with the
-    /// type too.
+    /// again 14 bytes after it, the marker `0xBAADC0DE` and the count of its socketed items 247
+    /// and 251 bytes after it, then each socketed item's record and the item's own, which begins
+    /// with the type too.
     pub fn items(&self) -> Result<Vec<Item>> {
         let data = &self.section(INVENTORY, "AMH inventory section")?.data;
         let file = Reader::new(data);
@@ -246,17 +251,28 @@ impl Amh {
         {
             let item = Reader::at(data, at - 4).u32()?;
             let id = Reader::at(data, at + ITEM_ID).u16()?;
-            let mut record = file.window(at + ITEM_RECORD, RECORD, "AMH item record")?;
-            for (offset, found) in [
-                (ITEM_TYPE, Reader::at(data, at + ITEM_TYPE).u32()?),
-                (ITEM_RECORD, record.clone().u32()?),
-            ] {
-                if found != item {
-                    return Err(file.error_at(
-                        at + offset,
-                        field("AMH item block's type", found.into(), item.to_string()),
-                    ));
-                }
+            let mark = Reader::at(data, at + ITEM_SOCKETS - 4).u32()?;
+            if mark.to_le_bytes() != SOCKETS_MARK {
+                return Err(file.error_at(
+                    at + ITEM_SOCKETS - 4,
+                    field(
+                        "AMH item block's sockets' marker",
+                        mark.into(),
+                        "0xBAADC0DE".into(),
+                    ),
+                ));
+            }
+            let sockets = usize::from(*data.get(at + ITEM_SOCKETS).unwrap_or(&0));
+            let own = ITEM_RECORD + sockets * RECORD;
+            let mut record = file.window(at + own, RECORD, "AMH item record")?;
+            // The record's own type is the item's in every template, but one item of the shipped
+            // `hero07.pax` holds another's (docs/02 §9), which the hero keeps.
+            let found = Reader::at(data, at + ITEM_TYPE).u32()?;
+            if found != item {
+                return Err(file.error_at(
+                    at + ITEM_TYPE,
+                    field("AMH item block's type", found.into(), item.to_string()),
+                ));
             }
             items.push(Item {
                 id: id.into(),
@@ -413,17 +429,29 @@ mod tests {
         );
     }
 
-    /// An inventory of two items' blocks, a backpack holding the second, as the templates have.
+    /// An inventory of three items' blocks, a backpack holding the second, as the templates
+    /// have, the third with a socketed item's record before its own, as the saved heroes have.
     fn inventory() -> Amh {
         let mut inventory = 30u32.to_le_bytes().to_vec();
-        for (id, item, least) in [(17u16, 7901u32, 21u16), (19, 5171, 0)] {
+        for (id, item, least, socketed) in [
+            (17u16, 7901u32, 21u16, None),
+            (19, 5171, 0, None),
+            (56, 7725, 9, Some(5560u32)),
+        ] {
             let at = inventory.len() + 4;
+            let sockets = usize::from(socketed.is_some());
             inventory.extend(item.to_le_bytes());
             inventory.extend(ITEM_MARK);
-            inventory.resize(at + ITEM_RECORD + RECORD + 60, 0);
+            inventory.resize(at + ITEM_RECORD + (sockets + 1) * RECORD + 60, 0);
             inventory[at + ITEM_ID..at + ITEM_ID + 2].copy_from_slice(&id.to_le_bytes());
             inventory[at + ITEM_TYPE..at + ITEM_TYPE + 4].copy_from_slice(&item.to_le_bytes());
-            let record = at + ITEM_RECORD;
+            inventory[at + ITEM_SOCKETS - 4..at + ITEM_SOCKETS].copy_from_slice(&SOCKETS_MARK);
+            inventory[at + ITEM_SOCKETS] = u8::from(socketed.is_some());
+            if let Some(socketed) = socketed {
+                let first = at + ITEM_RECORD;
+                inventory[first..first + 4].copy_from_slice(&socketed.to_le_bytes());
+            }
+            let record = at + ITEM_RECORD + sockets * RECORD;
             inventory[record..record + 4].copy_from_slice(&item.to_le_bytes());
             inventory[record + 0x1C..record + 0x1E].copy_from_slice(&least.to_le_bytes());
         }
@@ -452,7 +480,14 @@ mod tests {
             .iter()
             .map(|i| (i.id, i.item, i.record.len(), i.record[0x1C]))
             .collect();
-        assert_eq!(found, [(17, 7901, RECORD, 21), (19, 5171, RECORD, 0)]);
+        assert_eq!(
+            found,
+            [
+                (17, 7901, RECORD, 21),
+                (19, 5171, RECORD, 0),
+                (56, 7725, RECORD, 9)
+            ]
+        );
         assert_eq!(
             amh.backpack().unwrap(),
             [Packed {
@@ -462,15 +497,25 @@ mod tests {
                 item: 5171
             }]
         );
-        // A block whose record is of another type is an error.
+        // A block whose type after the marker is another is an error, and so is one without the
+        // sockets' marker.
         let mut broken = inventory();
-        broken.sections[0].data[4 + 4 + ITEM_RECORD] = 0;
+        broken.sections[0].data[4 + 4 + ITEM_TYPE] = 0;
         assert!(
             broken
                 .items()
                 .unwrap_err()
                 .to_string()
                 .contains("`AMH item block's type`")
+        );
+        let mut unmarked = inventory();
+        unmarked.sections[0].data[4 + 4 + ITEM_SOCKETS - 4] = 0;
+        assert!(
+            unmarked
+                .items()
+                .unwrap_err()
+                .to_string()
+                .contains("`AMH item block's sockets' marker`")
         );
     }
 

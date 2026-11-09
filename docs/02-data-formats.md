@@ -22,7 +22,7 @@ The level of confidence is marked with these words: **confirmed on file** (parse
   Converted into an intermediate representation (IR), which the converter translates into Luau for the game (#720).
 - `global.res`: UTF-16LE, 23,123 strings with id = `sacred_hash(name)`; the formula is verified.
   Converted to Fluent.
-- Original saves are not supported; the hero templates are converted with their sections whole, their level, class, items worn, backpack and combat arts indexed, and into the rest of the starting presets once their layouts are recovered (§9).
+- Original saves are not supported (but the installation's two Underworld heroes, #1676); the hero templates are converted with their sections whole, their level, class, items worn, backpack and combat arts indexed, and into the rest of the starting presets once their layouts are recovered (§9).
 - Sound: `sound.pak` holds 6,598 samples, 3,194 RIFF WAV (PCM and IMA ADPCM) and 3,404 MP3; confirmed on file.
 - Not established: the semantics of some cell and static object fields (Open questions 1 and 2).
 
@@ -1108,13 +1108,14 @@ In every template the three healing potions 5171 lie in the first column's cells
 A cell names its item by the item's object id, a `u32` at its start (19 to 22 in four templates, 18 to 21 in three, 20 to 23 in `Hero07.ptx`), followed by the item's type as a `u16` 8 bytes in (5171 the potions, 5633 the torch).
 
 **The inventory** `0xC8`, **confirmed** 2026-10-22 (#486) on the 8 templates (`amh_dump.py --items`) and by the original's driver (#448): after a `u32` (30 in every template), a block per item the hero carries, in its backpack or on it.
-A block holds the item's type as a `u32`, the marker `0xFEEDF00D`, the object's id as a `u16` 10 bytes after the marker, the type again as a `u32` 14 bytes after it, and the item's record, `0x82` bytes 252 bytes after the marker, which begins with the type too; the record's layout is that of `Weapon.pak +0x80…+0x101` (docs/re/items.md, "Defects the community reports"), and a block runs to the next block's type, 398 to 486 bytes.
+A block holds the item's type as a `u32`, the marker `0xFEEDF00D`, the object's id as a `u16` 10 bytes after the marker, the type again as a `u32` 14 bytes after it, the marker `0xBAADC0DE` 247 bytes after it and a `u8` count of the item's socketed items 251 bytes after it, then each socketed item's record and the item's own record, `0x82` bytes each from 252 bytes after the marker, the item's own beginning with the type too; the record's layout is that of `Weapon.pak +0x80…+0x101` (docs/re/items.md, "Defects the community reports"), and a block runs to the next block's type, 398 to 486 bytes and `0x82` more for each socketed item.
+  **Confirmed** 2026-11-08 (#1676) on the shipped `save/hero06.pax` and `hero07.pax`: every template's count is 0, and two blocks of `hero06.pax` hold one socketed item each (the records 5560 and 5557 before the items' own, 7725 and 3008); one item of `hero07.pax`, of the type 7404, holds a record that begins with 4880, the one block whose record's type is another's (`amh_dump.py --saves --items`, 156 items, 52 of them worn).
 The templates hold 46 items: the backpack's four each, and 14 that the backpack does not name, which the hero wears and holds, one to three a template (one in `Hero02.ptx`, `Hero04.ptx` and `Hero06.ptx`, three in `Hero07.ptx`, two in the others).
 Every template's hero holds a weapon, the Vampiress's a shield too, and five wear an item more, a cosmetic model whose values do not count (`items.pak +0x03` bit 1; the hair of two, the Dwarf's goggles, the Mage's cowl, the Gladiator's belt; docs/re/items.md); the records equal their types' `Weapon.pak +0x80…+0x101` but for the Gladiator's belt, 4054, of level 27 in the template (the words 8 and 10 from `+4`).
 In the original's new game the Seraphim wears the template's two by their ids, 17 in the equipment slot 0 and 18, the weapon, in slot 13, the right hand (docs/re/equipment.md), and the item maker makes neither.
 The Seraphim's weapon is the record 7901: physical damage 21 to 23, `A` 5 and `D` 2, and two bonus slots (the effects 811 and 812, of the values 14 and 2).
 The earlier names, the skill table and the combat arts, were wrong.
-The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): the converter reads only the templates, and `amh_dump.py --saves` checks the saves of a clean installation.
+The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): `amh_dump.py --saves` checks the saves of a clean installation, and since #1676 the converter reads the two heroes as the installation ships them, by their SHA-256, for the Underworld campaign's choice (docs/re/underworld.md; docs/decisions/interface.md, "The installation's Underworld heroes").
 Implemented: `opensacred_formats::amh` (`Amh::items`, `Amh::backpack`, `Amh::arts`); `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level, class, the items the hero wears, their records' words from `+4`, the items of its backpack at their cells with their sizes and words (#1285), and the combat arts of its creature section (#506) in `heroes.ron`.
 The sections stay whole until their layout is recovered.
 There is no encryption and there are no checksums (the "export" `.PAK` saves do have 48 bytes of checksums according to gonX, but the game does not check them).
@@ -1123,7 +1124,7 @@ The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold:
 
 **The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
 
-For the new engine: original `.pax` saves are not supported (by design).
+For the new engine: original `.pax` saves are not supported (by design), but for the two heroes the installation ships for the Underworld's choice, which `opensacred-convert heroes` writes beside the templates, `save/hero06.hero` and `hero07.hero`, indexed in `heroes.ron`'s `saved` with their slots and names (#1676).
 The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears, the items of its backpack (#1285) and its combat arts in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 

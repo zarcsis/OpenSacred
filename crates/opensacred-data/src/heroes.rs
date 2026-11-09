@@ -18,6 +18,20 @@ pub const INDEX: &str = "heroes.ron";
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Heroes {
     pub heroes: Vec<HeroEntry>,
+    /// The installation's heroes of the Underworld campaign's choice, as it ships them
+    /// (`save/hero06.pax` and `hero07.pax`, docs/re/underworld.md), by their slots.
+    #[serde(default)]
+    pub saved: Vec<SavedHero>,
+}
+
+/// A saved hero of the choice's eight slots (`SAVE\HERO%.2d.PAX`): its slot, its name (the
+/// summary's) and its hero, as [`HeroEntry`] indexes a template.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct SavedHero {
+    pub slot: u8,
+    pub name: String,
+    pub hero: HeroEntry,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
