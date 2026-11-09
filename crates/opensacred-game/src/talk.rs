@@ -499,7 +499,7 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
         lines.len(),
         buttons.len()
     );
-    voice(world, &window.sounds);
+    voice(world, &window.sounds, creature);
     let font: Handle<Font> = world.resource::<AssetServer>().load(FONT);
     // Its portrait by its type (`0x4345C0`, #1032); the hero's own talk shows none.
     let portrait = world
@@ -570,11 +570,16 @@ pub(crate) fn resource(name: &str) -> &str {
     }
 }
 
-/// Plays the dialogue's sounds, its voice-overs under their texts' keys (`sound.pak`'s
-/// `SOUND_FX_<key>`, `0x4A9730`), each the line by name that stops the one before, the hero's
-/// own too (`0x693FE0`, `voices::NamedLine`).
-fn voice(world: &mut World, sounds: &[String]) {
+/// Plays the dialogue's sounds of the creature `speaker`, its voice-overs under their texts' keys
+/// (`sound.pak`'s `SOUND_FX_<key>`, `0x4A9730`), each the line by name that stops the one before,
+/// the hero's own too (`0x693FE0`, `voices::NamedLine`); one whose name holds `_SFX` an effect
+/// at the speaker ([`effect_at`]).
+fn voice(world: &mut World, sounds: &[String], speaker: Entity) {
     for sound in sounds {
+        if effect_line(sound) {
+            effect_at(world, sound, Some(speaker));
+            continue;
+        }
         let assets = world.resource::<AssetServer>().clone();
         let Some(mut sfx) = world.get_resource_mut::<Sfx>() else {
             return;
@@ -582,30 +587,30 @@ fn voice(world: &mut World, sounds: &[String]) {
         let Some(sample) = line_sample(&mut sfx, sound, &assets) else {
             continue;
         };
-        let Some(instance) = play_line(world, sound, sample) else {
+        let Some(speech) = world.get_resource::<AudioChannel<crate::volumes::Speech>>() else {
             return;
         };
+        let instance = speech.play(sample).handle();
         voices::name_line(world, Some(instance));
     }
 }
 
-/// Plays the line by name `sound`'s sample at the speech's volume, or at the effects' where its
-/// name holds `_SFX` (`0x694335`; `volumes`).
-fn play_line(
-    world: &World,
-    sound: &str,
-    sample: Handle<bevy_kira_audio::AudioSource>,
-) -> Option<Handle<bevy_kira_audio::AudioInstance>> {
-    if effect_line(sound) {
-        Some(world.get_resource::<Audio>()?.play(sample).handle())
-    } else {
-        Some(
-            world
-                .get_resource::<AudioChannel<crate::volumes::Speech>>()?
-                .play(sample)
-                .handle(),
-        )
-    }
+/// Plays the line by name `sound` whose name holds `_SFX` as the original's sound manager does
+/// (`0x693FE0` at `0x694446`): placed at its `speaker` where it has one, else in the middle, at
+/// the effects' volume, and not the line by name, so that it stops no line and none stops it.
+fn effect_at(world: &mut World, sound: &str, speaker: Option<Entity>) {
+    let Some((id, _)) = world
+        .get_resource::<Sfx>()
+        .and_then(|sfx| sfx.named(&sound_name(sound)))
+    else {
+        debug!("talk: no sound {}", sound_name(sound));
+        return;
+    };
+    world.write_message(crate::sfx::Play {
+        sound: crate::sfx::Of::Id(id),
+        at: speaker,
+        rate: (1.0, crate::sfx::Roll::None),
+    });
 }
 
 /// Whether the line by name `sound` is an effect, its name past `SOUND_FX_` holding `_SFX`
@@ -668,11 +673,13 @@ fn lines(
             continue;
         };
         info!("talk: the scripts play {sound}");
-        let instance = if effect_line(sound) {
-            audio.play(sample).handle()
-        } else {
-            speech.play(sample).handle()
-        };
+        // An `_SFX` name, which names no speaker here, plays in the middle at the effects'
+        // volume and is not the line by name (`0x694446`).
+        if effect_line(sound) {
+            audio.play(sample);
+            continue;
+        }
+        let instance = speech.play(sample).handle();
         named.name(instances, Some(instance));
     }
 }

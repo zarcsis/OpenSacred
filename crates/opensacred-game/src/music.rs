@@ -34,6 +34,12 @@
 //! from every other music for 300 s at most (`opensacred_rules::music::Stream::control`), the
 //! death's music and the fanfares too; and the `ExitQuest` of a side quest sounds a fanfare, the
 //! music not dipping under it (docs/decisions/sound.md, "Music kept under a fanfare").
+//!
+//! At a music's level of 0.001 or below (`volumes`, `opensacred_rules::music::SILENT`; #2348)
+//! the stream keeps to the ambient loop: the level set there turns it to the loop, a region's
+//! event at it does, the first phase is the loop, and the switch of the ambient phase takes the
+//! loop again; the music played once, the fights' music and the weighing of the foes engaged are
+//! refused, and a fight's music cut in before goes on unheard until the level rises.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -49,7 +55,7 @@ use bevy_kira_audio::prelude::{
 };
 use opensacred_data::sound::Sound;
 use opensacred_data::world::{SIDE, World};
-use opensacred_rules::music::{CROSSFADE, Cue, Fight, Foe, Phase, Scene, Stream};
+use opensacred_rules::music::{CROSSFADE, Cue, Fight, Foe, Phase, SILENT, Scene, Stream};
 use opensacred_rules::spawning::Rng;
 
 use crate::daynight::{self, Clock};
@@ -130,6 +136,10 @@ pub struct Music {
     cut: bool,
     /// The groups of the jingles' profiles, `music` (1) and `jingle_extension` (2).
     jingles: HashMap<u32, Vec<Vec<u32>>>,
+    /// The music's level as last set (`+0x7C`), none before the first frame, and whether it is
+    /// [`SILENT`] or below.
+    level: Option<f32>,
+    silent: bool,
 }
 
 struct Playing {
@@ -204,6 +214,8 @@ impl Music {
                 .filter(|profile| matches!(profile.slot, 1 | 2))
                 .map(|profile| (profile.slot, profile.groups.clone()))
                 .collect(),
+            level: None,
+            silent: false,
         }
     }
 
@@ -225,7 +237,7 @@ impl Music {
         !self.spot
             && self.scripted.is_none()
             && self.fighting.is_none()
-            && self.stream.phase() == Some(Phase::Ambient)
+            && self.stream.plays() == Some(Phase::Ambient)
     }
 
     /// A jingle of the profile `profile`'s group `group` once on the once-stream: a slot of 8
@@ -253,20 +265,23 @@ impl Music {
     /// sector without music. A sector of music come into gives the stream what its phase holds,
     /// unless the scripts hold it (the region's event, `0x6824AF`); a sector without music posts
     /// no region's event (`0x626915`), so that the region's music and the nature stay the last
-    /// sector's of one.
-    fn stand(&mut self, sector: (u32, u32), here: Option<(u32, u8)>) {
-        if self.sector.is_some_and(|before| before != sector)
-            && here.is_some()
-            && !self.stream.controlled()
-        {
+    /// sector's of one; a music that changes there opens in the music's phase, in place of the
+    /// ambient loop that the phase may hold. Whether it posted the region's event.
+    fn stand(&mut self, sector: (u32, u32), here: Option<(u32, u8)>) -> bool {
+        let event = self.sector != Some(sector) && here.is_some();
+        if event && self.sector.is_some() && !self.stream.controlled() {
             self.scripted = None;
         }
         self.sector = Some(sector);
         if let Some((music, nature)) = here {
+            if self.region != Some(music) {
+                self.stream.music_opens();
+            }
             self.region = Some(music);
             self.nature = nature;
         }
         self.spot = self.region.is_some_and(|id| SPOTS.contains(&id));
+        event
     }
 
     /// The ambient loop that the place calls for, the dusk and the night's by `night`
@@ -304,10 +319,11 @@ impl Music {
     }
 
     /// Plays the music `id` once on the once-stream, at once, stopping what plays there
-    /// (`0x694FE0`): nothing in a sector of the indoor arena's music, nor for a music of no track.
+    /// (`0x694FE0`): nothing in a sector of the indoor arena's music, at a silent music
+    /// (`0x69520D`), nor for a music of no track.
     fn once(&mut self, id: u32, once: &AudioChannel<Once>, assets: &AssetServer) {
-        let arena = self.region == Some(ARENA_INDOOR);
-        let Some(file) = self.tracks.get(&id).filter(|_| !arena).cloned() else {
+        let refused = self.region == Some(ARENA_INDOOR) || self.silent;
+        let Some(file) = self.tracks.get(&id).filter(|_| !refused).cloned() else {
             return;
         };
         debug!("music: {file} once");
@@ -364,10 +380,42 @@ fn wanted(music: &Music, id: Option<u32>) -> Option<u32> {
     }
     let id = id?;
     let spot = SPOTS.contains(&id);
-    if !spot && music.stream.phase() != Some(Phase::Music) {
+    if !spot && music.stream.plays() != Some(Phase::Music) {
         return None;
     }
     Some(id)
+}
+
+/// The music's level as the options set it (`volumes::Levels`, the setter `0x677750`): at
+/// [`SILENT`] or below nothing plays once, and a level set there turns a stream begun to the
+/// ambient loop where the place has one, unless a crossfade runs, the loop taking the place of a
+/// fight's music, which goes on unended (`0x697710` returning at once at that level), and of the
+/// scripts' music.
+pub fn level(
+    mut music: ResMut<Music>,
+    levels: Option<Res<crate::volumes::Levels>>,
+    (time, clock): (Res<Time>, Res<Clock>),
+) {
+    let level = levels.map_or(1.0, |levels| levels.music);
+    music.silent = level <= SILENT;
+    if music.level == Some(level) {
+        return;
+    }
+    music.level = Some(level);
+    let dark = matches!(
+        clock.phase(),
+        daynight::Phase::Dusk | daynight::Phase::Night
+    );
+    if music.silent
+        && time.elapsed() >= music.fading
+        && music.stream.phase().is_some()
+        && music.place_loop(dark).is_some()
+    {
+        debug!("music: the music's level falls silent, the stream to the ambient loop");
+        music.stream.hush();
+        music.fighting = None;
+        music.scripted = None;
+    }
 }
 
 /// Carries out what the scripts play (`scripts::ScriptSound`, #1243): their control taken or
@@ -429,7 +477,8 @@ pub fn scripted(
 /// first stands in the world, the dusk and the night asking for the ambient loop, and so in the
 /// music's phase the region's music that cannot open (none before the first sector of music), the
 /// timer counting by day and dawn and switching past 180 s, held in a spot loop's sector; and the
-/// hero's death playing its music once over it, asking for the ambient loop.
+/// hero's death playing its music once over it, asking for the ambient loop. At a silent music
+/// the first phase and a region's event take the ambient loop (`0x6822CE`).
 pub fn alternate(
     mut music: ResMut<Music>,
     (time, clock): (Res<Time>, Res<Clock>),
@@ -446,8 +495,9 @@ pub fn alternate(
     };
     let now = time.elapsed();
     if music.stream.phase().is_none() {
-        // `rand() & 1` at the first region's event, of the run's rolls.
-        let roll = music.dice.below(2);
+        // `rand() & 1` at the first region's event, of the run's rolls, unrolled at a silent
+        // music, which takes the ambient loop (`0x6822FA`).
+        let roll = if music.silent { 1 } else { music.dice.below(2) };
         let phase = music.stream.begin(roll);
         debug!("music: the peace stream begins with {phase:?}");
     }
@@ -470,7 +520,11 @@ pub fn alternate(
         .sectors
         .get(&sector)
         .map(|&(id, area, nature)| (music_of(id, area, bits(SIEGES), bits(CHANGES)), nature));
-    music.stand(sector, here);
+    // A region's event at a silent music takes the ambient phase, but under a fight's music
+    // (`0x6822A2`).
+    if music.stand(sector, here) && music.silent && !music.fight.playing() {
+        music.stream.hush();
+    }
     let has_music = !music.spot
         && music
             .region
@@ -490,13 +544,19 @@ pub fn alternate(
     let seconds = f64::from(time.delta_secs());
     // A fight's music holds the cycle, its timer counting on (`+0xAF28`).
     let holds = music.spot || music.fighting.is_some();
-    if let Some(phase) =
-        music
-            .stream
-            .frame(seconds, (!dark, holds), (crossfading, has_music, has_loop))
-    {
+    let before = music.stream.plays();
+    let silent = music.silent;
+    if let Some(phase) = music.stream.frame(
+        seconds,
+        (!dark, holds),
+        (crossfading, has_music, has_loop),
+        silent,
+    ) {
         debug!("music: the peace stream turns to {phase:?}");
-        music.fading = now + FADE;
+        // The loop taken again plays on, uncrossfaded (`0x694510` leaving the same id alone).
+        if music.stream.plays() != before {
+            music.fading = now + FADE;
+        }
         music.scripted = None;
     }
 }
@@ -641,10 +701,11 @@ pub fn fight(
         siege: music.region == Some(SIEGE_MILITARY),
         difficulty: difficulty.map_or(0, |difficulty| difficulty.0.index()),
         calm,
+        silent: music.silent,
     };
-    // A fight's music is refused in the indoor arena and under the scripts' control
-    // (`0x695E70`).
-    let refused = music.region == Some(ARENA_INDOOR) || music.stream.controlled();
+    // A fight's music is refused in the indoor arena, under the scripts' control and at a
+    // silent music (`0x695E70`).
+    let refused = music.region == Some(ARENA_INDOOR) || music.stream.controlled() || music.silent;
     let seconds = f64::from(time.delta_secs());
     let mut dice = music.dice.clone();
     let cues = music.fight.update(seconds, &scene, refused, &mut dice);
@@ -679,6 +740,9 @@ pub fn fight(
                     daynight::Phase::Dusk | daynight::Phase::Night
                 );
                 let back = music.stream.phase() == Some(Phase::Music) && !dark;
+                if back {
+                    music.stream.music_opens();
+                }
                 if !back && music.dice.below(2) == 1 {
                     music.jingle((1, FIGHT_OVER), &once, &assets);
                 }
@@ -702,7 +766,7 @@ impl Plugin for MusicPlugin {
             .add_audio_channel::<Once>()
             .add_systems(
                 Update,
-                (scripted, alternate, fight, play)
+                (level, scripted, alternate, fight, play)
                     .chain()
                     .in_set(frame::Playing)
                     .in_set(frame::Unpaused)
@@ -764,11 +828,34 @@ mod tests {
         // The ambient phase: the music silent, a spot loop playing.
         music.stream.begin(0);
         music.stream.now();
-        music.stream.frame(0.0, (true, false), (false, true, true));
+        music
+            .stream
+            .frame(0.0, (true, false), (false, true, true), false);
         assert!(music.ambient());
         assert_eq!(wanted(&music, Some(0x1980)), None);
         assert_eq!(wanted(&music, Some(0x1968)), Some(0x1968));
         assert!(music.atmo.contains(&0x1968) && !music.atmo.contains(&0x1980));
+    }
+
+    #[test]
+    fn a_silent_music_keeps_the_loop_until_a_region_of_another_music() {
+        let mut music = music();
+        music.silent = true;
+        music.stream.begin(1);
+        assert!(music.stand((10, 10), Some((0x1980, 0))));
+        assert!(!music.stand((10, 10), Some((0x1980, 0))));
+        // The ambient phase's switch takes the loop again: the music's phase plays nothing.
+        music
+            .stream
+            .frame(181.0, (true, false), (false, true, true), true);
+        assert_eq!(music.stream.phase(), Some(Phase::Music));
+        assert!(music.ambient());
+        assert_eq!(wanted(&music, music.region), None);
+        // The level risen, a sector of another music opens it.
+        music.silent = false;
+        assert!(music.stand((11, 10), Some((0x1968, 0))));
+        assert!(!music.ambient());
+        assert_eq!(wanted(&music, Some(0x1980)), Some(0x1980));
     }
 
     #[test]
