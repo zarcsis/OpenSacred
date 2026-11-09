@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use opensacred_data::heroes::{
     Carried, Hero, HeroArt, HeroEntry, Heroes, INDEX, SavedHero, Section, Worn,
 };
-use opensacred_formats::amh::{Amh, Item};
+use opensacred_formats::amh::{Amh, Item, Summary};
 use sha2::{Digest, Sha256};
 
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
@@ -147,8 +147,17 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
         if found != sha {
             continue;
         }
-        let (hero, name) = convert_one(&dir, source.to_owned(), &data)?;
-        saved.push(SavedHero { slot, name, hero });
+        let (hero, summary) = convert_one(&dir, source.to_owned(), &data)?;
+        saved.push(SavedHero {
+            slot,
+            name: summary.name,
+            hero,
+            equipment: (0u8..)
+                .zip(summary.equipment)
+                .filter(|&(_, item)| item != 0)
+                .collect(),
+            won: summary.won.to_vec(),
+        });
     }
     let count = heroes.len() + saved.len();
     let text = ron::ser::to_string_pretty(&Heroes { heroes, saved }, crate::utf8::pretty())
@@ -159,8 +168,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
 }
 
 /// Converts the hero file `source` of the bytes `data` into its hero file under `dir`; returns
-/// its index's entry and its summary's name.
-fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, String)> {
+/// its index's entry and its summary.
+fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Summary)> {
     {
         let amh = Amh::parse(data).with_context(|| source.clone())?;
         let info = amh.summary().with_context(|| source.clone())?;
@@ -200,7 +209,7 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, St
                 backpack,
                 arts,
             },
-            info.name,
+            info,
         ))
     }
 }
@@ -233,6 +242,24 @@ mod tests {
             .map(|s| (s.slot, s.hero.class, s.hero.level, s.name.is_empty()))
             .collect();
         assert_eq!(saved, [(6, 8, 29, false), (7, 9, 29, false)]);
+        // What their figures wear, by their summaries' slots: the Dwarf's 15 items, his musket
+        // in the right hand, and the Daemon's 14, her sword in it and her shield in the left; no
+        // difficulty won, so bronze and silver are offered.
+        let worn: Vec<_> = index
+            .saved
+            .iter()
+            .map(|s| {
+                let hand = |slot| s.equipment.iter().find(|e| e.0 == slot).map(|e| e.1);
+                (s.equipment.len(), hand(13), hand(12), s.won.clone())
+            })
+            .collect();
+        assert_eq!(
+            worn,
+            [
+                (15, Some(1856), Some(3096), vec![false; 6]),
+                (14, Some(1243), Some(1246), vec![false; 6])
+            ]
+        );
         for saved in &index.saved {
             let hero = Hero::decode(&fs::read(dir.join(&saved.hero.file)).unwrap()).unwrap();
             assert_eq!(hero.sections.len(), 8);

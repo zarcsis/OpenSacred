@@ -10,8 +10,19 @@ The choice of the hero's screen itself is in docs/re/menus.md, "The choice of th
 
 - The choice's screen (`cUI_Character`, one object for both campaigns) reads eight slots, `SAVE\HERO%.2d.PAX` for 0 to 7 (`0x70C4A0`, the format `%s%s%.2d.%s` at `0x9E357C`), each through the hero loader in its summary's mode (`0x61D0F0` without a whole load), puts each hero found on its pedestal (`0x70C7E0`) and clears the others (`0x6F4E20`); it answers how many it found (**confirmed**).
 - A pedestal keeps the file's 556-byte summary, the section `0xC3` (`0x6F4E60` copies `0x8B` words to its `+0x2FC`): its first word the level, its second the class, the hero's creature type (1 the Seraphim, 2 the Gladiator, 3 the Battle Mage, 4 the Dark Elf, 5 the Wood Elf, 6 the Vampiress, 8 the Dwarf, 9 the Daemon) (**confirmed**).
-- Each pedestal is labelled with the class and the level, a free one `UI_SAVE_EMPTY`'s word (**seen**).
+- Each pedestal is labelled with the hero's name and level, a free one `UI_SAVE_EMPTY`'s word (**seen**; below, "The pedestals").
   The slot 0 is the front left pedestal, the slot 1 the one behind it, the slot 6 the Dwarf's (on the right, in the middle) and the slot 7 the Daemon's (on the right, in front) (**seen** by the files the export wrote); the slots 2 to 5 among the other labels were not read.
+
+### The pedestals
+
+Read in the code (**confirmed**) and on the frames of the run (**seen**):
+
+- A saved hero stands on the pedestal of its slot at the place and turn of the figures' table's entry of that index (`0x70C7E0` passes `0x9E326C + 0x50 · slot`, the entry's `+0x24`…`+0x30`, docs/re/equipment.md, "The choice of the hero's figures"), so the slot 0 stands where the Ancaria campaign's Gladiator does and the slots 6 and 7 where its Dark Elf and Vampiress do (**seen**: the exported Seraphim on the Gladiator's pedestal, the Dwarf and the Daemon on the two right ones).
+- Its figure wears the items of its summary's equipment (docs/02 §9), and its class's default in the slot 0 or 2 where that is empty (`0x6F4E60`, `0x426580`); it is dark until the cursor is in its window, the table entry's, or it is chosen, as the Ancaria campaign's figures (**seen**).
+- A free pedestal's word (`0x6F15A0`) is centred in its window's middle, white, `0xFFFFFF80` while the cursor is in the window or the pedestal is chosen (**seen**: the pedestal of a deleted hero stays chosen and yellow).
+- A saved hero's label (`0x6F15A0`) is a box as wide as its window, from two lines above the window's foot to 5 pixels below it, black at the alpha `0x9F`, `0x7F000068` (dark blue) while the hero is chosen; in it, in the font 2 (Carolingia 12), a line every 19 pixels (the font's height of `A`), the hero's name centred, then `"%s: %d "` of `1070`'s word ("Level") and the level, followed by the medal of the highest difficulty won as an inline image (`\gFFFFFFFF%08x`), the interface's images 414 to 418 of `GUI_main_icons.TGA` (bronze's to niobium's, 16 × 16 at (137, 18) and 17 apart), the line centred with it; both lines in the class's colour (`0x43C250`: the Dwarf's `0x00FFFF`, the Daemon's `0xFF6C00`, the Seraphim's `0x87CEFA`).
+  The medal is bronze's for a hero that won nothing; past niobium's, none.
+  A third line, `UI_DIFFICULTY_HARDCORE` in red, follows for a hero of the hardcore mode (the summary's byte `0xF3`) where the screen's `+0x53D` is set (not read further); in a network game the level's line has no medal.
 
 ### When the original writes one
 
@@ -91,5 +102,6 @@ Not the file's (**confirmed**): the difficulty, the bar's; the place and the hom
 
 ## For `opensacred-game`
 
-- The Underworld's heroes are of level 25 or more; the game needs an export of a hero of its own (its format its own, ADR-08) and an import that keeps the hero's values, arts, skills, items and gold and the levels it reached by difficulty, and starts the place, the quests and the scripts at the Underworld tree's start (#1117, #1677).
-- The shipped `hero06.pax` and `hero07.pax` are a fresh installation's only Underworld heroes; carrying them needs the `0xC7` layout (docs/02 §9) or a conversion of their values (#1676).
+- The Underworld's heroes are of level 25 or more; the game needs an export of a hero of its own (its format its own, ADR-08) and an import that keeps the hero's values, arts, skills, items and gold and the levels it reached by difficulty, and starts the place, the quests and the scripts at the Underworld tree's start (#2358, #1677).
+- The shipped `hero06.pax` and `hero07.pax` are a fresh installation's only Underworld heroes; carrying them into a game needs the `0xC7` layout (docs/02 §9) or a conversion of their values (#1677).
+- Since #1676 `opensacred-convert heroes` converts the two, and the game's choice (`choice`) stands them on their pedestals in their summaries' items, labels them as above, chooses one of level 25 or more (the red title of a lower one waits for the export, #2358), puts its name in the field, offers it the difficulties up to one past the highest it won, and lights Start Game; it shows no erase button (docs/decisions/interface.md, "The installation's Underworld heroes").

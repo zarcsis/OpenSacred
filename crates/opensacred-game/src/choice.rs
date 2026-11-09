@@ -1,6 +1,7 @@
 //! The campaigns' choices of the hero, as the original's (docs/re/menus.md, "The choice of the
-//! hero"): the Underworld campaign's, its pedestals empty until the heroes can be saved and
-//! imported (#1129, #1117), and the Ancaria campaign's (#1119): its picture of 12 tiles over its water, the eight classes as 3D figures
+//! hero"): the Underworld campaign's, the heroes that the installation ships standing on their
+//! pedestals, each labelled with its name and level, the others free (#1129, #1676), and the
+//! Ancaria campaign's (#1119): its picture of 12 tiles over its water, the eight classes as 3D figures
 //! standing on the pedestals and idling, dark until the cursor is on one or it is chosen, and
 //! under them a panel of the hero's name, starting as the class's own, the difficulty, a
 //! drop-down list of bronze and silver (#1145), Import, Back and Start Game, which shows a class's
@@ -18,6 +19,11 @@
 //! The mouse chooses a figure by pointing and clicking, the arrows choose the next or the one
 //! before, a key types the name, Enter starts the game and Esc goes back (`menu`). The cursor
 //! resting on a figure makes it speak its class's introduction (#1128).
+//!
+//! Both choices stand their figures on the same eight pedestals, the table's places: the Ancaria
+//! campaign's classes in the table's order, the Underworld campaign's heroes each on the pedestal
+//! of its slot (`0x70C7E0`), in the items of its summary's equipment (`0x6F4E60`). A choice is of
+//! a pedestal.
 
 use bevy::asset::embedded_asset;
 use bevy::camera::RenderTarget;
@@ -40,8 +46,9 @@ use bevy_kira_audio::prelude::{AudioChannel, AudioControl};
 
 use opensacred_rules::drops::Difficulty;
 
+use crate::bar::{self, UiImages};
 use crate::game::{AppState, Class, Data, FONT, Request};
-use crate::menu::{self, Screen, Words};
+use crate::menu::{self, MENU_FONT, Screen, Words};
 use crate::menu_sound::Introductions;
 use crate::ripples::{self, Pond, Ripples};
 use crate::sfx::{self, Sfx};
@@ -112,7 +119,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
             let (name, description) = texts(class);
             [name, description]
         })
-        .chain([IMPORT, START, BACK, EMPTY])
+        .chain([IMPORT, START, BACK, EMPTY, LEVEL])
         .chain(DIFFICULTIES)
 }
 
@@ -139,6 +146,22 @@ const PEDESTAL_LABEL: Vec2 = Vec2::new(120.0, 28.0);
 /// The labels' size and their shadow, which keeps them read over the mist.
 const PEDESTAL_SIZE: f32 = 21.0;
 const SHADOW: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.8);
+/// A saved hero's label (`0x6F15A0`): its name over `1070`'s "Level" and its level, in the font
+/// 2, Carolingia 12 (`world_map`'s size of it), in its class's colour (`0x43C250`), each line
+/// centred, a line every 19 pixels, the level's followed by the medal of the highest difficulty
+/// the hero won (the interface's images 414 to 418); over a box as wide as its figure's window,
+/// two lines and 5 pixels high, its foot 5 under the window's: black at the alpha `0x9F`, dark
+/// blue (`0x7F000068`) while the hero is chosen.
+const LEVEL: &str = "1070";
+const LABEL_SIZE: f32 = 18.0;
+const LABEL_LINE: f32 = 19.0;
+const LABEL_FOOT: f32 = 5.0;
+const MEDALS: u32 = 414;
+const MEDAL: f32 = 16.0;
+const CHOSEN_BOX: Color = Color::linear_rgba(0.0, 0.0, 104.0 / 255.0, 127.0 / 255.0);
+/// The lowest level of a saved hero that the Underworld campaign's choice takes (`0x70CA30`:
+/// above 24).
+const UNDERWORLD_LEVEL: u32 = 25;
 /// The difficulties' texts, bronze's first (`0x710190`).
 const DIFFICULTIES: [&str; 5] = [
     "UI_DIFFICULTY_BRONZE",
@@ -152,16 +175,62 @@ const DIFFICULTIES: [&str; 5] = [
 /// backspaces).
 const NAME_LENGTH: usize = 24;
 
-/// What the screen holds: the hero chosen, the figure under the cursor, the name typed, the
-/// difficulty chosen and those offered, and whether the difficulties' list is open.
+/// What the screen holds: what stands on each pedestal, the pedestal chosen and the one under
+/// the cursor, the name typed, the difficulty chosen and those offered, and whether the
+/// difficulties' list is open.
 #[derive(Resource, Default)]
 struct Choice {
-    chosen: Option<Class>,
-    hovered: Option<Class>,
+    stands: [Option<Stand>; 8],
+    chosen: Option<usize>,
+    hovered: Option<usize>,
     name: String,
     difficulty: Difficulty,
     offered: Vec<Difficulty>,
     listing: bool,
+}
+
+impl Choice {
+    /// What stands on `pedestal`, none on a free one.
+    fn stand(&self, pedestal: usize) -> Option<&Stand> {
+        self.stands.get(pedestal)?.as_ref()
+    }
+
+    /// The class of the Ancaria campaign's figure on `pedestal`, none where a saved hero or
+    /// nothing stands there.
+    fn class_at(&self, pedestal: Option<usize>) -> Option<Class> {
+        self.stand(pedestal?)
+            .filter(|stand| stand.saved.is_none())
+            .map(|stand| stand.class)
+    }
+}
+
+/// What stands on a pedestal: a class's figure, the Ancaria campaign's, or a saved hero, the
+/// Underworld campaign's.
+#[derive(Clone)]
+struct Stand {
+    class: Class,
+    saved: Option<Saved>,
+}
+
+/// A saved hero: its name and level, and the highest difficulty it won as `0x6F4F20` reads its
+/// summary, bronze's where it won none.
+#[derive(Clone)]
+struct Saved {
+    name: String,
+    level: u32,
+    highest: usize,
+}
+
+/// The highest difficulty that a saved hero won (`0x6F4F20`): the last of its summary's bytes
+/// that is set, bronze's where none is.
+fn highest_won(won: &[bool]) -> usize {
+    won.iter().rposition(|&won| won).unwrap_or(0)
+}
+
+/// The difficulties that the list offers a saved hero: bronze up to one past the highest it
+/// won (`0x70CA30`), so silver at least, and niobium at most (`0x710190`).
+fn offered_to(highest: usize) -> Vec<Difficulty> {
+    Difficulty::ALL.into_iter().take(highest + 2).collect()
 }
 
 /// The difficulties that the list offers a new hero: bronze and silver, as the original's box
@@ -203,12 +272,21 @@ fn introduction(class: Class) -> u32 {
 
 /// The figures, once read.
 #[derive(Resource, Default)]
-struct Figures(Option<Vec<Look>>);
+struct Figures(Option<Lineup>);
 
-/// A figure: its class, its window in the picture, where it stands and turns in its scene, and
-/// its model, idle clip and items where its model was converted.
+/// The figures of the two choices, and the pedestals' windows in the picture, the table's.
+#[derive(Default)]
+struct Lineup {
+    classes: Vec<Look>,
+    saved: Vec<Look>,
+    windows: Vec<Rect>,
+}
+
+/// A figure: what it is, its pedestal and its window in the picture, where it stands and turns
+/// in its scene, and its model, idle clip and items where its model was converted.
 struct Look {
-    class: Class,
+    stand: Stand,
+    pedestal: usize,
     window: Rect,
     place: Transform,
     model: Option<String>,
@@ -216,10 +294,10 @@ struct Look {
     held: Vec<npcs::Held>,
 }
 
-/// A figure, of its class; its glTF until its scene is in place.
+/// A figure, on its pedestal; its glTF until its scene is in place.
 #[derive(Component)]
 struct Figure {
-    class: Class,
+    pedestal: usize,
     gltf: Option<Handle<Gltf>>,
     idle: String,
 }
@@ -421,6 +499,10 @@ const DROP_RIGHT: Piece = Piece::new(Sheet::Frames, [66, 180, 105, 216]);
 const FIELD_LEFT: Piece = Piece::new(Sheet::Fields, [1, 118, 31, 143]);
 const FIELD_MIDDLE: Piece = Piece::new(Sheet::Fields, [33, 118, 63, 143]);
 const FIELD_RIGHT: Piece = Piece::new(Sheet::Fields, [66, 118, 97, 143]);
+/// A read-only field's left end (332), its right end's texels turned across, which the Underworld
+/// campaign's name's field takes in place of the emblem (seen), as the saves' window's read-only
+/// fields (`saves_window`).
+const FIELD_PLAIN_LEFT: Piece = Piece::new(Sheet::Fields, [68, 118, 97, 143]).turned(true, false);
 /// The crest's halves at the middle of the frame's top and its foot (314–317), and the frame's
 /// corners (318–321): the top left, the top right, the bottom left and the bottom right.
 const CREST: [Piece; 4] = [
@@ -506,28 +588,53 @@ const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
 const LIGHT: f32 = 4000.0;
 const AMBIENT: f32 = 600.0;
 
-/// The figure of the arrows' next choice from `chosen`, `step` figures on in the screen's order.
-fn step(chosen: Option<Class>, step: isize) -> Class {
+/// The pedestal of the arrows' next choice from `chosen`, `step` figures on in the screen's
+/// order.
+fn step(chosen: Option<usize>, step: isize) -> usize {
     let count = ORDER.len();
-    let index = match chosen.and_then(|class| ORDER.iter().position(|&c| c == class)) {
+    match chosen {
         Some(at) => {
             let signed = isize::try_from(at).unwrap_or(0) + step;
             usize::try_from(signed.rem_euclid(isize::try_from(count).unwrap_or(1))).unwrap_or(0)
         }
         None if step < 0 => count - 1,
         None => 0,
+    }
+}
+
+/// Chooses the figure on `pedestal`, lit: a class's, its name the class's own; a saved hero of
+/// the Underworld's level, its name its own and the difficulties offered by those it won
+/// (`0x70CA30`). A free pedestal, or a hero below that level, is not chosen.
+fn choose(choice: &mut Choice, words: &Words, pedestal: usize) {
+    let Some(stand) = choice.stand(pedestal).cloned() else {
+        return;
     };
-    ORDER[index]
+    match stand.saved {
+        None => {
+            let class = stand.class;
+            choice.name = words.get(texts(class).0).unwrap_or(class.name()).to_owned();
+        }
+        Some(saved) if saved.level >= UNDERWORLD_LEVEL => {
+            choice.name = saved.name;
+            choice.offered = offered_to(saved.highest);
+            if !choice.offered.contains(&choice.difficulty) {
+                choice.difficulty = Difficulty::default();
+            }
+        }
+        Some(_) => return,
+    }
+    choice.chosen = Some(pedestal);
 }
 
-/// Chooses `class`: its figure lit, the name its own.
-fn choose(choice: &mut Choice, words: &Words, class: Class) {
-    choice.chosen = Some(class);
-    choice.name = words.get(texts(class).0).unwrap_or(class.name()).to_owned();
+/// The class of a creature type, among the heroes'.
+fn class_of(creature: u32) -> Option<Class> {
+    ORDER.into_iter().find(|class| class.creature() == creature)
 }
 
-/// Reads the figures from the client's table and the game's data, once: none where the table
-/// was not converted.
+/// Reads the figures from the client's table and the game's data, once: the classes', each on
+/// the pedestal of its entry, and the saved heroes' of `heroes.ron`, each on the pedestal of its
+/// slot, in its summary's items (`0x70C7E0`, `0x6F4E60`); none where the table was not
+/// converted.
 fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
     let Some(data) = data else {
         return;
@@ -546,7 +653,7 @@ fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
         Ok(table) => table,
         Err(e) => {
             warn!("choice: no figures: {e:#}");
-            figures.0 = Some(Vec::new());
+            figures.0 = Some(Lineup::default());
             return;
         }
     };
@@ -557,63 +664,138 @@ fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
             (Default::default(), Default::default())
         }
     };
-    figures.0 = Some(
-        table
-            .iter()
-            .filter_map(|figure| {
-                let class = *ORDER.iter().find(|c| c.creature() == figure.class)?;
-                let slots = slots(figure, class);
-                let (held_class, held) =
-                    match npcs::figure_gear(&shared.tables, (&files.0, &files.1), &slots) {
-                        Ok(gear) => gear,
-                        Err(e) => {
-                            warn!("choice: {}: no items: {e:#}", class.name());
-                            (0, Vec::new())
-                        }
-                    };
-                let (grn, [idle, ..], _) = class.preset();
-                let model = files.0.get(grn).cloned();
-                let idle = model
-                    .as_ref()
-                    .and_then(|model| motions::Slots::read(&assets.join(model)).ok())
-                    .and_then(|slots| {
-                        // The Vampiress and the Dark Elf stand in their fight stance, the rest
-                        // as they stand by what they hold (`0x6F4C58`).
-                        let stance = matches!(class, Class::Vampiress | Class::DarkElf)
-                            .then(|| slots.stance(held_class))
-                            .flatten();
-                        stance
-                            .or_else(|| {
-                                slots
-                                    .clip(motions::Action::Stand, held_class)
-                                    .map(|(name, _)| name)
-                            })
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or_else(|| idle.to_owned());
-                let [left, top, width, height] = figure.window;
-                Some(Look {
-                    class,
-                    window: Rect::new(left, top, left + width, top + height),
-                    place: place_of(figure),
-                    model,
-                    idle,
-                    held,
+    let classes = table
+        .iter()
+        .enumerate()
+        .filter_map(|(pedestal, figure)| {
+            let class = class_of(figure.class)?;
+            let stand = Stand { class, saved: None };
+            Some(look(
+                shared,
+                &files,
+                (pedestal, figure),
+                stand,
+                &slots(figure, class),
+            ))
+        })
+        .collect();
+    let saved = saved_heroes(assets)
+        .into_iter()
+        .filter_map(|hero| {
+            let pedestal = usize::from(hero.slot);
+            let figure = table.get(pedestal)?;
+            let class = class_of(hero.hero.class)?;
+            let stand = Stand {
+                class,
+                saved: Some(Saved {
+                    name: hero.name,
+                    level: hero.hero.level,
+                    highest: highest_won(&hero.won),
+                }),
+            };
+            let slots = dressed(hero.equipment, class);
+            Some(look(shared, &files, (pedestal, figure), stand, &slots))
+        })
+        .collect();
+    let windows = table.iter().map(window_of).collect();
+    figures.0 = Some(Lineup {
+        classes,
+        saved,
+        windows,
+    });
+}
+
+/// The saved heroes of the Underworld campaign's choice (`heroes.ron`'s `saved`, #1676), none
+/// where the index lacks them.
+fn saved_heroes(assets: &std::path::Path) -> Vec<opensacred_data::heroes::SavedHero> {
+    let path = assets.join("heroes").join(opensacred_data::heroes::INDEX);
+    match files::read_to_string(&path)
+        .map(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text))
+    {
+        Ok(Ok(index)) => index.saved,
+        Ok(Err(e)) => {
+            warn!("choice: no saved heroes: parsing {}: {e}", path.display());
+            Vec::new()
+        }
+        Err(e) => {
+            warn!("choice: no saved heroes: reading {}: {e}", path.display());
+            Vec::new()
+        }
+    }
+}
+
+/// A figure of `stand` on `pedestal`, at the place of the table's `figure`, wearing `slots`'
+/// items: its model, the items' models, and its idle clip by what it holds.
+fn look(
+    shared: &crate::sectors::Shared,
+    files: &(
+        std::collections::HashMap<String, String>,
+        std::collections::HashMap<u32, String>,
+    ),
+    (pedestal, figure): (usize, &Showcase),
+    stand: Stand,
+    slots: &[(u8, u32)],
+) -> Look {
+    let class = stand.class;
+    let assets = &shared.assets;
+    let (held_class, held) = match npcs::figure_gear(&shared.tables, (&files.0, &files.1), slots) {
+        Ok(gear) => gear,
+        Err(e) => {
+            warn!("choice: {}: no items: {e:#}", class.name());
+            (0, Vec::new())
+        }
+    };
+    let (grn, [idle, ..], _) = class.preset();
+    let model = files.0.get(grn).cloned();
+    let idle = model
+        .as_ref()
+        .and_then(|model| motions::Slots::read(&assets.join(model)).ok())
+        .and_then(|slots| {
+            // The Vampiress and the Dark Elf stand in their fight stance, the rest as they stand
+            // by what they hold (`0x6F4C58`).
+            let stance = matches!(class, Class::Vampiress | Class::DarkElf)
+                .then(|| slots.stance(held_class))
+                .flatten();
+            stance
+                .or_else(|| {
+                    slots
+                        .clip(motions::Action::Stand, held_class)
+                        .map(|(name, _)| name)
                 })
-            })
-            .collect(),
-    );
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| idle.to_owned());
+    Look {
+        stand,
+        pedestal,
+        window: window_of(figure),
+        place: place_of(figure),
+        model,
+        idle,
+        held,
+    }
+}
+
+/// The window of a figure of the table in the picture, in which the cursor lights it.
+fn window_of(figure: &Showcase) -> Rect {
+    let [left, top, width, height] = figure.window;
+    Rect::new(left, top, left + width, top + height)
 }
 
 /// The items of a figure of the table in their slots, and its class's default in its slot where
 /// that is empty (`0x6F4E60`).
 fn slots(figure: &Showcase, class: Class) -> Vec<(u8, u32)> {
-    let mut slots: Vec<(u8, u32)> = SLOTS
+    let slots: Vec<(u8, u32)> = SLOTS
         .iter()
         .zip(figure.items)
         .filter(|&(_, item)| item != 0)
         .filter_map(|(&slot, item)| Some((slot?, item)))
         .collect();
+    dressed(slots, class)
+}
+
+/// The items of `slots`, and the class's default in its slot where that is empty (`0x6F4E60`).
+fn dressed(mut slots: Vec<(u8, u32)>, class: Class) -> Vec<(u8, u32)> {
     if let Some((slot, item)) = class.default_item()
         && !slots.iter().any(|&(taken, _)| taken == slot)
     {
@@ -651,35 +833,14 @@ fn camera() -> (Transform, PerspectiveProjection) {
     )
 }
 
-/// The screen: the picture and its water, the figures' layer, the figures' windows and the
-/// panel; the figures' camera, light and models.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources one by one"
-)]
-fn screen(
-    mut commands: Commands,
-    images: Res<Images>,
-    words: Res<Words>,
-    figures: Res<Figures>,
-    assets: Res<AssetServer>,
-    (window, request): (Option<Single<&Window, With<PrimaryWindow>>>, Res<Request>),
-    mut targets: ResMut<Assets<Image>>,
-    mut layers: ResMut<Assets<Layer>>,
-    mut choice: ResMut<Choice>,
-    mut ripples: Ripples,
-) {
-    *choice = Choice::default();
-    let named = request.0.difficulty;
-    choice.difficulty = named.unwrap_or_default();
-    choice.offered = offered(named);
-    let height = menu::picture_height(window.map(|window| window.height()));
-    let water = ripples.spawn(
-        &mut commands,
-        (&mut targets, &assets),
-        (Screen::Heroes, &pond(&images, true)),
-        height,
-    );
+/// The figures' stage of a choice's screen `screen`, `height` pixels high: their camera, its
+/// texture of its frustum's shape, their light and the figures of `looks`; answers the layer that
+/// lays the texture on the interface.
+fn stage(
+    commands: &mut Commands,
+    (screen, looks, height): (Screen, &[Look], f32),
+    (targets, layers, assets): (&mut Assets<Image>, &mut Assets<Layer>, &AssetServer),
+) -> Handle<Layer> {
     let (eye, projection) = camera();
     let size = Vec2::new(height * projection.aspect_ratio, height)
         .round()
@@ -691,7 +852,7 @@ fn screen(
         None,
     ));
     commands.spawn((
-        DespawnOnExit(Screen::Heroes),
+        DespawnOnExit(screen),
         Camera3d::default(),
         Camera {
             order: -1,
@@ -711,7 +872,7 @@ fn screen(
         RenderLayers::layer(FIGURES),
     ));
     commands.spawn((
-        DespawnOnExit(Screen::Heroes),
+        DespawnOnExit(screen),
         DirectionalLight {
             illuminance: LIGHT,
             shadow_maps_enabled: false,
@@ -720,27 +881,67 @@ fn screen(
         Transform::from_xyz(-1.0, 1.2, 1.5).looking_at(Vec3::ZERO, Vec3::Y),
         RenderLayers::layer(FIGURES),
     ));
-    let looks = figures.0.as_deref().unwrap_or_default();
     for look in looks {
         let Some(model) = &look.model else {
             continue;
         };
         commands.spawn((
-            DespawnOnExit(Screen::Heroes),
+            DespawnOnExit(screen),
             Figure {
-                class: look.class,
+                pedestal: look.pedestal,
                 gltf: Some(assets.load(model.clone())),
                 idle: look.idle.clone(),
             },
             Shades::default(),
-            npcs::equipment(&assets, &look.held),
+            npcs::equipment(assets, &look.held),
             look.place,
             Visibility::default(),
             RenderLayers::layer(FIGURES),
         ));
     }
+    layers.add(Layer { figures: target })
+}
+
+/// The screen: the picture and its water, the figures' layer, the figures' windows and the
+/// panel; the figures' camera, light and models.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources one by one"
+)]
+fn screen(
+    mut commands: Commands,
+    images: Res<Images>,
+    words: Res<Words>,
+    figures: Res<Figures>,
+    assets: Res<AssetServer>,
+    (window, request): (Option<Single<&Window, With<PrimaryWindow>>>, Res<Request>),
+    mut targets: ResMut<Assets<Image>>,
+    mut layers: ResMut<Assets<Layer>>,
+    mut choice: ResMut<Choice>,
+    mut ripples: Ripples,
+) {
+    *choice = Choice::default();
+    choice.stands = ORDER.map(|class| Some(Stand { class, saved: None }));
+    let named = request.0.difficulty;
+    choice.difficulty = named.unwrap_or_default();
+    choice.offered = offered(named);
+    let height = menu::picture_height(window.map(|window| window.height()));
+    let water = ripples.spawn(
+        &mut commands,
+        (&mut targets, &assets),
+        (Screen::Heroes, &pond(&images, true)),
+        height,
+    );
+    let looks = figures
+        .0
+        .as_ref()
+        .map_or(&[][..], |lineup| lineup.classes.as_slice());
+    let layer = stage(
+        &mut commands,
+        (Screen::Heroes, looks, height),
+        (&mut targets, &mut layers, &assets),
+    );
     let font: Handle<Font> = assets.load(FONT);
-    let layer = layers.add(Layer { figures: target });
     picture(
         &mut commands,
         (Screen::Heroes, &images, &assets),
@@ -751,81 +952,228 @@ fn screen(
                 place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
             ));
             for look in looks {
-                spotted(picture, look.class, look.window);
+                spotted(picture, look.pedestal, look.window);
             }
             let atlases = Atlases::load(&images, &assets);
-            panel(picture, &atlases, &words, &choice.offered, &font);
+            panel(picture, &atlases, &words, &font, true);
         },
     );
 }
 
-/// The Underworld campaign's choice of the hero (#1129): the same picture, each pedestal labelled
-/// free, as the original labels the pedestals that no saved hero takes; the panel's empty name,
-/// Back, and Start Game greyed, no hero being there to choose.
+/// The Underworld campaign's choice of the hero (#1129, #1676): the same picture, the saved
+/// heroes standing on their pedestals, each labelled with its name and level, and the free
+/// pedestals labelled free; the panel's name, the difficulty once a hero is chosen, Back and
+/// Start Game, greyed until a hero is chosen. It has no Import (`0x70D25C`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources one by one"
+)]
 fn underworld_screen(
     mut commands: Commands,
-    images: Res<Images>,
+    (images, ui_images): (Res<Images>, Res<UiImages>),
     words: Res<Words>,
+    figures: Res<Figures>,
     assets: Res<AssetServer>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
-    mut targets: ResMut<Assets<Image>>,
+    (mut targets, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
+    mut choice: ResMut<Choice>,
     mut ripples: Ripples,
 ) {
-    let font: Handle<Font> = assets.load(FONT);
-    let atlases = Atlases::load(&images, &assets);
+    *choice = Choice::default();
+    let (looks, windows) = figures.0.as_ref().map_or((&[][..], &[][..]), |lineup| {
+        (lineup.saved.as_slice(), lineup.windows.as_slice())
+    });
+    for look in looks {
+        if let Some(stand) = choice.stands.get_mut(look.pedestal) {
+            *stand = Some(look.stand.clone());
+        }
+    }
+    let height = menu::picture_height(window.map(|window| window.height()));
     let water = ripples.spawn(
         &mut commands,
         (&mut targets, &assets),
         (Screen::Underworld, &pond(&images, false)),
-        menu::picture_height(window.map(|window| window.height())),
+        height,
     );
+    let layer = stage(
+        &mut commands,
+        (Screen::Underworld, looks, height),
+        (&mut targets, &mut layers, &assets),
+    );
+    let font: Handle<Font> = assets.load(FONT);
+    let label_font: Handle<Font> = assets.load(MENU_FONT);
+    let atlases = Atlases::load(&images, &assets);
     picture(
         &mut commands,
         (Screen::Underworld, &images, &assets),
         water,
         |picture| {
-            let empty = words.get(EMPTY).unwrap_or("<empty>");
-            for at in PEDESTALS {
-                picture.spawn((
+            picture.spawn((
+                MaterialNode(layer),
+                place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+            ));
+            for (pedestal, &window) in windows.iter().enumerate() {
+                spotted(picture, pedestal, window);
+            }
+            for (pedestal, &at) in PEDESTALS.iter().enumerate() {
+                match looks.iter().find(|look| look.pedestal == pedestal) {
+                    Some(look) => {
+                        hero_label(picture, (look, &words, &label_font), (&ui_images, &assets))
+                    }
+                    None => free_label(picture, pedestal, at, (&words, &font)),
+                }
+            }
+            panel(picture, &atlases, &words, &font, false);
+        },
+    );
+}
+
+/// A free pedestal's label, centred on `at`: `UI_SAVE_EMPTY`'s word, white, yellow while the
+/// cursor is in its window or the pedestal is chosen (`0x6F15A0`).
+fn free_label(
+    picture: &mut ChildSpawnerCommands,
+    pedestal: usize,
+    at: Vec2,
+    (words, font): (&Words, &Handle<Font>),
+) {
+    picture.spawn((
+        Pickable::IGNORE,
+        Node {
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..place(about(at, PEDESTAL_LABEL))
+        },
+        children![(
+            Label::Free(pedestal),
+            Text::new(words.get(EMPTY).unwrap_or("<empty>")),
+            TextFont {
+                font: font.clone().into(),
+                font_size: FontSize::Px(PEDESTAL_SIZE),
+                ..default()
+            },
+            TextColor(TEXT),
+            TextShadow {
+                offset: Vec2::splat(1.5),
+                color: SHADOW,
+            },
+        )],
+    ));
+}
+
+/// A saved hero's label at the foot of its figure's window (`0x6F15A0`): its box, its name, and
+/// its level with the medal of the highest difficulty it won.
+fn hero_label(
+    picture: &mut ChildSpawnerCommands,
+    (look, words, font): (&Look, &Words, &Handle<Font>),
+    (images, assets): (&UiImages, &AssetServer),
+) {
+    let Some(saved) = &look.stand.saved else {
+        return;
+    };
+    let colour = crate::tooltip::argb(look.stand.class.colour());
+    let foot = look.window.max.y;
+    let top = foot - 2.0 * LABEL_LINE;
+    let lettering = (
+        TextFont {
+            font: font.clone().into(),
+            font_size: FontSize::Px(LABEL_SIZE),
+            ..default()
+        },
+        LineHeight::Px(LABEL_LINE),
+        TextColor(colour),
+    );
+    let level = format!("{}: {} ", words.get(LEVEL).unwrap_or("Level"), saved.level);
+    // The medals end with niobium's, the highest won's past it none (`0x6F15A0`).
+    let medal = u32::try_from(saved.highest)
+        .ok()
+        .filter(|&highest| highest <= 4)
+        .map(|highest| bar::piece(images, assets, MEDALS + highest, Vec2::ZERO, Vec2::ZERO).0);
+    picture
+        .spawn((
+            Label::Hero(look.pedestal),
+            Pickable::IGNORE,
+            place(Rect::new(
+                look.window.min.x,
+                top,
+                look.window.max.x,
+                foot + LABEL_FOOT,
+            )),
+            BackgroundColor(SHADE),
+        ))
+        .with_children(|label| {
+            label.spawn((
+                Pickable::IGNORE,
+                place(Rect::new(0.0, 0.0, look.window.width(), LABEL_LINE)),
+                Text::new(saved.name.clone()),
+                lettering.clone(),
+                TextLayout::justify(Justify::Center),
+            ));
+            label
+                .spawn((
                     Pickable::IGNORE,
                     Node {
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
-                        ..place(about(at, PEDESTAL_LABEL))
+                        ..place(Rect::new(
+                            0.0,
+                            LABEL_LINE,
+                            look.window.width(),
+                            2.0 * LABEL_LINE,
+                        ))
                     },
-                    children![(
-                        Text::new(empty),
-                        TextFont {
-                            font: font.clone().into(),
-                            font_size: FontSize::Px(PEDESTAL_SIZE),
-                            ..default()
-                        },
-                        TextColor(TEXT),
-                        TextShadow {
-                            offset: Vec2::splat(1.5),
-                            color: SHADOW,
-                        },
-                    )],
-                ));
+                ))
+                .with_children(|line| {
+                    line.spawn((Pickable::IGNORE, Text::new(level), lettering));
+                    if let Some(medal) = medal {
+                        line.spawn((
+                            Pickable::IGNORE,
+                            medal,
+                            Node {
+                                width: Val::Px(MEDAL),
+                                height: Val::Px(MEDAL),
+                                ..default()
+                            },
+                        ));
+                    }
+                });
+        });
+}
+
+/// A pedestal's label, of the Underworld campaign's choice: a free pedestal's word, or a saved
+/// hero's box.
+#[derive(Component, Clone, Copy)]
+enum Label {
+    Free(usize),
+    Hero(usize),
+}
+
+/// Colours the Underworld campaign's labels as the choice stands: a free pedestal's word yellow
+/// while the cursor is in its window or it is chosen, a saved hero's box blue while it is chosen
+/// (`0x6F15A0`).
+fn colour_labels(
+    choice: Res<Choice>,
+    mut labels: Query<(&Label, Option<&mut TextColor>, &mut BackgroundColor)>,
+) {
+    if !choice.is_changed() {
+        return;
+    }
+    for (&label, text, mut ground) in &mut labels {
+        match label {
+            Label::Free(pedestal) => {
+                let lit = choice.chosen == Some(pedestal) || choice.hovered == Some(pedestal);
+                if let Some(mut text) = text {
+                    text.0 = if lit { LIT } else { TEXT };
+                }
             }
-            frame(picture, &atlases);
-            field(picture, &atlases);
-            button(
-                picture,
-                &atlases,
-                (words.get(BACK).unwrap_or("Back"), &font, false),
-                BACK_BUTTON,
-                |commands| commands.run_system_cached(back),
-            );
-            button(
-                picture,
-                &atlases,
-                (words.get(START).unwrap_or("Start Game"), &font, true),
-                START_BUTTON,
-                |_| {},
-            );
-        },
-    );
+            Label::Hero(pedestal) => {
+                ground.0 = if choice.chosen == Some(pedestal) {
+                    CHOSEN_BOX
+                } else {
+                    SHADE
+                };
+            }
+        }
+    }
 }
 
 /// The water of a choice of the hero (docs/re/menus.md, "The water"): the first game's bed, and
@@ -891,22 +1239,23 @@ fn about(centre: Vec2, size: Vec2) -> Rect {
     Rect::from_center_size(centre, size)
 }
 
-/// A figure's window, the cursor over it lighting the figure of `class` and a click choosing it.
-fn spotted(picture: &mut ChildSpawnerCommands, class: Class, window: Rect) {
+/// A pedestal's window, the cursor over it lighting the figure on `pedestal` and a click
+/// choosing it.
+fn spotted(picture: &mut ChildSpawnerCommands, pedestal: usize, window: Rect) {
     picture
         .spawn((place(window),))
         .observe(move |_: On<PointerOver>, mut choice: ResMut<Choice>| {
-            choice.hovered = Some(class);
+            choice.hovered = Some(pedestal);
         })
         .observe(move |_: On<PointerOut>, mut choice: ResMut<Choice>| {
-            if choice.hovered == Some(class) {
+            if choice.hovered == Some(pedestal) {
                 choice.hovered = None;
             }
         })
         .observe(
             move |click: On<PointerClick>, mut choice: ResMut<Choice>, words: Res<Words>| {
                 if click.button == PointerButton::Primary {
-                    choose(&mut choice, &words, class);
+                    choose(&mut choice, &words, pedestal);
                 }
             },
         );
@@ -1048,29 +1397,49 @@ fn colour_words(
     }
 }
 
-/// The name's field: its middle stretched over `NAME_FIELD`, its emblem at the left and its end
-/// at the right as wide as its middle, as the original's edit control draws them (`0x7382F0`).
-fn field(parent: &mut ChildSpawnerCommands, atlases: &Atlases) {
+/// The name's field: its middle stretched over `NAME_FIELD`, its emblem at the left, or a plain
+/// end where not `editable`, and its end at the right as wide as its middle, as the original's
+/// edit control draws them (`0x7382F0`).
+fn field(parent: &mut ChildSpawnerCommands, atlases: &Atlases, editable: bool) {
+    let left = if editable {
+        FIELD_LEFT
+    } else {
+        FIELD_PLAIN_LEFT
+    };
     row(
         parent,
         atlases,
-        [FIELD_LEFT, FIELD_MIDDLE, FIELD_RIGHT],
+        [left, FIELD_MIDDLE, FIELD_RIGHT],
         NAME_FIELD,
-        [FIELD_LEFT.size().x, FIELD_MIDDLE.size().x],
+        [left.size().x, FIELD_MIDDLE.size().x],
     );
 }
 
-/// The panel under the figures, its list offering the difficulties `offered`.
+/// The name's field and the name in it.
+fn name(parent: &mut ChildSpawnerCommands, atlases: &Atlases, font: &Handle<Font>, editable: bool) {
+    field(parent, atlases, editable);
+    parent.spawn((
+        Part::Name,
+        Pickable::IGNORE,
+        line(NAME_AT.x, NAME_FIELD.max.x, NAME_AT.y),
+        Text::new(""),
+        lettering(font),
+        TextColor(TEXT),
+    ));
+}
+
+/// The panel under the figures, the Ancaria campaign's where `ancaria`, else the Underworld
+/// campaign's.
 fn panel(
     picture: &mut ChildSpawnerCommands,
     atlases: &Atlases,
     words: &Words,
-    offered: &[Difficulty],
     font: &Handle<Font>,
+    ancaria: bool,
 ) {
     frame(picture, atlases);
-    controls(picture, atlases, words, font);
-    list(picture, words, offered, font);
+    controls(picture, atlases, (words, font), ancaria);
+    list(picture, words, font);
 }
 
 /// The name of `difficulty` in the game's texts.
@@ -1081,16 +1450,24 @@ fn difficulty_name(words: &Words, difficulty: Difficulty) -> &str {
         .unwrap_or(crate::game::DIFFICULTIES[index])
 }
 
+/// The bottom of the difficulties' list's dark box of `rows` rows.
+fn list_bottom(rows: usize) -> f32 {
+    LIST_TOP + LIST_BOX + LIST_BOX_PITCH * f32::from(u8::try_from(rows).unwrap_or(u8::MAX))
+}
+
+/// A row of the difficulties' list, of the difficulty of its index, shown while it is offered;
+/// and the list's dark box, as tall as the rows offered.
+#[derive(Component)]
+enum Listed {
+    Row(usize),
+    Box,
+}
+
 /// The difficulties' list, over the panel: a catch of the clicks elsewhere, which closes it, its
-/// dark box, and each difficulty `offered`, yellow under the cursor and chosen by a click.
-fn list(
-    picture: &mut ChildSpawnerCommands,
-    words: &Words,
-    offered: &[Difficulty],
-    font: &Handle<Font>,
-) {
-    let rows = f32::from(u8::try_from(offered.len()).unwrap_or(u8::MAX));
-    let bottom = LIST_TOP + LIST_BOX + LIST_BOX_PITCH * rows;
+/// dark box, and each difficulty, yellow under the cursor and chosen by a click; `show` shows the
+/// rows of those offered.
+fn list(picture: &mut ChildSpawnerCommands, words: &Words, font: &Handle<Font>) {
+    let bottom = list_bottom(Difficulty::ALL.len());
     let [left, right] = LIST_SIDES;
     picture
         .spawn((
@@ -1105,13 +1482,15 @@ fn list(
         })
         .with_children(|list| {
             list.spawn((
+                Listed::Box,
                 Pickable::IGNORE,
                 place(Rect::new(left, LIST_TOP, right, bottom)),
                 BackgroundColor(LIST_SHADE),
             ));
-            for (row, &difficulty) in offered.iter().enumerate() {
+            for (row, difficulty) in Difficulty::ALL.into_iter().enumerate() {
                 let foot = LIST_FIRST + LIST_PITCH * f32::from(u8::try_from(row).unwrap_or(0));
                 list.spawn((
+                    Listed::Row(row),
                     line(left, right, foot),
                     Text::new(difficulty_name(words, difficulty)),
                     lettering(font),
@@ -1227,14 +1606,20 @@ pub(crate) fn button_pieces(
     )
 }
 
-/// The Ancaria campaign's panel's parts: the name and the difficulty, Import, which a description
-/// hides, the description, Back and Start Game.
+/// The panel's parts: the name and the difficulty, the Ancaria campaign's Import (where
+/// `ancaria`), which a description hides, the description, Back and Start Game. The Ancaria
+/// campaign's name shows with the difficulty once a class is chosen, in a field that takes the
+/// keys; the Underworld campaign's always, in a plain field, which its hero's name fills as it is
+/// chosen (seen).
 fn controls(
     picture: &mut ChildSpawnerCommands,
     atlases: &Atlases,
-    words: &Words,
-    font: &Handle<Font>,
+    (words, font): (&Words, &Handle<Font>),
+    ancaria: bool,
 ) {
+    if !ancaria {
+        name(picture, atlases, font, false);
+    }
     picture
         .spawn((
             Part::Controls,
@@ -1242,15 +1627,9 @@ fn controls(
             place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
         ))
         .with_children(|controls| {
-            field(controls, atlases);
-            controls.spawn((
-                Part::Name,
-                Pickable::IGNORE,
-                line(NAME_AT.x, NAME_FIELD.max.x, NAME_AT.y),
-                Text::new(""),
-                lettering(font),
-                TextColor(TEXT),
-            ));
+            if ancaria {
+                name(controls, atlases, font, true);
+            }
             // The difficulty's bar, the two buttons that open the list at its ends.
             stretch(controls, atlases, BUTTON_MIDDLE, DIFFICULTY_BAR);
             let Rect { min, max } = DIFFICULTY_BAR;
@@ -1288,21 +1667,23 @@ fn controls(
                 TextColor(TEXT),
             ));
         });
-    picture
-        .spawn((
-            Part::Import,
-            Pickable::IGNORE,
-            place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
-        ))
-        .with_children(|import| {
-            button(
-                import,
-                atlases,
-                (words.get(IMPORT).unwrap_or("Import"), font, true),
-                IMPORT_BUTTON,
-                |_| {},
-            );
-        });
+    if ancaria {
+        picture
+            .spawn((
+                Part::Import,
+                Pickable::IGNORE,
+                place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+            ))
+            .with_children(|import| {
+                button(
+                    import,
+                    atlases,
+                    (words.get(IMPORT).unwrap_or("Import"), font, true),
+                    IMPORT_BUTTON,
+                    |_| {},
+                );
+            });
+    }
     picture.spawn((
         Part::Description,
         Pickable::IGNORE,
@@ -1335,15 +1716,24 @@ fn back(mut screen: ResMut<NextState<Screen>>) {
     screen.set(Screen::Main);
 }
 
-/// Starts a game of the hero chosen, of its name, if one is.
+/// Starts a game of the class chosen, of its name, if one is. A saved hero of the Underworld
+/// campaign starts nothing yet: its game is #1677's.
 fn start(
     choice: Res<Choice>,
     mut request: ResMut<Request>,
     mut state: ResMut<NextState<AppState>>,
 ) {
-    let Some(class) = choice.chosen else {
+    let Some(stand) = choice.chosen.and_then(|pedestal| choice.stand(pedestal)) else {
         return;
     };
+    let class = stand.class;
+    if let Some(saved) = &stand.saved {
+        info!(
+            "choice: the Underworld campaign does not start yet, with {} of level {}",
+            saved.name, saved.level
+        );
+        return;
+    }
     info!(
         "choice: a {} named {}, on {:?}",
         class.name(),
@@ -1370,12 +1760,12 @@ fn keys(
         }
         match &input.logical_key {
             Key::ArrowRight | Key::ArrowDown => {
-                let class = step(choice.chosen, 1);
-                choose(&mut choice, &words, class);
+                let pedestal = step(choice.chosen, 1);
+                choose(&mut choice, &words, pedestal);
             }
             Key::ArrowLeft | Key::ArrowUp => {
-                let class = step(choice.chosen, -1);
-                choose(&mut choice, &words, class);
+                let pedestal = step(choice.chosen, -1);
+                choose(&mut choice, &words, pedestal);
             }
             Key::Enter => commands.run_system_cached(start),
             Key::Backspace if choice.chosen.is_some() => {
@@ -1396,22 +1786,41 @@ fn keys(
     }
 }
 
-/// The panel as the choice stands: Start Game greyed until a hero is chosen, and a figure's
-/// description in place of the controls while the cursor is on it.
+/// The panel as the choice stands: Start Game greyed until a hero is chosen, a class's
+/// description in place of the controls while the cursor is on its figure, and the rows of the
+/// difficulties offered.
 fn show(
     choice: Res<Choice>,
     words: Res<Words>,
     mut parts: Query<(&Part, &mut Visibility, Option<&mut Text>, Option<&mut Word>)>,
+    mut listed: Query<(&Listed, &mut Visibility, &mut Node), Without<Part>>,
     mut commands: Commands,
 ) {
     if !choice.is_changed() {
         return;
     }
-    // The chosen hero's own figure shows no description, as the original's.
+    // The chosen hero's own figure shows no description, as the original's, nor a saved hero's.
     let description = choice
-        .hovered
-        .filter(|&class| choice.chosen != Some(class))
+        .class_at(
+            choice
+                .hovered
+                .filter(|&pedestal| choice.chosen != Some(pedestal)),
+        )
         .map(|class| texts(class).1);
+    for (listed, mut visibility, mut node) in &mut listed {
+        match *listed {
+            Listed::Row(row) => {
+                *visibility = if row < choice.offered.len() {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+            Listed::Box => {
+                node.height = Val::Px(list_bottom(choice.offered.len()) - LIST_TOP);
+            }
+        }
+    }
     for (part, mut visibility, text, word) in &mut parts {
         match part {
             Part::Controls => {
@@ -1465,14 +1874,15 @@ fn show(
 }
 
 /// The name with its caret after it, the caret shown and hidden in turns of `BLINK` of real time,
-/// as the original's edit control's.
+/// as the original's edit control's; the Underworld campaign's plain field shows none (seen).
 fn caret(
     time: Res<Time<Real>>,
-    choice: Res<Choice>,
+    (choice, screen): (Res<Choice>, Option<Res<State<Screen>>>),
     mut shown: Local<Option<bool>>,
     mut parts: Query<(&Part, &mut Text)>,
 ) {
-    let on = (time.elapsed().as_millis() / BLINK).is_multiple_of(2);
+    let editable = screen.is_some_and(|screen| *screen.get() == Screen::Heroes);
+    let on = editable && (time.elapsed().as_millis() / BLINK).is_multiple_of(2);
     if *shown == Some(on) && !choice.is_changed() {
         return;
     }
@@ -1661,12 +2071,13 @@ fn introduce(
         Res<AssetServer>,
     ),
 ) {
-    if choice.hovered != introduction.class {
+    let hovered = choice.class_at(choice.hovered);
+    if hovered != introduction.class {
         if introduction.spoken {
             channel.stop();
         }
         *introduction = Introduction {
-            class: choice.hovered,
+            class: hovered,
             ..default()
         };
     }
@@ -1706,7 +2117,7 @@ fn shade(
     mut aparts: ResMut<Assets<model_effects::ApartMaterial>>,
 ) {
     for (figure, mut shades) in &mut figures {
-        let lit = choice.hovered == Some(figure.class) || choice.chosen == Some(figure.class);
+        let lit = choice.hovered == Some(figure.pedestal) || choice.chosen == Some(figure.pedestal);
         if shades.lit == Some(lit) {
             continue;
         }
@@ -1732,7 +2143,12 @@ fn shade(
     }
 }
 
-/// The Ancaria campaign's choice of the hero.
+/// Whether a choice of the hero shows, either campaign's.
+fn choosing(screen: Option<Res<State<Screen>>>) -> bool {
+    screen.is_some_and(|screen| matches!(screen.get(), Screen::Heroes | Screen::Underworld))
+}
+
+/// The campaigns' choices of the hero.
 pub struct ChoicePlugin;
 
 impl Plugin for ChoicePlugin {
@@ -1745,18 +2161,27 @@ impl Plugin for ChoicePlugin {
             .init_resource::<Figures>()
             .init_resource::<Images>()
             .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
-            .add_systems(OnEnter(Screen::Underworld), underworld_screen)
+            .add_systems(
+                OnEnter(Screen::Underworld),
+                (read_figures, underworld_screen).chain(),
+            )
             .add_systems(
                 Update,
                 (
-                    (keys.in_set(crate::frame::Control), show, caret),
+                    (
+                        keys.in_set(crate::frame::Control)
+                            .run_if(in_state(Screen::Heroes)),
+                        show,
+                        caret,
+                        colour_labels.run_if(in_state(Screen::Underworld)),
+                    ),
                     // The figures, where the game draws models.
                     (dress, settle, shade, npcs::equip, npcs::bind_worn)
                         .chain()
                         .run_if(resource_exists::<Assets<Gltf>>),
                 )
                     .chain()
-                    .run_if(in_state(Screen::Heroes)),
+                    .run_if(choosing),
             )
             .add_systems(Update, colour_words.after(show))
             .add_systems(
@@ -1776,12 +2201,48 @@ mod tests {
 
     #[test]
     fn the_arrows_choose_the_figures_in_the_screens_order() {
-        assert_eq!(step(None, 1), Class::Gladiator);
-        assert_eq!(step(None, -1), Class::Vampiress);
-        assert_eq!(step(Some(Class::Gladiator), 1), Class::Seraphim);
-        assert_eq!(step(Some(Class::Gladiator), -1), Class::Vampiress);
-        assert_eq!(step(Some(Class::Vampiress), 1), Class::Gladiator);
-        assert_eq!(step(Some(Class::Dwarf), 1), Class::WoodElf);
+        let class = |chosen: Option<Class>, by| {
+            ORDER[step(chosen.and_then(|c| ORDER.iter().position(|&o| o == c)), by)]
+        };
+        assert_eq!(class(None, 1), Class::Gladiator);
+        assert_eq!(class(None, -1), Class::Vampiress);
+        assert_eq!(class(Some(Class::Gladiator), 1), Class::Seraphim);
+        assert_eq!(class(Some(Class::Gladiator), -1), Class::Vampiress);
+        assert_eq!(class(Some(Class::Vampiress), 1), Class::Gladiator);
+        assert_eq!(class(Some(Class::Dwarf), 1), Class::WoodElf);
+    }
+
+    #[test]
+    fn a_saved_hero_of_the_underworlds_level_is_chosen_with_its_name_and_difficulties() {
+        let words = Words::default();
+        let saved = |level, highest| Stand {
+            class: Class::Dwarf,
+            saved: Some(Saved {
+                name: "Hero".into(),
+                level,
+                highest,
+            }),
+        };
+        let mut choice = Choice::default();
+        choice.stands[6] = Some(saved(29, highest_won(&[false; 6])));
+        choice.stands[0] = Some(saved(24, 0));
+        choice.stands[1] = Some(saved(
+            25,
+            highest_won(&[true, true, false, false, false, false]),
+        ));
+        // A free pedestal and a hero below level 25 are not chosen (`0x70CA30`).
+        choose(&mut choice, &words, 3);
+        choose(&mut choice, &words, 0);
+        assert_eq!(choice.chosen, None);
+        // A hero that won nothing is offered bronze and silver; one that won silver, gold too.
+        choose(&mut choice, &words, 6);
+        assert_eq!(choice.chosen, Some(6));
+        assert_eq!(choice.name, "Hero");
+        assert_eq!(choice.offered, [Difficulty::Bronze, Difficulty::Silver]);
+        choose(&mut choice, &words, 1);
+        assert_eq!(choice.offered.len(), 3);
+        // Niobium is the last, however high the hero won.
+        assert_eq!(offered_to(highest_won(&[true; 6])), Difficulty::ALL);
     }
 
     #[test]

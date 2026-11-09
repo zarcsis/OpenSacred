@@ -32,6 +32,14 @@ pub struct SavedHero {
     pub slot: u8,
     pub name: String,
     pub hero: HeroEntry,
+    /// The items in its equipment's slots, by the slots, as its summary keeps them: what its
+    /// figure on the pedestal wears (`0x6F4E60`; docs/02 §9).
+    #[serde(default)]
+    pub equipment: Vec<(u8, u32)>,
+    /// Whether it won each difficulty, bronze's first, as its summary keeps them: the choice
+    /// offers it the difficulties up to one past the highest (`0x6F4F20`; docs/re/fight.md).
+    #[serde(default)]
+    pub won: Vec<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

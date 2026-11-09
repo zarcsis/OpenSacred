@@ -15,8 +15,16 @@ const COMPRESSED: u32 = 0xBAAD_C0DE;
 const PREFIX: usize = 32;
 /// The creature section: the dump of the hero's creature, with its combat arts.
 pub const CREATURE: u32 = 0xC7;
-/// The summary section: level, class and name.
+/// The summary section: level, class and name, the items worn and the difficulties won.
 pub const SUMMARY: u32 = 0xC3;
+/// The equipment's slots of a summary: their count (`u32`, 19 in every file) and the types of
+/// the items in them (`u32` each, 0 for none) after it (docs/02 §9).
+const EQUIPMENT_COUNT: usize = 0x88;
+pub const EQUIPMENT: usize = 19;
+/// A summary's byte for each difficulty the hero won, bronze's first, six of them (docs/re/fight.md,
+/// "What opens the levels").
+const WON: usize = 0xED;
+pub const WON_COUNT: usize = 6;
 /// The inventory section: a block for each item the hero carries.
 pub const INVENTORY: u32 = 0xC8;
 /// The backpack's section: an inventory container whose grid names its items by their ids.
@@ -84,6 +92,11 @@ pub struct Summary {
     pub class: u32,
     /// Empty in the templates.
     pub name: String,
+    /// `+0x8C`: the type of the item in each of the hero's 19 equipment slots, 0 for none, what
+    /// the choice of the hero's pedestal dresses its figure in (`0x6F4E60`).
+    pub equipment: [u32; EQUIPMENT],
+    /// `+0xED`: whether the hero won each difficulty, bronze's first (`0x6F4F20`).
+    pub won: [bool; WON_COUNT],
 }
 
 /// A combat art of the creature section: an entry of the stats' list (docs/re/arts.md, "A
@@ -360,7 +373,29 @@ impl Amh {
             .collect();
         let name = String::from_utf16(&units)
             .map_err(|_| r.error_at(8, field("hero name", 0, "UTF-16".into())))?;
-        Ok(Summary { level, class, name })
+        let mut slots = Reader::at(&section.data, EQUIPMENT_COUNT);
+        let count = slots.u32()?;
+        if usize::try_from(count).ok() != Some(EQUIPMENT) {
+            return Err(slots.error_at(
+                EQUIPMENT_COUNT,
+                field("AMH summary's equipment slots", count.into(), "19".into()),
+            ));
+        }
+        let mut equipment = [0; EQUIPMENT];
+        for slot in &mut equipment {
+            *slot = slots.u32()?;
+        }
+        let mut won = [false; WON_COUNT];
+        for (k, won) in won.iter_mut().enumerate() {
+            *won = Reader::at(&section.data, WON + k).u8()? != 0;
+        }
+        Ok(Summary {
+            level,
+            class,
+            name,
+            equipment,
+            won,
+        })
     }
 }
 
@@ -384,6 +419,9 @@ mod tests {
         let mut summary = vec![0; 556];
         summary[0] = 29;
         summary[4] = 8;
+        summary[0x88] = 19;
+        summary[0x8C + 4 * 13..0x8C + 4 * 14].copy_from_slice(&1856u32.to_le_bytes());
+        summary[0xEE] = 1;
         for (i, unit) in "Ilja".encode_utf16().enumerate() {
             summary[8 + 2 * i..10 + 2 * i].copy_from_slice(&unit.to_le_bytes());
         }
@@ -424,7 +462,9 @@ mod tests {
             Summary {
                 level: 29,
                 class: 8,
-                name: "Ilja".into()
+                name: "Ilja".into(),
+                equipment: std::array::from_fn(|slot| if slot == 13 { 1856 } else { 0 }),
+                won: [false, true, false, false, false, false],
             }
         );
     }
