@@ -649,7 +649,7 @@ pub(crate) struct Taking<'w, 's> {
     tables: Option<Res<'w, crate::drops::Tables>>,
     shown: Option<Res<'w, crate::inventory::Shown>>,
     remarks: MessageWriter<'w, crate::remarks::Remark>,
-    wearer: Wearer<'w>,
+    wearer: Wearing<'w, 's>,
     sets: Option<ResMut<'w, crate::sets::WeaponSets>>,
     settings: Option<Res<'w, crate::settings::Settings>>,
     experience: Option<Res<'w, crate::fight::Experience>>,
@@ -792,10 +792,9 @@ impl Taking<'_, '_> {
     }
 }
 
-/// The hero that wears what it picks up: its type, its level and the balance.
-type Wearer<'w> = (
-    Option<Res<'w, crate::hero::Hero>>,
-    Res<'w, crate::fight::Experience>,
+/// The hero that wears what it picks up, as the use's test weighs it, and the balance.
+type Wearing<'w, 's> = (
+    crate::equipment::Wearing<'w, 's>,
     Res<'w, crate::fight::Rules>,
 );
 
@@ -808,11 +807,11 @@ type Wearer<'w> = (
 /// and `dress` make the hero's values and look anew with. Whether it went.
 fn put_on(
     (pack, sets): (&mut Pack, Option<&mut crate::sets::WeaponSets>),
-    (tables, (hero, experience, rules)): (Option<&crate::drops::Tables>, &Wearer),
+    (tables, (wearing, rules)): (Option<&crate::drops::Tables>, &Wearing),
     sounds: &mut MessageWriter<sfx::Play>,
     dropped: &Dropped,
 ) -> bool {
-    let (Some(tables), Some(hero)) = (tables, hero) else {
+    let (Some(tables), Some(wearer)) = (tables, wearing.wearer()) else {
         return false;
     };
     if dropped.kind == Kind::Gold {
@@ -823,12 +822,7 @@ fn put_on(
         let Some(sets) = sets else {
             return false;
         };
-        let half = into_hands(
-            &sets.halves[sets.selected],
-            hero.creature,
-            experience.level,
-            &asks,
-        );
+        let half = into_hands(&sets.halves[sets.selected], &wearer, &asks);
         let Some(half) = half else {
             return false;
         };
@@ -843,16 +837,11 @@ fn put_on(
         });
         return true;
     }
-    let Some(slot) = opensacred_rules::equipment::slot_on_pickup(
-        hero.creature,
-        experience.level,
-        &asks,
-        |slot| {
-            pack.worn
-                .get(usize::from(slot))
-                .is_some_and(Option::is_none)
-        },
-    ) else {
+    let Some(slot) = opensacred_rules::equipment::slot_on_pickup(&wearer, &asks, |slot| {
+        pack.worn
+            .get(usize::from(slot))
+            .is_some_and(Option::is_none)
+    }) else {
         return false;
     };
     if !pack.wear_picked(dropped.clone(), slot) {
@@ -872,18 +861,15 @@ fn put_on(
 const WEAPON: u8 = 5;
 
 /// The half of the selected weapon set `halves` (the left hand's and the right's) that a weapon
-/// that `asks` so goes into as the hero of the type `hero` and the level `level` picks it up
-/// (`0x558080`'s branch 5, `0x54ACC0`): the left for the bows and the crossbows (the kinds 7 and
-/// 12), the right for any other; none where the hero may not use it or a half holds an item.
+/// that `asks` so goes into as the hero that `wearer` tells of picks it up (`0x558080`'s branch
+/// 5, `0x54ACC0`): the left for the bows and the crossbows (the kinds 7 and 12), the right for
+/// any other; none where the hero may not use it or a half holds an item.
 fn into_hands(
     halves: &[Option<Dropped>],
-    hero: u32,
-    level: u32,
+    wearer: &opensacred_rules::equipment::Wearer,
     asks: &opensacred_rules::equipment::Asks,
 ) -> Option<usize> {
-    if halves.iter().any(Option::is_some)
-        || !opensacred_rules::equipment::may_use(hero, level, asks)
-    {
+    if halves.iter().any(Option::is_some) || !opensacred_rules::equipment::may_use(wearer, asks) {
         return None;
     }
     Some(if matches!(asks.kind, 7 | 12) { 0 } else { 1 })
@@ -1595,7 +1581,7 @@ mod tests {
             kind: 1,
             classes: 0,
             level: 1,
-            takers: None,
+            ..opensacred_rules::equipment::Asks::default()
         };
         let bow = opensacred_rules::equipment::Asks {
             item: 1732,
@@ -1604,8 +1590,9 @@ mod tests {
         };
         // Seen in the original: the sword into the slot 13, the bow into 12, each kept by its
         // set.
-        assert_eq!(into_hands(&[None, None], 1, 1, &sword), Some(1));
-        assert_eq!(into_hands(&[None, None], 1, 1, &bow), Some(0));
+        let seraphim = opensacred_rules::equipment::Wearer::of(1, 1);
+        assert_eq!(into_hands(&[None, None], &seraphim, &sword), Some(1));
+        assert_eq!(into_hands(&[None, None], &seraphim, &bow), Some(0));
         let held = Dropped {
             kind: Kind::Weapon,
             item: 1712,
@@ -1618,10 +1605,20 @@ mod tests {
             socketed: Vec::new(),
             name_key: 0,
         };
-        assert_eq!(into_hands(&[Some(held), None], 1, 1, &sword), None);
-        // A level above the hero's keeps it out.
+        assert_eq!(into_hands(&[Some(held), None], &seraphim, &sword), None);
+        // A level above the hero's keeps it out, and a skill it lacks (#2410).
         let heavy = opensacred_rules::equipment::Asks { level: 5, ..sword };
-        assert_eq!(into_hands(&[None, None], 1, 1, &heavy), None);
+        assert_eq!(into_hands(&[None, None], &seraphim, &heavy), None);
+        let skilled = opensacred_rules::equipment::Asks {
+            skill: [13, 1],
+            ..sword
+        };
+        let lacking = opensacred_rules::equipment::Wearer {
+            skills: Some(&[]),
+            ..seraphim
+        };
+        assert_eq!(into_hands(&[None, None], &lacking, &skilled), None);
+        assert_eq!(into_hands(&[None, None], &seraphim, &skilled), Some(1));
     }
 
     #[test]

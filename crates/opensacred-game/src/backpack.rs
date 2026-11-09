@@ -423,18 +423,13 @@ pub(crate) fn posed(centre: Vec3, pose: Pose) -> Transform {
 /// Tints the cells while the inventory shows: under an item held over the grid by where it
 /// would go, green, purple or red (`0x5DC430`); else under an item blue, or red where the hero
 /// may not use it (`0x54ABE0`, #1417).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, grouped"
-)]
 fn tint(
     (shown, page): (Res<Shown>, Res<crate::inventory::Page>),
     pack: Res<Pack>,
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
-    (hero, experience, rules, tables): (
-        Option<Res<crate::hero::Hero>>,
-        Res<crate::fight::Experience>,
+    (wearing, rules, tables): (
+        crate::equipment::Wearing,
         Res<crate::fight::Rules>,
         Option<Res<Tables>>,
     ),
@@ -449,15 +444,13 @@ fn tint(
         let cell = held_at((at.x, at.y), held.size);
         Some((cell, held.size, pack.grid.highlight(cell, held.size)))
     });
+    let wearer = wearing.wearer();
     let refused = |key: u32| {
         pack.items
             .iter()
             .find(|(k, _)| *k == key)
             .is_some_and(|(_, dropped)| {
-                refuses(
-                    (hero.as_deref(), &experience, &rules, tables.as_deref()),
-                    dropped,
-                )
+                refuses(wearer.as_ref(), (&rules, tables.as_deref()), dropped)
             })
     };
     for (tint, mut colour) in &mut tints {
@@ -493,21 +486,18 @@ pub(crate) fn cell_tint(
     }
 }
 
-/// Whether the hero may not use the item `dropped` (`0x54ABE0`, #1417), by its type's demands.
+/// Whether the hero that `wearer` tells of may not use the item `dropped` (`0x54ABE0`, #1417),
+/// by its type's demands and what it asks of the hero (#2410).
 pub(crate) fn refuses(
-    (hero, experience, rules, tables): (
-        Option<&crate::hero::Hero>,
-        &crate::fight::Experience,
-        &crate::fight::Rules,
-        Option<&Tables>,
-    ),
+    wearer: Option<&opensacred_rules::equipment::Wearer>,
+    (rules, tables): (&crate::fight::Rules, Option<&Tables>),
     dropped: &Dropped,
 ) -> bool {
-    let (Some(hero), Some(tables)) = (hero, tables) else {
+    let (Some(wearer), Some(tables)) = (wearer, tables) else {
         return false;
     };
     let asks = tables.asks(dropped, rules);
-    !opensacred_rules::equipment::may_use(hero.creature, experience.0.level, &asks)
+    !opensacred_rules::equipment::may_use(wearer, &asks)
 }
 
 /// Lays the items' models out as the pack holds them, while the inventory shows: a model for each

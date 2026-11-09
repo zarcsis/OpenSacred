@@ -89,6 +89,10 @@ pub struct Tables {
 /// docs/re/items.md).
 const CLASS_BITS: u32 = 0x00C0_003F;
 
+/// The bits of a record's word `+0x04` that a made item holds of its own: the classes' and the bit
+/// `0x40`, no class (`opensacred_rules::fight::ItemValues::classes`).
+const OWN_CLASSES: u32 = CLASS_BITS | opensacred_rules::equipment::NO_CLASS;
+
 /// What a tooltip tells of an item's type (#1273): its record's word `+0x04` (its classes, its
 /// quality and its difficulty), its weapon's kind, the level it asks and its own (`+0x14`,
 /// `+0x19`, as the file holds them), its other requirements (the strength, the dexterity, the
@@ -490,10 +494,12 @@ impl Tables {
         own.max(self.sockets_level(dropped, rules))
     }
 
-    /// What `dropped` asks of the hero that would use it (#1288): its type's record's classes'
-    /// bits and weapon's kind, its category, the level asked of its own level (`+0x14` of
-    /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's, at
-    /// least its sockets' items' (#1661), and the group of its class's variants (#1516), a fixed
+    /// What `dropped` asks of the hero that would use it (#1288): the classes' bits of its record
+    /// as the tooltip tells them, a made item's its maker's ([`Self::record_of`], #2266), its
+    /// type's weapon's kind, its category, the level asked of its own level (`+0x14` of `+0x19`,
+    /// #1303), of its values where its maker gave it some, else of its record's, at least its
+    /// sockets' items' (#1661), the attributes that its type's record asks, the skill that the
+    /// tooltip tells at its level (#2410), and the group of its class's variants (#1516), a fixed
     /// item's (the types 2000 to 2999 and 6500 to 7999) its root's (`0x43CA20`).
     pub fn asks(
         &self,
@@ -501,19 +507,16 @@ impl Tables {
         rules: &opensacred_rules::fight::Rules,
     ) -> opensacred_rules::equipment::Asks {
         let slot = self.catalogue.slot(dropped.item).unwrap_or(dropped.item);
-        let (classes, kind, values) = self
+        let (_, kind, values) = self
             .records
             .get(&dropped.item)
             .or_else(|| self.records.get(&slot))
             .cloned()
             .unwrap_or_default();
         let values = dropped.values.unwrap_or(values);
-        // A made item's classes as its maker worked them out, a record's as it holds them; an old
-        // save's value, of none, its type's record's (#2266).
-        let classes = match values.classes {
-            0 => classes,
-            made => made,
-        };
+        let record = self.record_of(dropped);
+        let [strength, dexterity, charisma, endurance, ..] = self.record(dropped.item).requirements;
+        let [.., skill, skill_level] = record.requirements;
         let level = opensacred_rules::fight::item_level(&values, rules)
             .max(self.sockets_level(dropped, rules));
         let fixed = (2000..=2999).contains(&dropped.item) || (6500..=7999).contains(&dropped.item);
@@ -522,8 +525,10 @@ impl Tables {
             item: dropped.item,
             category: self.category(dropped.item),
             kind,
-            classes,
+            classes: record.word,
             level: opensacred_rules::equipment::asked_level(level),
+            attributes: [strength, dexterity, charisma, endurance],
+            skill: [skill, skill_level],
             takers: opensacred_rules::equipment::takers_of(
                 self.category(dropped.item),
                 self.switch_of.get(&switched).copied().unwrap_or(0),
@@ -590,14 +595,27 @@ impl Tables {
         self.set_pieces.get(&set).cloned().unwrap_or_default()
     }
 
-    /// What a tooltip tells of `dropped`'s record: its type's ([`Self::record`]), the skill it
-    /// asks with its level raised to the highest of its sockets' items' (`0x5BFF60`, #1661), and
-    /// each attribute it asks to the highest of theirs, as the tooltip merges their records into
-    /// its own (`0x5C4220`, #1691). The attributes' bytes that `0x5BFF60` raises too, `0x5D3AB0`
+    /// What a tooltip tells of `dropped`'s record, and what the use's test weighs (#2410): its
+    /// type's ([`Self::record`]) with a made item's own classes (the item's `+0x04` that its
+    /// maker worked out, #2266) and the skill it asks of its own values (`+0x1A`, `+0x1B`: its
+    /// record's, or what its maker's triples wrote), as the original's tooltip (`0x5C12F0`,
+    /// `0x5C14C0`) and its test (`0x54ABE0`) read the item's own record at `+0x118`; the skill
+    /// with its level raised to the highest of its sockets' items' (`0x5BFF60`, #1661), and each
+    /// attribute it asks to the highest of theirs, as the tooltip merges their records into its
+    /// own (`0x5C4220`, #1691). The attributes' bytes that `0x5BFF60` raises too, `0x5D3AB0`
     /// clears again as the filling ends (`0x5C0810`), and the level asked follows the levels
     /// ([`Self::asks`]).
     pub(crate) fn record_of(&self, dropped: &Dropped) -> Record {
         let mut record = self.record(dropped.item);
+        if let Some(values) = dropped.values {
+            // An old save's value of none keeps its type's record's (#2266).
+            if values.classes != 0 {
+                record.word = (record.word & !OWN_CLASSES) | (values.classes & OWN_CLASSES);
+            }
+            if values.skill != [0, 0] {
+                [record.requirements[4], record.requirements[5]] = values.skill;
+            }
+        }
         for socket in &dropped.socketed {
             let asked = self.record(socket.item.item).requirements;
             for (own, other) in record.requirements.iter_mut().zip(asked).take(4) {

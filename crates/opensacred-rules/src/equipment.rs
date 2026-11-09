@@ -132,7 +132,10 @@ pub fn frames(hero: u32) -> Vec<Frame> {
 
 /// What an item asks of the hero that would use it: its type, its category (`items.pak +0x2E`),
 /// its weapon's kind (`Weapon.pak +0x1E`, 0 for none), the classes' bits of its record's `+0x04`,
-/// the level it asks (`+0x14`), and the takers of its class's variants where it has some.
+/// the level it asks (`+0x14`), the attributes it asks (`+0x15` to `+0x18`: the strength, the
+/// dexterity, the charisma and the endurance), the skill that wearing it needs and that skill's
+/// level (`+0x1A`, `+0x1B`, 0 for none), and the takers of its class's variants where it has
+/// some.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Asks {
     pub item: u32,
@@ -140,8 +143,49 @@ pub struct Asks {
     pub kind: u8,
     pub classes: u32,
     pub level: u32,
+    pub attributes: [u8; 4],
+    pub skill: [u8; 2],
     pub takers: Option<Takers>,
 }
+
+/// The creature that would use an item, as the use's test weighs it (`0x54ABE0`): its type, its
+/// level (`+0x3FE`), its six attributes with its items' bonuses (`+0x3B8` to `+0x3C2`), and its
+/// skills' levels with their items' bonuses (`0x582450`, at most 255). The attributes or the
+/// skills are none where they are not followed for it: the item's then pass whatever they ask.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Wearer<'a> {
+    pub creature: u32,
+    pub level: u32,
+    pub attributes: Option<[f32; 6]>,
+    pub skills: Option<&'a [(u8, u32)]>,
+}
+
+impl Wearer<'_> {
+    /// A creature of the type `creature` and the level `level` whose attributes and skills are not
+    /// followed.
+    pub fn of(creature: u32, level: u32) -> Self {
+        Self {
+            creature,
+            level,
+            ..Self::default()
+        }
+    }
+
+    /// The level of its skill `skill` (0 without it), none where its skills are not followed.
+    fn skill(&self, skill: u8) -> Option<u32> {
+        let skills = self.skills?;
+        Some(
+            skills
+                .iter()
+                .find(|&&(id, _)| id == skill)
+                .map_or(0, |&(_, level)| level),
+        )
+    }
+}
+
+/// The attributes that an item's requirements `+0x15` to `+0x18` are weighed against, by their
+/// indices among a creature's six (`0x54ABE0`: `+0x3B8`, `+0x3BC`, `+0x3C2` and `+0x3BA`).
+const ASKED_ATTRIBUTES: [usize; 4] = [0, 2, 5, 1];
 
 /// The most variants of an item's group (`bin/Rust.bin`'s groups hold 13 at most).
 pub const TAKERS_MOST: usize = 16;
@@ -335,17 +379,49 @@ fn taker_bit(creature: u32) -> u32 {
 /// them (`0x5BF810`): a hireling's type is above.
 const CLASSED_BELOW: u32 = 0x20;
 
-/// Whether a creature of the type `creature` and the level `level` may use an item that `asks`
-/// so (`0x54ABE0`): its classes (no bit or every bit any class; the bit 6, which the types 1800
-/// to 1804 take, none below the type 32 and the classes' bits cleared above it; else the
-/// creature's own, a hero's or that of a type of [`taker_bit`], none for another; `0x5BF810`),
-/// the weapons' kinds (the Dwarf not the kinds 4, 7 and 12 nor the bridles 29, the Daemon not 7,
-/// the kind 3 the Gladiator's and the Dwarf's alone), and the level it asks (`0x5BEB30`). An item
-/// of some classes but not all that has a group of its class's variants (`0x43CA20`) is refused
-/// to a creature whose key ([`taker_key`]) the group does not list, and a creature of a key of
-/// 32 and above that it lists takes it whatever its classes, its variant its own (`0x5BF810`).
-/// The attributes' and the skill's requirements are not followed.
-pub fn may_use(creature: u32, level: u32, asks: &Asks) -> bool {
+/// Whether a creature that `wearer` tells of may use an item that `asks` so (`0x54ABE0` with its
+/// second argument 0): its classes and its weapon's kind ([`class_allows`]), then the item's
+/// requirements of its own record (`0x5BEB30`): the level it asks, each attribute it asks, and
+/// the skill it asks at that skill's level.
+pub fn may_use(wearer: &Wearer, asks: &Asks) -> bool {
+    class_allows(wearer.creature, asks) && meets(wearer, asks)
+}
+
+/// Whether `wearer` meets what an item that `asks` so asks of it (`0x54ABE0`): the level, each
+/// attribute that is not 0 (the creature's at least it), and a skill with a level, neither 0
+/// (the creature's skill at least that level, 0 without the skill; `0x582450`).
+fn meets(wearer: &Wearer, asks: &Asks) -> bool {
+    if asks.level > wearer.level {
+        return false;
+    }
+    if let Some(attributes) = wearer.attributes {
+        let short = ASKED_ATTRIBUTES
+            .iter()
+            .zip(asks.attributes)
+            .any(|(&index, asked)| attributes[index] < f32::from(asked));
+        if short {
+            return false;
+        }
+    }
+    match asks.skill {
+        [0, _] | [_, 0] => true,
+        [skill, level] => wearer
+            .skill(skill)
+            .is_none_or(|has| has >= u32::from(level)),
+    }
+}
+
+/// Whether a creature of the type `creature` may use an item that `asks` so by its classes and
+/// its weapon's kind alone (`0x54ABE0` with its second argument 1, the item's virtual `+0x38`):
+/// its classes (no bit or every bit any class; the bit 6, which the types 1800 to 1804 take,
+/// none below the type 32 and the classes' bits cleared above it; else the creature's own, a
+/// hero's or that of a type of [`taker_bit`], none for another; `0x5BF810`), the weapons' kinds
+/// (the Dwarf not the kinds 4, 7 and 12 nor the bridles 29, the Daemon not 7, the kind 3 the
+/// Gladiator's and the Dwarf's alone). An item of some classes but not all that has a group of
+/// its class's variants (`0x43CA20`) is refused to a creature whose key ([`taker_key`]) the
+/// group does not list, and a creature of a key of 32 and above that it lists takes it whatever
+/// its classes, its variant its own (`0x5BF810`).
+pub fn class_allows(creature: u32, asks: &Asks) -> bool {
     let dwarf = creature == 8;
     let refused_kind = match asks.kind {
         4 | 12 => dwarf,
@@ -372,29 +448,27 @@ pub fn may_use(creature: u32, level: u32, asks: &Asks) -> bool {
             Some(_) if key >= CLASSED_BELOW => false,
             _ => classes & taker_bit(creature) == 0,
         };
-        if refused {
-            return false;
-        }
+        return !refused;
     }
-    asks.level <= level
+    true
 }
 
-/// Why the hero may not use an item: its classes (the hero's line `NOTMYITEM`, the event `(9, 6)`),
-/// or anything else, the level among it (`NOTMYITEMLVL`, `(9, 8)`; `0x6B6690`).
+/// Why the hero may not use an item: its classes or its weapon's kind (the hero's line
+/// `NOTMYITEM`, the event `(9, 6)`), or what it asks of the hero, the level among it
+/// (`NOTMYITEMLVL`, `(9, 8)`; `0x6B6690`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     Class,
     Level,
 }
 
-/// Why the hero of the type `hero` and the level `level` may not use an item that `asks` so, none
-/// where it may.
-pub fn refusal(hero: u32, level: u32, asks: &Asks) -> Option<Refusal> {
-    if may_use(hero, level, asks) {
+/// Why the hero that `wearer` tells of may not use an item that `asks` so, none where it may: the
+/// whole test refused, then the classes' alone (`0x6B6690`'s two calls of `0x54ABE0`).
+pub fn refusal(wearer: &Wearer, asks: &Asks) -> Option<Refusal> {
+    if may_use(wearer, asks) {
         return None;
     }
-    let classes_only = Asks { level: 0, ..*asks };
-    Some(if may_use(hero, u32::MAX, &classes_only) {
+    Some(if class_allows(wearer.creature, asks) {
         Refusal::Level
     } else {
         Refusal::Class
@@ -413,22 +487,20 @@ pub fn slot_for(category: u8, empty: impl Fn(u8) -> bool) -> Option<u8> {
         .or_else(|| taking.first().copied())
 }
 
-/// The slot that an item the hero of the type `hero` and the level `level` picks up goes into by
-/// itself (`cCreature::pickupItem`, `0x558080`, docs/re/items.md, "What becomes of the item",
-/// #1601): where the hero may use it (`0x54ABE0`), the first of its class's slots (`0x43F3B0`, the
+/// The slot that an item the hero that `wearer` tells of picks up goes into by itself
+/// (`cCreature::pickupItem`, `0x558080`, docs/re/items.md, "What becomes of the item", #1601):
+/// where the hero may use it (`0x54ABE0`), the first of its class's slots (`0x43F3B0`, the
 /// window's frames) that takes it (`0x43EFC0`) and is `empty`, holding nothing or a class's
 /// default; none where none is, the item going on into the grid. The hands (the slots 12 and 13)
 /// are not among them.
-pub fn slot_on_pickup(
-    hero: u32,
-    level: u32,
-    asks: &Asks,
-    empty: impl Fn(u8) -> bool,
-) -> Option<u8> {
-    if !may_use(hero, level, asks) {
+pub fn slot_on_pickup(wearer: &Wearer, asks: &Asks, empty: impl Fn(u8) -> bool) -> Option<u8> {
+    if !may_use(wearer, asks) {
         return None;
     }
-    let mut slots: Vec<u8> = frames(hero).iter().map(|frame| frame.slot).collect();
+    let mut slots: Vec<u8> = frames(wearer.creature)
+        .iter()
+        .map(|frame| frame.slot)
+        .collect();
     slots.sort_unstable();
     slots
         .into_iter()
@@ -564,11 +636,11 @@ pub enum Glow {
 }
 
 /// The glow of the slot `slot` while the cursor holds an item that `asks` so, none held where
-/// `None`, for the hero of the type `hero` and the level `level`.
-pub fn glow(slot: u8, held: Option<&Asks>, (hero, level): (u32, u32)) -> Glow {
+/// `None`, for the hero that `wearer` tells of.
+pub fn glow(slot: u8, held: Option<&Asks>, wearer: &Wearer) -> Glow {
     match held {
         None => Glow::White,
-        Some(asks) if takes(slot, asks.category) && may_use(hero, level, asks) => Glow::Green,
+        Some(asks) if takes(slot, asks.category) && may_use(wearer, asks) => Glow::Green,
         Some(_) => Glow::Red,
     }
 }
@@ -694,10 +766,16 @@ mod tests {
             kind: 5,
             classes: 0x80CF_013F,
             level: 22,
+            attributes: [0; 4],
+            skill: [0; 2],
             takers: None,
         };
         // Every class's bit: any hero, from the level asked on (seen: 22, #1303).
-        assert!(!may_use(9, 21, &sword) && may_use(9, 22, &sword) && may_use(1, 30, &sword));
+        assert!(
+            !may_use(&Wearer::of(9, 21), &sword)
+                && may_use(&Wearer::of(9, 22), &sword)
+                && may_use(&Wearer::of(1, 30), &sword)
+        );
         // The Gladiator's kilt, his class's alone.
         let kilt = Asks {
             item: 4054,
@@ -706,22 +784,25 @@ mod tests {
             level: 1,
             ..Asks::default()
         };
-        assert!(may_use(2, 1, &kilt) && !may_use(1, 1, &kilt));
+        assert!(may_use(&Wearer::of(2, 1), &kilt) && !may_use(&Wearer::of(1, 1), &kilt));
         // The Dwarf's goggles, his bit 22.
         let goggles = Asks {
             classes: 0x8040_1000,
             ..kilt
         };
-        assert!(may_use(8, 1, &goggles) && !may_use(9, 1, &goggles));
+        assert!(may_use(&Wearer::of(8, 1), &goggles) && !may_use(&Wearer::of(9, 1), &goggles));
         // The kinds: a bow (7) not the Daemon's, the kind 3 the Gladiator's and the Dwarf's.
         let bow = Asks { kind: 7, ..sword };
-        assert!(!may_use(9, 30, &bow) && may_use(1, 30, &bow));
+        assert!(!may_use(&Wearer::of(9, 30), &bow) && may_use(&Wearer::of(1, 30), &bow));
         let three = Asks { kind: 3, ..sword };
-        assert!(may_use(2, 30, &three) && may_use(8, 30, &three) && !may_use(1, 30, &three));
+        assert!(
+            may_use(&Wearer::of(2, 30), &three)
+                && may_use(&Wearer::of(8, 30), &three)
+                && !may_use(&Wearer::of(1, 30), &three)
+        );
         // No class at all.
         assert!(!may_use(
-            1,
-            30,
+            &Wearer::of(1, 30),
             &Asks {
                 classes: 0x40,
                 ..sword
@@ -737,31 +818,33 @@ mod tests {
             kind: 5,
             classes: 0x80CF_013F,
             level: 22,
+            attributes: [0; 4],
+            skill: [0; 2],
             takers: None,
         };
         // A hireling of the type 77: every class's item from the level asked on, no class's
         // too, a class's own not, nor the kind 3.
-        assert!(may_use(77, 22, &sword) && !may_use(77, 21, &sword));
+        assert!(may_use(&Wearer::of(77, 22), &sword) && !may_use(&Wearer::of(77, 21), &sword));
         let none = Asks {
             classes: 0x40,
             ..sword
         };
-        assert!(may_use(77, 22, &none) && !may_use(10, 22, &none));
+        assert!(may_use(&Wearer::of(77, 22), &none) && !may_use(&Wearer::of(10, 22), &none));
         let kilt = Asks {
             classes: 0x800F_1302,
             ..sword
         };
-        assert!(!may_use(77, 22, &kilt) && may_use(2, 22, &kilt));
-        assert!(!may_use(77, 22, &Asks { kind: 3, ..sword }));
+        assert!(!may_use(&Wearer::of(77, 22), &kilt) && may_use(&Wearer::of(2, 22), &kilt));
+        assert!(!may_use(&Wearer::of(77, 22), &Asks { kind: 3, ..sword }));
         // The types 1800 to 1804: no hero's, a hireling's whatever their classes.
         let held = Asks { item: 1802, ..kilt };
-        assert!(may_use(77, 22, &held) && !may_use(2, 22, &held));
+        assert!(may_use(&Wearer::of(77, 22), &held) && !may_use(&Wearer::of(2, 22), &held));
         // The type 133 takes the Dark Elf's items.
         let dark = Asks {
             classes: 0x8000_0008,
             ..sword
         };
-        assert!(may_use(133, 22, &dark) && !may_use(132, 22, &dark));
+        assert!(may_use(&Wearer::of(133, 22), &dark) && !may_use(&Wearer::of(132, 22), &dark));
     }
 
     #[test]
@@ -776,20 +859,22 @@ mod tests {
             category: 6,
             classes: (1 << 0) | (1 << 4),
             level: 1,
+            attributes: [0; 4],
+            skill: [0; 2],
             takers: takers_of(6, 1, &groups),
             ..Asks::default()
         };
-        assert!(may_use(1, 1, &armour) && may_use(5, 1, &armour));
+        assert!(may_use(&Wearer::of(1, 1), &armour) && may_use(&Wearer::of(5, 1), &armour));
         // The Wood Elf's night type 105 looks up her key 5.
-        assert!(may_use(105, 1, &armour));
+        assert!(may_use(&Wearer::of(105, 1), &armour));
         // Of the Dark Elf's bit too, the group refuses her: it lists no 4.
         let dark = Asks {
             classes: armour.classes | (1 << 3),
             ..armour
         };
-        assert!(!may_use(4, 1, &dark) && may_use(1, 1, &dark));
+        assert!(!may_use(&Wearer::of(4, 1), &dark) && may_use(&Wearer::of(1, 1), &dark));
         // A hireling of the type 77 (its key 39) takes it, its variant its own; the type 83 not.
-        assert!(may_use(77, 1, &armour) && !may_use(83, 1, &armour));
+        assert!(may_use(&Wearer::of(77, 1), &armour) && !may_use(&Wearer::of(83, 1), &armour));
         // The group 0 and the rings are no group; an index past the groups lists none.
         assert_eq!(takers_of(6, 0, &groups), None);
         assert_eq!(takers_of(8, 1, &groups), None);
@@ -797,7 +882,7 @@ mod tests {
             takers: takers_of(6, 9, &groups),
             ..armour
         };
-        assert!(!may_use(1, 1, &lost));
+        assert!(!may_use(&Wearer::of(1, 1), &lost));
         assert_eq!(taker_key(0x141), 4);
         assert_eq!(taker_key(699), 0x13C);
     }
@@ -900,13 +985,94 @@ mod tests {
             level: 5,
             ..Asks::default()
         };
-        assert_eq!(refusal(1, 30, &kilt), Some(Refusal::Class));
-        assert_eq!(refusal(2, 1, &kilt), Some(Refusal::Level));
-        assert_eq!(refusal(2, 5, &kilt), None);
+        assert_eq!(refusal(&Wearer::of(1, 30), &kilt), Some(Refusal::Class));
+        assert_eq!(refusal(&Wearer::of(2, 1), &kilt), Some(Refusal::Level));
+        assert_eq!(refusal(&Wearer::of(2, 5), &kilt), None);
         // A ring: the first empty of the four, else the first.
         assert_eq!(slot_for(8, |slot| slot != 8), Some(9));
         assert_eq!(slot_for(8, |_| false), Some(8));
         assert_eq!(slot_for(9, |_| true), None);
+    }
+
+    #[test]
+    fn the_use_asks_the_skill_at_its_level_and_the_attributes() {
+        // A sword of every class that asks the skill 13 at the level 1 (#2410).
+        let sword = Asks {
+            item: 1712,
+            category: 5,
+            kind: 5,
+            classes: CLASSES,
+            level: 1,
+            skill: [13, 1],
+            ..Asks::default()
+        };
+        let lacking: &[(u8, u32)] = &[(4, 3), (11, 1)];
+        let seraphim = Wearer {
+            creature: 1,
+            level: 2,
+            attributes: Some([24.0, 20.0, 27.0, 24.0, 24.0, 19.0]),
+            skills: Some(lacking),
+        };
+        assert!(class_allows(1, &sword));
+        assert!(!may_use(&seraphim, &sword));
+        assert_eq!(refusal(&seraphim, &sword), Some(Refusal::Level));
+        assert_eq!(slot_on_pickup(&seraphim, &sword, |_| true), None);
+        let having: &[(u8, u32)] = &[(13, 1)];
+        let trained = Wearer {
+            skills: Some(having),
+            ..seraphim
+        };
+        assert!(may_use(&trained, &sword));
+        assert!(!may_use(
+            &trained,
+            &Asks {
+                skill: [13, 2],
+                ..sword
+            }
+        ));
+        // No skill or no level asks nothing; skills not followed pass.
+        assert!(may_use(
+            &seraphim,
+            &Asks {
+                skill: [13, 0],
+                ..sword
+            }
+        ));
+        assert!(may_use(
+            &seraphim,
+            &Asks {
+                skill: [0, 1],
+                ..sword
+            }
+        ));
+        assert!(may_use(&Wearer::of(1, 2), &sword));
+        // The strength, the dexterity, the charisma and the endurance, by the attributes 0, 2, 5
+        // and 1.
+        let strong = Asks {
+            skill: [0, 0],
+            attributes: [24, 27, 19, 20],
+            ..sword
+        };
+        assert!(may_use(&seraphim, &strong));
+        for short in 0..4 {
+            let mut attributes = strong.attributes;
+            attributes[short] += 1;
+            assert!(!may_use(
+                &seraphim,
+                &Asks {
+                    attributes,
+                    ..strong
+                }
+            ));
+        }
+        let helmet = Asks {
+            item: 5000,
+            category: 17,
+            kind: 0,
+            ..sword
+        };
+        assert_eq!(glow(0, Some(&helmet), &trained), Glow::Green);
+        assert_eq!(glow(0, Some(&helmet), &seraphim), Glow::Red);
     }
 
     #[test]
@@ -916,18 +1082,30 @@ mod tests {
             ..Asks::default()
         };
         // The Seraphim's two rings, the first empty of them.
-        assert_eq!(slot_on_pickup(1, 1, &ring, |_| true), Some(8));
-        assert_eq!(slot_on_pickup(1, 1, &ring, |slot| slot != 8), Some(9));
-        assert_eq!(slot_on_pickup(1, 1, &ring, |slot| slot < 8), None);
+        assert_eq!(slot_on_pickup(&Wearer::of(1, 1), &ring, |_| true), Some(8));
+        assert_eq!(
+            slot_on_pickup(&Wearer::of(1, 1), &ring, |slot| slot != 8),
+            Some(9)
+        );
+        assert_eq!(
+            slot_on_pickup(&Wearer::of(1, 1), &ring, |slot| slot < 8),
+            None
+        );
         // The Mage's four.
-        assert_eq!(slot_on_pickup(3, 1, &ring, |slot| slot > 10), Some(11));
+        assert_eq!(
+            slot_on_pickup(&Wearer::of(3, 1), &ring, |slot| slot > 10),
+            Some(11)
+        );
         // Gloves: the Seraphim has no frame of them, the Gladiator has.
         let gloves = Asks {
             category: 24,
             ..Asks::default()
         };
-        assert_eq!(slot_on_pickup(1, 1, &gloves, |_| true), None);
-        assert_eq!(slot_on_pickup(2, 1, &gloves, |_| true), Some(4));
+        assert_eq!(slot_on_pickup(&Wearer::of(1, 1), &gloves, |_| true), None);
+        assert_eq!(
+            slot_on_pickup(&Wearer::of(2, 1), &gloves, |_| true),
+            Some(4)
+        );
         // Not where the hero may not use it, nor what no slot takes.
         let kilt = Asks {
             category: 18,
@@ -935,14 +1113,14 @@ mod tests {
             level: 5,
             ..Asks::default()
         };
-        assert_eq!(slot_on_pickup(1, 30, &kilt, |_| true), None);
-        assert_eq!(slot_on_pickup(2, 1, &kilt, |_| true), None);
-        assert_eq!(slot_on_pickup(2, 5, &kilt, |_| true), Some(3));
+        assert_eq!(slot_on_pickup(&Wearer::of(1, 30), &kilt, |_| true), None);
+        assert_eq!(slot_on_pickup(&Wearer::of(2, 1), &kilt, |_| true), None);
+        assert_eq!(slot_on_pickup(&Wearer::of(2, 5), &kilt, |_| true), Some(3));
         let potion = Asks {
             category: 9,
             ..Asks::default()
         };
-        assert_eq!(slot_on_pickup(1, 1, &potion, |_| true), None);
+        assert_eq!(slot_on_pickup(&Wearer::of(1, 1), &potion, |_| true), None);
     }
 
     #[test]
@@ -958,12 +1136,12 @@ mod tests {
             category: 9,
             ..helmet
         };
-        assert_eq!(glow(0, None, (1, 1)), Glow::White);
-        assert_eq!(glow(0, Some(&helmet), (1, 1)), Glow::Green);
-        assert_eq!(glow(1, Some(&helmet), (1, 1)), Glow::Red);
-        assert_eq!(glow(0, Some(&potion), (1, 1)), Glow::Red);
+        assert_eq!(glow(0, None, &Wearer::of(1, 1)), Glow::White);
+        assert_eq!(glow(0, Some(&helmet), &Wearer::of(1, 1)), Glow::Green);
+        assert_eq!(glow(1, Some(&helmet), &Wearer::of(1, 1)), Glow::Red);
+        assert_eq!(glow(0, Some(&potion), &Wearer::of(1, 1)), Glow::Red);
         assert_eq!(
-            glow(0, Some(&Asks { level: 5, ..helmet }), (1, 1)),
+            glow(0, Some(&Asks { level: 5, ..helmet }), &Wearer::of(1, 1)),
             Glow::Red
         );
     }
