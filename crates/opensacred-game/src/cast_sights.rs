@@ -102,6 +102,14 @@ pub(crate) struct CreatureCast {
     pub(crate) rate: f32,
 }
 
+/// The sights that a scripts' queued `Partikel` of `n0` −2 makes at its creature at its turn, of
+/// its `n1` (`opensacred_rules::particles::ritual_sights`, #1890), at the creature's casts' rate.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScriptSights {
+    pub(crate) caster: Entity,
+    pub(crate) code: i32,
+}
+
 /// What a sight's making takes: the assets and the materials, the effects' and the meshes'.
 type Makers<'a> = (
     Option<&'a Data>,
@@ -165,12 +173,14 @@ fn make(
 /// Makes the sights of each art or spell the hero starts, a spell's cast's on its clip's rate,
 /// the casts' speed over 100, the Daemon's arts' at 1; and of each creature's cast, every one of
 /// the style 13, the blue glow, that the handler gives a creature's sight (its `+0xA9` 2: its
-/// event's `+0x28` not 1.0, `0x5A3A4A`; **seen** 2026-11-05 at Anducar's demon's fire bolt).
+/// event's `+0x28` not 1.0, `0x5A3A4A`; **seen** 2026-11-05 at Anducar's demon's fire bolt); and
+/// those of the scripts' queued `Partikel`s of `n0` −2 in their own styles, as their event's
+/// `+0x28` is 1.0 (the step `0x59CE78`, #1890), at the creature's casts' rate.
 fn start(
     mut commands: Commands,
     started: Query<(Entity, &Making, Option<&Combat>, &GlobalTransform), Added<Playing>>,
-    mut casts: MessageReader<CreatureCast>,
-    places: Query<&GlobalTransform>,
+    (mut casts, mut scripted): (MessageReader<CreatureCast>, MessageReader<ScriptSights>),
+    (places, combats): (Query<&GlobalTransform>, Query<&Combat>),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
@@ -207,6 +217,29 @@ fn start(
                 &mut commands,
                 (cast.caster, place.translation()),
                 (bone, particles::CREATURES_CAST_STYLE, cast.rate),
+                (
+                    data.as_deref(),
+                    &assets,
+                    &mut looks,
+                    &mut effects,
+                    &mut meshes,
+                ),
+            );
+        }
+    }
+    for sights in scripted.read() {
+        let Ok(place) = places.get(sights.caster) else {
+            continue;
+        };
+        // The creature's `+0x3E6` over 100, its clips' rate.
+        let rate = combats
+            .get(sights.caster)
+            .map_or(1.2, |combat| combat.cast / 100.0);
+        for (bone, style) in particles::ritual_sights(sights.code) {
+            make(
+                &mut commands,
+                (sights.caster, place.translation()),
+                (bone, style, rate),
                 (
                     data.as_deref(),
                     &assets,
@@ -326,6 +359,7 @@ pub struct CastSightsPlugin;
 impl Plugin for CastSightsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<CreatureCast>()
+            .add_message::<ScriptSights>()
             .init_resource::<Dice>()
             .init_resource::<Looks>()
             .add_systems(
