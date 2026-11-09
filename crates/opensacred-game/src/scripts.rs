@@ -44,8 +44,8 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{
-    Added, App, Commands, Entity, IntoScheduleConfigs, Message, MessageReader, MessageWriter,
-    NonSend, NonSendMut, OnEnter, OnExit, Plugin, PostUpdate, Query, Res, ResMut, Resource,
+    Added, App, Commands, DetectChangesMut, Entity, IntoScheduleConfigs, Message, MessageReader,
+    MessageWriter, NonSendMut, OnEnter, OnExit, Plugin, PostUpdate, Query, Res, ResMut, Resource,
     Transform, Update, With, Without, World,
 };
 use opensacred_data::luau::{BYTECODE, CALLS, INDEX, Index, calls, differing_calls};
@@ -335,13 +335,24 @@ impl Mode {
                 anim: true,
                 cinema: true,
             },
-            // Naming no creature it ends both at once (`0x4A4040`); no record of the trees names
-            // one.
-            "set_play_mode" if tags.texts("_01").is_empty() => Self::default(),
+            _ if self.plays(name, tags) => Self::default(),
             _ => self,
         }
     }
+
+    /// Whether the record `name` of the operands `tags` is a `SetPlayMode` that ends both modes
+    /// at once and posts the interface its flag 0 (`0x4A4040`): one naming no creature, or any
+    /// outside the anim mode; no record of the trees names one.
+    fn plays(self, name: &str, tags: &Tags) -> bool {
+        name == "set_play_mode" && (tags.texts("_01").is_empty() || !self.anim)
+    }
 }
+
+/// A `SetCinemaMode` (true) or a `SetPlayMode` that ends the modes (false), as the scripts run
+/// them, in order: the engine's event `0x13` of the subtype 3 that they post to the interface,
+/// which follows them whatever the modes were (`0x757840`'s case 5, `cinema`, #2393).
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CinemaFlag(pub bool);
 
 /// Whether the scripts' cinema lets the player's clicks reach the world (`0x6172ED`): the
 /// condition of `frame::OnWorld`.
@@ -350,12 +361,18 @@ pub fn no_cinema(mode: Res<Mode>) -> bool {
 }
 
 /// The scripts' modes as their last run left them, for the systems that follow them, none out of
-/// a game.
-fn hold_mode(live: Option<NonSend<Live>>, mut mode: ResMut<Mode>) {
-    let now = live.map_or_else(Mode::default, |live| live.mode());
-    if *mode != now {
-        *mode = now;
-    }
+/// a game, and the flags their runs posted to the interface.
+fn hold_mode(
+    live: Option<NonSendMut<Live>>,
+    mut mode: ResMut<Mode>,
+    mut flags: MessageWriter<CinemaFlag>,
+) {
+    let Some(mut live) = live else {
+        mode.set_if_neq(Mode::default());
+        return;
+    };
+    mode.set_if_neq(live.mode());
+    flags.write_batch(live.flags.drain(..).map(CinemaFlag));
 }
 
 /// What a dialogue's function gives its window (#1028, docs/re/netscript.md, "Dialogues"): its
@@ -619,6 +636,8 @@ pub struct Live {
     talking: bool,
     /// The scripts' modes as the last run left them, which the next begins in ([`Mode`], #1892).
     mode: Mode,
+    /// The flags its runs posted to the interface, not yet handed on ([`CinemaFlag`]).
+    flags: Vec<bool>,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on, and the
@@ -656,6 +675,7 @@ impl Live {
             living: HashSet::new(),
             talking: false,
             mode: Mode::default(),
+            flags: Vec::new(),
         }
     }
 
@@ -913,6 +933,7 @@ impl Live {
             bevy::log::info!("scripts: {function} leaves the modes {:?}", recorder.mode);
         }
         self.mode = recorder.mode;
+        self.flags.extend(recorder.flags);
         let effects = Effects {
             teleports: recorder.teleports,
             states: recorder.states,
@@ -1112,6 +1133,8 @@ struct Recorder<'a> {
     autosaves: Vec<u32>,
     /// The scripts' modes as the run goes, from those it began in ([`Mode`]; #1278, #1892).
     mode: Mode,
+    /// The flags its `SetCinemaMode`s and `SetPlayMode`s posted to the interface ([`CinemaFlag`]).
+    flags: Vec<bool>,
 }
 
 /// The kind of a `CallFunktion` record (22), which a deferred call hands to the world as
@@ -1163,6 +1186,7 @@ impl<'a> Recorder<'a> {
             won: Vec::new(),
             autosaves: Vec::new(),
             mode: Mode::default(),
+            flags: Vec::new(),
         }
     }
 
@@ -1330,6 +1354,11 @@ impl Host for Recorder<'_> {
             Some(Operand::Tags(tags)) => Tags(Some(tags)),
             _ => Tags(None),
         };
+        if name == "set_cinema_mode" {
+            self.flags.push(true);
+        } else if self.mode.plays(name, &tags) {
+            self.flags.push(false);
+        }
         self.mode = self.mode.after(name, &tags);
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
@@ -2887,6 +2916,7 @@ impl Plugin for ScriptsPlugin {
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .init_resource::<Mode>()
+            .add_message::<CinemaFlag>()
             .configure_sets(Update, crate::frame::OnWorld.run_if(no_cinema))
             .add_systems(PostUpdate, hold_mode)
             .add_systems(
@@ -3771,6 +3801,9 @@ mod tests {
             .map(|record| record.kind)
             .collect();
         assert_eq!(kinds, [72, 89]);
+        // Each `SetCinemaMode` and each `SetPlayMode` that ends the modes posted its flag to the
+        // interface, the last whatever the modes were (#2393).
+        assert_eq!(live.flags, [true, false, false]);
         // `SetAnimMode` turns the anim mode on alone.
         let tags = Tags(None);
         assert_eq!(

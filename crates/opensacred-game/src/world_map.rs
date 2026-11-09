@@ -1041,6 +1041,7 @@ fn show(
     let root = commands
         .spawn((
             MapRoot,
+            crate::cinema::Interface,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Percent(50.0),
@@ -1385,7 +1386,8 @@ impl Plugin for WorldMapPlugin {
                     .after(crate::console::keys)
                     .before(crate::quest_book::toggle)
                     .before(crate::inventory::toggle)
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(crate::cinema::free),
             )
             .add_systems(
                 Update,

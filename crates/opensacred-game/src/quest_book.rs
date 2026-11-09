@@ -2090,7 +2090,12 @@ fn show(
         return;
     };
     let root = commands
-        .spawn((BookRoot, crate::backpack::screen(), GlobalZIndex(2)))
+        .spawn((
+            BookRoot,
+            crate::cinema::Interface,
+            crate::backpack::screen(),
+            GlobalZIndex(2),
+        ))
         .id();
     let add = |commands: &mut Commands, bundle: (ImageNode, Node)| {
         let child = commands.spawn((bundle, Pickable::IGNORE)).id();
@@ -2510,7 +2515,8 @@ impl Plugin for QuestBookPlugin {
                 toggle
                     .after(InputSystems)
                     .after(crate::console::keys)
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(crate::cinema::free),
             )
             .add_systems(
                 Update,

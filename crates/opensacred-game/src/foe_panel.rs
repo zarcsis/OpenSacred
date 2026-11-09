@@ -256,6 +256,7 @@ fn follow(
     panel.bar = None;
     let root = commands
         .spawn((
+            crate::cinema::Interface,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Percent(50.0),
