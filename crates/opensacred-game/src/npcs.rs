@@ -119,6 +119,15 @@ const STAMPED: u8 = 0x64;
 /// (`+0x2B7` bit `0x08`), and whose 0 alone lets a `CreateNPC`'s type take its area's
 /// `RegionChange` list, the value −1 where the record has no such tag (`0x482F41`, #1102).
 const RISES: u8 = 0x6B;
+/// The tag of `CreateNPC` that makes its creature peaceful whatever comes before and plays its
+/// clip of [`EMERGING`] once (`0x4827EA`, `0x4833CE`: the standing action's sub-state `0x65`; the
+/// event `0x109` of the state 13, a glow, and `+0x200` bit `0x10` not followed; #2461).
+const EMERGES: u8 = 0x8D;
+/// The clip's slot that [`EMERGES`] plays, at the rate 1.0, once.
+const EMERGING: u16 = 154;
+/// The big demon (`TYPE_NPC_BIG_DEMON`), which turns hostile as its clip of [`EMERGING`] ends
+/// (`0x544EAE`): its side 2, its flags word's bit 0.
+const BIG_DEMON: u32 = 53;
 /// The operand that `scripts` adds to a `CreateNPC` of the play for each area whose
 /// `RegionChange` list turns its type as it runs (#1063): the area, the new type and the pair's
 /// flags (`quests::Turn`), as `I32x3`; past the scripts' last tag, `0xA0`.
@@ -372,6 +381,11 @@ struct Placement {
     rises: bool,
     listed: bool,
     hostility: Option<bool>,
+    /// Whether its `CreateNPC` carries `0x8D` ([`EMERGES`]): its creature plays its clip of the
+    /// slot 154 once as it is made, a big demon turning hostile as it ends (#2461). Not saved: a
+    /// big demon turned keeps it no more ([`turn_emerged`]).
+    #[serde(skip)]
+    emerges: bool,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
@@ -997,6 +1011,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         rises: false,
         listed: false,
         hostility: None,
+        emerges: false,
         texture: kind.texture.clone(),
         woman: kind.woman,
         layer: 0,
@@ -3588,6 +3603,7 @@ impl Makers {
             rises: record.kind == CREATE_NPC && rises(ops),
             listed: record.kind == CREATE_NPC && listed(ops),
             hostility,
+            emerges: record.kind == CREATE_NPC && markers().any(|tag| tag == EMERGES),
             texture,
             layer,
             spread,
@@ -6686,6 +6702,9 @@ fn spawn(
         if placement.rises {
             entity.insert(RisesAgain);
         }
+        if placement.emerges {
+            entity.insert(ScriptClip::emerging());
+        }
         mind.side = placement.side;
         // The category `0x20`'s, which the original draws under the water too (`0x434070`).
         if minds::still(creature) {
@@ -7874,6 +7893,9 @@ fn script_clips(
             }
             if ended {
                 commands.entity(entity).remove::<ScriptClip>();
+                if clip.slot == EMERGING {
+                    commands.entity(entity).insert(Emerged);
+                }
             }
             continue;
         }
@@ -7924,6 +7946,39 @@ fn script_clips(
             .set_repeat(bevy::animation::RepeatAnimation::Count(clip.loops))
             .set_speed(speed.0 * rate);
         clip.playing = Some((node, handle));
+    }
+}
+
+/// A creature whose clip of [`EMERGING`] has just ended ([`turn_emerged`]).
+#[derive(Component)]
+struct Emerged;
+
+/// Turns each big demon whose clip of [`EMERGING`] has ended hostile (the standing action's
+/// sub-state `0x66`, `0x544EAE`, #2461): its side 2 and its flags word's bit 0, by which the
+/// hero's look wakes it, levels it where it is a boss of a marker level and takes the hero
+/// for its foe; its kept placement with it, so that it comes back so with its sector or a save.
+/// Quest 74's Sakkara demon, which `HornTot74` makes peaceful with [`EMERGES`], fights so some
+/// 7 s after it is made. Another type stays as it was.
+fn turn_emerged(
+    mut commands: Commands,
+    mut npcs: ResMut<Npcs>,
+    mut emerged: Query<(Entity, &mut ai::Mind, Option<&Placed>), With<Emerged>>,
+) {
+    for (entity, mut mind, placed) in &mut emerged {
+        commands.entity(entity).remove::<Emerged>();
+        if mind.creature != BIG_DEMON {
+            continue;
+        }
+        mind.side = 2;
+        mind.flags |= 1;
+        if let Some(Source::Kept(index)) = placed.map(|placed| &placed.source)
+            && let Some(placement) = npcs.placements.get_mut(*index)
+        {
+            placement.side = 2;
+            placement.creature.2 |= 1;
+            placement.emerges = false;
+        }
+        bevy::log::info!("npcs: {entity}, a big demon, has emerged and turns hostile");
     }
 }
 
@@ -9109,6 +9164,14 @@ impl ScriptClip {
     pub(crate) fn length(&self, clips: &Assets<AnimationClip>) -> Option<f32> {
         let (_, clip) = self.playing.as_ref()?;
         clips.get(clip).map(AnimationClip::duration)
+    }
+
+    /// The clip that a `CreateNPC`'s [`EMERGES`] plays once, at the rate 1.0 (`0x544B6A`).
+    fn emerging() -> Self {
+        Self {
+            rate: Some(1.0),
+            ..Self::new(EMERGING, 1)
+        }
     }
 
     /// A creature's cast's clip of the slot `slot`, once, its spell acting at the share `share`
@@ -11958,7 +12021,7 @@ impl Plugin for NpcsPlugin {
                     instrument,
                     strike,
                     die,
-                    script_clips,
+                    (script_clips, turn_emerged).chain(),
                     stance,
                     equip,
                     bind_worn,
@@ -12688,6 +12751,18 @@ mod tests {
         // An `Enter`'s soldier in the guards' mode (`_46`), peaceful, keeps its type: its record
         // has no `0x6B`, as the original's soldiers came again after `GoodToBad` (#1102).
         assert!(!made(&[op(0x46, Value::Marker)]).turns());
+        // `0x8D` makes it peaceful though `0x08` comes before, and emerges (#2461), quest 74's
+        // Sakkara demon's tags.
+        let hostile = made(&[op(0x08, Value::Marker)]);
+        let emerging = made(&[
+            op(0x08, Value::Marker),
+            op(0x12, Value::Marker),
+            op(EMERGES, Value::Marker),
+        ]);
+        assert!(!hostile.emerges);
+        assert!(emerging.emerges);
+        assert_eq!(emerging.hostility, Some(false));
+        assert_eq!(hostile.hostility, Some(true));
         // One of a `0x6B` of 0 takes `GoodToBad`'s pair of area 4, which turns it into 276 in the
         // mode of `0x12`, hostile.
         let soldier = made(&[op(0x46, Value::Marker), op(RISES, Value::I32(0))]);

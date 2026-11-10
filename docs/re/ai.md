@@ -426,6 +426,7 @@ Read 2026-11-02 for #1844 in `Sacred.exe`, code only (Ghidra and byte scans of `
 - The spell's level for a creature lacking it is `⌊level/5⌋ + 1`, ×1.4 for a boss and ×1.2 for a champion (`0x580A10`); its objects' damage is multiplied by `MagieAll` at `5L − 2` (`0x56A800`: 0.60 at L 1, 0.79 at L 5, toward 0.76 above), and they strike what is hostile to the caster.
   The spells 43 (a dead monster hostile to the hero raised whole), 49, 50, 52, 53 and 69 to 72 are the creatures' own (docs/re/arts.md, "The creatures' own spells").
 - The cast sets the caster's `+0x200` bit `0x10`, under which it takes no event `0x100`, and the state 6's own `0x100` after it is then ignored; what clears the bit for an ordinary creature is not read (**hypothesis**: it takes up its fight again by its idle state's next look, `0x54427A`).
+  Read 2026-11-10 (#2461, probes on the 253 stores to `+0x200`): the spells' executor clears it at the cast's end (`0x5293E4` calls `0x4FC8E0(0x10)`, the store at `0x4FC8EE`), and each cast sets it again in the action 4 (`0x51D3E9`); while it holds, the creature ignores the events `0x100` and `0x101` (`0x52FA63`, `0x52FB7B`) and still attacks by its idle look.
 - Not read: the float parts of the chooser's friend and of the boss's scaling in `0x51D840`; an ordinary creature's `+0x3E`; whether each caster's model holds its spell's clip.
 
 ## Open
