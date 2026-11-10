@@ -283,11 +283,11 @@ Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless
 Read 2026-10-26 (#656) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise.
 
 - The script manager (`0xAACF80`) keeps one list at `+0x358` of entries of 68 bytes, a creature's id and a function's name of 64 bytes, at most 60,000 (`0x464330` logs a broken list beyond).
-  Its names of the prefixes `Take:`, `Use:` and `See:` are an item's taking, use and sight (the items' handlers `0x558080`); the others are the creatures' death's functions.
+  Its names of the prefixes `Take:` and `Use:` are an item's taking and use (`0x558080` reads `Take:` alone, `0x6C0150` `Use:`; `CreateObj` writes no `See:`), `See:` a creature's sight (below); the others are the creatures' death's functions.
 - `CreateNPC` adds its `0x05`'s name, the death's function, with the creature's id (`0x4B9740`), and its `0x60`'s as `See:` and the name, a sight function, setting `+0x1F4` bit `0x400000` (its reader not read): both copy the string at `0x94E1D4` before the name (`0x482510`'s case `0x60`, `SetNPCState`'s reader `0x48BB40` alike; #1025).
 - `SetNPCState`'s `0x05` first takes out the creature's entries that a death takes out (below; `0x464330(id, 0, 1)` at `0x461FBC`), then adds its name; its `0x60` adds its `See:` entry and sets `+0x1F4` bit `0x400000` (`0x46204B`).
   The `0x05`s and `0x60`s of the Seraphim's tree: 757 and 17 in `CreateNPC`s, 371 and 2 in `SetNPCState`s, and 11 and one in `SetGroupState`s; 13 `SetOnKill`s and one `SetOnCollect` name a function by `0x05` too (#1021); three of the functions they name are defined by no tree (`Zombies_OnSee`, `Zombies_OnSee2`, `tot1602`), none differs only by its case.
-  What runs a sight function (**hypothesis**: `sdk_WAKE`, one of the runner's callers, as the creature first sees the hero) is not read, and the game does not run them.
+  `sdk_WAKE` runs a sight function as the creature first sees the hero (#2475; docs/re/ai.md, "Dormant and awake"), and the game runs them so since #2475; quest 11 of the Underworld is entered as its guards see the hero (`tq_11`).
 - A death runs one of them, at the AI's state 9 (`0x53E7C0`, at `0x53E915`) and in the creature's events' handler (at `0x52F769`), which run the same steps:
   - the first entry of the creature's id whose name has none of the items' prefixes (`0x4A71F0` with an empty name), else nothing;
   - the creature's entries of no `:` or of `See:` taken out, but those starting with `wegw` (`0x464330(id, 1, 1)`), the second and later logged as an `OnDeath` twice;

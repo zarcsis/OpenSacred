@@ -3014,6 +3014,50 @@ pub fn steps_off(
         .find(|&to| free(to))
 }
 
+/// The flags word's bit of a sight pending (`+0x1F4` bit `0x400000`): a `CreateNPC`'s,
+/// `SetNPCState`'s or `SetGroupState`'s `0x60` sets it with its `See:` entry, and the creature's
+/// first sight of the hero runs that function and clears it ([`sees`], `sdk_WAKE` `0x59F580`,
+/// `0x59F78F`; #2475).
+pub const SIGHT: u32 = 0x40_0000;
+/// How near the hero must stand along the grid's x and y for a creature's sight, strictly
+/// (`0x59F5D5`…).
+const SIGHT_X: f32 = 600.0;
+const SIGHT_Y: f32 = 400.0;
+/// The widest angle between a creature's heading and the hero for its sight, in radians,
+/// strictly, on the screen's plane (`0x59F810`, 1.0 at `0x89066C`).
+const SIGHT_ANGLE: f32 = 1.0;
+
+/// Whether the hero's look wakes a creature `distance` from it, whose sight it then tests
+/// (`0x547070` at `0x547B3F` and `0x547839`, #2475): a hostile one of the flags word `flags`'s
+/// bit 0 within 800 (400 while the hero moves) that does not fight, or one not hostile within the
+/// look's range.
+pub fn look_wakes(hostile: bool, flags: u32, fighting: bool, distance: f32, moves: bool) -> bool {
+    if hostile {
+        let wakes = if moves { WAKES_MOVING } else { WAKES };
+        flags & 0x1 != 0 && !fighting && distance < wakes
+    } else {
+        distance < RANGE
+    }
+}
+
+/// Whether a creature at `here` that heads along `heading` (a direction on the grid) sees the
+/// hero at `hero` (`sdk_WAKE` `0x59F580`, #2475): the hero within 600 along x and 400 along y,
+/// and within 1 rad of its heading, both directions measured on the screen's plane, the grid's
+/// `(x, y)` showing as `(x − y, (x + y) / 2)` (`0x450650`, `0x622620`); its straight way to the
+/// hero (`0x4FCC80`) is the caller's test.
+pub fn sees(here: Spot, heading: Spot, hero: Spot) -> bool {
+    let away = hero - here;
+    if away.x.abs() >= SIGHT_X || away.y.abs() >= SIGHT_Y {
+        return false;
+    }
+    let screen = |v: Spot| ((v.x + v.y) * 0.5).atan2(v.x - v.y);
+    let mut angle = (screen(away) - screen(heading)).abs() % std::f32::consts::TAU;
+    if angle > std::f32::consts::PI {
+        angle = std::f32::consts::TAU - angle;
+    }
+    angle < SIGHT_ANGLE
+}
+
 /// The behaviour of a follower (`+0x1F4` bit `0x100`, `0x4EF150` at `0x4F3E65`; docs/re/ai.md,
 /// "Followers"), which a hiring gives a creature with its master (`+0x251`): it keeps near the
 /// master and fights for it ([`keeps`], [`Mind::helps`], [`defends`]).
@@ -3575,6 +3619,47 @@ mod tests {
     use super::*;
     use crate::spawning::Rng;
     use crate::ways::{CRITTER, constructed};
+
+    #[test]
+    fn a_creature_sees_the_hero_near_it_and_before_it_on_the_screen() {
+        // The original's orc champion of quest 43, probed as its sight ran (#2475): about 19.5°
+        // between its heading and the hero on the screen's plane.
+        let here = Spot::new(154_154.0, 170_807.0);
+        let heading = Spot::new(0.0, -124.0);
+        assert!(sees(here, heading, Spot::new(154_261.0, 170_629.0)));
+        // Behind it, and beyond the box along x or y.
+        assert!(!sees(here, heading, Spot::new(154_154.0, 171_000.0)));
+        assert!(!sees(
+            here,
+            heading,
+            Spot::new(154_154.0 + 600.0, 170_807.0)
+        ));
+        assert!(!sees(
+            here,
+            heading,
+            Spot::new(154_154.0, 170_807.0 - 400.0)
+        ));
+        // Just within the angle, either way round.
+        let east = Spot::new(1.0, -1.0);
+        assert!(sees(Spot::default(), east, Spot::new(100.0, -100.0)));
+        assert!(!sees(Spot::default(), east, Spot::new(-100.0, 100.0)));
+        assert!(sees(Spot::default(), east, Spot::new(100.0, 40.0)));
+        assert!(!sees(Spot::default(), east, Spot::new(100.0, 70.0)));
+    }
+
+    #[test]
+    fn the_heros_look_wakes_for_its_sight_the_hostile_of_bit_0_near_and_the_peaceful() {
+        // A hostile creature of the bit 0 within 800, 400 while the hero moves, not fighting.
+        assert!(look_wakes(true, 0x1, false, 799.0, false));
+        assert!(!look_wakes(true, 0x1, false, 800.0, false));
+        assert!(look_wakes(true, 0x1, false, 399.0, true));
+        assert!(!look_wakes(true, 0x1, false, 400.0, true));
+        assert!(!look_wakes(true, 0x4000, false, 100.0, false));
+        assert!(!look_wakes(true, 0x1, true, 100.0, false));
+        // One not hostile within the look's range.
+        assert!(look_wakes(false, 0, false, RANGE - 1.0, true));
+        assert!(!look_wakes(false, 0, false, RANGE, false));
+    }
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
 

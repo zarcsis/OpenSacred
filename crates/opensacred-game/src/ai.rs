@@ -2493,6 +2493,81 @@ pub struct Thinks;
 /// The creatures' idle life.
 pub struct AiPlugin;
 
+/// Runs each creature's sight function as it first sees the hero (`sdk_WAKE` `0x59F580`, #2475;
+/// docs/re/ai.md, "Dormant and awake"): at each of the hero's looks, a creature of a sight
+/// pending (`minds::SIGHT`) that the look wakes (`minds::look_wakes`) and that sees the hero
+/// within 600 along x and 400 along y and within 1 rad of its heading on the screen
+/// (`minds::sees`), by a straight way (`0x4FCC80`), runs its first `See:` function, and its bit
+/// clears, its kept placement's with it (`0x59F78F`), whether it had one or not. Quest 11 of the
+/// Underworld is entered so, as its guards see the hero come through the gate.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn sight(
+    mut commands: Commands,
+    nearest: Res<Nearest>,
+    heroes: Query<(&Transform, &Body)>,
+    mut creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Mind,
+            &InTheWay,
+            (Option<&crate::npcs::OnDeath>, Option<&crate::npcs::Placed>),
+        ),
+        Without<crate::npcs::Dies>,
+    >,
+    heights: Res<Heights>,
+    mut npcs: ResMut<Npcs>,
+) {
+    if !nearest.looked {
+        return;
+    }
+    let Ok((hero, body)) = heroes.single() else {
+        return;
+    };
+    let at = spot(hero.translation);
+    let moves = body.target().is_some();
+    for (entity, transform, mut mind, way, (on_death, placed)) in &mut creatures {
+        if mind.flags & minds::SIGHT == 0 {
+            continue;
+        }
+        let here = spot(transform.translation);
+        let (hostile, fighting) = (mind.hostile(), mind.fighting());
+        if !minds::look_wakes(hostile, mind.flags, fighting, (here - at).length(), moves) {
+            continue;
+        }
+        let heading = transform.rotation * Vec3::X;
+        if !minds::sees(here, Spot::new(heading.x, heading.z), at)
+            || !paths::straight(transform.translation.xz(), hero.translation.xz(), |cell| {
+                heights.walkable_on(cell, way.level)
+            })
+        {
+            continue;
+        }
+        mind.flags &= !minds::SIGHT;
+        if let Some(index) = placed.and_then(crate::npcs::Placed::kept) {
+            npcs.sighted(index);
+        }
+        let Some(function) = on_death
+            .and_then(|on_death| on_death.0.sight())
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        info!(
+            "ai: {entity}, a {}, sees the hero and runs {function}",
+            mind.creature
+        );
+        commands.queue(move |world: &mut World| {
+            if let Err(e) = crate::scripts::run_function(world, &function) {
+                warn!("ai: {e}");
+            }
+        });
+    }
+}
+
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Minds>()
@@ -2500,7 +2575,7 @@ impl Plugin for AiPlugin {
             .init_resource::<FightRules>()
             .add_systems(
                 Update,
-                (open, think, aside, behave, pursue)
+                (open, sight, think, aside, behave, pursue)
                     .chain()
                     .in_set(Thinks)
                     .after(crate::crowd::gather)
