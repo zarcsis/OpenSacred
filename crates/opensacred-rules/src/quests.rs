@@ -1004,6 +1004,15 @@ impl DeathFunctions {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// Whether it holds an entry of no item's prefix nor a sight's, by which its creature's body
+    /// lies on (`0x4A71F0` with an empty name, `0x53ECA0`'s lying step; #2501): after the death
+    /// took its functions out ([`Self::take`]), a [`KEPT`] one or one a script added again.
+    pub fn holds(&self) -> bool {
+        self.0
+            .iter()
+            .any(|name| !NOT_DEATHS.iter().any(|prefix| name.starts_with(prefix)))
+    }
 }
 
 /// A count of the scripts (`SetOnKill`, `SetOnCollect`; entries of 76 bytes): a creature's or an
@@ -2392,6 +2401,26 @@ mod tests {
         deaths.see("second");
         assert_eq!(deaths.take().as_deref(), Some("lose670"));
         assert_eq!(deaths.take(), None);
+    }
+
+    #[test]
+    fn a_body_lies_on_while_a_function_not_an_items_nor_a_sights_stands() {
+        let mut deaths = DeathFunctions::default();
+        assert!(!deaths.holds());
+        // The death takes its function out, and the sight's; an item's entry holds nothing.
+        deaths.add("tot1");
+        deaths.see("look");
+        deaths.add("Take:take1404");
+        deaths.add("Use:use1");
+        assert!(deaths.holds());
+        assert_eq!(deaths.take().as_deref(), Some("tot1"));
+        assert!(!deaths.holds());
+        // A `wegw` entry stays through the death, and holds the body.
+        let mut deaths = DeathFunctions::default();
+        deaths.add("tot2");
+        deaths.add("wegweiser");
+        assert_eq!(deaths.take().as_deref(), Some("tot2"));
+        assert!(deaths.holds());
     }
 
     #[test]

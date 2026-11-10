@@ -5,7 +5,8 @@
 //! killer's health as they fall; at their last death they burn away. The skeleton warriors (32,
 //! 112 to 117) change their type at a strike's death as they rise, an arm or the head lost each
 //! time, until their last death bursts them; the other types of the class 5 burst or vanish at
-//! their death (`0x532E3C`'s and `0x541653`'s switches, #1260).
+//! their death (`0x532E3C`'s and `0x541653`'s switches, #1260). Any creature's body lies a time
+//! by the options' detail and vanishes, and a hidden one is destroyed later (#2501).
 
 /// The flags word's bit of an undead that has risen once, by which its next death is its last
 /// (`+0x1F4` bit `0x200`); a boss or a champion takes it at its first fight.
@@ -23,6 +24,23 @@ pub fn destroyed_after(detail: u8) -> f32 {
         _ => 25.0,
     }
 }
+
+/// How long after its death any creature's body lies before it vanishes, in seconds, at the
+/// options' detail `detail` (`DETAILLEVEL`, the byte `0x182EE78` read at `0x53FB9A`; #2501): 20
+/// at 2, 5 at 1 and 2 at 0; then, unless something holds it, it vanishes in its soul's sparks
+/// and is destroyed at [`destroyed_after`].
+pub fn vanishes_after(detail: u8) -> f32 {
+    match detail {
+        0 => 2.0,
+        1 => 5.0,
+        _ => 20.0,
+    }
+}
+
+/// The flags word's bit of a creature whose body lies on (`+0x1F4` bit `0x2000`, the tag `0x45`
+/// of `CreateNPC` and `SetNPCState`), which neither vanishes nor is destroyed (`0x53ECA0`'s
+/// lying step, #2501).
+pub const LIES_ON: u32 = 0x2000;
 
 /// The magic skeletons, which drain their killer.
 const SKELETONS: [u32; 3] = [48, 80, 81];
@@ -326,6 +344,15 @@ mod tests {
         assert_eq!(end(44), End::Vanishes);
         assert_eq!(end(178), End::Vanishes);
         assert_eq!(end(131), End::Vanishes);
+    }
+
+    #[test]
+    fn a_body_lies_and_is_destroyed_by_the_detail() {
+        // Seen at the detail 2: the goblins', the thieves' and the wolves' bodies vanished at
+        // 20.1 s and were destroyed at 25.0 s (#2501).
+        assert_eq!([0, 1, 2].map(vanishes_after), [2.0, 5.0, 20.0]);
+        assert_eq!([0, 1, 2].map(destroyed_after), [7.0, 10.0, 25.0]);
+        assert!((0..=2).all(|detail| vanishes_after(detail) < destroyed_after(detail)));
     }
 
     #[test]

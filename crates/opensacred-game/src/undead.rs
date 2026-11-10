@@ -16,8 +16,9 @@
 //! an item that lies where it lands (#1202). A burst makes its cloud in its gib set's colour
 //! (#1264), and under `[gameplay] violence` its body parts and its blood (`body_parts`, #1935);
 //! an arm's bone, which the original makes only under `VIOLENCE` too, is not drawn. A body
-//! hidden so goes 25, 10 or 7 s after its death by the options' detail (`0x553DC0`, #2352),
-//! unless the scripts name it or it has a dialogue.
+//! hidden so, or one that vanishes as it has lain its time (`bodies`, #2501), goes 25, 10 or 7 s
+//! after its death by the options' detail (`0x553DC0`, #2352), unless a death's function still
+//! stands for it or it has a dialogue.
 
 use crate::buildings::Layered;
 use bevy::prelude::*;
@@ -64,7 +65,7 @@ struct BurnsAfterClip;
 /// A creature at its last death whose body is hidden, the seconds left before it is destroyed
 /// ([`destroy`]).
 #[derive(Component, Clone, Copy, Debug)]
-struct Destroyed(f32);
+pub(crate) struct Destroyed(pub(crate) f32);
 
 /// A creature of any class that bursts as it lies dead ([`last`]), the corpse of a tentacle's
 /// (`0x53382F`, #2104).
@@ -459,7 +460,7 @@ fn burst(
 
 /// Hides the body of `entity` and leaves no corpse to raise (`+0x14` bit `0x10000000`, out of
 /// its sector's lists).
-fn gone(commands: &mut Commands, entity: Entity) {
+pub(crate) fn gone(commands: &mut Commands, entity: Entity) {
     commands
         .entity(entity)
         .remove::<(Burns, BurnsAfterClip, Corpse)>()
@@ -560,8 +561,8 @@ fn burn_after_clip(
 }
 
 /// Destroys each hidden body of a last death once its seconds have run out (`0x553DC0`), out of
-/// its sector's entities: a body still lying waits until it is hidden, and one that the scripts
-/// name or that has a dialogue stays.
+/// its sector's entities: a body still lying waits until it is hidden, and one for which a
+/// death's function still stands or that has a dialogue stays (`0x542937`'s holds, #2501).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -573,7 +574,7 @@ fn destroy(
             Entity,
             &mut Destroyed,
             Has<Corpse>,
-            Has<ScriptName>,
+            Option<&OnDeath>,
             Has<Talk>,
         ),
         Without<Rises>,
@@ -581,9 +582,10 @@ fn destroy(
     mut streamer: ResMut<crate::sectors::Streamer>,
     time: Res<Time>,
 ) {
-    for (entity, mut destroyed, lying, named, talks) in &mut hidden {
+    for (entity, mut destroyed, lying, on_death, talks) in &mut hidden {
         destroyed.0 -= time.delta_secs();
-        if destroyed.0 > 0.0 || lying || named || talks {
+        let held = on_death.is_some_and(|on_death| on_death.0.holds());
+        if destroyed.0 > 0.0 || lying || held || talks {
             continue;
         }
         debug!("undead: {entity}'s hidden body is destroyed");

@@ -3,7 +3,8 @@
 //! each of its vertices taken as it dies, rising and streaming ever faster to its soul as it
 //! flies to him, added whole and untinted; where it arrives or a cell stops it its sparks stop
 //! and fade out (`opensacred_rules::particles::SoulSparks`), at its soul's place in the original's
-//! order of drawing as it flies (`fx::Orders::at`, #2220).
+//! order of drawing as it flies (`fx::Orders::at`, #2220). A body that vanishes as it has lain
+//! its time leaves the same figure, which rises and fades where it lay (`bodies`, #2501).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -15,10 +16,13 @@ use crate::fx::{Effect, Orders, Quads, empty, particle_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::iso;
 
-/// A soul, which takes its look ([`show`]): the creature whose figure it takes.
+/// A soul, which takes its look ([`show`]): the creature whose figure it takes, and whether it
+/// homes on nothing, a vanishing body's, which only marks where its figure lies and goes as its
+/// look is made (`SoulSparks::rising`).
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct Sparks {
     pub(crate) from: Entity,
+    pub(crate) rising: bool,
 }
 
 /// The sparks' material, made at the first soul; none where its texture is missing.
@@ -67,7 +71,13 @@ fn show(
             points.len(),
             sparks.from
         );
-        let look = SoulSparks::new(points.into_iter().map(models));
+        let points = points.into_iter().map(models);
+        let (look, soul) = if sparks.rising {
+            commands.entity(soul).despawn();
+            (SoulSparks::rising(points), None)
+        } else {
+            (SoulSparks::new(points), Some(soul))
+        };
         let mesh = meshes.add(empty());
         let mut shown = commands.spawn((
             Transform::IDENTITY,
@@ -84,7 +94,7 @@ fn show(
             ));
         }
         shown.insert(Shown {
-            soul: Some(soul),
+            soul,
             look,
             place: place.translation,
             mesh,
