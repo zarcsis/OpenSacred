@@ -42,6 +42,9 @@ const POTIONS: [[u32; 3]; 6] = [
 const WEAPONS: u8 = 5;
 /// The armour's categories, of which a pass draws one.
 const ARMOUR: [u8; 11] = [6, 13, 17, 18, 19, 21, 22, 23, 24, 25, 29];
+/// The Dwarf's cannons' category, armour that no pass draws, which a container, a merchant or
+/// a script makes as the item maker makes armour (`0x5D57C0`; docs/re/trade.md, #2520).
+const CANNONS: u8 = 33;
 /// The bridles' category, which a pass draws once again.
 const BRIDLES: u8 = 29;
 /// The jewels' categories: a ring in two cases of three, an amulet in one.
@@ -1256,9 +1259,9 @@ impl Catalogue {
             .is_some_and(|record| record.flags & UNIQUE == UNIQUE)
     }
 
-    /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour or a
-    /// jewel; `None` for a type of any other category (the runes, the blacksmith's upgrades) or
-    /// none.
+    /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour (the
+    /// Dwarf's cannons too, [`CANNONS`]) or a jewel; `None` for a type of any other category (the
+    /// runes, the blacksmith's upgrades) or none.
     pub fn kind(&self, item: u32) -> Option<Kind> {
         if GOLD.contains(&item) {
             return Some(Kind::Gold);
@@ -1267,7 +1270,7 @@ impl Catalogue {
             POTIONS_CATEGORY => Some(Kind::Potion),
             RUNES => Some(Kind::Rune),
             WEAPONS => Some(Kind::Weapon),
-            category if ARMOUR.contains(&category) => Some(Kind::Armour),
+            category if ARMOUR.contains(&category) || category == CANNONS => Some(Kind::Armour),
             category if JEWELS.contains(&category) => Some(Kind::Jewel),
             _ => None,
         }

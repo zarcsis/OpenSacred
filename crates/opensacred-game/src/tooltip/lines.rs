@@ -537,7 +537,10 @@ fn slowing(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
         let skill =
             opensacred_rules::fight::weapon_skill(1, Some(family), &[(family, item.record.kind)]);
         Some(("1169", shortfall(skill).unwrap_or(1.0)))
-    } else if item.category == SHIELD || ARMOUR.contains(&item.category) {
+    } else if opensacred_rules::fight::slows(item.category) {
+        // Only what lowers the pace, which a cannon does not, though the original's line shows
+        // its slowing (#2520; docs/decisions/interface.md, "Bonus lines of what the code
+        // applies").
         let scale = f64::from(item.values.scale);
         let x = shortfall(ARMOUR_LORE)
             .filter(|_| (1.0..=999.0).contains(&scale))
