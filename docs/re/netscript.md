@@ -112,6 +112,16 @@ Read 2026-10-26 (#1046): a position's name that begins with `CPOS:` the reader r
 In the Seraphim's tree 774 records of `CreateNPC` and `CreateObj` are placed so, 654 in the quests' functions.
 `opensacred-game` puts such a record on that creature's cell and floor as it runs, the hero's for `CPOS:hero` (`npcs::locate`); the free point about the hero is not followed.
 
+**`DefPos` as a record's cell.**
+Read 2026-11-10 (#2442, a subagent's reading of `0x472BC0`, **confirmed** by code): any other name in a cell's field (`0x04`, `0x0C`, `0x0D`) is looked up in the `DefPos` list (`+0x334`, entries of 100 bytes, the name at `+4`, the four numbers at `+0x44` to `+0x50`, `0x474483`).
+Its third number is a radius in cells: where it is above 0, the reader draws up to 10 cells about the place, x and then y each `rand() % (2r + 1) − r` from it (`0x474528` to `0x47463A`, the C library's `rand()` `0x849B40`), and keeps the first that `0x472AF0` finds free, else the tenth.
+`0x472AF0` refuses a cell whose byte `+0x1E` has bit 0 or 3, whose `+0x1F` low nibble is 1 or 2 (a mass, a wall or water), or whose objects hold one of the kinds 2, 3 or `0x20` of `items.pak +0x2E` (**hypothesis**: the creatures), and takes a cell of no sector for free; fetching the cell loads its sector (`0x634AF0`, `0x634340`, `0x637790`).
+Its fourth number is the level (`+0xA868`), 0 where it is below 0.
+`CreateNPC` draws its heading first (`rand() % 361`, `0x482671`), then reads the place; its creature stands at the cell drawn and takes it for its home (`+0x2B9`, `0x4833EF`), and a sector's load puts its objects again at their own places with no draw (`0x637AF0`).
+So the start's soldiers of `posSoldatenDMG` (1321, 2254, radius 6) stand each on a cell of its own about it, on other cells at each new game (**seen** in the original 2026-11-10: seven soldiers at 1324,2249, 1323,2251, 1320,2253 and four more, then at 1320,2251, 1318,2252, 1320,2256 and seven more at the next game).
+Of the Seraphim's 1,908 places 139 have a radius (up to 20), named by 1,887 `CreateNPC`s, 10 `Teleport`s and 3 `NPC_Goto`s; 195 have a fourth number above 0.
+Since #2442 `opensacred-game` takes a place's fourth number as its level (`quests::Place`), and a creature or object made anew at a place of a radius takes a cell of its own about it, the first of the ten that may be walked on at its level with no creature in it nor one made there in the same frame (`npcs::spread_cell`; docs/decisions/netscript.md, "Places' cells drawn by their records"); a `Teleport` or an `NPC_Goto` to such a place goes to its cell.
+
 ## Keyword resolvers of the compiler
 
 The script compiler built into the client maps keywords to record types in five functions.
@@ -227,7 +237,7 @@ Destroying a creature runs no death's function ("The deaths' functions" below).
 
 Read off the client with Ghidra and capstone 2026-10-25 (#1002), **confirmed** by code unless marked otherwise.
 
-- `SetBaseTrigger` (4, `0x4819A0`) takes the trigger's name (`01`), a corner (`0C`, or `04` in 6 records: a cell or a `DefPos` name, its third number the layer, held to 0..16) and the other corner (`0D`), a box of one cell without it; the corners are ordered.
+- `SetBaseTrigger` (4, `0x4819A0`) takes the trigger's name (`01`), a corner (`0C`, or `04` in 6 records: a cell or a `DefPos` name, the cell's third number the layer, a place's fourth, held to 0..16; "`DefPos` as a record's cell" below) and the other corner (`0D`), a box of one cell without it; the corners are ordered.
   `0x63C970` splits the box at the sectors' edges and appends each part to its sector's list (`+0x204`, entries of 0x4C bytes: `x0`, `y0`, the layer, `x1` and `y1` as `u16`, the name from `+0xC`; `0x622E80`).
 - `DelBaseTrigger` (5, `0x4817F0`) with the name alone takes that name's boxes out of every sector, and with corners out of the sector of the lower corner and its eight neighbours (`0x63CB10`); each box goes as the sector's last box is moved into its place, the names compared without regard to case (`0x622FA0`).
 - The trigger of a cell (`0x6230C0`) is the first box of the cell's sector that holds it on its layer, the layers 0 and 1 counted as 0.
@@ -235,7 +245,7 @@ Read off the client with Ghidra and capstone 2026-10-25 (#1002), **confirmed** b
   The start script of every tree holds them, 656 in the Seraphim's; in each of the 20 trees each name they give has the one function `OMO<quest><name>` (the compiler's `OMO%d%s`, `0x45C192`), whatever the case, two of them where the function's name is written twice (`rg24g3_start` of the Seraphim's).
 - As a creature's cell changes in its update (`0x5941A0`, at `0x597E2C`) and it is the local player's hero, or a horse whose rider it is, the trigger of its new cell and layer runs: each function of the cache's entry of its name in order, the quests' hook `0x471790` called with the event 5 first for a function of a quest, then the function by the runner `0x46BA90`, which runs a function of a quest only while the quest is set up; a name without an entry runs `OMO-1<name>`, and without that a function `OMO`, which no tree defines.
   Seen in the original 2026-10-26 with #448's driver: a walk of the Seraphim's over 3086, 3085 and 3084 of the row 2549 looked each cell up (`0x6230C0`), and on 3084,2549 `OMO-1tpreinR16_MH_1` ran and teleported her to (3619, 5076); the driver's `cell` onto 3047,2892 and 3084,2549, triggers' cells, looked nothing up, so a teleport runs no trigger.
-- `Teleport` (46, `0x491D40`) takes the creature (`01`; `hero`, or none, the local player's hero), a heading (`03`), and a cell (`04`, `0C` or `0D`: a cell or a `DefPos` name, its third number the layer) or a world point (`20`).
+- `Teleport` (46, `0x491D40`) takes the creature (`01`; `hero`, or none, the local player's hero), a heading (`03`), and a cell (`04`, `0C` or `0D`: a cell or a `DefPos` name, the cell's third number the layer, a place's fourth) or a world point (`20`).
   `sdk_ENGINE_TP` (`0x54D9D0`) puts it there; where that fails, it tries 15 cells at random within 3 cells on the layer, then 25 within 6 on the layer and the two above it; then it sets the creature's flag `0x40000000` and turns it to the heading.
   A mounted hero's branch is in "Order traps" below.
 - The hero's step onto a cell of a trigger that has functions ends its motion right after a teleport (`0x593CE0`, with the flag `0x40000000`).

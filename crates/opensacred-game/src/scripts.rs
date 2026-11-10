@@ -2139,13 +2139,17 @@ impl Tags<'_> {
             .collect()
     }
 
-    /// The cell of the tag `key`: its numbers `(x, y)` or `(x, y, layer)`, or the first three of
-    /// the place its `DefPos` name names, as the operand reader gives a cell (`+0xA860` to
-    /// `+0xA868`), the layer 0 where it is missing.
+    /// The cell of the tag `key`: its numbers `(x, y)` or `(x, y, layer)`, or the cell and the
+    /// level of the place its `DefPos` name names (`quests::Place`), as the operand reader gives a
+    /// cell (`+0xA860` to `+0xA868`), the layer 0 where it is missing. A place's radius is not
+    /// drawn here: a `Teleport` or an `NPC_Goto` to one goes to its cell (#2442).
     fn spot(&self, key: &str, positions: &quests::Positions) -> Option<(i32, i32, i32)> {
         let numbers = match (self.numbers(key).as_slice(), self.texts(key).as_slice()) {
             (numbers @ [_, _, ..], _) => numbers.to_vec(),
-            ([], [name]) => positions.get(name)?.to_vec(),
+            ([], [name]) => {
+                let place = positions.place(name)?;
+                return Some((place.cell.0, place.cell.1, place.level));
+            }
             _ => return None,
         };
         match numbers[..] {

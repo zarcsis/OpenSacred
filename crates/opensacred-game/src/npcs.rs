@@ -300,8 +300,14 @@ struct Placement {
     rides: bool,
     /// The texture its item names (`+0x08`), relative to the asset directory.
     texture: Option<String>,
-    /// The position's third number, the layer.
+    /// The position's layer: a cell's third number, a `DefPos`'s fourth.
     layer: i32,
+    /// The radius of the `DefPos` it was made at, in which it takes a cell of its own as it is
+    /// made (`quests::Place::drawn`, #2442), 0 for a cell of its record's. A save keeps none:
+    /// the placements it keeps are the fills' creatures', of no place, and the scripts' are made
+    /// again of their records.
+    #[serde(skip)]
+    spread: i32,
     /// The items of an NPC's `CreateNPC`, their types in its order (its `0x02`s after its type),
     /// and those it holds in its hands: their models, and the items themselves.
     items: Vec<u32>,
@@ -994,6 +1000,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         texture: kind.texture.clone(),
         woman: kind.woman,
         layer: 0,
+        spread: 0,
         items: Vec::new(),
         equipment: Vec::new(),
         holding: Vec::new(),
@@ -1039,7 +1046,7 @@ pub struct Npcs {
     /// The horse data's rows, each its class and its seven words (`Balance.bin`'s tail table 4,
     /// #2299).
     horses: Vec<(u32, [u32; 7])>,
-    places: HashMap<String, (i32, i32)>,
+    places: Places,
     pending: Vec<usize>,
     /// The placements that the play's records made, which live wherever they stand from then on
     /// ([`Self::living_groups`]).
@@ -1098,6 +1105,9 @@ pub struct Npcs {
     /// The sectors come in with no creatures kept whose waters' crabs and fish wait for the
     /// sectors about them ([`swimmers`]).
     waters: Vec<(u32, u32)>,
+    /// The cells that the creatures made at a `DefPos` of a radius took in this frame's placing,
+    /// which the next made there leaves to them ([`spread_cell`], #2442).
+    drawn: HashSet<(i32, i32)>,
 }
 
 /// Where a creature came from, which decides what becomes of it when its sector goes, as the
@@ -2917,7 +2927,7 @@ fn deferred_objects(records: &[Record], present: impl Fn(&str) -> bool) -> HashS
 fn whither(
     ops: &[opensacred_data::netscript::Operand],
     tag: u8,
-    named: &HashMap<String, (i32, i32)>,
+    named: &Places,
 ) -> Option<Whither> {
     ops.iter().find_map(|o| match (o.tag, &o.value) {
         (t, Value::I32x3([x, y, layer])) if t == tag => Some(Whither::Cell((*x, *y, *layer))),
@@ -2926,7 +2936,9 @@ fn whither(
             match name.strip_prefix(CREATURE_POSITION) {
                 Some("hero") => Some(Whither::Creature(None)),
                 Some(creature) => Some(Whither::Creature(Some(creature.to_owned()))),
-                None => named.get(&name).map(|&(x, y)| Whither::Cell((x, y, 0))),
+                None => named
+                    .get(&name)
+                    .map(|place| Whither::Cell((place.cell.0, place.cell.1, place.level))),
             }
         }
         _ => None,
@@ -3106,8 +3118,8 @@ fn trigger_states(records: &[&Record]) -> HashMap<String, (bool, bool)> {
         .collect()
 }
 
-/// The named positions of `records`: `DefPos` name, x, y.
-fn positions<'a>(records: impl IntoIterator<Item = &'a Record>) -> HashMap<String, (i32, i32)> {
+/// The named positions of `records`: `DefPos` name and its place, of its first four numbers.
+fn positions<'a>(records: impl IntoIterator<Item = &'a Record>) -> Places {
     records
         .into_iter()
         .filter(|r| r.kind == DEF_POS)
@@ -3118,24 +3130,29 @@ fn positions<'a>(records: impl IntoIterator<Item = &'a Record>) -> HashMap<Strin
             let Value::Str(name) = &ops.first()?.value else {
                 return None;
             };
-            let x = value_i32(&ops.get(1)?.value)?;
-            let y = value_i32(&ops.get(2)?.value)?;
-            Some((name.to_ascii_lowercase(), (x, y)))
+            let numbers: Vec<i32> = ops
+                .iter()
+                .skip(1)
+                .map_while(|o| value_i32(&o.value))
+                .take(4)
+                .collect();
+            Some((name.to_ascii_lowercase(), quests::Place::of(&numbers)?))
         })
         .collect()
 }
 
-/// A record's position (`0x04`): the global cell and the layer, of a `DefPos` name (layer 0) or
-/// given as `(x, y, layer)`.
+/// A record's position (`0x04`): the global cell and the layer given as `(x, y, layer)`, or of a
+/// `DefPos` name its place's cell and level, and the radius about it in which the record's
+/// creature or object takes a cell of its own (`quests::Place::drawn`, #2442), 0 for a cell.
 fn position(
     ops: &[opensacred_data::netscript::Operand],
-    named: &HashMap<String, (i32, i32)>,
-) -> Option<(i32, i32, i32)> {
+    named: &Places,
+) -> Option<((i32, i32, i32), i32)> {
     ops.iter().find_map(|o| match (o.tag, &o.value) {
         (0x04, Value::Name(name)) => named
             .get(&name.to_ascii_lowercase())
-            .map(|&(x, y)| (x, y, 0)),
-        (0x04, Value::I32x3([x, y, layer])) => Some((*x, *y, *layer)),
+            .map(|place| ((place.cell.0, place.cell.1, place.level), place.radius)),
+        (0x04, Value::I32x3([x, y, layer])) => Some(((*x, *y, *layer), 0)),
         _ => None,
     })
 }
@@ -3220,8 +3237,9 @@ struct Makers {
     shadowless: HashSet<u32>,
 }
 
-/// The places that the scripts' `DefPos`s name, by their names lower-cased: a global cell.
-type Places = HashMap<String, (i32, i32)>;
+/// The places that the scripts' `DefPos`s name, by their names lower-cased: a global cell, a
+/// radius and a level (`quests::Place`, #2442).
+type Places = HashMap<String, quests::Place>;
 
 /// What the play's records placed ([`Npcs::add`]): how many creatures and objects, and the
 /// `RegionChange`s that the creatures in the world take ([`region_changes`]).
@@ -3282,11 +3300,17 @@ impl Makers {
         let arming = self.arming(&items, creature.unwrap_or(0));
         // An NPC sent somewhere at the start walks there from where it was made.
         let target = name_of(ops).and_then(|name| targets.get(&name).copied());
-        let cell = position(ops, named).or(target).or_else(|| {
-            (record.kind == CREATE_OBJ)
-                .then(|| world_cell(ops))
-                .flatten()
-        });
+        let (cell, spread) = match position(ops, named) {
+            Some((cell, radius)) => (Some(cell), radius),
+            None => (
+                target.or_else(|| {
+                    (record.kind == CREATE_OBJ)
+                        .then(|| world_cell(ops))
+                        .flatten()
+                }),
+                0,
+            ),
+        };
         let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
             (0x03, Value::U16(v)) => Some(f32::from(*v)),
             _ => None,
@@ -3528,6 +3552,7 @@ impl Makers {
             hostility,
             texture,
             layer,
+            spread,
             items,
             equipment: arming.equipment,
             holding: arming.holding,
@@ -4279,6 +4304,7 @@ impl Npcs {
             spawned: HashSet::new(),
             kept: Kept::default(),
             waters: Vec::new(),
+            drawn: HashSet::new(),
         })
     }
 
@@ -4920,7 +4946,12 @@ fn place_index(
     commands: &mut Commands,
     npcs: &mut Npcs,
     (index, at): (usize, (u32, u32)),
-    (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
+    (heights, states, assets, crowd): (
+        &Heights,
+        &buildings::Buildings,
+        &AssetServer,
+        Option<&crowd::Crowd>,
+    ),
     (hero, time, area_types): (u32, fight::Played, Option<&quests::AreaTypes>),
     (armoury, made): (Option<Armoury>, Option<Laying>),
     streamer: &mut Streamer,
@@ -5001,6 +5032,22 @@ fn place_index(
             .rearmed(placement, (level, armoury, &mut dice), &mut npcs.slots)
     });
     let placement = rearmed.as_ref().unwrap_or(placement);
+    // Made anew at a `DefPos` of a radius, it takes a cell of its own about it, its home there
+    // (`0x474528`, `0x4833EF`; #2442).
+    let drawn = matches!(again, Again::Anew)
+        .then(|| spread_cell(placement, index, (heights, crowd), &npcs.drawn))
+        .flatten();
+    if let Some((x, y)) = drawn {
+        npcs.drawn.insert((x, y));
+    }
+    let spread = drawn
+        .and_then(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
+        .filter(|&cell| cell != placement.cell)
+        .map(|cell| Placement {
+            cell,
+            ..placement.clone()
+        });
+    let placement = spread.as_ref().unwrap_or(placement);
     let entity = match again {
         Again::Not => return,
         Again::Anew => {
@@ -5127,6 +5174,45 @@ fn place_index(
     }
 }
 
+/// The cell that the creature or object of `placement`, made anew at a `DefPos` of a radius,
+/// takes about it (`quests::Place::drawn`, the field reader's draw at `0x474528`, #2442): one that
+/// may be walked on at its level with no creature standing in it nor made there in this frame
+/// (`drawn`), as the original's test of a cell (`0x472AF0`) refuses the masses, the walls and the
+/// cells that a creature holds, a cell of no loaded sector free; drawn by dice of its record, so
+/// that the same record makes it at the same cell. None for a placement of no radius.
+fn spread_cell(
+    placement: &Placement,
+    index: usize,
+    (heights, crowd): (&Heights, Option<&crowd::Crowd>),
+    drawn: &HashSet<(i32, i32)>,
+) -> Option<(i32, i32)> {
+    if placement.spread <= 0 {
+        return None;
+    }
+    let (x, y) = placement.cell;
+    let place = quests::Place {
+        cell: (i32::try_from(x).ok()?, i32::try_from(y).ok()?),
+        radius: placement.spread,
+        level: placement.layer,
+    };
+    let floor = usize::try_from(placement.layer).ok().filter(|&f| f > 0);
+    let level_of = |cell| {
+        floor.and_then(|floor| {
+            heights
+                .building_on_floor(cell, floor)
+                .and_then(|building| heights.floor_level(building, floor))
+        })
+    };
+    let mut dice = spawning::Rng::of(x, y, index);
+    Some(place.drawn(&mut dice, |cell| {
+        let level = level_of(cell);
+        !heights.holds(cell)
+            || (heights.walkable_on(cell, level)
+                && !drawn.contains(&cell)
+                && crowd.is_none_or(|crowd| !crowd.crowded(cell, level, Entity::PLACEHOLDER)))
+    }))
+}
+
 /// Places the NPCs of every sector that came in, as entities of that sector, and marks the cells
 /// that its objects take.
 #[expect(
@@ -5151,9 +5237,12 @@ pub fn place(
         Option<Res<drops::Tables>>,
         Option<Res<crate::settings::Settings>>,
     ),
+    crowd: Option<Res<crowd::Crowd>>,
     bodies: Query<(&fight::Base, Option<&fight::Holding>), With<hero::Body>>,
 ) {
     let npcs = &mut *npcs;
+    npcs.drawn.clear();
+    let crowd = crowd.as_deref();
     let hero = experience.level;
     // The options' detail, at whose lowest the fills leave the animals out (`0x47CADD`).
     let detail = settings
@@ -5185,7 +5274,7 @@ pub fn place(
             &mut commands,
             npcs,
             (index, (x / side, y / side)),
-            (&heights, &states, &assets),
+            (&heights, &states, &assets, crowd),
             (hero, time, area_types),
             (armoury, made),
             &mut streamer,
@@ -5212,7 +5301,7 @@ pub fn place(
                 &mut commands,
                 npcs,
                 (index, at),
-                (&heights, &states, &assets),
+                (&heights, &states, &assets, crowd),
                 (hero, time, area_types),
                 (armoury, made),
                 &mut streamer,
@@ -9086,7 +9175,7 @@ fn take_steps(
 /// another art or none, for the hero, or without a place.
 fn phased(
     ops: &[opensacred_data::netscript::Operand],
-    places: &HashMap<String, (i32, i32)>,
+    places: &Places,
 ) -> Option<(String, Whither)> {
     let teleports = ops.iter().any(|o| {
         o.tag == ART && matches!(&o.value, Value::Str(art) if art.eq_ignore_ascii_case(TELEPORTS))
@@ -9146,7 +9235,7 @@ enum CastAt {
 /// creature's place), else the hero; none for another art or none, or for the hero as the caster.
 fn cast_by(
     ops: &[opensacred_data::netscript::Operand],
-    places: &HashMap<String, (i32, i32)>,
+    places: &Places,
 ) -> Option<(String, u16, CastAt)> {
     let spell = ops.iter().find_map(|o| match (o.tag, &o.value) {
         (ART, Value::Str(art)) => SCRIPT_SPELLS
@@ -11911,7 +12000,10 @@ mod tests {
     #[test]
     fn a_goto_or_a_teleport_sends_its_creature_to_a_cell_a_place_or_a_creature() {
         let op = |tag, value| Operand { tag, value };
-        let named = HashMap::from([("novizin1".to_owned(), (3237, 2514))]);
+        let named = HashMap::from([(
+            "novizin1".to_owned(),
+            quests::Place::of(&[3237, 2514]).unwrap(),
+        )]);
         assert_eq!(
             whither(&[op(0x04, Value::I32x3([3237, 2519, 1]))], 0x04, &named),
             Some(Whither::Cell((3237, 2519, 1)))
@@ -12575,6 +12667,40 @@ mod tests {
     }
 
     #[test]
+    fn creatures_made_at_a_place_of_a_radius_take_cells_of_their_own_about_it() {
+        let soldier = Placement {
+            cell: (1321, 2254),
+            spread: 6,
+            ..Placement::default()
+        };
+        // No sector loaded: every cell drawn is free, the first draw kept, within the radius.
+        let heights = Heights::default();
+        let mut drawn = HashSet::new();
+        let mut cells = Vec::new();
+        for index in 0..5 {
+            let cell = spread_cell(&soldier, index, (&heights, None), &drawn).unwrap();
+            assert!(
+                (cell.0 - 1321).abs() <= 6 && (cell.1 - 2254).abs() <= 6,
+                "{cell:?}"
+            );
+            drawn.insert(cell);
+            cells.push(cell);
+        }
+        // The same record at the same cell each time; the five records at five cells.
+        assert_eq!(
+            spread_cell(&soldier, 0, (&heights, None), &HashSet::new()),
+            Some(cells[0])
+        );
+        assert_eq!(cells.iter().collect::<HashSet<_>>().len(), 5);
+        // No radius: none drawn, its record's cell kept.
+        let captain = Placement {
+            spread: 0,
+            ..soldier.clone()
+        };
+        assert_eq!(spread_cell(&captain, 0, (&heights, None), &drawn), None);
+    }
+
+    #[test]
     fn def_pos_records_name_global_cells() {
         let op = |tag, value| Operand { tag, value };
         let records = vec![
@@ -12590,14 +12716,48 @@ mod tests {
                 kind: CREATE_NPC,
                 body: Body::Operands(vec![op(0x02, Value::I32(297))]),
             },
+            Record {
+                kind: DEF_POS,
+                body: Body::Operands(vec![
+                    op(0x01, Value::Str("posSoldatenDMG".into())),
+                    op(0x0B, Value::I32(1321)),
+                    op(0x0B, Value::I32(2254)),
+                    op(0x0B, Value::I32(6)),
+                ]),
+            },
+            Record {
+                kind: DEF_POS,
+                body: Body::Operands(vec![
+                    op(0x01, Value::Str("posOrkChampion".into())),
+                    op(0x0B, Value::I32(2872)),
+                    op(0x0B, Value::I32(3181)),
+                    op(0x0B, Value::I32(0)),
+                    op(0x0B, Value::I32(1)),
+                ]),
+            },
         ];
         let named = positions(&records);
-        assert_eq!(named.len(), 1);
-        assert_eq!(named["hauptmann3"], (3349, 2534));
-        // A name is on layer 0; a cell carries its layer.
+        assert_eq!(named.len(), 3);
+        assert_eq!(named["hauptmann3"].cell, (3349, 2534));
+        // A name is on its fourth number's level, about it the radius of its third (#2442); a
+        // cell carries its layer.
         let at = |value| position(&[op(0x02, Value::I32(5207)), op(0x04, value)], &named);
-        assert_eq!(at(Value::Name("HAUPTMANN3".into())), Some((3349, 2534, 0)));
-        assert_eq!(at(Value::I32x3([3259, 2569, 1])), Some((3259, 2569, 1)));
+        assert_eq!(
+            at(Value::Name("HAUPTMANN3".into())),
+            Some(((3349, 2534, 0), 0))
+        );
+        assert_eq!(
+            at(Value::Name("possoldatendmg".into())),
+            Some(((1321, 2254, 0), 6))
+        );
+        assert_eq!(
+            at(Value::Name("posOrkChampion".into())),
+            Some(((2872, 3181, 1), 0))
+        );
+        assert_eq!(
+            at(Value::I32x3([3259, 2569, 1])),
+            Some(((3259, 2569, 1), 0))
+        );
         assert_eq!(at(Value::Name("elsewhere".into())), None);
     }
 
@@ -13000,7 +13160,10 @@ mod tests {
     #[test]
     fn an_attack_of_ecs_teleport_teleports_its_creature_to_its_place() {
         let op = |tag, value| Operand { tag, value };
-        let places = HashMap::from([("pos_teleport15031".to_owned(), (3100, 2200))]);
+        let places = HashMap::from([(
+            "pos_teleport15031".to_owned(),
+            quests::Place::of(&[3100, 2200]).unwrap(),
+        )]);
         let teleport = |place: Value| {
             vec![
                 op(0x01, Value::Str("Res:17019".into())),
@@ -13036,7 +13199,10 @@ mod tests {
         let name = |n: &str| op(0x01, Value::Str(n.into()));
         let art = |a: &str| op(ART, Value::Str(a.into()));
         // At the hero, named or not; at a creature.
-        let places = HashMap::from([("pos_trigarea_eck1_10252".to_owned(), (1509, 1216))]);
+        let places = HashMap::from([(
+            "pos_trigarea_eck1_10252".to_owned(),
+            quests::Place::of(&[1509, 1216]).unwrap(),
+        )]);
         let cast = |ops: &[Operand]| cast_by(ops, &places);
         assert_eq!(
             cast(&[name("Res:1"), name("HERO"), art("ECS_METEOR")]),
@@ -13832,7 +13998,7 @@ mod tests {
             panic!("the giver has operands");
         };
         let named = positions(records.iter().copied());
-        assert_eq!(position(ops, &named), Some((3370, 2524, 0)));
+        assert_eq!(position(ops, &named), Some(((3370, 2524, 0), 0)));
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
     }
