@@ -834,6 +834,7 @@ fn pursue(
         Res<Time<bevy::time::Real>>,
         Option<Res<crate::fight::Experience>>,
     ),
+    (clips, scripted): (Query<&crate::npcs::Npc>, Query<&crate::npcs::ScriptClip>),
 ) {
     let dt = tick.seconds.unwrap_or_default();
     let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding, hero_held, hero_health)) =
@@ -861,15 +862,22 @@ fn pursue(
     let seen = doors.seen(&heights);
     // Where each creature stands, whether it strikes, the creature it fights and its size: the
     // foes.
-    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32)> = creatures
-        .iter()
-        .map(|(entity, transform, _, mind, _, striking, ..)| {
-            (
-                entity,
-                (transform.translation, striking, mind.foe(), mind.size()),
-            )
-        })
-        .collect();
+    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32, bool)> =
+        creatures
+            .iter()
+            .map(|(entity, transform, _, mind, _, striking, ..)| {
+                (
+                    entity,
+                    (
+                        transform.translation,
+                        striking,
+                        mind.foe(),
+                        mind.size(),
+                        mind.fighting(),
+                    ),
+                )
+            })
+            .collect();
     // The hero's hostiles alive, which a magician aids (#1854): each with its place, whether it
     // is wounded and whether it fights.
     let friends: Vec<(Entity, Vec3, bool, bool)> = creatures
@@ -943,6 +951,14 @@ fn pursue(
             }
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
+        // A parry plays to its end before its creature decides again (the action 0's sub-state
+        // `0x65`, #2487).
+        if scripted
+            .get(entity)
+            .is_ok_and(crate::npcs::ScriptClip::parries)
+        {
+            continue;
+        }
         let here = transform.translation;
         // Its target: its foe, a creature, or the hero. A foe dead or gone it leaves; the hero it
         // leaves alone while she dominates it (the effect 13), or while its sides are turned over
@@ -957,7 +973,7 @@ fn pursue(
         }
         let (target, aimed, target_strikes, listed, targeted, target_size) = match foe {
             Some(foe) => match foes.get(&foe) {
-                Some(&(at, strikes, its_foe, size)) => {
+                Some(&(at, strikes, its_foe, size, _)) => {
                     (at, foe, strikes, None, its_foe == Some(entity), size)
                 }
                 _ => {
@@ -1196,8 +1212,29 @@ fn pursue(
             Pursues::Strikes(choice) => {
                 transform.rotation = crate::hero::facing(hero - here);
                 if let Some(choice) = choice {
+                    let chains = chained.remove(&entity);
+                    // A strike that does not chain, against a target that fights (the hero
+                    // attacking, a creature fighting), is a parry in one case of four where its
+                    // model has its defending clip: it plays the clip once in place of the strike,
+                    // neither striking nor speaking (`0x4E4ECF`–`0x4E4F85`, #2487).
+                    let target_fights = match foe {
+                        Some(foe) => foes.get(&foe).is_some_and(|&(.., fighting)| fighting),
+                        None => attacking,
+                    };
+                    if !chains
+                        && target_fights
+                        && minds.rng.below(4) == 1
+                        && let Some(slot) = clips.get(entity).ok().and_then(|npc| npc.defend_slot())
+                    {
+                        debug!("ai: {entity} parries {aimed} by its slot {slot}");
+                        commands
+                            .entity(entity)
+                            .remove::<Walk>()
+                            .insert(crate::npcs::ScriptClip::parry(slot));
+                        continue;
+                    }
                     // A strike that does not chain speaks (`0x4E52D1`, #711).
-                    if !chained.remove(&entity) {
+                    if !chains {
                         lines.write(crate::voices::Speak {
                             speaker: entity,
                             group: crate::voices::ATTACK,

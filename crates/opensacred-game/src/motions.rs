@@ -196,6 +196,19 @@ impl Slots {
         }
     }
 
+    /// The defending slot of a model of these slots for `class` (`0x5467A0`'s action 5): 53 +
+    /// class, 239 for class 13, class 14 taking 12's; none where the model lacks it, where the
+    /// original's falls back on a standing slot and so does not parry (`0x4E4F26`–`0x4E4F4E`,
+    /// #2487).
+    pub fn defend_slot(&self, class: u8) -> Option<u16> {
+        let slot = match class {
+            13 => 239,
+            14 => 53 + 12,
+            _ => 53 + u16::from(class.min(12)),
+        };
+        self.slot(slot).map(|_| slot)
+    }
+
     pub fn stance(&self, class: u8) -> Option<&str> {
         let slot = match class {
             0..=12 => 14 + u16::from(class),
@@ -224,6 +237,21 @@ mod tests {
             ]}"#,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_creature_defends_by_its_weapons_class_where_its_model_has_the_clip() {
+        // A thief's two defending clips, both hands' and one hand's (#2487).
+        let thief = Slots::of([(53, "THF_DEFEND_BH"), (54, "THF_DEFEND_1H")]);
+        assert_eq!(thief.defend_slot(0), Some(53));
+        assert_eq!(thief.defend_slot(1), Some(54));
+        // A dagger's (5) it lacks: it does not parry.
+        assert_eq!(thief.defend_slot(5), None);
+        // 13 its own slot, 14 as 12.
+        let all = Slots::of([(239, "X_DEFEND_13"), (65, "X_DEFEND_12")]);
+        assert_eq!(all.defend_slot(13), Some(239));
+        assert_eq!(all.defend_slot(14), Some(65));
+        assert_eq!(all.defend_slot(12), Some(65));
     }
 
     #[test]

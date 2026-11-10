@@ -256,7 +256,11 @@ pub(crate) fn resolve(
                 Option<&Holding>,
                 Option<&crate::npcs::Arms>,
                 Option<&crate::riding::Seat>,
-                (Option<&Downed>, Option<&KnockMarks>),
+                (
+                    Option<&Downed>,
+                    Option<&KnockMarks>,
+                    Option<&crate::npcs::ScriptClip>,
+                ),
             ),
         ),
         Without<Dies>,
@@ -296,7 +300,7 @@ pub(crate) fn resolve(
                 worth,
                 hero_hit,
                 rank,
-                (immortal, victim, guarded, arms, seat, (downed, knock_marks)),
+                (immortal, victim, guarded, arms, seat, (downed, knock_marks, clip)),
             )),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -359,8 +363,16 @@ pub(crate) fn resolve(
                 }
             }
         }
+        // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
+        // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, which the game's hero,
+        // with no such clip, never takes.
+        let mut defending = defender.0;
+        if clip.is_some_and(crate::npcs::ScriptClip::defends) {
+            defending.defence *= opensacred_rules::fight::PARRY_DEFENCE;
+            debug!("fight: {} defends against {}", hit.target, hit.attacker);
+        }
         let (mut attacker, mut defender, mut blow) =
-            weighed(attacker.0, defender.0, side, (level, health.level), &rules);
+            weighed(attacker.0, defending, side, (level, health.level), &rules);
         // The Dwarf's steel pierces what he strikes: its physical resistance over the effect's
         // value over 100 (`0x56C723`).
         let pierces = effects.get(hit.attacker).ok().and_then(|held| {
