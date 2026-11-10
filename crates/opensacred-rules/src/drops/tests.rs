@@ -1242,6 +1242,7 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
         (5171, 9, bare),
         (5400, 28, bare),
         (4097, 16, bare),
+        (3015, 33, bare),
     ]);
     let throw = |item, key, rolls: &[u32]| {
         let mut dice = script(rolls);
@@ -1284,6 +1285,8 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
     assert_eq!((potion.kind, potion.values), (Kind::Potion, None));
     let rune = throw(5400, 16, &[]).unwrap();
     assert_eq!((rune.kind, rune.values), (Kind::Rune, None));
+    // A Dwarf's cannon is armour, made as the dagger is (#2520): the start's chest's 3015.
+    assert_eq!(catalogue.kind(3015), Some(Kind::Armour));
     // A book of no drop's kind as it is (#1358); a type the table does not hold, none.
     let book = throw(4097, 16, &[]).unwrap();
     assert_eq!(
