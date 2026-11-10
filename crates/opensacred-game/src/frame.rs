@@ -89,6 +89,14 @@ impl HoldsControl for App {
     }
 }
 
+impl HeldBack {
+    /// Whether a window or the console held the world's controls back as the frame began: the
+    /// cursor then shows nothing of the world under it (`cursors`, #2507).
+    pub fn held(&self) -> bool {
+        self.0
+    }
+}
+
 /// A test that found the world's controls held back.
 fn hold(In(free): In<bool>, mut held: ResMut<HeldBack>) {
     if !free {
