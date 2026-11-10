@@ -45,8 +45,8 @@ use anyhow::{Context, Result};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{
     Added, App, Commands, DetectChangesMut, Entity, IntoScheduleConfigs, Message, MessageReader,
-    MessageWriter, NonSendMut, OnEnter, OnExit, Plugin, PostUpdate, Query, Res, ResMut, Resource,
-    Transform, Update, With, Without, World,
+    MessageWriter, NonSendMut, OnEnter, OnExit, Plugin, PostUpdate, PreUpdate, Query, Res, ResMut,
+    Resource, Transform, Update, With, Without, World,
 };
 use opensacred_data::luau::{BYTECODE, CALLS, INDEX, Index, calls, differing_calls};
 use opensacred_data::netscript::{self, Function, Record, Tree, Value};
@@ -636,6 +636,9 @@ pub struct Live {
     /// The scripts' groups that hold a living creature, wherever it stands, by which
     /// `GroupIsDead` answers (`0x48C860`, [`living_groups`]), taken before each run.
     living: HashSet<u32>,
+    /// The scripts' names of the creatures that follow the hero and of its own horse, by which
+    /// `0x40` answers ([`party`]), taken at each frame.
+    party: HashSet<String>,
     /// Whether a talk's dialogue function runs ([`Self::talk`]).
     talking: bool,
     /// The scripts' modes as the last run left them, which the next begins in ([`Mode`], #1892).
@@ -677,6 +680,7 @@ impl Live {
             minute: None,
             creatures: started.creatures,
             living: HashSet::new(),
+            party: HashSet::new(),
             talking: false,
             mode: Mode::default(),
             flags: Vec::new(),
@@ -911,6 +915,7 @@ impl Live {
             &mut self.rng,
         );
         recorder.living = Some(&self.living);
+        recorder.party = Some(&self.party);
         recorder.quest = quest;
         recorder.talking = self.talking;
         recorder.mode = self.mode;
@@ -1108,6 +1113,9 @@ struct Recorder<'a> {
     home: Option<Teleport>,
     /// The scripts' groups that hold a living creature, in the play; at the start, none known.
     living: Option<&'a HashSet<u32>>,
+    /// The scripts' names of the hero's followers and its horse, in the play; at the start, none
+    /// known.
+    party: Option<&'a HashSet<String>>,
     window: Window,
     infos: Vec<(i32, String)>,
     popups: Vec<Begins>,
@@ -1177,6 +1185,7 @@ impl<'a> Recorder<'a> {
             healths: Vec::new(),
             home: None,
             living: None,
+            party: None,
             window: Window::default(),
             infos: Vec::new(),
             popups: Vec::new(),
@@ -1370,7 +1379,7 @@ impl Host for Recorder<'_> {
         self.mode = self.mode.after(name, &tags);
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
-            return tags.test(self.tree, self.state);
+            return tags.test(self.tree, self.state, self.party);
         }
         // A guard: whether no creature of the group lives, wherever it stands (`0x48C860`); a
         // group never made is dead. At the start, before the world, not known.
@@ -2165,14 +2174,33 @@ impl Tags<'_> {
     /// list of the main quest's items (#1257), never another creature; `0x96` to `0x9A` the game
     /// on bronze to niobium, and `0x9B` and `0x9C` the hero's quest bit of the number set and clear, the
     /// variable `HeroQBit` that `HeroQBit`'s records set and clear (the original keeps it per
-    /// difficulty with the hero, of which a game plays one; #1125); a test of any other tag has
-    /// no meaning yet.
-    fn test(&self, tree: &str, state: &quests::Scripts) -> Handled {
+    /// difficulty with the hero, of which a game plays one; #1125); `0x40` the named creature
+    /// among `party`, the hero's followers and its horse, not known at the start (#2440); a test
+    /// of any other tag has no meaning yet.
+    fn test(
+        &self,
+        tree: &str,
+        state: &quests::Scripts,
+        party: Option<&HashSet<String>>,
+    ) -> Handled {
         let Some(tags) = self.0 else {
             return Handled::Unknown;
         };
         let (variables, difficulty) = (&state.variables, state.difficulty);
         for (key, operand) in tags {
+            // `0x40`: the named creature in the hero's list of followers (`+0x39C`) or its horse
+            // (`+0x570`, `0x55C630`); a name that no creature has is false (#2440).
+            if key == "_40" {
+                let (Operand::Text(name), Some(party)) = (operand, party) else {
+                    return Handled::Unknown;
+                };
+                let follows = party.contains(&name.to_lowercase());
+                bevy::log::debug!("scripts: {name} follows the hero: {follows}");
+                if !follows {
+                    return Handled::Answer(false);
+                }
+                continue;
+            }
             // `0x3A`: the creature holds the named object, the hero by its list of the main
             // quest's items (#1257); another creature never (its 256 slots, which no creature of
             // the game fills).
@@ -2671,6 +2699,49 @@ fn living_groups<'a>(
     living
 }
 
+/// The scripts' names of the creatures that `0x40` finds with the hero (`0x4987B0`, #2440): of
+/// `followers`, each one's master and name, those whose master is `hero` (its list `+0x39C`),
+/// and its own horse's name, `horse` (`+0x570`, `0x55C630`).
+fn party_of<'a>(
+    hero: Entity,
+    followers: impl Iterator<Item = (Entity, &'a str)>,
+    horse: Option<&str>,
+) -> HashSet<String> {
+    followers
+        .filter(|&(master, _)| master == hero)
+        .map(|(_, name)| name)
+        .chain(horse)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Takes the hero's followers and horse for the scripts' `0x40` at each frame, before any of
+/// them runs ([`party_of`]).
+fn party(
+    live: Option<NonSendMut<Live>>,
+    heroes: Query<Entity, With<Body>>,
+    followers: Query<(&crate::followers::Follower, &ScriptName), Without<Dies>>,
+    names: Query<&ScriptName>,
+    owned: Option<Res<crate::riding::Owned>>,
+) {
+    let (Some(mut live), Ok(hero)) = (live, heroes.single()) else {
+        return;
+    };
+    let horse = owned
+        .and_then(|owned| owned.0)
+        .and_then(|horse| names.get(horse).ok());
+    let party = party_of(
+        hero,
+        followers
+            .iter()
+            .map(|(follower, name)| (follower.master, name.0.as_str())),
+        horse.map(|name| name.0.as_str()),
+    );
+    if live.party != party {
+        live.party = party;
+    }
+}
+
 /// Runs the death's function of each creature that dies (the AI's state 9, `0x53E7C0`, and the
 /// death's event at `0x52F769`; #656): the first of its list's that is no item's, the others of
 /// its kind taken out ([`quests::DeathFunctions::take`]), by its name ([`Live::die`]), after its
@@ -2929,6 +3000,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<CinemaFlag>()
             .configure_sets(Update, crate::frame::OnWorld.run_if(no_cinema))
             .add_systems(PostUpdate, hold_mode)
+            .add_systems(PreUpdate, party)
             .add_systems(
                 Update,
                 run_due
@@ -3301,6 +3373,60 @@ mod tests {
             .collect();
         assert_eq!(named, ["silver", "won", "open"]);
         assert!(runtime.unknown().is_empty());
+    }
+
+    #[test]
+    fn the_follower_test_holds_for_the_heros_followers_and_its_horse() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"follows\"] = function()\n\
+             if test { _40 = \"Res:18103\" } then\n\
+             set_hp { _01 = \"res:1\", _0B = 10 }\n\
+             else\n\
+             set_hp { _01 = \"res:2\", _0B = 20 }\n\
+             end\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let healed = |effects: Effects| -> Vec<Option<String>> {
+            effects.healths.into_iter().map(|h| h.name).collect()
+        };
+        // Nobody follows the hero: the `else`.
+        assert_eq!(healed(live.run_named("follows")), [Some("res:2".into())]);
+        // Wilbur among its followers, named in another case: the `then`.
+        live.party = HashSet::from(["res:18103".to_owned()]);
+        assert_eq!(healed(live.run_named("follows")), [Some("res:1".into())]);
+        assert!(
+            live.runtime.unknown().is_empty(),
+            "{:?}",
+            live.runtime.unknown()
+        );
+
+        // The party: the hero's followers, not another's, and its own horse.
+        let (hero, other) = (
+            Entity::from_raw_u32(1).unwrap(),
+            Entity::from_raw_u32(2).unwrap(),
+        );
+        let party = party_of(
+            hero,
+            [
+                (hero, "Res:18103"),
+                (other, "res:17437"),
+                (hero, "res:17459"),
+            ]
+            .into_iter(),
+            Some("RES:900"),
+        );
+        assert_eq!(
+            party,
+            HashSet::from(["res:18103", "res:17459", "res:900"].map(str::to_owned))
+        );
     }
 
     #[test]
