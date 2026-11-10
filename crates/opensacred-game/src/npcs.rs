@@ -2225,9 +2225,10 @@ impl State {
     }
 
     /// Whether it gives a creature made before what the game follows on one (#656, #658): its
-    /// death's functions, its heading, its group or a trader's stock.
+    /// flags word (#2426), its death's functions, its heading, its group or a trader's stock.
     fn restates(&self) -> bool {
-        !self.deaths.is_empty()
+        self.word != 0
+            || !self.deaths.is_empty()
             || self.hostile.is_some()
             || self.heading.is_some()
             || self.group.is_some()
@@ -2240,6 +2241,32 @@ impl State {
     fn talk_of(&self, talk: Option<String>) -> Option<String> {
         let talk = self.talk.clone().unwrap_or(talk);
         talk.filter(|_| !self.stocked)
+    }
+
+    /// The flags word it gives a creature of the word `old` that trades by `trades`, the word
+    /// its side is weighed by, and whether it takes the trades away: the mode `0x800` of a
+    /// trader takes its trades rather than standing in its word (`0x461540`).
+    fn flags_of(&self, old: u32, trades: u32) -> (u32, u32, bool) {
+        let mut stated = self.word;
+        let untrades = stated & 0x800 != 0 && trades != 0;
+        if untrades {
+            stated &= !0x800;
+        }
+        (ways::stated_word(old, stated), stated, untrades)
+    }
+
+    /// Gives the placement of a creature made before its flags word and its side by its
+    /// hostility, as [`Self::apply`] gives them to one made with it (#2426).
+    fn restate_flags(&self, placement: &mut Placement) {
+        let (creature, _, word) = &mut placement.creature;
+        let (flags, stated, untrades) = self.flags_of(*word, placement.trades);
+        *word = flags;
+        if untrades {
+            placement.trades = 0;
+        }
+        if let Some(hostile) = self.hostile {
+            placement.side = minds::stated_side(placement.side, *creature, stated, hostile);
+        }
     }
 
     /// Gives `placement` its death's functions, its heading, its group and, joining a stock, no
@@ -2283,12 +2310,11 @@ impl State {
     /// dialogue; the level, 1000 a boss; the trades, `0x64`'s dialogue last.
     fn apply(&self, placement: &mut Placement) {
         let (creature, _, word) = &mut placement.creature;
-        let mut stated = self.word;
-        if stated & 0x800 != 0 && placement.trades != 0 {
-            stated &= !0x800;
+        let (flags, stated, untrades) = self.flags_of(*word, placement.trades);
+        *word = flags;
+        if untrades {
             placement.trades = 0;
         }
-        *word = ways::stated_word(*word, stated);
         if self.home.is_some() {
             placement.home = self.home;
         }
@@ -8077,6 +8103,7 @@ impl Npcs {
             }
             for placement in &mut self.placements {
                 if placement.name.as_ref() == Some(&name) {
+                    state.restate_flags(placement);
                     state.restate_placement(placement);
                 }
             }
@@ -9691,9 +9718,10 @@ pub(crate) fn script_records(
         ResMut<ScriptAttacks>,
         ResMut<crate::creature_casts::PendingCasts>,
     ),
-    (dying, mut particles): (
+    (dying, mut particles, traders): (
         Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
         Particles,
+        Query<&Trades>,
     ),
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
@@ -9783,7 +9811,7 @@ pub(crate) fn script_records(
     let npcs = &mut *npcs;
     reicon(&npcs.dialogues, &mut npcs.icons, icons);
     for (name, state) in npcs.restate(&records) {
-        for (entity, _, on_death, mut transform, mut mind, _, _, talk, _) in creatures
+        for (entity, _, on_death, mut transform, mut mind, way, _, talk, _) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
         {
@@ -9823,9 +9851,21 @@ pub(crate) fn script_records(
                         trader: trader.clone(),
                     });
                 }
+                // Its flags word, as its placement's (`0x461540`, #2426): the arena's dark
+                // gladiator takes the bit 1 by which the hero's look wakes it to fight; a
+                // trader's mode `0x800` takes its trades.
+                let trades = traders.get(entity).map_or(0, |trades| trades.0);
+                let (flags, stated, untrades) = state.flags_of(mind.flags, trades);
+                mind.flags = flags;
+                if untrades {
+                    commands.entity(entity).remove::<Trades>();
+                }
+                if let Some(mut way) = way {
+                    way.stands.hostile = ways::stops_the_hero(mind.flags);
+                }
                 // Its side by the record's hostility, as its placement's (`0x461540`, #1841).
                 if let Some(hostile) = state.hostile {
-                    mind.side = minds::stated_side(mind.side, mind.creature, state.word, hostile);
+                    mind.side = minds::stated_side(mind.side, mind.creature, stated, hostile);
                 }
             }
             bevy::log::info!("npcs: the scripts set {name}'s state");
@@ -11974,6 +12014,35 @@ mod tests {
             minds::stated_side(3, 667, hostile.word, true),
             667
         ));
+    }
+
+    #[test]
+    fn a_set_npc_state_gives_a_creature_made_before_its_flags_word() {
+        let op = |tag, value| Operand { tag, value };
+        // The arena's dark gladiator (#2426): made hostile, then `0x08` and `0x12` as the hero
+        // steps into the arena, the flags' bit 1 by which the hero's look wakes it to fight.
+        let attack = State::of(
+            &[
+                op(0x01, Value::Str("res:17087".into())),
+                op(0x08, Value::Marker),
+                op(0x12, Value::Marker),
+            ],
+            &[],
+        );
+        let mut placement = Placement {
+            creature: (689, 2, 0x2000),
+            side: 2,
+            ..Placement::default()
+        };
+        attack.restate_flags(&mut placement);
+        assert_eq!(placement.creature.2, 0x2001);
+        assert_eq!(placement.side, 2);
+        // A record of its flags alone restates a creature too.
+        assert!(State::of(&[op(0x12, Value::Marker)], &[]).restates());
+        // A trader's `0x800` takes its trades, its word as it was, rather than standing in it.
+        let leave = State::of(&[op(0x43, Value::Marker)], &[]);
+        assert_eq!(leave.flags_of(0x1, 4), (0x1, 0x0, true));
+        assert_eq!(leave.flags_of(0x1, 0), (0x800, 0x800, false));
     }
 
     #[test]
