@@ -1110,7 +1110,6 @@ fn pursue(
                 commands.entity(entity).insert(walk);
             }
             Pursues::ComesOn { runs, within } => {
-                debug!("SCRATCH {entity} comes on runs {runs}");
                 // In melee without a straight line: a way to the hero, or the door in its way, or
                 // it gives up (`0x4E4931`, `0x4F5652`).
                 if !mind.ranged && !clear() {
