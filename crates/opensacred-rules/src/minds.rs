@@ -752,6 +752,10 @@ pub struct Mind {
     /// In melee: whether it walks to its place about the hero for this tick (the sub-state 5),
     /// and then at a run.
     placing: Option<bool>,
+    /// In melee: whether it stepped back from the hero, the sub-state 2 that a step back leaves
+    /// it in (`0x4E210A`): steered by the hero alone while it moves, and striking where it stands
+    /// once it stops.
+    stepped: bool,
     /// Whether it goes for a door in its way (the AI's state 1 with the door its target,
     /// `0x4D4800`).
     to_door: bool,
@@ -871,6 +875,7 @@ impl Mind {
             cast_ordered: false,
             banding: false,
             placing: None,
+            stepped: false,
             to_door: false,
             deciding: true,
             shot: false,
@@ -1360,6 +1365,7 @@ impl Mind {
         self.fighting = false;
         self.fled = false;
         self.placing = None;
+        self.stepped = false;
         self.shot = false;
         self.cast_ends();
     }
@@ -1734,7 +1740,9 @@ impl Mind {
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
     /// than 2,000 it gives up; wounded to a third, near the hero, it flees 700 from it at a run,
     /// once a fight (`flees`); farther than the band of its reach it comes on, at a run in 7
-    /// cases of 11, after the hero as it moves; nearer, it steps back; in the band at full
+    /// cases of 11, after the hero as it moves; nearer, it steps back as far again, steered by the
+    /// hero as it goes, striking at once in the band, and strikes where it stops, the hero still
+    /// nearer (the sub-state 2, [`Self::stepped`]); in the band at full
     /// health, farther than 2,500 from home, it goes home and leaves the fight; else it stands
     /// in the band, turned to the hero, where it strikes (#280), and decides again when the
     /// strike ends (`0x4E2147`): at once when the strike chains, else once it has waited
@@ -1792,17 +1800,30 @@ impl Mind {
                 return None;
             }
         }
-        let steps_back = || Pursues::StepsBack(here + (here - hero).unit() * ((lo + hi) / 2.0));
+        // Nearer than the band it steps back to its own place mirrored about the hero's, as far
+        // again (`0x4E20EE`–`0x4E20FF`: twice its place less the target's), and is left in the
+        // sub-state 2 (`0x4E210A`); from the hero's own point that is where it stands.
+        let steps_back = || Pursues::StepsBack(here + (here - hero));
+        let stepped = std::mem::take(&mut self.stepped);
         // Its place held for a tick, it is steered by the hero alone, as the sub-state 2 steers
         // a creature that moves (`0x4E23A4`).
         if let Some(runs) = self.placing.take() {
             return Some(if d > hi {
                 Pursues::ComesOn { runs, within }
             } else if d < lo {
+                self.stepped = true;
                 steps_back()
             } else {
                 Pursues::Strikes((!striking && self.rests <= 0.0).then(|| rng.below(5)))
             });
+        }
+        // Stopped after its step back, still in the sub-state 2 (`0x4E43C5`), it decides nothing
+        // anew: the hero not beyond its band, it strikes where it stands; a creature made at the
+        // hero's own point steps back to where it stands and strikes (#2513).
+        if stepped && walk.is_none() && d <= hi {
+            return Some(Pursues::Strikes(
+                (!striking && self.rests <= 0.0).then(|| rng.below(5)),
+            ));
         }
         let roll = rng.below(FLEES_ONE_IN);
         if let Some(health) = health
@@ -1840,12 +1861,27 @@ impl Mind {
                     within,
                 })
             }
-            Some(_) => None,
+            // Stepping back, it is steered by the hero alone (the sub-state 2 of a creature that
+            // moves, `0x4E23A4`): in the band it strikes at once, beyond it it comes on.
+            Some(walk) if stepped && d > hi => Some(Pursues::ComesOn {
+                runs: walk.runs,
+                within,
+            }),
+            Some(_) if stepped && d >= lo => Some(Pursues::Strikes(
+                (!striking && self.rests <= 0.0).then(|| rng.below(5)),
+            )),
+            Some(_) => {
+                self.stepped = stepped;
+                None
+            }
             None if d > hi => Some(Pursues::ComesOn {
                 runs: self.comes_on_runs(rng),
                 within,
             }),
-            None if d < lo => Some(steps_back()),
+            None if d < lo => {
+                self.stepped = true;
+                Some(steps_back())
+            }
             None => Some(Pursues::Strikes(
                 (!striking && self.rests <= 0.0).then(|| rng.below(5)),
             )),
@@ -2173,6 +2209,7 @@ impl Mind {
         self.deciding = true;
         self.backs = 0;
         self.placing = None;
+        self.stepped = false;
         Pursues::ToMelee(weapon)
     }
 
@@ -2186,6 +2223,7 @@ impl Mind {
         self.deciding = true;
         self.backs = 0;
         self.placing = None;
+        self.stepped = false;
         Pursues::TakesBow(bow(&mut |n| rng.below(n)))
     }
 
@@ -4802,6 +4840,77 @@ mod tests {
             listed: Some((index, first)),
             targeted: false,
         }
+    }
+
+    #[test]
+    fn a_creature_too_near_steps_back_as_far_again_and_strikes_where_it_stops() {
+        let mut rng = Rng::of(7, 0, 1);
+        let at = |x, y| Spot::new(x, y);
+        // The band of an armed goblin and a hero of the size 130: 115 to 145 about the reach of
+        // 130.
+        let mut near = goblin();
+        let sight = listed(at(40.0, 0.0), 0, at(40.0, 0.0));
+        assert_eq!(
+            near.pursue(&sight, || true, &mut rng),
+            Some(Pursues::StepsBack(at(80.0, 0.0)))
+        );
+        // Stepping back, it strikes as it reaches the band, and comes on beyond it.
+        let stepping = |x| Pursuit {
+            walk: Some(Walking {
+                target: at(80.0, 0.0),
+                comes_on: false,
+                runs: true,
+            }),
+            ..listed(at(x, 0.0), 0, at(x, 0.0))
+        };
+        assert_eq!(near.pursue(&stepping(60.0), || true, &mut rng), None);
+        assert!(matches!(
+            near.pursue(&stepping(120.0), || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
+        // Stopped short of the band, it strikes where it stands, the second of the hero's
+        // hostiles too, deciding no place anew (the sub-state 2).
+        let mut short = goblin();
+        assert!(matches!(
+            short.pursue(&sight, || true, &mut rng),
+            Some(Pursues::StepsBack(_))
+        ));
+        let stopped = listed(at(90.0, 30.0), 2, at(90.0, 90.0));
+        assert!(matches!(
+            goblin().pursue(&stopped, || true, &mut rng),
+            Some(Pursues::TakesPlace { .. })
+        ));
+        assert!(matches!(
+            short.pursue(&stopped, || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
+        // Then, at the strike's end, it decides anew.
+        assert!(matches!(
+            short.pursue(&stopped, || true, &mut rng),
+            Some(Pursues::TakesPlace { .. })
+        ));
+        // One made at the hero's own point steps back to where it stands, and strikes (#2513).
+        let mut risen = goblin();
+        let on_the_hero = listed(Spot::default(), 0, Spot::default());
+        assert_eq!(
+            risen.pursue(&on_the_hero, || true, &mut rng),
+            Some(Pursues::StepsBack(Spot::default()))
+        );
+        assert!(matches!(
+            risen.pursue(&on_the_hero, || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
+        // So does the second of the hero's hostiles there, whose place lies within its band.
+        let mut second = goblin();
+        let crowded = listed(Spot::default(), 1, at(50.0, 0.0));
+        assert_eq!(
+            second.pursue(&crowded, || true, &mut rng),
+            Some(Pursues::StepsBack(Spot::default()))
+        );
+        assert!(matches!(
+            second.pursue(&crowded, || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
     }
 
     #[test]
