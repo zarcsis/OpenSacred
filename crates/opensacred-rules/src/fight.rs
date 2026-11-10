@@ -3115,6 +3115,13 @@ pub fn attack_speed(id: u32) -> f32 {
     if id == 5 { 100.0 } else { 140.0 }
 }
 
+/// Whether an item of the category `category` (`items.pak +0x2E`) above its holder's level and
+/// armour lore lowers its pace (`0x579F7B`, its table `0x57D560`): the armour and the shields,
+/// not the Dwarf's cannons (33), which the switch leaves to its default (#2520).
+pub fn slows(category: u8) -> bool {
+    matches!(category, 6 | 13 | 17..=19 | 21..=25)
+}
+
 /// The pace of a creature of type `id` before its items and skills, the word `+0x40` that the
 /// recomputation of its stats starts from (`0x5796A0`, at `0x579A61`): 130 for every type but the
 /// 5th's (the Wood Elf's), 120. A horse's comes from a table by its saddle (`0x4462B0`), which
@@ -3656,7 +3663,7 @@ pub fn combat_with(
     let armour = holds
         .items
         .iter()
-        .filter(|item| matches!(item.class, 6 | 13 | 17..=19 | 21..=25))
+        .filter(|item| slows(item.class))
         .filter(|item| (1..1000).contains(&item.scale))
         .filter_map(|item| {
             let q = shortfall(item_level(item, rules), v, skill_level(11))?;
