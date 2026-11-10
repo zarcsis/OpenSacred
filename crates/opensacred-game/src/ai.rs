@@ -798,7 +798,7 @@ fn pursue(
         (
             Entity,
             &Transform,
-            Has<crate::attack::Striking>,
+            (Has<crate::attack::Striking>, Has<crate::making::Playing>),
             Option<&crate::attack::Attack>,
             Option<&crate::hero::Size>,
             Option<&crate::spells::Unseen>,
@@ -837,8 +837,17 @@ fn pursue(
     (clips, scripted): (Query<&crate::npcs::Npc>, Query<&crate::npcs::ScriptClip>),
 ) {
     let dt = tick.seconds.unwrap_or_default();
-    let Some((the_hero, hero, hero_strikes, attack, size, unseen, holding, hero_held, hero_health)) =
-        hero.iter().next()
+    let Some((
+        the_hero,
+        hero,
+        (hero_strikes, hero_makes),
+        attack,
+        size,
+        unseen,
+        holding,
+        hero_held,
+        hero_health,
+    )) = hero.iter().next()
     else {
         return;
     };
@@ -860,17 +869,17 @@ fn pursue(
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
     let seen = doors.seen(&heights);
-    // Where each creature stands, whether it strikes, the creature it fights and its size: the
+    // Where each creature stands, whether it casts, the creature it fights and its size: the
     // foes.
     let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32, bool)> =
         creatures
             .iter()
-            .map(|(entity, transform, _, mind, _, striking, ..)| {
+            .map(|(entity, transform, _, mind, .., (_, casting, _, _))| {
                 (
                     entity,
                     (
                         transform.translation,
-                        striking,
+                        casting,
                         mind.foe(),
                         mind.size(),
                         mind.fighting(),
@@ -971,10 +980,12 @@ fn pursue(
         {
             continue;
         }
-        let (target, aimed, target_strikes, listed, targeted, target_size) = match foe {
+        // Whether its target makes an art or a spell, which refuses its flight: the hero's art
+        // under way, a creature's cast (#2497).
+        let (target, aimed, target_makes, listed, targeted, target_size) = match foe {
             Some(foe) => match foes.get(&foe) {
-                Some(&(at, strikes, its_foe, size, _)) => {
-                    (at, foe, strikes, None, its_foe == Some(entity), size)
+                Some(&(at, casts, its_foe, size, _)) => {
+                    (at, foe, casts, None, its_foe == Some(entity), size)
                 }
                 _ => {
                     debug!("ai: {entity} leaves its fight with {foe}, dead or gone");
@@ -986,7 +997,7 @@ fn pursue(
             None => (
                 hero,
                 the_hero,
-                hero_strikes,
+                hero_makes,
                 nearest
                     .hostiles
                     .iter()
@@ -1016,7 +1027,7 @@ fn pursue(
             }),
             striking,
             health: health.map(|health| (health.current, health.most)),
-            hero_strikes: target_strikes,
+            target_makes,
             listed,
             targeted,
             hero_size: target_size,
@@ -1402,10 +1413,14 @@ fn pursue(
                         Walk::to(to, way.level, mind.speed)
                     });
             }
-            Pursues::Strolls(to) => {
-                commands.entity(entity).insert(
-                    Walk::run(point(to, here.y), way.level, mind.run).within(STROLL_WITHIN),
-                );
+            Pursues::Strolls(to, runs) => {
+                let to = point(to, here.y);
+                let walk = if runs {
+                    Walk::run(to, way.level, mind.run)
+                } else {
+                    Walk::to(to, way.level, mind.speed)
+                };
+                commands.entity(entity).insert(walk.within(STROLL_WITHIN));
             }
             Pursues::Blinks => {
                 // The first of its tries about it that a straight way reaches, each within ±500
