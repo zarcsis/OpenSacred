@@ -73,7 +73,7 @@ use crate::{arts, drops, making};
 /// version 8 a stable's horse's trader (#2300); the version 9 a fill's rider on its horse (#2288);
 /// the version 10 the hero's own horse's bridle (#2316); the version 11 the items' names that a
 /// carried hero's file keeps (#2390).
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 12;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -93,6 +93,9 @@ pub struct Header {
     pub clock: f64,
     /// The computer's time of the save, in seconds since 1970.
     pub saved: u64,
+    /// The game's script tree where it is not its class's in Ancaria (`NewGame::tree`): an
+    /// Underworld game's (`Class::underworld_tree`), which its load runs again (#2472).
+    pub tree: Option<String>,
 }
 
 /// The hero as a save keeps it.
@@ -400,6 +403,7 @@ fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)
         saved: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_secs()),
+        tree: request.tree.clone(),
     };
     Ok((header, hero))
 }
@@ -516,6 +520,7 @@ pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
         name: Some(header.hero.clone()),
         difficulty: Some(header.difficulty),
         sector: Some((sector(cell.0), sector(cell.1))),
+        tree: header.tree.clone(),
         ..NewGame::default()
     };
     let game = world
@@ -957,6 +962,7 @@ mod tests {
             level: 7,
             clock: 8.0 * 3600.0,
             saved,
+            tree: Some("addon-type_npc_zwerg".to_owned()),
         }
     }
 
@@ -1136,7 +1142,7 @@ mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (11, 0x289E_2851_5B68_B7F2),
+            (12, 0x72F0_98FC_47FB_91D4),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
