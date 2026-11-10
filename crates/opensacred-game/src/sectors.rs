@@ -19,6 +19,7 @@ use crate::game::AppState;
 use crate::hero::{Body, Hero};
 use crate::liquids::Liquids;
 use crate::parallel::{self, Spread};
+use crate::sheet_pool::SheetPool;
 use crate::tables::Tables;
 use crate::terrain::Heights;
 use crate::{blended, daynight, iso, liquids, statics, terrain};
@@ -64,17 +65,25 @@ pub struct Built {
 type Building = Result<Option<Built>>;
 
 impl Built {
-    /// Adds the sector's next textures to `images`, ahead of its entities ([`stage`]); answers
-    /// whether any was left to add, false once its textures are all in.
-    fn stage(&mut self, images: &mut Assets<Image>) -> bool {
-        stage(self.ground.staged().chain(self.statics.staged()), images)
+    /// Sends the sector's next tile sheets to the pool and adds its next textures to `images`,
+    /// ahead of its entities ([`stage`]); answers whether any was left, false once they are all in.
+    fn stage(&mut self, images: &mut Assets<Image>, pool: &mut SheetPool) -> bool {
+        let (bytes, taken) = self.ground.stage(pool, UPLOAD_PER_FRAME);
+        if bytes >= UPLOAD_PER_FRAME {
+            return true;
+        }
+        stage(self.statics.staged(), images, taken.then_some(bytes))
     }
 }
 
 /// Adds the next of `textures` not added yet to `images`, [`UPLOAD_PER_FRAME`] bytes of them and
-/// one more; answers whether any was left to add.
-fn stage<'a>(textures: impl Iterator<Item = &'a mut Staged>, images: &mut Assets<Image>) -> bool {
-    let mut added = None;
+/// one more, counting the bytes `added` this frame already, if any; answers whether any was left
+/// to add.
+fn stage<'a>(
+    textures: impl Iterator<Item = &'a mut Staged>,
+    images: &mut Assets<Image>,
+    mut added: Option<usize>,
+) -> bool {
     for texture in textures {
         if added.is_some_and(|added| added >= UPLOAD_PER_FRAME) {
             break;
@@ -322,11 +331,23 @@ fn forget(
     }
 }
 
-/// Despawns every sector of the game left, with what they adopted; the sectors being built go
-/// with the streamer (`game`).
-pub fn leave(mut commands: Commands, streamer: Option<Res<Streamer>>) {
+/// Despawns every sector of the game left, with what they adopted, and gives back the tile sheets
+/// that those built and not spawned took of the pool; the sectors being built go with the
+/// streamer (`game`).
+pub fn leave(
+    mut commands: Commands,
+    streamer: Option<Res<Streamer>>,
+    pool: Option<ResMut<SheetPool>>,
+) {
     for entity in streamer.iter().flat_map(|s| s.loaded.values().flatten()) {
         commands.entity(*entity).try_despawn();
+    }
+    if let (Some(streamer), Some(mut pool)) = (streamer, pool) {
+        for (_, built) in &streamer.ready {
+            for &sheet in built.ground.taken() {
+                pool.release(sheet);
+            }
+        }
     }
 }
 
@@ -443,7 +464,7 @@ pub fn stream(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
-    mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
+    (mut grounds, mut pool): (ResMut<Assets<terrain::GroundMaterial>>, ResMut<SheetPool>),
     (light_types, fall_types): (
         Res<daynight::LightTypes>,
         Option<Res<crate::waterfalls::Types>>,
@@ -518,14 +539,18 @@ pub fn stream(
         streamer.ready = later;
     }
     if let Some((_, built)) = streamer.ready.first_mut()
-        && !built.stage(&mut images)
+        && !built.stage(&mut images, &mut pool)
     {
         spawning.push(streamer.ready.remove(0));
     }
     for (at, mut built) in spawning {
         info!(
-            "sector {},{}: {} static objects, {} with a sprite",
-            at.0, at.1, built.statics.objects, built.statics.drawn
+            "sector {},{}: {} static objects, {} with a sprite; the pool holds {} tile sheets",
+            at.0,
+            at.1,
+            built.statics.objects,
+            built.statics.drawn,
+            pool.held()
         );
         heights.add(&built.sector);
         let lights = daynight::sources(&built.sector, &light_types);
@@ -536,10 +561,15 @@ pub fn stream(
         let mut entities = terrain::spawn(
             &mut commands,
             built.ground,
+            &mut pool,
             &mut images,
             &mut meshes,
             &mut grounds,
-        );
+        )
+        .unwrap_or_else(|e| {
+            error!("sector {},{}: its ground: {e:#}", at.0, at.1);
+            Vec::new()
+        });
         entities.extend(liquids::spawn(
             &mut commands,
             built.liquids,
@@ -820,12 +850,12 @@ mod tests {
                 .count()
         };
         // The first frame adds 10 MiB, the one that passes the 8 crossing it.
-        assert!(stage(textures.iter_mut(), &mut images));
+        assert!(stage(textures.iter_mut(), &mut images, None));
         assert_eq!(added(&textures), 2);
-        assert!(stage(textures.iter_mut(), &mut images));
+        assert!(stage(textures.iter_mut(), &mut images, None));
         assert_eq!(added(&textures), 4);
         // All in: the sector comes in.
-        assert!(!stage(textures.iter_mut(), &mut images));
+        assert!(!stage(textures.iter_mut(), &mut images, None));
         assert_eq!(images.len(), 4);
         // Its entities take the handles that went ahead.
         let first = textures.swap_remove(0);

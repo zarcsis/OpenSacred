@@ -339,16 +339,21 @@ fn spawn_scene(
     mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
     fade: Res<statics::Fade>,
-    mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
+    (mut grounds, mut pool): (
+        ResMut<Assets<terrain::GroundMaterial>>,
+        ResMut<crate::sheet_pool::SheetPool>,
+    ),
 ) {
     if let Some(ground) = scene.ground.take() {
         terrain::spawn(
             &mut commands,
             ground,
+            &mut pool,
             &mut images,
             &mut meshes,
             &mut grounds,
-        );
+        )
+        .unwrap();
     }
     if let Some(surfaces) = scene.liquids.take() {
         liquids::spawn(
