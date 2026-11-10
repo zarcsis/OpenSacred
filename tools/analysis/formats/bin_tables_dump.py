@@ -20,7 +20,9 @@ follow the client's loader (0x42F8CE: fread of 0xD4 bytes, a u32 count, count x 
   wpmod.bin       u32 n, n x {u32 words[53]; u32 k; k x u32[6]}
   wea.bin         {u32 k; u32 ids[k]} lists to the end of the file (256)
   Rust.bin        u32 n, n x {u32 k; k x (u32, u32)}
-  treppe.bin      u32[4] rows to the end
+  treppe.bin      {u32 key; u32 value} pairs to the end: cells packed as floor << 26 | y << 13 | x, a cell and the
+                  cell on its floor that a click on it sends the hero to (0x46F9B0, the map at +0x7518 of the
+                  script manager); keys strictly ascending, 2,494 pairs (#2508)
   static10_18.bin "map\\0", u32 n, zeros to 0x100, n x u32[4]: two (old, new) pairs, the second
                   0xCCCCCCCC twice when unset (8 rows)
   merc.bin        {u32 0; u32 x; u32 y; u32 kind} rows to the end (both files)
@@ -203,6 +205,20 @@ def rows4(d, check, name, first_zero, last_zero):
     return [line(r[1:3] if last_zero else (r[1:] if first_zero else r)) for r in rows]
 
 
+def treppe(d, check):
+    check('treppe.bin: pairs of 8 bytes fill the file', len(d) % 8 == 0, len(d))
+    pairs = [struct.unpack_from('<2I', d, 8 * i) for i in range(len(d) // 8)]
+    keys = [k for k, _ in pairs]
+    check('treppe.bin: the keys rise strictly', all(a < b for a, b in zip(keys, keys[1:])))
+    check('treppe.bin: a key and its value on one floor', all(k >> 26 == v >> 26 for k, v in pairs))
+    check('treppe.bin: 2,494 pairs', len(pairs) == 2494, len(pairs))
+
+    def cell(w):
+        return (w & 0x1FFF, w >> 13 & 0x1FFF, w >> 26)
+
+    return [line(cell(k) + cell(v)[:2]) for k, v in pairs]
+
+
 def static10_18(d, check):
     n = struct.unpack_from('<I', d, 4)[0]
     check('static10_18.bin: "map", n, zeros to 0x100, n rows of 16 bytes',
@@ -218,7 +234,7 @@ FILES = [
     ('bin/wpmod.bin', wpmod),
     ('bin/wea.bin', wea),
     ('bin/Rust.bin', rust),
-    ('bin/treppe.bin', lambda d, c: rows4(d, c, 'treppe.bin', False, False)),
+    ('bin/treppe.bin', treppe),
     ('bin/static10_18.bin', static10_18),
     ('bin/merc.bin', lambda d, c: rows4(d, c, 'merc.bin', True, False)),
     ('bin/Addon/merc.bin', lambda d, c: rows4(d, c, 'Addon/merc.bin', True, False)),

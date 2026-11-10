@@ -116,7 +116,6 @@ Read 2026-10-26 (#1046): a position's name that begins with `CPOS:` the reader r
 `CPOS:RES:<key>` takes the cell and floor of the creature that the scripts' map of names holds for that key (`0x464BD0`), and another `CPOS:` name an object's; a creature gone leaves the position as it was.
 In the Seraphim's tree 774 records of `CreateNPC` and `CreateObj` are placed so, 654 in the quests' functions.
 `opensacred-game` puts such a record on that creature's cell and floor as it runs, the hero's for `CPOS:hero` (`npcs::locate`); the free point about the hero is not followed.
-The free point is sought only where another object stands first in the hero's cell (`0x634AF0`'s `+8` not the hero) or no straight way leads to it (`0x4FCC80`): twelve points 60 from the hero, every 30 degrees from 0 (`0x45FF80`, the floats `0x890DC4` and `0x890DC8`, read 2026-11-10 for #2513, **confirmed** by code), so that the hero's own point is taken where the hero stands first in its cell, and a grave's undead stands on the hero (docs/re/fight.md, "Melee: the AI's state 4": its step back from there goes nowhere and it strikes).
 
 **`DefPos` as a record's cell.**
 Read 2026-11-10 (#2442, a subagent's reading of `0x472BC0`, **confirmed** by code): any other name in a cell's field (`0x04`, `0x0C`, `0x0D`) is looked up in the `DefPos` list (`+0x334`, entries of 100 bytes, the name at `+4`, the four numbers at `+0x44` to `+0x50`, `0x474483`).

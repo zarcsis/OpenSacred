@@ -320,7 +320,70 @@ pub fn armour_switches(data: &[u8]) -> Result<Vec<Vec<[u32; 2]>>> {
     Ok(switches)
 }
 
-/// Rows of four u32 to the end of the file (`treppe.bin`, `merc.bin`, `MultiStart.bin`).
+/// A cell packed in a word as the client keys its map of `treppe.bin` (`0x612B30`, `0x46F9B0`):
+/// x in the bits 0 to 12, y in the bits 13 to 25, and the floor above them, 0 the ground and `n`
+/// a building's floor `n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Packed {
+    pub x: u16,
+    pub y: u16,
+    pub floor: u8,
+}
+
+impl Packed {
+    /// The cell that `word` packs.
+    pub fn of(word: u32) -> Self {
+        let bits = |shift: u32, width: u32| (word >> shift) & ((1 << width) - 1);
+        Self {
+            x: u16::try_from(bits(0, 13)).unwrap_or(u16::MAX),
+            y: u16::try_from(bits(13, 13)).unwrap_or(u16::MAX),
+            floor: u8::try_from(word >> 26).unwrap_or(u8::MAX),
+        }
+    }
+}
+
+/// `treppe.bin` (docs/02 §6.3): pairs of packed cells ([`Packed`]) to the end of the file, a cell
+/// and the cell on its floor that a click on it sends the hero to, which the client reads into
+/// the script manager's map (`0x46F9B0`, `0x4C4680` at `+0x7518`), in the order of their keys, as
+/// its compiler writes them, each key once.
+pub fn stairs(data: &[u8]) -> Result<Vec<(Packed, Packed)>> {
+    let mut r = Reader::new(data);
+    if !data.len().is_multiple_of(8) {
+        return Err(r.error(field(
+            "file size",
+            u64::try_from(data.len()).unwrap_or(u64::MAX),
+            "pairs of 8 bytes".into(),
+        )));
+    }
+    let mut pairs: Vec<(Packed, Packed)> = Vec::with_capacity(data.len() / 8);
+    let mut last: Option<u32> = None;
+    for _ in 0..data.len() / 8 {
+        let at = r.offset();
+        let [key, value] = words(&mut r)?;
+        if last.is_some_and(|last| key <= last) {
+            return Err(r.error_at(
+                at,
+                field("key", u64::from(key), "above the key before".into()),
+            ));
+        }
+        last = Some(key);
+        let (cell, to) = (Packed::of(key), Packed::of(value));
+        if cell.floor != to.floor {
+            return Err(r.error_at(
+                at,
+                field(
+                    "target's floor",
+                    u64::from(to.floor),
+                    format!("the cell's floor {}", cell.floor),
+                ),
+            ));
+        }
+        pairs.push((cell, to));
+    }
+    Ok(pairs)
+}
+
+/// Rows of four u32 to the end of the file (`merc.bin`, `MultiStart.bin`).
 pub fn rows(data: &[u8]) -> Result<Vec<[u32; 4]>> {
     let mut r = Reader::new(data);
     if !data.len().is_multiple_of(16) {
@@ -461,6 +524,37 @@ mod tests {
         );
         data.push(0);
         assert!(static_remap(&data).is_err());
+    }
+
+    #[test]
+    fn treppe_pairs_a_cell_with_the_one_a_click_sends_the_hero_to() {
+        // The Dark Elf's cave mouth: 3432,2697 sends to 3431,2697, which sends to itself (#2508).
+        let pack = |x: u32, y: u32, floor: u32| floor << 26 | y << 13 | x;
+        assert_eq!(
+            Packed::of(0x1512D67),
+            Packed {
+                x: 3431,
+                y: 2697,
+                floor: 0
+            }
+        );
+        let data = le(&[
+            pack(3431, 2697, 0),
+            pack(3431, 2697, 0),
+            pack(3432, 2697, 0),
+            pack(3431, 2697, 0),
+            pack(3334, 2531, 1),
+            pack(3334, 2530, 1),
+        ]);
+        let pairs = stairs(&data).unwrap();
+        assert_eq!(pairs.len(), 3);
+        assert_eq!(pairs[1].0.x, 3432);
+        assert_eq!(pairs[1].1.x, 3431);
+        assert_eq!(pairs[2].1.floor, 1);
+        // Out of order, of two floors, or cut short: errors.
+        assert!(stairs(&le(&[pack(2, 1, 0), 0, pack(1, 1, 0), 0])).is_err());
+        assert!(stairs(&le(&[pack(1, 1, 1), pack(1, 1, 2)])).is_err());
+        assert!(stairs(&data[..12]).is_err());
     }
 
     #[test]

@@ -82,7 +82,13 @@ fn lines(path: &str, data: &[u8]) -> Vec<String> {
             .map(|pairs| line(pairs.into_iter().flatten()))
             .collect(),
         "bin/static10_18.bin" => static_remap(data).unwrap().into_iter().map(line).collect(),
-        "bin/treppe.bin" => rows(data).unwrap().into_iter().map(line).collect(),
+        "bin/treppe.bin" => stairs(data)
+            .unwrap()
+            .into_iter()
+            .map(|(cell, to)| {
+                line([cell.x, cell.y, u16::from(cell.floor), to.x, to.y].map(u32::from))
+            })
+            .collect(),
         "bin/merc.bin" | "bin/Addon/merc.bin" => rows(data)
             .unwrap()
             .into_iter()
