@@ -37,6 +37,16 @@ pub fn vanishes_after(detail: u8) -> f32 {
     }
 }
 
+/// The medium spider, whose body vanishes at its first tick of lying, with no effect, held or not
+/// (`0x540037`–`0x540485`, #2504): it would split into small spiders 71 only on the machine of the
+/// player who controls it (`+0x2B5`), which no creature of a game of one player names (**seen**:
+/// 0 for the world's creatures, the local player's 1).
+pub const MEDIUM_SPIDER: u32 = 75;
+
+/// How long after its death a body's first tick of lying comes, in seconds: the dying action's
+/// sub-mode 1 turns into 2 at the next tick of the world (`0x53FB11`; **seen** 0.23 s for a crow).
+pub const FIRST_LYING_TICK: f32 = 0.25;
+
 /// The flags word's bit of a creature whose body lies on (`+0x1F4` bit `0x2000`, the tag `0x45`
 /// of `CreateNPC` and `SetNPCState`), which neither vanishes nor is destroyed (`0x53ECA0`'s
 /// lying step, #2501).
