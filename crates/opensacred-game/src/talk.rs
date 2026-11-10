@@ -1269,7 +1269,7 @@ fn fade(mut commands: Commands, time: Res<Time>, mut notices: Query<(Entity, &mu
 
 /// Begins the hero's own talk of each dialogue the scripts' `Popup`s give it (`0x4A7760`,
 /// `0x54CBB0`; #1033), one at a time, once no window shows: its window without a name.
-fn popups(
+pub(crate) fn popups(
     mut commands: Commands,
     mut popups: ResMut<scripts::Popups>,
     shown: Option<Res<Shown>>,
@@ -1481,7 +1481,14 @@ impl Plugin for TalkPlugin {
             )
             .add_systems(
                 Update,
-                (dismiss, notices, fade, popups, close_first.after(popups)).in_set(Playing),
+                (
+                    dismiss,
+                    notices.after(popups),
+                    fade,
+                    popups,
+                    close_first.after(popups),
+                )
+                    .in_set(Playing),
             )
             .add_systems(Update, lines.after(Step::Npcs).in_set(Playing));
     }
