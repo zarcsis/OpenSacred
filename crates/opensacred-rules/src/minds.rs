@@ -1343,6 +1343,12 @@ impl Mind {
         self.leaves_fight();
     }
 
+    /// It rises from its death (`0x53E460`, #2459): its action and its state back to 0, out of
+    /// its fight.
+    pub fn rises(&mut self) {
+        self.leaves_fight();
+    }
+
     /// It leaves its fight with the hero.
     fn leaves_fight(&mut self) {
         self.fighting = false;
