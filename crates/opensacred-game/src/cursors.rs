@@ -5,13 +5,14 @@
 //! `MOUSE_ATTACKA`, `MOUSE_GUN`); over another creature a trader's sign by its trades, else the
 //! speech bubble where it has a dialogue (`MOUSE_TRADER`, `MOUSE_COMBO`, `MOUSE_BLACKSMITH`,
 //! `MOUSE_HORSETRADER`, `MOUSE_DIALOG04`); the hand over an item, lying on the ground or still in
-//! flight (#1647), and over a door (`mouse_action`), and over the stairs where a click sends the hero (`0x616AD0`); else,
-//! over the interface and outside a game, the arrow (`MOUSE_MAIN`). `hud` puts the picture on the
-//! window. Beside the hand over an item, the item's name.
+//! flight (#1647), and over a door (`mouse_action`), and over the teleports, the stairs and the
+//! cells before them that `bin/treppe.bin` sends a click on to them (`0x616AD0`, `0xAB4498`,
+//! #2508); else, over the interface and outside a game, the arrow (`MOUSE_MAIN`). `hud` puts the
+//! picture on the window. Beside the hand over an item, the item's name.
 //!
-//! Not followed yet: the hand over the teleports and the scripts' spots, the glow of a right-button
-//! art that may be made, the enemy's panel, the hover's highlight, the horses' looks and the map's
-//! arrows; the name's red for some objects (`+0x14` bit `0x20`, not read).
+//! Not followed yet: the hand over the scripts' spots, the glow of a right-button art that may be
+//! made, the enemy's panel, the hover's highlight, the horses' looks and the map's arrows; the
+//! name's red for some objects (`+0x14` bit `0x20`, not read).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
@@ -277,7 +278,11 @@ fn choose(
         Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
         Query<(&GlobalTransform, &crate::stashes::Stash)>,
     ),
-    (heights, buildings): (Option<Res<Heights>>, Option<Res<Buildings>>),
+    (heights, buildings, data): (
+        Option<Res<Heights>>,
+        Option<Res<Buildings>>,
+        Option<Res<crate::game::Data>>,
+    ),
     heroes: Query<(
         Option<&Holding>,
         &Transform,
@@ -406,7 +411,11 @@ fn choose(
                 let height = transform.translation.y;
                 let picked = pick::pick(ray, heights, buildings, (height, body.level()))?;
                 let cell = paths::cell_of(picked.point.x, picked.point.z);
-                heights.on_stairs(cell, picked.level).then_some(Look::Hand)
+                let floor = heights.floor_number(picked.level);
+                let sends = data
+                    .as_deref()
+                    .is_some_and(|data| data.0.tables.stair_to(cell, floor).is_some());
+                (sends || heights.beckons(cell, picked.level)).then_some(Look::Hand)
             })
             .unwrap_or_default()
         }

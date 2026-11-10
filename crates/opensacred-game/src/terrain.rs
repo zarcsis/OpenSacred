@@ -708,6 +708,22 @@ impl Heights {
         self.stair(cell, level).is_some()
     }
 
+    /// Whether the cursor shows the hand over a cell of a level (`0x616AD0`'s cell, docs/re/cursor.md,
+    /// #2508): on the ground a cell of the low nibble 3, a teleport, or 5 to 8, the stairs; on a
+    /// building's floor its stairs.
+    pub fn beckons(&self, (cx, cy): (i32, i32), level: Level) -> bool {
+        if level.is_some() {
+            return self.on_stairs((cx, cy), level);
+        }
+        match (u32::try_from(cx), u32::try_from(cy)) {
+            (Ok(x), Ok(y)) => self
+                .cells
+                .get(&(x, y))
+                .is_some_and(|cell| matches!(cell.ground & 0xF, 3 | 5..=8)),
+            _ => false,
+        }
+    }
+
     /// Where a stair at a cell of a building's floor takes a creature (`0x5FCCB0`): its floors up
     /// or down, onto the ground at the same cell below floor 1, else onto that floor of the
     /// building at the cell that the stair's offsets give; `None` where the building has no
