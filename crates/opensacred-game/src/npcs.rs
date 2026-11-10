@@ -8986,15 +8986,28 @@ fn region_changes(
 /// Carries out the scripts' `SetHP`s (`0x48E280`, #1001): the creatures of the name, the hero for
 /// none, take the share of their most health, truncated; a creature of none dies, as by no
 /// player's hand (it drops nothing).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 pub(crate) fn script_healths(
     mut commands: Commands,
     healths: Option<ResMut<crate::scripts::Healths>>,
-    mut creatures: Query<(Entity, &ScriptName, &mut fight::Health), Without<Dies>>,
+    mut creatures: Query<(
+        Entity,
+        &ScriptName,
+        &mut fight::Health,
+        Option<&Stashed>,
+        Has<Dies>,
+    )>,
     mut heroes: Query<&mut fight::Health, (With<hero::Body>, Without<ScriptName>)>,
 ) {
     let Some(mut healths) = healths else {
         return;
     };
+    // Those lifted by an earlier `SetHP` of the same run, which a later one finds standing: the
+    // Underworld's `the_end_of_uw` lifts Vilya at 1 % and lays her down again at 0.
+    let mut lifted = HashSet::new();
     for set in std::mem::take(&mut healths.0) {
         let Some(name) = &set.name else {
             for mut health in &mut heroes {
@@ -9003,8 +9016,30 @@ pub(crate) fn script_healths(
             bevy::log::info!("npcs: the scripts set the hero's health to {} %", set.share);
             continue;
         };
-        for (entity, named, mut health) in &mut creatures {
+        for (entity, named, mut health, stashed, dead) in &mut creatures {
             if &named.0 != name {
+                continue;
+            }
+            let dead = dead && !lifted.contains(&entity);
+            // A dead one taken above 0 rises where it lies, from any function (`0x48E280`,
+            // its stop `0x54E6D0`, which a health below 2 skips; #2477): the Underworld's
+            // `refresh_a` brings Anducar back.
+            if dead {
+                if set.share == 0 {
+                    continue;
+                }
+                health.current = health.most * set.share / 100;
+                if let Some(stashed) = stashed
+                    && health.current >= 2
+                {
+                    lift(&mut commands, entity, stashed);
+                    lifted.insert(entity);
+                    bevy::log::info!(
+                        "npcs: the scripts raise {name} at {}/{}",
+                        health.current,
+                        health.most
+                    );
+                }
                 continue;
             }
             health.current = health.most * set.share / 100;
@@ -9015,9 +9050,22 @@ pub(crate) fn script_healths(
             );
             if health.current == 0 {
                 commands.entity(entity).insert(Dies::unkilled());
+                lifted.remove(&entity);
             }
         }
     }
+}
+
+/// Lifts the dead creature `entity` out of its death (`0x59E151`'s `PlayAnim` over the dying
+/// action, `0x48E280`'s stop `0x54E6D0`; #2477): its mind, out of its fight, and its place in the
+/// way back from what it kept aside as it died ([`Stashed`]), its dying and its body's mark gone.
+pub(crate) fn lift(commands: &mut Commands, entity: Entity, stashed: &Stashed) {
+    let mut mind = stashed.mind.clone();
+    mind.rises();
+    commands
+        .entity(entity)
+        .remove::<(Dies, Corpse, Stashed)>()
+        .insert((mind, stashed.way));
 }
 
 /// The steps that the play's records give a creature under the scripts' anim mode (#1220;
@@ -9278,8 +9326,9 @@ fn take_steps(
                     Has<crate::creature_casts::Casting>,
                 ),
             ),
+            (Option<&Stashed>, Has<Dies>),
         ),
-        (Without<Dies>, Without<hero::Body>),
+        Without<hero::Body>,
     >,
 ) {
     if tick.seconds.is_none() {
@@ -9294,6 +9343,7 @@ fn take_steps(
         layered,
         mut walk,
         (clip, plays, phasing, (ordered, casting)),
+        (stashed, dead),
     ) in &mut creatures
     {
         let walking = walk.is_some();
@@ -9301,6 +9351,8 @@ fn take_steps(
         let level = way.as_ref().and_then(|way| way.level);
         let done = match queue.0.front_mut() {
             None => true,
+            // A dead one walks, casts and phases nowhere; the rest of its queue runs on (#2477).
+            Some(Queued::Walk { .. } | Queued::Cast { .. } | Queued::Phase { .. }) if dead => true,
             Some(Queued::Walk {
                 to,
                 onto,
@@ -9354,6 +9406,15 @@ fn take_steps(
             }
             // A one-off clip ordered or playing, the scripts' or an instrument's, makes it wait
             // (`0x59E151`); a walk does not, its walk overwritten.
+            // On a dead one it lifts it out of its death and plays from standing (#2477); one
+            // that kept nothing aside to stand again takes no clip.
+            Some(&mut Queued::Clip { slot }) if dead => {
+                if let Some(stashed) = stashed {
+                    lift(&mut commands, entity, stashed);
+                    commands.entity(entity).insert(ScriptClip::new(slot, 1));
+                }
+                true
+            }
             Some(&mut Queued::Clip { slot }) => {
                 if clip || plays {
                     false
@@ -10154,6 +10215,18 @@ pub(crate) fn script_records(
     if records.is_empty() {
         return;
     }
+    // The dead that the scripts name, whose queues take the steps of the anim mode as the
+    // living's do (`0x59A840`, #2477): Anducar's of `QIS_OnEnter56`, whose `PlayAnim` lifts him.
+    let dead: Vec<(Entity, String)> = dying
+        .iter()
+        .map(|(entity, named, ..)| (entity, named.0.clone()))
+        .collect();
+    let dead_of = |name: &str| {
+        dead.iter()
+            .filter(move |(_, named)| named == name)
+            .map(|&(entity, _)| entity)
+            .collect::<Vec<_>>()
+    };
     // The `CreateObj`s that wait their turns in the queues of the creatures they name, under the
     // anim mode, which the moves below queue (#1826): the others made at once.
     let present: HashSet<&str> = creatures
@@ -10378,10 +10451,15 @@ pub(crate) fn script_records(
                 continue;
             }
             Act::Clip { slot, loops } => {
-                for (entity, ..) in creatures
+                let mut bearers: Vec<Entity> = creatures
                     .iter()
                     .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
-                {
+                    .map(|(entity, ..)| entity)
+                    .collect();
+                if moved.queued {
+                    bearers.extend(dead_of(&moved.name));
+                }
+                for entity in bearers {
                     if moved.queued {
                         let step = Queued::Clip { slot };
                         match queues.get_mut(entity) {
@@ -10421,6 +10499,7 @@ pub(crate) fn script_records(
                         .iter()
                         .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
                         .map(|(entity, ..)| entity)
+                        .chain(dead_of(&moved.name))
                         .collect()
                 };
                 if takers.is_empty() {
@@ -10448,6 +10527,7 @@ pub(crate) fn script_records(
                             .iter()
                             .find(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
                             .map(|(entity, ..)| entity)
+                            .or_else(|| dead_of(name).first().copied())
                     }
                 };
                 let Some(taker) = find(&moved.name) else {
@@ -10476,6 +10556,7 @@ pub(crate) fn script_records(
                         .iter()
                         .find(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
                         .map(|(entity, ..)| entity)
+                        .or_else(|| dead_of(&moved.name).first().copied())
                 };
                 let Some(actor) = actor else {
                     continue;
@@ -10624,10 +10705,13 @@ pub(crate) fn script_records(
                 continue;
             }
             Act::Morph(creature) => {
-                for (entity, ..) in creatures
+                let bearers: Vec<Entity> = creatures
                     .iter()
                     .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
-                {
+                    .map(|(entity, ..)| entity)
+                    .chain(dead_of(&moved.name))
+                    .collect();
+                for entity in bearers {
                     let step = Queued::Morph {
                         name: moved.name.clone(),
                         creature,
@@ -10642,9 +10726,11 @@ pub(crate) fn script_records(
             // Made at the turn of the first creature of the name; where none bears it, it was
             // made at once.
             Act::Make(record) => {
-                if let Some((entity, ..)) = creatures
+                if let Some(entity) = creatures
                     .iter()
                     .find(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                    .map(|(entity, ..)| entity)
+                    .or_else(|| dead_of(&moved.name).first().copied())
                 {
                     let step = Queued::Make(record);
                     match queues.get_mut(entity) {
@@ -10656,10 +10742,13 @@ pub(crate) fn script_records(
                 continue;
             }
             act @ (Act::Other(_) | Act::Call(_) | Act::Wait(..)) => {
-                for (entity, ..) in creatures
+                let bearers: Vec<Entity> = creatures
                     .iter()
                     .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
-                {
+                    .map(|(entity, ..)| entity)
+                    .chain(dead_of(&moved.name))
+                    .collect();
+                for entity in bearers {
                     let step = match &act {
                         Act::Call(function) => Queued::Call(function.clone()),
                         Act::Other(kind) => Queued::Other(*kind),
@@ -11003,12 +11092,12 @@ pub(crate) fn die(
         &Npc,
         &mut Dies,
         (Option<&ai::Mind>, Option<&crowd::InTheWay>),
-        Has<RisesAgain>,
+        (Has<RisesAgain>, Has<ScriptName>),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
-    for (entity, npc, mut dies, (mind, way), rises) in &mut dying {
+    for (entity, npc, mut dies, (mind, way), (rises, named)) in &mut dying {
         if dies.played {
             continue;
         }
@@ -11021,7 +11110,9 @@ pub(crate) fn die(
                 level: way.level,
                 hostile: mind.hostile(),
             });
-            if rises {
+            // One that may rise or that the scripts name, whose `SetHP` or queue may lift it
+            // (#2459, #2477).
+            if rises || named {
                 commands.entity(entity).insert(Stashed {
                     mind: mind.clone(),
                     way: *way,
@@ -14041,6 +14132,142 @@ mod tests {
         app.update();
         assert!(fights(&app));
         assert!(app.world().get::<ScriptQueue>(guard).is_none());
+    }
+
+    /// Anducar dead, his queue of `QIS_OnEnter56` (#2477): the dead one's walk goes nowhere, its
+    /// `PlayAnim` lifts it out of its death and plays, and its queue runs on.
+    #[test]
+    fn a_dead_creatures_queued_clip_lifts_it_and_its_queue_runs_on() {
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(Heights::house())
+            .add_message::<sfx::Play>()
+            .add_systems(Update, take_steps);
+        let mind = ai::Mind::new(
+            Vec3::ZERO,
+            0x1,
+            (false, false),
+            None,
+            [70.0, 140.0],
+            (76, 2),
+        );
+        let stashed = Stashed {
+            mind,
+            way: crowd::InTheWay::of(0, 0, None),
+            lain: 0.0,
+        };
+        let walk = Queued::Walk {
+            to: Vec3::new(2000.0, 0.0, 0.0),
+            onto: None,
+            orders: 0,
+            noted: Vec3::ZERO,
+        };
+        let steps = [walk, Queued::Clip { slot: 144 }, Queued::Sound(7)];
+        let anducar = app
+            .world_mut()
+            .spawn((
+                Transform::default(),
+                ScriptQueue(steps.into()),
+                Dies::new(0),
+                stashed,
+            ))
+            .id();
+        // Its walk is dropped where it lies.
+        app.update();
+        assert!(app.world().get::<Walk>(anducar).is_none());
+        assert!(app.world().get::<Dies>(anducar).is_some());
+        // Its clip lifts it.
+        app.update();
+        assert!(app.world().get::<Dies>(anducar).is_none());
+        assert!(app.world().get::<Stashed>(anducar).is_none());
+        assert!(app.world().get::<ai::Mind>(anducar).is_some());
+        assert!(app.world().get::<crowd::InTheWay>(anducar).is_some());
+        assert!(app.world().get::<ScriptClip>(anducar).is_some());
+        // The rest runs on as a living one's does.
+        app.update();
+        assert!(app.world().get::<ScriptQueue>(anducar).is_none());
+        // One that kept nothing to stand with stays dead, its queue running on.
+        let body = app
+            .world_mut()
+            .spawn((
+                Transform::default(),
+                ScriptQueue([Queued::Clip { slot: 144 }, Queued::Sound(7)].into()),
+                Dies::new(0),
+            ))
+            .id();
+        app.update();
+        assert!(app.world().get::<Dies>(body).is_some());
+        assert!(app.world().get::<ScriptClip>(body).is_none());
+        app.update();
+        assert!(app.world().get::<ScriptQueue>(body).is_none());
+    }
+
+    /// `refresh_a`'s `SetHP` 100 on Anducar dead (#2477): a share above 0 lifts a dead creature
+    /// of the name at that health, one below 2 leaves it dead, and 0 leaves it as it is; one lifted
+    /// dies again at a later 0 of the same run.
+    #[test]
+    fn a_set_hp_above_0_raises_a_dead_creature_of_its_name() {
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .init_resource::<crate::scripts::Healths>()
+            .add_systems(Update, script_healths);
+        let mind = ai::Mind::new(
+            Vec3::ZERO,
+            0x1,
+            (false, false),
+            None,
+            [70.0, 140.0],
+            (76, 2),
+        );
+        let dead = |app: &mut App, name: &str, most: u32| {
+            app.world_mut()
+                .spawn((
+                    ScriptName(name.into()),
+                    fight::Health {
+                        current: 0,
+                        most,
+                        level: 40,
+                    },
+                    Dies::new(0),
+                    Stashed {
+                        mind: mind.clone(),
+                        way: crowd::InTheWay::of(0, 0, None),
+                        lain: 0.0,
+                    },
+                ))
+                .id()
+        };
+        let anducar = dead(&mut app, "res:17810", 900);
+        let faint = dead(&mut app, "faint", 100);
+        let kept = dead(&mut app, "kept", 100);
+        let set = |name: &str, share| crate::scripts::SetHealth {
+            name: Some(name.into()),
+            share,
+        };
+        let vilya = dead(&mut app, "res:17790", 3524);
+        app.world_mut().resource_mut::<crate::scripts::Healths>().0 = vec![
+            set("res:17810", 100),
+            set("faint", 1),
+            set("kept", 0),
+            set("res:17790", 1),
+            set("res:17790", 0),
+        ];
+        app.update();
+        let health = |app: &App, entity| app.world().get::<fight::Health>(entity).unwrap().current;
+        assert_eq!(health(&app, anducar), 900);
+        assert!(app.world().get::<Dies>(anducar).is_none());
+        assert!(app.world().get::<ai::Mind>(anducar).is_some());
+        assert_eq!(health(&app, faint), 1);
+        assert!(app.world().get::<Dies>(faint).is_some());
+        assert_eq!(health(&app, kept), 0);
+        assert!(app.world().get::<Dies>(kept).is_some());
+        // Lifted and laid down again by one run, as `the_end_of_uw` does to Vilya.
+        assert_eq!(health(&app, vilya), 0);
+        assert!(app.world().get::<Dies>(vilya).is_some());
+        assert!(app.world().get::<ai::Mind>(vilya).is_some());
     }
 
     #[test]
