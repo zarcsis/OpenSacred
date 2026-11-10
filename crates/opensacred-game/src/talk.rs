@@ -226,6 +226,9 @@ impl Portraits {
     }
 }
 
+/// A text's runs of words, each with its colour ([`painted`]).
+type Runs = [(String, Color)];
+
 /// A portrait in the window: its texture, and its part, its left, top, width and height.
 type Portrait = (Handle<Image>, [u16; 4]);
 
@@ -490,11 +493,20 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
         }
     }
     let texts = world.get_resource::<Texts>();
-    let lines: Vec<String> = window
+    let raw: Vec<&str> = window
         .texts
         .iter()
-        .filter_map(|key| texts.and_then(|texts| texts.named(key)).map(shown_text))
+        .filter_map(|key| texts.and_then(|texts| texts.named(key)))
         .collect();
+    let lines: Vec<String> = raw.iter().map(|text| shown_text(text)).collect();
+    // The texts as their colours' tags paint them, a line between them (#2420).
+    let mut runs: Vec<(String, Color)> = Vec::new();
+    for (index, text) in raw.iter().enumerate() {
+        if index > 0 {
+            runs.push(("\n".to_owned(), WORDS));
+        }
+        runs.extend(painted(text));
+    }
     if lines.is_empty() {
         info!("talk: {dialogue} shows no text");
         end(world, hero, creature);
@@ -550,7 +562,7 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
         &mut world.commands(),
         &font,
         (name.as_deref(), portrait),
-        (&text, &buttons),
+        (&runs, &buttons),
         frame,
     );
     world.flush();
@@ -585,6 +597,67 @@ pub(crate) fn shown_text(text: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// A text of `global.res` as the window paints it (#2420): its runs, each a stretch of
+/// [`shown_text`]'s words and its colour, white at first; `<color=AARRGGBB>` the words after it
+/// until another colour's tag, across the line breaks (seen: the new game's first window, its
+/// title white and every paragraph after the tag `0xFFFFFF80` in the original), `<colorl=…>` the
+/// rest of its line and `<colorw=…>` the word after it (the tags' three kinds, `0x673AD0`). The
+/// texts reset a colour with a tag of white (`<color=FFFFFFFF>` before a key's name, as the
+/// bar's), which a colour of a line would not need.
+pub(crate) fn painted(text: &str) -> Vec<(String, Color)> {
+    let mut runs: Vec<(String, Color)> = Vec::new();
+    let mut push = |words: &str, colour: Color| {
+        if words.is_empty() {
+            return;
+        }
+        match runs.last_mut() {
+            Some((last, was)) if *was == colour => last.push_str(words),
+            _ => runs.push((words.to_owned(), colour)),
+        }
+    };
+    let (mut held, mut line, mut word) = (WORDS, None::<Color>, None::<Color>);
+    let mut rest = text;
+    loop {
+        let open = rest.find('<').unwrap_or(rest.len());
+        let mut words = &rest[..open];
+        if let Some(colour) = word.take() {
+            let end = words.find(char::is_whitespace).unwrap_or(words.len());
+            push(&words[..end], colour);
+            words = &words[end..];
+        }
+        push(words, line.unwrap_or(held));
+        if open == rest.len() {
+            break;
+        }
+        let Some(close) = rest[open..].find('>') else {
+            push(&rest[open..], line.unwrap_or(held));
+            break;
+        };
+        let tag = &rest[open + 1..open + close];
+        let colour = |prefix: &str| {
+            tag.strip_prefix(prefix)
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                .map(crate::tooltip::argb)
+        };
+        if tag == "n" {
+            push("\n", line.unwrap_or(held));
+            line = None;
+        } else if let Some(colour) = colour("colorw=") {
+            word = Some(colour);
+        } else if let Some(colour) = colour("colorl=") {
+            line = Some(colour);
+        } else if let Some(colour) = colour("color=") {
+            held = colour;
+            line = None;
+        } else if !tag.starts_with("color") {
+            // A speaker's sigh or groan, kept as it stands (`shown_text`).
+            push(&rest[open..=open + close], line.unwrap_or(held));
+        }
+        rest = &rest[open + close + 1..];
+    }
+    runs
 }
 
 /// The key of a name of the scripts' resources, `res:<key>` (case aside), as the window looks
@@ -842,7 +915,7 @@ fn spawn_window(
     commands: &mut Commands,
     font: &Handle<Font>,
     (name, portrait): (Option<&str>, Option<Portrait>),
-    (text, buttons): (&str, &[(String, String)]),
+    (text, buttons): (&Runs, &[(String, String)]),
     frame: Vec<(ImageNode, Node)>,
 ) -> Entity {
     let words = (
@@ -925,12 +998,22 @@ fn spawn_window(
                                     },
                                 ));
                             }
-                            block.spawn((
-                                Text::new(text),
-                                words.clone(),
-                                TextColor(WORDS),
-                                TextLayout::justify(Justify::Justified),
-                            ));
+                            block
+                                .spawn((
+                                    Text::default(),
+                                    words.clone(),
+                                    TextColor(WORDS),
+                                    TextLayout::justify(Justify::Justified),
+                                ))
+                                .with_children(|lines| {
+                                    for (run, colour) in text {
+                                        lines.spawn((
+                                            TextSpan::new(run.clone()),
+                                            words.clone(),
+                                            TextColor(*colour),
+                                        ));
+                                    }
+                                });
                         });
                     if !buttons.is_empty() {
                         panel
@@ -1466,6 +1549,39 @@ mod tests {
             "name <sigh> on"
         );
         assert_eq!(shown_text("open <n"), "open <n");
+    }
+
+    #[test]
+    fn a_texts_colours_tags_paint_its_words() {
+        let yellow = crate::tooltip::argb(0xFFFF_FF80);
+        let red = crate::tooltip::argb(0xFFFF_0000);
+        let run = |words: &str, colour: Color| (words.to_owned(), colour);
+        // The dream's shape: a title, the tag, and paragraphs after it all yellow (#2420).
+        assert_eq!(
+            painted("<n> Title<color=FFFFFF80><n><n>One.<n>Two."),
+            [run("\n Title", WORDS), run("\n\nOne.\nTwo.", yellow)]
+        );
+        // White again by a tag of white, as before a key's name.
+        assert_eq!(
+            painted("<color=FFFFFF80>Name <color=FFFFFFFF>[W]"),
+            [
+                run("Name ", yellow),
+                run("[W]", crate::tooltip::argb(0xFFFF_FFFF))
+            ]
+        );
+        // A line's colour ends with its line, a word's with its word.
+        assert_eq!(
+            painted("<colorl=FFFF0000>a b<n>c <colorw=FFFFFF80>d e"),
+            [
+                run("a b\n", red),
+                run("c ", WORDS),
+                run("d", yellow),
+                run(" e", WORDS)
+            ]
+        );
+        // Other tags kept as they stand, an unclosed one too.
+        assert_eq!(painted("hm <sigh> on <n"), [run("hm <sigh> on <n", WORDS)]);
+        assert_eq!(painted(""), []);
     }
 
     #[test]
