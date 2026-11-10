@@ -1,5 +1,5 @@
 //! The interface over the world: the original's cursor, the picture that `cursors` chooses
-//! (`MOUSE_MAIN.TGA` and the others), scaled in whole steps with the system's display scale, and
+//! (`MOUSE_MAIN.TGA` and the others), scaled with the system's display scale (#2436), and
 //! the interface laid out on the original's 768-pixel-high screen scaled to the window's height,
 //! as the world is. The original lays its interface out in code from the `gui_main_*` atlases
 //! (docs/02 §11); the bar and the hero's portrait are `bar`'s (#1087), the windows
@@ -162,9 +162,106 @@ fn glowing(square: &[u8], side: usize) -> (Vec<u8>, usize) {
     (out, wide)
 }
 
+/// The side of a picture of `unscaled` pixels at the scale of `percent` hundredths, rounded.
+fn scaled_side(unscaled: usize, percent: u32) -> usize {
+    let percent = usize::try_from(percent).unwrap_or(100);
+    (unscaled * percent + 50) / 100
+}
+
+/// `square`, `unscaled` × `unscaled` RGBA, at the scale of `percent` hundredths ([`scaled_side`]):
+/// at a whole scale each pixel repeated, so that its texels stay square; between whole scales
+/// resampled bilinearly over its colours weighed by their alpha, as the system scales its own
+/// cursors (#2436).
+fn scaled_picture(square: &[u8], unscaled: usize, percent: u32) -> (Vec<u8>, usize) {
+    let side = scaled_side(unscaled, percent);
+    let mut out = Vec::with_capacity(side * side * 4);
+    if percent.is_multiple_of(100) {
+        let whole = side / unscaled.max(1);
+        for y in 0..side {
+            for x in 0..side {
+                let i = ((y / whole) * unscaled + x / whole) * 4;
+                out.extend_from_slice(&square[i..i + 4]);
+            }
+        }
+        return (out, side);
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a cursor's sides are a few dozen pixels"
+    )]
+    let ratio = unscaled as f32 / side as f32;
+    let last = unscaled.saturating_sub(1);
+    // The source's coordinate under an output's pixel's centre, its two neighbours and the
+    // second's weight.
+    let source = |at: usize| {
+        #[expect(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a cursor's coordinates are a few dozen pixels"
+        )]
+        let (low, weight) = {
+            let s = ((at as f32 + 0.5) * ratio - 0.5).clamp(0.0, last as f32);
+            (s.floor() as usize, s.fract())
+        };
+        (low, (low + 1).min(last), weight)
+    };
+    let texel = |x: usize, y: usize| {
+        let i = (y * unscaled + x) * 4;
+        let alpha = f32::from(square[i + 3]) / 255.0;
+        [
+            f32::from(square[i]) * alpha,
+            f32::from(square[i + 1]) * alpha,
+            f32::from(square[i + 2]) * alpha,
+            alpha,
+        ]
+    };
+    for y in 0..side {
+        let (y0, y1, wy) = source(y);
+        for x in 0..side {
+            let (x0, x1, wx) = source(x);
+            let mut mixed = [0.0f32; 4];
+            for (tx, ty, w) in [
+                (x0, y0, (1.0 - wx) * (1.0 - wy)),
+                (x1, y0, wx * (1.0 - wy)),
+                (x0, y1, (1.0 - wx) * wy),
+                (x1, y1, wx * wy),
+            ] {
+                for (sum, value) in mixed.iter_mut().zip(texel(tx, ty)) {
+                    *sum += value * w;
+                }
+            }
+            let alpha = mixed[3];
+            let colour = |value: f32| {
+                let value = if alpha > 0.0 { value / alpha } else { 0.0 };
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "held to a byte's range"
+                )]
+                let byte = value.round().clamp(0.0, 255.0) as u8;
+                byte
+            };
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "held to a byte's range"
+            )]
+            let opacity = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+            out.extend_from_slice(&[
+                colour(mixed[0]),
+                colour(mixed[1]),
+                colour(mixed[2]),
+                opacity,
+            ]);
+        }
+    }
+    (out, side)
+}
+
 /// The top left `CURSOR_SIDE` square of an 8-bit RGBA texture, with its glow where `glows`
-/// ([`glowing`]), each pixel `scale` times wider and taller.
-fn cursor_image(path: &Path, scale: usize, glows: bool) -> Result<Image> {
+/// ([`glowing`]), at the scale of `percent` hundredths ([`scaled_picture`]).
+fn cursor_image(path: &Path, percent: u32, glows: bool) -> Result<Image> {
     let data = files::read(path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
     let texture::Rgba {
         width,
@@ -184,14 +281,7 @@ fn cursor_image(path: &Path, scale: usize, glows: bool) -> Result<Image> {
     } else {
         (square, CURSOR_SIDE)
     };
-    let side = unscaled * scale;
-    let mut out = Vec::with_capacity(side * side * 4);
-    for y in 0..side {
-        for x in 0..side {
-            let i = ((y / scale) * unscaled + x / scale) * 4;
-            out.extend_from_slice(&square[i..i + 4]);
-        }
-    }
+    let (out, side) = scaled_picture(&square, unscaled, percent);
     let side = u32::try_from(side)?;
     Ok(Image::new(
         Extent3d {
@@ -206,18 +296,24 @@ fn cursor_image(path: &Path, scale: usize, glows: bool) -> Result<Image> {
     ))
 }
 
-/// The cursor's scale: the system's display scale in whole steps, rounded down and at least 1, so
-/// that the cursor grows as the system's own does and keeps its texels square, whatever the
-/// window's size and mode (#442). The window's scale factor is held at 1 (`main`), so the system's
-/// is the backend's.
-fn cursor_scale(display_scale: f32) -> usize {
+/// The cursor's scale in hundredths: the system's display scale, at least 1, so that the cursor
+/// grows as the system's own do, whatever the window's size and mode (#442), 48 × 48 at 150 % by
+/// the maintainer's decision of 2026-11-09 (#2436). The window's scale factor is held at 1
+/// (`main`), so the system's is the backend's.
+fn cursor_scale(display_scale: f32) -> u32 {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         reason = "a display's scale is a small positive number"
     )]
-    let scale = display_scale.floor().max(1.0) as usize;
-    scale
+    let percent = (display_scale.max(1.0) * 100.0).round() as u32;
+    percent
+}
+
+/// `value` pixels of the unscaled picture at the scale of `percent` hundredths, rounded.
+fn scaled_point(value: u16, percent: u32) -> u16 {
+    let scaled = (u32::from(value) * percent + 50) / 100;
+    u16::try_from(scaled).unwrap_or(u16::MAX)
 }
 
 /// Puts the original's cursor that `cursors` chooses on the window, scaled with the system's
@@ -230,8 +326,8 @@ fn cursor(
     (look, glow): (Res<Shown>, Res<Glow>),
     window: Single<(Entity, &Window)>,
     mut images: ResMut<Assets<Image>>,
-    mut made: Local<HashMap<(Look, usize, bool), Handle<Image>>>,
-    mut shown: Local<Option<(Look, usize, bool)>>,
+    mut made: Local<HashMap<(Look, u32, bool), Handle<Image>>>,
+    mut shown: Local<Option<(Look, u32, bool)>>,
 ) {
     let glows = glow.0;
     let (entity, window) = *window;
@@ -251,7 +347,7 @@ fn cursor(
     if shown.is_none_or(|(_, before, _)| before != scale) {
         info!(
             "cursor: {0} x {0} pixels at the display scale {display_scale}",
-            CURSOR_SIDE * scale
+            scaled_side(CURSOR_SIDE, scale)
         );
     }
     *shown = Some((look, scale, glows));
@@ -271,9 +367,9 @@ fn cursor(
     };
     // The glow widens the picture by its reach on each side, its point as far in; a picture's
     // own point by the scale.
-    let spot = look.spot() * u16::try_from(scale).unwrap_or(1);
+    let spot = scaled_point(look.spot(), scale);
     let point = if glows {
-        u16::try_from(GLOW_REACH * scale).unwrap_or(0)
+        scaled_point(u16::try_from(GLOW_REACH).unwrap_or(0), scale)
     } else {
         0
     };
@@ -331,13 +427,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_cursor_grows_in_whole_steps_of_the_display_scale() {
-        assert_eq!(cursor_scale(1.0), 1);
-        assert_eq!(cursor_scale(1.5), 1);
-        assert_eq!(cursor_scale(1.75), 1);
-        assert_eq!(cursor_scale(2.0), 2);
-        assert_eq!(cursor_scale(3.5), 3);
-        assert_eq!(cursor_scale(0.5), 1);
+    fn the_cursor_grows_with_the_display_scale() {
+        // The system's scale exactly (#2436), at least 1.
+        assert_eq!(cursor_scale(1.0), 100);
+        assert_eq!(cursor_scale(1.25), 125);
+        assert_eq!(cursor_scale(1.5), 150);
+        assert_eq!(cursor_scale(2.0), 200);
+        assert_eq!(cursor_scale(0.5), 100);
+        // The picture's side and its point: 48 × 48 at 150 %, 40 at 125 %, 64 at 200 %.
+        assert_eq!(scaled_side(CURSOR_SIDE, 150), 48);
+        assert_eq!(scaled_side(CURSOR_SIDE, 125), 40);
+        assert_eq!(scaled_side(CURSOR_SIDE, 200), 64);
+        assert_eq!(scaled_point(16, 150), 24);
+        assert_eq!(scaled_point(6, 125), 8);
+    }
+
+    #[test]
+    fn a_cursors_picture_repeats_at_a_whole_scale_and_blends_between() {
+        // A 2 × 2 picture: an opaque red pixel and three clear ones.
+        let mut square = vec![0u8; 2 * 2 * 4];
+        square[..4].copy_from_slice(&[255, 0, 0, 255]);
+        let (whole, side) = scaled_picture(&square, 2, 200);
+        assert_eq!(side, 4);
+        for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            assert_eq!(
+                &whole[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4],
+                &[255, 0, 0, 255]
+            );
+        }
+        assert_eq!(whole[(2 * 4 + 2) * 4 + 3], 0);
+        // At 150 % the corner stays red and opaque, the clear ones stay clear, and the colour of a
+        // blended pixel is the red's, its alpha between, no darker fringe.
+        let (between, side) = scaled_picture(&square, 2, 150);
+        assert_eq!(side, 3);
+        let at = |x: usize, y: usize| &between[(y * 3 + x) * 4..(y * 3 + x) * 4 + 4];
+        assert_eq!(at(0, 0), &[255, 0, 0, 255]);
+        assert_eq!(at(2, 2)[3], 0);
+        let middle = at(1, 1);
+        assert_eq!(&middle[..3], &[255, 0, 0]);
+        assert!(middle[3] > 0 && middle[3] < 255, "{middle:?}");
     }
 
     #[test]
@@ -357,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cursor_is_the_top_left_square_scaled_in_whole_steps() {
+    fn the_cursor_is_the_top_left_square_scaled() {
         let path = std::env::temp_dir().join(format!(
             "opensacred-game-cursor-{}.{}",
             std::process::id(),
@@ -370,7 +498,7 @@ mod tests {
         rgba[far..far + 4].copy_from_slice(&[0, 255, 0, 255]);
         let file = texture::write(texture::Encoding::Rgba8, 64, 64, &[rgba]).unwrap();
         fs::write(&path, file).unwrap();
-        let image = cursor_image(&path, 2, false).unwrap();
+        let image = cursor_image(&path, 200, false).unwrap();
         fs::remove_file(&path).unwrap();
         assert_eq!((image.width(), image.height()), (64, 64));
         let data = image.data.unwrap();
