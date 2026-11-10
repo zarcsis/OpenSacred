@@ -90,12 +90,14 @@ pub fn save(world: &mut World, path: PathBuf) {
 
 /// `--record`: from the same moment as a screenshot, save every frame to a numbered PNG for a
 /// number of frames, then exit, to look at flicker or a stutter frame by frame; the command
-/// `record` goes on after its frames.
+/// `record` goes on after its frames, and in a menu records from the next frame (#2491).
 #[derive(Resource)]
 pub struct Recording {
     dir: PathBuf,
     settle: u32,
     frames: u32,
+    /// Whether it waits for the game's scene to be ready before its first frame.
+    waits: bool,
     /// Frames rendered since the scene was ready.
     rendered: u32,
     /// Frames saved, which the last one's capture counts down.
@@ -110,9 +112,18 @@ impl Recording {
             dir,
             settle,
             frames,
+            waits: true,
             rendered: 0,
             saved: std::sync::Arc::default(),
             exit,
+        }
+    }
+
+    /// The recording from the next frame, with no scene to wait for: a menu's.
+    pub fn now(self) -> Self {
+        Self {
+            waits: false,
+            ..self
         }
     }
 }
@@ -132,8 +143,7 @@ fn frame_number(rendered: u32, settle: u32) -> Option<u32> {
 pub fn record(
     mut commands: Commands,
     mut recording: ResMut<Recording>,
-    ready: Res<Ready>,
-    streamer: Res<Streamer>,
+    (ready, streamer): (Option<Res<Ready>>, Option<Res<Streamer>>),
     bodies: Query<&Transform, With<Body>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -150,12 +160,15 @@ pub fn record(
         }
         return;
     }
-    let settled = bodies
-        .iter()
-        .next()
-        .is_some_and(|hero| streamer.settled(hero.translation));
-    if !ready.0 || (recording.rendered == 0 && !settled) {
-        return;
+    if recording.waits {
+        let settled = bodies.iter().next().is_some_and(|hero| {
+            streamer
+                .as_deref()
+                .is_some_and(|streamer| streamer.settled(hero.translation))
+        });
+        if !ready.is_some_and(|ready| ready.0) || (recording.rendered == 0 && !settled) {
+            return;
+        }
     }
     recording.rendered += 1;
     let Some(n) = frame_number(recording.rendered, recording.settle) else {
@@ -181,10 +194,10 @@ impl Plugin for ScreenshotPlugin {
         app.init_resource::<Saving>().add_systems(
             Update,
             (
-                take.run_if(resource_exists::<Request>),
+                take.run_if(resource_exists::<Request>).in_set(Playing),
+                // In a menu too, a recording of the command's (#2491).
                 record.run_if(resource_exists::<Recording>),
-            )
-                .in_set(Playing),
+            ),
         );
     }
 }
