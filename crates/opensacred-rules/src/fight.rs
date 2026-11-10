@@ -3886,6 +3886,10 @@ impl Default for Blow {
     }
 }
 
+/// The factor of the defence of a creature in its defending clip, the slots 53 to 65, a parry's
+/// or a script's (`0x56B96A`–`0x56B9A5`, #2487): its `D` doubles against a strike.
+pub const PARRY_DEFENCE: f32 = 2.0;
+
 /// The values of a strike between `attacker` and `defender` on bronze (`0x56B130`): a creature
 /// striking the hero has its attack times `ProzAW` and its rolled damage times `ProzDmg` (each
 /// kind's, as the attack record rolls it, [`roll_damage`], #620), and the exponent of the damage

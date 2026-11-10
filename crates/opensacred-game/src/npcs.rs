@@ -511,6 +511,9 @@ struct ClipNames {
     /// none of them (`0x5467A0(4)`, #1364).
     fun_slots: u16,
     attack_slot: u16,
+    /// Its defending slot, where its model has one (`motions::Slots::defend_slot`): its parry's
+    /// (#2487).
+    defend: Option<u16>,
 }
 
 impl ClipNames {
@@ -560,6 +563,7 @@ impl ClipNames {
                 .filter(|&i| slots.slot(minds::FUN_SLOTS + i).is_some())
                 .fold(0, |mask, i| mask | (1 << i)),
             attack_slot: motions::Slots::attack_slot(class),
+            defend: slots.defend_slot(class),
         }
     }
 }
@@ -1422,6 +1426,11 @@ impl Npc {
 
     pub fn pace(&self) -> f32 {
         self.pace
+    }
+
+    /// The slot of its parry, where its model has its defending clip (#2487).
+    pub(crate) fn defend_slot(&self) -> Option<u16> {
+        self.names.defend
     }
 
     /// Whether its dying clip `choice`, as [`die`] plays it, has played to its end: at once for
@@ -9262,6 +9271,8 @@ pub struct ScriptClip {
     acts_at: Option<f32>,
     /// The rate it plays at where not its attack speed's (a trampled creature's fall, 1.0).
     rate: Option<f32>,
+    /// Whether it is a parry ([`ScriptClip::parry`]).
+    parry: bool,
 }
 
 impl ScriptClip {
@@ -9286,7 +9297,28 @@ impl ScriptClip {
             playing: None,
             acts_at: None,
             rate: None,
+            parry: false,
         }
+    }
+
+    /// A creature's parry, its defending clip of the slot `slot` once in place of a strike, as
+    /// a script's `PlayAnim` plays one (`0x4E4F50`–`0x4E4F85`, #2487).
+    pub(crate) fn parry(slot: u16) -> Self {
+        Self {
+            parry: true,
+            ..Self::new(slot, 1)
+        }
+    }
+
+    /// Whether it is a parry, during which its creature neither decides nor strikes.
+    pub(crate) fn parries(&self) -> bool {
+        self.parry
+    }
+
+    /// Whether it is a defending clip, the slots 53 to 65, a parry's or a script's, by which its
+    /// creature's defence doubles against a strike (`0x56B96A`–`0x56B9A5`, #2487).
+    pub(crate) fn defends(&self) -> bool {
+        DEFENDING.contains(&self.slot)
     }
 
     /// The length of its clip in seconds, once it plays, at its own rate.
