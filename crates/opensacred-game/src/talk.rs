@@ -67,6 +67,16 @@ const LINE: f32 = 25.0;
 const FOOT: f32 = 4.0;
 /// How far below its line's top the original sets a line's letters past where Bevy sets them.
 const DROP: f32 = 4.0;
+/// As far for the buttons' labels in their row: measured on the maintainer's frames of the
+/// original at 3,840 × 2,160 (#2419), the labels' tops 1,375 pixels below the window's top edge
+/// where the texts' drop put them 3 lower.
+const BUTTON_DROP: f32 = 3.0;
+/// The room below a row of buttons past its line and 4 (`0x6E7AF0`): measured on the
+/// maintainer's frames of the original at 3,840 × 2,160 (#2419), whose window ends 2 of the
+/// interface's units lower below its buttons than lines of 25 put it, its top and its labels
+/// where the game's stand (**hypothesis**: the row takes the line of the buttons' font, which
+/// the client asks apart from the texts'). Without it the labels' feet reached the frame's edge.
+const BUTTON_FOOT: f32 = 2.0;
 /// The size of the window's font, AntiquaSSK, at which a long line is as wide as the original's
 /// (its GDI's size is not read): its hinted glyphs of whole pixels make a line of narrow ones
 /// wider, so that such a line may take a word more here (docs/decisions/interface.md).
@@ -925,8 +935,12 @@ fn spawn_window(
                     if !buttons.is_empty() {
                         panel
                             .spawn(Node {
-                                height: Val::Px(LINE + FOOT),
-                                padding: UiRect::top(Val::Px(DROP)),
+                                height: Val::Px(LINE + FOOT + BUTTON_FOOT),
+                                padding: UiRect {
+                                    top: Val::Px(BUTTON_DROP),
+                                    bottom: Val::Px(BUTTON_FOOT),
+                                    ..default()
+                                },
                                 flex_direction: FlexDirection::Row,
                                 justify_content: JustifyContent::SpaceEvenly,
                                 ..default()
