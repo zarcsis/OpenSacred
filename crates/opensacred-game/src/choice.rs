@@ -1198,6 +1198,9 @@ fn picture(
     commands
         .spawn((
             DespawnOnExit(screen),
+            // Hidden until all of it has loaded ([`unveil`], #2490).
+            Veiled::default(),
+            Visibility::Hidden,
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -2153,6 +2156,87 @@ fn choosing(screen: Option<Res<State<Screen>>>) -> bool {
     screen.is_some_and(|screen| matches!(screen.get(), Screen::Heroes | Screen::Underworld))
 }
 
+/// A choice's screen hidden while what it draws loads: its pictures, its fonts, its figures'
+/// models, their items and their materials (#2490), and the frames it has stood ready, which let
+/// the figures' pipelines compile while it is hidden; and the seconds it has waited.
+#[derive(Component, Default)]
+struct Veiled {
+    ready: u32,
+    waited: f32,
+}
+
+/// The frames a choice's screen stands ready before it shows, and the seconds it waits at the
+/// most.
+const READY_FRAMES: u32 = 3;
+const MOST_WAIT: f32 = 5.0;
+
+/// Shows a choice's screen whole, once all it draws has loaded (or after [`MOST_WAIT`] seconds),
+/// where it filled piece by piece as its pictures, its figures and their items came: the
+/// original loads the screen before it shows it.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries one by one, with their filters"
+)]
+fn unveil(
+    mut commands: Commands,
+    mut roots: Query<(Entity, &mut Veiled, &mut Visibility)>,
+    time: Res<Time>,
+    assets: Res<AssetServer>,
+    children: Query<&Children>,
+    (pictures, fonts): (Query<&ImageNode>, Query<&TextFont>),
+    figures: Query<(Entity, &Figure, Option<&npcs::Equipment>)>,
+    (scenes, retextures): (
+        Query<(), (With<WorldAssetRoot>, Without<Children>)>,
+        Query<&npcs::Retexture>,
+    ),
+    unsettled: Query<(), (With<MeshMaterial3d<StandardMaterial>>, Without<Owned>)>,
+) {
+    let loaded = |id: bevy::asset::UntypedAssetId| assets.is_loaded_with_dependencies(id);
+    // A picture or a text of the screen whose image or font has not loaded.
+    let waits = |entity: Entity| {
+        pictures
+            .get(entity)
+            .is_ok_and(|picture| !loaded(picture.image.id().untyped()))
+            || fonts.get(entity).is_ok_and(|text| match &text.font {
+                bevy::text::FontSource::Handle(font) => !loaded(font.id().untyped()),
+                _ => false,
+            })
+    };
+    // A figure's scene, item or mesh not in place: a scene not spawned yet, a mesh not given its
+    // own material yet (`settle`), an item's texture not loaded.
+    let unready = |entity: Entity| {
+        scenes.contains(entity)
+            || unsettled.contains(entity)
+            || retextures
+                .get(entity)
+                .is_ok_and(|texture| !loaded(texture.image().id().untyped()))
+    };
+    for (root, mut veiled, mut visibility) in &mut roots {
+        veiled.waited += time.delta_secs();
+        let drawn = !children.iter_descendants(root).any(waits);
+        let figures_ready = figures.iter().all(|(figure, look, equipment)| {
+            look.gltf.is_none()
+                && equipment.is_none_or(npcs::Equipment::is_empty)
+                && !std::iter::once(figure)
+                    .chain(children.iter_descendants(figure))
+                    .any(unready)
+        });
+        if drawn && figures_ready {
+            veiled.ready += 1;
+        } else {
+            veiled.ready = 0;
+        }
+        if veiled.ready >= READY_FRAMES || veiled.waited >= MOST_WAIT {
+            if veiled.ready < READY_FRAMES {
+                warn!("choice: the screen shows after {MOST_WAIT} s, not all of it loaded");
+            }
+            *visibility = Visibility::Inherited;
+            commands.entity(root).remove::<Veiled>();
+        }
+    }
+}
+
 /// The campaigns' choices of the hero.
 pub struct ChoicePlugin;
 
@@ -2189,6 +2273,7 @@ impl Plugin for ChoicePlugin {
                     .run_if(choosing),
             )
             .add_systems(Update, colour_words.after(show))
+            .add_systems(Update, unveil.run_if(choosing))
             .add_systems(
                 Update,
                 introduce
