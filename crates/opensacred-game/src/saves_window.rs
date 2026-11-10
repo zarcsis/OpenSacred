@@ -120,7 +120,9 @@ const TRACK: u32 = 288;
 const THUMB: u32 = 286;
 const THUMB_RUN: (f32, f32) = (357.0, 613.0);
 /// The buttons, at x 820, 92 × 32, their pieces (the middle stretched over the rectangle, the
-/// ends outside it) and their texts, the word four rows up.
+/// ends outside it, each as high as the rectangle, the images' 37 rows squeezed into its 32: seen
+/// on the original's frame at 1,024 × 768, its ends' gems 18 rows high about the row 302 of the
+/// button at 288, #2427) and their texts, the word four rows up.
 const BUTTON_X: f32 = 820.0;
 const BUTTON_SIZE: Vec2 = Vec2::new(92.0, 32.0);
 const BUTTON: [u32; 3] = [280, 281, 282];
@@ -447,13 +449,13 @@ fn spawn(
                 for button in Button::ALL {
                     let at = Vec2::new(BUTTON_X, button.row());
                     let [left, middle, right] = BUTTON;
+                    let end = |index: u32| Vec2::new(ui.size(index).x, BUTTON_SIZE.y);
                     screen.spawn((
-                        bar::piece(
-                            &ui,
-                            &assets,
+                        stretched(
+                            (&ui, &assets),
                             left,
                             at - Vec2::new(ui.size(left).x, 0.0),
-                            Vec2::ZERO,
+                            end(left),
                         ),
                         Pickable::IGNORE,
                     ));
@@ -462,12 +464,11 @@ fn spawn(
                         Pickable::IGNORE,
                     ));
                     screen.spawn((
-                        bar::piece(
-                            &ui,
-                            &assets,
+                        stretched(
+                            (&ui, &assets),
                             right,
                             at + Vec2::new(BUTTON_SIZE.x, 0.0),
-                            Vec2::ZERO,
+                            end(right),
                         ),
                         Pickable::IGNORE,
                     ));
