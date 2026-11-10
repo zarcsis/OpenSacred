@@ -985,6 +985,12 @@ impl DeathFunctions {
         Some(first)
     }
 
+    /// The sight function that the creature's sight runs (`sdk_WAKE` `0x59F580`, `0x4A71F0` with
+    /// `See:`; #2475): the first `See:` entry's name, which stays in the list.
+    pub fn sight(&self) -> Option<&str> {
+        self.0.iter().find_map(|name| name.strip_prefix(SIGHT))
+    }
+
     /// Takes out the entries of no `:` or of `See:`, but those of [`KEPT`] (`0x464330` with its
     /// fourth argument 1).
     fn take_out(&mut self) {
@@ -2358,6 +2364,14 @@ mod tests {
         deaths.see("schmuggler1402");
         assert_eq!(deaths.take().as_deref(), Some("tot2203"));
         assert!(deaths.is_empty());
+        let mut sights = DeathFunctions::default();
+        assert_eq!(sights.sight(), None);
+        sights.add("tot2203");
+        sights.see("schmugler1402");
+        sights.see("later");
+        // The sight runs the first `See:` entry, which stays (#2475).
+        assert_eq!(sights.sight(), Some("schmugler1402"));
+        assert_eq!(sights.sight(), Some("schmugler1402"));
         let mut sights = DeathFunctions::default();
         sights.see("schmugler1402");
         assert_eq!(sights.take(), None);

@@ -1136,6 +1136,16 @@ pub struct Placed {
     source: Source,
 }
 
+impl Placed {
+    /// The index of its kept placement, none for a fill's creature.
+    pub(crate) fn kept(&self) -> Option<usize> {
+        match self.source {
+            Source::Kept(index) => Some(index),
+            Source::Filled(_) => None,
+        }
+    }
+}
+
 /// A special of the type, an object of category 15 (`cSpecial3D`: the signposts), which takes a
 /// label while Alt is held (`labels`, #1425).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -2349,9 +2359,19 @@ impl State {
         if self.hire.is_some() {
             placement.hire = self.hire;
         }
+        // A sight function sets its bit with its entry (`0x4620EA`, #2475).
+        if self.sights() {
+            placement.creature.2 |= minds::SIGHT;
+        }
         if let Some(rises) = self.rises {
             placement.rises = rises;
         }
+    }
+
+    /// Whether it gives its creature a sight function (`0x60`), which sets the flags word's
+    /// [`minds::SIGHT`] (`0x4620EA`, #2475).
+    fn sights(&self) -> bool {
+        self.deaths.iter().any(|(replaces, _)| !replaces)
     }
 
     /// Gives `functions` its death's functions ([`Self::deaths`]).
@@ -3515,7 +3535,9 @@ impl Makers {
                 .filter(|o| matches!(o.value, Value::Marker))
                 .map(|o| o.tag)
         };
-        let word = crowd::flags_word(markers());
+        // A sight function sets its bit with its entry (`0x4839E2`, #2475).
+        let sights = record.kind == CREATE_NPC && ops.iter().any(|op| op.tag == ON_SIGHT);
+        let word = crowd::flags_word(markers()) | if sights { minds::SIGHT } else { 0 };
         let class = self.classes.get(&creature).copied().unwrap_or_default();
         let hostility = minds::created_hostility(markers());
         let side = minds::created_side(class, creature, word, hostility);
@@ -8508,6 +8530,14 @@ impl Npcs {
             })
     }
 
+    /// Clears the sight's bit of the kept placement `index` (`minds::SIGHT`, `0x59F78F`, #2475):
+    /// its creature saw the hero, and comes back so with its sector or a save.
+    pub(crate) fn sighted(&mut self, index: usize) {
+        if let Some(placement) = self.placements.get_mut(index) {
+            placement.creature.2 &= !minds::SIGHT;
+        }
+    }
+
     /// Puts the creatures of the script name `name`, case aside, that live away from the world
     /// ([`Self::lives_away`]) on the cell `(x, y)` at `layer`, as a script's `Teleport` moves a
     /// creature wherever its sector stands (`0x491D40`, `sdk_ENGINE_TP`; #2448): where it stood,
@@ -10232,6 +10262,11 @@ pub(crate) fn script_records(
                     mind.dialogue = talk.is_some();
                 }
                 talk_to(&mut commands, entity, talk);
+            }
+            if state.sights()
+                && let Some(mind) = mind.as_mut()
+            {
+                mind.flags |= minds::SIGHT;
             }
             match on_death {
                 Some(mut on_death) => state.restate(&mut on_death.0),
