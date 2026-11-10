@@ -12862,7 +12862,8 @@ const SOUL_SECONDS: f32 = 10.0;
 /// `0x4000`): the dying creature's figure in pale green sparks, one at each of its vertices it
 /// takes, rising and drawn to its place by a pull of 50 that grows by 100 a second, their size 5
 /// shrinking by 2 a second, that rate rising by 0.5 a second to 0; where it arrives or a cell
-/// stops it they stop and fade out in 1.02 s; it ends past 10 s.
+/// stops it they stop and fade out in 1.02 s; it ends past 10 s. Without the flag
+/// ([`Self::rising`]) it is a vanishing body's figure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SoulSparks {
     pub system: System,
@@ -12870,6 +12871,7 @@ pub struct SoulSparks {
     pull: f32,
     size: f32,
     life: f32,
+    homing: bool,
 }
 
 impl SoulSparks {
@@ -12899,15 +12901,31 @@ impl SoulSparks {
             pull: 50.0,
             size: -2.0,
             life: 0.0,
+            homing: true,
         }
     }
 
-    /// A run of `dt` seconds, its place at `centre` in the models' frame: its pull grows by 100 a
-    /// second and its size's rate by 0.5 to 0, and its sparks age, drawn toward its place.
+    /// A soul that homes on nothing (780 without the flag `0x4000`, `0x76CDD4`, `0x76CA9D`), the
+    /// figure of a body that vanishes as it has lain its time (`0x541491`, #2501): its sparks at
+    /// `points` rise, of no pull, their life falling by 100 a second and their size by 2, so that
+    /// they are gone in 2.5 s.
+    pub fn rising(points: impl IntoIterator<Item = [f32; 3]>) -> Self {
+        Self {
+            pull: 0.0,
+            life: -100.0,
+            homing: false,
+            ..Self::new(points)
+        }
+    }
+
+    /// A run of `dt` seconds, its place at `centre` in the models' frame: homing, its pull grows
+    /// by 100 a second and its size's rate by 0.5 to 0; its sparks age, drawn toward its place.
     pub fn update(&mut self, dt: f32, centre: [f32; 3]) {
         self.clock += dt;
-        self.pull += 100.0 * dt;
-        self.size = (self.size + 0.5 * dt).min(0.0);
+        if self.homing {
+            self.pull += 100.0 * dt;
+            self.size = (self.size + 0.5 * dt).min(0.0);
+        }
         let layers = [Layer {
             life: self.life,
             size: self.size,
@@ -12926,9 +12944,9 @@ impl SoulSparks {
         self.life = -250.0;
     }
 
-    /// Whether it ended: no spark alive, or past its 10 s.
+    /// Whether it ended: no spark alive, or homing past its 10 s.
     pub fn done(&self) -> bool {
-        self.system.particles.is_empty() || self.clock > SOUL_SECONDS
+        self.system.particles.is_empty() || self.homing && self.clock > SOUL_SECONDS
     }
 }
 
@@ -17849,6 +17867,30 @@ mod tests {
         soul.arrive();
         assert!(soul.system.particles.iter().all(|p| p.velocity == [0.0; 3]));
         for _ in 0..62 {
+            soul.update(1.0 / 60.0, centre);
+        }
+        assert!(soul.done());
+    }
+
+    #[test]
+    fn a_vanishing_bodys_sparks_rise_and_are_gone_in_two_and_a_half_seconds() {
+        let points = (0..10u16).map(|k| [f32::from(k), 0.0, 0.0]);
+        let mut soul = SoulSparks::rising(points);
+        let centre = [500.0, 0.0, 0.0];
+        for _ in 0..60 {
+            soul.update(1.0 / 60.0, centre);
+        }
+        // No pull: each rises straight up, its size 5 shrunk by 2 and its life 255 by 100.
+        let spark = &soul.system.particles[3];
+        assert!((spark.place[0] - 3.0).abs() < 1e-4 && spark.place[1] == 0.0);
+        assert!(spark.place[2] > 20.0, "{:?}", spark.place);
+        assert!((spark.size - 3.0).abs() < 0.01, "{}", spark.size);
+        assert!((spark.life - 155.0).abs() < 0.1, "{}", spark.life);
+        for _ in 0..84 {
+            soul.update(1.0 / 60.0, centre);
+        }
+        assert!(!soul.done());
+        for _ in 0..12 {
             soul.update(1.0 / 60.0, centre);
         }
         assert!(soul.done());

@@ -100,7 +100,10 @@ fn catch(
         // It leaves the creature's place at its height (`0x5A46B3`).
         commands.spawn((
             Transform::from_translation(place.translation),
-            crate::soul_sparks::Sparks { from },
+            crate::soul_sparks::Sparks {
+                from,
+                rising: false,
+            },
             Soul {
                 to: hero,
                 level: body.level(),

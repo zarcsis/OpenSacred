@@ -30,6 +30,7 @@ mod blast;
 mod blended;
 mod blood_fountains;
 mod blow_sights;
+mod bodies;
 mod body_parts;
 mod bolt_looks;
 mod bolt_trails;
@@ -504,6 +505,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         blended::BlendedPlugin,
         blood_fountains::BloodFountainsPlugin,
         blow_sights::BlowSightsPlugin,
+        bodies::BodiesPlugin,
         body_parts::BodyPartsPlugin,
         bolt_looks::BoltLooksPlugin,
         bolt_trails::BoltTrailsPlugin,
@@ -513,9 +515,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         buildings::BuildingsPlugin,
         burning_bones::BurningBonesPlugin,
         burns::BurnsPlugin,
-        busy_dialog::BusyDialogPlugin,
     ))
     .add_plugins((
+        busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
         carry::CarryPlugin,
         cast_sights::CastSightsPlugin,

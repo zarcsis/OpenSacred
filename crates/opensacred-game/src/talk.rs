@@ -1512,6 +1512,7 @@ mod tests {
                     dialogue: talk.is_some(),
                     level: None,
                     hostile: false,
+                    flags: 0,
                 },
             ));
             if let Some(talk) = talk {

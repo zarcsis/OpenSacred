@@ -1642,7 +1642,7 @@ Its FX event (`0x5D`) follows its target, the Dark Elf, at his neck (`0x44CB80`:
 `opensacred-game` draws it since #1092 (`soulcatchers`, `opensacred_rules::particles::Soulcatcher`): the soulcatcher's object that `making` hangs at the Dark Elf takes its look, its twirls over his `Bip01 Neck` riding with him, each run of one layer in their order a mesh of its own drawn after the one before (`depth_bias`), untinted by the night; each soul that `souls` absorbs swells them and lights the glow.
 **Seen** 2026-11-05 beside the original: the Dark Elf's soulcatcher of the level 5, a gold vortex over his head alike in its place, its colour and its spiral, a little smaller; the swelling and the flash at a soul in the game.
 Not followed: the order of the twirls' slots, which reuses the dead ones (ours their births'), so that its fully dark moments are rarer.
-In the original a creature's ordinary death makes no soul (780): a goblin killed by the Dark Elf without his soulcatcher started none (the trace of `0x76CD50`), one killed with it one.
+In the original a creature's ordinary death makes no soul (780): a goblin killed by the Dark Elf without his soulcatcher started none (the trace of `0x76CD50`), one killed with it one; its body makes one 20 s later as it vanishes, homing on nothing (#2501, "The souls" below).
 
 ## The souls
 
@@ -1661,7 +1661,7 @@ Its FX event (`0xC`, docs/re/arts.md) puts it at the dying creature's place at i
 
 `opensacred-game` draws them since #1092 (`soul_sparks`, `opensacred_rules::particles::SoulSparks`, the pull of `Layer::pull` and `System::update_toward`), in place of the stand-in ball: each soul that `souls` sends takes the vertices of its creature's meshes but its worn items', skinned on the CPU by its joints' places as it dies, and flies from its feet to the Dark Elf's `Bip01 Neck` (90 over the ground before); a soul that a cell stops fades and is absorbed without healing him, as the original's.
 **Seen** 2026-11-05 beside the original: a goblin's figure in pale green sparks streaming up and to the Dark Elf in both, its sparks vanishing at his soulcatcher.
-Not followed: the souls that no soulcatcher draws (no system starts, docs/re/arts.md).
+Since #2501 a body that vanishes as it has lain its time leaves a soul that homes on nothing (no flag `0x4000`, `0x76CDD4`, `0x76CA9D`): its layer's life −100 a second and size −2, no pull, its run neither growing them nor ending it at 10 s, so that its sparks rise straight up and are gone in 2.5 s, where their size reaches 0 (`opensacred_rules::particles::SoulSparks::rising`, `bodies`; docs/re/fight.md, "The bodies' end").
 
 ## The spikes
 

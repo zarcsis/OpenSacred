@@ -11139,7 +11139,8 @@ impl Dies {
 
 /// What a dead NPC was, which the Vampiress's awakening (1034) and a black magician's raising
 /// (#1856) raise: its type, its `Creature.pak` class, whether it had a dialogue, the level it lies
-/// on and whether it was hostile to the hero.
+/// on, whether it was hostile to the hero, and its flags word, whose `0x2000` holds it lying
+/// (`opensacred_rules::undead::LIES_ON`, `bodies`).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Corpse {
     pub creature: u32,
@@ -11147,6 +11148,7 @@ pub struct Corpse {
     pub dialogue: bool,
     pub level: Level,
     pub hostile: bool,
+    pub flags: u32,
 }
 
 /// A creature whose `+0x2B7` bit 8 a script's `0x6B` above 0 set ([`RISES`]): a follower of the
@@ -11194,6 +11196,7 @@ pub(crate) fn die(
                 dialogue: mind.dialogue,
                 level: way.level,
                 hostile: mind.hostile(),
+                flags: mind.flags,
             });
             // One that may rise or that the scripts name, whose `SetHP` or queue may lift it
             // (#2459, #2477).
