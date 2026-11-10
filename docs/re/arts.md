@@ -1306,7 +1306,7 @@ By the object (its spell, "The spells' executor" above):
 | 794 `FX_EXPLOSION` | (the Dwarf's guns) | the event, once, at the factor of 782 but from a caster of the type 8 |
 | 801 `FX_RAILGUN` | | the event at every run |
 | 804 `FX_HOLYLIGHT` | 15 | the event, once a second ("The Seraphim's spells" below) |
-| 813 `FX_FI_SMOKE_M`, 876 `FX_FI_SMOKE_L`, 879 `FX_GEYSIR` | | an event of `0x51CB00` from the object with the damages 10, 20 or 100 of the first two kinds alone, once |
+| 813 `FX_FI_SMOKE_M`, 876 `FX_FI_SMOKE_L`, 879 `FX_GEYSIR` | | an event of `0x51CB00` from the object, the attacker's id 0, with the damages 10, 20 or 100 of the first two kinds alone, to every living creature within its size and 50 of it, once a second (its cooldown `+0x11C`; docs/re/effects.md, #2518) |
 | 814 `FX_HOLYWALL` | 17 | the event, once a second |
 | 817 `FX_MAGLITE` | 20 | the event, once a second, to the targets of the `Creature.pak` classes 5, 9 and 11 (`0x426A80`, `0x426B20`, `0x426BC0`) |
 | 820 `FX_HELLFIRE` | 23 | the event, once a second |

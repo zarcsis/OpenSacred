@@ -929,6 +929,12 @@ fn share(dice: &mut impl Dice) -> f32 {
 }
 
 impl Geyser {
+    /// Whether its jet bursts, the second before its clock runs out, while it strikes about it
+    /// (the flag `0x400`, `0x76E4AD`; #2518).
+    pub fn bursting(&self) -> bool {
+        (0.0..1.0).contains(&self.clock)
+    }
+
     /// A geyser as it starts, its first burst 3 to 20 s on (**estimate** for the roll's form).
     pub fn new(dice: &mut impl Dice) -> Self {
         Self {

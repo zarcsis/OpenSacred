@@ -6608,7 +6608,7 @@ fn spawn(
     if let Some((variant, height)) = placement.fx {
         return crate::fx::spawn(
             commands,
-            variant,
+            (variant, level),
             Vec3::new(model.x, height * iso::MODEL_SCALE, model.z),
             (layered, layered.visibility(states)),
         );

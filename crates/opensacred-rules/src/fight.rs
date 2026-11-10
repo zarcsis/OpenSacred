@@ -4490,6 +4490,46 @@ pub(crate) fn whole_part(x: f32) -> u32 {
     whole_f64(f64::from(x).trunc().max(0.0))
 }
 
+/// How often a fire smoke or a bursting geyser strikes, in seconds: its object's cooldown
+/// (`+0x11C`) set to 1 at a strike and run down by the frames to 0 (`0x5ABD80`'s cases `0x32D`,
+/// `0x36C` and `0x36F`, `0x5A9A10`; #2518), one for all it strikes.
+pub const SCALD_PERIOD: f32 = 1.0;
+
+/// The physical and the fire damage of a strike of the smoke class's variant `variant` (#2518):
+/// 813's (5) 10 and 10, 876's (6) 20 and 20, the geyser 879's (7) 100 and 100 while it bursts;
+/// none for the others, whose systems strike nothing (the flag `0x400`: `0x76F208`, `0x76F4F0`,
+/// `0x76E4AD`).
+pub fn scald(variant: u8) -> Option<[f32; KINDS]> {
+    let damage = match variant {
+        5 => 10.0,
+        6 => 20.0,
+        7 => 100.0,
+        _ => return None,
+    };
+    Some([damage, damage, 0.0, 0.0])
+}
+
+/// The damage of a strike from nobody, an attacker's id of 0 (`0x56B130`): a fire smoke's or a
+/// geyser's ([`scald`], #2518), of the fixed damages `damages`, sure, against `defender`: a
+/// creature's defence and resistances weighed as against the hero's strike, the id 0 taken for a
+/// player's (`0x56BBA8`–`0x56BC1C`), the hero's (`hero`) not, of the exponent 1, no factor of the
+/// levels and no cap.
+pub fn nobodys_strike(
+    defender: Combat,
+    damages: [f32; KINDS],
+    hero: bool,
+    rules: &Rules,
+    rng: &mut impl Dice,
+) -> u32 {
+    let attacker = Combat {
+        damage: damages.map(|damage| [damage; 2]),
+        ..defender
+    };
+    let side = (!hero).then_some(Side::Attacker);
+    let (attacker, defender, blow) = weighed(attacker, defender, side, (0, 0), rules);
+    sure_landed(&attacker, &defender, blow, rng).damage
+}
+
 /// How far the steps' small fire reaches beyond a creature's size, and how often it strikes, in
 /// seconds (`0x5AB490`, `0x5AE436`; #1808).
 pub const SMALL_FIRE_REACH: f32 = 30.0;
@@ -7703,6 +7743,38 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_fire_smoke_burns_any_creature_through_its_resistances() {
+        // The variants 5 and 6, the fire smokes 813 and 876, and the geyser's 7; the others none.
+        assert_eq!(scald(5), Some([10.0, 10.0, 0.0, 0.0]));
+        assert_eq!(scald(6), Some([20.0, 20.0, 0.0, 0.0]));
+        assert_eq!(scald(7), Some([100.0, 100.0, 0.0, 0.0]));
+        assert_eq!(scald(4), None);
+        assert_eq!(scald(12), None);
+        // Seen 2026-11-10: the Daemon of level 1, her physical resistance 2.170 and her fire's
+        // 1.584, took 17 a second from 813 (16.85), unweighed by the difficulty.
+        let daemon = Combat {
+            attack: 30.0,
+            defence: 25.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [2.170, 1.584, 3.0, 3.0],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: CAST_SPEED,
+            attributes: [20.0; 6],
+        };
+        let rules = Rules::default();
+        let mut rng = Rng::of(1, 2, 2518);
+        let smoke = scald(5).expect("813 strikes");
+        assert_eq!(nobodys_strike(daemon, smoke, true, &rules, &mut rng), 17);
+        // A creature's resistances are weighed by the difficulty's `ProzRes`, 1 on bronze.
+        assert_eq!(nobodys_strike(daemon, smoke, false, &rules, &mut rng), 17);
     }
 
     #[test]
