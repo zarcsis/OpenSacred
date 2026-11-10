@@ -1709,8 +1709,9 @@ impl Host for Recorder<'_> {
                 } else {
                     None
                 };
-                if let [x, y, ref rest @ ..] = tags.numbers("_04")[..] {
-                    let floor = rest.first().copied().unwrap_or(0);
+                // Its place a cell or a `DefPos`'s name, as any record's (`0x472BC0`; #2455):
+                // quest 61's elements lie at named places.
+                if let Some((x, y, floor)) = tags.spot("_04", &self.state.positions) {
                     let function = tags.texts("_41").first().copied().unwrap_or_default();
                     let corner = |key: &str| {
                         let numbers = tags.numbers(key);
@@ -4345,6 +4346,31 @@ mod tests {
         assert!(live.search_stash((3252, 2524)).is_none());
         assert!(live.search_stash((3217, 2593)).is_some());
         assert!(live.search_stash((3217, 2593)).is_some());
+    }
+
+    #[test]
+    fn a_mouse_event_lies_at_its_named_place() {
+        let runtime = runtime(&[(
+            "functions/events.luau",
+            "local F = {}
+             F[\"lay\"] = function()
+             def_pos { _01 = \"posElementLuft1\", _0B = { 857, 1755, 0, 2 } }
+             mouse_event { _04 = \"posElementLuft1\", _1D = 18301, _41 = \"NimmtElementLuft\", _66 = true }
+             mouse_event { _04 = \"nowhere\", _41 = \"never\" }
+             return true
+             end
+             return F",
+        )]);
+        let mut live = live(runtime);
+        live.run_named("lay");
+        // Quest 61's air element, at its place's cell and its fourth number's floor (#2455); a
+        // name of no place lays nothing.
+        let events: Vec<_> = live
+            .stashes()
+            .iter()
+            .map(|event| (event.function.as_str(), event.cell, event.floor))
+            .collect();
+        assert_eq!(events, [("NimmtElementLuft", (857, 1755), 2)]);
     }
 
     #[test]
