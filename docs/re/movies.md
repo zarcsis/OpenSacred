@@ -29,6 +29,7 @@ Each name is a path under `.\MOVIE\`, from the table at `0x9DFED0`, and a movie 
 - **The start** (`initApp` at `0x816D6C`): the number 13, the three logos one after another, before the main menu.
 - **The scripts' `InfoPlayer`** (132, `0x4AE350`; docs/re/netscript.md), not in a network game (`0x182EBEC`): its mode 23 plays the intro (1), 24 the Underworld's intro (12), 25 the Underworld's extro (11), each also setting the bit 8 of the script runner's `+0xA45C`, and 100 to 107 the chapters' movies `act1` to `act8` (3 to 10).
 - **The scripts' `GameEnd`** (120, `0x475C3A`): the extro (2), and nothing else; the function goes on.
+  The movie plays synchronously in the calling thread (`0x6A16E0`), so that the Ancaria campaign's `InfoPlayer` 6 after it leaves for the main menu once it has played (docs/re/netscript.md; #2463).
 - **The main menu's Extras** (`0x7125B0`): their rows 1 to 4 play the intro (1), the extro (2), the Underworld's intro (12) and its extro (11); the menu (`0x713670`) adds the extros' rows where `SHOWEXTRO` and `SHOWEXTRO_UW` read set (`0x81A970`, `0x81ABC0`), so a campaign's extro is offered there once it has been seen at its end.
   The rows stand 32 pixels apart in this order: Credits, Intro, the extro where it is offered, Underworld Intro, the Underworld's extro where it is offered, an empty row and Back (`0x713670`).
   The Extras play their movie whatever `SHOWMOVIE` says: where the player's bit `0x100` is set, they clear its bits `0x80` and `0x100` for the play and set them again after it.

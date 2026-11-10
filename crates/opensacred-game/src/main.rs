@@ -84,6 +84,7 @@ mod equipment;
 mod esc_menu;
 mod explored;
 mod explosions;
+mod fades;
 mod fight;
 mod files;
 mod fire_skins;
@@ -564,6 +565,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         explosions::ExplosionsPlugin,
     ))
     .add_plugins((
+        fades::FadesPlugin,
         fight::FightPlugin,
         fire_skins::FireSkinsPlugin,
         fliers::FliersPlugin,
@@ -578,9 +580,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         forms::FormsPlugin,
         frame::FramePlugin,
         fx::FxPlugin,
-        fx_lights::FxLightsPlugin,
     ))
     .add_plugins((
+        fx_lights::FxLightsPlugin,
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,
         glad_sights::GladSightsPlugin,

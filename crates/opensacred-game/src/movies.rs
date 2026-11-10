@@ -595,50 +595,88 @@ fn scripted(mode: i32) -> Option<String> {
     }
 }
 
+/// `InfoPlayer`'s mode that leaves the game for the main menu, as the Esc menu's Quit does after
+/// its OK, with no question and no save (`0x756250`, #2463): the Ancaria campaign's end, after
+/// `GameEnd`'s extro, in the same function.
+const LEAVES: i32 = 6;
+
+/// The game asked to leave for the main menu once its movies have played ([`LEAVES`]).
+#[derive(Resource)]
+struct Leaving;
+
 /// Takes the scripts' movies from their `InfoPlayer`s and `GameEnd`s before the texts are shown,
 /// and plays them where the movies that play by themselves do, black from the request where
-/// `black`.
+/// `black`; whether a [`LEAVES`] was among them.
 fn take_scripted(
     infos: &mut scripts::Infos,
     automatic: Automatic,
     shows: &mut MessageWriter<Show>,
     black: bool,
-) {
+) -> bool {
     let mut names = Vec::new();
-    infos.0.retain(|(mode, _)| match scripted(*mode) {
-        Some(name) => {
-            names.push(name);
-            false
+    let mut leaves = false;
+    infos.0.retain(|(mode, _)| {
+        if *mode == LEAVES {
+            leaves = true;
+            return false;
         }
-        None => true,
+        match scripted(*mode) {
+            Some(name) => {
+                names.push(name);
+                false
+            }
+            None => true,
+        }
     });
     if names.is_empty() {
-        return;
+        return leaves;
     }
     if automatic.0 {
         shows.write(Show { names, black });
     } else {
         info!("the scripts' movies {names:?}: the movies are off");
     }
+    leaves
 }
 
 /// The scripts' movies as they run, over the game, which shows through the wait before them.
 fn from_scripts(
+    mut commands: Commands,
     mut infos: ResMut<scripts::Infos>,
     automatic: Res<Automatic>,
     mut shows: MessageWriter<Show>,
 ) {
-    take_scripted(&mut infos, *automatic, &mut shows, false);
+    if take_scripted(&mut infos, *automatic, &mut shows, false) {
+        info!("the scripts leave the game for the main menu once their movies have played");
+        commands.insert_resource(Leaving);
+    }
+}
+
+/// Leaves the game for the main menu that the scripts asked for ([`LEAVES`]) once no movie
+/// plays: `GameEnd`'s extro to its end, or its skip.
+fn leave(
+    mut commands: Commands,
+    movie: Option<Res<Movie>>,
+    mut state: ResMut<NextState<AppState>>,
+) {
+    if movie.is_some() {
+        return;
+    }
+    commands.remove_resource::<Leaving>();
+    state.set(AppState::Menu);
 }
 
 /// The start script's movies, which its run left, as the game begins (`scripts::begin`): a new
 /// game's intro, black from its request, so that it plays before the world first shows (#1976).
 fn from_start(
+    mut commands: Commands,
     mut infos: ResMut<scripts::Infos>,
     automatic: Res<Automatic>,
     mut shows: MessageWriter<Show>,
 ) {
-    take_scripted(&mut infos, *automatic, &mut shows, true);
+    if take_scripted(&mut infos, *automatic, &mut shows, true) {
+        commands.insert_resource(Leaving);
+    }
 }
 
 /// Marks the campaigns' extros seen as their play is asked for, which the original writes into
@@ -1015,7 +1053,7 @@ impl Plugin for MoviesPlugin {
             .add_systems(
                 Update,
                 (
-                    from_scripts.before(talk::notices),
+                    from_scripts.after(talk::popups).before(talk::notices),
                     (
                         extros_seen
                             .run_if(resource_exists::<Settings>)
@@ -1023,8 +1061,15 @@ impl Plugin for MoviesPlugin {
                         start,
                     ),
                     (advance, fit, end).chain().run_if(resource_exists::<Movie>),
+                    leave.run_if(resource_exists::<Leaving>),
                 )
                     .chain(),
+            )
+            .add_systems(
+                bevy::prelude::OnExit(AppState::InGame),
+                |mut commands: Commands| {
+                    commands.remove_resource::<Leaving>();
+                },
             )
             .hold_control(|movie: Option<Res<Movie>>| movie.is_none());
     }
@@ -1163,6 +1208,33 @@ mod tests {
             };
             assert_eq!(shows, wanted, "{on}");
         }
+    }
+
+    #[test]
+    fn the_campaigns_end_leaves_for_the_main_menu_once_its_extro_has_played() {
+        // `GAMEEND_WIRKLICH81`: `GameEnd`'s extro, then the mode 6 (#2463).
+        use bevy::state::app::AppExtStates;
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .insert_resource(scripts::Infos(vec![
+                (scripts::GAME_END, String::new()),
+                (LEAVES, String::new()),
+            ]))
+            .insert_resource(Automatic(true));
+        let shows = shown(&mut app, from_scripts);
+        assert!(app.world().resource::<scripts::Infos>().0.is_empty());
+        assert_eq!(shows, [Show::one("extro")]);
+        assert!(app.world().contains_resource::<Leaving>());
+        // It waits while a movie plays, and leaves once none does.
+        app.add_systems(Update, leave.run_if(resource_exists::<Leaving>));
+        app.update();
+        assert!(!app.world().contains_resource::<Leaving>());
+        assert!(matches!(
+            app.world().resource::<NextState<AppState>>(),
+            NextState::Pending(AppState::Menu)
+        ));
     }
 
     #[test]
