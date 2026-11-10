@@ -1136,6 +1136,7 @@ mod tests {
                 level: 1,
                 clock: 0.0,
                 saved: 0,
+                tree: None,
             },
             picture: None,
         }
