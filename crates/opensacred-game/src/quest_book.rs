@@ -1000,15 +1000,8 @@ impl Model {
         } else {
             1 + (text_lines - first).div_ceil(later)
         };
-        let marked = match book.tab {
-            0 => marked(entries),
-            tab if tab < TABS - 1 => {
-                std::array::from_fn(|c| book.others[tab - 1].get(c).is_some_and(Chapter::holds))
-            }
-            _ => [false; CHAPTERS],
-        };
         Self {
-            marked,
+            marked: marks(book),
             pages,
             rows,
             item,
@@ -2475,7 +2468,20 @@ fn tooltip(
     }
 }
 
-/// Whether the pointer is off the book: the world's clicks pass where it is.
+/// The chapters whose bookmarks the book shows on its tab: the quests' chapters with an entry,
+/// the information's and the hero's with a page, none on the statistics'.
+fn marks(book: &Book) -> [bool; CHAPTERS] {
+    match book.tab {
+        0 => marked(&book.entries),
+        tab if tab < TABS - 1 => {
+            std::array::from_fn(|c| book.others[tab - 1].get(c).is_some_and(Chapter::holds))
+        }
+        _ => [false; CHAPTERS],
+    }
+}
+
+/// Whether the pointer is off the book: the world's clicks pass where it is. Its bookmarks stand
+/// left and right of its frame, on every tab that shows them (#2502).
 fn off_the_book(
     book: Res<Book>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
@@ -2486,12 +2492,11 @@ fn off_the_book(
     let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
         return true;
     };
-    let marks = marked(&book.entries);
-    let on_mark = book.tab == 0
-        && (0..CHAPTERS).any(|chapter| {
-            let corner = mark_at(chapter, book.shifts[chapter]);
-            marks[chapter] && Rect::from_corners(corner, corner + Vec2::splat(MARK)).contains(at)
-        });
+    let marks = marks(&book);
+    let on_mark = (0..CHAPTERS).any(|chapter| {
+        let corner = mark_at(chapter, book.shifts[chapter]);
+        marks[chapter] && Rect::from_corners(corner, corner + Vec2::splat(MARK)).contains(at)
+    });
     !(TAKES.contains(at) || on_mark)
 }
 
