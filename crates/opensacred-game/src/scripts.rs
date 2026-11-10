@@ -1394,8 +1394,12 @@ impl Host for Recorder<'_> {
     }
 
     fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled {
-        let tags = match operands.first() {
-            Some(Operand::Tags(tags)) => Tags(Some(tags)),
+        let expanded = match operands.first() {
+            Some(Operand::Tags(tags)) => expanded_tags(tags, &self.state.variables),
+            _ => None,
+        };
+        let tags = match (&expanded, operands.first()) {
+            (Some(tags), _) | (None, Some(Operand::Tags(tags))) => Tags(Some(tags)),
             _ => Tags(None),
         };
         if name == "set_cinema_mode" {
@@ -2353,24 +2357,53 @@ const DIFFICULTY_TESTS: [&str; 5] = ["_96", "_97", "_98", "_99", "_9A"];
 /// The variable of the hero's quest bits of the difficulty played (`HeroQBit`).
 const QUEST_BITS: &str = "HeroQBit";
 
-/// A name as the engine expands it as it runs: each `+Var(NAME)` the value of the variable `NAME`
-/// (`grabstein_dialog_+Var(grvarNr)`, docs/02 §7.6).
-fn expand(name: &str, variables: &quests::Variables) -> String {
-    const MARK: &str = "+var(";
-    let mut out = String::new();
-    let mut rest = name;
-    while let Some(at) = rest.to_ascii_lowercase().find(MARK) {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + MARK.len()..];
-        let Some(end) = after.find(')') else {
-            out.push_str(&rest[at..]);
-            return out;
-        };
-        out.push_str(&variables.value(&after[..end]).to_string());
-        rest = &after[end + 1..];
+/// The tags whose strings the engine expands as it reads them, wherever a string holds a `+`
+/// ([`expand`]): the strings' handlers of `01 29 63 68 69 6A 9D` (`0x472C4D`, `ConstructVar`
+/// `0x460720` at `0x472CAC`) and of the texts `1E` (`0x4751C4`, at `0x4751ED`; #2468). The
+/// gravestones' dialogue shows the text `GRAB_+Var(GNr)`, and its `grab_ok` opens
+/// `grabsteintext_+Var(GTO)`.
+const EXPANDED: [&str; 8] = ["_01", "_1E", "_29", "_63", "_68", "_69", "_6A", "_9D"];
+
+/// A record's tags `tags` with their strings of [`EXPANDED`] expanded by `variables`; none where
+/// no such string holds a `+Var(…)`, the record's own tags serving then.
+fn expanded_tags(
+    tags: &std::collections::BTreeMap<String, Operand>,
+    variables: &quests::Variables,
+) -> Option<std::collections::BTreeMap<String, Operand>> {
+    fn holds(operand: &Operand) -> bool {
+        match operand {
+            Operand::Text(text) => text.to_ascii_lowercase().contains("+var("),
+            Operand::List(items) => items.iter().any(holds),
+            _ => false,
+        }
     }
-    out.push_str(rest);
-    out
+    fn expand_in(operand: &mut Operand, variables: &quests::Variables) {
+        match operand {
+            Operand::Text(text) => *text = expand(text, variables),
+            Operand::List(items) => {
+                for item in items {
+                    expand_in(item, variables);
+                }
+            }
+            _ => {}
+        }
+    }
+    if !EXPANDED.iter().any(|key| tags.get(*key).is_some_and(holds)) {
+        return None;
+    }
+    let mut tags = tags.clone();
+    for key in EXPANDED {
+        if let Some(operand) = tags.get_mut(key) {
+            expand_in(operand, variables);
+        }
+    }
+    Some(tags)
+}
+
+/// A name as the engine expands it as it runs: each `+Var(NAME)` the value of the variable `NAME`
+/// (`grabstein_dialog_+Var(grvarNr)`, docs/02 §7.6; `opensacred_scripts::expand`).
+fn expand(name: &str, variables: &quests::Variables) -> String {
+    opensacred_scripts::expand(name, |variable| variables.value(variable))
 }
 
 /// A whole number of the scripts, if it is one an `i32` holds.
@@ -5033,6 +5066,32 @@ mod tests {
         assert_eq!(state.variables.get("grabstein_dialog_0"), Some(7));
         assert_eq!(state.variables.get("grabstein_dialog_193"), Some(7));
         assert_eq!(state.variables.get("grabstein_dialog_194"), None);
+    }
+
+    #[test]
+    fn a_records_texts_and_names_built_as_it_runs_are_expanded() {
+        // A gravestone's dialogue's text and its `grab_ok`'s popup (#2468).
+        let mut variables = quests::Variables::default();
+        variables.set("GNr", 11);
+        let text = |value: &str| Operand::Text(value.to_owned());
+        let tags = std::collections::BTreeMap::from([
+            ("_1E".to_owned(), text("GRAB_+Var(GNr)")),
+            (
+                "_01".to_owned(),
+                Operand::List(vec![text("res:B_OEFFNEN"), text("grab_+VAR(GNr)")]),
+            ),
+            ("_48".to_owned(), text("grabstein_dialog_+Var(GNr)")),
+        ]);
+        let expanded = expanded_tags(&tags, &variables).expect("expanded");
+        assert_eq!(expanded["_1E"], text("GRAB_11"));
+        assert_eq!(
+            expanded["_01"],
+            Operand::List(vec![text("res:B_OEFFNEN"), text("grab_11")])
+        );
+        // A tag of its own reader keeps its string, which that reader expands itself.
+        assert_eq!(expanded["_48"], text("grabstein_dialog_+Var(GNr)"));
+        let plain = std::collections::BTreeMap::from([("_1E".to_owned(), text("GRAB_OFFEN"))]);
+        assert!(expanded_tags(&plain, &variables).is_none());
     }
 
     #[test]

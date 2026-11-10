@@ -91,6 +91,11 @@ The table lists every handler with its cursor advance, payload first, then the t
 | `0x4754A7` | 9F | a variable reference starting at the tag itself |
 | `0x475504` (error exit) | 17 18 21 22 76 94, and 00 and A2–FF by the bound check | ends the record; no record of the release contains one |
 
+**Strings built as they run.**
+The strings' handler of the tags `01 29 63 68 69 6A 9D` (`0x472C4D`) and the texts' of `1E` (`0x4751C4`) expand a string that holds a `+` in the walker's buffer `+0xA460` through `ConstructVar` (`0x460720`, called at `0x472CAC` and `0x4751ED`): each `+Var(NAME)` the variable's value, as the expressions of the tags `48` to `6E` and the variables' references are (read 2026-11-10 for #2468, **confirmed** by code).
+So a function's name of `CallFunktion`, a dialogue's of `Popup`, a button's function and a text's key are built so: the gravestones' `grabsteintake` sets `GNr` and opens `grabsteintext`, whose text is `GRAB_+Var(GNr)`, and its `grab_ok` calls `grab_+Var(GNr)` (`grab_11` and the others) or opens `grabsteintext_+Var(GTO)`; each Ancaria tree calls 8 such names 97 times, each Underworld tree `grab_uw_+Var(GNr_uw)`.
+Since #2468 `opensacred-scripts` expands a call's name by the host's variables (`expand`), and `opensacred-game` a record's strings of those tags before it reads them (`scripts::expanded_tags`).
+
 **Variable references.**
 `FUN_00453970` reads the bytes `9F EF BE ED FE` followed by a name string and looks the name up in the variable vector at `this+0x7550` (entries of 0x24 bytes: `char name[32]`, `i32 value`).
 It moves the cursor past the name whether or not the name is found.
