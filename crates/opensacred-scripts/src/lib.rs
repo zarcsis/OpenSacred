@@ -382,6 +382,8 @@ fn dispatch(
                     )));
                 }
             };
+            // Its name built at run time, each `+Var(NAME)` the variable's value (#2468).
+            let callee = expand(&callee, |name| host.borrow_mut().var(name));
             let rest: Vec<Operand> = args.iter().skip(1).map(operand).collect();
             if host.borrow_mut().defer(&callee, &rest) {
                 return Ok(Value::Boolean(true));
@@ -443,6 +445,28 @@ pub fn refused(name: &str) -> bool {
     (begins("InitRg") && (name.contains("Pools") || name.contains("(DQ_Quest)")))
         || begins("DQTrgRegion")
         || begins("DQStartRegion")
+}
+
+/// A name as the engine expands it as it runs (`ConstructVar` `0x460720`, from the strings' field
+/// reader `0x472C4D` wherever a string holds a `+`; #2468): each `+Var(NAME)`, case aside, the
+/// value of the variable `NAME` that `var` answers. The gravestones' `grab_ok` calls
+/// `grab_+Var(GNr)`, the tree's `grab_11` and the others.
+pub fn expand(name: &str, mut var: impl FnMut(&str) -> i32) -> String {
+    const MARK: &str = "+var(";
+    let mut out = String::new();
+    let mut rest = name;
+    while let Some(at) = rest.to_ascii_lowercase().find(MARK) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + MARK.len()..];
+        let Some(end) = after.find(')') else {
+            out.push_str(&rest[at..]);
+            return out;
+        };
+        out.push_str(&var(&after[..end]).to_string());
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Runs the `nth` function of the name `function` of the tree: its file loaded as it is first
@@ -816,6 +840,23 @@ mod tests {
             Some(Outcome::Ran)
         );
         assert_eq!(host.records.len(), 2);
+    }
+
+    #[test]
+    fn a_calls_name_built_with_var_is_expanded() {
+        // The gravestones' `grab_ok` calls `grab_+Var(GNr)` (#2468); the recorder's variables
+        // all answer 0 here.
+        let (runtime, _) = runtime(&[(
+            "grab.luau",
+            "local t = {}\nt.grab_ok = function()\n  call(\"grab_+Var(GNr)\")\n  \
+             return true\nend\nt.grab_0 = function()\n  touch({})\n  return true\nend\nreturn t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(runtime.call("grab_ok", &mut host).ok(), Some(Outcome::Ran));
+        assert_eq!(host.records.len(), 1);
+        assert!(host.events.iter().any(|event| event == "+grab_0"));
+        assert_eq!(expand("a+VAR(x)b+var(y)", |_| 7), "a7b7");
+        assert_eq!(expand("no+var(end", |_| 7), "no+var(end");
     }
 
     #[test]
