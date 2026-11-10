@@ -49,6 +49,14 @@ pub struct Hit {
     pub ward: bool,
 }
 
+/// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
+/// #2518), of fixed damages, sure ([`burn`]).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Burn {
+    pub target: Entity,
+    pub damages: [f32; 4],
+}
+
 /// The dice of the strikes.
 #[derive(Resource)]
 pub(crate) struct Dice(Rng);
@@ -972,6 +980,85 @@ pub(crate) fn resolve(
     }
 }
 
+/// Takes each strike from nobody ([`Burn`], `0x56B130` for the attacker's id 0;
+/// `opensacred_rules::fight::nobodys_strike`): its damage, through the target's resistances, takes
+/// its health down, shows over it and makes it speak, and at 0 it dies at nobody's hands, no kill
+/// and no experience (`npcs::Dies::unkilled`); it makes no foe of anyone. An immortal target
+/// takes none.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn burn(
+    mut commands: Commands,
+    mut burns: MessageReader<Burn>,
+    mut dice: ResMut<Dice>,
+    rules: Res<Rules>,
+    mut targets: Query<
+        (
+            &mut Health,
+            &Combat,
+            &GlobalTransform,
+            Has<Body>,
+            Has<Immortal>,
+        ),
+        Without<Dies>,
+    >,
+    (mut struck, mut lines): (MessageWriter<Struck>, MessageWriter<crate::voices::Speak>),
+) {
+    for burn in burns.read() {
+        let Ok((mut health, defender, at, hero_hit, immortal)) = targets.get_mut(burn.target)
+        else {
+            continue;
+        };
+        if health.current == 0 {
+            continue;
+        }
+        let damage = opensacred_rules::fight::nobodys_strike(
+            defender.0,
+            burn.damages,
+            hero_hit,
+            &rules,
+            &mut dice.0,
+        );
+        if !immortal {
+            health.current = health.current.saturating_sub(damage);
+        }
+        debug!(
+            "fight: a fire burns {} for {damage}, health {}/{}",
+            burn.target, health.current, health.most
+        );
+        struck.write(Struck {
+            target: burn.target,
+            damage,
+            most: health.most,
+        });
+        if damage > 0 && health.current > 0 {
+            lines.write(crate::voices::Speak::hit(
+                burn.target,
+                health.current,
+                health.most,
+            ));
+        }
+        commands.spawn((
+            Number {
+                at: at.translation() + Vec3::Y * NUMBER_ABOVE,
+                left: NUMBER_SHOWS,
+                text: damage.to_string(),
+                color: if hero_hit { HERO_HIT } else { NUMBER_COLOR },
+                label: None,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+        if health.current == 0 {
+            info!("fight: a fire burns {} to death", burn.target);
+            let mut dies = Dies::unkilled();
+            dies.choice = dice.0.below(2);
+            commands.entity(burn.target).insert(dies);
+        }
+    }
+}
+
 /// Gives `target`, which lives through a strike of `attacker` of the whole damage `damage`, the
 /// open wound that the rolls `rolls` give (`opensacred_rules::fight::open_wound`; #1727, M15):
 /// the effect 23 of the value `⌊damage/10⌋` from the attacker, unless it bleeds by then.
@@ -1583,6 +1670,7 @@ pub struct FightPlugin;
 impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
+            .add_message::<Burn>()
             .add_message::<Kill>()
             .add_message::<Struck>()
             .insert_resource(Dice(crate::seed::dice(0)))
@@ -1592,7 +1680,7 @@ impl Plugin for FightPlugin {
                 OnEnter(AppState::InGame),
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
-            .add_systems(Update, (resolve, level_up, keep_health, rise).chain())
+            .add_systems(Update, (resolve, burn, level_up, keep_health, rise).chain())
             .add_systems(Update, calm.in_set(crate::frame::Unpaused))
             .add_systems(
                 Update,
