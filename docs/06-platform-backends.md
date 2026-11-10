@@ -102,7 +102,8 @@ Estimate: 8–15 agent-hours (M6).
 ## 7. Localization
 
 * `global.res` (UTF-16LE, 23,123 strings) → Fluent (`.ftl`) with keys from the hash identifiers; the original names are known for 56% of the strings, and the rest get a key of the form `id-<number>`.
-* English is the only language of the GOG release.
+* The GOG release carries English, French and Russian, each with text and voice in a language depot of its own (the store page and gogdb); the Steam release carries English alone.
+  The project is verified on the English installation, whose `scripts/us/global.res` the converter reads; the French and Russian depots are not checked locally (docs/09-ecosystem.md, "Open questions", 3).
   Other languages can be added as Fluent files; third-party translations are for personal use only.
 * Fonts: the original TTFs (the menus use the interface font) + Noto (OFL) for Cyrillic and other characters, later.
   The debug overlay, the log, the console and the keys' help use Bevy's embedded Fira Mono (OFL).
