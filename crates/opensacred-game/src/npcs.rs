@@ -1374,6 +1374,11 @@ impl Retexture {
     pub fn load(assets: &AssetServer, texture: &str) -> Self {
         Self(load_texture(assets, texture))
     }
+
+    /// The texture.
+    pub fn image(&self) -> &Handle<Image> {
+        &self.0
+    }
 }
 
 /// The glTF materials given an item's texture, by the material and the texture: shared by the
@@ -7108,6 +7113,11 @@ impl Equipment {
             item.ready = true;
         }
         self
+    }
+
+    /// Whether every item is attached.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Takes out an item of `piece`, which its holder carries already: whether one was there.
