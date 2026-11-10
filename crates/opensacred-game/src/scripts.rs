@@ -142,13 +142,40 @@ pub struct ScriptAreaTypes(pub quests::AreaTypes);
 /// open bit (bit 0; `0x0F` sets it, `0x10` clears it), each where the record gives it; and
 /// whether it carries the tag `0x3C`, the signal of an FX object of the name (`0x48B8C4`: the
 /// event of the object's own kind with its `+0x3C` 1, by which the forge's elements fade,
-/// `forge_elements`).
+/// `forge_elements`). A `SetTriggerState` (49, `0x4968A0`) names a trigger itself (`trigger`)
+/// and gives it a whole state, its bar and its open bit both ([`trigger_state`], #2450).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjState {
     pub name: String,
     pub barred: Option<bool>,
     pub open: Option<bool>,
     pub signal: bool,
+    pub trigger: bool,
+}
+
+/// The state word that a `SetTriggerState`'s tags `tags` make, in their order (`0x4968A0`): from
+/// none, `0x06` and `0x2C` set the bar `0x8000` and clear the open bit 0, `0x07` and `0x2D`
+/// clear the bar, `0x0F` and `0x26` set bit 0, `0x10` and `0x27` clear it, `0x0B` gives the word
+/// whole; none without one of them.
+fn trigger_state<'a>(tags: impl Iterator<Item = (&'a str, &'a Operand)>) -> Option<u16> {
+    let mut word: Option<u16> = None;
+    for (key, operand) in tags {
+        let current = word.unwrap_or(0);
+        word = match key {
+            "_06" | "_2C" => Some((current & !1) | 0x8000),
+            "_07" | "_2D" => Some(current & 0x7FFF),
+            "_0F" | "_26" => Some(current | 1),
+            "_10" | "_27" => Some(current & !1),
+            "_0B" => match operand {
+                Operand::Number(n) => int(*n)
+                    .and_then(|n| u16::try_from(n & 0xFFFF).ok())
+                    .or(word),
+                _ => word,
+            },
+            _ => word,
+        };
+    }
+    word
 }
 
 /// The `SetObjState`s that the scripts ran, in order, which `npcs` carries out on the objects'
@@ -1810,6 +1837,30 @@ impl Host for Recorder<'_> {
                         barred,
                         open,
                         signal,
+                        trigger: false,
+                    });
+                }
+                Handled::Done
+            }
+            // A trigger's whole state by its name (#2450); a building's by a cell (`0x04`) is not
+            // followed.
+            "set_trigger_state" => {
+                let Some(tags_of) = tags.0 else {
+                    return Handled::Unknown;
+                };
+                let word =
+                    trigger_state(tags_of.iter().map(|(key, operand)| (key.as_str(), operand)));
+                if let (Some(word), Some(name), true) = (
+                    word,
+                    tags.texts("_01").first(),
+                    tags.values("_04").is_empty(),
+                ) {
+                    self.states.push(ObjState {
+                        name: name.to_ascii_lowercase(),
+                        barred: Some(word & 0x8000 != 0),
+                        open: Some(word & 1 != 0),
+                        signal: false,
+                        trigger: true,
                     });
                 }
                 Handled::Done
@@ -4030,6 +4081,7 @@ mod tests {
             barred,
             open,
             signal: false,
+            trigger: false,
         };
         // The bar and the open bit alone; a record of neither sets nothing of them; one of
         // `0x3C` signals its FX object.
@@ -4043,6 +4095,53 @@ mod tests {
                     ..state("res:18301", None, None)
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn a_set_trigger_state_gives_its_trigger_a_whole_state() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"doors\"] = function()\n\
+             set_trigger_state { _01 = \"KanalisationTür\", _07 = true, _26 = true }\n\
+             set_trigger_state { _01 = \"Gate\", _06 = true, _27 = true }\n\
+             set_trigger_state { _01 = \"Lit\", _0F = true }\n\
+             set_trigger_state { _01 = \"Word\", _0B = 32769 }\n\
+             set_trigger_state { _04 = { 1, 2, 0 }, _0B = 2 }\n\
+             set_trigger_state { _01 = \"none\" }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run_named("doors");
+        let state = |name: &str, barred, open| ObjState {
+            name: name.into(),
+            barred: Some(barred),
+            open: Some(open),
+            signal: false,
+            trigger: true,
+        };
+        // Unbarred and opened (`Init57`'s sewer door), barred and closed, a lone open bit taking
+        // the bar away with the rest of the word, a whole word; a building's by its cell and a
+        // record of no state set nothing.
+        assert_eq!(
+            effects.states,
+            [
+                state("kanalisationtür", false, true),
+                state("gate", true, false),
+                state("lit", false, true),
+                state("word", true, true),
+            ]
+        );
+        assert!(
+            live.runtime.unknown().is_empty(),
+            "{:?}",
+            live.runtime.unknown()
         );
     }
 
