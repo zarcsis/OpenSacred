@@ -2350,18 +2350,13 @@ fn share(
 }
 
 /// Runs the base trigger of the hero's cell as the cell changes on its way, not by a teleport,
-/// and puts the hero where its functions teleport it, on its level (`Arrival::On`, as the command
-/// `cell` does, as the scripts' `Teleport` puts a player).
+/// puts the hero where its functions teleport it, on its level (`Arrival::On`, as the command
+/// `cell` does, as the scripts' `Teleport` puts a player), and hands on the rest of what they did.
 fn step_on(
     live: Option<NonSendMut<Live>>,
     heights: Option<Res<Heights>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    (mut states, mut healths, mut world, mut home): (
-        ResMut<ObjStates>,
-        ResMut<Healths>,
-        ResMut<WorldRecords>,
-        ResMut<HeroHome>,
-    ),
+    mut queues: Queues,
     (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
     let (Some(mut live), Some(heights)) = (live, heights) else {
@@ -2381,26 +2376,17 @@ fn step_on(
     live.living = living_groups(npcs.as_deref(), minds.iter());
     let effects = live.step_on(cell, layer);
     put(&mut live, &effects.teleports, &mut transform, &mut body);
-    states.0.extend(effects.states);
-    healths.0.extend(effects.healths);
-    world.0.extend(effects.records);
-    if let Some(spot) = effects.home {
-        home.0 = Some(spot);
-    }
+    // Everything else its functions did, their `Popup`s and `InfoPlayer`s among it (#2421).
+    queues.hand(effects);
 }
 
-/// Counts the clock's minutes on the timers, which run their functions as they are due, and
-/// puts the hero where they teleport it.
+/// Counts the clock's minutes on the timers, which run their functions as they are due, puts the
+/// hero where they teleport it, and hands on the rest of what they did.
 fn timers(
     live: Option<NonSendMut<Live>>,
     clock: Option<Res<Clock>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    (mut states, mut healths, mut world, mut home): (
-        ResMut<ObjStates>,
-        ResMut<Healths>,
-        ResMut<WorldRecords>,
-        ResMut<HeroHome>,
-    ),
+    mut queues: Queues,
     (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
     let (Some(mut live), Some(clock)) = (live, clock) else {
@@ -2413,12 +2399,8 @@ fn timers(
     if let Ok((mut transform, mut body)) = heroes.single_mut() {
         put(&mut live, &effects.teleports, &mut transform, &mut body);
     }
-    states.0.extend(effects.states);
-    healths.0.extend(effects.healths);
-    world.0.extend(effects.records);
-    if let Some(spot) = effects.home {
-        home.0 = Some(spot);
-    }
+    // Everything else their functions did, their `Popup`s and `InfoPlayer`s among it (#2421).
+    queues.hand(effects);
 }
 
 /// Runs the function `function` of the hero's tree as the scripts run one (`Live::run`, the
@@ -4375,6 +4357,63 @@ mod tests {
         // A trigger taken out runs nothing, and a cell of none neither.
         assert!(live.step_on((4083, 83), 0).teleports.is_empty());
         assert!(live.step_on((3048, 2893), 0).teleports.is_empty());
+    }
+
+    #[test]
+    fn a_base_triggers_popup_and_notice_reach_the_play() {
+        // The tutorial's chest trigger: its function gives the hero its tip's talk (#2421).
+        let runtime = runtime(&[
+            (
+                "start.luau",
+                "local F = {}\n\
+                 F[\"StartCode\"] = function()\n\
+                 set_base_trigger { _01 = \"TT_Kiste\", _0C = { 10, 10, 0 }, _0D = { 11, 10, 0 } }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "triggers.luau",
+                "local F = {}\n\
+                 F[\"OMO-1TT_Kiste\"] = function()\n\
+                 popup { _01 = \"Hilfetext\" }\n\
+                 info_player { _0B = 1, _01 = \"res:1\" }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+        ]);
+        let mut live = live(runtime);
+        live.at = Some((9, 10));
+        let mut app = App::new();
+        app.add_plugins(bevy::MinimalPlugins)
+            .insert_resource(Heights::default())
+            .init_resource::<ObjStates>()
+            .init_resource::<Healths>()
+            .init_resource::<WorldRecords>()
+            .init_resource::<HeroHome>()
+            .init_resource::<Infos>()
+            .init_resource::<Popups>()
+            .add_message::<ScriptSound>()
+            .add_message::<ScriptLine>()
+            .add_message::<Remark>()
+            .add_message::<crate::pickup::Given>()
+            .add_message::<crate::stashes::RandomItem>()
+            .add_message::<Partikel>()
+            .add_message::<crate::rewards::QuestWon>()
+            .add_systems(Update, step_on);
+        app.world_mut().insert_non_send(live);
+        let at = crate::paths::centre((10, 10));
+        app.world_mut().spawn((
+            crate::hero::Body::standing(),
+            Transform::from_xyz(at.x, 0.0, at.y),
+        ));
+        app.update();
+        assert_eq!(
+            app.world().resource::<Popups>().0,
+            [Begins::Own("Hilfetext".into())]
+        );
+        assert_eq!(app.world().resource::<Infos>().0, [(1, "res:1".into())]);
     }
 
     #[test]
