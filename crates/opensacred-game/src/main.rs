@@ -212,6 +212,7 @@ mod sfx;
 mod shaders;
 mod shadow_dots;
 mod shadows;
+mod sheet_pool;
 mod shields;
 mod skies;
 mod skins;
