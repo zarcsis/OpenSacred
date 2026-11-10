@@ -7151,19 +7151,46 @@ pub fn equipment_ready(ready: On<WorldInstanceReady>, mut npcs: Query<&mut Equip
     }
 }
 
+/// The bone named `wanted` of `holder`'s own skeleton, the nearest its root, breadth first: never
+/// one of the models of the items it holds or wears ([`Piece`]), whose sockets bear the same names,
+/// as the original takes the creature's own bone (`0x555300`, `0x401AE0`). The Vampiress, whose
+/// skeleton has no `Bone_weapon_01`, had a new weapon put on her shield's (#2512).
+fn own_bone(
+    holder: Entity,
+    wanted: &str,
+    (children, names, pieces): (&Query<&Children>, &Query<&Name>, &Query<(), With<Piece>>),
+) -> Option<Entity> {
+    let mut queue = std::collections::VecDeque::from([holder]);
+    while let Some(entity) = queue.pop_front() {
+        let Ok(kids) = children.get(entity) else {
+            continue;
+        };
+        for &kid in kids.iter() {
+            if pieces.contains(kid) {
+                continue;
+            }
+            if names.get(kid).is_ok_and(|name| name.as_str() == wanted) {
+                return Some(kid);
+            }
+            queue.push_back(kid);
+        }
+    }
+    None
+}
+
 /// Attaches each NPC's equipment, once its scene is ready and the item's glTF and its scene are
-/// loaded: the item's socket bone (see [`bones`]) goes onto the NPC's bone that holds it. An item
-/// whose model lacks its socket is not drawn. The item's scene is spawned only once it is loaded,
-/// so that it spawns at once: a spawn put off to a later frame panics in Bevy's spawner when its
-/// holder is despawned meanwhile, as a hero's is by a new game started at once (#488).
+/// loaded: the item's socket bone (see [`bones`]) goes onto the NPC's own bone that holds it
+/// ([`own_bone`]). An item whose model lacks its socket is not drawn. The item's scene is spawned
+/// only once it is loaded, so that it spawns at once: a spawn put off to a later frame panics in
+/// Bevy's spawner when its holder is despawned meanwhile, as a hero's is by a new game started at
+/// once (#488).
 pub fn equip(
     mut commands: Commands,
     mut npcs: Query<(Entity, &mut Equipment)>,
     gltfs: Res<Assets<Gltf>>,
     worlds: Res<Assets<WorldAsset>>,
     nodes: Res<Assets<GltfNode>>,
-    children: Query<&Children>,
-    names: Query<&Name>,
+    (children, names, pieces): (Query<&Children>, Query<&Name>, Query<(), With<Piece>>),
 ) {
     for (npc, mut equipment) in &mut npcs {
         equipment.0.retain_mut(|item| {
@@ -7205,11 +7232,7 @@ pub fn equip(
             let Some(pose) = pose(gltf, &nodes, socket) else {
                 return false;
             };
-            let named = |wanted: &str| {
-                children
-                    .iter_descendants(npc)
-                    .find(|&e| names.get(e).is_ok_and(|n| n.as_str() == wanted))
-            };
+            let named = |wanted: &str| own_bone(npc, wanted, (&children, &names, &pieces));
             let Some(holder) = own.and_then(named).or_else(|| named(holder)) else {
                 return false;
             };
@@ -12277,6 +12300,49 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn an_item_goes_onto_its_holders_own_bone_not_an_items_socket() {
+        use bevy::ecs::system::SystemState;
+        use bevy::ecs::world::World;
+        let mut world = World::new();
+        let piece = Piece {
+            item: 7905,
+            model: "shield.glb".into(),
+            texture: None,
+            hand: Hand::Left,
+            mount: Mount::Forearm,
+        };
+        // The Vampiress: no socket of her own, her shield's under her left forearm.
+        let holder = world.spawn(Name::new("vlady_d")).id();
+        let hand = world
+            .spawn((Name::new("Bip01 R Hand"), ChildOf(holder)))
+            .id();
+        let forearm = world
+            .spawn((Name::new("Bip01 L Forearm"), ChildOf(holder)))
+            .id();
+        let shield = world.spawn((piece, ChildOf(forearm))).id();
+        world.spawn((Name::new("Bone_weapon_01"), ChildOf(shield)));
+        type Bones = (
+            Query<'static, 'static, &'static Children>,
+            Query<'static, 'static, &'static Name>,
+            Query<'static, 'static, (), With<Piece>>,
+        );
+        let mut state: SystemState<Bones> = SystemState::new(&mut world);
+        let (children, names, pieces) = state.get(&world).expect("the queries");
+        let bone = |wanted| own_bone(holder, wanted, (&children, &names, &pieces));
+        assert_eq!(bone("Bone_weapon_01"), None);
+        assert_eq!(bone("Bip01 R Hand"), Some(hand));
+        // A hero's own socket under its hand is found before the shield's.
+        let own = world
+            .spawn((Name::new("Bone_weapon_01"), ChildOf(hand)))
+            .id();
+        let (children, names, pieces) = state.get(&world).expect("the queries");
+        assert_eq!(
+            own_bone(holder, "Bone_weapon_01", (&children, &names, &pieces)),
+            Some(own)
+        );
+    }
 
     #[test]
     fn a_queue_steers_a_walk_short_of_its_target_only() {
