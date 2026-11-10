@@ -27,7 +27,7 @@ use crate::frame::{Control, HoldsControl, Playing, Step, Unpaused};
 use crate::game::{AppState, FONT};
 use crate::hero::{self, Body, Size};
 use crate::lines::Texts;
-use crate::npcs::{Dies, Npcs, ScriptName, Still, Talk, Talks, Trades, Walk};
+use crate::npcs::{Corpse, Dies, Npcs, ScriptName, Still, Talk, Talks, Trades, Walk};
 use crate::scripts::{self, SHOWN};
 use crate::sfx::Sfx;
 use crate::voices;
@@ -267,9 +267,10 @@ fn dialogue_by(
     townsfolk.then(|| region(mind.creature)).flatten()
 }
 
-/// On a press of the left button, the creature of a dialogue alive nearest the cursor's line of
-/// sight becomes the hero's to speak to, the hero walking to it, ahead of an item to take
-/// (`0x53A170`); any other press ends a talk not open yet.
+/// On a press of the left button, the creature of a dialogue nearest the cursor's line of sight
+/// becomes the hero's to speak to, the hero walking to it, ahead of an item to take
+/// (`0x53A170`): one alive, or a dead one whose body its dialogue holds ([`corpse_speech`]); any
+/// other press ends a talk not open yet.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -295,6 +296,7 @@ pub(crate) fn pick(
         ),
         Without<Dies>,
     >,
+    corpses: Query<(Entity, &GlobalTransform, &Talk, &Corpse), With<Dies>>,
     mut heroes: Query<(Entity, &mut Body, Option<&Talking>)>,
     labels: Res<crate::labels::Shown>,
 ) {
@@ -315,7 +317,14 @@ pub(crate) fn pick(
     };
     // A creature's label under the cursor picks it (`0x631CEB`).
     let labelled = labels.labelled(cursor);
-    let Some((creature, (at, level), dialogue)) = creatures
+    let distance = |entity, at| {
+        if labelled == Some(entity) {
+            0.0
+        } else {
+            attack::from_line(ray, at)
+        }
+    };
+    let living = creatures
         .iter()
         .filter(|(_, _, _, health, ..)| health.current > 0)
         .filter_map(|(entity, at, mind, _, talk, trades, (way, stabled))| {
@@ -326,13 +335,19 @@ pub(crate) fn pick(
                 speech_of(talk, mind, trades, npcs.as_deref())?
             };
             let at = at.translation();
-            let distance = if labelled == Some(entity) {
-                0.0
-            } else {
-                attack::from_line(ray, at)
-            };
-            Some((entity, (at, way.level), dialogue, distance))
-        })
+            Some((entity, (at, way.level), dialogue, distance(entity, at)))
+        });
+    let dead = corpses.iter().map(|(entity, at, talk, corpse)| {
+        let at = at.translation();
+        (
+            entity,
+            (at, corpse.level),
+            corpse_speech(talk),
+            distance(entity, at),
+        )
+    });
+    let Some((creature, (at, level), dialogue)) = living
+        .chain(dead)
         .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
         .min_by(|a, b| a.3.total_cmp(&b.3))
         .map(|(entity, at, dialogue, _)| (entity, at, dialogue))
@@ -358,6 +373,15 @@ pub(crate) fn pick(
     }
 }
 
+/// What a dead creature of the dialogue `talk` opens as the hero speaks to it: its dialogue. Its
+/// body lies on while it holds one (the dying action's hold, `0x53ECA0`'s lying step, of a
+/// dialogue `+0x245` from 1 to 59,999), a click on it sends the hero to it as to a living one's
+/// (`0x6178B2`, the order 7), and a script's dialogue given at its death speaks there: Wilbur's of
+/// quest 45, `DlgWillbur45`, which starts quest 51 (#2444).
+fn corpse_speech(talk: &Talk) -> Speech {
+    Speech::Dialogue(talk.0.clone())
+}
+
 /// Whether the talk opens with the hero `distance` from the creature, `reach` their reach, as the
 /// first step of the hero's AI's state 10 decides (`0x529C60`): at once where the hero stood
 /// within 1.5 times the reach as it began (not `walks`); else once it comes within the reach, or
@@ -370,7 +394,8 @@ fn opens(distance: f32, reach: f32, walks: bool, ended: bool) -> bool {
 /// it walks to the creature until within the reach, heading for it again as it moves ([`opens`]);
 /// then the creature stops, both turn to each other and the creature plays its talk, and the
 /// dialogue runs ([`open`]). The hero gives the talk up where it stops short of it again and
-/// again, or where the creature is gone or dead (`0x529C60`, `0x52AB70`).
+/// again, or where the creature is gone or dead, but a dead one whose dialogue holds its body,
+/// which neither turns nor plays a talk (`0x529C60`, `0x52AB70`; [`corpse_speech`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -388,23 +413,46 @@ fn approach(
         (&mut Transform, &Mind, &Health, &crate::crowd::InTheWay),
         (Without<Body>, Without<Dies>),
     >,
+    corpses: Query<(&Transform, &Corpse), (With<Talk>, With<Dies>, Without<Body>)>,
 ) {
     for (hero, mut transform, mut body, mut talking, size) in &mut heroes {
         if talking.open {
             continue;
         }
-        let Ok((mut theirs, mind, health, way)) = creatures.get_mut(talking.creature) else {
-            commands.entity(hero).remove::<Talking>();
+        let size = size.map_or(minds::SIZE, |size| size.0);
+        let (mut theirs, reach, level) = match creatures.get_mut(talking.creature) {
+            Ok((theirs, mind, health, way)) if health.current > 0 => {
+                (Some(theirs), minds::reach_f32(size, mind.size()), way.level)
+            }
+            Ok(_) => {
+                commands.entity(hero).remove::<Talking>();
+                continue;
+            }
+            Err(_) => match corpses.get(talking.creature) {
+                Ok((_, corpse)) => (
+                    None,
+                    minds::reach_f32(size, minds::size(corpse.creature, false)),
+                    corpse.level,
+                ),
+                Err(_) => {
+                    commands.entity(hero).remove::<Talking>();
+                    continue;
+                }
+            },
+        };
+        let Some(there) = theirs
+            .as_ref()
+            .map(|theirs| theirs.translation)
+            .or_else(|| {
+                corpses
+                    .get(talking.creature)
+                    .ok()
+                    .map(|(lying, _)| lying.translation)
+            })
+        else {
             continue;
         };
-        if health.current == 0 {
-            commands.entity(hero).remove::<Talking>();
-            continue;
-        }
         let here = transform.translation;
-        let there = theirs.translation;
-        let size = size.map_or(minds::SIZE, |size| size.0);
-        let reach = minds::reach_f32(size, mind.size());
         let distance = (there - here).xz().length();
         let walks = *talking.walks.get_or_insert(distance > OPENS_WITHIN * reach);
         // An order waits for the world's next tick (`hero::take_orders`).
@@ -423,19 +471,22 @@ fn approach(
                 }
             }
             if heading.is_none_or(|to| (to - there).xz().length() > MOVED) {
-                body.send_onto(there, way.level);
+                body.send_onto(there, level);
             }
             continue;
         }
         body.stop();
         transform.rotation = hero::facing(there - here);
-        theirs.rotation = hero::facing(here - there);
         talking.open = true;
         let creature = talking.creature;
-        commands
-            .entity(creature)
-            .remove::<Walk>()
-            .insert((Still, Talks));
+        // A living one stops, turns to the hero and plays its talk; a body lies as it fell.
+        if let Some(theirs) = theirs.as_mut() {
+            theirs.rotation = hero::facing(here - there);
+            commands
+                .entity(creature)
+                .remove::<Walk>()
+                .insert((Still, Talks));
+        }
         match talking.dialogue.clone() {
             Speech::Dialogue(dialogue) => {
                 commands.queue(move |world: &mut World| open(world, hero, creature, &dialogue));
@@ -542,6 +593,7 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
         None => world
             .get::<Mind>(creature)
             .map(|mind| mind.creature)
+            .or_else(|| world.get::<Corpse>(creature).map(|corpse| corpse.creature))
             .and_then(|kind| {
                 let (file, rect) = world.get_resource::<Portraits>()?.of(kind)?;
                 Some((file.to_owned(), rect))
@@ -1111,15 +1163,20 @@ fn end(world: &mut World, hero: Entity, creature: Entity) {
 }
 
 /// Closes a window without buttons on Enter or a press of a mouse button (`0x655920`), and any
-/// window once the hero and the creature stand farther than 1,500 apart or the creature is gone
-/// (`0x5370B0`).
+/// window once the hero and the creature stand farther than 1,500 apart or the creature is gone,
+/// its body lying on (`0x5370B0`): a dead one's dialogue that takes its dialogue away (`DelDlg`)
+/// keeps its window to the end ([`corpse_speech`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
 fn dismiss(
     mut commands: Commands,
     shown: Option<Res<Shown>>,
     keys: crate::controls::Keys,
     buttons: Res<ButtonInput<MouseButton>>,
     heroes: Query<&Transform, With<Body>>,
-    creatures: Query<&Transform, Without<Dies>>,
+    creatures: Query<&Transform, Or<(Without<Dies>, With<Corpse>)>>,
 ) {
     let Some(shown) = shown else {
         return;
@@ -1287,6 +1344,19 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
             })
             .collect()
     };
+    // A dead one whose dialogue holds its body (#2444).
+    let mut corpses = world.query_filtered::<(Entity, &Transform, &Talk, &Corpse), With<Dies>>();
+    let found: Vec<_> = found
+        .into_iter()
+        .chain(
+            corpses
+                .iter(world)
+                .filter(|(entity, ..)| creature.is_none_or(|c| c == *entity))
+                .map(|(entity, at, talk, corpse)| {
+                    (entity, at.translation, corpse.level, corpse_speech(talk))
+                }),
+        )
+        .collect();
     let (creature, at, level, dialogue) = found
         .into_iter()
         .min_by(|a, b| {
@@ -1420,6 +1490,39 @@ impl Plugin for TalkPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dead_creature_whose_dialogue_holds_its_body_is_spoken_to() {
+        let mut world = World::new();
+        let hero = world.spawn((Body::standing(), Transform::default())).id();
+        let corpse = |world: &mut World, talk: Option<&str>| {
+            let mut entity = world.spawn((
+                Transform::from_xyz(100.0, 0.0, 0.0),
+                Dies::new(0),
+                Corpse {
+                    creature: 83,
+                    class: 0,
+                    dialogue: talk.is_some(),
+                    level: None,
+                    hostile: false,
+                },
+            ));
+            if let Some(talk) = talk {
+                entity.insert(Talk(talk.to_owned()));
+            }
+            entity.id()
+        };
+        // A body without a dialogue: nobody to speak to.
+        corpse(&mut world, None);
+        assert!(talk_to(&mut world, None).is_err());
+        // Wilbur's, given his dialogue as he lies (#2444): the hero goes to speak to him.
+        let wilbur = corpse(&mut world, Some("DlgWillbur45"));
+        let said = talk_to(&mut world, None).unwrap();
+        assert!(said.contains("DlgWillbur45"), "{said}");
+        let talking = world.get::<Talking>(hero).unwrap();
+        assert_eq!(talking.creature, wilbur);
+        assert!(matches!(&talking.dialogue, Speech::Dialogue(d) if d == "DlgWillbur45"));
+    }
 
     #[test]
     fn a_tips_picture_is_the_clients_image_of_its_entry() {
