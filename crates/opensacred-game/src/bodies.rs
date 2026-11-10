@@ -17,9 +17,10 @@ use crate::game::AppState;
 use crate::npcs::{Corpse, Dies, OnDeath, RisesAgain, Talk, Trades};
 use crate::undead::{Bursts, Destroyed, gone};
 
-/// A body that lies until its seconds run out ([`vanish`]).
+/// A body that lies until its seconds run out ([`vanish`]), and whether it then goes at once,
+/// with no soul and whatever holds it: a medium spider's (#2504).
 #[derive(Component, Clone, Copy, Debug)]
-struct Lies(f32);
+struct Lies(f32, bool);
 
 /// Gives each new body of a creature that ends no other way its time to lie and its time to be
 /// destroyed, both from its death (`0x53E880`): a body put back lying, which its dialogue held as
@@ -38,6 +39,13 @@ fn lie(
         {
             continue;
         }
+        let destroyed = Destroyed(undead::destroyed_after(detail));
+        if corpse.creature == undead::MEDIUM_SPIDER {
+            commands
+                .entity(entity)
+                .insert((Lies(undead::FIRST_LYING_TICK, true), destroyed));
+            continue;
+        }
         let lies = if dies.fallen {
             0.0
         } else {
@@ -45,7 +53,7 @@ fn lie(
         };
         commands
             .entity(entity)
-            .insert((Lies(lies), Destroyed(undead::destroyed_after(detail))));
+            .insert((Lies(lies, false), destroyed));
     }
 }
 
@@ -93,7 +101,17 @@ fn vanish(
 ) {
     for (entity, mut lies, corpse, at, on_death, (talks, stabled, trades, rises)) in &mut lying {
         lies.0 -= time.delta_secs();
-        if lies.0 > 0.0 || held(corpse, on_death, (talks, stabled, trades), rises) {
+        if lies.0 > 0.0 {
+            continue;
+        }
+        // A medium spider's goes at its first tick of lying, as it is (`0x54045E`).
+        if lies.1 {
+            debug!("bodies: {entity}, a {}, goes at once", corpse.creature);
+            commands.entity(entity).remove::<Lies>();
+            gone(&mut commands, entity);
+            continue;
+        }
+        if held(corpse, on_death, (talks, stabled, trades), rises) {
             continue;
         }
         debug!("bodies: {entity}, a {}, vanishes", corpse.creature);
@@ -204,5 +222,35 @@ mod tests {
                 .any(|sparks| sparks.from == body && sparks.rising)
         );
         assert!(app.world().get::<Corpse>(named).is_some());
+    }
+
+    #[test]
+    fn a_medium_spiders_body_goes_at_its_first_tick_of_lying_held_or_not() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                100,
+            )))
+            .add_systems(Update, (lie, vanish).chain());
+        let spider = app
+            .world_mut()
+            .spawn((
+                Corpse {
+                    creature: undead::MEDIUM_SPIDER,
+                    ..corpse(LIES_ON)
+                },
+                Dies::new(0),
+                GlobalTransform::default(),
+            ))
+            .id();
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().get::<Corpse>(spider).is_none());
+        assert!(app.world().get::<Destroyed>(spider).is_some());
+        let mut sparks = app.world_mut().query::<&crate::soul_sparks::Sparks>();
+        assert_eq!(sparks.iter(app.world()).count(), 0);
     }
 }
