@@ -386,8 +386,14 @@ fn dispatch(
             if host.borrow_mut().defer(&callee, &rest) {
                 return Ok(Value::Boolean(true));
             }
-            let outcome = run(lua, inner, host, &callee, 0).map_err(mlua::Error::external)?;
-            Ok(Value::Boolean(outcome.ran()))
+            // A function that the tree lacks runs nothing, and its caller goes on with its next
+            // record (`0x4813D0`, #2466): the Underworld's start calls `rg24_goodie1`, which no
+            // file of its tree defines.
+            match run(lua, inner, host, &callee, 0) {
+                Ok(outcome) => Ok(Value::Boolean(outcome.ran())),
+                Err(Error::NoFunction { .. }) => Ok(Value::Boolean(false)),
+                Err(e) => Err(mlua::Error::external(e)),
+            }
         }
         "var" => {
             let var = match first() {
@@ -794,6 +800,22 @@ mod tests {
         assert_eq!(host.records.len(), 3);
         assert_eq!(loads.borrow().get("b.luau"), Some(&1));
         assert_eq!(runtime.files(), 2);
+    }
+
+    #[test]
+    fn a_call_of_a_function_that_the_tree_lacks_runs_nothing_and_its_caller_goes_on() {
+        // The Underworld's start calls `rg24_goodie1`, which its tree lacks (#2466).
+        let (runtime, _) = runtime(&[(
+            "start.luau",
+            "local t = {}\nt.StartCode = function()\n  touch({})\n  \
+             call(\"rg24_goodie1\")\n  touch({})\n  return true\nend\nreturn t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(
+            runtime.call("StartCode", &mut host).ok(),
+            Some(Outcome::Ran)
+        );
+        assert_eq!(host.records.len(), 2);
     }
 
     #[test]
