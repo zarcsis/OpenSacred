@@ -283,6 +283,32 @@ impl Line {
     }
 }
 
+/// The cells of the line that a search with no way walks at the most (`0x4FB44A`: its count of
+/// steps ends the line as it reaches 15, untested).
+pub const NO_WAY_STEPS: u8 = 14;
+
+/// Where a walker in cell `from` heads for when no way leads to cell `to` (`0x4FB44A`, after
+/// `0x4FABE0`'s search fails): along the line by whole cells ([`Line`]) toward `to`, up to
+/// [`NO_WAY_STEPS`] cells, while each passes `passes` (`0x4FAA60` on the walker's floor), the last
+/// that passed, `to` itself where the line reaches it, and `from` where the first fails. The
+/// original then searches a way to that cell and, for a creature walking where it was sent and not
+/// fighting, makes it the walk's target (`+0x158`, `+0x15C`).
+pub fn no_way_end(from: Cell, to: Cell, passes: impl Fn(Cell) -> bool) -> Cell {
+    let mut line = Line::new(from, to);
+    let mut last = from;
+    for _ in 0..NO_WAY_STEPS {
+        if line.at == to {
+            break;
+        }
+        let next = line.advance();
+        if !passes(next) {
+            break;
+        }
+        last = next;
+    }
+    last
+}
+
 /// Whether a straight way leads from cell `from` to cell `to` by the original's test
 /// (`0x4FCC80`, docs/re/containers.md, "The hero's order"): the cells of the line by whole cells
 /// ([`Line`]) pass `walkable`, `to` passing whatever it is and `from` not; where one does not, the
@@ -742,6 +768,23 @@ pub fn stated_word(old: u32, word: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_no_way_the_walker_heads_for_the_last_cell_of_its_line_that_passes() {
+        // The start's novice outside the chapel, sent to its benches on the ground (#2481): her
+        // line passes the porch and the door's entrance, and the chapel's mass ends it.
+        let mass = |(_, y): Cell| y > 2518;
+        assert_eq!(no_way_end((3239, 2524), (3237, 2514), mass), (3238, 2519));
+        // An open line ends at its target, a long one after its fourteenth cell.
+        let open = |_| true;
+        assert_eq!(no_way_end((0, 0), (5, 0), open), (5, 0));
+        assert_eq!(no_way_end((0, 0), (30, 0), open), (14, 0));
+        assert_eq!(no_way_end((0, 0), (-30, -30), open), (-14, -14));
+        // Its first cell closed, the walker's own.
+        assert_eq!(no_way_end((0, 0), (5, 0), |(x, _)| x != 1), (0, 0));
+        // Already there, there.
+        assert_eq!(no_way_end((2, 2), (2, 2), open), (2, 2));
+    }
 
     #[test]
     fn a_change_of_floor_is_a_cell_like_the_others_on_one_floor() {

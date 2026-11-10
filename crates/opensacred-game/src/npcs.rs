@@ -425,6 +425,11 @@ struct Placement {
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
     /// is a run.
     walk: Option<((u32, u32), f32)>,
+    /// The floor its walk goes onto, of the building at its cell, 0 for the creature's own level
+    /// as the record runs (`0x49E210`, #2481). Not saved: the placements a save keeps are the
+    /// fills' creatures', which walk nowhere, and the scripts' are made again of their records.
+    #[serde(skip)]
+    walk_floor: usize,
     /// Whether the object maker alone made it (`0x5FBA40`), a crab or a fish of the waters, which
     /// no level's setter raises: its skills its two slots' at level 1, as its stats are made
     /// (`0x586C00`), and its most health the stats' 100 (seen in the original, #575).
@@ -978,6 +983,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         drawn: None,
         home: None,
         walk: None,
+        walk_floor: 0,
         speed: kind.speed,
         class: kind.class,
         base: kind.base,
@@ -3509,6 +3515,7 @@ impl Makers {
         } else {
             (ClipNames::default(), None)
         };
+        let walk_floor = target.map_or(0, |(.., layer)| usize::try_from(layer).unwrap_or(0));
         let walk = target
             .filter(|_| record.kind == CREATE_NPC)
             .and_then(|(tx, ty, _)| Some((u32::try_from(tx).ok()?, u32::try_from(ty).ok()?)))
@@ -3564,6 +3571,7 @@ impl Makers {
             },
             home: None,
             walk,
+            walk_floor,
             speed: [walking, running].map(f32::from),
             class,
             base: self.bases.get(&creature).copied().unwrap_or_default(),
@@ -6873,13 +6881,28 @@ fn spawn(
                 });
             }
         }
+        // Its walk onto the floor its `NPC_Goto` names, of the building there, and for the
+        // floor 0 onto its own level as the record runs, as it is made (`0x49E210`): the start's
+        // novice, made outside the chapel, so stops inside its door, on the chapel's floor
+        // where no way leads to her target on the ground (#2481).
         if let Some(((tx, ty), speed)) = placement.walk {
+            let floor = placement.walk_floor;
+            let onto = if floor > 0 {
+                i32::try_from(tx)
+                    .ok()
+                    .zip(i32::try_from(ty).ok())
+                    .and_then(|cell| heights.building_on_floor(cell, floor))
+                    .and_then(|building| heights.floor_level(building, floor))
+            } else {
+                level
+            };
             entity.insert(
                 Walk::to(
                     iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
                     level,
                     speed * pace,
                 )
+                .onto(onto)
                 .idle(),
             );
         }
@@ -7694,6 +7717,22 @@ pub fn walk(
         };
         if walk.course.is_none() || at_leg(&walk.course) {
             walk.course = plan(here, None);
+            // No way to its target: one walking where it was sent heads for the last cell of the
+            // line toward it that it may step into on its level, up to 14, which becomes its
+            // target on that level (`0x4FB44A`, `+0x158`, `+0x15C`), and stands there. So the
+            // start's novice, sent to the chapel's benches on the ground, stops inside its door,
+            // where the chapel's mass ends her line (#2481).
+            if walk.course.is_none() && walk.idle && !flies {
+                let to = paths::cell_of(target.x, target.z);
+                let end = ways::no_way_end(cell, to, |c| free(c, level));
+                if end != to {
+                    let point = paths::centre(end);
+                    walk.target = Vec3::new(point.x, here.y, point.y);
+                    walk.onto = Some(level);
+                    bevy::log::debug!("npcs: {entity} finds no way to {to:?}, heads for {end:?}");
+                    continue;
+                }
+            }
         } else if let (Some(seconds), Some(planned)) = (tick.seconds, walk.course.as_mut())
             && planned.due(paths::cell_of(here.x, here.z), seconds, every)
         {
@@ -10854,12 +10893,14 @@ pub(crate) fn script_records(
                 continue;
             }
             if walks {
-                // At its walk speed, as the start's `NPC_Goto`s walk theirs (#132).
+                // At its walk speed, as the start's `NPC_Goto`s walk theirs (#132); to a cell of
+                // the floor 0 onto its own level as the record runs (`0x49E210`, #2481).
                 let speed = mind.as_ref().map_or(0.0, |mind| mind.speed);
                 let from = way.as_ref().and_then(|way| way.level);
+                let onto = if layer > 0 { level } else { from };
                 commands
                     .entity(entity)
-                    .insert(Walk::to(to, from, speed).onto(level).idle());
+                    .insert(Walk::to(to, from, speed).onto(onto).idle());
             } else {
                 let mut at = to;
                 if let Some(y) = heights.standing(at.x, at.z, level) {
