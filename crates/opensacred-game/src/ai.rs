@@ -1221,13 +1221,20 @@ fn pursue(
             // At a run in two cases of three (#2489).
             Pursues::StepsBack(to) => {
                 let to = point(to, here.y);
-                commands
-                    .entity(entity)
-                    .insert(if mind.steps_back_runs(&mut minds.rng) {
-                        Walk::run(to, way.level, mind.run)
-                    } else {
-                        Walk::to(to, way.level, mind.speed)
-                    });
+                // A step back from the hero's own point is a move to where it stands, which ends
+                // at once (`0x4E20EE`): it stands, and strikes as it decides next (#2513).
+                if (to - here).xz().length() < crate::hero::ARRIVED {
+                    debug!("ai: {entity} stands on the hero's point and steps nowhere");
+                    commands.entity(entity).remove::<Walk>();
+                } else {
+                    commands
+                        .entity(entity)
+                        .insert(if mind.steps_back_runs(&mut minds.rng) {
+                            Walk::run(to, way.level, mind.run)
+                        } else {
+                            Walk::to(to, way.level, mind.speed)
+                        });
+                }
             }
             Pursues::GoesBack => {
                 debug!("ai: {entity} {:?} from the fight", Why::GoesBack);
