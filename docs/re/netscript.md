@@ -121,6 +121,7 @@ Its fourth number is the level (`+0xA868`), 0 where it is below 0.
 So the start's soldiers of `posSoldatenDMG` (1321, 2254, radius 6) stand each on a cell of its own about it, on other cells at each new game (**seen** in the original 2026-11-10: seven soldiers at 1324,2249, 1323,2251, 1320,2253 and four more, then at 1320,2251, 1318,2252, 1320,2256 and seven more at the next game).
 Of the Seraphim's 1,908 places 139 have a radius (up to 20), named by 1,887 `CreateNPC`s, 10 `Teleport`s and 3 `NPC_Goto`s; 195 have a fourth number above 0.
 Since #2442 `opensacred-game` takes a place's fourth number as its level (`quests::Place`), and a creature or object made anew at a place of a radius takes a cell of its own about it, the first of the ten that may be walked on at its level with no creature in it nor one made there in the same frame (`npcs::spread_cell`; docs/decisions/netscript.md, "Places' cells drawn by their records"); a `Teleport` or an `NPC_Goto` to such a place goes to its cell.
+Since #2455 a `MouseEvent` takes a place's name too, on its cell and level: 17 of the Seraphim's 1,311 name one, among them quest 61's four elements (`posElementLuft1` and the others).
 
 ## Keyword resolvers of the compiler
 
