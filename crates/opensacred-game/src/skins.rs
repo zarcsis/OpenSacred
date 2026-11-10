@@ -14,7 +14,11 @@
 //! state 9 with the texture `FREEZE_STONE01` that the stone's action 7 asks for its hold's
 //! seconds, its model drawn again with that texture, lit, laid over by its alpha (`0x44AD50`,
 //! `0x40D060`), which, the texture opaque, hides the model under it: here the model's own
-//! materials take the stone's texture while it lasts, and give it back. The items it wears,
+//! materials take the stone's texture while it lasts, and give it back. A vision, Valor's ghost
+//! or the Daemon's vision (`opensacred_rules::spells::VISIONS`, #2519), wears its look for good,
+//! its model never drawn plain (`0x44A9D0`'s state 22 or 23, `0x40C320`): its texture in a grey
+//! that pulses by the real clock, times twice the vision's texture taken by its normals, unlit and
+//! added to the frame (`models::Pass::Vision`). The items it wears,
 //! merged onto its model (`GrannyWearSequence`), take the skin with it; those it holds in a hand or
 //! carries on its back, objects of their own, keep their looks.
 
@@ -29,7 +33,7 @@ use bevy::prelude::*;
 use opensacred_rules::spells::{
     CROSS_SKIN_SCALE, CROSS_SKIN_TEXTURE, GLOW_SKIN_SCROLL, GLOW_SKIN_TEXTURE, LAVA_SKIN_TEXTURE,
     SKIN_BLINK, SPEED_SKIN_TEXTURE, STONED_TEXTURE, WATER_SKIN_TEXTURE, cross_skin_grey,
-    lava_skin_grey, skin_shows,
+    lava_skin_grey, skin_shows, vision_grey,
 };
 
 use crate::blended::Layer;
@@ -38,8 +42,9 @@ use crate::game::Data;
 use crate::models::{Anchors, ModelMaterial, Pass, in_order};
 
 /// A skin over a creature's model: the fire skin's lava and the quickening's speed (the state
-/// 10), the crusader's strength's crosses (6), the stone skin's glow (7, then 8), the stone's (9)
-/// or the water form's (1, then 3), which the model wears in place of its own look.
+/// 10), the crusader's strength's crosses (6), the stone skin's glow (7, then 8), the stone's (9),
+/// the water form's (1, then 3) or a vision's look of its texture (the states 22 and 23), which
+/// the model wears in place of its own look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Overlay {
     Lava,
@@ -48,6 +53,7 @@ pub(crate) enum Overlay {
     Glow,
     Stone,
     Water,
+    Vision(&'static str),
 }
 
 impl Overlay {
@@ -60,13 +66,14 @@ impl Overlay {
             Self::Glow => GLOW_SKIN_TEXTURE,
             Self::Stone => STONED_TEXTURE,
             Self::Water => WATER_SKIN_TEXTURE,
+            Self::Vision(texture) => texture,
         }
     }
 
     /// Whether its model wears it in place of its own materials, rather than under a copy added
     /// over it.
     fn worn(self) -> bool {
-        matches!(self, Self::Stone | Self::Water)
+        matches!(self, Self::Stone | Self::Water | Self::Vision(_))
     }
 
     /// Whether it blinks out for 2 s after its seconds: the stone skin's glow (the state 8) and
@@ -220,6 +227,7 @@ fn dress(
     ),
     (data, server, anchors): (Option<Res<Data>>, Res<AssetServer>, Res<Anchors>),
     mut materials: ResMut<Assets<ModelMaterial>>,
+    real: Res<Time<Real>>,
 ) {
     for (bearer, mut skin) in &mut skins {
         if skin.dressed {
@@ -262,6 +270,14 @@ fn dress(
                                 base.base,
                                 &anchors,
                                 look.clone(),
+                            ));
+                        }
+                        if let Overlay::Vision(_) = overlay {
+                            return materials.add(crate::models::vision(
+                                base.base,
+                                &anchors,
+                                look.clone(),
+                                grey(overlay, 0.0, real.elapsed_secs_f64()),
                             ));
                         }
                         let mut base = base;
@@ -325,7 +341,8 @@ fn dress(
 }
 
 /// An added skin's grey at `left` seconds still to run and `real` seconds of the real clock: the
-/// lava's and the speed's by the seconds left, the crosses' by the real clock, the glow white. A
+/// lava's and the speed's by the seconds left, the crosses' and a vision's by the real clock, the
+/// glow white. A
 /// grey of the frame's values in linear light, as the model's material takes it: its texels are
 /// decoded, multiplied by it and encoded again (`standard.wesl`), so that the frame takes the
 /// texels' values times the grey, as the original's device adds them (`fx::linear`; #2169).
@@ -333,6 +350,7 @@ fn grey(overlay: Overlay, left: f32, real: f64) -> Color {
     let grey = match overlay {
         Overlay::Lava | Overlay::Speed => lava_skin_grey(left),
         Overlay::Cross => cross_skin_grey(real * 1000.0),
+        Overlay::Vision(_) => vision_grey(real * 1000.0),
         Overlay::Glow | Overlay::Stone | Overlay::Water => 1.0,
     };
     Color::srgb(grey, grey, grey)
@@ -352,7 +370,9 @@ fn coordinates(overlay: Overlay, real: f64) -> Affine2 {
             let scroll = scroll as f32;
             Affine2::from_translation(Vec2::splat(scroll))
         }
-        Overlay::Lava | Overlay::Speed | Overlay::Stone | Overlay::Water => Affine2::IDENTITY,
+        Overlay::Lava | Overlay::Speed | Overlay::Stone | Overlay::Water | Overlay::Vision(_) => {
+            Affine2::IDENTITY
+        }
     }
 }
 
@@ -409,6 +429,15 @@ fn run(
         {
             material.base.base_color = grey(skin.overlay, skin.left, now);
             material.base.uv_transform = coordinates(skin.overlay, now);
+        }
+        // A vision's own materials pulse by the real clock.
+        if let Overlay::Vision(_) = skin.overlay {
+            let grey = grey(skin.overlay, skin.left, now);
+            for worn in &skin.worn {
+                if let Some(mut material) = materials.get_mut(worn) {
+                    material.base.base_color = grey;
+                }
+            }
         }
     }
 }
