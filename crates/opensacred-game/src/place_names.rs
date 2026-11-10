@@ -297,6 +297,45 @@ impl Key {
     }
 }
 
+/// The line `text` written upright in the font 3 at [`SIZE`] (`font` its file), into an image of
+/// `scale` of its pixels a pixel, white of each pixel's coverage (`info_lines`, #2499): its size
+/// in pixels and the image; none for an empty text.
+pub(crate) fn line(font: &[u8], text: &str, scale: f32) -> Option<(Vec2, Image)> {
+    let scale = scale.max(1.0);
+    let strip = strip(font, text, SIZE * scale, scale)?;
+    let data: Vec<u8> = strip
+        .coverage
+        .iter()
+        .flat_map(|&coverage| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a coverage of 0 to 1 as a byte"
+            )]
+            let alpha = (coverage.clamp(0.0, 1.0) * 255.0).round() as u8;
+            [255, 255, 255, alpha]
+        })
+        .collect();
+    let (Ok(width), Ok(height)) = (u32::try_from(strip.width), u32::try_from(strip.height)) else {
+        return None;
+    };
+    let image = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    Some((
+        Vec2::new(float(strip.width), float(strip.height)) / scale,
+        image,
+    ))
+}
+
 /// The name `text` at the map's pixel `place` on its arc, written into an image of `scale` of its
 /// pixels a map's pixel, black of the ink's opacity: the map's box it covers and the image; none
 /// for an empty text or the curvature 0.

@@ -304,6 +304,26 @@ Not followed: the mounts' labels (#1822) and the stargate 1180's.
 Since #2234 the townsfolk show their doings' icons while Alt is held (`icons`, `opensacred_rules::minds::{activity, activity_icon}`): the game's townsfolk write their doings where the original's do (`ai`), but the visits' barbecue (19), the doors' retries (20, 21, 27), the slap at a meeting and the animals' and the fields' doings, which it does not follow.
 **Seen** 2026-11-07 at the Seraphim's start, Alt held: a novice's doing's icon over her head above her label.
 
+## The info lines (`cUI_TextLines`)
+
+Read 2026-11-10 for #2499 by a subagent (**confirmed** by code unless marked otherwise; **seen** in the original under its driver, the Seraphim's `QIS_OnEnter9`).
+
+- An `InfoPlayer` of the modes 0 to 2 posts the engine's event (its class 6, the kind `0x20`; `+4` `0xB`, `+8` `0x10`, `+0xC` 3, `+0x10` the text's id; `0x4AE490`–`0x4AE4FF`), which `cEngine_receiveEvent` (`0x618090`, its case `0xB`) turns into the text's string (`0x6725E0`, `0x672C90`) for the interface's manager (`0x75A770` with the kind `0x10`, 3, the string and a colour), which hands it to its window `UI_WND_TEXTLINES` (`+0x14C`, `cUI_TextLines`, the table `0x897180`, made `0x722D80` over the whole 1024 × 768 screen).
+- Its add (`0x7237D0`): the font 3 (AntiquaSSK 16), the text split at the width 1024, each line an entry of `0x1C` bytes appended to its list (`+0x168`): the font, an alpha `a` of 1, an age `p` of 0, a colour never read and the string; the kind `0x10` takes no colour of its caller; the kinds 1 to 4 are the chat's and the log's lines at the top left (`+0x15C`). No cap: each line under those before it.
+- Its update (`0x723550`), from the manager's draw (`0x758ED0`) at every frame, by the real clock (`0x641520`, the performance counter; on through a pause): `p` grows by the frame's time, and once past `T` `a` falls by it, the line going at 0; `T` is `CHAT_DELAY` of `Settings.cfg` (`0x81C1B0`, `0x9E4D30`), 8 where it has none.
+- Its draw (`0x723020`, its second loop `0x7232E7`–`0x723535`): each line in the rectangle 170 down and 1024 × 32 (lower by the font's line's height for each before it, `cFontTTF2 +0x28`, not read), centred (the flag 1), its top at the rectangle's.
+  The plain line while `p` passes π/6 (0.5236 s), in `⌊255·a⌋ << 24 | ARGBInfoText & 0xFFFFFF` (the balance's `ARGBInfoText`, `+0x95C`, read as hexadecimal, `0xFFFF8000`: orange; docs/02 §6.3).
+  After it, while `p` is below π/3 (1.0472 s), its glow: `s = sin(3p)`, the colour `(255, ⌊212·s⌋, ⌊30·s⌋, ⌊60·s⌋)` (`0x8971C4`, `0x890F18`, `0x890DC8`), the line drawn 64 times at the offsets −7, −5, −3, −1, 1, 3, 5 and 7 on both axes, none at 0, with the flags `0x1001`, the `0x1000` of which adds each by the glyph's coverage (`SRCALPHA`, `ONE`): at its height (0.524 s) the copies saturate, white in the middle, pink about it and crimson at the band's edges, 7 pixels about the text; gone at 1.047 s.
+  The textures `fx_multiTexBase06` (`+0x17C`) and `fx_multiTexGlow02` (`+0x180`) are loaded and not used (the font takes a texture only with the flag `0x800`).
+- So a line glows for its first second, shows plain in orange from half a second, holds to 8 s and fades by 9 s.
+  The lines hide while the world map (`UI_WND_MEGAMAP`, `+0x94`), the saves' (`+0xAC`), the options' (`+0xBC`) or the window `+0xD0` (made `0x70C1D0`) shows, their clocks running on.
+- **Seen** 2026-11-10: the act's title in a crimson band, then a white one edged with crimson, then the orange text alone.
+- Open: the font 3's line's height; the 64 copies' 8-bit rounding against a sum of the shader's.
+
+`opensacred-game` lays them out so since #2499 (`info_lines`, from `talk::notices`): each text's lines written in the font 3 at 24 pixels (`place_names::line`), centred 170 pixels down, each under those before; their age and alpha by the real clock, their glow a material of their own that adds the 64 copies' coverage in the crimson of `sin(3p)` (`info_glow.wesl`), their plain text in `ARGBInfoText`'s colour of `balance.ron` from π/6 s, holding 8 s and fading over a second; hidden while the world map shows.
+**Seen** 2026-11-10 beside the original: the act's title in a crimson band, then a white one edged with crimson, then the orange text.
+Not followed: `CHAT_DELAY` of the settings (8 s always), the lines hidden under the saves' and the options' windows, and the line's height of the font 3 (the strip's, its ascent and descent).
+
 ## In `opensacred-game`
 
 `bar` lays the bar and the hero's entry of the column out from the interface's images' table (`tables/ui_images.ron`, #1160) at the places above, in the interface's units of the 768-pixel-high screen (`hud`, `UiScale`), the bar centred along the bottom of a wider window and the column at its right edge (#1087):

@@ -132,6 +132,7 @@ mod hurled;
 mod ice_splinters;
 mod icebergs;
 mod icons;
+mod info_lines;
 mod inventory;
 mod iso;
 mod item_glows;
@@ -621,6 +622,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         ice_splinters::IceSplintersPlugin,
         icebergs::IcebergsPlugin,
         icons::IconsPlugin,
+        info_lines::InfoLinesPlugin,
         inventory::InventoryPlugin,
         item_glows::ItemGlowsPlugin,
         journal::JournalPlugin,
@@ -632,9 +634,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         light_strikes::LightStrikesPlugin,
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
-        liquids::LiquidsPlugin,
     ))
     .add_plugins((
+        liquids::LiquidsPlugin,
         lost_souls::LostSoulsPlugin,
         low_health::LowHealthPlugin,
         magic_lights::MagicLightsPlugin,
