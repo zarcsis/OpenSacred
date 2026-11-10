@@ -5981,6 +5981,19 @@ fn keep(
         placed.at
     );
     npcs.kept.gone(placed, stood);
+    // One that stood in another sector's cell, walked or teleported there, comes back with that
+    // sector (#2453): the prince's company of quest 55 in the catacombs' hideout.
+    if let (Source::Kept(index), Some(stood)) = (&placed.source, stood) {
+        let side = u32::try_from(SIDE).unwrap_or(64);
+        let sector = (stood.cell.0 / side, stood.cell.1 / side);
+        let filed = npcs
+            .by_sector
+            .get(&sector)
+            .is_some_and(|list| list.contains(index));
+        if !filed {
+            npcs.file_under(*index, sector);
+        }
+    }
 }
 
 /// Where a creature at `transform` in the others' `way` stands as it goes, on its floor with its
@@ -8035,6 +8048,25 @@ impl Npcs {
             creatures.kept.filled.len()
         );
         self.kept = creatures.kept;
+        // Each that lives away comes back with the sector of where it stood or is to be made,
+        // which a save's play may have left it filed apart from (#2448, #2453).
+        let moved: Vec<(usize, (u32, u32))> = self
+            .placements
+            .iter()
+            .enumerate()
+            .filter_map(|(index, placement)| {
+                let (x, y) = self.lives_away(index, placement)?;
+                let sector = (x / side, y / side);
+                let filed = self
+                    .by_sector
+                    .get(&sector)
+                    .is_some_and(|list| list.contains(&index));
+                (!filed).then_some((index, sector))
+            })
+            .collect();
+        for (index, sector) in moved {
+            self.file_under(index, sector);
+        }
     }
 
     /// Changes the creatures that the `RegionChange` `change` reaches away from the world
