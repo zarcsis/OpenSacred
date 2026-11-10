@@ -1,15 +1,15 @@
 //! The ground of a sector (docs/02 §5): every cell's diamond, the ground tile with its floor
-//! overlays, composed once into a slot of the sector's atlas (one slot per distinct stack of
-//! layers), and draped over a mesh of the cells with their corner heights and light, as the
-//! original draws a cell as a quad of its diamond. The mesh lies `iso::GROUND_BEHIND` back along the line of sight, so that it
-//! never hides an object.
+//! overlays, composed by the ground's shader from the tile sheets of the pool that the loaded
+//! sectors share (`sheet_pool`, #2484), each texel of the cell's stack of layers, and draped over
+//! a mesh of the cells with their corner heights and light, as the original draws a cell as a
+//! quad of its diamond. The mesh lies `iso::GROUND_BEHIND` back along the line of sight, so that
+//! it never hides an object.
 //!
-//! The atlas of the median sector is 7.7 MB, its diamonds laid edge to edge ([`slot_origin`]),
-//! and of the overworld's about the start, of 2,000 to 3,200 stacks, 20 to 30 MB; a shader that
-//! composes the layers would shrink it further.
+//! A sector sends its stacks (some 3,000 words) and the sheets the pool does not hold yet, 256 KB
+//! each, where it sent an atlas of its composed stacks, 7.7 MB for the median sector and 20 to
+//! 30 MB on the overworld about the start.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::ops::Range;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -18,8 +18,8 @@ use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
-    App, Asset, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d, MeshMaterial3d, Plugin,
-    Resource, TypePath, Vec3,
+    App, Asset, Assets, Commands, Component, Entity, Handle, Image, Mesh, Mesh3d, MeshMaterial3d,
+    On, Plugin, Query, Remove, ResMut, Resource, TypePath, Vec3, error,
 };
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
@@ -32,14 +32,8 @@ use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 use opensacred_rules::ways;
 
 use crate::parallel::{self, Spread};
-use crate::sectors::Staged;
+use crate::sheet_pool::SheetPool;
 use crate::{buildings, files, iso, liquids};
-
-/// A diamond's box in a tile sheet and on screen.
-const DIAMOND_W: usize = 96;
-const DIAMOND_H: usize = 48;
-/// Slots per row of the atlas ([`slot_origin`]).
-const SLOTS_PER_ROW: usize = 64;
 
 /// The corner heights of the cells of the loaded sectors, in world units, the drawn ground's and
 /// the heights the creatures stand at, and their natures (the high nibble of the ground byte,
@@ -1057,7 +1051,9 @@ impl Heights {
 }
 
 /// The top-left corner of diamond `k` (0..18) in its 256 × 256 sheet: nine rows 25 texels apart,
-/// two columns 104 apart, odd rows shifted by 52, a margin of 2 (docs/02 §5.4).
+/// two columns 104 apart, odd rows shifted by 52, a margin of 2 (docs/02 §5.4), as `ground.wesl`
+/// finds it.
+#[cfg(test)]
 fn diamond_origin(k: u32) -> (usize, usize) {
     let (row, column) = (k as usize / 2, k as usize % 2);
     let shift = if row % 2 == 1 { 52 } else { 0 };
@@ -1065,6 +1061,7 @@ fn diamond_origin(k: u32) -> (usize, usize) {
 }
 
 /// Whether pixel `(x, y)` of a diamond's box lies inside the diamond.
+#[cfg(test)]
 fn inside(x: usize, y: usize) -> bool {
     let dx = (x as f32 + 0.5 - 48.0).abs() / 48.0;
     let dy = (y as f32 + 0.5 - 24.0).abs() / 24.0;
@@ -1147,70 +1144,12 @@ impl Sheets {
         })
     }
 
-    /// Tile `tile`'s diamond box in its sheet.
-    fn diamond(&self, tile: u32) -> Result<Diamond<'_>> {
-        let sheet = tile / DIAMONDS;
-        let sheet = self
-            .loaded
-            .get(&sheet)
-            .with_context(|| format!("tile sheet {sheet}"))?;
-        Ok(Diamond {
-            sheet: sheet.as_ref(),
-            origin: diamond_origin(tile % DIAMONDS),
-        })
+    /// The sheets, by number.
+    fn into_sorted(self) -> Vec<(u32, Arc<Rgba>)> {
+        let mut sheets: Vec<_> = self.loaded.into_iter().collect();
+        sheets.sort_unstable_by_key(|&(sheet, _)| sheet);
+        sheets
     }
-}
-
-/// A tile's diamond box in its sheet.
-struct Diamond<'a> {
-    sheet: &'a Rgba,
-    origin: (usize, usize),
-}
-
-impl Diamond<'_> {
-    /// The colours and alphas of row `y` of the box from pixel `first` on, none beyond its sheet.
-    fn row(&self, y: usize, first: usize) -> impl Iterator<Item = [u8; 4]> + '_ {
-        let (sx, sy) = (self.origin.0 + first, self.origin.1 + y);
-        let texels = if sx < self.sheet.width && sy < self.sheet.height {
-            &self.sheet.pixels[4 * (sy * self.sheet.width + sx)..4 * (sy + 1) * self.sheet.width]
-        } else {
-            &[]
-        };
-        texels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .copied()
-            .chain(std::iter::repeat([0; 4]))
-    }
-}
-
-/// Lays `colour` over `out` through `alpha`, which leaves it opaque.
-fn blend(out: &mut [u8; 4], colour: [u8; 4], alpha: u8) {
-    match alpha {
-        u8::MAX => out[..3].copy_from_slice(&colour[..3]),
-        0 => {}
-        alpha => {
-            let a = u16::from(alpha);
-            for k in 0..3 {
-                let blended = (u16::from(colour[k]) * a + u16::from(out[k]) * (255 - a)) / 255;
-                out[k] = u8::try_from(blended).unwrap_or(u8::MAX);
-            }
-        }
-    }
-    out[3] = u8::MAX;
-}
-
-/// The first and the last pixel of each row of a diamond's box inside the diamond ([`inside`]),
-/// where the row has any: the diamond is convex, so the row's pixels inside it are those between.
-type Spans = [Option<(usize, usize)>; DIAMOND_H];
-
-fn spans() -> Spans {
-    std::array::from_fn(|y| {
-        let first = (0..DIAMOND_W).find(|&x| inside(x, y))?;
-        let last = (0..DIAMOND_W).rev().find(|&x| inside(x, y))?;
-        Some((first, last))
-    })
 }
 
 /// The layers of a cell: its ground tile, then each overlay's art and mask.
@@ -1220,65 +1159,6 @@ fn layers(cell: &Cell) -> Layers {
     std::iter::once((cell.tile, None))
         .chain(cell.overlays.iter().map(|o| (o.art, o.mask)))
         .collect()
-}
-
-/// The ground atlas of a sector: one slot per distinct stack of layers (748 for the median
-/// sector, at most 3,315), and the slot of every cell.
-struct Atlas {
-    width: usize,
-    height: usize,
-    pixels: Vec<u8>,
-    slots: Vec<usize>,
-}
-
-/// The top left of slot `index`'s diamond box in the atlas. The slots' diamonds lie edge to edge
-/// as the cells' do on the ground, as a tile sheet lays its tiles: a row of the atlas half a box
-/// below the one before, every other shifted by half a box, so that a diamond fills the gaps
-/// between its neighbours' and the atlas holds the diamonds' texels alone, 2,304 a slot (#1651).
-/// The ground's shader reads no texel of a box outside its diamond (`ground.wesl`).
-fn slot_origin(index: usize) -> (usize, usize) {
-    let (column, row) = (index % SLOTS_PER_ROW, index / SLOTS_PER_ROW);
-    (
-        column * DIAMOND_W + row % 2 * DIAMOND_W / 2,
-        row * DIAMOND_H / 2,
-    )
-}
-
-/// Composes a slot's diamond box, row by row: the ground tile, then each overlay's colour
-/// through its mask's alpha (or its own), each clipped to the diamond. Each layer's sheets are
-/// looked up once, its pixels walked along the diamond's `spans`: a sector of the 3 × 3 built
-/// while the frame waits (`sectors`, #1650) took some 300 ms over a lookup and a test a pixel.
-fn compose_slot(
-    layers: &Layers,
-    sheets: &Sheets,
-    spans: &Spans,
-    slot: &mut [[u8; 4]],
-) -> Result<()> {
-    let at = |x: usize, y: usize| y * DIAMOND_W + x;
-    for &(art, mask) in layers {
-        let colours = sheets.diamond(art)?;
-        let alphas = mask.map(|mask| sheets.diamond(mask)).transpose()?;
-        for (y, span) in spans.iter().enumerate() {
-            let Some((first, last)) = *span else {
-                continue;
-            };
-            let row = slot[at(first, y)..=at(last, y)].iter_mut();
-            match &alphas {
-                Some(alphas) => {
-                    let texels = colours.row(y, first).zip(alphas.row(y, first));
-                    for (out, (colour, alpha)) in row.zip(texels) {
-                        blend(out, colour, alpha[3]);
-                    }
-                }
-                None => {
-                    for (out, colour) in row.zip(colours.row(y, first)) {
-                        blend(out, colour, colour[3]);
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 /// The distinct stacks of layers of a sector's cells in the order the cells first take them, and
@@ -1300,155 +1180,34 @@ fn stacks(sector: &Sector) -> (Vec<Layers>, Vec<usize>) {
     (order, slots)
 }
 
-/// A run of the atlas's rows of slots that one thread composes ([`compose`]).
-struct Band<'a> {
-    /// Its rows of slots.
-    slots: Range<usize>,
-    /// The atlas's texels from the top of its first row of slots to the top of the next band's.
-    own: &'a mut [u8],
-    /// Half a box of rows below its own, where the lower halves of its last row's diamonds lie
-    /// among the upper halves of the next band's first row's; none for the last band, whose own
-    /// rows reach the atlas's end.
-    below: Vec<u8>,
+/// The words a row of the stacks' texture holds ([`encode`], `ground.wesl`).
+const STACKS_ROW: usize = 4096;
+/// The bits of a layer of the pool, and of a diamond of a sheet, in a stack's word ([`word`]).
+const LAYER_BITS: u32 = 10;
+const DIAMOND_BITS: u32 = 5;
+/// The bit of a word that tells its layer has a mask.
+const MASKED: u32 = 1 << 30;
+
+/// A layer of a stack as `ground.wesl` reads it: the pool's layer and the diamond of its art, of
+/// its mask, and whether it has one.
+fn word(art: u32, mask: Option<u32>, layer_of: &impl Fn(u32) -> u16) -> u32 {
+    let tile = |tile: u32| u32::from(layer_of(tile / DIAMONDS)) | (tile % DIAMONDS) << LAYER_BITS;
+    let shift = LAYER_BITS + DIAMOND_BITS;
+    tile(art) | mask.map_or(0, |mask| tile(mask) << shift | MASKED)
 }
 
-/// Composes a band's slots into its rows ([`compose_slot`]); answers the row of slots after it
-/// and the rows below its own.
-fn compose_band(
-    band: Band<'_>,
-    stacks: &[Layers],
-    sheets: &Sheets,
-    spans: &Spans,
-    width: usize,
-) -> Result<(usize, Vec<u8>)> {
-    let Band {
-        slots,
-        own,
-        mut below,
-    } = band;
-    let top = slots.start * DIAMOND_H / 2;
-    let own_rows = own.len() / (4 * width);
-    let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
-    let (from, to) = (slots.start * SLOTS_PER_ROW, slots.end * SLOTS_PER_ROW);
-    for (index, layers) in stacks.iter().enumerate().take(to).skip(from) {
-        slot.fill([0; 4]);
-        compose_slot(layers, sheets, spans, &mut slot)?;
-        let (sx, sy) = slot_origin(index);
-        for (y, span) in spans.iter().enumerate() {
-            let Some((first, last)) = *span else {
-                continue;
-            };
-            let row = sy + y - top;
-            let (texels, row) = if row < own_rows {
-                (&mut *own, row)
-            } else {
-                (below.as_mut_slice(), row - own_rows)
-            };
-            let at = 4 * (row * width + sx);
-            texels[at + 4 * first..=at + 4 * last + 3]
-                .copy_from_slice(slot[y * DIAMOND_W + first..=y * DIAMOND_W + last].as_flattened());
-        }
+/// The stacks of a sector as the words of `ground.wesl`'s texture: each its count of layers,
+/// then a word a layer ([`word`]), the sheets' layers in the pool by `layer_of`; and where each
+/// stack begins.
+fn encode(stacks: &[Layers], layer_of: impl Fn(u32) -> u16) -> (Vec<u32>, Vec<u32>) {
+    let mut words = Vec::new();
+    let mut starts = Vec::with_capacity(stacks.len());
+    for stack in stacks {
+        starts.push(u32::try_from(words.len()).unwrap_or(u32::MAX));
+        words.push(u32::try_from(stack.len()).unwrap_or(0));
+        words.extend(stack.iter().map(|&(art, mask)| word(art, mask, &layer_of)));
     }
-    Ok((slots.end, below))
-}
-
-/// Composes the atlas of a sector's cells, its sheets taken from `decoded` ([`Sheets::read`]),
-/// spread as `spread` says: a band of the whole atlas alone, else bands of [`BAND`] rows of slots
-/// at once ([`lay`]).
-fn compose(
-    sector: &Sector,
-    dir: &Path,
-    world: &World,
-    spread: Spread,
-    decoded: &Decoded,
-) -> Result<Atlas> {
-    let (order, slots) = stacks(sector);
-    let sheets = Sheets::read(dir, world, &order, spread, decoded)?;
-    let band = match spread {
-        Spread::Alone => order.len(),
-        Spread::Wide => BAND,
-    };
-    let (width, height, pixels) = lay(&order, &sheets, band, spread)?;
-    Ok(Atlas {
-        width,
-        height,
-        pixels,
-        slots,
-    })
-}
-
-/// The rows of slots of a band of an atlas composed at once ([`lay`]): an overworld sector's
-/// atlas has some 45, which make a dozen bands.
-const BAND: usize = 4;
-
-/// Composes the slots of `order` into an atlas, its rows of slots in bands of `band` rows spread
-/// as `spread` says ([`parallel::map`]): a sector of the overworld on one thread took some 30 ms.
-/// Answers its width, its height and its texels.
-fn lay(
-    order: &[Layers],
-    sheets: &Sheets,
-    band: usize,
-    spread: Spread,
-) -> Result<(usize, usize, Vec<u8>)> {
-    // The last column's diamonds of the shifted rows reach half a box past the others, and the
-    // last row's half a box below.
-    let columns = order.len().clamp(1, SLOTS_PER_ROW);
-    let rows = order.len().div_ceil(SLOTS_PER_ROW).max(1);
-    let (width, height) = (
-        columns * DIAMOND_W + DIAMOND_W / 2,
-        (rows + 1) * DIAMOND_H / 2,
-    );
-    let mut pixels = vec![0u8; 4 * width * height];
-    let row_bytes = 4 * width;
-    let per_band = band.max(1);
-    let mut bands = Vec::new();
-    let mut rest = pixels.as_mut_slice();
-    let mut first = 0;
-    while first < rows {
-        let end = (first + per_band).min(rows);
-        let own_rows = if end == rows {
-            height - first * DIAMOND_H / 2
-        } else {
-            (end - first) * DIAMOND_H / 2
-        };
-        let (own, after) = std::mem::take(&mut rest).split_at_mut(own_rows * row_bytes);
-        rest = after;
-        let below = if end == rows {
-            Vec::new()
-        } else {
-            vec![0; DIAMOND_H / 2 * row_bytes]
-        };
-        bands.push(Band {
-            slots: first..end,
-            own,
-            below,
-        });
-        first = end;
-    }
-    let spans = spans();
-    let belows = parallel::map(bands, spread, |band| {
-        compose_band(band, order, sheets, &spans, width)
-    });
-    // A band's rows below its own laid over the next band's: a texel lies in one diamond at most,
-    // and one in none is left clear.
-    for below in belows {
-        let (end, below) = below?;
-        let at = end * DIAMOND_H / 2 * row_bytes;
-        let Some(rows) = pixels.get_mut(at..at + below.len()) else {
-            continue;
-        };
-        for (out, texel) in rows
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(below.as_chunks::<4>().0)
-        {
-            if texel[3] != 0 {
-                *out = *texel;
-            }
-        }
-    }
-    Ok((width, height, pixels))
+    (words, starts)
 }
 
 /// The mesh of the cells: a quad per cell over its four corners (left, top, right, bottom), each
@@ -1515,22 +1274,46 @@ pub fn read_sector(assets: &Path, world: &World, (x, y): (u32, u32)) -> Result<O
     Ok(Some(sector))
 }
 
-/// The ground of a sector, built off the main thread.
+/// The ground of a sector, built off the main thread: its tile sheets decoded, its stacks of
+/// layers, the stack of every cell, and the mesh of its cells; and the sheets it has taken of the
+/// pool so far ([`Ground::stage`]).
 pub struct Ground {
-    image: Staged,
-    cells: Image,
+    sheets: Vec<(u32, Arc<Rgba>)>,
+    taken: Vec<u32>,
+    stacks: Vec<Layers>,
+    slots: Vec<usize>,
     mesh: Mesh,
 }
 
 impl Ground {
-    /// Its atlas, which may go to the render world ahead of it (`sectors`).
-    pub fn staged(&mut self) -> impl Iterator<Item = &mut Staged> {
-        std::iter::once(&mut self.image)
+    /// Takes its next sheets of `pool`, ahead of its entities, until the bytes they are to write
+    /// reach `budget` and one more; answers the bytes, and whether it took any.
+    pub fn stage(&mut self, pool: &mut SheetPool, budget: usize) -> (usize, bool) {
+        let mut bytes = 0;
+        let mut any = false;
+        while self.taken.len() < self.sheets.len() {
+            if bytes >= budget {
+                return (bytes, true);
+            }
+            any = true;
+            let (sheet, texels) = &self.sheets[self.taken.len()];
+            match pool.take(*sheet, texels) {
+                Ok((_, written)) => bytes += written,
+                Err(e) => error!("tile sheet {sheet}: {e:#}"),
+            }
+            self.taken.push(*sheet);
+        }
+        (bytes, any)
+    }
+
+    /// The sheets it has taken of the pool, to give back where it never spawns.
+    pub fn taken(&self) -> &[u32] {
+        &self.taken
     }
 }
 
-/// The ground of a sector: the image of its diamonds and the mesh of its cells, spread as
-/// `spread` says, its tile sheets taken from `decoded` ([`compose`]).
+/// The ground of a sector: its stacks of layers and their tile sheets, decoded, and the mesh of
+/// its cells, spread as `spread` says, its sheets taken from `decoded` ([`Sheets::read`]).
 pub fn build(
     assets: &Path,
     world: &World,
@@ -1538,42 +1321,14 @@ pub fn build(
     spread: Spread,
     decoded: &Decoded,
 ) -> Result<Ground> {
-    let atlas = compose(sector, &assets.join("world"), world, spread, decoded)?;
-    let mesh = mesh(sector);
-    let side = u32::try_from(SIDE)?;
-    let slots: Vec<u8> = atlas
-        .slots
-        .iter()
-        .map(|&slot| u32::try_from(slot).map(u32::to_le_bytes))
-        .collect::<Result<Vec<_>, _>>()?
-        .concat();
-    let cells = Image::new(
-        Extent3d {
-            width: side,
-            height: side,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        slots,
-        TextureFormat::R32Uint,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    let image = Image::new(
-        Extent3d {
-            width: u32::try_from(atlas.width)?,
-            height: u32::try_from(atlas.height)?,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        atlas.pixels,
-        // The values as stored: the shader multiplies them by the light before decoding.
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
+    let (stacks, slots) = stacks(sector);
+    let sheets = Sheets::read(&assets.join("world"), world, &stacks, spread, decoded)?;
     Ok(Ground {
-        image: Staged::Waiting(image),
-        cells,
-        mesh,
+        sheets: sheets.into_sorted(),
+        taken: Vec::new(),
+        stacks,
+        slots,
+        mesh: mesh(sector),
     })
 }
 
@@ -1616,19 +1371,23 @@ pub fn start(sector: &Sector) -> Vec3 {
 const SHADER: &str = "embedded://opensacred_game/ground.wesl";
 
 /// The ground's material, unlit (`ground.wesl`): the sector's ground filtered as one image, each
-/// texel from the slot of the cell it lies in, so that the cells' edges blend as their insides do
-/// (filtering each cell's slot alone left a step at every edge, a grid of diamonds once
-/// magnified); the texel as stored, in sRGB values, times the vertex colour, the corners' light,
-/// then decoded to linear light. The original multiplies the 8-bit texel by its corners' diffuse
-/// colour (docs/02 §5.3); the vertex colour of a `StandardMaterial` multiplies in linear light
-/// instead, which leaves shaded ground too light.
+/// texel composed of the stack of the cell it lies in, its layers read from the pool of tile
+/// sheets, so that the cells' edges blend as their insides do (filtering each cell alone left a
+/// step at every edge, a grid of diamonds once magnified); the texel as stored, in sRGB values,
+/// times the vertex colour, the corners' light, then decoded to linear light. The original
+/// multiplies the 8-bit texel by its corners' diffuse colour (docs/02 §5.3); the vertex colour of
+/// a `StandardMaterial` multiplies in linear light instead, which leaves shaded ground too light.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct GroundMaterial {
-    #[texture(0)]
-    atlas: Handle<Image>,
-    /// The slot of every cell, row by row.
+    /// The pool of the loaded sectors' tile sheets ([`SheetPool`]).
+    #[texture(0, dimension = "2d_array", sample_type = "u_int")]
+    sheets: Handle<Image>,
+    /// Where the stack of every cell begins in `stacks`, row by row.
     #[texture(1, sample_type = "u_int")]
     cells: Handle<Image>,
+    /// The sector's stacks ([`encode`]), [`STACKS_ROW`] words a row.
+    #[texture(2, sample_type = "u_int")]
+    stacks: Handle<Image>,
 }
 
 impl Material for GroundMaterial {
@@ -1652,37 +1411,86 @@ impl Material for GroundMaterial {
     }
 }
 
-/// The ground's material and its shader.
+/// The ground's material, its shader and the pool of its tile sheets.
 pub struct GroundPlugin;
 
 impl Plugin for GroundPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "ground.wesl");
-        app.add_plugins(MaterialPlugin::<GroundMaterial>::default());
+        app.add_plugins((
+            MaterialPlugin::<GroundMaterial>::default(),
+            crate::sheet_pool::SheetPoolPlugin,
+        ))
+        .add_observer(give_back);
     }
 }
 
+/// The tile sheets that a sector's ground takes of the pool, which it gives back as it goes.
+#[derive(Component)]
+pub struct PoolSheets(Vec<u32>);
+
+/// Gives a ground's sheets back to the pool as it goes.
+fn give_back(
+    gone: On<Remove<PoolSheets>>,
+    grounds: Query<&PoolSheets>,
+    mut pool: ResMut<SheetPool>,
+) {
+    if let Ok(PoolSheets(sheets)) = grounds.get(gone.entity) {
+        for &sheet in sheets {
+            pool.release(sheet);
+        }
+    }
+}
+
+/// A texture of 32-bit words, `width` across, of `words`, its last row filled with zeros.
+fn words_image(words: &[u32], width: usize) -> Result<Image> {
+    let rows = words.len().div_ceil(width).max(1);
+    let mut bytes = Vec::with_capacity(4 * width * rows);
+    for word in words {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    bytes.resize(4 * width * rows, 0);
+    Ok(Image::new(
+        Extent3d {
+            width: u32::try_from(width)?,
+            height: u32::try_from(rows)?,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        bytes,
+        TextureFormat::R32Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    ))
+}
+
 /// Spawns a ground as an unlit mesh, the tiles carrying their own shading and the corners their
-/// light, as in the original; returns the entities.
+/// light, as in the original, its sheets taken of `pool` where it had not taken them already
+/// ([`Ground::stage`]); returns the entities.
 pub fn spawn(
     commands: &mut Commands,
-    ground: Ground,
+    mut ground: Ground,
+    pool: &mut SheetPool,
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<GroundMaterial>,
-) -> Vec<Entity> {
+) -> Result<Vec<Entity>> {
+    ground.stage(pool, usize::MAX);
+    let (words, starts) = encode(&ground.stacks, |sheet| pool.layer(sheet).unwrap_or(0));
+    let cells: Vec<u32> = ground.slots.iter().map(|&slot| starts[slot]).collect();
     let material = GroundMaterial {
-        atlas: ground.image.handle(images),
-        cells: images.add(ground.cells),
+        sheets: pool.image(),
+        cells: images.add(words_image(&cells, SIDE)?),
+        stacks: images.add(words_image(&words, STACKS_ROW)?),
     };
-    vec![
+    Ok(vec![
         commands
             .spawn((
                 Mesh3d(meshes.add(ground.mesh)),
                 MeshMaterial3d(materials.add(material)),
+                PoolSheets(ground.taken),
             ))
             .id(),
-    ]
+    ])
 }
 
 #[cfg(test)]
@@ -2528,7 +2336,7 @@ mod tests {
     }
 
     #[test]
-    fn a_slot_composes_along_the_diamonds_rows_as_a_test_of_every_pixel_does() {
+    fn a_stack_composes_from_the_pool_as_a_test_of_every_pixel_does() {
         let sheet = |width: usize, height: usize, seed: usize| texture::Rgba {
             width,
             height,
@@ -2537,20 +2345,63 @@ mod tests {
                 .collect(),
         };
         // The second sheet narrower than its diamonds' boxes reach.
-        let sheets = Sheets {
-            loaded: HashMap::from([
-                (0, Arc::new(sheet(256, 256, 1))),
-                (1, Arc::new(sheet(150, 100, 2))),
-            ]),
-        };
+        let sheets = HashMap::from([
+            (0, Arc::new(sheet(256, 256, 1))),
+            (1, Arc::new(sheet(150, 100, 2))),
+        ]);
         // A ground tile, an overlay through another tile's mask, and one through its own alpha
-        // partly beyond its sheet.
+        // partly beyond its sheet; another stack before it, so that it begins past the start.
         let layers: Layers = vec![(3, None), (6, Some(DIAMONDS + 2)), (DIAMONDS + 5, None)];
-        let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
-        compose_slot(&layers, &sheets, &spans(), &mut slot).unwrap();
+        let other: Layers = vec![(DIAMONDS + 17, None)];
+        // The pool's layers of the two sheets, as the pool pads them.
+        let layer_of = |sheet: u32| [700_u16, 1023][sheet as usize];
+        let pool: HashMap<u16, Arc<texture::Rgba>> = sheets
+            .iter()
+            .map(|(&sheet, texels)| {
+                let mut pool = crate::sheet_pool::SheetPool::new(&mut Assets::default());
+                pool.take(sheet, texels).unwrap();
+                let padded = pool_texels(&pool, sheet);
+                (layer_of(sheet), padded)
+            })
+            .collect();
+        let (words, starts) = encode(&[other, layers.clone()], layer_of);
+        assert_eq!(starts, [0, 2]);
 
+        // `ground.wesl`'s `composed`, word by word.
+        let diamond = |k: u32| {
+            let (row, column) = (k / 2, k % 2);
+            (104 * column + 52 * (row % 2) + 2, 25 * row)
+        };
+        let tile_texel = |tile: u32, x: u32, y: u32| {
+            let layer = u16::try_from(tile & 1023).unwrap();
+            let (ox, oy) = diamond((tile >> 10) & 31);
+            let texels = &pool[&layer];
+            let at = 4 * ((oy + y) as usize * crate::sheet_pool::SHEET + (ox + x) as usize);
+            [0, 1, 2, 3].map(|k| u32::from(texels.pixels[at + k]))
+        };
+        let composed = |at: usize, x: u32, y: u32| {
+            let mut out = [0_u32; 3];
+            for &layer in &words[at + 1..=at + words[at] as usize] {
+                let colour = tile_texel(layer, x, y);
+                let alpha = if layer & (1 << 30) != 0 {
+                    tile_texel(layer >> 15, x, y)[3]
+                } else {
+                    colour[3]
+                };
+                for k in 0..3 {
+                    out[k] = match alpha {
+                        255 => colour[k],
+                        0 => out[k],
+                        a => (colour[k] * a + out[k] * (255 - a)) / 255,
+                    };
+                }
+            }
+            out
+        };
+
+        // Each pixel of the diamond, its layers laid over one by one from the sheets themselves.
         let pixel = |tile: u32, x: usize, y: usize| {
-            let sheet = &sheets.loaded[&(tile / DIAMONDS)];
+            let sheet = &sheets[&(tile / DIAMONDS)];
             let (ox, oy) = diamond_origin(tile % DIAMONDS);
             let (sx, sy) = (ox + x, oy + y);
             if sx >= sheet.width || sy >= sheet.height {
@@ -2559,23 +2410,26 @@ mod tests {
             let at = 4 * (sy * sheet.width + sx);
             [0, 1, 2, 3].map(|k| sheet.pixels[at + k])
         };
-        let mut expected = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
-        for &(art, mask) in &layers {
-            for y in 0..DIAMOND_H {
-                for x in (0..DIAMOND_W).filter(|&x| inside(x, y)) {
+        for y in 0..48 {
+            for x in (0..96).filter(|&x| inside(x, y)) {
+                let mut expected = [0_u16; 3];
+                for &(art, mask) in &layers {
                     let colour = pixel(art, x, y);
                     let a = u16::from(mask.map_or(colour[3], |mask| pixel(mask, x, y)[3]));
-                    let out = &mut expected[y * DIAMOND_W + x];
                     for k in 0..3 {
-                        let blended =
-                            (u16::from(colour[k]) * a + u16::from(out[k]) * (255 - a)) / 255;
-                        out[k] = u8::try_from(blended).unwrap();
+                        expected[k] = (u16::from(colour[k]) * a + expected[k] * (255 - a)) / 255;
                     }
-                    out[3] = 255;
                 }
+                let got = composed(2, u32::try_from(x).unwrap(), u32::try_from(y).unwrap());
+                assert_eq!(got, expected.map(u32::from), "the pixel {x}, {y}");
             }
         }
-        assert_eq!(slot, expected);
+    }
+
+    /// The texels that `pool` writes for `sheet`.
+    fn pool_texels(pool: &crate::sheet_pool::SheetPool, sheet: u32) -> Arc<texture::Rgba> {
+        let layer = pool.layer(sheet).unwrap();
+        pool.pending_of(layer).unwrap()
     }
 
     #[test]
@@ -2607,77 +2461,5 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(again.contains("tile sheet 8"), "{again}");
-    }
-
-    #[test]
-    fn an_atlas_laid_in_bands_at_once_is_the_one_laid_slot_by_slot() {
-        let sheet = |seed: usize| texture::Rgba {
-            width: 256,
-            height: 256,
-            pixels: (0..4 * 256 * 256)
-                .map(|i| u8::try_from((i * 5 + seed * 17) % 253).unwrap())
-                .collect(),
-        };
-        let sheets = Sheets {
-            loaded: HashMap::from([(0, Arc::new(sheet(1))), (1, Arc::new(sheet(2)))]),
-        };
-        // Six rows of slots, the last one partly filled, of a tile and an overlay through a mask.
-        let tiles = 2 * DIAMONDS;
-        let order: Vec<Layers> = (0..u32::try_from(5 * SLOTS_PER_ROW + 7).unwrap())
-            .map(|i| vec![(i % tiles, None), (i * 7 % tiles, Some(i * 3 % tiles))])
-            .collect();
-        let (width, height, one) = lay(&order, &sheets, order.len(), Spread::Alone).unwrap();
-        let mut expected = vec![0u8; 4 * width * height];
-        let spans = spans();
-        let mut slot = vec![[0u8; 4]; DIAMOND_W * DIAMOND_H];
-        for (index, layers) in order.iter().enumerate() {
-            slot.fill([0; 4]);
-            compose_slot(layers, &sheets, &spans, &mut slot).unwrap();
-            let (sx, sy) = slot_origin(index);
-            for (y, span) in spans.iter().enumerate() {
-                let (first, last) = span.unwrap();
-                for x in first..=last {
-                    let at = 4 * ((sy + y) * width + sx + x);
-                    expected[at..at + 4].copy_from_slice(&slot[y * DIAMOND_W + x]);
-                }
-            }
-        }
-        assert!(one == expected);
-        for band in [1, 2, 4, 5] {
-            let (w, h, banded) = lay(&order, &sheets, band, Spread::Wide).unwrap();
-            assert_eq!((w, h), (width, height));
-            assert!(banded == expected, "bands of {band}");
-        }
-    }
-
-    #[test]
-    fn the_atlas_lays_the_diamonds_edge_to_edge_as_the_shader_reads_them() {
-        // The row's texels inside the diamond, as `ground.wesl` holds a texel within them.
-        for (y, span) in spans().iter().enumerate() {
-            let edge = (2 * y).abs_diff(47);
-            assert_eq!(*span, Some((edge, 95 - edge)), "row {y}");
-        }
-        // Three rows of slots: every texel of the atlas in one diamond at most, and those of
-        // the middle row's diamonds, which have neighbours all about, leave none between them.
-        let (width, height) = (SLOTS_PER_ROW * DIAMOND_W + DIAMOND_W / 2, 4 * DIAMOND_H / 2);
-        let mut owner = vec![None; width * height];
-        for index in 0..3 * SLOTS_PER_ROW {
-            let (sx, sy) = slot_origin(index);
-            for (y, span) in spans().iter().enumerate() {
-                let (first, last) = span.unwrap();
-                for x in first..=last {
-                    let texel = &mut owner[(sy + y) * width + sx + x];
-                    assert_eq!(*texel, None, "slot {index}, texel {x},{y}");
-                    *texel = Some(index);
-                }
-            }
-        }
-        let between = DIAMOND_W..width - DIAMOND_W;
-        for y in DIAMOND_H / 2..3 * DIAMOND_H / 2 {
-            assert!(
-                between.clone().all(|x| owner[y * width + x].is_some()),
-                "row {y}"
-            );
-        }
     }
 }
