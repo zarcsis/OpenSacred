@@ -281,6 +281,22 @@ Read 2026-11-02 (#1309) off `Sacred.exe` and the converted files; **confirmed** 
 The choice of the hero's figures (`0x6F1B30`) draws its figures' flagged items by `renderComplex` too, without the `DETAILLEVEL` test; an orthographic item draw (`0x40F270`) has the kinds 1 to 4 alone.
 Nothing else glows for the wings: no FX object (`0x451300` traced 2026-10-28), no light, and no glitter while worn.
 
+## The visions
+
+Read 2026-11-10 for #2519 by a subagent (**confirmed** by code unless marked otherwise; **seen** in the original at the Daemon's cemetery gate).
+
+- The creature's constructor marks the types 223 (Valor's ghost) and 707 (`TYPE_NPC_DAEMONIN_VISION`, the Daemon's quest giver at the gate, of her own model `Daemonia.grn`) with the object's `+0x14` bit `0x200000` (`0x52E2E2`–`0x52E2F0`), and `CreateNPC`'s tag `0xA1` marks any creature so (`0x48290F`, `0x4836BE`; the Underworld's quests 11 and 56 alone use it); **seen**: the vision's `+0x14` `0x4288000`.
+- The model's draw (`0x44A9D0`, the table `0x44B1B8`) takes such an object out of its overlay state: the types 223, 322, 224 and 707 into the state 22, which calls `0x40C320` with the style `6 | (modes >> 3 & 1)`, the others into 23, the style 8; the plain model's pass (`0x44A8C0`) is never drawn, so the figure is that pass alone, the background through its dark parts (**seen**).
+- The modes word (`0xAB73DC`, the scripts' interpreter's `+0xA45C`) takes its bit 8 from `InfoPlayer` 23, 24 and 25 (the intros, `0x4AEA16`, `0x4AE9F3`, `0x4AE9D0`), and every start script runs `InfoPlayer` 23 under the test `0xA0`, true in a game of one player: such a game draws the style 7 (**seen**: the bit `0x8` at the draw).
+- `0x40C320`: the depth tested and written (`LESSEQUAL`), no light, the faces culled counter-clockwise, added (`ONE`, `ONE`), the alpha test on, linear filtering.
+  The stage 0 is the model's own texture times the diffuse (`MODULATE`); the stage 1 the style's texture times twice that (`MODULATE2X`): 6 `fx_multiTexBase02` (blue), 7 `fx_multiTexBase06` (gold, `texture.pak` record 199), 8 `fx_multiTexBase03` (red), each 128 × 128 of opaque cells; its coordinates the vertices' normals' x and y (the strided draw of the format `0x252` hands the normals' pointer and stride to the texture set 1, `0x40C6B7`), so that the cells slide over the figure with its surface's direction.
+  The diffuse is one grey for every vertex, `⌊127.9·(1.75 − 0.25·sin(0.004·t))⌋` of 255, `t` the real time in milliseconds (`0x6413E0`; the floats `0x8907BC`–`0x8907C8`): 191 to 255 about every 1.57 s, every vision's alike; unlit, she is as bright by night.
+- **Seen**: a golden-yellow, translucent figure of the Daemon with bright cells' lines, the "?!" over her, her brightness changing between frames while the world was paused.
+- Not read: the stats' recomputation's reading of the bit (`0x57B68D`) and an AI's test (`0x5409AC`), the alpha test's reference.
+
+`opensacred-game` draws them so since #2519 (`skins::Overlay::Vision`, `models::Pass::Vision`, `opensacred_rules::spells::{VISIONS, vision, vision_grey}`): a creature of the types 223 and 707 wears the look for good, each of its meshes in a material of its own texture in the grey of the real clock, times twice the vision's texture taken by its normals in the model's frame as the water form's (`standard.wesl`), in the frame's sRGB values, unlit, added, its depth written; **seen** 2026-11-10, the Daemon's vision at the gate a golden translucent figure with its cells, as the original's.
+Not followed: `CreateNPC`'s and `SetNPCState`'s tag `0xA1`, and the visions' bodies' end (#2514).
+
 ## What the game does with it
 
 `opensacred-game` orders the sprites through the depth buffer instead (docs/decisions/drawing.md, "Sprites ordered through the depth buffer"): each lies at the depth of its cell's centre at height 0, whatever the cell's height, so all the sprites of one cell, and those of the cells of one diagonal, have the same depth.

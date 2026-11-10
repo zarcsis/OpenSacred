@@ -17,7 +17,7 @@ import bevy_pbr::render::{
     pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
 };
 import package::post::encode;
-@if(LINEAR)
+@if(LINEAR || VISION)
 import bevy_render::color_operations::{linear_to_srgb, srgb_to_linear};
 @if(LIT_BY_SLOT)
 import bevy_pbr::render::{mesh_functions, mesh_view_bindings::lights};
@@ -39,9 +39,9 @@ const CUTOFF: f32 = 64.5 / 255.0;
 
 /// The effect's texture and the glow's under a model's texels, and their offsets (`models::Pass::
 /// Effect`, `model_effects`; #1834).
-@if(EFFECT || WATER)
+@if(EFFECT || WATER || VISION)
 @group(constants::MATERIAL_BIND_GROUP) @binding(103) var effect_texture: texture_2d<f32>;
-@if(EFFECT || WATER)
+@if(EFFECT || WATER || VISION)
 @group(constants::MATERIAL_BIND_GROUP) @binding(104) var effect_sampler: sampler;
 @if(EFFECT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(105) var glow_texture: texture_2d<f32>;
@@ -121,6 +121,26 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         discard;
     }
     pbr_input.material.base_color = texel;
+}
+@if(VISION) {
+    // A vision's look (`models::Pass::Vision`, `0x40C320`, #2519): the model's texel times its
+    // grey, its alpha tested, then times twice the vision's texture taken by the model's own
+    // normal as the water form's, in the frame's sRGB values as the original's stages modulate
+    // them (`MODULATE`, `MODULATE2X`), added whole to the frame and unlit.
+    let world_from_local = mesh_functions::get_world_from_local(in.instance_index);
+    let turn = mat3x3<f32>(
+        normalize(world_from_local[0].xyz),
+        normalize(world_from_local[1].xyz),
+        normalize(world_from_local[2].xyz),
+    );
+    let local = transpose(turn) * normalize(in.world_normal);
+    let pattern = textureSample(effect_texture, effect_sampler, vec2<f32>(local.x, -local.z));
+    let texel = pbr_input.material.base_color;
+    if texel.a < CUTOFF {
+        discard;
+    }
+    let added = min(2.0 * linear_to_srgb(texel.rgb) * linear_to_srgb(pattern.rgb), vec3(1.0));
+    pbr_input.material.base_color = vec4<f32>(srgb_to_linear(added), 1.0);
 }
     // The texture's alpha, over a model's effect, before an opaque pass makes it whole.
     let over = pbr_input.material.base_color.a;
