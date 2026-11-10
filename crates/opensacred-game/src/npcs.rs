@@ -3246,6 +3246,9 @@ type Places = HashMap<String, quests::Place>;
 pub struct Added {
     pub placed: usize,
     pub changes: Vec<quests::AreaChange>,
+    /// Each placement made, by the position of its record among the records and its index, by
+    /// which a later `DelNPC` of the same run takes only those made before it ([`Npcs::regroup`]).
+    pub born: Vec<(usize, usize)>,
 }
 
 /// What the play changed of the scripts' placements and triggers, as a save keeps it (#1958):
@@ -7943,9 +7946,18 @@ impl Npcs {
             }
         }
         set_states(&records, &made, &mut self.placements);
+        let born = records
+            .iter()
+            .enumerate()
+            .filter_map(|(position, &record)| {
+                made.get(&std::ptr::from_ref(record))
+                    .map(|&index| (position, index))
+            })
+            .collect();
         Ok(Added {
             placed: made.len(),
             changes,
+            born,
         })
     }
 
@@ -7970,12 +7982,16 @@ impl Npcs {
     /// open, marked and locked, the quests' items taken and the containers emptied as they stood.
     pub fn resume(&mut self, saved: Saved, area: impl Fn((u32, u32)) -> Option<u8>) {
         for records in &saved.records {
-            if let Err(e) = self.add(records, &area) {
-                bevy::log::warn!("npcs: the save's records of the world: {e:#}");
-            }
+            let born = match self.add(records, &area) {
+                Ok(added) => added.born,
+                Err(e) => {
+                    bevy::log::warn!("npcs: the save's records of the world: {e:#}");
+                    Vec::new()
+                }
+            };
             reicon(&self.dialogues, &mut self.icons, set_icons(records));
             self.restate(records);
-            self.regroup(records);
+            self.regroup(records, &born);
             self.moves(records, 0.0);
         }
         bevy::log::info!(
@@ -7997,9 +8013,21 @@ impl Npcs {
     /// each comes back as its sector comes in; the followers' placements stay out, which the save
     /// puts back beside the hero ([`follow_again`]).
     pub fn remember(&mut self, creatures: Creatures) {
+        let side = u32::try_from(SIDE).unwrap_or(64);
         for (index, placement) in creatures.placements {
-            if let Some(kept) = self.placements.get_mut(index) {
-                *kept = placement;
+            let Some(kept) = self.placements.get_mut(index) else {
+                continue;
+            };
+            let from = (kept.cell.0 / side, kept.cell.1 / side);
+            let to = (placement.cell.0 / side, placement.cell.1 / side);
+            *kept = placement;
+            // One that a teleport moved away from the world comes in with the sector it was
+            // put in (#2448).
+            if from != to {
+                if let Some(list) = self.by_sector.get_mut(&from) {
+                    list.retain(|&other| other != index);
+                }
+                self.by_sector.entry(to).or_default().push(index);
             }
         }
         let killed = creatures.kept.went.values().filter(|went| went.is_none());
@@ -8208,14 +8236,21 @@ impl Npcs {
     }
 
     /// What the play's `SetGroupState`s and `DelNPC`s do (#1021): each given to the placements
-    /// of its group or name here, a removal keeping them from being placed again, and returned,
-    /// in order, for the creatures in the world ([`script_records`]).
-    fn regroup(&mut self, records: &[Record]) -> Vec<Regrouped> {
+    /// of its group or name here, but those that the records after it made (`born`, [`Added`]),
+    /// a removal keeping them from being placed again, and returned, in order, for the creatures
+    /// in the world ([`script_records`]). Quest 45's `Init45` removes Prince Valor and its
+    /// `QIS_OnEnter45` makes him again at once, who stands so (#2448).
+    fn regroup(&mut self, records: &[Record], born: &[(usize, usize)]) -> Vec<Regrouped> {
         let mut regrouped = Vec::new();
-        for record in records {
+        for (position, record) in records.iter().enumerate() {
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
+            let later: HashSet<usize> = born
+                .iter()
+                .filter(|&&(at, _)| at > position)
+                .map(|&(_, index)| index)
+                .collect();
             let change = match record.kind {
                 SET_GROUP_STATE => {
                     let state = GroupState::of(ops, &self.dialogues);
@@ -8236,7 +8271,7 @@ impl Npcs {
                     Regrouped::Group(state) => placement.group == state.group,
                     Regrouped::Removed(name) => placement.name.as_ref() == Some(name),
                 };
-                if !member || placement.object {
+                if !member || placement.object || later.contains(&index) {
                     continue;
                 }
                 match &change {
@@ -8296,6 +8331,53 @@ impl Npcs {
                     .is_some_and(|own| own.eq_ignore_ascii_case(name))
             })
             .find_map(|(index, placement)| self.lives_away(index, placement))
+    }
+
+    /// Puts the creatures of the script name `name`, case aside, that live away from the world
+    /// ([`Self::lives_away`]) on the cell `(x, y)` at `layer`, as a script's `Teleport` moves a
+    /// creature wherever its sector stands (`0x491D40`, `sdk_ENGINE_TP`; #2448): where it stood,
+    /// or where it is to be made, undrawn about its place, the sector of that cell placing it as
+    /// it comes in, at once where that sector is in the world already. Whether any was.
+    pub fn put_away(&mut self, name: &str, (x, y): (i32, i32), layer: i32) -> bool {
+        let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+            return false;
+        };
+        let side = u32::try_from(SIDE).unwrap_or(64);
+        let to = (x / side, y / side);
+        let indices: Vec<usize> = self
+            .placements
+            .iter()
+            .enumerate()
+            .filter(|&(index, placement)| {
+                placement
+                    .name
+                    .as_deref()
+                    .is_some_and(|own| own.eq_ignore_ascii_case(name))
+                    && self.lives_away(index, placement).is_some()
+            })
+            .map(|(index, _)| index)
+            .collect();
+        for &index in &indices {
+            let placement = &mut self.placements[index];
+            let from = (placement.cell.0 / side, placement.cell.1 / side);
+            placement.cell = (x, y);
+            placement.layer = layer;
+            placement.spread = 0;
+            if let Some(Some(stood)) = self.kept.went.get_mut(&index) {
+                stood.cell = (x, y);
+                stood.layer = layer;
+            }
+            if from != to {
+                if let Some(list) = self.by_sector.get_mut(&from) {
+                    list.retain(|&other| other != index);
+                }
+                self.by_sector.entry(to).or_default().push(index);
+            }
+            if self.spawned.contains(&to) {
+                self.pending.push(index);
+            }
+        }
+        !indices.is_empty()
     }
 
     /// Whether `door`'s trigger is locked (#1006): it opens to nobody (`0x44BCD0`).
@@ -9895,7 +9977,7 @@ pub(crate) fn script_records(
                     })
             }),
     });
-    match npcs.add(&records, |at| streamer.area(at)) {
+    let born = match npcs.add(&records, |at| streamer.area(at)) {
         Ok(added) => {
             if added.placed > 0 {
                 bevy::log::info!(
@@ -9904,9 +9986,13 @@ pub(crate) fn script_records(
                 );
             }
             changes.0.extend(added.changes);
+            added.born
         }
-        Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
-    }
+        Err(e) => {
+            bevy::log::warn!("npcs: the scripts' records: {e:#}");
+            Vec::new()
+        }
+    };
     // Kept for a save, whose load places them again (`Npcs::resume`, #1958).
     if !records.is_empty() {
         npcs.records.push(records.clone());
@@ -9984,7 +10070,7 @@ pub(crate) fn script_records(
             bevy::log::info!("npcs: the scripts set {name}'s state");
         }
     }
-    for change in npcs.regroup(&records) {
+    for change in npcs.regroup(&records, &born) {
         for (entity, named, on_death, _, mind, way, health, ..) in &mut creatures {
             let member = match &change {
                 Regrouped::Group(state) => {
@@ -10391,10 +10477,12 @@ pub(crate) fn script_records(
             );
             continue;
         }
+        let mut in_world = false;
         for (entity, _, _, mut transform, mind, way, _, _, layered) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
         {
+            in_world = true;
             // Under the anim mode, a step of its queue, in its turn (#1220): a walk to a cell
             // of no floor onto the creature's own level (`0x49E210`), a teleport's floor 0 the
             // ground.
@@ -10437,12 +10525,17 @@ pub(crate) fn script_records(
                 commands.entity(entity).remove::<Walk>();
             }
         }
+        // A teleport of one away from the world puts it there all the same, which its sector
+        // places as it comes in (#2448): Prince Valor into Tyr-Fasul's fortress, quest 54.
+        let away =
+            !in_world && !walks && npcs.put_away(&moved.name, paths::cell_of(to.x, to.z), layer);
         bevy::log::info!(
-            "npcs: the scripts {} {} to {:?}{}",
+            "npcs: the scripts {} {} to {:?}{}{}",
             if walks { "send" } else { "put" },
             moved.name,
             whither,
-            if moved.queued { " in its turn" } else { "" }
+            if moved.queued { " in its turn" } else { "" },
+            if away { ", away from the world" } else { "" }
         );
     }
     for (entity, steps) in queued {
