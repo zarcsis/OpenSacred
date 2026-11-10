@@ -897,6 +897,10 @@ fn stage(
             look.place,
             Visibility::default(),
             RenderLayers::layer(FIGURES),
+            // Its scene's and its items' entities in the figures' layer from their first frame,
+            // so that the world's camera never draws one over the screen while it is hidden
+            // ([`unveil`], #2490).
+            bevy::app::Propagate(RenderLayers::layer(FIGURES)),
         ));
     }
     layers.add(Layer { figures: target })
@@ -1195,12 +1199,24 @@ fn picture(
     water: Handle<Image>,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
+    // Black over it until all of it has loaded ([`unveil`], #2490): under the veil its pictures,
+    // its figures' layer and their materials are made as when shown, so that it shows whole.
+    commands.spawn((
+        DespawnOnExit(screen),
+        Veil,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
+        GlobalZIndex(VEIL_LAYER),
+    ));
     commands
         .spawn((
             DespawnOnExit(screen),
-            // Hidden until all of it has loaded ([`unveil`], #2490).
             Veiled::default(),
-            Visibility::Hidden,
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -2156,14 +2172,21 @@ fn choosing(screen: Option<Res<State<Screen>>>) -> bool {
     screen.is_some_and(|screen| matches!(screen.get(), Screen::Heroes | Screen::Underworld))
 }
 
-/// A choice's screen hidden while what it draws loads: its pictures, its fonts, its figures'
-/// models, their items and their materials (#2490), and the frames it has stood ready, which let
-/// the figures' pipelines compile while it is hidden; and the seconds it has waited.
+/// A choice's screen under its [`Veil`] while what it draws loads: its pictures, its fonts, its
+/// figures' models, their items and their materials (#2490), and the frames it has stood ready,
+/// which let the figures' pipelines compile while it is covered; and the seconds it has waited.
 #[derive(Component, Default)]
 struct Veiled {
     ready: u32,
     waited: f32,
 }
+
+/// The black over a choice's screen while it loads ([`Veiled`]).
+#[derive(Component)]
+struct Veil;
+
+/// The veil's layer: over the screen, under the cursor (`cursors`, 10).
+const VEIL_LAYER: i32 = 9;
 
 /// The frames a choice's screen stands ready before it shows, and the seconds it waits at the
 /// most.
@@ -2180,9 +2203,8 @@ const MOST_WAIT: f32 = 5.0;
 )]
 fn unveil(
     mut commands: Commands,
-    mut roots: Query<(Entity, &mut Veiled, &mut Visibility)>,
-    time: Res<Time>,
-    assets: Res<AssetServer>,
+    (mut roots, veils): (Query<(Entity, &mut Veiled)>, Query<Entity, With<Veil>>),
+    (time, images, typefaces): (Res<Time>, Res<Assets<Image>>, Res<Assets<Font>>),
     children: Query<&Children>,
     (pictures, fonts): (Query<&ImageNode>, Query<&TextFont>),
     figures: Query<(Entity, &Figure, Option<&npcs::Equipment>)>,
@@ -2192,14 +2214,14 @@ fn unveil(
     ),
     unsettled: Query<(), (With<MeshMaterial3d<StandardMaterial>>, Without<Owned>)>,
 ) {
-    let loaded = |id: bevy::asset::UntypedAssetId| assets.is_loaded_with_dependencies(id);
-    // A picture or a text of the screen whose image or font has not loaded.
+    // A picture or a text of the screen whose image or font is not there yet: loaded, or made
+    // by the screen itself (its water's).
     let waits = |entity: Entity| {
         pictures
             .get(entity)
-            .is_ok_and(|picture| !loaded(picture.image.id().untyped()))
+            .is_ok_and(|picture| !images.contains(&picture.image))
             || fonts.get(entity).is_ok_and(|text| match &text.font {
-                bevy::text::FontSource::Handle(font) => !loaded(font.id().untyped()),
+                bevy::text::FontSource::Handle(font) => !typefaces.contains(font),
                 _ => false,
             })
     };
@@ -2210,9 +2232,9 @@ fn unveil(
             || unsettled.contains(entity)
             || retextures
                 .get(entity)
-                .is_ok_and(|texture| !loaded(texture.image().id().untyped()))
+                .is_ok_and(|texture| !images.contains(texture.image()))
     };
-    for (root, mut veiled, mut visibility) in &mut roots {
+    for (root, mut veiled) in &mut roots {
         veiled.waited += time.delta_secs();
         let drawn = !children.iter_descendants(root).any(waits);
         let figures_ready = figures.iter().all(|(figure, look, equipment)| {
@@ -2231,7 +2253,9 @@ fn unveil(
             if veiled.ready < READY_FRAMES {
                 warn!("choice: the screen shows after {MOST_WAIT} s, not all of it loaded");
             }
-            *visibility = Visibility::Inherited;
+            for veil in &veils {
+                commands.entity(veil).despawn();
+            }
             commands.entity(root).remove::<Veiled>();
         }
     }
@@ -2243,45 +2267,48 @@ pub struct ChoicePlugin;
 impl Plugin for ChoicePlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "figures.wesl");
-        app.add_plugins(UiMaterialPlugin::<Layer>::default())
-            .init_resource::<Choice>()
-            .init_resource::<Introduction>()
-            .add_systems(OnExit(Screen::Heroes), hush)
-            .init_resource::<Figures>()
-            .init_resource::<Images>()
-            .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
-            .add_systems(
-                OnEnter(Screen::Underworld),
-                (read_figures, underworld_screen).chain(),
-            )
-            .add_systems(
-                Update,
+        app.add_plugins((
+            UiMaterialPlugin::<Layer>::default(),
+            bevy::app::HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate),
+        ))
+        .init_resource::<Choice>()
+        .init_resource::<Introduction>()
+        .add_systems(OnExit(Screen::Heroes), hush)
+        .init_resource::<Figures>()
+        .init_resource::<Images>()
+        .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
+        .add_systems(
+            OnEnter(Screen::Underworld),
+            (read_figures, underworld_screen).chain(),
+        )
+        .add_systems(
+            Update,
+            (
                 (
-                    (
-                        keys.in_set(crate::frame::Control)
-                            .run_if(in_state(Screen::Heroes)),
-                        show,
-                        caret,
-                        colour_labels.run_if(in_state(Screen::Underworld)),
-                    ),
-                    // The figures, where the game draws models.
-                    (dress, settle, shade, npcs::equip, npcs::bind_worn)
-                        .chain()
-                        .run_if(resource_exists::<Assets<Gltf>>),
-                )
+                    keys.in_set(crate::frame::Control)
+                        .run_if(in_state(Screen::Heroes)),
+                    show,
+                    caret,
+                    colour_labels.run_if(in_state(Screen::Underworld)),
+                ),
+                // The figures, where the game draws models.
+                (dress, settle, shade, npcs::equip, npcs::bind_worn)
                     .chain()
-                    .run_if(choosing),
+                    .run_if(resource_exists::<Assets<Gltf>>),
             )
-            .add_systems(Update, colour_words.after(show))
-            .add_systems(Update, unveil.run_if(choosing))
-            .add_systems(
-                Update,
-                introduce
-                    .after(show)
-                    .run_if(in_state(Screen::Heroes))
-                    .run_if(resource_exists::<Sfx>)
-                    .run_if(resource_exists::<AudioChannel<Introductions>>),
-            );
+                .chain()
+                .run_if(choosing),
+        )
+        .add_systems(Update, colour_words.after(show))
+        .add_systems(Update, unveil.run_if(choosing))
+        .add_systems(
+            Update,
+            introduce
+                .after(show)
+                .run_if(in_state(Screen::Heroes))
+                .run_if(resource_exists::<Sfx>)
+                .run_if(resource_exists::<AudioChannel<Introductions>>),
+        );
     }
 }
 
