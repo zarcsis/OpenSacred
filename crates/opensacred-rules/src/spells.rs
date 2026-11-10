@@ -392,6 +392,38 @@ pub const SKIN_BLINK: f32 = 2.0;
 pub const WATER_SKIN_STATE: u8 = 1;
 pub const WATER_SKIN_TEXTURE: &str = "GRN_SHADETEXTURE02";
 
+/// The types that the creature maker marks as visions (the object's `+0x14` bit `0x200000`,
+/// `0x52E2E2`–`0x52E2F0`; #2519): Valor's ghost 223 and the Daemon's vision 707
+/// (`TYPE_NPC_DAEMONIN_VISION`), whose model the draw shows only as a vision's look ([`vision`]),
+/// never plain.
+pub const VISIONS: [u32; 2] = [223, 707];
+
+/// The vision's texture of a creature of the type `creature` (`0x44A9D0`, its table `0x44B1B8`):
+/// the types 223, 322, 224 and 707 take the state 22, its style 7 in a game of one player (the
+/// modes' bit 8, which every start script's `InfoPlayer` 23 sets, `0x4AEA16`), the gold
+/// `fx_multiTexBase06`; any other the state 23, the style 8, the red `fx_multiTexBase03`.
+pub fn vision(creature: u32) -> &'static str {
+    if [223, 322, 224, 707].contains(&creature) {
+        "fx_multiTexBase06"
+    } else {
+        "fx_multiTexBase03"
+    }
+}
+
+/// The grey of a vision's model at `ms` milliseconds of the real clock, every vision's alike
+/// (`0x40C320`, the floats `0x8907BC`–`0x8907C8`): `⌊127.9·(1.75 − 0.25·sin(0.004·ms))⌋`, of 255,
+/// so that it pulses between 191 and 255 about every 1.57 s.
+pub fn vision_grey(ms: f64) -> f32 {
+    let grey = 127.9 * (1.75 - 0.25 * (0.004 * ms).sin());
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a grey of 191 to 255, truncated as `__ftol` does"
+    )]
+    let grey = grey as u8;
+    f32::from(grey) / 255.0
+}
+
 /// The grey by which the crusader's crosses are added over their bearer's model at `ms`
 /// milliseconds of the real clock (`0x44AD29`): `50·(1 + sin(0.007·ms))` truncated, of 255, so
 /// that it pulses between none and 100 about every 0.9 s.
@@ -1655,6 +1687,20 @@ mod tests {
         let peak = std::f32::consts::FRAC_PI_8;
         assert_eq!(lava_skin_grey(peak), 192.0 / 255.0);
         assert_eq!(lava_skin_grey(3.0 * peak), 64.0 / 255.0);
+    }
+
+    #[test]
+    fn a_vision_is_gold_or_red_by_its_type_and_pulses_by_the_real_clock() {
+        // The Daemon's vision and Valor's ghost, and the state 22's other types, gold; any other
+        // vision red.
+        assert_eq!(VISIONS.map(vision), ["fx_multiTexBase06"; 2]);
+        assert_eq!(vision(322), "fx_multiTexBase06");
+        assert_eq!(vision(76), "fx_multiTexBase03");
+        // 1.75·127.9 at 0, the sine's trough 191 and its crest 255 a quarter turn either way.
+        assert_eq!(vision_grey(0.0), 223.0 / 255.0);
+        let quarter = std::f64::consts::FRAC_PI_2 / 0.004;
+        assert_eq!(vision_grey(quarter), 191.0 / 255.0);
+        assert_eq!(vision_grey(3.0 * quarter), 255.0 / 255.0);
     }
 
     #[test]

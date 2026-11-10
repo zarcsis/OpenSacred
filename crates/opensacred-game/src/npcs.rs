@@ -6693,6 +6693,14 @@ fn spawn(
     if !placement.equipment.is_empty() {
         entity.insert(equipment(assets, &placement.equipment));
     }
+    // A vision, drawn only in its look for as long as it lives (`skins`, #2519).
+    if !placement.object && opensacred_rules::spells::VISIONS.contains(&placement.creature.0) {
+        let look = opensacred_rules::spells::vision(placement.creature.0);
+        entity.insert(crate::skins::Asked(
+            crate::skins::Overlay::Vision(look),
+            f32::INFINITY,
+        ));
+    }
     if placement.casts {
         entity.insert(shadows::Casts);
     }

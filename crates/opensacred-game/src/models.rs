@@ -122,6 +122,11 @@ pub enum Pass {
     /// behind them, the alpha test on, their depth written, in the objects' layer of the blended
     /// things.
     Water,
+    /// All of them in place of the model's own, a vision's (`skins`, `0x40C320`, #2519): each
+    /// texel times its grey, then twice the vision's texture taken by the model's own normals,
+    /// unlit, added to what lies behind them, the alpha test on, their depth written, in the
+    /// objects' layer of the blended things.
+    Vision,
 }
 
 /// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
@@ -158,6 +163,7 @@ pub struct InOrderKey {
     effect: bool,
     hologram: bool,
     water: bool,
+    vision: bool,
     under: bool,
 }
 
@@ -168,6 +174,7 @@ impl From<&InOrder> for InOrderKey {
             effect: matches!(extension.pass, Pass::Effect | Pass::Hologram),
             hologram: extension.pass == Pass::Hologram,
             water: extension.pass == Pass::Water,
+            vision: extension.pass == Pass::Vision,
             under: matches!(extension.pass, Pass::Under(_) | Pass::UnderBlended(_)),
         }
     }
@@ -238,8 +245,11 @@ impl MaterialExtension for InOrder {
             if key.bind_group_data.water {
                 fragment.shader_defs.push("WATER".into());
             }
+            if key.bind_group_data.vision {
+                fragment.shader_defs.push("VISION".into());
+            }
         }
-        if (key.bind_group_data.fringe || key.bind_group_data.water)
+        if (key.bind_group_data.fringe || key.bind_group_data.water || key.bind_group_data.vision)
             && let Some(depth) = descriptor.depth_stencil.as_mut()
         {
             depth.depth_write_enabled = Some(true);
@@ -358,6 +368,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         Pass::Effect => (AlphaMode::Opaque, base.depth_bias),
         Pass::Hologram => (AlphaMode::Premultiplied, Layer::Objects.bias()),
         Pass::Water => (AlphaMode::Blend, Layer::Objects.bias()),
+        Pass::Vision => (AlphaMode::Add, Layer::Objects.bias()),
     };
     ModelMaterial {
         base: StandardMaterial {
@@ -390,6 +401,27 @@ pub fn water(base: StandardMaterial, anchors: &Anchors, texture: Handle<Image>) 
         },
         anchors,
         Pass::Water,
+    );
+    material.extension.effect = Some(texture);
+    material
+}
+
+/// The material of a vision's model made of its own material `base` (`skins`, [`Pass::Vision`],
+/// #2519): its texture in the grey `grey`, unlit, the vision's `texture` over it.
+pub fn vision(
+    base: StandardMaterial,
+    anchors: &Anchors,
+    texture: Handle<Image>,
+    grey: Color,
+) -> ModelMaterial {
+    let mut material = in_order(
+        StandardMaterial {
+            base_color: grey,
+            unlit: true,
+            ..base
+        },
+        anchors,
+        Pass::Vision,
     );
     material.extension.effect = Some(texture);
     material
