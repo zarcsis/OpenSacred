@@ -487,6 +487,14 @@ impl Heights {
             .and_then(|(cell, _, _)| cell.building.map(|building| (building, cell.flags)))
     }
 
+    /// Whether global cell `(cx, cy)` lies in a loaded sector.
+    pub fn holds(&self, (cx, cy): (i32, i32)) -> bool {
+        match (u32::try_from(cx), u32::try_from(cy)) {
+            (Ok(cx), Ok(cy)) => self.cells.contains_key(&(cx, cy)),
+            _ => false,
+        }
+    }
+
     /// Whether global cell `(cx, cy)` of the ground may be walked on; not outside the loaded
     /// sectors.
     pub fn walkable(&self, (cx, cy): (i32, i32)) -> bool {

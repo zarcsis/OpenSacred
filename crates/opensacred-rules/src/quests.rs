@@ -615,9 +615,9 @@ impl Pacified {
 }
 
 /// The places that the scripts name (`DefPos`, 23, `0x478780`): a name and up to four numbers,
-/// the first two a global cell, the third the layer where a record takes the place as a cell
-/// (`SetBaseTrigger`, `Teleport`); a name defined again replaces its entry. The names are kept
-/// lower-cased, as `opensacred-game` looks them up.
+/// the first two a global cell, the third a radius and the fourth the level, as a record's field
+/// of a cell takes the place by its name ([`Place::of`]); a name defined again replaces its entry.
+/// The names are kept lower-cased, as `opensacred-game` looks them up.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Positions(BTreeMap<String, Vec<i32>>);
 
@@ -632,7 +632,74 @@ impl Positions {
     pub fn get(&self, name: &str) -> Option<&[i32]> {
         self.0.get(&name.to_lowercase()).map(Vec::as_slice)
     }
+
+    /// The place `name` as a record's field of a cell takes it ([`Place::of`]).
+    pub fn place(&self, name: &str) -> Option<Place> {
+        Place::of(self.get(name)?)
+    }
 }
+
+/// A `DefPos`'s place as the field reader takes it for a record's cell by its name (`0x04`,
+/// `0x0C`, `0x0D`; `0x472BC0` at `0x474528` to `0x47463A`, read 2026-11-10 for #2442): its cell,
+/// its third number a radius in cells about it, and its fourth the level, 0 for one below 0 or
+/// none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Place {
+    pub cell: (i32, i32),
+    pub radius: i32,
+    pub level: i32,
+}
+
+impl Place {
+    /// The place of a `DefPos`'s numbers, none without two.
+    pub fn of(numbers: &[i32]) -> Option<Self> {
+        let [x, y, rest @ ..] = numbers else {
+            return None;
+        };
+        Some(Self {
+            cell: (*x, *y),
+            radius: rest.first().copied().unwrap_or(0),
+            level: rest.get(1).copied().unwrap_or(0).max(0),
+        })
+    }
+
+    /// The cell that a record's field takes of it: the cell itself for a radius of 0 or less;
+    /// else up to [`SPREAD_TRIES`] cells drawn about it, each `rand() % (2r + 1)` less the radius
+    /// along x and then along y, the first where `free` holds, else the last drawn (`0x474528`;
+    /// `free` the test of `0x472AF0`, which a cell of no sector passes). The scripts' creatures
+    /// made at one place so stand apart, each at its own cell (seen in the original: the start's
+    /// soldiers of `posSoldatenDMG`, of the radius 6, on cells of their own about it, other cells
+    /// at each new game).
+    pub fn drawn(
+        &self,
+        dice: &mut impl crate::spawning::Dice,
+        free: impl Fn((i32, i32)) -> bool,
+    ) -> (i32, i32) {
+        let span = self
+            .radius
+            .checked_mul(2)
+            .and_then(|d| d.checked_add(1))
+            .and_then(|span| u32::try_from(span).ok());
+        let Some(span) = span.filter(|_| self.radius > 0) else {
+            return self.cell;
+        };
+        let mut cell = self.cell;
+        for _ in 0..SPREAD_TRIES {
+            let mut along =
+                |centre: i32| centre - self.radius + i32::try_from(dice.below(span)).unwrap_or(0);
+            let x = along(self.cell.0);
+            let y = along(self.cell.1);
+            cell = (x, y);
+            if free(cell) {
+                break;
+            }
+        }
+        cell
+    }
+}
+
+/// The cells that [`Place::drawn`] tries at most (`0x474528`).
+pub const SPREAD_TRIES: u32 = 10;
 
 /// The cells of a sector's side, by which the client splits a base trigger's box (`>> 6`).
 const SIDE: i32 = 64;
@@ -1598,6 +1665,48 @@ impl MapNames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_places_third_number_spreads_its_cells_and_its_fourth_is_the_level() {
+        use crate::spawning::Script;
+        let mut positions = Positions::default();
+        positions.define("posSoldatenDMG", &[1321, 2254, 6]);
+        positions.define("posOrkChampion", &[2872, 3181, 0, 1]);
+        positions.define("below", &[5, 6, 2, -1]);
+        let soldiers = positions.place("POSSOLDATENDMG").unwrap();
+        assert_eq!(
+            soldiers,
+            Place {
+                cell: (1321, 2254),
+                radius: 6,
+                level: 0
+            }
+        );
+        assert_eq!(positions.place("posorkchampion").unwrap().level, 1);
+        assert_eq!(positions.place("below").unwrap().level, 0);
+        // x first, then y, each `rand() % 13` less 6; the first free cell is kept.
+        let mut dice = Script::new(vec![5, 13, 0, 12]);
+        assert_eq!(soldiers.drawn(&mut dice, |_| true), (1320, 2248));
+        assert_eq!(dice.taken(), 2);
+        let mut dice = Script::new(vec![5, 13, 0, 12]);
+        assert_eq!(
+            soldiers.drawn(&mut dice, |cell| cell != (1320, 2248)),
+            (1315, 2260)
+        );
+        assert_eq!(dice.taken(), 4);
+        // None free in ten tries: the tenth.
+        let mut dice = Script::new((0..20).collect());
+        assert_eq!(
+            soldiers.drawn(&mut dice, |_| false),
+            (1321 - 6 + 5, 2254 - 6 + 6)
+        );
+        assert_eq!(dice.taken(), 20);
+        // No radius: the cell itself, nothing drawn.
+        let mut dice = Script::new(vec![1, 2]);
+        let champion = positions.place("posOrkChampion").unwrap();
+        assert_eq!(champion.drawn(&mut dice, |_| false), (2872, 3181));
+        assert_eq!(dice.taken(), 0);
+    }
 
     #[test]
     fn a_map_icon_of_a_text_keeps_its_key_cell_and_arc_bytes() {
