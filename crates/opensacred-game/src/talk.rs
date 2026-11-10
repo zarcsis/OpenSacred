@@ -87,21 +87,10 @@ const FONT_SIZE: f32 = 23.7;
 const EDGE_ACROSS: u32 = 21;
 const EDGE_DOWN: u32 = 34;
 const CORNER: u32 = 55;
-/// An `InfoPlayer`'s text: its colour, as the chapters' titles show, how long it shows, in
-/// seconds, and how far down the screen (**hypothesis**: the engine's event `0x10` of the kind 3
-/// is not read).
-const NOTICE: Color = Color::linear_rgb(1.0, 0.55, 0.12);
-const NOTICE_SIZE: f32 = 25.2;
-const NOTICE_SECONDS: f32 = 5.0;
-const NOTICE_TOP: f32 = 22.0;
 /// The modes of an `InfoPlayer` that show its text (`0x4AE350`): 0 and 1, 2 with the music
 /// `0x1B61` once, which has no file, and 3 with the sound 7000, which no tree's `InfoPlayer` asks
 /// for (#1243).
 const SHOWS: [i32; 4] = [0, 1, 2, 3];
-
-/// An `InfoPlayer`'s text on the screen, and how long it still shows.
-#[derive(Component)]
-pub(crate) struct Notice(f32);
 
 /// What a talk opens (`0x52AB70`): the creature's dialogue by its function's name, or, for a
 /// trader without one (its number below 1 or above 200,000), a smith's, a merchant's or a combat
@@ -1195,17 +1184,14 @@ fn dismiss(
     }
 }
 
-/// Shows the scripts' `InfoPlayer`s' texts (#1033): of a mode that shows one, the last of the
-/// frame's, in place of the one before, across the screen's upper part, for 5 s; the other modes
-/// (an image, an event, the interface's states) are not followed.
+/// Shows the scripts' `InfoPlayer`s' texts (#1033): of a mode that shows one, each, as lines
+/// under those that show (`info_lines`, #2499); the other modes (an image, an event, the
+/// interface's states) are not followed.
 pub(crate) fn notices(
-    mut commands: Commands,
     mut infos: ResMut<scripts::Infos>,
     texts: Option<Res<Texts>>,
-    assets: Res<AssetServer>,
-    shown: Query<Entity, With<Notice>>,
+    mut shown: ResMut<crate::info_lines::Shown>,
 ) {
-    let mut last = None;
     for (mode, key) in infos.0.drain(..) {
         if !SHOWS.contains(&mode) {
             debug!("talk: an InfoPlayer of the mode {mode} ({key}) is not followed");
@@ -1215,54 +1201,15 @@ pub(crate) fn notices(
             .as_deref()
             .and_then(|texts| texts.named(resource(&key)))
         {
-            Some(text) => last = Some(shown_text(text)),
+            Some(text) => {
+                let text = shown_text(text);
+                info!(
+                    "talk: the player is shown {}",
+                    text.lines().next().unwrap_or_default()
+                );
+                shown.0.push(text);
+            }
             None => debug!("talk: no text {key}"),
-        }
-    }
-    let Some(text) = last else {
-        return;
-    };
-    info!(
-        "talk: the player is shown {}",
-        text.lines().next().unwrap_or_default()
-    );
-    for old in &shown {
-        commands.entity(old).despawn();
-    }
-    let font: Handle<Font> = assets.load(FONT);
-    commands
-        .spawn((
-            DespawnOnExit(AppState::InGame),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Percent(NOTICE_TOP),
-                width: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            Pickable::IGNORE,
-            Notice(NOTICE_SECONDS),
-        ))
-        .with_children(|row| {
-            row.spawn((
-                Text::new(text),
-                TextFont {
-                    font: font.into(),
-                    font_size: FontSize::Px(NOTICE_SIZE),
-                    ..default()
-                },
-                TextColor(NOTICE),
-                TextLayout::justify(Justify::Center),
-            ));
-        });
-}
-
-/// Takes an `InfoPlayer`'s text away once its time is over.
-fn fade(mut commands: Commands, time: Res<Time>, mut notices: Query<(Entity, &mut Notice)>) {
-    for (entity, mut notice) in &mut notices {
-        notice.0 -= time.delta_secs();
-        if notice.0 <= 0.0 {
-            commands.entity(entity).despawn();
         }
     }
 }
@@ -1484,7 +1431,6 @@ impl Plugin for TalkPlugin {
                 (
                     dismiss,
                     notices.after(popups),
-                    fade,
                     popups,
                     close_first.after(popups),
                 )
