@@ -10463,6 +10463,10 @@ pub(crate) fn script_records(
                 continue;
             }
             Act::Phase(whither) => {
+                let cell = match &whither {
+                    Whither::Cell(cell) => Some(*cell),
+                    Whither::Creature(_) => None,
+                };
                 let to = match whither {
                     Whither::Cell((x, y, layer)) => {
                         crate::script_attacks::Phase::to_cell((x, y, layer), &heights)
@@ -10505,6 +10509,21 @@ pub(crate) fn script_records(
                         moved.name,
                         if moved.queued { " in its turn" } else { "" }
                     );
+                } else if let Some((x, y, layer)) = cell {
+                    // One away from the world goes there all the same, which its sector places
+                    // as it comes in, as a `Teleport` puts it (#2448, #2470): the Underworld's
+                    // quest 11 sends Valor's ghost from his throne to the hero. A cell of
+                    // negative numbers is the cell `|c| − 1`, on the ground (`0x522742`).
+                    let unsigned = |c: i32| if c < 0 { -c - 1 } else { c };
+                    let layer = if x < 0 || y < 0 { 0 } else { layer };
+                    if npcs.put_away(&moved.name, (unsigned(x), unsigned(y)), layer) {
+                        bevy::log::info!(
+                            "npcs: the scripts teleport {} to {},{}, away from the world",
+                            moved.name,
+                            unsigned(x),
+                            unsigned(y)
+                        );
+                    }
                 }
                 continue;
             }
