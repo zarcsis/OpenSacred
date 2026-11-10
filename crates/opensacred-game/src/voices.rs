@@ -1491,9 +1491,9 @@ fn idle(
     }
 }
 
-/// A creature that dies speaks its death.
-fn dies(dying: Query<Entity, Added<Dies>>, mut lines: MessageWriter<Speak>) {
-    for speaker in &dying {
+/// A creature that dies speaks its death, but a body put back lying (#2457).
+fn dies(dying: Query<(Entity, &Dies), Added<Dies>>, mut lines: MessageWriter<Speak>) {
+    for (speaker, _) in dying.iter().filter(|(_, dies)| !dies.fallen) {
         lines.write(Speak {
             speaker,
             group: DEATH,

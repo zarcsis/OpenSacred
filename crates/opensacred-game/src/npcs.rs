@@ -1143,12 +1143,20 @@ enum Source {
     Filled(Box<Placement>),
 }
 
-/// Where a creature that went with its sector stood, on which floor, and its health.
+/// Where a creature that went with its sector stood, on which floor, and its health: none for a
+/// body that its dialogue holds (#2457), which lies there.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Stood {
     cell: (u32, u32),
     layer: i32,
     health: fight::Health,
+}
+
+impl Stood {
+    /// Whether it is a body that lies there ([`stood_of`]).
+    fn lies(&self) -> bool {
+        self.health.current == 0
+    }
 }
 
 /// What became of the placed creatures ([`Placed`]) that went with their sectors.
@@ -1157,7 +1165,8 @@ struct Stood {
 // name (#2306); postcard writes no names.
 #[serde(rename = "KeptCreatures")]
 struct Kept {
-    /// The kept placements that went, by index: where each stood, or `None` once killed.
+    /// The kept placements that went, by index: where each stood or its held body lies, or
+    /// `None` once killed.
     went: HashMap<usize, Option<Stood>>,
     /// The kept placements spawned, living somewhere: not placed again while they are.
     out: HashSet<usize>,
@@ -1234,16 +1243,30 @@ impl Kept {
 
     /// Where the kept placement `index` of the cell `cell` lives away from the world
     /// (`Npcs::lives_away`): nowhere while it is in the world, where it stood once it went
-    /// living, nowhere once killed, and at its own cell before it was ever placed where its
-    /// maker `made` it already.
+    /// living, nowhere once killed or lying dead, and at its own cell before it was ever placed
+    /// where its maker `made` it already.
     fn away(&self, index: usize, cell: (u32, u32), made: bool) -> Option<(u32, u32)> {
         if self.out.contains(&index) {
             return None;
         }
         match self.went.get(&index) {
-            Some(stood) => stood.map(|stood| stood.cell),
+            Some(stood) => stood.filter(|stood| !stood.lies()).map(|stood| stood.cell),
             None => made.then_some(cell),
         }
+    }
+
+    /// Where the body of the kept placement `index` lies away from the world, its dialogue holding
+    /// it (#2457).
+    fn lies(&self, index: usize) -> Option<(u32, u32)> {
+        if self.out.contains(&index) {
+            return None;
+        }
+        self.went
+            .get(&index)
+            .copied()
+            .flatten()
+            .filter(Stood::lies)
+            .map(|stood| stood.cell)
     }
 
     /// Notes that a placed creature is spawned.
@@ -1261,8 +1284,8 @@ impl Kept {
                 self.went.insert(*index, stood);
             }
             Source::Filled(placement) => {
-                // Kept with its sector, which keeps a time then (`0x4954C0`).
-                if let Some(stood) = stood {
+                // Kept with its sector while it lives, which keeps a time then (`0x4954C0`).
+                if let Some(stood) = stood.filter(|stood| !stood.lies()) {
                     self.filled
                         .entry(placed.at)
                         .or_default()
@@ -5815,9 +5838,14 @@ fn throw_rider(
     on_foot(&mut placement, &npcs.slots);
     let beside = at.translation + at.rotation * Vec3::Z * THROWN_BESIDE;
     let spot = Transform::from_translation(beside);
-    let Some(stood) =
-        health.and_then(|health| stood_of((&spot, way), Some(health), false, Some(heights)))
-    else {
+    let Some(stood) = health.and_then(|health| {
+        stood_of(
+            (&spot, way.level),
+            Some(health),
+            (false, false),
+            Some(heights),
+        )
+    }) else {
         commands.entity(rider).remove::<crate::riding::Seat>();
         return;
     };
@@ -5909,7 +5937,8 @@ fn swimmers(
 }
 
 /// Spawns `placement`'s creature where it stood when it went with its sector, on that floor,
-/// with the health and the level it had.
+/// with the health and the level it had; a body that its dialogue holds lying there (#2457),
+/// hired by none.
 fn respawn(
     commands: &mut Commands,
     placement: &Placement,
@@ -5920,6 +5949,9 @@ fn respawn(
     let mut there = placement.clone();
     there.cell = stood.cell;
     there.layer = stood.layer;
+    if stood.lies() {
+        there.hire = None;
+    }
     bevy::log::debug!("npcs: {} back {stood:?}", placement.model);
     let entity = spawn(
         commands,
@@ -5930,12 +5962,16 @@ fn respawn(
         (stood.health.level, rules, templates),
     );
     commands.entity(entity).insert(stood.health);
+    if stood.lies() {
+        commands.entity(entity).insert(Dies::fallen());
+    }
     entity
 }
 
 /// Notes what a placed creature leaves as it goes with its sector, or with the game (#329): a
-/// kept one's place, floor and health, or that it was killed, and the death's functions it still
-/// has (#656); a fill's living one, with its sector.
+/// kept one's place, floor and health, or where its body lies that its dialogue holds (#2457),
+/// or that it was killed, and the death's functions it still has (#656); a fill's living one,
+/// with its sector.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -5945,22 +5981,27 @@ fn keep(
     creatures: Query<(
         &Placed,
         &Transform,
-        (Option<&crowd::InTheWay>, Option<&crate::riding::Ridden>),
+        (
+            Option<&crowd::InTheWay>,
+            Option<&crate::riding::Ridden>,
+            Option<&Corpse>,
+        ),
         Option<&fight::Health>,
-        Has<Dies>,
+        (Has<Dies>, Has<Talk>),
         Option<&OnDeath>,
         Has<Remade>,
     )>,
     heights: Option<Res<Heights>>,
     npcs: Option<ResMut<Npcs>>,
 ) {
-    let (Ok((placed, transform, (way, ridden), health, dies, on_death, remade)), Some(mut npcs)) =
-        (creatures.get(removed.entity), npcs)
+    let (
+        Ok((placed, transform, (way, ridden, corpse), health, dying, on_death, remade)),
+        Some(mut npcs),
+    ) = (creatures.get(removed.entity), npcs)
     else {
         return;
     };
-    // A ridden horse's place in the way, kept aside under its rider (#2288).
-    let Some(way) = way.or_else(|| ridden.and_then(crate::riding::Ridden::way)) else {
+    let Some(level) = level_of(way, ridden, corpse) else {
         return;
     };
     // A creature made again by a `RegionChange` leaves its place to its new self (#1064).
@@ -5974,7 +6015,7 @@ fn keep(
             .map(|on_death| on_death.0.clone())
             .unwrap_or_default();
     }
-    let stood = stood_of((transform, way), health, dies, heights.as_deref());
+    let stood = stood_of((transform, level), health, dying, heights.as_deref());
     bevy::log::debug!(
         "npcs: {} of {:?} goes, {stood:?}",
         removed.entity,
@@ -5996,34 +6037,57 @@ fn keep(
     }
 }
 
-/// Where a creature at `transform` in the others' `way` stands as it goes, on its floor with its
-/// `health`; none once killed or dying.
+/// The level a creature stands or lies on: its place's in the others' `way`, a ridden horse's kept
+/// aside under its rider (#2288), or where its `corpse` fell, its place in the way gone.
+fn level_of(
+    way: Option<&crowd::InTheWay>,
+    ridden: Option<&crate::riding::Ridden>,
+    corpse: Option<&Corpse>,
+) -> Option<Level> {
+    way.or_else(|| ridden.and_then(crate::riding::Ridden::way))
+        .map(|way| way.level)
+        .or_else(|| corpse.map(|corpse| corpse.level))
+}
+
+/// Where a creature at `transform` on `level` stands as it goes, on its floor with its `health`;
+/// none once killed or dying, but a dead one's body that its dialogue holds (`dying` with a
+/// dialogue: the dying action's hold, `0x53ECA0`; #2457), which lies there with no health
+/// ([`Stood::lies`]).
 fn stood_of(
-    (transform, way): (&Transform, &crowd::InTheWay),
+    (transform, level): (&Transform, Level),
     health: Option<&fight::Health>,
-    dies: bool,
+    (dying, held): (bool, bool),
     heights: Option<&Heights>,
 ) -> Option<Stood> {
     let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
     let layer = heights
-        .and_then(|heights| heights.floor(way.level))
+        .and_then(|heights| heights.floor(level))
         .map_or(0, |(_, floor)| i32::from(floor));
-    match (u32::try_from(x), u32::try_from(y), health) {
-        (Ok(x), Ok(y), Some(&health)) if !dies && health.current > 0 => Some(Stood {
-            cell: (x, y),
-            layer,
-            health,
-        }),
-        _ => None,
-    }
+    let (Ok(x), Ok(y), Some(&health)) = (u32::try_from(x), u32::try_from(y), health) else {
+        return None;
+    };
+    let health = match (dying, held) {
+        (false, _) if health.current > 0 => health,
+        (true, true) => fight::Health {
+            current: 0,
+            ..health
+        },
+        _ => return None,
+    };
+    Some(Stood {
+        cell: (x, y),
+        layer,
+        health,
+    })
 }
 
 /// What the sectors keep of their creatures as a save keeps it (#1959; the original's object
 /// manager keeps every creature, alive and dead, `0x602300`): [`Kept`] with the creatures of the
 /// sectors in the world gone as [`keep`] notes them going with their sectors, so that a load puts
 /// them back as their sectors come in, but for the hero's followers, which go with the hero
-/// ([`Following`]); and the placements of the living kept ones as the play left them (a weapon
-/// chosen anew, the death's functions left, a `RegionChange`'s type), by index.
+/// ([`Following`]), the bodies that their dialogues hold lying where they fell (#2457); and the
+/// placements of the living and lying kept ones as the play left them (a weapon chosen anew, the
+/// death's functions left, a `RegionChange`'s type), by index.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Creatures {
     kept: Kept,
@@ -6038,9 +6102,10 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
             &Transform,
             Option<&crowd::InTheWay>,
             Option<&crate::riding::Ridden>,
+            Option<&Corpse>,
         ),
         Option<&fight::Health>,
-        Has<Dies>,
+        (Has<Dies>, Has<Talk>),
         Option<&OnDeath>,
         (
             Has<crate::followers::Follower>,
@@ -6052,15 +6117,14 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     let heights = world.get_resource::<Heights>();
     let mut placements: HashMap<usize, Placement> = HashMap::new();
     let mut gone = Vec::new();
-    for (placed, (at, way, ridden), health, dies, on_death, (follows, owned)) in
+    for (placed, (at, way, ridden, corpse), health, dying, on_death, (follows, owned)) in
         standing.iter(world)
     {
-        // A ridden horse's place in the way, kept aside under its rider (#2288).
-        let Some(way) = way.or_else(|| ridden.and_then(crate::riding::Ridden::way)) else {
+        let Some(level) = level_of(way, ridden, corpse) else {
             continue;
         };
-        let stood = stood_of((at, way), health, dies, heights);
-        // A living kept one leaves the death's functions it still has, as [`keep`] notes them.
+        let stood = stood_of((at, level), health, dying, heights);
+        // A kept one leaves the death's functions it still has, as [`keep`] notes them.
         if let Source::Kept(index) = placed.source
             && let Some(placement) = npcs.placements.get(index)
             && stood.is_some()
@@ -6073,14 +6137,16 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
             placements.insert(index, placement);
         }
         // A living follower goes with the hero ([`following`]), and so does its own horse
-        // ([`mount_of`], #2301), its placement kept out.
-        if (follows || owned) && stood.is_some() {
+        // ([`mount_of`], #2301), its placement kept out; a follower's body lies where it fell,
+        // as quest 61's Shareefa (#2457).
+        if (follows || owned) && stood.is_some_and(|stood| !stood.lies()) {
             continue;
         }
         gone.push((placed, stood));
     }
     let kept = npcs.kept.with_gone(gone);
-    // The placements of those that went living before; a killed one's comes back no more.
+    // The placements of those that went living or lying before; a killed one's comes back no
+    // more.
     for (&index, went) in &kept.went {
         if let (Some(_), Some(placement)) = (went, npcs.placements.get(index)) {
             placements.entry(index).or_insert_with(|| placement.clone());
@@ -6150,7 +6216,7 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
                 (mind, arms, ranked),
                 extra,
             )| {
-                let stood = stood_of((transform, way), health, false, heights)?;
+                let stood = stood_of((transform, way.level), health, (false, false), heights)?;
                 let made = made_of(placed, mind, ranked);
                 let entry = order.iter().position(|&shown| shown == entity);
                 let following = Following {
@@ -6208,7 +6274,7 @@ pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
     let heights = world.get_resource::<Heights>();
     let (placed, (transform, way, health), (mind, ranked, arms), effects) =
         horses.iter(world).next()?;
-    let stood = stood_of((transform, way), health, false, heights)?;
+    let stood = stood_of((transform, way.level), health, (false, false), heights)?;
     bevy::log::debug!("npcs: the hero's horse saved standing {stood:?}");
     Some(Following {
         made: made_of(placed, mind, ranked),
@@ -7641,6 +7707,10 @@ pub struct Steered(pub Option<bool>);
 
 /// How long a standing creature's clip blends into the next (`0x593320`).
 const BLEND: Duration = Duration::from_millis(150);
+
+/// The speed of a put back body's dying clip, which it runs through in a frame (#2457): a frame of
+/// 1/60 s runs 16 s of it, more than any dying clip lasts.
+const FALLEN_SPEED: f32 = 1000.0;
 /// How near the hero's nearest hostile puts the standing creatures in their fight stance, in
 /// world units (`0x546A7E`).
 const STANCE_WITHIN: f32 = 550.0;
@@ -8049,13 +8119,16 @@ impl Npcs {
         );
         self.kept = creatures.kept;
         // Each that lives away comes back with the sector of where it stood or is to be made,
-        // which a save's play may have left it filed apart from (#2448, #2453).
+        // which a save's play may have left it filed apart from (#2448, #2453), and each body
+        // with the sector where it lies: a follower's with none (#2457).
         let moved: Vec<(usize, (u32, u32))> = self
             .placements
             .iter()
             .enumerate()
             .filter_map(|(index, placement)| {
-                let (x, y) = self.lives_away(index, placement)?;
+                let (x, y) = self
+                    .lives_away(index, placement)
+                    .or_else(|| self.kept.lies(index))?;
                 let sector = (x / side, y / side);
                 let filed = self
                     .by_sector
@@ -8089,8 +8162,8 @@ impl Npcs {
             }
             let went = self.kept.went.get(&index).copied();
             let cell = match went {
-                Some(Some(stood)) => stood.cell,
-                Some(None) => continue,
+                Some(Some(stood)) if !stood.lies() => stood.cell,
+                Some(_) => continue,
                 None => placement.cell,
             };
             if !reaches(cell) {
@@ -8346,9 +8419,9 @@ impl Npcs {
     }
 
     /// The cell where the creature of the script name `name`, case aside, lives away from the
-    /// world ([`Self::lives_away`]), the first placement of that name that does, which a
-    /// compass's marker points at as the original's finds the object of its name wherever it
-    /// stands (`0x4A5980`, #2406).
+    /// world ([`Self::lives_away`]) or its body lies away from it (#2457), the first placement of
+    /// that name that does, which a compass's marker points at as the original's finds the object
+    /// of its name wherever it stands (`0x4A5980`, #2406).
     pub fn away(&self, name: &str) -> Option<(u32, u32)> {
         self.placements
             .iter()
@@ -8359,7 +8432,10 @@ impl Npcs {
                     .as_deref()
                     .is_some_and(|own| own.eq_ignore_ascii_case(name))
             })
-            .find_map(|(index, placement)| self.lives_away(index, placement))
+            .find_map(|(index, placement)| {
+                self.lives_away(index, placement)
+                    .or_else(|| self.kept.lies(index))
+            })
     }
 
     /// Puts the creatures of the script name `name`, case aside, that live away from the world
@@ -10702,6 +10778,10 @@ pub struct Dies {
     /// Whether it is an undead that rises again (`undead`, #1199): its death drops nothing,
     /// gives no experience and is no kill (`0x533C7F`, `0x534775`).
     pub rises: bool,
+    /// Whether it died before and lies as it comes, a body that its dialogue holds put back with
+    /// its sector or a save (#2457): it dies no more, its death unspoken, running no death's
+    /// function, and lies as it fell at once.
+    pub fallen: bool,
 }
 
 impl Dies {
@@ -10712,6 +10792,15 @@ impl Dies {
             by_creature: false,
             killed: true,
             rises: false,
+            fallen: false,
+        }
+    }
+
+    /// A body that lies as it comes ([`Self::fallen`]).
+    pub fn fallen() -> Self {
+        Self {
+            fallen: true,
+            ..Self::unkilled()
         }
     }
 
@@ -10796,9 +10885,13 @@ pub(crate) fn die(
             .dying
             .get(usize::try_from(dies.choice).unwrap_or(0) % graph.dying.len().max(1))
         {
-            transitions
-                .play(&mut player, node, BLEND)
-                .set_speed(speed.0);
+            // A body put back lies as it fell: its clip run through in a frame.
+            let (blend, speed) = if dies.fallen {
+                (Duration::ZERO, FALLEN_SPEED)
+            } else {
+                (BLEND, speed.0)
+            };
+            transitions.play(&mut player, node, blend).set_speed(speed);
         }
         dies.played = true;
     }
@@ -12946,6 +13039,58 @@ mod tests {
         kept.gone(&goblin, None);
         assert_eq!(kept.again(7), Again::Not);
         assert_eq!(kept.away(7, own, true), None);
+    }
+
+    #[test]
+    fn a_body_that_its_dialogue_holds_lies_again_where_it_fell() {
+        let health = fight::Health {
+            current: 539,
+            most: 539,
+            level: 11,
+        };
+        let centre = paths::centre((5617, 2258));
+        let at = Transform::from_xyz(centre.x, 0.0, centre.y);
+        let stood = |dying, held| stood_of((&at, None), Some(&health), (dying, held), None);
+        // Living, it stands with its health; dead, its body lies with none where its dialogue
+        // holds it, and is killed for good where none does (#2457).
+        let lying = Stood {
+            cell: (5617, 2258),
+            layer: 0,
+            health: fight::Health {
+                current: 0,
+                ..health
+            },
+        };
+        assert_eq!(stood(false, true), Some(Stood { health, ..lying }));
+        assert_eq!(stood(true, true), Some(lying));
+        assert_eq!(stood(true, false), None);
+        assert!(lying.lies());
+        // A kept one's body comes back lying with its sector, lives nowhere away from the world
+        // and lies away from it; once its sector placed it again, it lies there.
+        let shareefa = Placed {
+            at: (2, 67),
+            source: Source::Kept(5),
+        };
+        let mut kept = Kept::default();
+        kept.spawned(&shareefa);
+        kept.gone(&shareefa, Some(lying));
+        assert_eq!(kept.again(5), Again::AtStood(lying));
+        assert_eq!(kept.away(5, (142, 4303), true), None);
+        assert_eq!(kept.lies(5), Some((5617, 2258)));
+        kept.spawned(&shareefa);
+        assert_eq!(kept.lies(5), None);
+        // Through a save's bytes, as a load puts it back.
+        kept.gone(&shareefa, Some(lying));
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let loaded: Kept = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(loaded.again(5), Again::AtStood(lying));
+        // A fill's body is not kept with its sector.
+        let wolf = Placed {
+            at: (87, 35),
+            source: Source::Filled(Box::default()),
+        };
+        kept.gone(&wolf, Some(lying));
+        assert!(kept.filled.is_empty());
     }
 
     #[test]
