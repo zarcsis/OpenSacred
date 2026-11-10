@@ -7,7 +7,9 @@ Purpose (docs/02 §6.3, #71): the reference for the key table of `opensacred_for
 parser (the chain read off around 0x5EAC70 for #70) tests each key in turn: `push <the key's string>`, `push esi`,
 `call 0x5E3700` (a search of the line for the key); when the line holds it, it takes the text after its '=', converts it
 and stores it at the key's variable, with `fstp dword ptr [A]` for a float (the conversion 0x84B363) or
-`mov dword ptr [A], eax` for an integer. The variables lie in the image that Balance.bin holds, 0xAD4490 to 0xAD57AF.
+`mov dword ptr [A], eax` for an integer, or, for the three colours that it reads as hexadecimal (Healthbar,
+Healthborder and ARGBInfoText, #2505), with `push A; ...; push "%x"; push <the text>; call <sscanf>` (0x5EDB61), an
+integer. The variables lie in the image that Balance.bin holds, 0xAD4490 to 0xAD57AF.
 
   keys     every `push imm32; push esi; call 0x5E3700` whose imm32 is a string: 380 tests of a key; the key's
            variable is the first store into the image after it, before the next key's test, or, for a row of values
@@ -15,14 +17,14 @@ and stores it at the key's variable, with `fstp dword ptr [A]` for a float (the 
            LevelKap, OffLevelProz, BaseOffLevel, ...). 26 keys store elsewhere (other tables: SKILL_, MOVES,
            HorseData:, ...) and are not listed. A key without the colon of a row that stores a second word before
            the next key's test names it <key>[1]: GoldProLevel's second value, after a comma (0x5EE79B, #413).
-  Checks   354 keys with a variable in the image and one second value, each its own word; the first at +0x000
+  Checks   357 keys with a variable in the image and one second value, each its own word; the first at +0x000
            (BalanceDmg), the last at +0x131C (DaemonDamageBonus); every float's value finite in Balance.bin.
 
 Example
   uv run python -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame
   uv run python -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame --table /tmp/balance_keys.tsv
 
-Expected output (2.28): "355 variables, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 276 floats, 79
+Expected output (2.28): "358 variables, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 276 floats, 82
 integers", every check passing, GameSpeed 1.25, TransSize 190, TransValu 50, skilllearn2 6, GoldProLevel 20 and
 GoldProLevel[1] 2000. --table writes a row per variable in the image's order (key, offset, kind).
 Dependencies: pefile, capstone.
@@ -76,7 +78,16 @@ def main():
         name = string(int(ins[i].op_str, 16))
         stop = tests[n + 1] if n + 1 < len(tests) else i + 60
         stores = []
-        for x in ins[i + 3:stop]:
+        for k, x in enumerate(ins[i + 3:stop]):
+            # A colour read as hexadecimal: the variable's address pushed for sscanf's "%x".
+            if x.mnemonic == 'push' and x.op_str.startswith('0x') \
+                    and IMAGE <= int(x.op_str, 16) < IMAGE_END \
+                    and any(y.mnemonic == 'push' and y.op_str.startswith('0x')
+                            and string(int(y.op_str, 16)) == '%x' for y in ins[i + 4 + k:i + 7 + k]):
+                store = (int(x.op_str, 16) - IMAGE, 'i32')
+                if store[0] not in (s[0] for s in stores):
+                    stores.append(store)
+                continue
             if x.mnemonic in ('fstp', 'mov') and len(x.operands) == 2 or x.mnemonic == 'fstp':
                 op = x.operands[0]
                 if op.type == capstone.x86.X86_OP_MEM and op.mem.base == 0 and op.mem.index == 0 \
@@ -105,9 +116,9 @@ def main():
     size = struct.unpack_from('<I', bal, 0)[0]
     value = lambda o, kind: struct.unpack_from('<f' if kind == 'f32' else '<i', bal, 4 + o)[0]
     checks = [
-        ('380 tests of a key, 354 of them with a variable in the image, and one second value',
-         len(keys) == 380 and sum(f is not None for _, f in keys) == 354
-         and [k for k, _ in seconds] == ['GoldProLevel[1]'] and len(found) == 355),
+        ('380 tests of a key, 357 of them with a variable in the image, and one second value',
+         len(keys) == 380 and sum(f is not None for _, f in keys) == 357
+         and [k for k, _ in seconds] == ['GoldProLevel[1]'] and len(found) == 358),
         ('each its own variable, word-aligned', len(set(offsets)) == len(offsets) and all(o % 4 == 0 for o in offsets)),
         ('the first BalanceDmg at +0x000, the last DaemonDamageBonus at +0x131C',
          found[0][:2] == (0, 'BalanceDmg') and found[-1][:2] == (0x131C, 'DaemonDamageBonus')),
