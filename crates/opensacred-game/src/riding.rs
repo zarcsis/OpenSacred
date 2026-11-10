@@ -75,11 +75,13 @@ pub struct Owned(pub Option<Entity>);
 /// What a horse's description tells (`0x55C9F0`, #2301): the horse's class and level, its row
 /// of the horse data, the prices' floats and the balance's `HorseOverrideTime`, and the local
 /// hero's level, riding skill (22) and resistances as the fight takes them (`+0x66` times
-/// `+0xD6`).
+/// `+0xD6`), and, while the horse holds the effect 24, the trample's seconds left and what is
+/// left of its damage in all (the effect's `+0x18` and `+0x4`).
 pub(crate) struct Described<'a> {
     pub horse: (u8, u32),
     pub data: (&'a horses::Row, &'a horses::Prices, f32),
     pub hero: (u32, u32, [f32; 4]),
+    pub running: Option<(f32, f32)>,
 }
 
 /// The resistances' images of a description's line, the physical, fire, magic and poison
@@ -90,9 +92,9 @@ const RESISTANCE_IMAGES: [u32; 4] = [0xD1, 0xD2, 0xD3, 0xD4];
 /// `9069 + class`), its price ([`horses::Prices::price`]), its level, its pace (the horse data's
 /// `w0`, the stats' `+0x40`), the trample's seconds, damage and regeneration of the hero on it
 /// ([`horses::trample`]), the health bonus ([`horses::health_bonus`]), the hero's resistances by
-/// their images, and the riding skill it needs, each number truncated. The trample's running
-/// time and value of its other format (`0x956A24`, the horse holding the effect 24) wait for the
-/// trample (#2302).
+/// their images, and the riding skill it needs, each number truncated. While the horse tramples
+/// (it holds the effect 24), the other format (`0x956A24`) tells after the trample's seconds
+/// those left, rounded, and after its damage what is left of it, in brackets (#2401).
 pub(crate) fn description(
     texts: Option<&crate::lines::Texts>,
     described: &Described,
@@ -108,22 +110,30 @@ pub(crate) fn description(
         horse: (class, level),
         data: (row, prices, time),
         hero: (hero_level, skill, resistances),
+        running,
     } = *described;
     let trample = horses::trample(row, (level, hero_level, skill), time);
     let bonus = horses::health_bonus(row, level, hero_level);
     let class_name = text(&(CLASS_NAMES + u32::from(class)).to_string());
+    // The seconds left rounded (`_ftol` of `+0x18` plus 0.5), the damage left whole (`+0x4`).
+    let (seconds_left, damage_left) = running.map_or((String::new(), String::new()), |(s, d)| {
+        (
+            format!(" ({}s)", truncated(s + 0.5)),
+            format!(" ({})", truncated(d)),
+        )
+    });
     let mut lines: Vec<Line> = [
         format!("{}: {class_name}", text(CLASS_LABEL)),
         format!("{}: {}", text(PRICE_LABEL), prices.price(class, level)),
         format!("{}: {level}", text(LEVEL_LABEL)),
         format!("{}: {}", text(PACE_LABEL), row.pace),
         format!(
-            "{}: {}s",
+            "{}: {}s{seconds_left}",
             text("UI_TT_OVERRIDETIME"),
             truncated(trample.seconds)
         ),
         format!(
-            "{}: {}",
+            "{}: {}{damage_left}",
             text("UI_TT_OVERRIDEDAMAGE"),
             truncated(trample.damage)
         ),
@@ -167,7 +177,15 @@ pub(crate) struct HorseSheet<'w, 's> {
     data: Option<Res<'w, crate::game::Data>>,
     arts: Option<Res<'w, crate::arts::HeroArts>>,
     experience: Res<'w, crate::fight::Experience>,
-    horses: Query<'w, 's, (&'static Horse, &'static crate::ai::Mind)>,
+    horses: Query<
+        'w,
+        's,
+        (
+            &'static Horse,
+            &'static crate::ai::Mind,
+            Option<&'static crate::trample::Trampling>,
+        ),
+    >,
     heroes: Query<'w, 's, SheetHero, With<Body>>,
 }
 
@@ -195,7 +213,7 @@ impl HorseSheet<'_, '_> {
         horse: Entity,
         texts: Option<&crate::lines::Texts>,
     ) -> Option<Vec<crate::tooltip::Line>> {
-        let (kind, mind) = self.horses.get(horse).ok()?;
+        let (kind, mind, trampling) = self.horses.get(horse).ok()?;
         let row = self.npcs.as_deref()?.horse_row(kind.class);
         let balance = self
             .data
@@ -224,6 +242,7 @@ impl HorseSheet<'_, '_> {
                 horse: (kind.class, mind.level),
                 data: (&row, &prices, time),
                 hero: (self.experience.0.level, skill, resistances),
+                running: trampling.map(|trampling| (trampling.left, trampling.value)),
             },
         ))
     }
@@ -1228,3 +1247,53 @@ fn seat(
 
 /// The root node of the models' scenes, which their clips move (`__Root`).
 const MODEL_ROOT: &str = "__Root";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tooltip::{Line, Piece};
+
+    /// The texts of a line, its images left out.
+    fn text(line: &Line) -> String {
+        line.0
+            .iter()
+            .filter_map(|piece| match piece {
+                Piece::Text(text, _) => Some(text.as_str()),
+                Piece::Image(..) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_trampling_horses_description_tells_the_seconds_and_the_damage_left() {
+        let row = horses::Row {
+            pace: 140,
+            most: 10,
+            damage: 20,
+            bonus: [0, 0],
+            regeneration: 30,
+            riding: 0,
+        };
+        let prices = horses::Prices::default();
+        let described = |running| Described {
+            horse: (1, 1),
+            data: (&row, &prices, crate::trample::OVERRIDE_TIME),
+            hero: (1, 0, [0.0; 4]),
+            running,
+        };
+        // Standing, the one format (`0x95692C`).
+        let still = description(None, &described(None));
+        assert!(!text(&still[4]).contains('('));
+        assert!(!text(&still[5]).contains('('));
+        // Trampling, the other (`0x956A24`): the seconds left rounded, the damage left whole.
+        let running = description(None, &described(Some((3.6, 7.0))));
+        assert!(
+            text(&running[4]).ends_with("s (4s)"),
+            "{}",
+            text(&running[4])
+        );
+        assert!(text(&running[5]).ends_with(" (7)"), "{}", text(&running[5]));
+        let ending = description(None, &described(Some((0.4, 0.0))));
+        assert!(text(&ending[4]).ends_with("s (0s)"), "{}", text(&ending[4]));
+    }
+}

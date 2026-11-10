@@ -2419,7 +2419,11 @@ fn behave(
 /// hero where it fights the hero, and else wake, to decide at their next tick (#669); so the
 /// start's bears by the boss 689, hostile guards without the flags' bit 0 that the hero's look
 /// does not wake, wake as the boss strikes one of them and take their guards' behaviour.
-fn alarm(mut hits: MessageReader<crate::fight::Hit>, mut creatures: Query<(Entity, &mut Mind)>) {
+fn alarm(
+    mut hits: MessageReader<crate::fight::Hit>,
+    mut creatures: Query<(Entity, &mut Mind)>,
+    ridden: Query<&crate::riding::Ridden>,
+) {
     // The struck members, their groups and whom they fight: a creature, the hero, or no one.
     let mut alarms: Vec<(Entity, u32, Option<Option<Entity>>)> = Vec::new();
     for hit in hits.read() {
@@ -2433,8 +2437,22 @@ fn alarm(mut hits: MessageReader<crate::fight::Hit>, mut creatures: Query<(Entit
     }
     for (struck, group, fights) in alarms {
         let mut woken = 0;
+        // The riders that their horses send the event `0x100` on to, and whom at.
+        let mut forwarded: Vec<(Entity, Option<Entity>)> = Vec::new();
         for (entity, mut mind) in &mut creatures {
             if entity == struck {
+                continue;
+            }
+            // A ridden horse in the world sends the event `0x100` on to its rider, a creature
+            // that is no horse (`0x52FA63`), which takes it as any creature does; the hero's horse
+            // and the hero hold `+0x200` bit `0x10` while it rides, and ignore it (#2401).
+            if let (Some(foe), Ok(ridden)) = (fights, ridden.get(entity))
+                && mind.group == Some(group)
+                && mind.idle()
+            {
+                if ridden.rider != struck && foe != Some(ridden.rider) {
+                    forwarded.push((ridden.rider, foe));
+                }
                 continue;
             }
             let heard = match fights {
@@ -2458,6 +2476,20 @@ fn alarm(mut hits: MessageReader<crate::fight::Hit>, mut creatures: Query<(Entit
                 None => mind.wakes(group),
             };
             woken += usize::from(heard);
+        }
+        for (rider, foe) in forwarded {
+            if let Ok((_, mut mind)) = creatures.get_mut(rider) {
+                let goes = match foe {
+                    Some(foe) => mind.send_at(foe),
+                    None => mind.send_at_hero(),
+                };
+                if goes {
+                    debug!(
+                        "ai: {rider}'s horse sends it its group {group}'s alarm against {foe:?}"
+                    );
+                }
+                woken += usize::from(goes);
+            }
         }
         if woken > 0 {
             debug!("ai: {struck} is struck and raises its group {group}'s alarm, {woken} answer");
@@ -2685,6 +2717,56 @@ mod tests {
         let archer = app.world().get::<Mind>(archer).unwrap();
         assert!(archer.fighting());
         assert_eq!(archer.foe(), Some(foe));
+    }
+
+    #[test]
+    fn a_ridden_horse_sends_its_groups_alarm_on_to_its_rider() {
+        let mut app = App::new();
+        app.add_message::<crate::fight::Hit>()
+            .add_systems(Update, alarm);
+        let mind = |group, (creature, class)| {
+            let mut mind = Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, true),
+                group,
+                [70.0, 180.0],
+                (creature, class),
+            );
+            mind.side = 5;
+            mind
+        };
+        // A black horse of the group 10 and its rider, of none; a skeleton of the group that
+        // fights a creature.
+        let rider = app.world_mut().spawn(mind(None, (256, 5))).id();
+        let horse = app
+            .world_mut()
+            .spawn((
+                mind(Some(10), (261, 4)),
+                crate::riding::Ridden::by(rider, None),
+            ))
+            .id();
+        let foe = app.world_mut().spawn_empty().id();
+        let mut skeleton = mind(Some(10), (32, 5));
+        assert!(skeleton.send_at(foe));
+        let skeleton = app.world_mut().spawn(skeleton).id();
+        app.world_mut().write_message(crate::fight::Hit {
+            attacker: foe,
+            target: skeleton,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: None,
+            sure: false,
+            poison: false,
+            ward: false,
+        });
+        app.update();
+        // The event goes on to the rider, which fights the skeleton's foe; the horse fights not.
+        let rider = app.world().get::<Mind>(rider).unwrap();
+        assert!(rider.fighting());
+        assert_eq!(rider.foe(), Some(foe));
+        assert!(!app.world().get::<Mind>(horse).unwrap().fighting());
     }
 
     #[test]
