@@ -8024,10 +8024,7 @@ impl Npcs {
             // One that a teleport moved away from the world comes in with the sector it was
             // put in (#2448).
             if from != to {
-                if let Some(list) = self.by_sector.get_mut(&from) {
-                    list.retain(|&other| other != index);
-                }
-                self.by_sector.entry(to).or_default().push(index);
+                self.file_under(index, to);
             }
         }
         let killed = creatures.kept.went.values().filter(|went| went.is_none());
@@ -8359,7 +8356,6 @@ impl Npcs {
             .collect();
         for &index in &indices {
             let placement = &mut self.placements[index];
-            let from = (placement.cell.0 / side, placement.cell.1 / side);
             placement.cell = (x, y);
             placement.layer = layer;
             placement.spread = 0;
@@ -8367,17 +8363,32 @@ impl Npcs {
                 stood.cell = (x, y);
                 stood.layer = layer;
             }
-            if from != to {
-                if let Some(list) = self.by_sector.get_mut(&from) {
-                    list.retain(|&other| other != index);
-                }
-                self.by_sector.entry(to).or_default().push(index);
-            }
-            if self.spawned.contains(&to) {
+            self.file_under(index, to);
+            let now = self.spawned.contains(&to);
+            if now {
                 self.pending.push(index);
             }
+            bevy::log::debug!(
+                "npcs: {name}, placement {index}, put away on {x},{y}{}",
+                if now { ", its sector in the world" } else { "" }
+            );
         }
         !indices.is_empty()
+    }
+
+    /// Files the placement `index` under the sector `to` alone, which places it as it comes in:
+    /// out of the list of any other, where a save's places of the play may have left it, its cell
+    /// elsewhere (#2448).
+    fn file_under(&mut self, index: usize, to: (u32, u32)) {
+        for (sector, list) in &mut self.by_sector {
+            if *sector != to {
+                list.retain(|&other| other != index);
+            }
+        }
+        let list = self.by_sector.entry(to).or_default();
+        if !list.contains(&index) {
+            list.push(index);
+        }
     }
 
     /// Whether `door`'s trigger is locked (#1006): it opens to nobody (`0x44BCD0`).
@@ -9693,6 +9704,7 @@ fn act_on(object: &str, open: bool) -> crate::scripts::ObjState {
         barred: open.then_some(false),
         open: Some(open),
         signal: false,
+        trigger: false,
     }
 }
 
@@ -10567,7 +10579,13 @@ fn script_states(
         if state.barred.is_none() && state.open.is_none() {
             continue;
         }
-        let Some(trigger) = npcs.named.get(&state.name).cloned() else {
+        // A `SetTriggerState` names the trigger itself (#2450), a `SetObjState` its object.
+        let trigger = if state.trigger {
+            Some(state.name.clone())
+        } else {
+            npcs.named.get(&state.name).cloned()
+        };
+        let Some(trigger) = trigger else {
             bevy::log::debug!(
                 "npcs: SetObjState of {}, which names no object with a trigger",
                 state.name
