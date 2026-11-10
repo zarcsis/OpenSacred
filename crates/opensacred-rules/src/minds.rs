@@ -444,12 +444,18 @@ pub const SIZE: u32 = 130;
 const BAND: f32 = 15.0;
 const RUNS_IN: u32 = 7;
 /// How near the hero a wounded creature flees, how far, and in how many ticks of one it does
-/// (`0x4E0300`); how far from home a creature at full health in the band goes back (the leash,
-/// 2,500 or 5,000; **hypothesis**: the nearer).
+/// (`0x4E0300`); the leash's distances from home, the nearer for a creature more than
+/// [`LEASH_LEVELS`] above the hero, and how far the hero stands for it to hold
+/// (`0x4E4023`–`0x4E419C`, [`Mind::leash`]).
 const FLEES_WITHIN: f32 = 199.0;
 const FLEES_FOR: f32 = 700.0;
 const FLEES_ONE_IN: u32 = 8;
 const LEASH: f32 = 2_500.0;
+const LEASH_FAR: f32 = 5_000.0;
+const LEASH_LEVELS: u32 = 3;
+const LEASH_BEYOND: f32 = 533.0;
+/// How near its target a caster walking to its band runs whatever its roll (`0x4E1C80`).
+const BAND_RUNS_WITHIN: f32 = 240.0;
 /// The places about the hero of the second, third and fourth of its list of hostiles
 /// (`0x4E224E`): the directions from the hero along the world's `+x`, `−y` and `+y`, at `R − 15`
 /// from it, and how near its place a creature's walk there stops (`+0x176` 40).
@@ -1836,23 +1842,66 @@ impl Mind {
             }
             Some(_) => None,
             None if d > hi => Some(Pursues::ComesOn {
-                runs: rng.below(11) < RUNS_IN,
+                runs: self.comes_on_runs(rng),
                 within,
             }),
             None if d < lo => Some(steps_back()),
-            // In the band at full health and far from home, it goes home (the leash); a follower
-            // never (`0x4E0300`'s case 2 wants no master).
-            None if health.is_some_and(|(current, most)| current >= most)
-                && self.flags & FOLLOWS == 0
-                && (here - self.home).length() > LEASH =>
-            {
-                self.leaves_fight();
-                Some(Pursues::GoesBack)
-            }
             None => Some(Pursues::Strikes(
                 (!striking && self.rests <= 0.0).then(|| rng.below(5)),
             )),
         }
+    }
+
+    /// Whether it comes on at a run (#2489): in [`RUNS_IN`] cases of 11 as it decides
+    /// (`0x4E13C4`–`0x4E13E3`), and a type not of class 5 in two cases of three more as it sets out
+    /// (`0x4E2102`–`0x4E215B`), a walk in some 4 of 33.
+    pub fn comes_on_runs(&self, rng: &mut impl Dice) -> bool {
+        rng.below(11) < RUNS_IN || (self.class != 5 && rng.below(3) != 0)
+    }
+
+    /// Whether a caster walks to its band at a run, its target `d` from it (`0x4E1C80`–`0x4E1CB3`,
+    /// #2489): nearer than 240 a type not of class 5 always, farther as it comes on
+    /// ([`Self::comes_on_runs`]).
+    pub fn keeps_band_runs(&self, d: f32, rng: &mut impl Dice) -> bool {
+        if d < BAND_RUNS_WITHIN {
+            self.class != 5
+        } else {
+            self.comes_on_runs(rng)
+        }
+    }
+
+    /// Whether it steps back from too near at a run (`0x4E20DC`–`0x4E2102`, #2489): a type not of
+    /// class 5 in two cases of three.
+    pub fn steps_back_runs(&self, rng: &mut impl Dice) -> bool {
+        self.class != 5 && rng.below(3) != 0
+    }
+
+    /// The leash (`0x4E4023`–`0x4E419C`, read whole for #2489): fighting the hero `d` from it, of
+    /// the level `hero_level`, at its full health `health`, of no master and not of class 1, with
+    /// the hero farther than 533 and its home in another sector than its own (`home_elsewhere`),
+    /// it leaves the fight and walks home where it stands more than 3 levels above the hero and
+    /// farther than 2,500 from home, or farther than 5,000 from home; whether it does. So the
+    /// start's outlaws, of the hero's level, never go home in melee.
+    pub fn leash(
+        &mut self,
+        here: Spot,
+        (d, hero_level): (f32, u32),
+        home_elsewhere: bool,
+        health: Option<(u32, u32)>,
+    ) -> bool {
+        let from_home = (here - self.home).length();
+        let goes = self.fighting
+            && health.is_some_and(|(current, most)| current >= most)
+            && self.flags & FOLLOWS == 0
+            && self.class != 1
+            && d > LEASH_BEYOND
+            && home_elsewhere
+            && ((self.level > hero_level + LEASH_LEVELS && from_home > LEASH)
+                || from_home > LEASH_FAR);
+        if goes {
+            self.leaves_fight();
+        }
+        goes
     }
 
     /// A riding black rider's charge's next step from `here` at the hero at `hero`, moving or not,
@@ -3709,6 +3758,48 @@ mod tests {
             mind.charges((near, hero), false, 130.0, &mut dice),
             Some(Pursues::RidesAway { .. })
         ));
+    }
+
+    #[test]
+    fn a_creature_goes_home_only_far_from_it_and_from_the_hero_in_another_sector() {
+        let thief = |level| {
+            let mut mind = Mind::new(at(0.0, 0.0), 0x1, (true, true), None, SPEEDS, (313, 14));
+            assert!(mind.sent_at());
+            mind.level = level;
+            mind
+        };
+        let full = Some((42, 42));
+        // Of the hero's level, 3,000 from home: never; 6,000: it goes, the hero 600 off.
+        assert!(!thief(1).leash(at(3_000.0, 0.0), (600.0, 1), true, full));
+        assert!(thief(1).leash(at(6_000.0, 0.0), (600.0, 1), true, full));
+        // Not in melee, nor in its home's sector, nor wounded.
+        assert!(!thief(1).leash(at(6_000.0, 0.0), (200.0, 1), true, full));
+        assert!(!thief(1).leash(at(6_000.0, 0.0), (600.0, 1), false, full));
+        assert!(!thief(1).leash(at(6_000.0, 0.0), (600.0, 1), true, Some((30, 42))));
+        // More than 3 levels above the hero, 3,000 from home: it goes; 3 above, not.
+        assert!(thief(5).leash(at(3_000.0, 0.0), (600.0, 1), true, full));
+        assert!(!thief(4).leash(at(3_000.0, 0.0), (600.0, 1), true, full));
+        // Gone, it fights no more.
+        let mut gone = thief(1);
+        assert!(gone.leash(at(6_000.0, 0.0), (600.0, 1), true, full));
+        assert!(!gone.fighting());
+    }
+
+    #[test]
+    fn a_creature_comes_on_at_a_run_in_29_cases_of_33_one_of_class_5_in_7_of_11() {
+        let mut rng = Rng::of(1, 2, 2489);
+        let share = |mind: &Mind, rng: &mut Rng| {
+            let runs = (0..20_000).filter(|_| mind.comes_on_runs(rng)).count();
+            runs as f64 / 20_000.0
+        };
+        let thief = Mind::new(at(0.0, 0.0), 0x1, (true, true), None, SPEEDS, (313, 14));
+        let undead = Mind::new(at(0.0, 0.0), 0x1, (true, true), None, SPEEDS, (32, 5));
+        assert!((share(&thief, &mut rng) - 29.0 / 33.0).abs() < 0.015);
+        assert!((share(&undead, &mut rng) - 7.0 / 11.0).abs() < 0.015);
+        // Its band near the target at a run but for class 5; its step back in 2 of 3.
+        assert!(thief.keeps_band_runs(200.0, &mut rng));
+        assert!(!undead.keeps_band_runs(200.0, &mut rng));
+        assert!(!undead.steps_back_runs(&mut rng));
     }
 
     #[test]

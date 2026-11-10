@@ -8,7 +8,7 @@
 //! the levels sends at the hero, or that has the hero within its reach, comes at it from up to
 //! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
 //! wounded it flees, and too far from home it goes back ([`pursue`],
-//! docs/decisions/fight.md, "Pursuit's leash, chain and wait"); the second to the fourth of the
+//! docs/decisions/fight.md, "Pursuit's chain and wait"); the second to the fourth of the
 //! hero's hostiles beside the nearest take their places about the hero for a tick; one with a
 //! ranged weapon keeps 300 to 800 from the hero and shoots, goes to melee when the hero attacks it
 //! from near and takes a bow again beyond its reach (`npcs::Rearms`, docs/decisions/fight.md,
@@ -980,6 +980,16 @@ fn pursue(
                 hero_size,
             ),
         };
+        // A walk begun outside the fight (an idle step, a walk home) it ends as it fights: the
+        // original's sub-state 1 points its move at the target at once (`0x4E2066`–`0x4E20FA`,
+        // #2489); the fight's own walks run on (#387).
+        let walk = match walk {
+            Some(walk) if walk.is_idle() && mind.fighting() => {
+                commands.entity(entity).remove::<Walk>();
+                None
+            }
+            walk => walk,
+        };
         let sight = Pursuit {
             here: spot(here),
             hero: spot(target),
@@ -1047,10 +1057,22 @@ fn pursue(
         if casting {
             continue;
         }
-        let Some(pursues) = cast
-            .flatten()
-            .or_else(|| mind.pursue(&sight, clear, &mut minds.rng))
-        else {
+        // Fighting the hero, far from home in another sector, it may go home (the leash, #2489).
+        let home_elsewhere = sector_of(point(mind.home, here.y)) != sector_of(here);
+        let leashed = foe.is_none()
+            && !striking
+            && mind.leash(
+                spot(here),
+                ((target - here).xz().length(), hero_level),
+                home_elsewhere,
+                sight.health,
+            );
+        let Some(pursues) = (if leashed {
+            Some(Pursues::GoesBack)
+        } else {
+            cast.flatten()
+                .or_else(|| mind.pursue(&sight, clear, &mut minds.rng))
+        }) else {
             continue;
         };
         if !mind.fighting() {
@@ -1072,6 +1094,7 @@ fn pursue(
                 commands.entity(entity).insert(walk);
             }
             Pursues::ComesOn { runs, within } => {
+                debug!("SCRATCH {entity} comes on runs {runs}");
                 // In melee without a straight line: a way to the hero, or the door in its way, or
                 // it gives up (`0x4E4931`, `0x4F5652`).
                 if !mind.ranged && !clear() {
@@ -1180,10 +1203,16 @@ fn pursue(
                     .entity(entity)
                     .insert(Walk::run(point(to, here.y), way.level, mind.run));
             }
+            // At a run in two cases of three (#2489).
             Pursues::StepsBack(to) => {
+                let to = point(to, here.y);
                 commands
                     .entity(entity)
-                    .insert(Walk::to(point(to, here.y), way.level, mind.speed));
+                    .insert(if mind.steps_back_runs(&mut minds.rng) {
+                        Walk::run(to, way.level, mind.run)
+                    } else {
+                        Walk::to(to, way.level, mind.speed)
+                    });
             }
             Pursues::GoesBack => {
                 debug!("ai: {entity} {:?} from the fight", Why::GoesBack);
@@ -1318,10 +1347,17 @@ fn pursue(
                     transform.rotation = crate::hero::facing(hero - here);
                 }
             }
+            // At a run near its target, else as it comes on (#2489).
             Pursues::KeepsBand(to) => {
+                let d = (hero - here).xz().length();
+                let to = point(to, here.y);
                 commands
                     .entity(entity)
-                    .insert(Walk::to(point(to, here.y), way.level, mind.speed));
+                    .insert(if mind.keeps_band_runs(d, &mut minds.rng) {
+                        Walk::run(to, way.level, mind.run)
+                    } else {
+                        Walk::to(to, way.level, mind.speed)
+                    });
             }
             Pursues::Strolls(to) => {
                 commands.entity(entity).insert(
