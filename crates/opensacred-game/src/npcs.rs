@@ -9808,7 +9808,16 @@ pub(crate) fn script_records(
         ResMut<crate::creature_casts::PendingCasts>,
     ),
     (dying, mut particles, traders): (
-        Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
+        Query<
+            (
+                Entity,
+                &ScriptName,
+                &Transform,
+                Option<&crowd::InTheWay>,
+                Option<&Talk>,
+            ),
+            With<Dies>,
+        >,
         Particles,
         Query<&Trades>,
     ),
@@ -9874,8 +9883,8 @@ pub(crate) fn script_records(
             .or_else(|| {
                 dying
                     .iter()
-                    .find(|(named, ..)| named.0 == name)
-                    .map(|(_, at, way)| {
+                    .find(|(_, named, ..)| named.0 == name)
+                    .map(|(_, _, at, way, _)| {
                         cell_at(at.translation, way.map_or(0, |way| floor_of(way.level)))
                     })
             }),
@@ -9900,6 +9909,15 @@ pub(crate) fn script_records(
     let npcs = &mut *npcs;
     reicon(&npcs.dialogues, &mut npcs.icons, icons);
     for (name, state) in npcs.restate(&records) {
+        // A dead creature takes its dialogue too, which holds its body to be spoken to (the dying
+        // action's hold, `0x53ECA0`; #2444): Wilbur's of quest 45, given by his death's function.
+        if state.talk.is_some() {
+            for (entity, .., talk) in dying.iter().filter(|(_, named, ..)| named.0 == name) {
+                let talk = state.talk_of(talk.map(|talk| talk.0.clone()));
+                talk_to(&mut commands, entity, talk);
+                bevy::log::info!("npcs: the scripts set {name}'s dialogue as it lies dead");
+            }
+        }
         for (entity, _, on_death, mut transform, mut mind, way, _, talk, _) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
