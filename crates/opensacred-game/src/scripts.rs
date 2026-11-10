@@ -424,6 +424,9 @@ pub struct Effects {
     /// The numbers of its `AutoSave`s, each a save's name among the game's texts (`saves`,
     /// #1989).
     pub autosaves: Vec<u32>,
+    /// Whether its last `GameActive` lets the game's time run, none without one (131,
+    /// `0x475D50`; `pause::Halt`, #2425).
+    pub active: Option<bool>,
 }
 
 impl Effects {
@@ -446,6 +449,7 @@ impl Effects {
         self.particles.extend(other.particles);
         self.won.extend(other.won);
         self.autosaves.extend(other.autosaves);
+        self.active = other.active.or(self.active);
     }
 }
 
@@ -950,6 +954,7 @@ impl Live {
             particles: recorder.particles,
             won: recorder.won,
             autosaves: recorder.autosaves,
+            active: recorder.active,
         };
         (effects, outcome)
     }
@@ -1131,6 +1136,8 @@ struct Recorder<'a> {
     won: Vec<u32>,
     /// The numbers of its `AutoSave`s ([`Effects::autosaves`]).
     autosaves: Vec<u32>,
+    /// What its last `GameActive` asked ([`Effects::active`]).
+    active: Option<bool>,
     /// The scripts' modes as the run goes, from those it began in ([`Mode`]; #1278, #1892).
     mode: Mode,
     /// The flags its `SetCinemaMode`s and `SetPlayMode`s posted to the interface ([`CinemaFlag`]).
@@ -1185,6 +1192,7 @@ impl<'a> Recorder<'a> {
             particles: Vec::new(),
             won: Vec::new(),
             autosaves: Vec::new(),
+            active: None,
             mode: Mode::default(),
             flags: Vec::new(),
         }
@@ -1952,6 +1960,13 @@ impl Host for Recorder<'_> {
                 self.infos.push((GAME_END, String::new()));
                 Handled::Done
             }
+            // The game's time stood by 0 and let run by any other value, 1 without one, in the
+            // record walker itself (`0x475D50`, #2425).
+            "game_active" => {
+                let value = tags.numbers("_0B").last().copied().unwrap_or(1);
+                self.active = Some(value != 0);
+                Handled::Done
+            }
             // The hero's own talk of the named dialogue (`0x4A7760`, #1033).
             "popup" => {
                 if let Some(dialogue) = tags.texts("_01").first() {
@@ -2505,10 +2520,15 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         window,
         particles,
         autosaves,
+        active,
         ..
     } = effects;
     if let Some(mut saves) = world.get_resource_mut::<crate::saves::AutoSaves>() {
         saves.0.extend(autosaves);
+    }
+    if let (Some(mut halt), Some(active)) = (world.get_resource_mut::<crate::pause::Halt>(), active)
+    {
+        halt.asked = Some(active);
     }
     world.write_message_batch(particles);
     world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
@@ -2601,6 +2621,7 @@ struct Queues<'w> {
     particles: MessageWriter<'w, Partikel>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
     autosaves: Option<ResMut<'w, crate::saves::AutoSaves>>,
+    halt: Option<ResMut<'w, crate::pause::Halt>>,
 }
 
 impl Queues<'_> {
@@ -2627,6 +2648,9 @@ impl Queues<'_> {
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
         if let Some(saves) = self.autosaves.as_mut() {
             saves.0.extend(effects.autosaves);
+        }
+        if let (Some(halt), Some(active)) = (self.halt.as_mut(), effects.active) {
+            halt.asked = Some(active);
         }
     }
 }
@@ -4234,6 +4258,37 @@ mod tests {
         assert_eq!(effects.autosaves, [30000, 30001]);
         // No record of the world.
         assert!(effects.records.is_empty(), "{:?}", effects.records);
+    }
+
+    #[test]
+    fn game_active_asks_the_game_to_stand_or_to_run_by_its_last() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"Dialog:Hilfetext\"] = function()\n\
+             game_active { _0B = 0 }\n\
+             return true\n\
+             end\n\
+             F[\"TT_OK\"] = function()\n\
+             game_active { _0B = 0 }\n\
+             game_active { _0B = 1 }\n\
+             return true\n\
+             end\n\
+             F[\"Plain\"] = function()\n\
+             game_active {}\n\
+             return true\n\
+             end\n\
+             F[\"None\"] = function()\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        // 0 stands the game, any other value or none lets it run, the last one counting (#2425).
+        assert_eq!(live.run("Dialog:Hilfetext", 0).active, Some(false));
+        assert_eq!(live.run("TT_OK", 0).active, Some(true));
+        assert_eq!(live.run("Plain", 0).active, Some(true));
+        assert_eq!(live.run("None", 0).active, None);
     }
 
     #[test]

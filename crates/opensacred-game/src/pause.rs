@@ -31,6 +31,16 @@ pub struct Still(pub bool);
 #[derive(Resource, Default)]
 pub struct Busy(pub bool);
 
+/// The scripts' `GameActive` (131, the record walker's `0x475D50`; #2425): `asked` what the last
+/// of them asked and not yet done, `false` to stand the game's time as the options and the busy
+/// dialog do (`0x6413E0(1)`, `0x641720`), `true` to let it run; and whether the pause standing
+/// is theirs, which alone they end. Their pause shows no menu, as [`Still`].
+#[derive(Resource, Default)]
+pub struct Halt {
+    pub asked: Option<bool>,
+    held: bool,
+}
+
 /// How long the sound takes to fade out and in.
 const FADE: Duration = Duration::from_millis(200);
 
@@ -53,6 +63,28 @@ pub(crate) fn toggle(
             Play::Running => Play::Paused,
             Play::Paused => Play::Running,
         });
+    }
+}
+
+/// Carries out what the scripts' `GameActive` asked: a running game paused without the menu, or
+/// the scripts' own pause ended; a pause of the player's or a movie's they leave alone.
+fn halt(
+    mut halt: ResMut<Halt>,
+    play: Res<State<Play>>,
+    mut next: ResMut<NextState<Play>>,
+    mut still: ResMut<Still>,
+) {
+    let Some(active) = halt.asked.take() else {
+        return;
+    };
+    match (active, play.get()) {
+        (false, Play::Running) => {
+            still.0 = true;
+            halt.held = true;
+            next.set(Play::Paused);
+        }
+        (true, Play::Paused) if halt.held => next.set(Play::Running),
+        _ => {}
     }
 }
 
@@ -92,24 +124,35 @@ impl Plugin for PausePlugin {
         app.add_sub_state::<Play>()
             .init_resource::<Still>()
             .init_resource::<Busy>()
+            .init_resource::<Halt>()
             .configure_sets(Update, Unpaused.run_if(in_state(Play::Running)))
             .add_systems(
                 Update,
-                toggle
-                    .run_if(in_state(AppState::InGame))
-                    .in_set(crate::frame::Control),
+                (
+                    toggle.in_set(crate::frame::Control),
+                    halt.after(crate::frame::Control),
+                )
+                    .run_if(in_state(AppState::InGame)),
             )
             .add_systems(OnEnter(Play::Paused), pause)
             .add_systems(
                 OnExit(Play::Paused),
                 (
                     resume,
-                    |(mut still, mut busy): (ResMut<Still>, ResMut<Busy>)| {
+                    |(mut still, mut busy, mut halt): (
+                        ResMut<Still>,
+                        ResMut<Busy>,
+                        ResMut<Halt>,
+                    )| {
                         still.0 = false;
                         busy.0 = false;
+                        halt.held = false;
                     },
                 ),
-            );
+            )
+            .add_systems(OnExit(AppState::InGame), |mut halt: ResMut<Halt>| {
+                *halt = Halt::default();
+            });
     }
 }
 
@@ -153,5 +196,33 @@ mod tests {
         assert_eq!(*app.world().resource::<State<Play>>().get(), Play::Running);
         assert!(!app.world().resource::<Time<Virtual>>().is_paused());
         assert!(app.world().resource::<Steered>().0 > paused);
+    }
+
+    #[test]
+    fn the_scripts_game_active_stands_the_game_and_ends_only_its_own_pause() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_state(AppState::InGame)
+            .add_plugins(PausePlugin)
+            .init_resource::<ButtonInput<KeyCode>>();
+        app.update();
+        let ask = |app: &mut App, active: bool| {
+            app.world_mut().resource_mut::<Halt>().asked = Some(active);
+            app.update();
+            app.update();
+            *app.world().resource::<State<Play>>().get()
+        };
+        // `GameActive 0` stands the game with no menu, `GameActive 1` lets it run (#2425).
+        assert_eq!(ask(&mut app, false), Play::Paused);
+        assert!(app.world().resource::<Still>().0);
+        assert!(app.world().resource::<Time<Virtual>>().is_paused());
+        assert_eq!(ask(&mut app, true), Play::Running);
+        assert!(!app.world().resource::<Still>().0);
+        // A pause of the player's they leave alone.
+        app.world_mut()
+            .resource_mut::<NextState<Play>>()
+            .set(Play::Paused);
+        app.update();
+        assert_eq!(ask(&mut app, true), Play::Paused);
     }
 }
