@@ -461,6 +461,15 @@ fn approach(
 /// its first four buttons, its sounds played; a dialogue that takes the creature's away
 /// (`DelDlg`) takes it; one without a text ends the talk at once.
 fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
+    // The hero's own talk's picture, of its dialogue's entry as it stands before the talk's
+    // function runs, whose own `SetIcon`s change it for the next talk (`0x499E90`, #2418).
+    let picture = (creature == hero)
+        .then(|| {
+            let icon = world.get_resource::<Npcs>()?.icon(dialogue)?;
+            let class = world.get_resource::<hero::Hero>()?.creature;
+            tip_image(icon, class)
+        })
+        .flatten();
     let window = scripts::speak(world, dialogue).unwrap_or_default();
     if window.untalks
         && let Ok(mut entity) = world.get_entity_mut(creature)
@@ -501,18 +510,25 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
     );
     voice(world, &window.sounds, creature);
     let font: Handle<Font> = world.resource::<AssetServer>().load(FONT);
-    // Its portrait by its type (`0x4345C0`, #1032); the hero's own talk shows none.
-    let portrait = world
-        .get::<Mind>(creature)
-        .map(|mind| mind.creature)
-        .and_then(|kind| {
-            let (file, rect) = world.get_resource::<Portraits>()?.of(kind)?;
-            Some((file.to_owned(), rect))
-        })
-        .map(|(file, rect)| {
-            let image = crate::hud::image(world.resource::<AssetServer>(), file);
-            (image, rect)
-        });
+    // Its portrait by its type (`0x4345C0`, #1032); the hero's own talk its dialogue's picture
+    // where it has one (`0x6E8230`, #2418).
+    let portrait = match picture {
+        Some(index) => world
+            .get_resource::<UiImages>()
+            .and_then(|images| images.pixels(index))
+            .map(|(file, rect)| (file.to_owned(), rect)),
+        None => world
+            .get::<Mind>(creature)
+            .map(|mind| mind.creature)
+            .and_then(|kind| {
+                let (file, rect) = world.get_resource::<Portraits>()?.of(kind)?;
+                Some((file.to_owned(), rect))
+            }),
+    }
+    .map(|(file, rect)| {
+        let image = crate::hud::image(world.resource::<AssetServer>(), file);
+        (image, rect)
+    });
     let functions = buttons.iter().map(|(_, f)| f.clone()).collect();
     let text = lines.join("\n");
     let width = WIDTH + beside(portrait.as_ref());
@@ -688,6 +704,38 @@ fn lines(
 /// (`0x693FB0`).
 fn hush(world: &mut World) {
     voices::name_line(world, None);
+}
+
+/// The interface's image that the hero's own talk shows for its dialogue's picture `icon` (the
+/// entry's `+0x48`, which `SetIcon` writes), the hero of the creature type `class`, as the
+/// window's `0x6E8230` maps it: the tutorial's and the scripts' pictures `0x400` to `0x42A` by a
+/// table of the client, `0x457` the hero's class's portrait; none for any other (#2418).
+fn tip_image(icon: i32, class: u32) -> Option<u32> {
+    let icon = u32::try_from(icon).ok()?;
+    Some(match icon {
+        0x400 => 0x411,
+        0x401 => 0x412,
+        0x402 => 0x417,
+        0x403..=0x412 => 0x447 + (icon - 0x403),
+        0x413 => 0x419,
+        0x414..=0x423 => 0x46B + (icon - 0x414),
+        0x424 => 0x686,
+        0x425 => 0x662,
+        0x426 => 0x45F,
+        0x427..=0x42A => 0x6D6 + (icon - 0x427),
+        0x457 => match class {
+            1 => 0x3C4,
+            2 => 0x3C5,
+            3 => 0x3C3,
+            4 => 0x34E,
+            5 => 0x383,
+            6 | 7 => 0x3C8,
+            8 => 0x6C3,
+            9 => 0x6C2,
+            _ => return None,
+        },
+        _ => return None,
+    })
 }
 
 /// The room a portrait takes beside the window's text, which widens the window: its width and 16
@@ -1275,6 +1323,30 @@ impl Plugin for TalkPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tips_picture_is_the_clients_image_of_its_entry() {
+        // The Seraphim's tips: the first's 1042, the chest's 1030, her equipment's 1031 and
+        // her class's 1035, which `Dialog:Hilfetext` leaves for the next (#2418).
+        assert_eq!(tip_image(1042, 1), Some(0x456));
+        assert_eq!(tip_image(1030, 1), Some(0x44A));
+        assert_eq!(tip_image(1031, 1), Some(0x44B));
+        assert_eq!(tip_image(1035, 1), Some(0x44F));
+        // The table's single cases and its ends.
+        assert_eq!(tip_image(0x400, 1), Some(0x411));
+        assert_eq!(tip_image(0x402, 1), Some(0x417));
+        assert_eq!(tip_image(0x413, 1), Some(0x419));
+        assert_eq!(tip_image(0x423, 1), Some(0x47A));
+        assert_eq!(tip_image(0x42A, 1), Some(0x6D9));
+        // The hero's class's portrait, the Vampiress's night form as her day's.
+        assert_eq!(tip_image(0x457, 3), Some(0x3C3));
+        assert_eq!(tip_image(0x457, 7), Some(0x3C8));
+        assert_eq!(tip_image(0x457, 10), None);
+        // Any other value, a creature's mark among them, shows none.
+        for icon in [0, 1, 0x3FF, 0x42B, 0x456, -1] {
+            assert_eq!(tip_image(icon, 1), None, "{icon}");
+        }
+    }
 
     #[test]
     fn a_play_sounds_name_takes_the_prefix_it_lacks() {

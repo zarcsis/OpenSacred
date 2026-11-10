@@ -218,6 +218,13 @@ impl UiImages {
         self.files.get(name).map(String::as_str)
     }
 
+    /// The image `index`: its texture's file and its part in it, its left, top, width and height
+    /// in whole pixels.
+    pub(crate) fn pixels(&self, index: u32) -> Option<(&str, [u16; 4])> {
+        let image = self.images.get(usize::try_from(index).ok()?)?;
+        Some((self.files.get(&image.texture)?.as_str(), image.rect))
+    }
+
     /// The image `index`: its texture's file and its part in it.
     fn part(&self, index: u32) -> Option<(&str, Rect)> {
         self.turned_part(index).map(|(file, rect, _)| (file, rect))
