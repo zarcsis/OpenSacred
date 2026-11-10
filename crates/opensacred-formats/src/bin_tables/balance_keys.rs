@@ -8,9 +8,9 @@
 
 use super::{BalanceKey, Kind};
 
-/// The 354 keys with a variable in the image and `GoldProLevel`'s second value, in the image's
+/// The 357 keys with a variable in the image and `GoldProLevel`'s second value, in the image's
 /// order.
-pub const BALANCE_KEYS: [BalanceKey; 355] = [
+pub const BALANCE_KEYS: [BalanceKey; 358] = [
     key("BalanceDmg", 0x000, Kind::F32),
     key("BalanceRes", 0x004, Kind::F32),
     key("BalanceMag", 0x008, Kind::F32),
@@ -217,6 +217,8 @@ pub const BALANCE_KEYS: [BalanceKey; 355] = [
     key("VWFakChamp", 0x8CC, Kind::F32),
     key("AWFakBoss", 0x8D0, Kind::F32),
     key("AWFakChamp", 0x8D4, Kind::F32),
+    key("Healthbar", 0x8D8, Kind::I32),
+    key("Healthborder", 0x8DC, Kind::I32),
     key("FernAWMin", 0x8E0, Kind::I32),
     key("FernAWMax", 0x8E4, Kind::I32),
     key("FernAWProz", 0x8E8, Kind::F32),
@@ -248,6 +250,7 @@ pub const BALANCE_KEYS: [BalanceKey; 355] = [
     key("848_Agilitat", 0x950, Kind::I32),
     key("850_Nachtschicht", 0x954, Kind::I32),
     key("851_Tag", 0x958, Kind::I32),
+    key("ARGBInfoText", 0x95C, Kind::I32),
     key("TransSize", 0x960, Kind::F32),
     key("TransValu", 0x964, Kind::F32),
     key("shaddar_slave_dmg_ph", 0x968, Kind::F32),
