@@ -24,7 +24,7 @@ use crate::fight::Health;
 use crate::frame::Step;
 use crate::game::AppState;
 use crate::hero::{Body, Gait};
-use crate::npcs::{Dies, PutAt, Walk};
+use crate::npcs::{Corpse, Dies, PutAt, RisesAgain, Stashed, Walk};
 use crate::spawning::Rng;
 use crate::terrain::Heights;
 
@@ -939,6 +939,45 @@ fn risen(
     }
 }
 
+/// How long a follower that rises again lies dead, in seconds (`0x53FB40`: 20.0 at `0x890798`).
+const LIES_BEFORE_RISING: f32 = 20.0;
+
+/// Raises each dead follower of the hero that a script keeps to rise (`npcs::RisesAgain`,
+/// `+0x2B7` bit 8, #2459) once it has lain 20 s (the dying action's lying step `0x53FB40`, then
+/// `0x53E460`): its mind and its place in the way back, out of its fight, and its health full;
+/// it stays in the hero's list throughout. A follower of a creature does not rise.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn rise_again(
+    mut commands: Commands,
+    time: Res<Time>,
+    heroes: Query<(), With<Body>>,
+    mut dead: Query<(Entity, &Follower, &mut Stashed, &mut Health), (With<Dies>, With<RisesAgain>)>,
+) {
+    for (entity, follower, mut stashed, mut health) in &mut dead {
+        if !heroes.contains(follower.master) {
+            continue;
+        }
+        stashed.lain += time.delta_secs();
+        if stashed.lain < LIES_BEFORE_RISING {
+            continue;
+        }
+        let mut mind = stashed.mind.clone();
+        mind.rises();
+        health.current = health.most;
+        info!(
+            "followers: {entity}, a {}, rises at {}/{}",
+            mind.creature, health.current, health.most
+        );
+        commands
+            .entity(entity)
+            .remove::<(Dies, Corpse, Stashed)>()
+            .insert((mind, stashed.way));
+    }
+}
+
 /// The followers and the summonings that make them.
 pub struct FollowersPlugin;
 
@@ -947,7 +986,7 @@ impl Plugin for FollowersPlugin {
         app.init_resource::<Dice>()
             .add_systems(
                 Update,
-                (make, chain)
+                (make, chain, rise_again)
                     .after(Step::Npcs)
                     .in_set(crate::frame::Playing),
             )
@@ -965,5 +1004,77 @@ impl Plugin for FollowersPlugin {
             )
             .add_systems(Update, paces.in_set(Step::Crowd))
             .add_observer(risen);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn a_follower_kept_to_rise_stands_again_20_s_after_its_death() {
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        let hero = world.spawn(Body::standing()).id();
+        let mind = Mind::new(
+            Vec3::ZERO,
+            minds::FOLLOWS,
+            (false, true),
+            None,
+            [70.0, 180.0],
+            (697, 3),
+        );
+        let way = InTheWay::of(0, 0, None);
+        let follower = |master| Follower {
+            master,
+            stepping_off: false,
+            escorted: false,
+        };
+        let dead = |world: &mut World, master, rises: bool| {
+            let mut entity = world.spawn((
+                follower(master),
+                Health {
+                    current: 0,
+                    most: 539,
+                    level: 11,
+                },
+                Dies::new(0),
+                Stashed {
+                    mind: mind.clone(),
+                    way,
+                    lain: 0.0,
+                },
+            ));
+            if rises {
+                entity.insert(RisesAgain);
+            }
+            entity.id()
+        };
+        // Shareefa, hired with `0x6B` 1 (#2459); one of no `0x6B`; one of a creature's.
+        let shareefa = dead(&mut world, hero, true);
+        let plain = dead(&mut world, hero, false);
+        let creature = world.spawn_empty().id();
+        let theirs = dead(&mut world, creature, true);
+        let lie = |world: &mut World, seconds: f32| {
+            world
+                .resource_mut::<Time>()
+                .advance_by(Duration::from_secs_f32(seconds));
+            world.run_system_cached(rise_again).unwrap();
+            world.flush();
+        };
+        lie(&mut world, 19.5);
+        assert!(world.get::<Dies>(shareefa).is_some());
+        lie(&mut world, 0.5);
+        assert!(world.get::<Dies>(shareefa).is_none());
+        assert!(world.get::<Stashed>(shareefa).is_none());
+        assert!(world.get::<Mind>(shareefa).is_some());
+        assert!(world.get::<InTheWay>(shareefa).is_some());
+        assert_eq!(world.get::<Health>(shareefa).map(|h| h.current), Some(539));
+        assert!(world.get::<Follower>(shareefa).is_some());
+        lie(&mut world, 60.0);
+        assert!(world.get::<Dies>(plain).is_some());
+        assert!(world.get::<Dies>(theirs).is_some());
     }
 }

@@ -42,6 +42,7 @@ use crate::frame::HoldsControl;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::{self, Pointer};
+use crate::npcs::Stashed;
 use crate::talk::Portraits;
 
 /// The original's screen, the bar's and the column's places on it.
@@ -953,7 +954,7 @@ fn cut_ring(
 /// The followers' entries under the hero's (`0x6D6430`, `0x6D8250`): the hero's followers, four
 /// at most, those shown keeping their places and the newcomers after them, each its health's ring
 /// and its portrait by its type (`0x435D30`), none for a type without one; made again as they
-/// come, die and go.
+/// come, die and go, a dead one that rises again kept (`npcs::Stashed`, #2459).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -966,7 +967,7 @@ fn entries(
     portraits: Res<Portraits>,
     columns: Query<Entity, With<ColumnRoot>>,
     heroes: Query<Entity, With<Body>>,
-    followers: Query<(Entity, &Follower, &Mind)>,
+    followers: Query<(Entity, &Follower, Option<&Mind>, Option<&Stashed>)>,
     pieces: Query<Entity, With<Entry>>,
 ) {
     let (Ok(column), Ok(hero)) = (columns.single(), heroes.single()) else {
@@ -974,7 +975,9 @@ fn entries(
     };
     let theirs = followers
         .iter()
-        .filter(|(_, follower, _)| follower.master == hero)
+        .filter(|(_, follower, mind, stashed)| {
+            follower.master == hero && (mind.is_some() || stashed.is_some())
+        })
         .map(|(entity, ..)| entity)
         .collect();
     let order = entry_order(&shown.0, theirs);
@@ -992,8 +995,14 @@ fn entries(
             (image(HEALTH_GREY, RING_AT), Some((false, top))),
             (image(HEALTH_RED, RING_AT), Some((true, top))),
         ];
-        let kind = followers.get(follower).map(|(_, _, mind)| mind.creature);
-        if let Some(portrait) = kind.ok().and_then(|kind| portraits.column(kind)) {
+        let kind = followers
+            .get(follower)
+            .ok()
+            .and_then(|(_, _, mind, stashed)| {
+                mind.or(stashed.map(|stashed| &stashed.mind))
+                    .map(|mind| mind.creature)
+            });
+        if let Some(portrait) = kind.and_then(|kind| portraits.column(kind)) {
             parts.push((stretched(image(portrait, PORTRAIT_AT)), None));
         }
         for (bundle, ring) in parts {

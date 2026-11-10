@@ -2204,6 +2204,9 @@ struct State {
     stock: Option<String>,
     /// Whether it hires its creature as the hero's follower, or lets it go ([`hire_of`]; #657).
     hire: Option<crate::followers::Hire>,
+    /// Whether its `0x6B` sets `+0x2B7` bit 8, above 0, or clears it, for 0 ([`RISES`]), which
+    /// keeps a dead follower of the hero to rise ([`RisesAgain`], #2459).
+    rises: Option<bool>,
 }
 
 impl State {
@@ -2219,6 +2222,11 @@ impl State {
             word: ways::state_word(markers),
             group: script_group(ops),
             hire: hire_of(ops),
+            rises: if rises(ops) {
+                Some(true)
+            } else {
+                listed(ops).then_some(false)
+            },
             ..Self::default()
         };
         for op in ops {
@@ -2268,6 +2276,7 @@ impl State {
             || self.stocked
             || self.talk.is_some()
             || self.hire.is_some()
+            || self.rises.is_some()
     }
 
     /// The dialogue it leaves a creature that had `talk`: its own, or none for a horse it stocks.
@@ -2324,6 +2333,9 @@ impl State {
         }
         if self.hire.is_some() {
             placement.hire = self.hire;
+        }
+        if let Some(rises) = self.rises {
+            placement.rises = rises;
         }
     }
 
@@ -6671,6 +6683,9 @@ fn spawn(
         if let Some(hire) = placement.hire {
             entity.insert(crate::followers::Hired(hire));
         }
+        if placement.rises {
+            entity.insert(RisesAgain);
+        }
         mind.side = placement.side;
         // The category `0x20`'s, which the original draws under the water too (`0x434070`).
         if minds::still(creature) {
@@ -10139,6 +10154,15 @@ pub(crate) fn script_records(
                     .entity(entity)
                     .insert(crate::followers::Hired(hire));
             }
+            match state.rises {
+                Some(true) => {
+                    commands.entity(entity).insert(RisesAgain);
+                }
+                Some(false) => {
+                    commands.entity(entity).remove::<RisesAgain>();
+                }
+                None => {}
+            }
             if state.talk.is_some() || state.stocked {
                 let talk = state.talk_of(talk.map(|talk| talk.0.clone()));
                 if let Some(mind) = mind.as_mut() {
@@ -10834,8 +10858,23 @@ pub struct Corpse {
     pub hostile: bool,
 }
 
+/// A creature whose `+0x2B7` bit 8 a script's `0x6B` above 0 set ([`RISES`]): a follower of the
+/// hero rises 20 s after its death (`0x53FB40`, `followers::rise_again`, #2459).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RisesAgain;
+
+/// What a dead creature that may rise again ([`RisesAgain`]) laid down as it died, which its
+/// rising takes up again: its mind and its place in the way, and how long it has lain, in seconds.
+#[derive(Component, Clone, Debug)]
+pub struct Stashed {
+    pub mind: ai::Mind,
+    pub way: crowd::InTheWay,
+    pub lain: f32,
+}
+
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
-/// the way gone, what it was kept ([`Corpse`]).
+/// the way gone, what it was kept ([`Corpse`]), and its mind and place kept aside where it may
+/// rise again ([`Stashed`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -10846,13 +10885,13 @@ pub(crate) fn die(
         Entity,
         &Npc,
         &mut Dies,
-        Option<&ai::Mind>,
-        Option<&crowd::InTheWay>,
+        (Option<&ai::Mind>, Option<&crowd::InTheWay>),
+        Has<RisesAgain>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
-    for (entity, npc, mut dies, mind, way) in &mut dying {
+    for (entity, npc, mut dies, (mind, way), rises) in &mut dying {
         if dies.played {
             continue;
         }
@@ -10865,6 +10904,13 @@ pub(crate) fn die(
                 level: way.level,
                 hostile: mind.hostile(),
             });
+            if rises {
+                commands.entity(entity).insert(Stashed {
+                    mind: mind.clone(),
+                    way: *way,
+                    lain: 0.0,
+                });
+            }
         }
         commands
             .entity(entity)
@@ -12456,6 +12502,21 @@ mod tests {
         assert_eq!(hire_of(&[op(0x4B), marker(0x39)]), Some(Hire::LetsGo));
         // A `SetNPCState` of a hire restates a creature made before it.
         assert!(State::of(&[op(0x37)], &[]).restates());
+        // Its `0x6B` sets `+0x2B7` bit 8 above 0 and clears it for 0, on its placement too
+        // (#2459): quest 59 hires Shareefa with `0x4B` 0 and `0x6B` 1.
+        let rise = |value| Operand {
+            tag: RISES,
+            value: Value::I32(value),
+        };
+        let hires = State::of(&[op(0x0A), op(0x4B), rise(1)], &[]);
+        assert_eq!(hires.rises, Some(true));
+        assert_eq!(State::of(&[rise(0)], &[]).rises, Some(false));
+        assert_eq!(State::of(&[op(0x4B)], &[]).rises, None);
+        let mut placement = Placement::default();
+        hires.restate_placement(&mut placement);
+        assert!(placement.rises);
+        State::of(&[rise(0)], &[]).restate_placement(&mut placement);
+        assert!(!placement.rises);
     }
 
     /// What two soldiers' types are made of: 279 of the class 3, holding the shield 1211, and 276
