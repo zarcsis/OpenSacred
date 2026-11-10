@@ -6674,6 +6674,12 @@ fn spawn(
             most,
             level: grade,
         });
+        // One that a `SetHP` took to 0 before it was made dies as it comes, as one in the world
+        // does ([`script_healths`]): quest 51's dying soldier, whose dialogue holds his body to be
+        // spoken to (#2446, #2444).
+        if current == 0 {
+            entity.insert(Dies::unkilled());
+        }
         let (values, share) = arms.fight(grade, placement.rank, rules);
         // Its walk and run by its pace (`0x4F75F0`, #599).
         let pace = values.0.pace_factor();

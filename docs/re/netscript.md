@@ -267,6 +267,7 @@ Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless
 - Where the creature's most health is below 1 it is first set to `(level + 1)·100`; its health then becomes `most·n/100`, truncated, and a creature that has health and is not alive (`0x549080`) stops its motion; its byte `+0x4CF` is set (not read).
 - So quest 201's horse 18007 (creature 551, `Region2Init`'s `SetHP` of 50) stands at 37 of its 75, as the original's driver showed (#585), and a `SetHP` of 0 leaves a creature without health: the quests kill their targets so (1202's `QIS_OnEnter1202` and its timer).
 - `opensacred-game` follows it since #1001 (`scripts`, `npcs`): the start's, the regions' and the sectors' `SetHP`s give the placement they name its share as it is made, and those of the play the creatures of that name in the world, or the hero, a creature left without health dying as by no player's hand (it drops nothing; that the original's drops nothing is a **hypothesis**).
+  Since #2446 a creature whose placement a `SetHP` took to 0 before it was made dies as it comes, as one in the world does: quest 51's `Init51` makes the dying soldier `res:18203` and sets him to 0 at once, and his dialogue holds his body to be spoken to (#2444).
 
 ## The deaths' functions
 
