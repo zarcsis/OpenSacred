@@ -248,7 +248,11 @@ fn choose(
         Res<Pointer>,
         Option<Res<crate::world_map::Map>>,
     ),
-    (hovered, nodes): (Option<Res<HoverMap>>, Query<(), With<Node>>),
+    (hovered, nodes, held): (
+        Option<Res<HoverMap>>,
+        Query<(), With<Node>>,
+        Option<Res<crate::frame::HeldBack>>,
+    ),
     (labels, keys, boxed): (
         Res<crate::labels::Shown>,
         crate::controls::Keys,
@@ -289,12 +293,15 @@ fn choose(
     ),
 ) {
     let in_game = state.is_some_and(|state| *state.get() == AppState::InGame);
-    let over_interface = hovered.is_some_and(|hovered| {
-        hovered
-            .values()
-            .flat_map(|hits| hits.keys())
-            .any(|&entity| nodes.contains(entity))
-    });
+    // Over a node of the interface, or where a window holds the world's clicks back (the quest
+    // book's pages and bookmarks, which the pointer's picking passes through, #2507).
+    let over_interface = held.is_some_and(|held| held.held())
+        || hovered.is_some_and(|hovered| {
+            hovered
+                .values()
+                .flat_map(|hits| hits.keys())
+                .any(|&entity| nodes.contains(entity))
+        });
     let ray = pointer
         .0
         .zip(cameras.single().ok())
