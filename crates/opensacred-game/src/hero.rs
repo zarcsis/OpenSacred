@@ -849,10 +849,33 @@ pub fn pace(keys: crate::controls::Keys, mut hero: ResMut<Hero>) {
     }
 }
 
+/// Where a click on the point `picked` sends the hero, and on what level (`0x617030`): the centre
+/// of the cell that `bin/treppe.bin` gives for the picked cell of its floor, a stair's or a
+/// teleport's cell beside it (`tables::Tables::stair_to`, #2508), on that floor; else the point
+/// picked.
+pub(crate) fn clicked(
+    picked: &crate::pick::Picked,
+    heights: &Heights,
+    tables: Option<&crate::tables::Tables>,
+) -> (Vec3, Level) {
+    let cell = paths::cell_of(picked.point.x, picked.point.z);
+    let floor = heights.floor_number(picked.level);
+    let Some(to) = tables.and_then(|tables| tables.stair_to(cell, floor)) else {
+        return (picked.point, picked.level);
+    };
+    let level = heights.on_floor(to, floor);
+    let centre = paths::centre(to);
+    let y = heights
+        .standing(centre.x, centre.y, level)
+        .unwrap_or(picked.point.y);
+    (Vec3::new(centre.x, y, centre.y), level)
+}
+
 /// Points the hero where the left mouse button is pressed: the cell under the cursor, on its
-/// level, as the client picks it (`pick`); where it picks none, the point of the cursor's line of
-/// sight at the hero's height. A press orders it once; held, it orders it again at every tick
-/// once it has been held longer than 0.4 s (`0x60F130`, #640).
+/// level, as the client picks it (`pick`), or the stair's or the teleport's cell that it stands
+/// for ([`clicked`]); where it picks none, the point of the cursor's line of sight at the hero's
+/// height. A press orders it once; held, it orders it again at every tick once it has been held
+/// longer than 0.4 s (`0x60F130`, #640).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -863,8 +886,11 @@ pub fn steer(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    heights: Res<Heights>,
-    buildings: Res<crate::buildings::Buildings>,
+    (heights, buildings, data): (
+        Res<Heights>,
+        Res<crate::buildings::Buildings>,
+        Option<Res<crate::game::Data>>,
+    ),
     aim: Res<crate::attack::Aim>,
     mut bodies: Query<(&Transform, &mut Body), Without<Dies>>,
 ) {
@@ -892,7 +918,11 @@ pub fn steer(
     for (transform, mut body) in &mut bodies {
         let height = transform.translation.y;
         match crate::pick::pick(ray, &heights, &buildings, (height, body.level)) {
-            Some(picked) => body.send_onto(picked.point, picked.level),
+            Some(picked) => {
+                let tables = data.as_deref().map(|data| &data.0.tables);
+                let (point, level) = clicked(&picked, &heights, tables);
+                body.send_onto(point, level);
+            }
             None => {
                 let along = (height - ray.origin.y) / ray.direction.y;
                 body.send(ray.origin + ray.direction.as_vec3() * along);

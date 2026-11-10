@@ -13,8 +13,8 @@ use opensacred_data::tables::{
     BalanceRow, BalanceValue, BalanceVariable, CREATURES, ColumnPortrait, Creature,
     CreaturePortrait, EffectChance, FIGURES, Figure, IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet,
     MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS, Portrait, Portraits,
-    QualityPass, QualityWeight, RUNES, STAIRS, START_POINTS, STATIC_REMAP, Spell, StartPoint,
-    TRIGGERS, TYPE_NAMES, Trigger, TypeName, UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS,
+    QualityPass, QualityWeight, RUNES, STAIRS, START_POINTS, STATIC_REMAP, Spell, Stair,
+    StartPoint, TRIGGERS, TYPE_NAMES, Trigger, TypeName, UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS,
     WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt,
     WeaponModifier,
 };
@@ -641,7 +641,15 @@ fn convert_bin_tables(game_dir: &Path, dir: &Path) -> Result<usize> {
     write(dir, WEAPON_GROUPS, &groups)?;
     let switches = bin_tables::armour_switches(&file("bin/Rust.bin")?).context("bin/Rust.bin")?;
     write(dir, ARMOUR_SWITCHES, &switches)?;
-    let stairs = bin_tables::rows(&file("bin/treppe.bin")?).context("bin/treppe.bin")?;
+    let stairs: Vec<Stair> = bin_tables::stairs(&file("bin/treppe.bin")?)
+        .context("bin/treppe.bin")?
+        .into_iter()
+        .map(|(cell, to)| Stair {
+            cell: [cell.x, cell.y],
+            floor: cell.floor,
+            to: [to.x, to.y],
+        })
+        .collect();
     write(dir, STAIRS, &stairs)?;
     let remap =
         bin_tables::static_remap(&file("bin/static10_18.bin")?).context("bin/static10_18.bin")?;

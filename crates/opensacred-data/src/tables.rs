@@ -580,6 +580,17 @@ pub struct WeaponModifier {
     pub entries: Vec<[u32; 6]>,
 }
 
+/// A pair of `bin/treppe.bin` (#2508): a cell of a floor, 0 the ground and `n` a building's floor
+/// `n`, and the cell on that floor that a click on it sends the hero to, a stair's or a teleport's
+/// (`0x617030`); the cursor shows the hand over it (`0x612CBC`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub struct Stair {
+    pub cell: [u16; 2],
+    pub floor: u8,
+    pub to: [u16; 2],
+}
+
 /// A mercenary position of `bin/merc.bin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]

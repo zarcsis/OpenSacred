@@ -1,14 +1,15 @@
 //! The tables of `tables/` that the start and every game's load read (`items.ron`,
-//! `weapons.ron`, `creatures.ron`, `motions.ron`, `balance.ron`): each read and parsed once, when
-//! first asked for, and shared through `sectors::Shared` (#830).
+//! `weapons.ron`, `creatures.ron`, `motions.ron`, `balance.ron`, `stairs.ron`): each read and
+//! parsed once, when first asked for, and shared through `sectors::Shared` (#830).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use anyhow::{Result, anyhow};
 use opensacred_data::tables::{
     BALANCE, Balance, CREATURES, Creature, ITEMS, Item, MERCENARIES, MOTIONS, Mercenary, Motion,
-    TYPE_NAMES, TypeName, WEAPONS, Weapon,
+    STAIRS, Stair, TYPE_NAMES, TypeName, WEAPONS, Weapon,
 };
 use serde::de::DeserializeOwned;
 
@@ -27,6 +28,9 @@ pub struct Tables {
     balance: Parsed<Balance>,
     type_names: Parsed<Vec<TypeName>>,
     mercenaries: Parsed<Vec<Mercenary>>,
+    stairs: Parsed<Vec<Stair>>,
+    /// `stairs.ron` by its cells and floors.
+    stairs_by_cell: OnceLock<HashMap<(u16, u16, u8), [u16; 2]>>,
 }
 
 impl Tables {
@@ -41,6 +45,8 @@ impl Tables {
             balance: OnceLock::new(),
             type_names: OnceLock::new(),
             mercenaries: OnceLock::new(),
+            stairs: OnceLock::new(),
+            stairs_by_cell: OnceLock::new(),
         }
     }
 
@@ -79,6 +85,36 @@ impl Tables {
     pub fn mercenaries(&self) -> Result<&[Mercenary]> {
         self.parsed(&self.mercenaries, MERCENARIES)
             .map(Vec::as_slice)
+    }
+
+    /// `stairs.ron`, `bin/treppe.bin`'s cells and the cells a click on them sends the hero to
+    /// (#2508).
+    pub fn stairs(&self) -> Result<&[Stair]> {
+        self.parsed(&self.stairs, STAIRS).map(Vec::as_slice)
+    }
+
+    /// The cell that a click on the global cell `cell` of the floor `floor` (0 the ground, `n` a
+    /// building's floor `n`) sends the hero to, where `stairs.ron` holds it (`0x617030`, by the
+    /// key that `0x612B30` packs, #2508); none where it holds none or cannot be read.
+    pub fn stair_to(&self, (x, y): (i32, i32), floor: usize) -> Option<(i32, i32)> {
+        let by_cell = self.stairs_by_cell.get_or_init(|| match self.stairs() {
+            Ok(stairs) => stairs
+                .iter()
+                .map(|stair| ((stair.cell[0], stair.cell[1], stair.floor), stair.to))
+                .collect(),
+            Err(e) => {
+                bevy::log::warn!("tables: no stairs' cells: {e}");
+                HashMap::new()
+            }
+        });
+        let key = (
+            u16::try_from(x).ok()?,
+            u16::try_from(y).ok()?,
+            u8::try_from(floor).ok()?,
+        );
+        by_cell
+            .get(&key)
+            .map(|&[x, y]| (i32::from(x), i32::from(y)))
     }
 
     /// The path of the table `file`, for messages.
