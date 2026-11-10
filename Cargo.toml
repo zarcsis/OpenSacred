@@ -163,11 +163,19 @@ todo = "warn"
 [profile.dev.package."*"]
 opt-level = 3
 
+# The local release builds that run the game compile our own crates incrementally (#2438): a change
+# to opensacred-game, a crate of 156,000 lines, compiled it whole in 201 s; a one-line change takes
+# 79 s. The dependencies are never compiled incrementally.
+[profile.release]
+incremental = true
+
 # The build that the releases ship (#1500): the release profile with link-time optimization across
 # the crates, one code generation unit and the symbols stripped, for a smaller and faster
-# executable at the price of a longer build.
+# executable at the price of a longer build; a fresh build, without the release profile's
+# incremental cache (#2438).
 [profile.dist]
 inherits = "release"
+incremental = false
 lto = "thin"
 codegen-units = 1
 strip = true

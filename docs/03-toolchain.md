@@ -550,6 +550,8 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 ## 5. Build and CI
 
 * A Cargo workspace with profiles: in development, dependencies are built with optimizations and our own code without.
+  The release profile, which runs the game locally, compiles our own crates incrementally (#2438): a one-line change to `opensacred-game` takes 79 s instead of the 201 s of the whole crate, at the price of a cache in `target/release/incremental` of a few gigabytes.
+  The `dist` profile of the player's archive (§3.6) builds without it.
   Bevy is linked statically; `rust-lld` (`.cargo/config.toml`) keeps the links fast on Windows.
 * Every text file is UTF-8 without a BOM with LF line ends, on every platform (the maintainer's rule of 2026-10-24, #834; CLAUDE.md, "Code conventions"): the sources, the documents, the configuration, the converter's masters and the game's assets, what the game writes and the tools' outputs.
   `.gitattributes` stores the repository's text files with LF whatever a tool writes (`* text=auto eol=lf`, #32), and `.editorconfig` asks the editors for UTF-8 and LF.
