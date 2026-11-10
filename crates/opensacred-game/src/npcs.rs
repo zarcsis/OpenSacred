@@ -1846,9 +1846,9 @@ struct Gear {
     /// (`0x426550`, bit 25 of the record's first word), as the heroes' hair, the Gladiator's
     /// belt and the Mage's cowl have, which the stats' recomputation `0x5796A0` passes over (#490).
     counts: bool,
-    /// The sound profile of its own type (`items.pak +0x24`), not its parent's: 0 for a fixed
-    /// item without a slot of its own, as the heroes' starting weapons, whose hits the original
-    /// sounds by their swing alone (#709, #712).
+    /// The sound profile of its type (`items.pak +0x24`), its parent's where it has no slot of
+    /// its own, as the heroes' starting weapons: the Seraphim's 7901 sounds as its parent 1724,
+    /// the sword's profile 500 (`0x4257A0`, #2488).
     sound: u32,
     /// Its size (`items.pak +0x14`, 50 for 0, `arrows::size`): a held item's for the hurled
     /// blades' touch (`0x600340`, `0x428CE0`; `making::Blade`).
@@ -4693,7 +4693,9 @@ fn gear_table<'a>(
                     number => textures.get(&number).cloned(),
                 },
                 counts: item.byte_03 & 2 == 0,
-                sound: items.get(&slot).map_or(0, |own| own.sound()),
+                // Its parent's where it has no slot of its own, as the items' table's loader
+                // copies a parent's entry onto its children's (`0x4257A0` at `0x425A1A`, #2488).
+                sound: item.sound(),
                 size: arrows::size(item.words_14[0]),
                 group: switch_group(item),
             };
@@ -12808,6 +12810,49 @@ mod tests {
         assert!(placement.rises);
         State::of(&[rise(0)], &[]).restate_placement(&mut placement);
         assert!(!placement.rises);
+    }
+
+    #[test]
+    fn a_derived_weapon_sounds_as_its_parent() {
+        let item = |slot, sound| Item {
+            slot,
+            kind: 2,
+            class: 0,
+            subclass: 0,
+            name: "sword.grn".into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0, 0, 0, 0, sound, 0, 0, 0],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0; 10],
+        };
+        let weapon = |id, parent| opensacred_data::tables::Weapon {
+            id,
+            parent,
+            name: String::new(),
+            floats_00: [0.0; 5],
+            bytes_14: [0; 4],
+            float_18: 0.0,
+            bytes_1c: [0; 8],
+            words_84: Vec::new(),
+        };
+        // The Seraphim's starting sword 7901, of the parent 1724, the sword's profile 500; a
+        // type with a slot and a profile of its own keeps them.
+        let (sword, own) = (item(1724, 500), item(1712, 501));
+        let items = HashMap::from([(1724, &sword), (1712, &own)]);
+        let weapons = [weapon(7901, 1724), weapon(1724, 0), weapon(1712, 1724)];
+        let gear = gear_table(
+            &items,
+            &weapons,
+            &HashMap::new(),
+            (&HashMap::new(), &HashMap::new()),
+            &[7901, 1712],
+        );
+        assert_eq!(gear[&7901].sound, 500);
+        assert_eq!(gear[&1712].sound, 501);
     }
 
     /// What two soldiers' types are made of: 279 of the class 3, holding the shield 1211, and 276

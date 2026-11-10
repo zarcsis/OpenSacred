@@ -398,9 +398,9 @@ pub enum Roll {
 }
 
 /// What a striker holds, for its weapons' sounds: the class of it (`motions::class`), and the
-/// sound profile of its weapon, `items.pak +0x24` of the weapon's own type, 0 for one without
-/// (the heroes' starting weapons, whose type has no slot of its own: their hits sound by their
-/// swing alone, as the original's, #709), none for bare hands.
+/// sound profile of its weapon, `items.pak +0x24` of the weapon's type or of its parent where it
+/// has no slot of its own (the heroes' starting weapons, #2488), 0 for one without (the types of
+/// #2496, silent), none for bare hands.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Armed {
     pub class: u8,
@@ -761,7 +761,7 @@ mod tests {
             gun: false,
         };
         assert_eq!(sword.at_target(), 500);
-        // A starting weapon without a profile of its own is silent at the target.
+        // A weapon of no profile, its parent's none either, is silent at the target (#2496).
         let starting = Armed {
             class: 1,
             weapon: Some(0),
