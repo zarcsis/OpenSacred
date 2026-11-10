@@ -2836,8 +2836,9 @@ fn deaths(
             taken = true;
         }
         // An undead that rises again is no kill and runs no death's function at this death
-        // (`0x5337AB`, #1199; **hypothesis** for the function).
-        if dies.rises {
+        // (`0x5337AB`, #1199; **hypothesis** for the function), nor does a body put back
+        // lying (#2457), which died before.
+        if dies.rises || dies.fallen {
             continue;
         }
         // A kill of a type that a `SetOnKill` counts, whoever killed it, but not a death at

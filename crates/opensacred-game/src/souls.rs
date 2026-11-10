@@ -86,7 +86,10 @@ fn catch(
         return;
     };
     let heals = soul_heals(spell, level.unwrap_or(1));
-    for (from, place, _) in dying.iter().filter(|(.., dies)| !dies.rises) {
+    for (from, place, _) in dying
+        .iter()
+        .filter(|(.., dies)| !dies.rises && !dies.fallen)
+    {
         if (place.translation - at.translation).xz().length() >= SOUL_REACH {
             continue;
         }
