@@ -24,7 +24,7 @@ use crate::fight::Health;
 use crate::frame::Step;
 use crate::game::AppState;
 use crate::hero::{Body, Gait};
-use crate::npcs::{Corpse, Dies, PutAt, RisesAgain, Stashed, Walk};
+use crate::npcs::{Dies, PutAt, RisesAgain, Stashed, Walk, lift};
 use crate::spawning::Rng;
 use crate::terrain::Heights;
 
@@ -964,17 +964,12 @@ fn rise_again(
         if stashed.lain < LIES_BEFORE_RISING {
             continue;
         }
-        let mut mind = stashed.mind.clone();
-        mind.rises();
         health.current = health.most;
         info!(
             "followers: {entity}, a {}, rises at {}/{}",
-            mind.creature, health.current, health.most
+            stashed.mind.creature, health.current, health.most
         );
-        commands
-            .entity(entity)
-            .remove::<(Dies, Corpse, Stashed)>()
-            .insert((mind, stashed.way));
+        lift(&mut commands, entity, &stashed);
     }
 }
 

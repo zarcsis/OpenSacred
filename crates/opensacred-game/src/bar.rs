@@ -42,7 +42,7 @@ use crate::frame::HoldsControl;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::{self, Pointer};
-use crate::npcs::Stashed;
+use crate::npcs::{RisesAgain, Stashed};
 use crate::talk::Portraits;
 
 /// The original's screen, the bar's and the column's places on it.
@@ -954,10 +954,11 @@ fn cut_ring(
 /// The followers' entries under the hero's (`0x6D6430`, `0x6D8250`): the hero's followers, four
 /// at most, those shown keeping their places and the newcomers after them, each its health's ring
 /// and its portrait by its type (`0x435D30`), none for a type without one; made again as they
-/// come, die and go, a dead one that rises again kept (`npcs::Stashed`, #2459).
+/// come, die and go, a dead one that rises again kept (`npcs::RisesAgain`, #2459).
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their components"
 )]
 fn entries(
     mut commands: Commands,
@@ -967,7 +968,13 @@ fn entries(
     portraits: Res<Portraits>,
     columns: Query<Entity, With<ColumnRoot>>,
     heroes: Query<Entity, With<Body>>,
-    followers: Query<(Entity, &Follower, Option<&Mind>, Option<&Stashed>)>,
+    followers: Query<(
+        Entity,
+        &Follower,
+        Option<&Mind>,
+        Option<&Stashed>,
+        Has<RisesAgain>,
+    )>,
     pieces: Query<Entity, With<Entry>>,
 ) {
     let (Ok(column), Ok(hero)) = (columns.single(), heroes.single()) else {
@@ -975,8 +982,8 @@ fn entries(
     };
     let theirs = followers
         .iter()
-        .filter(|(_, follower, mind, stashed)| {
-            follower.master == hero && (mind.is_some() || stashed.is_some())
+        .filter(|(_, follower, mind, stashed, rises)| {
+            follower.master == hero && (mind.is_some() || (stashed.is_some() && *rises))
         })
         .map(|(entity, ..)| entity)
         .collect();
@@ -998,7 +1005,7 @@ fn entries(
         let kind = followers
             .get(follower)
             .ok()
-            .and_then(|(_, _, mind, stashed)| {
+            .and_then(|(_, _, mind, stashed, _)| {
                 mind.or(stashed.map(|stashed| &stashed.mind))
                     .map(|mind| mind.creature)
             });

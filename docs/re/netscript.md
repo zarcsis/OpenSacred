@@ -277,6 +277,10 @@ Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless
 - So quest 201's horse 18007 (creature 551, `Region2Init`'s `SetHP` of 50) stands at 37 of its 75, as the original's driver showed (#585), and a `SetHP` of 0 leaves a creature without health: the quests kill their targets so (1202's `QIS_OnEnter1202` and its timer).
 - `opensacred-game` follows it since #1001 (`scripts`, `npcs`): the start's, the regions' and the sectors' `SetHP`s give the placement they name its share as it is made, and those of the play the creatures of that name in the world, or the hero, a creature left without health dying as by no player's hand (it drops nothing; that the original's drops nothing is a **hypothesis**).
   Since #2446 a creature whose placement a `SetHP` took to 0 before it was made dies as it comes, as one in the world does: quest 51's `Init51` makes the dying soldier `res:18203` and sets him to 0 at once, and his dialogue holds his body to be spoken to (#2444).
+- The stop (`0x54E6D0(1, 0)`, read 2026-11-10 for #2477 by a subagent, **confirmed** by code) does nothing where the creature already stands (the action 0 and the AI's state 0) or its health is below 2; otherwise it starts the standing clip, sets the action 0 of the sub-state 1 and the AI's state 0 of the sub-state 0, and clears `+0x200` bit `0x10`.
+  So a `SetHP` above 0 lifts a body where it lies, at that share of its most health, from any function, not its death's alone; the rise to the full health with the experience's loss (`0x53E460`) is the dying state's own, after the death's functions.
+  The Underworld's `the_end_of_uw` lifts Vilya at 1 % and sets her to 0 again in the same run, which lays her down again, her dialogue `endofall` holding her body; `Game_over` lifts her at 100.
+  Since #2477 `npcs::script_healths` lifts a dead creature of the name so where it kept its mind aside as it died (`npcs::Stashed`, which a creature that the scripts name keeps), a later `SetHP` of the same run finding it standing.
 
 ## The deaths' functions
 
@@ -1086,6 +1090,25 @@ Since #1874 an entry done with more waiting ends its creature's fight unless it 
 No record of the 20 trees names a creature in `SetPlayMode` (1,160 of none), so its queued end is not followed; and `NPC_Goto`'s walk with `0x66` and a place (`res:17801`'s two walks), like the modes kept on past their run, belong to the add-on's trees alone, the cinema mode's per-tick stop of the hero, its refusal of the mouse and the interface's flag with them (#1892).
 Not followed yet: the queues saved with the creatures, which wait for the saves (#1095).
 The first window of a new game, the Daemon's Skip Tutorial among its buttons, is not shown in `opensacred-game` yet.
+
+### A dead creature's queue
+
+Read 2026-11-10 for #2477 by a subagent of the session in `Sacred.exe`, **confirmed** by code unless marked otherwise; the Underworld's ending, quest 56, needs it.
+
+- The creature's update (`0x5375C0`) steps its queue (`0x59A840`, at `0x5396CC`) whenever it is not empty, testing no AI state, action or health; it leaves early only for an object marked removed (`+0x14` bit `0x10`), and the dying state's handler (`0x53E7C0`) and the dying action's (`0x53ECA0`) come after the step in the same tick.
+  The steps of `Wait`, `PlayAnim`, `CallFunktion`, `PlaySound` and `Morph` test the owner's life nowhere, and the records' handlers do not call the life test (`0x549080`), so the records that name a dead creature queue as they do a living one's.
+  **Seen**: a goblin killed by the driver (the AI's state 9, the action 6, health 0) passed `0x5396A9` at every tick.
+- A body whose death's function stands (`0x4A71F0`), whose flags word holds `0x2000` or whose dialogue lies from 1 to 59,999 lies on (`0x53ECA0`, its sub-state 3; "Dialogues" above): Anducar, his death's function `Ende_teil2`, lies until his queue lifts him.
+- A `PlayAnim` at its turn (`0x59E151`) waits only while the creature stands in the sub-states `0x64` to `0x66`, so on a dying creature (the action 6) it writes the action 0 of the sub-state `0x65` with its slot at once, and the standing action plays the clip in the same tick in place of the lying clip.
+  With more entries waiting, the entry done (`0x59F2AA`) sets the AI's state and its sub-state to 0 (the state 9 is not spared), so the creature stands with health 0, which the life test still counts as dead.
+- A creature standing with health exactly 0 and an AI state other than 1 dies again at the standing action's tail (`0x546060`, the sub-states other than 0 and `0x65` to `0x67`), running its death's functions again at the next tick.
+  Anducar's clip 144 (`ANDU_ATTACK_SPECIAL01`, 4.78 s at 1) plays past `refresh_a`, whose `SetHP` gives him health first (the timing a **hypothesis**, not traced).
+- `QIS_OnEnter56` queues on the dead Anducar `PlayAnim` 144, two `PlaySound`s, a `Wait`, two `PlaySound`s, a `Wait`, two `PlaySound`s, a `Wait` and `CallFunktion refresh_a`; its `Partikel`s name one creature and act at once.
+  Its waits of `0x5F` −50 share one deadline on the real clock, 0.5 s after the record ran, and `refresh_a` runs with the anim bit clear, the mode ended by the function's own `SetPlayMode`.
+  `refresh_a` gives him health (`SetHP` 100, his body already standing), turns him into the type 183 in place (`Morph` at once: the same object, at the new type's full health, standing as he is alive), arms him, makes him hostile with the death's function `the_end_of_uw` and has him cast a meteor at Vilya.
+
+`opensacred-game` follows it since #2477 (`npcs`): the records of the anim mode that name a dead creature of the scripts' name queue on it (`script_records`) and its queue steps (`take_steps`), a `PlayAnim` lifting it out of its death with its stashed mind, out of its fight, and its place in the way back (`npcs::lift`), and a queued walk, cast or teleport going nowhere; a body that kept nothing aside to stand with takes no clip.
+The second death at the standing action's tail is not followed: a creature lifted by a `PlayAnim` stands with health 0, which no strike takes, until a `SetHP` gives it health.
 
 ## Differences from the openheilig table
 
