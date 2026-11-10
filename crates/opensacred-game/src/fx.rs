@@ -57,6 +57,9 @@ pub struct Burning {
     meshes: Vec<Handle<Mesh>>,
     /// A geyser's clock and its jet of its own, which the clock changes.
     geyser: Option<(Geyser, Fire)>,
+    /// The level of its place, and how long until it may strike again ([`scald`]).
+    level: crate::terrain::Level,
+    cooldown: f32,
 }
 
 /// The fires' and smokes' variants and each one's materials of its layers, made as the game
@@ -250,20 +253,20 @@ fn burn_on(
     }
 }
 
-/// A fire to make: its variant, as `spawn` leaves it for [`light`].
+/// A fire to make: its variant and the level of its place, as `spawn` leaves it for [`light`].
 #[derive(Component)]
-struct Unlit(u8);
+struct Unlit(u8, crate::terrain::Level);
 
-/// Spawns the fire of the variant `variant` at `at`, in its layer and visibility.
+/// Spawns the fire of the variant `variant` at `at` on `level`, in its layer and visibility.
 pub fn spawn(
     commands: &mut Commands,
-    variant: u8,
+    (variant, level): (u8, crate::terrain::Level),
     at: Vec3,
     (layered, visibility): (crate::buildings::Layered, Visibility),
 ) -> Entity {
     commands
         .spawn((
-            Unlit(variant),
+            Unlit(variant, level),
             Transform::from_translation(at),
             layered,
             visibility,
@@ -1234,6 +1237,88 @@ fn smoulder(
     }
 }
 
+/// Strikes from each fire smoke, and from a geyser while it bursts, at most once a second, every
+/// living creature on its level within its size and 50 of its point, the hero, the peaceful and
+/// the hostile alike, as nobody's (`0x5A6680`, `0x5AB490`, `0x5FF7C0`; `0x5ABD80`'s cases `0x32D`,
+/// `0x36C` and `0x36F`; #2518): the fire's physical and fire damage, sure, through their
+/// resistances (`fight::Burn`, `opensacred_rules::fight::scald`). Its cooldown runs down at every
+/// frame and starts again only at a strike, so that one who steps into it is struck at once.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn scald(
+    time: Res<Time>,
+    mut burns: MessageWriter<crate::fight::Burn>,
+    mut fires: Query<(&mut Burning, &GlobalTransform)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &crate::crowd::InTheWay,
+            &crate::fight::Health,
+            Option<&crate::arrows::Size>,
+        ),
+        (Without<crate::hero::Body>, Without<crate::npcs::Dies>),
+    >,
+    heroes: Query<
+        (
+            Entity,
+            &Transform,
+            &crate::hero::Body,
+            &crate::fight::Health,
+            Option<&crate::arrows::Size>,
+        ),
+        Without<crate::npcs::Dies>,
+    >,
+) {
+    let dt = time.delta_secs();
+    for (mut fire, at) in &mut fires {
+        fire.cooldown = (fire.cooldown - dt).max(0.0);
+        let bursting = fire
+            .geyser
+            .as_ref()
+            .is_none_or(|(geyser, _)| geyser.bursting());
+        let Some(damages) = opensacred_rules::fight::scald(fire.variant).filter(|_| bursting)
+        else {
+            continue;
+        };
+        if fire.cooldown > 0.0 {
+            continue;
+        }
+        let here = at.translation().xz();
+        // Its own size, 0 in its record, is 50 (`0x428CE0`).
+        let own = opensacred_rules::arrows::size(0);
+        let within = |place: &Transform, size: Option<&crate::arrows::Size>| {
+            let reach = own + size.map_or(own, |size| size.0);
+            (place.translation.xz() - here).length() < reach
+        };
+        let creatures = creatures
+            .iter()
+            .filter(|(_, place, way, health, size)| {
+                way.creature
+                    && way.level == fire.level
+                    && health.current > 0
+                    && within(place, *size)
+            })
+            .map(|(target, ..)| target);
+        let heroes = heroes
+            .iter()
+            .filter(|(_, place, body, health, size)| {
+                body.level() == fire.level && health.current > 0 && within(place, *size)
+            })
+            .map(|(target, ..)| target);
+        let mut struck = false;
+        for target in creatures.chain(heroes) {
+            burns.write(crate::fight::Burn { target, damages });
+            struck = true;
+        }
+        if struck {
+            fire.cooldown = opensacred_rules::fight::SCALD_PERIOD;
+        }
+    }
+}
+
 /// Strikes from each step's small fire, at most once a second, every living creature hostile to
 /// the hero on its level within [`opensacred_rules::fight::SMALL_FIRE_REACH`] and its size of it
 /// (`0x5AB490`, `0x5AE436`): the hero's strike of the fire's damages of his strength and dexterity,
@@ -1312,7 +1397,7 @@ fn light(
     unlit: Query<(Entity, &Unlit, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    for (entity, &Unlit(variant), at) in &unlit {
+    for (entity, &Unlit(variant, level), at) in &unlit {
         commands.entity(entity).remove::<Unlit>();
         let (x, z) = (at.translation.x, at.translation.z);
         debug!(
@@ -1356,6 +1441,8 @@ fn light(
             dice,
             meshes: handles,
             geyser,
+            level,
+            cooldown: 0.0,
         });
         if fire.light > 0.0 {
             burning.insert(daynight::Light(fire.light));
@@ -1566,6 +1653,7 @@ impl Plugin for FxPlugin {
                     burn_on,
                     smoulder,
                     scorch,
+                    scald,
                     crackle,
                 )
                     .chain()
