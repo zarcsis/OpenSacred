@@ -117,7 +117,7 @@ enum Command {
     Pause { on: Switch },
     /// Save the next frame to FILE (PNG) and go on
     Screenshot { file: PathBuf },
-    /// Save N frames to DIR/frame-NNNN.png and go on
+    /// Save N frames to DIR/frame-NNNN.png and go on, in a menu too
     Record { dir: PathBuf, frames: u32 },
     /// Measure the frame rate for SECONDS, print it and go on
     Benchmark { seconds: f32 },
@@ -1232,11 +1232,16 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             Ok(Outcome::say(format!("saving {}", file.display())))
         }
         Command::Record { dir, frames } => {
-            in_game(world)?;
             std::fs::create_dir_all(&dir)
                 .map_err(|e| format!("creating {}: {e}", dir.display()))?;
             let line = format!("recording {frames} frames to {}", dir.display());
-            world.insert_resource(Recording::new(dir, 0, frames, false));
+            // In a game from the moment its scene is ready, in a menu from the next frame (#2491).
+            let recording = Recording::new(dir, 0, frames, false);
+            world.insert_resource(if in_game(world).is_ok() {
+                recording
+            } else {
+                recording.now()
+            });
             Ok(Outcome::say(line))
         }
         Command::Benchmark { seconds } => {
