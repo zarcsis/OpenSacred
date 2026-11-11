@@ -14991,9 +14991,225 @@ impl GroundPoison {
     }
 }
 
+/// The big demons' death (919, `FX_BIG_DEMON_DEATH`, `cParticleSystem_bigdemondeath`, its
+/// virtual table `0x898974`; the constructor `0x7A94F0`, the start `0x7A9D30`, the run `0x7A9610`,
+/// the draw `0x7A97F0`; #2537): made once at a big demon's body (53, 94) at its first tick of
+/// lying (`0x53FC5C`, the FX event `0x7F`). It grows over 2 s (`g` by 0.5 a second to 1), holds
+/// until 15 s from its start, and fades by 0.3 a second to its end, its light `⌊200·g⌋`:
+/// - a ball of 15 glows of style 5 (`PARTICLE_GLOW03`, added whole) of (40, 40, 56), its slices
+///   at `(k − 7)/7` of its radius `R = (100 + 10 sin t)·g` along the models' `y`, each of a half
+///   side `√(R² − h²)`, depth tested;
+/// - ten rays of `FX_GHOST2` from its place, added whole, depth tested and not written: each
+///   tilted from the upright by two turns of ±0.5 rad at random, its length `L` growing by 15 a
+///   second from its growth's end (the first's from 0, the others' from −2 to −50, so that they
+///   start in turn); its points `10·(L − 1.3 j)` along it, `j` of 0 to 8 while that is not below
+///   0, each moved `cos((L − 1.3 j)/2)·L/2` along the models' `x`, so that it writhes; a ribbon
+///   7 to either side of them facing the viewer (the normal `(0, 2, 1) × d`), its `v` `j/8`; while
+///   it holds, a ray whose `L` passes `30 + 20·U` starts again from 0; the rays at a scale of
+///   `1 + U` at random, the glows not.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DemonDeath {
+    clock: f32,
+    state: u8,
+    growth: f32,
+    scale: f32,
+    rays: [([f32; 3], f32); DEMON_DEATH_RAYS],
+}
+
+/// The big demons' death's rays, their points at most, and their texture.
+pub const DEMON_DEATH_RAYS: usize = 10;
+const DEMON_DEATH_POINTS: u8 = 9;
+pub const DEMON_DEATH_TEXTURE: &str = "FX_GHOST2";
+/// Its ball's glows: their texture (the glows' style 5), their count and colour, added whole.
+pub const DEMON_DEATH_GLOW: &str = "PARTICLE_GLOW03";
+const DEMON_DEATH_SLICES: u8 = 15;
+pub const DEMON_DEATH_GLOW_COLOUR: [f32; 4] = [40.0 / 255.0, 40.0 / 255.0, 56.0 / 255.0, 1.0];
+/// How long it holds from its start, and its light's radius at its whole growth.
+const DEMON_DEATH_HOLDS: f32 = 15.0;
+const DEMON_DEATH_LIGHT: f32 = 200.0;
+
+/// A roll of `rand()/32767` on `dice`.
+fn unit(dice: &mut impl Dice) -> f32 {
+    f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0
+}
+
+impl DemonDeath {
+    /// Its start (`0x7A9D30`): each ray's direction and its first length, then its rays' scale,
+    /// by `dice`.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let rays = std::array::from_fn(|k| {
+            let (x, y, z) = (0.0_f32, 0.0_f32, 1.0_f32);
+            let (sin, cos) = (unit(dice) - 0.5).sin_cos();
+            let (y, z) = (z * sin + y * cos, z * cos - y * sin);
+            let (sin, cos) = (unit(dice) - 0.5).sin_cos();
+            let (x, z) = (x * cos - z * sin, z * cos + x * sin);
+            let length = -2.0 - unit(dice) * 48.0;
+            ([x, y, z], if k == 0 { 0.0 } else { length })
+        });
+        let scale = unit(dice) + 1.0;
+        Self {
+            clock: 0.0,
+            state: 0,
+            growth: 0.0,
+            scale,
+            rays,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7A9610`): its growth, its hold and its fade; past its growth its
+    /// rays grow, and while it holds one long enough starts again, by `dice`.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        match self.state {
+            0 => {
+                self.growth += 0.5 * dt;
+                if self.growth >= 1.0 {
+                    self.growth = 1.0;
+                    self.state = 1;
+                }
+            }
+            1 => {
+                if self.clock > DEMON_DEATH_HOLDS {
+                    self.state = 2;
+                }
+            }
+            2 => {
+                self.growth -= 0.3 * dt;
+                if self.growth < 0.0 {
+                    self.growth = 0.0;
+                    self.state = 3;
+                }
+            }
+            _ => {}
+        }
+        if self.state != 0 {
+            let holds = self.state == 1;
+            for (_, length) in &mut self.rays {
+                *length += 15.0 * dt;
+                if holds && unit(dice) * 20.0 + 30.0 < *length {
+                    *length = 0.0;
+                }
+            }
+        }
+        self.clock += dt;
+    }
+
+    /// Whether it has faded away (its alive flag `+0x20A4` cleared).
+    pub fn done(&self) -> bool {
+        self.state == 3
+    }
+
+    /// Its light's radius (`+0x9C`, `⌊200·g⌋`).
+    pub fn light(&self) -> f32 {
+        (DEMON_DEATH_LIGHT * self.growth).floor()
+    }
+
+    /// Its ball's glows (`0x7A982B`–`0x7A98CA`): each one's offset from its place in the models'
+    /// frame and its half side.
+    pub fn glows(&self) -> Vec<([f32; 3], f32)> {
+        let radius = (self.clock.sin() * 10.0 + 100.0) * self.growth;
+        (0..DEMON_DEATH_SLICES)
+            .map(|k| {
+                let h = (f32::from(k) - 7.0) * radius / 7.0;
+                ([0.0, h, 0.0], (radius * radius - h * h).max(0.0).sqrt())
+            })
+            .collect()
+    }
+
+    /// The ray `k`'s ribbon in the models' frame, its rays' scale applied (`0x7A9610`,
+    /// `0x7A99B0`–`0x7A9B4E`): each of its points' two edges and its `v`; none while it is
+    /// shorter than two points or the system still grows.
+    pub fn ribbon(&self, k: usize) -> Vec<([[f32; 3]; 2], f32)> {
+        let Some(&(dir, length)) = self.rays.get(k) else {
+            return Vec::new();
+        };
+        if self.state == 0 {
+            return Vec::new();
+        }
+        let points: Vec<[f32; 3]> = (0..DEMON_DEATH_POINTS)
+            .map_while(|j| {
+                let t = length - 1.3 * f32::from(j);
+                (t >= 0.0).then(|| {
+                    let [x, y, z] = dir.map(|c| c * t * 10.0);
+                    [x + (t * 0.5).cos() * length * 0.5, y, z]
+                })
+            })
+            .collect();
+        if points.len() < 2 {
+            return Vec::new();
+        }
+        let mut normal = [0.0_f32; 3];
+        points
+            .iter()
+            .zip(0_u8..)
+            .map(|(&at, j)| {
+                // Toward the next point, the last keeping the one before's.
+                if let Some(next) = points.get(usize::from(j) + 1) {
+                    let d = [next[0] - at[0], next[1] - at[1], next[2] - at[2]];
+                    let n = [-d[1] + 2.0 * d[2], d[0], -2.0 * d[0]];
+                    let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                    normal = if length >= 1e-7 {
+                        n.map(|c| c / length)
+                    } else {
+                        [0.0; 3]
+                    };
+                }
+                let edge = |side: f32| {
+                    std::array::from_fn(|c| (at[c] + normal[c] * 7.0 * side) * self.scale)
+                };
+                ([edge(1.0), edge(-1.0)], f32::from(j) * 0.125)
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_big_demons_death_grows_writhes_its_rays_and_fades() {
+        let mut dice = Rng::of(0, 0, 9);
+        let mut death = DemonDeath::new(&mut dice);
+        // Its rays lean at most half a radian from the upright, the first starting at once.
+        assert!(death.rays.iter().all(|(dir, _)| dir[2] > 0.75));
+        assert_eq!(death.rays[0].1, 0.0);
+        assert!(
+            death.rays[1..]
+                .iter()
+                .all(|(_, l)| (-50.0..=-2.0).contains(l))
+        );
+        assert!((1.0..=2.0).contains(&death.scale));
+        // No ray while it grows; its ball's middle slice its whole radius.
+        for _ in 0..19 {
+            death.update(0.1, &mut dice);
+        }
+        assert!(death.ribbon(0).is_empty());
+        assert_eq!(death.light(), 190.0);
+        death.update(0.1, &mut dice);
+        death.update(0.1, &mut dice);
+        assert_eq!(death.light(), 200.0);
+        let glows = death.glows();
+        assert_eq!(glows.len(), 15);
+        let radius = death.clock.sin() * 10.0 + 100.0;
+        assert!((glows[7].1 - radius).abs() < 1e-3 && glows[0].1.abs() < 1e-2);
+        // The first ray reaches out once its length passes 1.3.
+        for _ in 0..3 {
+            death.update(0.1, &mut dice);
+        }
+        let ribbon = death.ribbon(0);
+        assert!((2..=9).contains(&ribbon.len()), "{}", ribbon.len());
+        assert_eq!(ribbon[1].1, 0.125);
+        // It holds to 15 s and fades in 3.3 s more.
+        for _ in 0..120 {
+            death.update(0.1, &mut dice);
+        }
+        assert!(!death.done() && death.light() == 200.0);
+        for _ in 0..50 {
+            death.update(0.1, &mut dice);
+        }
+        assert!(death.done());
+        assert_eq!(death.light(), 0.0);
+    }
     use crate::spawning::Rng;
 
     #[test]

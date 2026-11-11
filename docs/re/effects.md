@@ -1180,6 +1180,28 @@ Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 **Seen** 2026-11-05 in the game with the violence on: a few of the wolves 588 killed by the console spurted, a jet of red drops from the head or a limb that fell to the ground beside the corpse.
 Not followed: the 30 of `+0x2B8` bit 1, the sets' fountains at a hit (the part 100) and the drops on the ground (903).
 
+## The big demons' death
+
+Read 2026-11-11 for #2537 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX type | Class | Its constructor, start, run, draw |
+|---|---|---|---|
+| A big demon's death | 919 `FX_BIG_DEMON_DEATH` | `cParticleSystem_bigdemondeath` (virtual table `0x898974`) | `0x7A94F0`, `0x7A9D30`, `0x7A9610`, `0x7A97F0` |
+
+- **Who makes it**: the dying action's lying sub-mode, once, at the body of a type 53 or 94 (the big demons), in place of the blood puddle and before the violence's test, so with the violence on or off (`0x53FC5C`, `0x53FE31`), at the body's place by the FX event `0x7F` with its id.
+- **Its constructor**: `FX_GHOST2` for its rays, and nine vertex pairs for a ray's ribbon, white, their `u` 0 and 1 and their `v` `j/8`.
+- **Its start** (`0x7A9D30`): its clock, its state and its growth `g` 0; ten rays, each a direction from the upright `(0, 0, 1)` turned by `U − 0.5` radians about `x` and then by another about `y`, and a length `L` of `−2 − 48·U` (the first's 0), so that they start in turn; its rays' scale `1 + U`; its flags `0x40`.
+- **Its run** (`0x7A9610`): in the state 0 `g` grows by 0.5 a second to 1, then the state 1; past 15 s from its start the state 2, where `g` falls by 0.3 a second, and at 0 it ends; its light `⌊200·g⌋`.
+  From the state 1 on, each ray's `L` grows by 15 a second, and its points are `10·(L − 1.3 j)` along its direction, `j` of 0 to 8 while that is not below 0, each moved `cos((L − 1.3 j)/2)·L/2` along the models' `x`, so that the ray writhes; in the state 1 a ray whose `L` passes `30 + 20·U` starts again from 0.
+- **Its draw** (`0x7A97F0`):
+  - its ball: 15 glows of style 5 (`PARTICLE_GLOW03`, added whole) of (40, 40, 56), depth tested, at `(0, h, 0)` from its place, `h` `(k − 7)/7` of its radius `R = (100 + 10 sin t)·g`, each of a half side `√(R² − h²)`, its slices;
+  - then, past its growth, its rays: the depth tested and not written, no light, linear filtering, added whole (`ONE`, `ONE`), `FX_GHOST2`, its world matrix its rays' scale at its place; each ray of two points or more as a triangle strip of its points' edges 7 to either side, the normal `(0, 2, 1) × d` toward the next point, so that the ribbon faces the viewer.
+- So a dim ball swells to a white glow at the body over 2 s, rays of orange ghost faces writhe out from it one after another for some 13 s, and it all fades over 3.3 s.
+- **Seen** 2026-11-11 under the driver: a big demon 53 killed by `kill` at 3250,2500, a white glow at its body and orange writhing rays rising from it one after another.
+
+`opensacred-game` makes it since #2537 (`demon_deaths`, `opensacred_rules::particles::DemonDeath`; `bodies` at the first tick of lying); **seen** 2026-11-11 in the game beside the original's frames of the same death, alike in the glow and the rays.
+Not followed: the system's flag `0x40`, the glows and the rays being drawn untinted by the night (**hypothesis**).
+
 ## The blood puddle
 
 Read 2026-11-10 for #2516 in Ghidra (**confirmed** by code unless marked otherwise).
