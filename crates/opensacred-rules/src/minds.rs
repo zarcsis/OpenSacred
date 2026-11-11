@@ -5242,6 +5242,25 @@ mod tests {
             })
         );
         assert_eq!(decide(&mut fighting(343), &far, &plain_cast, vec![7]), None);
+        // At 1.5 reaches no blink; a deadline at the clock's second is not passed; the daggers'
+        // and the plain one's deadlines 2 s on.
+        let edge = hornets_sight((1.5 * reach).floor(), false);
+        assert!(!matches!(
+            decide(&mut fighting(192), &edge, &boss, vec![0, 0]),
+            Some(Pursues::BlinksTo(_))
+        ));
+        let mut due = fighting(192);
+        due.cast_deadline = 50.0;
+        assert!(matches!(
+            decide(&mut due, &far, &boss, vec![0]),
+            Some(Pursues::Strolls(..))
+        ));
+        let mut thrower = fighting(192);
+        decide(&mut thrower, &far, &boss, vec![0]);
+        assert!((thrower.cast_deadline - 52.0).abs() < 1e-9);
+        let mut striker = fighting(343);
+        decide(&mut striker, &far, &plain_cast, vec![6]);
+        assert!((striker.cast_deadline - 52.0).abs() < 1e-9);
         // The fogs' seconds.
         assert!((casts::blink_fog_seconds(10) - 2.2).abs() < 1e-5);
         assert!((casts::blink_fog_seconds(200) - 6.0).abs() < 1e-5);
