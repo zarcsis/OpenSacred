@@ -231,9 +231,9 @@ pub struct Gameplay {
     /// Whether the scripts' `AutoSave`s save the game (`saves`, #1989), the original's `AUTOSAVE`
     /// of `Settings.cfg`, off as it writes it where the file lacks it (`0x81B6F0`).
     pub autosave: bool,
-    /// Whether the creatures bleed as they die (`blood_fountains`, #1964), the original's
-    /// `VIOLENCE` of `Settings.cfg`, off as the GOG installation's file holds it and as it reads
-    /// where the file lacks it (`0x819FD0`).
+    /// Whether the creatures bleed as they die (`blood_fountains`, #1964; their bodies' puddles,
+    /// `bodies`, #2516), the original's `VIOLENCE` of `Settings.cfg`, off as the GOG
+    /// installation's file holds it and as it reads where the file lacks it (`0x819FD0`).
     pub violence: bool,
     /// Whether the hero takes items up, mounts and dismounts by its clips, the original's
     /// `PICKUPANIM` (the atmospheric animation), on as the installation's (`0x81A690`; the

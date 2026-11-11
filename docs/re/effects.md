@@ -1174,11 +1174,27 @@ Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
   The block's velocity is `(35·strength, 0, 0)` turned by the system's orientation (`0x653EA0`), the bone's: the drops leave along the bone's own axis `x`.
   The particles' update (`0x7645C0`) takes its mode 2: a drop at or below the system's place less its height over the ground dies (its life set to 0), where the mode 0 bounces it; then the steady emission (`0x764760`), up to 400 drops.
 - **Its draw** (`0x77BB40`): its drops as billboards of `particle_dots03` of the flags `0x4C`, of their ramp's colour, turned and tinted by the light at them, laid over the frame by their alpha.
-- **Seen** 2026-11-04 with the violence on: the wolves 588 killed by the driver made the 908 at a few of their deaths (`0x4E87E0` and the start traced); the same option also leaves blood on the ground under the dead and the struck (**hypothesis**: the puddles 903 and 907, `FX_BLOODPUDDLE`, makers not read), which the frames' clutter of corpses kept from comparing with the fountain's drops.
+- **Seen** 2026-11-04 with the violence on: the wolves 588 killed by the driver made the 908 at a few of their deaths (`0x4E87E0` and the start traced); the same option also leaves blood on the ground under the dead and the struck: the dead's puddle 907 ("The blood puddle" below) and scattered drops (**hypothesis**: the 903, `FX_BLOODPUDDLE`, its maker not read), which the frames' clutter of corpses kept from comparing with the fountain's drops.
 
 `opensacred-game` makes it since #1964 (`blood_fountains`, `opensacred_rules::particles::{BloodFountain, bleeds}`) under `[gameplay] violence`, off by default as the installation's `VIOLENCE` (docs/10 §3): a creature that dies, but the hero, the hero's followers and those of a dialogue, bleeds by its class, its gib set (`Item::gib_set`) and its type, in one case of ten at the bone of a part that its death rolls rather than its making (the same odds, as a creature that bleeds dies once), with its sound, its drops dying on the ground where it fell.
 **Seen** 2026-11-05 in the game with the violence on: a few of the wolves 588 killed by the console spurted, a jet of red drops from the head or a limb that fell to the ground beside the corpse.
-Not followed: the 30 of `+0x2B8` bit 1, the sets' fountains at a hit (the part 100) and the blood on the ground.
+Not followed: the 30 of `+0x2B8` bit 1, the sets' fountains at a hit (the part 100) and the drops on the ground (903).
+
+## The blood puddle
+
+Read 2026-11-10 for #2516 in Ghidra (**confirmed** by code unless marked otherwise).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| The blood under a lying body | 907 `FX_BLOODPUDDLE_BIG` | `cParticleSystem_bloodpuddle_big` (virtual table `0x8979B0`, constructor `0x76DE00`) | `0x76E150`, `0x76DE50`, `0x76DF00` |
+
+- **Who makes it**: the dying action's lying sub-mode, once, with `VIOLENCE` on, by the FX event `0x77` whose `+0x38` is the creature's type (docs/re/fight.md, "The bodies' end").
+- **Its start** (`0x76E150`): its clock 0, its growth `g` 0.05, its fade 1, its state 0, the type's size (`0x428CE0`, read by nothing), and its texture one of the type's gib set's eight at random (`0x4273C0`, `rand() & 7`): `FX_BLOOD2_1_R` to `FX_BLOOD2_8_R` for the set 0, `_G` for 1 and `_B` for 2, none for the sets 3 and 4.
+- **Its run** (`0x76DE50`): its clock runs; in the state 0 `g` grows by 0.3 a second up to 1 (3.17 s), then the state 1; once its clock passes 20 s, the state 2; there its fade falls by 1 a second, and at 0 it ends (`+0x20B4`).
+  So it ends 21 s after its start whatever the detail, not with its body.
+- **Its draw** (`0x76DF00`, the flat quad `0x7631E0`): with a texture, a square of the half side `32·√g`, flat at the system's place, unturned, its `u` and `v` from 0 at `(−s, −s)` to 1 at `(s, s)`, in the light's colour at it (`+0xA0`) at the alpha `⌊255·fade⌋`, laid over by its alpha (`SRCALPHA`, `INVSRCALPHA`), the depth tested; as a type of the kind 6 it is drawn under everything on the ground ("Where in the frame" above).
+
+`opensacred-game` lays it since #2516 (`marks::puddle`, `opensacred_rules::particles::Puddle`; docs/re/fight.md, "The bodies' end") under `[gameplay] violence`.
 
 ## The dragons' fire
 

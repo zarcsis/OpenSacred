@@ -5526,6 +5526,83 @@ pub const SOUL_MARK: (&str, f32, f32) = ("FX_STREAKS01", 10.0, 30.0);
 /// How fast a mark fades, of its alpha a second.
 const MARK_FADE: f32 = 0.25;
 
+/// A body's blood puddle (907, `FX_BLOODPUDDLE_BIG`, `cParticleSystem_bloodpuddle_big`; its start
+/// `0x76E150`, its run `0x76DE50`, its draw `0x76DF00`; #2516): a square of its texture flat on
+/// the ground, unturned, laid over by its alpha in the light's colour, of a half side of
+/// `32·√g`; `g` grows from 0.05 by 0.3 a second up to 1 (over 3.17 s), and it holds until 20 s
+/// from its start, then its alpha falls from 1 by 1 a second. No particle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Puddle {
+    clock: f32,
+    growth: f32,
+    fade: f32,
+    state: u8,
+}
+
+/// A puddle's half side at its full growth, and how long it holds from its start.
+const PUDDLE_HALF: f32 = 32.0;
+const PUDDLE_HOLDS: f32 = 20.0;
+
+impl Default for Puddle {
+    fn default() -> Self {
+        Self {
+            clock: 0.0,
+            growth: 0.05,
+            fade: 1.0,
+            state: 0,
+        }
+    }
+}
+
+impl Puddle {
+    /// A run of `dt` seconds: its clock; growing, then holding past 20 s, then fading.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        match self.state {
+            0 => {
+                self.growth += 0.3 * dt;
+                if self.growth > 1.0 {
+                    self.growth = 1.0;
+                    self.state = 1;
+                }
+            }
+            1 => {
+                if self.clock > PUDDLE_HOLDS {
+                    self.state = 2;
+                }
+            }
+            _ => {
+                self.fade -= dt;
+                if self.fade < 0.0 {
+                    self.fade = 0.0;
+                    self.state = 3;
+                }
+            }
+        }
+    }
+
+    /// Whether it faded away (its alive flag `+0x20B4` cleared).
+    pub fn done(&self) -> bool {
+        self.state == 3
+    }
+
+    /// Its half side.
+    pub fn half(&self) -> f32 {
+        self.growth.sqrt() * PUDDLE_HALF
+    }
+
+    /// Its alpha, of 1, as the colour's byte takes it (`⌊255·fade⌋`).
+    pub fn alpha(&self) -> f32 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "an alpha of 0 to 255, truncated as `__ftol` does"
+        )]
+        let byte = (255.0 * self.fade.clamp(0.0, 1.0)) as u8;
+        f32::from(byte) / 255.0
+    }
+}
+
 /// A mark on the ground (779, `cParticleSystem_temptex`; its start `0x76DD40`, its run `0x76DAC0`,
 /// its draw `0x76DB40` and `0x763CB0`; #1092): a square of a texture flat on the ground at a turn
 /// at random, laid over by its alpha in the light's colour, under what stands on the ground,
