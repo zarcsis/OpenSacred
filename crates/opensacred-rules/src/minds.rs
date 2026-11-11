@@ -5095,6 +5095,12 @@ mod tests {
         assert!(close(casts::stare_strength(92, 92, terms), 0.3));
         assert_eq!(casts::stare_strength(77, 92, terms), None);
         assert!(casts::stare_strength(80, 92, terms).is_some());
+        assert_eq!(casts::stare_strength(179, 200, terms), None);
+        // The balance's terms, the installation's defaults.
+        assert_eq!(
+            crate::fight::Rules::default().weighing_terms(),
+            (0.85, 1.0, 1.1)
+        );
         // Its kinds by its type.
         assert_eq!(
             casts::stare(203).map(|s| (s.variant, s.whole)),
