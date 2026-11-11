@@ -11,7 +11,8 @@
 //! bodies on water or lava in blue-white sparks, the bodies turned to stone in pale green dust
 //! (781 at their vertices, [`Ends`]), the dummy with no effect, unless their flag, a death's
 //! function or a dialogue holds them. The undead of the class 5 and the bodies that burst end
-//! their own ways (`undead`).
+//! their own ways (`undead`). With the violence on, a body that bleeds lays a blood puddle under
+//! it at its first tick of lying (907, `marks::puddle`, #2516).
 
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, BodyEnd};
@@ -27,15 +28,20 @@ use crate::undead::{Bursts, Destroyed, gone};
 
 /// A body that lies: how long it has lain and how long it lies before it vanishes in its soul,
 /// what it is for its end at its first tick of lying ([`undead::at_once`]; what keeps it from the
-/// liquids' end and its stone tested at each tick), and whether it then goes at once with no soul
-/// and whatever holds it, a medium spider's (#2504).
+/// liquids' end and its stone tested at each tick), whether it then goes at once with no soul
+/// and whatever holds it, a medium spider's (#2504), and whether it lays a puddle then (#2516).
 #[derive(Component, Clone, Copy, Debug)]
 struct Lies {
     lain: f32,
     time: f32,
     body: Lying,
     spider: bool,
+    puddle: bool,
 }
+
+/// A body to lay its blood puddle under ([`puddle`]).
+#[derive(Component, Clone, Copy, Debug)]
+struct Puddles;
 
 /// The dice of the bursts' rolls (`rand()`).
 #[derive(Resource)]
@@ -49,7 +55,10 @@ impl Default for Dice {
 
 /// Gives each new body of a creature that ends no other way its time to lie, what it is for its
 /// end at once, and its time to be destroyed, both from its death (`0x53E880`): a body put back
-/// lying, which its dialogue held as it went (#2457), has lain its time already.
+/// lying, which its dialogue held as it went (#2457), has lain its time already and lays no
+/// puddle again (`+0x120`, kept in the saves). With the violence on (`0x819FD0`), a body that
+/// does not rise again (`+0x2B7` bit 8) and that bleeds (`opensacred_rules::undead::puddles`)
+/// lays its puddle at its first tick of lying (`0x53FC5C`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -63,15 +72,22 @@ fn lie(
             &Dies,
             &GlobalTransform,
             Option<&Npc>,
-            Has<Bursts>,
+            (Has<Bursts>, Has<RisesAgain>),
         ),
         Added<Corpse>,
     >,
     settings: Option<Res<crate::settings::Settings>>,
-    (npcs, heights): (Option<Res<Npcs>>, Option<Res<crate::terrain::Heights>>),
+    (npcs, heights, gibs): (
+        Option<Res<Npcs>>,
+        Option<Res<crate::terrain::Heights>>,
+        Option<Res<crate::blood_fountains::Gibs>>,
+    ),
 ) {
     let detail = crate::settings::detail(settings.as_deref());
-    for (entity, corpse, dies, at, npc, bursts) in &lying {
+    let violence = settings
+        .as_deref()
+        .is_some_and(|settings| settings.gameplay.violence);
+    for (entity, corpse, dies, at, npc, (bursts, rises)) in &lying {
         if bursts
             || dies.rises
             || corpse.class == undead::CLASS
@@ -99,12 +115,14 @@ fn lie(
         } else {
             undead::vanishes_after(detail)
         };
+        let set = gibs.as_deref().map_or(0, |gibs| gibs.of(corpse.creature));
         commands.entity(entity).insert((
             Lies {
                 lain: 0.0,
                 time,
                 body,
                 spider: corpse.creature == undead::MEDIUM_SPIDER,
+                puddle: violence && !dies.fallen && !rises && undead::puddles(corpse.creature, set),
             },
             Destroyed(undead::destroyed_after(detail)),
         ));
@@ -175,6 +193,11 @@ fn vanish(
         if lies.lain < undead::FIRST_LYING_TICK {
             continue;
         }
+        // Its puddle first, whatever becomes of it (`0x53FC5C`, before `0x540037`).
+        if lies.puddle {
+            lies.puddle = false;
+            commands.entity(entity).insert(Puddles);
+        }
         // A medium spider's goes at its first tick of lying, as it is (`0x54045E`).
         if lies.spider {
             debug!("bodies: {entity}, a {}, goes at once", corpse.creature);
@@ -224,6 +247,49 @@ fn vanish(
         ));
         commands.entity(entity).remove::<Lies>();
         gone(&mut commands, entity);
+    }
+}
+
+/// Lays each new puddle (`0x53FCA4`–`0x53FE25`): over its body's bone that its fountain spurted
+/// from, else `Bip01 Spine2` (`opensacred_rules::undead::PUDDLE_BONE`), on the ground there
+/// (`0x636520` of 0), under a building's floor too, where it does not show, of one of its gib
+/// set's eight textures (`0x4273C0`); none where the bone or the ground is not found.
+fn puddle(
+    mut commands: Commands,
+    puddles: Query<(Entity, &Corpse, Option<&crate::blood_fountains::Bled>), Added<Puddles>>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
+    (heights, gibs, mut dice): (
+        Option<Res<crate::terrain::Heights>>,
+        Option<Res<crate::blood_fountains::Gibs>>,
+        ResMut<Dice>,
+    ),
+) {
+    for (entity, corpse, bled) in &puddles {
+        commands.entity(entity).remove::<Puddles>();
+        let name = bled.map_or(undead::PUDDLE_BONE, |bled| bled.0);
+        let at = crate::making::bone_entity(entity, &[name], &children, (&bones, &worn))
+            .and_then(|bone| bones.get(bone).ok())
+            .map(|(_, place)| place.translation());
+        let ground = at.and_then(|at| {
+            heights
+                .as_deref()?
+                .standing(at.x, at.z, None)
+                .map(|y| Vec3::new(at.x, y, at.z))
+        });
+        let set = gibs.as_deref().map_or(0, |gibs| gibs.of(corpse.creature));
+        let (Some(place), Some(texture)) = (ground, undead::puddle_texture(set, &mut dice.0))
+        else {
+            continue;
+        };
+        debug!(
+            "bodies: {entity}, a {}, lays a puddle of {texture} under its {name}",
+            corpse.creature
+        );
+        crate::marks::puddle(&mut commands, place, texture);
     }
 }
 
@@ -284,7 +350,7 @@ impl Plugin for BodiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>().add_systems(
             Update,
-            (lie, vanish, burst)
+            (lie, vanish, puddle, burst)
                 .chain()
                 .after(Step::Npcs)
                 .in_set(Playing),
@@ -404,6 +470,68 @@ mod tests {
         assert!(app.world().get::<Destroyed>(spider).is_some());
         let mut sparks = app.world_mut().query::<&crate::soul_sparks::Sparks>();
         assert_eq!(sparks.iter(app.world()).count(), 0);
+    }
+
+    #[test]
+    fn a_body_that_bleeds_lays_its_puddle_at_its_first_tick_with_the_violence_on() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+        for violence in [true, false] {
+            let mut app = App::new();
+            let mut settings = crate::settings::Settings::default();
+            settings.gameplay.violence = violence;
+            app.add_plugins(MinimalPlugins)
+                .insert_resource(settings)
+                .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                    100,
+                )))
+                .add_systems(Update, (lie, vanish).chain());
+            let goblin = app
+                .world_mut()
+                .spawn((corpse(0), Dies::new(0), GlobalTransform::default()))
+                .id();
+            // A crow ends at once, its puddle laid first.
+            let crow = app
+                .world_mut()
+                .spawn((
+                    Corpse {
+                        creature: undead::CROW,
+                        ..corpse(0)
+                    },
+                    Dies::new(0),
+                    GlobalTransform::default(),
+                ))
+                .id();
+            let demon = app
+                .world_mut()
+                .spawn((
+                    Corpse {
+                        creature: undead::BIG_DEMONS[0],
+                        ..corpse(0)
+                    },
+                    Dies::new(0),
+                    GlobalTransform::default(),
+                ))
+                .id();
+            let rises = app
+                .world_mut()
+                .spawn((
+                    corpse(0),
+                    Dies::new(0),
+                    GlobalTransform::default(),
+                    RisesAgain,
+                ))
+                .id();
+            app.update();
+            assert!(app.world().get::<Puddles>(goblin).is_none());
+            for _ in 0..4 {
+                app.update();
+            }
+            assert_eq!(app.world().get::<Puddles>(goblin).is_some(), violence);
+            assert_eq!(app.world().get::<Puddles>(crow).is_some(), violence);
+            assert!(app.world().get::<Puddles>(demon).is_none());
+            assert!(app.world().get::<Puddles>(rises).is_none());
+        }
     }
 
     #[test]

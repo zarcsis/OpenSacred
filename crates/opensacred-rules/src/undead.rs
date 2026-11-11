@@ -302,6 +302,67 @@ pub fn blood_texture(set: u8, dice: &mut impl crate::spawning::Dice) -> Option<&
         .copied()
 }
 
+/// One of the eight textures of the blood puddle under a body of the gib set `set` at random
+/// (`0x4273C0`, `rand() & 7`): `FX_BLOOD2_1_R` to `FX_BLOOD2_8_R` for the set 0, `_G` for the set
+/// 1 and `_B` for the set 2; none for another.
+pub fn puddle_texture(set: u8, dice: &mut impl crate::spawning::Dice) -> Option<&'static str> {
+    const RED: [&str; 8] = [
+        "FX_BLOOD2_1_R",
+        "FX_BLOOD2_2_R",
+        "FX_BLOOD2_3_R",
+        "FX_BLOOD2_4_R",
+        "FX_BLOOD2_5_R",
+        "FX_BLOOD2_6_R",
+        "FX_BLOOD2_7_R",
+        "FX_BLOOD2_8_R",
+    ];
+    const GREEN: [&str; 8] = [
+        "FX_BLOOD2_1_G",
+        "FX_BLOOD2_2_G",
+        "FX_BLOOD2_3_G",
+        "FX_BLOOD2_4_G",
+        "FX_BLOOD2_5_G",
+        "FX_BLOOD2_6_G",
+        "FX_BLOOD2_7_G",
+        "FX_BLOOD2_8_G",
+    ];
+    const BLACK: [&str; 8] = [
+        "FX_BLOOD2_1_B",
+        "FX_BLOOD2_2_B",
+        "FX_BLOOD2_3_B",
+        "FX_BLOOD2_4_B",
+        "FX_BLOOD2_5_B",
+        "FX_BLOOD2_6_B",
+        "FX_BLOOD2_7_B",
+        "FX_BLOOD2_8_B",
+    ];
+    let set = match set {
+        0 => RED,
+        1 => GREEN,
+        2 => BLACK,
+        _ => return None,
+    };
+    set.get(usize::try_from(dice.below(8)).unwrap_or(0))
+        .copied()
+}
+
+/// The big demons, whose bodies make the effect 919 rather than a blood puddle (`0x53FC5C`,
+/// #2537).
+pub const BIG_DEMONS: [u32; 2] = [53, 94];
+
+/// Whether the body of a creature of the type `creature` and the gib set `set` lays a blood puddle
+/// at its first tick of lying with the violence on (`0x53FC5C`–`0x53FCB5`), the class 5 and one
+/// that rises again apart: none for the big demons, none for the sets without blood (3 and 4,
+/// `0x4271E0`).
+pub fn puddles(creature: u32, set: u8) -> bool {
+    !BIG_DEMONS.contains(&creature) && set <= 2
+}
+
+/// The bone over which a body's puddle lies (`0x53FCBB`–`0x53FCF6`, by its `+0xB0` bits that the
+/// blood fountain set, `crate::particles::BLOOD_BONES`): the fountain's bone, else `Bip01 Spine2`
+/// (the bone 24).
+pub const PUDDLE_BONE: &str = "Bip01 Spine2";
+
 /// The blood decal of a burst, and of each bounce of its body parts: its seconds before it fades
 /// and its half side (`0x4E8DA0`'s `0x3C002D`; docs/re/effects.md, "A soul's mark").
 pub const BURST_BLOOD: (f32, f32) = (60.0, 45.0);
@@ -378,6 +439,38 @@ pub fn exorcised(value: f32, params: [f32; 3], roll: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_lays_a_puddle_of_its_sets_blood_but_a_big_demons() {
+        let mut dice = crate::spawning::Rng::of(0, 0, 9);
+        assert!(puddle_texture(0, &mut dice).is_some_and(|t| t.ends_with("_R")));
+        assert!(puddle_texture(1, &mut dice).is_some_and(|t| t.ends_with("_G")));
+        assert!(puddle_texture(2, &mut dice).is_some_and(|t| t.ends_with("_B")));
+        assert_eq!(puddle_texture(3, &mut dice), None);
+        assert!(puddles(588, 0) && puddles(76, 2));
+        assert!(!puddles(53, 0) && !puddles(94, 0) && !puddles(76, 3) && !puddles(76, 4));
+        // It grows from a half side of 7.2 to 32 over 3.17 s, holds until 20 s, and fades in 1 s.
+        let mut puddle = crate::particles::Puddle::default();
+        assert!((puddle.half() - 7.155).abs() < 0.01);
+        for _ in 0..31 {
+            puddle.update(0.1);
+        }
+        assert!(puddle.half() < 32.0);
+        puddle.update(0.1);
+        assert_eq!((puddle.half(), puddle.alpha()), (32.0, 1.0));
+        for _ in 0..166 {
+            puddle.update(0.1);
+        }
+        assert_eq!(puddle.alpha(), 1.0);
+        for _ in 0..6 {
+            puddle.update(0.1);
+        }
+        assert!(puddle.alpha() < 1.0 && !puddle.done());
+        for _ in 0..6 {
+            puddle.update(0.1);
+        }
+        assert!(puddle.done());
+    }
 
     #[test]
     fn a_body_ends_at_once_by_the_originals_order_of_tests() {

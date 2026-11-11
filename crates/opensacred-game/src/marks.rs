@@ -2,13 +2,15 @@
 //! Wood Elf's sights"): a square of a texture flat on the ground at a turn at random, laid over
 //! by its alpha in the light's colour, which holds for its seconds and then fades over 4 s
 //! (`opensacred_rules::particles::Mark`): the lost souls' dark star of streaks at each soul's
-//! starting point. The night tints it as it does the ground under it.
+//! starting point. The night tints it as it does the ground under it. A body's blood puddle (907,
+//! `opensacred_rules::particles::Puddle`, #2516) is laid so too, unturned, growing and fading by
+//! its own clock.
 
 use std::collections::HashMap;
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
-use opensacred_rules::particles::Mark;
+use opensacred_rules::particles::{Mark, Puddle};
 
 use crate::frame::{Playing, Unpaused};
 use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
@@ -16,19 +18,56 @@ use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
 
-/// A mark to lay: its texture, its seconds before it fades, its half side.
+/// A mark to lay: its texture, and its seconds before it fades and its half side, or a puddle's
+/// clock.
 #[derive(Component)]
 struct Unmade {
     texture: &'static str,
-    hold: f32,
-    half: f32,
+    kind: Kind,
 }
 
-/// A mark that shows: its look, its half side, its turn and its mesh.
+/// What is laid: a mark of its seconds before it fades and its half side, or a body's puddle.
+#[derive(Clone, Copy, Debug)]
+enum Kind {
+    Mark { hold: f32, half: f32 },
+    Puddle,
+}
+
+/// What shows: a mark and its half side, or a puddle.
+#[derive(Clone, Copy, Debug)]
+enum Look {
+    Mark(Mark, f32),
+    Puddle(Puddle),
+}
+
+impl Look {
+    fn update(&mut self, dt: f32) {
+        match self {
+            Self::Mark(mark, _) => mark.update(dt),
+            Self::Puddle(puddle) => puddle.update(dt),
+        }
+    }
+
+    fn done(&self) -> bool {
+        match self {
+            Self::Mark(mark, _) => mark.done(),
+            Self::Puddle(puddle) => puddle.done(),
+        }
+    }
+
+    /// Its half side, and its alpha.
+    fn square(&self) -> (f32, f32) {
+        match self {
+            Self::Mark(mark, half) => (*half, mark.alpha()),
+            Self::Puddle(puddle) => (puddle.half(), puddle.alpha()),
+        }
+    }
+}
+
+/// A mark that shows: its look, its turn and its mesh.
 #[derive(Component)]
 struct Shown {
-    look: Mark,
-    half: f32,
+    look: Look,
     turn: f32,
     mesh: Handle<Mesh>,
 }
@@ -57,8 +96,19 @@ pub(crate) fn lay(
     commands.spawn((
         Unmade {
             texture,
-            hold,
-            half,
+            kind: Kind::Mark { hold, half },
+        },
+        Transform::from_translation(place),
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
+/// Lays a body's blood puddle of `texture` on the ground at `place` (907, `0x76E150`).
+pub(crate) fn puddle(commands: &mut Commands, place: Vec3, texture: &'static str) {
+    commands.spawn((
+        Unmade {
+            texture,
+            kind: Kind::Puddle,
         },
         Transform::from_translation(place),
         DespawnOnExit(AppState::InGame),
@@ -66,7 +116,7 @@ pub(crate) fn lay(
 }
 
 /// Gives each new mark its look, its turn at random (`rand()/32767 · 2π`), its mesh and its
-/// material (`0x76DD40`).
+/// material (`0x76DD40`); a puddle none (`0x76E150`).
 fn make(
     mut commands: Commands,
     unmade: Query<(Entity, &Unmade)>,
@@ -95,14 +145,22 @@ fn make(
                 image.map(|image| effects.add(particle_material(image, AlphaMode::Blend)))
             })
             .clone();
-        let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
+        let (look, turn) = match unmade.kind {
+            Kind::Mark { hold, half } => {
+                let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
+                (
+                    Look::Mark(Mark::new(hold), half),
+                    roll * std::f32::consts::TAU,
+                )
+            }
+            Kind::Puddle => (Look::Puddle(Puddle::default()), 0.0),
+        };
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
         made.remove::<Unmade>().insert((
             Shown {
-                look: Mark::new(unmade.hold),
-                half: unmade.half,
-                turn: roll * std::f32::consts::TAU,
+                look,
+                turn,
                 mesh: mesh.clone(),
             },
             Visibility::default(),
@@ -120,7 +178,9 @@ fn make(
 
 /// Runs each mark a frame on (`0x76DAC0`) and draws it (`0x763CB0`): a square of its half side
 /// flat on the ground, turned about the upright by its turn, its texture's `u` and `v` running
-/// from 1 at its corner of `(−s, −s)` to 0 at `(s, s)`, white at its alpha; it goes once faded.
+/// from 1 at its corner of `(−s, −s)` to 0 at `(s, s)`, white at its alpha; a puddle (`0x76DE50`,
+/// `0x76DF00`, the flat quad `0x7631E0`) unturned, its `u` and `v` running from 0 at `(−s, −s)`
+/// to 1 at `(s, s)`; each goes once faded.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -137,10 +197,14 @@ fn run(
             continue;
         }
         let (sin, cos) = mark.turn.sin_cos();
-        let half = mark.half;
+        let (half, alpha) = mark.look.square();
         let corner = |x: f32, y: f32| {
             let (x, y) = (x * cos + y * sin, -x * sin + y * cos);
             (across * x + depth * y) * s
+        };
+        let uvs = match mark.look {
+            Look::Mark(..) => [Vec2::ONE, Vec2::Y, Vec2::ZERO, Vec2::X],
+            Look::Puddle(_) => [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
         };
         let mut quads = Quads::default();
         quads.push_corners(
@@ -150,8 +214,8 @@ fn run(
                 corner(half, half),
                 corner(-half, half),
             ],
-            [Vec2::ONE, Vec2::Y, Vec2::ZERO, Vec2::X],
-            [1.0, 1.0, 1.0, mark.look.alpha()],
+            uvs,
+            [1.0, 1.0, 1.0, alpha],
         );
         if let Some(mut mesh) = meshes.get_mut(&mark.mesh) {
             // At its object's place in the order, as the original draws the system (#2188).

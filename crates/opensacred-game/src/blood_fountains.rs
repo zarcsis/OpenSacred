@@ -40,6 +40,11 @@ impl Default for Dice {
     }
 }
 
+/// The bone a creature's fountain spurted from (`+0xB0` bits `0x20` to `0x200`, `0x4E87E0`), over
+/// which its body's puddle lies (`bodies`, #2516).
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct Bled(pub(crate) &'static str);
+
 /// The drops' material, made at the first fountain; none where the texture is missing.
 #[derive(Resource, Default)]
 struct Material(Option<Option<Handle<crate::fx::Effect>>>);
@@ -124,6 +129,7 @@ fn spurt(
             "blood fountains: {entity}, a {} of the set {set}, bleeds from its {name}",
             mind.creature
         );
+        commands.entity(entity).insert(Bled(name));
         commands.spawn((
             Fountain {
                 fountain: BloodFountain::new(set),
