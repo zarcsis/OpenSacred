@@ -240,14 +240,16 @@ type ModelMesh = (
 
 /// Gives each mesh that has just taken its model material, of a model that casts a shadow, a
 /// copy beside it that draws the shadow: the same mesh, skinned to the same joints, tagged with
-/// the same slot, shown while the mesh is, in its model's layer. A held model, an NPC's weapon,
-/// casts none, as the client flattens the creature's own model alone.
+/// the same slot, shown while the mesh is, in its model's layer. A held model, a weapon, a shield
+/// or the wings, casts with its holder, flattened at its holder's height through the holder's
+/// slot that its meshes take, as the client draws an item's shadow at its holder's height
+/// (`0x44B230`, #2610).
 pub fn cast(
     mut commands: Commands,
     shared: Res<Shared>,
     meshes: Query<ModelMesh, (Added<MeshMaterial3d<ModelMaterial>>, Without<Fringe>)>,
     parents: Query<&ChildOf>,
-    models: Query<(), Model>,
+    models: Query<Option<&OrderedWith>, Model>,
     casters: Query<Has<Sunk>, (With<Casts>, With<Ordered>)>,
 ) {
     for (entity, mesh, skinned, tag, transform, parent, layers) in &meshes {
@@ -257,7 +259,12 @@ pub fn cast(
         else {
             continue;
         };
-        let Ok(sunk) = casters.get(root) else {
+        let caster = models
+            .get(root)
+            .ok()
+            .flatten()
+            .map_or(root, |&OrderedWith(holder)| holder);
+        let Ok(sunk) = casters.get(caster) else {
             continue;
         };
         // Into the sun's shadow map, as well as the world's frame.
@@ -343,11 +350,18 @@ fn soak(
     wet: Query<(), With<Sunk>>,
     shared: Res<Shared>,
     children: Query<&Children>,
+    held: Query<(Entity, &OrderedWith)>,
     mut shadows: Query<&mut MeshMaterial3d<ShadowMaterial>, With<Shadow>>,
 ) {
     for root in sunk.iter().chain(dried.read()) {
         let wanted = shared.material(wet.contains(root));
-        for entity in children.iter_descendants(root) {
+        // Its own meshes' shadows, and those of the models it holds (#2610).
+        let models = std::iter::once(root).chain(
+            held.iter()
+                .filter(|&(_, &OrderedWith(holder))| holder == root)
+                .map(|(model, _)| model),
+        );
+        for entity in models.flat_map(|model| children.iter_descendants(model)) {
             if let Ok(mut material) = shadows.get_mut(entity)
                 && material.0 != *wanted
             {
@@ -411,6 +425,49 @@ mod tests {
     use crate::statics::tests::shader_constant;
 
     const SHADER: &str = include_str!("shadows.wesl");
+
+    #[test]
+    fn a_held_model_casts_with_its_holder() {
+        let mut app = App::new();
+        app.insert_resource(Shared {
+            dry: Handle::default(),
+            wet: Handle::default(),
+        })
+        .add_systems(Update, cast);
+        // A caster, the sword it holds and a model that casts nothing, each with a mesh.
+        let world = app.world_mut();
+        let hero = world.spawn((Casts, Ordered::default())).id();
+        let sword = world.spawn(OrderedWith(hero)).id();
+        let barrel = world.spawn(Ordered::default()).id();
+        let mesh = |world: &mut World, root| {
+            world
+                .spawn((
+                    Mesh3d::default(),
+                    MeshMaterial3d::<ModelMaterial>::default(),
+                    MeshTag::new(0),
+                    Transform::default(),
+                    ChildOf(root),
+                ))
+                .id()
+        };
+        let (body, blade, staves) = (mesh(world, hero), mesh(world, sword), mesh(world, barrel));
+        app.update();
+        let world = app.world_mut();
+        let sun = RenderLayers::layer(SUN_LAYER);
+        let mut layers = world.query::<&RenderLayers>();
+        // The hero's body and its sword in the sun's layer (#2610), the barrel not.
+        for (mesh, casts) in [(body, true), (blade, true), (staves, false)] {
+            let cast = layers.get(world, mesh).is_ok_and(|l| l.intersects(&sun));
+            assert_eq!(cast, casts, "{mesh}");
+        }
+        // And a flattened copy beside each of the two.
+        let mut copies = world.query_filtered::<&ChildOf, With<Shadow>>();
+        let mut parents: Vec<Entity> = copies.iter(world).map(ChildOf::parent).collect();
+        parents.sort();
+        let mut wanted = vec![hero, sword];
+        wanted.sort();
+        assert_eq!(parents, wanted);
+    }
 
     #[test]
     fn a_shadow_leans_as_the_originals() {
