@@ -59,6 +59,15 @@ struct Look {
     frame: Handle<Mesh>,
 }
 
+/// Despawns the look of a ring that its creature loses, or loses with it: one despawned while
+/// its ring shows, as an undead that falls and rises again is made anew (`undead::remake`,
+/// #2540), leaves no ring on the ground.
+fn gone(removed: On<Remove<Ring>>, rings: Query<&Ring>, mut commands: Commands) {
+    if let Some(look) = rings.get(removed.entity).ok().and_then(|ring| ring.look) {
+        commands.entity(look).try_despawn();
+    }
+}
+
 /// The rings' materials, made at the first ring; none where a texture is missing.
 #[derive(Resource, Default)]
 struct Materials(Option<Option<[Handle<Effect>; 2]>>);
@@ -351,6 +360,7 @@ pub struct HealthRingsPlugin;
 impl Plugin for HealthRingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Materials>()
+            .add_observer(gone)
             .add_systems(
                 OnExit(AppState::InGame),
                 |mut materials: ResMut<Materials>| {
@@ -364,5 +374,37 @@ impl Plugin for HealthRingsPlugin {
                     .after(crate::frame::Step::Models)
                     .in_set(Playing),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_creature_despawned_while_its_ring_shows_takes_the_rings_look_with_it() {
+        let mut app = App::new();
+        app.add_observer(gone);
+        let look = app.world_mut().spawn_empty().id();
+        let other = app.world_mut().spawn_empty().id();
+        let fallen = app
+            .world_mut()
+            .spawn(Ring {
+                timer: 7.0,
+                look: Some(look),
+            })
+            .id();
+        let standing = app
+            .world_mut()
+            .spawn(Ring {
+                timer: 7.0,
+                look: Some(other),
+            })
+            .id();
+        app.world_mut().entity_mut(fallen).despawn();
+        app.update();
+        assert!(app.world().get_entity(look).is_err());
+        assert!(app.world().get_entity(standing).is_ok());
+        assert!(app.world().get_entity(other).is_ok());
     }
 }
