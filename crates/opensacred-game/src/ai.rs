@@ -216,6 +216,27 @@ fn odd(home: Spot) -> bool {
     (x + y).rem_euclid(2) == 1
 }
 
+/// A Fetzer struck while it chooses takes its phase (`0x535C78`, #2568).
+fn fetzers_struck(
+    mut hits: MessageReader<crate::fight::Hit>,
+    mut creatures: Query<&mut Mind>,
+    mut minds: ResMut<Minds>,
+) {
+    for hit in hits.read() {
+        if let Ok(mut mind) = creatures.get_mut(hit.target)
+            && mind.mark() == opensacred_rules::casts::FETZER_CHOOSES
+        {
+            let roll = minds.rng.below(3);
+            mind.fetzer_struck(roll);
+            debug!(
+                "ai: {} is struck and takes its phase {:#x}",
+                hit.target,
+                mind.mark()
+            );
+        }
+    }
+}
+
 /// A creature's stand-in for the original's object id, which a hornet's flank and the queen's
 /// circle take (#2562): the sum of its home cell's coordinates, as for the guards' torches
 /// (docs/decisions/ai.md, "The guards' torches").
@@ -973,6 +994,17 @@ fn pursue(
             ))
         })
         .collect();
+    // The Fetzers of the hero's list that fight the hero (#2568).
+    let fetzers: Vec<Entity> = nearest
+        .hostiles
+        .iter()
+        .copied()
+        .filter(|&other| {
+            creatures.get(other).is_ok_and(|(_, _, _, mind, ..)| {
+                matches!(mind.creature, 202 | 344) && mind.fighting() && mind.foe().is_none()
+            })
+        })
+        .collect();
     // The hero of set 58's six pieces, who strikes down a creature that would flee it (#2547).
     let strikes_fleeing = holding.is_some_and(|holding| holding.0.sets.strikes_fleeing());
     let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
@@ -1142,6 +1174,10 @@ fn pursue(
                     hornet_lives: hornets.iter().any(|&(other, ..)| other != entity),
                     listed: u32::try_from(nearest.hostiles.len()).unwrap_or(u32::MAX),
                     difficulty,
+                    fetzer: fetzers
+                        .iter()
+                        .find(|&&other| other != entity)
+                        .map(|&other| attacked == Some(other)),
                 };
                 mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
             });
@@ -2857,7 +2893,10 @@ impl Plugin for AiPlugin {
                     .in_set(Step::Crowd)
                     .run_if(crate::frame::ticked),
             )
-            .add_systems(Update, alarm.in_set(Step::Crowd).before(think));
+            .add_systems(
+                Update,
+                (alarm, fetzers_struck).in_set(Step::Crowd).before(think),
+            );
     }
 }
 
