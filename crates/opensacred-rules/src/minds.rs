@@ -731,6 +731,9 @@ pub struct Mind {
     pub flies: bool,
     pub flying: bool,
     pub fly: f32,
+    /// Whether it comes down from aloft, its flying taken in melee ([`Mind::pursue`]), rather
+    /// than set on the ground at once as the terror and its death set it (#2577).
+    pub descends: bool,
     /// Whether its sides are turned over (`+0x1F4` bit `0x40000`, which the effect 14 sets, the
     /// Seraphim's conversion's): every answer of hostility between it and another, the hero
     /// among them, is the other way about (`0x423580` at `0x4238C6`).
@@ -877,6 +880,7 @@ impl Mind {
             // The hornets fly from their making (`0x52E2DC`, [`crate::ways::constructed`]).
             flying: flags & crate::ways::FLYING != 0,
             fly: 0.0,
+            descends: false,
             turned: false,
             provoked: false,
             activity: activity::NONE,
@@ -2055,6 +2059,16 @@ impl Mind {
         }
         if self.ranged {
             return self.at_range(sight, clear, rng);
+        }
+        // In melee a flyer is no flyer at each decision, but in its flight from the fight (its
+        // sub-state 3: a fled one walking), and the hornets take it again at once
+        // (`0x4E05DE`–`0x4E062F`, #2577); it comes down from where it is.
+        if self.flying
+            && !casts::HORNETS.contains(&self.creature)
+            && !(self.fled && sight.walk.is_some())
+        {
+            self.flying = false;
+            self.descends = true;
         }
         let Pursuit {
             here,
@@ -3981,6 +3995,22 @@ pub fn climbs(
         _ => None,
     }
 }
+
+/// A creature's height over the ground after `seconds` from `height` as it comes down with its
+/// flying taken (`0x596B3D`: at [`CLIMBS`] a second, a hornet's at 220), `None` once that step
+/// reaches the ground (#2577).
+pub fn descends(height: f32, creature: u32, seconds: f32) -> Option<f32> {
+    let rate = if casts::HORNETS.contains(&creature) {
+        HORNETS_DESCEND
+    } else {
+        CLIMBS
+    };
+    let step = rate * seconds;
+    (height > step).then_some(height - step)
+}
+
+/// How fast a hornet whose flying is taken comes down (`0x596C63`).
+const HORNETS_DESCEND: f32 = 220.0;
 
 /// How high a flyer of type `creature` flies over the ground as it moves (`0x596600`):
 /// [`FLIES_HIGH`], 60 for the Daemon's type 9, at most half the whole distance to its target
@@ -6883,6 +6913,47 @@ mod tests {
         assert_eq!(climbs(100.0, (true, false), (0.5, high)), Some(45.0));
         assert_eq!(climbs(55.0, (true, false), (0.5, high)), None);
         assert_eq!(climbs(80.0, (false, true), (0.1, high)), None);
+    }
+
+    #[test]
+    fn a_flyer_in_melee_is_no_flyer_but_in_its_flight_and_comes_down() {
+        // A crow aloft in melee loses its flying at its decision, and comes down.
+        let sight = hornets_sight(300.0, false);
+        let mut crow = fighting(513);
+        crow.flying = true;
+        let mut rng = crate::spawning::Rng::of(1, 2, 3);
+        crow.pursue(&sight, || true, &mut rng);
+        assert!(!crow.flying && crow.descends);
+        // Fled and walking its flight, it keeps it; a hornet always.
+        let mut fleeing = fighting(513);
+        fleeing.flying = true;
+        fleeing.fled = true;
+        let walking = Pursuit {
+            walk: Some(Walking {
+                target: Spot::new(10.0, 0.0),
+                comes_on: false,
+                runs: true,
+            }),
+            ..sight
+        };
+        fleeing.pursue(&walking, || true, &mut rng);
+        assert!(fleeing.flying && !fleeing.descends);
+        let mut hornet = fighting(190);
+        hornet.flying = true;
+        hornet.pursue(&sight, || true, &mut rng);
+        assert!(hornet.flying && !hornet.descends);
+        // Not fighting, nothing is taken.
+        let mut idle = fighting(513);
+        idle.fighting = false;
+        idle.flying = true;
+        idle.pursue(&sight, || true, &mut rng);
+        assert!(idle.flying);
+        // 110 a second, a hornet 220, to the ground.
+        assert_eq!(descends(100.0, 513, 0.5), Some(45.0));
+        assert_eq!(descends(30.0, 513, 0.5), None);
+        assert_eq!(descends(55.0, 513, 0.5), None);
+        assert_eq!(descends(150.0, 190, 0.5), Some(40.0));
+        assert_eq!(descends(100.0, 336, 0.5), None);
     }
 
     #[test]

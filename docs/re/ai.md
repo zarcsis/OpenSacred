@@ -118,7 +118,7 @@ A creature flies while its flags word holds the bit `0x200000` (`+0x1F4`), which
   The heights are in the units of the models' height; the hornets come down at 220 a second (`0x596C63`) where the bit is cleared as they move.
   Moving or coming down, a flyer plays the slot 179 (`*_FLY_LOOP`, `0x546ABF`; `0x5967C0`, `0x593320` with 0.125), but the hornets, which play their own.
 - **In melee.** At each of its decisions in melee (`0x4E05DE`–`0x4E062F`), but in its sub-states 3 (its flight from the fight), 7 and 8, a flyer's bit is cleared and the network told; the hornets 190, 335 and 336 take it again at once, so that they fly through their fights.
-  What then sets another flyer's model down is not read (#2577).
+  Its model is not set down then, as the terror and its death set it: moving above the ground without the bit, it comes down at 110 a second (`0x596B3D`, the hornets at 220, `0x596C63`) and is on the ground once that step reaches it (read 2026-11-11 for #2577, **confirmed** by code; standing alike, a **hypothesis**: the standing branch `0x599023` not read).
   **Seen** 2026-11-11 in the original: hornets spawned by the driver beside the Gladiator, one alone on a free cell, had the flags word `0x200001` at once, idle and fighting; one fighting her as she walked off had its root 90 to 107 over the ground, falling with half the distance as it neared her (`0x44D520` traced); dead, their word was `0x1`.
 - **Set down.** The terror of the effect 855 or set 41 (above) and its death (`0x53E7C0`) clear the bit and set its model on the ground at once (`0x44D520(1, 0)`).
 - Of the flying types only the crows have the slot 179 (`CROW_FLY_LOOP`), and only the animals' behaviours take off: the giant fly takes the bit only as it parts and the hornets from their making (above); three more places give it (read 2026-11-08 for #2291, **confirmed** by code):
@@ -128,7 +128,7 @@ A creature flies while its flags word holds the bit `0x200000` (`+0x1F4`), which
   Since #2291 `opensacred-game` follows the first: a crow that flees wounded on the ground outside a dungeon takes off and flies its flight (`Mind::pursue`, `ai::pursue`).
 
 Since #2569 `opensacred-game` follows the hornets' making, the parting and the height in melee (`ways::constructed`, `ways::FLYING`, `Mind::parts`, `minds::flies_up_to`, `minds::lands`, `flight::take_wing`): a fill's hornets and the console's fly from their making, through their fights and on the ground, a flyer's every walk is flown at its speed aloft and through the creatures, and in melee it flies at most half its distance to its target high.
-Not followed: the other flyers' bit cleared in melee (#2577), which keep it there until they stand and land.
+Since #2577 the other flyers lose their flying in melee but in their flight from it, the fled one walking (`Mind::pursue`, `Mind::descends`), and come down at 110 a second (`minds::descends`, `flight`); the sub-states 7 and 8, which keep it too, are not told apart.
 
 ## The townsfolk
 

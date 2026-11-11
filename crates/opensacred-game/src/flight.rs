@@ -90,7 +90,7 @@ fn fly(
 ) {
     let seconds = time.delta_secs() * speed.0;
     let hero = heroes.iter().next();
-    for (entity, mut transform, mind, walk, aloft, way, dies) in &mut flyers {
+    for (entity, mut transform, mut mind, walk, aloft, way, dies) in &mut flyers {
         let height = aloft.as_deref().map(|aloft| aloft.height);
         if height.is_none() && !walk.is_some_and(Walk::flies) {
             continue;
@@ -111,11 +111,22 @@ fn fly(
             });
         let creature = mind.as_deref().map_or(0, |mind| mind.creature);
         let high = minds::flies_up_to(creature, aims);
-        match minds::climbs(
-            height.unwrap_or(0.0),
-            (flying, walk.is_some()),
-            (seconds, high),
-        ) {
+        // Its flying taken in melee, it comes down from where it is (#2577); a flyer again
+        // comes down so no more.
+        let descends = mind.as_deref().is_some_and(|mind| mind.descends);
+        if let Some(mind) = mind.as_deref_mut().filter(|_| flying && descends) {
+            mind.descends = false;
+        }
+        let next = if descends && !flying && !dies {
+            height.and_then(|height| minds::descends(height, creature, seconds))
+        } else {
+            minds::climbs(
+                height.unwrap_or(0.0),
+                (flying, walk.is_some()),
+                (seconds, high),
+            )
+        };
+        match next {
             Some(height) => {
                 match aloft {
                     Some(mut aloft) => aloft.height = height,
@@ -131,6 +142,7 @@ fn fly(
                     && !keeps
                 {
                     mind.flying = false;
+                    mind.descends = false;
                 }
                 if aloft.is_some() {
                     if keeps {
@@ -287,6 +299,41 @@ mod tests {
                 .abs()
                 < 1e-3
         );
+    }
+
+    #[test]
+    fn a_crow_whose_flying_melee_took_comes_down() {
+        let mut app = app();
+        let crow = crow(&mut app, false);
+        app.world_mut().get_mut::<Mind>(crow).unwrap().descends = true;
+        app.world_mut()
+            .entity_mut(crow)
+            .insert(Aloft { height: 50.0 })
+            .insert(Transform::from_xyz(0.0, world(50.0), 0.0));
+        let height = |app: &App| app.world().get::<Aloft>(crow).map(|aloft| aloft.height);
+        // The first update's time is none; then 11 a tick.
+        app.update();
+        app.update();
+        assert!(height(&app).is_some_and(|h| (h - 39.0).abs() < 1e-3));
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(height(&app), None);
+        let mind = app.world().get::<Mind>(crow).unwrap();
+        assert!(!mind.flying && !mind.descends);
+        // One flying again comes down so no more.
+        let again = crow_flying_again(&mut app);
+        assert!(!app.world().get::<Mind>(again).unwrap().descends);
+    }
+
+    fn crow_flying_again(app: &mut App) -> Entity {
+        let again = crow(app, true);
+        app.world_mut().get_mut::<Mind>(again).unwrap().descends = true;
+        app.world_mut()
+            .entity_mut(again)
+            .insert(Aloft { height: 50.0 });
+        app.update();
+        again
     }
 
     #[test]
