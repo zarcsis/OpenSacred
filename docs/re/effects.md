@@ -1728,6 +1728,8 @@ The two run one code; 1180 takes other textures.
 Since #2220 the gate lies at its place in the order of drawing (`fx::Orders::at`): its window no nearer than that place, its whirls at it whole and depth tested (`fx::Quads::at_order`), so that they lie over what the order draws before the gate and under what it draws after, as the original's untested whirls do (docs/re/drawing.md, "The effects among the creatures").
 **Seen** 2026-11-07 at the Kernland's waypoint: a troll standing a cell in front of the gate over its window and whirls, where before the whirls lay over the troll.
 **Seen** 2026-11-05 beside the original at the Kernland's waypoint (2642, 3057, `OMO-1Wegpunkte_Kernland`): in both a window of a sector's map inside the stone arch, a violet and blue whirl about it, alike in size and colour.
+Since #2539 the whirls are drawn after the window and the window lies at least 0.5 behind the gate's depth (`stargates::UNDER_WHIRLS`, `fx::InOrder::behind`): the window's two copies and its whirls stand at one place, so that the blended meshes' sort by their distance tied and drew them in either order, and where the ripples brought the window forward it was clamped onto the whirls' own depth; either way, once in each ripple's 1.26 s the window's rectangle hid the whirls in a band about its picture, the gate blinking about once a second.
+**Seen** 2026-11-11 in the game at the gate of 2201,2815: before, the gate's area fell from 137 to 108 in brightness for some 22 frames in every 60; after, it held between 137 and 138 over 240 frames.
 Not followed: the window's depth written over its whole rectangle, its clear corners included (**hypothesis**: the original's alpha test is off there).
 
 ## The dwarves' magic
