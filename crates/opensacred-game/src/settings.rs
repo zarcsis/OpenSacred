@@ -130,6 +130,10 @@ pub struct Graphics {
     /// inset against the anti-aliasing's seams, which the game's ground does not show, so kept
     /// for the window alone (`0x81C870`; docs/decisions/interface.md).
     pub fsaa_filter: bool,
+    /// Whether the screen quakes and jolts (the weather's kinds 7 and 12, docs/re/weather.md),
+    /// the earthquake's sound with them, the original's `SCREEN_QUAKE` of `Settings.cfg`, on as
+    /// the installation's; no control of the options window writes it (`0x81DDE0`, #1096).
+    pub screen_quake: bool,
 }
 
 impl Default for Graphics {
@@ -137,6 +141,7 @@ impl Default for Graphics {
         Self {
             detail: 2,
             fsaa_filter: true,
+            screen_quake: true,
         }
     }
 }
@@ -575,6 +580,7 @@ mod tests {
             graphics: Graphics {
                 detail: 0,
                 fsaa_filter: false,
+                screen_quake: false,
             },
             interface: Interface {
                 enemy_info: false,
@@ -617,6 +623,7 @@ mod tests {
                 "display.height",
                 "graphics.detail",
                 "graphics.fsaa_filter",
+                "graphics.screen_quake",
                 "interface.enemy_info",
                 "interface.warning_level",
                 "interface.map_alpha",
