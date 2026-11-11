@@ -326,10 +326,60 @@ fn play(time: Res<Time>, mut tally: ResMut<Tally>) {
 }
 
 /// A new game's counters and records, from nothing.
-fn start(mut tally: ResMut<Tally>, mut kills: ResMut<Kills>, mut history: ResMut<History>) {
+fn start(
+    mut tally: ResMut<Tally>,
+    mut kills: ResMut<Kills>,
+    mut history: ResMut<History>,
+    mut wins: ResMut<Wins>,
+) {
     *tally = Tally::default();
     *kills = Kills::default();
     *history = History::default();
+    *wins = Wins::default();
+}
+
+/// The hero's wins of each difficulty, bronze's first (the player's statistics record's bytes
+/// `+0x5704 + d`, #2464): `0x424CF0` adds one to the game's difficulty's at the scripts'
+/// `InfoPlayer` of the mode 27 (the Ancaria campaign's before Shaddar, the Underworld's at its
+/// last boss's death) and at the console's `win` (`0x615550`), at most 254. A save keeps them;
+/// the choice of the hero offers a hero the difficulties up to one past the highest won
+/// (`0x6F4F20`).
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
+pub struct Wins(pub [u8; 5]);
+
+/// The most a difficulty's count of wins reaches (`0x424CF0`).
+const WINS_MOST: u8 = 254;
+
+/// The scripts' `InfoPlayer` mode that counts a win (`0x4AE350`'s case 27).
+pub(crate) const WIN: i32 = 27;
+
+impl Wins {
+    /// A win of `difficulty` (`0x424CF0`).
+    pub fn win(&mut self, difficulty: opensacred_rules::drops::Difficulty) {
+        if let Some(count) = self.0.get_mut(difficulty.index()) {
+            *count = count.saturating_add(1).min(WINS_MOST);
+        }
+    }
+}
+
+/// Counts the scripts' wins (`InfoPlayer` of the mode 27) on the game's difficulty, taking them
+/// from the `InfoPlayer`s before their texts are shown.
+fn count_wins(
+    mut infos: ResMut<crate::scripts::Infos>,
+    difficulty: Option<Res<crate::game::Difficulty>>,
+    mut wins: ResMut<Wins>,
+) {
+    let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
+    infos.0.retain(|(mode, _)| {
+        if *mode != WIN {
+            return true;
+        }
+        wins.win(difficulty);
+        info!("statistics: the hero wins on {difficulty:?}: {:?}", wins.0);
+        false
+    });
 }
 
 /// A foe as the player's statistics keep it (`0x424250`, a record of `0x24` bytes of the 16 at
@@ -2302,7 +2352,15 @@ impl Plugin for StatisticsPlugin {
             .init_resource::<Tally>()
             .init_resource::<Kills>()
             .init_resource::<History>()
+            .init_resource::<Wins>()
             .add_systems(OnEnter(AppState::InGame), start)
+            .add_systems(
+                Update,
+                count_wins
+                    .after(crate::talk::popups)
+                    .before(crate::talk::notices)
+                    .in_set(crate::frame::Playing),
+            )
             .add_systems(
                 Update,
                 (
@@ -2325,6 +2383,35 @@ impl Plugin for StatisticsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_win_counts_on_its_difficulty_up_to_254_and_the_scripts_mode_27_gives_one() {
+        use opensacred_rules::drops::Difficulty;
+        let mut wins = Wins::default();
+        wins.win(Difficulty::Silver);
+        wins.win(Difficulty::Silver);
+        wins.win(Difficulty::Niobium);
+        assert_eq!(wins.0, [0, 2, 0, 0, 1]);
+        let mut most = Wins([253, 0, 0, 0, 0]);
+        most.win(Difficulty::Bronze);
+        most.win(Difficulty::Bronze);
+        assert_eq!(most.0[0], 254);
+        // The mode 27 is taken and counted on the game's difficulty; the others stay.
+        let mut app = App::new();
+        app.insert_resource(crate::scripts::Infos(vec![
+            (WIN, String::new()),
+            (1, "res:1".to_owned()),
+        ]))
+        .insert_resource(crate::game::Difficulty(Difficulty::Gold))
+        .init_resource::<Wins>()
+        .add_systems(Update, count_wins);
+        app.update();
+        assert_eq!(app.world().resource::<Wins>().0, [0, 0, 1, 0, 0]);
+        assert_eq!(
+            app.world().resource::<crate::scripts::Infos>().0,
+            [(1, "res:1".to_owned())]
+        );
+    }
 
     #[test]
     fn the_mouse_finds_its_line_or_row() {
