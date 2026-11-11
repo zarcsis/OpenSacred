@@ -11,7 +11,7 @@
 //! of a model under a liquid's surface (`models::Sunk`) lies with it, in the layer under the
 //! liquids.
 //!
-//! The setting `[graphics] shadows = "soft"` (#1436, to compare) draws none of those copies:
+//! The setting `[graphics] shadows = "soft"` (#1436) draws none of those copies:
 //! the sun, a directional light along the same lean ([`sun`]), casts the shadows of the models'
 //! own meshes into a shadow map, which darkens the ground and the models to the same third of
 //! their light (`soft.wesl`), so that a shadow follows the terrain, falls on other models, and a
