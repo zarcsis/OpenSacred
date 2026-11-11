@@ -3897,6 +3897,20 @@ impl Default for Blow {
 /// or a script's (`0x56B96A`–`0x56B9A5`, #2487): its `D` doubles against a strike.
 pub const PARRY_DEFENCE: f32 = 2.0;
 
+/// The factor by which a strike weighs its defender's defence and resistances by the levels
+/// `(attacker, defender)` (`0x56B787`–`0x56B935`, #2495): where the defender is a creature below
+/// its attacker's level and the attacker above level 6, the factor of the levels ([`weighing`]) of
+/// the defender's level against the attacker's, by the balance's `UnterExpAnteil`,
+/// `UnterExpVoll` and `ObereEXPVoll`, at least 0.04; none else. Its branch above `ObereEXPVoll`,
+/// which takes the attacker's level over the defender's, no lower defender reaches.
+pub fn levels_weighing((attacker, defender): (u32, u32), rules: &Rules) -> Option<f32> {
+    if attacker <= 6 || defender >= attacker {
+        return None;
+    }
+    let [_, anteil, voll, upper] = rules.experience;
+    Some(weighing(defender, attacker, (anteil, voll, upper)))
+}
+
 /// The values of a strike between `attacker` and `defender` on bronze (`0x56B130`): a creature
 /// striking the hero has its attack times `ProzAW` and its rolled damage times `ProzDmg` (each
 /// kind's, as the attack record rolls it, [`roll_damage`], #620), and the exponent of the damage
@@ -3906,7 +3920,9 @@ pub const PARRY_DEFENCE: f32 = 2.0;
 /// above its defender's, as the resolution takes it for any attacker that is no player's (an id
 /// above 16), and a creature's damage to the hero held at [`Rules::player_cap`] of its level.
 /// `hero` tells which side is the hero's: the attacker's, the defender's or neither. The blow's
-/// share and factor of the levels are 1, which the strike sets.
+/// share and factor of the levels are 1, which the strike sets. First a creature struck by an
+/// attacker above its level and above level 6 has its defence times the factor of the levels
+/// ([`levels_weighing`]) and its resistances times twice it where it is below 1, else times it.
 pub fn weighed(
     mut attacker: Combat,
     mut defender: Combat,
@@ -3914,6 +3930,15 @@ pub fn weighed(
     levels: (u32, u32),
     rules: &Rules,
 ) -> (Combat, Combat, Blow) {
+    if hero != Some(Side::Defender)
+        && let Some(factor) = levels_weighing(levels, rules)
+    {
+        defender.defence *= factor;
+        let resistances = if factor < 1.0 { 2.0 * factor } else { factor };
+        for value in &mut defender.resistance {
+            *value *= resistances;
+        }
+    }
     let [aw, dmg, res] = rules.difficulty;
     let mut blow = Blow::default();
     match hero {
@@ -6325,15 +6350,47 @@ mod tests {
         assert_eq!(a, goblin);
         assert!(near(d.defence, 16.0 * 0.65) && near(d.resistance[0], 4.48));
         assert_eq!(blow, Blow::default());
-        // Between creatures, as they are, the exponent of the attacker's levels above its
-        // defender's (#630): `p` 0.54 for 8 above, none for one below.
+        // Between creatures, the exponent of the attacker's levels above its defender's (#630):
+        // `p` 0.54 for 8 above, none for one below; the defender of level 1 weighed by the levels
+        // against the attacker of 9, 0.04 (#2495).
         let (a, d, blow) = weighed(wolf, goblin, None, (9, 1), &rules);
-        assert_eq!((a, d), (wolf, goblin));
+        assert_eq!(a, wolf);
+        assert!(near(d.defence, goblin.defence * 0.04));
+        assert!(near(d.resistance[0], goblin.resistance[0] * 0.08));
         assert!((blow.k - -(0.46_f32).log2()).abs() < 1e-5 && near(blow.rolled, 1.0));
         assert_eq!(
             weighed(wolf, goblin, None, (1, 2), &rules),
             (wolf, goblin, Blow::default())
         );
+    }
+
+    #[test]
+    fn a_weaker_creature_struck_by_one_above_level_6_is_weighed_by_the_levels() {
+        let rules = Rules::default();
+        // Levels 20 against 18: `r` 27/29 above `UnterExpAnteil`'s 0.85, `(r − 0.85)/(1 − 0.85)`.
+        let f = levels_weighing((20, 18), &rules).expect("weighed");
+        assert!((f - (27.0 / 29.0 - 0.85) / 0.15).abs() < 1e-5, "{f}");
+        // 20 against 15: `r` 24/29 not above 0.85, 0.04; up to level 10 the threshold
+        // `(H + 6)/(H + 9)`: 9 against 8, 17/18 above 15/18.
+        assert_eq!(levels_weighing((20, 15), &rules), Some(0.04));
+        let f = levels_weighing((9, 8), &rules).expect("weighed");
+        assert!((f - (17.0 / 18.0 - 15.0 / 18.0) / (1.0 - 15.0 / 18.0)).abs() < 1e-5);
+        // None at level 6 or below, nor for a defender not below its attacker.
+        assert_eq!(levels_weighing((6, 1), &rules), None);
+        assert_eq!(levels_weighing((20, 20), &rules), None);
+        assert_eq!(levels_weighing((20, 25), &rules), None);
+        // The hero struck is never weighed; a creature that the hero strikes is: its defence times
+        // `f`, its resistances times `2f` below 1.
+        let goblin = combat(&a_goblin(), 1, Holds::default(), &[], &rules);
+        assert_eq!(
+            weighed(goblin, goblin, Some(Side::Defender), (20, 18), &rules).1,
+            goblin
+        );
+        let f = levels_weighing((20, 18), &rules).expect("weighed");
+        let (_, d, _) = weighed(goblin, goblin, Some(Side::Attacker), (20, 18), &rules);
+        let [aw, _, res] = rules.difficulty;
+        assert!((d.defence - goblin.defence * f * aw).abs() < 1e-3);
+        assert!((d.resistance[0] - goblin.resistance[0] * 2.0 * f * res).abs() < 1e-3);
     }
 
     #[test]
