@@ -130,6 +130,9 @@ They have no timer of their own: most of what they do ends in the AI's state 0, 
 ### Range, dialogue and the far ones
 
 - One with a dialogue keeps still.
+  Read 2026-11-11 for #2543 (**confirmed** by code): its standing action (`0x544890`, at `0x5464C4`–`0x546565`) turns it at once to the local hero's place at each of its runs (`0x603E30`, `0x44DD90` with the vector to the hero), with no range, where its id is above 16, its dialogue `+0x245` is from 1 to 99,999 (not the stables' and the trader's stamps), its type is no horse (`0x4266F0`, the class 4) and it is in the world's cells (`+0x14` bit 2 clear); one of the behaviours' flags `0x1006DCF8` at the AI's state 0, not crowded, is woken first and turns at the next run.
+  **Seen** 2026-11-11 under the driver: the novice of the chapel of 50,39 faced the hero at the altar above her, and then the hero on the steps below her.
+  `opensacred-game` turns them since #2543 (`ai::face`, at each tick of the world): every creature of a dialogue (`npcs::Talk`) but a horse that neither walks, strikes, plays a talk nor dies.
 - Farther from the hero than 600 times the camera's zoom (`0x611400`, the world view's `+0xB60`, 0.5 to 2), in a straight line, it goes dormant, its timer set by the distance as an animal's.
   At dusk or by night, one on the ground is first put into a house there: from the nearest door within 1,500 of it (`0x4EEFA0`), 15 tries of a cell 2 to 9 cells away along each axis, either way, that a building covers (`0x6354D0`) and that it may stand on; the try farthest from the door wins, and it stands there on the building's ground floor.
   Nothing brings it out at dawn but its own day's way below, near the hero.
