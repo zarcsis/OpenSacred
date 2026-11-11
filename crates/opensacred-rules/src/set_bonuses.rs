@@ -1089,6 +1089,8 @@ pub enum Told {
     Unseen,
     /// The values of a foe on its label ([`KNOW_ENEMY`]).
     KnowEnemy,
+    /// A wounded creature that would flee the wearer struck down ([`STRIKES_FLEEING`]).
+    StrikesFleeing,
     /// The per cent of a wild animal's flights from the wearer in which it stands
     /// ([`Reader::Terror`]): the terror's whole chance of the roll's 101 faces.
     Terror(f32),
@@ -1116,6 +1118,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 Bonus::Flag(PIERCES) => Told::Pierces,
                 Bonus::Flag(BINDS) => Told::Binds(crate::minds::bind_chance(difficulty)),
                 Bonus::Flag(KNOW_ENEMY) => Told::KnowEnemy,
+                Bonus::Flag(STRIKES_FLEEING) => Told::StrikesFleeing,
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),
             };

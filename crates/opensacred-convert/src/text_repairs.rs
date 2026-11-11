@@ -107,7 +107,7 @@ pub struct Added {
 /// a script (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every
 /// creature of the other such types that they make a name of its own. Then the label of set 22's
 /// potions in the list of the sets, which no string tells (#1823).
-pub const ADDED: [Added; 7] = [
+pub const ADDED: [Added; 8] = [
     // `fisc_01.grn`: three small fish and a middle-sized one.
     Added {
         name: "164",
@@ -146,6 +146,14 @@ pub const ADDED: [Added; 7] = [
     Added {
         name: opensacred_data::text::SET_POTIONS,
         text: "Chance of a potion in a slain foe's drop",
+    },
+    // Set 58's line at 6 pieces, which the original's list names by a key of no string
+    // (`0x571710`'s `{K:UI_SET_FLUCHT}`): a wounded foe that would flee the wearer is struck
+    // down (`opensacred_rules::set_bonuses::Told::StrikesFleeing`; the maintainer's choice of
+    // 2026-11-11, #2559).
+    Added {
+        name: "UI_SET_FLUCHT",
+        text: "Strikes down a wounded foe that would flee",
     },
 ];
 
@@ -316,6 +324,8 @@ mod tests {
         assert_eq!(ids.len(), added.len());
         // A creature type's name is the hash of its number (docs/02 §6.2): type 37 is id 5818.
         assert_eq!(id_of("37"), 5818);
+        // Set 58's key, which no string of the installation's texts holds (#2559).
+        assert_eq!(id_of("UI_SET_FLUCHT"), 461_630_750);
     }
 
     #[test]

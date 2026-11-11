@@ -111,6 +111,9 @@ fn the_flags_and_the_filled_sets_bonuses() {
     // Set 58's flag at 6: a creature that would flee its wearer is struck down (#2547).
     assert!(stats(&wearing(58, 6), Difficulty::Bronze).strikes_fleeing());
     assert!(!stats(&wearing(58, 5), Difficulty::Bronze).strikes_fleeing());
+    // Its line at 6 (#2559).
+    assert!(told(58, &wearing(58, 6), Difficulty::Bronze).contains(&Told::StrikesFleeing));
+    assert!(!told(58, &wearing(58, 5), Difficulty::Bronze).contains(&Told::StrikesFleeing));
     // Set 23 has no case; the specials wait for the wearer's values.
     assert_eq!(
         stats(&wearing(23, 6), Difficulty::Bronze),
