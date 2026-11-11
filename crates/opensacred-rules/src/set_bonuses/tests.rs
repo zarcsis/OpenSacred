@@ -107,6 +107,10 @@ fn the_flags_and_the_filled_sets_bonuses() {
     assert!(told(60, &filled, Difficulty::Bronze).contains(&Told::Binds(30)));
     assert!(told(60, &filled, Difficulty::Niobium).contains(&Told::Binds(70)));
     assert!(!told(60, &wearing(60, 4), Difficulty::Bronze).contains(&Told::Binds(30)));
+    assert!(!stats(&wearing(60, 4), Difficulty::Bronze).binds());
+    // Set 58's flag at 6: a creature that would flee its wearer is struck down (#2547).
+    assert!(stats(&wearing(58, 6), Difficulty::Bronze).strikes_fleeing());
+    assert!(!stats(&wearing(58, 5), Difficulty::Bronze).strikes_fleeing());
     // Set 23 has no case; the specials wait for the wearer's values.
     assert_eq!(
         stats(&wearing(23, 6), Difficulty::Bronze),
