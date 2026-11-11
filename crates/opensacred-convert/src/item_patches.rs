@@ -2,8 +2,10 @@
 //! client's changes"; #1136), which `tables` makes to `Items.pak`'s records before it writes
 //! `items.ron`, so that the table is the client's: the heroes' angles, flag bits of some types,
 //! ids, categories, the sound profiles of most of the weapons 3105 to 3174, the gloves' entries and
-//! fields of a few more. Facts of the original's load, each a field of a type's record and what
-//! the client puts there; not a repair of a defect.
+//! fields of a few more; and those of its second pass (`0x429950`, #2579): the dummy's fields,
+//! the waters' crab's and fish's category, and the ids of the types 32 to 713 that name another.
+//! Facts of the original's load, each a field of a type's record and what the client puts there;
+//! not a repair of a defect.
 
 /// What a change does to a field of a record, at its offset.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -126,7 +128,38 @@ fn changes(slot: u32) -> Vec<Change> {
         5635 | 5769 => out.push(Change::U16IfZero(FIELD_6A, 55)),
         _ => {}
     }
+    // The second pass (`0x429950`): the dummy 1249 its own id, no texture and no effects'
+    // texture, the category 2; the waters' crab and three fish the category `0x20`.
+    match slot {
+        DUMMY => out.extend([
+            Change::U32(ID, DUMMY),
+            Change::U32(TEXTURE, 0),
+            Change::U32(EFFECTS, 0),
+            Change::U8(CATEGORY, 2),
+        ]),
+        163..=166 => out.push(Change::U8(CATEGORY, 0x20)),
+        _ => {}
+    }
     out
+}
+
+/// The dummy's type.
+const DUMMY: u32 = 1249;
+/// The types whose id the second pass checks (`0x429950`): 32 to 713.
+const OWN_IDS: std::ops::RangeInclusive<u32> = 32..=713;
+
+/// The second pass's ids (`0x429950`): a type of [`OWN_IDS`] whose id `+0x20` is neither 0 nor
+/// the type itself takes its type, which the client logs ("hat Resid"); whether it changed.
+fn own_id(slot: u32, record: &mut [u8]) -> bool {
+    let id = record
+        .get(ID..ID + 4)
+        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+        .map_or(0, u32::from_le_bytes);
+    if !OWN_IDS.contains(&slot) || id == 0 || id == slot {
+        return false;
+    }
+    put(record, ID, &slot.to_le_bytes());
+    true
 }
 
 /// Makes the client's changes to the record of the type `slot`, its 128 bytes `record`; how many
@@ -154,7 +187,7 @@ pub fn apply(slot: u32, record: &mut [u8]) -> usize {
             }
         }
     }
-    changes.len()
+    changes.len() + usize::from(own_id(slot, record))
 }
 
 /// The offsets of the textures and of the model's index of a record.
@@ -238,7 +271,51 @@ mod tests {
     #[test]
     fn the_client_changes_its_types_and_no_others() {
         let changed = changed();
-        assert_eq!(changed.len(), 111, "{changed:?}");
+        assert_eq!(changed.len(), 116, "{changed:?}");
         assert!(changed.contains(&3105) && changed.contains(&3174) && !changed.contains(&3175));
+        assert!(changed.contains(&DUMMY) && changed.contains(&163) && changed.contains(&166));
+    }
+
+    #[test]
+    fn the_second_pass_gives_a_type_its_own_id_where_it_names_another() {
+        let id = |record: &[u8]| u32::from_le_bytes(record[ID..ID + 4].try_into().unwrap());
+        // 351 names 251 on file, and takes its own.
+        let mut record = [0u8; 128];
+        record[ID..ID + 4].copy_from_slice(&251u32.to_le_bytes());
+        assert_eq!(apply(351, &mut record), 1);
+        assert_eq!(id(&record), 351);
+        // Its own id or none stays, as does any id outside 32 to 713.
+        assert_eq!(apply(351, &mut record), 0);
+        let mut none = [0u8; 128];
+        assert_eq!(apply(400, &mut none), 0);
+        assert_eq!(id(&none), 0);
+        for slot in [31, 714] {
+            let mut other = [0u8; 128];
+            other[ID..ID + 4].copy_from_slice(&9u32.to_le_bytes());
+            apply(slot, &mut other);
+            assert_eq!(id(&other), 9, "{slot}");
+        }
+        let mut first = [0u8; 128];
+        first[ID..ID + 4].copy_from_slice(&9u32.to_le_bytes());
+        apply(32, &mut first);
+        assert_eq!(id(&first), 32);
+        let mut last = [0u8; 128];
+        last[ID..ID + 4].copy_from_slice(&9u32.to_le_bytes());
+        apply(713, &mut last);
+        assert_eq!(id(&last), 713);
+        // The dummy: its id, no textures, the category 2.
+        let mut dummy = [0u8; 128];
+        dummy[TEXTURE..TEXTURE + 4].copy_from_slice(&7459u32.to_le_bytes());
+        dummy[EFFECTS] = 5;
+        dummy[CATEGORY] = 3;
+        assert_eq!(apply(DUMMY, &mut dummy), 4);
+        assert_eq!(
+            (id(&dummy), dummy[TEXTURE], dummy[EFFECTS], dummy[CATEGORY]),
+            (DUMMY, 0, 0, 2)
+        );
+        let mut fish = [0u8; 128];
+        fish[CATEGORY] = 3;
+        apply(165, &mut fish);
+        assert_eq!(fish[CATEGORY], 0x20);
     }
 }
