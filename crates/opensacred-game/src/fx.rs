@@ -370,18 +370,23 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
+    /// Whether its quads lie flat on the ground, at the height of [`Quads::on_level`], where the
+    /// soft shadows darken them (#2605).
+    on_ground: bool,
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ParticlesKey {
     whole: bool,
+    on_ground: bool,
 }
 
 impl From<&Particles> for ParticlesKey {
     fn from(extension: &Particles) -> Self {
         Self {
             whole: extension.whole,
+            on_ground: extension.on_ground,
         }
     }
 }
@@ -401,6 +406,9 @@ impl MaterialExtension for Particles {
             fragment.shader_defs.push("PARTICLES".into());
             if key.bind_group_data.whole {
                 fragment.shader_defs.push("WHOLE".into());
+            }
+            if key.bind_group_data.on_ground {
+                fragment.shader_defs.push("ON_GROUND".into());
             }
         }
         Ok(())
@@ -427,8 +435,24 @@ pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> 
 /// (`ONE`, `ONE`, [`Particles`]).
 pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
     Effect {
-        extension: Particles { whole: true },
+        extension: Particles {
+            whole: true,
+            on_ground: false,
+        },
         ..particle_material(image, AlphaMode::Add)
+    }
+}
+
+/// A particles' material of the texture `image` laid over the frame by its alpha, for quads flat
+/// on the ground ([`Quads::on_level`]): the soft shadows darken them as they do the ground under
+/// them (`standard.wesl`'s `ON_GROUND`, #2605).
+pub(crate) fn ground_material(image: Handle<Image>) -> Effect {
+    Effect {
+        extension: Particles {
+            whole: false,
+            on_ground: true,
+        },
+        ..particle_material(image, AlphaMode::Blend)
     }
 }
 
@@ -490,6 +514,9 @@ pub(crate) struct Quads {
     uvs: Vec<[f32; 2]>,
     colours: Vec<[f32; 4]>,
     indices: Vec<u32>,
+    /// The height in the world of the level plane that its quads lie in, for a
+    /// [`ground_material`]'s ([`Self::on_level`]).
+    level: Option<f32>,
 }
 
 impl Quads {
@@ -737,9 +764,22 @@ impl Quads {
             .extend(other.indices.into_iter().map(|index| first + index));
     }
 
+    /// Its quads lie flat on the ground in the level plane `height` high in the world, which a
+    /// [`ground_material`] takes from the mesh's second texture coordinates, wherever the order
+    /// lays their vertices along the line of sight ([`Self::in_order`]).
+    pub(crate) fn on_level(&mut self, height: f32) {
+        self.level = Some(height);
+    }
+
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
         if self.indices.is_empty() {
             self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);
+        }
+        if let Some(height) = self.level {
+            mesh.insert_attribute(
+                Mesh::ATTRIBUTE_UV_1,
+                vec![[height, 0.0]; self.positions.len()],
+            );
         }
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);

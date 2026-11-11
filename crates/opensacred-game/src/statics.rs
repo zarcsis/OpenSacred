@@ -87,6 +87,7 @@ struct Batch {
     fades: Vec<f32>,
     floors: Vec<[f32; 4]>,
     footprints: Vec<[f32; 2]>,
+    planes: Vec<f32>,
     /// Whether a quad of the batch stands on an upper storey's floor ([`Standing`]).
     on_floor: bool,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
@@ -144,6 +145,14 @@ pub const ATTRIBUTE_FOOTPRINT: MeshVertexAttribute = MeshVertexAttribute::new(
     0x5350_5249_5445_4650,
     VertexFormat::Float32x2,
 );
+
+/// For an upper storey's floor, the height of its plane in world units, where the soft shadows
+/// darken its texels (`sprites.wesl`, #2605); [`NO_PLANE`] for any other sprite.
+pub const ATTRIBUTE_PLANE: MeshVertexAttribute =
+    MeshVertexAttribute::new("SpritePlane", 0x5350_5249_5445_504C, VertexFormat::Float32);
+
+/// The [`ATTRIBUTE_PLANE`] of a sprite that is no floor (`NO_PLANE` of `sprites.wesl`).
+const NO_PLANE: f32 = -1.0e6;
 
 /// The shader of [`SpriteMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
@@ -245,6 +254,7 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_FADE.at_shader_location(5),
             ATTRIBUTE_FLOOR.at_shader_location(6),
             ATTRIBUTE_FOOTPRINT.at_shader_location(7),
+            ATTRIBUTE_PLANE.at_shader_location(8),
         ])?];
         descriptor.primitive.cull_mode = None;
         let SpriteKey {
@@ -979,6 +989,7 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         fades: Vec::new(),
         floors: Vec::new(),
         footprints: Vec::new(),
+        planes: Vec::new(),
         on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
@@ -1005,6 +1016,9 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         batch.floors.push(floor);
         batch.footprints.push(footprint);
     }
+    batch
+        .planes
+        .extend([spot.floor.map_or(NO_PLANE, iso::height); 4]);
     batch.on_floor |= spot.standing.is_some();
     let (w, h) = size;
     batch.uvs.extend([
@@ -1474,6 +1488,7 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades)
             .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors)
             .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
+            .with_inserted_attribute(ATTRIBUTE_PLANE, batch.planes)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         for material in passes {

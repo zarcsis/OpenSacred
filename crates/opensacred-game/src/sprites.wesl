@@ -6,9 +6,10 @@
 // through the depth buffer, then the others (`FRINGE`) blended by their alpha over what lies behind
 // them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
+// A floor's texels take the soft shadows of the sun where its plane lies (`soft.wesl`, #2605).
 
 import bevy_pbr::render::mesh_view_bindings::view;
-import package::{order, post::post_process};
+import package::{order, post::post_process, soft};
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var atlas: texture_2d<f32>;
 /// What the texels are multiplied by (`statics::SpriteMaterial::tint`): white, but for the
@@ -37,6 +38,9 @@ struct Vertex {
     /// Where the ground point under the floor's point lies in the cells of the floor's part, 0 to
     /// 1 along each axis inside them; −1 for a sprite on no floor.
     @location(7) footprint: vec2<f32>,
+    /// For an upper storey's floor, the height of its plane in world units; `NO_PLANE` for any
+    /// other sprite.
+    @location(8) plane: f32,
 };
 
 struct VertexOutput {
@@ -51,6 +55,7 @@ struct VertexOutput {
     /// than over the floor's part (`fragment_on_floor`); a plane, linear across the screen.
     @location(4) floor: f32,
     @location(5) footprint: vec2<f32>,
+    @location(6) @interpolate(flat) plane: f32,
 };
 
 /// What `fragment_on_floor` writes: the colour and the depth.
@@ -67,6 +72,8 @@ const OPAQUE: f32 = 254.5 / 255.0;
 const CUTOFF: f32 = 64.0 / 255.0;
 /// The least alpha that the second pass blends.
 const CLEAR: f32 = 0.5 / 255.0;
+/// The plane of a sprite that is no floor (`statics::NO_PLANE`): below any that is one.
+const NO_PLANE: f32 = -1.0e5;
 
 /// Screen pixels at zoom 1 per world unit (`iso::PIXELS_PER_UNIT`): a cell's diagonal is 96 pixels.
 const PIXELS_PER_UNIT: f32 = 1.2649111;
@@ -102,6 +109,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.screen = vertex.screen;
     out.floor = order::depth(vertex.floor, 0.0);
     out.footprint = vertex.footprint;
+    out.plane = vertex.plane;
     // Drawn after the hero: nearer than its place in the reversed depth.
     let after = order::depth(vertex.anchor, 0.0) > order::depth(fade[1], 0.0);
     out.fades = select(0.0, 1.0, vertex.fades > 0.5 && after);
@@ -192,5 +200,10 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     }
     colour.a = 1.0;
 }
+    // A floor's texel in the sun's soft shadows, where its pixel's line of sight meets its plane.
+    if in.plane > NO_PLANE {
+        let sun = soft::lit_on_level(soft::on_pixel(in.position), in.plane, in.position.xy);
+        colour = vec4(soft::darkened(colour.rgb, sun), colour.a);
+    }
     return post_process(colour, in.position.xy);
 }
