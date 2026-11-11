@@ -875,6 +875,22 @@ pub const HURLED_BLADES: u16 = 1013;
 pub const MUMMIES_B: u32 = 40;
 pub const MUMMY_STANDS: u8 = 15;
 
+/// The minimummies' daggers (`0x4D93C1`, the runner `0x4FE870`, #2575): the dagger 1712 that one
+/// takes into its empty right hand (slot 13), and the more it throws after the first, `R(2, 4)`
+/// (`+0x2B3`), each taken anew as the one before strikes; how long after it holds a dagger it
+/// throws it, by the strikes seen 0.67 to 0.77 s apart at 4 to 6 cells, each some 0.1 s after
+/// its throw (**estimate**: the model has no clip of the throw, its slot 147).
+pub const DAGGER: u32 = 1712;
+pub const DAGGERS_MORE: (u32, u32) = (2, 4);
+pub const DAGGER_THROWN_AFTER: f32 = 0.6;
+
+/// The daggers a minimummy throws after the first of its volley, `R(2, 4)` ([`DAGGERS_MORE`]).
+pub fn daggers_more(rng: &mut impl Dice) -> u8 {
+    let (least, most) = DAGGERS_MORE;
+    let more = least + rng.below(most + 1 - least);
+    u8::try_from(more).unwrap_or(u8::MAX)
+}
+
 /// The seconds of a minimummy's blink's two battle fogs: the spell 46's value 0 at a third of its
 /// level, `min(19 + ⌊L/3⌋, 60)`, times 0.1 (`0x4D8F49`; **hypothesis** for the factor's word).
 pub fn blink_fog_seconds(level: u32) -> f32 {
@@ -1342,6 +1358,17 @@ mod tests {
 
     use super::*;
     use crate::fight::{Rank, Rules};
+
+    #[test]
+    fn a_volley_throws_two_to_four_more_daggers() {
+        let mut rng = crate::spawning::Rng::of(3, 5, 7);
+        let mut seen = [0u32; 5];
+        for _ in 0..300 {
+            seen[usize::from(daggers_more(&mut rng))] += 1;
+        }
+        assert_eq!(seen[0] + seen[1], 0, "{seen:?}");
+        assert!(seen[2..].iter().all(|&n| n > 60), "{seen:?}");
+    }
 
     #[test]
     fn the_flowers_spit_or_leap_beyond_their_melee_and_the_crab_cages() {

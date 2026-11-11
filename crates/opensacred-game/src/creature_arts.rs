@@ -12,6 +12,12 @@
 //! blades (`0x4EA3F0`). An `Attacke` strikes its target at each of its clip's hit points while
 //! the target stands within the two creatures' reach and 45; a `Hardhit` once, at its clip's hit
 //! point or its half, whatever the distance (docs/re/arts.md, "The arts in a strike").
+//!
+//! The minimummy bosses' daggers (#2575, the Gladiator's hurled blades 1013 of a creature): a
+//! volley of the dagger in its hand and 2 to 4 more ([`Volley`]), each thrown a while after it
+//! takes it, flying on the arc of a creature's throw, which strikes its target alone, a player,
+//! and is gone; a fresh dagger in its hand as each strikes or ends, while the volley lasts
+//! (`0x4D93C1`, the runner `0x4FE870`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{self, ArtClip, Style};
@@ -250,16 +256,363 @@ pub(crate) fn stare(
     }
 }
 
+/// A minimummy's volley of daggers at `target` (#2575): the throws left after the one in its hand,
+/// the seconds until it throws that one, and whether a dagger it threw still flies.
+#[derive(Component, Debug)]
+pub struct Volley {
+    target: Entity,
+    more: u8,
+    wait: f32,
+    flying: bool,
+}
+
+impl Volley {
+    /// The volley of the dagger in its hand at `target`, and `more` after it.
+    pub fn new(target: Entity, more: u8) -> Self {
+        Self {
+            target,
+            more,
+            wait: casts::DAGGER_THROWN_AFTER,
+            flying: false,
+        }
+    }
+}
+
+/// A creature's thrown dagger in flight: its arc's ends on the ground, its height, its time and
+/// the time flown, the level it flies on, its thrower and the one it strikes, the art's level and
+/// factor, its damages' terms and its size.
+#[derive(Component)]
+struct Thrown {
+    from: Vec2,
+    to: Vec2,
+    height: f32,
+    time: f32,
+    flown: f32,
+    level: crate::terrain::Level,
+    thrower: Entity,
+    target: Entity,
+    art: (u32, f32),
+    damage: [[f32; 2]; opensacred_rules::fight::KINDS],
+    times: f64,
+    size: f32,
+}
+
+/// The dice of the thrown daggers' damages.
+#[derive(Resource)]
+struct DaggerDice(crate::spawning::Rng);
+
+/// Each volley a frame on: its dagger thrown once its wait is over and its hand holds one, the
+/// creature turned to its target; a volley whose target or hand is gone ends.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn volleys(
+    mut commands: Commands,
+    time: Res<Time>,
+    (npcs, rules, arts_tables): (
+        Res<npcs::Npcs>,
+        Res<fight::Rules>,
+        Option<Res<crate::arts::HeroArts>>,
+    ),
+    assets: Res<AssetServer>,
+    mut throwers: Query<(
+        Entity,
+        &mut Volley,
+        &mut Transform,
+        &Mind,
+        &npcs::Arms,
+        &fight::Combat,
+        Option<&fight::Ranked>,
+        Option<&crate::crowd::InTheWay>,
+    )>,
+    targets: Query<&GlobalTransform, With<crate::hero::Body>>,
+) {
+    for (entity, mut volley, mut transform, mind, arms, combat, rank, way) in &mut throwers {
+        if volley.flying {
+            continue;
+        }
+        volley.wait -= time.delta_secs();
+        if volley.wait > 0.0 {
+            continue;
+        }
+        let (Ok(target_at), Some((dagger, values))) = (targets.get(volley.target), arms.right())
+        else {
+            commands.entity(entity).remove::<Volley>();
+            continue;
+        };
+        let here = transform.translation;
+        let at = target_at.translation();
+        transform.rotation = crate::hero::facing(at - here);
+        // The art's level in play and its factor at it, halved for two blades (`0x4EA3F0`).
+        let class = arms.class();
+        let rank = rank.map_or(fight::Rank::Common, |rank| rank.0);
+        let level = rules.creature_spell_level(mind.level, rank);
+        let factor = arts_tables
+            .as_deref()
+            .and_then(|tables| {
+                tables
+                    .tables
+                    .weapon_arts
+                    .iter()
+                    .find(|record| record.id == casts::HURLED_BLADES)
+            })
+            .map_or(1.0, |record| {
+                arts::held_factor(arts::factor(record, level), class == 8)
+            });
+        let (to, d) = arts::throw_end(here.xz().into(), at.xz().into(), false);
+        let (model, texture, size) = npcs.held_model(dagger).map_or(
+            (None, None, crate::arrows::size(0)),
+            |(model, texture, size)| (Some(model.to_owned()), texture.map(str::to_owned), size),
+        );
+        debug!(
+            "creature_arts: {entity} throws its dagger at {}, {} more",
+            volley.target, volley.more
+        );
+        // Its own damages, weighed by its skills and its strength (`0x56ACD0`, as the hero's).
+        let times = rules.glance_factor(&arms.skills(mind.level), combat.attributes[0]);
+        let mut flight = commands.spawn((
+            Transform::from_translation(here).with_scale(Vec3::splat(crate::iso::MODEL_SCALE)),
+            Thrown {
+                from: here.xz(),
+                to: to.into(),
+                height: arts::throw_height(false),
+                time: arts::throw_time(d),
+                flown: 0.0,
+                level: way.and_then(|way| way.level),
+                thrower: entity,
+                target: volley.target,
+                art: (level, factor),
+                damage: values.map_or([[0.0; 2]; opensacred_rules::fight::KINDS], |values| {
+                    values.damage
+                }),
+                times,
+                size,
+            },
+            DespawnOnExit(crate::game::AppState::InGame),
+        ));
+        if let Some(model) = model {
+            flight.insert((
+                crate::models::scene(&assets, &model),
+                crate::models::Ordered::default(),
+            ));
+        }
+        if let Some(texture) = texture {
+            flight.insert(npcs::Retexture::load(&assets, &texture));
+        }
+        commands.entity(entity).insert(npcs::Rearms::throws());
+        volley.flying = true;
+    }
+}
+
+/// Flies each thrown dagger on its arc a frame on: it strikes its target, the hero, once it
+/// touches it by the sum of their sizes (`0x600340`; the item's `+0xB0` bit 8, players alone),
+/// and is gone there or at its arc's end; its thrower then takes a fresh dagger while its volley
+/// lasts (`0x4FE870`), else its volley ends.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn daggers(
+    mut commands: Commands,
+    time: Res<Time>,
+    heights: Res<crate::terrain::Heights>,
+    mut dice: ResMut<DaggerDice>,
+    mut hits: MessageWriter<fight::Hit>,
+    mut flying: Query<(Entity, &mut Transform, &mut Thrown)>,
+    mut volleys: Query<&mut Volley>,
+    targets: Query<
+        (&GlobalTransform, &Health, Option<&crate::hero::Size>),
+        (With<crate::hero::Body>, Without<Thrown>),
+    >,
+) {
+    for (entity, mut transform, mut flight) in &mut flying {
+        flight.flown += time.delta_secs();
+        let share = flight.flown / flight.time.max(f32::EPSILON);
+        let (at, rise) =
+            arts::throw_point(flight.from.into(), flight.to.into(), share, flight.height);
+        let at = Vec2::from(at);
+        let ground = heights
+            .standing(at.x, at.y, flight.level)
+            .unwrap_or(transform.translation.y);
+        transform.translation = Vec3::new(
+            at.x,
+            ground + crate::iso::height(rise * crate::iso::PIXELS_PER_MODEL_HEIGHT),
+            at.y,
+        );
+        let struck = targets
+            .get(flight.target)
+            .ok()
+            .filter(|(place, health, size)| {
+                let size = size.map_or(minds::SIZE, |size| size.0);
+                health.current > 0
+                    && (place.translation().xz() - at).length()
+                        <= flight.size + crate::arrows::size(size)
+            })
+            .is_some();
+        if struck {
+            let fixed = arts::thrown_damage(&flight.damage, flight.times, &mut dice.0);
+            debug!(
+                "creature_arts: {}'s dagger strikes {}, {:?}",
+                flight.thrower,
+                flight.target,
+                fixed.map(|d| d.round())
+            );
+            hits.write(fight::Hit {
+                attacker: flight.thrower,
+                target: flight.target,
+                share: flight.art.1,
+                ranged: false,
+                art: Some(flight.art.0),
+                fixed: Some(fixed),
+                sure: true,
+                poison: false,
+                ward: false,
+            });
+        } else if share < 1.0 {
+            continue;
+        }
+        commands.entity(entity).despawn();
+        if let Ok(mut volley) = volleys.get_mut(flight.thrower) {
+            if volley.more == 0 {
+                commands.entity(flight.thrower).remove::<Volley>();
+            } else {
+                volley.more -= 1;
+                volley.wait = casts::DAGGER_THROWN_AFTER;
+                volley.flying = false;
+                commands
+                    .entity(flight.thrower)
+                    .insert(npcs::Rearms::dagger());
+            }
+        }
+    }
+}
+
 /// The creatures' weapon arts.
 pub struct CreatureArtsPlugin;
 
 impl Plugin for CreatureArtsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (start, strike, end)
-                .chain()
-                .run_if(in_state(crate::game::AppState::InGame)),
+        app.insert_resource(DaggerDice(crate::seed::dice(2575)))
+            .add_systems(
+                Update,
+                (start, strike, end)
+                    .chain()
+                    .run_if(in_state(crate::game::AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                (volleys, daggers)
+                    .chain()
+                    .after(crate::frame::Step::Npcs)
+                    .in_set(crate::frame::Playing)
+                    .in_set(crate::frame::Unpaused),
+            );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::time::TimeUpdateStrategy;
+
+    use super::*;
+
+    #[derive(Resource, Default)]
+    struct Struck(Vec<fight::Hit>);
+
+    fn collect(mut hits: MessageReader<fight::Hit>, mut struck: ResMut<Struck>) {
+        struck.0.extend(hits.read().cloned());
+    }
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                50,
+            )))
+            .insert_resource(crate::terrain::Heights::default())
+            .insert_resource(DaggerDice(crate::spawning::Rng::of(1, 2, 3)))
+            .init_resource::<Struck>()
+            .add_message::<fight::Hit>()
+            .add_systems(Update, (daggers, collect).chain());
+        app
+    }
+
+    fn thrown(thrower: Entity, target: Entity) -> Thrown {
+        Thrown {
+            from: Vec2::ZERO,
+            to: Vec2::new(750.0, 0.0),
+            height: 55.0,
+            time: 0.3,
+            flown: 0.0,
+            level: None,
+            thrower,
+            target,
+            art: (3, 1.5),
+            damage: [[2.0, 4.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            times: 1.0,
+            size: 50.0,
+        }
+    }
+
+    #[test]
+    fn a_thrown_dagger_strikes_its_target_and_its_thrower_takes_another_while_its_volley_lasts() {
+        let mut app = app();
+        let hero = app
+            .world_mut()
+            .spawn((
+                crate::hero::Body::standing(),
+                GlobalTransform::from_translation(Vec3::new(300.0, 0.0, 0.0)),
+                Health {
+                    current: 100,
+                    most: 100,
+                    level: 1,
+                },
+            ))
+            .id();
+        let thrower = app.world_mut().spawn(Volley::new(hero, 1)).id();
+        app.world_mut().get_mut::<Volley>(thrower).unwrap().flying = true;
+        let dagger = app
+            .world_mut()
+            .spawn((Transform::default(), thrown(thrower, hero)))
+            .id();
+        // The first update's time is none; then 50 ms a frame along an arc of 0.3 s, which
+        // reaches the hero 300 off by the sum of the sizes, 100, at a fifth of it.
+        for _ in 0..4 {
+            app.update();
+        }
+        let struck = &app.world().resource::<Struck>().0;
+        assert_eq!(struck.len(), 1, "{struck:?}");
+        assert_eq!((struck[0].attacker, struck[0].target), (thrower, hero));
+        assert_eq!((struck[0].art, struck[0].share), (Some(3), 1.5));
+        let fixed = struck[0].fixed.unwrap();
+        assert!((2.0..=4.0).contains(&fixed[0]), "{fixed:?}");
+        assert!(app.world().get_entity(dagger).is_err());
+        // A fresh dagger in its hand, and one more to throw after it.
+        let volley = app.world().get::<Volley>(thrower).unwrap();
+        assert!(!volley.flying && volley.more == 0);
+        assert!((volley.wait - casts::DAGGER_THROWN_AFTER).abs() < 1e-6);
+        assert_eq!(
+            app.world().get::<npcs::Rearms>(thrower),
+            Some(&npcs::Rearms::dagger())
         );
+        // The last flies off past a hero that is gone, and the volley ends at its arc's end.
+        app.world_mut().entity_mut(thrower).remove::<npcs::Rearms>();
+        app.world_mut().get_mut::<Volley>(thrower).unwrap().flying = true;
+        app.world_mut().entity_mut(hero).despawn();
+        let last = app
+            .world_mut()
+            .spawn((Transform::default(), thrown(thrower, hero)))
+            .id();
+        for _ in 0..6 {
+            app.update();
+        }
+        assert!(app.world().get_entity(last).is_err());
+        assert!(app.world().get::<Volley>(thrower).is_none());
+        assert!(app.world().get::<npcs::Rearms>(thrower).is_none());
+        assert_eq!(app.world().resource::<Struck>().0.len(), 1);
     }
 }
