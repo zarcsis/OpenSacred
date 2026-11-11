@@ -410,8 +410,9 @@ fn call_bat(
     }
 }
 
-/// The flags word's bit of a raised dead creature (`+0x1F4` bit `0x2000000`, `0x511088`).
-pub(crate) const RAISED: u32 = 0x200_0000;
+/// The flags word's bit of a raised dead creature (`+0x1F4` bit `0x2000000`, `0x511088`), by
+/// which its body vanishes in black smoke (`bodies`, #2514).
+pub(crate) const RAISED: u32 = opensacred_rules::undead::RAISED_DEAD;
 
 /// Raises the dead creature `corpse` as `master`'s follower (the Vampiress's awakening 1034,
 /// `0x511088`): a creature of its type of `level` where it lies, hired, of the flags' bit

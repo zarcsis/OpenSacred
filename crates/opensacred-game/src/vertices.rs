@@ -128,9 +128,20 @@ impl ModelPoints<'_, '_> {
     /// The points of the model at `root` that a burst of at most 500 particles takes
     /// (`0x767FB0`, `opensacred_rules::particles::vertex_picks`), in the world.
     pub(crate) fn picked(&self, root: Entity, meshes: &Assets<Mesh>) -> Vec<Vec3> {
+        self.picked_at_most(root, meshes, opensacred_rules::particles::GENERIC_PARTICLES)
+    }
+
+    /// The points of the model at `root` that a burst of at most `most` particles takes
+    /// (`0x767FB0`, `opensacred_rules::particles::vertex_picks_at_most`), in the world.
+    pub(crate) fn picked_at_most(
+        &self,
+        root: Entity,
+        meshes: &Assets<Mesh>,
+        most: usize,
+    ) -> Vec<Vec3> {
         let model = self.of(root, meshes);
         let counts: Vec<usize> = model.iter().map(Vec::len).collect();
-        opensacred_rules::particles::vertex_picks(&counts)
+        opensacred_rules::particles::vertex_picks_at_most(&counts, most)
             .into_iter()
             .filter_map(|(mesh, vertex)| model.get(mesh)?.get(vertex).copied())
             .collect()

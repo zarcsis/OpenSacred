@@ -295,7 +295,8 @@ Read 2026-11-10 for #2519 by a subagent (**confirmed** by code unless marked oth
 - Not read: the stats' recomputation's reading of the bit (`0x57B68D`) and an AI's test (`0x5409AC`), the alpha test's reference.
 
 `opensacred-game` draws them so since #2519 (`skins::Overlay::Vision`, `models::Pass::Vision`, `opensacred_rules::spells::{VISIONS, vision, vision_grey}`): a creature of the types 223 and 707 wears the look for good, each of its meshes in a material of its own texture in the grey of the real clock, times twice the vision's texture taken by its normals in the model's frame as the water form's (`standard.wesl`), in the frame's sRGB values, unlit, added, its depth written; **seen** 2026-11-10, the Daemon's vision at the gate a golden translucent figure with its cells, as the original's.
-Not followed: `CreateNPC`'s and `SetNPCState`'s tag `0xA1`, and the visions' bodies' end (#2514).
+Not followed: `CreateNPC`'s and `SetNPCState`'s tag `0xA1`.
+The visions' bodies end at once in blue-white sparks since #2514 (docs/re/fight.md, "The bodies' end").
 
 ## What the game does with it
 

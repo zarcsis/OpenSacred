@@ -506,6 +506,9 @@ struct ClipNames {
     /// Its dying clips, the slots 173 and 174 (`*_DYING_A`, `*_DYING_B`; **hypothesis** for the
     /// dying action 6's choice).
     dying: Vec<String>,
+    /// Whether its model has no clip in the slot 173, by which its body vanishes at its first
+    /// tick of lying (`0x426250(type, 0xAD)`, `0x4117B0`; `bodies`, #2514).
+    unfallen: bool,
     /// The fidgets' slots 180 to 192 that its model has, bit `i` the slot `180 + i`
     /// (`minds::Mind::fun`), and its attack's first slot, which a fidget plays where it takes
     /// none of them (`0x5467A0(4)`, #1364).
@@ -557,6 +560,7 @@ impl ClipNames {
                 .iter()
                 .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
                 .collect(),
+            unfallen: slots.slot(173).is_none(),
             talk: slots.talk().map(str::to_owned),
             fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
             fun_slots: (0..minds::FUN_COUNT)
@@ -1422,6 +1426,12 @@ impl Npc {
             minds::Fidget::Fun(slot) => slot,
             minds::Fidget::Attack => self.names.attack_slot,
         }
+    }
+
+    /// Whether its model has a dying clip in the slot 173 (`0x426250(type, 0xAD)`, `0x4117B0`),
+    /// without which its body vanishes at its first tick of lying (`bodies`, #2514).
+    pub(crate) fn falls(&self) -> bool {
+        !self.names.unfallen
     }
 
     pub fn pace(&self) -> f32 {
@@ -4033,6 +4043,12 @@ struct Arming {
 }
 
 impl Npcs {
+    /// The `Creature.pak` flags of the type `creature` (`+6`, `0x43AD80`), 0 for a type without
+    /// a model: the ghosts' `0x20` (`opensacred_rules::undead::GHOST_FLAG`).
+    pub(crate) fn table_flags(&self, creature: u32) -> u8 {
+        self.types.get(&creature).map_or(0, |kind| kind.flags)
+    }
+
     /// The `Creature.pak` walk and run speeds of the type `creature` (`+0x26`, `+0x28`).
     pub(crate) fn speeds_of(&self, creature: u32) -> [u16; 2] {
         self.makers

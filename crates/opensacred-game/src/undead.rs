@@ -325,7 +325,7 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
 /// What becomes of each creature of the class 5 that lies at its last death (`0x541653`'s cases,
 /// #1260): an undead that rises burns away a moment later ([`burn`]), a skeleton warrior, a
 /// zombie or a ghoul bursts at once, with `CHAR_SPLASH` at it (`0x4E8DA0`), and any other
-/// vanishes at once in a dust that leaves its bones ([`bones`], 781's variant 4, `puffs`,
+/// vanishes at once in a dust that leaves its vertices (781's variant 4, `bodies::ends`,
 /// #1261); the fire ghoul burns away once its clip has played ([`burn_after_clip`]). One that
 /// rises lies on. A creature of another class that [`Bursts`] bursts as they do, in its type's gib
 /// set's colour.
@@ -337,10 +337,8 @@ fn last(
     mut commands: Commands,
     lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform, Has<Bursts>), Added<Corpse>>,
     settings: Option<Res<crate::settings::Settings>>,
-    (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
-    (mut sounds, mut dice, gibs, mut thrown): (
+    (mut sounds, gibs, mut thrown): (
         MessageWriter<Play>,
-        ResMut<Dice>,
         Option<Res<crate::blood_fountains::Gibs>>,
         MessageWriter<crate::body_parts::Burst>,
     ),
@@ -385,13 +383,11 @@ fn last(
             }
             End::Vanishes => {
                 debug!("undead: {entity}, a {}, vanishes", corpse.creature);
-                let origin = at.translation();
-                let points = bones(entity, origin, (&children, &names, &places));
-                crate::puffs::spawn(
+                crate::bodies::ends(
                     &mut commands,
-                    particles::dust(&points, &mut dice.0),
-                    origin,
-                    None,
+                    entity,
+                    at.translation(),
+                    particles::BodyEnd::Dust,
                 );
                 gone(&mut commands, entity);
             }
@@ -399,9 +395,10 @@ fn last(
     }
 }
 
-/// The points that a corpse's dust leaves, in the frame of a burst at `origin` (`puffs::local`):
-/// its skeleton's bones (`Bip01 …`), where the original takes its model's skinned vertices
-/// (`0x44FC30`, docs/decisions/drawing.md, "Undead's dust from the bones"), else its root.
+/// The points that a corpse's sparks leave as it burns, in the frame of a burst at `origin`
+/// (`puffs::local`): its skeleton's bones (`Bip01 …`), where the original takes its model's
+/// skinned vertices (`0x44FC30`, docs/decisions/drawing.md, "Undead's sparks from the bones"),
+/// else its root.
 pub(crate) fn bones(
     corpse: Entity,
     origin: Vec3,

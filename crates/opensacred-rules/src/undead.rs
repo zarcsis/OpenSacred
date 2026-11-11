@@ -52,6 +52,87 @@ pub const FIRST_LYING_TICK: f32 = 0.25;
 /// lying step, #2501).
 pub const LIES_ON: u32 = 0x2000;
 
+/// The flags word's bit of a dead creature that the Vampiress raised (`+0x1F4` bit `0x2000000`,
+/// `0x511088`).
+pub const RAISED_DEAD: u32 = 0x200_0000;
+/// `Creature.pak`'s flag of the ghosts (`0x43AD80`, its byte `+6` bit `0x20`).
+pub const GHOST_FLAG: u8 = 0x20;
+/// The dummy, whose body is hidden at once with no effect (`0x540799`).
+pub const DUMMY: u32 = 1249;
+/// The crow.
+pub const CROW: u32 = 513;
+/// The type whose body on water or lava lies its time (`0x55002F`).
+const KEPT_ON_LIQUIDS: u32 = 700;
+/// The natures of the ground on which a body vanishes at once (`0x54FFC0`, the cell's `+0x1F`
+/// high nibble): `LAVA`, `WATERA` and `WATERB`.
+const LIQUIDS: [u8; 3] = [6, 9, 10];
+
+/// What a body is, for its end at its first tick of lying (`0x5404A8`–`0x540D52`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Lying {
+    /// Its type.
+    pub creature: u32,
+    /// Its flags word (`+0x1F4`).
+    pub flags: u32,
+    /// Its type's `Creature.pak` flags.
+    pub table: u8,
+    /// Whether it was a vision (`+0x14` bit `0x200000`: the types 223 and 707, `0x52E2E2`).
+    pub vision: bool,
+    /// Whether its model has a clip in the slot 173 (`0x426250(type, 0xAD)`, `0x4117B0`).
+    pub falls: bool,
+    /// The nature of the ground's cell it lies on (its high nibble).
+    pub nature: Option<u8>,
+    /// Whether it is kept from the liquids' end: a player's follower (`+0x251` from 1 to 16), one
+    /// that rises again (`+0x2B7` bit 8), one that talks below 100,000 (`0x549920`) or one for
+    /// which a script's entry stands (`0x4A71F0`).
+    pub kept: bool,
+    /// Whether an effect keyed by the flesh to stone holds on it (`0x582B00(25)`).
+    pub stoned: bool,
+}
+
+/// How a body ends at its first tick of lying rather than lying its time (`0x5404A8`–
+/// `0x540D52`, #2514), each but [`AtOnce::Hidden`] by a 781 at its place (`TYPE_FX_PUZZLE_
+/// SOLVED_V`) of a variant ([`crate::particles::BodyEnd`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtOnce {
+    /// The Vampiress's raised dead: black smoke at its vertices (the variant 1, `0x5404A8`).
+    Smoke,
+    /// The dummy: hidden, with no effect (`0x540799`).
+    Hidden,
+    /// Blue-white sparks at its vertices (the variant 0, `0x540971`): a ghost, a vision, the
+    /// crow, a type without a dying clip in the slot 173, a body on water or
+    /// lava that nothing keeps (`0x54FFC0`).
+    Sparks,
+    /// A body turned to stone: pale green dust at its vertices (the variant 5, `0x540CEE`).
+    Stone,
+}
+
+/// How the body `body` ends at its first tick of lying, the original's order of tests, if it does
+/// not lie its time; then a hold still keeps it lying ([`crate::undead::LIES_ON`], a script's
+/// entry, a dialogue below 60,000), tested again at each tick. The medium spider's goes before
+/// these ([`MEDIUM_SPIDER`]), and the class 5's and the fire ghoul's end their own ways.
+pub fn at_once(body: &Lying) -> Option<AtOnce> {
+    if body.flags & RAISED_DEAD != 0 {
+        return Some(AtOnce::Smoke);
+    }
+    if body.creature == DUMMY {
+        return Some(AtOnce::Hidden);
+    }
+    let on_liquid = body.nature.is_some_and(|nature| LIQUIDS.contains(&nature))
+        && !body.kept
+        && body.flags & LIES_ON == 0
+        && body.creature != KEPT_ON_LIQUIDS;
+    if body.table & GHOST_FLAG != 0
+        || body.vision
+        || body.creature == CROW
+        || !body.falls
+        || on_liquid
+    {
+        return Some(AtOnce::Sparks);
+    }
+    body.stoned.then_some(AtOnce::Stone)
+}
+
 /// The magic skeletons, which drain their killer.
 const SKELETONS: [u32; 3] = [48, 80, 81];
 /// The undead goblins.
@@ -297,6 +378,83 @@ pub fn exorcised(value: f32, params: [f32; 3], roll: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_ends_at_once_by_the_originals_order_of_tests() {
+        let goblin = Lying {
+            creature: 76,
+            falls: true,
+            nature: Some(4),
+            ..Lying::default()
+        };
+        assert_eq!(at_once(&goblin), None);
+        // A raised dead creature smokes whatever else it is; the dummy is a ghost, but hidden.
+        let raised = Lying {
+            flags: RAISED_DEAD,
+            table: GHOST_FLAG,
+            ..goblin
+        };
+        assert_eq!(at_once(&raised), Some(AtOnce::Smoke));
+        let dummy = Lying {
+            creature: DUMMY,
+            table: GHOST_FLAG,
+            ..goblin
+        };
+        assert_eq!(at_once(&dummy), Some(AtOnce::Hidden));
+        for sparks in [
+            Lying {
+                table: GHOST_FLAG,
+                ..goblin
+            },
+            Lying {
+                vision: true,
+                ..goblin
+            },
+            Lying {
+                creature: CROW,
+                ..goblin
+            },
+            Lying {
+                falls: false,
+                ..goblin
+            },
+            Lying {
+                nature: Some(9),
+                stoned: true,
+                ..goblin
+            },
+        ] {
+            assert_eq!(at_once(&sparks), Some(AtOnce::Sparks), "{sparks:?}");
+        }
+        // On lava or water, unless something keeps it.
+        for kept in [
+            Lying {
+                kept: true,
+                ..goblin
+            },
+            Lying {
+                flags: LIES_ON,
+                ..goblin
+            },
+            Lying {
+                creature: KEPT_ON_LIQUIDS,
+                ..goblin
+            },
+        ] {
+            let on_lava = Lying {
+                nature: Some(6),
+                ..kept
+            };
+            assert_eq!(at_once(&on_lava), None, "{on_lava:?}");
+        }
+        assert_eq!(
+            at_once(&Lying {
+                stoned: true,
+                ..goblin
+            }),
+            Some(AtOnce::Stone)
+        );
+    }
 
     #[test]
     fn an_exorcism_lays_the_undead_to_rest_below_its_chance() {

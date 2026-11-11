@@ -73,8 +73,9 @@ use crate::{arts, drops, making};
 /// version 8 a stable's horse's trader (#2300); the version 9 a fill's rider on its horse (#2288);
 /// the version 10 the hero's own horse's bridle (#2316); the version 11 the items' names that a
 /// carried hero's file keeps (#2390); the version 12 a game's script tree (#2472); the version 13
-/// a creature's defending slot, its parry's (#2487).
-pub const VERSION: u32 = 13;
+/// a creature's defending slot, its parry's (#2487); the version 14 whether its model has a dying
+/// clip in the slot 173 (#2514).
+pub const VERSION: u32 = 14;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1143,7 +1144,7 @@ mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (13, 0x8F7A_CE7D_501A_5DA1),
+            (14, 0x16F1_9572_BF3E_D209),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
