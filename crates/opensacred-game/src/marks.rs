@@ -26,11 +26,12 @@ struct Unmade {
     kind: Kind,
 }
 
-/// What is laid: a mark of its seconds before it fades and its half side, or a body's puddle.
+/// What is laid: a mark of its seconds before it fades and its half side, or a body's puddle,
+/// of its body.
 #[derive(Clone, Copy, Debug)]
 enum Kind {
     Mark { hold: f32, half: f32 },
-    Puddle,
+    Puddle(Entity),
 }
 
 /// What shows: a mark and its half side, or a puddle.
@@ -70,6 +71,8 @@ struct Shown {
     look: Look,
     turn: f32,
     mesh: Handle<Mesh>,
+    /// A puddle's body, whose model it lies under while the body lies (#2586).
+    body: Option<Entity>,
 }
 
 /// The marks' materials by their textures, laid over by their alpha; none where the texture is
@@ -103,12 +106,16 @@ pub(crate) fn lay(
     ));
 }
 
-/// Lays a body's blood puddle of `texture` on the ground at `place` (907, `0x76E150`).
-pub(crate) fn puddle(commands: &mut Commands, place: Vec3, texture: &'static str) {
+/// Lays the blood puddle of `body` of `texture` on the ground at `place` (907, `0x76E150`).
+pub(crate) fn puddle(
+    commands: &mut Commands,
+    (place, body): (Vec3, Entity),
+    texture: &'static str,
+) {
     commands.spawn((
         Unmade {
             texture,
-            kind: Kind::Puddle,
+            kind: Kind::Puddle(body),
         },
         Transform::from_translation(place),
         DespawnOnExit(AppState::InGame),
@@ -153,7 +160,11 @@ fn make(
                     roll * std::f32::consts::TAU,
                 )
             }
-            Kind::Puddle => (Look::Puddle(Puddle::default()), 0.0),
+            Kind::Puddle(_) => (Look::Puddle(Puddle::default()), 0.0),
+        };
+        let body = match unmade.kind {
+            Kind::Puddle(body) => Some(body),
+            Kind::Mark { .. } => None,
         };
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
@@ -162,6 +173,7 @@ fn make(
                 look,
                 turn,
                 mesh: mesh.clone(),
+                body,
             },
             Visibility::default(),
         ));
@@ -218,9 +230,16 @@ fn run(
             [1.0, 1.0, 1.0, alpha],
         );
         if let Some(mut mesh) = meshes.get_mut(&mark.mesh) {
-            // At its object's place in the order, as the original draws the system (#2188).
+            // At its object's place in the order, as the original draws the system (#2188); a
+            // puddle just behind its body while the body lies, which covers it as the original's
+            // models of their true depths cover its flat quad, whatever cells the two take
+            // (#2586).
             let origin = place.translation();
-            quads.in_order(orders.at(origin), origin);
+            let order = mark
+                .body
+                .and_then(|body| orders.behind(body))
+                .or_else(|| orders.at(origin));
+            quads.in_order(order, origin);
             quads.into_mesh(&mut mesh);
         }
     }

@@ -303,7 +303,7 @@ fn puddle(
             "bodies: {entity}, a {}, lays a puddle of {texture} under its {name}",
             corpse.creature
         );
-        crate::marks::puddle(&mut commands, place, texture);
+        crate::marks::puddle(&mut commands, (place, entity), texture);
     }
 }
 
