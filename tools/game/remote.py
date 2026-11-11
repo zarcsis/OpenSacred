@@ -110,6 +110,11 @@ def lines(snapshot):
     if snapshot.get('window'):
         width, height, mode = snapshot['window']
         head += f' | {width}x{height} {mode}'
+    if snapshot.get('seed') is not None:
+        head += f" | seed {snapshot['seed']}"
+        game = snapshot.get('game_seed')
+        if game is not None and game != snapshot['seed']:
+            head += f' game {game}'
     out = [head, f"{snapshot['fps']:6.1f} fps {snapshot['frame_ms']:6.2f} ms  slowest {snapshot['slowest_ms']:6.2f} ms  "
                  f"{snapshot['state']}"]
     process = snapshot.get('process')
