@@ -793,6 +793,9 @@ pub enum OwnMark {
     /// The Fetzers (202, 344, `0x21A`): a phase chosen once, `0x217` or `0x21B`, then the Dark
     /// Elf's `Attacke` by its roll (`0x4D9A62`, `0x4DA90D`, `0x4DA9EC`, #2568).
     Fetzer,
+    /// The brain-footers (203, 351, 352, `0x219`): their stare at the hero, which lengthens and
+    /// freezes the regeneration of its arts (`0x4D9C2F`, #2567).
+    BrainFooter,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -813,6 +816,7 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         204 | 350 => OwnMark::HellGolem,
         247 | 354 => OwnMark::ArtQueen,
         202 | 344 => OwnMark::Fetzer,
+        203 | 351 | 352 => OwnMark::BrainFooter,
         _ => return None,
     })
 }
@@ -852,6 +856,94 @@ pub const FETZER_344_B: u32 = 30;
 pub const FETZERS_FAST_B: u32 = 15;
 /// The decisions a Fetzer stands as it chooses (`+0x129` 1).
 pub const FETZER_STANDS: u8 = 1;
+
+/// The brain-footers' stare (`0x4D9C2F`, #2567): its roll's `b`, the decisions it stands after
+/// it or its failure, how far ahead of the real clock a deadline it waits for may stand, and the
+/// seconds of its drain and its freeze by its strength `w`, `10·w`.
+pub const STARE_B: u32 = 30;
+pub const STARE_STANDS: u8 = 15;
+pub const STARE_AHEAD: f64 = 100.0;
+pub const STARE_SECONDS: f32 = 10.0;
+/// The bone it stares from (24) and the bones of its target it takes one of (`rand() % 50`),
+/// by `0x44CA30`; the brain-footer 203's sound at itself (`SPELL_LASER`, 2074).
+pub const STARE_BONE: usize = 24;
+pub const STARE_BONES: u32 = 50;
+pub const STARE_SOUND: u32 = 2074;
+/// The effect that freezes the regeneration of its bearer's arts and combos while it holds
+/// (`0x582D50` of 57 sets `+0x200` bit `0x1000000`, which `0x562730` takes, #2567).
+pub const FREEZES_REGENERATION: u32 = 57;
+
+/// What a brain-footer's stare drains, by its type (`0x4D9C2F`): the beam's variant (203 red 10,
+/// 351 blue 11, 352 yellow 12), the effect 57's whole value (2, 1, 3), and the kinds of arts
+/// whose regeneration it lengthens: the spells, the weapon arts and the combos.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stare {
+    pub variant: u8,
+    pub whole: i32,
+    pub spells: bool,
+    pub weapon_arts: bool,
+    pub combos: bool,
+}
+
+/// The stare of a brain-footer of type `creature`, none for any other type.
+pub fn stare(creature: u32) -> Option<Stare> {
+    Some(match creature {
+        203 => Stare {
+            variant: 10,
+            whole: 2,
+            spells: true,
+            weapon_arts: true,
+            combos: true,
+        },
+        351 => Stare {
+            variant: 11,
+            whole: 1,
+            spells: true,
+            weapon_arts: false,
+            combos: true,
+        },
+        352 => Stare {
+            variant: 12,
+            whole: 3,
+            spells: false,
+            weapon_arts: true,
+            combos: true,
+        },
+        _ => return None,
+    })
+}
+
+/// The strength `w` of a brain-footer's stare by the levels (`0x4D9C2F`, the weighing of
+/// `0x551530` inlined): `r = (E + 9)/(H + 9)` of its level on bronze's scale `E` against the
+/// hero's `H`, against the threshold `t` (`(H + 6)/(H + 9)` up to level 10, `(H − 6)/(H + 9)`
+/// from 92, else `anteil`); none where `r` is at most `t` or its share of the way to `voll` at
+/// most 0.04; `0.1 + 0.2·(r − t)/(voll − t)` below `voll`, `0.3 + 0.4·(r − voll)/(upper − voll)`
+/// up to `upper`, 1 above.
+pub fn stare_strength(
+    level_on_bronze: u32,
+    hero: u32,
+    (anteil, voll, upper): (f32, f32, f32),
+) -> Option<f32> {
+    let e = f32::from(u16::try_from(level_on_bronze).unwrap_or(u16::MAX));
+    let h = f32::from(u16::try_from(hero).unwrap_or(u16::MAX));
+    let r = (e + 9.0) / (h + 9.0);
+    let t = match hero {
+        0..=10 => (h + 6.0) / (h + 9.0),
+        92.. => (h - 6.0) / (h + 9.0),
+        _ => anteil,
+    };
+    let share = (r - t) / (voll - t);
+    if r <= t || share <= 0.04 {
+        return None;
+    }
+    Some(if r < voll {
+        0.1 + 0.2 * share
+    } else if r <= upper {
+        0.3 + 0.4 * (r - voll) / (upper - voll)
+    } else {
+        1.0
+    })
+}
 
 /// The difficulty's `p` of the specials' rolls, bronze's first.
 const SPECIAL_P: [u32; 5] = [20, 60, 80, 100, 130];

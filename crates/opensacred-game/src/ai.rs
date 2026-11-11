@@ -1178,6 +1178,17 @@ fn pursue(
                         .iter()
                         .find(|&&other| other != entity)
                         .map(|&other| attacked == Some(other)),
+                    // A brain-footer's strength by its level on bronze's scale against the
+                    // hero's (#2567).
+                    stare: opensacred_rules::casts::stare(mind.creature)
+                        .and(rules.as_deref())
+                        .and_then(|rules| {
+                            opensacred_rules::casts::stare_strength(
+                                rules.on_bronze(mind.level),
+                                hero_level,
+                                rules.weighing_terms(),
+                            )
+                        }),
                 };
                 mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
             });
@@ -1538,6 +1549,15 @@ fn pursue(
                     Walk::to(to, way.level, mind.speed)
                 };
                 commands.entity(entity).insert(walk.within(STROLL_WITHIN));
+            }
+            Pursues::Stares { strength } => {
+                debug!("ai: {entity} stares at {aimed} of the strength {strength:.2}");
+                commands.entity(entity).remove::<(Walk, Strikes)>();
+                let creature = mind.creature;
+                let roll = minds.rng.below(opensacred_rules::casts::STARE_BONES);
+                commands.queue(move |world: &mut World| {
+                    crate::creature_arts::stare(world, (entity, aimed), (creature, strength), roll);
+                });
             }
             Pursues::MakesArt { art } => {
                 debug!("ai: {entity} is ordered the art {art} at {aimed}");

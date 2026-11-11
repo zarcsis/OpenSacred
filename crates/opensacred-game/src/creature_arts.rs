@@ -169,6 +169,87 @@ fn end(mut commands: Commands, ended: Query<Entity, (With<Makes>, Without<Script
     }
 }
 
+/// How long the stare burns its target's sight (816, `FX_BURNINGLIGHT`): the whole seconds of
+/// its starer's AI timer, at least 0.5 (`0x4DA3A0`; **estimate** of 2 for the timer's).
+const STARE_BURNS: f32 = 2.0;
+
+/// A brain-footer's stare at `target` of the strength `strength` (`0x4D9C2F`, #2567): its beam
+/// of its type's variant from its bone 24 to its target's bone of `bone_roll` (the bones' table,
+/// else their places), the brain-footer 203's sound, every art of its kinds of the hero's and
+/// its combos `10·w` seconds further from ready (`0x562470`), the effect 57 for as long, which
+/// freezes their regeneration, and its target's sight burning.
+pub(crate) fn stare(
+    world: &mut World,
+    (starer, target): (Entity, Entity),
+    (creature, strength): (u32, f32),
+    bone_roll: u32,
+) {
+    let Some(kind) = casts::stare(creature) else {
+        return;
+    };
+    let seconds = casts::STARE_SECONDS * strength;
+    let bones = &crate::beams::BONES;
+    let from = std::slice::from_ref(&bones[casts::STARE_BONE]);
+    let to_bone = usize::try_from(bone_roll).unwrap_or(0).min(bones.len() - 1);
+    let to = std::slice::from_ref(&bones[to_bone]);
+    let at = world
+        .get::<GlobalTransform>(starer)
+        .map(GlobalTransform::translation);
+    {
+        let mut commands = world.commands();
+        crate::beams::lay(
+            &mut commands,
+            (
+                crate::beams::End::Bone(starer, from, 0.0),
+                crate::beams::End::Bone(target, to, 0.0),
+            ),
+            kind.variant,
+        );
+        crate::holding_sights::burn(&mut commands, target, STARE_BURNS);
+        let effect = opensacred_rules::fight::Effect {
+            id: casts::FREEZES_REGENERATION,
+            whole: kind.whole,
+            value: 0.0,
+            art: 0,
+            level: 0,
+        };
+        commands
+            .entity(target)
+            .entry::<crate::effects::Effects>()
+            .or_default()
+            .and_modify(move |mut effects| effects.add(effect, seconds));
+    }
+    if creature == 203
+        && let Some(at) = at
+    {
+        world.write_message(crate::sfx::PlayAt {
+            sound: crate::sfx::Of::Id(casts::STARE_SOUND),
+            point: at,
+            rate: (1.0, crate::sfx::Roll::None),
+        });
+    }
+    // The drain is the hero's alone, its arts' and its combos' regeneration.
+    if world.get::<crate::hero::Body>(target).is_none() {
+        return;
+    }
+    if let Some(mut arts) = world.get_resource_mut::<crate::arts::HeroArts>() {
+        use opensacred_rules::arts::Table;
+        for (drains, table) in [
+            (kind.spells, Table::Spells),
+            (kind.weapon_arts, Table::WeaponArts),
+        ] {
+            if drains {
+                arts.arts.start(seconds, table, None, 0);
+            }
+        }
+    }
+    if kind.combos
+        && let Some(mut combos) = world.get_resource_mut::<crate::combos::HeroCombos>()
+    {
+        opensacred_rules::combos::used(&mut combos.0, None, seconds);
+    }
+}
+
 /// The creatures' weapon arts.
 pub struct CreatureArtsPlugin;
 

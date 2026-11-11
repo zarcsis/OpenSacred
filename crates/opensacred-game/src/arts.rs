@@ -214,7 +214,13 @@ fn regenerate(
         .unwrap_or_default();
     let speeds =
         opensacred_rules::fight::arts_speeds_with(base, experience.level, &holds, &effects);
-    arts.arts.regenerate(seconds, speeds);
+    // Not while the effect 57 holds, a brain-footer's stare's (`0x562730`, #2567).
+    let frozen = effects
+        .iter()
+        .any(|effect| effect.id == opensacred_rules::casts::FREEZES_REGENERATION);
+    if !frozen {
+        arts.arts.regenerate(seconds, speeds);
+    }
     arts.speeds = speeds;
     // The skills with the bonuses of the items it holds and wears (#1717), as they change.
     let skills = crate::fight::hero_skills(base, experience.level, &holds);
