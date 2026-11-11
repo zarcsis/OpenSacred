@@ -955,6 +955,15 @@ impl InOrder {
         vertex - iso::forward() * self.shift(vertex, origin).min(0.0)
     }
 
+    /// `vertex`, from a mesh's origin `origin`, laid back along the line of sight to `by` units
+    /// behind the order's depth where it lies nearer than that ([`Self::no_nearer`] with a
+    /// margin): what the original draws before a quad of its own system at the order's depth,
+    /// that quad's depth not tested, so that it never covers it (a stargate's window under its
+    /// whirls, #2539).
+    pub(crate) fn behind(&self, vertex: Vec3, origin: Vec3, by: f32) -> Vec3 {
+        vertex - iso::forward() * (self.shift(vertex, origin) - by).min(0.0)
+    }
+
     /// `vertex`, from a mesh's origin `origin`, laid along the line of sight at the order's depth
     /// ([`Quads::at_order`]).
     pub(crate) fn on(&self, vertex: Vec3, origin: Vec3) -> Vec3 {

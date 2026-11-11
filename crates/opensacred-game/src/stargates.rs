@@ -5,7 +5,8 @@
 //! turn about it, drawn with their depth not tested; it grows from nothing as it is made, and
 //! lights the ground about it by night (`opensacred_rules::particles::Stargate`). None darkens by
 //! night. All lie at the gate's place in the original's order of drawing (`fx::Orders::at`,
-//! #2220): the window no nearer than it, the whirls at it whole, over what the order draws before
+//! #2220): the window no nearer than a little behind it, the whirls at it whole and after it
+//! (#2539), over what the order draws before
 //! the gate and under what it draws after (`fx::Quads::at_order`).
 
 use bevy::asset::RenderAssetUsages;
@@ -37,6 +38,19 @@ impl Gate {
         }
     }
 }
+
+/// How far behind the gate's depth in the order its window lies at the nearest, in world units:
+/// where its ripples bring it toward the viewer, the window clamped onto the whirls' own depth,
+/// written over its whole rectangle, hid them in a band about its picture once in each ripple's
+/// 1.26 s (#2539). The depth of a vertex some 150,000 units out is good to some 0.05 units, so
+/// that 0.05 still left a frame or two of each ripple; 0.5 left none in 240 frames, and is
+/// still a hundredth of a cell's depth.
+const UNDER_WHIRLS: f32 = 0.5;
+
+/// How much nearer the whirls sort than the window, and the added whirl than the laid one, in
+/// world units of the blended meshes' distance (`StandardMaterial::depth_bias`; it also biases
+/// their depth by as many of its least steps, which changes nothing that shows).
+const WHIRLS_AFTER: f32 = 1.0;
 
 /// The gates' dice.
 #[derive(Resource)]
@@ -116,12 +130,21 @@ fn show(
                             .map(|image| effects.add(particle_material(image, AlphaMode::Blend)))
                     })
                     .collect();
+                // The whirls after the window, the laid one first, as the original draws them
+                // (`0x780790`): all of a gate stand at its one place, so that the blended meshes'
+                // sort by their distance ties and drew them in either order, the window over the
+                // whirls once in a while (#2539).
                 let [laid, added] = particles::STARGATE_WHIRLS[kind];
+                let mut whirl = |name, alpha_mode, nearer| {
+                    texture(name).map(|image| {
+                        let mut material = particle_material(image, alpha_mode);
+                        material.base.depth_bias = nearer;
+                        effects.add(material)
+                    })
+                };
                 let whirls = [
-                    texture(laid)
-                        .map(|image| effects.add(particle_material(image, AlphaMode::Blend))),
-                    texture(added)
-                        .map(|image| effects.add(particle_material(image, AlphaMode::Add))),
+                    whirl(laid, AlphaMode::Blend, WHIRLS_AFTER),
+                    whirl(added, AlphaMode::Add, 2.0 * WHIRLS_AFTER),
                 ];
                 Materials { pictures, whirls }
             })
@@ -222,7 +245,7 @@ fn turn(
                         .map(|vertex| {
                             let point = at(vertex.place);
                             order
-                                .map_or(point, |order| order.no_nearer(point, origin))
+                                .map_or(point, |order| order.behind(point, origin, UNDER_WHIRLS))
                                 .to_array()
                         })
                         .collect::<Vec<_>>(),
