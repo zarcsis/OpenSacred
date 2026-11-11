@@ -116,14 +116,15 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the hero's level, its health and its most (#292) and its experience (#283);
   * the hero's gold, its combat arts still regenerating, the weather's levels and the drops nearest it;
   * where the bar's compass points (#2403): the main quest's target and the side quest's, each its quest, its cell and the creature's name in the scripts where the target is one;
-  * the version, the GPU adapter and backend, the window's size and mode.
+  * the version, the GPU adapter and backend, the window's size and mode;
+  * the run's seed of its rolls, and the game's where it differs (a later game of the run, a loaded save), so that a screenshot of a problem carries what `--seed` needs to play the run again (#2590).
 
   Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
   At 3840 × 2160, running across sectors, the overlay shown took 2.3 % of the frame rate (580 frames a second without it, 566 with it, about 0.04 ms a frame).
 * **The log (F12)**: a `tracing` layer keeps the last 1,000 records in a ring with sequence numbers; F12 shows the last 15 at the lower left, warnings yellow and errors red.
   The same records go to `%LOCALAPPDATA%\OpenSacred\logs\opensacred.log` (`$XDG_STATE_HOME` on Linux), a new file each start with the two before kept, so that a crash's log can be read after it; `--log-file` writes another one.
   Done 2026-10-19 (#169): the records are those that Bevy's filter lets through (INFO and above), each line of the file `seconds-since-the-start LEVEL target: message`; the panel takes one line a record, its targets in the game without `opensacred_game::`, and whether it shows is the setting `[debug] log`.
-* **The run's seed**: the rolls that stand for the original's `rand()` take one seed of the run, the clock's as the original's `srand(time())` (docs/re/items.md), which the log's first records tell (`seed: the run's seed is N`) and `--seed N` gives again, so that a run that showed a problem can be played again with the same rolls; each generator mixes it into its own constant, and a game's own rolls (the scripts', the quest book's) the count of the run's games before it too (#1644).
+* **The run's seed**: the rolls that stand for the original's `rand()` take one seed of the run, the clock's as the original's `srand(time())` (docs/re/items.md), which the log's first records tell (`seed: the run's seed is N`), the overlay's first line too (#2590), and `--seed N` gives again, so that a run that showed a problem can be played again with the same rolls; each generator mixes it into its own constant, and a game's own rolls (the scripts', the quest book's) the count of the run's games before it too (#1644).
   The rolls seeded on purpose keep their seeds: the sectors' fills and `CreateNPC`'s levels (docs/decisions/spawning.md) and the containers' (docs/re/containers.md).
   The tests set no seed, which leaves each generator its constant alone.
 
