@@ -250,6 +250,11 @@ pub struct NewGame {
     /// of its class takes (#2362)
     #[arg(long)]
     pub saved: Option<u8>,
+    /// A hero exported to the slot of the choice's pedestals (`exports`, 0 to 7), whose whole
+    /// character, its values, skills, combat arts, items, gold and statistics, the hero of its
+    /// class takes as it stands (#2552)
+    #[arg(long)]
+    pub exported: Option<u8>,
 }
 
 /// The game's difficulty (`0x182EE44`, docs/re/fight.md, "The difficulty"), which its rules take
@@ -970,9 +975,32 @@ fn begin(
     speed: Res<hero::GameSpeed>,
     screen: Res<LoadingScreen>,
     assets: Res<AssetServer>,
+    settings: Option<Res<crate::settings::SettingsFile>>,
     mut games: Local<u64>,
 ) {
     let (shared, sound) = (Arc::clone(&data.0), Arc::clone(&index.0));
+    // The hero the player exported to the slot `NewGame::exported`, whose character the game's
+    // hero takes as it stands (`saves::Import`, #2552).
+    let import = request.0.exported.and_then(|slot| {
+        let dir = crate::exports::directory_of(settings.as_deref())?;
+        match crate::exports::read(&crate::exports::file(&dir, slot)) {
+            Ok((summary, hero)) => {
+                info!(
+                    "game: the exported {} of the slot {slot} comes into the game",
+                    summary.name
+                );
+                Some(crate::saves::Import(Box::new(hero)))
+            }
+            Err(e) => {
+                warn!("game: no exported hero in the slot {slot}: {e:#}");
+                None
+            }
+        }
+    });
+    match import {
+        Some(import) => commands.insert_resource(import),
+        None => commands.remove_resource::<crate::saves::Import>(),
+    }
     let (game, speed) = (request.0.clone(), speed.0);
     let resume = resume.map(|resume| (resume.0.clone(), resume.1.clone()));
     commands.remove_resource::<crate::saves::Resume>();

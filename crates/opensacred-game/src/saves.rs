@@ -164,7 +164,7 @@ pub struct World {
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
 /// directory.
-fn directory(settings: Option<&SettingsFile>) -> Option<PathBuf> {
+pub(crate) fn directory(settings: Option<&SettingsFile>) -> Option<PathBuf> {
     settings
         .and_then(SettingsFile::path)
         .and_then(Path::parent)
@@ -565,6 +565,29 @@ fn restore(world: &mut bevy::prelude::World) {
     };
     let hero = *hero;
     if let Ok(mut entity) = world.get_entity_mut(entity) {
+        entity.insert(hero.effects.clone());
+    }
+    put_character(world, entity, &hero);
+    world.insert_resource(HeroHome(hero.home));
+    world.insert_resource(hero.clock);
+    // The scripts' timers count on from the clock put back, not the minutes across its change.
+    if let Some(mut live) = world.get_non_send_mut::<crate::scripts::Live>() {
+        live.clock_set();
+    }
+    let position = Vec3::new(hero.at.0, 0.0, hero.at.1);
+    if let Err(e) = crate::command::teleport(world, position, Arrival::On(Some(hero.floor))) {
+        warn!("saves: putting the hero back: {e}");
+    }
+    info!("saves: the hero is back");
+    restore_world(world, *kept);
+}
+
+/// Puts the character of `hero` on the hero `entity` (#1095, #2552): its values and health at
+/// its level, its experience and points, combat arts and their slots, combos, pack and weapon
+/// sets, its statistics and wins and the time played, its values made anew with them; not where
+/// it stands, its home, its effects or the clock, which a save puts back and an import does not.
+fn put_character(world: &mut bevy::prelude::World, entity: Entity, hero: &Hero) {
+    if let Ok(mut entity) = world.get_entity_mut(entity) {
         if let Some(mut base) = entity.get_mut::<crate::fight::Base>() {
             base.0 = hero.base;
         }
@@ -573,7 +596,6 @@ fn restore(world: &mut bevy::prelude::World) {
             health.current = hero.health;
             health.level = hero.experience.level;
         }
-        entity.insert(hero.effects);
     }
     // The taskbar's "+" as the hero's points left it (`0x585260`, #1992).
     world.insert_resource(crate::points::Plus::loaded(&hero.experience));
@@ -581,35 +603,45 @@ fn restore(world: &mut bevy::prelude::World) {
     // Put back, not gained: no line of it over the hero.
     world.insert_resource(crate::rewards::Unearned(true));
     if let Some(mut arts) = world.get_resource_mut::<arts::HeroArts>() {
-        arts.arts = hero.arts;
+        arts.arts = hero.arts.clone();
     }
-    world.insert_resource(hero.slots);
+    world.insert_resource(hero.slots.clone());
     world.insert_resource(making::Selected(hero.selected));
-    world.insert_resource(hero.combos);
+    world.insert_resource(hero.combos.clone());
     if let Some(mut pack) = world.get_resource_mut::<Pack>() {
-        pack.restore(hero.pack);
+        pack.restore(hero.pack.clone());
     }
-    world.insert_resource(hero.sets);
-    world.insert_resource(HeroHome(hero.home));
+    world.insert_resource(hero.sets.clone());
     world.insert_resource(hero.tally);
-    world.insert_resource(hero.kills);
-    world.insert_resource(hero.history);
+    world.insert_resource(hero.kills.clone());
+    world.insert_resource(hero.history.clone());
     world.insert_resource(hero.wins);
     world.insert_resource(drops::Played::of(hero.played));
-    world.insert_resource(hero.clock);
-    // The scripts' timers count on from the clock put back, not the minutes across its change.
-    if let Some(mut live) = world.get_non_send_mut::<crate::scripts::Live>() {
-        live.clock_set();
-    }
     if let Err(e) = world.run_system_cached(refit) {
         warn!("saves: making the hero's values anew: {e}");
     }
-    let position = Vec3::new(hero.at.0, 0.0, hero.at.1);
-    if let Err(e) = crate::command::teleport(world, position, Arrival::On(Some(hero.floor))) {
-        warn!("saves: putting the hero back: {e}");
-    }
-    info!("saves: the hero is back");
-    restore_world(world, *kept);
+}
+
+/// An exported hero to put into the game once its hero stands ([`import`], #2552).
+#[derive(Resource)]
+pub struct Import(pub Box<Hero>);
+
+/// Puts an exported hero's character on the game's hero once it stands (`IMPORT_DO`'s hero's
+/// file over the hero of its class, `0x70DC20`; docs/re/underworld.md), where the game's start
+/// placed it, its clock the game's own.
+fn import(world: &mut bevy::prelude::World) {
+    let mut heroes = world.query_filtered::<Entity, With<Body>>();
+    let Some(entity) = heroes.iter(world).next() else {
+        return;
+    };
+    let Some(Import(hero)) = world.remove_resource::<Import>() else {
+        return;
+    };
+    put_character(world, entity, &hero);
+    info!(
+        "saves: the exported hero stands, of level {}",
+        hero.experience.level
+    );
 }
 
 /// Puts a loaded save's world back after the resets of a game's start, its sectors' creatures put
@@ -875,6 +907,14 @@ impl Plugin for SavesPlugin {
                     .after(Step::HeroSpawn)
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Restore>)
+                    .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
+            )
+            .add_systems(
+                Update,
+                import
+                    .after(Step::HeroSpawn)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(resource_exists::<Import>)
                     .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
             )
             // Not while a load puts its game back, whose hero a save would not hold yet.

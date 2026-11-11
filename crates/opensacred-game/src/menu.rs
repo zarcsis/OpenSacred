@@ -37,6 +37,8 @@ pub enum Screen {
     Underworld,
     /// The options window (`options`, #2340).
     Options,
+    /// The Ancaria campaign's import of a saved hero (`choice`, #2552).
+    Import,
 }
 
 /// What an item of a menu does.
@@ -138,7 +140,9 @@ fn rows(screen: Screen, movies: &Movies) -> Vec<(Item, u8)> {
             rows.push((Item::Back, back));
             rows
         }
-        Screen::Heroes | Screen::Underworld | Screen::Load | Screen::Options => Vec::new(),
+        Screen::Heroes | Screen::Underworld | Screen::Import | Screen::Load | Screen::Options => {
+            Vec::new()
+        }
     }
 }
 
@@ -551,7 +555,7 @@ fn act(
 }
 
 /// The arrows move the choice among the items that do anything, Enter does it, Esc goes back from
-/// a submenu or the heroes to the main menu.
+/// a submenu or the heroes to the main menu, from the import to the classes.
 fn keys(
     mut commands: Commands,
     keys: crate::controls::Keys,
@@ -561,9 +565,13 @@ fn keys(
     items: Query<(&Item, &Place)>,
 ) {
     if keys.just_pressed(crate::controls::Action::Back)
-        && screen.is_some_and(|screen| *screen.get() != Screen::Main)
+        && let Some(screen) = screen.filter(|screen| *screen.get() != Screen::Main)
     {
-        next.set(Screen::Main);
+        next.set(if *screen.get() == Screen::Import {
+            Screen::Heroes
+        } else {
+            Screen::Main
+        });
         return;
     }
     let mut places: Vec<usize> = items
