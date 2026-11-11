@@ -22,6 +22,17 @@ pub enum Play {
     Paused,
 }
 
+/// The choice of the hero in its export mode over the paused game (`choice`, #2554; `0x70E8A0`'s
+/// mode 5 while a game runs): the menu over the game's Export shows it, and its Back the menu
+/// again.
+#[derive(SubStates, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[source(Play = Play::Paused)]
+pub enum Exporting {
+    #[default]
+    Hidden,
+    Shown,
+}
+
 /// A pause without the pause's menu, for a still frame (the command `pause on`).
 #[derive(Resource, Default)]
 pub struct Still(pub bool);
@@ -122,6 +133,7 @@ pub struct PausePlugin;
 impl Plugin for PausePlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<Play>()
+            .add_sub_state::<Exporting>()
             .init_resource::<Still>()
             .init_resource::<Busy>()
             .init_resource::<Halt>()

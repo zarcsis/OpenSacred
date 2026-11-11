@@ -21,7 +21,6 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 
 use crate::hud;
-use crate::menu::Screen;
 use crate::spawning::Rng;
 
 /// The grid's points a side, and the side of its square in the world.
@@ -266,14 +265,14 @@ pub struct Ripples<'w> {
 }
 
 impl Ripples<'_> {
-    /// The water of `pond` for `screen`, `height` pixels high: its passes and their cameras,
-    /// gone with the screen, and the texture they draw into, for the picture to lay under its
-    /// tiles.
-    pub fn spawn(
+    /// The water of `pond` for the screen of the state `screen`, `height` pixels high: its
+    /// passes and their cameras, gone with the screen, and the texture they draw into, for the
+    /// picture to lay under its tiles.
+    pub fn spawn<S: States>(
         &mut self,
         commands: &mut Commands,
         (images, assets): (&mut Assets<Image>, &AssetServer),
-        (screen, pond): (Screen, &Pond),
+        (screen, pond): (S, &Pond),
         height: f32,
     ) -> Handle<Image> {
         let projection = projection(pond.view);
@@ -313,7 +312,7 @@ impl Ripples<'_> {
         let passes = [true, pond.reflection.is_some(), true];
         let meshes = [(); 3].map(|()| self.meshes.add(grid()));
         commands.spawn((
-            DespawnOnExit(screen),
+            DespawnOnExit(screen.clone()),
             Water {
                 view: pond.view,
                 cave: pond.cave,
@@ -324,7 +323,10 @@ impl Ripples<'_> {
             let layer = RenderLayers::layer(FIRST_LAYER + pass);
             let order = FIRST_ORDER + isize::try_from(pass).unwrap_or(0);
             commands.spawn((
-                DespawnOnExit(screen),
+                DespawnOnExit(screen.clone()),
+                // Its own picture's, which the world's camera's following leaves alone over a
+                // game (the export, #2554).
+                crate::iso::Apart,
                 Camera3d::default(),
                 Camera {
                     order,
@@ -345,7 +347,7 @@ impl Ripples<'_> {
             ));
             if passes[pass] {
                 commands.spawn((
-                    DespawnOnExit(screen),
+                    DespawnOnExit(screen.clone()),
                     Mesh3d(mesh),
                     MeshMaterial3d(self.materials.add(material)),
                     Transform::IDENTITY,
