@@ -16,7 +16,8 @@
 //! own meshes into a shadow map, which darkens the ground and the models to the same third of
 //! their light (`soft.wesl`), so that a shadow follows the terrain, falls on other models, and a
 //! model shades itself. The sun lights nothing; its layer ([`SUN_LAYER`]) holds the casters'
-//! meshes alone, so that nothing else casts.
+//! meshes alone, so that nothing else casts, and the world's cameras, the untinted one's effects
+//! on the ground among what they draw (#2605), take it by a layer of their own ([`SUN_VIEW`]).
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
@@ -51,8 +52,13 @@ pub struct Casts;
 pub struct Shadow;
 
 /// The render layer of the sun ([`sun`]) and of the meshes that cast its shadows, which the
-/// world's camera draws besides its own.
+/// world's camera draws by their own layer.
 pub const SUN_LAYER: usize = 30;
+
+/// The render layer of the sun ([`sun`]) and of the cameras that take its shadows, the world's
+/// and the untinted one (`iso::Untinted`), which holds nothing to draw: the untinted camera draws
+/// none of the casters' meshes of [`SUN_LAYER`] by it (#2605).
+pub const SUN_VIEW: usize = 31;
 
 /// The direction of the light of the models' shadows: a point `h` above its ground falls
 /// `(LEAN_X·h, LEAN_Z·h)` from its foot (`shadows.wesl`).
@@ -83,7 +89,7 @@ pub fn sun() -> impl Bundle {
             ..default()
         },
         Transform::IDENTITY.looking_to(LEAN, Vec3::Y),
-        RenderLayers::layer(SUN_LAYER),
+        RenderLayers::from_layers(&[SUN_LAYER, SUN_VIEW]),
         sun_cascade(1.0),
     )
 }
@@ -292,22 +298,34 @@ fn soft(settings: Option<&Settings>) -> bool {
 }
 
 /// The sun casts while the soft shadows are on, its cascade at the camera's zoom; the world's
-/// camera draws its layer.
+/// cameras take its view's layer.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
 fn switch(
     mut commands: Commands,
     settings: Option<Res<Settings>>,
     mut suns: Query<(&mut DirectionalLight, &mut CascadeShadowConfig), With<Sun>>,
     eyes: Query<(Entity, &Projection, Option<&RenderLayers>), crate::iso::Eye>,
+    untinted: Query<(Entity, Option<&RenderLayers>), With<crate::iso::Untinted>>,
 ) {
     let soft = soft(settings.as_deref());
     let mut zoom = 1.0;
-    for (eye, projection, layers) in &eyes {
-        if let Projection::Orthographic(ortho) = projection {
-            zoom = ortho.scale;
-        }
+    let view = RenderLayers::layer(SUN_VIEW);
+    let cameras = eyes
+        .iter()
+        .map(|(eye, projection, layers)| {
+            if let Projection::Orthographic(ortho) = projection {
+                zoom = ortho.scale;
+            }
+            (eye, layers)
+        })
+        .chain(untinted.iter());
+    for (camera, layers) in cameras {
         let layers = layers.cloned().unwrap_or_default();
-        if !layers.intersects(&RenderLayers::layer(SUN_LAYER)) {
-            commands.entity(eye).insert(layers.with(SUN_LAYER));
+        if !layers.intersects(&view) {
+            commands.entity(camera).insert(layers.with(SUN_VIEW));
         }
     }
     for (mut light, mut cascade) in &mut suns {

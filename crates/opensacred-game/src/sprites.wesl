@@ -6,7 +6,8 @@
 // through the depth buffer, then the others (`FRINGE`) blended by their alpha over what lies behind
 // them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
-// A floor's texels take the soft shadows of the sun where its plane lies (`soft.wesl`, #2605).
+// An upper storey's floor's texels and an underlay's, flat on the ground, take the soft shadows of
+// the sun where their plane lies (`soft.wesl`, #2605).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process, soft};
@@ -38,8 +39,8 @@ struct Vertex {
     /// Where the ground point under the floor's point lies in the cells of the floor's part, 0 to
     /// 1 along each axis inside them; −1 for a sprite on no floor.
     @location(7) footprint: vec2<f32>,
-    /// For an upper storey's floor, the height of its plane in world units; `NO_PLANE` for any
-    /// other sprite.
+    /// For an upper storey's floor or an underlay, the height of its plane in world units;
+    /// `NO_PLANE` for any other sprite.
     @location(8) plane: f32,
 };
 
@@ -200,7 +201,8 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     }
     colour.a = 1.0;
 }
-    // A floor's texel in the sun's soft shadows, where its pixel's line of sight meets its plane.
+    // A flat sprite's texel in the sun's soft shadows, where its pixel's line of sight meets its
+    // plane.
     if in.plane > NO_PLANE {
         let sun = soft::lit_on_level(soft::on_pixel(in.position), in.plane, in.position.xy);
         colour = vec4(soft::darkened(colour.rgb, sun), colour.a);
