@@ -35,6 +35,7 @@ Read in the code (**confirmed**) and on the frames of the run (**seen**):
 - No other path of a single player's game writes a hero's file: the writer `0x61CD00` has two callers, the export's action 6 and `0x7F38E0`, which runs only in a network game (`0x182EBEC`) and writes the network's hero into its profile's slot (**confirmed**).
   So the end of a campaign exports nothing: `UI_CHARACTER` is posted only by the main menu's two campaigns' items (`0x713670`), the menu over a game and the screen's own Back (`0x70D6E0`), and no script record opens it (**confirmed** by the references to the name).
 - The cheat console's `loadplayer [N]` (`0x614230`, not in a network game) makes the object 2 again and loads `Save\Hero%.2d.pax` of N, 6 where N is not given (**confirmed** by code; not run).
+- `opensacred-game` writes its own format of an exported hero since #2551 (`exports`, PLAN.md ADR-08): `heroes/hero%02d.hero` beside the saves' directory, its summary first (the saves' version, its name, class and level, the items of its equipment's slots by the slots, its wins of each difficulty and its hardcore mode, none in the game), then the hero as a save keeps it; one of another version of the saves is not listed. The console's `export SLOT` writes one over what the slot held, and `exports` lists them; the menu over a game's Export is #2554.
 
 ### Import and Delete
 
