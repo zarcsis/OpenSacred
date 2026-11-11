@@ -1128,6 +1128,9 @@ pub struct Npcs {
     /// The fractions of the attack's clips at which they hit, by the clips' names upper-cased
     /// (`MotionDesc +0xA0`, `+0xA4`: `floats_62[1]` and `[2]` of `tables/motions.ron`).
     hits: HashMap<String, [f32; 2]>,
+    /// The floats of every clip from its hit points on ([`hit_points`]), of which a creature's
+    /// art's clip takes its hit points (`creature_arts`, #2564).
+    points: HashMap<String, Vec<f32>>,
     spawned: HashSet<(u32, u32)>,
     /// What became of the creatures that went with their sectors ([`Kept`]).
     kept: Kept,
@@ -4391,6 +4394,7 @@ impl Npcs {
             gear,
             slots: model_slots,
             hits: hit_fractions(tables),
+            points: hit_points(tables),
             instruments: INSTRUMENTS
                 .iter()
                 .map(|&(slot, _)| {
@@ -8042,7 +8046,7 @@ fn script_clips(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     (gltfs, clips): (Res<Assets<Gltf>>, Res<Assets<AnimationClip>>),
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    speed: Res<hero::GameSpeed>,
+    (speed, mut art_hits): (Res<hero::GameSpeed>, MessageWriter<ArtHit>),
 ) {
     for (entity, mut npc, mut clip, combat) in &mut npcs {
         let Some(player_entity) = npc.player else {
@@ -8051,15 +8055,15 @@ fn script_clips(
         let Ok((mut player, mut transitions)) = players.get_mut(player_entity) else {
             continue;
         };
-        if let Some((node, handle)) = &clip.playing {
-            let length = clips.get(handle).map_or(0.0, AnimationClip::duration);
+        if let Some((node, handle)) = clip.playing.clone() {
+            let length = clips.get(&handle).map_or(0.0, AnimationClip::duration);
             // A cast's act at its share of the clip, or as it ends.
             let acts = clip.acts_at.is_some_and(|share| {
-                player.animation(*node).is_none_or(|active| {
+                player.animation(node).is_none_or(|active| {
                     active.is_finished() || active.seek_time() >= length * share
                 })
             });
-            let ended = player.animation(*node).is_none_or(|active| {
+            let ended = player.animation(node).is_none_or(|active| {
                 active.is_finished()
                     || (DEFENDING.contains(&clip.slot)
                         && active.completions() + 1 >= clip.loops
@@ -8069,6 +8073,24 @@ fn script_clips(
                 commands.entity(entity).insert(ClipActs);
                 clip.acts_at = None;
             }
+            // An art's hit points as the clip passes them, the last at its end at the latest.
+            let at = player
+                .animation(node)
+                .map_or(length, |active| active.seek_time());
+            let finished = player
+                .animation(node)
+                .is_none_or(|active| active.is_finished());
+            let shares = clip.hits.clone().unwrap_or_default();
+            while let Some(&share) = shares.get(clip.passed) {
+                if !finished && at < length * share {
+                    break;
+                }
+                art_hits.write(ArtHit {
+                    creature: entity,
+                    n: clip.passed,
+                });
+                clip.passed += 1;
+            }
             if ended {
                 commands.entity(entity).remove::<ScriptClip>();
                 if clip.slot == EMERGING {
@@ -8077,15 +8099,27 @@ fn script_clips(
             }
             continue;
         }
-        let handle = data
+        let name = data
             .slots
             .get(&npc.model)
-            .and_then(|slots| slots.slot(clip.slot))
-            .and_then(|name| {
-                gltfs
-                    .get(&npc.gltf)
-                    .and_then(|gltf| gltf.named_animations.get(name).cloned())
-            });
+            .and_then(|slots| slots.slot(clip.slot));
+        // An art's clip's hit points by its name, its half where it has none and asks it.
+        if clip.hits.is_some() {
+            let floats = name
+                .and_then(|name| data.points.get(&name.to_ascii_uppercase()))
+                .cloned()
+                .unwrap_or_default();
+            let mut points = opensacred_rules::arts::hit_points(&floats);
+            if points.is_empty() && clip.half {
+                points.push(0.5);
+            }
+            clip.hits = Some(points);
+        }
+        let handle = name.and_then(|name| {
+            gltfs
+                .get(&npc.gltf)
+                .and_then(|gltf| gltf.named_animations.get(name).cloned())
+        });
         let Some(graph) = npc.graph.as_mut() else {
             continue;
         };
@@ -9369,6 +9403,19 @@ pub struct ScriptClip {
     rate: Option<f32>,
     /// Whether it is a parry ([`ScriptClip::parry`]).
     parry: bool,
+    /// An art's clip's hit points, shares of the clip, found as it starts to play, and whether
+    /// it hits at its half where it has none ([`ScriptClip::art`]); and how many it has passed.
+    hits: Option<Vec<f32>>,
+    half: bool,
+    passed: usize,
+}
+
+/// A hit point of a creature's art's clip that its clip passed, the `n`-th from 0
+/// (`creature_arts`, #2564).
+#[derive(bevy::ecs::message::Message, Clone, Copy, Debug)]
+pub struct ArtHit {
+    pub creature: Entity,
+    pub n: usize,
 }
 
 impl ScriptClip {
@@ -9394,6 +9441,19 @@ impl ScriptClip {
             acts_at: None,
             rate: None,
             parry: false,
+            hits: None,
+            half: false,
+            passed: 0,
+        }
+    }
+
+    /// A creature's weapon art's clip of the slot `slot`, once, an [`ArtHit`] at each of its hit
+    /// points, or at its half where `half` and it has none (`creature_arts`, #2564).
+    pub(crate) fn art(slot: u16, half: bool) -> Self {
+        Self {
+            hits: Some(Vec::new()),
+            half,
+            ..Self::new(slot, 1)
         }
     }
 
@@ -11842,6 +11902,12 @@ pub struct Arms {
 }
 
 impl Arms {
+    /// The class of what it holds (`motions::class`, `0x546F80`).
+    pub fn class(&self) -> u8 {
+        let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
+        class_of(&in_hands)
+    }
+
     /// What it holds, for its weapons' sounds ([`Npcs::armed`]); bare hands without the NPCs'
     /// tables.
     pub fn armed(&self, npcs: Option<&Npcs>) -> crate::sfx::Armed {
@@ -12325,6 +12391,7 @@ pub struct NpcsPlugin;
 impl Plugin for NpcsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Retextured>()
+            .add_message::<ArtHit>()
             .init_resource::<AreaChanges>()
             .init_resource::<Morphs>()
             .init_resource::<ScriptAttacks>()
@@ -13971,6 +14038,7 @@ mod tests {
             .insert_resource(tick)
             .insert_resource(Heights::house())
             .add_message::<sfx::Play>()
+            .add_message::<ArtHit>()
             .add_message::<crate::scripts::Partikel>()
             .add_message::<crate::cast_sights::ScriptSights>()
             .add_systems(Update, take_steps);

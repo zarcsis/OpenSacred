@@ -1380,6 +1380,14 @@ impl Mind {
         Some(None)
     }
 
+    /// The order of the art `art` at its target, after which it stands [`casts::ART_STANDS`]
+    /// decisions (`+0x12B` 2, `+0x129` 10).
+    fn ordered_art(&mut self, art: u16) -> Pursues {
+        self.stands = casts::ART_STANDS;
+        self.cast_ordered = true;
+        Pursues::MakesArt { art }
+    }
+
     /// A larva that found no point to hide at decides again at once ([`Pursues::Hides`]).
     pub fn hides_nowhere(&mut self) {
         self.stands = 0;
@@ -1650,6 +1658,32 @@ impl Mind {
             // It walks on or stands in one decision of three, stands where it has no straight
             // line to the hero, and within twice its reach hides by a coin or while the hero
             // attacks it (`0x4D9789`).
+            // Within its reach and 30, in one decision of three, the Dark Elf's `Attacke` or
+            // `Hardhit` by a coin (`0x4D8133`).
+            OwnMark::IceChampion => {
+                if d > reach + casts::ICE_CHAMPION_REACH || rng.below(3) != 0 {
+                    return None;
+                }
+                let art = if rng.below(2) == 0 {
+                    casts::DARK_ELFS_ATTACKE
+                } else {
+                    casts::DARK_ELFS_HARDHIT
+                };
+                return Some(self.ordered_art(art));
+            }
+            // By their rolls: the hell golems the Gladiator's `Attacke` (`0x4DAA8A`), the
+            // queens the Dark Elf's (`0x4DA90D`).
+            OwnMark::HellGolem | OwnMark::ArtQueen => {
+                let (b, art) = if own == OwnMark::HellGolem {
+                    (casts::GOLEMS_B, casts::GLADIATORS_ATTACKE)
+                } else {
+                    (casts::QUEENS_B, casts::DARK_ELFS_ATTACKE)
+                };
+                if !casts::special_passes(b, cast.difficulty, rng.below(100) + 1) {
+                    return None;
+                }
+                return Some(self.ordered_art(art));
+            }
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -1698,7 +1732,12 @@ impl Mind {
         }
         match own {
             // Decided above.
-            OwnMark::Hornet | OwnMark::Queen | OwnMark::Larva => None,
+            OwnMark::Hornet
+            | OwnMark::Queen
+            | OwnMark::Larva
+            | OwnMark::IceChampion
+            | OwnMark::HellGolem
+            | OwnMark::ArtQueen => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -2790,6 +2829,8 @@ pub struct CastSight {
     /// How many the hero's list of hostiles holds (`0xAD3BC8`), which a boss's keep-back weighs
     /// ([`Mind::keeps_back`]).
     pub listed: u32,
+    /// The game's difficulty, which the specials' rolls take ([`casts::special_passes`]).
+    pub difficulty: Difficulty,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -2924,6 +2965,9 @@ pub enum Pursues {
     /// A caster blinks away from its target (the black magician 10's, #1855): to the first of
     /// [`casts::BLINK_TRIES`] points [`casts::BLINK_REACH`] about it that a straight way reaches.
     Blinks,
+    /// It makes the weapon art `art` at its target, as a special orders it (the AI's state 11,
+    /// #2564).
+    MakesArt { art: u16 },
     /// A larva hides from its target (#2562): it runs to the first of [`casts::HIDE_TRIES`] points
     /// [`casts::HIDES_AT`] from it, from the angle `from` in degrees by [`casts::HIDE_STEP`], that
     /// it may stand on, with no straight line from its target and a path to it; with none it
@@ -4158,6 +4202,7 @@ mod tests {
             hornets: (0, false),
             hornet_lives: false,
             listed: 0,
+            difficulty: Difficulty::Bronze,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4266,6 +4311,7 @@ mod tests {
             hornets: (0, false),
             hornet_lives: false,
             listed: 0,
+            difficulty: Difficulty::Bronze,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4333,6 +4379,7 @@ mod tests {
             hornets: (0, false),
             hornet_lives: false,
             listed: 0,
+            difficulty: Difficulty::Bronze,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4410,6 +4457,7 @@ mod tests {
             hornets,
             hornet_lives,
             listed: 0,
+            difficulty: Difficulty::Bronze,
         }
     }
 
@@ -4787,6 +4835,60 @@ mod tests {
     }
 
     #[test]
+    fn the_underworlds_bosses_order_the_heroes_arts_by_their_rolls() {
+        use crate::spawning::Script;
+        let cast = hornets_cast(0, (0, false), false);
+        let near = hornets_sight(100.0, false);
+        let order = |art| Some(Pursues::MakesArt { art });
+        let decide = |mind: &mut Mind, sight: &Pursuit, cast: &CastSight, rolls: Vec<u32>| {
+            mind.cast(sight, cast, || true, &mut Script::new(rolls))
+        };
+        // The ice elf champion within its reach and 30, by a roll of 0 of 3, the coin's art.
+        let mut champion = fighting(146);
+        let reach = reach_f32(champion.size(), SIZE);
+        let edge = hornets_sight(reach + casts::ICE_CHAMPION_REACH, false);
+        assert_eq!(
+            decide(&mut champion, &edge, &cast, vec![0, 0]),
+            order(casts::DARK_ELFS_ATTACKE)
+        );
+        assert_eq!(champion.stands, casts::ART_STANDS);
+        assert!(champion.cast_ordered);
+        let mut champion = fighting(146);
+        assert_eq!(
+            decide(&mut champion, &near, &cast, vec![0, 1]),
+            order(casts::DARK_ELFS_HARDHIT)
+        );
+        assert_eq!(decide(&mut fighting(146), &near, &cast, vec![1]), None);
+        let beyond = hornets_sight(reach + casts::ICE_CHAMPION_REACH + 1.0, false);
+        assert_eq!(decide(&mut fighting(146), &beyond, &cast, vec![0, 0]), None);
+        // A hell golem by its roll of 15 p, 3 on bronze: R(1, 100) of 2 passes, of 3 not.
+        assert_eq!(
+            decide(&mut fighting(204), &near, &cast, vec![1]),
+            order(casts::GLADIATORS_ATTACKE)
+        );
+        assert_eq!(decide(&mut fighting(350), &near, &cast, vec![2]), None);
+        // A queen of 0x217 by 50 p, 65 on niobium.
+        let niobium = CastSight {
+            difficulty: Difficulty::Niobium,
+            ..cast
+        };
+        assert_eq!(
+            decide(&mut fighting(247), &near, &niobium, vec![63]),
+            order(casts::DARK_ELFS_ATTACKE)
+        );
+        assert_eq!(decide(&mut fighting(354), &near, &niobium, vec![64]), None);
+        // The rolls and the executors.
+        assert!(casts::special_passes(30, Difficulty::Bronze, 5));
+        assert!(!casts::special_passes(30, Difficulty::Bronze, 6));
+        assert!(casts::special_passes(15, Difficulty::Gold, 11));
+        assert!(!casts::special_passes(15, Difficulty::Gold, 12));
+        assert_eq!(casts::executor(146), Some(4));
+        assert_eq!(casts::executor(204), Some(2));
+        assert_eq!(casts::executor(218), Some(5));
+        assert_eq!(casts::executor(76), None);
+    }
+
+    #[test]
     fn a_black_magician_casts_keeps_its_band_and_runs_about() {
         use crate::spawning::Script;
         let mut mage = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (266, 2));
@@ -4822,6 +4924,7 @@ mod tests {
             hornets: (0, false),
             hornet_lives: false,
             listed: 0,
+            difficulty: Difficulty::Bronze,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);
