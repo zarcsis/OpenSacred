@@ -1,7 +1,8 @@
 //! The debug overlay (docs/10 §5): F7 shows and hides, in the upper left, the frame rate and
 //! times, where the hero is and what it does, the clock, the zoom, the sectors, the NPCs and the
-//! objects, the entities, the version, the GPU and the window, refreshed four times a second in
-//! Bevy's monospaced default font. Whether it shows is kept in the settings (`[debug] overlay`).
+//! objects, the entities, the version, the GPU, the window and the seeds of the rolls, refreshed
+//! four times a second in Bevy's monospaced default font. Whether it shows is kept in the settings
+//! (`[debug] overlay`).
 //! The same values, a [`Snapshot`], are what the command `state` and the remote protocol give.
 
 use std::collections::VecDeque;
@@ -106,6 +107,10 @@ pub struct Snapshot {
     pub window: Option<(u32, u32, &'static str)>,
     /// The GPU adapter and its backend.
     pub gpu: Option<String>,
+    /// The run's seed of its rolls (`seed::run`, #1644), which `--seed` gives again, and the
+    /// game's while one is played (`seed::Game`): a screenshot of the overlay carries them (#2590).
+    pub seed: u64,
+    pub game_seed: Option<u64>,
     pub hero: Option<HeroState>,
     /// The clock as `HH:MM`, and the phase of the day.
     pub clock: Option<(String, &'static str)>,
@@ -173,6 +178,11 @@ impl Snapshot {
         }
         if let Some((width, height, mode)) = self.window {
             head.push_str(&format!(" | {width}x{height} {mode}"));
+        }
+        head.push_str(&format!(" | seed {}", self.seed));
+        // The game's own where it is not the run's: a later game of the run, a loaded save.
+        if let Some(game) = self.game_seed.filter(|&game| game != self.seed) {
+            head.push_str(&format!(" game {game}"));
         }
         lines.push(head);
         let movie = self
@@ -324,6 +334,7 @@ pub struct Probe<'w, 's> {
     glow: Option<Res<'w, crate::cursors::Glow>>,
     movie: Option<Res<'w, crate::movies::Movie>>,
     compass: Option<Res<'w, crate::compass::Targets>>,
+    game_seed: Option<Res<'w, crate::seed::Game>>,
 }
 
 impl Probe<'_, '_> {
@@ -406,6 +417,12 @@ impl Probe<'_, '_> {
             slowest_ms,
             window,
             gpu,
+            seed: crate::seed::run(),
+            game_seed: self
+                .game_seed
+                .as_deref()
+                .filter(|_| state != "menu")
+                .map(|game| game.0),
             hero,
             clock,
             zoom,
@@ -615,10 +632,16 @@ mod tests {
         assert_eq!(
             snapshot.lines(),
             [
-                "OpenSacred 0.6.2 | GPU (Vulkan) | 1920x1080 windowed",
+                "OpenSacred 0.6.2 | GPU (Vulkan) | 1920x1080 windowed | seed 0",
                 "  60.0 fps  16.67 ms  slowest  18.00 ms  menu",
             ]
         );
+        // The seeds (#2590): the run's alone while the game's is the same, both where not.
+        snapshot.seed = 1_762_847_113;
+        snapshot.game_seed = Some(1_762_847_113);
+        assert!(snapshot.lines()[0].ends_with("1920x1080 windowed | seed 1762847113"));
+        snapshot.game_seed = Some(42);
+        assert!(snapshot.lines()[0].ends_with("1920x1080 windowed | seed 1762847113 game 42"));
         snapshot.state = "game";
         snapshot.hero = Some(HeroState {
             cell: (3236, 2510),
