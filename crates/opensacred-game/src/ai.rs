@@ -844,7 +844,17 @@ fn pursue(
         Option<Res<crate::fight::Rules>>,
         Option<Res<crate::game::Difficulty>>,
     ),
-    (clips, scripted): (Query<&crate::npcs::Npc>, Query<&crate::npcs::ScriptClip>),
+    (clips, scripted, makers): (
+        Query<&crate::npcs::Npc>,
+        Query<&crate::npcs::ScriptClip>,
+        Query<
+            (),
+            Or<(
+                With<crate::creature_arts::Makes>,
+                With<crate::creature_arts::Ordered>,
+            )>,
+        >,
+    ),
     mut hits: MessageWriter<crate::fight::Hit>,
 ) {
     let dt = tick.seconds.unwrap_or_default();
@@ -990,9 +1000,11 @@ fn pursue(
         }
         // A parry plays to its end before its creature decides again (the action 0's sub-state
         // `0x65`, #2487).
+        // So an art it makes (#2564).
         if scripted
             .get(entity)
             .is_ok_and(crate::npcs::ScriptClip::parries)
+            || makers.contains(entity)
         {
             continue;
         }
@@ -1129,6 +1141,7 @@ fn pursue(
                     },
                     hornet_lives: hornets.iter().any(|&(other, ..)| other != entity),
                     listed: u32::try_from(nearest.hostiles.len()).unwrap_or(u32::MAX),
+                    difficulty,
                 };
                 mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
             });
@@ -1489,6 +1502,13 @@ fn pursue(
                     Walk::to(to, way.level, mind.speed)
                 };
                 commands.entity(entity).insert(walk.within(STROLL_WITHIN));
+            }
+            Pursues::MakesArt { art } => {
+                debug!("ai: {entity} is ordered the art {art} at {aimed}");
+                commands
+                    .entity(entity)
+                    .remove::<Walk>()
+                    .insert(crate::creature_arts::Ordered { art, target: aimed });
             }
             Pursues::Hides { from } => {
                 // The first of its points on the ground that it may stand on, out of the hero's

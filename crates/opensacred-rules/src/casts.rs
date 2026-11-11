@@ -781,6 +781,15 @@ pub enum OwnMark {
     /// The insect larva and the small slime worm (191, 248, `0x215`): it dithers and hides from
     /// the hero (`0x4D9789`, #2562).
     Larva,
+    /// The ice elf champion (146, `0x20A`): near the hero, the Dark Elf's `Attacke` or `Hardhit`
+    /// (`0x4D8133`, #2564).
+    IceChampion,
+    /// The hell golems (204, 350, `0x21C`): the Gladiator's `Attacke` by its roll (`0x4DAA8A`,
+    /// #2564).
+    HellGolem,
+    /// The queens of the mark `0x217` (247, 354): the Dark Elf's `Attacke` by its roll
+    /// (`0x4DA90D`, #2564).
+    ArtQueen,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -797,8 +806,47 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         HORNET => OwnMark::Hornet,
         QUEEN => OwnMark::Queen,
         191 | 248 => OwnMark::Larva,
+        146 => OwnMark::IceChampion,
+        204 | 350 => OwnMark::HellGolem,
+        247 | 354 => OwnMark::ArtQueen,
         _ => return None,
     })
+}
+
+/// The kind of hero whose action of the arts a creature of type `creature` takes as it makes a
+/// weapon art at a special's order (`0x5500D0`, the action of `0x95583C`): the Dark Elf's (4) for
+/// 146, 190, 202, 203, 247, 344, 351, 352 and 354; the Gladiator's (2) for 192, 204, 329, 342,
+/// 343, 350 and 363; the Wood Elf's (5) for 218 and 219; none for any other (#2564).
+pub fn executor(creature: u32) -> Option<u32> {
+    match creature {
+        146 | 190 | 202 | 203 | 247 | 344 | 351 | 352 | 354 => Some(4),
+        192 | 204 | 329 | 342 | 343 | 350 | 363 => Some(2),
+        218 | 219 => Some(5),
+        _ => None,
+    }
+}
+
+/// The weapon arts that the specials order (#2564): the Gladiator's `Attacke`, the Dark Elf's
+/// `Hardhit` and `Attacke`.
+pub const GLADIATORS_ATTACKE: u16 = 1059;
+pub const DARK_ELFS_HARDHIT: u16 = 1066;
+pub const DARK_ELFS_ATTACKE: u16 = 1067;
+/// The decisions a creature stands after it is ordered an art (`+0x129` 10).
+pub const ART_STANDS: u8 = 10;
+/// How far beyond its reach the ice elf champion makes its arts (`0x4D8133`).
+pub const ICE_CHAMPION_REACH: f32 = 30.0;
+/// The specials' rolls' `b` (#2548): the hell golems' 15, the queens' of `0x217` 50.
+pub const GOLEMS_B: u32 = 15;
+pub const QUEENS_B: u32 = 50;
+
+/// The difficulty's `p` of the specials' rolls, bronze's first.
+const SPECIAL_P: [u32; 5] = [20, 60, 80, 100, 130];
+
+/// Whether a special's roll of `b` passes on `difficulty` (#2548): `roll`, `R(1, 100)`, below
+/// `⌊b·p/100⌋`, `p` 20, 60, 80, 100 or 130 from bronze to niobium.
+pub fn special_passes(b: u32, difficulty: crate::drops::Difficulty, roll: u32) -> bool {
+    let p = SPECIAL_P.get(difficulty.index()).copied().unwrap_or(30);
+    roll < b * p / 100
 }
 
 /// The marks whose bosses and champions keep back from the hero while nearly whole

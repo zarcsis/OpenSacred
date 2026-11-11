@@ -58,6 +58,7 @@ mod console;
 mod containers;
 mod control_glow;
 mod controls;
+mod creature_arts;
 mod creature_casts;
 mod crowd;
 mod cursors;
@@ -541,12 +542,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         containers::ContainersPlugin,
         control_glow::ControlGlowPlugin,
         controls::ControlsPlugin,
+        creature_arts::CreatureArtsPlugin,
         creature_casts::CreatureCastsPlugin,
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
-        daemon::DaemonPlugin,
     ))
     .add_plugins((
+        daemon::DaemonPlugin,
         dark_helices::DarkHelicesPlugin,
         dark_wards::DarkWardsPlugin,
         daynight::DayNightPlugin,
