@@ -509,6 +509,110 @@ pub fn weighing(level: u32, hero: u32, (anteil, voll, upper): (f32, f32, f32)) -
     factor.max(0.04)
 }
 
+/// How long a health ring shows, in seconds of the world's ticks (the creature's `+0x20C`, run
+/// down at each tick and held at 0, `0x537ECD`–`0x537F01`; #2486): the hero's while it fights, 4
+/// (an attack's target, a strike, an art); while a hostile creature is near, 1, though it held more;
+/// a creature's that the hero strikes, hit or missed, 7 (`0x56B610`); a creature's under the
+/// cursor or, with Alt held, any hostile one's in view, at least 1 (`0x61258A`, `0x599ACC`).
+pub const RING_FIGHTS: f32 = 4.0;
+pub const RING_NEAR: f32 = 1.0;
+pub const RING_STRUCK: f32 = 7.0;
+/// How near a hostile creature shows the hero's ring (`0x547070`, its look every 0.3 s): 350, or
+/// 1,000 with a bow, a crossbow or a gun in a hand.
+pub const RING_NEAR_WITHIN: f32 = 350.0;
+pub const RING_NEAR_RANGED: f32 = 1000.0;
+
+/// A health ring's alpha of 255 at `timer` seconds left (`0x599D42`): whole from half a second,
+/// `⌊512·t⌋` below it.
+pub fn ring_alpha(timer: f32) -> u8 {
+    if timer >= 0.5 {
+        255
+    } else {
+        u8::try_from(whole_part(512.0 * timer).min(255)).unwrap_or(255)
+    }
+}
+
+/// A health ring's half side, in world units, of a creature of the size `size` (`items.pak +0x14`,
+/// 50 for 0, `0x428CE0`), `hero` the hero's (`0x599D08`–`0x599DA3`): half its size, whole; where
+/// that is exactly 50, a third of its reach against itself ([`crate::minds::reach`]); the hero's
+/// times 3/2, whole.
+pub fn ring_half_side(size: u32, hero: bool) -> u32 {
+    let half = size / 2;
+    let half = if half == 50 {
+        crate::minds::reach(size, size) / 3
+    } else {
+        half
+    };
+    if hero { half * 3 / 2 } else { half }
+}
+
+/// The colour of a hostile creature's health ring, of its level `level` on bronze's scale against
+/// the hero's `hero` (`0x599B71`–`0x599E3C`): with `r = (E + 9)/(H + 9)`, the threshold `t` of the
+/// factor of the levels ([`weighing`]) and `q = (r − t)/(UnterExpVoll − t)`: grey where `r` is not
+/// above `t` or `q` not above 0.04, as the creatures that fight none (`takes_on`); from green to
+/// yellow below `UnterExpVoll`; from yellow to red up to `ObereEXPVoll`, `s` the share of the way;
+/// red above it; each part truncated.
+pub fn ring_colour(level: u32, hero: u32, rules: &Rules) -> [u8; 3] {
+    let [_, anteil, voll, upper] = rules.experience;
+    let (e, h) = (to_f32(level), to_f32(hero));
+    let r = (e + 9.0) / (h + 9.0);
+    let t = match hero {
+        0..=10 => (h + 6.0) / (h + 9.0),
+        92.. => (h - 6.0) / (h + 9.0),
+        _ => anteil,
+    };
+    let byte = |value: f32| u8::try_from(whole_part(value).min(255)).unwrap_or(255);
+    let q = (r - t) / (voll - t);
+    if r <= t || q <= 0.04 {
+        [128, 128, 128]
+    } else if r < voll {
+        [
+            byte(43.0 + 177.0 * q),
+            byte(221.0 + 19.0 * q),
+            byte(15.0 + 23.0 * (1.0 - q)),
+        ]
+    } else if r <= upper {
+        let s = (r - voll) / (upper - voll);
+        [
+            byte(220.0 + 35.0 * s),
+            byte(240.0 * (1.0 - s)),
+            byte(15.0 * (1.0 - s)),
+        ]
+    } else {
+        [255, 0, 0]
+    }
+}
+
+/// The fan of a health ring's fill at the share `health` of its most, `r` its half side
+/// (`0x4080C0`): its centre, then the square's edge from `(0, r)` toward `(r, r)` and round, up to
+/// where the ray at `2π·health` from `+y` toward `+x` meets it; none for no health.
+pub fn ring_pie(health: f32, r: f32) -> Vec<[f32; 2]> {
+    let health = health.clamp(0.0, 1.0);
+    let edge: [[f32; 2]; 9] = [
+        [0.0, r],
+        [r, r],
+        [r, 0.0],
+        [r, -r],
+        [0.0, -r],
+        [-r, -r],
+        [-r, 0.0],
+        [-r, r],
+        [0.0, r],
+    ];
+    // The vertex `2 + ⌊8h⌋`, at most the ninth, takes the ray's point; the fan draws up to it.
+    let last = usize::try_from(whole_part(8.0 * health))
+        .unwrap_or(0)
+        .min(7)
+        + 1;
+    let angle = std::f32::consts::TAU * health;
+    let (x, y) = angle.sin_cos();
+    let reach = x.abs().max(y.abs()).max(f32::EPSILON);
+    let mut fan = vec![[0.0, 0.0]];
+    fan.extend_from_slice(&edge[..last]);
+    fan.push([x * r / reach, y * r / reach]);
+    fan
+}
+
 /// The decay of the experience of a hero of level `hero` (`0x57E050`): 1 up to level 99,
 /// `0.985^(H − 99)` to 124, `0.98^(H − 99)` to 149, `0.975^(H − 109)` from 150.
 pub fn decay(hero: u32) -> f32 {
@@ -7800,6 +7904,44 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_health_rings_colour_size_alpha_and_fill() {
+        let rules = Rules::default();
+        // Of the hero's level 1: its own level 1 yellow, 3 red, a hero of level 20 against 15
+        // grey, against 19 green to yellow (`q` (28/29 − 0.85)/0.15).
+        assert_eq!(ring_colour(1, 1, &rules), [220, 240, 15]);
+        assert_eq!(ring_colour(3, 1, &rules), [255, 0, 0]);
+        assert_eq!(ring_colour(15, 20, &rules), [128, 128, 128]);
+        let q = (28.0_f32 / 29.0 - 0.85) / 0.15;
+        let byte = |v: f32| u8::try_from(whole_part(v)).unwrap_or(0);
+        assert_eq!(
+            ring_colour(19, 20, &rules),
+            [
+                byte(43.0 + 177.0 * q),
+                byte(221.0 + 19.0 * q),
+                byte(15.0 + 23.0 * (1.0 - q))
+            ]
+        );
+        // Half the size, a third of the reach where that is 50, the hero's times 3/2.
+        assert_eq!(ring_half_side(50, false), 25);
+        assert_eq!(ring_half_side(24, false), 12);
+        assert_eq!(ring_half_side(100, false), 33);
+        assert_eq!(ring_half_side(50, true), 37);
+        // Whole from half a second, `⌊512·t⌋` below it.
+        assert_eq!([1.0, 0.5, 0.25, 0.0].map(ring_alpha), [255, 255, 128, 0]);
+        // The fill: none of no health, a quarter to `(r, 0)`, the whole square at full health.
+        let r = 10.0;
+        assert_eq!(ring_pie(0.0, r), [[0.0, 0.0], [0.0, r], [0.0, r]]);
+        let quarter = ring_pie(0.25, r);
+        assert_eq!(quarter.len(), 5);
+        let [x, y] = quarter[4];
+        assert!((x - r).abs() < 1e-4 && y.abs() < 1e-4, "{x} {y}");
+        let whole = ring_pie(1.0, r);
+        assert_eq!(whole.len(), 10);
+        let [x, y] = whole[9];
+        assert!(x.abs() < 1e-3 && (y - r).abs() < 1e-3, "{x} {y}");
     }
 
     #[test]
