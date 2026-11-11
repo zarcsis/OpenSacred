@@ -2619,6 +2619,43 @@ pub struct Thinks;
 /// The creatures' idle life.
 pub struct AiPlugin;
 
+/// Turns each creature of a dialogue that stands to the hero at each tick, wherever the hero is
+/// (the standing action `0x544890` at `0x5464C4`–`0x546565`, #2543): one of a dialogue below
+/// 100,000 (`Talk`; the stables' and the trader's stamps are none), no horse (`0x4266F0`, the
+/// class 4), in the world, turned at once along the line to the hero (`0x44DD90`). One that
+/// walks, strikes, plays a talk of its own or dies stands no more.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn face(
+    heroes: Query<&Transform, With<Body>>,
+    mut talkers: Query<
+        (&mut Transform, &Mind),
+        (
+            With<crate::npcs::Talk>,
+            Without<Body>,
+            Without<Walk>,
+            Without<Strikes>,
+            Without<Talks>,
+            Without<crate::npcs::Dies>,
+        ),
+    >,
+) {
+    let Ok(hero) = heroes.single() else {
+        return;
+    };
+    for (mut transform, mind) in &mut talkers {
+        if mind.class == opensacred_rules::horses::CLASS {
+            continue;
+        }
+        let to = hero.translation - transform.translation;
+        if to.xz().length_squared() > f32::EPSILON {
+            transform.rotation = crate::hero::facing(to);
+        }
+    }
+}
+
 /// Runs each creature's sight function as it first sees the hero (`sdk_WAKE` `0x59F580`, #2475;
 /// docs/re/ai.md, "Dormant and awake"): at each of the hero's looks, a creature of a sight
 /// pending (`minds::SIGHT`) that the look wakes (`minds::look_wakes`) and that sees the hero
@@ -2701,7 +2738,7 @@ impl Plugin for AiPlugin {
             .init_resource::<FightRules>()
             .add_systems(
                 Update,
-                (open, sight, think, aside, behave, pursue)
+                (open, sight, think, aside, behave, pursue, face)
                     .chain()
                     .in_set(Thinks)
                     .after(crate::crowd::gather)
@@ -2716,6 +2753,41 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_creature_of_a_dialogue_that_stands_turns_to_the_hero_but_a_horse() {
+        let mut app = App::new();
+        app.add_systems(Update, face);
+        app.world_mut().spawn((
+            Transform::from_xyz(100.0, 0.0, 0.0),
+            crate::hero::Body::standing(),
+        ));
+        let mind = |class| {
+            Mind::new(
+                Vec3::ZERO,
+                0,
+                (false, true),
+                None,
+                [70.0, 180.0],
+                (679, class),
+            )
+        };
+        let talk = || crate::npcs::Talk("novice".to_owned());
+        let away = Transform::from_xyz(0.0, 0.0, 0.0).with_rotation(Quat::from_rotation_y(2.0));
+        let novice = app.world_mut().spawn((away, mind(3), talk())).id();
+        let horse = app
+            .world_mut()
+            .spawn((away, mind(opensacred_rules::horses::CLASS), talk()))
+            .id();
+        let mute = app.world_mut().spawn((away, mind(3))).id();
+        let talking = app.world_mut().spawn((away, mind(3), talk(), Talks)).id();
+        app.update();
+        let turned = |entity| app.world().get::<Transform>(entity).map(|t| t.rotation);
+        assert_eq!(turned(novice), Some(crate::hero::facing(Vec3::X)));
+        for unturned in [horse, mute, talking] {
+            assert_eq!(turned(unturned), Some(away.rotation));
+        }
+    }
 
     #[test]
     fn a_guard_takes_the_nearest_creature_hostile_to_it_of_the_sectors_about_it() {
