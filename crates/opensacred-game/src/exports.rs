@@ -38,7 +38,19 @@ pub struct Summary {
 
 /// The exports' directory: `heroes/` beside the saves' directory.
 pub fn directory(world: &bevy::prelude::World) -> Option<PathBuf> {
-    saves::saves_directory(world).and_then(|saves| saves.parent().map(|dir| dir.join(DIRECTORY)))
+    directory_of(world.get_resource::<crate::settings::SettingsFile>())
+}
+
+/// [`directory`] of the settings' file `settings`.
+pub fn directory_of(settings: Option<&crate::settings::SettingsFile>) -> Option<PathBuf> {
+    saves::directory(settings).and_then(|saves| saves.parent().map(|dir| dir.join(DIRECTORY)))
+}
+
+/// Erases the exported hero of the slot `slot` (`0x7F0CB0` with the slot + 1: its file's
+/// attributes made normal and the file deleted, #2552).
+pub fn erase(dir: &Path, slot: u8) -> Result<()> {
+    let path = file(dir, slot);
+    fs::remove_file(&path).with_context(|| format!("erasing {}", path.display()))
 }
 
 /// The file of the slot `slot` (`Save\Hero%.2d.pax`'s format, `0x95E4D4`).

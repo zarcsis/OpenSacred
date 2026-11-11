@@ -36,7 +36,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, TextureFormat};
 use bevy::shader::ShaderRef;
-use bevy::text::{FontSize, LetterSpacing, LineHeight};
+use bevy::text::{FontSize, LetterSpacing, LineBreak, LineHeight};
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::window::PrimaryWindow;
 
@@ -119,12 +119,27 @@ pub fn names() -> impl Iterator<Item = &'static str> {
             let (name, description) = texts(class);
             [name, description]
         })
-        .chain([IMPORT, START, BACK, EMPTY, LEVEL])
+        .chain([
+            IMPORT,
+            NEW_HERO,
+            START,
+            BACK,
+            EMPTY,
+            LEVEL,
+            ERASE_CONFIRM,
+            MINIMUM,
+        ])
         .chain(DIFFICULTIES)
 }
 
 /// The texts of the panel's buttons and of the first difficulty.
 const IMPORT: &str = "UI_IMPORT";
+/// The import's button back to the classes (`0x70D25C`'s relabelling of Import).
+const NEW_HERO: &str = "UI_NET_PLAYER_NEW";
+/// The erase button's question (`0x70EE60`) and the title of the Underworld campaign's level
+/// (`0x70F450`).
+const ERASE_CONFIRM: &str = "UI_CHAR_ERASE_CONFIRM";
+const MINIMUM: &str = "UI_ADDON_MINREQ";
 const START: &str = "1029";
 const BACK: &str = "UI_NET_BACK";
 /// The word of a free pedestal of the Underworld campaign (the saves' `<empty>`, the same text).
@@ -162,6 +177,16 @@ const CHOSEN_BOX: Color = Color::linear_rgba(0.0, 0.0, 104.0 / 255.0, 127.0 / 25
 /// The lowest level of a saved hero that the Underworld campaign's choice takes (`0x70CA30`:
 /// above 24).
 const UNDERWORLD_LEVEL: u32 = 25;
+/// The title of that level (`0x70F450`): while the cursor is on a saved hero below it, across the
+/// screen's width from the row 92, 16 high, centred, in the font 3, AntiquaSSK 16, at the size
+/// the overview writes it (`overview`), red.
+const MINIMUM_TITLE: Rect = Rect::from_corners(Vec2::new(0.0, 92.0), Vec2::new(1024.0, 108.0));
+const MINIMUM_SIZE: f32 = 24.0;
+const MINIMUM_COLOUR: u32 = 0xFFFF_0000;
+/// The erase button (`+0x3B4`, `0x710270`): the interface's image 129, a red cross, 168 right of
+/// the middle of the panel's framed box and 5 over its top.
+const ERASE: u32 = 129;
+const ERASE_AT: Vec2 = Vec2::new(680.0, 578.0);
 /// The difficulties' texts, bronze's first (`0x710190`).
 const DIFFICULTIES: [&str; 5] = [
     "UI_DIFFICULTY_BRONZE",
@@ -187,6 +212,9 @@ struct Choice {
     difficulty: Difficulty,
     offered: Vec<Difficulty>,
     listing: bool,
+    /// Whether the choice is the Ancaria campaign's import, which takes a saved hero of any
+    /// level into the Ancaria campaign (#2552), not the Underworld campaign's.
+    importing: bool,
 }
 
 impl Choice {
@@ -212,13 +240,15 @@ struct Stand {
     saved: Option<Saved>,
 }
 
-/// A saved hero: its name and level, and the highest difficulty it won as `0x6F4F20` reads its
-/// summary, bronze's where it won none.
+/// A saved hero: its name and level, the highest difficulty it won as `0x6F4F20` reads its
+/// summary, bronze's where it won none, and its slot where it is one the player exported
+/// (`exports`, #2552), none for the installation's.
 #[derive(Clone)]
 struct Saved {
     name: String,
     level: u32,
     highest: usize,
+    exported: Option<u8>,
 }
 
 /// The highest difficulty that a saved hero won (`0x6F4F20`): the last of its summary's bytes
@@ -335,6 +365,9 @@ enum Part {
     List,
     Description,
     Start,
+    /// The erase button and the title of the Underworld campaign's level.
+    Erase,
+    Minimum,
 }
 
 /// A button's word, lit while the cursor is on its button and grey while the button is greyed
@@ -603,8 +636,9 @@ fn step(chosen: Option<usize>, step: isize) -> usize {
 }
 
 /// Chooses the figure on `pedestal`, lit: a class's, its name the class's own; a saved hero of
-/// the Underworld's level, its name its own and the difficulties offered by those it won
-/// (`0x70CA30`). A free pedestal, or a hero below that level, is not chosen.
+/// the Underworld's level, or of any level for the import, its name its own and the difficulties
+/// offered by those it won (`0x70CA30`). A free pedestal, or a hero below that level in the
+/// Underworld campaign's choice, is not chosen.
 fn choose(choice: &mut Choice, words: &Words, pedestal: usize) {
     let Some(stand) = choice.stand(pedestal).cloned() else {
         return;
@@ -614,7 +648,7 @@ fn choose(choice: &mut Choice, words: &Words, pedestal: usize) {
             let class = stand.class;
             choice.name = words.get(texts(class).0).unwrap_or(class.name()).to_owned();
         }
-        Some(saved) if saved.level >= UNDERWORLD_LEVEL => {
+        Some(saved) if choice.importing || saved.level >= UNDERWORLD_LEVEL => {
             choice.name = saved.name;
             choice.offered = offered_to(saved.highest);
             if !choice.offered.contains(&choice.difficulty) {
@@ -635,13 +669,14 @@ fn class_of(creature: u32) -> Option<Class> {
 /// the pedestal of its entry, and the saved heroes' of `heroes.ron`, each on the pedestal of its
 /// slot, in its summary's items (`0x70C7E0`, `0x6F4E60`); none where the table was not
 /// converted.
-fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
+fn read_figures(
+    data: Option<Res<Data>>,
+    settings: Option<Res<crate::settings::SettingsFile>>,
+    mut figures: ResMut<Figures>,
+) {
     let Some(data) = data else {
         return;
     };
-    if figures.0.is_some() {
-        return;
-    }
     let shared = &data.0;
     let assets = &shared.assets;
     let path = assets.join("tables").join(FIGURES_TABLE);
@@ -679,21 +714,45 @@ fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
             ))
         })
         .collect();
-    let saved = saved_heroes(assets)
+    // The player's exported heroes, each on its slot's pedestal over the installation's there
+    // (#2552; docs/decisions/interface.md, "The installation's Underworld heroes").
+    let exported = crate::exports::directory_of(settings.as_deref())
+        .map(|dir| crate::exports::list(&dir))
+        .unwrap_or_default();
+    let taken: Vec<u8> = exported.iter().map(|(slot, _)| *slot).collect();
+    let installed = saved_heroes(assets)
         .into_iter()
+        .filter(|hero| !taken.contains(&hero.slot))
         .filter_map(|hero| {
-            let pedestal = usize::from(hero.slot);
-            let figure = table.get(pedestal)?;
             let class = class_of(hero.hero.class)?;
+            let saved = Saved {
+                name: hero.name,
+                level: hero.hero.level,
+                highest: highest_won(&hero.won),
+                exported: None,
+            };
+            Some((hero.slot, class, saved, hero.equipment))
+        });
+    let own = exported.into_iter().map(|(slot, summary)| {
+        let won: Vec<bool> = summary.wins.iter().map(|&count| count > 0).collect();
+        let saved = Saved {
+            name: summary.name,
+            level: summary.level,
+            highest: highest_won(&won),
+            exported: Some(slot),
+        };
+        (slot, summary.class, saved, summary.equipment)
+    });
+    let saved = installed
+        .chain(own)
+        .filter_map(|(slot, class, saved, equipment)| {
+            let pedestal = usize::from(slot);
+            let figure = table.get(pedestal)?;
             let stand = Stand {
                 class,
-                saved: Some(Saved {
-                    name: hero.name,
-                    level: hero.hero.level,
-                    highest: highest_won(&hero.won),
-                }),
+                saved: Some(saved),
             };
-            let slots = dressed(hero.equipment, class);
+            let slots = dressed(equipment, class);
             Some(look(shared, &files, (pedestal, figure), stand, &slots))
         })
         .collect();
@@ -959,23 +1018,43 @@ fn screen(
                 spotted(picture, look.pedestal, look.window);
             }
             let atlases = Atlases::load(&images, &assets);
-            panel(picture, &atlases, &words, &font, true);
+            let importable = importable(&figures);
+            panel(
+                picture,
+                &atlases,
+                &words,
+                &font,
+                Kind::Classes { importable },
+            );
         },
     );
 }
 
-/// The Underworld campaign's choice of the hero (#1129, #1676): the same picture, the saved
-/// heroes standing on their pedestals, each labelled with its name and level, and the free
-/// pedestals labelled free; the panel's name, the difficulty once a hero is chosen, Back and
-/// Start Game, greyed until a hero is chosen. It has no Import (`0x70D25C`).
+/// Whether a saved hero stands on a pedestal, the installation's or one the player exported,
+/// which the Ancaria campaign's Import takes (`0x70CEF6`, the count of `0x70C4A0`).
+fn importable(figures: &Figures) -> bool {
+    figures
+        .0
+        .as_ref()
+        .is_some_and(|lineup| !lineup.saved.is_empty())
+}
+
+/// The choice of a saved hero: the Underworld campaign's (#1129, #1676) or the Ancaria
+/// campaign's import (the mode 7 in either, #2552): the same picture, the saved heroes standing
+/// on their pedestals, each labelled with its name and level, and the free pedestals labelled
+/// free; the panel's name, the difficulty once a hero is chosen, the erase button while a hero
+/// the player exported is chosen, Back and Start Game, greyed until a hero is chosen. The
+/// Underworld campaign's has no Import (`0x70D25C`) and titles the level a hero needs while the
+/// cursor is on one below it (`0x70F450`); the import has the Ancaria campaign's water, its
+/// reflection, and in Import's place the button back to the classes.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources one by one"
 )]
-fn underworld_screen(
+fn saved_screen(
     mut commands: Commands,
     (images, ui_images): (Res<Images>, Res<UiImages>),
-    words: Res<Words>,
+    (words, screen): (Res<Words>, Res<State<Screen>>),
     figures: Res<Figures>,
     assets: Res<AssetServer>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
@@ -983,7 +1062,12 @@ fn underworld_screen(
     mut choice: ResMut<Choice>,
     mut ripples: Ripples,
 ) {
-    *choice = Choice::default();
+    let at = *screen.get();
+    let importing = at == Screen::Import;
+    *choice = Choice {
+        importing,
+        ..default()
+    };
     let (looks, windows) = figures.0.as_ref().map_or((&[][..], &[][..]), |lineup| {
         (lineup.saved.as_slice(), lineup.windows.as_slice())
     });
@@ -996,40 +1080,162 @@ fn underworld_screen(
     let water = ripples.spawn(
         &mut commands,
         (&mut targets, &assets),
-        (Screen::Underworld, &pond(&images, false)),
+        (at, &pond(&images, importing)),
         height,
     );
     let layer = stage(
         &mut commands,
-        (Screen::Underworld, looks, height),
+        (at, looks, height),
         (&mut targets, &mut layers, &assets),
     );
     let font: Handle<Font> = assets.load(FONT);
     let label_font: Handle<Font> = assets.load(MENU_FONT);
     let atlases = Atlases::load(&images, &assets);
-    picture(
-        &mut commands,
-        (Screen::Underworld, &images, &assets),
-        water,
-        |picture| {
-            picture.spawn((
-                MaterialNode(layer),
-                place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
-            ));
-            for (pedestal, &window) in windows.iter().enumerate() {
-                spotted(picture, pedestal, window);
-            }
-            for (pedestal, &at) in PEDESTALS.iter().enumerate() {
-                match looks.iter().find(|look| look.pedestal == pedestal) {
-                    Some(look) => {
-                        hero_label(picture, (look, &words, &label_font), (&ui_images, &assets))
-                    }
-                    None => free_label(picture, pedestal, at, (&words, &font)),
+    picture(&mut commands, (at, &images, &assets), water, |picture| {
+        picture.spawn((
+            MaterialNode(layer),
+            place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+        ));
+        for (pedestal, &window) in windows.iter().enumerate() {
+            spotted(picture, pedestal, window);
+        }
+        for (pedestal, &at) in PEDESTALS.iter().enumerate() {
+            match looks.iter().find(|look| look.pedestal == pedestal) {
+                Some(look) => {
+                    hero_label(picture, (look, &words, &label_font), (&ui_images, &assets))
                 }
+                None => free_label(picture, pedestal, at, (&words, &font)),
             }
-            panel(picture, &atlases, &words, &font, false);
+        }
+        let kind = if importing {
+            Kind::Import
+        } else {
+            Kind::Underworld
+        };
+        panel(picture, &atlases, &words, &font, kind);
+        erase_button(picture, (&ui_images, &assets));
+        if !importing {
+            minimum_title(picture, &words, &font);
+        }
+    });
+}
+
+/// The erase button at the name's field's right end, shown while a hero the player exported is
+/// chosen (`0x70CA30`; [`show`]); a click asks whether to erase it ([`ask_erase`]).
+fn erase_button(picture: &mut ChildSpawnerCommands, (images, assets): (&UiImages, &AssetServer)) {
+    let (image, node) = bar::piece(images, assets, ERASE, ERASE_AT, Vec2::ZERO);
+    picture
+        .spawn((Part::Erase, Visibility::Hidden, image, node))
+        .observe(|click: On<PointerClick>, mut commands: Commands| {
+            if click.button == PointerButton::Primary {
+                commands.run_system_cached(ask_erase);
+            }
+        });
+}
+
+/// The title of the level the Underworld campaign takes ([`MINIMUM_TITLE`]), shown by [`show`].
+fn minimum_title(picture: &mut ChildSpawnerCommands, words: &Words, font: &Handle<Font>) {
+    let fallback = format!("A hero of level {UNDERWORLD_LEVEL} or more");
+    picture.spawn((
+        Part::Minimum,
+        Pickable::IGNORE,
+        Visibility::Hidden,
+        place(MINIMUM_TITLE),
+        Text::new(words.get(MINIMUM).unwrap_or(&fallback)),
+        TextFont {
+            font: font.clone().into(),
+            font_size: FontSize::Px(MINIMUM_SIZE),
+            ..default()
         },
+        TextLayout::justify(Justify::Center),
+        TextColor(crate::tooltip::argb(MINIMUM_COLOUR)),
+    ));
+}
+
+/// The erase button's question, and its answer: the slot of the exported hero to erase, none
+/// for Cancel.
+#[derive(Component)]
+struct Erasing;
+#[derive(Component, Clone, Copy)]
+struct Erase(Option<u8>);
+
+/// Asks whether to erase the chosen hero, one the player exported (`0x70EE60`:
+/// `UI_CHAR_ERASE_CONFIRM` in the busy dialog, OK and Cancel).
+fn ask_erase(
+    mut commands: Commands,
+    (choice, screen): (Res<Choice>, Res<State<Screen>>),
+    (images, assets, texts): (
+        Res<Images>,
+        Res<AssetServer>,
+        Option<Res<crate::lines::Texts>>,
+    ),
+    questions: Query<(), With<Erasing>>,
+) {
+    let Some(slot) = chosen_export(&choice) else {
+        return;
+    };
+    if !questions.is_empty() {
+        return;
+    }
+    let buttons = crate::busy_dialog::spawn(
+        &mut commands,
+        (&images, &assets, texts.as_deref()),
+        (
+            (Erasing, DespawnOnExit(*screen.get())),
+            (ERASE_CONFIRM, "Delete the hero?"),
+        ),
+        &[
+            (
+                Erase(Some(slot)),
+                crate::busy_dialog::OK_BESIDE,
+                crate::busy_dialog::OK,
+            ),
+            (Erase(None), crate::busy_dialog::CANCEL, ("1025", "Cancel")),
+        ],
     );
+    for (button, answer) in buttons {
+        commands
+            .entity(button)
+            .observe(move |click: On<PointerClick>, mut commands: Commands| {
+                if click.button == PointerButton::Primary {
+                    commands.run_system_cached_with(erased, answer);
+                }
+            });
+    }
+}
+
+/// The slot of the chosen hero where the player exported it.
+fn chosen_export(choice: &Choice) -> Option<u8> {
+    choice
+        .chosen
+        .and_then(|pedestal| choice.stand(pedestal))
+        .and_then(|stand| stand.saved.as_ref())
+        .and_then(|saved| saved.exported)
+}
+
+/// The question answered: OK erases the hero's file (`0x720FDC`, `0x7F0CB0`) and fills the
+/// pedestals again, the screen made anew; either answer closes the question.
+fn erased(
+    In(Erase(slot)): In<Erase>,
+    mut commands: Commands,
+    questions: Query<Entity, With<Erasing>>,
+    settings: Option<Res<crate::settings::SettingsFile>>,
+    (screen, mut next): (Res<State<Screen>>, ResMut<NextState<Screen>>),
+) {
+    for question in &questions {
+        commands.entity(question).despawn();
+    }
+    let Some(slot) = slot else {
+        return;
+    };
+    let Some(dir) = crate::exports::directory_of(settings.as_deref()) else {
+        return;
+    };
+    match crate::exports::erase(&dir, slot) {
+        Ok(()) => info!("choice: the exported hero of the slot {slot} erased"),
+        Err(e) => warn!("choice: {e:#}"),
+    }
+    next.set(*screen.get());
 }
 
 /// A free pedestal's label, centred on `at`: `UI_SAVE_EMPTY`'s word, white, yellow while the
@@ -1065,7 +1271,8 @@ fn free_label(
 }
 
 /// A saved hero's label at the foot of its figure's window (`0x6F15A0`): its box, its name, and
-/// its level with the medal of the highest difficulty it won.
+/// its level with the medal of the highest difficulty it won, each a line unbroken, wider than a
+/// narrow window's box where it is longer (#2552).
 fn hero_label(
     picture: &mut ChildSpawnerCommands,
     (look, words, font): (&Look, &Words, &Handle<Font>),
@@ -1107,10 +1314,16 @@ fn hero_label(
         .with_children(|label| {
             label.spawn((
                 Pickable::IGNORE,
-                place(Rect::new(0.0, 0.0, look.window.width(), LABEL_LINE)),
-                Text::new(saved.name.clone()),
-                lettering.clone(),
-                TextLayout::justify(Justify::Center),
+                Node {
+                    justify_content: JustifyContent::Center,
+                    ..place(Rect::new(0.0, 0.0, look.window.width(), LABEL_LINE))
+                },
+                children![(
+                    Pickable::IGNORE,
+                    Text::new(saved.name.clone()),
+                    lettering.clone(),
+                    TextLayout::new(Justify::Left, LineBreak::NoWrap),
+                )],
             ));
             label
                 .spawn((
@@ -1127,7 +1340,12 @@ fn hero_label(
                     },
                 ))
                 .with_children(|line| {
-                    line.spawn((Pickable::IGNORE, Text::new(level), lettering));
+                    line.spawn((
+                        Pickable::IGNORE,
+                        Text::new(level),
+                        lettering,
+                        TextLayout::new(Justify::Left, LineBreak::NoWrap),
+                    ));
                     if let Some(medal) = medal {
                         line.spawn((
                             Pickable::IGNORE,
@@ -1447,17 +1665,25 @@ fn name(parent: &mut ChildSpawnerCommands, atlases: &Atlases, font: &Handle<Font
     ));
 }
 
-/// The panel under the figures, the Ancaria campaign's where `ancaria`, else the Underworld
-/// campaign's.
+/// Which choice a panel is under: the Ancaria campaign's classes, whose Import is enabled where
+/// `importable`, the Underworld campaign's saved heroes, or the Ancaria campaign's import of one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Classes { importable: bool },
+    Underworld,
+    Import,
+}
+
+/// The panel under the figures, of the choice `kind`.
 fn panel(
     picture: &mut ChildSpawnerCommands,
     atlases: &Atlases,
     words: &Words,
     font: &Handle<Font>,
-    ancaria: bool,
+    kind: Kind,
 ) {
     frame(picture, atlases);
-    controls(picture, atlases, (words, font), ancaria);
+    controls(picture, atlases, (words, font), kind);
     list(picture, words, font);
 }
 
@@ -1634,8 +1860,9 @@ fn controls(
     picture: &mut ChildSpawnerCommands,
     atlases: &Atlases,
     (words, font): (&Words, &Handle<Font>),
-    ancaria: bool,
+    kind: Kind,
 ) {
+    let ancaria = matches!(kind, Kind::Classes { .. });
     if !ancaria {
         name(picture, atlases, font, false);
     }
@@ -1686,7 +1913,22 @@ fn controls(
                 TextColor(TEXT),
             ));
         });
-    if ancaria {
+    // Import, greyed where no hero is saved (`0x70CF12`), and in the import's place the button
+    // back to the classes (`0x70D25C`).
+    let import = match kind {
+        Kind::Classes { importable } => Some((
+            words.get(IMPORT).unwrap_or("Import"),
+            !importable,
+            (|commands: &mut Commands| commands.run_system_cached(import)) as fn(&mut Commands),
+        )),
+        Kind::Import => Some((
+            words.get(NEW_HERO).unwrap_or("New Hero"),
+            false,
+            (|commands: &mut Commands| commands.run_system_cached(classes)) as fn(&mut Commands),
+        )),
+        Kind::Underworld => None,
+    };
+    if let Some((word, greyed, act)) = import {
         picture
             .spawn((
                 Part::Import,
@@ -1694,13 +1936,7 @@ fn controls(
                 place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
             ))
             .with_children(|import| {
-                button(
-                    import,
-                    atlases,
-                    (words.get(IMPORT).unwrap_or("Import"), font, true),
-                    IMPORT_BUTTON,
-                    |_| {},
-                );
+                button(import, atlases, (word, font, greyed), IMPORT_BUTTON, act);
             });
     }
     picture.spawn((
@@ -1730,9 +1966,25 @@ fn controls(
     picture.commands().entity(start).insert(Part::Start);
 }
 
-/// Back to the main menu.
-fn back(mut screen: ResMut<NextState<Screen>>) {
-    screen.set(Screen::Main);
+/// Back to the main menu, from the import back to the classes (seen).
+fn back(state: Res<State<Screen>>, mut screen: ResMut<NextState<Screen>>) {
+    screen.set(if *state.get() == Screen::Import {
+        Screen::Heroes
+    } else {
+        Screen::Main
+    });
+}
+
+/// Import: the choice of a saved hero for the Ancaria campaign, where one is saved (`0x70CEF6`).
+fn import(figures: Res<Figures>, mut screen: ResMut<NextState<Screen>>) {
+    if importable(&figures) {
+        screen.set(Screen::Import);
+    }
+}
+
+/// The import's button back to the classes.
+fn classes(mut screen: ResMut<NextState<Screen>>) {
+    screen.set(Screen::Heroes);
 }
 
 /// Starts a game of the hero chosen, of its name, if one is: a class's of the Ancaria campaign,
@@ -1748,7 +2000,12 @@ fn start(
         return;
     };
     let class = stand.class;
-    let tree = stand.saved.as_ref().map(|_| class.underworld_tree());
+    // The import's game is the Ancaria campaign's, in the class's own tree.
+    let tree = stand
+        .saved
+        .as_ref()
+        .filter(|_| !choice.importing)
+        .map(|_| class.underworld_tree());
     info!(
         "choice: a {} named {}, on {:?}{}",
         class.name(),
@@ -1761,12 +2018,18 @@ fn start(
     request.0.name = Some(choice.name.clone());
     request.0.difficulty = Some(choice.difficulty);
     request.0.tree = tree;
-    // The saved hero's slot, its pedestal's, whose values its game carries (#2362).
+    // The installation's saved hero's slot, its pedestal's, whose values its game carries
+    // (#2362), or the slot of a hero the player exported, whose whole character it takes
+    // (#2552).
+    let slot = choice
+        .chosen
+        .and_then(|pedestal| u8::try_from(pedestal).ok());
     request.0.saved = stand
         .saved
         .as_ref()
-        .and(choice.chosen)
-        .and_then(|pedestal| u8::try_from(pedestal).ok());
+        .filter(|saved| saved.exported.is_none())
+        .and(slot);
+    request.0.exported = stand.saved.as_ref().and_then(|saved| saved.exported);
     state.set(AppState::Loading);
 }
 
@@ -1887,6 +2150,25 @@ fn show(
                 if let Some(mut word) = word {
                     word.greyed = choice.chosen.is_none();
                 }
+            }
+            Part::Erase => {
+                *visibility = if chosen_export(&choice).is_some() {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+            Part::Minimum => {
+                let below = choice
+                    .hovered
+                    .and_then(|pedestal| choice.stand(pedestal))
+                    .and_then(|stand| stand.saved.as_ref())
+                    .is_some_and(|saved| saved.level < UNDERWORLD_LEVEL);
+                *visibility = if below && !choice.importing {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
             }
         }
     }
@@ -2169,7 +2451,17 @@ fn shade(
 
 /// Whether a choice of the hero shows, either campaign's.
 fn choosing(screen: Option<Res<State<Screen>>>) -> bool {
-    screen.is_some_and(|screen| matches!(screen.get(), Screen::Heroes | Screen::Underworld))
+    screen.is_some_and(|screen| {
+        matches!(
+            screen.get(),
+            Screen::Heroes | Screen::Underworld | Screen::Import
+        )
+    })
+}
+
+/// Whether the screen is a choice of a saved hero.
+fn choosing_saved(screen: Option<Res<State<Screen>>>) -> bool {
+    screen.is_some_and(|screen| matches!(screen.get(), Screen::Underworld | Screen::Import))
 }
 
 /// A choice's screen under its [`Veil`] while what it draws loads: its pictures, its fonts, its
@@ -2279,7 +2571,11 @@ impl Plugin for ChoicePlugin {
         .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
         .add_systems(
             OnEnter(Screen::Underworld),
-            (read_figures, underworld_screen).chain(),
+            (read_figures, saved_screen).chain(),
+        )
+        .add_systems(
+            OnEnter(Screen::Import),
+            (read_figures, saved_screen).chain(),
         )
         .add_systems(
             Update,
@@ -2289,7 +2585,7 @@ impl Plugin for ChoicePlugin {
                         .run_if(in_state(Screen::Heroes)),
                     show,
                     caret,
-                    colour_labels.run_if(in_state(Screen::Underworld)),
+                    colour_labels.run_if(choosing_saved),
                 ),
                 // The figures, where the game draws models.
                 (dress, settle, shade, npcs::equip, npcs::bind_worn)
@@ -2338,6 +2634,7 @@ mod tests {
                 name: "Hero".into(),
                 level,
                 highest,
+                exported: None,
             }),
         };
         let mut choice = Choice::default();
@@ -2375,6 +2672,7 @@ mod tests {
                 name: "Hero".into(),
                 level: 29,
                 highest: 0,
+                exported: None,
             }),
         });
         choose(&mut choice, &Words::default(), 6);
@@ -2392,6 +2690,48 @@ mod tests {
         assert_eq!(request.difficulty, Some(Difficulty::Silver));
         assert_eq!(request.tree.as_deref(), Some("addon-type_npc_zwerg"));
         assert_eq!(request.saved, Some(6));
+    }
+
+    #[test]
+    fn an_imported_hero_of_any_level_starts_in_the_ancaria_campaign_with_its_character() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .init_state::<AppState>()
+            .init_resource::<Request>();
+        let exported = |level| Stand {
+            class: Class::WoodElf,
+            saved: Some(Saved {
+                name: "Elda".into(),
+                level,
+                highest: 0,
+                exported: Some(2),
+            }),
+        };
+        // The Underworld campaign's choice takes no hero below level 25, the import any.
+        let mut choice = Choice::default();
+        choice.stands[2] = Some(exported(3));
+        choose(&mut choice, &Words::default(), 2);
+        assert_eq!(choice.chosen, None);
+        let mut choice = Choice {
+            importing: true,
+            ..default()
+        };
+        choice.stands[2] = Some(exported(3));
+        choose(&mut choice, &Words::default(), 2);
+        assert_eq!(choice.chosen, Some(2));
+        // The erase button shows for a hero the player exported.
+        assert_eq!(chosen_export(&choice), Some(2));
+        app.insert_resource(choice);
+        app.world_mut().run_system_cached(start).unwrap();
+        app.update();
+        let request = &app.world().resource::<Request>().0;
+        assert_eq!(request.class, Some(Class::WoodElf));
+        assert_eq!(request.name.as_deref(), Some("Elda"));
+        // In the class's own tree of the Ancaria campaign, the exported hero's whole character.
+        assert_eq!(
+            (request.tree.as_deref(), request.saved, request.exported),
+            (None, None, Some(2))
+        );
     }
 
     #[test]
