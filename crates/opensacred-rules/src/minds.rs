@@ -1730,6 +1730,29 @@ impl Mind {
                 }
                 return Some(self.ordered_art(casts::DARK_ELFS_ATTACKE));
             }
+            // By its roll, its deadline neither too far ahead nor running, with a straight line
+            // to the hero, it stares by its strength; too weak, by a coin it fails, its deadline
+            // renewed and standing, or fights in melee (`0x4D9C2F`).
+            OwnMark::BrainFooter => {
+                if !casts::special_passes(casts::STARE_B, cast.difficulty, rng.below(100) + 1)
+                    || self.cast_deadline > cast.now + casts::STARE_AHEAD
+                    || !clear()
+                    || cast.now < self.cast_deadline
+                {
+                    return None;
+                }
+                let next = match cast.stare {
+                    Some(strength) => Pursues::Stares { strength },
+                    None if rng.below(2) == 0 => Pursues::Faces,
+                    None => return None,
+                };
+                // Its deadline renewed as the casters' (`0x4D4670(1)`).
+                let roll = rng.below(3);
+                self.cast_deadline = cast.now.floor()
+                    + f64::from(casts::deadline(self.level, cast.elite, cast.hostiles, roll));
+                self.stands = casts::STARE_STANDS;
+                return Some(next);
+            }
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -1784,7 +1807,8 @@ impl Mind {
             | OwnMark::IceChampion
             | OwnMark::HellGolem
             | OwnMark::ArtQueen
-            | OwnMark::Fetzer => None,
+            | OwnMark::Fetzer
+            | OwnMark::BrainFooter => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -2881,6 +2905,9 @@ pub struct CastSight {
     /// Another Fetzer (202, 344) of the hero's list that fights the hero, and whether the hero
     /// attacks it, which a Fetzer's choice of its phase weighs (`0x4D9A62`, #2568).
     pub fetzer: Option<bool>,
+    /// A brain-footer's strength against the hero by the levels ([`casts::stare_strength`]),
+    /// none where it is too weak to stare (#2567).
+    pub stare: Option<f32>,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -3018,6 +3045,8 @@ pub enum Pursues {
     /// It makes the weapon art `art` at its target, as a special orders it (the AI's state 11,
     /// #2564).
     MakesArt { art: u16 },
+    /// A brain-footer stares at its target of the strength `strength` and stops (#2567).
+    Stares { strength: f32 },
     /// A larva hides from its target (#2562): it runs to the first of [`casts::HIDE_TRIES`] points
     /// [`casts::HIDES_AT`] from it, from the angle `from` in degrees by [`casts::HIDE_STEP`], that
     /// it may stand on, with no straight line from its target and a path to it; with none it
@@ -4254,6 +4283,7 @@ mod tests {
             listed: 0,
             difficulty: Difficulty::Bronze,
             fetzer: None,
+            stare: None,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4364,6 +4394,7 @@ mod tests {
             listed: 0,
             difficulty: Difficulty::Bronze,
             fetzer: None,
+            stare: None,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4433,6 +4464,7 @@ mod tests {
             listed: 0,
             difficulty: Difficulty::Bronze,
             fetzer: None,
+            stare: None,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4512,6 +4544,7 @@ mod tests {
             listed: 0,
             difficulty: Difficulty::Bronze,
             fetzer: None,
+            stare: None,
         }
     }
 
@@ -5001,6 +5034,86 @@ mod tests {
     }
 
     #[test]
+    fn a_brain_footer_stares_by_its_roll_its_deadline_and_its_strength() {
+        use crate::spawning::Script;
+        let cast = |stare| CastSight {
+            stare,
+            ..hornets_cast(0, (0, false), false)
+        };
+        let near = hornets_sight(300.0, false);
+        let decide = |mind: &mut Mind, stare: Option<f32>, clear: bool, rolls: Vec<u32>| {
+            mind.stands = 0;
+            mind.cast(&near, &cast(stare), || clear, &mut Script::new(rolls))
+        };
+        // Its roll of 30 p, 6 on bronze: R(1, 100) of 5 passes, of 6 not.
+        let mut footer = fighting(203);
+        assert_eq!(decide(&mut footer, Some(0.5), true, vec![5, 0]), None);
+        assert_eq!(
+            decide(&mut footer, Some(0.5), true, vec![4, 0]),
+            Some(Pursues::Stares { strength: 0.5 })
+        );
+        assert_eq!(footer.stands, casts::STARE_STANDS);
+        // Its deadline renewed as the casters', from the clock's whole second: none while it runs.
+        assert!(footer.cast_deadline > 50.0);
+        assert_eq!(decide(&mut footer, Some(0.5), true, vec![0, 0]), None);
+        // Nor without a straight line, nor with its deadline more than 100 s ahead.
+        let mut footer = fighting(351);
+        assert_eq!(decide(&mut footer, Some(0.5), false, vec![0, 0]), None);
+        footer.cast_deadline = 151.0;
+        assert_eq!(decide(&mut footer, Some(0.5), true, vec![0, 0]), None);
+        // Too weak: by a coin it fails, standing and its deadline renewed, or fights in melee.
+        let mut weak = fighting(352);
+        assert_eq!(decide(&mut weak, None, true, vec![0, 1]), None);
+        assert_eq!(
+            decide(&mut weak, None, true, vec![0, 0, 0]),
+            Some(Pursues::Faces)
+        );
+        assert_eq!(weak.stands, casts::STARE_STANDS);
+        assert!(weak.cast_deadline > 50.0);
+        // Its strength by the levels.
+        let terms = (0.85, 1.0, 1.1);
+        let close = |a: Option<f32>, b: f32| a.is_some_and(|a| (a - b).abs() < 1e-3);
+        assert!(close(casts::stare_strength(20, 20, terms), 0.3));
+        assert!(close(
+            casts::stare_strength(22, 20, terms),
+            0.3 + 0.4 * (31.0 / 29.0 - 1.0) / 0.1
+        ));
+        assert!(close(casts::stare_strength(30, 20, terms), 1.0));
+        assert!(close(
+            casts::stare_strength(17, 20, terms),
+            0.1 + 0.2 * (26.0 / 29.0 - 0.85) / 0.15
+        ));
+        assert_eq!(casts::stare_strength(15, 20, terms), None);
+        // At most 0.04 of the way to UnterExpVoll: none.
+        assert_eq!(casts::stare_strength(50, 60, terms), None);
+        assert!(casts::stare_strength(51, 60, terms).is_some());
+        // Up to the hero's level 10 the threshold is (H + 6)/(H + 9), from 92 (H − 6)/(H + 9).
+        assert!(close(
+            casts::stare_strength(4, 5, terms),
+            0.1 + 0.2 * (13.0 / 14.0 - 11.0 / 14.0) / (1.0 - 11.0 / 14.0)
+        ));
+        assert!(close(casts::stare_strength(92, 92, terms), 0.3));
+        assert_eq!(casts::stare_strength(77, 92, terms), None);
+        assert!(casts::stare_strength(80, 92, terms).is_some());
+        assert_eq!(casts::stare_strength(179, 200, terms), None);
+        // The balance's terms, the installation's defaults.
+        assert_eq!(
+            crate::fight::Rules::default().weighing_terms(),
+            (0.85, 1.0, 1.1)
+        );
+        // Its kinds by its type.
+        assert_eq!(
+            casts::stare(203).map(|s| (s.variant, s.whole)),
+            Some((10, 2))
+        );
+        let blue = casts::stare(351).unwrap();
+        assert!(blue.spells && !blue.weapon_arts && blue.combos);
+        let yellow = casts::stare(352).unwrap();
+        assert!(!yellow.spells && yellow.weapon_arts && yellow.combos);
+        assert_eq!(casts::stare(76), None);
+    }
+
+    #[test]
     fn a_black_magician_casts_keeps_its_band_and_runs_about() {
         use crate::spawning::Script;
         let mut mage = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (266, 2));
@@ -5038,6 +5151,7 @@ mod tests {
             listed: 0,
             difficulty: Difficulty::Bronze,
             fetzer: None,
+            stare: None,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);

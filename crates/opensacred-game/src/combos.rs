@@ -138,17 +138,24 @@ pub(crate) fn step_lines(combo: &Combo, arts: &HeroArts, texts: &Texts) -> Vec<S
 /// The combos' regeneration on the world's tick, as the arts': each at the speed of the hero's
 /// regenerations (`Combo::speed_of`), its attributes `MagicRegen` and `PhysicalRegen` grown by its
 /// level and raised by its items' (`fight::regenerations`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query takes its components one by one"
+)]
 fn regenerate(
     tick: Res<crate::frame::WorldTick>,
     experience: Res<Experience>,
     combos: Option<ResMut<HeroCombos>>,
-    heroes: Query<(&Base, Option<&Holding>), With<Body>>,
+    heroes: Query<(&Base, Option<&Holding>, Option<&crate::effects::Effects>), With<Body>>,
 ) {
-    let (Some(seconds), Some(mut combos), Some((base, holding))) =
+    let (Some(seconds), Some(mut combos), Some((base, holding, effects))) =
         (tick.seconds, combos, heroes.iter().next())
     else {
         return;
     };
+    // Not while the effect 57 holds, a brain-footer's stare's (`0x562730`, #2567).
+    let frozen =
+        effects.is_some_and(|effects| effects.holds(opensacred_rules::casts::FREEZES_REGENERATION));
     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
     let (magic, physical) = opensacred_rules::fight::regenerations(base, experience.level, &holds);
     for combo in &mut combos.0 {
@@ -156,7 +163,7 @@ fn regenerate(
         if combo.speed != speed {
             combo.speed = speed;
         }
-        if !combo.ready() {
+        if !combo.ready() && !frozen {
             combo.regenerate(seconds);
         }
     }

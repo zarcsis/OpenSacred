@@ -484,6 +484,15 @@ pub fn experience_with(
     whole(x.max(1.0))
 }
 
+impl Rules {
+    /// The levels' weighing's terms of the balance: `UnterExpAnteil`, `UnterExpVoll` and
+    /// `ObereEXPVoll` ([`weighing`]).
+    pub fn weighing_terms(&self) -> (f32, f32, f32) {
+        let [_, anteil, voll, upper] = self.experience;
+        (anteil, voll, upper)
+    }
+}
+
 /// The factor of the levels (`0x551530`, docs/re/fight.md, "The hero's levels"), which the kill's
 /// experience and the drops take, of a creature of level `level` on bronze's scale against a hero
 /// of level `hero`: with `r = (E + 9)/(H + 9)` against the threshold `t` (`(H + 6)/(H + 9)` up to
