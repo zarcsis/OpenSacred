@@ -603,6 +603,13 @@ pub const FLIES_AT: f32 = 200.0;
 /// (`0x5941A0`: `0x596600`, `0x596AB7`, `0x598EAF`).
 pub const FLIES_HIGH: f32 = 120.0;
 pub const CLIMBS: f32 = 110.0;
+/// The types that keep flying where their flight comes down to the ground (`0x598FDD`): the
+/// Daemon's type 9, the hornets 190, 335 and 336 and the bats 514, 515 and 594 to 596; the bats,
+/// whose clips fly, climb to none, and the Daemon's type 9 to 60 (`0x596600`).
+const KEEP_FLYING: [u32; 9] = [9, 190, 335, 336, 514, 515, 594, 595, 596];
+const BATS: [u32; 5] = [514, 515, 594, 595, 596];
+const DAEMONS_TYPE: u32 = 9;
+const DAEMONS_TYPE_HIGH: f32 = 60.0;
 /// The chance that an idle creature sharing its cell parts, a tick's 1 in 6 (`0x544890`), and how
 /// far about home or itself it goes.
 const PARTS: u32 = 6;
@@ -867,7 +874,8 @@ impl Mind {
             armed: false,
             big: false,
             flies: false,
-            flying: false,
+            // The hornets fly from their making (`0x52E2DC`, [`crate::ways::constructed`]).
+            flying: flags & crate::ways::FLYING != 0,
             fly: 0.0,
             turned: false,
             provoked: false,
@@ -2521,15 +2529,25 @@ impl Mind {
 
     /// Where it parts to at this tick of the world, standing at `here`, `crowded` by another in its
     /// cell (`0x544890`): unless it stays (`CreateNPC`'s tag `0x74`), has a dialogue, is a trader
-    /// or fights, in one tick of 6, to a point by [`parting`].
-    pub fn parts(&self, here: Spot, crowded: bool, rng: &mut impl Dice) -> Option<Spot> {
-        (crowded
+    /// or fights, in one tick of 6, to a point by [`parting`]. A type that flies takes its flight
+    /// to part where it stands `on_ground`, on no building's floor (`0x545D36`, #2569).
+    pub fn parts(
+        &mut self,
+        here: Spot,
+        (crowded, on_ground): (bool, bool),
+        rng: &mut impl Dice,
+    ) -> Option<Spot> {
+        let to = (crowded
             && self.flags & STAYS == 0
             && !self.dialogue
             && !self.trader
             && !self.fighting
             && rng.below(PARTS) == 0)
-            .then(|| parting(self.home, here, rng))
+            .then(|| parting(self.home, here, rng));
+        if to.is_some() && self.flies && on_ground {
+            self.flying = true;
+        }
+        to
     }
 
     /// How near `other` makes it flee or step away, if at all (`0x4EF150`, #1364): a wild animal
@@ -3928,17 +3946,48 @@ pub enum Gait {
 }
 
 /// A flyer's height over the ground after `seconds` from `height` (`0x5941A0`), `flying`
-/// ([`Mind::flying`]) and `moving` or not: flying and moving, it climbs at [`CLIMBS`] a second to
-/// [`FLIES_HIGH`]; flying and standing it comes down at [`CLIMBS`], and lands once that step
-/// reaches the ground, its flying over and its idle clip played (`0x598FD2`): `None`; not
-/// flying, it is on the ground at once, as the terror and its death set it down (`0x44D520`).
-pub fn climbs(height: f32, (flying, moving): (bool, bool), seconds: f32) -> Option<f32> {
+/// ([`Mind::flying`]) and `moving` or not, `high` its height aloft ([`flies_up_to`]): flying and
+/// moving, below `high` it climbs at [`CLIMBS`] a second, else it is at `high`, down to it at
+/// once from above (`0x59670E`); flying and standing it comes down at [`CLIMBS`], and once that
+/// step reaches the ground it is there (`0x598FD2`): `None`, where a flyer that [`lands`] lands,
+/// its flying over and its idle clip played; not flying, it is on the ground at once, as the
+/// terror and its death set it down (`0x44D520`).
+pub fn climbs(
+    height: f32,
+    (flying, moving): (bool, bool),
+    (seconds, high): (f32, f32),
+) -> Option<f32> {
     let step = CLIMBS * seconds;
     match (flying, moving) {
-        (true, true) => Some((height + step).min(FLIES_HIGH)),
+        (true, true) if height < high => Some(height + step),
+        (true, true) => Some(high),
         (true, false) if height > step => Some(height - step),
         _ => None,
     }
+}
+
+/// How high a flyer of type `creature` flies over the ground as it moves (`0x596600`):
+/// [`FLIES_HIGH`], 60 for the Daemon's type 9, at most half the whole distance to its target
+/// while it fights it in melee (its AI's state 4 with a target `+0x104`, `0x5370B0`), `aims`;
+/// none for the bats, whose clips fly.
+pub fn flies_up_to(creature: u32, aims: Option<f32>) -> f32 {
+    if BATS.contains(&creature) {
+        return 0.0;
+    }
+    let high = if creature == DAEMONS_TYPE {
+        DAEMONS_TYPE_HIGH
+    } else {
+        FLIES_HIGH
+    };
+    // The whole distance halved, its fraction dropped (`SHR 1`).
+    aims.map_or(high, |distance| high.min((distance.max(0.0) / 2.0).floor()))
+}
+
+/// Whether a flyer of type `creature` lands where its flight comes down to the ground, its
+/// flying over (`0x598FDD`): every type but the Daemon's type 9, the hornets and the bats, which
+/// keep flying on the ground ([`KEEP_FLYING`], #2569).
+pub fn lands(creature: u32) -> bool {
+    !KEEP_FLYING.contains(&creature)
 }
 
 /// What a peaceful creature awake does now by its behaviour, standing at `here` (`0x4EF150`): a
@@ -4113,7 +4162,7 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
-    use crate::ways::{CRITTER, constructed};
+    use crate::ways::{CRITTER, HOSTILE, constructed};
 
     #[test]
     fn a_creature_sees_the_hero_near_it_and_before_it_on_the_screen() {
@@ -6789,11 +6838,47 @@ mod tests {
 
     #[test]
     fn a_flyer_climbs_to_its_height_and_comes_down_where_it_stands() {
-        assert_eq!(climbs(0.0, (true, true), 0.5), Some(55.0));
-        assert_eq!(climbs(100.0, (true, true), 0.5), Some(FLIES_HIGH));
-        assert_eq!(climbs(100.0, (true, false), 0.5), Some(45.0));
-        assert_eq!(climbs(55.0, (true, false), 0.5), None);
-        assert_eq!(climbs(80.0, (false, true), 0.1), None);
+        let high = FLIES_HIGH;
+        assert_eq!(climbs(0.0, (true, true), (0.5, high)), Some(55.0));
+        // Below its height it climbs a whole step, past it; there or above, it is at it.
+        assert_eq!(climbs(100.0, (true, true), (0.5, high)), Some(155.0));
+        assert_eq!(climbs(155.0, (true, true), (0.5, high)), Some(high));
+        assert_eq!(climbs(high, (true, true), (0.5, high)), Some(high));
+        assert_eq!(climbs(100.0, (true, true), (0.1, 40.0)), Some(40.0));
+        assert_eq!(climbs(100.0, (true, false), (0.5, high)), Some(45.0));
+        assert_eq!(climbs(55.0, (true, false), (0.5, high)), None);
+        assert_eq!(climbs(80.0, (false, true), (0.1, high)), None);
+    }
+
+    #[test]
+    fn a_flyer_in_melee_flies_at_most_half_its_distance_and_the_hornets_keep_flying() {
+        // The hornets by their constructor's bit (#2569); a crow not.
+        let hornet = |creature| {
+            Mind::new(
+                Spot::default(),
+                HOSTILE | constructed(creature, crate::ways::FLIES),
+                (false, false),
+                None,
+                SPEEDS,
+                (creature, 2),
+            )
+        };
+        for creature in [190, 335, 336] {
+            assert!(hornet(creature).flying, "{creature}");
+            assert!(!lands(creature), "{creature}");
+        }
+        assert!(!hornet(513).flying && lands(513) && lands(193));
+        assert!(!lands(9) && !lands(514) && !lands(596));
+        // 120 aloft, the Daemon's type 9 60, the bats none; in melee half the whole distance.
+        assert_eq!(flies_up_to(190, None), FLIES_HIGH);
+        assert_eq!(flies_up_to(9, None), 60.0);
+        assert_eq!(flies_up_to(514, None), 0.0);
+        assert_eq!(flies_up_to(595, Some(500.0)), 0.0);
+        assert_eq!(flies_up_to(190, Some(97.9)), 48.0);
+        assert_eq!(flies_up_to(190, Some(300.0)), FLIES_HIGH);
+        assert_eq!(flies_up_to(9, Some(100.0)), 50.0);
+        assert_eq!(flies_up_to(9, Some(150.0)), 60.0);
+        assert_eq!(flies_up_to(190, Some(-4.0)), 0.0);
     }
 
     #[test]
@@ -7211,12 +7296,31 @@ mod tests {
             })
             .count();
         assert!((70..130).contains(&strolls), "{strolls}");
-        let farmer = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (640, 3));
+        let mut farmer = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (640, 3));
         let parts = (0..10_000)
-            .filter(|_| farmer.parts(home, true, &mut rng).is_some())
+            .filter(|_| farmer.parts(home, (true, true), &mut rng).is_some())
             .count();
         assert!((1_500..1_850).contains(&parts), "{parts}");
-        assert!((0..100).all(|_| farmer.parts(home, false, &mut rng).is_none()));
+        assert!((0..100).all(|_| farmer.parts(home, (false, true), &mut rng).is_none()));
+        assert!(!farmer.flying);
+        // A crow takes its flight to part on the ground (`0x545D36`), on a floor not; crowded
+        // or not, it takes none where it does not part.
+        let crow = || {
+            let mut crow = Mind::new(home, of_type(513), (true, false), None, SPEEDS, (513, 6));
+            crow.flies = true;
+            crow
+        };
+        let mut aloft = crow();
+        while aloft.parts(home, (true, true), &mut rng).is_none() {
+            assert!(!aloft.flying);
+        }
+        assert!(aloft.flying);
+        let mut indoors = crow();
+        while indoors.parts(home, (true, false), &mut rng).is_none() {}
+        assert!(!indoors.flying);
+        let mut alone = crow();
+        assert!((0..100).all(|_| alone.parts(home, (false, true), &mut rng).is_none()));
+        assert!(!alone.flying);
     }
 
     #[test]
