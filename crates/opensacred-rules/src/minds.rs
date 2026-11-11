@@ -1458,9 +1458,11 @@ impl Mind {
         if demon {
             let roll = rng.below(3);
             let way = clear();
+            // Its gait about its target a walk, the gait 1 (`0x4D5E99`–`0x4D5F2D`, #2497).
             if casts::big_demon_runs(roll, way) {
                 self.stands = casts::DEMON_STANDS;
-                return Some(self.runs_about(target, rng));
+                let to = Self::about_target(target, casts::STROLL, rng);
+                return Some(Pursues::Strolls(to, false));
             }
             let spell = casts::big_demon_casts(roll, way, rng.below(3))?;
             return Some(Pursues::Casts { spell, variant: 0 });
@@ -1530,9 +1532,14 @@ impl Mind {
 
     /// A run to a point `radius` about `target` at a whole degree of a roll.
     fn runs(target: Spot, radius: f32, rng: &mut impl Dice) -> Pursues {
+        Pursues::Strolls(Self::about_target(target, radius, rng), true)
+    }
+
+    /// A point `radius` about `target` at a whole degree of a roll.
+    fn about_target(target: Spot, radius: f32, rng: &mut impl Dice) -> Spot {
         let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
         let angle = degrees.to_radians();
-        Pursues::Strolls(target + Spot::new(angle.cos(), angle.sin()) * radius)
+        target + Spot::new(angle.cos(), angle.sin()) * radius
     }
 
     /// A decision of a caster of a mark of its own (`0x4D4E50`, #1855; [`Self::cast`]): none
@@ -1774,7 +1781,7 @@ impl Mind {
             walk,
             striking,
             health,
-            hero_strikes,
+            target_makes,
             listed,
             hero_size,
             outdoors,
@@ -1828,7 +1835,7 @@ impl Mind {
         let roll = rng.below(FLEES_ONE_IN);
         if let Some(health) = health
             && !striking
-            && flees(health, d, self, hero_strikes, roll)
+            && flees(health, d, self, target_makes, roll)
         {
             self.fled = true;
             // A crow on the ground outside a dungeon takes off as it flees (`0x4E1336`, #2291),
@@ -2598,7 +2605,8 @@ pub struct Pursuit {
     pub walk: Option<Walking>,
     pub striking: bool,
     pub health: Option<(u32, u32)>,
-    pub hero_strikes: bool,
+    /// Whether its target makes an art or a spell, which refuses its flight ([`flees`]).
+    pub target_makes: bool,
     pub listed: Option<(usize, Spot)>,
     pub targeted: bool,
     /// The hero's size ([`size`]), of which and the creature's the reach is the mean.
@@ -2729,8 +2737,8 @@ pub enum Pursues {
     Faces,
     /// A caster walks to the point of its band.
     KeepsBand(Spot),
-    /// A caster runs to the point about its target.
-    Strolls(Spot),
+    /// A caster goes to the point about its target, at a run or not.
+    Strolls(Spot, bool),
     /// A caster blinks away from its target (the black magician 10's, #1855): to the first of
     /// [`casts::BLINK_TRIES`] points [`casts::BLINK_REACH`] about it that a straight way reaches.
     Blinks,
@@ -2858,19 +2866,15 @@ fn bow(roll: &mut impl FnMut(u32) -> u32) -> u32 {
 
 /// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health`'s most or
 /// less, within 199 of the hero, not of the classes 1 and 5, not fled yet in this fight, while
-/// the hero does not strike, in one case of eight a tick (`roll` of 0 to 7).
-fn flees(
-    (current, most): (u32, u32),
-    distance: f32,
-    mind: &Mind,
-    hero_strikes: bool,
-    roll: u32,
-) -> bool {
+/// its target makes no art nor spell (`makes`: its AI's state 11 or 6, or its action 4 or 8 to
+/// 15, `0x4E0FB0`–`0x4E1020`; a plain strike, the action 3, refuses none, #2497), in one case of
+/// eight a tick (`roll` of 0 to 7, `rand() & 7` at `0x4E0F67`).
+fn flees((current, most): (u32, u32), distance: f32, mind: &Mind, makes: bool, roll: u32) -> bool {
     current * 3 <= most
         && distance <= FLEES_WITHIN
         && !matches!(mind.class, 1 | 5)
         && !mind.fled
-        && !hero_strikes
+        && !makes
         && roll == 0
 }
 
@@ -3895,7 +3899,7 @@ mod tests {
             walk: None,
             striking: false,
             health: None,
-            hero_strikes: false,
+            target_makes: false,
             listed: None,
             targeted: false,
             hero_size: SIZE,
@@ -3998,7 +4002,7 @@ mod tests {
             walk: None,
             striking: false,
             health: None,
-            hero_strikes: false,
+            target_makes: false,
             listed: None,
             targeted: false,
             hero_size: SIZE,
@@ -4045,7 +4049,7 @@ mod tests {
     }
 
     #[test]
-    fn a_big_demon_casts_coming_on_and_standing_and_runs_about_without_a_way() {
+    fn a_big_demon_casts_coming_on_and_standing_and_walks_about_without_a_way() {
         use crate::spawning::Script;
         let mut demon = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (53, 2));
         demon.level = 40;
@@ -4060,7 +4064,7 @@ mod tests {
             }),
             striking: false,
             health: None,
-            hero_strikes: false,
+            target_makes: false,
             listed: None,
             targeted: false,
             hero_size: SIZE,
@@ -4098,11 +4102,12 @@ mod tests {
                 variant: 0
             })
         );
-        // Without a way it runs to a point 280 about its target, then stands 50 decisions.
+        // Without a way it walks to a point 280 about its target (the gait 1, #2497), then stands
+        // 50 decisions.
         let mut rolls = Script::new(vec![0, 0]);
         assert_eq!(
             demon.cast(&sight(200.0, false), &cast, || false, &mut rolls),
-            Some(Pursues::Strolls(at(200.0 + casts::STROLL, 0.0)))
+            Some(Pursues::Strolls(at(200.0 + casts::STROLL, 0.0), false))
         );
         let mut none = Script::new(Vec::new());
         for _ in 0..casts::DEMON_STANDS {
@@ -4131,7 +4136,7 @@ mod tests {
             walk: None,
             striking: false,
             health: None,
-            hero_strikes: false,
+            target_makes: false,
             listed: None,
             targeted: false,
             hero_size: SIZE,
@@ -4177,7 +4182,7 @@ mod tests {
         let mut rolls = Script::new(vec![0, 0, 0, 0]);
         assert_eq!(
             mage.cast(&sight(380.0), &cast, || true, &mut rolls),
-            Some(Pursues::Strolls(at(680.0, 0.0)))
+            Some(Pursues::Strolls(at(680.0, 0.0), true))
         );
         assert_eq!(mage.stands, casts::MAGE_RUN_STANDS);
     }
@@ -4360,11 +4365,12 @@ mod tests {
     }
 
     #[test]
-    fn a_creature_wounded_to_a_third_flees_once_near_a_hero_that_does_not_strike() {
+    fn a_creature_wounded_to_a_third_flees_once_near_a_hero_that_makes_no_art() {
         let goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 2));
         let health = |current| (current, 72);
         assert!(flees(health(24), 150.0, &goblin, false, 0));
-        // More than a third left, too far, the hero striking, or not this tick: it stays.
+        // More than a third left, too far, the hero making an art or a spell (a plain strike
+        // refuses none, #2497), or not this tick: it stays.
         assert!(!flees(health(25), 150.0, &goblin, false, 0));
         assert!(!flees(health(24), 200.0, &goblin, false, 0));
         assert!(!flees(health(24), 150.0, &goblin, true, 0));
@@ -4389,7 +4395,7 @@ mod tests {
             walk: None,
             striking: false,
             health: Some((10, 72)),
-            hero_strikes: false,
+            target_makes: false,
             listed: None,
             targeted: false,
         };
@@ -4433,7 +4439,7 @@ mod tests {
             }),
             striking: false,
             health: Some((72, 72)),
-            hero_strikes: true,
+            target_makes: true,
             listed: None,
             targeted: false,
         };
@@ -4462,7 +4468,7 @@ mod tests {
             walk,
             striking: false,
             health: Some((72, 72)),
-            hero_strikes: false,
+            target_makes: false,
             listed: None,
             targeted: false,
         }
@@ -4836,7 +4842,7 @@ mod tests {
             walk: None,
             striking: false,
             health: Some((72, 72)),
-            hero_strikes: false,
+            target_makes: false,
             listed: Some((index, first)),
             targeted: false,
         }
