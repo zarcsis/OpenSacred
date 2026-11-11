@@ -663,10 +663,13 @@ pub fn constructed(creature: u32, record_flags: u8) -> u32 {
             | 0x235
             | 0x236
     ) || record_flags & CRITTER_RECORD != 0;
-    [(critter, CRITTER), (BORN_FLYING.contains(&creature), FLYING)]
-        .into_iter()
-        .filter_map(|(set, bit)| set.then_some(bit))
-        .sum()
+    [
+        (critter, CRITTER),
+        (BORN_FLYING.contains(&creature), FLYING),
+    ]
+    .into_iter()
+    .filter_map(|(set, bit)| set.then_some(bit))
+    .sum()
 }
 
 /// The flags word (`+0x1F4`) that `CreateNPC` (`0x482510`) makes from a record's operand-less
