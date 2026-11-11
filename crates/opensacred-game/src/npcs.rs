@@ -9505,6 +9505,16 @@ impl ScriptClip {
         }
     }
 
+    /// A dryad's leap's clip of the slot `slot`, once at `rate`, its flight starting at the share
+    /// `flies` ([`ClipActs`], `creature_arts::Leaps`, #2566).
+    pub(crate) fn leap(slot: u16, rate: f32, flies: f32) -> Self {
+        Self {
+            acts_at: Some(flies),
+            rate: Some(rate),
+            ..Self::new(slot, 1)
+        }
+    }
+
     /// A creature's cast's clip of the slot `slot`, once, its spell acting at the share `share`
     /// (`creature_casts`, #1852).
     pub(crate) fn casting(slot: u16, share: f32) -> Self {

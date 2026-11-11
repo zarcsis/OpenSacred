@@ -5,6 +5,7 @@
 //! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons
 //! and big demons; the mark 8's magicians; the casters of marks of their own.
 
+use crate::minds::Spot;
 use crate::spawning::Dice;
 use crate::spells::{FIREBALL, WHIRLWIND};
 
@@ -800,6 +801,10 @@ pub enum OwnMark {
     /// and runs about the hero, a plain one's run round it and the Gladiator's `Attacke`
     /// (`0x4D8C4F`, #2565).
     Minimummy,
+    /// The dryads (218, 219) of `0x20E`: a leap away by the art 1003 near the hero, the arts
+    /// 1062, 1004 or 1008 far from it, and once landed (`0x210`) the bow (`0x4D8657`,
+    /// `0x4D8980`, #2566).
+    Dryad,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -822,6 +827,7 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         202 | 344 => OwnMark::Fetzer,
         203 | 351 | 352 => OwnMark::BrainFooter,
         192 | 329 | 342 | 343 | TUKTUK => OwnMark::Minimummy,
+        218 | 219 => OwnMark::Dryad,
         _ => return None,
     })
 }
@@ -883,6 +889,50 @@ pub const MUMMY_STANDS: u8 = 15;
 pub const DAGGER: u32 = 1712;
 pub const DAGGERS_MORE: (u32, u32) = (2, 4);
 pub const DAGGER_THROWN_AFTER: f32 = 0.6;
+
+/// The dryads' terms (`0x4D8657`, `0x4D8980`, #2566): the mark a leap leaves them of, whose
+/// bow they take from twice their reach off; the leap's one decision in three near the hero
+/// and the arts' one in six far from it; the decisions each order stands (`+0x129` 5); the leap's
+/// art 1003, its clip's slot (84, by the Wood Elf's executor `0x50AC00`), the shares of its clip
+/// played at which it flies (less than 0.8 left) and ends (less than 0.6), and the bows a
+/// dryad takes, 1732 or 1733 by a coin (`0x4D4A80`).
+pub const DRYAD_LANDED: u16 = 0x210;
+pub const DRYADS_LEAP_ONE_IN: u32 = 3;
+pub const DRYADS_ART_ONE_IN: u32 = 6;
+pub const DRYAD_STANDS: u8 = 5;
+pub const LEAP: u16 = 1003;
+pub const LEAP_SLOT: u16 = 84;
+pub const LEAP_FLIES: f32 = 0.2;
+pub const LEAP_ENDS: f32 = 0.4;
+pub const DRYADS_BOWS: [u32; 2] = [1732, 1733];
+/// The arts a dryad far from the hero orders: 1062 in one case of three, else 1004 or 1008 by
+/// a coin.
+pub const DRYADS_ARTS: [u16; 3] = [1062, 1004, 1008];
+
+/// The leap's search (`0x4D86BC`–`0x4D8879`): from the angle `R(0, 628)/100` radians, by 0.1 a
+/// try while below that and 60.28, a point `R(300, 500)` from `here` along it, the first that
+/// `fits`; none where none does.
+pub fn leap_point(
+    here: Spot,
+    rng: &mut impl Dice,
+    mut fits: impl FnMut(Spot) -> bool,
+) -> Option<Spot> {
+    let start = f32::from(u16::try_from(rng.below(629)).unwrap_or(0)) * 0.01;
+    let end = start + 60.28;
+    let mut angle = start;
+    while angle < end {
+        let distance = f32::from(u16::try_from(300 + rng.below(201)).unwrap_or(300));
+        let to = Spot::new(
+            here.x + angle.cos() * distance,
+            here.y + angle.sin() * distance,
+        );
+        if fits(to) {
+            return Some(to);
+        }
+        angle += 0.1;
+    }
+    None
+}
 
 /// The daggers a minimummy throws after the first of its volley, `R(2, 4)` ([`DAGGERS_MORE`]).
 pub fn daggers_more(rng: &mut impl Dice) -> u8 {
