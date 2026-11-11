@@ -294,7 +294,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 58 | 3 | skill 25's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9424}: +5 ; {T9424}: +11 |  |
 | 58 | 4 | a2 (+0x14) | +⌊10·D⌋ (10/13/16/20/23) | {T1092}: +10 ; {T1092}: +23 |  |
 | 58 | 5 | — (text only in 0x571710) | — | {T1076} {T1161} {T1182}: +50% ; {T1076} {T1161} {T1182}: +116% | Text only here; all kinds ×(1 + 0.5·D) against kind 9 (M1). |
-| 58 | 6 | flags +0x148 bit(s) | or 0x4000 | {K:UI_SET_FLUCHT} ; {K:UI_SET_FLUCHT} | Bit 0x4000: a creature that would flee the wearer is struck down (`0x4E1052`, docs/re/fight.md); the text is not in `global.res` (#2559). |
+| 58 | 6 | flags +0x148 bit(s) | or 0x4000 | {K:UI_SET_FLUCHT} ; {K:UI_SET_FLUCHT} | Bit 0x4000: a creature that would flee the wearer is struck down (`0x4E1052`, docs/re/fight.md); the text is not in `global.res`, and `opensacred-convert text` adds the project's own under its key (#2559). |
 | 59 | 2 | skill 14's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9413}: +5 ; {T9413}: +11 |  |
 | 59 | 3 | flags +0x148 bit(s) | or 0x100000 | 15% {K:MAGIEABWEHR} ; 35% {K:MAGIEABWEHR} | Magic defence: effect 858 + 15·D (M17). |
 | 59 | 4 | a4 (+0x18) | +⌊10·D⌋ (10/13/16/20/23) | {T1094}: +10 ; {T1094}: +23 |  |

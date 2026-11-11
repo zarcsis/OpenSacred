@@ -150,6 +150,10 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         Told::Unseen => white(n(783)),
         // Set 3's line at 4 (`0x571710`'s `{K:UI_KNOW_ENEMY}`), the foes' values on their labels.
         Told::KnowEnemy => white(words.of("UI_KNOW_ENEMY")),
+        // Set 58's line at 6 (`0x571710`'s `{K:UI_SET_FLUCHT}`), a wounded foe that would flee
+        // struck down: the key names no string of the installation's texts, and the converter
+        // adds the project's own words under it (the maintainer's choice of 2026-11-11, #2559).
+        Told::StrikesFleeing => white(words.of("UI_SET_FLUCHT")),
         // Set 41's line at 4 (`0x571710`'s `{T1150}: %d%%`), the share of the animals' flights
         // in which they stand, of the roll's 101 faces.
         Told::Terror(per_cent) => white(format!("{}: {}", n(1150), share(per_cent / 100.0))),
@@ -382,6 +386,7 @@ mod tests {
         );
         assert_eq!(told(Told::Unseen), ["<783>"]);
         assert_eq!(told(Told::Pierces), ["<UI_SET_DURCHBOHREN>"]);
+        assert_eq!(told(Told::StrikesFleeing), ["<UI_SET_FLUCHT>"]);
         assert_eq!(told(Told::Binds(30)), ["30% <UI_SET_ROOTEN>"]);
         assert_eq!(told(Told::Terror(2000.0 / 101.0)), ["<1150>: +19.8%"]);
         assert_eq!(told(Told::Potions(10.0)), ["<OPENSACRED_SET_POTIONS>: 10%"]);
