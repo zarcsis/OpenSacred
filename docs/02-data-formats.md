@@ -710,7 +710,13 @@ Of the 1,038,011 placed statics, 586,002 draw a sprite and 445,943 are miniature
 * `+0x62` 0 for 4277 and 4284 to 4302;
 * after the overlays: the category of 3240 22; for 4304 `+0x61` 2, `+0x62` 0 and `+0x1C` 8804; for 5776 `+0x6A` 0 and the flags word `0x8000000`; `+0x6A` 55 for 5635 and 5769 where it is 0.
 
-Then `0x429950` sets the scale of 24 models (§4.1) and changes a few records more, which `tables` does not make yet (#2579): the dummy 1249's `+0x20`, `+0x08`, `+0x66` and category, the category `0x20` of the crab and the fish 163 to 166, and `+0x20` set to the type itself in the types 32 to 713 where it names another (351, 352, 545, 565, 566 and 707 on file).
+Then `0x429950` sets the scale of 24 models (§4.1) and changes a few records more, which `tables` makes too since #2579 (`item_patches`):
+
+* the dummy 1249: `+0x20` 1249, `+0x08` and `+0x66` 0, the category 2 (on file the texture 7459 and the category 3);
+* the waters' crab and three fish 163 to 166: the category `0x20` (3 on file);
+* the types 32 to 713 whose `+0x20` is neither 0 nor the type itself take the type, which the client logs ("hat Resid"): 351 (from 251), 352 (252), 545 (543), 565 (564), 566 (565) and 707 (6115) on file.
+
+It also gives the undead goblins' models (types 142 and 143) copies of the goblin warrior's slots' motions (`0x4136D0`) and looks up their `+0x70` anew by name; their clips have the same CRCs as their own, so nothing of it changes what the converter writes.
 
 An overlay's record goes into the slot that its own `+0x76` names when its category is not 0, its `+0x08` and `+0x66` raised by an offset of its pak's textures and its `+0x70` cleared (`0x429190`).
 The offset of `ITEMS0n.PAK` is the sum of the texture manager's counts of the `n + 1` texture paks before its own (from `+0x44`), which for `Items03.pak` is `texture.pak`'s 25,535 slots alone, the others 0 (**confirmed** 2026-10-27 with the driver of #448, #1152): the client numbers `texture03.pak`'s textures from 25,535 in one numbering with `texture.pak`'s.
