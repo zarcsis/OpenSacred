@@ -4431,43 +4431,43 @@ mod tests {
         let mut queen = fighting(casts::QUEEN);
         let sight = hornets_sight(300.0, false);
         let mut rolls = Script::new(vec![]);
+        let alone = hornets_cast(0, (0, false), false);
+        assert_eq!(queen.cast(&sight, &alone, || true, &mut rolls), None);
+        // Another lives: 480 off, its angle turned one way for an odd id, the other for an even.
+        let turn = casts::QUEEN_TURN.to_degrees();
+        let away = at(-1.0, 0.0) * casts::QUEEN_CIRCLE;
+        let odd = hornets_cast(1, (0, false), true);
         assert_eq!(
-            queen.cast(
-                &sight,
-                &hornets_cast(0, (0, false), false),
-                || true,
-                &mut rolls
-            ),
-            None
+            queen.cast(&sight, &odd, || true, &mut rolls),
+            Some(Pursues::Strolls(at(300.0, 0.0) + away.turned(turn), true))
         );
-        let Some(Pursues::Strolls(to, true)) = queen.cast(
-            &sight,
-            &hornets_cast(1, (0, false), true),
-            || true,
-            &mut rolls,
-        ) else {
-            panic!("no circle");
-        };
-        assert!(((to - at(300.0, 0.0)).length() - casts::QUEEN_CIRCLE).abs() < 1e-3);
         assert_eq!(queen.stands, casts::QUEEN_STANDS);
-        // On its way, 100 or more from its point, it walks on.
         queen.stands = 0;
-        let walking = Pursuit {
+        let even = hornets_cast(4, (0, false), true);
+        assert_eq!(
+            queen.cast(&sight, &even, || true, &mut rolls),
+            Some(Pursues::Strolls(at(300.0, 0.0) + away.turned(-turn), true))
+        );
+        // On its way, 100 or more from its point, it walks on; nearer, it decides anew.
+        let walking = |target| Pursuit {
+            here: at(50.0, 50.0),
             walk: Some(Walking {
-                target: at(0.0, 150.0),
+                target,
                 comes_on: false,
                 runs: true,
             }),
             ..sight
         };
+        let none = hornets_cast(1, (0, false), false);
+        queen.stands = 0;
         assert_eq!(
-            queen.cast(
-                &walking,
-                &hornets_cast(1, (0, false), true),
-                || true,
-                &mut rolls
-            ),
+            queen.cast(&walking(at(50.0, 200.0)), &none, || true, &mut rolls),
             Some(Pursues::Faces)
+        );
+        queen.stands = 0;
+        assert_eq!(
+            queen.cast(&walking(at(50.0, 100.0)), &none, || true, &mut rolls),
+            None
         );
     }
 
@@ -4476,10 +4476,11 @@ mod tests {
         use crate::spawning::Script;
         let mut larva = fighting(191);
         let cast = hornets_cast(0, (0, false), false);
+        let near = hornets_sight(100.0, false);
         // A roll of 0 of 3: it stands its ten decisions.
         let mut rolls = Script::new(vec![0]);
         assert_eq!(
-            larva.cast(&hornets_sight(100.0, false), &cast, || true, &mut rolls),
+            larva.cast(&near, &cast, || true, &mut rolls),
             Some(Pursues::Faces)
         );
         assert_eq!(larva.stands, casts::LARVA_STANDS);
@@ -4487,60 +4488,113 @@ mod tests {
         larva.stands = 0;
         let mut rolls = Script::new(vec![1]);
         assert_eq!(
-            larva.cast(&hornets_sight(100.0, false), &cast, || false, &mut rolls),
+            larva.cast(&near, &cast, || false, &mut rolls),
             Some(Pursues::Faces)
         );
-        // Beyond twice its reach it fights in melee.
+        // From twice its reach on it fights in melee; within it, it may hide.
+        let reach = reach_f32(larva.size(), SIZE);
         larva.stands = 0;
         let mut rolls = Script::new(vec![1]);
-        assert_eq!(
-            larva.cast(&hornets_sight(1_000.0, false), &cast, || true, &mut rolls),
-            None
-        );
+        let far = hornets_sight(2.0 * reach, false);
+        assert_eq!(larva.cast(&far, &cast, || true, &mut rolls), None);
+        larva.stands = 0;
+        let mut rolls = Script::new(vec![1, 1, 0]);
+        let within = hornets_sight(1.5 * reach, false);
+        assert!(matches!(
+            larva.cast(&within, &cast, || true, &mut rolls),
+            Some(Pursues::Hides { .. })
+        ));
+        // Finding nowhere to hide, it decides again at once.
+        larva.hides_nowhere();
+        assert_eq!(larva.stands, 0);
         // Near, by its coin, or attacked whatever the coin, it hides from an angle at random.
         let mut rolls = Script::new(vec![1, 1, 90]);
         assert_eq!(
-            larva.cast(&hornets_sight(100.0, false), &cast, || true, &mut rolls),
+            larva.cast(&near, &cast, || true, &mut rolls),
             Some(Pursues::Hides { from: 90 })
         );
         larva.stands = 0;
         let mut rolls = Script::new(vec![1, 0, 30]);
+        let attacked = hornets_sight(100.0, true);
         assert_eq!(
-            larva.cast(&hornets_sight(100.0, true), &cast, || true, &mut rolls),
+            larva.cast(&attacked, &cast, || true, &mut rolls),
             Some(Pursues::Hides { from: 30 })
         );
         larva.stands = 0;
         let mut rolls = Script::new(vec![1, 0]);
-        assert_eq!(
-            larva.cast(&hornets_sight(100.0, false), &cast, || true, &mut rolls),
-            None
-        );
-        // Its points: 800 from it, 20° apart from the angle.
+        assert_eq!(larva.cast(&near, &cast, || true, &mut rolls), None);
+        // Its points: 800 from it, 20° apart from the angle, onward.
         let points: Vec<Spot> = hiding_points(at(0.0, 0.0), 90).collect();
         assert_eq!(points.len(), 18);
         assert!((points[0] - at(0.0, 800.0)).length() < 1e-2);
-        assert!((points[1].length() - 800.0).abs() < 1e-2);
+        let second = 110f32.to_radians();
+        assert!((points[1] - at(second.cos(), second.sin()) * 800.0).length() < 1e-2);
     }
 
     #[test]
     fn the_hornet_hunter_charges_in_one_decision_of_three() {
         use crate::spawning::Script;
-        let mut hunter = fighting(casts::HUNTER);
         let sight = hornets_sight(300.0, false);
+        let not_charging = |mind: &mut Mind, rolls: Vec<u32>| {
+            !matches!(
+                mind.pursue(&sight, || true, &mut Script::new(rolls)),
+                Some(Pursues::Charges { .. })
+            )
+        };
         // Not the roll of 2 of 3: it decides as any other.
-        let mut rolls = Script::new(vec![1, 0, 0, 0, 0, 0]);
-        assert!(!matches!(
-            hunter.pursue(&sight, || true, &mut rolls),
-            Some(Pursues::Charges { .. })
+        assert!(not_charging(
+            &mut fighting(casts::HUNTER),
+            vec![1, 0, 0, 0, 0, 0]
         ));
         let mut hunter = fighting(casts::HUNTER);
-        let mut rolls = Script::new(vec![2]);
         assert_eq!(
-            hunter.pursue(&sight, || true, &mut rolls),
+            hunter.pursue(&sight, || true, &mut Script::new(vec![2])),
             Some(Pursues::Charges {
                 to: at(300.0, 0.0),
                 again: false
             })
+        );
+        // Whatever it does: moving too.
+        let mut hunter = fighting(casts::HUNTER);
+        let at_hunter = (at(300.0, 0.0), at(0.0, 0.0));
+        let mut rolls = Script::new(vec![2]);
+        assert!(hunter.charges(at_hunter, true, 130.0, &mut rolls).is_some());
+        // Another creature charges by no roll, nor a black rider on foot.
+        assert!(not_charging(&mut fighting(76), vec![2, 10, 0, 0, 0, 0]));
+        assert!(not_charging(
+            &mut fighting(BLACK_RIDER),
+            vec![10, 0, 0, 0, 0, 0]
+        ));
+        // A creature riding but no black rider neither.
+        let mut riding = fighting(76);
+        riding.rides = Some(true);
+        assert!(not_charging(&mut riding, vec![10, 0, 0, 0, 0, 0]));
+        // A riding one by its roll of 10 of 11, standing and rested alone.
+        let mut rider = fighting(BLACK_RIDER);
+        rider.rides = Some(true);
+        let at_rider = (at(500.0, 0.0), at(0.0, 0.0));
+        let roll = |n| Script::new(vec![n]);
+        assert!(
+            rider
+                .charges(at_rider, true, 130.0, &mut roll(10))
+                .is_none()
+        );
+        assert!(
+            rider
+                .charges(at_rider, false, 130.0, &mut roll(9))
+                .is_none()
+        );
+        rider.rests = 1.0;
+        assert!(
+            rider
+                .charges(at_rider, false, 130.0, &mut roll(10))
+                .is_none()
+        );
+        rider.rests = 0.0;
+        assert!(
+            rider
+                .charges(at_rider, false, 130.0, &mut roll(10))
+                .is_some()
         );
     }
 
