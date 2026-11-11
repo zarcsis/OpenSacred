@@ -21,7 +21,7 @@ use opensacred_rules::fight::{
 };
 
 use crate::frame::{Playing, WorldTick};
-use crate::fx::{Effect, Orders, Quads, empty, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, ground_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::iso;
@@ -255,8 +255,8 @@ fn draw(
                             warn!("health rings: no texture {FILL} or {FRAME}; no ring is drawn");
                         }
                         Some([
-                            effects.add(particle_material(fill?, AlphaMode::Blend)),
-                            effects.add(particle_material(frame?, AlphaMode::Blend)),
+                            effects.add(ground_material(fill?)),
+                            effects.add(ground_material(frame?)),
                         ])
                     })
                     .clone()
@@ -335,6 +335,7 @@ fn draw(
             );
         }
         quads.in_order(order, Vec3::ZERO);
+        quads.on_level(place.y);
         if let Some(mut mesh) = meshes.get_mut(&parts.fill) {
             quads.into_mesh(&mut mesh);
         }
@@ -342,6 +343,7 @@ fn draw(
         let corners = [[-r, r], [r, r], [r, -r], [-r, -r]];
         quads.push_corners(corners.map(point), corners.map(uv), frame);
         quads.in_order(order, Vec3::ZERO);
+        quads.on_level(place.y);
         if let Some(mut mesh) = meshes.get_mut(&parts.frame) {
             quads.into_mesh(&mut mesh);
         }
