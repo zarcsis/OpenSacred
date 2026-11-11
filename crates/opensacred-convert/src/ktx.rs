@@ -12,6 +12,11 @@
 //! level otherwise (Castaño, "Computing Alpha Mipmaps", 2010). It is never lowered: a model's
 //! texels of alpha under 255 are blended, so a lowered alpha would make the whole model fainter
 //! where only its edge grew (#816).
+//!
+//! A static object's sprite ([`Use::Sprite`]) gets a few levels, its edge texels repeated to whole
+//! multiples first; where its texels are all of 4 bits a channel, as the original's sprites are
+//! (ARGB4444), its levels are rounded to 4 bits a channel too: averaged to 8 bits, they took twice
+//! the space of the images in `world.zip` (#839).
 
 use std::sync::LazyLock;
 
@@ -30,7 +35,8 @@ pub enum Use {
     /// A static object's sprite, which the game packs into its pages on the CPU with its levels
     /// (#839): its edge texels repeated to whole multiples of [`SPRITE_ALIGN`] at its right and
     /// bottom, then [`SPRITE_LEVELS`] levels as they are, where the art reaching the edge to go on
-    /// in the next sprite keeps its edge texels opaque at every level.
+    /// in the next sprite keeps its edge texels opaque at every level, of the art's 4 bits a
+    /// channel where it has them ([`four_bits`]).
     Sprite,
 }
 
@@ -285,13 +291,34 @@ fn repeated(width: usize, height: usize, rgba: &[u8], align: usize) -> (usize, u
     (wide, tall, out)
 }
 
+/// The step between two values of 4 bits widened to 8 (`0xF` → `0xFF`).
+const FOUR_BITS: u8 = 17;
+
+/// Whether every value of `rgba` is one of 4 bits widened to 8, as the original's ARGB4444
+/// textures' are.
+fn of_four_bits(rgba: &[u8]) -> bool {
+    rgba.iter().all(|v| v % FOUR_BITS == 0)
+}
+
+/// `level` rounded to 4 bits a channel, widened to 8: an alpha that passes the alpha test
+/// (over 64) still does, as 65 rounds to 68.
+fn four_bits(level: &mut [u8]) {
+    for value in level {
+        let rounded = (u16::from(*value) + u16::from(FOUR_BITS / 2)) / u16::from(FOUR_BITS);
+        *value = u8::try_from(rounded).unwrap_or(15) * FOUR_BITS;
+    }
+}
+
 /// The KTX2 file of the texture whose master is `png`, for `usage`.
 pub fn encode(png: &[u8], usage: Use) -> Result<Vec<u8>> {
     let (width, height, rgba) = decode_png(png)?;
     if usage == Use::Sprite {
         let (width, height, rgba) = repeated(width, height, &rgba, SPRITE_ALIGN);
         let (w, h) = (u32::try_from(width)?, u32::try_from(height)?);
-        let levels = levels(width, height, &rgba, SPRITE_LEVELS);
+        let mut levels = levels(width, height, &rgba, SPRITE_LEVELS);
+        if of_four_bits(&rgba) {
+            levels.iter_mut().skip(1).for_each(|level| four_bits(level));
+        }
         return Ok(texture::write(Encoding::Rgba8, w, h, &levels)?);
     }
     let (width, height, rgba) = thickened(width, height, rgba);
@@ -339,15 +366,18 @@ mod tests {
     #[test]
     fn a_sprite_keeps_its_edges_opaque_and_its_coverage_at_every_level() {
         // A wall's piece of 21 x 13 texels whose art reaches its right and bottom edges, opaque
-        // but for a hole of 6 x 4 at its top left (#839).
+        // but for a hole of 6 x 4 at its top left, of 4 bits a channel as the original's (#839).
         let (width, height) = (21, 13);
-        let rgba: Vec<u8> = (0..width * height)
-            .flat_map(|i| {
-                let (x, y) = (i % width, i / width);
-                let alpha = if x < 6 && y < 4 { 0 } else { 255 };
-                [200, 100, 50, alpha]
-            })
-            .collect();
+        let art = |colour: [u8; 3]| -> Vec<u8> {
+            (0..width * height)
+                .flat_map(|i| {
+                    let (x, y) = (i % width, i / width);
+                    let alpha = if x < 6 && y < 4 { 0 } else { 255 };
+                    [colour[0], colour[1], colour[2], alpha]
+                })
+                .collect()
+        };
+        let rgba = art([204, 102, 51]);
         let file = encode(&png(21, 13, &rgba), Use::Sprite).unwrap();
         let (header, levels) = levels_of(&file);
         // Repeated to 24 x 16, four levels.
@@ -380,7 +410,20 @@ mod tests {
                 share >= first - 1.0 / (w * h) as f32,
                 "level {index}: {share} < {first}"
             );
+            // Of the art's 4 bits a channel.
+            assert!(of_four_bits(level), "level {index}");
         }
+        // Art of 8 bits a channel keeps them at its levels.
+        let (_, levels) =
+            levels_of(&encode(&png(21, 13, &art([200, 100, 50])), Use::Sprite).unwrap());
+        assert_eq!(levels[1][4 * (12 * 3 + 7)..][..4], [200, 100, 50, 255]);
+    }
+
+    #[test]
+    fn four_bits_round_to_the_nearest_and_keep_what_the_alpha_test_keeps() {
+        let mut values = [0, 8, 9, 59, 60, 64, 65, 246, 247, 255];
+        four_bits(&mut values);
+        assert_eq!(values, [0, 0, 17, 51, 68, 68, 68, 238, 255, 255]);
     }
 
     fn levels_of(file: &[u8]) -> (ktx2::Header, Vec<Vec<u8>>) {

@@ -57,10 +57,11 @@ enum Make {
 
 impl Make {
     /// Every way.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Copy,
         Self::Texture(Use::Read),
         Self::Texture(Use::Sampled),
+        Self::Texture(Use::Sprite),
         Self::Model,
         Self::WorldIndex,
         Self::Sound(false),
@@ -76,6 +77,9 @@ impl Make {
         match self {
             // 1: the text files UTF-8 without a BOM with LF line ends (#835).
             Self::Copy => ("copy", 1),
+            // 1: the sprites' images repeated to whole multiples of their alignment, with their
+            // levels (#839).
+            Self::Texture(Use::Sprite) => ("sprite", 1),
             // 2: the levels' alpha never lowered (#816).
             Self::Texture(_) => ("texture", 2),
             Self::Model => ("model", 1),
@@ -649,12 +653,12 @@ return F
             make("textures/texture/14791-mouse_main.png").1,
             Make::Texture(Use::Read)
         );
-        // The sprites' images, which the game packs on the CPU (#838).
+        // The sprites' images, which the game packs on the CPU with their levels (#838, #839).
         assert_eq!(
             make("world/sprites/00001.png"),
             (
                 "world/sprites/00001.ktx2".to_owned(),
-                Make::Texture(Use::Read)
+                Make::Texture(Use::Sprite)
             )
         );
         assert_eq!(archive_of("world/sprites/00001.ktx2"), "world.zip");
@@ -903,9 +907,10 @@ return F
         let world = Archive::open(&out.join("world.zip")).unwrap();
         let file = world.read("world/sprites/00001.ktx2").unwrap().unwrap();
         let header = ktx2::Reader::new(&file[..]).unwrap().header();
+        let levels = u32::try_from(opensacred_data::world::SPRITE_LEVELS).unwrap();
         assert_eq!(
             (header.format.unwrap(), header.level_count),
-            (ktx2::Format::R8G8B8A8_SRGB, 1)
+            (ktx2::Format::R8G8B8A8_SRGB, levels)
         );
         let index = String::from_utf8(world.read("world/world.ron").unwrap().unwrap()).unwrap();
         assert!(!index.contains("assembled_from"), "{index}");

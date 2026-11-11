@@ -528,6 +528,48 @@ fn read_sprite(dir: &Path, id: u32, sprite: &Sprite) -> Result<Assembled> {
     })
 }
 
+/// The file of a sprite's image of `width` × `height` texels `rgba`, as the converter writes it
+/// (#839): its last column and row repeated to whole multiples of [`SPRITE_ALIGN`], then its
+/// [`SPRITE_LEVELS`] levels, each texel the mean of the four under it.
+#[cfg(test)]
+pub(crate) fn sprite_file(width: usize, height: usize, rgba: &[u8]) -> Vec<u8> {
+    let (wide, tall) = (
+        width.next_multiple_of(SPRITE_ALIGN),
+        height.next_multiple_of(SPRITE_ALIGN),
+    );
+    let first: Vec<u8> = (0..tall)
+        .flat_map(|y| {
+            (0..wide).flat_map(move |x| {
+                let at = 4 * (y.min(height - 1) * width + x.min(width - 1));
+                rgba[at..at + 4].iter().copied()
+            })
+        })
+        .collect();
+    let mut levels = vec![first];
+    for n in 1..SPRITE_LEVELS {
+        let (w, h) = (wide >> n, tall >> n);
+        let above = &levels[n - 1];
+        let next: Vec<u8> = (0..h)
+            .flat_map(|y| {
+                (0..w).flat_map(move |x| {
+                    (0..4).map(move |c| {
+                        let sum: u32 = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                            .iter()
+                            .map(|&(dx, dy)| {
+                                u32::from(above[4 * ((2 * y + dy) * 2 * w + 2 * x + dx) + c])
+                            })
+                            .sum();
+                        u8::try_from(sum / 4).unwrap()
+                    })
+                })
+            })
+            .collect();
+        levels.push(next);
+    }
+    let side = |n: usize| u32::try_from(n).unwrap();
+    texture::write(texture::Encoding::Rgba8, side(wide), side(tall), &levels).unwrap()
+}
+
 /// Where each sprite went on the pages: its page and the top-left corner of its image there.
 type Placed = HashMap<u32, (usize, usize, usize)>;
 
@@ -1705,19 +1747,19 @@ pub(crate) mod tests {
     }
 
     /// Writes the image of each of `sprites` under `dir/world`, all opaque white, as the converter
-    /// writes them (#838).
+    /// writes them (#838, #839).
     fn write_sprites(dir: &Path, sprites: &Sprites) {
         fs::create_dir_all(dir.join("world").join(opensacred_data::world::SPRITES_DIR)).unwrap();
         for (id, sprite) in sprites.sprites.iter().enumerate() {
             let Some(sprite) = sprite else { continue };
-            let [x0, y0, x1, y1] = sprite.rect.map(u32::from);
+            let [x0, y0, x1, y1] = sprite.rect.map(usize::from);
+            let (width, height) = (x1 - x0, y1 - y0);
             let id = u32::try_from(id).unwrap();
-            write_atlas(
-                &dir.join("world").join(sprite_image(id, texture::EXTENSION)),
-                x1 - x0,
-                y1 - y0,
-                [255; 4],
-            );
+            fs::write(
+                dir.join("world").join(sprite_image(id, texture::EXTENSION)),
+                sprite_file(width, height, &[255; 4].repeat(width * height)),
+            )
+            .unwrap();
         }
     }
 
@@ -2191,56 +2233,80 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_sprites_image_is_read_over_its_rectangle_and_packed_apart() {
+    fn a_sprites_image_is_read_over_its_rectangle_and_packed_at_its_levels() {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-pieces-{}", std::process::id()));
         let images = dir.join(opensacred_data::world::SPRITES_DIR);
         fs::create_dir_all(&images).unwrap();
-        write_atlas(&images.join("00001.ktx2"), 8, 5, [255, 0, 0, 255]);
-        // The image of a sprite of 8 × 5 from its pieces' smallest corner at (2, 1).
+        // The image of a sprite of 10 × 5 from its pieces' smallest corner at (2, 1), red, as the
+        // converter writes it: repeated to 16 × 8, with its levels.
+        let red = [255, 0, 0, 255];
+        fs::write(
+            images.join("00001.ktx2"),
+            sprite_file(10, 5, &red.repeat(50)),
+        )
+        .unwrap();
         let sprite = Sprite {
-            width: 8,
+            width: 10,
             height: 5,
-            rect: [2, 1, 10, 6],
+            rect: [2, 1, 12, 6],
         };
         let image = read_sprite(&dir, 1, &sprite).unwrap();
         assert_eq!(
-            (image.rect, image.width, image.height),
-            ([2, 1, 10, 6], 8, 5)
+            (image.rect, image.width, image.height, image.stride),
+            ([2, 1, 12, 6], 10, 5, (16, 8))
         );
-        assert_eq!(image.pixels.len(), 4 * 8 * 5);
-        // An image of another size than its rectangle does not draw.
+        assert_eq!(
+            image.levels.iter().map(Vec::len).collect::<Vec<_>>(),
+            [4 * 16 * 8, 4 * 8 * 4, 4 * 4 * 2, 4 * 2]
+        );
+        // An image of another size than its rectangle does not draw, nor one without its levels.
         let other = Sprite {
             rect: [0, 0, 8, 4],
             ..sprite
         };
         let error = read_sprite(&dir, 1, &other).err().unwrap().to_string();
-        assert!(error.contains("8 × 5 texels"), "{error}");
+        assert!(error.contains("16 × 8 texels of 4 levels"), "{error}");
+        let single = texture::write(texture::Encoding::Rgba8, 16, 8, &[red.repeat(16 * 8)]);
+        fs::write(images.join("00002.ktx2"), single.unwrap()).unwrap();
+        let error = read_sprite(&dir, 2, &sprite).err().unwrap().to_string();
+        assert!(error.contains("of 1 levels"), "{error}");
         fs::remove_dir_all(&dir).unwrap();
-        // Two of them on a page, a gutter apart and whole.
-        let sprites = BTreeMap::from([
-            (1, image),
-            (
-                2,
-                Assembled {
-                    rect: [0, 0, 3, 3],
-                    width: 3,
-                    height: 3,
-                    pixels: vec![7; 4 * 9],
-                },
-            ),
-        ]);
+        // Two of them on a page, at multiples of the alignment and whole at every level.
+        let grey = Assembled {
+            rect: [0, 0, 3, 3],
+            width: 3,
+            height: 3,
+            stride: (8, 8),
+            levels: (0..SPRITE_LEVELS)
+                .map(|n| vec![7; 4 * (8 >> n) * (8 >> n)])
+                .collect(),
+        };
+        let sprites = BTreeMap::from([(1, image), (2, grey)]);
         let (pages, placed) = pack(&sprites, Spread::Wide);
         assert_eq!(pages.len(), 1);
+        let page = &pages[0];
+        assert_eq!((page.width, page.height), (PAGE, SPRITE_ALIGN));
+        assert_eq!(page.levels.len(), SPRITE_LEVELS);
+        for (n, level) in page.levels.iter().enumerate() {
+            assert_eq!(level.len(), 4 * (page.width >> n) * (page.height >> n));
+        }
+        assert_eq!(
+            page.pixels().len(),
+            page.levels.iter().map(Vec::len).sum::<usize>()
+        );
         let (_, x1, y1) = placed[&1];
         let (_, x2, y2) = placed[&2];
-        assert!(x1 + 8 + GUTTER <= x2 || x2 + 3 + GUTTER <= x1 || y1 != y2);
-        let page = &pages[0];
-        let at = |x: usize, y: usize| {
-            &page.pixels[4 * (y * page.width + x)..4 * (y * page.width + x) + 4]
+        assert!([x1, y1, x2, y2].iter().all(|v| v % SPRITE_ALIGN == 0));
+        assert!(x1 + 16 <= x2 || x2 + 8 <= x1 || y1 != y2);
+        let at = |n: usize, x: usize, y: usize| {
+            let at = 4 * (y * (page.width >> n) + x);
+            &page.levels[n][at..at + 4]
         };
-        assert_eq!(at(x1 + 3, y1 + 3), [255, 0, 0, 255]);
-        assert_eq!(at(x2 + 2, y2 + 2), [7, 7, 7, 7]);
+        for n in 0..SPRITE_LEVELS {
+            assert_eq!(at(n, (x1 + 15) >> n, (y1 + 7) >> n), red, "level {n}");
+            assert_eq!(at(n, x2 >> n, y2 >> n), [7; 4], "level {n}");
+        }
     }
 
     #[test]

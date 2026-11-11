@@ -7,7 +7,8 @@
 // them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
 // An upper storey's floor's texels and an underlay's, flat on the ground, take the soft shadows of
-// the sun where their plane lies (`soft.wesl`, #2605).
+// the sun where their plane lies (`soft.wesl`, #2605). Where the screen shrinks the sprites, their
+// pages' levels stand in for the image (`level_of`, #839).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process, soft};
@@ -117,10 +118,11 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     return out;
 }
 
-/// The atlas's texel at `at`, held within the piece's texels, its colour weighted by its alpha;
-/// none where the alpha test drops it, as the original tests each texel before it blends.
-fn texel(at: vec2<i32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
-    let texel = textureLoad(atlas, clamp(at, source.xy, source.zw), 0);
+/// The texel at `at` of the atlas's level `level`, held within the piece's texels there, its
+/// colour weighted by its alpha; none where the alpha test drops it, as the original tests each
+/// texel before it blends.
+fn texel(at: vec2<i32>, source: vec4<i32>, alpha: f32, level: u32) -> vec4<f32> {
+    let texel = textureLoad(atlas, clamp(at, source.xy, source.zw), level);
     // The vertices' alpha times the texel's, as the original's texture stage modulates them,
     // before its alpha test.
     let a = texel.a * alpha;
@@ -132,22 +134,52 @@ fn texel(at: vec2<i32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
     return vec4(texel.rgb * a, a);
 }
 
-/// The atlas at `uv`, filtered linearly between the piece's four nearest texels, their colours
-/// weighted by their alphas: a transparent texel, black in the atlases, adds nothing to the colour
-/// of its neighbours, which a sampler's filtering darkened. Past the piece's edge the atlas holds
-/// other pieces; its edge's texels stand in for them.
-fn filtered(uv: vec2<f32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
-    let at = uv * vec2<f32>(textureDimensions(atlas)) - 0.5;
+/// The atlas's level `level` at `uv`, filtered linearly between the piece's four nearest texels,
+/// their colours weighted by their alphas: a transparent texel, black in the atlases, adds nothing
+/// to the colour of its neighbours, which a sampler's filtering darkened. Past the piece's edge the
+/// atlas holds other pieces; its edge's texels stand in for them. A page's sprites lie at multiples
+/// of its levels' halvings (`statics::pack`), so that a piece's texels at a level are its texels
+/// shifted right by the level.
+fn filtered(uv: vec2<f32>, source: vec4<i32>, alpha: f32, level: u32) -> vec4<f32> {
+    let at = uv * vec2<f32>(textureDimensions(atlas, level)) - 0.5;
     let corner = floor(at);
     let t = at - corner;
     let i = vec2<i32>(corner);
-    let top = mix(texel(i, source, alpha), texel(i + vec2(1, 0), source, alpha), t.x);
+    let held = source >> vec4(level);
+    let top = mix(
+        texel(i, held, alpha, level),
+        texel(i + vec2(1, 0), held, alpha, level),
+        t.x,
+    );
     let bottom = mix(
-        texel(i + vec2(0, 1), source, alpha),
-        texel(i + vec2(1, 1), source, alpha),
+        texel(i + vec2(0, 1), held, alpha, level),
+        texel(i + vec2(1, 1), held, alpha, level),
         t.x,
     );
     return mix(top, bottom, t.y);
+}
+
+/// The level of the atlas, fractional, that the screen calls for at `uv`: the base 2 logarithm of
+/// the texels that a pixel spans, from 0, the image, where a texel covers a pixel or more, to the
+/// atlas's last level. The quads lie in the plane of the screen and the camera is orthographic, so
+/// that a pixel spans as many texels down as across, as many over the whole screen (#839). A
+/// miniature's atlas and the shadows' have one level alone.
+fn level_of(uv: vec2<f32>) -> f32 {
+    let across = abs(dpdx(uv.x)) * f32(textureDimensions(atlas).x);
+    let last = f32(textureNumLevels(atlas) - 1u);
+    return clamp(log2(max(across, 1.0)), 0.0, last);
+}
+
+/// The atlas at `uv` at the level `level` of [`level_of`]: its two nearest levels blended, so that
+/// a change of level does not show as the zoom moves.
+fn sampled(uv: vec2<f32>, source: vec4<i32>, alpha: f32, level: f32) -> vec4<f32> {
+    let low = floor(level);
+    let near = filtered(uv, source, alpha, u32(low));
+    let t = level - low;
+    if t <= 0.0 {
+        return near;
+    }
+    return mix(near, filtered(uv, source, alpha, u32(low) + 1u), t);
 }
 
 /// The alpha out of 1 of a fading sprite's point at `screen` (`0x62FF60`): within the radius of
@@ -187,8 +219,10 @@ fn fragment_on_floor(in: VertexOutput) -> OnFloor {
 
 /// The colour of a sprite's fragment, or none in the pass that leaves it to the other.
 fn shade(in: VertexOutput) -> vec4<f32> {
+    // Before any branch, as a derivative must be.
+    let level = level_of(in.uv);
     let alpha = select(1.0, faded(in.screen), in.fades > 0.5);
-    let weighted = filtered(in.uv, vec4<i32>(in.source), alpha);
+    let weighted = sampled(in.uv, vec4<i32>(in.source), alpha, level);
     var colour = vec4(weighted.rgb / max(weighted.a, 0.0001), weighted.a) * tint;
 @if(FRINGE) {
     if colour.a >= OPAQUE || colour.a < CLEAR {
