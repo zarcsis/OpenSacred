@@ -1135,6 +1135,8 @@ fn setup(mut commands: Commands) {
         },
         Transform::IDENTITY.looking_to(Vec3::new(1.0, -1.5, -0.2), Vec3::Y),
     ));
+    // The soft shadows' (#1436), after it.
+    commands.spawn(crate::shadows::sun());
 }
 
 /// Looks at the hero at the game's zoom.

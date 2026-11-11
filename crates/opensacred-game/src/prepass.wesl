@@ -1,6 +1,7 @@
 // The models' prepass's vertex stage (`models::ModelMaterial`): each model's texels that its main
 // pass draws opaque, at their true depth (`nearest.wesl`), which Bevy's own prepass fragment stage
-// tests by their alpha as the main pass does.
+// tests by their alpha as the main pass does. In the sun's shadow map (`SHADOW_VIEW`, #1436) the
+// depth is the light's own, as Bevy's shadow passes take it.
 //
 // Bevy's own prepass vertex stage (`bevy_pbr::prepass`, MIT OR Apache-2.0) but for the depth,
 // without the normals and the motion vectors, which the game's camera does not ask for.
@@ -55,6 +56,11 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
 
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
     out.position = position_world_to_clip(out.world_position.xyz);
+@if(SHADOW_VIEW && UNCLIPPED_DEPTH_ORTHO_EMULATION) {
+    out.unclipped_depth = out.position.z;
+    out.position.z = min(out.position.z, 1.0);
+}
+@if(!SHADOW_VIEW)
     out.position.z = nearest::depth(out.world_position.xyz);
 
 @if(VERTEX_UVS_A)
