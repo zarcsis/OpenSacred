@@ -57,6 +57,9 @@ pub struct Weather {
     pub lightnings: u32,
     /// The quakes sent since `skies` last heard them.
     pub quakes: u32,
+    /// Whether the screen quakes and jolts, the settings' `[graphics] screen_quake`
+    /// ([`follow_settings`]).
+    pub screen_quake: bool,
 }
 
 impl Weather {
@@ -77,12 +80,17 @@ impl Weather {
             dice: crate::seed::dice(SEED),
             lightnings: 0,
             quakes: 0,
+            screen_quake: true,
         }
     }
 
     /// The console's `setrain`, `setfog` and `setsnow` (`0x614230`): their kinds' events of the
-    /// value `value`, at most 100.
+    /// value `value`, at most 100. A quake or a jolt is dropped, its sound with it, while the
+    /// screen quakes not (`SCREEN_QUAKE` off, `0x81DDE0` at `0x419CD1` and `0x419D42`).
     pub fn set(&mut self, event: Event) {
+        if !self.screen_quake && matches!(event, Event::Quake(_) | Event::Jolt(_)) {
+            return;
+        }
         if matches!(event, Event::Quake(value) if value > 0) {
             self.quakes += 1;
         }
@@ -159,10 +167,49 @@ fn end(world: &mut World) {
 
 pub struct WeatherPlugin;
 
+/// Takes the settings' `[graphics] screen_quake` into the weather as it changes (#1096).
+fn follow_settings(
+    settings: Option<Res<crate::settings::Settings>>,
+    weather: Option<ResMut<Weather>>,
+) {
+    let (Some(settings), Some(mut weather)) = (settings, weather) else {
+        return;
+    };
+    if weather.screen_quake != settings.graphics.screen_quake {
+        weather.screen_quake = settings.graphics.screen_quake;
+    }
+}
+
 impl Plugin for WeatherPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
-            .add_systems(Update, choose.in_set(Playing));
+            .add_systems(Update, (follow_settings, choose).chain().in_set(Playing));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quake_and_a_jolt_are_dropped_while_the_screen_quakes_not() {
+        let world = opensacred_data::world::World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: Vec::new(),
+            assembled_from: Vec::new(),
+        };
+        let mut weather = Weather::new(&world);
+        weather.set(Event::Quake(30));
+        weather.set(Event::Jolt(18));
+        assert_eq!(weather.quakes, 1);
+        assert!(weather.state.quake > 0.0 && weather.state.jolt > 0.0);
+        let mut still = Weather::new(&world);
+        still.screen_quake = false;
+        still.set(Event::Quake(30));
+        still.set(Event::Jolt(18));
+        assert_eq!(still.quakes, 0);
+        assert!(still.state.quake == 0.0 && still.state.jolt == 0.0);
     }
 }
