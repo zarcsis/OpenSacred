@@ -1365,65 +1365,161 @@ pub fn change_ring() -> Burst {
     }
 }
 
-/// The dust of a corpse that vanishes (781, its variant 4, `0x76D260` at `0x76D704`; #1261):
-/// 150 particles at once (`0x767FB0`) at the corpse's points `points` in the system's frame, each
-/// at one of them on `dice`, of a buoyancy of −20 ± 8 that falls by 10 a second (they rise ever
-/// faster), a size of 10 that grows by 8 a second, an angle of π ± π turning by 0.5 ± 0.2 and 1 a
-/// second, a velocity of ± 3 along each axis and a frame of the 2 × 2 grid, living 2.55 s (−100),
-/// a pale bone colour from an alpha of 0.5 to none; `PARTICLE_SMOKE03` laid over the frame by its
-/// alpha (the flags `0x10C`, `0x76CF60`). The original takes the model's skinned vertices, the
-/// game the points it is given; the wind that the variant takes from the renderer is left out, as
-/// the smoke class's is (none without points).
-pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
-    let block = Block {
-        buoyancy: spread(-20.0, 8.0),
-        size: spread(10.0, 0.0),
-        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
-        spin: spread(0.5, 0.2),
-        velocity: spread([0.0; 3], [3.0; 3]),
-        offset: Spread::default(),
-        interval: 0.0,
-        frames: 4,
-        colour: Spread::default(),
-    };
-    let count = u32::try_from(points.len()).unwrap_or(u32::MAX);
-    let particles = if points.is_empty() {
-        Vec::new()
-    } else {
-        (0..150)
-            .map(|_| {
-                let at = points[usize::try_from(dice.below(count)).unwrap_or(0)];
-                Particle {
-                    place: at,
-                    velocity: spread_3(block.velocity, dice),
-                    buoyancy: spread_f32(block.buoyancy, dice),
-                    size: spread_f32(block.size, dice),
-                    life: 255.0,
-                    angle: spread_f32(block.angle, dice),
-                    spin: spread_f32(block.spin, dice),
-                    layer: 0,
-                    frame: u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0),
-                    colour: [1.0; 3],
-                }
-            })
-            .collect()
-    };
-    let bone = [0.898, 0.836, 0.664];
-    Burst {
-        texture: "PARTICLE_SMOKE03",
-        grid: 2,
-        blend: Blend::Over,
-        layer: Layer {
-            buoyancy: -10.0,
-            life: -100.0,
-            size: 8.0,
-            angle: 1.0,
-            ..Layer::default()
-        },
-        ramp: Ramp::new(
-            [bone[0], bone[1], bone[2], 0.5],
-            &[([bone[0], bone[1], bone[2], 0.0], 256)],
+/// The bursts of 781 (`TYPE_FX_PUZZLE_SOLVED_V`, `0x76D260`) at a body's vertices as it ends
+/// (#1261, #2514), by the event's variant (`+0x38`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyEnd {
+    /// 0: blue-white sparks, a ghost's, a crow's, a body's on water (`undead::AtOnce::Sparks`).
+    Sparks,
+    /// 1: black smoke, the Vampiress's raised dead's.
+    Smoke,
+    /// 4: a pale bone dust, the undead's of the class 5 that vanish (docs/re/fight.md, "The other
+    /// deaths of class 5").
+    Dust,
+    /// 5: a pale green dust, a body's turned to stone.
+    Stone,
+}
+
+impl BodyEnd {
+    /// How many of the body's vertices it takes at most (`0x44FC30`'s and `0x767FB0`'s count,
+    /// [`vertex_picks_at_most`]): 500, 250, 150 and 150.
+    pub fn count(self) -> usize {
+        match self {
+            Self::Sparks => 500,
+            Self::Smoke => 250,
+            Self::Dust | Self::Stone => 150,
+        }
+    }
+
+    /// Its block (`+0x24C8`), the rest 0: the sparks a buoyancy of −5 ± 5 and a size of 2; the
+    /// smoke a size of 10, an angle of π ± π, a velocity of ± 1 along each axis and a frame of
+    /// the 2 × 2 grid; the dusts a buoyancy of −20 ± 8 (the bone's) or −16 ± 8 (the stone's), a
+    /// size of 10 or 7, an angle of π ± π turning by 0.5 ± 0.2 a second, a velocity of ± 3
+    /// along each axis and a frame of the grid.
+    fn block(self) -> Block {
+        let (buoyancy, size) = match self {
+            Self::Sparks => return Self::sparks_block(),
+            Self::Smoke => return Self::smoke_block(),
+            Self::Dust => (-20.0, 10.0),
+            Self::Stone => (-16.0, 7.0),
+        };
+        Block {
+            buoyancy: spread(buoyancy, 8.0),
+            size: spread(size, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            spin: spread(0.5, 0.2),
+            velocity: spread([0.0; 3], [3.0; 3]),
+            frames: 4,
+            ..Block::default()
+        }
+    }
+
+    fn sparks_block() -> Block {
+        Block {
+            buoyancy: spread(-5.0, 5.0),
+            size: spread(2.0, 0.0),
+            ..Block::default()
+        }
+    }
+
+    fn smoke_block() -> Block {
+        Block {
+            size: spread(10.0, 0.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [1.0; 3]),
+            frames: 4,
+            ..Block::default()
+        }
+    }
+}
+
+/// The burst of 781's variant `end` at a body's points `points` in the system's frame
+/// ([`vertex_picks_at_most`] of [`BodyEnd::count`]), one particle at each, at once
+/// (`0x767FB0`):
+/// - the sparks (0) live 1.7 s (the life's rate −150) and grow by 1 a second, from (0.8, 0.9, 1)
+///   to black, `PARTICLE_SPARK06` added whole (the flags `0x19`, `0x76CF60`);
+/// - the smoke (1) lives 1.7 s, its buoyancy falling by 1 a second and its angle turning by 1,
+///   black at the alpha of its life (the ramp's first four words, which its start clears, the
+///   flags `0x106`: `0x02`), `PARTICLE_SMOKE03` of the 2 × 2 grid turned and laid over the frame
+///   by its alpha;
+/// - the dusts (4, 5) live 2.55 s (−100), their buoyancy falling by 10 a second (they rise ever
+///   faster), their size growing by 8 and their angle turning by 1, a pale bone (0.898, 0.836,
+///   0.664) or a pale green (0.625, 0.684, 0.625) from an alpha of 0.5 to none,
+///   `PARTICLE_SMOKE03` of the grid laid over the frame by its alpha (the flags `0x10C`).
+///
+/// The wind that the dusts take from the renderer (`+0x24B8`) is left out, as the smoke class's
+/// is.
+pub fn body_end(end: BodyEnd, points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
+    let block = end.block();
+    let particles = points
+        .iter()
+        .take(end.count())
+        .map(|&at| Particle {
+            place: at,
+            velocity: spread_3(block.velocity, dice),
+            buoyancy: spread_f32(block.buoyancy, dice),
+            size: spread_f32(block.size, dice),
+            life: 255.0,
+            angle: spread_f32(block.angle, dice),
+            spin: spread_f32(block.spin, dice),
+            layer: 0,
+            frame: if block.frames > 1 {
+                u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0)
+            } else {
+                0
+            },
+            colour: [1.0; 3],
+        })
+        .collect();
+    let dust = |[r, g, b]: [f32; 3]| Ramp::new([r, g, b, 0.5], &[([r, g, b, 0.0], 256)]);
+    let (texture, grid, blend, layer, ramp) = match end {
+        BodyEnd::Sparks => (
+            "PARTICLE_SPARK06",
+            1,
+            Blend::Whole,
+            Layer {
+                life: -150.0,
+                size: 1.0,
+                ..Layer::default()
+            },
+            Ramp::new([0.8, 0.9, 1.0, 1.0], &[([0.0, 0.0, 0.0, 1.0], 256)]),
         ),
+        BodyEnd::Smoke => (
+            "PARTICLE_SMOKE03",
+            2,
+            Blend::Over,
+            Layer {
+                buoyancy: -1.0,
+                life: -150.0,
+                angle: 1.0,
+                ..Layer::default()
+            },
+            Ramp::new([0.0, 0.0, 0.0, 1.0], &[([0.0; 4], 256)]),
+        ),
+        BodyEnd::Dust | BodyEnd::Stone => (
+            "PARTICLE_SMOKE03",
+            2,
+            Blend::Over,
+            Layer {
+                buoyancy: -10.0,
+                life: -100.0,
+                size: 8.0,
+                angle: 1.0,
+                ..Layer::default()
+            },
+            dust(if end == BodyEnd::Dust {
+                [0.898, 0.836, 0.664]
+            } else {
+                [0.625, 0.684, 0.625]
+            }),
+        ),
+    };
+    Burst {
+        texture,
+        grid,
+        blend,
+        layer,
+        ramp,
         particles,
         ground: None,
         light: 0.0,
@@ -1454,13 +1550,19 @@ pub fn burn_variant(creature: u32) -> Option<u8> {
 /// her weapons, (128, 128, 255) (the adder `0x582D50`'s case 17).
 pub const WEAPON_SPARKS: u32 = 0xFF80_80FF;
 
-/// The vertices of a model whose meshes hold `counts` vertices each that a burst at its vertices
-/// takes (`0x767FB0`), each a mesh's index and its vertex's: `N`, the least of
-/// [`GENERIC_PARTICLES`] and all its vertices `V`, every `⌊V/N⌋`th vertex of each mesh from its
-/// first in turn, until `N`.
+/// The vertices of a model whose meshes hold `counts` vertices each that a burst of at most
+/// [`GENERIC_PARTICLES`] at its vertices takes ([`vertex_picks_at_most`]).
 pub fn vertex_picks(counts: &[usize]) -> Vec<(usize, usize)> {
+    vertex_picks_at_most(counts, GENERIC_PARTICLES)
+}
+
+/// The vertices of a model whose meshes hold `counts` vertices each that a burst of at most `most`
+/// at its vertices takes (`0x767FB0`), each a mesh's index and its vertex's: `N`, the least of
+/// `most` and all its vertices `V`, every `⌊V/N⌋`th vertex of each mesh from its first in turn,
+/// until `N`.
+pub fn vertex_picks_at_most(counts: &[usize], most: usize) -> Vec<(usize, usize)> {
     let total: usize = counts.iter().sum();
-    let wanted = total.min(GENERIC_PARTICLES);
+    let wanted = total.min(most);
     if wanted == 0 {
         return Vec::new();
     }
@@ -16909,23 +17011,65 @@ mod tests {
     #[test]
     fn a_vanishing_corpses_dust_leaves_its_points_and_fades() {
         let mut dice = Rng::of(0, 0, 9);
-        let points = [[0.0, 0.0, 10.0], [5.0, 0.0, 40.0]];
-        let burst = dust(&points, &mut dice);
+        let points: Vec<[f32; 3]> = (0..200_u8).map(|k| [0.0, 0.0, f32::from(k)]).collect();
+        let burst = body_end(BodyEnd::Dust, &points, &mut dice);
         assert_eq!(burst.particles.len(), 150);
         assert!(
             burst
                 .particles
                 .iter()
-                .all(|p| points.contains(&p.place) && p.frame < 4)
+                .zip(&points)
+                .all(|(p, &at)| p.place == at && p.frame < 4)
         );
         assert!((burst.ramp.at(255.0)[3] - 0.5).abs() < 1e-3);
-        assert!(dust(&[], &mut dice).particles.is_empty());
+        assert!(body_end(BodyEnd::Dust, &[], &mut dice).particles.is_empty());
         let mut system = System::new(150);
         system.particles = burst.particles;
         for _ in 0..154 {
             system.update(1.0 / 60.0, &[burst.layer]);
         }
         assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn the_bodies_ends_burst_by_their_variants() {
+        let mut dice = Rng::of(0, 0, 9);
+        let points = vec![[0.0, 0.0, 10.0]; 600];
+        let counts = [BodyEnd::Sparks, BodyEnd::Smoke, BodyEnd::Stone]
+            .map(|end| body_end(end, &points, &mut dice).particles.len());
+        assert_eq!(counts, [500, 250, 150]);
+        // The sparks: blue-white to black, added whole, of a size of 2, rising by −5 ± 5.
+        let sparks = body_end(BodyEnd::Sparks, &points, &mut dice);
+        assert_eq!(
+            (sparks.texture, sparks.blend),
+            ("PARTICLE_SPARK06", Blend::Whole)
+        );
+        assert_eq!(sparks.ramp.at(255.0), [0.8, 0.9, 1.0, 1.0]);
+        assert!(
+            sparks
+                .particles
+                .iter()
+                .all(|p| p.size == 2.0 && (-10.0..=0.0).contains(&p.buoyancy) && p.frame == 0)
+        );
+        // The smoke: black at the alpha of its life, laid over, gone at 1.7 s.
+        let smoke = body_end(BodyEnd::Smoke, &points, &mut dice);
+        assert_eq!(
+            (smoke.texture, smoke.blend),
+            ("PARTICLE_SMOKE03", Blend::Over)
+        );
+        assert_eq!(smoke.ramp.at(255.0), [0.0, 0.0, 0.0, 1.0]);
+        assert!((smoke.ramp.at(128.0)[3] - 0.5).abs() < 0.01);
+        // The stone's dust: pale green, smaller and slower than the bone's.
+        let stone = body_end(BodyEnd::Stone, &points, &mut dice);
+        assert!((stone.ramp.at(255.0)[1] - 0.684).abs() < 1e-3);
+        assert!(
+            stone
+                .particles
+                .iter()
+                .all(|p| p.size == 7.0 && (-24.0..=-8.0).contains(&p.buoyancy))
+        );
+        assert_eq!(vertex_picks_at_most(&[400, 200], 150).len(), 150);
+        assert_eq!(vertex_picks_at_most(&[400, 200], 150)[1], (0, 4));
     }
 
     #[test]
