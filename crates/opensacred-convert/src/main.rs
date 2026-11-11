@@ -20,6 +20,7 @@ mod locate;
 mod luau;
 mod manifest;
 mod model_repairs;
+mod model_scales;
 mod models;
 mod netscript;
 mod portraits;

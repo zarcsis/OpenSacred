@@ -226,6 +226,8 @@ The maintainer's screenshots of the original agree (2026-10-19): the black chest
 Read off the client with Ghidra 2026-10-21 (#443), **confirmed** by code.
 
 A model is drawn at its own scale, `ModelDesc +0x470` (docs/02 §4.1), which Granny applies to the model's data as `cGrannyModelManager::getModel` (`0x411F50`) loads it, and to the motions of its slots as `getMotion` (`0x4118B0`) opens them; the gold piles are a third of their files' size, the Medusa 0.43 of hers.
+The client sets that scale anew for 24 models of insects, slime worms, crabs and a few more as it loads its items table (`0x429950`, read 2026-11-11 for #2578), all of them 1.0 on file: the hornet is drawn at 0.33, its hunter at 0.43 and its queen at 0.53 of one mesh, which `opensacred-convert` follows (`model_scales`).
+**Seen** 2026-11-11 beside the Gladiator at the zoom 1, against her height: the queen 1.40 in the original and 2.77 in the game before, the hunter about 1.0 and 2.3, while the wolf, a goblin and a skeleton were alike in both.
 The world's draw adds no scale of its own: `cObject3D`'s draw (`0x44B230`) goes through `0x44A9D0` and its case `0x44A8C0` to `cGranny::render` (`0x405C90`), which hands Granny's rendering states to the device, and the model matrix of `cGranny` at `+0x0C` is set (`0x4021D0`) only by the interface's and the portraits' code, never for an object of the world.
 Granny skins from the bind pose, so a bone's own scale in the bind pose (the gold coins' 0.242 × 0.086 × 0.242, the potions' 0.063) does not change the size of a mesh at rest.
 

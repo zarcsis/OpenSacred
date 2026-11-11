@@ -22,6 +22,7 @@ use crate::embedded;
 use crate::gltf::{self, Clip, Stats};
 use crate::ktx::{self, Use};
 use crate::model_repairs::{self, Outcome};
+use crate::model_scales;
 use crate::textures;
 use crate::verify::read_game_file;
 
@@ -149,7 +150,11 @@ pub fn convert_pak(
                 Kind::Model => model_repairs::apply(name, &mut skeleton, &mut model),
                 Kind::Motion => Outcome::None,
             };
-            let scale = own_scale(record.scale).with_context(what)?;
+            // The client's own scale of a model as it loads its items, else the record's.
+            let scale = match (record.kind, model_scales::scale(name)) {
+                (Kind::Model, Some(scale)) => scale,
+                _ => own_scale(record.scale).with_context(what)?,
+            };
             scale_model(scale, &mut skeleton, &mut model);
             let mut animation = grn.animation().with_context(what)?;
             scale_animation(scale, &mut animation);
@@ -635,6 +640,43 @@ mod tests {
         let (width, depth) = (hi[0] - lo[0], hi[2] - lo[2]);
         assert!((width - 9.70).abs() < 0.01, "width {width}");
         assert!((depth - 9.69).abs() < 0.01, "depth {depth}");
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// `HORNISSE.GRN` at the client's scale of its load, 0.33 (`model_scales`, #2578): its meshes,
+    /// 326.1 × 103.2 × 171.0 units in the file, lie within a third of that.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_hornet_takes_the_clients_scale() {
+        let game = opensacred_locate::original();
+        let out = scratch_dir("models-client-scale");
+        let (pak, dir_name) = PAKS[0];
+        let dst = output_dir(&out, dir_name);
+        let textures = TextureIndex::read(&game).unwrap();
+        let only = ["hornisse.grn".to_owned()];
+        let summary = convert_pak(&game.join(pak), &dst, &textures, &only).unwrap();
+        assert_eq!(summary.models, 1);
+
+        let glb = fs::read(dst.join("1240-hornisse.glb")).unwrap();
+        let json_len =
+            usize::try_from(u32::from_le_bytes(glb[12..16].try_into().unwrap())).unwrap();
+        let json: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+        for mesh in json["meshes"].as_array().unwrap() {
+            for primitive in mesh["primitives"].as_array().unwrap() {
+                let position =
+                    usize::try_from(primitive["attributes"]["POSITION"].as_u64().unwrap());
+                let accessor = &json["accessors"][position.unwrap()];
+                for axis in 0..3 {
+                    lo[axis] = lo[axis].min(accessor["min"][axis].as_f64().unwrap());
+                    hi[axis] = hi[axis].max(accessor["max"][axis].as_f64().unwrap());
+                }
+            }
+        }
+        let size: Vec<f64> = (0..3).map(|axis| hi[axis] - lo[axis]).collect();
+        for (found, file) in size.iter().zip([326.1, 103.2, 171.0]) {
+            assert!((found - 0.33 * file).abs() < 0.5, "{size:?}");
+        }
         fs::remove_dir_all(out).unwrap();
     }
 
