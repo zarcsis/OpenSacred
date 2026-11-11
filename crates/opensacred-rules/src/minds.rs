@@ -691,6 +691,9 @@ pub struct Mind {
     /// Its type, and its `Creature.pak` class: the animals (4 and 6) flee from the others.
     pub creature: u32,
     pub class: u8,
+    /// Its mark as the specials changed it, a Fetzer's phase (#2568), none where it is its
+    /// type's ([`Mind::mark`]).
+    pub phase: Option<u16>,
     /// Its side (`+0x1F0`), by which it is hostile to the hero or not ([`hostile_to_heroes`]):
     /// as the creature maker leaves it for the flags' bit 0, which it sets on a creature that it
     /// makes hostile ([`made_side`]), unless its maker gives it another ([`created_side`]).
@@ -854,6 +857,7 @@ impl Mind {
             run,
             creature,
             class,
+            phase: None,
             side,
             dialogue: false,
             trader: false,
@@ -1350,7 +1354,7 @@ impl Mind {
         let (current, most) = sight.health?;
         if !cast.elite
             || most.saturating_sub(current) >= most / casts::KEEP_SHARE
-            || !casts::KEEPS_BACK.contains(&casts::mark(self.creature))
+            || !casts::KEEPS_BACK.contains(&self.mark())
         {
             return None;
         }
@@ -1386,6 +1390,24 @@ impl Mind {
         self.stands = casts::ART_STANDS;
         self.cast_ordered = true;
         Pursues::MakesArt { art }
+    }
+
+    /// Its mark (`+0x25F`): the one the specials gave it ([`Mind::phase`]), else its type's
+    /// ([`casts::mark`]).
+    pub fn mark(&self) -> u16 {
+        self.phase.unwrap_or_else(|| casts::mark(self.creature))
+    }
+
+    /// A Fetzer struck while it chooses takes its phase (`0x535C78`, #2568): `0x21B` by `roll` of
+    /// 0 of 3, else `0x217`.
+    pub fn fetzer_struck(&mut self, roll: u32) {
+        if self.mark() == casts::FETZER_CHOOSES {
+            self.phase = Some(if roll == 0 {
+                casts::FETZER_FAST
+            } else {
+                casts::FETZER_PHASE
+            });
+        }
     }
 
     /// A larva that found no point to hide at decides again at once ([`Pursues::Hides`]).
@@ -1684,6 +1706,30 @@ impl Mind {
                 }
                 return Some(self.ordered_art(art));
             }
+            // A Fetzer chooses its phase once (`0x4D9A62`): `0x217` where no other Fetzer
+            // fights the hero; where one does that the hero attacks, `0x21B` in one case of three,
+            // else `0x217`; else it waits; it stands a decision whichever. Then the Dark Elf's
+            // `Attacke` by its phase's roll (`0x4DA90D`, `0x4DA9EC`).
+            OwnMark::Fetzer => {
+                let b = match self.mark() {
+                    casts::FETZER_CHOOSES => {
+                        self.stands = casts::FETZER_STANDS;
+                        match cast.fetzer {
+                            None => self.phase = Some(casts::FETZER_PHASE),
+                            Some(true) => self.fetzer_struck(rng.below(3)),
+                            Some(false) => {}
+                        }
+                        return Some(Pursues::Faces);
+                    }
+                    casts::FETZER_FAST => casts::FETZERS_FAST_B,
+                    _ if self.creature == 344 => casts::FETZER_344_B,
+                    _ => casts::QUEENS_B,
+                };
+                if !casts::special_passes(b, cast.difficulty, rng.below(100) + 1) {
+                    return None;
+                }
+                return Some(self.ordered_art(casts::DARK_ELFS_ATTACKE));
+            }
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -1737,7 +1783,8 @@ impl Mind {
             | OwnMark::Larva
             | OwnMark::IceChampion
             | OwnMark::HellGolem
-            | OwnMark::ArtQueen => None,
+            | OwnMark::ArtQueen
+            | OwnMark::Fetzer => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -2831,6 +2878,9 @@ pub struct CastSight {
     pub listed: u32,
     /// The game's difficulty, which the specials' rolls take ([`casts::special_passes`]).
     pub difficulty: Difficulty,
+    /// Another Fetzer (202, 344) of the hero's list that fights the hero, and whether the hero
+    /// attacks it, which a Fetzer's choice of its phase weighs (`0x4D9A62`, #2568).
+    pub fetzer: Option<bool>,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -4203,6 +4253,7 @@ mod tests {
             hornet_lives: false,
             listed: 0,
             difficulty: Difficulty::Bronze,
+            fetzer: None,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4312,6 +4363,7 @@ mod tests {
             hornet_lives: false,
             listed: 0,
             difficulty: Difficulty::Bronze,
+            fetzer: None,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4380,6 +4432,7 @@ mod tests {
             hornet_lives: false,
             listed: 0,
             difficulty: Difficulty::Bronze,
+            fetzer: None,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4458,6 +4511,7 @@ mod tests {
             hornet_lives,
             listed: 0,
             difficulty: Difficulty::Bronze,
+            fetzer: None,
         }
     }
 
@@ -4889,6 +4943,64 @@ mod tests {
     }
 
     #[test]
+    fn a_fetzer_chooses_its_phase_once_and_makes_its_art_by_it() {
+        use crate::spawning::Script;
+        let cast = |fetzer| CastSight {
+            fetzer,
+            difficulty: Difficulty::Niobium,
+            ..hornets_cast(0, (0, false), false)
+        };
+        let near = hornets_sight(100.0, false);
+        let decide = |mind: &mut Mind, fetzer: Option<bool>, rolls: Vec<u32>| {
+            mind.stands = 0;
+            mind.cast(&near, &cast(fetzer), || true, &mut Script::new(rolls))
+        };
+        let art = Some(Pursues::MakesArt {
+            art: casts::DARK_ELFS_ATTACKE,
+        });
+        // No other Fetzer fights the hero: 0x217 at once, standing a decision.
+        let mut fetzer = fighting(202);
+        assert_eq!(fetzer.mark(), casts::FETZER_CHOOSES);
+        assert_eq!(decide(&mut fetzer, None, vec![]), Some(Pursues::Faces));
+        assert_eq!(fetzer.mark(), casts::FETZER_PHASE);
+        assert_eq!(fetzer.stands, casts::FETZER_STANDS);
+        // Then by 50 p, 65 on niobium.
+        assert_eq!(decide(&mut fetzer, None, vec![63]), art);
+        assert_eq!(decide(&mut fetzer, None, vec![64]), None);
+        // Another fights the hero, the hero not attacking it: it waits.
+        let mut waiting = fighting(344);
+        assert_eq!(
+            decide(&mut waiting, Some(false), vec![]),
+            Some(Pursues::Faces)
+        );
+        assert_eq!(waiting.mark(), casts::FETZER_CHOOSES);
+        // One that the hero attacks: 0x21B by 0 of 3, else 0x217.
+        let mut fast = fighting(202);
+        decide(&mut fast, Some(true), vec![0]);
+        assert_eq!(fast.mark(), casts::FETZER_FAST);
+        let mut plain = fighting(202);
+        decide(&mut plain, Some(true), vec![2]);
+        assert_eq!(plain.mark(), casts::FETZER_PHASE);
+        // 0x21B by 15 p, 19 on niobium; 344 of 0x217 by 30 p, 39.
+        assert_eq!(decide(&mut fast, None, vec![17]), art);
+        assert_eq!(decide(&mut fast, None, vec![18]), None);
+        waiting.phase = Some(casts::FETZER_PHASE);
+        assert_eq!(decide(&mut waiting, None, vec![37]), art);
+        assert_eq!(decide(&mut waiting, None, vec![38]), None);
+        // Struck while it chooses it takes its phase, and keeps it after.
+        let mut struck = fighting(202);
+        struck.fetzer_struck(0);
+        assert_eq!(struck.mark(), casts::FETZER_FAST);
+        struck.fetzer_struck(1);
+        assert_eq!(struck.mark(), casts::FETZER_FAST);
+        let mut other = fighting(344);
+        other.fetzer_struck(1);
+        assert_eq!(other.mark(), casts::FETZER_PHASE);
+        // Of its phase 0x217 a whole boss keeps back as the mark's others.
+        assert!(casts::KEEPS_BACK.contains(&other.mark()));
+    }
+
+    #[test]
     fn a_black_magician_casts_keeps_its_band_and_runs_about() {
         use crate::spawning::Script;
         let mut mage = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (266, 2));
@@ -4925,6 +5037,7 @@ mod tests {
             hornet_lives: false,
             listed: 0,
             difficulty: Difficulty::Bronze,
+            fetzer: None,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);

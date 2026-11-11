@@ -790,6 +790,9 @@ pub enum OwnMark {
     /// The queens of the mark `0x217` (247, 354): the Dark Elf's `Attacke` by its roll
     /// (`0x4DA90D`, #2564).
     ArtQueen,
+    /// The Fetzers (202, 344, `0x21A`): a phase chosen once, `0x217` or `0x21B`, then the Dark
+    /// Elf's `Attacke` by its roll (`0x4D9A62`, `0x4DA90D`, `0x4DA9EC`, #2568).
+    Fetzer,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -809,6 +812,7 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         146 => OwnMark::IceChampion,
         204 | 350 => OwnMark::HellGolem,
         247 | 354 => OwnMark::ArtQueen,
+        202 | 344 => OwnMark::Fetzer,
         _ => return None,
     })
 }
@@ -838,6 +842,16 @@ pub const ICE_CHAMPION_REACH: f32 = 30.0;
 /// The specials' rolls' `b` (#2548): the hell golems' 15, the queens' of `0x217` 50.
 pub const GOLEMS_B: u32 = 15;
 pub const QUEENS_B: u32 = 50;
+/// The Fetzers' marks (#2568): the one they start of, which chooses a phase, and the phases',
+/// `0x217` by the roll of [`QUEENS_B`] (30 for the type 344) and `0x21B` by
+/// [`FETZERS_FAST_B`].
+pub const FETZER_CHOOSES: u16 = 0x21A;
+pub const FETZER_PHASE: u16 = 0x217;
+pub const FETZER_FAST: u16 = 0x21B;
+pub const FETZER_344_B: u32 = 30;
+pub const FETZERS_FAST_B: u32 = 15;
+/// The decisions a Fetzer stands as it chooses (`+0x129` 1).
+pub const FETZER_STANDS: u8 = 1;
 
 /// The difficulty's `p` of the specials' rolls, bronze's first.
 const SPECIAL_P: [u32; 5] = [20, 60, 80, 100, 130];
