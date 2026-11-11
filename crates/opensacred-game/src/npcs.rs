@@ -4659,6 +4659,13 @@ impl Npcs {
 
     /// The model and texture of the arrows of type `kind`, relative to the asset directory, and
     /// their size, where their model was converted.
+    /// The model, the texture and the size of the item of type `item` in a hand, if it has a
+    /// model (a thrown dagger's, #2575).
+    pub fn held_model(&self, item: u32) -> Option<(&str, Option<&str>, f32)> {
+        let gear = self.gear.get(&item)?;
+        Some((gear.model.as_deref()?, gear.texture.as_deref(), gear.size))
+    }
+
     pub fn arrow(&self, kind: u32) -> Option<(&str, Option<&str>, f32)> {
         self.arrows
             .get(&kind)
@@ -11915,6 +11922,14 @@ impl Arms {
         npcs.map_or_else(crate::sfx::Armed::default, |npcs| npcs.armed(&in_hands))
     }
 
+    /// The type of the item in its right hand (slot 13) and its values, if it holds one.
+    pub fn right(&self) -> Option<(u32, Option<fight::ItemValues>)> {
+        self.holding
+            .iter()
+            .find(|(held, _)| held.hand == Hand::Right)
+            .map(|&(held, values)| (held.item, values))
+    }
+
     /// The type of the item in its left hand (slot 12), if any.
     pub fn left(&self) -> Option<u32> {
         self.holding
@@ -12100,6 +12115,25 @@ impl Rearms {
                 }
                 opensacred_rules::minds::Torch::PutsAway => Vec::new(),
             },
+            disarmed: false,
+        }
+    }
+
+    /// A minimummy's dagger taken into its empty right hand (slot 13, `0x4D93C1`, #2575), its
+    /// values made at its level.
+    pub fn dagger() -> Self {
+        Self {
+            away: Vec::new(),
+            takes: vec![(opensacred_rules::casts::DAGGER, Hand::Right, None)],
+            disarmed: false,
+        }
+    }
+
+    /// The item of its right hand thrown by the hurled blades (#2575): its hand emptied.
+    pub fn throws() -> Self {
+        Self {
+            away: vec![Hand::Right],
+            takes: Vec::new(),
             disarmed: false,
         }
     }
