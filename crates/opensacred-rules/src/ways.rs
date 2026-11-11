@@ -575,6 +575,13 @@ pub const FLIES: u8 = 0x01;
 /// The bit of a `Creature.pak` record's flags whose creatures the constructor makes critters
 /// (`0x52DE40`).
 const CRITTER_RECORD: u8 = 0x20;
+/// The bit of a creature's flags word of a flyer aloft (`+0x1F4` bit `0x200000`), which lets it
+/// through the creatures in its way (`0x4F7E10`) and raises it over the ground as it moves
+/// (`0x5941A0`; docs/re/ai.md, "The flyers"); the constructor sets it on the hornets
+/// ([`constructed`]).
+pub const FLYING: u32 = 0x20_0000;
+/// The types that the constructor makes flying: the hornets 190, 335 and 336 (`0x52E2DC`).
+const BORN_FLYING: [u32; 3] = [190, 335, 336];
 
 /// How a creature or an object stands in the others' way, as the client's test of a step has it
 /// stop another's step into its cell (`0x4F7E10`, docs/re/movement.md, "The creatures in the
@@ -639,7 +646,8 @@ pub fn stops_its_master(hostile: bool, class: u8, word: u32) -> bool {
 
 /// The bits that the constructor (`0x52DE40`) sets on the flags word of a creature of type
 /// `creature`, whose `Creature.pak` record has `record_flags`: [`CRITTER`] on the critters, some
-/// types by their numbers and the types whose record has [`CRITTER_RECORD`].
+/// types by their numbers and the types whose record has [`CRITTER_RECORD`], and [`FLYING`] on
+/// the hornets ([`BORN_FLYING`]), which so fly from their making (#2569).
 /// `CreateNPC` writes the whole word from its tags (`0x4839F6`), so that only a fill's creatures
 /// keep them (read in the original 2026-10-22, #468: a fill's rabbit `0x1000040`, `CreateNPC`'s
 /// chickens `0x20` alone).
@@ -655,7 +663,13 @@ pub fn constructed(creature: u32, record_flags: u8) -> u32 {
             | 0x235
             | 0x236
     ) || record_flags & CRITTER_RECORD != 0;
-    if critter { CRITTER } else { 0 }
+    [
+        (critter, CRITTER),
+        (BORN_FLYING.contains(&creature), FLYING),
+    ]
+    .into_iter()
+    .filter_map(|(set, bit)| set.then_some(bit))
+    .sum()
 }
 
 /// The flags word (`+0x1F4`) that `CreateNPC` (`0x482510`) makes from a record's operand-less
@@ -1114,6 +1128,13 @@ mod tests {
         // A pig and a soldier are not, unless the soldier's record says so.
         assert_eq!(constructed(520, 0) | constructed(295, 0), 0);
         assert_eq!(constructed(295, CRITTER_RECORD), CRITTER);
+        // The hornets fly from their making, the crows and the giant fly not (#2569).
+        for creature in [190, 335, 336] {
+            assert_eq!(constructed(creature, FLIES), FLYING, "{creature}");
+        }
+        for creature in [513, 193] {
+            assert_eq!(constructed(creature, FLIES) & FLYING, 0, "{creature}");
+        }
     }
 
     #[test]

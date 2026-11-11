@@ -1186,8 +1186,6 @@ fn pursue(
                         .iter()
                         .find(|&&other| other != entity)
                         .map(|&other| attacked == Some(other)),
-                    // A brain-footer's strength by its level on bronze's scale against the
-                    // hero's (#2567).
                     // Whether its right hand holds an item, a minimummy's dagger (#2575).
                     armed: arms.get(entity).is_ok_and(|arms| arms.right().is_some()),
                     group_strike: mind.group.and_then(|group| {
@@ -1197,6 +1195,8 @@ fn pursue(
                             .nth(1)
                             .map(|&(.., size)| size)
                     }),
+                    // A brain-footer's strength by its level on bronze's scale against the
+                    // hero's (#2567).
                     stare: opensacred_rules::casts::stare(mind.creature)
                         .and(rules.as_deref())
                         .and_then(|rules| {
@@ -2574,7 +2574,8 @@ fn behave(
             }
         }
         if !mind.active || folk {
-            if let Some(target) = mind.parts(spot(here), crowded, &mut minds.rng) {
+            let on_ground = way.level.is_none();
+            if let Some(target) = mind.parts(spot(here), (crowded, on_ground), &mut minds.rng) {
                 let target = point(target, here.y);
                 debug!(
                     "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -2584,7 +2585,8 @@ fn behave(
                     target.x,
                     target.z
                 );
-                // The standing action's (`0x544890`), with the AI's state 0.
+                // The standing action's (`0x544890`), with the AI's state 0; a flyer's flown
+                // (`flight::take_wing`).
                 walks.push((entity, Walk::to(target, way.level, mind.speed).idle()));
             }
             continue;

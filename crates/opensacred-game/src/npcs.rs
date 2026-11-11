@@ -1684,6 +1684,13 @@ impl Walk {
     pub fn flies(&self) -> bool {
         self.flies
     }
+
+    /// The walk flown instead, at `speed`, the walker aloft (`flight::take_wing`).
+    pub fn take_wing(&mut self, speed: f32) {
+        self.runs = true;
+        self.flies = true;
+        self.speed = speed;
+    }
 }
 
 fn value_i32(value: &Value) -> Option<i32> {
