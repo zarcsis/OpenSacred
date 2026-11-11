@@ -2843,7 +2843,7 @@ pub struct Leap {
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their components"
 )]
-fn leap(
+pub(crate) fn leap(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<crate::terrain::Heights>,

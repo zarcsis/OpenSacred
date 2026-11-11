@@ -259,36 +259,29 @@ pub(crate) fn stare(
 /// The seconds of a dryad's leap's clip where its model has none (`DRF1_ATTACK_1H_A`'s, an
 /// **estimate** for another).
 const LEAP_CLIP: f32 = 1.22;
-/// How far past the share of its flight a dryad's leap is along its way (`0x44DFE0`'s last of
-/// its six steps, `s = 1.0667·u`).
-const LEAP_AHEAD: f32 = 16.0 / 15.0;
 
 /// A dryad's leap by the art 1003 (`0x50AC00`, #2566): its clip of the slot 84 at the jumps' rate
 /// by the distance (`arts::jump_rate`); once less than 0.8 of it is left, its flight from where
-/// it stands to the point over a quarter of the clip's time, along the line, `d/12` high at its
-/// middle (`0x44DED0`, `0x44DFE0`), where it lands; once less than 0.6 is left, its art over and
-/// its mark `0x210`, whose bow it takes (`0x50B52F`). It strikes nothing.
+/// it stands to the point as a hero's jump flies (`making::Leap`: a quarter of the clip's time,
+/// `d/12` high at its middle, `0x44DED0`, `0x44DFE0`), where it lands; once less than 0.6 is
+/// left, its art over and its mark `0x210`, whose bow it takes (`0x50B52F`). It strikes nothing.
 #[derive(Component, Debug)]
 pub struct Leaps {
     to: Vec3,
     rate: f32,
-    height: f32,
-    flight: Option<(Vec3, f32, f32)>,
-    over: bool,
+    /// Once it flies, the seconds until its art is over.
+    over: Option<f32>,
 }
 
 impl Leaps {
     /// The leap from `here` to `to`, and its clip.
     pub fn start(here: Vec3, to: Vec3) -> (Self, ScriptClip) {
-        let d = (to - here).xz().length();
-        let rate = arts::jump_rate(whole_up(d));
+        let rate = arts::jump_rate(whole_up((to - here).xz().length()));
         (
             Self {
                 to,
                 rate,
-                height: d / 12.0,
-                flight: None,
-                over: false,
+                over: None,
             },
             ScriptClip::leap(casts::LEAP_SLOT, rate, casts::LEAP_FLIES),
         )
@@ -305,74 +298,62 @@ fn whole_up(d: f32) -> u32 {
     d.ceil() as u32
 }
 
-/// Each leap a frame on: its flight begun as its clip passes its share, its way and height, its
-/// mark `0x210` as its art is over, and on the point once its flight's time is past.
+/// Each leap a frame on: its flight begun as its clip passes its share, its mark `0x210` as its
+/// art is over, and the leap done once it has landed.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
 )]
 fn leaps(
     mut commands: Commands,
-    (time, speed, heights, clips): (
+    (time, speed, clips): (
         Res<Time>,
         Res<crate::hero::GameSpeed>,
-        Res<crate::terrain::Heights>,
         Res<Assets<AnimationClip>>,
     ),
     mut leapers: Query<(
         Entity,
         &mut Leaps,
-        &mut Transform,
+        &Transform,
         &mut Mind,
         Option<&ScriptClip>,
         Has<npcs::ClipActs>,
-        Option<&crate::crowd::InTheWay>,
+        Has<crate::making::Leap>,
     )>,
 ) {
-    for (entity, mut leap, mut transform, mut mind, clip, acts, way) in &mut leapers {
-        if leap.flight.is_none() {
+    for (entity, mut leap, transform, mut mind, clip, acts, flying) in &mut leapers {
+        let Some(over) = leap.over else {
             if !acts {
                 continue;
             }
             commands.entity(entity).remove::<npcs::ClipActs>();
-            let length = clip
+            let played = clip
                 .and_then(|clip| clip.length(&clips))
-                .unwrap_or(LEAP_CLIP);
-            let flight = length / (speed.0 * leap.rate).max(f32::EPSILON) / 4.0;
-            leap.flight = Some((transform.translation, flight, 0.0));
-            debug!("creature_arts: {entity} leaps off for {flight:.2} s");
-        }
-        let Some((from, flight, flown)) = leap.flight else {
+                .unwrap_or(LEAP_CLIP)
+                / (speed.0 * leap.rate).max(f32::EPSILON);
+            let here = transform.translation;
+            let to = Vec3::new(leap.to.x, here.y, leap.to.z);
+            let time = played * arts::JUMP_FLIGHT;
+            commands.entity(entity).insert(crate::making::Leap {
+                from: here,
+                to,
+                time,
+                flown: 0.0,
+                peak: arts::jump_height((to - here).xz().length(), 0.5),
+            });
+            leap.over = Some(played * (casts::LEAP_ENDS - casts::LEAP_FLIES));
+            debug!("creature_arts: {entity} leaps off for {time:.2} s");
             continue;
         };
-        let flown = flown + time.delta_secs();
-        leap.flight = Some((from, flight, flown));
-        // Its art over at less than 0.6 of its clip left, 0.8 of its flight's time in.
-        if !leap.over && flown >= 0.8 * flight {
-            leap.over = true;
+        let over = over - time.delta_secs();
+        leap.over = Some(over);
+        if over <= 0.0 {
             mind.phase = Some(casts::DRYAD_LANDED);
+            if !flying {
+                commands.entity(entity).remove::<Leaps>();
+                debug!("creature_arts: {entity} lands at {}", transform.translation);
+            }
         }
-        let level = way.and_then(|way| way.level);
-        if flown >= flight {
-            let at = leap.to;
-            let ground = heights.standing(at.x, at.z, level).unwrap_or(at.y);
-            transform.translation = Vec3::new(at.x, ground, at.z);
-            mind.phase = Some(casts::DRYAD_LANDED);
-            commands.entity(entity).remove::<Leaps>();
-            debug!("creature_arts: {entity} lands at {}", transform.translation);
-            continue;
-        }
-        let share = (LEAP_AHEAD * flown / flight).min(1.0);
-        let along = from.xz() + (leap.to.xz() - from.xz()) * share;
-        let ground = heights
-            .standing(along.x, along.y, level)
-            .unwrap_or(transform.translation.y);
-        let rise = leap.height * (1.0 - 4.0 * (share - 0.5).powi(2));
-        transform.translation = Vec3::new(
-            along.x,
-            ground + crate::iso::height(rise * crate::iso::PIXELS_PER_MODEL_HEIGHT),
-            along.y,
-        );
     }
 }
 
@@ -688,7 +669,7 @@ mod tests {
             .insert_resource(crate::hero::GameSpeed(1.0))
             .insert_resource(crate::terrain::Heights::default())
             .insert_resource(Assets::<AnimationClip>::default())
-            .add_systems(Update, leaps);
+            .add_systems(Update, (leaps, crate::making::leap).chain());
         let mind = Mind::new(
             Vec3::ZERO,
             0x1,
@@ -699,8 +680,8 @@ mod tests {
         );
         let to = Vec3::new(400.0, 0.0, 0.0);
         let (leap, _) = Leaps::start(Vec3::ZERO, to);
-        // 400 off: the rate 1, so a quarter of the clip's 1.22 s, 0.305 s, `d/12` high at most.
-        assert_eq!((leap.rate, leap.height), (1.0, 400.0 / 12.0));
+        // 400 off: the rate 1.
+        assert_eq!(leap.rate, 1.0);
         let dryad = app
             .world_mut()
             .spawn((Transform::default(), mind, leap))
@@ -714,27 +695,30 @@ mod tests {
         );
         app.world_mut().entity_mut(dryad).insert(npcs::ClipActs);
         app.update();
-        // 0.15 s in, the frame it took off its first: along the way past its share, aloft, its
-        // mark still `0x20E`.
+        // Its flight a quarter of its clip's 1.22 s, `d/12` high at its middle.
+        let flight = *app.world().get::<crate::making::Leap>(dryad).unwrap();
+        assert!((flight.time - 0.305).abs() < 1e-4, "{flight:?}");
+        assert!((flight.peak - 400.0 / 12.0).abs() < 1e-3, "{flight:?}");
+        // Aloft, its mark still `0x20E`.
         app.update();
         app.update();
         let at = app.world().get::<Transform>(dryad).unwrap().translation;
-        let share = 16.0 / 15.0 * 0.15 / 0.305;
-        assert!((at.x - 400.0 * share).abs() < 1.0, "{at}");
-        assert!(at.y > 0.0, "{at}");
+        assert!(at.x > 0.0 && at.x < 400.0 && at.y > 0.0, "{at}");
         assert_eq!(app.world().get::<Mind>(dryad).unwrap().mark(), 0x20E);
-        // 0.3 s in, past 0.8 of its flight: its art is over, its mark `0x210`.
+        // 0.244 s after its flight began, 0.2 of its clip: its art over, its mark `0x210`, still
+        // flying.
         for _ in 0..3 {
             app.update();
         }
-        assert!(app.world().get::<Leaps>(dryad).is_some());
+        assert!(app.world().get::<crate::making::Leap>(dryad).is_some());
         assert_eq!(
             app.world().get::<Mind>(dryad).unwrap().mark(),
             casts::DRYAD_LANDED
         );
-        // Past its flight's time, on its point, on the ground.
-        app.update();
-        app.update();
+        // Landed on its point, on the ground, its leap done.
+        for _ in 0..3 {
+            app.update();
+        }
         assert!(app.world().get::<Leaps>(dryad).is_none());
         assert_eq!(app.world().get::<Transform>(dryad).unwrap().translation, to);
     }

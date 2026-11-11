@@ -5343,6 +5343,15 @@ mod tests {
         assert!(dryad.cast_ordered && dryad.stands == casts::DRYAD_STANDS);
         assert_eq!(decide(&mut fighting(218), &near, &found, vec![1]), None);
         assert_eq!(decide(&mut fighting(218), &near, &none, vec![0]), None);
+        // Nothing while it does not fight, or while it strikes.
+        let mut idle = fighting(218);
+        idle.fighting = false;
+        assert_eq!(decide(&mut idle, &near, &found, vec![0]), None);
+        let striking = Pursuit {
+            striking: true,
+            ..near
+        };
+        assert_eq!(decide(&mut fighting(218), &striking, &found, vec![0]), None);
         // Far, in one of six: 1062 by a roll of 0 of 3, else 1004 or 1008 by a coin; none with a
         // bow, which shoots over it.
         for (rolls, art) in [
