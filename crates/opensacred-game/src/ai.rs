@@ -820,7 +820,11 @@ fn pursue(
     mut lines: MessageWriter<crate::voices::Speak>,
     tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
-    (heights, dungeons): (Res<Heights>, Option<Res<crate::daynight::Dungeons>>),
+    (heights, dungeons, crowd): (
+        Res<Heights>,
+        Option<Res<crate::daynight::Dungeons>>,
+        Res<Crowd>,
+    ),
     nearest: Res<Nearest>,
     doors: Doors,
     hero: Query<
@@ -874,6 +878,7 @@ fn pursue(
                 With<crate::creature_arts::Makes>,
                 With<crate::creature_arts::Ordered>,
                 With<crate::creature_arts::Volley>,
+                With<crate::creature_arts::Leaps>,
             )>,
         >,
         Query<&crate::npcs::Arms>,
@@ -1188,6 +1193,13 @@ fn pursue(
                         .map(|&other| attacked == Some(other)),
                     // Whether its right hand holds an item, a minimummy's dagger (#2575).
                     armed: arms.get(entity).is_ok_and(|arms| arms.right().is_some()),
+                    // A dryad of `0x20E` near its target, the point it may leap to (#2566).
+                    leap: dryads_leap(
+                        (entity, &mind),
+                        (here, target, target_size),
+                        (way.level, &heights, &crowd),
+                        &mut minds.rng,
+                    ),
                     group_strike: mind.group.and_then(|group| {
                         strikers
                             .iter()
@@ -1581,6 +1593,14 @@ fn pursue(
                     commands.entity(entity).remove::<Walk>();
                 }
             }
+            Pursues::Leaps(to) => {
+                let to = point(to, here.y);
+                debug!("ai: {entity} leaps to {to}");
+                commands
+                    .entity(entity)
+                    .remove::<(Walk, Strikes)>()
+                    .insert(crate::creature_arts::Leaps::start(here, to));
+            }
             Pursues::TakesDagger => {
                 debug!("ai: {entity} takes a dagger");
                 commands
@@ -1682,6 +1702,37 @@ fn pursue(
             }
         }
     }
+}
+
+/// The point a dryad of `0x20E` near its target at `target` may leap to (`0x4D86BC`, #2566), none
+/// for another creature or where none fits: one it may stand on, to which its straight way runs
+/// clear of all but the creatures (the order's test, `0x4FD0F0`, its flag 1), but whose straight
+/// way back to it some creature blocks (`0x4FCC80`, its flag 0; the target and itself aside),
+/// and from which a way leads to its target (`0x4F7710`).
+fn dryads_leap(
+    (entity, mind): (Entity, &Mind),
+    (here, target, target_size): (Vec3, Vec3, u32),
+    (level, heights, crowd): (Level, &Heights, &Crowd),
+    rng: &mut Rng,
+) -> Option<Spot> {
+    let reach = minds::reach_f32(mind.size(), target_size).floor();
+    if !matches!(mind.creature, 218 | 219)
+        || mind.mark() == opensacred_rules::casts::DRYAD_LANDED
+        || (target - here).xz().length().floor() >= 2.0 * reach
+    {
+        return None;
+    }
+    let target_cell = paths::cell_of(target.x, target.z);
+    let open = |cell| heights.walkable_on(cell, level);
+    opensacred_rules::casts::leap_point(spot(here), rng, |to| {
+        let at = Vec2::new(to.x, to.y);
+        heights.standing(at.x, at.y, level).is_some()
+            && paths::straight(here.xz(), at, open)
+            && !paths::straight(at, here.xz(), |cell| {
+                open(cell) && (cell == target_cell || !crowd.stops(cell, level, entity, false))
+            })
+            && way_to(point(to, here.y), level, spot(target), heights)
+    })
 }
 
 /// A walk or a run at the hero at `hero`, stopping within `within` of it, in the band.

@@ -1517,7 +1517,10 @@ impl Mind {
         if !caster && !cast.elite {
             return None;
         }
-        if !self.fighting || self.ranged || sight.striking {
+        // The ranged state calls the specials of the marks that cast nothing, a dryad's
+        // (`0x4DC465`, #2566).
+        let ranged = self.ranged && own != Some(casts::OwnMark::Dryad);
+        if !self.fighting || ranged || sight.striking {
             return None;
         }
         let d = (sight.hero - sight.here).length();
@@ -1813,6 +1816,39 @@ impl Mind {
                 self.cast_deadline = cast.now + casts::MUMMY_DEADLINE;
                 return Some(self.ordered_art(casts::GLADIATORS_ATTACKE));
             }
+            // A dryad of `0x20E` near its target, in one decision of three, leaps to the point
+            // that its search found; far, in one of six, orders an art, which a dryad with a bow
+            // shoots over (the state 8's own shot, `0x4DC465`). Of `0x210` far, it takes its bow
+            // where it has no ranged weapon; near, it is of `0x20E` again (`0x4D8657`,
+            // `0x4D8980`).
+            OwnMark::Dryad => {
+                let reaches = d.floor() < 2.0 * reach.floor();
+                if self.mark() == casts::DRYAD_LANDED {
+                    if !reaches {
+                        return (!self.ranged).then(|| self.takes_dryads_bow(rng));
+                    }
+                    self.phase = None;
+                    return None;
+                }
+                if reaches {
+                    if rng.below(casts::DRYADS_LEAP_ONE_IN) != 0 {
+                        return None;
+                    }
+                    let to = cast.leap?;
+                    self.stands = casts::DRYAD_STANDS;
+                    self.cast_ordered = true;
+                    return Some(Pursues::Leaps(to));
+                }
+                if rng.below(casts::DRYADS_ART_ONE_IN) != 1 || self.ranged {
+                    return None;
+                }
+                let art = if rng.below(3) == 0 {
+                    casts::DRYADS_ARTS[0]
+                } else {
+                    casts::DRYADS_ARTS[1 + usize::from(rng.below(2) != 0)]
+                };
+                return Some(self.ordered_art(art));
+            }
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -1869,7 +1905,8 @@ impl Mind {
             | OwnMark::ArtQueen
             | OwnMark::Fetzer
             | OwnMark::BrainFooter
-            | OwnMark::Minimummy => None,
+            | OwnMark::Minimummy
+            | OwnMark::Dryad => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -2533,6 +2570,16 @@ impl Mind {
     /// It takes a bow again (`0x4D4A80`): `BOW_LONG` or `BOW_SHORT` by a coin ([`bow`]) in its
     /// left hand, its right hand emptied, the bit cleared, and it fights at range (the AI's state
     /// 8, deciding).
+    /// A dryad's bow taken (`0x4D4A80`): its state the ranged one, a bow of [`casts::DRYADS_BOWS`]
+    /// by a coin into its left hand (#2566).
+    fn takes_dryads_bow(&mut self, rng: &mut impl Dice) -> Pursues {
+        let bow = casts::DRYADS_BOWS[usize::from(rng.below(2) != 0)];
+        match self.takes_a_bow(rng) {
+            Pursues::TakesBow(_) => Pursues::TakesBow(bow),
+            other => other,
+        }
+    }
+
     fn takes_a_bow(&mut self, rng: &mut impl Dice) -> Pursues {
         self.takes_bow = false;
         self.ranged = true;
@@ -2995,6 +3042,9 @@ pub struct CastSight {
     /// Whether its right hand holds an item (slot 13, `0x4EB870(13)`), which a minimummy throws
     /// (#2575).
     pub armed: bool,
+    /// A dryad's point to leap to near its target, of the search a decision makes
+    /// ([`casts::leap_point`], #2566), none where none fits or it is no dryad of `0x20E` near.
+    pub leap: Option<Spot>,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -3141,6 +3191,8 @@ pub enum Pursues {
     /// A minimummy throws the dagger in its hand at its target by the Gladiator's hurled blades,
     /// and `more` after it, each taken anew (#2575).
     ThrowsDaggers { more: u8 },
+    /// A dryad leaps to the point by the art 1003 (#2566).
+    Leaps(Spot),
     /// A larva hides from its target (#2562): it runs to the first of [`casts::HIDE_TRIES`] points
     /// [`casts::HIDES_AT`] from it, from the angle `from` in degrees by [`casts::HIDE_STEP`], that
     /// it may stand on, with no straight line from its target and a path to it; with none it
@@ -4427,6 +4479,7 @@ mod tests {
             stare: None,
             group_strike: None,
             armed: false,
+            leap: None,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4540,6 +4593,7 @@ mod tests {
             stare: None,
             group_strike: None,
             armed: false,
+            leap: None,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4612,6 +4666,7 @@ mod tests {
             stare: None,
             group_strike: None,
             armed: false,
+            leap: None,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4694,6 +4749,7 @@ mod tests {
             stare: None,
             group_strike: None,
             armed: false,
+            leap: None,
         }
     }
 
@@ -5263,6 +5319,92 @@ mod tests {
     }
 
     #[test]
+    fn a_dryad_leaps_near_shoots_far_and_takes_its_bow_once_landed() {
+        use crate::spawning::Script;
+        let decide = |mind: &mut Mind, sight: &Pursuit, cast: &CastSight, rolls: Vec<u32>| {
+            mind.stands = 0;
+            mind.cast(sight, cast, || true, &mut Script::new(rolls))
+        };
+        let to = at(400.0, 0.0);
+        let found = CastSight {
+            leap: Some(to),
+            ..hornets_cast(0, (0, false), false)
+        };
+        let none = hornets_cast(0, (0, false), false);
+        let mut dryad = fighting(218);
+        let reach = reach_f32(dryad.size(), SIZE);
+        let near = hornets_sight(2.0 * reach.floor() - 1.0, false);
+        let far = hornets_sight(2.0 * reach.floor(), false);
+        // Near, in one decision of three, it leaps to the point found, or does nothing special.
+        assert_eq!(
+            decide(&mut dryad, &near, &found, vec![0]),
+            Some(Pursues::Leaps(to))
+        );
+        assert!(dryad.cast_ordered && dryad.stands == casts::DRYAD_STANDS);
+        assert_eq!(decide(&mut fighting(218), &near, &found, vec![1]), None);
+        assert_eq!(decide(&mut fighting(218), &near, &none, vec![0]), None);
+        // Far, in one of six: 1062 by a roll of 0 of 3, else 1004 or 1008 by a coin; none with a
+        // bow, which shoots over it.
+        for (rolls, art) in [
+            (vec![1, 0], 1062),
+            (vec![1, 1, 0], 1004),
+            (vec![1, 2, 1], 1008),
+        ] {
+            assert_eq!(
+                decide(&mut fighting(219), &far, &none, rolls),
+                Some(Pursues::MakesArt { art }),
+                "{art}"
+            );
+        }
+        assert_eq!(decide(&mut fighting(218), &far, &none, vec![0]), None);
+        let mut archer = fighting(218);
+        archer.ranged = true;
+        assert_eq!(decide(&mut archer, &far, &none, vec![1]), None);
+        // Landed (`0x210`): far, its bow of the two by a coin; with one, nothing; near, `0x20E`.
+        for (coin, bow) in [(0, 1732), (1, 1733)] {
+            let mut landed = fighting(218);
+            landed.phase = Some(casts::DRYAD_LANDED);
+            assert_eq!(
+                decide(&mut landed, &far, &none, vec![coin]),
+                Some(Pursues::TakesBow(bow))
+            );
+            assert!(landed.ranged);
+        }
+        let mut landed = fighting(218);
+        landed.phase = Some(casts::DRYAD_LANDED);
+        landed.ranged = true;
+        assert_eq!(decide(&mut landed, &far, &none, vec![]), None);
+        assert_eq!(decide(&mut landed, &near, &none, vec![]), None);
+        assert_eq!(landed.mark(), 0x20E);
+    }
+
+    #[test]
+    fn a_leaps_search_turns_by_a_tenth_from_its_angle_at_300_to_500() {
+        use crate::spawning::Script;
+        // From the angle 0, the first try 300 off along it; the second 0.1 on, 500 off.
+        let mut tries = Vec::new();
+        let found = casts::leap_point(at(0.0, 0.0), &mut Script::new(vec![0, 0, 200]), |to| {
+            tries.push(to);
+            tries.len() == 2
+        });
+        assert!((tries[0] - at(300.0, 0.0)).length() < 1e-3);
+        let second = at(0.1f32.cos() * 500.0, 0.1f32.sin() * 500.0);
+        assert_eq!(found, Some(tries[1]));
+        assert!((tries[1] - second).length() < 1e-2);
+        // None fits: some 603 tries, then none.
+        let mut count = 0;
+        let mut rng = crate::spawning::Rng::of(1, 2, 3);
+        assert_eq!(
+            casts::leap_point(at(0.0, 0.0), &mut rng, |_| {
+                count += 1;
+                false
+            }),
+            None
+        );
+        assert!((602..=604).contains(&count), "{count}");
+    }
+
+    #[test]
     fn a_minimummy_blinks_throws_runs_or_strikes() {
         use crate::spawning::Script;
         let cast = |elite, group_strike| CastSight {
@@ -5420,6 +5562,7 @@ mod tests {
             stare: None,
             group_strike: None,
             armed: false,
+            leap: None,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);
