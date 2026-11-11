@@ -1745,10 +1745,28 @@ impl Host for Recorder<'_> {
             }
             "set_base_trigger" => {
                 let positions = &self.state.positions;
-                let first = tags
-                    .spot("_0C", positions)
-                    .or_else(|| tags.spot("_04", positions));
-                let second = tags.spot("_0D", positions).map(|(x, y, _)| (x, y));
+                // Each `0C` (or `04`) puts the first corner anew, and the other corner, where no
+                // `0D` gives it, is the first of them (`0x4819A0`): two `DefPos` names under one
+                // tag, as each tree's second dungeon's exit gives them (`teleportTrigger12_rg1`,
+                // #2588), are the box's two corners.
+                let named: Vec<(i32, i32, i32)> = tags
+                    .texts("_0C")
+                    .iter()
+                    .filter_map(|name| {
+                        let place = positions.place(name)?;
+                        Some((place.cell.0, place.cell.1, place.level))
+                    })
+                    .collect();
+                let first = match named.as_slice() {
+                    [_, .., last] => Some(*last),
+                    _ => tags
+                        .spot("_0C", positions)
+                        .or_else(|| tags.spot("_04", positions)),
+                };
+                let second = tags
+                    .spot("_0D", positions)
+                    .or_else(|| (named.len() > 1).then(|| named[0]))
+                    .map(|(x, y, _)| (x, y));
                 if let (Some(name), Some(first)) = (tags.texts("_01").first(), first) {
                     self.state.triggers.set(name, first, second);
                 }
@@ -4631,6 +4649,9 @@ mod tests {
                  set_base_trigger { _01 = \"tprein2.3\", _0C = { 3046, 2892, 0 }, _0D = { 3047, 2893, 0 } }\n\
                  set_base_trigger { _01 = \"Wolfattack\", _0C = { 3205, 2902, 0 }, _0D = { 3205, 2916, 0 } }\n\
                  set_base_trigger { _01 = \"gone\", _0C = \"tpreinz2.3\" }\n\
+                 def_pos { _01 = \"dun2_x\", _0B = { 4824, 387 } }\n\
+                 def_pos { _01 = \"dun2_y\", _0B = { 4825, 387 } }\n\
+                 set_base_trigger { _01 = \"teleportTrigger12\", _0C = { \"dun2_x\", \"dun2_y\" } }\n\
                  del_base_trigger { _01 = \"GONE\" }\n\
                  return true\n\
                  end\n\
@@ -4641,6 +4662,10 @@ mod tests {
                 "local F = {}\n\
                  F[\"OMO-1tprein2.3\"] = function()\n\
                  teleport { _03 = 45, _04 = \"tpreinz2.3\" }\n\
+                 return true\n\
+                 end\n\
+                 F[\"OMO-1teleportTrigger12\"] = function()\n\
+                 teleport { _04 = { 3180, 2673, 0 } }\n\
                  return true\n\
                  end\n\
                  F[\"OMO-1gone\"] = function()\n\
@@ -4701,6 +4726,19 @@ mod tests {
         // A trigger taken out runs nothing, and a cell of none neither.
         assert!(live.step_on((4083, 83), 0).teleports.is_empty());
         assert!(live.step_on((3048, 2893), 0).teleports.is_empty());
+        // Two places under one corner's tag, its box from one to the other (#2588).
+        for cell in [(4824, 387), (4825, 387)] {
+            assert_eq!(
+                live.step_on(cell, 0).teleports,
+                [Teleport {
+                    cell: (3180, 2673),
+                    layer: 0,
+                    heading: None,
+                }],
+                "{cell:?}"
+            );
+        }
+        assert!(live.step_on((4826, 387), 0).teleports.is_empty());
     }
 
     #[test]

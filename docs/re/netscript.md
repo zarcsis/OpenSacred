@@ -245,6 +245,7 @@ Destroying a creature runs no death's function ("The deaths' functions" below).
 Read off the client with Ghidra and capstone 2026-10-25 (#1002), **confirmed** by code unless marked otherwise.
 
 - `SetBaseTrigger` (4, `0x4819A0`) takes the trigger's name (`01`), a corner (`0C`, or `04` in 6 records: a cell or a `DefPos` name, the cell's third number the layer, a place's fourth, held to 0..16; "`DefPos` as a record's cell" below) and the other corner (`0D`), a box of one cell without it; the corners are ordered.
+  Each `0C` or `04` puts the first corner anew, and the other corner, where no `0D` gives it, is the first of them (read 2026-11-11 for #2588, **confirmed** by code): the 22 records that give two `DefPos` names under `0C`, the exit of each tree's second dungeon (`teleportTrigger12_rg1`, 4824..4825,387, to 3180,2673), make a box of the two; `opensacred-game` reads them so since #2588.
   `0x63C970` splits the box at the sectors' edges and appends each part to its sector's list (`+0x204`, entries of 0x4C bytes: `x0`, `y0`, the layer, `x1` and `y1` as `u16`, the name from `+0xC`; `0x622E80`).
 - `DelBaseTrigger` (5, `0x4817F0`) with the name alone takes that name's boxes out of every sector, and with corners out of the sector of the lower corner and its eight neighbours (`0x63CB10`); each box goes as the sector's last box is moved into its place, the names compared without regard to case (`0x622FA0`).
 - The trigger of a cell (`0x6230C0`) is the first box of the cell's sector that holds it on its layer, the layers 0 and 1 counted as 0.
