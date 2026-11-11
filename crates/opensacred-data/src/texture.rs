@@ -258,6 +258,50 @@ pub fn read(data: &[u8]) -> io::Result<Rgba> {
     Ok(rgba)
 }
 
+/// Every level of the 8-bit RGBA texture `data`, the largest first.
+pub fn read_levels(data: &[u8]) -> io::Result<Vec<Rgba>> {
+    let (width, height) = size(data)?;
+    let format = u32_at(data, 12)?;
+    if format != RGBA8_SRGB {
+        return Err(invalid(format!(
+            "a texture of format {format}, not 8-bit RGBA"
+        )));
+    }
+    let scheme = u32_at(data, 44)?;
+    let count = u32_at(data, 40)?.max(1);
+    (0..count)
+        .map(|index| {
+            let entry = HEADER + LEVEL_ENTRY * usize::try_from(index).unwrap_or(usize::MAX);
+            let (offset, length, unpacked) = (
+                usize_at(data, entry)?,
+                usize_at(data, entry + 8)?,
+                usize_at(data, entry + 16)?,
+            );
+            let stored = data
+                .get(offset..offset.saturating_add(length))
+                .ok_or_else(|| invalid("a KTX2 level beyond the file".to_owned()))?;
+            let pixels = match scheme {
+                0 => stored.to_vec(),
+                ZSTANDARD => zstd::bulk::decompress(stored, unpacked)?,
+                other => return Err(invalid(format!("supercompression scheme {other}"))),
+            };
+            let side = |n: u32| usize::try_from((n >> index).max(1)).unwrap_or(usize::MAX);
+            let rgba = Rgba {
+                width: side(width),
+                height: side(height),
+                pixels,
+            };
+            if rgba.pixels.len() != 4 * rgba.width * rgba.height {
+                return Err(invalid(format!(
+                    "{} bytes for level {index} of {width} x {height} texels",
+                    rgba.pixels.len()
+                )));
+            }
+            Ok(rgba)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

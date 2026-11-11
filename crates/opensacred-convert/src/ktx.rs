@@ -12,12 +12,18 @@
 //! level otherwise (Castaño, "Computing Alpha Mipmaps", 2010). It is never lowered: a model's
 //! texels of alpha under 255 are blended, so a lowered alpha would make the whole model fainter
 //! where only its edge grew (#816).
+//!
+//! A static object's sprite ([`Use::Sprite`]) gets a few levels, its edge texels repeated to whole
+//! multiples first; where its texels are all of 4 bits a channel, as the original's sprites are
+//! (ARGB4444), its levels are rounded to 4 bits a channel too: averaged to 8 bits, they took twice
+//! the space of the images in `world.zip` (#839).
 
 use std::sync::LazyLock;
 
 use anyhow::{Context, Result, bail};
 use intel_tex_2::{RgbaSurface, bc7};
 use opensacred_data::texture::{self, Encoding};
+use opensacred_data::world::{SPRITE_ALIGN, SPRITE_LEVELS};
 
 /// What the game does with a texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +32,12 @@ pub enum Use {
     Read,
     /// Sampled by the GPU.
     Sampled,
+    /// A static object's sprite, which the game packs into its pages on the CPU with its levels
+    /// (#839): its edge texels repeated to whole multiples of [`SPRITE_ALIGN`] at its right and
+    /// bottom, then [`SPRITE_LEVELS`] levels as they are, where the art reaching the edge to go on
+    /// in the next sprite keeps its edge texels opaque at every level, of the art's 4 bits a
+    /// channel where it has them ([`four_bits`]).
+    Sprite,
 }
 
 /// The models' alpha test, the original's, which drops the texels of alpha 64 or less
@@ -168,14 +180,15 @@ impl Linear {
     }
 }
 
-/// The levels of an image of `width` × `height` texels, the image first, down to a side of 1.
-fn levels(width: usize, height: usize, rgba: &[u8]) -> Vec<Vec<u8>> {
+/// The levels of an image of `width` × `height` texels, the image first, down to a side of 1 or
+/// `most` of them.
+fn levels(width: usize, height: usize, rgba: &[u8], most: usize) -> Vec<Vec<u8>> {
     let first = Linear::of(width, height, rgba);
     let translucent = rgba.as_chunks::<4>().0.iter().any(|t| t[3] < u8::MAX);
     let target = first.coverage(1.0);
     let mut out = vec![rgba.to_vec()];
     let mut level = first;
-    while level.width > 1 || level.height > 1 {
+    while (level.width > 1 || level.height > 1) && out.len() < most {
         level = level.half();
         let scale = if translucent {
             level.alpha_scale(target)
@@ -259,16 +272,62 @@ fn thickened(width: usize, height: usize, rgba: Vec<u8>) -> (usize, usize, Vec<u
     }
 }
 
+/// The image `rgba` of `width` × `height` texels, its last column and row repeated to whole
+/// multiples of `align` across and down.
+fn repeated(width: usize, height: usize, rgba: &[u8], align: usize) -> (usize, usize, Vec<u8>) {
+    let (wide, tall) = (
+        width.next_multiple_of(align),
+        height.next_multiple_of(align),
+    );
+    let mut out = Vec::with_capacity(4 * wide * tall);
+    for y in 0..tall {
+        let row = &rgba[4 * width * y.min(height - 1)..][..4 * width];
+        out.extend_from_slice(row);
+        let last = &row[4 * (width - 1)..];
+        for _ in width..wide {
+            out.extend_from_slice(last);
+        }
+    }
+    (wide, tall, out)
+}
+
+/// The step between two values of 4 bits widened to 8 (`0xF` → `0xFF`).
+const FOUR_BITS: u8 = 17;
+
+/// Whether every value of `rgba` is one of 4 bits widened to 8, as the original's ARGB4444
+/// textures' are.
+fn of_four_bits(rgba: &[u8]) -> bool {
+    rgba.iter().all(|v| v % FOUR_BITS == 0)
+}
+
+/// `level` rounded to 4 bits a channel, widened to 8: an alpha that passes the alpha test
+/// (over 64) still does, as 65 rounds to 68.
+fn four_bits(level: &mut [u8]) {
+    for value in level {
+        let rounded = (u16::from(*value) + u16::from(FOUR_BITS / 2)) / u16::from(FOUR_BITS);
+        *value = u8::try_from(rounded).unwrap_or(15) * FOUR_BITS;
+    }
+}
+
 /// The KTX2 file of the texture whose master is `png`, for `usage`.
 pub fn encode(png: &[u8], usage: Use) -> Result<Vec<u8>> {
     let (width, height, rgba) = decode_png(png)?;
+    if usage == Use::Sprite {
+        let (width, height, rgba) = repeated(width, height, &rgba, SPRITE_ALIGN);
+        let (w, h) = (u32::try_from(width)?, u32::try_from(height)?);
+        let mut levels = levels(width, height, &rgba, SPRITE_LEVELS);
+        if of_four_bits(&rgba) {
+            levels.iter_mut().skip(1).for_each(|level| four_bits(level));
+        }
+        return Ok(texture::write(Encoding::Rgba8, w, h, &levels)?);
+    }
     let (width, height, rgba) = thickened(width, height, rgba);
     let (w, h) = (u32::try_from(width)?, u32::try_from(height)?);
     if usage == Use::Read {
         return Ok(texture::write(Encoding::Rgba8, w, h, &[rgba])?);
     }
     let opaque = rgba.as_chunks::<4>().0.iter().all(|t| t[3] == u8::MAX);
-    let levels = levels(width, height, &rgba);
+    let levels = levels(width, height, &rgba, usize::MAX);
     if !opaque || width % 4 != 0 || height % 4 != 0 {
         return Ok(texture::write(Encoding::Rgba8, w, h, &levels)?);
     }
@@ -302,6 +361,69 @@ mod tests {
                 ]
             })
             .collect()
+    }
+
+    #[test]
+    fn a_sprite_keeps_its_edges_opaque_and_its_coverage_at_every_level() {
+        // A wall's piece of 21 x 13 texels whose art reaches its right and bottom edges, opaque
+        // but for a hole of 6 x 4 at its top left, of 4 bits a channel as the original's (#839).
+        let (width, height) = (21, 13);
+        let art = |colour: [u8; 3]| -> Vec<u8> {
+            (0..width * height)
+                .flat_map(|i| {
+                    let (x, y) = (i % width, i / width);
+                    let alpha = if x < 6 && y < 4 { 0 } else { 255 };
+                    [colour[0], colour[1], colour[2], alpha]
+                })
+                .collect()
+        };
+        let rgba = art([204, 102, 51]);
+        let file = encode(&png(21, 13, &rgba), Use::Sprite).unwrap();
+        let (header, levels) = levels_of(&file);
+        // Repeated to 24 x 16, four levels.
+        assert_eq!((header.pixel_width, header.pixel_height), (24, 16));
+        assert_eq!(levels.len(), SPRITE_LEVELS);
+        let mut coverage = None;
+        for (index, level) in levels.iter().enumerate() {
+            let (w, h) = (24 >> index, 16 >> index);
+            assert_eq!(level.len(), 4 * w * h, "level {index}");
+            // The right column and the bottom row opaque, as the edge's art goes on.
+            for y in 0..h {
+                assert_eq!(level[4 * (y * w + w - 1) + 3], 255, "level {index} row {y}");
+            }
+            for x in 0..w {
+                assert_eq!(
+                    level[4 * ((h - 1) * w + x) + 3],
+                    255,
+                    "level {index} column {x}"
+                );
+            }
+            let kept = level
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|t| t[3] > 64)
+                .count();
+            let share = kept as f32 / (w * h) as f32;
+            let first = *coverage.get_or_insert(share);
+            assert!(
+                share >= first - 1.0 / (w * h) as f32,
+                "level {index}: {share} < {first}"
+            );
+            // Of the art's 4 bits a channel.
+            assert!(of_four_bits(level), "level {index}");
+        }
+        // Art of 8 bits a channel keeps them at its levels.
+        let (_, levels) =
+            levels_of(&encode(&png(21, 13, &art([200, 100, 50])), Use::Sprite).unwrap());
+        assert_eq!(levels[1][4 * (12 * 3 + 7)..][..4], [200, 100, 50, 255]);
+    }
+
+    #[test]
+    fn four_bits_round_to_the_nearest_and_keep_what_the_alpha_test_keeps() {
+        let mut values = [0, 8, 9, 59, 60, 64, 65, 246, 247, 255];
+        four_bits(&mut values);
+        assert_eq!(values, [0, 0, 17, 51, 68, 68, 68, 238, 255, 255]);
     }
 
     fn levels_of(file: &[u8]) -> (ktx2::Header, Vec<Vec<u8>>) {
@@ -414,7 +536,7 @@ mod tests {
             })
             .collect();
         let target = Linear::of(32, 32, &rgba).coverage(1.0);
-        let levels = levels(32, 32, &rgba);
+        let levels = levels(32, 32, &rgba, usize::MAX);
         assert_eq!(levels.len(), 6);
         for (index, level) in levels.iter().enumerate().take(4) {
             let alphas: Vec<u8> = level.as_chunks::<4>().0.iter().map(|t| t[3]).collect();
@@ -434,7 +556,7 @@ mod tests {
         let rgba: Vec<u8> = (0..32 * 32)
             .flat_map(|i| [120, 80, 60, if i % 32 == 15 { 0 } else { 255 }])
             .collect();
-        let levels = levels(32, 32, &rgba);
+        let levels = levels(32, 32, &rgba, usize::MAX);
         for (index, level) in levels.iter().enumerate() {
             let width = 32 >> index;
             let stroke = 15 >> index;

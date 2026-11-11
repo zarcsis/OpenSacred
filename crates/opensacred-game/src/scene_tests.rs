@@ -264,17 +264,16 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
     let world_dir = dir.join("world");
     fs::create_dir_all(world_dir.join("sectors")).unwrap();
     write_texture(&world_dir.join("sheet.ktx2"), 256, 256, &sheet());
-    // Each sprite's image, as the converter assembles it (#838).
+    // Each sprite's image, as the converter assembles it with its levels (#838, #839).
     fs::create_dir_all(world_dir.join(opensacred_data::world::SPRITES_DIR)).unwrap();
     let art = atlas();
     for (id, (sprite, from)) in (1..).zip(sprites()) {
-        let [x0, y0, x1, y1] = sprite.rect.map(u32::from);
-        write_texture(
-            &world_dir.join(sprite_image(id, texture::EXTENSION)),
-            x1 - x0,
-            y1 - y0,
-            &crop(&art, from),
-        );
+        let [x0, y0, x1, y1] = sprite.rect.map(usize::from);
+        fs::write(
+            world_dir.join(sprite_image(id, texture::EXTENSION)),
+            statics::sprite_file(x1 - x0, y1 - y0, &crop(&art, from)),
+        )
+        .unwrap();
     }
     let textures = dir.join("textures").join("texture");
     fs::create_dir_all(&textures).unwrap();
