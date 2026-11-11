@@ -1753,6 +1753,46 @@ impl Mind {
                 self.stands = casts::STARE_STANDS;
                 return Some(next);
             }
+            // A minimummy walks on; a boss or Tuktuk blinks from near, throws daggers by a coin
+            // once its deadline passes (Tuktuk whatever it), else runs about the hero; a plain one
+            // runs round the hero once two of its group strike, else makes the Gladiator's
+            // `Attacke` by its roll (`0x4D8C4F`).
+            OwnMark::Minimummy => {
+                if sight.walk.is_some() {
+                    return Some(Pursues::Faces);
+                }
+                let about = |rng: &mut dyn FnMut() -> u32, distance: f32| {
+                    let degrees = f32::from(u16::try_from(rng()).unwrap_or(0)).to_radians();
+                    target + Spot::new(degrees.cos(), degrees.sin()) * distance
+                };
+                if cast.elite || self.creature == casts::TUKTUK {
+                    if d < (casts::MUMMY_NEAR * reach).floor() {
+                        self.cast_deadline = cast.now + casts::MUMMY_DEADLINE;
+                        let to = about(&mut || rng.below(361), casts::MUMMY_FAR * reach);
+                        return Some(Pursues::BlinksTo(to));
+                    }
+                    if (self.cast_deadline < cast.now || self.creature == casts::TUKTUK)
+                        && rng.below(2) == 0
+                    {
+                        self.cast_deadline = cast.now + casts::MUMMY_DEADLINE;
+                        return Some(self.ordered_art(casts::HURLED_BLADES));
+                    }
+                    self.stands = casts::MUMMY_STANDS;
+                    let to = about(&mut || rng.below(361), casts::MUMMY_FAR * reach);
+                    return Some(Pursues::Strolls(to, true));
+                }
+                if let Some(size) = cast.group_strike {
+                    let round = (casts::MUMMY_NEAR * reach_f32(self.size(), size)).floor();
+                    self.stands = casts::MUMMY_STANDS;
+                    let to = about(&mut || rng.below(361), round);
+                    return Some(Pursues::Strolls(to, true));
+                }
+                if !casts::special_passes(casts::MUMMIES_B, cast.difficulty, rng.below(100) + 1) {
+                    return None;
+                }
+                self.cast_deadline = cast.now + casts::MUMMY_DEADLINE;
+                return Some(self.ordered_art(casts::GLADIATORS_ATTACKE));
+            }
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -1808,7 +1848,8 @@ impl Mind {
             | OwnMark::HellGolem
             | OwnMark::ArtQueen
             | OwnMark::Fetzer
-            | OwnMark::BrainFooter => None,
+            | OwnMark::BrainFooter
+            | OwnMark::Minimummy => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -2908,6 +2949,9 @@ pub struct CastSight {
     /// A brain-footer's strength against the hero by the levels ([`casts::stare_strength`]),
     /// none where it is too weak to stare (#2567).
     pub stare: Option<f32>,
+    /// The size of the second of the other members of its group that strike (their action 3 or
+    /// their art's), none where fewer strike (`0x4D8E3F`, #2565).
+    pub group_strike: Option<u32>,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -3047,6 +3091,8 @@ pub enum Pursues {
     MakesArt { art: u16 },
     /// A brain-footer stares at its target of the strength `strength` and stops (#2567).
     Stares { strength: f32 },
+    /// A minimummy blinks to the point, a battle fog where it leaves and where it lands (#2565).
+    BlinksTo(Spot),
     /// A larva hides from its target (#2562): it runs to the first of [`casts::HIDE_TRIES`] points
     /// [`casts::HIDES_AT`] from it, from the angle `from` in degrees by [`casts::HIDE_STEP`], that
     /// it may stand on, with no straight line from its target and a path to it; with none it
@@ -4284,6 +4330,7 @@ mod tests {
             difficulty: Difficulty::Bronze,
             fetzer: None,
             stare: None,
+            group_strike: None,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4395,6 +4442,7 @@ mod tests {
             difficulty: Difficulty::Bronze,
             fetzer: None,
             stare: None,
+            group_strike: None,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4465,6 +4513,7 @@ mod tests {
             difficulty: Difficulty::Bronze,
             fetzer: None,
             stare: None,
+            group_strike: None,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4545,6 +4594,7 @@ mod tests {
             difficulty: Difficulty::Bronze,
             fetzer: None,
             stare: None,
+            group_strike: None,
         }
     }
 
@@ -5114,6 +5164,90 @@ mod tests {
     }
 
     #[test]
+    fn a_minimummy_blinks_throws_runs_or_strikes() {
+        use crate::spawning::Script;
+        let cast = |elite, group_strike| CastSight {
+            elite,
+            group_strike,
+            ..hornets_cast(0, (0, false), false)
+        };
+        let decide = |mind: &mut Mind, sight: &Pursuit, cast: &CastSight, rolls: Vec<u32>| {
+            mind.stands = 0;
+            mind.cast(sight, cast, || true, &mut Script::new(rolls))
+        };
+        let boss = cast(true, None);
+        // Walking, it walks on.
+        let mut mummy = fighting(192);
+        let walking = Pursuit {
+            walk: Some(Walking {
+                target: at(0.0, 0.0),
+                comes_on: false,
+                runs: false,
+            }),
+            ..hornets_sight(300.0, false)
+        };
+        assert_eq!(
+            decide(&mut mummy, &walking, &boss, vec![]),
+            Some(Pursues::Faces)
+        );
+        // A boss nearer than 1.5 reaches blinks to 3 reaches from the hero at its angle.
+        let reach = reach_f32(mummy.size(), SIZE);
+        let near = hornets_sight((1.5 * reach).floor() - 1.0, false);
+        let Some(Pursues::BlinksTo(to)) = decide(&mut mummy, &near, &boss, vec![90]) else {
+            panic!("no blink");
+        };
+        assert!(
+            (to - (near.hero + at(0.0, 3.0 * reach))).length() < 1e-2,
+            "{to:?}"
+        );
+        assert!((mummy.cast_deadline - 52.0).abs() < 1e-9);
+        // Its deadline running, it runs about the hero at 3 reaches, standing 15 decisions.
+        let far = hornets_sight(3.0 * reach, false);
+        let Some(Pursues::Strolls(to, true)) = decide(&mut mummy, &far, &boss, vec![0]) else {
+            panic!("no run");
+        };
+        assert!(((to - far.hero).length() - 3.0 * reach).abs() < 1e-2);
+        assert_eq!(mummy.stands, casts::MUMMY_STANDS);
+        // Its deadline passed, by a coin of 0 it throws its daggers; Tuktuk whatever its deadline.
+        let daggers = Some(Pursues::MakesArt {
+            art: casts::HURLED_BLADES,
+        });
+        assert_eq!(decide(&mut fighting(192), &far, &boss, vec![0]), daggers);
+        assert!(matches!(
+            decide(&mut fighting(192), &far, &boss, vec![1, 0]),
+            Some(Pursues::Strolls(..))
+        ));
+        let mut tuktuk = fighting(casts::TUKTUK);
+        tuktuk.cast_deadline = 100.0;
+        assert_eq!(
+            decide(&mut tuktuk, &far, &cast(false, None), vec![0]),
+            daggers
+        );
+        // A plain one: two of its group strike, it runs round the hero at 1.5 of its reach and
+        // theirs.
+        let mut plain = fighting(342);
+        let Some(Pursues::Strolls(to, true)) =
+            decide(&mut plain, &far, &cast(false, Some(SIZE)), vec![0])
+        else {
+            panic!("no round");
+        };
+        let round = (1.5 * reach_f32(plain.size(), SIZE)).floor();
+        assert!(((to - far.hero).length() - round).abs() < 1e-2);
+        // Else the Gladiator's Attacke by 40 p, 8 on bronze.
+        let plain_cast = cast(false, None);
+        assert_eq!(
+            decide(&mut fighting(343), &far, &plain_cast, vec![6]),
+            Some(Pursues::MakesArt {
+                art: casts::GLADIATORS_ATTACKE
+            })
+        );
+        assert_eq!(decide(&mut fighting(343), &far, &plain_cast, vec![7]), None);
+        // The fogs' seconds.
+        assert!((casts::blink_fog_seconds(10) - 2.2).abs() < 1e-5);
+        assert!((casts::blink_fog_seconds(200) - 6.0).abs() < 1e-5);
+    }
+
+    #[test]
     fn a_black_magician_casts_keeps_its_band_and_runs_about() {
         use crate::spawning::Script;
         let mut mage = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (266, 2));
@@ -5152,6 +5286,7 @@ mod tests {
             difficulty: Difficulty::Bronze,
             fetzer: None,
             stare: None,
+            group_strike: None,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);
