@@ -195,6 +195,9 @@ enum Command {
     /// The hero's level, its experience at the level's start: its health, values and points
     /// follow as at a level-up
     Level { level: u32 },
+    /// A win of the game's difficulty for the hero, as the original's console's `win` and the
+    /// scripts' `InfoPlayer` 27 count one (#2464)
+    Win,
     /// Set the hero's experience to N, or add N to it with +N: its level follows as its kills
     /// raise it
     Experience { points: String },
@@ -1410,6 +1413,18 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 .run_system_cached_with(crate::drops::throw_item, throw)
                 .map_err(|e| e.to_string())??;
             Ok(Outcome::say(line))
+        }
+        Command::Win => {
+            in_game(world)?;
+            let difficulty = world
+                .get_resource::<crate::game::Difficulty>()
+                .map_or_else(Default::default, |difficulty| difficulty.0);
+            let mut wins = world.get_resource_or_insert_with(crate::statistics::Wins::default);
+            wins.win(difficulty);
+            Ok(Outcome::say(format!(
+                "the hero wins on {difficulty:?}; wins by the difficulty {:?}",
+                wins.0
+            )))
         }
         Command::Level { level } => {
             in_game(world)?;

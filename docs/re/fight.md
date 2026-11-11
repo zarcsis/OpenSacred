@@ -477,7 +477,9 @@ The box takes the levels from bronze up to a highest `n`, at most niobium (`0x71
 The Ancaria campaign's new hero is offered bronze and silver (**seen** 2026-10-27 by the maintainer and with the driver of #448, #1145): the box is a drop-down list (docs/re/menus.md, "The choice of the hero"), which an earlier look, 2026-10-26, took for a row whose arrows change nothing.
 So the screen's modes 0 and 1 (`+0x390`), which give `n` 1 to a new hero, are the Ancaria campaign's (**hypothesis**: the modes are not traced).
 A hero of the saves, as the Underworld campaign offers them, has one more than the highest difficulty it won (`0x6F4F20` over its bytes `+0x3E9`…`+0x3EE`), so silver at least.
-A hero's bytes of the difficulties are raised by `0x424CF0` with the difficulty, which the console's `win` calls and one of the modes of the scripts' `InfoPlayer` (**hypothesis**: the campaign won on that difficulty).
+A hero's bytes of the difficulties are its wins of each, counts rather than marks: `0x424CF0` adds 1 to the game's difficulty's, at most 254, in the player's statistics record (`0xAA5598` by the hero's type, its bytes `+0x5704 + d`), which a save and the hero's export keep (read 2026-11-10 for #2464, **confirmed** by code).
+It is called by the console's `win` (`0x615550`) and by the scripts' `InfoPlayer` of the mode 27, which the Ancaria campaign's finale gives before Shaddar is fought (`OMO81AutoSavevorShaddar`, with the popup that asks for the hero's export) and the Underworld's at its last boss's death (`the_end_of_uw`).
+`opensacred-game` counts them since #2464 (`statistics::Wins`, the console's `win`), kept by its saves; the export that will carry them is #2551.
 
 ### What the difficulty changes
 

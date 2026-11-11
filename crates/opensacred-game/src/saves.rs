@@ -58,7 +58,7 @@ use crate::save_picture::Picture;
 use crate::scripts::{HeroHome, Teleport};
 use crate::sets::WeaponSets;
 use crate::settings::SettingsFile;
-use crate::statistics::{History, Kills, Tally};
+use crate::statistics::{History, Kills, Tally, Wins};
 use crate::terrain::Heights;
 use crate::town_stash::Chest;
 use crate::world_map::Map;
@@ -74,8 +74,8 @@ use crate::{arts, drops, making};
 /// the version 10 the hero's own horse's bridle (#2316); the version 11 the items' names that a
 /// carried hero's file keeps (#2390); the version 12 a game's script tree (#2472); the version 13
 /// a creature's defending slot, its parry's (#2487); the version 14 whether its model has a dying
-/// clip in the slot 173 (#2514).
-pub const VERSION: u32 = 14;
+/// clip in the slot 173 (#2514); the version 15 the hero's wins of each difficulty (#2464).
+pub const VERSION: u32 = 15;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -120,6 +120,8 @@ pub struct Hero {
     pub tally: Tally,
     pub kills: Kills,
     pub history: History,
+    /// The hero's wins of each difficulty (#2464).
+    pub wins: Wins,
     /// The seconds played, which the creatures' levels and the fills follow (`drops::Played`).
     pub played: f32,
     pub clock: Clock,
@@ -386,6 +388,7 @@ fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)
         tally: world.get_resource::<Tally>().copied().unwrap_or_default(),
         kills: world.get_resource::<Kills>().cloned().unwrap_or_default(),
         history: world.get_resource::<History>().cloned().unwrap_or_default(),
+        wins: world.get_resource::<Wins>().copied().unwrap_or_default(),
         played: world
             .get_resource::<drops::Played>()
             .map_or(0.0, drops::Played::seconds),
@@ -591,6 +594,7 @@ fn restore(world: &mut bevy::prelude::World) {
     world.insert_resource(hero.tally);
     world.insert_resource(hero.kills);
     world.insert_resource(hero.history);
+    world.insert_resource(hero.wins);
     world.insert_resource(drops::Played::of(hero.played));
     world.insert_resource(hero.clock);
     // The scripts' timers count on from the clock put back, not the minutes across its change.
@@ -990,6 +994,7 @@ mod tests {
             tally: Tally::default(),
             kills: Kills::default(),
             history: History::default(),
+            wins: Wins([0, 1, 0, 0, 0]),
             played: 125.0,
             clock: Clock::at(21, 30),
         }
@@ -1144,7 +1149,7 @@ mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (14, 0x16F1_9572_BF3E_D209),
+            (15, 0x2C74_AFB6_138D_D6BE),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
