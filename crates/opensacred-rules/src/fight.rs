@@ -586,6 +586,21 @@ pub fn ring_colour(level: u32, hero: u32, rules: &Rules) -> [u8; 3] {
 /// The fan of a health ring's fill at the share `health` of its most, `r` its half side
 /// (`0x4080C0`): its centre, then the square's edge from `(0, r)` toward `(r, r)` and round, up to
 /// where the ray at `2π·health` from `+y` toward `+x` meets it; none for no health.
+/// How far a champion's or a boss's symbol under it has turned about the upright at `ms`
+/// milliseconds of the real clock, in radians (`0x4087E0`: the timer's counter in milliseconds,
+/// its low 16 bits, times 2π/16,384): once round in 16.384 s, its turn starting again every
+/// 65.536 s.
+pub fn symbol_turn(ms: u64) -> f32 {
+    let ms = u16::try_from(ms & 0xFFFF).unwrap_or(0);
+    f32::from(ms) * std::f32::consts::TAU / 16_384.0
+}
+
+/// A champion's or a boss's symbol's half side, in world units, of a creature of the size `size`
+/// (`items.pak +0x14`, 50 for 0; `0x59A025`–`0x59A033`, `0x4087E0`): twice half its size, whole.
+pub fn symbol_half_side(size: u32) -> u32 {
+    size / 2 * 2
+}
+
 pub fn ring_pie(health: f32, r: f32) -> Vec<[f32; 2]> {
     let health = health.clamp(0.0, 1.0);
     let edge: [[f32; 2]; 9] = [
@@ -7942,6 +7957,16 @@ mod tests {
         assert_eq!(whole.len(), 10);
         let [x, y] = whole[9];
         assert!(x.abs() < 1e-3 && (y - r).abs() < 1e-3, "{x} {y}");
+    }
+
+    #[test]
+    fn a_rank_symbol_turns_once_in_16_s_and_spans_its_creatures_size() {
+        assert_eq!(symbol_turn(0), 0.0);
+        assert!((symbol_turn(4096) - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        assert!((symbol_turn(16_384) - std::f32::consts::TAU).abs() < 1e-4);
+        // The counter's low 16 bits: at 65.536 s it starts again.
+        assert_eq!(symbol_turn(65_536 + 4096), symbol_turn(4096));
+        assert_eq!([50, 75, 130].map(symbol_half_side), [50, 74, 130]);
     }
 
     #[test]

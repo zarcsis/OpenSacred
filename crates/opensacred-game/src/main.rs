@@ -189,6 +189,7 @@ mod puffs;
 mod purchase;
 mod purgatories;
 mod quest_book;
+mod rank_symbols;
 mod reanimations;
 mod regions;
 mod remarks;
@@ -684,6 +685,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         regions::RegionsPlugin,
     ))
     .add_plugins((
+        rank_symbols::RankSymbolsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         riding::RidingPlugin,
