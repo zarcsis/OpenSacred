@@ -137,6 +137,9 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         // Set 63's line at 4 (`0x571710`'s `{K:UI_SET_DURCHBOHREN}`), the arrows passing through
         // what they hit (#2276).
         Told::Pierces => white(words.of("UI_SET_DURCHBOHREN")),
+        // Set 60's line at 4 with its sockets filled (`0x571710`'s `%d%% {K:UI_SET_ROOTEN}`), the
+        // per cent of the melee attacks that cage a ranged fighter or a mage (#2547).
+        Told::Binds(per_cent) => white(format!("{per_cent}% {}", words.of("UI_SET_ROOTEN"))),
         // Set 22's potions at 5, which no text of the game tells: the project's own words that
         // the converter adds (the maintainer's decision of 2026-11-02, #1727; #1823).
         Told::Potions(per_cent) => white(format!(
@@ -379,6 +382,7 @@ mod tests {
         );
         assert_eq!(told(Told::Unseen), ["<783>"]);
         assert_eq!(told(Told::Pierces), ["<UI_SET_DURCHBOHREN>"]);
+        assert_eq!(told(Told::Binds(30)), ["30% <UI_SET_ROOTEN>"]);
         assert_eq!(told(Told::Terror(2000.0 / 101.0)), ["<1150>: +19.8%"]);
         assert_eq!(told(Told::Potions(10.0)), ["<OPENSACRED_SET_POTIONS>: 10%"]);
         assert_eq!(

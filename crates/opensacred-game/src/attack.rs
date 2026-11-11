@@ -314,10 +314,25 @@ fn engage(
         MessageWriter<crate::sfx::Blow>,
         MessageWriter<crate::sfx::Gunfire>,
     ),
+    (difficulty, arts): (
+        Option<Res<crate::game::Difficulty>>,
+        Option<Res<crate::arts::HeroArts>>,
+    ),
 ) {
     let Some(clips) = clips else {
         return;
     };
+    let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
+    // The hold of set 60's cages: the plant cage's value 0 at their level (`0x4E07F4`, #2547).
+    let bind_seconds = arts.as_deref().and_then(|arts| {
+        let cage = arts
+            .tables
+            .spells
+            .iter()
+            .find(|spell| spell.id == opensacred_rules::spells::CAGE)?;
+        let seconds = opensacred_rules::spells::value(cage, 0, minds::BIND_LEVEL);
+        Some(u16::try_from(seconds).map_or(f32::MAX, f32::from))
+    });
     for (
         hero,
         mut transform,
@@ -369,6 +384,10 @@ fn engage(
         );
         // The level it stands on, which the hero's way to it is tested on (`0x4F8560`).
         let onto = target.and_then(|(.., way)| way).map(|way| way.level);
+        // A ranged fighter or a mage, which set 60's cages take (`0x4E07D2`).
+        let bindable = target
+            .and_then(|(_, _, mind, _)| mind)
+            .is_some_and(|mind| minds::bindable(mind.ranged, mind.creature, mind.spell));
         let target = target.map(|(at, ..)| at.translation());
         let here = transform.translation;
         let Some((mut player, mut transitions)) =
@@ -506,7 +525,32 @@ fn engage(
             continue;
         }
         if !now && attack.phase == Phase::Ordered {
-            // The click's order taken at this tick, it decides at the next.
+            // The click's order taken at this tick, it decides at the next. In melee, the hero of
+            // set 60 first cages a ranged fighter or a mage beyond 200 by `R(0, 99)` below
+            // `⌊30·D⌋`: ten cages of the plant cage at the level 2 (the AI's sub-state 0,
+            // `0x4E06FD`–`0x4E09D1`; #2547).
+            if !ranged
+                && holding.is_some_and(|holding| holding.0.sets.binds())
+                && let (Some(entity), Some(at), Some(seconds)) =
+                    (attack.target, target, bind_seconds)
+            {
+                let distance = (at - here).with_y(0.0).length();
+                let roll = if distance > minds::BINDS_BEYOND {
+                    dice.0.below(100)
+                } else {
+                    u32::MAX
+                };
+                if minds::binds(distance, bindable, roll, difficulty) {
+                    debug!("attack: the hero's set 60 cages {entity} for {seconds} s");
+                    crate::plant_cages::cage(
+                        &mut commands,
+                        entity,
+                        minds::BIND_CAGES,
+                        (true, seconds),
+                    );
+                    crate::plant_cages::hold(&mut commands, entity, seconds);
+                }
+            }
             attack.phase = Phase::Deciding;
             continue;
         }

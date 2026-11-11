@@ -294,7 +294,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 58 | 3 | skill 25's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9424}: +5 ; {T9424}: +11 |  |
 | 58 | 4 | a2 (+0x14) | +⌊10·D⌋ (10/13/16/20/23) | {T1092}: +10 ; {T1092}: +23 |  |
 | 58 | 5 | — (text only in 0x571710) | — | {T1076} {T1161} {T1182}: +50% ; {T1076} {T1161} {T1182}: +116% | Text only here; all kinds ×(1 + 0.5·D) against kind 9 (M1). |
-| 58 | 6 | flags +0x148 bit(s) | or 0x4000 | {K:UI_SET_FLUCHT} ; {K:UI_SET_FLUCHT} | Bit 0x4000 (reader not found). |
+| 58 | 6 | flags +0x148 bit(s) | or 0x4000 | {K:UI_SET_FLUCHT} ; {K:UI_SET_FLUCHT} | Bit 0x4000: a creature that would flee the wearer is struck down (`0x4E1052`, docs/re/fight.md); the text is not in `global.res` (#2559). |
 | 59 | 2 | skill 14's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9413}: +5 ; {T9413}: +11 |  |
 | 59 | 3 | flags +0x148 bit(s) | or 0x100000 | 15% {K:MAGIEABWEHR} ; 35% {K:MAGIEABWEHR} | Magic defence: effect 858 + 15·D (M17). |
 | 59 | 4 | a4 (+0x18) | +⌊10·D⌋ (10/13/16/20/23) | {T1094}: +10 ; {T1094}: +23 |  |
@@ -372,7 +372,7 @@ The game follows the original and applies none; the lines stay dropped (§6).
 | `0x800` | 52 ≥ 6 | `NOROOT` | not found |
 | `0x1000` | 55 ≥ 8 | `NOSTUNN` | not found |
 | `0x2000` | 40 ≥ 4 | `TIERSCHRECK` | not found |
-| `0x4000` | 58 ≥ 6 | `UI_SET_FLUCHT` | not found |
+| `0x4000` | 58 ≥ 6 | `UI_SET_FLUCHT` | `0x4E1052` (the melee's flight, docs/re/fight.md) |
 | `0x8000` | 59 ≥ 6 | `UI_SET_FLIEGEN` | not found |
 | `0x10000` | 51 ≥ 6 | T1098 | `0x57D153` (the recomputation) |
 | `0x20000` | 43 ≥ 6 | T8220 | `0x57B025` (the Gladiator's effect 40 with 1015), `0x57C48F`, `0x586EC5` |
@@ -381,7 +381,7 @@ The game follows the original and applies none; the lines stay dropped (§6).
 | `0x200000` | 42 ≥ 5, 49 ≥ 4, 50 ≥ 6, 64 ≥ 3 | `UI_RARE_SCHOCK` | `0x56D4D6` (M18) |
 | `0x400000` | 42 ≥ 6 | T8225 | `0x5128D6`, `0x58DE2B` (arts 1022/1023's f = 1 + 0.4·D) |
 | `0x800000` | 43 ≥ 5, 64 ≥ 4 | T1128 | `0x57DC05` (not read) |
-| `0x1000000` | 60 ≥ 4 with `+0x190` = 7 | `UI_SET_ROOTEN` | `0x526367`, `0x4E0713` (not read) |
+| `0x1000000` | 60 ≥ 4 with `+0x190` = 7 | `UI_SET_ROOTEN` | `0x4E0713` (the melee's sub-state 0's cages, docs/re/fight.md), `0x526367` (not read) |
 | `0x2000000` | 61 ≥ 4 | `UI_RARE_EXORZIST` | `0x532D77` (M20) |
 | `0x4000000` | 61 ≥ 4 with `+0x191` = 7 | T778 | `0x53533D` (not read) |
 | `0x8000000` | 62 ≥ 4 with `+0x192` = 7 | `UI_STAT_REDUCE_ENEMY_PHY_RES` | `0x56C825` (the defender's resistance × max(0, 1 − 0.4·f), docs/re/fight.md) |

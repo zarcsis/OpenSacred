@@ -830,11 +830,14 @@ fn pursue(
         ),
         (Without<Body>, Without<crate::making::Knocked>),
     >,
-    (real, experience): (
+    (real, experience, rules, difficulty): (
         Res<Time<bevy::time::Real>>,
         Option<Res<crate::fight::Experience>>,
+        Option<Res<crate::fight::Rules>>,
+        Option<Res<crate::game::Difficulty>>,
     ),
     (clips, scripted): (Query<&crate::npcs::Npc>, Query<&crate::npcs::ScriptClip>),
+    mut hits: MessageWriter<crate::fight::Hit>,
 ) {
     let dt = tick.seconds.unwrap_or_default();
     let Some((
@@ -938,6 +941,9 @@ fn pursue(
     let hero_level = experience
         .as_deref()
         .map_or(1, |experience| experience.level);
+    // The hero of set 58's six pieces, who strikes down a creature that would flee it (#2547).
+    let strikes_fleeing = holding.is_some_and(|holding| holding.0.sets.strikes_fleeing());
+    let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
     for (
         entity,
         mut transform,
@@ -1036,6 +1042,12 @@ fn pursue(
                 && !dungeons
                     .as_deref()
                     .is_some_and(|dungeons| dungeons.holds(here.x, here.z)),
+            // Its level on bronze's scale against the hero's (`0x4E1061`).
+            strikes_down: strikes_fleeing
+                && aimed == the_hero
+                && rules.as_deref().is_some_and(|rules| {
+                    minds::struck_down(hero_level, difficulty, rules.on_bronze(mind.level))
+                }),
         };
         // The hero itself, which a magician casts at in place of its follower (#1869).
         let heros_place = hero;
@@ -1109,6 +1121,23 @@ fn pursue(
             Pursues::GivesUp => {
                 let d = (hero - here).xz().length();
                 debug!("ai: {entity} {:?} at {d:.0}", Why::GivesUp);
+            }
+            Pursues::StruckDown => {
+                // It stops what it does (`0x54E6D0(1, 0)`) and takes the hero's sure strike, the
+                // event 5 that it sends itself from the hero (`0x4E1157`).
+                debug!("ai: {entity} would flee, struck down by the hero's set 58");
+                commands.entity(entity).remove::<(Walk, Strikes)>();
+                hits.write(crate::fight::Hit {
+                    attacker: the_hero,
+                    target: entity,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(minds::STRUCK_DOWN),
+                    sure: true,
+                    poison: false,
+                    ward: false,
+                });
             }
             Pursues::Flees(to) => {
                 debug!("ai: {entity} {:?} the hero", Why::Flees);

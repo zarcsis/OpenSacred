@@ -418,6 +418,108 @@ pub fn holds(
         && way
 }
 
+/// The marks that the creature's maker gives the types (`0x43C540`, kept at `+0x25F`), which the
+/// fight's specials switch on (`0x4D4E50`): each run of types with its mark, by the types; any
+/// other type has none.
+const MARKS: &[(std::ops::RangeInclusive<u32>, u16)] = &[
+    (34..=34, 0x1000),
+    (35..=35, 0x2),
+    (41..=43, 0x800),
+    (44..=44, 0x1),
+    (45..=45, 0x2),
+    (46..=46, 0x10),
+    (47..=47, 0x2),
+    (48..=48, 0x1),
+    (52..=53, 0x4),
+    (55..=55, 0x4),
+    (56..=56, 0x9),
+    (57..=62, 0x2),
+    (63..=63, 0x10),
+    (64..=67, 0x1),
+    (68..=68, 0x2),
+    (70..=70, 0x2),
+    (71..=71, 0x40),
+    (72..=72, 0x800),
+    (73..=75, 0x4),
+    (76..=76, 0x400),
+    (80..=80, 0x1),
+    (81..=81, 0x1000),
+    (88..=88, 0x4),
+    (94..=94, 0x4),
+    (96..=98, 0x2),
+    (100..=103, 0x4),
+    (105..=105, 0x8),
+    (118..=118, 0x400),
+    (125..=126, 0x10),
+    (127..=127, 0x8),
+    (130..=130, 0x10),
+    (133..=133, 0x1FF),
+    (140..=140, 0x208),
+    (141..=141, 0x209),
+    (143..=144, 0x8),
+    (145..=145, 0x20B),
+    (146..=146, 0x20A),
+    (182..=183, 0x8),
+    (184..=184, 0x212),
+    (185..=185, 0x20C),
+    (186..=186, 0x211),
+    (187..=187, 0x218),
+    (190..=190, 0x20F),
+    (191..=191, 0x215),
+    (192..=192, 0x20D),
+    (195..=195, 0x216),
+    (202..=202, 0x21A),
+    (203..=203, 0x219),
+    (204..=204, 0x21C),
+    (205..=208, 0x218),
+    (212..=212, 0x8),
+    (216..=216, 0x8),
+    (218..=219, 0x20E),
+    (247..=247, 0x217),
+    (248..=248, 0x215),
+    (249..=249, 0x212),
+    (250..=252, 0x20C),
+    (253..=255, 0x218),
+    (256..=256, 0xA),
+    (258..=258, 0x8),
+    (262..=270, 0x8),
+    (271..=271, 0x20),
+    (304..=306, 0x10),
+    (311..=312, 0x8),
+    (319..=321, 0x1FF),
+    (326..=326, 0x1FF),
+    (329..=329, 0x20D),
+    (330..=332, 0x218),
+    (333..=333, 0x211),
+    (335..=335, 0x213),
+    (336..=336, 0x214),
+    (342..=343, 0x20D),
+    (344..=344, 0x21A),
+    (348..=348, 0x4),
+    (350..=350, 0x21C),
+    (351..=352, 0x219),
+    (353..=353, 0x216),
+    (354..=354, 0x217),
+    (363..=363, 0x20D),
+    (512..=512, 0x400),
+    (567..=568, 0x400),
+    (569..=569, 0x10),
+    (570..=571, 0x400),
+    (573..=583, 0x400),
+    (693..=693, 0x8),
+    (697..=697, 0x8),
+    (700..=700, 0x8),
+    (701..=701, 0x1FE),
+];
+
+/// The mark of a creature of type `creature` (`0x43C540`), 0 for none.
+pub fn mark(creature: u32) -> u16 {
+    MARKS
+        .iter()
+        .find(|(types, _)| types.contains(&creature))
+        .map_or(0, |&(_, mark)| mark)
+}
+
 /// Whether a creature of type `creature` is of the mark 8 (`0x43C540`), a magician: the wood elf
 /// 02 (105), the goblin mages (127, 143) and the god (144), Anducar (182) and his demon (183), the
 /// terror sprinter mage (212), the dryad druid (216), the black magicians (258, 262 to 270), the
@@ -985,6 +1087,23 @@ fn whole(value: f64) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_marks_are_the_types_that_minds_takes_for_marked() {
+        for creature in 0..1_000 {
+            assert_eq!(
+                super::mark(creature) != 0,
+                crate::minds::marked(creature),
+                "{creature}"
+            );
+        }
+        assert_eq!(super::mark(44), 1);
+        assert_eq!(super::mark(56), 9);
+        assert_eq!(super::mark(271), 0x20);
+        assert_eq!(super::mark(363), 0x20D);
+        assert_eq!(super::mark(701), 0x1FE);
+        assert_eq!(super::mark(1), 0);
+    }
+
     use super::*;
     use crate::fight::{Rank, Rules};
 

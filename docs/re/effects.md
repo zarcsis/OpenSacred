@@ -2316,7 +2316,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` follows it since #1092 (`plant_cages`, `opensacred_rules::particles::PlantCage`): the Wood Elf's cages (`spells`), a creature's at the hero (`creature_casts`) and the terror's ten (`ai`), each vine from its creature's neck to its base, its glow and its light at the base, untinted by the night, every fifth cage of a cast sounding; a creature's cage holds the hero 3 s (`spells::holds`, #2154).
 **Seen** 2026-11-06 beside the original: the Wood Elf's cages about a goblin, green vines from its neck to their glowing bases on the ground, alike in both.
-Not followed: the hold given as the cage has grown (0.667 s on) rather than at once; the set bonus's cages and the killer crab's; the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look.
+Not followed: the hold given as the cage has grown (0.667 s on) rather than at once; the killer crab's cages (the set bonus's since #2547, `attack::engage`); the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look.
 
 ## The flesh to stone
 
