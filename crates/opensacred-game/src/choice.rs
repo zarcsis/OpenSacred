@@ -131,7 +131,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
             ERASE_CONFIRM,
             MINIMUM,
         ])
-        .chain([EXPORT, EXPORT_TITLE, OVERWRITE])
+        .chain([EXPORT, EXPORT_TITLE, OVERWRITE, ERASE_TIP])
         .chain(DIFFICULTIES)
 }
 
@@ -142,6 +142,8 @@ const NEW_HERO: &str = "UI_NET_PLAYER_NEW";
 /// The erase button's question (`0x70EE60`) and the title of the Underworld campaign's level
 /// (`0x70F450`).
 const ERASE_CONFIRM: &str = "UI_CHAR_ERASE_CONFIRM";
+/// The erase button's tooltip (`0x7111AB`, its making's `0x7327A0`).
+const ERASE_TIP: &str = "UI_CHAR_ERASE_TOOLTIP";
 const MINIMUM: &str = "UI_ADDON_MINREQ";
 /// The export's button on Start Game's (`+0x398`), its title (`0x70F450`) and its question on a
 /// taken pedestal (`0x70D71E`).
@@ -197,6 +199,10 @@ const EXPORT_COLOUR: u32 = 0xFFFF_FF80;
 /// the middle of the panel's framed box and 5 over its top.
 const ERASE: u32 = 129;
 const ERASE_AT: Vec2 = Vec2::new(680.0, 578.0);
+/// Half the side of its image, 16 by 16, from its corner to its middle, and how far over its top
+/// its tooltip's middle stands.
+const ERASE_HALF: f32 = 8.0;
+const TIP_ABOVE: f32 = 20.0;
 /// The difficulties' texts, bronze's first (`0x710190`).
 const DIFFICULTIES: [&str; 5] = [
     "UI_DIFFICULTY_BRONZE",
@@ -1216,6 +1222,51 @@ fn erase_button(picture: &mut ChildSpawnerCommands, (images, assets): (&UiImages
                 commands.run_system_cached(ask_erase);
             }
         });
+}
+
+/// The erase button's tooltip (#2556): `UI_CHAR_ERASE_TOOLTIP` once the cursor has rested on the
+/// shown button for the controls' rest (`tooltip::TIP_AFTER`, `0x7327B0`), centred 20 over the
+/// middle of its top as the bar's controls' are (**hypothesis**, docs/re/interface.md), gone as
+/// the cursor leaves it; the cursor's place is tested, as the tooltip over the button
+/// would take the button's hover.
+fn erase_tip(
+    mut commands: Commands,
+    (time, choice): (Res<Time<Real>>, Res<Choice>),
+    (pointer, ui_scale, windows): (
+        Res<crate::hud::Pointer>,
+        Res<UiScale>,
+        Query<&bevy::window::Window>,
+    ),
+    (assets, words): (Res<AssetServer>, Res<Words>),
+    tips: Query<Entity, With<crate::tooltip::TipRoot>>,
+    mut rest: Local<crate::tooltip::Rest>,
+) {
+    let button = Rect::from_corners(ERASE_AT, ERASE_AT + Vec2::splat(2.0 * ERASE_HALF));
+    let on = chosen_export(&choice).is_some()
+        && crate::inventory::screen_point(&pointer, &ui_scale, &windows)
+            .is_some_and(|at| button.contains(at));
+    let (gone, due) = rest.step(on.then_some(0), time.elapsed_secs());
+    if gone {
+        for tip in &tips {
+            commands.entity(tip).despawn();
+        }
+    }
+    if due.is_some() {
+        let text = words.get(ERASE_TIP).unwrap_or("Delete");
+        crate::tooltip::spawn_tip(
+            &mut commands,
+            &assets,
+            text,
+            ERASE_AT + Vec2::new(ERASE_HALF, -TIP_ABOVE),
+        );
+    }
+}
+
+/// The tooltips of a choice's screen gone with it.
+fn drop_tips(mut commands: Commands, tips: Query<Entity, With<crate::tooltip::TipRoot>>) {
+    for tip in &tips {
+        commands.entity(tip).despawn();
+    }
 }
 
 /// A title across the screen ([`MINIMUM_TITLE`], `0x70F450`) of `text` in `colour`.
@@ -2859,6 +2910,9 @@ impl Plugin for ChoicePlugin {
             OnEnter(Screen::Import),
             (read_figures, saved_screen).chain(),
         )
+        .add_systems(Update, erase_tip.run_if(choosing_saved))
+        .add_systems(OnExit(Screen::Underworld), drop_tips)
+        .add_systems(OnExit(Screen::Import), drop_tips)
         .add_systems(
             OnEnter(Exporting::Shown),
             (read_figures, saved_screen).chain(),

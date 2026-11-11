@@ -122,4 +122,4 @@ Not the file's (**confirmed**): the difficulty, the bar's; the place and the hom
   The Ancaria campaign's Import, enabled where a hero stands on a pedestal, the installation's or an exported one, opens the same choice of a saved hero, its water without a reflection as the Underworld campaign's, any level chosen, its button back to the classes (`UI_NET_PLAYER_NEW`), and Back and Esc going back to the classes; its Start Game starts the Ancaria campaign's game in the class's own tree.
   The Underworld campaign's choice titles `UI_ADDON_MINREQ` while the cursor is on a saved hero below level 25.
   The erase button shows while an exported hero is chosen, none for the installation's two; its click asks `UI_CHAR_ERASE_CONFIRM` in the busy dialog, and OK erases the hero's file and makes the screen anew (docs/decisions/interface.md, "The choice cleared after a deletion").
-  Its tooltip is not shown (#2556).
+  Since #2556 its tooltip shows, `UI_CHAR_ERASE_TOOLTIP` once the cursor has rested on it a third of a second, centred 20 over the middle of its top as the bar's controls' (**hypothesis**; `choice::erase_tip`), and the menus' tooltips are centred as the game's.
