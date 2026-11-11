@@ -12,7 +12,8 @@
 //! (781 at their vertices, [`Ends`]), the dummy with no effect, unless their flag, a death's
 //! function or a dialogue holds them. The undead of the class 5 and the bodies that burst end
 //! their own ways (`undead`). With the violence on, a body that bleeds lays a blood puddle under
-//! it at its first tick of lying (907, `marks::puddle`, #2516).
+//! it at its first tick of lying (907, `marks::puddle`, #2516); a big demon's makes its death
+//! there instead, the violence on or off (919, `demon_deaths`, #2537).
 
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, BodyEnd};
@@ -37,6 +38,8 @@ struct Lies {
     body: Lying,
     spider: bool,
     puddle: bool,
+    /// Whether it makes a big demon's death then (#2537).
+    demon: bool,
 }
 
 /// A body to lay its blood puddle under ([`puddle`]).
@@ -123,6 +126,7 @@ fn lie(
                 body,
                 spider: corpse.creature == undead::MEDIUM_SPIDER,
                 puddle: violence && !dies.fallen && !rises && undead::puddles(corpse.creature, set),
+                demon: !dies.fallen && undead::BIG_DEMONS.contains(&corpse.creature),
             },
             Destroyed(undead::destroyed_after(detail)),
         ));
@@ -197,6 +201,11 @@ fn vanish(
         if lies.puddle {
             lies.puddle = false;
             commands.entity(entity).insert(Puddles);
+        }
+        // A big demon's death in its puddle's place, with the violence on or off (`0x53FC5C`).
+        if lies.demon {
+            lies.demon = false;
+            crate::demon_deaths::spawn(&mut commands, at.translation());
         }
         // A medium spider's goes at its first tick of lying, as it is (`0x54045E`).
         if lies.spider {
@@ -535,6 +544,11 @@ mod tests {
             assert_eq!(app.world().get::<Puddles>(goblin).is_some(), violence);
             assert_eq!(app.world().get::<Puddles>(crow).is_some(), violence);
             assert!(app.world().get::<Puddles>(demon).is_none());
+            // A big demon's death in its place, the violence on or off.
+            let mut deaths = app
+                .world_mut()
+                .query_filtered::<&Transform, With<crate::demon_deaths::Unmade>>();
+            assert_eq!(deaths.iter(app.world()).count(), 1);
             assert!(app.world().get::<Puddles>(rises).is_none());
         }
     }

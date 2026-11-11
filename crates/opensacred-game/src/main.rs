@@ -66,6 +66,7 @@ mod dark_helices;
 mod dark_wards;
 mod daynight;
 mod debug;
+mod demon_deaths;
 mod demon_fires;
 mod demon_forms;
 mod doom_signs;
@@ -547,6 +548,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         dark_helices::DarkHelicesPlugin,
         dark_wards::DarkWardsPlugin,
         daynight::DayNightPlugin,
+        demon_deaths::DemonDeathsPlugin,
         demon_fires::DemonFiresPlugin,
         demon_forms::DemonFormsPlugin,
         doom_signs::DoomSignsPlugin,
