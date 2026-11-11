@@ -29,6 +29,7 @@ use bevy::asset::embedded_asset;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
+use bevy::ecs::system::EntityCommands;
 use bevy::image::{ImageLoaderSettings, ImageSampler};
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
@@ -50,6 +51,7 @@ use crate::bar::{self, UiImages};
 use crate::game::{AppState, Class, Data, FONT, Request};
 use crate::menu::{self, MENU_FONT, Screen, Words};
 use crate::menu_sound::Introductions;
+use crate::pause::Exporting;
 use crate::ripples::{self, Pond, Ripples};
 use crate::sfx::{self, Sfx};
 use crate::{files, hud, model_effects, motions, npcs};
@@ -129,6 +131,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
             ERASE_CONFIRM,
             MINIMUM,
         ])
+        .chain([EXPORT, EXPORT_TITLE, OVERWRITE])
         .chain(DIFFICULTIES)
 }
 
@@ -140,6 +143,11 @@ const NEW_HERO: &str = "UI_NET_PLAYER_NEW";
 /// (`0x70F450`).
 const ERASE_CONFIRM: &str = "UI_CHAR_ERASE_CONFIRM";
 const MINIMUM: &str = "UI_ADDON_MINREQ";
+/// The export's button on Start Game's (`+0x398`), its title (`0x70F450`) and its question on a
+/// taken pedestal (`0x70D71E`).
+const EXPORT: &str = "UI_EXPORT";
+const EXPORT_TITLE: &str = "UI_CHAR_EXPORT_LOKAL";
+const OVERWRITE: &str = "UI_MSG_OVERWRITE_CHAR";
 const START: &str = "1029";
 const BACK: &str = "UI_NET_BACK";
 /// The word of a free pedestal of the Underworld campaign (the saves' `<empty>`, the same text).
@@ -183,6 +191,8 @@ const UNDERWORLD_LEVEL: u32 = 25;
 const MINIMUM_TITLE: Rect = Rect::from_corners(Vec2::new(0.0, 92.0), Vec2::new(1024.0, 108.0));
 const MINIMUM_SIZE: f32 = 24.0;
 const MINIMUM_COLOUR: u32 = 0xFFFF_0000;
+/// The export's title, in the same place, pale yellow (`0x70F450`: `-0x80`).
+const EXPORT_COLOUR: u32 = 0xFFFF_FF80;
 /// The erase button (`+0x3B4`, `0x710270`): the interface's image 129, a red cross, 168 right of
 /// the middle of the panel's framed box and 5 over its top.
 const ERASE: u32 = 129;
@@ -215,7 +225,40 @@ struct Choice {
     /// Whether the choice is the Ancaria campaign's import, which takes a saved hero of any
     /// level into the Ancaria campaign (#2552), not the Underworld campaign's.
     importing: bool,
+    /// Whether the choice is the export's over a game, which takes any pedestal (#2554).
+    exporting: bool,
+    /// What the screen goes with, once one is made.
+    scope: Option<Scope>,
 }
+
+/// What a choice's screen goes with: a menu's screen, or the export over a game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scope {
+    Menu(Screen),
+    Export,
+}
+
+impl Scope {
+    /// `entity` gone as the screen goes.
+    fn bind(self, entity: &mut EntityCommands) {
+        match self {
+            Self::Menu(screen) => entity.insert(DespawnOnExit(screen)),
+            Self::Export => entity.insert(DespawnOnExit(Exporting::Shown)),
+        };
+    }
+
+    /// The layer of the screen's root, over the game's interface for the export and none in the
+    /// menus, and its veil's, over it.
+    fn layers(self) -> (Option<i32>, i32) {
+        match self {
+            Self::Menu(_) => (None, VEIL_LAYER),
+            Self::Export => (Some(EXPORT_LAYER), EXPORT_LAYER + 1),
+        }
+    }
+}
+
+/// The export's layer over a game: the saves' and the options' windows'.
+const EXPORT_LAYER: i32 = 15;
 
 impl Choice {
     /// What stands on `pedestal`, none on a free one.
@@ -638,12 +681,18 @@ fn step(chosen: Option<usize>, step: isize) -> usize {
 /// Chooses the figure on `pedestal`, lit: a class's, its name the class's own; a saved hero of
 /// the Underworld's level, or of any level for the import, its name its own and the difficulties
 /// offered by those it won (`0x70CA30`). A free pedestal, or a hero below that level in the
-/// Underworld campaign's choice, is not chosen.
+/// Underworld campaign's choice, is not chosen; the export takes any pedestal.
 fn choose(choice: &mut Choice, words: &Words, pedestal: usize) {
     let Some(stand) = choice.stand(pedestal).cloned() else {
+        // The export takes a free pedestal too (seen).
+        if choice.exporting {
+            choice.chosen = Some(pedestal);
+        }
         return;
     };
     match stand.saved {
+        // The export's panel shows nothing of the hero.
+        Some(_) if choice.exporting => {}
         None => {
             let class = stand.class;
             choice.name = words.get(texts(class).0).unwrap_or(class.name()).to_owned();
@@ -892,12 +941,12 @@ fn camera() -> (Transform, PerspectiveProjection) {
     )
 }
 
-/// The figures' stage of a choice's screen `screen`, `height` pixels high: their camera, its
+/// The figures' stage of a choice's screen of `scope`, `height` pixels high: their camera, its
 /// texture of its frustum's shape, their light and the figures of `looks`; answers the layer that
 /// lays the texture on the interface.
 fn stage(
     commands: &mut Commands,
-    (screen, looks, height): (Screen, &[Look], f32),
+    (scope, looks, height): (Scope, &[Look], f32),
     (targets, layers, assets): (&mut Assets<Image>, &mut Assets<Layer>, &AssetServer),
 ) -> Handle<Layer> {
     let (eye, projection) = camera();
@@ -910,8 +959,10 @@ fn stage(
         TextureFormat::Rgba8UnormSrgb,
         None,
     ));
-    commands.spawn((
-        DespawnOnExit(screen),
+    scope.bind(&mut commands.spawn((
+        // Its own picture's, which the world's camera's following and zoom leave alone over a
+        // game (the export, #2554).
+        crate::iso::Apart,
         Camera3d::default(),
         Camera {
             order: -1,
@@ -929,9 +980,8 @@ fn stage(
             affects_lightmapped_meshes: true,
         },
         RenderLayers::layer(FIGURES),
-    ));
-    commands.spawn((
-        DespawnOnExit(screen),
+    )));
+    scope.bind(&mut commands.spawn((
         DirectionalLight {
             illuminance: LIGHT,
             shadow_maps_enabled: false,
@@ -939,13 +989,12 @@ fn stage(
         },
         Transform::from_xyz(-1.0, 1.2, 1.5).looking_at(Vec3::ZERO, Vec3::Y),
         RenderLayers::layer(FIGURES),
-    ));
+    )));
     for look in looks {
         let Some(model) = &look.model else {
             continue;
         };
-        commands.spawn((
-            DespawnOnExit(screen),
+        scope.bind(&mut commands.spawn((
             Figure {
                 pedestal: look.pedestal,
                 gltf: Some(assets.load(model.clone())),
@@ -960,7 +1009,7 @@ fn stage(
             // so that the world's camera never draws one over the screen while it is hidden
             // ([`unveil`], #2490).
             bevy::app::Propagate(RenderLayers::layer(FIGURES)),
-        ));
+        )));
     }
     layers.add(Layer { figures: target })
 }
@@ -983,7 +1032,10 @@ fn screen(
     mut choice: ResMut<Choice>,
     mut ripples: Ripples,
 ) {
-    *choice = Choice::default();
+    *choice = Choice {
+        scope: Some(Scope::Menu(Screen::Heroes)),
+        ..default()
+    };
     choice.stands = ORDER.map(|class| Some(Stand { class, saved: None }));
     let named = request.0.difficulty;
     choice.difficulty = named.unwrap_or_default();
@@ -1001,13 +1053,13 @@ fn screen(
         .map_or(&[][..], |lineup| lineup.classes.as_slice());
     let layer = stage(
         &mut commands,
-        (Screen::Heroes, looks, height),
+        (Scope::Menu(Screen::Heroes), looks, height),
         (&mut targets, &mut layers, &assets),
     );
     let font: Handle<Font> = assets.load(FONT);
     picture(
         &mut commands,
-        (Screen::Heroes, &images, &assets),
+        (Scope::Menu(Screen::Heroes), &images, &assets),
         water,
         |picture| {
             picture.spawn((
@@ -1045,8 +1097,10 @@ fn importable(figures: &Figures) -> bool {
 /// free; the panel's name, the difficulty once a hero is chosen, the erase button while a hero
 /// the player exported is chosen, Back and Start Game, greyed until a hero is chosen. The
 /// Underworld campaign's has no Import (`0x70D25C`) and titles the level a hero needs while the
-/// cursor is on one below it (`0x70F450`); the import has the Ancaria campaign's water, its
-/// reflection, and in Import's place the button back to the classes.
+/// cursor is on one below it (`0x70F450`); the import has in Import's place the button back to
+/// the classes. The export over a game (the mode 5, #2554) titles itself local and has Back and
+/// Export alone, greyed until a pedestal is chosen, any pedestal. No water of theirs has a
+/// reflection, which is the classes' alone (`0x70E8A0`: the modes 0 to 2).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources one by one"
@@ -1054,7 +1108,8 @@ fn importable(figures: &Figures) -> bool {
 fn saved_screen(
     mut commands: Commands,
     (images, ui_images): (Res<Images>, Res<UiImages>),
-    (words, screen): (Res<Words>, Res<State<Screen>>),
+    (words, screen): (Res<Words>, Option<Res<State<Screen>>>),
+    exporting: Option<Res<State<Exporting>>>,
     figures: Res<Figures>,
     assets: Res<AssetServer>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
@@ -1062,10 +1117,22 @@ fn saved_screen(
     mut choice: ResMut<Choice>,
     mut ripples: Ripples,
 ) {
-    let at = *screen.get();
-    let importing = at == Screen::Import;
+    let scope = if exporting.is_some_and(|exporting| *exporting.get() == Exporting::Shown) {
+        Scope::Export
+    } else if let Some(screen) = screen {
+        Scope::Menu(*screen.get())
+    } else {
+        return;
+    };
+    let kind = match scope {
+        Scope::Export => Kind::Export,
+        Scope::Menu(Screen::Import) => Kind::Import,
+        Scope::Menu(_) => Kind::Underworld,
+    };
     *choice = Choice {
-        importing,
+        importing: kind == Kind::Import,
+        exporting: kind == Kind::Export,
+        scope: Some(scope),
         ..default()
     };
     let (looks, windows) = figures.0.as_ref().map_or((&[][..], &[][..]), |lineup| {
@@ -1077,21 +1144,30 @@ fn saved_screen(
         }
     }
     let height = menu::picture_height(window.map(|window| window.height()));
-    let water = ripples.spawn(
-        &mut commands,
-        (&mut targets, &assets),
-        (at, &pond(&images, importing)),
-        height,
-    );
+    let pond = pond(&images, false);
+    let water = match scope {
+        Scope::Menu(screen) => ripples.spawn(
+            &mut commands,
+            (&mut targets, &assets),
+            (screen, &pond),
+            height,
+        ),
+        Scope::Export => ripples.spawn(
+            &mut commands,
+            (&mut targets, &assets),
+            (Exporting::Shown, &pond),
+            height,
+        ),
+    };
     let layer = stage(
         &mut commands,
-        (at, looks, height),
+        (scope, looks, height),
         (&mut targets, &mut layers, &assets),
     );
     let font: Handle<Font> = assets.load(FONT);
     let label_font: Handle<Font> = assets.load(MENU_FONT);
     let atlases = Atlases::load(&images, &assets);
-    picture(&mut commands, (at, &images, &assets), water, |picture| {
+    picture(&mut commands, (scope, &images, &assets), water, |picture| {
         picture.spawn((
             MaterialNode(layer),
             place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
@@ -1107,15 +1183,24 @@ fn saved_screen(
                 None => free_label(picture, pedestal, at, (&words, &font)),
             }
         }
-        let kind = if importing {
-            Kind::Import
-        } else {
-            Kind::Underworld
-        };
         panel(picture, &atlases, &words, &font, kind);
-        erase_button(picture, (&ui_images, &assets));
-        if !importing {
-            minimum_title(picture, &words, &font);
+        match kind {
+            Kind::Underworld => {
+                erase_button(picture, (&ui_images, &assets));
+                let fallback = format!("A hero of level {UNDERWORLD_LEVEL} or more");
+                let text = words.get(MINIMUM).unwrap_or(&fallback);
+                let minimum = title(picture, (text, &font), MINIMUM_COLOUR);
+                picture
+                    .commands()
+                    .entity(minimum)
+                    .insert((Part::Minimum, Visibility::Hidden));
+            }
+            Kind::Import => erase_button(picture, (&ui_images, &assets)),
+            Kind::Export => {
+                let text = words.get(EXPORT_TITLE).unwrap_or("Export (local)");
+                title(picture, (text, &font), EXPORT_COLOUR);
+            }
+            Kind::Classes { .. } => {}
         }
     });
 }
@@ -1133,74 +1218,147 @@ fn erase_button(picture: &mut ChildSpawnerCommands, (images, assets): (&UiImages
         });
 }
 
-/// The title of the level the Underworld campaign takes ([`MINIMUM_TITLE`]), shown by [`show`].
-fn minimum_title(picture: &mut ChildSpawnerCommands, words: &Words, font: &Handle<Font>) {
-    let fallback = format!("A hero of level {UNDERWORLD_LEVEL} or more");
-    picture.spawn((
-        Part::Minimum,
-        Pickable::IGNORE,
-        Visibility::Hidden,
-        place(MINIMUM_TITLE),
-        Text::new(words.get(MINIMUM).unwrap_or(&fallback)),
-        TextFont {
-            font: font.clone().into(),
-            font_size: FontSize::Px(MINIMUM_SIZE),
-            ..default()
-        },
-        TextLayout::justify(Justify::Center),
-        TextColor(crate::tooltip::argb(MINIMUM_COLOUR)),
-    ));
+/// A title across the screen ([`MINIMUM_TITLE`], `0x70F450`) of `text` in `colour`.
+fn title(
+    picture: &mut ChildSpawnerCommands,
+    (text, font): (&str, &Handle<Font>),
+    colour: u32,
+) -> Entity {
+    picture
+        .spawn((
+            Pickable::IGNORE,
+            place(MINIMUM_TITLE),
+            Text::new(text),
+            TextFont {
+                font: font.clone().into(),
+                font_size: FontSize::Px(MINIMUM_SIZE),
+                ..default()
+            },
+            TextLayout::justify(Justify::Center),
+            TextColor(crate::tooltip::argb(colour)),
+        ))
+        .id()
 }
 
-/// The erase button's question, and its answer: the slot of the exported hero to erase, none
-/// for Cancel.
+/// A question of the choice's in the busy dialog, OK and Cancel, and its answers: erase the
+/// exported hero of a slot, export the hero over the slot's, or nothing.
 #[derive(Component)]
-struct Erasing;
-#[derive(Component, Clone, Copy)]
-struct Erase(Option<u8>);
+struct Question;
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+enum Answer {
+    Erase(u8),
+    Overwrite(u8),
+    Cancel,
+}
+
+/// Asks `line` in the busy dialog over the screen of `scope`, OK answering `yes`.
+fn ask(
+    commands: &mut Commands,
+    (images, assets, texts): (&Images, &AssetServer, Option<&crate::lines::Texts>),
+    scope: Scope,
+    (line, yes): ((&str, &str), Answer),
+) {
+    let buttons = [
+        (yes, crate::busy_dialog::OK_BESIDE, crate::busy_dialog::OK),
+        (
+            Answer::Cancel,
+            crate::busy_dialog::CANCEL,
+            ("1025", "Cancel"),
+        ),
+    ];
+    let spawned = match scope {
+        Scope::Menu(screen) => crate::busy_dialog::spawn(
+            commands,
+            (images, assets, texts),
+            ((Question, DespawnOnExit(screen)), line),
+            &buttons,
+        ),
+        Scope::Export => crate::busy_dialog::spawn(
+            commands,
+            (images, assets, texts),
+            ((Question, DespawnOnExit(Exporting::Shown)), line),
+            &buttons,
+        ),
+    };
+    for (button, answer) in spawned {
+        commands
+            .entity(button)
+            .observe(move |click: On<PointerClick>, mut commands: Commands| {
+                if click.button == PointerButton::Primary {
+                    commands.run_system_cached_with(answered, answer);
+                }
+            });
+    }
+}
 
 /// Asks whether to erase the chosen hero, one the player exported (`0x70EE60`:
 /// `UI_CHAR_ERASE_CONFIRM` in the busy dialog, OK and Cancel).
 fn ask_erase(
     mut commands: Commands,
-    (choice, screen): (Res<Choice>, Res<State<Screen>>),
+    choice: Res<Choice>,
     (images, assets, texts): (
         Res<Images>,
         Res<AssetServer>,
         Option<Res<crate::lines::Texts>>,
     ),
-    questions: Query<(), With<Erasing>>,
+    questions: Query<(), With<Question>>,
 ) {
-    let Some(slot) = chosen_export(&choice) else {
+    let (Some(slot), Some(scope)) = (chosen_export(&choice), choice.scope) else {
         return;
     };
     if !questions.is_empty() {
         return;
     }
-    let buttons = crate::busy_dialog::spawn(
+    ask(
         &mut commands,
         (&images, &assets, texts.as_deref()),
-        (
-            (Erasing, DespawnOnExit(*screen.get())),
-            (ERASE_CONFIRM, "Delete the hero?"),
-        ),
-        &[
-            (
-                Erase(Some(slot)),
-                crate::busy_dialog::OK_BESIDE,
-                crate::busy_dialog::OK,
-            ),
-            (Erase(None), crate::busy_dialog::CANCEL, ("1025", "Cancel")),
-        ],
+        scope,
+        ((ERASE_CONFIRM, "Delete the hero?"), Answer::Erase(slot)),
     );
-    for (button, answer) in buttons {
-        commands
-            .entity(button)
-            .observe(move |click: On<PointerClick>, mut commands: Commands| {
-                if click.button == PointerButton::Primary {
-                    commands.run_system_cached_with(erased, answer);
-                }
-            });
+}
+
+/// Export: the hero written to the chosen pedestal's slot (`0x70EC50`), where a hero stands there
+/// after `UI_MSG_OVERWRITE_CHAR` (the action 9, `0x70D71E`).
+fn export_chosen(
+    mut commands: Commands,
+    choice: Res<Choice>,
+    (images, assets, texts): (
+        Res<Images>,
+        Res<AssetServer>,
+        Option<Res<crate::lines::Texts>>,
+    ),
+    questions: Query<(), With<Question>>,
+) {
+    let Some(pedestal) = choice.chosen.filter(|_| choice.exporting) else {
+        return;
+    };
+    let Ok(slot) = u8::try_from(pedestal) else {
+        return;
+    };
+    if !questions.is_empty() {
+        return;
+    }
+    if choice.stand(pedestal).is_some() {
+        ask(
+            &mut commands,
+            (&images, &assets, texts.as_deref()),
+            Scope::Export,
+            ((OVERWRITE, "Overwrite the hero?"), Answer::Overwrite(slot)),
+        );
+    } else {
+        commands.queue(move |world: &mut World| write_export(world, slot));
+    }
+}
+
+/// Writes the game's hero to the slot `slot` (the action 6, `0x70E502`) and shows the export
+/// again, the new hero on its pedestal.
+fn write_export(world: &mut World, slot: u8) {
+    match crate::exports::export(world, slot) {
+        Ok(path) => info!("choice: the hero exported to {}", path.display()),
+        Err(e) => warn!("choice: exporting the hero: {e:#}"),
+    }
+    if let Some(mut next) = world.get_resource_mut::<NextState<Exporting>>() {
+        next.set(Exporting::Shown);
     }
 }
 
@@ -1213,29 +1371,40 @@ fn chosen_export(choice: &Choice) -> Option<u8> {
         .and_then(|saved| saved.exported)
 }
 
-/// The question answered: OK erases the hero's file (`0x720FDC`, `0x7F0CB0`) and fills the
-/// pedestals again, the screen made anew; either answer closes the question.
-fn erased(
-    In(Erase(slot)): In<Erase>,
+/// A question answered: the erase's OK erases the hero's file (`0x720FDC`, `0x7F0CB0`) and
+/// fills the pedestals again, the screen made anew; the overwrite's exports the hero over the
+/// slot's (`0x70EE60`'s answer 2); either answer closes the question.
+fn answered(
+    In(answer): In<Answer>,
     mut commands: Commands,
-    questions: Query<Entity, With<Erasing>>,
-    settings: Option<Res<crate::settings::SettingsFile>>,
-    (screen, mut next): (Res<State<Screen>>, ResMut<NextState<Screen>>),
+    questions: Query<Entity, With<Question>>,
+    (choice, settings): (Res<Choice>, Option<Res<crate::settings::SettingsFile>>),
+    screen: Option<ResMut<NextState<Screen>>>,
+    export: Option<ResMut<NextState<Exporting>>>,
 ) {
     for question in &questions {
         commands.entity(question).despawn();
     }
-    let Some(slot) = slot else {
-        return;
-    };
-    let Some(dir) = crate::exports::directory_of(settings.as_deref()) else {
-        return;
-    };
-    match crate::exports::erase(&dir, slot) {
-        Ok(()) => info!("choice: the exported hero of the slot {slot} erased"),
-        Err(e) => warn!("choice: {e:#}"),
+    match answer {
+        Answer::Cancel => {}
+        Answer::Overwrite(slot) => {
+            commands.queue(move |world: &mut World| write_export(world, slot));
+        }
+        Answer::Erase(slot) => {
+            let Some(dir) = crate::exports::directory_of(settings.as_deref()) else {
+                return;
+            };
+            match crate::exports::erase(&dir, slot) {
+                Ok(()) => info!("choice: the exported hero of the slot {slot} erased"),
+                Err(e) => warn!("choice: {e:#}"),
+            }
+            match (choice.scope, screen, export) {
+                (Some(Scope::Menu(at)), Some(mut screen), _) => screen.set(at),
+                (Some(Scope::Export), _, Some(mut export)) => export.set(Exporting::Shown),
+                _ => {}
+            }
+        }
     }
-    next.set(*screen.get());
 }
 
 /// A free pedestal's label, centred on `at`: `UI_SAVE_EMPTY`'s word, white, yellow while the
@@ -1253,8 +1422,10 @@ fn free_label(
             align_items: AlignItems::Center,
             ..place(about(at, PEDESTAL_LABEL))
         },
+        // The word passes a click to its pedestal's window under it, as the original's (seen).
         children![(
             Label::Free(pedestal),
+            Pickable::IGNORE,
             Text::new(words.get(EMPTY).unwrap_or("<empty>")),
             TextFont {
                 font: font.clone().into(),
@@ -1413,14 +1584,14 @@ fn pond(images: &Images, reflected: bool) -> Pond<'_> {
 /// window, which `content` fills.
 fn picture(
     commands: &mut Commands,
-    (screen, images, assets): (Screen, &Images, &AssetServer),
+    (scope, images, assets): (Scope, &Images, &AssetServer),
     water: Handle<Image>,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
+    let (layer, veil) = scope.layers();
     // Black over it until all of it has loaded ([`unveil`], #2490): under the veil its pictures,
     // its figures' layer and their materials are made as when shown, so that it shows whole.
-    commands.spawn((
-        DespawnOnExit(screen),
+    scope.bind(&mut commands.spawn((
         Veil,
         Node {
             position_type: PositionType::Absolute,
@@ -1429,34 +1600,36 @@ fn picture(
             ..default()
         },
         BackgroundColor(Color::BLACK),
-        GlobalZIndex(VEIL_LAYER),
+        GlobalZIndex(veil),
+    )));
+    let mut root = commands.spawn((
+        Veiled::default(),
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
     ));
-    commands
-        .spawn((
-            DespawnOnExit(screen),
-            Veiled::default(),
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-        ))
-        .with_children(|root| {
-            root.spawn(Node {
-                width: Val::Px(menu::SCREEN.x),
-                height: Val::Px(menu::SCREEN.y),
-                flex_shrink: 0.0,
-                ..default()
-            })
-            .with_children(|picture| {
-                menu::water(picture, water);
-                menu::tiles(picture, &images.tiles, assets);
-                content(picture);
-            });
+    scope.bind(&mut root);
+    if let Some(layer) = layer {
+        root.insert(GlobalZIndex(layer));
+    }
+    root.with_children(|root| {
+        root.spawn(Node {
+            width: Val::Px(menu::SCREEN.x),
+            height: Val::Px(menu::SCREEN.y),
+            flex_shrink: 0.0,
+            ..default()
+        })
+        .with_children(|picture| {
+            menu::water(picture, water);
+            menu::tiles(picture, &images.tiles, assets);
+            content(picture);
         });
+    });
 }
 
 /// The node of the picture's rectangle `rect`.
@@ -1666,12 +1839,14 @@ fn name(parent: &mut ChildSpawnerCommands, atlases: &Atlases, font: &Handle<Font
 }
 
 /// Which choice a panel is under: the Ancaria campaign's classes, whose Import is enabled where
-/// `importable`, the Underworld campaign's saved heroes, or the Ancaria campaign's import of one.
+/// `importable`, the Underworld campaign's saved heroes, the Ancaria campaign's import of one, or
+/// the export over a game.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Classes { importable: bool },
     Underworld,
     Import,
+    Export,
 }
 
 /// The panel under the figures, of the choice `kind`.
@@ -1862,6 +2037,10 @@ fn controls(
     (words, font): (&Words, &Handle<Font>),
     kind: Kind,
 ) {
+    if kind == Kind::Export {
+        export_controls(picture, atlases, (words, font));
+        return;
+    }
     let ancaria = matches!(kind, Kind::Classes { .. });
     if !ancaria {
         name(picture, atlases, font, false);
@@ -1926,7 +2105,7 @@ fn controls(
             false,
             (|commands: &mut Commands| commands.run_system_cached(classes)) as fn(&mut Commands),
         )),
-        Kind::Underworld => None,
+        Kind::Underworld | Kind::Export => None,
     };
     if let Some((word, greyed, act)) = import {
         picture
@@ -1966,13 +2145,107 @@ fn controls(
     picture.commands().entity(start).insert(Part::Start);
 }
 
-/// Back to the main menu, from the import back to the classes (seen).
-fn back(state: Res<State<Screen>>, mut screen: ResMut<NextState<Screen>>) {
-    screen.set(if *state.get() == Screen::Import {
-        Screen::Heroes
-    } else {
-        Screen::Main
-    });
+/// The export's panel (the mode 5, seen): Back, and Export on Start Game's button, greyed until
+/// a pedestal is chosen ([`show`]).
+fn export_controls(
+    picture: &mut ChildSpawnerCommands,
+    atlases: &Atlases,
+    (words, font): (&Words, &Handle<Font>),
+) {
+    button(
+        picture,
+        atlases,
+        (words.get(BACK).unwrap_or("Back"), font, false),
+        BACK_BUTTON,
+        |commands| commands.run_system_cached(back),
+    );
+    let export = button(
+        picture,
+        atlases,
+        (words.get(EXPORT).unwrap_or("Export"), font, true),
+        START_BUTTON,
+        |commands| commands.run_system_cached(export_chosen),
+    );
+    picture.commands().entity(export).insert(Part::Start);
+}
+
+/// Back to the main menu, from the import back to the classes (seen), from the export back to
+/// the menu over the game (seen).
+fn back(
+    mut commands: Commands,
+    choice: Res<Choice>,
+    screen: Option<ResMut<NextState<Screen>>>,
+    export: Option<ResMut<NextState<Exporting>>>,
+) {
+    match (choice.scope, screen, export) {
+        (Some(Scope::Menu(Screen::Import)), Some(mut screen), _) => screen.set(Screen::Heroes),
+        (Some(Scope::Menu(_)), Some(mut screen), _) => screen.set(Screen::Main),
+        (Some(Scope::Export), _, Some(mut export)) => leave_export(&mut commands, &mut export),
+        _ => {}
+    }
+}
+
+/// The export left for the menu over the game, the game still paused.
+fn leave_export(commands: &mut Commands, export: &mut NextState<Exporting>) {
+    export.set(Exporting::Hidden);
+    commands.run_system_cached(crate::esc_menu::reopen);
+}
+
+/// Esc in the export closes its question as Cancel does, else goes back to the menu over the
+/// game, before the pause takes the key.
+fn export_keys(
+    mut commands: Commands,
+    mut keys: crate::controls::KeysMut,
+    questions: Query<Entity, With<Question>>,
+    mut export: ResMut<NextState<Exporting>>,
+) {
+    if !keys.take(crate::controls::Action::Back) {
+        return;
+    }
+    if questions.is_empty() {
+        leave_export(&mut commands, &mut export);
+    }
+    for question in &questions {
+        commands.entity(question).despawn();
+    }
+}
+
+/// While the game's time stands under the export, the figures idle by the real time, as the
+/// original's screen draws them over its paused game (seen): their clips sought on by its
+/// steps.
+fn idle_paused(
+    (real, game): (Res<Time<Real>>, Res<Time<Virtual>>),
+    (clips, graphs): (Res<Assets<AnimationClip>>, Res<Assets<AnimationGraph>>),
+    figures: Query<Entity, With<Figure>>,
+    children: Query<&Children>,
+    mut players: Query<(&mut AnimationPlayer, &AnimationGraphHandle)>,
+) {
+    if !game.is_paused() {
+        return;
+    }
+    let delta = real.delta_secs();
+    for figure in &figures {
+        for entity in children.iter_descendants(figure) {
+            let Ok((mut player, graph)) = players.get_mut(entity) else {
+                continue;
+            };
+            let Some(graph) = graphs.get(graph) else {
+                continue;
+            };
+            for (&node, active) in player.playing_animations_mut() {
+                let duration = match graph.get(node).map(|node| &node.node_type) {
+                    Some(bevy::animation::graph::AnimationNodeType::Clip(clip)) => {
+                        clips.get(clip).map_or(0.0, AnimationClip::duration)
+                    }
+                    _ => 0.0,
+                };
+                if duration > 0.0 {
+                    let time = (active.seek_time() + delta * active.speed()).rem_euclid(duration);
+                    active.seek_to(time);
+                }
+            }
+        }
+    }
 }
 
 /// Import: the choice of a saved hero for the Ancaria campaign, where one is saved (`0x70CEF6`).
@@ -2450,18 +2723,27 @@ fn shade(
 }
 
 /// Whether a choice of the hero shows, either campaign's.
-fn choosing(screen: Option<Res<State<Screen>>>) -> bool {
+fn choosing(screen: Option<Res<State<Screen>>>, exporting: Option<Res<State<Exporting>>>) -> bool {
     screen.is_some_and(|screen| {
         matches!(
             screen.get(),
             Screen::Heroes | Screen::Underworld | Screen::Import
         )
-    })
+    }) || exported(exporting)
 }
 
 /// Whether the screen is a choice of a saved hero.
-fn choosing_saved(screen: Option<Res<State<Screen>>>) -> bool {
+fn choosing_saved(
+    screen: Option<Res<State<Screen>>>,
+    exporting: Option<Res<State<Exporting>>>,
+) -> bool {
     screen.is_some_and(|screen| matches!(screen.get(), Screen::Underworld | Screen::Import))
+        || exported(exporting)
+}
+
+/// Whether the export shows over a game.
+fn exported(exporting: Option<Res<State<Exporting>>>) -> bool {
+    exporting.is_some_and(|exporting| *exporting.get() == Exporting::Shown)
 }
 
 /// A choice's screen under its [`Veil`] while what it draws loads: its pictures, its fonts, its
@@ -2496,7 +2778,7 @@ const MOST_WAIT: f32 = 5.0;
 fn unveil(
     mut commands: Commands,
     (mut roots, veils): (Query<(Entity, &mut Veiled)>, Query<Entity, With<Veil>>),
-    (time, images, typefaces): (Res<Time>, Res<Assets<Image>>, Res<Assets<Font>>),
+    (time, images, typefaces): (Res<Time<Real>>, Res<Assets<Image>>, Res<Assets<Font>>),
     children: Query<&Children>,
     (pictures, fonts): (Query<&ImageNode>, Query<&TextFont>),
     figures: Query<(Entity, &Figure, Option<&npcs::Equipment>)>,
@@ -2576,6 +2858,18 @@ impl Plugin for ChoicePlugin {
         .add_systems(
             OnEnter(Screen::Import),
             (read_figures, saved_screen).chain(),
+        )
+        .add_systems(
+            OnEnter(Exporting::Shown),
+            (read_figures, saved_screen).chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                export_keys.before(crate::pause::toggle),
+                idle_paused.after(bevy::animation::advance_animations),
+            )
+                .run_if(in_state(Exporting::Shown)),
         )
         .add_systems(
             Update,
@@ -2732,6 +3026,34 @@ mod tests {
             (request.tree.as_deref(), request.saved, request.exported),
             (None, None, Some(2))
         );
+    }
+
+    #[test]
+    fn the_export_takes_any_pedestal_and_shows_nothing_of_its_hero() {
+        let saved = Stand {
+            class: Class::Dwarf,
+            saved: Some(Saved {
+                name: "Hero".into(),
+                level: 3,
+                highest: 0,
+                exported: None,
+            }),
+        };
+        let mut choice = Choice {
+            exporting: true,
+            ..default()
+        };
+        choice.stands[6] = Some(saved);
+        // A free pedestal, and a saved hero of any level (seen).
+        choose(&mut choice, &Words::default(), 2);
+        assert_eq!(choice.chosen, Some(2));
+        choose(&mut choice, &Words::default(), 6);
+        assert_eq!(choice.chosen, Some(6));
+        assert!(choice.name.is_empty());
+        // The Underworld campaign's choice takes no free pedestal.
+        let mut choice = Choice::default();
+        choose(&mut choice, &Words::default(), 2);
+        assert_eq!(choice.chosen, None);
     }
 
     #[test]

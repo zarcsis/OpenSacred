@@ -2,9 +2,10 @@
 //! taskbar's Options button pause the game (`pause`) under the original's window
 //! `UI_WND_ESCMENU`, laid out on the original's screen centred along the window's width as the bar
 //! is: its dark fill, the interface's standard frame (`choice::frame_about`) and its five items in
-//! the menus' letter, the one under the cursor lit (`cUI_EscMenu`, `0x6BBBD0`). Options, Save Game
-//! and Export do nothing yet and are greyed, as the main menu's items without their screens are
-//! (#1096, #1095); Continue goes on, and Quit asks first in the original's dialog
+//! the menus' letter, the one under the cursor lit (`cUI_EscMenu`, `0x6BBBD0`). Options opens the
+//! options window and Save Game the saves' window in its place (#1096, #1095), Export the choice
+//! of the hero in its export mode (`pause::Exporting`, #2554), whose Back shows the menu again;
+//! Continue goes on, and Quit asks first in the original's dialog
 //! (`DEFAULT_BUSYDLG`, `busy_dialog`): the screen darkened, its framed box, its question and the
 //! buttons OK, which leaves the game for the main menu, and Cancel, which closes the dialog alone.
 //! A still frame's pause (`pause on`) and the key P's (`busy_dialog`) show none of it.
@@ -19,7 +20,7 @@ use crate::game::AppState;
 use crate::hud::Pointer;
 use crate::lines::Texts;
 use crate::menu;
-use crate::pause::{Busy, Play, Still};
+use crate::pause::{Busy, Exporting, Play, Still};
 
 /// The window on the original's screen, its framed box, the items' rows from the window's top and
 /// their height (`0x6BBBD0`), the items' size in the menus' letter, as the main menu's, and their
@@ -62,11 +63,6 @@ impl Entry {
             Self::Continue => ("1053", "Continue"),
         }
     }
-
-    /// Whether it does anything yet: the export, the multiplayer's character, waits for M9.
-    fn works(self) -> bool {
-        !matches!(self, Self::Export)
-    }
 }
 
 /// The dialog's buttons.
@@ -78,7 +74,7 @@ enum Answer {
 
 /// The item under the cursor, which is lit.
 #[derive(Resource, Default)]
-struct Lit(Option<Entry>);
+pub(crate) struct Lit(Option<Entry>);
 
 /// The window's root, and the dialog's.
 #[derive(Component)]
@@ -112,7 +108,26 @@ fn show(
     // The save's picture as the window opens (`0x6BB795`'s `(0x13, 5, 1)`), of this frame, which
     // the window shows only after (#1991).
     crate::save_picture::take(&mut commands);
-    let atlases = Atlases::load(&images, &assets);
+    spawn(&mut commands, (&images, &assets, texts.as_deref()));
+}
+
+/// Shows the window again over the paused game, as the export's Back does (seen), the save's
+/// picture the one its first showing took.
+pub(crate) fn reopen(
+    mut commands: Commands,
+    (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
+    mut lit: ResMut<Lit>,
+) {
+    lit.0 = None;
+    spawn(&mut commands, (&images, &assets, texts.as_deref()));
+}
+
+/// The window, hidden for its first frame ([`Unveils`]).
+fn spawn(
+    commands: &mut Commands,
+    (images, assets, texts): (&choice::Images, &AssetServer, Option<&Texts>),
+) {
+    let atlases = Atlases::load(images, assets);
     let font: Handle<Font> = assets.load(menu::MENU_FONT);
     commands
         .spawn((
@@ -160,7 +175,7 @@ fn show(
                         }
                     })
                     .with_child((
-                        Text::new(word(texts.as_deref(), entry.text())),
+                        Text::new(word(texts, entry.text())),
                         TextFont {
                             font: font.clone().into(),
                             font_size: FontSize::Px(ITEM_SIZE),
@@ -194,7 +209,8 @@ fn unveil(mut commands: Commands, mut windows: Query<(Entity, &mut Unveils, &mut
     }
 }
 
-/// Lights the item under the cursor, the others gold and the ones that do nothing yet grey.
+/// Lights the item under the cursor, the others gold and Save Game grey while no save is
+/// allowed.
 fn light(
     lit: Res<Lit>,
     entries: Query<(&Entry, &Children)>,
@@ -204,7 +220,7 @@ fn light(
     // Save Game greyed while the interface allows no save (`0x75ADB0`).
     let saves = crate::saves::allowed(&refusing);
     for (entry, children) in &entries {
-        let colour = if !entry.works() || (*entry == Entry::SaveGame && !saves) {
+        let colour = if *entry == Entry::SaveGame && !saves {
             menu::ITEM_GREY
         } else if lit.0 == Some(*entry) {
             LIT
@@ -219,11 +235,15 @@ fn light(
     }
 }
 
-/// Does what the item `entry` does: Continue goes on, Quit asks first; the others nothing yet.
+/// Does what the item `entry` does: Continue goes on, Quit asks first, the others open their
+/// windows or screens in its place.
 fn choose(
     In(entry): In<Entry>,
     mut commands: Commands,
-    mut play: ResMut<NextState<Play>>,
+    (mut play, export): (
+        ResMut<NextState<Play>>,
+        Option<ResMut<NextState<Exporting>>>,
+    ),
     (dialogs, windows): (Query<(), With<Dialog>>, Query<Entity, With<Window>>),
     (images, assets, texts): (Res<choice::Images>, Res<AssetServer>, Option<Res<Texts>>),
     (refusing, mut sounds): (crate::saves::Refusing, MessageWriter<crate::sfx::Play>),
@@ -251,7 +271,18 @@ fn choose(
             }
             commands.queue(crate::options::open_in_game);
         }
-        Entry::SaveGame | Entry::Export => {}
+        // The choice of the hero in its export mode in the menu's place, the game still paused
+        // (`0x6BBBD0` posts `UI_CHARACTER`, `0x70E8A0`'s mode 5).
+        Entry::Export => {
+            crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+            for window in &windows {
+                commands.entity(window).despawn();
+            }
+            if let Some(mut export) = export {
+                export.set(Exporting::Shown);
+            }
+        }
+        Entry::SaveGame => {}
     }
 }
 
@@ -316,7 +347,7 @@ fn keys(
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&bevy::window::Window>),
     images: Res<UiImages>,
     (play, mut next): (Res<State<Play>>, ResMut<NextState<Play>>),
-    busy: Res<Busy>,
+    (busy, exporting): (Res<Busy>, Option<Res<State<Exporting>>>),
     dialogs: Query<Entity, With<Dialog>>,
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
@@ -327,9 +358,12 @@ fn keys(
         }
         return;
     }
+    // Nor under the export's screen, which covers the bar.
+    let exported = exporting.is_some_and(|exporting| *exporting.get() == Exporting::Shown);
     let clicked = buttons.just_pressed(MouseButton::Left)
         && dialogs.is_empty()
         && !busy.0
+        && !exported
         && crate::inventory::screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
             let (index, corner) = bar::OPTIONS_BUTTON;
             Rect::from_corners(corner, corner + images.size(index)).contains(at)
@@ -424,6 +458,27 @@ mod tests {
         assert_eq!(asked(&mut app), 1);
         press(&mut app, KeyCode::Escape);
         assert_eq!(asked(&mut app), 0);
+        assert_eq!(play(&app), Some(Play::Paused));
+        // Export shows the export's screen in the menu's place, the game still paused, and the
+        // menu shows again as the export goes back.
+        let exporting = |app: &App| {
+            app.world()
+                .get_resource::<State<Exporting>>()
+                .map(|s| *s.get())
+        };
+        app.world_mut()
+            .run_system_cached_with(choose, Entry::Export)
+            .unwrap();
+        app.update();
+        assert_eq!(exporting(&app), Some(Exporting::Shown));
+        assert_eq!(count(&mut app), 0);
+        app.world_mut()
+            .resource_mut::<NextState<Exporting>>()
+            .set(Exporting::Hidden);
+        app.world_mut().run_system_cached(reopen).unwrap();
+        app.update();
+        assert_eq!(exporting(&app), Some(Exporting::Hidden));
+        assert_eq!(count(&mut app), 5);
         assert_eq!(play(&app), Some(Play::Paused));
         // OK leaves for the main menu.
         app.world_mut()
