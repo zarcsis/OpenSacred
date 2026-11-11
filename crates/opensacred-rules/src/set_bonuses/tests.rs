@@ -102,6 +102,11 @@ fn the_flags_and_the_filled_sets_bonuses() {
     assert_eq!(stats(&wearing(60, 4), Difficulty::Bronze).flags, 0);
     let filled = wearing(60, 4).filled(60);
     assert_eq!(stats(&filled, Difficulty::Bronze).flags, 0x100_0000);
+    // Its line, the cages' chance as the code rolls it: 30% on bronze, 70% on niobium (#2547).
+    assert!(stats(&filled, Difficulty::Bronze).binds());
+    assert!(told(60, &filled, Difficulty::Bronze).contains(&Told::Binds(30)));
+    assert!(told(60, &filled, Difficulty::Niobium).contains(&Told::Binds(70)));
+    assert!(!told(60, &wearing(60, 4), Difficulty::Bronze).contains(&Told::Binds(30)));
     // Set 23 has no case; the specials wait for the wearer's values.
     assert_eq!(
         stats(&wearing(23, 6), Difficulty::Bronze),

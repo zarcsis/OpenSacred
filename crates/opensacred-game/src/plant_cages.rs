@@ -71,6 +71,25 @@ pub(crate) fn cage(
     cages(commands, target, count, (hero, seconds), true);
 }
 
+/// Holds `target` by the plant cage for `seconds` (the cages' action 7, the effect 15 keyed by
+/// the spell 40, docs/re/effects.md, "The plant cage"): it stops what it does and stands held.
+pub(crate) fn hold(commands: &mut Commands, target: Entity, seconds: f32) {
+    let effect = opensacred_rules::fight::Effect {
+        id: opensacred_rules::spells::HELD,
+        whole: 0,
+        value: 0.0,
+        art: u32::from(opensacred_rules::spells::CAGE),
+        level: 0,
+    };
+    let mut held = commands.entity(target);
+    held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+    held.entry::<crate::effects::Effects>()
+        .or_default()
+        .and_modify(move |mut effects| effects.add(effect, seconds));
+    held.entry::<crate::ai::Mind>()
+        .and_modify(move |mut mind| mind.stunned(seconds));
+}
+
 /// [`cage`] with no sound, as the hero's terror cages its creature (`0x4E26F1`).
 pub(crate) fn cage_quietly(
     commands: &mut Commands,

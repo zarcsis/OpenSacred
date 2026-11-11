@@ -20,6 +20,7 @@
 use std::ops::{Add, Mul, RangeInclusive, Sub};
 
 use crate::casts;
+use crate::drops::Difficulty;
 use crate::spawning::Dice;
 
 /// A point of the ground in the world's units, the original's (a cell's side is 53.66563,
@@ -1785,6 +1786,7 @@ impl Mind {
             listed,
             hero_size,
             outdoors,
+            strikes_down,
             ..
         } = *sight;
         let reach = reach_f32(self.size(), hero_size);
@@ -1837,6 +1839,10 @@ impl Mind {
             && !striking
             && flees(health, d, self, target_makes, roll)
         {
+            // The hero of set 58 strikes it down instead, and it has not fled (`0x4E1052`).
+            if strikes_down {
+                return Some(Pursues::StruckDown);
+            }
             self.fled = true;
             // A crow on the ground outside a dungeon takes off as it flees (`0x4E1336`, #2291),
             // its type no ghost (`Creature.pak` flags `0x20`).
@@ -2614,6 +2620,9 @@ pub struct Pursuit {
     /// Whether it stands on the ground outside a dungeon (`+0x24` 0, not a sector of
     /// `0x63D180`), where a crow fleeing wounded takes off.
     pub outdoors: bool,
+    /// Whether its target strikes it down as it would flee wounded: the hero of set 58's six
+    /// pieces ([`crate::set_bonuses::STRIKES_FLEEING`]) by the levels ([`struck_down`]).
+    pub strikes_down: bool,
 }
 
 /// The types whose models have the slot 179 (`*_FLY_LOOP`), of the flying types the crows alone
@@ -2714,6 +2723,9 @@ pub enum Pursues {
     GivesUp,
     /// Wounded, it runs to the point.
     Flees(Spot),
+    /// Wounded, it would flee, but its target, the hero of set 58, strikes it down: it stops
+    /// what it does and takes the hero's sure strike of [`STRUCK_DOWN`] (`0x4E1095`–`0x4E115A`).
+    StruckDown,
     /// It comes on at the hero, at a run or not, and stops within `within` of it.
     ComesOn { runs: bool, within: f32 },
     /// A riding archer's horse takes it round the hero to the point, at a run (#2288).
@@ -2862,6 +2874,54 @@ fn melee_switch(
 /// `BOW_LONG` or `BOW_SHORT` by a coin.
 fn bow(roll: &mut impl FnMut(u32) -> u32) -> u32 {
     if roll(2) != 0 { BOW_LONG } else { BOW_SHORT }
+}
+
+/// The fixed damages of the four kinds of the sure strike by which the hero of set 58 strikes
+/// down a creature that would flee it (`0x4E10A1`–`0x4E10DE`: the record's first word 255, its
+/// hit's kind and word `0xFF`, which the strike's resolution takes for an attack of 100,000,
+/// `0x56D0A5`).
+pub const STRUCK_DOWN: [f32; 4] = [255.0, 0.0, 0.0, 0.0];
+
+/// Whether the hero of set 58's six pieces, of level `hero_level`, strikes down a creature of
+/// `level` on bronze's scale (`level_on_bronze`, `fight::Rules::on_bronze`, `0x5522D0`) that would
+/// flee it wounded (`0x4E1061`–`0x4E108F`): the hero's level and twice the difficulty's index,
+/// and 2, at least the creature's.
+pub fn struck_down(hero_level: u32, difficulty: Difficulty, level_on_bronze: u32) -> bool {
+    let d = u32::try_from(difficulty.index()).unwrap_or(0);
+    hero_level + 2 * d + 2 >= level_on_bronze
+}
+
+/// How far beyond the hero a target of its attack stands for set 60's cages (`0x4E073F`, the
+/// distance above 200), how many cages hold it, and the plant cage's level they hold by
+/// (`0x4E07F4`–`0x4E09D1`: ten objects 849 by the event `0x49` of the spell 40's record at the
+/// level 2).
+pub const BINDS_BEYOND: f32 = 200.0;
+pub const BIND_CAGES: u32 = 10;
+pub const BIND_LEVEL: u32 = 2;
+
+/// The marks of the casters among a target that set 60 cages (`0x4E07DD`: the mark's bits
+/// `0x25`).
+const BINDS_MARKS: u16 = 0x25;
+
+/// Whether set 60's cages take a target: a ranged fighter, with a bow or a crossbow in a hand
+/// (`ranged`, `0x54A2A0`), a creature of type `creature` whose mark has a bit of
+/// [`BINDS_MARKS`] ([`casts::mark`]), or a magician of a script's spell (`spell`, `+0x2B6`).
+pub fn bindable(ranged: bool, creature: u32, spell: u8) -> bool {
+    ranged || casts::mark(creature) & BINDS_MARKS != 0 || spell != 0
+}
+
+/// The per cent of the attacks of the hero of set 60's flag ([`crate::set_bonuses::BINDS`]) that
+/// cage their target: `⌊30·D⌋`, 30 on bronze to 70 on niobium (`0x4E074A`–`0x4E07A5`, the float
+/// 30 at `0x890F18`).
+pub fn bind_chance(difficulty: Difficulty) -> u32 {
+    crate::fight::whole_part(30.0 * crate::set_bonuses::factor(difficulty))
+}
+
+/// Whether the hero of set 60's flag cages the target of an attack it starts in melee (the AI's
+/// state 4, its sub-state 0, `0x4E06FD`): the target farther than [`BINDS_BEYOND`] and
+/// [`bindable`], and `roll` (`rand() % 100`) below [`bind_chance`].
+pub fn binds(distance: f32, bindable: bool, roll: u32, difficulty: Difficulty) -> bool {
+    distance > BINDS_BEYOND && bindable && roll < bind_chance(difficulty)
 }
 
 /// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health`'s most or
@@ -3904,6 +3964,7 @@ mod tests {
             targeted: false,
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
         };
         let cast = CastSight {
             now: 100.4,
@@ -4007,6 +4068,7 @@ mod tests {
             targeted: false,
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
         };
         let cast = CastSight {
             now: 0.0,
@@ -4069,6 +4131,7 @@ mod tests {
             targeted: false,
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
         };
         let cast = CastSight {
             now: 0.0,
@@ -4141,6 +4204,7 @@ mod tests {
             targeted: false,
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
         };
         let cast = CastSight {
             now: 50.0,
@@ -4386,10 +4450,71 @@ mod tests {
     }
 
     #[test]
+    fn the_hero_of_set_58_strikes_down_a_creature_that_would_flee_it() {
+        let sight = |strikes_down| Pursuit {
+            hero_size: SIZE,
+            outdoors: true,
+            strikes_down,
+            here: at(0.0, 0.0),
+            hero: at(150.0, 0.0),
+            walk: None,
+            striking: false,
+            health: Some((10, 72)),
+            target_makes: false,
+            listed: None,
+            targeted: false,
+        };
+        let mut mind = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 6));
+        mind.fighting = true;
+        let mut rolls = crate::spawning::Script::new(vec![0; 4]);
+        assert_eq!(
+            mind.pursue(&sight(true), || true, &mut rolls),
+            Some(Pursues::StruckDown)
+        );
+        // Struck down, it has not fled, and so may flee or be struck down again.
+        assert!(!mind.fled);
+        let mut rolls = crate::spawning::Script::new(vec![0; 4]);
+        assert!(matches!(
+            mind.pursue(&sight(false), || true, &mut rolls),
+            Some(Pursues::Flees(_))
+        ));
+        assert!(mind.fled);
+        // The levels: the hero's, twice the difficulty's index and 2 at least the creature's on
+        // bronze's scale.
+        assert!(struck_down(10, Difficulty::Bronze, 12));
+        assert!(!struck_down(10, Difficulty::Bronze, 13));
+        assert!(struck_down(10, Difficulty::Niobium, 20));
+        assert!(!struck_down(10, Difficulty::Niobium, 21));
+    }
+
+    #[test]
+    fn the_hero_of_set_60_cages_a_far_ranged_fighter_or_mage() {
+        // ⌊30·D⌋: 30 on bronze to 70 on niobium, as the set's two lines tell.
+        let chances = Difficulty::ALL.map(bind_chance);
+        assert_eq!(chances, [30, 40, 50, 60, 70]);
+        assert!(binds(201.0, true, 29, Difficulty::Bronze));
+        assert!(!binds(201.0, true, 30, Difficulty::Bronze));
+        assert!(binds(201.0, true, 69, Difficulty::Niobium));
+        assert!(!binds(200.0, true, 0, Difficulty::Bronze));
+        assert!(!binds(500.0, false, 0, Difficulty::Bronze));
+        // A bow in hand, a caster's mark of the bits 0x25 or a script's spell.
+        assert!(bindable(true, 76, 0));
+        assert!(bindable(false, 44, 0));
+        assert!(bindable(false, 271, 0));
+        assert!(bindable(false, 186, 0));
+        assert!(!bindable(false, 76, 0));
+        // The magicians of the mark 8 only by their script's spell.
+        assert!(!bindable(false, 105, 0));
+        assert!(bindable(false, 105, 38));
+        assert!(!bindable(false, 202, 0));
+    }
+
+    #[test]
     fn a_wounded_crow_takes_off_as_it_flees_outside_a_dungeon() {
         let sight = |outdoors| Pursuit {
             hero_size: SIZE,
             outdoors,
+            strikes_down: false,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: None,
@@ -4430,6 +4555,7 @@ mod tests {
         let sight = |comes_on| Pursuit {
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: Some(Walking {
@@ -4463,6 +4589,7 @@ mod tests {
         Pursuit {
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
             here: Spot::default(),
             hero: at(d, 0.0),
             walk,
@@ -4837,6 +4964,7 @@ mod tests {
         Pursuit {
             hero_size: SIZE,
             outdoors: true,
+            strikes_down: false,
             here,
             hero: Spot::default(),
             walk: None,

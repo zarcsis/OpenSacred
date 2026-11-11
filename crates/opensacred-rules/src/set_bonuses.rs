@@ -294,13 +294,13 @@ pub const TABLE: &[Entry] = &[
     at(58, 2, Skill(32, 5.0)),
     at(58, 3, Skill(25, 5.0)),
     at(58, 4, Attribute(2, 10.0)),
-    at(58, 6, Flag(0x4000)),
+    at(58, 6, Flag(STRIKES_FLEEING)),
     at(59, 2, Skill(14, 5.0)),
     at(59, 3, Flag(0x10_0000)),
     at(59, 4, Attribute(4, 10.0)),
     at(59, 6, Flag(0x8000)),
     at(60, 2, Skill(4, 5.0)),
-    at(60, 4, FlagWhenFilled(0x100_0000)),
+    at(60, 4, FlagWhenFilled(BINDS)),
     at(61, 2, Skill(5, 5.0)),
     at(61, 4, Flag(0x200_0000)),
     at(61, 4, FlagWhenFilled(0x400_0000)),
@@ -478,6 +478,14 @@ pub const CARRIED: [u32; 6] = [5101, 5102, 5103, 5104, 5105, 5106];
 /// The stats' flag `+0x148` bit `0x100000` (sets 41, 44, 59 and 65), by which the magic defence
 /// grows (M17, `0x5618A1`; [`Stats::magic_defence`]).
 pub const WARDS: u32 = 0x10_0000;
+/// The stats' flag `+0x148` bit `0x4000` (set 58 at 6, `UI_SET_FLUCHT`), by which a creature that
+/// would flee its wearer wounded is struck down instead where its level allows (`0x4E1052`;
+/// [`Stats::strikes_fleeing`], `crate::minds::struck_down`).
+pub const STRIKES_FLEEING: u32 = 0x4000;
+/// The stats' flag `+0x148` bit `0x1000000` (set 60 at 4 with its sockets filled,
+/// `UI_SET_ROOTEN`), by which its wearer's attack may cage a ranged fighter or a mage
+/// (`0x4E0713`; [`Stats::binds`], `crate::minds::binds`).
+pub const BINDS: u32 = 0x100_0000;
 /// The stats' flag `+0x148` bit `0x10000000` (set 63 at 4, `UI_SET_DURCHBOHREN`), by which its
 /// wearer's arrows pass through what they hit (`0x5BBD87`; [`Stats::pierces`],
 /// `crate::arrows::passes`).
@@ -779,6 +787,17 @@ impl Stats {
         self.flags & PIERCES != 0
     }
 
+    /// Whether the wearer's flag [`STRIKES_FLEEING`] holds, by which a creature that would flee
+    /// it may be struck down instead.
+    pub fn strikes_fleeing(&self) -> bool {
+        self.flags & STRIKES_FLEEING != 0
+    }
+
+    /// Whether the wearer's flag [`BINDS`] holds, by which its attack may cage its target.
+    pub fn binds(&self) -> bool {
+        self.flags & BINDS != 0
+    }
+
     /// The effect 858's value `value` of the target's own items, the magic defence, grown while
     /// its flag [`WARDS`] holds by each term whose set reaches its count, in turn (M17,
     /// `0x561897`–`0x561A68`): `15·D` for set 41 at 5, `10·D` for set 44 at 3, `15·D` for set 59
@@ -1063,6 +1082,9 @@ pub enum Told {
     MagicDefence(f32),
     /// The wearer's arrows passing through what they hit ([`PIERCES`]).
     Pierces,
+    /// The per cent of the wearer's attacks in melee that cage a ranged fighter or a mage
+    /// ([`BINDS`], `crate::minds::bind_chance`).
+    Binds(u32),
     /// The Dark Elf unseen out of a fight ([`Reader::Unseen`]).
     Unseen,
     /// The values of a foe on its label ([`KNOW_ENEMY`]).
@@ -1092,6 +1114,7 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
                 Bonus::Flag(STUNS) => Told::Stun(stun_term(entry.set) * d),
                 Bonus::Flag(WARDS) => Told::MagicDefence(ward_term(entry.set) * d),
                 Bonus::Flag(PIERCES) => Told::Pierces,
+                Bonus::Flag(BINDS) => Told::Binds(crate::minds::bind_chance(difficulty)),
                 Bonus::Flag(KNOW_ENEMY) => Told::KnowEnemy,
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),
