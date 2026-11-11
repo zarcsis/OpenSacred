@@ -772,6 +772,15 @@ pub enum OwnMark {
     /// The eiterblume and its spinneling (186, 333, `0x211`): the spit, and the panther's leap
     /// ([`flower`]).
     Flower,
+    /// The hornet (190, `0x20F`): it flanks the hero while another hornet of its mark is in the
+    /// hero's list (`0x4D89F2`, #2562).
+    Hornet,
+    /// The hornet queen (336, `0x214`): it circles the hero while another hornet lives in the
+    /// hero's list (`0x4DAB44`, #2562).
+    Queen,
+    /// The insect larva and the small slime worm (191, 248, `0x215`): it dithers and hides from
+    /// the hero (`0x4D9789`, #2562).
+    Larva,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -785,9 +794,42 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         184 | 249 => OwnMark::AnducarsGuard,
         187 | 205..=208 | 253..=255 | 330..=332 => OwnMark::PrincesGuard,
         186 | 333 => OwnMark::Flower,
+        HORNET => OwnMark::Hornet,
+        QUEEN => OwnMark::Queen,
+        191 | 248 => OwnMark::Larva,
         _ => return None,
     })
 }
+
+/// The hornet (190), the hornet hunter (335) and the hornet queen (336), the hornets of the
+/// Underworld, of the marks `0x20F`, `0x213` and `0x214`.
+pub const HORNET: u32 = 190;
+pub const HUNTER: u32 = 335;
+pub const QUEEN: u32 = 336;
+pub const HORNETS: [u32; 3] = [HORNET, HUNTER, QUEEN];
+
+/// The hornet's flank (`0x4D89F2`): `50·((id & 3) + 8)` from the hero, 400 to 550 by its id,
+/// along the line from the hero to it turned 45° one way for an odd id and the other for an even
+/// one.
+pub const FLANK_STEP: f32 = 50.0;
+pub const FLANK_STEPS: u32 = 8;
+pub const FLANK_TURN: f32 = 45.0;
+
+/// The queen's circle (`0x4DAB44`): 480 from the hero, at its own angle from the hero turned by
+/// 0.4 rad, one way for an odd id and the other for an even one; its walk kept while it is 100 or
+/// more from its point, and the decisions it then stands, 10.
+pub const QUEEN_CIRCLE: f32 = 480.0;
+pub const QUEEN_TURN: f32 = 0.4;
+pub const QUEEN_KEEPS: f32 = 100.0;
+pub const QUEEN_STANDS: u8 = 10;
+
+/// The larva's dithering and its hiding (`0x4D9789`): the decisions it stands, 10; it hides 800
+/// from itself, the first of 18 points 20° apart from an angle at random that it may stand on,
+/// out of the hero's straight line, with a path to it.
+pub const LARVA_STANDS: u8 = 10;
+pub const HIDES_AT: f32 = 800.0;
+pub const HIDE_TRIES: u32 = 18;
+pub const HIDE_STEP: f32 = 20.0;
 
 /// The holy light (15), the blades of light (17), the holy shield (22), the chain lightning (33),
 /// the ice splinters (34), the guard's fire (70) and the prince's fan of flames (71).

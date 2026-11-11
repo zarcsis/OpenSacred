@@ -502,6 +502,8 @@ const CIRCLES_LONG: f32 = 5.0;
 /// 10, ridden on within 300 of the target, and from 300 its charge again in one case of three
 /// with the effect 24 for 10 s.
 const CHARGES_ONE_IN: u32 = 11;
+/// The hornet hunter's charge, in one decision of three (`0x4DB7B6`: `R(0, 2)` of 2).
+const HUNTER_CHARGES_ONE_IN: u32 = 3;
 const CHARGE_SHORT: f32 = 15.0;
 const CHARGE_UPDATES: u8 = 20;
 const CHARGE_AWAY: f32 = 400.0;
@@ -1329,6 +1331,11 @@ impl Mind {
         self.held_for(seconds.max(STUNNED));
     }
 
+    /// A larva that found no point to hide at decides again at once ([`Pursues::Hides`]).
+    pub fn hides_nowhere(&mut self) {
+        self.stands = 0;
+    }
+
     /// Stunned by a strike's effect 862 (M18, `0x56D74B`): it leaves its fight and stands, and is
     /// held for [`SHOCKED`] seconds, which cuts any longer hold short.
     pub fn shocked(&mut self) {
@@ -1557,6 +1564,53 @@ impl Mind {
         let (here, target) = (sight.here, sight.hero);
         let d = (target - here).length();
         let reach = reach_f32(self.size(), sight.hero_size);
+        match own {
+            // While another hornet of its mark is in the hero's list, it flanks the hero, at once
+            // where one strikes, else by a roll of three for each (`0x4D89F2`).
+            OwnMark::Hornet => {
+                let (others, strikes) = cast.hornets;
+                if !(strikes || (0..others).any(|_| rng.below(3) == 0)) {
+                    return None;
+                }
+                return Some(Pursues::Strolls(flank(here, target, cast.id), true));
+            }
+            // It keeps its walk 100 or more from its point; else, while another hornet lives in
+            // the hero's list, it circles the hero (`0x4DAB44`).
+            OwnMark::Queen => {
+                if sight
+                    .walk
+                    .is_some_and(|walk| (walk.target - here).length() >= casts::QUEEN_KEEPS)
+                {
+                    self.stands = casts::QUEEN_STANDS;
+                    return Some(Pursues::Faces);
+                }
+                if !cast.hornet_lives {
+                    return None;
+                }
+                self.stands = casts::QUEEN_STANDS;
+                return Some(Pursues::Strolls(circle(here, target, cast.id), true));
+            }
+            // It walks on or stands in one decision of three, stands where it has no straight
+            // line to the hero, and within twice its reach hides by a coin or while the hero
+            // attacks it (`0x4D9789`).
+            OwnMark::Larva => {
+                if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
+                    self.stands = casts::LARVA_STANDS;
+                    return Some(Pursues::Faces);
+                }
+                if d >= 2.0 * reach {
+                    return None;
+                }
+                if rng.below(2) == 1 || sight.targeted {
+                    self.stands = casts::LARVA_STANDS;
+                    return Some(Pursues::Hides {
+                        from: rng.below(360),
+                    });
+                }
+                return None;
+            }
+            _ => {}
+        }
         let passed = cast.now >= self.cast_deadline;
         let casts = |spell: u16| Some(Pursues::Casts { spell, variant: 0 });
         let renew = |mind: &mut Self, roll: u32| {
@@ -1586,6 +1640,8 @@ impl Mind {
             }
         }
         match own {
+            // Decided above.
+            OwnMark::Hornet | OwnMark::Queen | OwnMark::Larva => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -1800,7 +1856,10 @@ impl Mind {
         if self.takes_bow && !striking && d > reach + TAKES_BOW_BEYOND {
             return Some(self.takes_a_bow(rng));
         }
-        if self.rides.is_some() && self.creature == BLACK_RIDER && !striking {
+        // A riding black rider, or the hornet hunter by its special's roll (`0x4DB7B6`, #2562).
+        if (self.rides.is_some() && self.creature == BLACK_RIDER || self.creature == casts::HUNTER)
+            && !striking
+        {
             let charging = self.charge != Charge::None;
             if let Some(next) = self.charges((here, hero), walk.is_some(), reach, rng) {
                 return Some(next);
@@ -1976,9 +2035,15 @@ impl Mind {
             }
         };
         match self.charge {
-            // In its decision, as a strike would start: once a strike's rest is over.
+            // In its decision, as a strike would start: once a strike's rest is over; the hornet
+            // hunter by its special, in one decision of three whatever it does (`0x4DB7B6`).
             Charge::None => {
-                if moving || self.rests > 0.0 || rng.below(CHARGES_ONE_IN) < CHARGES_ONE_IN - 1 {
+                let enters = if self.creature == casts::HUNTER {
+                    rng.below(HUNTER_CHARGES_ONE_IN) == HUNTER_CHARGES_ONE_IN - 1
+                } else {
+                    !moving && self.rests <= 0.0 && rng.below(CHARGES_ONE_IN) == CHARGES_ONE_IN - 1
+                };
+                if !enters {
                     return None;
                 }
                 self.charge = Charge::Run(0);
@@ -2018,9 +2083,10 @@ impl Mind {
             Charge::Away(_) => {
                 if rng.below(3) == 2 {
                     self.charge = Charge::Run(0);
+                    // The effect 24 the mark 10's alone, a riding black rider's (`0x4E33B5`).
                     return Some(Pursues::Charges {
                         to: hero,
-                        again: true,
+                        again: self.rides.is_some(),
                     });
                 }
                 self.charge = Charge::None;
@@ -2655,6 +2721,50 @@ pub struct CastSight {
     /// A magician's friends within [`casts::FRIENDS_WITHIN`]: whether one is wounded
     /// ([`casts::wounded`]), and whether one fights.
     pub friends: (bool, bool),
+    /// Its id, of which a hornet's flank and the queen's circle take its parity and its low bits
+    /// (the original's object manager's; the game's stand-in its home cell's coordinates' sum,
+    /// docs/decisions/ai.md, "The guards' torches").
+    pub id: u32,
+    /// The other hornets of the mark `0x20F` in the hero's list of hostiles: how many, and whether
+    /// one strikes (its action 3, 5 or 10, `0x4D8A4A`); and whether another hornet of the three
+    /// lives there ([`casts::HORNETS`], `0x4DABB0`).
+    pub hornets: (u32, bool),
+    pub hornet_lives: bool,
+}
+
+/// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
+/// along the line from the hero to the hornet at `here`, turned 45° one way for an odd `id` and
+/// the other way for an even one.
+fn flank(here: Spot, hero: Spot, id: u32) -> Spot {
+    let steps = u8::try_from(id % 4 + casts::FLANK_STEPS).unwrap_or(u8::MAX);
+    let r = casts::FLANK_STEP * f32::from(steps);
+    let turn = if id % 2 == 1 {
+        casts::FLANK_TURN
+    } else {
+        -casts::FLANK_TURN
+    };
+    hero + ((here - hero).unit() * r).turned(turn)
+}
+
+/// The queen's circle (`0x4DAB44`, #2562): the point [`casts::QUEEN_CIRCLE`] from the hero at
+/// `hero` at the queen's own angle from it turned by [`casts::QUEEN_TURN`] rad, one way for an odd
+/// `id` and the other way for an even one.
+fn circle(here: Spot, hero: Spot, id: u32) -> Spot {
+    let turn = casts::QUEEN_TURN.to_degrees();
+    let turn = if id % 2 == 1 { turn } else { -turn };
+    hero + ((here - hero).unit() * casts::QUEEN_CIRCLE).turned(turn)
+}
+
+/// The points a larva at `here` tries to hide at, from the angle `from` in degrees
+/// ([`Pursues::Hides`]): [`casts::HIDE_TRIES`] points [`casts::HIDES_AT`] from it,
+/// [`casts::HIDE_STEP`] degrees apart.
+pub fn hiding_points(here: Spot, from: u32) -> impl Iterator<Item = Spot> {
+    (0..casts::HIDE_TRIES).map(move |k| {
+        let k = f32::from(u16::try_from(k).unwrap_or(0));
+        let from = f32::from(u16::try_from(from).unwrap_or(0));
+        let degrees = (from + casts::HIDE_STEP * k).to_radians();
+        here + Spot::new(degrees.cos(), degrees.sin()) * casts::HIDES_AT
+    })
 }
 
 /// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
@@ -2754,6 +2864,11 @@ pub enum Pursues {
     /// A caster blinks away from its target (the black magician 10's, #1855): to the first of
     /// [`casts::BLINK_TRIES`] points [`casts::BLINK_REACH`] about it that a straight way reaches.
     Blinks,
+    /// A larva hides from its target (#2562): it runs to the first of [`casts::HIDE_TRIES`] points
+    /// [`casts::HIDES_AT`] from it, from the angle `from` in degrees by [`casts::HIDE_STEP`], that
+    /// it may stand on, with no straight line from its target and a path to it; with none it
+    /// decides again ([`Mind::hides_nowhere`]).
+    Hides { from: u32 },
     /// The dryad druid blinks to the point about its target and sets thorns about the target
     /// ([`casts::druid_thorns`] of its level), where it may stand there (#1883).
     DruidBlinks { to: Spot, level: u32 },
@@ -3979,6 +4094,9 @@ mod tests {
             hero_low: false,
             followers: 0,
             friends: (false, false),
+            id: 0,
+            hornets: (0, false),
+            hornet_lives: false,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4083,6 +4201,9 @@ mod tests {
             hero_low: false,
             followers: 0,
             friends: (false, false),
+            id: 0,
+            hornets: (0, false),
+            hornet_lives: false,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4146,6 +4267,9 @@ mod tests {
             hero_low: false,
             followers: 0,
             friends: (false, false),
+            id: 0,
+            hornets: (0, false),
+            hornet_lives: false,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4187,6 +4311,239 @@ mod tests {
         );
     }
 
+    /// A sight of the hero `distance` along `x` from a creature at the origin, of the tests of the
+    /// Underworld's hornets and larvae (#2562).
+    fn hornets_sight(distance: f32, targeted: bool) -> Pursuit {
+        Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(distance, 0.0),
+            walk: None,
+            striking: false,
+            health: None,
+            target_makes: false,
+            listed: None,
+            targeted,
+            hero_size: SIZE,
+            outdoors: true,
+            strikes_down: false,
+        }
+    }
+
+    fn hornets_cast(id: u32, hornets: (u32, bool), hornet_lives: bool) -> CastSight {
+        CastSight {
+            now: 50.0,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            elite: false,
+            hostiles: 0,
+            crowded: true,
+            nearest: false,
+            scripted: 0,
+            hero_low: false,
+            followers: 0,
+            friends: (false, false),
+            id,
+            hornets,
+            hornet_lives,
+        }
+    }
+
+    fn fighting(creature: u32) -> Mind {
+        let mut mind = Mind::new(
+            at(0.0, 0.0),
+            0x1,
+            (true, false),
+            None,
+            SPEEDS,
+            (creature, 2),
+        );
+        mind.fighting = true;
+        mind
+    }
+
+    #[test]
+    fn a_hornet_flanks_the_hero_while_another_of_its_mark_is_listed() {
+        use crate::spawning::Script;
+        let mut hornet = fighting(casts::HORNET);
+        let sight = hornets_sight(300.0, false);
+        // Alone, it fights in melee.
+        let mut rolls = Script::new(vec![0]);
+        assert_eq!(
+            hornet.cast(
+                &sight,
+                &hornets_cast(0, (0, false), false),
+                || true,
+                &mut rolls
+            ),
+            None
+        );
+        // Another that strikes: at once, 400 off for an even id of the low bits 0, the line from
+        // the hero to it turned the even way.
+        let mut rolls = Script::new(vec![]);
+        let Some(Pursues::Strolls(to, true)) = hornet.cast(
+            &sight,
+            &hornets_cast(0, (1, true), true),
+            || true,
+            &mut rolls,
+        ) else {
+            panic!("no flank");
+        };
+        assert!(((to - at(300.0, 0.0)).length() - 400.0).abs() < 1e-3);
+        assert_eq!(to, at(300.0, 0.0) + (at(-1.0, 0.0) * 400.0).turned(-45.0));
+        // 550 for the low bits 3, turned the odd way.
+        let mut rolls = Script::new(vec![]);
+        let Some(Pursues::Strolls(to, true)) = hornet.cast(
+            &sight,
+            &hornets_cast(7, (1, true), true),
+            || true,
+            &mut rolls,
+        ) else {
+            panic!("no flank");
+        };
+        assert_eq!(to, at(300.0, 0.0) + (at(-1.0, 0.0) * 550.0).turned(45.0));
+        // Two that do not strike: a roll of three each, the first 0 flanks.
+        let mut rolls = Script::new(vec![2, 0]);
+        assert!(matches!(
+            hornet.cast(
+                &sight,
+                &hornets_cast(1, (2, false), true),
+                || true,
+                &mut rolls
+            ),
+            Some(Pursues::Strolls(_, true))
+        ));
+        let mut rolls = Script::new(vec![1, 2]);
+        assert_eq!(
+            hornet.cast(
+                &sight,
+                &hornets_cast(1, (2, false), true),
+                || true,
+                &mut rolls
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_queen_circles_the_hero_while_another_hornet_lives() {
+        use crate::spawning::Script;
+        let mut queen = fighting(casts::QUEEN);
+        let sight = hornets_sight(300.0, false);
+        let mut rolls = Script::new(vec![]);
+        assert_eq!(
+            queen.cast(
+                &sight,
+                &hornets_cast(0, (0, false), false),
+                || true,
+                &mut rolls
+            ),
+            None
+        );
+        let Some(Pursues::Strolls(to, true)) = queen.cast(
+            &sight,
+            &hornets_cast(1, (0, false), true),
+            || true,
+            &mut rolls,
+        ) else {
+            panic!("no circle");
+        };
+        assert!(((to - at(300.0, 0.0)).length() - casts::QUEEN_CIRCLE).abs() < 1e-3);
+        assert_eq!(queen.stands, casts::QUEEN_STANDS);
+        // On its way, 100 or more from its point, it walks on.
+        queen.stands = 0;
+        let walking = Pursuit {
+            walk: Some(Walking {
+                target: at(0.0, 150.0),
+                comes_on: false,
+                runs: true,
+            }),
+            ..sight
+        };
+        assert_eq!(
+            queen.cast(
+                &walking,
+                &hornets_cast(1, (0, false), true),
+                || true,
+                &mut rolls
+            ),
+            Some(Pursues::Faces)
+        );
+    }
+
+    #[test]
+    fn a_larva_dithers_and_hides_from_the_hero_near_it() {
+        use crate::spawning::Script;
+        let mut larva = fighting(191);
+        let cast = hornets_cast(0, (0, false), false);
+        // A roll of 0 of 3: it stands its ten decisions.
+        let mut rolls = Script::new(vec![0]);
+        assert_eq!(
+            larva.cast(&hornets_sight(100.0, false), &cast, || true, &mut rolls),
+            Some(Pursues::Faces)
+        );
+        assert_eq!(larva.stands, casts::LARVA_STANDS);
+        // No straight line to the hero: it stands.
+        larva.stands = 0;
+        let mut rolls = Script::new(vec![1]);
+        assert_eq!(
+            larva.cast(&hornets_sight(100.0, false), &cast, || false, &mut rolls),
+            Some(Pursues::Faces)
+        );
+        // Beyond twice its reach it fights in melee.
+        larva.stands = 0;
+        let mut rolls = Script::new(vec![1]);
+        assert_eq!(
+            larva.cast(&hornets_sight(1_000.0, false), &cast, || true, &mut rolls),
+            None
+        );
+        // Near, by its coin, or attacked whatever the coin, it hides from an angle at random.
+        let mut rolls = Script::new(vec![1, 1, 90]);
+        assert_eq!(
+            larva.cast(&hornets_sight(100.0, false), &cast, || true, &mut rolls),
+            Some(Pursues::Hides { from: 90 })
+        );
+        larva.stands = 0;
+        let mut rolls = Script::new(vec![1, 0, 30]);
+        assert_eq!(
+            larva.cast(&hornets_sight(100.0, true), &cast, || true, &mut rolls),
+            Some(Pursues::Hides { from: 30 })
+        );
+        larva.stands = 0;
+        let mut rolls = Script::new(vec![1, 0]);
+        assert_eq!(
+            larva.cast(&hornets_sight(100.0, false), &cast, || true, &mut rolls),
+            None
+        );
+        // Its points: 800 from it, 20° apart from the angle.
+        let points: Vec<Spot> = hiding_points(at(0.0, 0.0), 90).collect();
+        assert_eq!(points.len(), 18);
+        assert!((points[0] - at(0.0, 800.0)).length() < 1e-2);
+        assert!((points[1].length() - 800.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn the_hornet_hunter_charges_in_one_decision_of_three() {
+        use crate::spawning::Script;
+        let mut hunter = fighting(casts::HUNTER);
+        let sight = hornets_sight(300.0, false);
+        // Not the roll of 2 of 3: it decides as any other.
+        let mut rolls = Script::new(vec![1, 0, 0, 0, 0, 0]);
+        assert!(!matches!(
+            hunter.pursue(&sight, || true, &mut rolls),
+            Some(Pursues::Charges { .. })
+        ));
+        let mut hunter = fighting(casts::HUNTER);
+        let mut rolls = Script::new(vec![2]);
+        assert_eq!(
+            hunter.pursue(&sight, || true, &mut rolls),
+            Some(Pursues::Charges {
+                to: at(300.0, 0.0),
+                again: false
+            })
+        );
+    }
+
     #[test]
     fn a_black_magician_casts_keeps_its_band_and_runs_about() {
         use crate::spawning::Script;
@@ -4219,6 +4576,9 @@ mod tests {
             hero_low: false,
             followers: 0,
             friends: (false, false),
+            id: 0,
+            hornets: (0, false),
+            hornet_lives: false,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);

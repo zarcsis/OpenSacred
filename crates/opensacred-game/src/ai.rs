@@ -216,6 +216,14 @@ fn odd(home: Spot) -> bool {
     (x + y).rem_euclid(2) == 1
 }
 
+/// A creature's stand-in for the original's object id, which a hornet's flank and the queen's
+/// circle take (#2562): the sum of its home cell's coordinates, as for the guards' torches
+/// (docs/decisions/ai.md, "The guards' torches").
+fn stand_in_id(home: Spot) -> u32 {
+    let (x, y) = paths::cell_of(home.x, home.y);
+    u32::try_from((x + y).rem_euclid(1 << 16)).unwrap_or(0)
+}
+
 /// The game's generator for the creatures' chances.
 #[derive(Resource)]
 struct Minds {
@@ -941,6 +949,20 @@ fn pursue(
     let hero_level = experience
         .as_deref()
         .map_or(1, |experience| experience.level);
+    // The hornets alive in the hero's list (#2562): each one's type and whether it strikes.
+    let hornets: Vec<(Entity, u32, bool)> = nearest
+        .hostiles
+        .iter()
+        .filter_map(|&other| {
+            let (_, _, _, mind, _, strikes, health, ..) = creatures.get(other).ok()?;
+            let alive = health.is_none_or(|health| health.current > 0);
+            (alive && opensacred_rules::casts::HORNETS.contains(&mind.creature)).then_some((
+                other,
+                mind.creature,
+                strikes,
+            ))
+        })
+        .collect();
     // The hero of set 58's six pieces, who strikes down a creature that would flee it (#2547).
     let strikes_fleeing = holding.is_some_and(|holding| holding.0.sets.strikes_fleeing());
     let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
@@ -1090,6 +1112,19 @@ fn pursue(
                     }),
                 followers: summoned.get(&entity).copied().unwrap_or(0),
                 friends: (wounded_friend.is_some(), fighting_friend.is_some()),
+                id: stand_in_id(mind.home),
+                hornets: {
+                    let others = || {
+                        hornets.iter().filter(|&&(other, creature, _)| {
+                            other != entity && creature == opensacred_rules::casts::HORNET
+                        })
+                    };
+                    (
+                        u32::try_from(others().count()).unwrap_or(u32::MAX),
+                        others().any(|&(.., strikes)| strikes),
+                    )
+                },
+                hornet_lives: hornets.iter().any(|&(other, ..)| other != entity),
             };
             mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
         });
@@ -1450,6 +1485,29 @@ fn pursue(
                     Walk::to(to, way.level, mind.speed)
                 };
                 commands.entity(entity).insert(walk.within(STROLL_WITHIN));
+            }
+            Pursues::Hides { from } => {
+                // The first of its points on the ground that it may stand on, out of the hero's
+                // straight line, with a path to it (`0x4D98A4`); with none it decides again.
+                let found =
+                    opensacred_rules::minds::hiding_points(spot(here), from).find_map(|to| {
+                        let at = point(to, here.y);
+                        let height = heights.standing(at.x, at.z, None)?;
+                        let seen = paths::straight(hero.xz(), at.xz(), |cell| {
+                            heights.walkable_on(cell, None)
+                        });
+                        (!seen && way_to(here, way.level, to, &heights))
+                            .then_some(Vec3::new(at.x, height, at.z))
+                    });
+                match found {
+                    Some(to) => {
+                        debug!("ai: {entity} hides from the hero at {to}");
+                        commands
+                            .entity(entity)
+                            .insert(Walk::run(to, None, mind.run).within(STROLL_WITHIN));
+                    }
+                    None => mind.hides_nowhere(),
+                }
             }
             Pursues::Blinks => {
                 // The first of its tries about it that a straight way reaches, each within ±500

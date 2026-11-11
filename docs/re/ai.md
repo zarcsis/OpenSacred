@@ -434,6 +434,50 @@ Read 2026-11-02 for #1844 in `Sacred.exe`, code only (Ghidra and byte scans of `
   Read 2026-11-10 (#2461, probes on the 253 stores to `+0x200`): the spells' executor clears it at the cast's end (`0x5293E4` calls `0x4FC8E0(0x10)`, the store at `0x4FC8EE`), and each cast sets it again in the action 4 (`0x51D3E9`); while it holds, the creature ignores the events `0x100` and `0x101` (`0x52FA63`, `0x52FB7B`) and still attacks by its idle look.
 - Not read: the float parts of the chooser's friend and of the boss's scaling in `0x51D840`; an ordinary creature's `+0x3E`; whether each caster's model holds its spell's clip.
 
+## The Underworld's bosses' specials
+
+Read 2026-11-11 for #2548 (**confirmed** by code over `0x4D4E50`…`0x4DB8A0` and its helpers, unless marked).
+
+### The dispatch and the common ground
+
+- `0x4D4E50` first runs the keep-back of the bosses and champions (below), then switches on the mark `+0x25F`.
+  The marks above `0x20` go to `0x4D74AD`: `0x20A` to `0x4D8133`; `0x20B` to `0x210` by the table `0x4DB808` (`0x20D` `0x4D8C4F`, `0x20E` `0x4D8657`, `0x20F` `0x4D89F2`, `0x210` `0x4D8980`); `0x211` to `0x4D9674`; those above by the table `0x4DB820` at `0x4D9763` (`0x213` `0x4DB7B6`, `0x214` `0x4DAB44`, `0x215` `0x4D9789`, `0x216` the default, `0x217` `0x4DA90D`, `0x219` `0x4D9C2F`, `0x21A` `0x4D9A62`, `0x21B` `0x4DA9EC`, `0x21C` `0x4DAA8A`).
+  The default `0x4D5F33` clears the special mode (`+0x128` bit 0) and answers 0, so the melee decides; `0x4D5F37` answers 0 keeping it.
+- The ranged state 8 calls the specials only for the marks `0xA`, `0x20E` and `0x210` (`0x4DC441`).
+- `+0x129` is the count of decisions the creature then stands, `+0x12A` its moves, `+0x12B` 2 an order given; a walk's order sets `+0x150` 1, its point `+0x158`/`+0x15C`, its floor `+0x160`, its stop `+0x174`, `+0x176` 20 and its gait `+0x1F8` (2 a run, 1 a walk).
+- A weapon art ordered (the AI's state 11, `0x4FD0F0`) takes the order block (`+0x100` the target, `+0x108`/`+0x10C` its point, `+0x114` its floor, `+0x120` the art) and the action of `0x95583C` by `0x5500D0` of the type: 146, 190, 202, 203, 247, 344, 351, 352 and 354 the Dark Elf's action (10); 192, 204, 329, 342, 343, 350 and 363 the Gladiator's (8); 218 and 219 the Wood Elf's (11).
+  A creature's art level is `⌊L/5⌋ + 1`, times 1.4 for a boss and 1.2 for a champion.
+- The rolls that the difficulty scales take `p` of 20, 60, 80, 100 and 130 from bronze to niobium and pass where `R(1, 100)` falls below `⌊b·p/100⌋`: `b` 40 for a plain minimummy (`0x4D2D90(40)` at `0x4D8DA1`), 30 for `0x219` (`0x4D9C2F`), 50 for `0x217` and 30 for its type 344 (`0x4DA90D`), 15 for `0x21B` (`0x4DAA03`) and for `0x21C` (`0x4DAAA1`).
+
+### The keep-back of the bosses and champions (`0x4D4EF6`–`0x4D51AC`)
+
+- A boss (`+0x1F4` bit `0x80000`) or a champion-levelled creature (`+0xB0` bit `0x400`) missing less than a twelfth of its most health, of the marks 0, `0x200`, `0x400`, `0x800`, `0x1000`, `0x212` or `0x217`, keeps back (#2563): it leaves the mode where the hero's list holds fewer than two or it is their first, or where the hero targets it; else it stands two decisions and counts a move, and while fewer than 25 it stands from 240 of the hero with an order given or beyond 300, at a pace above 0.1 (`+0x2C9`); else in one case of three, not walking, it walks to 280 from the hero at a random angle and stands 25 decisions; else in one case of six it leaves the mode; else it turns to the hero where the list holds more than three, or by a roll of 4 of 6 does so.
+
+### The hornets and the larvae (#2562)
+
+- **`0x20F`, the hornet 190** (`0x4D89F2`): along the hero's list, the first other hornet of its mark whose action is 3, 5 or 10, or else by `R(0, 2)` of 0 for each, sends it at a run to the hero's place and the line from the hero to it, of the length `50·((id & 3) + 8)` (400 to 550 by its id), turned 45° one way for an odd id and the other for an even one, its floor the hero's, and the decision is taken; with none it fights in melee.
+  Its melee (`0x4E05DE`–`0x4E062F`) keeps the flyer's bit `+0x1F4` `0x200000` on the hornets 190, 335 and 336.
+- **`0x213`, the hornet hunter 335** (`0x4DB7B6`, as the minotaurs' `0x800`): `R(0, 2)` of 2 starts the melee's sub-state 11, the black rider's charge ("The riders"), whatever it does; the effect 24 of a charge again is the mark 10's alone (`0x4E33B5`).
+- **`0x214`, the hornet queen 336** (`0x4DAB44`): walking, 100 or more from its way's first point, it walks on and stands 10 decisions; else, where another hornet (190, 335, 336) lives in the hero's list, it runs to 480 from the hero at its own angle from the hero turned by 0.4 rad, one way for an odd id and the other for an even one, and stands 10 decisions; else it fights in melee.
+- **`0x215`, the insect larva 191 and the small slime worm 248** (`0x4D9789`): walking, or in one decision of three, it stands 10 decisions; without a straight way to the hero (`0x4FCC80`, the creatures blocking) it stops and stands 10; from twice its reach on it fights in melee; nearer, by a coin or where the hero targets it, it hides: from `rand() % 360` degrees by 20° at a time, 18 tries, the point 800 from itself on the ground (`0x635C40`) that it may stand on, with no straight way from it to the hero, to which a path leads (`0x4F7710`); it runs there and stands 10; with none it decides in melee.
+- **`0x216`** (195, 353): no code reads it; they fight in melee.
+
+### The other marks
+
+- **`0x20A`, the ice elf champion 146** (`0x4D8133`): within its reach and 30, by `R(0, 2)` of 0, it makes the Dark Elf's art 1067 or 1066 by a coin at the hero (#2564).
+- **`0x20D`, the minimummies 192, 329, 342, 343 and Tuktuk 363** (`0x4D8C4F`, #2565): walking it walks on.
+  A boss, a champion or Tuktuk nearer than 1.5·reach blinks to 3·reach from the hero at a random angle (`0x54D9D0`), with a battle fog 868 by the FX event `0x5C` at the place it leaves (variant 1) and at the one it takes (variant 2); else, its deadline passed or Tuktuk, by a coin, it makes a dagger 1712 in its empty right hand, or with one throws it by the art 1013 at the hero, 2 to 4 more after in a volley (`+0x2B3`, `+0x2B4`, the runner `0x4FE870`; the count a **hypothesis**), the thrown dagger striking players alone (its `+0xB0` bit 8); else it runs to 3·reach about the hero; it never fights in melee.
+  A plain one runs round the hero to 1.5·reach once two other members of its group strike, else makes the Gladiator's art 1059 by its roll (`b` 40).
+- **`0x20E` and `0x210`, the dryads 218 and 219** (`0x4D8657`, `0x4D8980`, #2566): near (within twice its reach), in one decision of three, a dryad seeks a point 300 to 500 from itself in some 603 tries from a random angle, one it may stand on, with no straight way back to itself where the creatures block, and from which a path leads to the hero; it leaps there by the Wood Elf's art 1003, after whose landing the mark is `0x210` (`0x50B70E`); the search leaves a dryad at a point whose path test failed (`0x4D884E`, a defect).
+  Far, in one decision of six, it makes the art 1062, 1004 or 1008 at the hero; of the mark `0x210`, within twice its reach it takes `0x20E` again, and beyond it shoots with a bow (`0x4D4A80`).
+- **`0x219`, the brain-footers 203, 351 and 352** (`0x4D9C2F`, #2567): by its roll (`b` 30), with a straight line to the hero and its casters' deadline passed, it beams from its bone 24 to a bone of the hero (the beam's variants 10, 11 and 12), lengthens the regeneration of the hero's arts of its kinds by `10·w` seconds, `w` its strength by the levels' weighing (`0x551530`: 0.1 to 1), gives the hero the effect 57 (its regeneration frozen as long), stops and burns the hero's sight (816 `FX_BURNINGLIGHT`); 203 sounds 2074.
+- **`0x21A`, `0x217` and `0x21B`, the Fetzers 202 and 344 and the queens 247 and 354** (#2568): a Fetzer starts of `0x21A` and takes `0x21B` in one case of three where another Fetzer fights the hero and is fought, else `0x217` (`0x4D9A62`, `0x4D9BFA`, the struck reaction `0x535C78`); `0x217` makes the Dark Elf's art 1067 by its roll (`b` 50, 30 for 344), `0x21B` by `b` 15.
+- **`0x21C`, the hell golems 204 and 350** (`0x4DAA8A`, #2564): by its roll (`b` 15) the Gladiator's art 1059.
+
+Since #2562 `opensacred-game` follows the hornets' and the larvae's (`casts::OwnMark::Hornet`, `Queen`, `Larva`, `Mind::own_casts`, the hunter's entry into `Mind::charges`, `Pursues::Hides`, `ai::pursue`): a hornet's and the queen's id the stand-in of the guards' torches (docs/decisions/ai.md); the larva's straight lines on the ground's cells, the creatures not counted.
+**Seen** 2026-11-11: two larvae near the hero ran off out of its sight, and a hornet fighting it ran to its flank while two others were listed; hornets spawned by the console did not all take on the hero, so the queen's circle and the hunter's charge were not seen.
+Not followed: the hornets' flyer's bit in melee (#2569).
+
 ## Open
 
 The test of the levels in detail; the AI's states 1, 6 and 10 to 14.
