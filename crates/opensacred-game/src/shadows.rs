@@ -299,10 +299,6 @@ fn soft(settings: Option<&Settings>) -> bool {
 
 /// The sun casts while the soft shadows are on, its cascade at the camera's zoom; the world's
 /// cameras take its view's layer.
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system takes its queries with their filters"
-)]
 fn switch(
     mut commands: Commands,
     settings: Option<Res<Settings>>,
