@@ -4550,6 +4550,19 @@ pub fn gold_for_health(damage: f32, (value, gold): (f32, u32), rng: &mut impl Di
 /// (`0x357`, `0x4E2616`; #1806).
 pub const CAGING: u32 = 855;
 
+/// Whether a wild animal that the effect [`CAGING`] of `value` holds is caged by `roll`,
+/// `R(0, 100)`: the roll below the value (`0x4E26F1`, #1806).
+pub fn cages(value: f32, roll: u32) -> bool {
+    value > 0.0 && f64::from(roll) < f64::from(value)
+}
+
+/// The chance, a share of 1, that the effect [`CAGING`] of `value` cages a wild animal that it
+/// holds ([`cages`]): the faces of `R(0, 100)` below the value, of its 101 (#2606).
+pub fn caging_chance(value: f32) -> f32 {
+    let faces = (0..=100).filter(|&roll| cages(value, roll)).count();
+    f32::from(u8::try_from(faces).unwrap_or(101)) / 101.0
+}
+
 /// The items' effect of the terror (`SCHRECKEN_NEU`, `0x354`), by which the hero's look kills
 /// the weak hostile creatures at once ([`Rules::terror_threshold`], [`terrifies`]).
 pub const TERROR: u32 = 852;
@@ -5243,6 +5256,18 @@ mod tests {
         // A hero of level 20 disarms one of level 15 where the roll falls below 5.
         assert!(terror_disarms(20, 15, 4) && !terror_disarms(20, 15, 5));
         assert!(!terror_disarms(10, 15, 0));
+    }
+
+    #[test]
+    fn the_caging_cages_by_the_rolls_below_its_value_of_101() {
+        // 20: the rolls 0 to 19 cage, 20 of the 101 (#1806, #2606).
+        assert!(cages(20.0, 19) && !cages(20.0, 20));
+        assert!((caging_chance(20.0) - 20.0 / 101.0).abs() < 1e-6);
+        // A part of a face counts it whole; none below 0, all 101 from 101 up.
+        assert!((caging_chance(19.5) - 20.0 / 101.0).abs() < 1e-6);
+        assert_eq!(caging_chance(0.0), 0.0);
+        assert!(!cages(0.0, 0));
+        assert_eq!(caging_chance(150.0), 1.0);
     }
 
     #[test]

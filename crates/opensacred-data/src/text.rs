@@ -11,6 +11,12 @@ pub const GLOBAL: &str = "text/en-US/global.ftl";
 /// applies").
 pub const SET_POTIONS: &str = "OPENSACRED_SET_POTIONS";
 
+/// The name of the project's own label of the wild animals held and caged as they flee: the
+/// items' effect 855 and set 41's terror, whose own text speaks of flying opponents
+/// (`opensacred-convert text` adds it; #2606, docs/decisions/interface.md, "Fleeing animals'
+/// trap told").
+pub const TRAP_FLEEING: &str = "OPENSACRED_TRAP_FLEEING";
+
 /// The id of the string named `name` (`FUN_0080E780`, per sacred-sdk, MIT): its [`sacred_key`]
 /// without the top bit (docs/02 §8). A numeric reference `res:N` hashes the text of `N`.
 pub fn sacred_hash(name: &[u8]) -> u32 {

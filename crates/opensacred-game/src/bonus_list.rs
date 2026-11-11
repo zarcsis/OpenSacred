@@ -185,7 +185,14 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
         850 => per_cent_of(1141),
         851 => per_cent_of(1142),
         853 => named(1130),
-        855 => per_cent_of(1150),
+        // The wild animals fleeing from the hero held and caged at the share of the roll's 101
+        // faces below the value, in the project's own words where the original's text speaks of
+        // flying opponents at the value as a per cent (#2606).
+        fight::CAGING => format!(
+            "{}: {v:+} ({})",
+            words.of(opensacred_data::text::TRAP_FLEEING),
+            per_cent(f64::from(fight::caging_chance(listed.value)) * 100.0)
+        ),
         856 => per_cent_of(1143),
         857 => per_cent_of(1151),
         // The magic defence's chance is its caster's (M17, #1727): the value alone.
@@ -289,6 +296,7 @@ mod tests {
             listed(0, 859, 10.0),
             listed(0, 1071, 1.0),
             listed(0, 854, 5.0),
+            listed(0, 855, 20.0),
         ];
         let text = text(&list, &words(), &chances);
         let lines: Vec<&str> = text.split("<n>").collect();
@@ -305,6 +313,8 @@ mod tests {
                 "<colorl=FFD8AB30>[UI_RARE_SCHOCK]: +10 (+5%)",
                 "<colorl=FFD8AB30>[1132]: +10 (+9.9%)",
                 "<colorl=FF449BEA>[art 1071]: +1",
+                // The trap of the fleeing animals on 20 rolls of 101 (#2606).
+                "<colorl=FFD8AB30>[OPENSACRED_TRAP_FLEEING]: +20 (+19.8%)",
             ]
         );
     }
