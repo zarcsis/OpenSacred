@@ -801,6 +801,21 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
     })
 }
 
+/// The marks whose bosses and champions keep back from the hero while nearly whole
+/// (`0x4D4EF6`–`0x4D51AC`, #2563): none, `0x200`, `0x400`, `0x800`, `0x1000`, `0x212` and
+/// `0x217`.
+pub const KEEPS_BACK: [u16; 7] = [0, 0x200, 0x400, 0x800, 0x1000, 0x212, 0x217];
+/// Its terms: whole while it misses less than a twelfth of its most health; it comes on from
+/// beyond 300, or from within 240 once ordered, for 25 moves; else it walks to 280 from the hero
+/// at a random angle and stands 25 decisions; each keep-back stands 2.
+pub const KEEP_SHARE: u32 = 12;
+pub const KEEP_NEAR: f32 = 240.0;
+pub const KEEP_FAR: f32 = 300.0;
+pub const KEEP_MOVES: u8 = 25;
+pub const KEEP_BACK: f32 = 280.0;
+pub const KEEP_STANDS: u8 = 25;
+pub const KEEP_PAUSE: u8 = 2;
+
 /// The hornet (190), the hornet hunter (335) and the hornet queen (336), the hornets of the
 /// Underworld, of the marks `0x20F`, `0x213` and `0x214`.
 pub const HORNET: u32 = 190;

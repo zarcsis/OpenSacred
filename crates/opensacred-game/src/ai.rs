@@ -1095,39 +1095,43 @@ fn pursue(
             .map(|f| (f.0, f.1));
         let fighting_friend = near.iter().find(|(.., fights)| *fights).map(|f| (f.0, f.1));
         // A caster's decision first (#1852), while it casts none; the casts the game follows.
-        let cast = (!casting && crate::creature_casts::casts(mind.creature)).then(|| {
-            let sight_of_cast = opensacred_rules::minds::CastSight {
-                now,
-                at_hero: foe.is_none(),
-                hero_level,
-                held: hero_held,
-                elite: rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common),
-                hostiles: 0,
-                crowded: nearest.hostiles.len() > 1,
-                nearest: nearest.hostiles.first() == Some(&entity),
-                scripted: u16::from(mind.spell),
-                hero_low: mind.creature == opensacred_rules::casts::SHARIFA
-                    && hero_health.is_some_and(|(current, most)| {
-                        opensacred_rules::casts::hero_low(current, most)
-                    }),
-                followers: summoned.get(&entity).copied().unwrap_or(0),
-                friends: (wounded_friend.is_some(), fighting_friend.is_some()),
-                id: stand_in_id(mind.home),
-                hornets: {
-                    let others = || {
-                        hornets.iter().filter(|&&(other, creature, _)| {
-                            other != entity && creature == opensacred_rules::casts::HORNET
-                        })
-                    };
-                    (
-                        u32::try_from(others().count()).unwrap_or(u32::MAX),
-                        others().any(|&(.., strikes)| strikes),
-                    )
-                },
-                hornet_lives: hornets.iter().any(|&(other, ..)| other != entity),
-            };
-            mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
-        });
+        // A boss's or a champion's keep-back too, whatever its mark (#2563).
+        let elite = rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common);
+        let cast =
+            (!casting && (crate::creature_casts::casts(mind.creature) || elite)).then(|| {
+                let sight_of_cast = opensacred_rules::minds::CastSight {
+                    now,
+                    at_hero: foe.is_none(),
+                    hero_level,
+                    held: hero_held,
+                    elite: rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common),
+                    hostiles: 0,
+                    crowded: nearest.hostiles.len() > 1,
+                    nearest: nearest.hostiles.first() == Some(&entity),
+                    scripted: u16::from(mind.spell),
+                    hero_low: mind.creature == opensacred_rules::casts::SHARIFA
+                        && hero_health.is_some_and(|(current, most)| {
+                            opensacred_rules::casts::hero_low(current, most)
+                        }),
+                    followers: summoned.get(&entity).copied().unwrap_or(0),
+                    friends: (wounded_friend.is_some(), fighting_friend.is_some()),
+                    id: stand_in_id(mind.home),
+                    hornets: {
+                        let others = || {
+                            hornets.iter().filter(|&&(other, creature, _)| {
+                                other != entity && creature == opensacred_rules::casts::HORNET
+                            })
+                        };
+                        (
+                            u32::try_from(others().count()).unwrap_or(u32::MAX),
+                            others().any(|&(.., strikes)| strikes),
+                        )
+                    },
+                    hornet_lives: hornets.iter().any(|&(other, ..)| other != entity),
+                    listed: u32::try_from(nearest.hostiles.len()).unwrap_or(u32::MAX),
+                };
+                mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
+            });
         if casting {
             continue;
         }

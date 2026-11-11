@@ -1331,6 +1331,55 @@ impl Mind {
         self.held_for(seconds.max(STUNNED));
     }
 
+    /// The keep-back of a boss or a champion of a mark of [`casts::KEEPS_BACK`] that misses less
+    /// than a twelfth of its most health, before any mark's special (`0x4D4EF6`–`0x4D51AC`,
+    /// #2563): none where it does not keep back; the melee's decision (`Some(None)`) where it is
+    /// the first of the hero's list, the list holds fewer than two or the hero attacks it, and
+    /// else as it comes on, from beyond [`casts::KEEP_FAR`] or from within [`casts::KEEP_NEAR`]
+    /// once ordered, for [`casts::KEEP_MOVES`] moves; else standing, in one case of three it walks
+    /// to [`casts::KEEP_BACK`] from the hero at a random angle and stands; else in one case of six
+    /// the melee decides; else it turns to the hero where the list holds more than three, and
+    /// otherwise by a roll of 2 of 6, the melee deciding at the others. Each keep-back stands
+    /// [`casts::KEEP_PAUSE`] decisions after.
+    fn keeps_back(
+        &mut self,
+        sight: &Pursuit,
+        cast: &CastSight,
+        rng: &mut impl Dice,
+    ) -> Option<Option<Pursues>> {
+        let (current, most) = sight.health?;
+        if !cast.elite
+            || most.saturating_sub(current) >= most / casts::KEEP_SHARE
+            || !casts::KEEPS_BACK.contains(&casts::mark(self.creature))
+        {
+            return None;
+        }
+        if cast.listed < 2 || cast.nearest || sight.targeted {
+            return Some(None);
+        }
+        self.stands = casts::KEEP_PAUSE;
+        self.band_moves = self.band_moves.saturating_add(1);
+        let d = (sight.hero - sight.here).length();
+        let comes_on = (d < casts::KEEP_NEAR && self.cast_ordered) || d > casts::KEEP_FAR;
+        if comes_on && self.band_moves < casts::KEEP_MOVES {
+            return Some(None);
+        }
+        if sight.walk.is_none() && rng.below(3) == 2 {
+            self.stands = casts::KEEP_STANDS;
+            let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
+            let (sin, cos) = degrees.to_radians().sin_cos();
+            let to = sight.hero + Spot::new(cos, sin) * casts::KEEP_BACK;
+            return Some(Some(Pursues::Strolls(to, false)));
+        }
+        if rng.below(6) == 4 {
+            return Some(None);
+        }
+        if cast.listed > 3 || rng.below(6) >= 4 {
+            return Some(Some(Pursues::Faces));
+        }
+        Some(None)
+    }
+
     /// A larva that found no point to hide at decides again at once ([`Pursues::Hides`]).
     pub fn hides_nowhere(&mut self) {
         self.stands = 0;
@@ -1421,7 +1470,9 @@ impl Mind {
         let mage = casts::mark_8(self.creature);
         let own = casts::own_mark(self.creature);
         let shot = casts::coming_on(self.creature);
-        if mark_1.is_none() && !dragon && !demon && !mage && own.is_none() && shot.is_none() {
+        let caster = mark_1.is_some() || dragon || demon || mage || own.is_some() || shot.is_some();
+        // A boss or a champion that casts nothing may keep back ([`Self::keeps_back`], #2563).
+        if !caster && !cast.elite {
             return None;
         }
         if !self.fighting || self.ranged || sight.striking {
@@ -1455,6 +1506,12 @@ impl Mind {
         if self.stands > 0 {
             self.stands -= 1;
             return Some(Pursues::Faces);
+        }
+        if let Some(decided) = self.keeps_back(sight, cast, rng) {
+            return decided;
+        }
+        if !caster {
+            return None;
         }
         let (here, target) = (sight.here, sight.hero);
         if mage {
@@ -2730,6 +2787,9 @@ pub struct CastSight {
     /// lives there ([`casts::HORNETS`], `0x4DABB0`).
     pub hornets: (u32, bool),
     pub hornet_lives: bool,
+    /// How many the hero's list of hostiles holds (`0xAD3BC8`), which a boss's keep-back weighs
+    /// ([`Mind::keeps_back`]).
+    pub listed: u32,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -4097,6 +4157,7 @@ mod tests {
             id: 0,
             hornets: (0, false),
             hornet_lives: false,
+            listed: 0,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4204,6 +4265,7 @@ mod tests {
             id: 0,
             hornets: (0, false),
             hornet_lives: false,
+            listed: 0,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4270,6 +4332,7 @@ mod tests {
             id: 0,
             hornets: (0, false),
             hornet_lives: false,
+            listed: 0,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4346,6 +4409,7 @@ mod tests {
             id,
             hornets,
             hornet_lives,
+            listed: 0,
         }
     }
 
@@ -4599,6 +4663,130 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_boss_keeps_back_unless_it_is_the_first_or_attacked() {
+        use crate::spawning::Script;
+        let sight = |distance: f32, current: u32| Pursuit {
+            health: Some((current, 120)),
+            here: at(10.0, 10.0),
+            hero: at(10.0 + distance, 10.0),
+            ..hornets_sight(distance, false)
+        };
+        let boss = |listed: u32| CastSight {
+            elite: true,
+            listed,
+            ..hornets_cast(0, (0, false), false)
+        };
+        let decide = |mind: &mut Mind, sight: &Pursuit, cast: &CastSight, rolls: Vec<u32>| {
+            mind.cast(sight, cast, || true, &mut Script::new(rolls))
+        };
+        let near = sight(270.0, 120);
+        // A goblin (the mark 0x400) of no rank, a wounded boss, the first of the list, a list of
+        // one, or one the hero attacks: the melee decides.
+        let mut goblin = fighting(76);
+        let common = CastSight {
+            elite: false,
+            ..boss(3)
+        };
+        assert_eq!(decide(&mut goblin, &near, &common, vec![2, 0]), None);
+        assert_eq!(
+            decide(&mut goblin, &sight(270.0, 110), &boss(3), vec![2, 0]),
+            None
+        );
+        assert_eq!(goblin.stands, 0);
+        let first = CastSight {
+            nearest: true,
+            ..boss(3)
+        };
+        assert_eq!(decide(&mut goblin, &near, &first, vec![2, 0]), None);
+        assert_eq!(decide(&mut goblin, &near, &boss(1), vec![2, 0]), None);
+        let attacked = Pursuit {
+            targeted: true,
+            ..near
+        };
+        assert_eq!(decide(&mut goblin, &attacked, &boss(3), vec![2, 0]), None);
+        assert_eq!(goblin.stands, 0);
+        // A list of two keeps it back already.
+        assert!(decide(&mut goblin, &near, &boss(2), vec![2, 0]).is_some());
+        goblin.stands = 0;
+        // Missing less than a twelfth (9 of 120 below 10): it walks to 280 from the hero at the
+        // angle of its roll, by its roll of 2 of 3, and stands 25 decisions.
+        let to = decide(&mut goblin, &sight(270.0, 111), &boss(3), vec![2, 90]);
+        let Some(Pursues::Strolls(to, false)) = to else {
+            panic!("no keep-back: {to:?}");
+        };
+        assert!((to - at(280.0, 290.0)).length() < 1e-2, "{to:?}");
+        assert_eq!(goblin.stands, casts::KEEP_STANDS);
+        // Else by a roll of 4 of 6 the melee decides; else it turns to the hero where the list
+        // holds more than three, else by a roll of 4 or 5 of 6.
+        let mut goblin = fighting(76);
+        assert_eq!(decide(&mut goblin, &near, &boss(3), vec![0, 4]), None);
+        assert_eq!(goblin.stands, casts::KEEP_PAUSE);
+        goblin.stands = 0;
+        let faces = Some(Pursues::Faces);
+        assert_eq!(decide(&mut goblin, &near, &boss(4), vec![0, 0]), faces);
+        goblin.stands = 0;
+        assert_eq!(decide(&mut goblin, &near, &boss(3), vec![0, 0, 4]), faces);
+        goblin.stands = 0;
+        assert_eq!(decide(&mut goblin, &near, &boss(3), vec![0, 0, 3]), None);
+        // Walking, it walks not off.
+        goblin.stands = 0;
+        let walking = Pursuit {
+            walk: Some(Walking {
+                target: at(0.0, 0.0),
+                comes_on: false,
+                runs: false,
+            }),
+            ..near
+        };
+        assert_eq!(decide(&mut goblin, &walking, &boss(3), vec![2, 0]), None);
+        // At 300 it keeps back; from beyond, it comes on, the melee deciding, for 25 moves; then
+        // it keeps back.
+        let mut goblin = fighting(76);
+        assert!(decide(&mut goblin, &sight(300.0, 120), &boss(3), vec![2, 0]).is_some());
+        let mut goblin = fighting(76);
+        for _ in 0..24 {
+            goblin.stands = 0;
+            assert_eq!(
+                decide(&mut goblin, &sight(301.0, 120), &boss(3), vec![2, 0]),
+                None
+            );
+        }
+        goblin.stands = 0;
+        assert!(matches!(
+            decide(&mut goblin, &sight(301.0, 120), &boss(3), vec![2, 0]),
+            Some(Pursues::Strolls(_, false))
+        ));
+        // Within 240 it comes on once ordered alone.
+        let mut goblin = fighting(76);
+        assert!(matches!(
+            decide(&mut goblin, &sight(239.0, 120), &boss(3), vec![2, 0]),
+            Some(Pursues::Strolls(..))
+        ));
+        let mut goblin = fighting(76);
+        goblin.cast_ordered = true;
+        assert_eq!(
+            decide(&mut goblin, &sight(239.0, 120), &boss(3), vec![2, 0]),
+            None
+        );
+        goblin.stands = 0;
+        assert!(matches!(
+            decide(&mut goblin, &sight(240.0, 120), &boss(3), vec![2, 0]),
+            Some(Pursues::Strolls(..))
+        ));
+        // A mark not of the keep-back: its own special.
+        let mut hornet = fighting(casts::HORNET);
+        assert_eq!(decide(&mut hornet, &near, &boss(3), vec![2, 0]), None);
+        // A dragon of no rank casts as ever: the keep-back is no caster's gate.
+        let mut dragon = fighting(52);
+        let far = hornets_sight(2_000.0, false);
+        let cast = hornets_cast(0, (0, false), false);
+        assert!((0..2).any(|roll| matches!(
+            dragon.cast(&far, &cast, || true, &mut Script::new(vec![roll, 0, 0])),
+            Some(Pursues::Casts { .. })
+        )));
+    }
+
+    #[test]
     fn a_black_magician_casts_keeps_its_band_and_runs_about() {
         use crate::spawning::Script;
         let mut mage = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (266, 2));
@@ -4633,6 +4821,7 @@ mod tests {
             id: 0,
             hornets: (0, false),
             hornet_lives: false,
+            listed: 0,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);

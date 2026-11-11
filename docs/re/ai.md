@@ -452,6 +452,8 @@ Read 2026-11-11 for #2548 (**confirmed** by code over `0x4D4E50`…`0x4DB8A0` an
 ### The keep-back of the bosses and champions (`0x4D4EF6`–`0x4D51AC`)
 
 - A boss (`+0x1F4` bit `0x80000`) or a champion-levelled creature (`+0xB0` bit `0x400`) missing less than a twelfth of its most health, of the marks 0, `0x200`, `0x400`, `0x800`, `0x1000`, `0x212` or `0x217`, keeps back (#2563): it leaves the mode where the hero's list holds fewer than two or it is their first, or where the hero targets it; else it stands two decisions and counts a move, and while fewer than 25 it stands from 240 of the hero with an order given or beyond 300, at a pace above 0.1 (`+0x2C9`); else in one case of three, not walking, it walks to 280 from the hero at a random angle and stands 25 decisions; else in one case of six it leaves the mode; else it turns to the hero where the list holds more than three, or by a roll of 4 of 6 does so.
+  Since #2563 `opensacred-game` follows it (`Mind::keeps_back`, `casts::KEEPS_BACK`), for the bosses and champions of every rank but the common, whatever they cast, before their marks' specials.
+  **Seen** 2026-11-11: a boss goblin spawned behind three goblins fighting the Gladiator kept 3 to 5 cells off her while they fought her at her side.
 
 ### The hornets and the larvae (#2562)
 
