@@ -2686,8 +2686,7 @@ fn behave(
             debug!("ai: {entity} stands in the hero's terror");
             stops.push(entity);
             let roll = minds.rng.below(101);
-            if caging > 0.0
-                && f64::from(roll) < f64::from(caging)
+            if opensacred_rules::fight::cages(caging, roll)
                 && let Some(seconds) = cage_seconds
             {
                 debug!("ai: {entity} caged for {seconds} s");

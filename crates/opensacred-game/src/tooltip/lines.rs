@@ -646,7 +646,7 @@ const PLUS: [(u32, &str); 20] = [
     (865, "1133"),
     (868, "UI_RARE_ALCHEMIE"),
 ];
-const PER_CENT: [(u32, &str); 17] = [
+const PER_CENT: [(u32, &str); 16] = [
     (813, "1148"),
     (814, "1149"),
     (841, "1125"),
@@ -658,7 +658,6 @@ const PER_CENT: [(u32, &str); 17] = [
     (850, "1141"),
     (851, "1142"),
     (852, "1129"),
-    (855, "1150"),
     (856, "1143"),
     (857, "1151"),
     (860, "UI_RARE_SCHADEN"),
@@ -728,6 +727,16 @@ fn bonus_line(bonus: &Bonus, leech: f32, words: &Words) -> Option<Line> {
             )
         }
         864 => format!("{} ", words.of("1144")),
+        // The wild animals fleeing from the bearer held, and caged at the chance of the roll's
+        // 101 faces below the value, in the project's own words where the original's text 1150
+        // speaks of flying opponents at the value as a per cent (#2606).
+        opensacred_rules::fight::CAGING => format!(
+            "{}: {}",
+            words.of(opensacred_data::text::TRAP_FLEEING),
+            super::set::share(opensacred_rules::fight::caging_chance(f32::from(
+                bonus.value
+            )))
+        ),
         841 => {
             // To a tenth, the float factors' last bits aside.
             let taken = (f64::from(v) * f64::from(leech) * 10.0).round() / 10.0;
@@ -928,6 +937,11 @@ mod tests {
         };
         // The open wounds, read on the struck creature's own items, show no line (#1759).
         assert!(shown(&ring(&[(857, 10)]), &hero(&[])).is_empty());
+        // The trap of the fleeing animals, 20 faces of the roll's 101 (#2606).
+        assert_eq!(
+            shown(&ring(&[(855, 20)]), &hero(&[])),
+            ["<OPENSACRED_TRAP_FLEEING>: +19.8%"]
+        );
         // The alchemy alone, unmarked, none; beside a marked effect, or on a marked hero, its own.
         assert!(shown(&ring(&[(868, 5)]), &hero(&[])).is_empty());
         assert_eq!(

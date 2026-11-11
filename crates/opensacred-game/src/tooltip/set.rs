@@ -33,7 +33,7 @@ pub(crate) struct Wearer<'a> {
 }
 
 /// `x` as a share in per cent, signed, to a tenth where it is not whole.
-fn share(x: f32) -> String {
+pub(super) fn share(x: f32) -> String {
     let p = (f64::from(x) * 1000.0).round() / 10.0;
     if p.fract() == 0.0 {
         format!("{p:+}%")
@@ -155,8 +155,13 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         // adds the project's own words under it (the maintainer's choice of 2026-11-11, #2559).
         Told::StrikesFleeing => white(words.of("UI_SET_FLUCHT")),
         // Set 41's line at 4 (`0x571710`'s `{T1150}: %d%%`), the share of the animals' flights
-        // in which they stand, of the roll's 101 faces.
-        Told::Terror(per_cent) => white(format!("{}: {}", n(1150), share(per_cent / 100.0))),
+        // in which they stand, of the roll's 101 faces, in the project's own words where the
+        // original's speak of flying opponents (#2606).
+        Told::Terror(per_cent) => white(format!(
+            "{}: {}",
+            words.of(opensacred_data::text::TRAP_FLEEING),
+            share(per_cent / 100.0)
+        )),
         // The open wounds' chance of a strike, as the items' effect 857 is worded.
         Told::OpenWounds(chance) => white(format!("{}: {}", n(1151), share(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
@@ -388,7 +393,10 @@ mod tests {
         assert_eq!(told(Told::Pierces), ["<UI_SET_DURCHBOHREN>"]);
         assert_eq!(told(Told::StrikesFleeing), ["<UI_SET_FLUCHT>"]);
         assert_eq!(told(Told::Binds(30)), ["30% <UI_SET_ROOTEN>"]);
-        assert_eq!(told(Told::Terror(2000.0 / 101.0)), ["<1150>: +19.8%"]);
+        assert_eq!(
+            told(Told::Terror(2000.0 / 101.0)),
+            ["<OPENSACRED_TRAP_FLEEING>: +19.8%"]
+        );
         assert_eq!(told(Told::Potions(10.0)), ["<OPENSACRED_SET_POTIONS>: 10%"]);
         assert_eq!(
             told(Told::Bonus(Bonus::Multiplier(
