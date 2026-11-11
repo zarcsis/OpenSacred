@@ -4658,6 +4658,49 @@ impl Npcs {
     }
 }
 
+/// The weapons whose sounds a type of no sound profile takes by its family (`Weapon.pak +0x85`,
+/// `0x425EC0`'s switch, #2496): five each, one of which the type's own seed picks ([`by_family`]);
+/// none for the other families.
+fn family_weapons(family: u8) -> Option<[u32; 5]> {
+    Some(match family {
+        0 => [1724, 1725, 1726, 1728, 1729],
+        1 => [1727, 1712, 1713, 1714, 1712],
+        5 | 6 => [1722, 1723, 1737, 1738, 1754],
+        8 | 9 => [1743, 1731, 1730, 1732, 1733],
+        10..=12 => [1862, 1863, 1864, 1865, 1866],
+        21..=24 => [1875, 1852, 1717, 1716, 1850],
+        _ => return None,
+    })
+}
+
+/// The first `rand()` of the C library after `srand(seed)` (`0x849B33`, `0x849B40`): the state
+/// times 214,013 plus 2,531,011, its bits 16 to 30.
+fn first_rand(seed: u32) -> u32 {
+    (seed.wrapping_mul(214_013).wrapping_add(2_531_011) >> 16) & 0x7FFF
+}
+
+/// The sound profile that a type `slot` of no profile of its own takes (`0x425EC0`, #2496): below
+/// 8,191 and of a `Weapon.pak` record, a weapon of its record's family ([`family_weapons`]),
+/// picked by `rand() % 5` after `srand(slot)`, and that weapon's profile; 0 for any other.
+fn by_family(
+    slot: u32,
+    weapons: &HashMap<u32, &opensacred_data::tables::Weapon>,
+    items: &HashMap<u32, &Item>,
+) -> u32 {
+    if slot >= 0x1FFF {
+        return 0;
+    }
+    let Some(record) = weapons.get(&slot) else {
+        return 0;
+    };
+    let family = u8::try_from(record.words_84.first().copied().unwrap_or(0) >> 8).unwrap_or(0);
+    let Some(choice) = family_weapons(family) else {
+        return 0;
+    };
+    let pick = usize::try_from(first_rand(slot) % 5).unwrap_or(0);
+    items.get(&choice[pick]).map_or(0, |item| item.sound())
+}
+
 /// The gear of the items of the types `slots`, which are their `items.pak` slots: a fixed item,
 /// a record of `Weapon.pak` without an `items.pak` slot of its own, as the heroes' templates' are,
 /// takes its parent's (`+0x24`), its model and its category, as the client copies the parent's
@@ -4670,6 +4713,8 @@ fn gear_table<'a>(
     slots: impl IntoIterator<Item = &'a u32>,
 ) -> HashMap<u32, Gear> {
     let parents: HashMap<u32, u32> = weapons.iter().map(|w| (w.id, w.parent)).collect();
+    let records: HashMap<u32, &opensacred_data::tables::Weapon> =
+        weapons.iter().map(|w| (w.id, w)).collect();
     let record = |slot: u32| {
         std::iter::successors(Some(slot), |slot| {
             parents.get(slot).copied().filter(|&parent| parent != 0)
@@ -4694,8 +4739,12 @@ fn gear_table<'a>(
                 },
                 counts: item.byte_03 & 2 == 0,
                 // Its parent's where it has no slot of its own, as the items' table's loader
-                // copies a parent's entry onto its children's (`0x4257A0` at `0x425A1A`, #2488).
-                sound: item.sound(),
+                // copies a parent's entry onto its children's (`0x4257A0` at `0x425A1A`, #2488);
+                // where that is none, a weapon's of its family (#2496).
+                sound: match item.sound() {
+                    0 => by_family(slot, &records, items),
+                    sound => sound,
+                },
                 size: arrows::size(item.words_14[0]),
                 group: switch_group(item),
             };
@@ -12930,6 +12979,59 @@ mod tests {
         );
         assert_eq!(gear[&7901].sound, 500);
         assert_eq!(gear[&1712].sound, 501);
+    }
+
+    #[test]
+    fn a_weapon_of_no_profile_sounds_as_a_weapon_of_its_family() {
+        let item = |slot, sound| Item {
+            slot,
+            kind: 2,
+            class: 0,
+            subclass: 0,
+            name: "sword.grn".into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0, 0, 0, 0, sound, 0, 0, 0],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0; 10],
+        };
+        let weapon = |id, family: u16| opensacred_data::tables::Weapon {
+            id,
+            parent: 0,
+            name: String::new(),
+            floats_00: [0.0; 5],
+            bytes_14: [0; 4],
+            float_18: 0.0,
+            bytes_1c: [0; 8],
+            words_84: vec![family << 8],
+        };
+        // The C library's first draw after `srand(1242)`: 4094, the fifth of the swords' 1729;
+        // after `srand(1711)`, 5626, the second, 1725.
+        assert_eq!([first_rand(1242), first_rand(1711)], [4094, 5626]);
+        let (daemons, other, quiet) = (item(1242, 0), item(1711, 0), item(1999, 0));
+        let (fifth, second) = (item(1729, 505), item(1725, 502));
+        let items = HashMap::from([
+            (1242, &daemons),
+            (1711, &other),
+            (1999, &quiet),
+            (1729, &fifth),
+            (1725, &second),
+        ]);
+        let weapons = [weapon(1242, 0), weapon(1711, 0), weapon(1999, 3)];
+        let gear = gear_table(
+            &items,
+            &weapons,
+            &HashMap::new(),
+            (&HashMap::new(), &HashMap::new()),
+            &[1242, 1711, 1999],
+        );
+        assert_eq!(gear[&1242].sound, 505);
+        assert_eq!(gear[&1711].sound, 502);
+        // A family of no list stays silent.
+        assert_eq!(gear[&1999].sound, 0);
     }
 
     /// What two soldiers' types are made of: 279 of the class 3, holding the shield 1211, and 276
