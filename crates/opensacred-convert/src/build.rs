@@ -121,8 +121,11 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     {
         let cursor = path.starts_with("textures/texture/")
             && stem.ends_with(&format!("-{}", texture::CURSOR));
-        // The sprites' images too, which the game packs into its pages (#838).
-        let usage = if cursor || sprite || read.contains(path) {
+        // The sprites' images with their levels, which the game packs into its pages (#838,
+        // #839).
+        let usage = if sprite {
+            Use::Sprite
+        } else if cursor || read.contains(path) {
             Use::Read
         } else {
             Use::Sampled

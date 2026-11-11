@@ -55,14 +55,14 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use opensacred_data::texture;
 use opensacred_data::world::{
-    SIDE, Sector, Shadow, Sprite, Sprites, StaticObject, World, sprite_image,
+    SIDE, SPRITE_ALIGN, SPRITE_LEVELS, Sector, Shadow, Sprite, Sprites, StaticObject, World,
+    sprite_image,
 };
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
 use crate::parallel::{self, Spread};
 use crate::sectors::Staged;
-use crate::terrain::read_texture;
 use crate::{buildings, files, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
@@ -452,8 +452,7 @@ fn nearness(anchor: [f32; 4]) -> f64 {
 
 /// The width of a page of a sector's sprites, and the most it grows to before another begins.
 const PAGE: usize = 2048;
-/// Transparent texels between two sprites of a page.
-const GUTTER: usize = 1;
+const _: () = assert!(PAGE.is_multiple_of(SPRITE_ALIGN));
 
 /// Where a quad's texels come from: a miniature's atlas, a page of the sector's sprites, or the
 /// shadow atlas.
@@ -482,45 +481,70 @@ struct Quad {
 /// A sprite's image over its rectangle, which the converter assembled from its pieces one to one
 /// (`world/sprites/<record>.ktx2`, #838): so that filtering blends the texels on either side of a
 /// piece's edge as it does inside a piece. The rectangle is the sprite's size from its pieces'
-/// smallest corner (docs/02 §3.3, #35).
+/// smallest corner (docs/02 §3.3, #35). The image's edge texels go on at its right and bottom to
+/// whole multiples of [`SPRITE_ALIGN`], its stride, and it has [`SPRITE_LEVELS`] levels (#839).
 struct Assembled {
     /// The rectangle in the sprite's pixels: `x0, y0, x1, y1`.
     rect: [i32; 4],
     width: usize,
     height: usize,
-    pixels: Vec<u8>,
+    /// The image's size, the rectangle's to whole multiples of [`SPRITE_ALIGN`].
+    stride: (usize, usize),
+    /// The image's levels, the largest first, each half the one before.
+    levels: Vec<Vec<u8>>,
 }
 
-/// The image of sprite `id` of the world directory `dir`, as large as its rectangle.
+/// The image of sprite `id` of the world directory `dir`, as large as its rectangle to whole
+/// multiples of [`SPRITE_ALIGN`], with its [`SPRITE_LEVELS`] levels.
 fn read_sprite(dir: &Path, id: u32, sprite: &Sprite) -> Result<Assembled> {
     let path = dir.join(sprite_image(id, texture::EXTENSION));
-    let image = read_texture(&path)?;
+    let data = files::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let levels =
+        texture::read_levels(&data).with_context(|| format!("decoding {}", path.display()))?;
     let rect = sprite.rect.map(i32::from);
     let width = usize::try_from(rect[2] - rect[0])?;
     let height = usize::try_from(rect[3] - rect[1])?;
+    let stride = (
+        width.next_multiple_of(SPRITE_ALIGN),
+        height.next_multiple_of(SPRITE_ALIGN),
+    );
+    let first = levels
+        .first()
+        .map_or((0, 0), |level| (level.width, level.height));
     anyhow::ensure!(
-        (image.width, image.height) == (width, height),
-        "{}: {} × {} texels for a rectangle of {width} × {height}",
+        first == stride && levels.len() == SPRITE_LEVELS,
+        "{}: {} × {} texels of {} levels for a rectangle of {width} × {height}",
         path.display(),
-        image.width,
-        image.height
+        first.0,
+        first.1,
+        levels.len()
     );
     Ok(Assembled {
         rect,
         width,
         height,
-        pixels: image.pixels,
+        stride,
+        levels: levels.into_iter().map(|level| level.pixels).collect(),
     })
 }
 
 /// Where each sprite went on the pages: its page and the top-left corner of its image there.
 type Placed = HashMap<u32, (usize, usize, usize)>;
 
-/// A page of a sector's sprites: their images side by side in rows, a gutter apart.
+/// A page of a sector's sprites: their images side by side in rows, each at multiples of
+/// [`SPRITE_ALIGN`], and its levels, each half the one before, of the sprites' own levels
+/// (#839). The shader keeps its samples within each sprite's rectangle.
 struct Page {
     width: usize,
     height: usize,
-    pixels: Vec<u8>,
+    levels: Vec<Vec<u8>>,
+}
+
+impl Page {
+    /// Its levels one after another, as the GPU's texture takes them.
+    fn pixels(&self) -> Vec<u8> {
+        self.levels.concat()
+    }
 }
 
 /// Packs the sprites into pages, the tallest first along rows, the pages filled spread as
@@ -528,13 +552,13 @@ struct Page {
 /// where each sprite went: its page and the top-left corner of its image there.
 fn pack(sprites: &BTreeMap<u32, Assembled>, spread: Spread) -> (Vec<Page>, Placed) {
     let mut order: Vec<(&u32, &Assembled)> = sprites.iter().collect();
-    order.sort_by_key(|(id, s)| (std::cmp::Reverse(s.height), **id));
+    order.sort_by_key(|(id, s)| (std::cmp::Reverse(s.stride.1), **id));
     let mut placed = HashMap::new();
     // The pages' heights so far, and the row being filled: its top, its height, its next x.
     let mut heights: Vec<usize> = Vec::new();
     let (mut top, mut row, mut x) = (0, 0, 0);
     for (&id, sprite) in order {
-        let (w, h) = (sprite.width + GUTTER, sprite.height + GUTTER);
+        let (w, h) = sprite.stride;
         if heights.is_empty() || x + w > PAGE {
             top += row;
             x = 0;
@@ -560,21 +584,28 @@ fn pack(sprites: &BTreeMap<u32, Assembled>, spread: Spread) -> (Vec<Page>, Place
         heights.into_iter().zip(on).collect(),
         spread,
         |(height, on)| {
-            let mut page = Page {
-                width: PAGE,
-                height,
-                pixels: vec![0; 4 * PAGE * height],
-            };
+            // A whole multiple of the alignment tall, so that each level halves the one before.
+            let height = height.max(1).next_multiple_of(SPRITE_ALIGN);
+            let mut levels: Vec<Vec<u8>> = (0..SPRITE_LEVELS)
+                .map(|n| vec![0; 4 * (PAGE >> n) * (height >> n)])
+                .collect();
             for (id, x, y) in on {
                 let sprite = &sprites[&id];
-                for row in 0..sprite.height {
-                    let from = 4 * row * sprite.width;
-                    let at = 4 * ((y + row) * page.width + x);
-                    page.pixels[at..at + 4 * sprite.width]
-                        .copy_from_slice(&sprite.pixels[from..from + 4 * sprite.width]);
+                for (n, (level, image)) in levels.iter_mut().zip(&sprite.levels).enumerate() {
+                    let (width, rows) = (sprite.stride.0 >> n, sprite.stride.1 >> n);
+                    let (x, y) = (x >> n, y >> n);
+                    for row in 0..rows {
+                        let from = 4 * row * width;
+                        let at = 4 * ((y + row) * (PAGE >> n) + x);
+                        level[at..at + 4 * width].copy_from_slice(&image[from..from + 4 * width]);
+                    }
                 }
             }
-            page
+            Page {
+                width: PAGE,
+                height,
+                levels,
+            }
         },
     );
     (pages, placed)
@@ -1248,21 +1279,23 @@ pub fn build(
     let pages = pages
         .into_iter()
         .map(|page| -> Result<Staged> {
-            Ok(Staged::Waiting(Image::new(
-                Extent3d {
-                    width: u32::try_from(page.width)?,
-                    height: u32::try_from(page.height.max(1))?,
-                    depth_or_array_layers: 1,
-                },
+            let size = Extent3d {
+                width: u32::try_from(page.width)?,
+                height: u32::try_from(page.height)?,
+                depth_or_array_layers: 1,
+            };
+            let first = page.levels.first().cloned().unwrap_or_default();
+            let mut image = Image::new(
+                size,
                 TextureDimension::D2,
-                if page.pixels.is_empty() {
-                    vec![0; 4 * page.width]
-                } else {
-                    page.pixels
-                },
+                first,
                 TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
-            )))
+            );
+            // The page's levels, which the shader takes by the zoom (#839).
+            image.texture_descriptor.mip_level_count = u32::try_from(page.levels.len())?;
+            image.data = Some(page.pixels());
+            Ok(Staged::Waiting(image))
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(Statics {

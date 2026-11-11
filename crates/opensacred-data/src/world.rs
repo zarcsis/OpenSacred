@@ -19,6 +19,14 @@ pub const INDEX: &str = "world.ron";
 pub const SPRITES_FILE: &str = "sprites.bin";
 /// The directory of the sprites' images under the world directory.
 pub const SPRITES_DIR: &str = "sprites";
+/// The levels of a sprite's image in the game's assets, the image first (#839): the game packs
+/// them into its pages' levels and takes the one that the zoom and the window's height call for.
+pub const SPRITE_LEVELS: usize = 4;
+/// The multiple of texels to which a sprite's image is repeated at its right and bottom edges,
+/// so that each level halves the one before whole (`2^(SPRITE_LEVELS − 1)`); the game packs the
+/// images at its multiples, so that an image's rectangle at level `n` is its rectangle shifted
+/// right by `n` bits.
+pub const SPRITE_ALIGN: usize = 1 << (SPRITE_LEVELS - 1);
 /// Cells per side of a sector.
 pub const SIDE: usize = 64;
 /// Diamonds per tile sheet.
