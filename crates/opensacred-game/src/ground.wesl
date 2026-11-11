@@ -17,6 +17,9 @@ import package::soft;
 /// How far back along the line of sight the ground's mesh lies from its place
 /// (`iso::GROUND_BEHIND`).
 const GROUND_BEHIND: f32 = 5000.0;
+/// The share of the sun's normal bias that the ground takes (`soft.wesl`): the models' own,
+/// against their shading themselves, would lift its samples off their feet.
+const NORMAL_BIAS: f32 = 0.2;
 
 /// The tile sheets of the loaded sectors, a layer each.
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var sheets: texture_2d_array<u32>;
@@ -103,6 +106,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let colour = mix(top, bottom, f.y);
     // The sun's shadows at the ground's own place, not its mesh's.
     let place = in.world_position.xyz + view.world_from_view[2].xyz * GROUND_BEHIND;
-    let sun = soft::lit(vec4(place, 1.0), vec3(0.0, 1.0, 0.0), in.position.xy);
+    let sun = soft::lit(vec4(place, 1.0), vec3(0.0, NORMAL_BIAS, 0.0), in.position.xy);
     return post_process(vec4(decode(colour.rgb * in.color.rgb * sun), 1.0), in.position.xy);
 }
