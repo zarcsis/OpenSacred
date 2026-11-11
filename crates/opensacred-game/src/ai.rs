@@ -865,7 +865,7 @@ fn pursue(
         Option<Res<crate::fight::Rules>>,
         Option<Res<crate::game::Difficulty>>,
     ),
-    (clips, scripted, makers): (
+    (clips, scripted, makers, arms): (
         Query<&crate::npcs::Npc>,
         Query<&crate::npcs::ScriptClip>,
         Query<
@@ -873,8 +873,10 @@ fn pursue(
             Or<(
                 With<crate::creature_arts::Makes>,
                 With<crate::creature_arts::Ordered>,
+                With<crate::creature_arts::Volley>,
             )>,
         >,
+        Query<&crate::npcs::Arms>,
     ),
     mut hits: MessageWriter<crate::fight::Hit>,
 ) {
@@ -1184,6 +1186,8 @@ fn pursue(
                         .iter()
                         .find(|&&other| other != entity)
                         .map(|&other| attacked == Some(other)),
+                    // Whether its right hand holds an item, a minimummy's dagger (#2575).
+                    armed: arms.get(entity).is_ok_and(|arms| arms.right().is_some()),
                     group_strike: mind.group.and_then(|group| {
                         strikers
                             .iter()
@@ -1576,6 +1580,20 @@ fn pursue(
                     transform.translation = to;
                     commands.entity(entity).remove::<Walk>();
                 }
+            }
+            Pursues::TakesDagger => {
+                debug!("ai: {entity} takes a dagger");
+                commands
+                    .entity(entity)
+                    .insert(crate::npcs::Rearms::dagger());
+            }
+            Pursues::ThrowsDaggers { more } => {
+                debug!("ai: {entity} throws its dagger at {aimed} and {more} more");
+                transform.rotation = crate::hero::facing(target - here);
+                commands
+                    .entity(entity)
+                    .remove::<(Walk, Strikes)>()
+                    .insert(crate::creature_arts::Volley::new(aimed, more));
             }
             Pursues::Stares { strength } => {
                 debug!("ai: {entity} stares at {aimed} of the strength {strength:.2}");

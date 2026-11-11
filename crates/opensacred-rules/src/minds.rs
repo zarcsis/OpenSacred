@@ -1761,10 +1761,11 @@ impl Mind {
                 self.stands = casts::STARE_STANDS;
                 return Some(next);
             }
-            // A minimummy walks on; a boss or Tuktuk blinks from near, throws daggers by a coin
-            // once its deadline passes (Tuktuk whatever it), else runs about the hero; a plain one
-            // runs round the hero once two of its group strike, else makes the Gladiator's
-            // `Attacke` by its roll (`0x4D8C4F`).
+            // A minimummy walks on; a boss or Tuktuk blinks from near, by a coin once its
+            // deadline passes (Tuktuk whatever it) takes a dagger into its empty hand or throws
+            // the one it holds, else runs about the hero; a plain one runs round the hero once two
+            // of its group strike, else makes the Gladiator's `Attacke` by its roll
+            // (`0x4D8C4F`, `0x4D93C1`).
             OwnMark::Minimummy => {
                 if sight.walk.is_some() {
                     return Some(Pursues::Faces);
@@ -1783,7 +1784,14 @@ impl Mind {
                         && rng.below(2) == 0
                     {
                         self.cast_deadline = cast.now + casts::MUMMY_DEADLINE;
-                        return Some(self.ordered_art(casts::HURLED_BLADES));
+                        if !cast.armed {
+                            return Some(Pursues::TakesDagger);
+                        }
+                        // The art's order, its volley's count (`+0x2B3`).
+                        self.ordered_art(casts::HURLED_BLADES);
+                        return Some(Pursues::ThrowsDaggers {
+                            more: casts::daggers_more(rng),
+                        });
                     }
                     self.stands = casts::MUMMY_STANDS;
                     let to = about(&mut || rng.below(361), casts::MUMMY_FAR * reach);
@@ -2970,6 +2978,9 @@ pub struct CastSight {
     /// The size of the second of the other members of its group that strike (their action 3 or
     /// their art's), none where fewer strike (`0x4D8E3F`, #2565).
     pub group_strike: Option<u32>,
+    /// Whether its right hand holds an item (slot 13, `0x4EB870(13)`), which a minimummy throws
+    /// (#2575).
+    pub armed: bool,
 }
 
 /// A hornet's flank (`0x4D89F2`, #2562): the point `50·((id & 3) + 8)` from the hero at `hero`
@@ -3111,6 +3122,11 @@ pub enum Pursues {
     Stares { strength: f32 },
     /// A minimummy blinks to the point, a battle fog where it leaves and where it lands (#2565).
     BlinksTo(Spot),
+    /// A minimummy takes a dagger ([`casts::DAGGER`]) into its empty right hand (#2575).
+    TakesDagger,
+    /// A minimummy throws the dagger in its hand at its target by the Gladiator's hurled blades,
+    /// and `more` after it, each taken anew (#2575).
+    ThrowsDaggers { more: u8 },
     /// A larva hides from its target (#2562): it runs to the first of [`casts::HIDE_TRIES`] points
     /// [`casts::HIDES_AT`] from it, from the angle `from` in degrees by [`casts::HIDE_STEP`], that
     /// it may stand on, with no straight line from its target and a path to it; with none it
@@ -4380,6 +4396,7 @@ mod tests {
             fetzer: None,
             stare: None,
             group_strike: None,
+            armed: false,
         };
         // In its band: no stone (its roll 0), its casting path (1), its cast (2), its deadline's
         // roll (0): five seconds from the clock's whole second.
@@ -4492,6 +4509,7 @@ mod tests {
             fetzer: None,
             stare: None,
             group_strike: None,
+            armed: false,
         };
         let far = reach_f32(dragon.size(), SIZE) + casts::DRAGON_BEYOND + 1.0;
         // Far, by its roll of 0: its meteors, with no deadline and no test of the way.
@@ -4563,6 +4581,7 @@ mod tests {
             fetzer: None,
             stare: None,
             group_strike: None,
+            armed: false,
         };
         // Coming on from 600, by its roll below 5: the eye lasers.
         let mut rolls = Script::new(vec![4, 0]);
@@ -4644,6 +4663,7 @@ mod tests {
             fetzer: None,
             stare: None,
             group_strike: None,
+            armed: false,
         }
     }
 
@@ -5257,11 +5277,25 @@ mod tests {
         };
         assert!(((to - far.hero).length() - 3.0 * reach).abs() < 1e-2);
         assert_eq!(mummy.stands, casts::MUMMY_STANDS);
-        // Its deadline passed, by a coin of 0 it throws its daggers; Tuktuk whatever its deadline.
-        let daggers = Some(Pursues::MakesArt {
-            art: casts::HURLED_BLADES,
-        });
-        assert_eq!(decide(&mut fighting(192), &far, &boss, vec![0]), daggers);
+        // Its deadline passed, by a coin of 0 it takes a dagger into its empty hand, and holding
+        // one throws it and 2 to 4 more; Tuktuk whatever its deadline.
+        assert_eq!(
+            decide(&mut fighting(192), &far, &boss, vec![0]),
+            Some(Pursues::TakesDagger)
+        );
+        let armed = CastSight {
+            armed: true,
+            ..boss
+        };
+        for (roll, more) in [(0, 2), (2, 4)] {
+            let mut thrower = fighting(192);
+            assert_eq!(
+                decide(&mut thrower, &far, &armed, vec![0, roll]),
+                Some(Pursues::ThrowsDaggers { more })
+            );
+            assert!(thrower.cast_ordered && thrower.stands == casts::ART_STANDS);
+            assert!((thrower.cast_deadline - 52.0).abs() < 1e-9);
+        }
         assert!(matches!(
             decide(&mut fighting(192), &far, &boss, vec![1, 0]),
             Some(Pursues::Strolls(..))
@@ -5270,7 +5304,7 @@ mod tests {
         tuktuk.cast_deadline = 100.0;
         assert_eq!(
             decide(&mut tuktuk, &far, &cast(false, None), vec![0]),
-            daggers
+            Some(Pursues::TakesDagger)
         );
         // A plain one: two of its group strike, it runs round the hero at 1.5 of its reach and
         // theirs.
@@ -5355,6 +5389,7 @@ mod tests {
             fetzer: None,
             stare: None,
             group_strike: None,
+            armed: false,
         };
         // At 500: no cage (0), its cast (1), its deadline's roll (0), the fireball (1 of 3).
         let mut rolls = Script::new(vec![0, 1, 0, 1]);
