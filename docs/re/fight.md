@@ -628,6 +628,7 @@ Read 2026-11-10 for #2486 in `Sacred.exe` (**confirmed** by code unless marked o
   A creature's fill by its level `E` on bronze's scale against the hero's `H`, as the factor of the levels (`r = (E + 9)/(H + 9)`, its threshold `t`, `q = (r − t)/(UnterExpVoll − t)`): grey `(128, 128, 128)` where `r` is not above `t` or `q` not above 0.04; below `UnterExpVoll` `(43 + ⌊177q⌋, 221 + ⌊19q⌋, 15 + ⌊23(1 − q)⌋)`, green to yellow; up to `ObereEXPVoll`, `s` the share of the way, `(⌊220 + 35s⌋, ⌊240(1 − s)⌋, ⌊15(1 − s)⌋)`, yellow to red; red above; its frame red at the fill's alpha.
 - **Seen** 2026-11-10 under the driver: the Seraphim of level 1 at 20 of 119 health beside a goblin, her orange ring about 140 pixels across at the 768-high screen, its band from six o'clock round toward four.
 - `opensacred-game` draws them since #2486 (`health_rings`, `opensacred_rules::fight::{ring_colour, ring_half_side, ring_alpha, ring_pie, RING_*}`): the timers as above by the world's ticks, the fan and the frame as quads of `fx`'s particles' material laid at their creature's place in the order, untinted by the night; **seen** 2026-11-10 beside the original's frame, the Seraphim's ring at 20 of 119 alike in its size, its colour and its band.
+  Since #2540 a ring's look goes with its creature (`health_rings`' observer of its `Ring`'s removal): an undead that falls and rises again is made anew (`undead::remake`) and left its ring on the ground before.
   Not followed: the champions' and the bosses' turning symbols (`0x4087E0`), a rider's ring at its mount's height.
 
 ## Open
