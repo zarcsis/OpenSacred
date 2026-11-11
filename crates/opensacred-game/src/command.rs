@@ -129,6 +129,11 @@ enum Command {
     },
     /// Show or hide the debug overlay (F7); kept in the settings
     Overlay { on: Option<Switch> },
+    /// The models' shadows: the original's flattened ones, or soft ones of the sun's shadow map
+    /// (#1436); without a kind, the other; kept in the settings
+    Shadows {
+        kind: Option<crate::settings::Shadows>,
+    },
     /// Show or hide the log's panel (F12); kept in the settings
     Log { on: Option<Switch> },
     /// Open or close the console (the key under Esc)
@@ -1278,6 +1283,17 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             Ok(Outcome::say(format!("{mode:?}").to_lowercase()))
         }
         Command::Overlay { on } => panel(world, on, "debug.overlay", false),
+        Command::Shadows { kind } => {
+            use crate::settings::Shadows;
+            let mut settings = world.resource_mut::<Settings>();
+            let kind = kind.unwrap_or(match settings.graphics.shadows {
+                Shadows::Original => Shadows::Soft,
+                Shadows::Soft => Shadows::Original,
+            });
+            settings.graphics.shadows = kind;
+            save(world, &["graphics.shadows"])?;
+            Ok(Outcome::say(format!("{kind:?}").to_lowercase()))
+        }
         Command::Log { on } => panel(world, on, "debug.log", true),
         Command::Keys { on } => {
             let mut help = world.get_resource_mut::<Help>().ok_or("no help")?;
@@ -2051,6 +2067,7 @@ mod tests {
                 "setquake",
                 "setrain",
                 "setsnow",
+                "shadows",
                 "skills",
                 "spawn",
                 "stashes",
