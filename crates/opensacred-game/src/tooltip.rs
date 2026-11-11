@@ -1466,7 +1466,12 @@ impl Plugin for TooltipPlugin {
             Update,
             (grid, keep_within, centre_tips)
                 .chain()
-                .run_if(in_state(AppState::InGame)),
+                // The menus' controls' tooltips too: the choice's erase button's (#2556).
+                .run_if(|state: Option<Res<State<AppState>>>| {
+                    state.is_some_and(|state| {
+                        matches!(state.get(), AppState::InGame | AppState::Menu)
+                    })
+                }),
         );
     }
 }
