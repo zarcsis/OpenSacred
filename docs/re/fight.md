@@ -604,6 +604,25 @@ Read 2026-11-10 for #2501 in `Sacred.exe` (Ghidra and capstone; **confirmed** by
 - With `VIOLENCE` on, the blood's puddle that the lying sub-mode makes (`0x53FCA4`: the object 907, 919 for the types 53 and 94, by the FX event `0x77`) fades 1.5 to 2.5 s after the body vanishes.
 - Open: the soul's homing where a soulcatcher stands within 550 of a body as it vanishes (the FX event `0xC`'s handler, which finds an 869 as at a death; **hypothesis** that it homes and heals the Dark Elf); the raising of a body hidden but not destroyed; the mark `0x10000000`; the byte `0x182EE50`, which keeps the hero lying.
 
+## The health rings
+
+Read 2026-11-10 for #2486 in `Sacred.exe` (**confirmed** by code unless marked otherwise; **seen** under the driver).
+
+- A creature's draw (`cCreature_render` `0x599910`, `0x5999A6`–`0x599F1F`) lays its ring before its model and its shadow (`0x4080C0`, on the granny's singleton): flat under it at its shadow's height (`+0xF0`), at its root bone, unturned, in its model's units, the depth tested and not written, no light, culled none, laid by its alpha (`SRCALPHA`, `INVSRCALPHA`).
+  Its textures are `texture.pak`'s 682 to 685, white: `UI_DISPLAY_GROUNDSYMBOL01` (128², a band of runes from about 0.66 to 1 of the half side) the fill, `02` (two thin circles at about 1 and 0.62) the frame, `03` and `04` the champions' and the bosses' symbols.
+  The fill is a fan of its centre and the square's edge from `(0, r)` round by `(r, r)`, `(r, 0)` and on, up to where the ray at `2πh` from `+y` toward `+x` meets it, `h` its health's share of its most (the vertex `2 + ⌊8h⌋`, at most the ninth, moved there); the frame the whole square; the texture's `u` `(x/r + 1)/2`, `v` `(1 − y/r)/2`.
+- Its timer (`+0x20C`) runs down at each world tick, held at 0 and put back to 0 above 100 (`0x537ECD`–`0x537F01`); kept in the saves.
+  The local hero's: 4 s while it fights (an attack's target, a strike, an art), else 1 s while its look (`0x547070`, every 0.3 s) finds a hostile creature within 350, or 1,000 with a bow, a crossbow or a gun, though it held more.
+  A hostile creature's: 7 s at each strike of a player's hero at it, before the hit's roll, so a miss too (`0x56B610`); at least 1 s under the cursor (`0x61258A`); with Alt held, 1 s for every hostile creature in view whose timer holds 1 s or less (`0x599ACC`).
+  The ring shows while its timer runs, for the hero or a creature hostile to it, never for the dead, the horses, a creature thrown through the air (`+0x14` bit `0x100000`) or the demon's horn 6114.
+- Its alpha, of 255: whole from half a second left, `⌊512·t⌋` below it.
+  Its half side: half its type's size (`items.pak +0x14`, 50 for 0), whole; where that is exactly 50, a third of its reach against itself; the hero's times 3/2, so 37.
+  The hero's colours: the balance's `Healthbar` (`0xE0FF8030`) for the fill and `Healthborder` (`0xFFFF8030`) for the frame, read as hexadecimal (#2505).
+  A creature's fill by its level `E` on bronze's scale against the hero's `H`, as the factor of the levels (`r = (E + 9)/(H + 9)`, its threshold `t`, `q = (r − t)/(UnterExpVoll − t)`): grey `(128, 128, 128)` where `r` is not above `t` or `q` not above 0.04; below `UnterExpVoll` `(43 + ⌊177q⌋, 221 + ⌊19q⌋, 15 + ⌊23(1 − q)⌋)`, green to yellow; up to `ObereEXPVoll`, `s` the share of the way, `(⌊220 + 35s⌋, ⌊240(1 − s)⌋, ⌊15(1 − s)⌋)`, yellow to red; red above; its frame red at the fill's alpha.
+- **Seen** 2026-11-10 under the driver: the Seraphim of level 1 at 20 of 119 health beside a goblin, her orange ring about 140 pixels across at the 768-high screen, its band from six o'clock round toward four.
+- `opensacred-game` draws them since #2486 (`health_rings`, `opensacred_rules::fight::{ring_colour, ring_half_side, ring_alpha, ring_pie, RING_*}`): the timers as above by the world's ticks, the fan and the frame as quads of `fx`'s particles' material laid at their creature's place in the order, untinted by the night; **seen** 2026-11-10 beside the original's frame, the Seraphim's ring at 20 of 119 alike in its size, its colour and its band.
+  Not followed: the champions' and the bosses' turning symbols (`0x4087E0`), a rider's ring at its mount's height.
+
 ## Open
 
 The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 6 on; `FernAll` and `RuestAll`, which no code found uses; the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5); what sets a creature's `+0x200` bit `0x10000000` and its list, and `+0x1F4` bit `0x40000` ("Sides").

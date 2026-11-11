@@ -114,6 +114,7 @@ mod gun_fires;
 mod guns;
 mod hard_rays;
 mod healings;
+mod health_rings;
 mod held;
 mod hell_disks;
 mod hell_forces;
@@ -599,6 +600,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         gun_fires::GunFiresPlugin,
         guns::GunsPlugin,
         hard_rays::HardRaysPlugin,
+        health_rings::HealthRingsPlugin,
     ))
     .add_plugins(holding_sights::HoldingSightsPlugin)
     .add_plugins((
