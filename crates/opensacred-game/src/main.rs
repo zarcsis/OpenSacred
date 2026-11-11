@@ -86,6 +86,7 @@ mod equipment;
 mod esc_menu;
 mod explored;
 mod explosions;
+mod exports;
 mod fades;
 mod fight;
 mod files;

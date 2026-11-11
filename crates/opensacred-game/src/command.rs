@@ -198,6 +198,12 @@ enum Command {
     /// A win of the game's difficulty for the hero, as the original's console's `win` and the
     /// scripts' `InfoPlayer` 27 count one (#2464)
     Win,
+    /// Export the hero to the slot SLOT of the choice's pedestals, 0 to 7, over what it held
+    /// (#2551)
+    Export { slot: u8 },
+    /// The exported heroes, each slot's: its name, class, level, experience and wins of each
+    /// difficulty (#2551)
+    Exports,
     /// Set the hero's experience to N, or add N to it with +N: its level follows as its kills
     /// raise it
     Experience { points: String },
@@ -1413,6 +1419,33 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 .run_system_cached_with(crate::drops::throw_item, throw)
                 .map_err(|e| e.to_string())??;
             Ok(Outcome::say(line))
+        }
+        Command::Export { slot } => {
+            in_game(world)?;
+            let path = crate::exports::export(world, slot).map_err(|e| format!("{e:#}"))?;
+            Ok(Outcome::say(format!(
+                "the hero is exported to the slot {slot}: {}",
+                path.display()
+            )))
+        }
+        Command::Exports => {
+            let dir = crate::exports::directory(world)
+                .ok_or_else(|| "no directory for the heroes".to_owned())?;
+            let listed = crate::exports::list(&dir);
+            let mut lines = vec![format!(
+                "{} exported heroes in {}",
+                listed.len(),
+                dir.display()
+            )];
+            for (slot, summary) in listed {
+                let experience = crate::exports::read(&crate::exports::file(&dir, slot))
+                    .map_or(0, |(_, hero)| hero.experience.points);
+                lines.push(format!(
+                    "{slot}: {} the {:?}, level {}, experience {experience}, wins {:?}",
+                    summary.name, summary.class, summary.level, summary.wins
+                ));
+            }
+            Ok(Outcome { lines, wait: None })
         }
         Command::Win => {
             in_game(world)?;

@@ -180,6 +180,17 @@ pub struct Kept {
     uses: Vec<(u32, String)>,
 }
 
+impl Kept {
+    /// The items in the equipment's slots by the slots, as a hero's summary keeps them (`+0x8C`,
+    /// docs/02 §9), what its figure on a pedestal wears (#2551).
+    pub fn equipment(&self) -> Vec<(u8, u32)> {
+        (0_u8..)
+            .zip(&self.worn)
+            .filter_map(|(slot, worn)| worn.as_ref().map(|(_, item)| (slot, item.item)))
+            .collect()
+    }
+}
+
 impl Pack {
     /// What a save keeps of it.
     pub fn kept(&self) -> Kept {

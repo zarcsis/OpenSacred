@@ -318,7 +318,7 @@ pub fn erase(dir: &Path, stem: &str) -> Result<()> {
 }
 
 /// The hero and the game as they stand, to save as `name`.
-fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)> {
+pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)> {
     let request = world
         .get_resource::<crate::game::Request>()
         .map(|request| request.0.clone())
@@ -889,7 +889,7 @@ impl Plugin for SavesPlugin {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -972,7 +972,7 @@ mod tests {
         }
     }
 
-    fn hero() -> Hero {
+    pub(crate) fn hero() -> Hero {
         Hero {
             at: (1234.5, 6789.0),
             floor: 1,
