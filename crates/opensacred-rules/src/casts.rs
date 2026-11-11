@@ -796,6 +796,10 @@ pub enum OwnMark {
     /// The brain-footers (203, 351, 352, `0x219`): their stare at the hero, which lengthens and
     /// freezes the regeneration of its arts (`0x4D9C2F`, #2567).
     BrainFooter,
+    /// The minimummies (192, 329, 342, 343) and Tuktuk (363) of `0x20D`: a boss's blink, daggers
+    /// and runs about the hero, a plain one's run round it and the Gladiator's `Attacke`
+    /// (`0x4D8C4F`, #2565).
+    Minimummy,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -817,6 +821,7 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         247 | 354 => OwnMark::ArtQueen,
         202 | 344 => OwnMark::Fetzer,
         203 | 351 | 352 => OwnMark::BrainFooter,
+        192 | 329 | 342 | 343 | TUKTUK => OwnMark::Minimummy,
         _ => return None,
     })
 }
@@ -856,6 +861,26 @@ pub const FETZER_344_B: u32 = 30;
 pub const FETZERS_FAST_B: u32 = 15;
 /// The decisions a Fetzer stands as it chooses (`+0x129` 1).
 pub const FETZER_STANDS: u8 = 1;
+
+/// The minimummies' terms (`0x4D8C4F`, #2565): Tuktuk, a boss whatever its rank; the boss's
+/// blink nearer than `⌊1.5·R⌋` to `3·R` from the hero, `R` the two creatures' reach, its run
+/// about the hero at `3·R` and the plain one's round it at `⌊1.5·R'⌋`, `R'` its and the second
+/// striker's of its group's; its deadline 2 s on; the hurled blades it throws; the plain one's
+/// roll's `b` 40 (`0x4D2D90(40)`); and the decisions each run stands, 15.
+pub const TUKTUK: u32 = 363;
+pub const MUMMY_NEAR: f32 = 1.5;
+pub const MUMMY_FAR: f32 = 3.0;
+pub const MUMMY_DEADLINE: f64 = 2.0;
+pub const HURLED_BLADES: u16 = 1013;
+pub const MUMMIES_B: u32 = 40;
+pub const MUMMY_STANDS: u8 = 15;
+
+/// The seconds of a minimummy's blink's two battle fogs: the spell 46's value 0 at a third of its
+/// level, `min(19 + ⌊L/3⌋, 60)`, times 0.1 (`0x4D8F49`; **hypothesis** for the factor's word).
+pub fn blink_fog_seconds(level: u32) -> f32 {
+    let value = (19 + level / 3).min(60);
+    f32::from(u16::try_from(value).unwrap_or(60)) * 0.1
+}
 
 /// The brain-footers' stare (`0x4D9C2F`, #2567): its roll's `b`, the decisions it stands after
 /// it or its failure, how far ahead of the real clock a deadline it waits for may stand, and the

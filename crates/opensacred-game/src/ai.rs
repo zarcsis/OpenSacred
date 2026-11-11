@@ -994,6 +994,12 @@ fn pursue(
             ))
         })
         .collect();
+    // The creatures of a group that strike, each its group and its size (#2565).
+    let strikers: Vec<(Entity, u32, u32)> = creatures
+        .iter()
+        .filter(|(other, _, _, _, _, strikes, ..)| *strikes || makers.contains(*other))
+        .filter_map(|(other, _, _, mind, ..)| Some((other, mind.group?, mind.size())))
+        .collect();
     // The Fetzers of the hero's list that fight the hero (#2568).
     let fetzers: Vec<Entity> = nearest
         .hostiles
@@ -1180,6 +1186,13 @@ fn pursue(
                         .map(|&other| attacked == Some(other)),
                     // A brain-footer's strength by its level on bronze's scale against the
                     // hero's (#2567).
+                    group_strike: mind.group.and_then(|group| {
+                        strikers
+                            .iter()
+                            .filter(|&&(other, of, _)| other != entity && of == group)
+                            .nth(1)
+                            .map(|&(.., size)| size)
+                    }),
                     stare: opensacred_rules::casts::stare(mind.creature)
                         .and(rules.as_deref())
                         .and_then(|rules| {
@@ -1549,6 +1562,20 @@ fn pursue(
                     Walk::to(to, way.level, mind.speed)
                 };
                 commands.entity(entity).insert(walk.within(STROLL_WITHIN));
+            }
+            Pursues::BlinksTo(to) => {
+                // Where it may stand, with a battle fog where it leaves and where it lands
+                // (`0x54D9D0`, `0x4D8F49`); else nothing.
+                let at = point(to, here.y);
+                if let Some(height) = heights.standing(at.x, at.z, way.level) {
+                    let to = Vec3::new(at.x, height, at.z);
+                    let seconds = opensacred_rules::casts::blink_fog_seconds(mind.level);
+                    debug!("ai: {entity} blinks from {here} to {to}");
+                    crate::battle_fogs::rise(&mut commands, here, seconds);
+                    crate::battle_fogs::rise(&mut commands, to, seconds);
+                    transform.translation = to;
+                    commands.entity(entity).remove::<Walk>();
+                }
             }
             Pursues::Stares { strength } => {
                 debug!("ai: {entity} stares at {aimed} of the strength {strength:.2}");
