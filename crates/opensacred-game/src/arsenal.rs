@@ -458,7 +458,7 @@ fn rearm(
     mut commands: Commands,
     mut rearms: MessageReader<Rearm>,
     mut arsenal: Option<ResMut<Arsenal>>,
-    mut hero: ResMut<Hero>,
+    (mut hero, mut forms): (ResMut<Hero>, Option<ResMut<crate::forms::Forms>>),
     assets: Res<AssetServer>,
     (experience, rules, speed): (Res<Experience>, Res<Rules>, Res<GameSpeed>),
     mut bodies: Query<
@@ -487,9 +487,18 @@ fn rearm(
                 continue;
             }
         }
+        // The Vampiress's day's form takes the new arms, and by night she keeps her night's
+        // model and claws (#2532).
+        let put_on = match forms.as_deref_mut() {
+            Some(forms) => Arms {
+                form: forms.rearmed(arms.form.clone()),
+                ..arms.clone()
+            },
+            None => arms.clone(),
+        };
         for (body, base, effects, combat, regenerates, size, worn, holding) in &mut bodies {
             wear(
-                arms.clone(),
+                put_on.clone(),
                 &mut commands,
                 &mut hero,
                 &assets,

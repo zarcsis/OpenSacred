@@ -128,6 +128,18 @@ impl Forms {
     pub fn by_night(&self) -> bool {
         self.by_night
     }
+
+    /// The form that the hero wears, its day's arms made anew as `day` (`arsenal::rearm`, #2532):
+    /// its day's form takes them, which its change back by day puts on, and by night it keeps its
+    /// night's, whose claws fight whatever it holds.
+    pub fn rearmed(&mut self, day: Form) -> Form {
+        self.day = day;
+        if self.by_night {
+            self.night.clone()
+        } else {
+            self.day.clone()
+        }
+    }
 }
 
 /// A change of the hero's form: into its night's for `seconds`, or back to its day's.
