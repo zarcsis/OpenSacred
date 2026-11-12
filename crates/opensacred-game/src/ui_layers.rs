@@ -22,6 +22,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bevy::asset::{AssetId, embedded_asset};
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
@@ -30,10 +32,10 @@ use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, BlendState, RenderPipelineDescriptor, TextureFormat,
+    AsBindGroup, BlendState, PipelineCache, RenderPipelineDescriptor, TextureFormat,
 };
 use bevy::render::sync_world::MainEntity;
-use bevy::render::{Extract, ExtractSchedule, RenderApp};
+use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 use bevy::shader::ShaderRef;
 use bevy::ui::{
     BackgroundGradient, BorderGradient, ComputedNode, UiGlobalTransform, UiSystems, UiTargetCamera,
@@ -122,7 +124,9 @@ struct Mirror;
 /// A band's parts: its camera, its picture and the material that draws it, the frame its
 /// mirror lies in (the window's size in the original's pixels, under the camera), the mirror of
 /// its tree's root in the frame, the node that shows the picture in the window, the window's size
-/// the picture was made for, and the mirror of each node of its root's tree.
+/// the picture was made for, the mirror of each node of its root's tree, whether the mirror took
+/// new nodes this frame, the frames since the parts were made, and whether their picture is
+/// trusted: the window leaves the band's pieces to it only then ([`ready`]).
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
@@ -133,18 +137,35 @@ struct Parts {
     whole: Vec2,
     mirrors: HashMap<Entity, Entity>,
     grown: bool,
+    age: u32,
+    ready: bool,
 }
 
 /// A band: the root of its stacking context's tree, the piece the interface stacks first, its
-/// pieces, its parts, and whether its parts were made this frame: its camera draws its first
-/// picture while the window still draws its pieces and the picture is not shown, so that no
-/// frame lacks them.
+/// pieces and its parts.
 struct Band {
     tree: Entity,
     anchor: Entity,
     pieces: HashSet<Entity>,
     parts: Parts,
-    fresh: bool,
+}
+
+/// Whether Bevy's render pipelines had all been made as the last frame's drawing ended ([`settle`]),
+/// shared by the render world and the main world.
+#[derive(Resource, Clone, Default)]
+struct Settled(Arc<AtomicBool>);
+
+/// Whether a band's picture is trusted, its parts' readiness kept once given: from the parts'
+/// second frame, as a camera draws new nodes from their second frame on (#2642), and only once no
+/// pipeline was left to make as the last frame was drawn, as a pipeline still being compiled
+/// draws nothing (#2640: at the start, the logos' black screen's band drew nothing while its
+/// camera's and its picture's pipelines were compiled, and the menu showed through).
+fn ready(parts: &mut Parts, settled: bool) -> bool {
+    if !parts.ready && parts.age >= 1 && settled {
+        parts.ready = true;
+    }
+    parts.age = parts.age.saturating_add(1);
+    parts.ready
 }
 
 /// The bands by their stacking context and their place among its bands.
@@ -471,6 +492,8 @@ fn make(
         whole,
         mirrors: HashMap::from([(tree, root)]),
         grown: true,
+        age: 0,
+        ready: false,
     }
 }
 
@@ -503,10 +526,12 @@ fn bands(
     looks: Query<LookData, Own>,
     mut cameras: Query<&mut RenderTarget, With<Camera>>,
     (mut pictures, mut materials): (ResMut<Assets<Image>>, ResMut<Assets<Picture>>),
+    settled: Res<Settled>,
 ) {
     let Ok(window) = window.single() else {
         return;
     };
+    let settled = settled.0.load(Ordering::Relaxed);
     let (whole, scale) = window_size(window, scale.0);
     let native = camera_pictures(cameras.iter());
     let mut found = Vec::new();
@@ -550,7 +575,6 @@ fn bands(
         let band = match layers.0.entry(key) {
             Entry::Occupied(entry) => {
                 let band = entry.into_mut();
-                band.fresh = false;
                 if band.tree != root {
                     retree(&mut commands, &mut band.parts, root);
                     band.tree = root;
@@ -558,19 +582,16 @@ fn bands(
                 band
             }
             Entry::Vacant(entry) => {
-                let (parts, fresh) = match spare.pop() {
+                let parts = match spare.pop() {
                     Some(mut parts) => {
                         retree(&mut commands, &mut parts, root);
-                        (parts, false)
+                        parts
                     }
-                    None => (
-                        make(
-                            &mut commands,
-                            (&mut pictures, &mut materials),
-                            root,
-                            (whole, scale),
-                        ),
-                        true,
+                    None => make(
+                        &mut commands,
+                        (&mut pictures, &mut materials),
+                        root,
+                        (whole, scale),
                     ),
                 };
                 entry.insert(Band {
@@ -578,13 +599,12 @@ fn bands(
                     anchor,
                     pieces: HashSet::new(),
                     parts,
-                    fresh,
                 })
             }
         };
         band.anchor = anchor;
         band.pieces = pieces.into_iter().collect();
-        if !band.fresh {
+        if ready(&mut band.parts, settled) {
             drawn.extend(band.pieces.iter().copied());
         }
         let parts = &mut band.parts;
@@ -791,14 +811,14 @@ fn composites(
     mut commands: Commands,
     mut layers: ResMut<Layers>,
     hosts: Query<HostData, Without<Composite>>,
-    mut placed: Query<(&mut Node, &mut ZIndex, &mut Visibility), With<Composite>>,
+    mut placed: Query<(&mut Node, &mut ZIndex), With<Composite>>,
     mut cameras: Query<&mut Camera, With<Camera2d>>,
 ) {
     for (&(context, _), band) in &mut layers.0 {
-        // A band shown whose mirror took new nodes this frame keeps its last picture: its camera
+        // A band trusted whose mirror took new nodes this frame keeps its last picture: its camera
         // draws them from their second frame on (#2642).
         if let Ok(mut camera) = cameras.get_mut(band.parts.camera) {
-            let drawing = band.fresh || !band.parts.grown;
+            let drawing = !band.parts.ready || !band.parts.grown;
             if camera.is_active != drawing {
                 camera.is_active = drawing;
             }
@@ -828,16 +848,12 @@ fn composites(
             height: Val::Px(size.y),
             ..default()
         };
+        // Shown from the band's first frame on, under its pieces while the window still draws
+        // them, so that its pipeline is made before the picture is trusted.
         let composite = band.parts.composite;
-        let shown = if band.fresh {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
-        if let Ok((node, order, visibility)) = placed.get_mut(composite) {
+        if let Ok((node, order)) = placed.get_mut(composite) {
             keep(node, place);
             keep(order, z);
-            keep(visibility, shown);
         } else {
             // Gone with its host's children, made again.
             band.parts.composite = commands
@@ -904,13 +920,22 @@ fn hide(
     }
 }
 
+/// Tells the main world whether every render pipeline was made as this frame's drawing ended
+/// ([`Settled`]).
+fn settle(cache: Res<PipelineCache>, settled: Res<Settled>) {
+    let made = cache.waiting_pipelines().next().is_none();
+    settled.0.store(made, Ordering::Relaxed);
+}
+
 /// The interface's layers.
 pub struct UiLayersPlugin;
 
 impl Plugin for UiLayersPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "layer.wesl");
+        let settled = Settled::default();
         app.add_plugins(UiMaterialPlugin::<Picture>::default())
+            .insert_resource(settled.clone())
             .init_resource::<Layers>()
             .init_resource::<Hidden>()
             .add_systems(
@@ -923,12 +948,15 @@ impl Plugin for UiLayersPlugin {
             )
             .add_systems(PostUpdate, centre.in_set(UiSystems::PostLayout));
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.add_systems(
-                ExtractSchedule,
-                hide.after(RenderUiSystems::ExtractBackgrounds)
-                    .after(RenderUiSystems::ExtractImages)
-                    .after(RenderUiSystems::ExtractTextBackgrounds),
-            );
+            render_app
+                .insert_resource(settled)
+                .add_systems(Render, settle.in_set(RenderSystems::Cleanup))
+                .add_systems(
+                    ExtractSchedule,
+                    hide.after(RenderUiSystems::ExtractBackgrounds)
+                        .after(RenderUiSystems::ExtractImages)
+                        .after(RenderUiSystems::ExtractTextBackgrounds),
+                );
         }
     }
 }
@@ -999,6 +1027,33 @@ mod tests {
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &turned));
         let scaled = UiGlobalTransform::from_scale(Vec2::new(2.0, 1.0));
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &scaled));
+    }
+
+    /// A band's picture is trusted from its second frame, once no pipeline is left to make, and
+    /// stays trusted (#2640).
+    #[test]
+    fn a_bands_picture_is_trusted_once_its_pipelines_are_made() {
+        let mut parts = Parts {
+            camera: Entity::PLACEHOLDER,
+            picture: Handle::default(),
+            material: Handle::default(),
+            frame: Entity::PLACEHOLDER,
+            root: Entity::PLACEHOLDER,
+            composite: Entity::PLACEHOLDER,
+            whole: Vec2::ZERO,
+            mirrors: HashMap::new(),
+            grown: true,
+            age: 0,
+            ready: false,
+        };
+        // Its first frame: its camera draws its first picture, whatever is made.
+        assert!(!ready(&mut parts, true));
+        // Pipelines still compiling, as at the start.
+        assert!(!ready(&mut parts, false));
+        assert!(!ready(&mut parts, false));
+        assert!(ready(&mut parts, true));
+        // Kept once given, whatever compiles later.
+        assert!(ready(&mut parts, false));
     }
 
     /// A node's showing is told from the tree itself, a node spawned this frame's too (#2642).
