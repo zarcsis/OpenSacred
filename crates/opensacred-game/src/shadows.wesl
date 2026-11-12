@@ -30,6 +30,8 @@ import package::order;
 /// Where any model's shadow lies (`shadows::ShadowMask`): white on black, the size of the view.
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var shadow_mask: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(4) var shadow_mask_sampler: sampler;
+/// Its x 1 for the soft edges, at the highest detail, 0 for the original's sharp ones (#2628).
+@group(constants::MATERIAL_BIND_GROUP) @binding(5) var<uniform> soft: vec4<f32>;
 
 /// How far a point moves along X on the plane per unit of its height above it: the original's
 /// shadow takes a point `z` above it to `(x + z/2, y − z/2)` in its frame of the models, `x`
@@ -115,7 +117,7 @@ fn vertex(vertex_no_morph: Vertex) -> Flattened {
     {
         let normal = (world_from_local * vec4(vertex.normal, 0.0)).xyz;
         if dot(normal, normal) > 0.0 {
-            world = vec4(world.xyz + normalize(normal) * REACH, 1.0);
+            world = vec4(world.xyz + normalize(normal) * REACH * soft.x, 1.0);
         }
     }
     let tag = mesh_functions::get_tag(vertex_no_morph.instance_index);
@@ -187,8 +189,13 @@ fn coverage(pixel: vec2<f32>) -> f32 {
 fn fragment(in: Flattened) -> Shade {
     var out: Shade;
     // Half at the silhouette's edge, full a few pixels within, none a few pixels beyond, where the
-    // vertices moved out along their normals still reach.
-    out.colour = vec4(0.0, 0.0, 0.0, DARKNESS * coverage(in.position.xy));
+    // vertices moved out along their normals still reach; sharp, as the original's, below the
+    // highest detail.
+    var share = 1.0;
+    if soft.x > 0.5 {
+        share = coverage(in.position.xy);
+    }
+    out.colour = vec4(0.0, 0.0, 0.0, DARKNESS * share);
     out.depth = plane_depth(in.position.y, in.anchor, in.ground, in.sunk);
     return out;
 }
