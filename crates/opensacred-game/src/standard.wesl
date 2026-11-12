@@ -25,7 +25,7 @@ import bevy_pbr::render::{mesh_functions, mesh_view_bindings::lights};
 import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
 @if(NEAREST && DEPTH_PREPASS)
 import package::nearest;
-@if(NEAREST || ON_GROUND)
+@if(NEAREST)
 import package::soft;
 
 /// The alpha of a model's opaque texels, which its first pass draws (`models::OPAQUE`).
@@ -188,13 +188,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     out.color = vec4<f32>(out.color.rgb, 1.0);
 }
     out.color = main_pass_post_lighting_processing(pbr_input, encode(out.color));
-// An effect laid flat on the ground (`fx::ground_material`, #2605) in the sun's soft shadows, on
-// the level plane of its height (`fx::Quads::on_level`), whatever the order moved its vertices
-// along the line of sight: its frame values darkened, as the original's shadows darken them.
-@if(ON_GROUND && VERTEX_UVS_B) {
-    let sun = soft::lit_on_level(in.world_position.xyz, in.uv_b.x, in.position.xy);
-    out.color = vec4<f32>(out.color.rgb * sun, out.color.a);
-}
 }
 @else {
 @if(LINEAR) {

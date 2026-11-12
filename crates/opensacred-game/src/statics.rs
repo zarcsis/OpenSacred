@@ -87,7 +87,6 @@ struct Batch {
     fades: Vec<f32>,
     floors: Vec<[f32; 4]>,
     footprints: Vec<[f32; 2]>,
-    planes: Vec<f32>,
     /// Whether a quad of the batch stands on an upper storey's floor ([`Standing`]).
     on_floor: bool,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
@@ -145,15 +144,6 @@ pub const ATTRIBUTE_FOOTPRINT: MeshVertexAttribute = MeshVertexAttribute::new(
     0x5350_5249_5445_4650,
     VertexFormat::Float32x2,
 );
-
-/// For an upper storey's floor or a sprite flat on the ground (an underlay of lists 0 and 2, a
-/// liquid cell's miniature), the height of its plane in world units, where the soft shadows darken
-/// its texels (`sprites.wesl`, #2605); [`NO_PLANE`] for any other sprite.
-pub const ATTRIBUTE_PLANE: MeshVertexAttribute =
-    MeshVertexAttribute::new("SpritePlane", 0x5350_5249_5445_504C, VertexFormat::Float32);
-
-/// The [`ATTRIBUTE_PLANE`] of a sprite that is no floor (`NO_PLANE` of `sprites.wesl`).
-const NO_PLANE: f32 = -1.0e6;
 
 /// The shader of [`SpriteMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
@@ -255,7 +245,6 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_FADE.at_shader_location(5),
             ATTRIBUTE_FLOOR.at_shader_location(6),
             ATTRIBUTE_FOOTPRINT.at_shader_location(7),
-            ATTRIBUTE_PLANE.at_shader_location(8),
         ])?];
         descriptor.primitive.cull_mode = None;
         let SpriteKey {
@@ -879,9 +868,6 @@ struct Spot {
     cell: Vec2,
     floor: Option<f32>,
     standing: Option<Standing>,
-    /// For a sprite flat on the ground (an underlay), the height of the ground's plane at its
-    /// cell's centre in world units, where the soft shadows darken it (#2605).
-    lying: Option<f32>,
 }
 
 /// The ground point, in cells, under the point at `screen` of a plane `height` pixels high, both
@@ -903,7 +889,6 @@ impl Spot {
             cell: Vec2::new(cx, cy),
             floor: None,
             standing: None,
-            lying: None,
         }
     }
 
@@ -912,22 +897,6 @@ impl Spot {
     fn on_floor(self, floor: Option<u16>) -> Self {
         Self {
             floor: floor.map(|units| f32::from(units) * iso::PIXELS_PER_MODEL_HEIGHT),
-            ..self
-        }
-    }
-
-    /// Its [`ATTRIBUTE_PLANE`]: an upper storey's floor's plane, an underlay's ground, or none.
-    fn plane(&self) -> f32 {
-        self.floor
-            .map(iso::height)
-            .or(self.lying)
-            .unwrap_or(NO_PLANE)
-    }
-
-    /// The spot of a sprite flat on the ground at the height `height`, if any.
-    fn lying(self, height: Option<f32>) -> Self {
-        Self {
-            lying: height,
             ..self
         }
     }
@@ -1083,7 +1052,6 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         fades: Vec::new(),
         floors: Vec::new(),
         footprints: Vec::new(),
-        planes: Vec::new(),
         on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
@@ -1110,7 +1078,6 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         batch.floors.push(floor);
         batch.footprints.push(footprint);
     }
-    batch.planes.extend([spot.plane(); 4]);
     batch.on_floor |= spot.standing.is_some();
     let (w, h) = size;
     batch.uvs.extend([
@@ -1258,15 +1225,7 @@ pub fn build(
         let Some(quad) = quad else {
             continue;
         };
-        // An underlay lies flat on the ground, at the height of its cell's centre.
-        let flat = matches!(
-            layer,
-            Layer::Underlays | Layer::LateUnderlays | Layer::UnderLiquids
-        );
-        let ground = cell.heights.iter().map(|&h| f32::from(h)).sum::<f32>() / 4.0;
-        let spot = Spot::new(cx, cy, back, chain)
-            .on_floor(object.floor)
-            .lying(flat.then(|| iso::height(ground)));
+        let spot = Spot::new(cx, cy, back, chain).on_floor(object.floor);
         let (size, source) = texture_of(quad.texture)?;
         // A lamp's glow: each corner of its miniature moved out by its size, so three times it
         // across and down, the whole texture over it (`0x62FF60`).
@@ -1590,7 +1549,6 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades)
             .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors)
             .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
-            .with_inserted_attribute(ATTRIBUTE_PLANE, batch.planes)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         for material in passes {
@@ -1899,28 +1857,6 @@ pub(crate) mod tests {
             (0..=10u8)
                 .map(move |j| Vec2::new(x + w * f32::from(i) / 10.0, y + h * f32::from(j) / 10.0))
         })
-    }
-
-    #[test]
-    fn a_floor_and_an_underlay_take_the_soft_shadows_in_their_planes() {
-        // An upper storey's floor in its plane, its quad's four corners alike; a wall in none
-        // (#2605).
-        let (statics, h) = floor_house("planes");
-        let batch = statics
-            .batches
-            .iter()
-            .find(|b| b.part == Some(((8, 8), 4)))
-            .unwrap();
-        assert!(
-            batch.planes[4 * FLOOR..4 * FLOOR + 4]
-                .iter()
-                .all(|&plane| plane == iso::height(h))
-        );
-        assert_eq!(batch.planes[4 * WALL], NO_PLANE);
-        // An underlay on its cell's ground; any other sprite in none.
-        let spot = || Spot::new(0.5, 0.5, LIST_0_BACK, 0.0);
-        assert_eq!(spot().lying(Some(3.5)).plane(), 3.5);
-        assert_eq!(spot().plane(), NO_PLANE);
     }
 
     #[test]
