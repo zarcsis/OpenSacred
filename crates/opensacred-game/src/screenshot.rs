@@ -1,18 +1,25 @@
 //! `--screenshot`: once the hero animates and every sector near it is in place, render a few
 //! more frames, save one to a PNG and exit. The first step toward the screenshot tests of M2.
 //! The command `screenshot` saves the next frame at once ([`save`]), and `record` records as
-//! `--record` does, going on after it (`command`).
+//! `--record` does, going on after it (`command`). A recording into a path ending in `.mkv` goes
+//! into one Matroska file through FFmpeg, its frames' times with them (`mkv`, #1226).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use bevy::diagnostic::FrameCount;
 use bevy::prelude::*;
+use bevy::render::render_resource::TextureFormat;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::window::PrimaryWindow;
+use opensacred_data::world::SIDE;
 
 use crate::frame::Playing;
 use crate::hero::{Body, Ready};
+use crate::mkv::{self, Encoder, Frame, Times};
 use crate::sectors::Streamer;
+use crate::{game, iso};
 
 #[derive(Resource)]
 pub struct Request {
@@ -90,10 +97,13 @@ pub fn save(world: &mut World, path: PathBuf) {
 
 /// `--record`: from the same moment as a screenshot, save every frame to a numbered PNG for a
 /// number of frames, then exit, to look at flicker or a stutter frame by frame; the command
-/// `record` goes on after its frames, and in a menu records from the next frame (#2491).
+/// `record` goes on after its frames, and in a menu records from the next frame (#2491). Into a
+/// path ending in `.mkv`, the frames go into one Matroska file instead (`mkv`, #1226).
 #[derive(Resource)]
 pub struct Recording {
     dir: PathBuf,
+    /// The recording into Matroska, from its first frame on.
+    encoder: Option<Encoder>,
     settle: u32,
     frames: u32,
     /// Whether it waits for the game's scene to be ready before its first frame.
@@ -110,6 +120,7 @@ impl Recording {
     pub fn new(dir: PathBuf, settle: u32, frames: u32, exit: bool) -> Self {
         Self {
             dir,
+            encoder: None,
             settle,
             frames,
             waits: true,
@@ -128,6 +139,15 @@ impl Recording {
     }
 }
 
+/// The directory that a recording into `path` needs: the PNGs', or a Matroska file's parent.
+pub fn recording_dir(path: &std::path::Path) -> &std::path::Path {
+    if mkv::is_matroska(path) {
+        path.parent().unwrap_or(std::path::Path::new("."))
+    } else {
+        path
+    }
+}
+
 /// The file of frame `n` of a recording.
 fn frame_file(dir: &std::path::Path, n: u32) -> PathBuf {
     dir.join(format!("frame-{n:04}.png"))
@@ -140,22 +160,96 @@ fn frame_number(rendered: u32, settle: u32) -> Option<u32> {
     rendered.checked_sub(settle.max(1))
 }
 
+/// The clocks whose times go with a frame recorded into Matroska.
+type Clocks<'w> = (
+    Res<'w, Time<Real>>,
+    Res<'w, Time<Virtual>>,
+    Option<Res<'w, FrameCount>>,
+);
+
+/// The tags of a recording into Matroska: the game's version, the hero's class and sector, the
+/// window's size, the frames of settling and the command line.
+fn tags(
+    class: Option<game::Class>,
+    hero: Option<Vec3>,
+    window: Option<(u32, u32)>,
+    settle: u32,
+) -> Vec<(String, String)> {
+    let mut tags = vec![("version".to_owned(), env!("OPENSACRED_VERSION").to_owned())];
+    tags.push((
+        "class".to_owned(),
+        format!("{:?}", class.unwrap_or_default()).to_lowercase(),
+    ));
+    if let Some(at) = hero {
+        let side = f32::from(u16::try_from(SIDE).unwrap_or(u16::MAX)) * iso::CELL;
+        let sector = ((at.x / side).floor(), (at.z / side).floor());
+        tags.push(("sector".to_owned(), format!("{},{}", sector.0, sector.1)));
+    }
+    if let Some((width, height)) = window {
+        tags.push(("window".to_owned(), format!("{width}x{height}")));
+    }
+    tags.push(("settle".to_owned(), settle.to_string()));
+    let line: Vec<String> = std::env::args().collect();
+    tags.push(("command_line".to_owned(), line.join(" ")));
+    tags
+}
+
+/// The pixels of a frame's capture as BGRA rows from the top, if its format is one of the
+/// window's.
+fn bgra(image: &Image) -> Option<Vec<u8>> {
+    let mut data = image.data.clone()?;
+    match image.texture_descriptor.format {
+        TextureFormat::Bgra8UnormSrgb | TextureFormat::Bgra8Unorm => {}
+        TextureFormat::Rgba8UnormSrgb | TextureFormat::Rgba8Unorm => {
+            for texel in data.as_chunks_mut::<4>().0 {
+                texel.swap(0, 2);
+            }
+        }
+        _ => return None,
+    }
+    Some(data)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a system's parameters: the recording, the scene's state and the run's details"
+)]
 pub fn record(
     mut commands: Commands,
     mut recording: ResMut<Recording>,
     (ready, streamer): (Option<Res<Ready>>, Option<Res<Streamer>>),
     bodies: Query<&Transform, With<Body>>,
     mut exit: MessageWriter<AppExit>,
+    (real, virtual_time, count): Clocks,
+    request: Option<Res<game::Request>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     if recording.saved.load(std::sync::atomic::Ordering::Acquire) >= recording.frames {
+        // Into Matroska: the stream closed after the last frame, and FFmpeg's end waited for.
+        if let Some(encoder) = recording.encoder.as_mut() {
+            encoder.finish();
+            match encoder.done() {
+                None => return,
+                Some(Ok(())) => info!(
+                    "recorded {} frames to {}",
+                    recording.frames,
+                    recording.dir.display()
+                ),
+                Some(Err(error)) => {
+                    error!("the recording into {}: {error}", recording.dir.display())
+                }
+            }
+        }
         if recording.exit {
             exit.write(AppExit::Success);
         } else {
-            info!(
-                "recorded {} frames to {}",
-                recording.frames,
-                recording.dir.display()
-            );
+            if recording.encoder.is_none() {
+                info!(
+                    "recorded {} frames to {}",
+                    recording.frames,
+                    recording.dir.display()
+                );
+            }
             commands.remove_resource::<Recording>();
         }
         return;
@@ -178,12 +272,58 @@ pub fn record(
         return;
     }
     let saved = recording.saved.clone();
-    commands
-        .spawn(Screenshot::primary_window())
-        .observe(save_to_disk(frame_file(&recording.dir, n)))
-        .observe(move |_: On<ScreenshotCaptured>| {
+    if !mkv::is_matroska(&recording.dir) {
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(frame_file(&recording.dir, n)))
+            .observe(move |_: On<ScreenshotCaptured>| {
+                saved.fetch_add(1, std::sync::atomic::Ordering::Release);
+            });
+        return;
+    }
+    // The frame's times as its screenshot is taken, which go with its pixels.
+    let times = Times {
+        n,
+        frame: count.map_or(0, |count| count.0),
+        real: real.elapsed_secs_f64(),
+        real_delta: real.delta_secs_f64(),
+        r#virtual: virtual_time.elapsed_secs_f64(),
+        virtual_delta: virtual_time.delta_secs_f64(),
+        paused: virtual_time.is_paused(),
+    };
+    if recording.encoder.is_none() {
+        let window = windows
+            .iter()
+            .next()
+            .map(|window| (window.physical_width(), window.physical_height()));
+        let hero = bodies.iter().next().map(|body| body.translation);
+        let class = request.and_then(|request| request.0.class);
+        let tags = tags(class, hero, window, recording.settle);
+        recording.encoder = Some(Encoder::new(recording.dir.clone(), tags));
+    }
+    let Some(frames) = recording.encoder.as_ref().and_then(Encoder::sender) else {
+        return;
+    };
+    commands.spawn(Screenshot::primary_window()).observe(
+        move |captured: On<ScreenshotCaptured>| {
+            match bgra(&captured.image) {
+                Some(pixels) => {
+                    let frame = Frame {
+                        times,
+                        width: captured.image.width(),
+                        height: captured.image.height(),
+                        bgra: pixels,
+                    };
+                    frames.send(frame).ok();
+                }
+                None => error!(
+                    "a frame of {:?} is not recorded",
+                    captured.image.texture_descriptor.format
+                ),
+            }
             saved.fetch_add(1, std::sync::atomic::Ordering::Release);
-        });
+        },
+    );
 }
 
 /// The screenshot of `--screenshot` and the recordings, in a game, when asked for.

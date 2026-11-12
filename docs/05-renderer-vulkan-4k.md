@@ -142,6 +142,9 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
   The game gives the compute pool four threads (`COMPUTE_THREADS`, #2): no stall in the benchmark's runs since, and more frames.
   `--benchmark` counts the process's stalls (a thread of its own woken more than 20 ms late).
 * **Looking at frames:** `--screenshot FILE` saves one frame once the scene is ready, `--record DIR` the next `--record-frames` (90) as `DIR/frame-NNNN.png`, with `--target` sending the hero off meanwhile: flicker and stutter show frame by frame.
+  `--record FILE.mkv` (and the command `record FILE.mkv N`) records them into one Matroska file instead (#1226): the game writes its frames as raw BGRA (Matroska's VFW mode), each at its `Time<Real>`, and a text track of each frame's times (its number, Bevy's frame count, `Time<Real>` and `Time<Virtual>` with their deltas, whether the world is paused) into FFmpeg's standard input on a thread of its own, and FFmpeg encodes them losslessly in FFV1 (`bgr0`, `-fps_mode passthrough`: none dropped or repeated), tagged with the game's version, the class, the sector, the window's size, the frames of settling and the command line (Matroska's tags read back in capitals).
+  No PNG is encoded in the game's process: at 1920 × 1080 with the hero running, a recording of 300 frames into Matroska kept 60 frames a second (the slowest 25.5 ms), one into PNGs 36 (the slowest 66 ms), 2026-11-11 on an RTX 4080.
+  The frames come back as the same pixels with `ffmpeg -i rec.mkv -fps_mode passthrough frame-%04d.png`, their times with `ffmpeg -i rec.mkv -map 0:s -f srt -`; FFmpeg's muxer rounds the blocks' times to 1 ms, the text track keeps them whole (#1227 brings them into the blocks).
   A capture of the desktop does not see the window (FFmpeg's `gdigrab` gets the wallpaper behind it).
 
 ## 4. Performance budget
