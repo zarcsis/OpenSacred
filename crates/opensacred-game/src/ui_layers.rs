@@ -139,6 +139,34 @@ struct Parts {
     grown: bool,
     age: u32,
     ready: bool,
+    signature: Signature,
+}
+
+/// What a band's pieces show: each image and its part, by which a band of this frame that takes
+/// the parts of one gone is told alike enough for the gone one's picture to stand for its own in
+/// its first frame ([`alike`]).
+type Signature = HashSet<(AssetId<Image>, [u32; 4])>;
+
+/// The [`Signature`] of `pieces`.
+fn signature(pieces: &[Entity], looks: &Query<LookData, Own>) -> Signature {
+    pieces
+        .iter()
+        .filter_map(|&piece| {
+            let (_, _, _, image, ..) = looks.get(piece).ok()?;
+            let image = image?;
+            let rect = image.rect.map_or([0; 4], |rect| {
+                [rect.min.x, rect.min.y, rect.max.x, rect.max.y].map(f32::to_bits)
+            });
+            Some((image.image.id(), rect))
+        })
+        .collect()
+}
+
+/// Whether two bands show the same images, nine in ten of them or more: the quest book made anew
+/// as the pointer moves (#2642), not the inventory that opens as a band of the bar ends (#2640).
+fn alike(one: &Signature, other: &Signature) -> bool {
+    let shared = one.intersection(other).count();
+    shared * 10 >= one.len().max(other.len()) * 9
 }
 
 /// A band: the root of its stacking context's tree, the piece the interface stacks first, its
@@ -494,6 +522,7 @@ fn make(
         grown: true,
         age: 0,
         ready: false,
+        signature: Signature::new(),
     }
 }
 
@@ -572,18 +601,27 @@ fn bands(
         let Some(&anchor) = pieces.first() else {
             continue;
         };
+        let shows = signature(&pieces, &looks);
         let band = match layers.0.entry(key) {
             Entry::Occupied(entry) => {
                 let band = entry.into_mut();
                 if band.tree != root {
                     retree(&mut commands, &mut band.parts, root);
                     band.tree = root;
+                    if !alike(&band.parts.signature, &shows) {
+                        band.parts.ready = false;
+                        band.parts.age = 0;
+                    }
                 }
                 band
             }
             Entry::Vacant(entry) => {
-                let parts = match spare.pop() {
-                    Some(mut parts) => {
+                let like = spare
+                    .iter()
+                    .position(|parts| alike(&parts.signature, &shows));
+                let parts = match like {
+                    Some(index) => {
+                        let mut parts = spare.swap_remove(index);
                         retree(&mut commands, &mut parts, root);
                         parts
                     }
@@ -604,6 +642,7 @@ fn bands(
         };
         band.anchor = anchor;
         band.pieces = pieces.into_iter().collect();
+        band.parts.signature = shows;
         if ready(&mut band.parts, settled) {
             drawn.extend(band.pieces.iter().copied());
         }
@@ -1029,6 +1068,27 @@ mod tests {
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &scaled));
     }
 
+    /// A band made anew of the same images is alike, one of others not.
+    #[test]
+    fn bands_of_the_same_images_are_alike() {
+        let shows = |parts: &[u32]| -> Signature {
+            parts
+                .iter()
+                .map(|&part| (AssetId::<Image>::default(), [part, 0, 0, 0]))
+                .collect()
+        };
+        let book: Signature = shows(&(0..20).collect::<Vec<_>>());
+        assert!(alike(&book, &book));
+        // A tab lit among twenty pieces.
+        assert!(alike(
+            &book,
+            &shows(&(0..19).chain([99]).collect::<Vec<_>>())
+        ));
+        // The bar's pieces against the inventory's.
+        assert!(!alike(&book, &shows(&(50..70).collect::<Vec<_>>())));
+        assert!(!alike(&book, &shows(&(0..10).collect::<Vec<_>>())));
+    }
+
     /// A band's picture is trusted from its second frame, once no pipeline is left to make, and
     /// stays trusted (#2640).
     #[test]
@@ -1045,6 +1105,7 @@ mod tests {
             grown: true,
             age: 0,
             ready: false,
+            signature: Signature::new(),
         };
         // Its first frame: its camera draws its first picture, whatever is made.
         assert!(!ready(&mut parts, true));
