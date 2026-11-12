@@ -406,7 +406,8 @@ fn put(
     if pipe.is_none() {
         let mut child = command(out, tags).spawn().map_err(|e| {
             format!(
-                "starting {} for the recording into {}: {e} (FFmpeg is found beside the game, \n                 else by FFMPEG, else on PATH)",
+                "starting {} for the recording into {}: {e} (FFmpeg is found beside the game, else \
+                 by FFMPEG, else on PATH)",
                 ffmpeg().display(),
                 out.display()
             )
