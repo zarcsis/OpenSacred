@@ -25,8 +25,6 @@ import bevy_pbr::render::{mesh_functions, mesh_view_bindings::lights};
 import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
 @if(NEAREST && DEPTH_PREPASS)
 import package::nearest;
-@if(NEAREST || ON_GROUND)
-import package::soft;
 
 /// The alpha of a model's opaque texels, which its first pass draws (`models::OPAQUE`).
 const OPAQUE: f32 = 254.5 / 255.0;
@@ -175,10 +173,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         out.color = vec4<f32>(out.color.rgb * lit, out.color.a);
     }
 }
-// A world's model in the sun's soft shadows, its own and the others' (`soft.wesl`, #1436), at
-// the end below in the frame's values, as the original's shadows darken them.
-@if(NEAREST)
-    let sun = soft::lit(in.world_position, normalize(in.world_normal), in.position.xy);
 @if(PARTICLES) {
     // A particle's colour in the frame's values, then times its alpha where Bevy's last steps
     // premultiply an added one: the texel's and the colour's values laid or added as they are,
@@ -188,13 +182,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     out.color = vec4<f32>(out.color.rgb, 1.0);
 }
     out.color = main_pass_post_lighting_processing(pbr_input, encode(out.color));
-// An effect laid flat on the ground (`fx::ground_material`, #2605) in the sun's soft shadows, on
-// the level plane of its height (`fx::Quads::on_level`), whatever the order moved its vertices
-// along the line of sight: its frame values darkened, as the original's shadows darken them.
-@if(ON_GROUND && VERTEX_UVS_B) {
-    let sun = soft::lit_on_level(in.world_position.xyz, in.uv_b.x, in.position.xy);
-    out.color = vec4<f32>(out.color.rgb * sun, out.color.a);
-}
 }
 @else {
 @if(LINEAR) {
@@ -206,8 +193,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
 }
 // Under the texture the effect's colour, the glow's added to it, both unlit, each moved by its
 // offsets, laid in the frame's sRGB values as the original's passes blend them (`0x406510`).
-@if(NEAREST)
-    out.color = vec4<f32>(out.color.rgb * sun, out.color.a);
 @if(EFFECT) {
     let effect = encode(textureSample(effect_texture, effect_sampler, in.uv + effect_offsets.xy));
     let glow = encode(textureSample(glow_texture, glow_sampler, in.uv + effect_offsets.zw));

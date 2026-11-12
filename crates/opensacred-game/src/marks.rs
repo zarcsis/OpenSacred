@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use opensacred_rules::particles::{Mark, Puddle};
 
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, ground_material, particle_texture};
+use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
@@ -149,7 +149,7 @@ fn make(
                         unmade.texture
                     );
                 }
-                image.map(|image| effects.add(ground_material(image)))
+                image.map(|image| effects.add(particle_material(image, AlphaMode::Blend)))
             })
             .clone();
         let (look, turn) = match unmade.kind {
@@ -240,7 +240,6 @@ fn run(
                 .and_then(|body| orders.behind(body))
                 .or_else(|| orders.at(origin));
             quads.in_order(order, origin);
-            quads.on_level(origin.y);
             quads.into_mesh(&mut mesh);
         }
     }

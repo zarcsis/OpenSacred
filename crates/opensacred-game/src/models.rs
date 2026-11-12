@@ -196,11 +196,10 @@ impl MaterialExtension for InOrder {
         PREPASS.into()
     }
 
-    /// The models that cast a shadow draw into the sun's shadow map while the soft shadows are on
-    /// (`shadows::sun`, #1436), at the light's own depth (`prepass.wesl`, `SHADOW_VIEW`); the
-    /// sun alone casts, and those models alone are in its layer.
+    /// None: the game's light casts no shadows, the models' own are drawn by `shadows`, and the
+    /// prepass's vertex stage, which Bevy's shadow passes would take, squeezes the depth.
     fn enable_shadows() -> bool {
-        true
+        false
     }
 
     /// The depth as the vertex shader puts it: a blended material's `depth_bias` is its layer of
@@ -218,15 +217,6 @@ impl MaterialExtension for InOrder {
             .shader_defs
             .contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
         {
-            // A directional light's shadow map, the sun's: every triangle casts, whatever its
-            // texels' alpha, as the original's flattened mesh does (`shadows`).
-            if key
-                .mesh_key
-                .contains(bevy::pbr::MeshPipelineKey::UNCLIPPED_DEPTH_ORTHO)
-            {
-                descriptor.vertex.shader_defs.push("SHADOW_VIEW".into());
-                descriptor.fragment = None;
-            }
             return Ok(());
         }
         // The fragment stage reads the model's light by its mesh's tag (`standard.wesl`).

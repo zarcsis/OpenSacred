@@ -10,18 +10,9 @@
 //! has the stencil (docs/decisions/drawing.md, "Models' shadows by depth, not stencil"). The shadow
 //! of a model under a liquid's surface (`models::Sunk`) lies with it, in the layer under the
 //! liquids.
-//!
-//! The setting `[graphics] shadows = "soft"` (#1436) draws none of those copies:
-//! the sun, a directional light along the same lean ([`sun`]), casts the shadows of the models'
-//! own meshes into a shadow map, which darkens the ground and the models to the same third of
-//! their light (`soft.wesl`), so that a shadow follows the terrain, falls on other models, and a
-//! model shades itself. The sun lights nothing; its layer ([`SUN_LAYER`]) holds the casters'
-//! meshes alone, so that nothing else casts, and the world's cameras, the untinted one's effects
-//! on the ground among what they draw (#2605), take it by a layer of their own ([`SUN_VIEW`]).
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
-use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, DirectionalLightShadowMap};
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
@@ -35,7 +26,6 @@ use bevy::shader::ShaderRef;
 use crate::blended::{self, Layer};
 use crate::frame::Step;
 use crate::models::{Anchors, Fringe, ModelMaterial, Ordered, OrderedWith, Sunk};
-use crate::settings::{Settings, Shadows};
 
 /// The shader of [`ShadowMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/shadows.wesl";
@@ -50,66 +40,6 @@ pub struct Casts;
 /// The copy of a model's mesh that draws its shadow.
 #[derive(Component)]
 pub struct Shadow;
-
-/// The render layer of the sun ([`sun`]) and of the meshes that cast its shadows, which the
-/// world's camera draws by their own layer.
-pub const SUN_LAYER: usize = 30;
-
-/// The render layer of the sun ([`sun`]) and of the cameras that take its shadows, the world's
-/// and the untinted one (`iso::Untinted`), which holds nothing to draw: the untinted camera draws
-/// none of the casters' meshes of [`SUN_LAYER`] by it (#2605).
-pub const SUN_VIEW: usize = 31;
-
-/// The direction of the light of the models' shadows: a point `h` above its ground falls
-/// `(LEAN_X·h, LEAN_Z·h)` from its foot (`shadows.wesl`).
-const LEAN: Vec3 = Vec3::new(0.036_930, -1.0, -0.670_176);
-
-/// The side of the sun's shadow map, in texels: at zoom 2 its one cascade spans some 7,000 units
-/// of the world, under two a texel.
-const SUN_MAP: usize = 4096;
-
-/// How far the sun's shadows reach before and beyond the point the camera looks at, along its
-/// line of sight, besides the view's own depth: the models' heights and the terrain's.
-const SUN_MARGIN: f32 = 600.0;
-
-/// The light of the soft shadows (#1436): a directional light along the shadows' lean, of no
-/// illuminance, in its own layer, casting while `[graphics] shadows` is `soft` ([`switch`]);
-/// spawned after the game's light, so that it follows it among the lights (`standard.wesl`'s
-/// hover takes the first).
-#[derive(Component)]
-pub struct Sun;
-
-/// The sun ([`Sun`]), not casting yet.
-pub fn sun() -> impl Bundle {
-    (
-        Sun,
-        DirectionalLight {
-            illuminance: 0.0,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::IDENTITY.looking_to(LEAN, Vec3::Y),
-        RenderLayers::from_layers(&[SUN_LAYER, SUN_VIEW]),
-        sun_cascade(1.0),
-    )
-}
-
-/// The sun's one cascade at the camera's zoom `zoom`: the depths of the view along the camera's
-/// line of sight, which looks down at 30° at the point `iso::DISTANCE` ahead, and
-/// [`SUN_MARGIN`] before and beyond them.
-fn sun_cascade(zoom: f32) -> CascadeShadowConfig {
-    let height = crate::iso::SCREEN_HEIGHT / crate::iso::PIXELS_PER_UNIT * zoom;
-    // The view's height spans this much of the ground's depth: the ground lies at 30° to the
-    // line of sight.
-    let depth = 0.5 * height * 3.0_f32.sqrt() + SUN_MARGIN;
-    CascadeShadowConfigBuilder {
-        num_cascades: 1,
-        minimum_distance: crate::iso::DISTANCE - depth,
-        maximum_distance: crate::iso::DISTANCE + depth,
-        ..default()
-    }
-    .build()
-}
 
 /// The material of the shadows, which every one of a layer shares: the models' anchors, for their
 /// places, their roots, for their planes, and their floors, for how far back the sunk ones lie.
@@ -235,7 +165,6 @@ type ModelMesh = (
     &'static MeshTag,
     &'static Transform,
     &'static ChildOf,
-    Option<&'static RenderLayers>,
 );
 
 /// Gives each mesh that has just taken its model material, of a model that casts a shadow, a
@@ -252,7 +181,7 @@ pub fn cast(
     models: Query<Option<&OrderedWith>, Model>,
     casters: Query<Has<Sunk>, (With<Casts>, With<Ordered>)>,
 ) {
-    for (entity, mesh, skinned, tag, transform, parent, layers) in &meshes {
+    for (entity, mesh, skinned, tag, transform, parent) in &meshes {
         let Some(root) = parents
             .iter_ancestors(entity)
             .find(|&ancestor| models.contains(ancestor))
@@ -267,9 +196,6 @@ pub fn cast(
         let Ok(sunk) = casters.get(caster) else {
             continue;
         };
-        // Into the sun's shadow map, as well as the world's frame.
-        let layers = layers.cloned().unwrap_or_default().with(SUN_LAYER);
-        commands.entity(entity).insert(layers);
         let mut shadow = commands.spawn((
             Mesh3d(mesh.0.clone()),
             MeshMaterial3d(shared.material(sunk).clone()),
@@ -288,57 +214,17 @@ pub fn cast(
 
 /// Hides the models' shadows at the options' lowest detail, where `shadow_dots` lays the dots of
 /// `0x407960` in their place, and shows them above it.
-fn detail(settings: Option<Res<Settings>>, mut shadows: Query<&mut Visibility, With<Shadow>>) {
-    let wanted = if crate::settings::detail(settings.as_deref()) == 0 || soft(settings.as_deref()) {
+fn detail(
+    settings: Option<Res<crate::settings::Settings>>,
+    mut shadows: Query<&mut Visibility, With<Shadow>>,
+) {
+    let wanted = if crate::settings::detail(settings.as_deref()) == 0 {
         Visibility::Hidden
     } else {
         Visibility::Inherited
     };
     for mut visibility in &mut shadows {
         visibility.set_if_neq(wanted);
-    }
-}
-
-/// Whether the soft shadows are on (#1436).
-fn soft(settings: Option<&Settings>) -> bool {
-    settings.is_some_and(|settings| settings.graphics.shadows == Shadows::Soft)
-}
-
-/// The sun casts while the soft shadows are on, its cascade at the camera's zoom; the world's
-/// cameras take its view's layer.
-fn switch(
-    mut commands: Commands,
-    settings: Option<Res<Settings>>,
-    mut suns: Query<(&mut DirectionalLight, &mut CascadeShadowConfig), With<Sun>>,
-    eyes: Query<(Entity, &Projection, Option<&RenderLayers>), crate::iso::Eye>,
-    untinted: Query<(Entity, Option<&RenderLayers>), With<crate::iso::Untinted>>,
-) {
-    let soft = soft(settings.as_deref());
-    let mut zoom = 1.0;
-    let view = RenderLayers::layer(SUN_VIEW);
-    let cameras = eyes
-        .iter()
-        .map(|(eye, projection, layers)| {
-            if let Projection::Orthographic(ortho) = projection {
-                zoom = ortho.scale;
-            }
-            (eye, layers)
-        })
-        .chain(untinted.iter());
-    for (camera, layers) in cameras {
-        let layers = layers.cloned().unwrap_or_default();
-        if !layers.intersects(&view) {
-            commands.entity(camera).insert(layers.with(SUN_VIEW));
-        }
-    }
-    for (mut light, mut cascade) in &mut suns {
-        if light.shadow_maps_enabled != soft {
-            light.shadow_maps_enabled = soft;
-        }
-        let wanted = sun_cascade(zoom);
-        if soft && cascade.bounds != wanted.bounds {
-            *cascade = wanted;
-        }
     }
 }
 
@@ -407,13 +293,10 @@ impl Plugin for ShadowsPlugin {
         embedded_asset!(app, "shadows.wesl");
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
             .init_resource::<Grounds>()
-            .insert_resource(DirectionalLightShadowMap { size: SUN_MAP })
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
-                (cast, soak, ground, detail, switch)
-                    .chain()
-                    .in_set(Step::Shadows),
+                (cast, soak, ground, detail).chain().in_set(Step::Shadows),
             );
     }
 }
@@ -450,17 +333,12 @@ mod tests {
                 ))
                 .id()
         };
-        let (body, blade, staves) = (mesh(world, hero), mesh(world, sword), mesh(world, barrel));
+        for root in [hero, sword, barrel] {
+            mesh(world, root);
+        }
         app.update();
         let world = app.world_mut();
-        let sun = RenderLayers::layer(SUN_LAYER);
-        let mut layers = world.query::<&RenderLayers>();
-        // The hero's body and its sword in the sun's layer (#2610), the barrel not.
-        for (mesh, casts) in [(body, true), (blade, true), (staves, false)] {
-            let cast = layers.get(world, mesh).is_ok_and(|l| l.intersects(&sun));
-            assert_eq!(cast, casts, "{mesh}");
-        }
-        // And a flattened copy beside each of the two.
+        // A flattened copy beside the hero's body and its sword (#2610), none beside the barrel.
         let mut copies = world.query_filtered::<&ChildOf, With<Shadow>>();
         let mut parents: Vec<Entity> = copies.iter(world).map(ChildOf::parent).collect();
         parents.sort();
@@ -499,22 +377,6 @@ mod tests {
         // `WEATHER_RAIN01.TGA`, black at alpha 170 in all its 16 × 16 texels, under vertices of
         // opaque black (`0xFF000000`).
         assert!((shader_constant(SHADER, "DARKNESS") - 170.0 / 255.0).abs() < 1e-7);
-    }
-
-    #[test]
-    fn the_ground_finds_its_place_for_the_sun() {
-        assert_eq!(
-            shader_constant(include_str!("ground.wesl"), "GROUND_BEHIND"),
-            iso::GROUND_BEHIND
-        );
-    }
-
-    #[test]
-    fn the_sun_leans_as_the_shadows_and_leaves_their_light() {
-        assert_eq!(LEAN.x, shader_constant(SHADER, "LEAN_X"));
-        assert_eq!(LEAN.z, shader_constant(SHADER, "LEAN_Z"));
-        let left = shader_constant(include_str!("soft.wesl"), "LEFT");
-        assert!((left - (1.0 - shader_constant(SHADER, "DARKNESS"))).abs() < 1e-6);
     }
 
     #[test]

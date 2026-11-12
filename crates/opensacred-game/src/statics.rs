@@ -87,7 +87,6 @@ struct Batch {
     fades: Vec<f32>,
     floors: Vec<[f32; 4]>,
     footprints: Vec<[f32; 2]>,
-    planes: Vec<f32>,
     /// Whether a quad of the batch stands on an upper storey's floor ([`Standing`]).
     on_floor: bool,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
@@ -145,15 +144,6 @@ pub const ATTRIBUTE_FOOTPRINT: MeshVertexAttribute = MeshVertexAttribute::new(
     0x5350_5249_5445_4650,
     VertexFormat::Float32x2,
 );
-
-/// For an upper storey's floor or a sprite flat on the ground (an underlay of lists 0 and 2, a
-/// liquid cell's miniature), the height of its plane in world units, where the soft shadows darken
-/// its texels (`sprites.wesl`, #2605); [`NO_PLANE`] for any other sprite.
-pub const ATTRIBUTE_PLANE: MeshVertexAttribute =
-    MeshVertexAttribute::new("SpritePlane", 0x5350_5249_5445_504C, VertexFormat::Float32);
-
-/// The [`ATTRIBUTE_PLANE`] of a sprite that is no floor (`NO_PLANE` of `sprites.wesl`).
-const NO_PLANE: f32 = -1.0e6;
 
 /// The shader of [`SpriteMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
@@ -255,7 +245,6 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_FADE.at_shader_location(5),
             ATTRIBUTE_FLOOR.at_shader_location(6),
             ATTRIBUTE_FOOTPRINT.at_shader_location(7),
-            ATTRIBUTE_PLANE.at_shader_location(8),
         ])?];
         descriptor.primitive.cull_mode = None;
         let SpriteKey {
@@ -879,10 +868,6 @@ struct Spot {
     cell: Vec2,
     floor: Option<f32>,
     standing: Option<Standing>,
-    /// For a sprite flat on the ground (an underlay), the height in world units of the ground
-    /// that each of its corners shows, in the order of its quad's corners, where the soft
-    /// shadows darken it (#2605, #2609).
-    lying: Option<[f32; 4]>,
 }
 
 /// The ground point, in cells, under the point at `screen` of a plane `height` pixels high, both
@@ -890,69 +875,6 @@ struct Spot {
 fn under(screen: Vec2, height: f32) -> Vec2 {
     let (across, down) = (screen.x / 48.0, (screen.y + height) / 24.0);
     Vec2::new((down + across) / 2.0, (down - across) / 2.0)
-}
-
-/// The heights in pixels between which [`ground_under`] walks a line of sight down, a cell's
-/// corners' (`i8`), and the bisections that refine where it meets the ground.
-const GROUND_TOP: i16 = 127;
-const GROUND_BOTTOM: i16 = -128;
-const GROUND_BISECTIONS: usize = 8;
-
-/// The height in pixels at which a creature stands on the ground of `sector` at the point `at` of
-/// the global cells: its cell's second corner heights (`+0x18`, steps of
-/// `terrain::STANDING_STEP` units of the models' height) as the client interpolates them
-/// (`terrain::on_triangles`, `0x636520`), where the models that cast stand and the original's
-/// flattened shadows lie, whatever the art's own heights (#2609); its nearest cell's for a point
-/// out of the sector.
-fn ground_at(sector: &Sector, at: Vec2) -> f32 {
-    let side = SIDE as f32;
-    let axis = |n: u32| f32::from(u16::try_from(n).unwrap_or(u16::MAX));
-    let origin = Vec2::new(axis(sector.x), axis(sector.y)) * side;
-    let local = (at - origin).clamp(Vec2::ZERO, Vec2::splat(side - 1e-3));
-    let (column, row) = (local.x.floor(), local.y.floor());
-    let (u, v) = (local.x - column, local.y - row);
-    let Some(cell) = sector.cells.get(whole(row) * SIDE + whole(column)) else {
-        return 0.0;
-    };
-    let pixels = crate::terrain::STANDING_STEP * iso::PIXELS_PER_MODEL_HEIGHT;
-    crate::terrain::on_triangles(cell.heights2.map(|step| f32::from(step) * pixels), u, v)
-}
-
-/// A cell's index along an axis of its sector, from its coordinate there, 0 to `SIDE`.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "clamped within the sector's side first"
-)]
-fn whole(x: f32) -> usize {
-    x as usize
-}
-
-/// The height in pixels of the ground of `sector` that the line of sight through the point
-/// `screen` of the original's screen meets first, where the ground's mesh shows: walked down from
-/// the highest corner's height a pixel at a time to the first point at or under the ground, then
-/// bisected. A function of the point alone, so that abutting sprites take one height where they
-/// meet (#2609).
-fn ground_under(sector: &Sector, screen: Vec2) -> f32 {
-    let over = |h: f32| h > ground_at(sector, under(screen, h));
-    let mut above = f32::from(GROUND_TOP);
-    for h in (GROUND_BOTTOM..GROUND_TOP).rev() {
-        let h = f32::from(h);
-        if !over(h) {
-            let mut below = h;
-            for _ in 0..GROUND_BISECTIONS {
-                let middle = (above + below) / 2.0;
-                if over(middle) {
-                    above = middle;
-                } else {
-                    below = middle;
-                }
-            }
-            return ground_at(sector, under(screen, below));
-        }
-        above = h;
-    }
-    f32::from(GROUND_BOTTOM)
 }
 
 impl Spot {
@@ -967,7 +889,6 @@ impl Spot {
             cell: Vec2::new(cx, cy),
             floor: None,
             standing: None,
-            lying: None,
         }
     }
 
@@ -976,24 +897,6 @@ impl Spot {
     fn on_floor(self, floor: Option<u16>) -> Self {
         Self {
             floor: floor.map(|units| f32::from(units) * iso::PIXELS_PER_MODEL_HEIGHT),
-            ..self
-        }
-    }
-
-    /// Its [`ATTRIBUTE_PLANE`] at its quad's corner `corner`: an upper storey's floor's plane,
-    /// the ground that an underlay's corner shows, or none.
-    fn plane(&self, corner: usize) -> f32 {
-        self.floor
-            .map(iso::height)
-            .or_else(|| self.lying.map(|heights| heights[corner % 4]))
-            .unwrap_or(NO_PLANE)
-    }
-
-    /// The spot of a sprite flat on the ground, its corners showing the ground at the heights
-    /// `heights`, if any.
-    fn lying(self, heights: Option<[f32; 4]>) -> Self {
-        Self {
-            lying: heights,
             ..self
         }
     }
@@ -1149,7 +1052,6 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         fades: Vec::new(),
         floors: Vec::new(),
         footprints: Vec::new(),
-        planes: Vec::new(),
         on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
@@ -1176,7 +1078,6 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         batch.floors.push(floor);
         batch.footprints.push(footprint);
     }
-    batch.planes.extend((0..4).map(|corner| spot.plane(corner)));
     batch.on_floor |= spot.standing.is_some();
     let (w, h) = size;
     batch.uvs.extend([
@@ -1324,18 +1225,7 @@ pub fn build(
         let Some(quad) = quad else {
             continue;
         };
-        // An underlay lies flat on the ground: each of its corners on the ground that it shows.
-        let flat = matches!(
-            layer,
-            Layer::Underlays | Layer::LateUnderlays | Layer::UnderLiquids
-        );
-        let lying = flat.then(|| {
-            quad.corners
-                .map(|corner| iso::height(ground_under(sector, position + corner)))
-        });
-        let spot = Spot::new(cx, cy, back, chain)
-            .on_floor(object.floor)
-            .lying(lying);
+        let spot = Spot::new(cx, cy, back, chain).on_floor(object.floor);
         let (size, source) = texture_of(quad.texture)?;
         // A lamp's glow: each corner of its miniature moved out by its size, so three times it
         // across and down, the whole texture over it (`0x62FF60`).
@@ -1659,7 +1549,6 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades)
             .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors)
             .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
-            .with_inserted_attribute(ATTRIBUTE_PLANE, batch.planes)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         for material in passes {
@@ -1968,76 +1857,6 @@ pub(crate) mod tests {
             (0..=10u8)
                 .map(move |j| Vec2::new(x + w * f32::from(i) / 10.0, y + h * f32::from(j) / 10.0))
         })
-    }
-
-    #[test]
-    fn a_floor_and_an_underlay_take_the_soft_shadows_in_their_planes() {
-        // An upper storey's floor in its plane, its quad's four corners alike; a wall in none
-        // (#2605).
-        let (statics, h) = floor_house("planes");
-        let batch = statics
-            .batches
-            .iter()
-            .find(|b| b.part == Some(((8, 8), 4)))
-            .unwrap();
-        assert!(
-            batch.planes[4 * FLOOR..4 * FLOOR + 4]
-                .iter()
-                .all(|&plane| plane == iso::height(h))
-        );
-        assert_eq!(batch.planes[4 * WALL], NO_PLANE);
-        // An underlay on the ground its corners show; any other sprite in none.
-        let spot = || Spot::new(0.5, 0.5, LIST_0_BACK, 0.0);
-        let lying = spot().lying(Some([1.0, 2.0, 3.0, 4.0]));
-        assert_eq!(
-            (0..4).map(|k| lying.plane(k)).collect::<Vec<_>>(),
-            [1.0, 2.0, 3.0, 4.0]
-        );
-        assert_eq!(spot().plane(0), NO_PLANE);
-    }
-
-    #[test]
-    fn an_underlays_corners_show_the_ground_that_the_line_of_sight_meets() {
-        // A cell (3, 2) of the sector 0,0 whose creatures stand at 0, 0, 8 and 8 steps (left, top,
-        // right, bottom), 34 pixels at the right and bottom corners: it rises toward them.
-        let mut cells = vec![
-            Cell {
-                tile: 0,
-                overlays: Vec::new(),
-                heights: [0; 4],
-                light: [255; 4],
-                heights2: [0; 4],
-                offsets: [0; 2],
-                flags: 0,
-                ground: 0,
-            };
-            SIDE * SIDE
-        ];
-        cells[2 * SIDE + 3].heights2 = [0, 0, 8, 8];
-        let sector = Sector {
-            x: 0,
-            y: 0,
-            id: 0,
-            liquids: [0; 2],
-            cells,
-            statics: Vec::new(),
-            layers: Vec::new(),
-            buildings: Vec::new(),
-        };
-        let high = 8.0 * crate::terrain::STANDING_STEP * iso::PIXELS_PER_MODEL_HEIGHT;
-        // The corners as the client takes them: the top at 0, the right at its height.
-        assert_eq!(ground_at(&sector, Vec2::new(3.0, 2.0)), 0.0);
-        assert!((ground_at(&sector, Vec2::new(3.999, 2.0)) - high).abs() < 0.1);
-        // The point of the screen where the bottom corner, the grid's (4, 3), shows, that high
-        // over its height 0's place: the line of sight meets the ground there first, before the
-        // flat ground behind it.
-        let corner = Vec2::new(48.0 * (4.0 - 3.0), 24.0 * (4.0 + 3.0) - high);
-        assert!((ground_under(&sector, corner) - high).abs() < 0.5);
-        // A point of flat ground shows its height, 0, whatever the cells about.
-        assert_eq!(
-            ground_under(&sector, Vec2::new(48.0 * -10.0, 24.0 * 30.0)),
-            0.0
-        );
     }
 
     #[test]
