@@ -444,6 +444,70 @@ fn main_screen(
 /// ui`, #1824).
 const PICTURE: &str = "ui/screens/mainmenu.ktx2";
 
+/// A menu's background: the converter's one picture of it where the assets hold it, filtered as
+/// a whole (#1824, #2634), else its twelve tiles, four to a row from the top left (assets
+/// converted before it), whose joins a window between the original's sizes can leave seamed.
+#[derive(Clone, Debug, Default)]
+pub struct Background {
+    picture: Option<String>,
+    tiles: Vec<Option<String>>,
+}
+
+impl Background {
+    /// Finds the picture `picture`, a path under `assets`, and the tiles `tiles`, the textures'
+    /// names, among the converted assets.
+    pub fn find(assets: &std::path::Path, picture: &str, tiles: &[String]) -> Self {
+        let names: Vec<&str> = tiles.iter().map(String::as_str).collect();
+        Self {
+            picture: crate::files::exists(assets.join(picture)).then(|| picture.to_owned()),
+            tiles: hud::find_textures(assets, &names),
+        }
+    }
+
+    /// Spawns it into `parent` over the original's screen, each of its nodes with `extra`.
+    pub fn spawn(
+        &self,
+        parent: &mut ChildSpawnerCommands,
+        assets: &AssetServer,
+        extra: impl Bundle + Clone,
+    ) {
+        match &self.picture {
+            Some(file) => {
+                parent.spawn((
+                    ImageNode::new(hud::image(assets, file.clone())),
+                    at_tile(0, 0, SCREEN),
+                    extra,
+                ));
+            }
+            None => {
+                let places = (0..3u8).flat_map(|row| (0..4u8).map(move |column| (column, row)));
+                for (tile, (column, row)) in self.tiles.iter().zip(places) {
+                    let Some(tile) = tile else {
+                        continue;
+                    };
+                    parent.spawn((
+                        ImageNode::new(hud::image(assets, tile.clone())),
+                        at_tile(column, row, Vec2::splat(TILE)),
+                        extra.clone(),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// The node of the tile at `(column, row)` of the picture, of `size`.
+fn at_tile(column: u8, row: u8, size: Vec2) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(TILE * f32::from(column)),
+        top: Val::Px(TILE * f32::from(row)),
+        width: Val::Px(size.x),
+        height: Val::Px(size.y),
+        ..default()
+    }
+}
+
 /// A screen's picture `file` over the whole of the original's screen.
 fn whole(picture: &mut ChildSpawnerCommands, file: &str, assets: &AssetServer) {
     picture.spawn((
