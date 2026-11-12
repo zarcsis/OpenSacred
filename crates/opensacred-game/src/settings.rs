@@ -151,7 +151,7 @@ impl Default for Graphics {
 
 /// The models' shadows (`shadows`, #1436): the original's, each model's mesh flattened onto its
 /// ground along a fixed light, or soft ones of the sun's shadow map, which fall on the ground and
-/// on the models (docs/decisions/drawing.md, "Soft shadows behind a setting").
+/// on the models, to compare.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Shadows {
