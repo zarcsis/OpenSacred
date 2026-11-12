@@ -16,7 +16,7 @@ use bevy::render::render_resource::{
     ShaderType,
 };
 use bevy::shader::ShaderRef;
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialKey, UiMaterialPlugin};
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialKey};
 
 use crate::frame::Playing;
 use crate::game::AppState;
@@ -291,7 +291,7 @@ pub struct InfoLinesPlugin;
 impl Plugin for InfoLinesPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "info_glow.wesl");
-        app.add_plugins(UiMaterialPlugin::<Glow>::default())
+        app.add_plugins(crate::ui_layers::NativeMaterialPlugin::<Glow>::default())
             .init_resource::<Shown>()
             .add_systems(OnExit(AppState::InGame), |mut shown: ResMut<Shown>| {
                 shown.0.clear();

@@ -990,7 +990,7 @@ pub(crate) fn add_border(
         let piece = commands
             .spawn((
                 ImageNode {
-                    rect: Some(images.sampled(index, rect)),
+                    rect: Some(rect),
                     flip_x: turned[0],
                     flip_y: turned[1],
                     image_mode: NodeImageMode::Stretch,

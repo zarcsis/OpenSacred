@@ -20,7 +20,7 @@ use bevy::render::render_resource::{
     AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, RenderPipelineDescriptor,
 };
 use bevy::shader::ShaderRef;
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_render::ui_material::UiMaterialKey;
 use opensacred_rules::spawning::Rng;
 
@@ -326,7 +326,7 @@ pub struct SparklesPlugin;
 impl Plugin for SparklesPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "sparkle.wesl");
-        app.add_plugins(UiMaterialPlugin::<Spark>::default())
+        app.add_plugins(crate::ui_layers::NativeMaterialPlugin::<Spark>::default())
             .add_systems(
                 Update,
                 (begin, level_up, play)

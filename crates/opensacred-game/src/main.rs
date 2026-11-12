@@ -257,6 +257,7 @@ mod trample;
 mod trap_balls;
 mod trap_landings;
 mod twisters;
+mod ui_layers;
 mod undead;
 mod vamp_casts;
 mod vamp_sights;
@@ -758,6 +759,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         trap_balls::TrapBallsPlugin,
         trap_landings::TrapLandingsPlugin,
         twisters::TwistersPlugin,
+        ui_layers::UiLayersPlugin,
     ))
     .add_plugins((
         undead::UndeadPlugin,

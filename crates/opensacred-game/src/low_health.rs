@@ -10,7 +10,7 @@ use bevy::render::render_resource::{
     ShaderType,
 };
 use bevy::shader::ShaderRef;
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_render::ui_material::UiMaterialKey;
 
 use crate::bar::{self, ColumnRoot, HealthRed, UiImages};
@@ -321,8 +321,8 @@ impl Plugin for LowHealthPlugin {
         embedded_asset!(app, "glow.wesl");
         embedded_asset!(app, "sonar.wesl");
         app.add_plugins((
-            UiMaterialPlugin::<Glow>::default(),
-            UiMaterialPlugin::<Sonar>::default(),
+            crate::ui_layers::NativeMaterialPlugin::<Glow>::default(),
+            crate::ui_layers::NativeMaterialPlugin::<Sonar>::default(),
         ))
         .add_systems(OnEnter(AppState::InGame), spawn.after(bar::spawn))
         .add_systems(
