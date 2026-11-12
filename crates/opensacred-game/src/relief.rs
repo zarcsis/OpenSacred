@@ -24,7 +24,8 @@ use opensacred_data::world::sprite_image;
 
 use crate::files;
 use crate::models::ModelMaterial;
-use crate::settings::Settings;
+use crate::settings::{Settings, SpriteDepth};
+use crate::shadows::ShadowMaterial;
 use crate::statics::SpriteMaterial;
 
 /// A map's extension after the sprite's record (`world/sprites/<record>.depth.png`).
@@ -138,6 +139,7 @@ impl Plugin for ReliefPlugin {
             (
                 follow_sprites,
                 follow_models.run_if(resource_exists::<Assets<ModelMaterial>>),
+                follow_shadows.run_if(resource_exists::<Assets<ShadowMaterial>>),
             ),
         );
     }
@@ -193,6 +195,31 @@ fn follow_models(
             && let Some(mut material) = materials.get_mut(id)
         {
             material.extension.depth = depth;
+        }
+    }
+}
+
+/// Keeps the models' flattened shadows' planes in the setting's mode, as their models' depths.
+fn follow_shadows(
+    settings: Option<Res<Settings>>,
+    mut materials: ResMut<Assets<ShadowMaterial>>,
+    mut events: MessageReader<AssetEvent<ShadowMaterial>>,
+) {
+    let Some(settings) = settings else {
+        return;
+    };
+    let mode = match settings.graphics.sprites {
+        SpriteDepth::Flat => 0.0,
+        SpriteDepth::Relief => 1.0,
+        SpriteDepth::Height => 2.0,
+    };
+    for id in changed(&settings, &materials, &mut events) {
+        if materials
+            .get(id)
+            .is_some_and(|material| material.depth.x != mode)
+            && let Some(mut material) = materials.get_mut(id)
+        {
+            material.depth.x = mode;
         }
     }
 }

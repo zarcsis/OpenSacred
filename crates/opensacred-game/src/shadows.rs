@@ -121,6 +121,11 @@ pub struct ShadowMaterial {
     grounds: Handle<ShaderBuffer>,
     #[storage(2, read_only)]
     floors: Handle<ShaderBuffer>,
+    /// How the models take their depth among the sprites' (`[graphics] sprites`, `relief`,
+    /// #1437), in `x`: 0 squeezed about their cells' places, 1 their own depth whole about them,
+    /// 2 their true depths; the shadow's plane takes its model's.
+    #[uniform(3)]
+    pub depth: Vec4,
     /// The shadows' layer, or the one under the liquids for the sunk models'.
     layer: Layer,
 }
@@ -216,6 +221,7 @@ pub fn setup(
             anchors: anchors.buffer().clone(),
             grounds: grounds.buffer.clone(),
             floors: anchors.floor_buffer().clone(),
+            depth: Vec4::ZERO,
             layer,
         })
     };

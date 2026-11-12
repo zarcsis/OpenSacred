@@ -25,6 +25,9 @@ import package::order;
 /// Each model's floor (`models::Anchors`), by the mesh's tag, as the models' shader takes it: for
 /// a model under a liquid's surface, how far back its place lies, third.
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> floors: array<vec4<f32>>;
+/// How the models take their depth among the sprites' (`shadows::ShadowMaterial::depth`, #1437):
+/// 0 squeezed, 1 their own depth whole, 2 their true depths.
+@group(constants::MATERIAL_BIND_GROUP) @binding(3) var<uniform> depth_mode: vec4<f32>;
 
 /// How far a point moves along X on the plane per unit of its height above it: the original's
 /// shadow takes a point `z` above it to `(x + z/2, y − z/2)` in its frame of the models, `x`
@@ -122,6 +125,13 @@ fn plane_depth(row: f32, anchor: vec4<f32>, ground: f32, sunk: f32) -> f32 {
     let ahead = (view.world_position.y + up.y * along - ground) / back.y;
     let own = dot(view.world_position - anchor.xyz, back) - ahead;
     let place = vec4(vec3(anchor.x, 0.0, anchor.z) - back * sunk, anchor.w);
+    // As its model takes its depth among the sprites' depths per texel (`models.wesl`, #1437).
+    if depth_mode.x > 1.5 {
+        return order::depth(vec4(anchor.xyz - back * sunk, anchor.w), own - BEHIND);
+    }
+    if depth_mode.x > 0.5 {
+        return order::depth(place, own - BEHIND);
+    }
     return order::depth(place, SQUEEZE * (own - BEHIND));
 }
 
