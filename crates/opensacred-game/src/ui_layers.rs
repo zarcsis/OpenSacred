@@ -416,6 +416,9 @@ fn make(
             Msaa::Off,
             Tonemapping::None,
             DebandDither::Disabled,
+            // A picture of its own, out of the queries of the world's camera (`iso::Eye`), which
+            // take one, and of its zoom (#2639).
+            crate::iso::Apart,
         ))
         .id();
     let frame = commands
@@ -927,5 +930,29 @@ mod tests {
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &turned));
         let scaled = UiGlobalTransform::from_scale(Vec2::new(2.0, 1.0));
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &scaled));
+    }
+
+    /// The world's camera stays the one camera of `iso::Eye` with a band's beside it (#2639).
+    #[test]
+    fn a_bands_camera_is_none_of_the_worlds() {
+        let mut world = World::new();
+        let world_camera = world.spawn(Camera3d::default()).id();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let mut pictures = Assets::<Image>::default();
+        let mut materials = Assets::<Picture>::default();
+        let tree = world.spawn_empty().id();
+        let parts = {
+            let mut commands = Commands::new(&mut queue, &world);
+            make(
+                &mut commands,
+                (&mut pictures, &mut materials),
+                tree,
+                (Vec2::new(1024.0, 768.0), 1.0),
+            )
+        };
+        queue.apply(&mut world);
+        assert!(world.get::<Camera>(parts.camera).is_some());
+        let mut eyes = world.query_filtered::<Entity, crate::iso::Eye<With<Camera>>>();
+        assert_eq!(eyes.iter(&world).collect::<Vec<_>>(), vec![world_camera]);
     }
 }
