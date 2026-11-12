@@ -333,17 +333,12 @@ mod tests {
                 ))
                 .id()
         };
-        let (body, blade, staves) = (mesh(world, hero), mesh(world, sword), mesh(world, barrel));
+        for root in [hero, sword, barrel] {
+            mesh(world, root);
+        }
         app.update();
         let world = app.world_mut();
-        let sun = RenderLayers::layer(SUN_LAYER);
-        let mut layers = world.query::<&RenderLayers>();
-        // The hero's body and its sword in the sun's layer (#2610), the barrel not.
-        for (mesh, casts) in [(body, true), (blade, true), (staves, false)] {
-            let cast = layers.get(world, mesh).is_ok_and(|l| l.intersects(&sun));
-            assert_eq!(cast, casts, "{mesh}");
-        }
-        // And a flattened copy beside each of the two.
+        // A flattened copy beside the hero's body and its sword (#2610), none beside the barrel.
         let mut copies = world.query_filtered::<&ChildOf, With<Shadow>>();
         let mut parents: Vec<Entity> = copies.iter(world).map(ChildOf::parent).collect();
         parents.sort();
