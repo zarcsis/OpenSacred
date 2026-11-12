@@ -39,6 +39,7 @@ use bevy::prelude::{
     Update, Val, Vec2, Window, default, info, resource_exists, warn,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy_kira_audio::AudioTrack;
 use bevy_kira_audio::prelude::{Audio, AudioApp, AudioChannel, AudioControl, AudioSource};
 use kira::sound::static_sound::StaticSoundData;
 use rav1d::pixel::{MatrixCoefficients, YUVRange};
@@ -1041,8 +1042,11 @@ pub struct MoviesPlugin;
 
 impl Plugin for MoviesPlugin {
     fn build(&self, app: &mut App) {
+        // A track of its own for the recording's tap alone: the movies play at no volume of the
+        // settings' (`sound_tap`, #1230).
+        let track = AudioTrack::new().with_effect(crate::sound_tap::TapBuilder);
         app.add_message::<Show>()
-            .add_audio_channel::<Channel>()
+            .add_audio_channel_with_track::<Channel>(track)
             .insert_resource(Automatic(true))
             .add_systems(OnEnter(AppState::Menu), logos)
             .add_systems(OnEnter(AppState::InGame), from_start.after(scripts::begin))

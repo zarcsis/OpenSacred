@@ -111,6 +111,8 @@ rayon = "1.12.0"
 # and raw-window-handle that the tree holds.
 rfd = { version = "0.18.0", default-features = false }
 ron = "0.12.2"
+# The recording's sound: the taps' ring buffer, real-time safe, Kira's own (#1230).
+rtrb = "0.4.1"
 serde = { version = "1.0.229", features = ["derive"] }
 # The saved structures' layout traced from their types in a test of the saves' version (#2306).
 serde-reflection = { version = "0.6.0", default-features = false }
