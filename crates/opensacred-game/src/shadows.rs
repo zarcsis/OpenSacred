@@ -295,10 +295,9 @@ fn attach_mask(
     }
 }
 
-/// Keeps the [`MaskCamera`] at its world camera's projection and the [`ShadowMask`] at half its
-/// viewport's size each way: the blur spreads over a pixel and a half at zoom 1 on a frame of 768
-/// lines, more on a larger one, so that a mask pixel to every four of the screen's loses nothing
-/// of it, and the mask's pass costs a quarter.
+/// Keeps the [`MaskCamera`] at its world camera's projection and the [`ShadowMask`] at its
+/// viewport's size: at half of it a thin part, a blade a few pixels wide, became a staircase of
+/// the mask's pixels, which the blur showed as blocks (#2630).
 fn follow_mask(
     eyes: Query<(&Camera, Ref<Projection>), iso::Eye<Without<MaskCamera>>>,
     mut cameras: Query<(&ChildOf, &mut Projection), With<MaskCamera>>,
@@ -315,10 +314,7 @@ fn follow_mask(
         if eye.is_changed() || !matches!(*projection, Projection::Orthographic(_)) {
             *projection = Projection::clone(&eye);
         }
-        let Some(size) = camera
-            .physical_viewport_size()
-            .map(|size| (size + UVec2::ONE) / 2)
-        else {
+        let Some(size) = camera.physical_viewport_size() else {
             continue;
         };
         let current = images
@@ -685,10 +681,9 @@ mod tests {
 
     #[test]
     fn a_shadows_vertices_reach_past_its_blurred_edge() {
-        // The blur reaches two spreads beyond the silhouette; on the screen the ground is
-        // foreshortened by half along the line of sight, so that the vertices move twice that.
-        let softness = shader_constant(SHADER, "SOFTNESS");
-        assert!(shader_constant(SHADER, "REACH") >= 2.0 * 2.0 * softness);
+        // The blur reaches two spreads beyond the silhouette; the vertices move out of it on the
+        // screen, in spreads (#2630).
+        assert!(shader_constant(SHADER, "REACH") >= 2.0);
     }
 
     #[test]

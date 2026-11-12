@@ -51,11 +51,13 @@ const DARKNESS: f32 = 0.6666667;
 /// half at zoom 1 (1.2649 pixels a unit), so that the edge ramps over some four pixels, about as
 /// the statics' stretched silhouettes do, and scales with the zoom as they do.
 const SOFTNESS: f32 = 1.2;
-/// How far a shadow's vertices move out along their normals before they are flattened, in world
-/// units, so that the blurred edge beyond the silhouette is drawn too: two spreads on the screen
-/// where the ground is foreshortened by half, and some to spare. The mask's copies stay as they
-/// are.
-const REACH: f32 = 5.0;
+/// How far a shadow's vertices at its silhouette move out of it on the screen, in spreads, so that
+/// the blurred edge beyond the silhouette is drawn too: two spreads, and some to spare. Out of
+/// it is down the mask's slope at the vertex, whatever the mesh's normals: a flat, one-sided part
+/// (a blade, a wing) grows on both sides (#2630). The mask's copies stay as they are.
+const REACH: f32 = 2.5;
+/// How far apart the mask is read about a vertex for its slope, in pixels.
+const SLOPE_STEP: f32 = 1.5;
 
 struct Flattened {
     @builtin(position) position: vec4<f32>,
@@ -112,21 +114,45 @@ fn vertex(vertex_no_morph: Vertex) -> Flattened {
 @else
     var world_from_local = mesh_functions::get_world_from_local(vertex_no_morph.instance_index);
 
-    var world = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
-@if(SOFT_EDGES && VERTEX_NORMALS)
-    {
-        let normal = (world_from_local * vec4(vertex.normal, 0.0)).xyz;
-        if dot(normal, normal) > 0.0 {
-            world = vec4(world.xyz + normalize(normal) * REACH * soft.x, 1.0);
-        }
-    }
+    let world = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
     let tag = mesh_functions::get_tag(vertex_no_morph.instance_index);
     var out: Flattened;
     out.ground = grounds[tag].y;
     out.anchor = anchors[tag];
     out.sunk = floors[tag].z;
     out.position = position_world_to_clip(flatten(world.xyz, out.ground));
+@if(SOFT_EDGES)
+    {
+        out.position = outward(out.position);
+    }
     return out;
+}
+
+/// Pixels on the screen to a world unit: the projection is orthographic, as many across as up.
+fn per_unit() -> f32 {
+    return view.clip_from_view[1][1] * view.viewport.w * 0.5;
+}
+
+/// The vertex at `clip` moved [`REACH`] spreads out of the silhouette, down the mask's slope
+/// about it, where the mask slopes: the vertices within a shadow, where it is level, stay.
+fn outward(clip: vec4<f32>) -> vec4<f32> {
+    if soft.x < 0.5 {
+        return clip;
+    }
+    let ndc = clip.xy / clip.w;
+    let at = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let step = SLOPE_STEP / view.viewport.zw;
+    let slope = vec2(
+        masked(at + vec2(step.x, 0.0)) - masked(at - vec2(step.x, 0.0)),
+        masked(at + vec2(0.0, step.y)) - masked(at - vec2(0.0, step.y)),
+    );
+    let steep = length(slope);
+    if steep < 0.05 {
+        return clip;
+    }
+    // In pixels, down the screen; then in the clip space's units, up it.
+    let away = -slope / steep * REACH * SOFTNESS * per_unit();
+    return vec4(clip.xy + vec2(away.x, -away.y) * 2.0 / view.viewport.zw * clip.w, clip.zw);
 }
 
 /// The depth of the plane at height `ground` in the pixel row `row`, from the row alone: every
@@ -154,30 +180,32 @@ fn masked(at: vec2<f32>) -> f32 {
 }
 
 /// The share of the pixels about `pixel` that a shadow covers: the mask blurred by a Gaussian of
-/// [`SOFTNESS`], sampled over a grid of 7 × 7 across two spreads each way, between its pixels.
-/// It is a half on a straight edge and one a few pixels within. A pixel whose mask is the same
-/// two spreads away on every side, well within a shadow or well out of every one, has no edge
-/// near, and the grid is spared.
+/// [`SOFTNESS`], sampled over a grid of 9 × 9 across two spreads each way, half a spread apart
+/// and between its pixels, so that no pixel of a thin part's mask (a blade a few pixels wide)
+/// falls between the samples (#2630). It is a half on a straight edge and one a few pixels
+/// within. A pixel whose mask is whole two spreads away every way, the diagonals too, lies well
+/// within a shadow, and the grid is spared; one near the edge, within or out, takes it whole.
 fn coverage(pixel: vec2<f32>) -> f32 {
-    // The projection is orthographic: as many pixels to a unit across as up.
-    let per_unit = view.clip_from_view[1][1] * view.viewport.w * 0.5;
-    let step = SOFTNESS * per_unit * (2.0 / 3.0) / view.viewport.zw;
-    let at = (pixel - view.viewport.xy) / view.viewport.zw;
-    let far = 3.0 * step;
-    let probes = masked(at) + masked(at + vec2(far.x, 0.0)) + masked(at - vec2(far.x, 0.0))
-        + masked(at + vec2(0.0, far.y)) + masked(at - vec2(0.0, far.y));
-    if probes >= 4.999 {
+    let spread = SOFTNESS * per_unit();
+    let texel = 1.0 / view.viewport.zw;
+    let at = (pixel - view.viewport.xy) * texel;
+    let far = 2.0 * spread * texel;
+    var probes = 0.0;
+    for (var i = -1; i <= 1; i++) {
+        for (var j = -1; j <= 1; j++) {
+            probes += masked(at + vec2(f32(i), f32(j)) * far);
+        }
+    }
+    if probes >= 8.999 {
         return 1.0;
     }
-    if probes <= 0.001 {
-        return 0.0;
-    }
+    let step = max(0.5 * spread, 1.0) * texel;
     var sum = 0.0;
     var weights = 0.0;
-    for (var i = -3; i <= 3; i++) {
-        for (var j = -3; j <= 3; j++) {
+    for (var i = -4; i <= 4; i++) {
+        for (var j = -4; j <= 4; j++) {
             let offset = vec2(f32(i), f32(j));
-            let weight = exp(-0.5 * dot(offset, offset) * (4.0 / 9.0));
+            let weight = exp(-0.125 * dot(offset, offset));
             sum += weight * masked(at + offset * step);
             weights += weight;
         }
@@ -189,7 +217,7 @@ fn coverage(pixel: vec2<f32>) -> f32 {
 fn fragment(in: Flattened) -> Shade {
     var out: Shade;
     // Half at the silhouette's edge, full a few pixels within, none a few pixels beyond, where the
-    // vertices moved out along their normals still reach; sharp, as the original's, below the
+    // vertices moved out of the silhouette still reach; sharp, as the original's, below the
     // highest detail.
     var share = 1.0;
     if soft.x > 0.5 {
