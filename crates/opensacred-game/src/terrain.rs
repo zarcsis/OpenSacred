@@ -239,7 +239,7 @@ const BRIDGE: u8 = 7;
 
 /// Units of the models' height a step of a cell's second corner heights (`+0x18`) is: the client
 /// stands a creature on them, times 2.5 (`0x636520`, docs/re/movement.md, "The height").
-pub(crate) const STANDING_STEP: f32 = 2.5;
+const STANDING_STEP: f32 = 2.5;
 
 /// The height in world units of a second corner height.
 fn second_height(step: i8) -> f32 {
@@ -251,7 +251,7 @@ fn second_height(step: i8) -> f32 {
 /// (`0x636520`): linearly in the triangle of the diamond's centre, at the corners' mean, and of
 /// its side the point lies by, toward the right or the left corner as the point lies right or
 /// left of the centre on the screen, toward the bottom or the top one as it lies below or above.
-pub(crate) fn on_triangles([left, top, right, bottom]: [f32; 4], u: f32, v: f32) -> f32 {
+fn on_triangles([left, top, right, bottom]: [f32; 4], u: f32, v: f32) -> f32 {
     let centre = (left + top + right + bottom) / 4.0;
     // On the screen, the point lies `48 (u − v)` pixels right of the centre and `24 (u + v − 1)`
     // below it.
