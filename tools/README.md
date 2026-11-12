@@ -14,6 +14,7 @@
 
 * [uv](https://docs.astral.sh/uv/) brings the Python of the repository's own (docs/03 §2): Python 3.15 (tested on 3.15.1), uv's interpreter rather than the system's, and the packages of `pyproject.toml` at their versions in `uv.lock`, in `.venv/` at the root.
   `uv run` makes the environment on its first run and keeps it at `uv.lock`; nothing is installed by hand.
+  The group `depth` (PyTorch with CUDA on Windows, transformers) is the sprites' depth's alone (`analysis/world/sprite_depth.py`, #1437): `uv run --group depth` takes it, the other runs leave it out.
 * Run from the repository root with `uv run python -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
 * The scripts read your own copy of the GOG installation: `OriginalGame/` by default (ignored by Git), else the GOG installation that the registry names (`common/installation.py`, #1556), or the directory given with `--game-dir`.
   Output files go to the `--out` path outside the repository.
@@ -113,6 +114,7 @@ uv run python -I tools/game/remote.py --port 15703 exec quit
 | `analysis/world/sector_stats.py` | world | statistics of sector floor cells: heights, light, surface types (reads the cells from `+0x120`, eight cells late; docs/02 §5.2) |
 | `analysis/world/static_stats.py` | world | fields of the `Static.PAK` static objects |
 | `analysis/world/uv_table.py` | world | UV table of the 18 diamonds on a tile sheet |
+| `analysis/world/sprite_depth.py` | world | the statics' sprites' depth per texel (#1437, research): a monocular depth model's relief of each sprite of `assets-src/world/sprites/`, fitted to the isometric camera, as maps beside the images in the loose files of `assets/`, which the game's `[graphics] sprites` takes; the time per sprite on the GPU; never published (`uv run --group depth`) |
 | `analysis/formats/tex_decode.py` | formats | decoding of format 4 textures and comparison of pixel-format hypotheses |
 | `analysis/formats/tex_fmt6.py` | formats | format 6 textures: sizes, alpha position, menu screens assembled from tiles in BGRA and RGBA order |
 | `analysis/formats/snd_ls.py` | formats | `sound.pak` directory: WAV (PCM, IMA ADPCM) and MP3, durations, cross-check with `sndProfiles.pak` |

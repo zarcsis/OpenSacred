@@ -120,6 +120,12 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let place = vec4(vec3(anchor.x, 0.0, anchor.z) - back * floor.z, anchor.w);
     let own = dot(out.world_position.xyz - anchor.xyz, back);
     out.position.z = order::depth(place, SQUEEZE * own);
+    // Among the sprites' depths per texel (`relief`, #1437): its own depth whole about its
+    // cell's place, or its true depth, its place at its anchor's height.
+@if(RELIEF)
+    out.position.z = order::depth(place, own);
+@if(HEIGHT)
+    out.position.z = order::depth(vec4(anchor.xyz - back * floor.z, anchor.w), own);
     // An effect's model under the models of its place (`models::Pass::Under`), at one depth
     // behind every texel of a creature standing anywhere in its cell.
 @if(UNDER)

@@ -19,8 +19,25 @@ dependencies = [
     "frida>=17.24.3,<18",
 ]
 
+[dependency-groups]
+# The sprites' depth per texel (#1437, tools/analysis/world/sprite_depth.py): a monocular depth model on the user's
+# own GPU, run locally with `uv run --group depth`; `uv sync` and the hooks leave it out.
+depth = [
+    "torch>=2.15.0,<3",
+    "transformers>=5.22.2,<6",
+]
+
 [tool.uv]
 # The dependencies alone, no package of the project's own.
 package = false
 # uv's own interpreter, downloaded on first use, never the system's.
 python-preference = "only-managed"
+
+# PyTorch with CUDA from PyTorch's own index on Windows, where PyPI's wheels run on the CPU alone; PyPI's elsewhere.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu132", marker = "sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true

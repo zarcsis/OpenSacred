@@ -36,7 +36,7 @@ use opensacred_data::world::{
 };
 
 use crate::parallel::Spread;
-use crate::{blended, iso, liquids, shaders, srgb, statics, terrain};
+use crate::{blended, iso, liquids, relief, shaders, srgb, statics, terrain};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
@@ -337,7 +337,7 @@ fn spawn_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
-    fade: Res<statics::Fade>,
+    (fade, flat): (Res<statics::Fade>, Res<crate::relief::NoRelief>),
     (mut grounds, mut pool): (
         ResMut<Assets<terrain::GroundMaterial>>,
         ResMut<crate::sheet_pool::SheetPool>,
@@ -375,6 +375,7 @@ fn spawn_scene(
             statics::Common {
                 fade: &fade,
                 shadows: None,
+                flat: &flat.0,
             },
         );
     }
@@ -446,6 +447,7 @@ fn render(dir: &Path) -> Vec<u8> {
     .add_plugins((
         blended::BlendedPlugin,
         shaders::ShaderLibrary,
+        relief::ReliefPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,

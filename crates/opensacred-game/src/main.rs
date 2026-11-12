@@ -195,6 +195,7 @@ mod quest_book;
 mod rank_symbols;
 mod reanimations;
 mod regions;
+mod relief;
 mod remarks;
 mod remote;
 mod rewards;
@@ -693,6 +694,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         rank_symbols::RankSymbolsPlugin,
+        relief::ReliefPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         riding::RidingPlugin,

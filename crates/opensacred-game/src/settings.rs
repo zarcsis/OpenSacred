@@ -136,6 +136,9 @@ pub struct Graphics {
     pub screen_quake: bool,
     /// The models' shadows, the original's by default (`shadows`, #1436).
     pub shadows: Shadows,
+    /// The statics' sprites, flat by default, or with their depth per texel by one of two fits
+    /// (`sprites`, #1437).
+    pub sprites: SpriteDepth,
 }
 
 impl Default for Graphics {
@@ -145,6 +148,7 @@ impl Default for Graphics {
             fsaa_filter: true,
             screen_quake: true,
             shadows: Shadows::Original,
+            sprites: SpriteDepth::Flat,
         }
     }
 }
@@ -158,6 +162,25 @@ pub enum Shadows {
     #[default]
     Original,
     Soft,
+}
+
+/// The statics' sprites (`sprites`, #1437, research): flat, each at its cell's depth as the
+/// original orders them, or with the depth per texel of the maps that
+/// `tools/analysis/world/sprite_depth.py` makes, a sprite without one flat (`relief`;
+/// docs/decisions/drawing.md, "Sprites' depth per texel, to compare").
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum SpriteDepth {
+    #[default]
+    Flat,
+    /// Each texel in front of its sprite's quad or behind it, the quad at its cell's depth as the
+    /// original orders it.
+    Relief,
+    /// Each texel at its own place in the world: on its line of sight, as high over the ground at
+    /// its sprite's base as its map says, the cells' order left.
+    Height,
 }
 
 /// `[sound]`: the options window's sound (#2340).
@@ -596,6 +619,7 @@ mod tests {
                 fsaa_filter: false,
                 screen_quake: false,
                 shadows: Shadows::Soft,
+                sprites: SpriteDepth::Height,
             },
             interface: Interface {
                 enemy_info: false,
@@ -640,6 +664,7 @@ mod tests {
                 "graphics.fsaa_filter",
                 "graphics.screen_quake",
                 "graphics.shadows",
+                "graphics.sprites",
                 "interface.enemy_info",
                 "interface.warning_level",
                 "interface.map_alpha",
