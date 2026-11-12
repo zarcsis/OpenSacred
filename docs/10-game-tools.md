@@ -155,7 +155,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `movies on\|off` | the movies that play by themselves (the start's logos, the scripts', `GameEnd`'s) for this run; a driven run starts with them off (§3, #1946) | |
 | `movie NAME…` | plays the movie NAME (`intro`, `extro`, `introuw`, `extrouw`, `act1` to `act4`, `ascaron`, `oem`) as the original's player does: over everything, the game standing, until it ends or Escape, Space or either mouse button stops it; `state` names it while it plays (#1945); several NAMEs one after another as one request, as the start's logos play (`movie ascaron oem`, #2416) | |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
-| `record DIR N` | saves N frames: in a game from the moment its scene is ready, in a menu from the next frame (#2491) | `--record`, `--record-frames` |
+| `record DIR\|FILE.mkv N` | saves N frames: in a game from the moment its scene is ready, in a menu from the next frame (#2491); into `DIR/frame-NNNN.png`, or into one Matroska file losslessly with each frame's times in a text track and the run's tags when the path ends in `.mkv`, through FFmpeg (docs/05, "Looking at frames"; #1226) | `--record`, `--record-frames` |
 | `benchmark SECONDS` | measures and prints | `--benchmark` |
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
 | `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F7, F12, F10 and the key under Esc; without a switch, toggles | |

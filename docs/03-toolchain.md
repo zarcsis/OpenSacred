@@ -34,7 +34,7 @@
 | Assets | Blender | 5.2 LTS | GPL | inspecting glTF models and animations |
 | | Khronos glTF-Validator | 2.0.0-dev.3.10 (latest release, a pre-release) | Apache-2.0 | checking the `.glb` files from the converter |
 | | KTX-Software (`ktx`, `toktx`) | current | Apache-2.0 | KTX2, BC7, Basis Universal |
-| | FFmpeg | 9.0 | LGPL/GPL | WMV → AV1 + Opus in WebM; the WAV samples of `sound.pak` → FLAC; the sound's FLAC masters → Ogg Opus (`build`, #701); the VTex textures of GRN files (one-frame Bink 1) → RGBA (invoked by the converter as an external program, `FFMPEG` or `ffmpeg` from `PATH`) |
+| | FFmpeg | 9.0 | LGPL/GPL | WMV → AV1 + Opus in WebM; the WAV samples of `sound.pak` → FLAC; the sound's FLAC masters → Ogg Opus (`build`, #701); the VTex textures of GRN files (one-frame Bink 1) → RGBA (invoked by the converter as an external program, `FFMPEG` or `ffmpeg` from `PATH`); the game's recordings into Matroska, its frames → FFV1 (`--record FILE.mkv`, found as the converter finds it, #1226) |
 | | Real-ESRGAN ncnn-vulkan, waifu2x-ncnn-vulkan | current | BSD-3 / MIT | offline upscaling (M7) |
 | Rendering | Vulkan SDK (LunarG) | 1.4.363.0 | free | validation layers, vkconfig |
 | | RenderDoc | 1.46 | MIT | capturing and analyzing frames of our renderer |

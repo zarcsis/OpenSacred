@@ -164,6 +164,7 @@ mod merchant;
 mod meteors;
 mod mines;
 mod minimap;
+mod mkv;
 mod model_effects;
 mod models;
 mod motions;
@@ -318,8 +319,10 @@ struct Cli {
     /// Frames to render between the scene being ready and the screenshot or the recording
     #[arg(long, default_value_t = 30)]
     frames: u32,
-    /// Save that many frames to DIR/frame-NNNN.png once the scene is ready, then exit
-    #[arg(long, value_name = "DIR")]
+    /// Save that many frames to DIR/frame-NNNN.png once the scene is ready, then exit; into one
+    /// FILE.mkv instead, losslessly in FFV1 with each frame's times, when the path ends in .mkv
+    /// (FFmpeg encodes it)
+    #[arg(long, value_name = "DIR|FILE.mkv")]
     record: Option<PathBuf>,
     /// Frames to save with --record
     #[arg(long, default_value_t = 90)]
@@ -832,8 +835,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         app.insert_resource(benchmark::Benchmark::new(seconds, true));
     }
     if let Some(dir) = cli.record {
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
+        let made = screenshot::recording_dir(&dir);
+        std::fs::create_dir_all(made)
+            .map_err(|e| anyhow::anyhow!("creating {}: {e}", made.display()))?;
         app.insert_resource(screenshot::Recording::new(
             dir,
             cli.frames,
