@@ -30,9 +30,8 @@ pub enum Mode {
     Game,
 }
 
-/// The background's textures (`UW_option_1_01.tga` to `UW_option_1_12.tga`), four to a row.
-const TILES: usize = 12;
-/// The background as the converter assembles it from its tiles (`opensacred-convert ui`, #2634).
+/// The background as the converter assembles it from its tiles, `UW_option_1_01.tga` to
+/// `UW_option_1_12.tga` four to a row (`opensacred-convert ui`, #2634).
 const PICTURE: &str = "ui/screens/options.ktx2";
 
 /// The rectangle of `size` at `at`.
@@ -532,18 +531,17 @@ fn confirm(draft: &Settings, settings: &mut Settings) {
 #[derive(Resource, Default)]
 pub struct Asked(pub bool);
 
-/// The background's textures, found among the converted ones.
+/// The background's picture, found among the converted assets.
 #[derive(Resource, Default)]
 pub struct Images {
     background: crate::menu::Background,
 }
 
 impl Images {
-    /// Finds the background's tiles.
+    /// Finds the background's picture.
     pub fn find(assets: &std::path::Path) -> Self {
-        let names: Vec<String> = (1..=TILES).map(|n| format!("uw_option_1_{n:02}")).collect();
         Self {
-            background: crate::menu::Background::find(assets, PICTURE, &names),
+            background: crate::menu::Background::find(assets, PICTURE),
         }
     }
 }

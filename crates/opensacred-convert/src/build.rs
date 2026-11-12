@@ -8,9 +8,10 @@
 //! [`opensacred_data::archive`]'s (#699): `data.zip` (the tables, texts, scripts and heroes),
 //! `models.zip`, `music.zip`, `sound.zip`, `textures.zip`, `ui.zip`, `video.zip` and `world.zip`,
 //! the entries in the order of their paths. It leaves out the masters that the game never reads
-//! (#2645): the atlases that the sprites' images were assembled from (#838), the motion records'
-//! files, whose clips `models` copies into the models' (#2647), and the scripts' trees, which the
-//! game runs in Luau (#726).
+//! (#2645): the atlases that the sprites' images were assembled from (#838), the menus' tiles
+//! that `ui` assembles its pictures from (#2646), the motion records' files, whose clips
+//! `models` copies into the models' (#2647), and the scripts' trees, which the game runs in
+//! Luau (#726).
 //!
 //! It records `<out>/manifest/build.ron`: the masters it built from and each archive's entries,
 //! `<archive>/<path>`, each with its SHA-256. An archive whose masters are all the ones recorded
@@ -209,7 +210,8 @@ pub struct Summary {
     pub built: usize,
     pub kept: usize,
     /// The masters left out: the atlases that the sprites' images were assembled from (#838), the
-    /// motion records' files (#2647), and the scripts' trees, which the game runs in Luau (#726).
+    /// menus' tiles (#2646), the motion records' files (#2647), and the scripts' trees, which the
+    /// game runs in Luau (#726).
     pub left_out: usize,
     pub removed: usize,
     pub archives: usize,
@@ -487,7 +489,10 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     };
     let mut archives: BTreeMap<String, Vec<Planned>> = BTreeMap::new();
     let left = |m: &FileHash| {
-        assembled.contains(&m.path) || crate::models::is_motion(&m.path) || masters_alone(&m.path)
+        assembled.contains(&m.path)
+            || crate::ui::is_menu_tile(&m.path)
+            || crate::models::is_motion(&m.path)
+            || masters_alone(&m.path)
     };
     for master in masters.iter().filter(|m| !left(m)) {
         let (path, how) = make(&master.path, &read);
@@ -920,6 +925,55 @@ return F
         let index = String::from_utf8(world.read("world/world.ron").unwrap().unwrap()).unwrap();
         assert!(!index.contains("assembled_from"), "{index}");
         assert_eq!(build(&src, &out, false).unwrap().kept, 3);
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The menus' tiles leave the game's assets, which hold the pictures `ui` assembles from them
+    /// (#2646), and an archive that held them is written again without them.
+    #[test]
+    fn the_menus_tiles_are_left_out_and_their_pictures_kept() {
+        let src = scratch_dir("build-menu-tiles-src");
+        let out = scratch_dir("build-menu-tiles-out");
+        let png = crate::textures::encode_png(8, 8, &[255; 256]).unwrap();
+        for path in [
+            "textures/texture/00001-dwarf.png",
+            "textures/texture/00344-gui_uw_option1.png",
+            "ui/screens/mainmenu.png",
+        ] {
+            let path = src.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, &png).unwrap();
+        }
+        let summary = build(&src, &out, false).unwrap();
+        assert_eq!(
+            (summary.masters, summary.built, summary.left_out),
+            (3, 2, 1)
+        );
+        let textures = Archive::open(&out.join("textures.zip")).unwrap();
+        assert_eq!(
+            textures.names().collect::<Vec<_>>(),
+            ["textures/texture/00001-dwarf.ktx2"]
+        );
+        let ui = Archive::open(&out.join("ui.zip")).unwrap();
+        assert!(ui.contains("ui/screens/mainmenu.ktx2"));
+        // A build before #2646 packed the tile: the archive goes without it.
+        let tile = "textures/texture/00344-gui_uw_option1.ktx2";
+        let mut writer = Writer::create(&out.join("textures.zip")).unwrap();
+        for path in ["textures/texture/00001-dwarf.ktx2", tile] {
+            writer
+                .add(
+                    path,
+                    &crate::ktx::encode(&png, Use::Sampled).unwrap(),
+                    false,
+                )
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        build(&src, &out, false).unwrap();
+        let textures = Archive::open(&out.join("textures.zip")).unwrap();
+        assert!(!textures.contains(tile));
+        assert!(textures.contains("textures/texture/00001-dwarf.ktx2"));
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }

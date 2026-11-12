@@ -445,8 +445,8 @@ impl UiMaterial for Layer {
 /// The picture as the converter assembles it from its 12 tiles (`opensacred-convert ui`, #2634).
 const PICTURE: &str = "ui/screens/choice.ktx2";
 
-/// The picture (as the converter assembles it from `GUI_UW_CHAR_01` to `12`, #2634, else its
-/// tiles) and water, and the panel's atlases, relative to the asset directory.
+/// The picture (as the converter assembles it from `GUI_UW_CHAR_01` to `12`, #2634) and water,
+/// and the panel's atlases, relative to the asset directory.
 #[derive(Resource, Default)]
 pub struct Images {
     background: menu::Background,
@@ -459,7 +459,6 @@ pub struct Images {
 impl Images {
     /// Finds the screen's textures among the converted ones.
     pub fn find(assets: &std::path::Path) -> Self {
-        let tiles: Vec<String> = (1..=12).map(|n| format!("gui_uw_char_{n:02}")).collect();
         let names = [
             "ui_char_center",
             "ui_char_ref",
@@ -472,7 +471,7 @@ impl Images {
         let reflection = found.pop().flatten();
         let bed = found.pop().flatten();
         Self {
-            background: menu::Background::find(assets, PICTURE, &tiles),
+            background: menu::Background::find(assets, PICTURE),
             bed,
             reflection,
             frames,
