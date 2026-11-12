@@ -159,7 +159,47 @@ pub struct UiImages {
     images: Vec<UiImage>,
     files: HashMap<String, String>,
     rail_texels: Option<texture::Rgba>,
+    /// Each image's sides that another image of its texture abuts ([`abutted`]).
+    abutted: Vec<[bool; 4]>,
 }
+
+/// Which sides of each image another image of its texture abuts, left, top, right and bottom:
+/// the textures are packed tight, 1,499 of the table's 1,813 images beside another, and an image
+/// drawn scaled samples a texel past its sides, so that its neighbour's texels show at its edge
+/// (#2632: the quest book's parchment, whose bottom right piece took the top right's transparent
+/// column in, a dark line down each page).
+fn abutted(images: &[UiImage]) -> Vec<[bool; 4]> {
+    let mut by_texture: HashMap<&str, Vec<[u32; 4]>> = HashMap::new();
+    for image in images {
+        by_texture
+            .entry(image.texture.as_str())
+            .or_default()
+            .push(image.rect.map(u32::from));
+    }
+    images
+        .iter()
+        .map(|image| {
+            let [x, y, w, h] = image.rect.map(u32::from);
+            let mut sides = [false; 4];
+            for &[x2, y2, w2, h2] in &by_texture[image.texture.as_str()] {
+                if w2 == 0 || h2 == 0 || [x2, y2, w2, h2] == [x, y, w, h] {
+                    continue;
+                }
+                let rows = y < y2 + h2 && y2 < y + h;
+                let columns = x < x2 + w2 && x2 < x + w;
+                sides[0] |= rows && x2 + w2 == x;
+                sides[1] |= columns && y2 + h2 == y;
+                sides[2] |= rows && x + w == x2;
+                sides[3] |= columns && y + h == y2;
+            }
+            sides
+        })
+        .collect()
+}
+
+/// How far within its abutted sides an image is sampled: half a texel, so that the linear
+/// filter, which reaches half a texel either way of a point, takes nothing of the neighbour.
+const HALF_TEXEL: f32 = 0.5;
 
 impl UiImages {
     /// Reads `tables/ui_images.ron` of `assets` and finds its textures; none without the table
@@ -208,10 +248,51 @@ impl UiImages {
             .and_then(|file| crate::files::read(assets.join(file)).ok())
             .and_then(|data| texture::read(&data).ok());
         Ok(Self {
+            abutted: abutted(&images),
             images,
             files,
             rail_texels,
         })
+    }
+
+    /// The part `rect` of the image `index`, to draw it by: its sides that lie on the image's
+    /// sides another image abuts, half a texel within, so that the image's place and size on the
+    /// screen stay and its neighbour's texels do not bleed in (#2632).
+    pub(crate) fn sampled(&self, index: u32, rect: Rect) -> Rect {
+        let index = usize::try_from(index).unwrap_or(usize::MAX);
+        let (Some(image), Some(&[left, top, right, bottom])) =
+            (self.images.get(index), self.abutted.get(index))
+        else {
+            return rect;
+        };
+        let [x, y, w, h] = image.rect.map(f32::from);
+        let inset = |on: bool, side: f32, edge: f32| on && (side - edge).abs() < f32::EPSILON;
+        Rect::new(
+            rect.min.x
+                + if inset(left, rect.min.x, x) {
+                    HALF_TEXEL
+                } else {
+                    0.0
+                },
+            rect.min.y
+                + if inset(top, rect.min.y, y) {
+                    HALF_TEXEL
+                } else {
+                    0.0
+                },
+            rect.max.x
+                - if inset(right, rect.max.x, x + w) {
+                    HALF_TEXEL
+                } else {
+                    0.0
+                },
+            rect.max.y
+                - if inset(bottom, rect.max.y, y + h) {
+                    HALF_TEXEL
+                } else {
+                    0.0
+                },
+        )
     }
 
     /// The file of the texture `name`, one of those found beside the images'.
@@ -353,9 +434,12 @@ pub(crate) fn piece(
     let (image, size) = match images.turned_part(index) {
         Some((file, rect, [flip_x, flip_y])) => (
             ImageNode {
-                rect: Some(rect),
+                rect: Some(images.sampled(index, rect)),
                 flip_x,
                 flip_y,
+                // Over the whole node, however much of the part is sampled: `Auto` leaves a
+                // part smaller than its node short of its edges.
+                image_mode: NodeImageMode::Stretch,
                 ..ImageNode::new(hud::image(assets, file.to_owned()))
             },
             rect.size(),
@@ -868,7 +952,8 @@ pub(crate) fn fill(
     if let (Some((_, f)), Ok((mut image, mut node))) =
         (images.part(EXPERIENCE_FILL.0), fills.single_mut())
     {
-        image.rect = Some(Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y));
+        let cut = Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y);
+        image.rect = Some(images.sampled(EXPERIENCE_FILL.0, cut));
         node.width = Val::Px(width);
     }
 }
@@ -900,7 +985,8 @@ fn mount_pieces(
         (images.part(MOUNT_FILL.0), fills.single_mut())
     {
         visibility.set_if_neq(shown);
-        image.rect = Some(Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y));
+        let cut = Rect::new(f.min.x, f.min.y, f.min.x + width, f.max.y);
+        image.rect = Some(images.sampled(MOUNT_FILL.0, cut));
         node.width = Val::Px(width);
     }
 }
@@ -928,24 +1014,21 @@ fn cut_ring(
     image: &mut ImageNode,
     node: &mut Node,
 ) {
-    let Some((_, rect)) = images.part(if red { HEALTH_RED } else { HEALTH_GREY }) else {
+    let index = if red { HEALTH_RED } else { HEALTH_GREY };
+    let Some((_, rect)) = images.part(index) else {
         return;
     };
     if red {
-        image.rect = Some(Rect::new(
-            rect.min.x,
-            rect.min.y + grey,
-            rect.max.x,
-            rect.max.y,
+        image.rect = Some(images.sampled(
+            index,
+            Rect::new(rect.min.x, rect.min.y + grey, rect.max.x, rect.max.y),
         ));
         node.top = Val::Px(top + grey);
         node.height = Val::Px(RING_SIZE.y - grey);
     } else {
-        image.rect = Some(Rect::new(
-            rect.min.x,
-            rect.min.y,
-            rect.max.x,
-            rect.min.y + grey,
+        image.rect = Some(images.sampled(
+            index,
+            Rect::new(rect.min.x, rect.min.y, rect.max.x, rect.min.y + grey),
         ));
         node.height = Val::Px(grey);
     }
@@ -1122,7 +1205,7 @@ fn art_icon(
             if image.image != handle {
                 image.image = handle;
             }
-            image.rect = Some(rect);
+            image.rect = Some(images.sampled(index, rect));
         }
     };
     for (ring, mut image) in &mut rings {
@@ -1380,6 +1463,7 @@ mod tests {
                 .collect(),
             files: HashMap::from([("gui".to_owned(), "gui.png".to_owned())]),
             rail_texels: None,
+            abutted: Vec::new(),
         };
         let mut experience = Experience::default();
         experience.0.level = 2;
@@ -1463,7 +1547,52 @@ mod tests {
             images,
             files,
             rail_texels: None,
+            abutted: Vec::new(),
         }
+    }
+
+    /// A part beside another of its texture is sampled half a texel within that side, its place
+    /// and size kept; a part alone, and a cut's side within the part, as they are (#2632).
+    #[test]
+    fn an_abutted_side_is_sampled_half_a_texel_within() {
+        let image = |texture: &str, rect: [u16; 4]| UiImage {
+            texture: texture.to_owned(),
+            rect,
+            turned: [false; 2],
+            anchors: [0; 4],
+        };
+        // The quest book's sheet `C`: its two halves side by side, and a sheet of its own.
+        let images = vec![
+            image("sheet_c", [0, 0, 128, 256]),
+            image("sheet_c", [128, 0, 128, 256]),
+            image("sheet_a", [0, 0, 256, 256]),
+        ];
+        let sides = abutted(&images);
+        assert_eq!(
+            sides,
+            vec![
+                [false, false, true, false],
+                [true, false, false, false],
+                [false; 4],
+            ]
+        );
+        let table = UiImages {
+            images,
+            files: HashMap::new(),
+            rail_texels: None,
+            abutted: sides,
+        };
+        let right = Rect::new(128.0, 0.0, 256.0, 256.0);
+        assert_eq!(table.sampled(1, right), Rect::new(128.5, 0.0, 256.0, 256.0));
+        assert_eq!(
+            table.sampled(0, Rect::new(0.0, 0.0, 128.0, 256.0)),
+            Rect::new(0.0, 0.0, 127.5, 256.0)
+        );
+        let whole = Rect::new(0.0, 0.0, 256.0, 256.0);
+        assert_eq!(table.sampled(2, whole), whole);
+        // A fill cut short of the left half's right side keeps its cut.
+        let cut = Rect::new(0.0, 0.0, 60.0, 256.0);
+        assert_eq!(table.sampled(0, cut), cut);
     }
 
     #[test]
