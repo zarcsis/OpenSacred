@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The statics' sprites with a depth per texel (#1437, research): each sprite's relief estimated by a monocular depth
-model, fitted to the scene, and written as a 16-bit map beside the sprite's image in the game's assets, which the
-game's `sprites = "depth"` takes (docs/decisions/drawing.md, "Sprites' depth per texel, to compare").
+model, fitted to the scene, and written as two 16-bit maps beside the sprite's image in the game's assets, which the
+game's `[graphics] sprites = "relief"` and `"height"` take (docs/decisions/drawing.md, "Sprites' depth per texel, to
+compare").
 
 Purpose: the comparison #1437 asks for, made on the user's own machine from the converted sprites, never published
 (PLAN.md ADR-12, docs/08 §3). The weights are downloaded from Hugging Face on the first run and kept in its cache.
