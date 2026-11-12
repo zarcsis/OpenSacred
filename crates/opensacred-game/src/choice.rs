@@ -38,7 +38,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, TextureFormat};
 use bevy::shader::ShaderRef;
 use bevy::text::{FontSize, LetterSpacing, LineBreak, LineHeight};
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::window::PrimaryWindow;
 
 use opensacred_data::tables::{FIGURES as FIGURES_TABLE, Figure as Showcase};
@@ -2896,7 +2896,7 @@ impl Plugin for ChoicePlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "figures.wesl");
         app.add_plugins((
-            UiMaterialPlugin::<Layer>::default(),
+            crate::ui_layers::NativeMaterialPlugin::<Layer>::default(),
             bevy::app::HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate),
         ))
         .init_resource::<Choice>()

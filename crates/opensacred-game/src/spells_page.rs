@@ -33,7 +33,7 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 use bevy::text::FontSize;
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_render::ui_material::UiMaterialKey;
 
 use crate::art_slots::{ArtSlots, HeldArt};
@@ -852,7 +852,7 @@ pub struct SpellsPagePlugin;
 impl Plugin for SpellsPagePlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "flash.wesl");
-        app.add_plugins(UiMaterialPlugin::<Flash>::default())
+        app.add_plugins(crate::ui_layers::NativeMaterialPlugin::<Flash>::default())
             .init_resource::<ArtKeys>()
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(

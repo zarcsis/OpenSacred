@@ -934,7 +934,7 @@ pub(crate) fn frame(images: &UiImages, assets: &AssetServer, width: f32) -> Vec<
     .filter_map(|(index, [flip_x, flip_y], node)| {
         let (file, rect, [turned_x, turned_y]) = images.turned_part(index)?;
         let image = ImageNode {
-            rect: Some(images.sampled(index, rect)),
+            rect: Some(rect),
             flip_x: flip_x != turned_x,
             flip_y: flip_y != turned_y,
             image_mode: NodeImageMode::Stretch,

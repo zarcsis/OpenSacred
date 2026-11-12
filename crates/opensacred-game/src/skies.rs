@@ -22,7 +22,7 @@ use bevy::render::render_resource::{
 };
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
-use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial};
 use bevy::ui_render::ui_material::UiMaterialKey;
 use bevy::window::PrimaryWindow;
 use bevy_kira_audio::AudioApp;
@@ -566,7 +566,7 @@ pub struct SkiesPlugin;
 impl Plugin for SkiesPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "skies.wesl");
-        app.add_plugins(UiMaterialPlugin::<Skies>::default())
+        app.add_plugins(crate::ui_layers::NativeMaterialPlugin::<Skies>::default())
             .add_audio_channel::<RainLoop>()
             .init_resource::<Raining>()
             .add_systems(OnEnter(AppState::InGame), spawn)
