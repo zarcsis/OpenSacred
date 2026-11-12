@@ -16,7 +16,8 @@
 //! each mesh has a second copy, of [`MaskMaterial`], that the mask's camera ([`MaskCamera`]), a
 //! child of the world's, draws white into [`ShadowMask`] before the world, wherever any shadow
 //! lies; a shadow's pixel then takes its darkness from that mask blurred about it, full where the
-//! shadow reaches a few pixels on every side and none at its edge.
+//! shadow reaches a few pixels on every side and none at its edge. At the highest detail alone
+//! (#2628): at the medium the shadows are the original's, sharp, the mask's camera off.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
@@ -86,6 +87,10 @@ pub struct ShadowMaterial {
     #[texture(3)]
     #[sampler(4)]
     mask: Handle<Image>,
+    /// Its x 1 for the soft edges, at the highest detail, and 0 for the original's sharp ones
+    /// (#2628).
+    #[uniform(5)]
+    soft: Vec4,
     /// The shadows' layer, or the one under the liquids for the sunk models'.
     layer: Layer,
 }
@@ -246,6 +251,7 @@ pub fn setup(
             grounds: grounds.buffer.clone(),
             floors: anchors.floor_buffer().clone(),
             mask: image.clone(),
+            soft: Vec4::X,
             layer,
         })
     };
@@ -415,18 +421,41 @@ pub fn cast(
 type Copies = Or<(With<Shadow>, With<MaskCopy>)>;
 
 /// Hides the models' shadows at the options' lowest detail, where `shadow_dots` lays the dots of
-/// `0x407960` in their place, and shows them above it.
+/// `0x407960` in their place, and shows them above it: sharp, as the original's, at the medium
+/// detail, the mask's camera off and its copies hidden, and with their soft edges at the highest
+/// (#2628), which pays for that camera.
 fn detail(
     settings: Option<Res<crate::settings::Settings>>,
-    mut shadows: Query<&mut Visibility, Copies>,
+    mut copies: Query<(&mut Visibility, Has<MaskCopy>), Copies>,
+    mut cameras: Query<&mut Camera, With<MaskCamera>>,
+    shared: Option<Res<Shared>>,
+    mut materials: ResMut<Assets<ShadowMaterial>>,
 ) {
-    let wanted = if crate::settings::detail(settings.as_deref()) == 0 {
-        Visibility::Hidden
-    } else {
-        Visibility::Inherited
-    };
-    for mut visibility in &mut shadows {
-        visibility.set_if_neq(wanted);
+    let detail = crate::settings::detail(settings.as_deref());
+    let soft = detail >= 2;
+    for (mut visibility, masked) in &mut copies {
+        let shown = if masked { soft } else { detail >= 1 };
+        visibility.set_if_neq(if shown {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+    for mut camera in &mut cameras {
+        if camera.is_active != soft {
+            camera.is_active = soft;
+        }
+    }
+    let wanted = if soft { Vec4::X } else { Vec4::ZERO };
+    for material in shared.iter().flat_map(|shared| [&shared.dry, &shared.wet]) {
+        // Borrowed mutably only to change it: a material borrowed so is prepared again.
+        if materials
+            .get(material)
+            .is_some_and(|known| known.soft != wanted)
+            && let Some(mut material) = materials.get_mut(material)
+        {
+            material.soft = wanted;
+        }
     }
 }
 
@@ -564,6 +593,69 @@ mod tests {
             .collect();
         parents.sort();
         assert_eq!(parents, wanted);
+    }
+
+    /// The highest detail draws the soft edges and pays for the mask's camera; the medium draws
+    /// the original's sharp shadows with the camera off and its copies hidden; the lowest none
+    /// (#2628).
+    #[test]
+    fn the_detail_chooses_the_shadows_edges() {
+        let mut app = App::new();
+        let mut materials = Assets::<ShadowMaterial>::default();
+        let material = || ShadowMaterial {
+            anchors: Handle::default(),
+            grounds: Handle::default(),
+            floors: Handle::default(),
+            mask: Handle::default(),
+            soft: Vec4::X,
+            layer: Layer::Shadows,
+        };
+        let (dry, wet) = (materials.add(material()), materials.add(material()));
+        app.insert_resource(materials)
+            .insert_resource(Shared {
+                dry: dry.clone(),
+                wet,
+                mask: Handle::default(),
+            })
+            .add_systems(Update, detail);
+        let world = app.world_mut();
+        let camera = world.spawn((MaskCamera, Camera::default())).id();
+        let shadow = world.spawn((Shadow, Visibility::Inherited)).id();
+        let copy = world.spawn((MaskCopy, Visibility::Inherited)).id();
+        for (level, active, shadow_shown, soft) in [
+            (1, false, Visibility::Inherited, 0.0),
+            (2, true, Visibility::Inherited, 1.0),
+            (0, false, Visibility::Hidden, 0.0),
+        ] {
+            let mut settings = crate::settings::Settings::default();
+            settings.graphics.detail = level;
+            app.insert_resource(settings);
+            app.update();
+            let world = app.world();
+            assert_eq!(
+                world.get::<Camera>(camera).unwrap().is_active,
+                active,
+                "{level}"
+            );
+            assert_eq!(
+                world.get::<Visibility>(shadow),
+                Some(&shadow_shown),
+                "{level}"
+            );
+            let copy_shown = if active {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            assert_eq!(world.get::<Visibility>(copy), Some(&copy_shown), "{level}");
+            let soft_now = world
+                .resource::<Assets<ShadowMaterial>>()
+                .get(&dry)
+                .unwrap()
+                .soft
+                .x;
+            assert_eq!(soft_now, soft, "{level}");
+        }
     }
 
     /// The world's camera, and it alone, takes the mask's camera as a child, out of the world
