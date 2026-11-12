@@ -63,6 +63,7 @@ use crate::blended::{self, Layer};
 use crate::frame::Step;
 use crate::parallel::{self, Spread};
 use crate::sectors::Staged;
+use crate::settings::SpriteDepth;
 use crate::{buildings, files, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
@@ -88,6 +89,7 @@ struct Batch {
     floors: Vec<[f32; 4]>,
     footprints: Vec<[f32; 2]>,
     planes: Vec<f32>,
+    bases: Vec<f32>,
     /// Whether a quad of the batch stands on an upper storey's floor ([`Standing`]).
     on_floor: bool,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
@@ -152,6 +154,11 @@ pub const ATTRIBUTE_FOOTPRINT: MeshVertexAttribute = MeshVertexAttribute::new(
 pub const ATTRIBUTE_PLANE: MeshVertexAttribute =
     MeshVertexAttribute::new("SpritePlane", 0x5350_5249_5445_504C, VertexFormat::Float32);
 
+/// The height in world units of the ground at a sprite's cell, its art's corners' mean, which its
+/// texels' heights are over with `[graphics] sprites = "height"` (`sprites.wesl`, #1437).
+pub const ATTRIBUTE_BASE: MeshVertexAttribute =
+    MeshVertexAttribute::new("SpriteBase", 0x5350_5249_5445_4253, VertexFormat::Float32);
+
 /// The [`ATTRIBUTE_PLANE`] of a sprite that is no floor (`NO_PLANE` of `sprites.wesl`).
 const NO_PLANE: f32 = -1.0e6;
 
@@ -179,6 +186,15 @@ pub struct SpriteMaterial {
     /// Whether some of the sprites stand on an upper storey's floor ([`Standing`]): their
     /// fragments then take their depth from the shader, which keeps them in front of the floor.
     pub on_floor: bool,
+    /// The depth per texel of the sprites of the page that have a map, [`relief::NoRelief`]'s
+    /// for the others (#1437).
+    #[texture(3, sample_type = "u_int")]
+    pub relief: Handle<Image>,
+    /// How the sprites take their depth (`[graphics] sprites`, `relief::follow_sprites`).
+    pub depth: SpriteDepth,
+    /// Whether its quads keep their places whatever the setting: the statics' shadows', which
+    /// have no maps.
+    pub keeps: bool,
 }
 
 /// The texels of its sprites that a [`SpriteMaterial`] draws.
@@ -197,12 +213,14 @@ pub struct SpriteKey {
     fringe: bool,
     alpha_test: bool,
     on_floor: bool,
+    depth: SpriteDepth,
 }
 
 impl From<&SpriteMaterial> for SpriteKey {
     fn from(material: &SpriteMaterial) -> Self {
         Self {
             fringe: material.pass != Pass::Body,
+            depth: material.depth,
             alpha_test: material.alpha_test,
             on_floor: material.on_floor,
         }
@@ -256,12 +274,14 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_FLOOR.at_shader_location(6),
             ATTRIBUTE_FOOTPRINT.at_shader_location(7),
             ATTRIBUTE_PLANE.at_shader_location(8),
+            ATTRIBUTE_BASE.at_shader_location(9),
         ])?];
         descriptor.primitive.cull_mode = None;
         let SpriteKey {
             fringe,
             alpha_test,
             on_floor,
+            depth,
         } = key.bind_group_data;
         if let Some(fragment) = descriptor.fragment.as_mut() {
             // In both passes, which take the texels that the test leaves.
@@ -271,8 +291,15 @@ impl Material for SpriteMaterial {
             if fringe {
                 fragment.shader_defs.push("FRINGE".into());
             }
+            // Each texel's depth from its sprite's map (#1437).
+            match depth {
+                SpriteDepth::Flat => {}
+                SpriteDepth::Relief => fragment.shader_defs.push("RELIEF".into()),
+                SpriteDepth::Height => fragment.shader_defs.push("HEIGHT".into()),
+            }
+
             // Writing the depth turns the early depth test off: only for the sprites that need it.
-            let entry = if on_floor {
+            let entry = if on_floor || depth != SpriteDepth::Flat {
                 "fragment_on_floor"
             } else {
                 "fragment"
@@ -308,6 +335,8 @@ impl Plugin for StaticsPlugin {
 pub struct Statics {
     batches: Vec<Batch>,
     pages: Vec<Staged>,
+    /// Each page's maps of the depth per texel, if one of its sprites has a map (#1437).
+    reliefs: Vec<Option<Staged>>,
     /// The floors that the quads of the buildings' parts stand on, for the models.
     floors: Vec<Floor>,
     /// The glows over the light sources' miniatures, for [`spawn_glows`].
@@ -319,7 +348,9 @@ pub struct Statics {
 impl Statics {
     /// Its sprites' pages, which may go to the render world ahead of it (`sectors`).
     pub fn staged(&mut self) -> impl Iterator<Item = &mut Staged> {
-        self.pages.iter_mut()
+        self.pages
+            .iter_mut()
+            .chain(self.reliefs.iter_mut().flatten())
     }
 }
 
@@ -492,6 +523,8 @@ struct Assembled {
     stride: (usize, usize),
     /// The image's levels, the largest first, each half the one before.
     levels: Vec<Vec<u8>>,
+    /// Its map of the depth per texel over its rectangle, if one was made (#1437).
+    relief: Option<Vec<u16>>,
 }
 
 /// The image of sprite `id` of the world directory `dir`, as large as its rectangle to whole
@@ -519,12 +552,14 @@ fn read_sprite(dir: &Path, id: u32, sprite: &Sprite) -> Result<Assembled> {
         first.1,
         levels.len()
     );
+    let relief = crate::relief::read(dir, id, width, height)?;
     Ok(Assembled {
         rect,
         width,
         height,
         stride,
         levels: levels.into_iter().map(|level| level.pixels).collect(),
+        relief,
     })
 }
 
@@ -580,6 +615,9 @@ struct Page {
     width: usize,
     height: usize,
     levels: Vec<Vec<u8>>,
+    /// Its sprites' maps of the depth per texel at their places, if one of them has a map
+    /// (#1437).
+    relief: Option<Vec<u16>>,
 }
 
 impl Page {
@@ -631,7 +669,7 @@ fn pack(sprites: &BTreeMap<u32, Assembled>, spread: Spread) -> (Vec<Page>, Place
             let mut levels: Vec<Vec<u8>> = (0..SPRITE_LEVELS)
                 .map(|n| vec![0; 4 * (PAGE >> n) * (height >> n)])
                 .collect();
-            for (id, x, y) in on {
+            for &(id, x, y) in &on {
                 let sprite = &sprites[&id];
                 for (n, (level, image)) in levels.iter_mut().zip(&sprite.levels).enumerate() {
                     let (width, rows) = (sprite.stride.0 >> n, sprite.stride.1 >> n);
@@ -643,10 +681,29 @@ fn pack(sprites: &BTreeMap<u32, Assembled>, spread: Spread) -> (Vec<Page>, Place
                     }
                 }
             }
+            // The maps over the sprites' rectangles, flat elsewhere (#1437): a relief and a
+            // height a texel.
+            let mapped = on.iter().any(|(id, _, _)| sprites[id].relief.is_some());
+            let relief = mapped.then(|| {
+                let mut relief: Vec<u16> = [crate::relief::ZERO, 0].repeat(PAGE * height);
+                for &(id, x, y) in &on {
+                    let sprite = &sprites[&id];
+                    if let Some(map) = &sprite.relief {
+                        for row in 0..sprite.height {
+                            let from = 2 * row * sprite.width;
+                            let at = 2 * ((y + row) * PAGE + x);
+                            relief[at..at + 2 * sprite.width]
+                                .copy_from_slice(&map[from..from + 2 * sprite.width]);
+                        }
+                    }
+                }
+                relief
+            });
             Page {
                 width: PAGE,
                 height,
                 levels,
+                relief,
             }
         },
     );
@@ -883,6 +940,8 @@ struct Spot {
     /// that each of its corners shows, in the order of its quad's corners, where the soft
     /// shadows darken it (#2605, #2609).
     lying: Option<[f32; 4]>,
+    /// The height in world units of the ground at its cell ([`ATTRIBUTE_BASE`]).
+    base: f32,
 }
 
 /// The ground point, in cells, under the point at `screen` of a plane `height` pixels high, both
@@ -968,7 +1027,13 @@ impl Spot {
             floor: None,
             standing: None,
             lying: None,
+            base: 0.0,
         }
+    }
+
+    /// The spot whose cell's ground lies `base` units high.
+    fn based(self, base: f32) -> Self {
+        Self { base, ..self }
     }
 
     /// The spot of an upper storey's floor whose plane lies `floor` units of the models' height
@@ -1150,6 +1215,7 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         floors: Vec::new(),
         footprints: Vec::new(),
         planes: Vec::new(),
+        bases: Vec::new(),
         on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
@@ -1177,6 +1243,7 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         batch.footprints.push(footprint);
     }
     batch.planes.extend((0..4).map(|corner| spot.plane(corner)));
+    batch.bases.extend([spot.base; 4]);
     batch.on_floor |= spot.standing.is_some();
     let (w, h) = size;
     batch.uvs.extend([
@@ -1300,6 +1367,8 @@ pub fn build(
         };
         let position = Vec2::new(object.x as f32, object.y as f32);
         let part = part_of(object, sector);
+        // The ground at the object's cell, its art's corners' mean (`ATTRIBUTE_BASE`).
+        let base = iso::height(cell.heights.iter().map(|&h| f32::from(h)).sum::<f32>() / 4.0);
         // The shadow: list 1's under list 2, or one drawn right before its sprite in the sprite's
         // list and with its building's part, half a place behind it (`0x62FF60`).
         if let Some((shadow, entry)) = shadow {
@@ -1335,7 +1404,8 @@ pub fn build(
         });
         let spot = Spot::new(cx, cy, back, chain)
             .on_floor(object.floor)
-            .lying(lying);
+            .lying(lying)
+            .based(base);
         let (size, source) = texture_of(quad.texture)?;
         // A lamp's glow: each corner of its miniature moved out by its size, so three times it
         // across and down, the whole texture over it (`0x62FF60`).
@@ -1387,6 +1457,17 @@ pub fn build(
                 .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
         }
     }
+    let reliefs = pages
+        .iter()
+        .map(|page| -> Result<Option<Staged>> {
+            page.relief
+                .as_deref()
+                .map(|texels| {
+                    crate::relief::image(page.width, page.height, texels).map(Staged::Waiting)
+                })
+                .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?;
     let pages = pages
         .into_iter()
         .map(|page| -> Result<Staged> {
@@ -1412,6 +1493,7 @@ pub fn build(
     Ok(Statics {
         batches: batches.into_values().collect(),
         pages,
+        reliefs,
         floors,
         glows: glows.into_values().collect(),
         objects: objects.len(),
@@ -1559,6 +1641,8 @@ fn fade(
 pub struct Common<'a> {
     pub fade: &'a Fade,
     pub shadows: Option<&'a StaticShadows>,
+    /// The map of the sprites without one ([`relief::NoRelief`]).
+    pub flat: &'a Handle<Image>,
 }
 
 /// The shadow atlas, relative to the asset directory (`SHADOW_TREE00`).
@@ -1582,6 +1666,7 @@ fn make_shadows(
     atlas: Option<Res<ShadowAtlas>>,
     assets: Res<AssetServer>,
     fade: Res<Fade>,
+    flat: Res<crate::relief::NoRelief>,
     mut materials: ResMut<Assets<SpriteMaterial>>,
 ) {
     let Some(atlas) = atlas else {
@@ -1596,6 +1681,9 @@ fn make_shadows(
             pass: Pass::Fringe(layer),
             alpha_test: false,
             on_floor,
+            relief: flat.0.clone(),
+            depth: SpriteDepth::Flat,
+            keeps: true,
         })
     };
     commands.insert_resource(StaticShadows {
@@ -1615,12 +1703,21 @@ pub fn spawn(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<SpriteMaterial>,
-    Common { shadows, fade }: Common<'_>,
+    Common {
+        shadows,
+        fade,
+        flat,
+    }: Common<'_>,
 ) -> Vec<Entity> {
     let pages: Vec<Handle<Image>> = statics
         .pages
         .into_iter()
         .map(|page| page.handle(images))
+        .collect();
+    let reliefs: Vec<Handle<Image>> = statics
+        .reliefs
+        .into_iter()
+        .map(|relief| relief.map_or_else(|| flat.clone(), |relief| relief.handle(images)))
         .collect();
     let mut entities: Vec<Entity> = statics
         .floors
@@ -1639,11 +1736,19 @@ pub fn spawn(
             },
             BatchTexture::Atlas(path) => {
                 let atlas = assets.load(path);
-                sprite_passes(materials, atlas, fade, batch.layer, false, batch.on_floor)
+                let textures = (atlas, flat.clone());
+                sprite_passes(
+                    materials,
+                    textures,
+                    fade,
+                    batch.layer,
+                    false,
+                    batch.on_floor,
+                )
             }
             BatchTexture::Page(page) => {
-                let page = pages[page].clone();
-                sprite_passes(materials, page, fade, batch.layer, true, batch.on_floor)
+                let textures = (pages[page].clone(), reliefs[page].clone());
+                sprite_passes(materials, textures, fade, batch.layer, true, batch.on_floor)
             }
         };
         let mesh = meshes.add(
@@ -1660,6 +1765,7 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors)
             .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
             .with_inserted_attribute(ATTRIBUTE_PLANE, batch.planes)
+            .with_inserted_attribute(ATTRIBUTE_BASE, batch.bases)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         for material in passes {
@@ -1679,10 +1785,11 @@ pub fn spawn(
     entities
 }
 
-/// The materials of a batch's two passes over `atlas`, the second in `layer`.
+/// The materials of a batch's two passes over `atlas` and its maps `relief`, the second in
+/// `layer`.
 fn sprite_passes(
     materials: &mut Assets<SpriteMaterial>,
-    atlas: Handle<Image>,
+    (atlas, relief): (Handle<Image>, Handle<Image>),
     fade: &Fade,
     layer: Layer,
     alpha_test: bool,
@@ -1698,6 +1805,9 @@ fn sprite_passes(
                 pass,
                 alpha_test,
                 on_floor,
+                relief: relief.clone(),
+                depth: SpriteDepth::Flat,
+                keeps: false,
             })
         })
         .collect()
@@ -2281,6 +2391,7 @@ pub(crate) mod tests {
             levels: (0..SPRITE_LEVELS)
                 .map(|n| vec![7; 4 * (8 >> n) * (8 >> n)])
                 .collect(),
+            relief: None,
         };
         let sprites = BTreeMap::from([(1, image), (2, grey)]);
         let (pages, placed) = pack(&sprites, Spread::Wide);
@@ -2307,6 +2418,38 @@ pub(crate) mod tests {
             assert_eq!(at(n, (x1 + 15) >> n, (y1 + 7) >> n), red, "level {n}");
             assert_eq!(at(n, x2 >> n, y2 >> n), [7; 4], "level {n}");
         }
+        // No sprite has maps: the page has none (#1437).
+        assert_eq!(page.relief, None);
+    }
+
+    #[test]
+    fn a_pages_maps_lie_where_its_sprites_do_and_flat_elsewhere() {
+        // A sprite of 3 × 2 with its maps, a relief and a height a texel, and one without.
+        let sprite = |relief: Option<Vec<u16>>| Assembled {
+            rect: [0, 0, 3, 2],
+            width: 3,
+            height: 2,
+            stride: (8, 8),
+            levels: (0..SPRITE_LEVELS)
+                .map(|n| vec![9; 4 * (8 >> n) * (8 >> n)])
+                .collect(),
+            relief,
+        };
+        let map: Vec<u16> = (0..6).flat_map(|k| [100 + k, 200 + k]).collect();
+        let sprites = BTreeMap::from([(1, sprite(Some(map))), (2, sprite(None))]);
+        let (pages, placed) = pack(&sprites, Spread::Wide);
+        let page = &pages[0];
+        let relief = page.relief.as_ref().unwrap();
+        assert_eq!(relief.len(), 2 * page.width * page.height);
+        let at = |x: usize, y: usize| &relief[2 * (y * page.width + x)..][..2];
+        let (_, x1, y1) = placed[&1];
+        let (_, x2, y2) = placed[&2];
+        // The first sprite's last texel, its second row's third.
+        assert_eq!(at(x1 + 2, y1 + 1), [105, 205]);
+        assert_eq!(at(x1, y1), [100, 200]);
+        // Past its rectangle and over the other sprite, on its quad and on the ground.
+        assert_eq!(at(x1 + 3, y1), [crate::relief::ZERO, 0]);
+        assert_eq!(at(x2 + 1, y2 + 1), [crate::relief::ZERO, 0]);
     }
 
     #[test]

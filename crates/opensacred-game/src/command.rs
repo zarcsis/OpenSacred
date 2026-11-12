@@ -134,6 +134,12 @@ enum Command {
     Shadows {
         kind: Option<crate::settings::Shadows>,
     },
+    /// The statics' sprites: flat at their cells' depths, or with the depth per texel of their
+    /// maps, about their quads or by their heights (#1437, research); without a kind, the next;
+    /// kept in the settings
+    Sprites {
+        kind: Option<crate::settings::SpriteDepth>,
+    },
     /// Show or hide the log's panel (F12); kept in the settings
     Log { on: Option<Switch> },
     /// Open or close the console (the key under Esc)
@@ -1294,6 +1300,18 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             save(world, &["graphics.shadows"])?;
             Ok(Outcome::say(format!("{kind:?}").to_lowercase()))
         }
+        Command::Sprites { kind } => {
+            use crate::settings::SpriteDepth;
+            let mut settings = world.resource_mut::<Settings>();
+            let kind = kind.unwrap_or(match settings.graphics.sprites {
+                SpriteDepth::Flat => SpriteDepth::Relief,
+                SpriteDepth::Relief => SpriteDepth::Height,
+                SpriteDepth::Height => SpriteDepth::Flat,
+            });
+            settings.graphics.sprites = kind;
+            save(world, &["graphics.sprites"])?;
+            Ok(Outcome::say(format!("{kind:?}").to_lowercase()))
+        }
         Command::Log { on } => panel(world, on, "debug.log", true),
         Command::Keys { on } => {
             let mut help = world.get_resource_mut::<Help>().ok_or("no help")?;
@@ -2070,6 +2088,7 @@ mod tests {
                 "shadows",
                 "skills",
                 "spawn",
+                "sprites",
                 "stashes",
                 "state",
                 "stats"

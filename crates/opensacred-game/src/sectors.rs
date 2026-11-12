@@ -471,10 +471,11 @@ pub fn stream(
     ),
     glow: Option<Res<statics::Glow>>,
     shadows: Option<Res<statics::StaticShadows>>,
-    (fade, cameras, windows): (
+    (fade, cameras, windows, flat): (
         Res<statics::Fade>,
         Query<&Projection, iso::Eye>,
         Query<&Window>,
+        Res<crate::relief::NoRelief>,
     ),
 ) {
     let streamer = &mut *streamer;
@@ -597,6 +598,7 @@ pub fn stream(
             statics::Common {
                 fade: &fade,
                 shadows: shadows.as_deref(),
+                flat: &flat.0,
             },
         ));
         entities.extend(lights.into_iter().map(|(position, radius)| {

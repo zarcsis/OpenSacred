@@ -8,7 +8,8 @@
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
 // An upper storey's floor's texels and an underlay's, flat on the ground, take the soft shadows of
 // the sun where their plane lies (`soft.wesl`, #2605). Where the screen shrinks the sprites, their
-// pages' levels stand in for the image (`level_of`, #839).
+// pages' levels stand in for the image (`level_of`, #839). With `[graphics] sprites`, each
+// texel takes its own depth from its sprite's maps (`RELIEF`, `HEIGHT`, `mapped`, #1437).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process, soft};
@@ -20,6 +21,10 @@ import package::{order, post::post_process, soft};
 /// What the sprites of the fading types fade about (`statics::Fade`): the hero's point on the
 /// original's screen, the radius and the alpha there; then its place in the order.
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> fade: array<vec4<f32>>;
+/// Each texel's depth in front of its sprite's quad and its height over its sprite's base, over
+/// the page as its first level (`relief`): one texel for an atlas and a page whose sprites have
+/// no map.
+@group(constants::MATERIAL_BIND_GROUP) @binding(3) var relief: texture_2d<u32>;
 
 struct Vertex {
     /// The vertex in the world, from its sprite's cell: unused here (`on_screen`).
@@ -43,6 +48,8 @@ struct Vertex {
     /// For an upper storey's floor or an underlay, the height of its plane in world units;
     /// `NO_PLANE` for any other sprite.
     @location(8) plane: f32,
+    /// The height of the ground at the sprite's cell in world units (`statics::ATTRIBUTE_BASE`).
+    @location(9) base: f32,
 };
 
 struct VertexOutput {
@@ -58,6 +65,8 @@ struct VertexOutput {
     @location(4) floor: f32,
     @location(5) footprint: vec2<f32>,
     @location(6) @interpolate(flat) plane: f32,
+    @location(7) @interpolate(flat) base: f32,
+    @location(8) @interpolate(flat) anchor: vec4<f32>,
 };
 
 /// What `fragment_on_floor` writes: the colour and the depth.
@@ -76,6 +85,11 @@ const CUTOFF: f32 = 64.0 / 255.0;
 const CLEAR: f32 = 0.5 / 255.0;
 /// The plane of a sprite that is no floor (`statics::NO_PLANE`): below any that is one.
 const NO_PLANE: f32 = -1.0e5;
+
+/// A relief's value of a texel on its sprite's quad (`relief::ZERO`), and the maps' steps per
+/// world unit (`sprite_depth.py`).
+const RELIEF_ZERO: f32 = 32768.0;
+const RELIEF_STEPS: f32 = 8.0;
 
 /// Screen pixels at zoom 1 per world unit (`iso::PIXELS_PER_UNIT`): a cell's diagonal is 96 pixels.
 const PIXELS_PER_UNIT: f32 = 1.2649111;
@@ -112,6 +126,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.floor = order::depth(vertex.floor, 0.0);
     out.footprint = vertex.footprint;
     out.plane = vertex.plane;
+    out.base = vertex.base;
+    out.anchor = vertex.anchor;
     // Drawn after the hero: nearer than its place in the reversed depth.
     let after = order::depth(vertex.anchor, 0.0) > order::depth(fade[1], 0.0);
     out.fades = select(0.0, 1.0, vertex.fades > 0.5 && after);
@@ -182,6 +198,47 @@ fn sampled(uv: vec2<f32>, source: vec4<i32>, alpha: f32, level: f32) -> vec4<f32
     return mix(near, filtered(uv, source, alpha, u32(low) + 1u), t);
 }
 
+/// The depth of a sprite's fragment `in` at the depth `quad` of its quad's place, by its sprite's
+/// maps (#1437). `RELIEF`: in front of the quad's place or behind as its relief says, the quad's
+/// for a sprite without maps. `HEIGHT`: at its own point, on its line of sight as high over the
+/// ground at its sprite's base as its height says, and a sprite without maps, a miniature, in the
+/// upright plane facing the camera through its cell's centre, as a model stands; neither further
+/// back than its quad's place, where the original orders it, as a sprite standing on another (a
+/// candle on a cupboard, a roof's piece) would sink to the ground behind it, and its shadow, at
+/// its quad's place, would cover it. The quad's for a sprite that lies in a plane of its own, an
+/// underlay or an upper storey's floor (`plane`), and for the statics' shadows, which have no
+/// maps and stay at their places (`FRINGE` without `ALPHA_TEST`).
+fn mapped(in: VertexOutput, quad: f32) -> f32 {
+    if in.plane > NO_PLANE {
+        return quad;
+    }
+    let size = textureDimensions(relief);
+    let source = vec4<i32>(in.source);
+    let at = clamp(vec2<i32>(floor(in.uv * vec2<f32>(size))), source.xy, source.zw);
+    let texel = textureLoad(relief, at, 0);
+    var depth = quad;
+@if(RELIEF) {
+    if size.x > 1u {
+        depth += (f32(texel.r) - RELIEF_ZERO) / RELIEF_STEPS * view.clip_from_view[2][2];
+    }
+}
+@if(HEIGHT) {
+    let back = view.world_from_view[2].xyz;
+    let sight = soft::on_pixel(in.position);
+    var point: vec3<f32>;
+    if size.x > 1u {
+        let high = in.base + f32(texel.g) / RELIEF_STEPS;
+        point = sight - back * ((sight.y - high) / back.y);
+    } else {
+        let facing = normalize(vec3(back.x, 0.0, back.z));
+        let centre = vec3(in.anchor.x, in.base, in.anchor.z);
+        point = sight + back * (dot(centre - sight, facing) / dot(back, facing));
+    }
+    depth = max(order::depth(vec4(point, in.anchor.w), 0.0), quad);
+}
+    return depth;
+}
+
 /// The alpha out of 1 of a fading sprite's point at `screen` (`0x62FF60`): within the radius of
 /// the hero's point across and down, from the alpha at the point to 1 at the radius' distance;
 /// else 1. Per point here, where the original gives each corner of its sprites' pieces of 64
@@ -207,13 +264,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 /// (`statics::Standing`): the original draws them after the floor, over it whole and without the
 /// depth test, while the floor tests the depth in its plane (`0x62FF60`, docs/re/drawing.md,
 /// "Depth"). Over the floor's part such a sprite lies no further back than the floor's plane,
-/// brought forward a little in their order; elsewhere at its place, as any sprite.
+/// brought forward a little in their order; elsewhere at its place, as any sprite. With `RELIEF`
+/// or `HEIGHT`, every sprite's: each texel at the depth its maps give (`mapped`).
 @fragment
 fn fragment_on_floor(in: VertexOutput) -> OnFloor {
     var out: OnFloor;
     out.colour = shade(in);
+    var depth = in.position.z;
+@if(RELIEF || HEIGHT) {
+    depth = mapped(in, depth);
+}
     let over = all(in.footprint >= vec2(0.0)) && all(in.footprint < vec2(1.0));
-    out.depth = select(in.position.z, max(in.position.z, in.floor), over);
+    out.depth = select(depth, max(depth, in.floor), over);
     return out;
 }
 

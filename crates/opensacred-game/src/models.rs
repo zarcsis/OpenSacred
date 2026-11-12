@@ -154,6 +154,9 @@ pub struct InOrder {
     #[uniform(108)]
     glows: Vec4,
     pass: Pass,
+    /// How the model takes its depth among the sprites' (`[graphics] sprites`, `relief`, #1437):
+    /// squeezed about its cell's place, its own depth whole about it, or its true depth.
+    pub depth: crate::settings::SpriteDepth,
 }
 
 /// What the pipeline of a [`ModelMaterial`] depends on beyond Bevy's own material.
@@ -165,6 +168,7 @@ pub struct InOrderKey {
     water: bool,
     vision: bool,
     under: bool,
+    depth: crate::settings::SpriteDepth,
 }
 
 impl From<&InOrder> for InOrderKey {
@@ -176,6 +180,7 @@ impl From<&InOrder> for InOrderKey {
             water: extension.pass == Pass::Water,
             vision: extension.pass == Pass::Vision,
             under: matches!(extension.pass, Pass::Under(_) | Pass::UnderBlended(_)),
+            depth: extension.depth,
         }
     }
 }
@@ -236,6 +241,15 @@ impl MaterialExtension for InOrder {
             .push("VERTEX_OUTPUT_INSTANCE_INDEX".into());
         if key.bind_group_data.under {
             descriptor.vertex.shader_defs.push("UNDER".into());
+        }
+        match key.bind_group_data.depth {
+            crate::settings::SpriteDepth::Flat => {}
+            crate::settings::SpriteDepth::Relief => {
+                descriptor.vertex.shader_defs.push("RELIEF".into());
+            }
+            crate::settings::SpriteDepth::Height => {
+                descriptor.vertex.shader_defs.push("HEIGHT".into());
+            }
         }
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader_defs.push("NEAREST".into());
@@ -395,6 +409,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             offsets: Vec4::ZERO,
             glows: Vec4::ZERO,
             pass,
+            depth: crate::settings::SpriteDepth::Flat,
         },
     }
 }
