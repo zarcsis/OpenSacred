@@ -180,7 +180,7 @@ enum Command {
         #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the loading and save screens (BMP to PNG), the main menu's picture, the fonts and the credits into <ASSETS_SRC>/ui/
+    /// Convert the loading and save screens (BMP to PNG), the menus' pictures, the fonts and the credits into <ASSETS_SRC>/ui/
     Ui {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]

@@ -32,7 +32,8 @@ pub enum Mode {
 
 /// The background's textures (`UW_option_1_01.tga` to `UW_option_1_12.tga`), four to a row.
 const TILES: usize = 12;
-const TILE: f32 = 256.0;
+/// The background as the converter assembles it from its tiles (`opensacred-convert ui`, #2634).
+const PICTURE: &str = "ui/screens/options.ktx2";
 
 /// The rectangle of `size` at `at`.
 const fn boxed(x: f32, y: f32, width: f32, height: f32) -> Rect {
@@ -534,16 +535,15 @@ pub struct Asked(pub bool);
 /// The background's textures, found among the converted ones.
 #[derive(Resource, Default)]
 pub struct Images {
-    tiles: Vec<Option<String>>,
+    background: crate::menu::Background,
 }
 
 impl Images {
     /// Finds the background's tiles.
     pub fn find(assets: &std::path::Path) -> Self {
         let names: Vec<String> = (1..=TILES).map(|n| format!("uw_option_1_{n:02}")).collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
         Self {
-            tiles: crate::hud::find_textures(assets, &names),
+            background: crate::menu::Background::find(assets, PICTURE, &names),
         }
     }
 }
@@ -628,18 +628,7 @@ fn spawn(
     root.with_children(|root| {
         root.spawn((busy_dialog::screen(), Pickable::IGNORE))
             .with_children(|screen| {
-                for (k, tile) in images.tiles.iter().enumerate() {
-                    let Some(file) = tile else { continue };
-                    let at = Vec2::new(
-                        TILE * f32::from(u8::try_from(k % 4).unwrap_or(0)),
-                        TILE * f32::from(u8::try_from(k / 4).unwrap_or(0)),
-                    );
-                    screen.spawn((
-                        ImageNode::new(crate::hud::image(&assets, file.clone())),
-                        bar::placed(at, Vec2::splat(TILE)),
-                        Pickable::IGNORE,
-                    ));
-                }
+                images.background.spawn(screen, &assets, Pickable::IGNORE);
                 for framed in BOXES {
                     let fill = framed.inflate(FILL_GROWTH);
                     screen.spawn((

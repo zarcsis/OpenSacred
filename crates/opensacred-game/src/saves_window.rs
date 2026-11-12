@@ -47,7 +47,8 @@ const EDITABLE: u32 = 331;
 
 /// The background's tiles (`UW_option_01.tga` to `UW_option_12.tga`), four to a row.
 const TILES: usize = 12;
-const TILE: f32 = 256.0;
+/// The background as the converter assembles it from its tiles (`opensacred-convert ui`, #2634).
+const BACKGROUND: &str = "ui/screens/saves.ktx2";
 /// The dark fills behind the two boxes (`0x9F000000`).
 const FILLS: [Rect; 2] = [
     Rect::from_corners(Vec2::new(44.0, 44.0), Vec2::new(724.0, 180.0)),
@@ -277,16 +278,15 @@ pub struct Asked(pub bool);
 /// The background's textures, found among the converted ones.
 #[derive(Resource, Default)]
 pub struct Images {
-    tiles: Vec<Option<String>>,
+    background: crate::menu::Background,
 }
 
 impl Images {
     /// Finds the background's tiles.
     pub fn find(assets: &std::path::Path) -> Self {
         let names: Vec<String> = (1..=TILES).map(|n| format!("uw_option_{n:02}")).collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
         Self {
-            tiles: crate::hud::find_textures(assets, &names),
+            background: crate::menu::Background::find(assets, BACKGROUND, &names),
         }
     }
 }
@@ -377,18 +377,7 @@ fn spawn(
     root.observe(wheel).with_children(|root| {
         root.spawn((busy_dialog::screen(), Pickable::IGNORE))
             .with_children(|screen| {
-                for (k, tile) in images.tiles.iter().enumerate() {
-                    let Some(file) = tile else { continue };
-                    let at = Vec2::new(
-                        TILE * f32::from(u8::try_from(k % 4).unwrap_or(0)),
-                        TILE * f32::from(u8::try_from(k / 4).unwrap_or(0)),
-                    );
-                    screen.spawn((
-                        ImageNode::new(crate::hud::image(&assets, file.clone())),
-                        bar::placed(at, Vec2::splat(TILE)),
-                        Pickable::IGNORE,
-                    ));
-                }
+                images.background.spawn(screen, &assets, Pickable::IGNORE);
                 for fill in FILLS {
                     screen.spawn((choice::place(fill), BackgroundColor(FILL), Pickable::IGNORE));
                 }

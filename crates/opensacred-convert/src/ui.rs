@@ -23,12 +23,19 @@ pub const SCREENS: [&str; 6] = [
 ];
 pub const FONTS: [&str; 2] = ["font/ANTQS__.TTF", "font/CAROLING.TTF"];
 
-/// The main menu's tiles, `GUI_UW_OPTION1` to `12` of `texture.pak`, 256 texels a side, four
-/// to a row from the top left (docs/02 §3.1), and the one picture of 1024 × 768 that `ui`
-/// assembles from them, the faint twelfth repaired first (`textures::repair`, #352), so that
-/// the game draws one image and a larger screen samples it across the tiles' joins (#1824).
+/// The menus' backgrounds, each twelve tiles of `texture.pak`, 256 texels a side, four to a row
+/// from the top left (docs/02 §3.1), and the one picture of 1024 × 768 that `ui` assembles from
+/// each, the faint twelfth of the main menu's repaired first (`textures::repair`, #352), so that
+/// the game draws one image and a larger screen samples it across the tiles' joins: the main
+/// menu's (#1824), the hero's choice's, the options' window's and the saves' window's (#2634).
+/// Each is its tiles' names but for their numbers, 1 to 12 after them, and its picture's file.
 pub const MENU_TILES: &str = "PAK/texture.pak";
-const MENU_TILE: &str = "gui_uw_option";
+pub const MENU_PICTURES: [(&str, &str); 4] = [
+    ("gui_uw_option", MENU_PICTURE),
+    ("gui_uw_char_", "choice.png"),
+    ("uw_option_1_", "options.png"),
+    ("uw_option_", "saves.png"),
+];
 const MENU_SIDE: u32 = 256;
 const MENU_COLUMNS: u32 = 4;
 const MENU_COUNT: usize = 12;
@@ -72,11 +79,13 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         fs::write(&file, png).with_context(|| format!("writing {}", file.display()))?;
         summary.screens += 1;
     }
-    let (width, height, rgba) = menu_picture(game_dir)?;
-    let file = dir.join("screens").join(MENU_PICTURE);
-    fs::write(&file, encode_png(width, height, &rgba)?)
-        .with_context(|| format!("writing {}", file.display()))?;
-    summary.screens += 1;
+    let names = MENU_PICTURES.iter().map(|&(_, name)| name);
+    for (name, (width, height, rgba)) in names.zip(menu_pictures(game_dir)?) {
+        let file = dir.join("screens").join(name);
+        fs::write(&file, encode_png(width, height, &rgba)?)
+            .with_context(|| format!("writing {}", file.display()))?;
+        summary.screens += 1;
+    }
     for (paths, sub, count, text) in [
         (&FONTS[..], "fonts", &mut summary.fonts, false),
         (&CREDITS[..], "texts", &mut summary.texts, true),
@@ -94,22 +103,32 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     Ok(summary)
 }
 
-/// The main menu's picture ([`MENU_TILES`]): its width, height and RGBA texels, each tile at its
-/// place, its alpha kept, which leaves the menu's water showing below them.
-fn menu_picture(game_dir: &Path) -> Result<(u32, u32, Vec<u8>)> {
+/// The number of a tile of the picture whose tiles' names are `prefix` and a number, 1 to 12;
+/// none for another name (`uw_option_` takes `uw_option_07`, not `uw_option_1_07`).
+fn tile_number(stem: &str, prefix: &str) -> Option<usize> {
+    stem.strip_prefix(prefix)
+        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.parse::<usize>().ok())
+        .filter(|n| (1..=MENU_COUNT).contains(n))
+}
+
+/// The menus' pictures ([`MENU_PICTURES`], [`MENU_TILES`]) in their order: each its width,
+/// height and RGBA texels, each tile at its place, its alpha kept, which leaves the menu's water
+/// showing below them.
+fn menu_pictures(game_dir: &Path) -> Result<Vec<(u32, u32, Vec<u8>)>> {
     let data = read_game_file(&game_dir.join(MENU_TILES))?;
     let pak = TexPak::parse(&data).context(MENU_TILES)?;
-    let mut tiles: Vec<Option<Texture>> = vec![None; MENU_COUNT];
+    let mut tiles: Vec<Vec<Option<Texture>>> = vec![vec![None; MENU_COUNT]; MENU_PICTURES.len()];
     for index in 0..pak.len() {
         let Some(record) = pak.record(index)? else {
             continue;
         };
         let name = record.header.name();
         let stem = crate::textures::stem(name, b".tga");
-        let Some(n) = stem
-            .strip_prefix(MENU_TILE)
-            .and_then(|n| n.parse::<usize>().ok())
-            .filter(|n| (1..=MENU_COUNT).contains(n))
+        let Some((picture, n)) = MENU_PICTURES
+            .iter()
+            .enumerate()
+            .find_map(|(picture, &(prefix, _))| Some((picture, tile_number(&stem, prefix)?)))
         else {
             continue;
         };
@@ -123,7 +142,7 @@ fn menu_picture(game_dir: &Path) -> Result<(u32, u32, Vec<u8>)> {
             texture.width,
             texture.height
         );
-        if let Some(slot) = tiles.get_mut(n - 1) {
+        if let Some(slot) = tiles[picture].get_mut(n - 1) {
             *slot = Some(texture);
         }
     }
@@ -131,18 +150,24 @@ fn menu_picture(game_dir: &Path) -> Result<(u32, u32, Vec<u8>)> {
     let (width, height) = (MENU_SIDE * MENU_COLUMNS, MENU_SIDE * rows);
     let (side, columns) = (usize::try_from(MENU_SIDE)?, usize::try_from(MENU_COLUMNS)?);
     let (row_bytes, tile_bytes) = (side * columns * 4, side * 4);
-    let mut rgba = vec![0; row_bytes * usize::try_from(height)?];
-    for (n, tile) in tiles.iter().enumerate() {
-        let tile = tile
-            .as_ref()
-            .with_context(|| format!("`{MENU_TILE}{}` missing from {MENU_TILES}", n + 1))?;
-        let (column, row) = (n % columns, n / columns);
-        for (y, line) in tile.rgba.chunks_exact(tile_bytes).enumerate() {
-            let at = (row * side + y) * row_bytes + column * tile_bytes;
-            rgba[at..at + tile_bytes].copy_from_slice(line);
-        }
-    }
-    Ok((width, height, rgba))
+    MENU_PICTURES
+        .iter()
+        .zip(tiles)
+        .map(|(&(prefix, _), tiles)| {
+            let mut rgba = vec![0; row_bytes * usize::try_from(height)?];
+            for (n, tile) in tiles.iter().enumerate() {
+                let tile = tile
+                    .as_ref()
+                    .with_context(|| format!("`{prefix}{}` missing from {MENU_TILES}", n + 1))?;
+                let (column, row) = (n % columns, n / columns);
+                for (y, line) in tile.rgba.chunks_exact(tile_bytes).enumerate() {
+                    let at = (row * side + y) * row_bytes + column * tile_bytes;
+                    rgba[at..at + tile_bytes].copy_from_slice(line);
+                }
+            }
+            Ok((width, height, rgba))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -150,6 +175,18 @@ mod tests {
     use super::*;
     use crate::ffmpeg;
     use crate::testing::{read_png_bytes, scratch_dir};
+
+    #[test]
+    fn a_tiles_number_is_its_pictures_alone() {
+        assert_eq!(tile_number("gui_uw_option12", "gui_uw_option"), Some(12));
+        assert_eq!(tile_number("gui_uw_char_07", "gui_uw_char_"), Some(7));
+        // The saves' tiles and the options' share a beginning.
+        assert_eq!(tile_number("uw_option_07", "uw_option_"), Some(7));
+        assert_eq!(tile_number("uw_option_1_07", "uw_option_"), None);
+        assert_eq!(tile_number("uw_option_1_07", "uw_option_1_"), Some(7));
+        assert_eq!(tile_number("uw_option_13", "uw_option_"), None);
+        assert_eq!(tile_number("uw_option_", "uw_option_"), None);
+    }
 
     #[test]
     fn targets_are_lower_case_names() {
@@ -168,38 +205,39 @@ mod tests {
         let game = opensacred_locate::original();
         let out = scratch_dir("ui");
         let summary = convert(&game, &out).unwrap();
-        assert_eq!((summary.screens, summary.fonts, summary.texts), (7, 2, 2));
-        // The main menu's picture: each tile as `textures` writes it, at its place (#1824).
+        assert_eq!((summary.screens, summary.fonts, summary.texts), (10, 2, 2));
+        // The menus' pictures: each tile as `textures` writes it, at its place (#1824, #2634).
         let tiles = scratch_dir("ui-tiles");
         crate::textures::convert_pak(&game.join(MENU_TILES), &tiles).unwrap();
-        let png = fs::read(output_dir(&out).join("screens").join(MENU_PICTURE)).unwrap();
-        let (width, height, picture) = read_png_bytes(&png);
-        assert_eq!((width, height), (1024, 768));
-        let mut found = 0;
-        for entry in fs::read_dir(&tiles).unwrap() {
-            let path = entry.unwrap().path();
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let Some(n) = name
-                .split_once('-')
-                .and_then(|(_, rest)| rest.strip_prefix(MENU_TILE))
-                .and_then(|rest| rest.strip_suffix(".png"))
-                .and_then(|n| n.parse::<usize>().ok())
-            else {
-                continue;
-            };
-            let (w, h, tile) = read_png_bytes(&fs::read(&path).unwrap());
-            assert_eq!((w, h), (256, 256), "{name}");
-            let (column, row) = ((n - 1) % 4, (n - 1) / 4);
-            for y in 0..256 {
-                let at = ((row * 256 + y) * 1024 + column * 256) * 4;
-                assert!(
-                    picture[at..at + 1024] == tile[y * 1024..(y + 1) * 1024],
-                    "{name}, row {y}"
-                );
+        for (prefix, file) in MENU_PICTURES {
+            let png = fs::read(output_dir(&out).join("screens").join(file)).unwrap();
+            let (width, height, picture) = read_png_bytes(&png);
+            assert_eq!((width, height), (1024, 768), "{file}");
+            let mut found = 0;
+            for entry in fs::read_dir(&tiles).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                let Some(n) = name
+                    .split_once('-')
+                    .and_then(|(_, rest)| rest.strip_suffix(".png"))
+                    .and_then(|stem| tile_number(stem, prefix))
+                else {
+                    continue;
+                };
+                let (w, h, tile) = read_png_bytes(&fs::read(&path).unwrap());
+                assert_eq!((w, h), (256, 256), "{name}");
+                let (column, row) = ((n - 1) % 4, (n - 1) / 4);
+                for y in 0..256 {
+                    let at = ((row * 256 + y) * 1024 + column * 256) * 4;
+                    assert!(
+                        picture[at..at + 1024] == tile[y * 1024..(y + 1) * 1024],
+                        "{file}: {name}, row {y}"
+                    );
+                }
+                found += 1;
             }
-            found += 1;
+            assert_eq!(found, 12, "{file}");
         }
-        assert_eq!(found, 12);
         for path in SCREENS {
             let data = read_game_file(&game.join(path)).unwrap();
             let args = [
