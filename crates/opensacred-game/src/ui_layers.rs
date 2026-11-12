@@ -18,12 +18,13 @@
 //! pieces is left out as Bevy extracts the interface ([`hide`]), from a band's second frame on:
 //! in its first its camera draws its first picture.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
 use bevy::asset::{AssetId, embedded_asset};
-use bevy::camera::visibility::RenderLayers;
+use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
 use bevy::camera::{CameraUpdateSystems, CompositingSpace, ImageRenderTarget, RenderTarget};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::ecs::system::SystemParam;
@@ -119,17 +120,19 @@ struct Composite;
 struct Mirror;
 
 /// A band's parts: its camera, its picture and the material that draws it, the frame its
-/// mirror lies in (the window's size in the original's pixels, under the camera), the node that
-/// shows the picture in the window, the window's size the picture was made for, and the mirror
-/// of each node of its root's tree.
+/// mirror lies in (the window's size in the original's pixels, under the camera), the mirror of
+/// its tree's root in the frame, the node that shows the picture in the window, the window's size
+/// the picture was made for, and the mirror of each node of its root's tree.
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
     material: Handle<Picture>,
     frame: Entity,
+    root: Entity,
     composite: Entity,
     whole: Vec2,
     mirrors: HashMap<Entity, Entity>,
+    grown: bool,
 }
 
 /// A band: the root of its stacking context's tree, the piece the interface stacks first, its
@@ -171,30 +174,51 @@ type HostData = (
 #[derive(SystemParam)]
 struct Tree<'w, 's> {
     children: Query<'w, 's, &'static Children>,
-    nodes: Query<'w, 's, &'static ZIndex, Own>,
+    nodes: Query<'w, 's, (&'static ZIndex, &'static Visibility), Own>,
     raised: Query<'w, 's, (), With<GlobalZIndex>>,
 }
 
+/// Whether a node of `visibility` shows, its parent shown or not: told from the tree as it stands,
+/// where Bevy's `InheritedVisibility` of a node spawned this frame comes later in `PostUpdate`
+/// (#2642).
+fn shown(visibility: Visibility, parent: bool) -> bool {
+    match visibility {
+        Visibility::Visible => true,
+        Visibility::Hidden => false,
+        Visibility::Inherited => parent,
+    }
+}
+
 impl Tree<'_, '_> {
-    /// The nodes of the stacking context of `context` in the order the interface stacks them:
-    /// each node before its children, the children by their `ZIndex`, in their order where it
-    /// is the same (`bevy_ui`'s `ui_stack_system`); the subtrees raised by a `GlobalZIndex` of
-    /// their own go into `raised`, contexts of their own.
-    fn stacked(&self, context: Entity, nodes: &mut Vec<Entity>, raised: &mut Vec<Entity>) {
-        nodes.push(context);
+    /// The nodes of the stacking context of `context`, its parent shown or not, in the order the
+    /// interface stacks them, each with whether it shows: each node before its children, the
+    /// children by their `ZIndex`, in their order where it is the same (`bevy_ui`'s
+    /// `ui_stack_system`); the subtrees raised by a `GlobalZIndex` of their own go into `raised`
+    /// with their parents' showing, contexts of their own.
+    fn stacked(
+        &self,
+        (context, parent): (Entity, bool),
+        nodes: &mut Vec<(Entity, bool)>,
+        raised: &mut Vec<(Entity, bool)>,
+    ) {
+        let Ok((_, &visibility)) = self.nodes.get(context) else {
+            return;
+        };
+        let showing = shown(visibility, parent);
+        nodes.push((context, showing));
         let Ok(children) = self.children.get(context) else {
             return;
         };
         let mut children: Vec<(i32, Entity)> = children
             .iter()
-            .filter_map(|child| self.nodes.get(child).ok().map(|z| (z.0, child)))
+            .filter_map(|child| self.nodes.get(child).ok().map(|(z, _)| (z.0, child)))
             .collect();
         children.sort_by_key(|&(z, _)| z);
         for (_, child) in children {
             if self.raised.contains(child) {
-                raised.push(child);
+                raised.push((child, showing));
             } else {
-                self.stacked(child, nodes, raised);
+                self.stacked((child, showing), nodes, raised);
             }
         }
     }
@@ -221,7 +245,6 @@ type LookData = (
     &'static Node,
     &'static ComputedNode,
     &'static UiGlobalTransform,
-    &'static InheritedVisibility,
     Option<&'static ImageNode>,
     &'static BackgroundColor,
     &'static BorderColor,
@@ -239,7 +262,6 @@ type Looked<'a> = (
     &'a Node,
     &'a ComputedNode,
     &'a UiGlobalTransform,
-    &'a InheritedVisibility,
     Option<&'a ImageNode>,
     &'a BackgroundColor,
     &'a BorderColor,
@@ -275,6 +297,10 @@ fn sharper_apart(
             None => return false,
         },
     };
+    // Not laid out yet, spawned this frame: taken as one to one until the layout tells.
+    if computed.unrounded_size == Vec2::ZERO {
+        return false;
+    }
     let size = computed.unrounded_size * computed.inverse_scale_factor();
     (texels - size).max_element() > 0.5
 }
@@ -282,12 +308,13 @@ fn sharper_apart(
 /// What a node of the interface draws: a piece, an image or a background shown; something at the
 /// window's pixels, a material's, a camera's picture (of `pictures`), an image
 /// [`sharper_apart`], a shadow, a gradient, an outline or a border, whatever else it draws;
-/// neither, a text's glyphs alone, a node hidden or of nothing shown.
+/// neither, a text's glyphs alone, a node hidden (not `showing`) or of nothing shown.
 fn look(
-    (node, computed, transform, shown, image, background, border, native, others): Looked<'_>,
+    (node, computed, transform, image, background, border, native, others): Looked<'_>,
+    showing: bool,
     (pictures, textures): (&HashSet<AssetId<Image>>, &Assets<Image>),
 ) -> Look {
-    if !shown.get() {
+    if !showing {
         return Look::Neither;
     }
     let (shadow, gradient, border_gradient, outline) = others;
@@ -439,10 +466,21 @@ fn make(
         picture,
         material,
         frame,
+        root,
         composite,
         whole,
         mirrors: HashMap::from([(tree, root)]),
+        grown: true,
     }
+}
+
+/// A band's parts given to the tree of `tree`, a band of another's that ended this frame: its
+/// mirror's nodes but its root despawned, to be made again of the new tree ([`mirror`]); its
+/// camera has drawn and draws the new tree's picture this frame (#2642: the quest book makes its
+/// root anew as what the pointer is over changes).
+fn retree(commands: &mut Commands, parts: &mut Parts, tree: Entity) {
+    commands.entity(parts.root).despawn_children();
+    parts.mirrors = HashMap::from([(tree, parts.root)]);
 }
 
 /// Despawns a band's parts: its camera, its frame with its mirror, its picture's node.
@@ -460,7 +498,7 @@ fn bands(
     mut commands: Commands,
     (mut layers, mut hidden): (ResMut<Layers>, ResMut<Hidden>),
     (window, scale): (Query<&Window, With<PrimaryWindow>>, Res<UiScale>),
-    roots: Query<(Entity, &InheritedVisibility), Roots>,
+    roots: Query<Entity, Roots>,
     tree: Tree,
     looks: Query<LookData, Own>,
     mut cameras: Query<&mut RenderTarget, With<Camera>>,
@@ -472,63 +510,78 @@ fn bands(
     let (whole, scale) = window_size(window, scale.0);
     let native = camera_pictures(cameras.iter());
     let mut found = Vec::new();
-    for (root, shown) in &roots {
-        if !shown.get() || !tree.nodes.contains(root) {
+    for root in &roots {
+        if !tree.nodes.contains(root) {
             continue;
         }
-        let mut contexts = vec![root];
+        let mut contexts = vec![(root, true)];
         while let Some(context) = contexts.pop() {
             let mut stacked = Vec::new();
             tree.stacked(context, &mut stacked, &mut contexts);
-            let looks = stacked.into_iter().map(|entity| {
-                let look = looks
-                    .get(entity)
-                    .map_or(Look::Neither, |data| look(data, (&native, &pictures)));
+            let looks = stacked.into_iter().map(|(entity, showing)| {
+                let look = looks.get(entity).map_or(Look::Neither, |data| {
+                    look(data, showing, (&native, &pictures))
+                });
                 (entity, look)
             });
             for (index, pieces) in cut(looks).into_iter().enumerate() {
-                found.push(((context, index), root, pieces));
+                found.push(((context.0, index), root, pieces));
             }
         }
     }
+    // The bands gone, their parts spare for the new ones of this frame.
     let wanted: HashSet<(Entity, usize)> = found.iter().map(|(key, ..)| *key).collect();
-    layers.0.retain(|key, band| {
-        let kept = wanted.contains(key);
-        if !kept {
-            end(&mut commands, &band.parts);
-        }
-        kept
-    });
+    let gone: Vec<(Entity, usize)> = layers
+        .0
+        .keys()
+        .copied()
+        .filter(|key| !wanted.contains(key))
+        .collect();
+    let mut spare: Vec<Parts> = gone
+        .into_iter()
+        .filter_map(|key| layers.0.remove(&key))
+        .map(|band| band.parts)
+        .collect();
     let mut drawn = HashSet::new();
     for (key, root, pieces) in found {
         let Some(&anchor) = pieces.first() else {
             continue;
         };
-        let fresh = !layers.0.contains_key(&key);
-        let band = layers.0.entry(key).or_insert_with(|| Band {
-            tree: root,
-            anchor,
-            pieces: HashSet::new(),
-            parts: make(
-                &mut commands,
-                (&mut pictures, &mut materials),
-                root,
-                (whole, scale),
-            ),
-            fresh,
-        });
-        band.fresh = fresh;
-        if band.tree != root {
-            end(&mut commands, &band.parts);
-            band.parts = make(
-                &mut commands,
-                (&mut pictures, &mut materials),
-                root,
-                (whole, scale),
-            );
-            band.tree = root;
-            band.fresh = true;
-        }
+        let band = match layers.0.entry(key) {
+            Entry::Occupied(entry) => {
+                let band = entry.into_mut();
+                band.fresh = false;
+                if band.tree != root {
+                    retree(&mut commands, &mut band.parts, root);
+                    band.tree = root;
+                }
+                band
+            }
+            Entry::Vacant(entry) => {
+                let (parts, fresh) = match spare.pop() {
+                    Some(mut parts) => {
+                        retree(&mut commands, &mut parts, root);
+                        (parts, false)
+                    }
+                    None => (
+                        make(
+                            &mut commands,
+                            (&mut pictures, &mut materials),
+                            root,
+                            (whole, scale),
+                        ),
+                        true,
+                    ),
+                };
+                entry.insert(Band {
+                    tree: root,
+                    anchor,
+                    pieces: HashSet::new(),
+                    parts,
+                    fresh,
+                })
+            }
+        };
         band.anchor = anchor;
         band.pieces = pieces.into_iter().collect();
         if !band.fresh {
@@ -555,9 +608,12 @@ fn bands(
             }
         }
     }
+    for parts in spare {
+        end(&mut commands, &parts);
+    }
     // The pieces no band draws any longer, extracted again for the window to draw.
     for &entity in hidden.0.difference(&drawn) {
-        if let Ok((_, _, _, _, _, background, ..)) = looks.get(entity) {
+        if let Ok((_, _, _, _, background, ..)) = looks.get(entity) {
             commands.entity(entity).try_insert(*background);
         }
     }
@@ -622,6 +678,7 @@ fn mirror(
     mut mirrors: Query<MirrorData, With<Mirror>>,
 ) {
     for band in layers.0.values_mut() {
+        let mut grown = false;
         let nodes = tree.all(band.tree);
         let present: HashSet<Entity> = nodes.iter().copied().collect();
         band.parts.mirrors.retain(|original, mirror| {
@@ -640,6 +697,7 @@ fn mirror(
             let piece = band.pieces.contains(&original);
             let colour = |colour: Color| if piece { colour } else { Color::NONE };
             let mirror = *band.parts.mirrors.entry(original).or_insert_with(|| {
+                grown = true;
                 commands
                     .spawn((Node::default(), Mirror, Pickable::IGNORE))
                     .id()
@@ -721,6 +779,7 @@ fn mirror(
                 commands.entity(mirror).replace_children(&wanted);
             }
         }
+        band.parts.grown = grown;
     }
 }
 
@@ -733,8 +792,17 @@ fn composites(
     mut layers: ResMut<Layers>,
     hosts: Query<HostData, Without<Composite>>,
     mut placed: Query<(&mut Node, &mut ZIndex, &mut Visibility), With<Composite>>,
+    mut cameras: Query<&mut Camera, With<Camera2d>>,
 ) {
     for (&(context, _), band) in &mut layers.0 {
+        // A band shown whose mirror took new nodes this frame keeps its last picture: its camera
+        // draws them from their second frame on (#2642).
+        if let Ok(mut camera) = cameras.get_mut(band.parts.camera) {
+            let drawing = band.fresh || !band.parts.grown;
+            if camera.is_active != drawing {
+                camera.is_active = drawing;
+            }
+        }
         let anchor = band.anchor;
         let (host, z, before) = if anchor == context {
             (anchor, ZIndex(i32::MIN), None)
@@ -850,6 +918,7 @@ impl Plugin for UiLayersPlugin {
                 (bands, mirror, composites)
                     .chain()
                     .before(CameraUpdateSystems)
+                    .before(VisibilitySystems::VisibilityPropagate)
                     .before(UiSystems::Prepare),
             )
             .add_systems(PostUpdate, centre.in_set(UiSystems::PostLayout));
@@ -930,6 +999,39 @@ mod tests {
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &turned));
         let scaled = UiGlobalTransform::from_scale(Vec2::new(2.0, 1.0));
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &scaled));
+    }
+
+    /// A node's showing is told from the tree itself, a node spawned this frame's too (#2642).
+    #[test]
+    fn a_node_shows_by_its_own_visibility_and_its_parents() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let root = world.spawn(Node::default()).id();
+        let hidden = world
+            .spawn((Node::default(), Visibility::Hidden, ChildOf(root)))
+            .id();
+        let under = world.spawn((Node::default(), ChildOf(hidden))).id();
+        let visible = world
+            .spawn((Node::default(), Visibility::Visible, ChildOf(hidden)))
+            .id();
+        let plain = world.spawn((Node::default(), ChildOf(root))).id();
+        let stacked = world
+            .run_system_once(move |tree: Tree| {
+                let (mut nodes, mut raised) = (Vec::new(), Vec::new());
+                tree.stacked((root, true), &mut nodes, &mut raised);
+                nodes
+            })
+            .unwrap();
+        assert_eq!(
+            stacked,
+            vec![
+                (root, true),
+                (hidden, false),
+                (under, false),
+                (visible, true),
+                (plain, true)
+            ]
+        );
     }
 
     /// The world's camera stays the one camera of `iso::Eye` with a band's beside it (#2639).
