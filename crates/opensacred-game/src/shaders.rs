@@ -1,8 +1,8 @@
 //! The library of the game's shaders: what the materials' shaders import (`post.wesl`, the
 //! last steps of Bevy's own materials and the frame's encoding, `order.wesl`, the models'
-//! place among the sprites, `nearest.wesl`, the models' true depths among themselves, and
-//! `soft.wesl`, the soft shadows of the sun's shadow map), loaded once so that the imports find
-//! it; and the fragment stage of the extensions of Bevy's own material (`standard.wesl`).
+//! place among the sprites, and `nearest.wesl`, the models' true depths among themselves),
+//! loaded once so that the imports find it; and the fragment stage of the extensions of Bevy's
+//! own material (`standard.wesl`).
 
 use bevy::asset::embedded_asset;
 use bevy::prelude::{App, Plugin};
@@ -17,7 +17,6 @@ impl Plugin for ShaderLibrary {
         bevy::shader::load_shader_library!(app, "post.wesl");
         bevy::shader::load_shader_library!(app, "order.wesl");
         bevy::shader::load_shader_library!(app, "nearest.wesl");
-        bevy::shader::load_shader_library!(app, "soft.wesl");
     }
 }
 

@@ -134,8 +134,6 @@ pub struct Graphics {
     /// the earthquake's sound with them, the original's `SCREEN_QUAKE` of `Settings.cfg`, on as
     /// the installation's; no control of the options window writes it (`0x81DDE0`, #1096).
     pub screen_quake: bool,
-    /// The models' shadows, the original's by default (`shadows`, #1436).
-    pub shadows: Shadows,
 }
 
 impl Default for Graphics {
@@ -144,20 +142,8 @@ impl Default for Graphics {
             detail: 2,
             fsaa_filter: true,
             screen_quake: true,
-            shadows: Shadows::Original,
         }
     }
-}
-
-/// The models' shadows (`shadows`, #1436): the original's, each model's mesh flattened onto its
-/// ground along a fixed light, or soft ones of the sun's shadow map, which fall on the ground and
-/// on the models, to compare.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub enum Shadows {
-    #[default]
-    Original,
-    Soft,
 }
 
 /// `[sound]`: the options window's sound (#2340).
@@ -595,7 +581,6 @@ mod tests {
                 detail: 0,
                 fsaa_filter: false,
                 screen_quake: false,
-                shadows: Shadows::Soft,
             },
             interface: Interface {
                 enemy_info: false,
@@ -639,7 +624,6 @@ mod tests {
                 "graphics.detail",
                 "graphics.fsaa_filter",
                 "graphics.screen_quake",
-                "graphics.shadows",
                 "interface.enemy_info",
                 "interface.warning_level",
                 "interface.map_alpha",
