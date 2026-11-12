@@ -10,6 +10,11 @@
 //! game remuxes its file into the one asked for at a microsecond a unit ([`remux`], #1227): each
 //! frame's block and its times' event at the frame's exact time, the packets copied as they are
 //! (docs/10, the command `record`; docs/05, "Looking at frames").
+//!
+//! The game's whole mix goes with them as a third track (#1230): the taps' frames (`sound_tap`) as
+//! float PCM at the device's rate, set against the frames' `Time<Real>` by when the mix's first
+//! chunk was summed, from the recording's first frame to the end of its last, which FFmpeg encodes
+//! into FLAC of 24 bits; without a sound device the recording has none, and the log says so.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -19,14 +24,22 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
+
+use crate::sound_tap::Sound;
 
 /// The Matroska stream's time scale: nanoseconds a unit of its timestamps, a microsecond.
 const TIMESTAMP_SCALE: u64 = 1_000;
 /// The tracks: the frames, then their times.
 const VIDEO: u64 = 1;
 const TEXT: u64 = 2;
+const AUDIO: u64 = 3;
+/// The sound's frames a block: some 21 ms at 48 kHz, well within a cluster's 16-bit offset.
+const SOUND_BLOCK: usize = 1024;
+/// How long the end of a recording waits for the mix to reach its last frame's end.
+const SOUND_WAIT: Duration = Duration::from_millis(500);
 /// FFV1's slices: the frame split for its threads.
 const SLICES: &str = "16";
 
@@ -77,6 +90,10 @@ const TRACK_TYPE: u32 = 0x83;
 const CODEC_ID: u32 = 0x86;
 const CODEC_PRIVATE: u32 = 0x63A2;
 const VIDEO_SETTINGS: u32 = 0xE0;
+const AUDIO_SETTINGS: u32 = 0xE1;
+const SAMPLING_FREQUENCY: u32 = 0xB5;
+const CHANNELS: u32 = 0x9F;
+const BIT_DEPTH: u32 = 0x6264;
 const PIXEL_WIDTH: u32 = 0xB0;
 const PIXEL_HEIGHT: u32 = 0xBA;
 const CLUSTER: u32 = 0x1F43_B675;
@@ -101,6 +118,7 @@ const CUE_TRACK: u32 = 0xF7;
 const CUE_CLUSTER_POSITION: u32 = 0xF1;
 /// A track's types: video and subtitles.
 const TRACK_VIDEO: u64 = 1;
+const TRACK_AUDIO: u64 = 2;
 const TRACK_SUBTITLE: u64 = 0x11;
 /// The size of an element whose end the stream does not tell: the segment's and the clusters'.
 const UNKNOWN_SIZE: [u8; 8] = [0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
@@ -154,8 +172,8 @@ fn bitmap_info(width: u32, height: u32) -> Vec<u8> {
 }
 
 /// The stream's start: the EBML header, the segment, its info and its tracks, for frames of
-/// `width` × `height` pixels.
-pub fn head(width: u32, height: u32) -> Vec<u8> {
+/// `width` × `height` pixels and, with a sample rate, the sound's stereo float PCM.
+pub fn head(width: u32, height: u32, sound: Option<u32>) -> Vec<u8> {
     let mut out = Vec::new();
     let mut header = Vec::new();
     uint(&mut header, EBML_VERSION, 1);
@@ -191,8 +209,161 @@ pub fn head(width: u32, height: u32) -> Vec<u8> {
     let mut tracks = Vec::new();
     element(&mut tracks, TRACK_ENTRY, &video);
     element(&mut tracks, TRACK_ENTRY, &times);
+    if let Some(rate) = sound {
+        let mut audio = Vec::new();
+        uint(&mut audio, TRACK_NUMBER, AUDIO);
+        uint(&mut audio, TRACK_UID, AUDIO);
+        uint(&mut audio, TRACK_TYPE, TRACK_AUDIO);
+        text(&mut audio, CODEC_ID, "A_PCM/FLOAT/IEEE");
+        let mut settings = Vec::new();
+        element(
+            &mut settings,
+            SAMPLING_FREQUENCY,
+            &f64::from(rate).to_be_bytes(),
+        );
+        uint(&mut settings, CHANNELS, 2);
+        uint(&mut settings, BIT_DEPTH, 32);
+        element(&mut audio, AUDIO_SETTINGS, &settings);
+        element(&mut tracks, TRACK_ENTRY, &audio);
+    }
     element(&mut out, TRACKS, &tracks);
     out
+}
+
+/// A cluster of the sound's `frames` at `at` microseconds from the recording's start, their
+/// samples as little-endian floats, left and right.
+fn sound_cluster(at: u64, frames: &[kira::Frame]) -> Vec<u8> {
+    let mut block = block_head(AUDIO, true);
+    for frame in frames {
+        block.extend_from_slice(&frame.left.to_le_bytes());
+        block.extend_from_slice(&frame.right.to_le_bytes());
+    }
+    let mut body = Vec::with_capacity(block.len() + 32);
+    uint(&mut body, CLUSTER_TIMESTAMP, at);
+    element(&mut body, SIMPLE_BLOCK, &block);
+    let mut out = Vec::with_capacity(body.len() + 12);
+    id(&mut out, CLUSTER);
+    out.extend_from_slice(&UNKNOWN_SIZE);
+    out.extend_from_slice(&body);
+    out
+}
+
+/// A recording's sound: the mix's frames as they come, set against the recording's times, the
+/// first sample at its first frame's.
+pub struct SoundTrack {
+    sound: Sound,
+    /// `Time<Real>`'s first update, which the frames' real times count from.
+    base: Instant,
+    /// The frames come and not written yet.
+    waiting: Vec<kira::Frame>,
+    /// Frames to leave out before the first that counts, when the mix began before the
+    /// recording's first frame.
+    skip: u64,
+    /// Whether the first frames are set against the recording's start yet.
+    placed: bool,
+    /// The frames written, from the recording's start.
+    written: u64,
+    /// When the mix's first frame was summed, once it was: [`Sound::started`].
+    started: fn() -> Option<Instant>,
+}
+
+impl SoundTrack {
+    /// The sound of `sound`, whose times count from `base`, `Time<Real>`'s first update.
+    pub fn new(sound: Sound, base: Instant) -> Self {
+        Self {
+            sound,
+            base,
+            waiting: Vec::new(),
+            skip: 0,
+            placed: false,
+            written: 0,
+            started: || Sound::started().0,
+        }
+    }
+
+    /// The frames of `seconds`, rounded.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to 0 and rounded: a recording's frames, far within u64"
+    )]
+    fn frames_of(&self, seconds: f64) -> u64 {
+        (seconds.max(0.0) * f64::from(self.sound.sample_rate)).round() as u64
+    }
+
+    /// The microseconds of `frames` from the recording's start.
+    fn micros_of(&self, frames: u64) -> u64 {
+        let rate = u128::from(self.sound.sample_rate.max(1));
+        u64::try_from((u128::from(frames) * 1_000_000 + rate / 2) / rate).unwrap_or(u64::MAX)
+    }
+
+    /// Takes the mix's new frames; the first, once the mix tells when it began, set against the
+    /// recording's first frame at `first` seconds of `Time<Real>`: silence before them if they
+    /// began after it, the frames before it left out if before.
+    fn gather(&mut self, first: f64) {
+        let mut came = Vec::new();
+        self.sound.take(&mut came);
+        if !self.placed
+            && let Some(started) = (self.started)()
+        {
+            let offset = started.saturating_duration_since(self.base).as_secs_f64() - first;
+            if offset >= 0.0 {
+                let silence = usize::try_from(self.frames_of(offset)).unwrap_or(0);
+                self.waiting
+                    .splice(0..0, std::iter::repeat_n(kira::Frame::ZERO, silence));
+            } else {
+                self.skip = self.frames_of(-offset);
+            }
+            self.placed = true;
+        }
+        let skipped = usize::try_from(self.skip)
+            .unwrap_or(usize::MAX)
+            .min(came.len());
+        self.skip -= u64::try_from(skipped).unwrap_or(0);
+        self.waiting.extend_from_slice(&came[skipped..]);
+    }
+
+    /// The clusters of the whole blocks that begin before `until` microseconds, or of every frame
+    /// waiting with `all`.
+    fn blocks(&mut self, until: u64, all: bool) -> Vec<u8> {
+        let mut out = Vec::new();
+        if !self.placed {
+            return out;
+        }
+        loop {
+            let enough = self.waiting.len() >= SOUND_BLOCK || (all && !self.waiting.is_empty());
+            let at = self.micros_of(self.written);
+            if !enough || (!all && at >= until) {
+                return out;
+            }
+            let length = self.waiting.len().min(SOUND_BLOCK);
+            out.extend_from_slice(&sound_cluster(at, &self.waiting[..length]));
+            self.waiting.drain(..length);
+            self.written += u64::try_from(length).unwrap_or(0);
+        }
+    }
+
+    /// The rest, up to `end` microseconds, the last frame's end: the mix waited for as long as
+    /// [`SOUND_WAIT`] to come so far, silence for what it did not, the frames past it left out.
+    fn rest(&mut self, end: u64, first: f64) -> Vec<u8> {
+        let rate = u128::from(self.sound.sample_rate);
+        let total = u64::try_from(u128::from(end) * rate / 1_000_000).unwrap_or(u64::MAX);
+        let waited = Instant::now();
+        loop {
+            self.gather(first);
+            let have = self.written + u64::try_from(self.waiting.len()).unwrap_or(0);
+            if have >= total || waited.elapsed() >= SOUND_WAIT {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if !self.placed {
+            self.placed = true;
+        }
+        let keep = usize::try_from(total.saturating_sub(self.written)).unwrap_or(0);
+        self.waiting.resize(keep, kira::Frame::ZERO);
+        self.blocks(end, true)
+    }
 }
 
 /// A block's head: its track, its time from its cluster's (0), and its flags.
@@ -252,7 +423,7 @@ fn ffmpeg() -> PathBuf {
 }
 
 /// FFmpeg's command for `out`, tagged with `tags`, reading the stream from its standard input.
-fn command(out: &Path, tags: &[(String, String)]) -> Command {
+fn command(out: &Path, tags: &[(String, String)], sound: bool) -> Command {
     let mut command = Command::new(ffmpeg());
     #[cfg(windows)]
     {
@@ -284,6 +455,11 @@ fn command(out: &Path, tags: &[(String, String)]) -> Command {
     // The encoder at the stream's own time base rather than one of a frame rate guessed from the
     // first frames, which rounds uneven times to its frames (#2616).
     command.args(["-enc_time_base:v", "demux"]);
+    if sound {
+        // FLAC is whole numbers: 24 bits of the float samples, a peak over 1 clipped as the
+        // device clips it.
+        command.args(["-c:a", "flac", "-sample_fmt", "s32"]);
+    }
     for (key, value) in tags {
         command.arg("-metadata").arg(format!("{key}={value}"));
     }
@@ -313,13 +489,18 @@ pub struct Encoder {
 }
 
 impl Encoder {
-    /// A recording into `path`, tagged with `tags`; FFmpeg starts with its first frame.
-    pub fn new(path: PathBuf, tags: Vec<(String, String)>) -> Self {
+    /// A recording into `path`, tagged with `tags`, with `sound`, the mix's, if there is a sound
+    /// device; FFmpeg starts with its first frame.
+    pub fn new(path: PathBuf, tags: Vec<(String, String)>, sound: Option<SoundTrack>) -> Self {
         let (frames, received) = channel();
         let shared = Arc::new(Shared::default());
         let thread_shared = Arc::clone(&shared);
         std::thread::spawn(move || {
-            let result = write(&path, &tags, &received);
+            let mut sound = sound;
+            let result = write(&path, &tags, &received, &mut sound);
+            if sound.is_some() {
+                Sound::disarm();
+            }
             if let Err(error) = result
                 && let Ok(mut slot) = thread_shared.error.lock()
             {
@@ -364,16 +545,22 @@ impl Encoder {
 
 /// The thread's work: the frames from `received` in their order into FFmpeg, until the channel
 /// closes; then FFmpeg's end waited for.
-fn write(out: &Path, tags: &[(String, String)], received: &Receiver<Frame>) -> Result<(), String> {
+fn write(
+    out: &Path,
+    tags: &[(String, String)],
+    received: &Receiver<Frame>,
+    sound: &mut Option<SoundTrack>,
+) -> Result<(), String> {
     // FFmpeg's file, at 1 ms a unit, beside the one asked for, which the remux makes.
     let encoded = encoded_path(out);
     let mut timeline = Vec::new();
-    let result = encode(&encoded, tags, received, &mut timeline);
+    let result = encode(&encoded, tags, received, &mut timeline, sound);
     if let Err(error) = result {
         std::fs::remove_file(&encoded).ok();
         return Err(error);
     }
-    match remux(&encoded, out, &timeline) {
+    let rate = sound.as_ref().map(|sound| sound.sound.sample_rate);
+    match remux(&encoded, out, &timeline, rate) {
         Ok(()) => {
             std::fs::remove_file(&encoded).ok();
             Ok(())
@@ -404,6 +591,7 @@ fn encode(
     tags: &[(String, String)],
     received: &Receiver<Frame>,
     timeline: &mut Vec<(u64, u64)>,
+    sound: &mut Option<SoundTrack>,
 ) -> Result<(), String> {
     let mut waiting: BTreeMap<u32, Frame> = BTreeMap::new();
     let mut next = 0;
@@ -420,7 +608,13 @@ fn encode(
                 && failed.is_none()
             {
                 let lasts = frame.times.real - previous.times.real;
-                match put(out, tags, &mut start, &mut pipe, previous, Some(lasts)) {
+                match put(
+                    out,
+                    tags,
+                    (&mut start, &mut pipe, sound),
+                    previous,
+                    Some(lasts),
+                ) {
                     Ok(time) => timeline.push(time),
                     Err(error) => failed = Some(error),
                 }
@@ -431,10 +625,18 @@ fn encode(
     if let Some(previous) = pending.take()
         && failed.is_none()
     {
-        match put(out, tags, &mut start, &mut pipe, previous, None) {
+        match put(out, tags, (&mut start, &mut pipe, sound), previous, None) {
             Ok(time) => timeline.push(time),
             Err(error) => failed = Some(error),
         }
+    }
+    // The sound to the last frame's end.
+    if let (Some(track), Some((_, stdin)), Some(&(at, lasts)), Some(first)) =
+        (sound.as_mut(), pipe.as_mut(), timeline.last(), start)
+        && failed.is_none()
+        && let Err(e) = stdin.write_all(&track.rest(at + lasts, first))
+    {
+        failed = Some(format!("writing to FFmpeg: {e}"));
     }
     let Some((mut child, stdin)) = pipe else {
         return failed.map_or(Ok(()), Err);
@@ -462,13 +664,17 @@ fn encode(
 fn put(
     out: &Path,
     tags: &[(String, String)],
-    start: &mut Option<f64>,
-    pipe: &mut Option<(Child, ChildStdin)>,
+    (start, pipe, sound): (
+        &mut Option<f64>,
+        &mut Option<(Child, ChildStdin)>,
+        &mut Option<SoundTrack>,
+    ),
     frame: Frame,
     lasts: Option<f64>,
 ) -> Result<(u64, u64), String> {
     if pipe.is_none() {
-        let mut child = command(out, tags).spawn().map_err(|e| {
+        let rate = sound.as_ref().map(|sound| sound.sound.sample_rate);
+        let mut child = command(out, tags, rate.is_some()).spawn().map_err(|e| {
             format!(
                 "starting {} for the recording into {}: {e} (FFmpeg is found beside the game, else \
                  by FFMPEG, else on PATH)",
@@ -478,7 +684,7 @@ fn put(
         })?;
         let mut stdin = child.stdin.take().ok_or("no FFmpeg's standard input")?;
         stdin
-            .write_all(&head(frame.width, frame.height))
+            .write_all(&head(frame.width, frame.height, rate))
             .map_err(|e| format!("writing to FFmpeg: {e}"))?;
         *pipe = Some((child, stdin));
     }
@@ -486,6 +692,13 @@ fn put(
     let at = micros(frame.times.real - first);
     let lasts = micros(lasts.unwrap_or(frame.times.real_delta));
     if let Some((_, stdin)) = pipe.as_mut() {
+        // The sound's blocks that begin before the frame, then the frame.
+        if let Some(sound) = sound.as_mut() {
+            sound.gather(first);
+            stdin
+                .write_all(&sound.blocks(at, false))
+                .map_err(|e| format!("writing to FFmpeg: {e}"))?;
+        }
         stdin
             .write_all(&cluster(at, lasts, &frame))
             .map_err(|e| format!("writing to FFmpeg: {e}"))?;
@@ -594,10 +807,43 @@ fn retimed(block: &[u8], offset: i16) -> io::Result<Vec<u8>> {
 }
 
 /// A cluster of the remux: its time, and its blocks, each a `SimpleBlock` or a `BlockGroup`
-/// element whole, at their microseconds.
+/// element whole, at their microseconds; whether it holds a frame, which the cues point at.
 struct Cluster {
     at: u64,
     elements: Vec<u8>,
+    video: bool,
+}
+
+/// The number in a FLAC frame's header (RFC 9639 §9.1), its first sample's for a stream of
+/// variable blocks, its frame's for one of a fixed block, and the frame's samples: `(number,
+/// variable, samples)`.
+fn flac_frame(packet: &[u8]) -> Option<(u64, bool, u64)> {
+    let (&sync, rest) = packet.split_first()?;
+    let (&code, rest) = rest.split_first()?;
+    if sync != 0xFF || code & 0xFE != 0xF8 {
+        return None;
+    }
+    let variable = code & 1 == 1;
+    let (&sizes, rest) = rest.split_first()?;
+    let (_, rest) = rest.split_first()?;
+    // The number, coded as UTF-8 codes its characters, to 36 bits.
+    let (&lead, mut rest) = rest.split_first()?;
+    let more = usize::try_from(lead.leading_ones()).ok()?.saturating_sub(1);
+    let mut number = u64::from(lead & (0x7F >> more.min(7)));
+    for _ in 0..more {
+        let (&byte, after) = rest.split_first()?;
+        number = (number << 6) | u64::from(byte & 0x3F);
+        rest = after;
+    }
+    let samples = match sizes >> 4 {
+        1 => 192,
+        n @ 2..=5 => 576 << (n - 2),
+        6 => u64::from(*rest.first()?) + 1,
+        7 => u64::from(u16::from_be_bytes([*rest.first()?, *rest.get(1)?])) + 1,
+        n @ 8..=15 => 256 << (n - 8),
+        _ => return None,
+    };
+    Some((number, variable, samples))
 }
 
 /// Makes again the Matroska file `encoded`, FFmpeg's at a millisecond a unit, as `out` at a
@@ -606,7 +852,12 @@ struct Cluster {
 /// events. The info's scale and duration, the clusters (each block within a signed 16-bit offset
 /// of its cluster's time), the cues and the seek head are written anew, the packets copied as
 /// they are; the tracks and the tags are kept, the CRCs and the voids left out.
-pub fn remux(encoded: &Path, out: &Path, timeline: &[(u64, u64)]) -> io::Result<()> {
+pub fn remux(
+    encoded: &Path,
+    out: &Path,
+    timeline: &[(u64, u64)],
+    sound: Option<u32>,
+) -> io::Result<()> {
     let mut input = BufReader::with_capacity(1 << 20, File::open(encoded)?);
     let mut output = BufWriter::with_capacity(1 << 20, File::create(out)?);
     // The EBML header, as it is.
@@ -637,6 +888,8 @@ pub fn remux(encoded: &Path, out: &Path, timeline: &[(u64, u64)]) -> io::Result<
     let mut current: Option<Cluster> = None;
     // FFmpeg's scale, nanoseconds a unit of its timestamps: 1 ms unless its info says otherwise.
     let mut scale = 1_000_000u64;
+    // The sound's FLAC frames' fixed samples, the first's.
+    let mut fixed: Option<u64> = None;
     let video = |tracks: &BTreeMap<u64, u64>| {
         tracks
             .iter()
@@ -722,12 +975,28 @@ pub fn remux(encoded: &Path, out: &Path, timeline: &[(u64, u64)]) -> io::Result<
                             .ok_or_else(|| invalid("a block group without its block"))?,
                         _ => continue,
                     };
-                    let (track, _) = block_track(block)?;
-                    let index = counts.entry(track).or_insert(0);
-                    let &(at, lasts) = timeline
-                        .get(*index)
-                        .ok_or_else(|| invalid("more blocks than frames"))?;
-                    *index += 1;
+                    let (track, length) = block_track(block)?;
+                    let (at, lasts) = if tracks.get(&track) == Some(&TRACK_AUDIO) {
+                        // A FLAC frame at its first sample's time.
+                        let rate = u128::from(sound.ok_or_else(|| invalid("a sound unasked"))?);
+                        let payload = block.get(length + 3..).unwrap_or_default();
+                        let (number, variable, samples) =
+                            flac_frame(payload).ok_or_else(|| invalid("a FLAC frame"))?;
+                        let first = if variable {
+                            number
+                        } else {
+                            number * *fixed.get_or_insert(samples)
+                        };
+                        let at = (u128::from(first) * 1_000_000 + rate / 2) / rate.max(1);
+                        (u64::try_from(at).unwrap_or(u64::MAX), 0)
+                    } else {
+                        let index = counts.entry(track).or_insert(0);
+                        let &time = timeline
+                            .get(*index)
+                            .ok_or_else(|| invalid("more blocks than frames"))?;
+                        *index += 1;
+                        time
+                    };
                     // FFmpeg's time of the block, rounded: within a unit of the frame's own.
                     let (_, length) = block_track(block)?;
                     let offset = block
@@ -750,6 +1019,7 @@ pub fn remux(encoded: &Path, out: &Path, timeline: &[(u64, u64)]) -> io::Result<
                         current = Some(Cluster {
                             at,
                             elements: Vec::new(),
+                            video: false,
                         });
                     }
                     let Some(cluster) = current.as_mut() else {
@@ -757,6 +1027,7 @@ pub fn remux(encoded: &Path, out: &Path, timeline: &[(u64, u64)]) -> io::Result<
                     };
                     let offset = i16::try_from(i128::from(at) - i128::from(cluster.at))
                         .map_err(|_| invalid("a block far from its cluster"))?;
+                    cluster.video |= Some(track) == video(&tracks);
                     match child {
                         SIMPLE_BLOCK => {
                             element(
@@ -835,7 +1106,7 @@ fn write_cluster(
     let mut body = Vec::with_capacity(cluster.elements.len() + 16);
     uint(&mut body, CLUSTER_TIMESTAMP, cluster.at);
     body.extend_from_slice(&cluster.elements);
-    if tracks.values().any(|&kind| kind == TRACK_VIDEO) {
+    if cluster.video && tracks.values().any(|&kind| kind == TRACK_VIDEO) {
         cues.push((cluster.at, position));
     }
     element_to(output, CLUSTER, &body)
@@ -976,7 +1247,7 @@ mod tests {
         let event = |n: usize| format!("{{\"n\":{n}}}").into_bytes();
         std::fs::write(&encoded, ffmpeg_like(&exact, pixels, event)).unwrap();
         let timeline: Vec<(u64, u64)> = exact.iter().copied().zip(lasts).collect();
-        remux(&encoded, &out, &timeline).unwrap();
+        remux(&encoded, &out, &timeline, None).unwrap();
         let file = std::fs::read(&out).unwrap();
         let top = children(&file).unwrap();
         assert_eq!(
@@ -1051,8 +1322,66 @@ mod tests {
         std::fs::write(&encoded, file).unwrap();
         // A frame 5 ms off the one FFmpeg wrote: the blocks are not the frames'.
         let timeline = [(0, 16_000), (21_000, 12_000), (33_000, 16_000)];
-        assert!(remux(&encoded, &out, &timeline).is_err());
+        assert!(remux(&encoded, &out, &timeline, None).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_flac_frames_header_tells_its_number_and_samples() {
+        // A fixed block of 4,608 samples, frame 1.
+        assert_eq!(
+            flac_frame(&[0xFF, 0xF8, 0x59, 0x08, 0x01, 0]),
+            Some((1, false, 4608))
+        );
+        // A variable one, its first sample 128 in two bytes, its 300 samples after the number.
+        let header = [0xFF, 0xF9, 0x79, 0x08, 0xC2, 0x80, 0x01, 0x2B];
+        assert_eq!(flac_frame(&header), Some((128, true, 300)));
+        assert_eq!(flac_frame(&[0x12, 0x34, 0, 0, 0]), None);
+    }
+
+    /// `Time<Real>`'s start for the tests of the sound's placing.
+    static BASE: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+    /// A track of the sound `frames` at 1,000 frames a second whose mix began `began` seconds after
+    /// [`BASE`].
+    fn track_of(frames: &[kira::Frame], began: fn() -> Option<Instant>) -> SoundTrack {
+        let (mut producer, consumer) = rtrb::RingBuffer::new(frames.len().max(1));
+        for &frame in frames {
+            producer.push(frame).unwrap();
+        }
+        let mut track = SoundTrack::new(Sound::of(consumer, 1000), *BASE.get_or_init(Instant::now));
+        track.started = began;
+        track
+    }
+
+    #[test]
+    fn the_sound_starts_with_the_recordings_first_frame() {
+        let frames: Vec<kira::Frame> = (1..=50u16)
+            .map(|n| kira::Frame::from_mono(f32::from(n)))
+            .collect();
+        // The mix began 10 ms after the first frame, at 10 s: 10 frames of silence before it.
+        let mut later = track_of(&frames, || {
+            Some(*BASE.get_or_init(Instant::now) + Duration::from_millis(10_010))
+        });
+        later.gather(10.0);
+        assert_eq!(later.waiting.len(), 60);
+        assert!(
+            later.waiting[..10]
+                .iter()
+                .all(|&frame| frame == kira::Frame::ZERO)
+        );
+        assert_eq!(later.waiting[10].left, 1.0);
+        // It began 5 ms before: its first 5 frames left out.
+        let mut earlier = track_of(&frames, || {
+            Some(*BASE.get_or_init(Instant::now) + Duration::from_millis(9_995))
+        });
+        earlier.gather(10.0);
+        assert_eq!(earlier.waiting.len(), 45);
+        assert_eq!(earlier.waiting[0].left, 6.0);
+        // To the last frame's end, 40 ms: the rest left out, each block at its first frame's time.
+        let blocks = earlier.rest(40_000, 10.0);
+        assert_eq!(earlier.written, 40);
+        assert_eq!(&blocks[..4], CLUSTER.to_be_bytes());
     }
 
     #[test]
@@ -1062,8 +1391,21 @@ mod tests {
         assert!(!is_matroska(Path::new("frames")));
     }
 
+    /// `ffprobe`'s lines for `path` with `args` and the entries `entries`.
+    fn probe(path: &Path, args: &[&str], entries: &str) -> String {
+        let probe = ffmpeg().with_file_name(format!("ffprobe{}", std::env::consts::EXE_SUFFIX));
+        let out = Command::new(probe)
+            .args(["-v", "error"])
+            .args(args)
+            .arg(entries)
+            .arg(path)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n")
+    }
+
     /// Frames of known pixels and times through the writer and FFmpeg, and back: the pixels, the
-    /// count and the text track's times (#1226).
+    /// count and the text track's times (#1226), and a sound with them (#1230).
     #[test]
     #[ignore = "needs FFmpeg"]
     fn frames_come_back_from_ffmpeg_as_they_went_in() {
@@ -1082,7 +1424,27 @@ mod tests {
         };
         // Uneven times to the microsecond, as a game's frames are.
         let times = [0.0, 0.016_312, 0.050_407, 0.051_123, 0.120_996];
-        let mut encoder = Encoder::new(path.clone(), vec![("class".into(), "mage".into())]);
+        // A sound at 48 kHz, its mix begun with the first frame, at 10 s of `Time<Real>`.
+        let rate = 48_000u32;
+        let sound: Vec<kira::Frame> = (0..rate / 5)
+            .map(|n| {
+                let t = f64::from(n) / f64::from(rate);
+                #[expect(clippy::cast_possible_truncation, reason = "a sample in f32")]
+                let v = (t * 440.0 * std::f64::consts::TAU).sin() as f32 * 0.5;
+                kira::Frame { left: v, right: -v }
+            })
+            .collect();
+        let (mut producer, consumer) = rtrb::RingBuffer::new(sound.len());
+        for &frame in &sound {
+            producer.push(frame).unwrap();
+        }
+        let mut track = SoundTrack::new(Sound::of(consumer, rate), *BASE.get_or_init(Instant::now));
+        track.started = || Some(*BASE.get_or_init(Instant::now) + Duration::from_secs(10));
+        let mut encoder = Encoder::new(
+            path.clone(),
+            vec![("class".into(), "mage".into())],
+            Some(track),
+        );
         // Out of their order, as captures may come.
         for n in [1u32, 0, 2, 4, 3] {
             let at = times[usize::try_from(n).unwrap()];
@@ -1168,6 +1530,50 @@ mod tests {
             .collect();
         assert_eq!(read, times);
         assert!(!encoded_path(&path).exists());
+        // The sound in FLAC at its rate, from the first frame to the end of the last (its
+        // 0.016 s), its samples as they went in to 24 bits, its packets at their first samples.
+        let stream = probe(
+            &path,
+            &["-select_streams", "a", "-show_entries"],
+            "stream=codec_name,sample_rate,channels",
+        );
+        assert!(stream.contains("codec_name=flac"), "{stream}");
+        assert!(stream.contains("sample_rate=48000"), "{stream}");
+        let decoded = Command::new(ffmpeg())
+            .args(["-v", "error", "-i"])
+            .arg(&path)
+            .args(["-map", "0:a", "-f", "f32le", "-"])
+            .output()
+            .unwrap();
+        let samples: Vec<f32> = decoded
+            .stdout
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&bytes| f32::from_le_bytes(bytes))
+            .collect();
+        let total = usize::try_from((120_996 + 16_000) * u64::from(rate) / 1_000_000).unwrap();
+        assert_eq!(samples.len(), 2 * total);
+        for (n, pair) in samples.as_chunks::<2>().0.iter().enumerate() {
+            assert!((pair[0] - sound[n].left).abs() < 1e-6, "sample {n}");
+            assert!((pair[1] - sound[n].right).abs() < 1e-6, "sample {n}");
+        }
+        let packets = probe(
+            &path,
+            &["-select_streams", "a", "-show_entries"],
+            "packet=pts_time",
+        );
+        let first: Vec<&str> = packets
+            .lines()
+            .filter(|line| line.starts_with("pts_time="))
+            .take(2)
+            .collect();
+        // FFmpeg's FLAC frames as long as the blocks that came in, 1,024 samples.
+        assert_eq!(
+            first,
+            ["pts_time=0.000000", "pts_time=0.021333"],
+            "{packets}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

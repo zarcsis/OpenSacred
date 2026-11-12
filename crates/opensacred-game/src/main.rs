@@ -228,6 +228,7 @@ mod soul_sparks;
 mod soulcatchers;
 mod souls;
 mod sound;
+mod sound_tap;
 mod sparkles;
 mod speed_sights;
 mod spells;

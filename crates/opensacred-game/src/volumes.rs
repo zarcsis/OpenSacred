@@ -107,10 +107,12 @@ enum Lane {
 #[derive(Resource, Default)]
 struct Controls(Vec<(Lane, VolumeControlHandle, Option<f32>)>);
 
-/// A track with a volume control for the channel `T`, its control kept in `controls`.
+/// A track with a volume control for the channel `T`, its control kept in `controls`, and the
+/// recording's tap after it, which takes the channel's sound at its level (`sound_tap`, #1230).
 fn track<T: Resource>(app: &mut App, controls: &mut Controls, lane: Lane) {
     let mut track = AudioTrack::new();
     let control = track.add_effect(VolumeControlBuilder::new(Decibels::IDENTITY));
+    track.add_effect(crate::sound_tap::TapBuilder);
     app.add_audio_channel_with_track::<T>(track);
     controls.0.push((lane, control, None));
 }

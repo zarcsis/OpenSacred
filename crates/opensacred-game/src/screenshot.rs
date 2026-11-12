@@ -17,7 +17,7 @@ use opensacred_data::world::SIDE;
 
 use crate::frame::Playing;
 use crate::hero::{Body, Ready};
-use crate::mkv::{self, Encoder, Frame, Times};
+use crate::mkv::{self, Encoder, Frame, SoundTrack, Times};
 use crate::sectors::Streamer;
 use crate::{game, iso};
 
@@ -160,6 +160,10 @@ fn frame_number(rendered: u32, settle: u32) -> Option<u32> {
     rendered.checked_sub(settle.max(1))
 }
 
+/// Seconds of the mix that may wait for a recording's thread, which takes it as it writes each
+/// frame.
+const SOUND_ROOM: f64 = 10.0;
+
 /// The clocks whose times go with a frame recorded into Matroska.
 type Clocks<'w> = (
     Res<'w, Time<Real>>,
@@ -299,7 +303,18 @@ pub fn record(
         let hero = bodies.iter().next().map(|body| body.translation);
         let class = request.and_then(|request| request.0.class);
         let tags = tags(class, hero, window, recording.settle);
-        recording.encoder = Some(Encoder::new(recording.dir.clone(), tags));
+        // The game's whole mix with them, from the chunk after this frame's (#1230).
+        let sound = crate::sound_tap::Sound::arm(SOUND_ROOM).map(|sound| {
+            // Where `Time<Real>`'s elapsed time counts from: its first update, not its start.
+            SoundTrack::new(sound, real.first_update().unwrap_or_else(|| real.startup()))
+        });
+        if sound.is_none() {
+            info!(
+                "the recording into {} has no sound: no sound device plays the game's",
+                recording.dir.display()
+            );
+        }
+        recording.encoder = Some(Encoder::new(recording.dir.clone(), tags, sound));
     }
     let Some(frames) = recording.encoder.as_ref().and_then(Encoder::sender) else {
         return;
