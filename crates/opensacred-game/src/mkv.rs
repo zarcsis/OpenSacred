@@ -264,6 +264,9 @@ fn command(out: &Path, tags: &[(String, String)]) -> Command {
         "-fps_mode",
         "passthrough",
     ]);
+    // The encoder at the stream's own time base rather than one of a frame rate guessed from the
+    // first frames, which rounds uneven times to its frames (#2616).
+    command.args(["-enc_time_base:v", "demux"]);
     for (key, value) in tags {
         command.arg("-metadata").arg(format!("{key}={value}"));
     }
@@ -576,6 +579,27 @@ mod tests {
             .unwrap();
         // Matroska's tags' names in capitals, as FFmpeg writes them.
         assert!(String::from_utf8_lossy(&tags.stdout).contains("CLASS=mage"));
+        // The frames' packets at their own times, to FFmpeg's millisecond (#2616).
+        let packets = Command::new(
+            ffmpeg().with_file_name(format!("ffprobe{}", std::env::consts::EXE_SUFFIX)),
+        )
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v",
+            "-show_entries",
+            "packet=pts_time",
+        ])
+        .args(["-of", "csv=p=0"])
+        .arg(&path)
+        .output()
+        .unwrap();
+        let read: Vec<f64> = String::from_utf8_lossy(&packets.stdout)
+            .lines()
+            .map(|line| line.trim().parse().unwrap())
+            .collect();
+        assert_eq!(read, times);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
