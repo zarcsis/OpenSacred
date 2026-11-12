@@ -163,13 +163,11 @@ struct Chosen(usize);
 #[derive(Resource, Default)]
 struct Shown(f32);
 
-/// The menus' images, relative to the asset directory, if the converted textures have them.
+/// The menus' images, relative to the asset directory, if the converted assets have them.
 #[derive(Resource, Default)]
 pub struct Images {
-    /// The main menu's picture, which the converter assembles from its tiles (#1824), else its
-    /// 12 tiles, four to a row from the top left, as older assets have them.
-    picture: Option<String>,
-    main: Vec<Option<String>>,
+    /// The main menu's picture, which the converter assembles from its tiles (#1824).
+    background: Background,
     /// The main menu's water: its bed, the portal reflected in it, and the first game's portal
     /// that the menu's first showing reflects (docs/re/menus.md, "The water").
     bed: Option<String>,
@@ -178,19 +176,17 @@ pub struct Images {
 }
 
 impl Images {
-    /// Finds the main menu's tiles and water among the converted textures.
+    /// Finds the main menu's picture and water among the converted assets.
     pub fn find(assets: &Path) -> Self {
-        let tiles: Vec<String> = (1..=TILES).map(|n| format!("gui_uw_option{n}")).collect();
-        let mut names: Vec<&str> = tiles.iter().map(String::as_str).collect();
-        names.extend(["ui_uw_main_center", "ui_uw_main_ref", "ui_main_ref"]);
-        let mut found = hud::find_textures(assets, &names);
+        let mut found = hud::find_textures(
+            assets,
+            &["ui_uw_main_center", "ui_uw_main_ref", "ui_main_ref"],
+        );
         let first = found.pop().flatten();
         let reflection = found.pop().flatten();
         let bed = found.pop().flatten();
-        let picture = PICTURE;
         Self {
-            picture: crate::files::exists(assets.join(picture)).then(|| picture.into()),
-            main: found,
+            background: Background::find(assets, PICTURE),
             bed,
             reflection,
             first,
@@ -252,9 +248,6 @@ impl Words {
     }
 }
 
-/// The tiles of the main menu's picture, and their side.
-const TILES: usize = 12;
-const TILE: f32 = 256.0;
 /// The original's screen, which the menus' pictures fill.
 pub const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
 
@@ -371,10 +364,7 @@ fn main_screen(
             })
             .with_children(|picture| {
                 self::water(picture, water);
-                match &images.picture {
-                    Some(file) => whole(picture, file, &assets),
-                    None => tiles(picture, &images.main, &assets),
-                }
+                images.background.spawn(picture, &assets, ());
                 for (place, &(entry, row)) in items.iter().enumerate() {
                     picture
                         .spawn(Node {
@@ -439,106 +429,47 @@ fn main_screen(
         });
 }
 
-/// A picture of 12 tiles, four to a row from the top left.
-/// The main menu's picture as the converter assembles it from the 12 tiles (`opensacred-convert
+/// The main menu's picture as the converter assembles it from its 12 tiles (`opensacred-convert
 /// ui`, #1824).
 const PICTURE: &str = "ui/screens/mainmenu.ktx2";
 
-/// A menu's background: the converter's one picture of it where the assets hold it, filtered as
-/// a whole (#1824, #2634), else its twelve tiles, four to a row from the top left (assets
-/// converted before it), whose joins a window between the original's sizes can leave seamed.
+/// A menu's background: the one picture of it that the converter assembles from its twelve tiles
+/// of `texture.pak`, filtered as a whole (#1824, #2634); the tiles themselves are not among the
+/// game's assets (#2646).
 #[derive(Clone, Debug, Default)]
 pub struct Background {
     picture: Option<String>,
-    tiles: Vec<Option<String>>,
 }
 
 impl Background {
-    /// Finds the picture `picture`, a path under `assets`, and the tiles `tiles`, the textures'
-    /// names, among the converted assets.
-    pub fn find(assets: &std::path::Path, picture: &str, tiles: &[String]) -> Self {
-        let names: Vec<&str> = tiles.iter().map(String::as_str).collect();
+    /// Finds the picture `picture`, a path under `assets`, among the converted assets.
+    pub fn find(assets: &std::path::Path, picture: &str) -> Self {
         Self {
             picture: crate::files::exists(assets.join(picture)).then(|| picture.to_owned()),
-            tiles: hud::find_textures(assets, &names),
         }
     }
 
-    /// Spawns it into `parent` over the original's screen, each of its nodes with `extra`.
+    /// Spawns it into `parent` over the whole of the original's screen, with `extra`.
     pub fn spawn(
         &self,
         parent: &mut ChildSpawnerCommands,
         assets: &AssetServer,
-        extra: impl Bundle + Clone,
+        extra: impl Bundle,
     ) {
-        match &self.picture {
-            Some(file) => {
-                parent.spawn((
-                    ImageNode::new(hud::image(assets, file.clone())),
-                    at_tile(0, 0, SCREEN),
-                    extra,
-                ));
-            }
-            None => {
-                let places = (0..3u8).flat_map(|row| (0..4u8).map(move |column| (column, row)));
-                for (tile, (column, row)) in self.tiles.iter().zip(places) {
-                    let Some(tile) = tile else {
-                        continue;
-                    };
-                    parent.spawn((
-                        ImageNode::new(hud::image(assets, tile.clone())),
-                        at_tile(column, row, Vec2::splat(TILE)),
-                        extra.clone(),
-                    ));
-                }
-            }
-        }
-    }
-}
-
-/// The node of the tile at `(column, row)` of the picture, of `size`.
-fn at_tile(column: u8, row: u8, size: Vec2) -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        left: Val::Px(TILE * f32::from(column)),
-        top: Val::Px(TILE * f32::from(row)),
-        width: Val::Px(size.x),
-        height: Val::Px(size.y),
-        ..default()
-    }
-}
-
-/// A screen's picture `file` over the whole of the original's screen.
-fn whole(picture: &mut ChildSpawnerCommands, file: &str, assets: &AssetServer) {
-    picture.spawn((
-        ImageNode::new(hud::image(assets, file.to_owned())),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            top: Val::Px(0.0),
-            width: Val::Px(SCREEN.x),
-            height: Val::Px(SCREEN.y),
-            ..default()
-        },
-    ));
-}
-
-pub fn tiles(picture: &mut ChildSpawnerCommands, tiles: &[Option<String>], assets: &AssetServer) {
-    let places = (0..3u8).flat_map(|row| (0..4u8).map(move |column| (column, row)));
-    for (tile, (column, row)) in tiles.iter().zip(places) {
-        let Some(tile) = tile else {
-            continue;
+        let Some(file) = &self.picture else {
+            return;
         };
-        picture.spawn((
-            ImageNode::new(hud::image(assets, tile.clone())),
+        parent.spawn((
+            ImageNode::new(hud::image(assets, file.clone())),
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(TILE * f32::from(column)),
-                top: Val::Px(TILE * f32::from(row)),
-                width: Val::Px(TILE),
-                height: Val::Px(TILE),
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(SCREEN.x),
+                height: Val::Px(SCREEN.y),
                 ..default()
             },
+            extra,
         ));
     }
 }
@@ -549,8 +480,8 @@ pub fn picture_height(window: Option<f32>) -> f32 {
     SCREEN.y * window.map_or(1.0, |height| height / SCREEN.y).max(1.0)
 }
 
-/// A menu's water (`ripples`), its texture over the whole picture under its tiles, which leave
-/// the main menu's clear below the row 652.
+/// A menu's water (`ripples`), its texture over the whole picture under its background, which
+/// leaves the main menu's clear below the row 652.
 pub fn water(picture: &mut ChildSpawnerCommands, texture: Handle<Image>) {
     let mut image = ImageNode::new(texture);
     image.image_mode = NodeImageMode::Stretch;

@@ -112,6 +112,29 @@ fn tile_number(stem: &str, prefix: &str) -> Option<usize> {
         .filter(|n| (1..=MENU_COUNT).contains(n))
 }
 
+/// Whether the master at `path`, relative to the masters' directory, is a tile of one of the
+/// menus' pictures, which `ui` assembles from it and `build` therefore leaves out of the game's
+/// assets (#2646): a texture of [`MENU_TILES`] (`textures/texture/<number>-<name>.png`) named as
+/// one of [`MENU_PICTURES`]' tiles.
+pub fn is_menu_tile(path: &str) -> bool {
+    let Some(&(_, dir)) = crate::textures::PAKS
+        .iter()
+        .find(|&&(pak, _)| pak == MENU_TILES)
+    else {
+        return false;
+    };
+    path.strip_prefix("textures/")
+        .and_then(|rest| rest.strip_prefix(dir))
+        .and_then(|rest| rest.strip_prefix('/'))
+        .and_then(|name| name.strip_suffix(".png"))
+        .and_then(|name| name.split_once('-'))
+        .is_some_and(|(_, stem)| {
+            MENU_PICTURES
+                .iter()
+                .any(|&(prefix, _)| tile_number(stem, prefix).is_some())
+        })
+}
+
 /// The menus' pictures ([`MENU_PICTURES`], [`MENU_TILES`]) in their order: each its width,
 /// height and RGBA texels, each tile at its place, its alpha kept, which leaves the menu's water
 /// showing below them.
@@ -189,6 +212,30 @@ mod tests {
     }
 
     #[test]
+    fn the_menus_tiles_are_textures_of_their_pak_named_as_tiles() {
+        for path in [
+            "textures/texture/00344-gui_uw_option1.png",
+            "textures/texture/00347-gui_uw_option12.png",
+            "textures/texture/00317-gui_uw_char_01.png",
+            "textures/texture/00398-uw_option_1_01.png",
+            "textures/texture/00397-uw_option_12.png",
+        ] {
+            assert!(is_menu_tile(path), "{path}");
+        }
+        for path in [
+            // Another texture of the menus, a tile's number out of range, another pak, not a
+            // texture's master.
+            "textures/texture/00001-ui_uw_main_center.png",
+            "textures/texture/00001-gui_uw_option13.png",
+            "textures/texture03/00001-gui_uw_option1.png",
+            "ui/screens/mainmenu.png",
+            "textures/texture/gui_uw_option1.png",
+        ] {
+            assert!(!is_menu_tile(path), "{path}");
+        }
+    }
+
+    #[test]
     fn targets_are_lower_case_names() {
         assert_eq!(
             target("PAK/LoadingUW00.bmp", Some("png")),
@@ -238,6 +285,13 @@ mod tests {
             }
             assert_eq!(found, 12, "{file}");
         }
+        // `build` leaves out the 48 tiles and no other texture of the pak (#2646).
+        let left: Vec<String> = fs::read_dir(&tiles)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| is_menu_tile(&format!("textures/texture/{name}")))
+            .collect();
+        assert_eq!(left.len(), MENU_PICTURES.len() * MENU_COUNT, "{left:?}");
         for path in SCREENS {
             let data = read_game_file(&game.join(path)).unwrap();
             let args = [

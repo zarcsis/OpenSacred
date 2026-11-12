@@ -45,9 +45,8 @@ const NAME_LENGTH: usize = 40;
 const CARET: f32 = 0.3;
 const EDITABLE: u32 = 331;
 
-/// The background's tiles (`UW_option_01.tga` to `UW_option_12.tga`), four to a row.
-const TILES: usize = 12;
-/// The background as the converter assembles it from its tiles (`opensacred-convert ui`, #2634).
+/// The background as the converter assembles it from its tiles, `UW_option_01.tga` to
+/// `UW_option_12.tga` four to a row (`opensacred-convert ui`, #2634).
 const BACKGROUND: &str = "ui/screens/saves.ktx2";
 /// The dark fills behind the two boxes (`0x9F000000`).
 const FILLS: [Rect; 2] = [
@@ -275,18 +274,17 @@ struct Kept {
 #[derive(Resource, Default)]
 pub struct Asked(pub bool);
 
-/// The background's textures, found among the converted ones.
+/// The background's picture, found among the converted assets.
 #[derive(Resource, Default)]
 pub struct Images {
     background: crate::menu::Background,
 }
 
 impl Images {
-    /// Finds the background's tiles.
+    /// Finds the background's picture.
     pub fn find(assets: &std::path::Path) -> Self {
-        let names: Vec<String> = (1..=TILES).map(|n| format!("uw_option_{n:02}")).collect();
         Self {
-            background: crate::menu::Background::find(assets, BACKGROUND, &names),
+            background: crate::menu::Background::find(assets, BACKGROUND),
         }
     }
 }
