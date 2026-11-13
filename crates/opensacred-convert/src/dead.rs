@@ -5,8 +5,9 @@
 //! 2026-11-12 found them (#2645). A feature that comes to use one takes it off its list.
 //!
 //! Kept off the lists: the sounds that the original's data names wrongly, which the game plays
-//! since #2652 (`script_repairs::SOUNDS`, `opensacred-game`'s click lines), and whatever a feature
-//! not implemented yet needs, which the original's code or data names.
+//! since #2652 and #2684 (`script_repairs::SOUNDS` and `COMPANION_SOUNDS`, `opensacred-game`'s
+//! click lines), and whatever a feature not implemented yet needs, which the original's code or
+//! data names.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -106,7 +107,7 @@ mod tests {
         // The motions' files go by their own rule (#2647), the menus' tiles by theirs (#2646).
         assert!(all.iter().all(|path| !crate::models::is_motion(path)));
         assert!(all.iter().all(|path| !crate::ui::is_menu_tile(path)));
-        assert_eq!(all.len(), 5_067);
+        assert_eq!(all.len(), 5_044);
         assert!(is_dead("world/sprites/00467.png"));
         assert!(!is_dead("world/sprites/00001.png"));
     }

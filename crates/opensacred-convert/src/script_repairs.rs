@@ -13,7 +13,10 @@
 //! - The old potions that the records make (#1634, docs/decisions/netscript.md, "Scripts' old
 //!   potions made the new ones"): [`renew_potions`].
 //! - The sounds that the records name wrongly, which the original never plays (#2652,
-//!   docs/decisions/sound.md, "Scripts' misnamed sounds named right"): [`rename_sounds`].
+//!   docs/decisions/sound.md, "Scripts' misnamed sounds named right"): [`rename_sounds`], and
+//!   with it the companions' location lines by the companion that their branch tests (#2684,
+//!   "Companions' location lines named right"), and the hero's line that the desert bridge's
+//!   announcement calls with Vilya, an [`Edit`] ("Desert bridge's hero's line with Vilya").
 
 use opensacred_data::netscript::{Body, Function, Operand, Record, Tree, Value};
 
@@ -283,16 +286,72 @@ pub const SOUNDS: [(&str, &str); 127] = [
     ),
 ];
 
-/// Makes every `PlaySound` and `PlayMusic` of `tree` that names a sound of [`SOUNDS`] wrongly name
-/// the sound it means, its case aside, so that the game plays it; the number renamed.
+/// The companions' keys that the announcements test with the hero (`IF`'s `0x40`): Baroness Vilya,
+/// Wilbur, Shareefa, Prince Valor and Glubba.
+const VILYA: &str = "res:18221";
+const WILBUR: &str = "res:18103";
+const SHAREEFA: &str = "res:18237";
+const VALOR: &str = "res:18104";
+const GLUBBA: &str = "res:18308";
+
+/// The companions' location lines that the scripts name wrongly (#2684, the maintainer's decision
+/// of 2026-11-13): the announcements of the places (`*_audiomeldungen`), in the branch that tests a
+/// companion with the hero, play `SFX_Loc<N>_SH`, which no sound matches, where the companion's
+/// sample is `SFX_LOC<NN>_SH<COMPANION>`, so that the original never plays these 23. Each the wrong
+/// name, the companion's key that the test before it names and the sound meant, each the same in
+/// the 20 trees. Two names lack the location's number too, which the hero's line that the same
+/// branch calls gives: Vilya's 3 (`sprich_3`) and Glubba's 43 (`sprich_2.13`). Prince Valor's
+/// `SFX_Loc36_SH` is left out, as no sample is his line of the location 36.
+pub const COMPANION_SOUNDS: [(&str, &str, &str); 23] = [
+    ("SFX_Loc_SH3", VILYA, "SOUND_FX_SFX_LOC03_SHVILYA"),
+    ("SFX_Loc4_SH", VILYA, "SOUND_FX_SFX_LOC04_SHVILYA"),
+    ("SFX_Loc5_SH", VILYA, "SOUND_FX_SFX_LOC05_SHVILYA"),
+    ("SFX_Loc6_SH", VILYA, "SOUND_FX_SFX_LOC06_SHVILYA"),
+    ("SFX_Loc7_SH", VILYA, "SOUND_FX_SFX_LOC07_SHVILYA"),
+    ("SFX_Loc8_SH", WILBUR, "SOUND_FX_SFX_LOC08_SHWILBUR"),
+    ("SFX_Loc9_SH", WILBUR, "SOUND_FX_SFX_LOC09_SHWILBUR"),
+    ("SFX_Loc10_SH", WILBUR, "SOUND_FX_SFX_LOC10_SHWILBUR"),
+    ("SFX_Loc11_SH", WILBUR, "SOUND_FX_SFX_LOC11_SHWILBUR"),
+    ("SFX_Loc12_SH", WILBUR, "SOUND_FX_SFX_LOC12_SHWILBUR"),
+    ("SFX_Loc13_SH", WILBUR, "SOUND_FX_SFX_LOC13_SHWILBUR"),
+    ("SFX_Loc15_SH", WILBUR, "SOUND_FX_SFX_LOC15_SHWILBUR"),
+    ("SFX_Loc16_SH", SHAREEFA, "SOUND_FX_SFX_LOC16_SHSHAREEFA"),
+    ("SFX_Loc17_SH", SHAREEFA, "SOUND_FX_SFX_LOC17_SHSHAREEFA"),
+    ("SFX_Loc18_SH", SHAREEFA, "SOUND_FX_SFX_LOC18_SHSHAREEFA"),
+    ("SFX_Loc19_SH", SHAREEFA, "SOUND_FX_SFX_LOC19_SHSHAREEFA"),
+    ("SFX_Loc21_SH", SHAREEFA, "SOUND_FX_SFX_LOC21_SHSHAREEFA"),
+    ("SFX_Loc23_SH", SHAREEFA, "SOUND_FX_SFX_LOC23_SHSHAREEFA"),
+    ("SFX_Loc24_SH", SHAREEFA, "SOUND_FX_SFX_LOC24_SHSHAREEFA"),
+    ("SFX_Loc35_SH", VALOR, "SOUND_FX_SFX_LOC35_SHVALOR"),
+    ("SFX_Loc_SH", GLUBBA, "SOUND_FX_SFX_LOC43_SHGLUBBA"),
+    ("SFX_Loc46_SH", VILYA, "SOUND_FX_SFX_LOC46_SHVILYA"),
+    ("SFX_Loc67_SH", VILYA, "SOUND_FX_SFX_LOC67_SHVILYA"),
+];
+
+/// Makes every `PlaySound` and `PlayMusic` of `tree` that names a sound of [`SOUNDS`] wrongly, and
+/// every `PlaySound` of a companion's location line of [`COMPANION_SOUNDS`] after a test of that
+/// companion, name the sound it means, its case aside, so that the game plays it; the number
+/// renamed.
 pub fn rename_sounds(tree: &mut Tree) -> usize {
     let mut renamed = 0;
     let scripts = [&mut tree.start, &mut tree.quest]
         .into_iter()
         .chain(tree.functions.iter_mut().map(|f| &mut f.records));
     for records in scripts {
+        // The companion that the last test names, if any.
+        let mut tested = None;
         for record in records {
-            if ![PLAY_SOUND, PLAY_MUSIC].contains(&record.kind) {
+            let kind = record.kind;
+            if [IF, ELSEIF, ELSE].contains(&kind) {
+                tested = operands(record)
+                    .iter()
+                    .find_map(|o| match (o.tag, &o.value) {
+                        (0x40, Value::Str(key)) => Some(key.clone()),
+                        _ => None,
+                    });
+                continue;
+            }
+            if ![PLAY_SOUND, PLAY_MUSIC].contains(&kind) {
                 continue;
             }
             let Body::Operands(ops) = &mut record.body else {
@@ -303,10 +362,19 @@ pub fn rename_sounds(tree: &mut Tree) -> usize {
             else {
                 continue;
             };
-            if let Some(&(_, right)) = SOUNDS
+            let named = SOUNDS
                 .iter()
                 .find(|(wrong, _)| wrong.eq_ignore_ascii_case(name))
-            {
+                .map(|&(_, right)| right);
+            let companions = COMPANION_SOUNDS
+                .iter()
+                .find(|&&(wrong, key, _)| {
+                    kind == PLAY_SOUND
+                        && wrong.eq_ignore_ascii_case(name)
+                        && tested.as_deref() == Some(key)
+                })
+                .map(|&(_, _, right)| right);
+            if let Some(right) = named.or(companions) {
                 *name = right.to_owned();
                 renamed += 1;
             }
@@ -464,7 +532,7 @@ pub struct Addition {
 }
 
 /// The repairs of functions that `netscript` makes.
-pub const EDITS: [Edit; 28] = [
+pub const EDITS: [Edit; 29] = [
     Edit {
         what: "quest 10260's item named (#957)",
         function: "fillchest_chestQJ_03",
@@ -604,6 +672,11 @@ pub const EDITS: [Edit; 28] = [
         what: "quest 61's skeleton warriors of area 9 hostile (#1068)",
         function: "ElementAbfrage",
         edit: |records| sided(records, [257, 32], "9"),
+    },
+    Edit {
+        what: "the desert bridge's hero's line with Vilya (#2684)",
+        function: "OMO-1Wüstenbrücke_audiomeldungen",
+        edit: |records| desert_bridge(records),
     },
 ];
 
@@ -1309,6 +1382,32 @@ fn ghosts_apart(records: &mut [Record]) -> Result<(), String> {
 
 /// 602's knight 17136, whom `ok1_602` walks once, is named 17163 after, the two digits swapped:
 /// quest 1202's target, whom `ritterweg_602` would delete. The `count` operands become his.
+/// The desert bridge's announcement (the location 67, the bit 21 of `audiomeldungen_2`) calls the
+/// hero's line of the location 2 (`sprich_2`) in its branch that tests Vilya with the hero, after
+/// her line of the location 67, where its other branch, and both branches of every other
+/// announcement, call the location's own (`sprich_2.21`): the branch calls it too (#2684).
+fn desert_bridge(records: &mut [Record]) -> Result<(), String> {
+    the(
+        records,
+        "CallFunktion of sprich_2.21",
+        CALL_FUNCTION,
+        |r| matches!(operands(r), [only] if only.value == text("sprich_2.21")),
+    )?;
+    let i = the(
+        records,
+        "CallFunktion of sprich_2 for Vilya",
+        CALL_FUNCTION,
+        |r| {
+            matches!(
+                operands(r),
+                [first, second] if first.value == text("sprich_2") && second.value == text(VILYA)
+            )
+        },
+    )?;
+    rename_in(&mut records[i..=i], "sprich_2", "sprich_2.21");
+    Ok(())
+}
+
 fn knight(records: &mut [Record], count: usize) -> Result<(), String> {
     let found = records
         .iter()
@@ -1454,6 +1553,97 @@ mod tests {
             SOUNDS.iter().map(|(w, _)| w.to_ascii_lowercase()).collect();
         let right: std::collections::HashSet<_> = SOUNDS.iter().map(|(_, r)| *r).collect();
         assert_eq!((wrong.len(), right.len()), (SOUNDS.len(), SOUNDS.len()));
+        let companions: std::collections::HashSet<_> =
+            COMPANION_SOUNDS.iter().map(|&(_, _, r)| r).collect();
+        assert_eq!(companions.len(), COMPANION_SOUNDS.len());
+        assert!(companions.is_disjoint(&right));
+    }
+
+    #[test]
+    fn a_companions_location_line_is_named_right_after_a_test_of_that_companion() {
+        // #2684: Vilya's branch, the branch without her after it, and Wilbur's, whose test names
+        // another companion than Vilya's line, then the branch of none.
+        let test = |kind, key: Option<&str>| {
+            record(
+                kind,
+                key.map(|key| (0x40, Value::Str(key.into())))
+                    .into_iter()
+                    .collect(),
+            )
+        };
+        let line = |name: &str| record(PLAY_SOUND, vec![(0x01, Value::Str(name.into()))]);
+        let mut tree = tree(vec![function(
+            "OMO-1Feenbach_audiomeldungen",
+            vec![
+                test(IF, Some(VILYA)),
+                line("sfx_loc5_sh"),
+                test(ELSEIF, None),
+                line("SFX_Loc5_SH"),
+                test(IF, Some(WILBUR)),
+                line("SFX_Loc5_SH"),
+                line("SFX_Loc8_SH"),
+                test(ELSE, None),
+                line("SFX_Loc8_SH"),
+            ],
+        )]);
+        assert_eq!(rename_sounds(&mut tree), 2);
+        let lines: Vec<_> = tree.functions[0]
+            .records
+            .iter()
+            .filter(|r| r.kind == PLAY_SOUND)
+            .map(|r| match &operands(r)[0].value {
+                Value::Str(name) => name.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "SOUND_FX_SFX_LOC05_SHVILYA",
+                "SFX_Loc5_SH",
+                "SFX_Loc5_SH",
+                "SOUND_FX_SFX_LOC08_SHWILBUR",
+                "SFX_Loc8_SH",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_desert_bridges_branch_of_vilya_calls_the_locations_hero_line() {
+        // #2684.
+        let call = |names: &[&str]| {
+            record(
+                CALL_FUNCTION,
+                names
+                    .iter()
+                    .map(|&name| (0x01, Value::Str(name.into())))
+                    .collect(),
+            )
+        };
+        let records = vec![
+            record(IF, vec![(0x40, Value::Str(VILYA.into()))]),
+            call(&["sprich_2", VILYA]),
+            record(ELSEIF, Vec::new()),
+            call(&["sprich_2.21"]),
+        ];
+        let mut tree = tree(vec![function(
+            "OMO-1Wüstenbrücke_audiomeldungen",
+            records.clone(),
+        )]);
+        let report = repair(&EDITS, &[], &[], "bin/NetScript", &mut tree);
+        assert_eq!(
+            report.made,
+            ["the desert bridge's hero's line with Vilya (#2684)"]
+        );
+        assert!(report.warnings.is_empty());
+        let mut repaired = records;
+        repaired[1] = call(&["sprich_2.21", VILYA]);
+        assert_eq!(tree.functions[0].records, repaired);
+        // Once repaired, the call is not what the repair expects: left as it is, with a warning.
+        let report = repair(&EDITS, &[], &[], "bin/NetScript", &mut tree);
+        assert!(report.made.is_empty());
+        assert_eq!(report.warnings.len(), 1);
+        assert_eq!(tree.functions[0].records, repaired);
     }
 
     #[test]

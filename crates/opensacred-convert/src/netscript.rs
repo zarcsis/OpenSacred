@@ -577,8 +577,9 @@ mod tests {
 
     /// The `PlaySound`s and `PlayMusic`s of the 20 trees that name a sound wrongly (#2652): 127 in
     /// the multiplayer's tree and its add-on's, 126 in the campaign's other trees, 115 in the
-    /// add-on's others (a scan of the Luau sources' `play_sound` and `play_music`, 2026-11-13).
-    const RENAMED_SOUNDS: usize = 2 * 127 + 9 * 126 + 9 * 115;
+    /// add-on's others (a scan of the Luau sources' `play_sound` and `play_music`, 2026-11-13);
+    /// and the companions' 23 location lines in each tree (#2684).
+    const RENAMED_SOUNDS: usize = 2 * 127 + 9 * 126 + 9 * 115 + 20 * 23;
 
     /// Every tree converts, its records all land in the tree file, and the file reads back.
     #[test]
@@ -644,6 +645,7 @@ mod tests {
                 ("quest 7619's follower's death after the win (#938)", 11),
                 ("quest 9009's win before 2203's barrel (#935)", 11),
                 ("quests 301 and 302 lost at 55's start (#946)", 9),
+                ("the desert bridge's hero's line with Vilya (#2684)", 20),
             ])
         );
         assert_eq!(summary.warnings, Vec::<String>::new());
