@@ -167,6 +167,9 @@ pub fn untinted() -> impl Bundle {
         crate::srgb::Frame,
         projection(1.0),
         bevy::camera::visibility::RenderLayers::layer(UNTINTED),
+        // The few lights of its effects in one cluster, which the world's camera divides in its
+        // own (#2662, research #2637: some 0.2 ms a frame at 3,840 × 2,160).
+        bevy::light::cluster::ClusterConfig::Single,
     )
 }
 
