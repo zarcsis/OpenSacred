@@ -23,6 +23,25 @@ pub fn output_dir(out: &Path) -> PathBuf {
     out.join("netscript")
 }
 
+/// The trees of the network games, as [`file_name`] names them, which the game loads none of
+/// before M9 and `build` leaves out until then (#2648): the original takes `Bin\NetScript` for a
+/// network game of Sacred, with `Camp` for a campaign (`0x46F9B0`, `0x7DB230`), and
+/// `Bin\Addon\NetScript` for one of Underworld; nothing builds the path of the add-on's `Camp`.
+pub const NETWORK: [&str; 4] = [
+    "netscript",
+    "netscriptcamp",
+    "addon-netscript",
+    "addon-netscriptcamp",
+];
+
+/// Whether the master at `path`, relative to the masters' directory, is a file of a network
+/// game's tree's directory ([`NETWORK`]).
+pub fn is_network(path: &str) -> bool {
+    path.strip_prefix("netscript/")
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(tree, _)| NETWORK.contains(&tree))
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub trees: usize,
@@ -486,6 +505,26 @@ mod tests {
             "addon-type_npc_elve.nsc"
         );
         assert_eq!(file_name("bin/NetScriptCamp"), "netscriptcamp.nsc");
+    }
+
+    /// The network games' trees are those of the manifest's network directories (#2648).
+    #[test]
+    fn the_network_trees_are_the_network_games() {
+        let mut network: Vec<String> = trees()
+            .unwrap()
+            .iter()
+            .map(|tree| file_name(tree).trim_end_matches(".nsc").to_owned())
+            .filter(|tree| !tree.contains("type_npc"))
+            .collect();
+        network.sort();
+        let mut expected = NETWORK.map(str::to_owned).to_vec();
+        expected.sort();
+        assert_eq!(network, expected);
+        assert!(is_network("netscript/netscriptcamp/quests/1.luau"));
+        assert!(is_network("netscript/addon-netscript/index.ron"));
+        assert!(!is_network("netscript/type_npc_elve/quests/1.luau"));
+        assert!(!is_network("netscript/netscript.ron"));
+        assert!(!is_network("netscript/netscript.nsc"));
     }
 
     #[test]

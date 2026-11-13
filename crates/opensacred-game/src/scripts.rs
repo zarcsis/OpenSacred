@@ -632,13 +632,16 @@ fn check_calls(assets: &Path) -> Result<()> {
 }
 
 /// The runtime of the tree `tree` of the index `index`, which loads its files' bytecode from
-/// `assets` (`netscript/<tree>/`), once the scripts' calls are this game's ([`check_calls`]).
+/// `assets` (`netscript/<tree>/`, or another tree's directory for a file that the index names as
+/// shared with it, #2648), once the scripts' calls are this game's ([`check_calls`]).
 fn runtime(assets: &Path, tree: &str, index: Index) -> Result<Runtime> {
     check_calls(assets)?;
-    let dir = assets.join("netscript").join(tree);
+    let dir = assets.join("netscript");
+    let (own, shared) = (tree.to_owned(), index.shared.clone());
     Runtime::new(tree, index, move |file| {
         let stem = file.strip_suffix(".luau").unwrap_or(file);
-        files::read(dir.join(format!("{stem}.{BYTECODE}"))).ok()
+        let holder = shared.get(file).unwrap_or(&own);
+        files::read(dir.join(holder).join(format!("{stem}.{BYTECODE}"))).ok()
     })
     .with_context(|| format!("starting the scripts of {tree}"))
 }
@@ -5159,6 +5162,60 @@ mod tests {
             refused.contains("opensacred-convert netscript"),
             "{refused}"
         );
+        std::fs::remove_dir_all(&assets).unwrap();
+    }
+
+    /// A host that answers every record and variable as done and 0.
+    struct Quiet;
+
+    impl opensacred_scripts::Host for Quiet {
+        fn record(&mut self, _: &str, _: &[Operand], _: &[bool]) -> Handled {
+            Handled::Done
+        }
+
+        fn var(&mut self, _: &str) -> i32 {
+            0
+        }
+    }
+
+    /// A file that the index names as shared loads from the tree that holds it, the others from
+    /// the tree's own directory (#2648).
+    #[test]
+    fn a_shared_file_loads_from_the_tree_that_holds_it() {
+        let assets =
+            std::env::temp_dir().join(format!("opensacred-game-shared-{}", std::process::id()));
+        let dir = assets.join("netscript");
+        let source = |key: &str| {
+            format!("local F = {{}}\nF[\"{key}\"] = function()\nreturn true\nend\nreturn F")
+        };
+        for (tree, file, key) in [
+            ("type_npc_a", "quests/1", "Quest"),
+            ("type_npc_b", "start", "StartCode"),
+        ] {
+            let path = dir.join(tree).join(format!("{file}.{BYTECODE}"));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, opensacred_scripts::compile(&source(key)).unwrap()).unwrap();
+        }
+        std::fs::write(dir.join(CALLS), ron::ser::to_string(&calls()).unwrap()).unwrap();
+        let mut index = Index::default();
+        for (file, key) in [("quests/1.luau", "Quest"), ("start.luau", "StartCode")] {
+            index
+                .functions
+                .entry(key.to_owned())
+                .or_default()
+                .push(Entry {
+                    file: file.to_owned(),
+                    key: key.to_owned(),
+                });
+        }
+        index
+            .shared
+            .insert("quests/1.luau".to_owned(), "type_npc_a".to_owned());
+        let live = super::runtime(&assets, "type_npc_b", index).unwrap();
+        for function in ["StartCode", "Quest"] {
+            assert!(live.call(function, &mut Quiet).unwrap().ran(), "{function}");
+        }
+        assert_eq!(live.files(), 2);
         std::fs::remove_dir_all(&assets).unwrap();
     }
 }

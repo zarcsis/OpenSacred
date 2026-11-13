@@ -1024,6 +1024,8 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
    The 20 trees give 131,277 sources of 199 MB, each of which the Luau compiler takes.
    A name that several functions share (142 names of 1,986 functions in a campaign tree, mostly the quests' `ToDo:-1.<n>`) keeps every one of them in the index.
    Stage B compiles each source into Luau's bytecode (`<file>.luauc`, the converter's `build`), the trees (`<tree>.nsc`) and their index staying among the masters, since the game runs the Luau alone (#726), and every function and script of the 20 trees, run in Luau with a recording stand-in for the API, makes the same calls, tests and end as the walker for the same outcomes of its tests (807,800 runs, two each).
+   Since #2648 `build` packs a source that several trees hold at one path, the same source, once, in the first of them in the masters' order, and the other trees' indices name it in `shared`, by which the game loads its bytecode from that tree's directory; the 8 Underworld trees are the same, and `sectors/` the same in all 20.
+   The network games' trees (`netscript`, `netscriptcamp`, `addon-netscript`, `addon-netscriptcamp`, `netscript::NETWORK`) stay among the masters alone until M9, as the game loads none of them before it.
    `luau0-src` is held at Luau 740, whose bytecode version 9 `mlua-sys` 0.13.0 knows, where Luau 744's 13 is not (#869).
 5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726); the 28 types absent from the release are not implemented.
 6. Estimate: converter and IR 15–30 agent-hours (M1); the translator, the runtime and the semantics 25–50 agent-hours (M4).
