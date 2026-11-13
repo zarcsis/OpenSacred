@@ -411,9 +411,11 @@ pub fn translate(source: &str, tree: &Tree) -> Result<(BTreeMap<String, String>,
     let mut files = BTreeMap::new();
     for (file, functions) in groups {
         let mut out = String::new();
+        // The file's path within its tree's directory alone, not the tree's: a file the same in
+        // several trees is then the same source, which `build` packs once (#2648).
         let _ = writeln!(
             out,
-            "-- {source}: {}, translated from NetScript by opensacred-convert (#723).\n",
+            "-- {}, translated from NetScript by opensacred-convert (#723).\n",
             file.trim_end_matches(".luau")
         );
         let _ = writeln!(out, "local F = {{}}\n");
