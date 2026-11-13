@@ -7,9 +7,11 @@
 //! of the game. FFmpeg is found as the converter finds it: beside the game, else `FFMPEG`, else
 //! `ffmpeg` from `PATH`; without it the recording fails with an error that says so, and the game
 //! goes on. FFmpeg's Matroska muxer rounds the blocks' times to 1 ms, so that once it ends the
-//! game remuxes its file into the one asked for at a microsecond a unit ([`remux`], #1227): each
-//! frame's block and its times' event at the frame's exact time, the packets copied as they are
-//! (docs/10, the command `record`; docs/05, "Looking at frames").
+//! game remuxes its file (the one asked for with `.part` after its name) into the one asked for
+//! at a microsecond a unit ([`remux`], #1227): each frame's block and its times' event at the
+//! frame's exact time, the packets copied as they are (docs/10, the command `record`; docs/05,
+//! "Looking at frames"). The process's end finishes a recording that runs with the frames it has
+//! ([`finish_running`], #2667).
 //!
 //! The game's whole mix goes with them as a third track (#1230): the taps' frames (`sound_tap`) as
 //! float PCM at the device's rate, set against the frames' `Time<Real>` by when the mix's first
@@ -22,8 +24,9 @@ use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -42,6 +45,9 @@ const SOUND_BLOCK: usize = 1024;
 const SOUND_WAIT: Duration = Duration::from_millis(500);
 /// FFV1's slices: the frame split for its threads.
 const SLICES: &str = "16";
+/// How often a recording's thread, waiting for a frame, looks whether its stream was closed: a
+/// screenshot's observer that never ran (the game ending under it) keeps a sender of its own.
+const POLL: Duration = Duration::from_millis(20);
 
 /// A frame's times, as its screenshot was taken: the text track's event over it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
@@ -466,7 +472,7 @@ fn command(out: &Path, tags: &[(String, String)], sound: bool) -> Command {
         command.arg("-metadata").arg(format!("{key}={value}"));
     }
     command
-        .arg("-y")
+        .args(["-f", "matroska", "-y"])
         .arg(out)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -477,10 +483,69 @@ fn command(out: &Path, tags: &[(String, String)], sound: bool) -> Command {
 /// How a recording into Matroska stands, shared with its thread.
 #[derive(Default)]
 struct Shared {
+    /// Whether the stream was closed: no frame comes after those handed over.
+    closing: AtomicBool,
     /// Whether FFmpeg has ended, or the recording failed without it.
     done: AtomicBool,
     /// Why it failed, if it did.
     error: Mutex<Option<String>>,
+}
+
+impl Shared {
+    /// Whether FFmpeg has ended, and why the recording failed if it did.
+    fn result(&self) -> Option<Result<(), String>> {
+        if !self.done.load(Ordering::Acquire) {
+            return None;
+        }
+        let error = self.error.lock().ok().and_then(|slot| slot.clone());
+        Some(error.map_or(Ok(()), Err))
+    }
+}
+
+/// A recording's thread, kept so that the process's end waits for it ([`finish_running`]).
+struct Running {
+    path: PathBuf,
+    shared: Arc<Shared>,
+    thread: JoinHandle<()>,
+}
+
+/// The recordings' threads that the process's end waits for.
+static RUNNING: Mutex<Vec<Running>> = Mutex::new(Vec::new());
+
+/// Waits, as the process ends, for the recordings that still run (#2667): each stream closed after
+/// the frames handed over, FFmpeg's end and the remux into the file asked for waited for, so that
+/// the file holds them and FFmpeg's own is gone. Cut off with the process, a recording left
+/// FFmpeg's file beside the one asked for, cut short. The game ends through a command of remote
+/// control after the schedules of its frame, so that no system of the game sees its end in time.
+pub fn finish_running() {
+    let running = std::mem::take(&mut *RUNNING.lock().unwrap_or_else(PoisonError::into_inner));
+    for Running {
+        path,
+        shared,
+        thread,
+    } in running
+    {
+        // One that ended has told how (`screenshot::record`).
+        let ran = !shared.done.load(Ordering::Acquire);
+        if ran {
+            bevy::log::info!(
+                "the game ends: finishing the recording into {}",
+                path.display()
+            );
+        }
+        shared.closing.store(true, Ordering::Release);
+        if thread.join().is_err() {
+            bevy::log::error!("the recording into {}: its thread panicked", path.display());
+            continue;
+        }
+        match shared.result() {
+            Some(Err(error)) if ran => {
+                bevy::log::error!("the recording into {}: {error}", path.display());
+            }
+            Some(Ok(())) if ran => bevy::log::info!("recorded to {}", path.display()),
+            _ => {}
+        }
+    }
 }
 
 /// A recording into one Matroska file: the frames go to its thread, which writes them in their
@@ -497,19 +562,27 @@ impl Encoder {
         let (frames, received) = channel();
         let shared = Arc::new(Shared::default());
         let thread_shared = Arc::clone(&shared);
-        std::thread::spawn(move || {
-            let mut sound = sound;
-            let result = write(&path, &tags, &received, &mut sound);
-            if sound.is_some() {
-                Sound::disarm();
-            }
-            if let Err(error) = result
-                && let Ok(mut slot) = thread_shared.error.lock()
-            {
-                *slot = Some(error);
-            }
-            thread_shared.done.store(true, Ordering::Release);
-        });
+        let running = Running {
+            path: path.clone(),
+            shared: Arc::clone(&shared),
+            thread: std::thread::spawn(move || {
+                let mut sound = sound;
+                let result = write(&path, &tags, &received, &thread_shared.closing, &mut sound);
+                if sound.is_some() {
+                    Sound::disarm();
+                }
+                if let Err(error) = result
+                    && let Ok(mut slot) = thread_shared.error.lock()
+                {
+                    *slot = Some(error);
+                }
+                thread_shared.done.store(true, Ordering::Release);
+            }),
+        };
+        let mut threads = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
+        // The threads that ended need no waiting.
+        threads.retain(|running| !running.thread.is_finished());
+        threads.push(running);
         Self {
             frames: Some(frames),
             shared,
@@ -533,30 +606,52 @@ impl Encoder {
     /// Ends the stream after the frames handed over.
     pub fn finish(&mut self) {
         self.frames = None;
+        self.shared.closing.store(true, Ordering::Release);
     }
 
     /// Whether FFmpeg has ended, and why the recording failed if it did.
     pub fn done(&self) -> Option<Result<(), String>> {
-        if !self.shared.done.load(Ordering::Acquire) {
-            return None;
-        }
-        let error = self.shared.error.lock().ok().and_then(|slot| slot.clone());
-        Some(error.map_or(Ok(()), Err))
+        self.shared.result()
     }
 }
 
-/// The thread's work: the frames from `received` in their order into FFmpeg, until the channel
-/// closes; then FFmpeg's end waited for.
+impl Drop for Encoder {
+    /// A recording dropped (another started over it, the game ending) ends its stream, its thread
+    /// finishing it on its own.
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+/// The next frame from `received`, `None` once the stream is closed (`closing`) and none is
+/// left, or once every sender is gone.
+fn next_frame(received: &Receiver<Frame>, closing: &AtomicBool) -> Option<Frame> {
+    loop {
+        match received.recv_timeout(POLL) {
+            Ok(frame) => return Some(frame),
+            Err(RecvTimeoutError::Disconnected) => return None,
+            Err(RecvTimeoutError::Timeout) => {
+                if closing.load(Ordering::Acquire) {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+/// The thread's work: the frames from `received` in their order into FFmpeg, until the stream
+/// closes (`closing`); then FFmpeg's end waited for.
 fn write(
     out: &Path,
     tags: &[(String, String)],
     received: &Receiver<Frame>,
+    closing: &AtomicBool,
     sound: &mut Option<SoundTrack>,
 ) -> Result<(), String> {
     // FFmpeg's file, at 1 ms a unit, beside the one asked for, which the remux makes.
     let encoded = encoded_path(out);
     let mut timeline = Vec::new();
-    let result = encode(&encoded, tags, received, &mut timeline, sound);
+    let result = encode(&encoded, tags, (received, closing), &mut timeline, sound);
     if let Err(error) = result {
         std::fs::remove_file(&encoded).ok();
         return Err(error);
@@ -578,20 +673,21 @@ fn write(
     }
 }
 
-/// The file that FFmpeg writes for a recording into `out`, which the remux makes again.
+/// The file that FFmpeg writes for a recording into `out`, which the remux makes again: its
+/// name with `.part` after it, a file not finished (#2667).
 fn encoded_path(out: &Path) -> PathBuf {
-    let mut name = out.file_stem().unwrap_or_default().to_os_string();
-    name.push(".ffmpeg.mkv");
+    let mut name = out.file_name().unwrap_or_default().to_os_string();
+    name.push(".part");
     out.with_file_name(name)
 }
 
-/// The frames from `received` in their order into FFmpeg writing `out`, until the channel closes;
-/// then FFmpeg's end waited for. `timeline` takes each frame's time and its event's length, in
-/// microseconds from the first.
+/// The frames from `received` in their order into FFmpeg writing `out`, until the stream closes
+/// (`closing`); then FFmpeg's end waited for. `timeline` takes each frame's time and its event's
+/// length, in microseconds from the first.
 fn encode(
     out: &Path,
     tags: &[(String, String)],
-    received: &Receiver<Frame>,
+    (received, closing): (&Receiver<Frame>, &AtomicBool),
     timeline: &mut Vec<(u64, u64)>,
     sound: &mut Option<SoundTrack>,
 ) -> Result<(), String> {
@@ -602,7 +698,7 @@ fn encode(
     let mut pending: Option<Frame> = None;
     let mut start = None;
     let mut failed = None;
-    for frame in received {
+    while let Some(frame) = next_frame(received, closing) {
         waiting.insert(frame.times.n, frame);
         while let Some(frame) = waiting.remove(&next) {
             next += 1;
@@ -1242,7 +1338,7 @@ mod tests {
     fn the_remux_puts_each_block_at_its_frames_microsecond() {
         let dir = std::env::temp_dir().join(format!("opensacred-remux-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let (encoded, out) = (dir.join("rec.ffmpeg.mkv"), dir.join("rec.mkv"));
+        let (encoded, out) = (dir.join("rec.mkv.part"), dir.join("rec.mkv"));
         let exact = [0u64, 16_412, 33_901];
         let lasts = [16_412u64, 17_489, 16_000];
         let pixels = |n: usize| vec![u8::try_from(n).unwrap(); 64];
@@ -1319,7 +1415,7 @@ mod tests {
     fn a_block_far_from_its_frames_time_fails_the_remux() {
         let dir = std::env::temp_dir().join(format!("opensacred-remux-far-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let (encoded, out) = (dir.join("rec.ffmpeg.mkv"), dir.join("rec.mkv"));
+        let (encoded, out) = (dir.join("rec.mkv.part"), dir.join("rec.mkv"));
         let file = ffmpeg_like(&[0, 16_000, 33_000], |_| vec![0; 4], |_| vec![b'x']);
         std::fs::write(&encoded, file).unwrap();
         // A frame 5 ms off the one FFmpeg wrote: the blocks are not the frames'.
@@ -1404,6 +1500,48 @@ mod tests {
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn ffmpegs_file_is_the_one_asked_for_not_finished() {
+        // #2667: not `rec.ffmpeg.mkv`.
+        assert_eq!(
+            encoded_path(Path::new("shots/rec.mkv")),
+            Path::new("shots/rec.mkv.part")
+        );
+    }
+
+    /// A recording that the game's end cuts off ends with the frames handed over, though the
+    /// sender of a screenshot never captured is left, and leaves the file asked for alone
+    /// (#2667).
+    #[test]
+    #[ignore = "needs FFmpeg"]
+    fn a_recording_ends_with_the_game_whatever_sender_is_left() {
+        let dir = std::env::temp_dir().join(format!("opensacred-mkv-end-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cut.mkv");
+        let encoder = Encoder::new(path.clone(), Vec::new(), None);
+        let left = encoder.sender().unwrap();
+        for n in 0..3u32 {
+            encoder.send(Frame {
+                times: Times {
+                    n,
+                    real: f64::from(n) / 60.0,
+                    real_delta: 1.0 / 60.0,
+                    ..Times::default()
+                },
+                width: 16,
+                height: 8,
+                bgra: vec![128; 16 * 8 * 4],
+            });
+        }
+        // The game's end: the stream left open, the process waits.
+        finish_running();
+        assert_eq!(encoder.done(), Some(Ok(())));
+        assert!(path.is_file());
+        assert!(!encoded_path(&path).exists());
+        drop(left);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// Frames of known pixels and times through the writer and FFmpeg, and back: the pixels, the
