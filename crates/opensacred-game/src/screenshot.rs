@@ -228,18 +228,27 @@ pub fn record(
     request: Option<Res<game::Request>>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    if recording.saved.load(std::sync::atomic::Ordering::Acquire) >= recording.frames {
+    // Into Matroska, a recording whose thread ended before its last frame (the window's size
+    // changed, #2672, or FFmpeg failed) ends with it.
+    let ended = recording
+        .encoder
+        .as_ref()
+        .is_some_and(|encoder| encoder.done().is_some());
+    if ended || recording.saved.load(std::sync::atomic::Ordering::Acquire) >= recording.frames {
         // Into Matroska: the stream closed after the last frame, and FFmpeg's end waited for.
         if let Some(encoder) = recording.encoder.as_mut() {
             encoder.finish();
-            match encoder.done() {
-                None => return,
-                Some(Ok(())) => info!(
+            match (encoder.done(), encoder.cut()) {
+                (None, _) => return,
+                (Some(Ok(())), Some(cut)) => {
+                    warn!("the recording into {}: {cut}", recording.dir.display());
+                }
+                (Some(Ok(())), None) => info!(
                     "recorded {} frames to {}",
                     recording.frames,
                     recording.dir.display()
                 ),
-                Some(Err(error)) => {
+                (Some(Err(error)), _) => {
                     error!("the recording into {}: {error}", recording.dir.display())
                 }
             }

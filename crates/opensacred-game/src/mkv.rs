@@ -489,6 +489,8 @@ struct Shared {
     done: AtomicBool,
     /// Why it failed, if it did.
     error: Mutex<Option<String>>,
+    /// Why it ended short of its frames, if it did: the window's size changed (#2672).
+    cut: Mutex<Option<String>>,
 }
 
 impl Shared {
@@ -499,6 +501,11 @@ impl Shared {
         }
         let error = self.error.lock().ok().and_then(|slot| slot.clone());
         Some(error.map_or(Ok(()), Err))
+    }
+
+    /// Why the recording ended short of its frames, if it did.
+    fn cut(&self) -> Option<String> {
+        self.cut.lock().ok().and_then(|slot| slot.clone())
     }
 }
 
@@ -538,11 +545,14 @@ pub fn finish_running() {
             bevy::log::error!("the recording into {}: its thread panicked", path.display());
             continue;
         }
-        match shared.result() {
-            Some(Err(error)) if ran => {
+        match (shared.result(), shared.cut()) {
+            (Some(Err(error)), _) if ran => {
                 bevy::log::error!("the recording into {}: {error}", path.display());
             }
-            Some(Ok(())) if ran => bevy::log::info!("recorded to {}", path.display()),
+            (Some(Ok(())), Some(cut)) if ran => {
+                bevy::log::warn!("the recording into {}: {cut}", path.display());
+            }
+            (Some(Ok(())), None) if ran => bevy::log::info!("recorded to {}", path.display()),
             _ => {}
         }
     }
@@ -571,10 +581,15 @@ impl Encoder {
                 if sound.is_some() {
                     Sound::disarm();
                 }
-                if let Err(error) = result
-                    && let Ok(mut slot) = thread_shared.error.lock()
+                let slot = match result {
+                    Ok(None) => None,
+                    Ok(Some(cut)) => Some((&thread_shared.cut, cut)),
+                    Err(error) => Some((&thread_shared.error, error)),
+                };
+                if let Some((slot, text)) = slot
+                    && let Ok(mut slot) = slot.lock()
                 {
-                    *slot = Some(error);
+                    *slot = Some(text);
                 }
                 thread_shared.done.store(true, Ordering::Release);
             }),
@@ -613,6 +628,11 @@ impl Encoder {
     pub fn done(&self) -> Option<Result<(), String>> {
         self.shared.result()
     }
+
+    /// Why the recording ended short of its frames, if it did: the window's size changed (#2672).
+    pub fn cut(&self) -> Option<String> {
+        self.shared.cut()
+    }
 }
 
 impl Drop for Encoder {
@@ -640,27 +660,30 @@ fn next_frame(received: &Receiver<Frame>, closing: &AtomicBool) -> Option<Frame>
 }
 
 /// The thread's work: the frames from `received` in their order into FFmpeg, until the stream
-/// closes (`closing`); then FFmpeg's end waited for.
+/// closes (`closing`) or a frame of another size comes; then FFmpeg's end waited for. Returns why
+/// the recording ended short of its frames, if it did.
 fn write(
     out: &Path,
     tags: &[(String, String)],
     received: &Receiver<Frame>,
     closing: &AtomicBool,
     sound: &mut Option<SoundTrack>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     // FFmpeg's file, at 1 ms a unit, beside the one asked for, which the remux makes.
     let encoded = encoded_path(out);
     let mut timeline = Vec::new();
-    let result = encode(&encoded, tags, (received, closing), &mut timeline, sound);
-    if let Err(error) = result {
-        std::fs::remove_file(&encoded).ok();
-        return Err(error);
-    }
+    let cut = match encode(&encoded, tags, (received, closing), &mut timeline, sound) {
+        Ok(cut) => cut,
+        Err(error) => {
+            std::fs::remove_file(&encoded).ok();
+            return Err(error);
+        }
+    };
     let rate = sound.as_ref().map(|sound| sound.sound.sample_rate);
     match remux(&encoded, out, &timeline, rate) {
         Ok(()) => {
             std::fs::remove_file(&encoded).ok();
-            Ok(())
+            Ok(cut)
         }
         Err(error) => {
             // FFmpeg's file, at its milliseconds, under the name asked for.
@@ -682,15 +705,16 @@ fn encoded_path(out: &Path) -> PathBuf {
 }
 
 /// The frames from `received` in their order into FFmpeg writing `out`, until the stream closes
-/// (`closing`); then FFmpeg's end waited for. `timeline` takes each frame's time and its event's
-/// length, in microseconds from the first.
+/// (`closing`) or a frame of another size than the first comes; then FFmpeg's end waited for.
+/// `timeline` takes each frame's time and its event's length, in microseconds from the first.
+/// Returns why the recording ended short of its frames, if it did.
 fn encode(
     out: &Path,
     tags: &[(String, String)],
     (received, closing): (&Receiver<Frame>, &AtomicBool),
     timeline: &mut Vec<(u64, u64)>,
     sound: &mut Option<SoundTrack>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let mut waiting: BTreeMap<u32, Frame> = BTreeMap::new();
     let mut next = 0;
     let mut pipe: Option<(Child, ChildStdin)> = None;
@@ -698,9 +722,23 @@ fn encode(
     let mut pending: Option<Frame> = None;
     let mut start = None;
     let mut failed = None;
-    while let Some(frame) = next_frame(received, closing) {
+    let mut size = None;
+    let mut cut = None;
+    'frames: while let Some(frame) = next_frame(received, closing) {
         waiting.insert(frame.times.n, frame);
         while let Some(frame) = waiting.remove(&next) {
+            // FFmpeg's raw video takes the size of the stream's head alone, and refused the frames
+            // of another as the window's size changed (#2672): the recording ends with the frames
+            // before.
+            let (width, height) = (frame.width, frame.height);
+            let &mut (first_width, first_height) = size.get_or_insert((width, height));
+            if (width, height) != (first_width, first_height) {
+                cut = Some(format!(
+                    "the window's size changed from {first_width} × {first_height} to {width} × \
+                     {height}: the recording ends with its {next} frames before"
+                ));
+                break 'frames;
+            }
             next += 1;
             if let Some(previous) = pending.take()
                 && failed.is_none()
@@ -737,7 +775,7 @@ fn encode(
         failed = Some(format!("writing to FFmpeg: {e}"));
     }
     let Some((mut child, stdin)) = pipe else {
-        return failed.map_or(Ok(()), Err);
+        return failed.map_or(Ok(cut), Err);
     };
     drop(stdin);
     let mut stderr = String::new();
@@ -753,7 +791,7 @@ fn encode(
     if !status.success() {
         return Err(format!("FFmpeg ended with {status}: {}", stderr.trim()));
     }
-    Ok(())
+    Ok(cut)
 }
 
 /// Writes `frame` into FFmpeg, started with the stream's head at the first, its event lasting
@@ -1541,6 +1579,52 @@ mod tests {
         assert!(path.is_file());
         assert!(!encoded_path(&path).exists());
         drop(left);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A recording through a change of the window's size ends with the frames before it and
+    /// tells so, where FFmpeg refused the frames of the new size (#2672).
+    #[test]
+    #[ignore = "needs FFmpeg"]
+    fn a_recording_ends_where_the_windows_size_changes() {
+        let dir = std::env::temp_dir().join(format!("opensacred-mkv-size-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("resized.mkv");
+        let encoder = Encoder::new(path.clone(), Vec::new(), None);
+        for (n, width) in [16u32, 16, 16, 12, 12].into_iter().enumerate() {
+            let n = u32::try_from(n).unwrap();
+            encoder.send(Frame {
+                times: Times {
+                    n,
+                    real: f64::from(n) / 60.0,
+                    real_delta: 1.0 / 60.0,
+                    ..Times::default()
+                },
+                width,
+                height: 8,
+                bgra: vec![128; usize::try_from(width * 8 * 4).unwrap()],
+            });
+        }
+        let done = loop {
+            if let Some(done) = encoder.done() {
+                break done;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(done, Ok(()));
+        let cut = encoder.cut().unwrap();
+        assert!(cut.contains("16 × 8 to 12 × 8"), "{cut}");
+        let packets = Command::new(
+            ffmpeg().with_file_name(format!("ffprobe{}", std::env::consts::EXE_SUFFIX)),
+        )
+        .args(["-v", "error", "-count_packets", "-select_streams", "v"])
+        .args(["-show_entries", "stream=nb_read_packets", "-of", "csv=p=0"])
+        .arg(&path)
+        .output()
+        .unwrap();
+        assert_eq!(String::from_utf8_lossy(&packets.stdout).trim(), "3");
+        assert!(!encoded_path(&path).exists());
+        drop(encoder);
         std::fs::remove_dir_all(&dir).ok();
     }
 
