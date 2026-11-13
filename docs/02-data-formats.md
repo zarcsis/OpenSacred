@@ -1322,6 +1322,10 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
   The game decodes a file whole as it loads it (`opensacred-game`'s `opus`: Symphonia's Ogg demuxer and libopus through `symphonia-adapter-libopus`), the encoder's delay and padding dropped by the stream's pre-skip and last granule position, so that a sound keeps its length in samples at 48 kHz.
   On the masters of 2026-10-23 (confirmed): the 6,598 samples went from 809 MiB of FLAC to 280 MiB (`sound.zip`) and the 173 music files from 1,082 MiB to 440 MiB (`music.zip`), encoded in 63 s on 24 threads; every 20th sample and every music file decodes, through the game's decoders, to its master's length at 48 kHz within one sample.
   On the masters of 2026-10-23 (confirmed): of the 9,897 textures outside the world's, 85 % of the texels are of opaque textures, 4 % of textures whose alpha is only 0 or 255 and 11 % of translucent ones (every fourth texture counted); the world's textures take 67 % of their PNGs' size (every twentieth); `textures.zip` went from 1,123 MiB of PNG to 932 MiB, and `build` made the textures and the models in 131 s on 24 threads.
+* What no code of the game reads stays among the masters alone (#2650, `build::never_read`).
+  The heroes' own files (`heroes/**/*.hero`, `heroes::is_unread`) go, as the game takes what it needs of them from `heroes.ron`.
+  So do six tables (`tables::UNREAD`): `mercenaries_addon.ron`, byte for byte `mercenaries.ron`, `static_remap.ron` and `world_index.ron`, which the original's loader of saves alone uses for its older versions' saves, `world_map.ron` and `start_points.ron`, the network games' until M9, and `triggers.ron`.
+  So do the screens and texts that `Sacred.exe` never names (`ui::UNREAD`, confirmed 2026-11-12 by its strings): the loading screens `loading1`, `loadinguw00` and `loadinguw01`, as it names only `LOADING0.BMP`, and the first credits, as it reads only `credits2.txt`.
 
 ### 12.3 Order
 

@@ -36,6 +36,14 @@ fn sources() -> Result<Vec<String>> {
     Ok(paths)
 }
 
+/// Whether the master at `path`, relative to the masters' directory, is one of the heroes' own
+/// files (`heroes/templates/*.hero`, `heroes/save/*.hero`), which `build` leaves out of the game's
+/// assets (#2650): the game takes what it needs of them from `heroes.ron` alone, which this
+/// command makes from them.
+pub fn is_unread(path: &str) -> bool {
+    path.starts_with("heroes/") && path.ends_with(".hero")
+}
+
 /// `Templates/Hero00.ptx` → `templates/hero00.hero`.
 fn file_name(source: &str) -> String {
     let lower = source.to_ascii_lowercase();
@@ -267,6 +275,14 @@ mod tests {
     use crate::testing::scratch_dir;
 
     #[test]
+    fn the_heroes_files_are_unread_and_their_index_read() {
+        assert!(is_unread("heroes/templates/hero00.hero"));
+        assert!(is_unread("heroes/save/hero06.hero"));
+        assert!(!is_unread("heroes/heroes.ron"));
+        assert!(!is_unread("netscript/hero00.hero"));
+    }
+
+    #[test]
     fn hero_files_keep_their_directory() {
         assert_eq!(file_name("Templates/Hero00.ptx"), "templates/hero00.hero");
         assert_eq!(sources().unwrap().len(), 8);
@@ -280,6 +296,11 @@ mod tests {
         let game = opensacred_locate::original();
         assert_eq!(convert(&game, &out).unwrap(), 10);
         let dir = output_dir(&out);
+        // The ten heroes' files, which `build` leaves out (#2650), and the index, which it keeps.
+        let mut files = Vec::new();
+        crate::manifest::files(&out, &dir, &mut files).unwrap();
+        let unread = files.iter().filter(|f| is_unread(f)).count();
+        assert_eq!((files.len(), unread), (11, 10), "{files:?}");
         let index: Heroes = ron::from_str(&fs::read_to_string(dir.join(INDEX)).unwrap()).unwrap();
         // The installation's Underworld heroes: the Dwarf in the slot 6 and the Daemon in the
         // slot 7, of level 29, each with its name and its whole file.

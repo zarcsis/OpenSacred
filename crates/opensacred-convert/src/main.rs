@@ -451,7 +451,7 @@ fn execute(command: Command) -> Result<ExitCode> {
             let start = Instant::now();
             let summary = build::build(&assets_src, &out, force)?;
             println!(
-                "build: {} masters, {} built, {} up to date, {} left out (the sprites' atlases, the menus' tiles, the scripts' trees), {} removed -> {} archives in {} in {:.1} s",
+                "build: {} masters, {} built, {} up to date, {} left out (what the game never reads), {} removed -> {} archives in {} in {:.1} s",
                 summary.masters,
                 summary.built,
                 summary.kept,
