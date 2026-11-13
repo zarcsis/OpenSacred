@@ -79,8 +79,6 @@ pub fn betweens(machine: &mut Machine<'_>) -> Result<Vec<Between>> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use crate::pe::Image;
     use crate::{machine, vectors};
