@@ -343,10 +343,12 @@ pub fn rename_sounds(tree: &mut Tree) -> usize {
         for record in records {
             let kind = record.kind;
             if [IF, ELSEIF, ELSE].contains(&kind) {
-                tested = operands(record).iter().find_map(|o| match (o.tag, &o.value) {
-                    (0x40, Value::Str(key)) => Some(key.clone()),
-                    _ => None,
-                });
+                tested = operands(record)
+                    .iter()
+                    .find_map(|o| match (o.tag, &o.value) {
+                        (0x40, Value::Str(key)) => Some(key.clone()),
+                        _ => None,
+                    });
                 continue;
             }
             if ![PLAY_SOUND, PLAY_MUSIC].contains(&kind) {
@@ -1385,9 +1387,12 @@ fn ghosts_apart(records: &mut [Record]) -> Result<(), String> {
 /// her line of the location 67, where its other branch, and both branches of every other
 /// announcement, call the location's own (`sprich_2.21`): the branch calls it too (#2684).
 fn desert_bridge(records: &mut [Record]) -> Result<(), String> {
-    the(records, "CallFunktion of sprich_2.21", CALL_FUNCTION, |r| {
-        matches!(operands(r), [only] if only.value == text("sprich_2.21"))
-    })?;
+    the(
+        records,
+        "CallFunktion of sprich_2.21",
+        CALL_FUNCTION,
+        |r| matches!(operands(r), [only] if only.value == text("sprich_2.21")),
+    )?;
     let i = the(
         records,
         "CallFunktion of sprich_2 for Vilya",
