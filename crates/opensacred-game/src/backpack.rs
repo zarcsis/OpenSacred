@@ -14,10 +14,7 @@ use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_rules::drops::Dropped;
 use opensacred_rules::inventory::{COLUMNS, Grid, Highlight, ROWS, held_at};
@@ -28,7 +25,7 @@ use crate::drops::{Pose, Tables};
 use crate::game::AppState;
 use crate::hud::Pointer;
 use crate::inventory::Shown;
-use crate::iso::Apart;
+use crate::item_pictures;
 use crate::model_effects::ApartMaterial;
 use crate::npcs::Retexture;
 use crate::pickup::Pack;
@@ -315,7 +312,8 @@ pub(crate) fn lay_icons(
 /// Makes a picture of `size` at the corner of the container `parent`, of the window's pixels
 /// (`scale` of the original's), that a camera of the render layer `layer` draws the items' models
 /// into, a unit of the models a pixel of the original's screen from the picture's top left (the
-/// rows going down), its light with it, both `scene`.
+/// rows going down), its light with it, both `scene`; its target follows the window's size
+/// (`item_pictures::WindowPixels`).
 pub(crate) fn spawn_picture<S: Component + Clone>(
     commands: &mut Commands,
     (targets, layers): (&mut Assets<Image>, &mut Assets<Layer>),
@@ -323,13 +321,7 @@ pub(crate) fn spawn_picture<S: Component + Clone>(
     (parent, size): (Entity, Vec2),
     (layer, scene): (usize, S),
 ) {
-    let pixels = (size * scale).round().as_uvec2().max(UVec2::ONE);
-    let target = targets.add(Image::new_target_texture(
-        pixels.x,
-        pixels.y,
-        TextureFormat::Rgba8UnormSrgb,
-        None,
-    ));
+    let target = targets.add(item_pictures::target(item_pictures::pixels(size, scale)));
     let picture = commands
         .spawn((
             bar::placed(Vec2::ZERO, size),
@@ -342,36 +334,11 @@ pub(crate) fn spawn_picture<S: Component + Clone>(
     commands.entity(parent).add_child(picture);
     commands.spawn((
         scene.clone(),
-        Camera3d::default(),
-        Camera {
-            order: -2,
-            clear_color: ClearColorConfig::Custom(Color::NONE),
-            ..default()
-        },
-        RenderTarget::from(target),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: size.x,
-                height: size.y,
-            },
-            near: -2_000.0,
-            far: 2_000.0,
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_xyz(size.x / 2.0, -size.y / 2.0, 0.0),
-        Tonemapping::None,
-        DebandDither::Disabled,
-        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
-        bevy::light::cluster::ClusterConfig::Single,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: AMBIENT,
-            affects_lightmapped_meshes: true,
-        },
-        RenderLayers::layer(layer),
-        Apart,
-        crate::item_pictures::DrawnOnChange::default(),
-        DespawnOnExit(AppState::InGame),
+        item_pictures::camera(
+            target,
+            (item_pictures::WindowPixels::Part(size), size),
+            (-2, layer),
+        ),
     ));
     commands.spawn((
         scene,

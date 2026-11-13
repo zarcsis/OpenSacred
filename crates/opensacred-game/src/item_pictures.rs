@@ -13,15 +13,29 @@
 //! frames after each, which covers a scene's parts coming in over frames and a texture's way to
 //! the GPU, and on while any render pipeline is still being made, as a pipeline being compiled
 //! draws nothing (`ui_layers::Settled`, #2640).
+//!
+//! A picture is drawn at the window's pixels, and its target follows the window's size
+//! ([`WindowPixels`], #2697): made again at the window's scale as the window's size changes, as
+//! the interface's layers' pictures are (`ui_layers`). Made once, the picture of the bar's weapon
+//! sets kept the pixels of the window that a game began in, and F11's full screen drew it
+//! stretched.
 
 use bevy::asset::{AssetEvent, AssetEventSystems, AssetId};
-use bevy::camera::RenderTarget;
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
+use bevy::camera::{CameraUpdateSystems, RenderTarget, ScalingMode};
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::ecs::query::QueryItem;
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureFormat};
 use bevy::transform::TransformSystems;
+use bevy::ui_render::prelude::MaterialNode;
+use bevy::window::PrimaryWindow;
 
+use crate::bar::SCREEN;
+use crate::choice::Layer;
+use crate::game::AppState;
+use crate::iso::Apart;
 use crate::model_effects::ApartMaterial;
 use crate::ui_layers::Settled;
 
@@ -217,6 +231,152 @@ fn draw_on_change(
     }
 }
 
+/// What a picture's camera draws, in the original's pixels: a part of the original's screen of
+/// its size, as the interface scales it, or the whole window (the held item's, which follows the
+/// cursor anywhere).
+#[derive(Component, Clone, Copy, PartialEq, Debug)]
+pub(crate) enum WindowPixels {
+    Part(Vec2),
+    Whole,
+}
+
+impl WindowPixels {
+    /// The picture's size in the original's pixels in a window of `window` pixels.
+    fn size(self, window: Vec2) -> Vec2 {
+        match self {
+            Self::Part(size) => size,
+            Self::Whole => window / scale(window),
+        }
+    }
+}
+
+/// The interface's scale in a window of `window` pixels: the original's 768 rows to its height.
+fn scale(window: Vec2) -> f32 {
+    (window.y / SCREEN.y).max(0.01)
+}
+
+/// The window's pixels of a picture of `size` in the original's pixels, at the interface's
+/// `scale`.
+pub(crate) fn pixels(size: Vec2, scale: f32) -> UVec2 {
+    (size * scale).round().as_uvec2().max(UVec2::ONE)
+}
+
+/// A picture's target of `pixels`.
+pub(crate) fn target(pixels: UVec2) -> Image {
+    Image::new_target_texture(pixels.x, pixels.y, TextureFormat::Rgba8UnormSrgb, None)
+}
+
+/// A picture's camera's projection and place for its `size` in the original's pixels: a unit of
+/// the models a pixel of the original's screen from the picture's top left, the rows going down.
+fn view(size: Vec2) -> (Projection, Transform) {
+    (
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: size.x,
+                height: size.y,
+            },
+            near: -2_000.0,
+            far: 2_000.0,
+            ..OrthographicProjection::default_3d()
+        }),
+        Transform::from_xyz(size.x / 2.0, -size.y / 2.0, 0.0),
+    )
+}
+
+/// A picture's camera of the order `order` that draws the render layer `layer` into `target`, of
+/// `picture` (`size` in the original's pixels): lit by an ambient light and the directional
+/// light of its layer alone, drawn only after a change ([`DrawnOnChange`]), its target following
+/// the window's size ([`WindowPixels`]).
+pub(crate) fn camera(
+    target: Handle<Image>,
+    (picture, size): (WindowPixels, Vec2),
+    (order, layer): (isize, usize),
+) -> impl Bundle {
+    let (projection, place) = view(size);
+    (
+        (
+            Camera3d::default(),
+            Camera {
+                order,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            RenderTarget::from(target),
+            projection,
+            place,
+            Tonemapping::None,
+            DebandDither::Disabled,
+        ),
+        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
+        bevy::light::cluster::ClusterConfig::Single,
+        AmbientLight {
+            color: Color::WHITE,
+            brightness: crate::backpack::AMBIENT,
+            affects_lightmapped_meshes: true,
+        },
+        RenderLayers::layer(layer),
+        Apart,
+        DrawnOnChange::default(),
+        picture,
+        DespawnOnExit(AppState::InGame),
+    )
+}
+
+/// Keeps each picture's target at the window's pixels as the window's size changes: the target
+/// made again at the window's scale, the camera's projection over the picture's size, and the
+/// material that shows the target written, as an asset is marked changed only as it is written
+/// and its bind group holds the old texture till then (`ui_layers::bands`). A minimised window,
+/// of no rows, leaves them as they are.
+fn follow_window(
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    mut cameras: Query<(
+        &WindowPixels,
+        &RenderTarget,
+        &mut Projection,
+        &mut Transform,
+    )>,
+    (mut images, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
+    nodes: Query<&MaterialNode<Layer>>,
+) {
+    let Some(window) = window else {
+        return;
+    };
+    let whole = Vec2::new(window.width(), window.height());
+    if whole.y < 1.0 {
+        return;
+    }
+    for (picture, target, mut projection, mut place) in &mut cameras {
+        let Some(handle) = target.as_image() else {
+            continue;
+        };
+        let size = picture.size(whole);
+        let wanted = pixels(size, scale(whole));
+        if images
+            .get(handle)
+            .is_none_or(|image| image.size() == wanted)
+        {
+            continue;
+        }
+        if let Some(mut image) = images.get_mut(handle) {
+            image.resize(Extent3d {
+                width: wanted.x,
+                height: wanted.y,
+                depth_or_array_layers: 1,
+            });
+        }
+        (*projection, *place) = view(size);
+        for node in &nodes {
+            if layers
+                .get(&node.0)
+                .is_some_and(|layer| layer.figures == *handle)
+                && let Some(mut layer) = layers.get_mut(&node.0)
+            {
+                layer.figures = handle.clone();
+            }
+        }
+    }
+}
+
 /// The items' pictures drawn only when they change.
 pub struct ItemPicturesPlugin;
 
@@ -226,11 +386,19 @@ impl Plugin for ItemPicturesPlugin {
         // visible entities are found, which an inactive camera's are not.
         app.add_systems(
             PostUpdate,
-            draw_on_change
-                .after(AssetEventSystems)
-                .after(TransformSystems::Propagate)
-                .after(VisibilitySystems::VisibilityPropagate)
-                .before(VisibilitySystems::CheckVisibility),
+            (
+                // Before the cameras' targets are measured, its change told with the frame's
+                // assets' changes, and the places propagated.
+                follow_window
+                    .before(AssetEventSystems)
+                    .before(CameraUpdateSystems)
+                    .before(TransformSystems::Propagate),
+                draw_on_change
+                    .after(AssetEventSystems)
+                    .after(TransformSystems::Propagate)
+                    .after(VisibilitySystems::VisibilityPropagate)
+                    .before(VisibilitySystems::CheckVisibility),
+            ),
         );
     }
 }
@@ -253,6 +421,7 @@ mod tests {
             .init_asset::<Mesh>()
             .init_asset::<StandardMaterial>()
             .init_asset::<ApartMaterial>()
+            .init_asset::<Layer>()
             .insert_resource(settled.clone())
             .add_plugins(ItemPicturesPlugin);
         app
@@ -357,5 +526,122 @@ mod tests {
         // Settled: the frames left of the last unsettled one.
         settled.tell(true);
         assert_eq!(draws(&mut app, camera, 4), [true, true, true, false]);
+    }
+
+    /// A window of `width` × `height` pixels, the game's primary.
+    fn window(app: &mut App, (width, height): (u32, u32)) -> Entity {
+        app.world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(width, height)
+                        .with_scale_factor_override(1.0),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id()
+    }
+
+    /// Gives the window `width` × `height` pixels.
+    fn resize(app: &mut App, window: Entity, (width, height): (u32, u32)) {
+        if let Some(mut window) = app.world_mut().get_mut::<Window>(window) {
+            window.resolution.set_physical_resolution(width, height);
+        }
+    }
+
+    /// A picture of `picture`, `size` in the original's pixels, made in a window of `height`
+    /// rows, and the node that shows it: its camera, its target and its material.
+    fn picture(
+        app: &mut App,
+        (picture, size): (WindowPixels, Vec2),
+        height: f32,
+    ) -> (Entity, Handle<Image>, Handle<Layer>) {
+        let world = app.world_mut();
+        let made = target(pixels(size, height / SCREEN.y));
+        let image = world.resource_mut::<Assets<Image>>().add(made);
+        let layer = world.resource_mut::<Assets<Layer>>().add(Layer {
+            figures: image.clone(),
+        });
+        world.spawn(MaterialNode(layer.clone()));
+        let camera = world
+            .spawn(super::camera(image.clone(), (picture, size), (-3, LAYER)))
+            .id();
+        (camera, image, layer)
+    }
+
+    /// The size of the image `image`.
+    fn size_of(app: &App, image: &Handle<Image>) -> Option<UVec2> {
+        app.world()
+            .resource::<Assets<Image>>()
+            .get(image)
+            .map(Image::size)
+    }
+
+    /// Whether the layer `layer` was told changed since the last call.
+    fn told(app: &mut App, layer: &Handle<Layer>) -> bool {
+        app.world_mut()
+            .resource_mut::<Messages<AssetEvent<Layer>>>()
+            .drain()
+            .any(|event| event.is_modified(layer))
+    }
+
+    /// The width and height of a camera's fixed projection, and its place's x and y.
+    fn view_of(app: &App, camera: Entity) -> Option<(Vec2, Vec2)> {
+        let projection = app.world().get::<Projection>(camera)?;
+        let place = app.world().get::<Transform>(camera)?;
+        match projection {
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::Fixed { width, height },
+                ..
+            }) => Some((Vec2::new(*width, *height), place.translation.truncate())),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_pictures_target_follows_the_windows_size() {
+        let settled = Settled::default();
+        settled.tell(true);
+        let mut app = app(&settled);
+        let window = window(&mut app, (1920, 1080));
+        // The weapon sets' picture of the bar (#2697): 400 × 128 of the original's pixels.
+        let size = Vec2::new(400.0, 128.0);
+        let (camera, image, layer) = picture(&mut app, (WindowPixels::Part(size), size), 1080.0);
+        app.update();
+        told(&mut app, &layer);
+        assert_eq!(size_of(&app, &image), Some(UVec2::new(563, 180)));
+        // The full screen: the target made again at its scale, the material told, the view kept.
+        resize(&mut app, window, (3840, 2160));
+        app.update();
+        assert_eq!(size_of(&app, &image), Some(UVec2::new(1125, 360)));
+        assert!(told(&mut app, &layer));
+        assert_eq!(view_of(&app, camera), Some((size, Vec2::new(200.0, -64.0))));
+        // Nothing changed: nothing made again.
+        app.update();
+        assert!(!told(&mut app, &layer));
+        // A minimised window, of no rows, leaves it.
+        resize(&mut app, window, (0, 0));
+        app.update();
+        assert_eq!(size_of(&app, &image), Some(UVec2::new(1125, 360)));
+    }
+
+    #[test]
+    fn the_held_items_picture_covers_the_whole_window_as_it_changes() {
+        let settled = Settled::default();
+        settled.tell(true);
+        let mut app = app(&settled);
+        let window = window(&mut app, (1920, 1080));
+        let made = Vec2::new(1920.0, 1080.0) * SCREEN.y / 1080.0;
+        let (camera, image, _) = picture(&mut app, (WindowPixels::Whole, made), 1080.0);
+        app.update();
+        assert_eq!(size_of(&app, &image), Some(UVec2::new(1920, 1080)));
+        // A window of 5:4: the original's 768 rows, 960 columns, over its pixels.
+        resize(&mut app, window, (1280, 1024));
+        app.update();
+        assert_eq!(size_of(&app, &image), Some(UVec2::new(1280, 1024)));
+        assert_eq!(
+            view_of(&app, camera),
+            Some((Vec2::new(960.0, 768.0), Vec2::new(480.0, -384.0)))
+        );
     }
 }

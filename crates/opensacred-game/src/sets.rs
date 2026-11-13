@@ -17,10 +17,7 @@
 //! stops the hero (`0x54E6D0`). A set of nothing leaves its hands empty.
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_data::heroes::Worn;
 use opensacred_rules::drops::{Dropped, Kind};
@@ -33,7 +30,7 @@ use crate::choice::Layer;
 use crate::drops::Tables;
 use crate::fight;
 use crate::game::AppState;
-use crate::iso::Apart;
+use crate::item_pictures::{self, WindowPixels};
 use crate::npcs::Retexture;
 
 /// The weapon sets, and the halves of each.
@@ -132,13 +129,7 @@ fn show(
     }
     let size = AREA.size();
     let scale = window.map_or(1.0, |window| window.height() / bar::SCREEN.y);
-    let pixels = (size * scale).round().as_uvec2().max(UVec2::ONE);
-    let target = targets.add(Image::new_target_texture(
-        pixels.x,
-        pixels.y,
-        TextureFormat::Rgba8UnormSrgb,
-        None,
-    ));
+    let target = targets.add(item_pictures::target(item_pictures::pixels(size, scale)));
     // Over the slots' orbs and rings, as the models are drawn after them.
     let picture = commands
         .spawn((
@@ -152,38 +143,10 @@ fn show(
         ))
         .id();
     commands.entity(bar).add_child(picture);
+    // The bar's picture lives as long as the bar: its target follows the window's size (#2697).
     commands.spawn((
         Scene,
-        Camera3d::default(),
-        Camera {
-            order: -3,
-            clear_color: ClearColorConfig::Custom(Color::NONE),
-            ..default()
-        },
-        RenderTarget::from(target),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: size.x,
-                height: size.y,
-            },
-            near: -2_000.0,
-            far: 2_000.0,
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_xyz(size.x / 2.0, -size.y / 2.0, 0.0),
-        Tonemapping::None,
-        DebandDither::Disabled,
-        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
-        bevy::light::cluster::ClusterConfig::Single,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: backpack::AMBIENT,
-            affects_lightmapped_meshes: true,
-        },
-        RenderLayers::layer(MODELS),
-        Apart,
-        crate::item_pictures::DrawnOnChange::default(),
-        DespawnOnExit(AppState::InGame),
+        item_pictures::camera(target, (WindowPixels::Part(size), size), (-3, MODELS)),
     ));
     commands.spawn((
         Scene,
