@@ -1520,7 +1520,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("opensacred-mkv-end-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cut.mkv");
-        let mut encoder = Encoder::new(path.clone(), Vec::new(), None);
+        let encoder = Encoder::new(path.clone(), Vec::new(), None);
         let left = encoder.sender().unwrap();
         for n in 0..3u32 {
             encoder.send(Frame {
