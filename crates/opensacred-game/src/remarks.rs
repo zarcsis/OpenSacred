@@ -97,30 +97,53 @@ pub enum Remark {
 
 /// The hirelings whose clicks speak by their types, and the stems of their lines (`0x67E645`).
 const CLICKED_TYPES: [(u32, &str); 3] = [(361, "GARGADUKNQ"), (368, "PRUTUKNQ"), (224, "VILYANQ")];
-/// The companions whose clicks speak by their names' texts, and the stems of their lines, in the
-/// order the case compares them; "Novizin" and "Prinz Valor", German, match no English text.
-const CLICKED_NAMES: [(&str, &str); 9] = [
+/// The companions whose clicks speak by their names' texts, and the stems of their lines.
+const CLICKED_NAMES: [(&str, &str); 7] = [
     ("Baroness Vilya", "VILYA"),
     ("Shareefa", "SHAREEFA"),
-    ("Novizin", "NOVIZIN"),
     ("Laurelinad", "LAURELIN"),
     ("Maegal", "MAEGAL"),
     ("Glubba", "GLUBBA"),
     ("Rocheford", "ROCHEFORD"),
-    ("Prinz Valor", "VALOR"),
     ("Wilbur", "WILBUR"),
+];
+/// The companions whose names the original compares in German, "Novizin" and "Prinz Valor", which
+/// match no English text, so that it never plays their lines (#2652): the texts of the keys of
+/// those names compared instead, the novice's 677 to 679 (her lines of an item given are of those
+/// keys, [`EQUIPMENT_LINES`]) and Prince Valor's 322 (**hypothesis**: no German texts to compare;
+/// docs/decisions/sound.md, "Companions' click lines by their names' keys").
+const CLICKED_KEYS: [(&str, &str); 4] = [
+    ("677", "NOVIZIN"),
+    ("678", "NOVIZIN"),
+    ("679", "NOVIZIN"),
+    ("322", "VALOR"),
 ];
 
 /// The line `n`, from 0, of the four that a click on a creature of the type `creature` and of the
-/// name's text `name` says (`0x67E645`): a hireling's by its type, else a companion's by its name;
-/// none of another. Wilbur's first line's name holds an underscore that his others lack.
-fn click_line(creature: u32, name: Option<&str>, n: u32) -> Option<String> {
+/// name's text `name` says (`0x67E645`): a hireling's by its type, else a companion's by its name,
+/// or by the text of a key of [`CLICKED_KEYS`] (`named`); none of another. Wilbur's first line's
+/// name holds an underscore that his others lack.
+fn click_line(
+    creature: u32,
+    name: Option<&str>,
+    n: u32,
+    named: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
     let n = n + 1;
     if let Some((_, stem)) = CLICKED_TYPES.iter().find(|&&(kind, _)| kind == creature) {
         return Some(format!("SOUND_FX_{stem}_HIRELING_ONCLICK{n:02}"));
     }
-    let (_, stem) = CLICKED_NAMES.iter().find(|&&(of, _)| Some(of) == name)?;
-    Some(if *stem == "WILBUR" && n == 1 {
+    let name = name?;
+    let keyed = CLICKED_KEYS
+        .iter()
+        .find(|&&(key, _)| named(key).as_deref() == Some(name))
+        .map(|&(_, stem)| stem);
+    let stem = CLICKED_NAMES
+        .iter()
+        .find(|&&(of, _)| of == name)
+        .map(|&(_, stem)| stem)
+        .or(keyed)?;
+    Some(if stem == "WILBUR" && n == 1 {
         "SOUND_FX_SFX_CLICKMYSH_WILBUR_1".to_owned()
     } else {
         format!("SOUND_FX_SFX_CLICKMYSH{stem}_{n}")
@@ -599,7 +622,13 @@ fn remark(
                         .and_then(|texts| texts.named(&name.0))
                         .map(str::to_owned)
                 });
-                click_line(creature, text.as_deref(), n)
+                let named = |key: &str| {
+                    texts
+                        .as_deref()
+                        .and_then(|texts| texts.named(key))
+                        .map(str::to_owned)
+                };
+                click_line(creature, text.as_deref(), n, &named)
             }
             _ => post.name(hero.creature, n),
         };
@@ -854,6 +883,13 @@ mod tests {
 
     #[test]
     fn a_click_names_a_hirelings_line_by_its_type_and_a_companions_by_its_name() {
+        // The texts of the novice's and Prince Valor's keys, as English names would stand.
+        let named = |key: &str| match key {
+            "678" => Some("A novice".to_owned()),
+            "322" => Some("A prince".to_owned()),
+            _ => None,
+        };
+        let click_line = |creature, name, n| click_line(creature, name, n, &named);
         assert_eq!(
             click_line(361, None, 0).as_deref(),
             Some("SOUND_FX_GARGADUKNQ_HIRELING_ONCLICK01")
@@ -875,7 +911,17 @@ mod tests {
             click_line(1, Some("Wilbur"), 2).as_deref(),
             Some("SOUND_FX_SFX_CLICKMYSHWILBUR_3")
         );
-        // Another creature says nothing, the English novice among them.
+        // The companions whose names the original compares in German, by their keys' texts
+        // (#2652).
+        assert_eq!(
+            click_line(677, Some("A novice"), 3).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHNOVIZIN_4")
+        );
+        assert_eq!(
+            click_line(1, Some("A prince"), 0).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHVALOR_1")
+        );
+        // Another creature says nothing.
         assert_eq!(click_line(677, Some("Novice Imue"), 0), None);
         assert_eq!(click_line(677, None, 0), None);
     }
