@@ -1055,7 +1055,6 @@ fn screen(
         &mut commands,
         (&mut targets, &assets),
         (Screen::Heroes, &pond(&images, true)),
-        height,
     );
     let looks = figures
         .0
@@ -1156,17 +1155,13 @@ fn saved_screen(
     let height = menu::picture_height(window.map(|window| window.height()));
     let pond = pond(&images, false);
     let water = match scope {
-        Scope::Menu(screen) => ripples.spawn(
-            &mut commands,
-            (&mut targets, &assets),
-            (screen, &pond),
-            height,
-        ),
+        Scope::Menu(screen) => {
+            ripples.spawn(&mut commands, (&mut targets, &assets), (screen, &pond))
+        }
         Scope::Export => ripples.spawn(
             &mut commands,
             (&mut targets, &assets),
             (Exporting::Shown, &pond),
-            height,
         ),
     };
     let layer = stage(
