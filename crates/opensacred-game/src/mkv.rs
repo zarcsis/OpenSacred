@@ -1,7 +1,7 @@
 //! Recording into one Matroska file (#1225, #1226): `--record FILE.mkv` and `record FILE.mkv N`.
 //! The game writes a Matroska stream of its own into FFmpeg's standard input, its frames as raw
 //! BGRA in Matroska's VFW mode, each at the real time it was made at, and a text track with each
-//! frame's times; FFmpeg encodes the frames losslessly in FFV1 (`bgr0`, a variable frame rate,
+//! frame's times; FFmpeg encodes the frames losslessly in FFV1 (`bgra`, a variable frame rate,
 //! none dropped or repeated), keeps the text track and tags the file with the run's details. The
 //! frames go through a thread of their own, so that neither the pipe nor FFmpeg holds up a frame
 //! of the game. FFmpeg is found as the converter finds it: beside the game, else `FFMPEG`, else
@@ -444,9 +444,11 @@ fn command(out: &Path, tags: &[(String, String)], sound: bool) -> Command {
     command.args([
         "-map", "0", "-c:v", "ffv1", "-level", "3", "-g", "1", "-slices", SLICES,
     ]);
+    // BGRA, the frames' alpha opaque: VLC shows FFV1's `bgr0` with its red and green swapped
+    // (#2643), and its `bgra` right.
     command.args([
         "-pix_fmt",
-        "bgr0",
+        "bgra",
         "-c:s",
         "copy",
         "-fps_mode",
