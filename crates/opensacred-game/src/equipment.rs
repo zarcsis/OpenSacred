@@ -27,10 +27,7 @@
 //! The rings on its fingers are not drawn, the original showing nothing of them (seen, #1334).
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_rules::equipment::{Glow, Refusal, Wearer, frames, glow, refusal, slot_for, takes};
 use opensacred_rules::fight::{combat_with, regeneration_with};
@@ -47,7 +44,7 @@ use crate::hero::Body;
 use crate::hero::Hero;
 use crate::hud::Pointer;
 use crate::inventory::{EQUIPMENT, EquipmentWindow, Shown};
-use crate::iso::Apart;
+use crate::item_pictures;
 use crate::npcs::Retexture;
 use crate::pickup::Pack;
 use crate::sfx;
@@ -228,13 +225,7 @@ fn show(
         let scale = window
             .as_ref()
             .map_or(1.0, |window| window.height() / bar::SCREEN.y);
-        let pixels = (size * scale).round().as_uvec2().max(UVec2::ONE);
-        let target = targets.add(Image::new_target_texture(
-            pixels.x,
-            pixels.y,
-            TextureFormat::Rgba8UnormSrgb,
-            None,
-        ));
+        let target = targets.add(item_pictures::target(item_pictures::pixels(size, scale)));
         let picture = commands
             .spawn((
                 bar::placed(Vec2::ZERO, size),
@@ -247,36 +238,11 @@ fn show(
         commands.entity(equipment).add_child(picture);
         commands.spawn((
             Scene,
-            Camera3d::default(),
-            Camera {
-                order: -4,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
-                ..default()
-            },
-            RenderTarget::from(target),
-            Projection::Orthographic(OrthographicProjection {
-                scaling_mode: ScalingMode::Fixed {
-                    width: size.x,
-                    height: size.y,
-                },
-                near: -2_000.0,
-                far: 2_000.0,
-                ..OrthographicProjection::default_3d()
-            }),
-            Transform::from_xyz(size.x / 2.0, -size.y / 2.0, 0.0),
-            Tonemapping::None,
-            DebandDither::Disabled,
-            // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
-            bevy::light::cluster::ClusterConfig::Single,
-            AmbientLight {
-                color: Color::WHITE,
-                brightness: backpack::AMBIENT,
-                affects_lightmapped_meshes: true,
-            },
-            RenderLayers::layer(WORN),
-            Apart,
-            crate::item_pictures::DrawnOnChange::default(),
-            DespawnOnExit(AppState::InGame),
+            item_pictures::camera(
+                target,
+                (item_pictures::WindowPixels::Part(size), size),
+                (-4, WORN),
+            ),
         ));
         commands.spawn((
             Scene,

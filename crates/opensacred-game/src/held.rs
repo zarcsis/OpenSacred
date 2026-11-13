@@ -10,10 +10,7 @@
 //! click that may be walked on (`cEngine::dropItem`, `0x611620`), and does nothing else.
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
-use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use opensacred_rules::inventory::{Put, drop_cell, held_at};
@@ -28,7 +25,7 @@ use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::Pointer;
 use crate::inventory::Shown;
-use crate::iso::Apart;
+use crate::item_pictures;
 use crate::npcs::Retexture;
 use crate::pickup::Pack;
 use crate::terrain::Heights;
@@ -175,15 +172,9 @@ fn show(
     let Some((model, texture, pose)) = tables.look(held.dropped.item) else {
         return;
     };
-    let pixels = UVec2::new(window.physical_width(), window.physical_height()).max(UVec2::ONE);
-    let scale = window.height() / crate::bar::SCREEN.y;
-    let size = Vec2::new(window.width(), window.height()) / scale.max(0.01);
-    let target = targets.add(Image::new_target_texture(
-        pixels.x,
-        pixels.y,
-        TextureFormat::Rgba8UnormSrgb,
-        None,
-    ));
+    let scale = (window.height() / crate::bar::SCREEN.y).max(0.01);
+    let size = Vec2::new(window.width(), window.height()) / scale;
+    let target = targets.add(item_pictures::target(item_pictures::pixels(size, scale)));
     commands.spawn((
         View,
         Node {
@@ -203,36 +194,11 @@ fn show(
     ));
     commands.spawn((
         View,
-        Camera3d::default(),
-        Camera {
-            order: -3,
-            clear_color: ClearColorConfig::Custom(Color::NONE),
-            ..default()
-        },
-        RenderTarget::from(target),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: size.x,
-                height: size.y,
-            },
-            near: -2_000.0,
-            far: 2_000.0,
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_xyz(size.x / 2.0, -size.y / 2.0, 0.0),
-        Tonemapping::None,
-        DebandDither::Disabled,
-        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
-        bevy::light::cluster::ClusterConfig::Single,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: backpack::AMBIENT,
-            affects_lightmapped_meshes: true,
-        },
-        RenderLayers::layer(HELD),
-        Apart,
-        crate::item_pictures::DrawnOnChange::default(),
-        DespawnOnExit(AppState::InGame),
+        item_pictures::camera(
+            target,
+            (item_pictures::WindowPixels::Whole, size),
+            (-3, HELD),
+        ),
     ));
     commands.spawn((
         View,
