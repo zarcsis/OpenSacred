@@ -20,7 +20,7 @@
 //! its mirror or an image of it changed, its picture kept between ([`drawing`], #2661).
 
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -133,7 +133,9 @@ struct Mirror;
 /// of each node of its root's tree, whether the mirror took new nodes this frame, the frames
 /// since the parts were made, whether their picture is trusted: the window leaves the band's
 /// pieces to it only then ([`ready`]), the frames its camera has still to draw after a change
-/// ([`drawing`]), and the images its mirror shows.
+/// ([`drawing`]), the images its mirror shows, its mirror's nodes in its tree's order but the
+/// root's, the nodes a tree made anew takes first ([`retree`]), the hidden node that keeps the
+/// nodes no tree takes, with them, and whether its tree was made anew this frame.
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
@@ -150,6 +152,11 @@ struct Parts {
     signature: Signature,
     left: u8,
     images: HashSet<AssetId<Image>>,
+    order: Vec<Entity>,
+    spare: VecDeque<Entity>,
+    pool: Entity,
+    pooled: Vec<Entity>,
+    anew: bool,
 }
 
 /// What a band's pieces show: each image and its part, by which a band of this frame that takes
@@ -545,6 +552,17 @@ fn make(
     let root = commands
         .spawn((Node::default(), Mirror, Pickable::IGNORE, ChildOf(frame)))
         .id();
+    let pool = commands
+        .spawn((
+            Node {
+                display: Display::None,
+                ..default()
+            },
+            Mirror,
+            Pickable::IGNORE,
+            ChildOf(frame),
+        ))
+        .id();
     let composite = commands
         .spawn(composite_bundle(
             &material,
@@ -568,17 +586,37 @@ fn make(
         signature: Signature::new(),
         left: FRAMES,
         images: HashSet::new(),
+        order: Vec::new(),
+        spare: VecDeque::new(),
+        pool,
+        pooled: Vec::new(),
+        anew: false,
     }
 }
 
-/// A band's parts given to the tree of `tree`, a band of another's that ended this frame: its
-/// mirror's nodes but its root despawned, to be made again of the new tree ([`mirror`]); its
-/// camera has drawn and draws the new tree's picture this frame (#2642: the quest book makes its
-/// root anew as what the pointer is over changes).
+/// A band's parts given to the tree of `tree`, made anew whole or a band of another's that ended
+/// this frame: its mirror's nodes, in their tree's order, and those its pool keeps are the new
+/// tree's in its order ([`mirror`]), so that its camera draws the new tree's picture this frame,
+/// as it draws a node from its second frame on (#2642: the quest book makes its root anew as what
+/// the pointer is over changes; #2705: the statistics window, as its hover does). They wait in
+/// the pool till then, apart, so that the new tree's links never meet the old ones: a node laid
+/// under one of its own old descendants made a loop, which the layout panicked at.
 fn retree(commands: &mut Commands, parts: &mut Parts, tree: Entity) {
-    commands.entity(parts.root).despawn_children();
+    parts.spare = parts
+        .order
+        .drain(..)
+        .chain(parts.pooled.drain(..))
+        .collect();
+    let spare: Vec<Entity> = parts.spare.iter().copied().collect();
+    commands.entity(parts.pool).add_children(&spare);
     parts.mirrors = HashMap::from([(tree, parts.root)]);
     parts.left = FRAMES;
+    parts.anew = true;
+}
+
+/// How many nodes a band's mirror holds, its root's, its tree's and its pool's.
+fn held(parts: &Parts) -> usize {
+    1 + parts.order.len() + parts.pooled.len()
 }
 
 /// Despawns a band's parts: its camera, its frame with its mirror, its picture's node.
@@ -665,9 +703,14 @@ fn bands(
                 band
             }
             Entry::Vacant(entry) => {
+                // A band of the same images, else one whose mirror holds nodes enough for the new
+                // tree, whose picture its camera then draws whole in its first frame (#2705: the
+                // statistics window, whose images its hover changes).
+                let needed = tree.all(root).len();
                 let like = spare
                     .iter()
-                    .position(|parts| alike(&parts.signature, &shows));
+                    .position(|parts| alike(&parts.signature, &shows))
+                    .or_else(|| spare.iter().position(|parts| held(parts) >= needed));
                 let parts = match like {
                     Some(index) => {
                         anew = true;
@@ -826,8 +869,25 @@ fn bearing(nodes: &[Entity], pieces: &HashSet<Entity>, tree: &Tree) -> HashSet<E
     bearing
 }
 
-/// Keeps each band's mirror of its root's tree: a node for each of the tree's, spawned for the
-/// new and despawned for the gone, their styles, orders, visibility, turns, scrolls and images
+/// The image a node shows and its part, by which a mirror's node is matched to a new node.
+type Looks = (AssetId<Image>, Option<Rect>);
+
+/// The [`Looks`] of `image`.
+fn looks_of(image: &ImageNode) -> Looks {
+    (image.image.id(), image.rect)
+}
+
+/// The [`Looks`] of the mirror's node `node`, none where it shows no image.
+fn mirror_looks(mirrors: &Query<MirrorData, With<Mirror>>, node: Entity) -> Option<Looks> {
+    mirrors
+        .get(node)
+        .ok()
+        .and_then(|(_, image, ..)| image.map(looks_of))
+}
+
+/// Keeps each band's mirror of its root's tree: a node for each of the tree's, a spare one of the
+/// band's ([`retree`]) or else spawned for the new and despawned for the gone, the spare ones no
+/// node takes kept hidden in its pool, their styles, orders, visibility, turns, scrolls and images
 /// the originals', and the colours of the band's pieces alone.
 fn mirror(
     mut commands: Commands,
@@ -841,6 +901,7 @@ fn mirror(
         // Whether anything of the mirror changed: its camera then draws ([`drawing`], #2661).
         let mut changed = false;
         let mut images = HashSet::new();
+        let mut order = Vec::new();
         let nodes = tree.all(band.tree);
         let present: HashSet<Entity> = nodes.iter().copied().collect();
         let bearing = bearing(&nodes, &band.pieces, &tree);
@@ -852,6 +913,33 @@ fn mirror(
             }
             kept
         });
+        // The new nodes of an image first take the spare or pooled nodes that show it as it is: an
+        // image put on a node or changed on it shows from its second frame on (#2705).
+        let mut matched: HashMap<Entity, Entity> = HashMap::new();
+        for &original in &nodes {
+            if band.parts.mirrors.contains_key(&original) {
+                continue;
+            }
+            let Some(wants) = originals
+                .get(original)
+                .ok()
+                .and_then(|(_, _, _, image, ..)| image.map(|image| looks_of(&image)))
+            else {
+                continue;
+            };
+            let alike = |node: &Entity| mirror_looks(&mirrors, *node) == Some(wants);
+            let (spare, pooled) = (&mut band.parts.spare, &mut band.parts.pooled);
+            let node = match spare.iter().position(alike) {
+                Some(at) => spare.remove(at),
+                None => pooled
+                    .iter()
+                    .position(alike)
+                    .map(|at| pooled.swap_remove(at)),
+            };
+            if let Some(node) = node {
+                matched.insert(original, node);
+            }
+        }
         for &original in &nodes {
             let Ok((style, computed, text, image, background, visibility, z, turn, scroll)) =
                 originals.get(original)
@@ -863,12 +951,39 @@ fn mirror(
                 images.insert(image.image.id());
             }
             let colour = |colour: Color| if piece { colour } else { Color::NONE };
-            let mirror = *band.parts.mirrors.entry(original).or_insert_with(|| {
-                grown = true;
-                commands
-                    .spawn((Node::default(), Mirror, Pickable::IGNORE))
-                    .id()
+            let Parts {
+                mirrors: kept,
+                spare,
+                pooled,
+                ..
+            } = &mut band.parts;
+            // Else a node of an image takes one that shows an image and a node of none one that
+            // shows none, the pool's first, so that the last tree's nodes that this one does not
+            // show as they are wait there for a tree that does; else any; else a new one.
+            let matched = matched.remove(&original);
+            let imaged = image.is_some();
+            let kind = |node: &Entity| mirror_looks(&mirrors, *node).is_some() == imaged;
+            let mirror = *kept.entry(original).or_insert_with(|| {
+                let taken = matched
+                    .or_else(|| {
+                        pooled
+                            .iter()
+                            .position(kind)
+                            .map(|at| pooled.swap_remove(at))
+                    })
+                    .or_else(|| spare.iter().position(kind).and_then(|at| spare.remove(at)))
+                    .or_else(|| pooled.pop())
+                    .or_else(|| spare.pop_front());
+                taken.unwrap_or_else(|| {
+                    grown = true;
+                    commands
+                        .spawn((Node::default(), Mirror, Pickable::IGNORE))
+                        .id()
+                })
             });
+            if original != band.tree {
+                order.push(mirror);
+            }
             let style = mirrored_style(style, text, computed);
             let copy = |image: &ImageNode| ImageNode {
                 color: colour(image.color),
@@ -955,6 +1070,14 @@ fn mirror(
                 changed = true;
             }
         }
+        // The spare nodes no node of the tree took, hidden in the pool for a tree to come.
+        let unused: Vec<Entity> = band.parts.spare.drain(..).collect();
+        if !unused.is_empty() {
+            commands.entity(band.parts.pool).add_children(&unused);
+            band.parts.pooled.extend(unused);
+            changed = true;
+        }
+        band.parts.order = order;
         band.parts.grown = grown;
         band.parts.images = images;
         if grown || changed {
@@ -965,14 +1088,16 @@ fn mirror(
 
 /// Whether a band's camera draws this frame: always before its picture is trusted; not in a frame
 /// its mirror took new nodes, which the camera draws from their second frame on, its picture of
-/// the last frame kept (#2642); else in the [`FRAMES`] frames after a change (`left`, counted
-/// down), its picture of the last drawing kept between (#2661). Research #2637 measured some
-/// 0.2 ms a frame a band's camera at 3,840 × 2,160.
-fn drawing(ready: bool, grown: bool, left: &mut u8) -> bool {
+/// the last frame kept (#2642), but in the frame its tree was made anew (`anew`), whose picture
+/// lacks only the new nodes where the last frame's is another tree's (#2705); else in the
+/// [`FRAMES`] frames after a change (`left`, counted down), its picture of the last drawing kept
+/// between (#2661). Research #2637 measured some 0.2 ms a frame a band's camera at
+/// 3,840 × 2,160.
+fn drawing(ready: bool, (grown, anew): (bool, bool), left: &mut u8) -> bool {
     if !ready {
         return true;
     }
-    if grown {
+    if grown && !anew {
         return false;
     }
     let draws = *left > 0;
@@ -1009,7 +1134,12 @@ fn composites(
             band.parts.left = FRAMES;
         }
         if let Ok(mut camera) = cameras.get_mut(band.parts.camera) {
-            let draws = drawing(band.parts.ready, band.parts.grown, &mut band.parts.left);
+            let draws = drawing(
+                band.parts.ready,
+                (band.parts.grown, band.parts.anew),
+                &mut band.parts.left,
+            );
+            band.parts.anew = false;
             if camera.is_active != draws {
                 camera.is_active = draws;
             }
@@ -1268,7 +1398,7 @@ mod tests {
         let frames = |ready: bool, grown: &[bool], left: &mut u8| -> Vec<bool> {
             grown
                 .iter()
-                .map(|&grown| drawing(ready, grown, left))
+                .map(|&grown| drawing(ready, (grown, false), left))
                 .collect()
         };
         // Before its picture is trusted, every frame.
@@ -1286,6 +1416,9 @@ mod tests {
             frames(true, &[true, false, false, false, false], &mut left),
             [false, true, true, true, false]
         );
+        // A tree made anew draws in its first frame though its mirror grew (#2705).
+        let mut left = FRAMES;
+        assert!(drawing(true, (true, true), &mut left));
     }
 
     #[test]
@@ -1313,12 +1446,25 @@ mod tests {
 
     #[test]
     fn a_bands_picture_is_trusted_once_its_pipelines_are_made() {
-        let mut parts = Parts {
+        let mut parts = parts_of(Entity::PLACEHOLDER, Entity::PLACEHOLDER);
+        // Its first frame: its camera draws its first picture, whatever is made.
+        assert!(!ready(&mut parts, true));
+        // Pipelines still compiling, as at the start.
+        assert!(!ready(&mut parts, false));
+        assert!(!ready(&mut parts, false));
+        assert!(ready(&mut parts, true));
+        // Kept once given, whatever compiles later.
+        assert!(ready(&mut parts, false));
+    }
+
+    /// A band's parts of the mirror's root `root` and the pool `pool`, the rest placeholders.
+    fn parts_of(root: Entity, pool: Entity) -> Parts {
+        Parts {
             camera: Entity::PLACEHOLDER,
             picture: Handle::default(),
             material: Handle::default(),
             frame: Entity::PLACEHOLDER,
-            root: Entity::PLACEHOLDER,
+            root,
             composite: Entity::PLACEHOLDER,
             whole: Vec2::ZERO,
             scale: 1.0,
@@ -1329,15 +1475,87 @@ mod tests {
             signature: Signature::new(),
             left: FRAMES,
             images: HashSet::new(),
+            order: Vec::new(),
+            spare: VecDeque::new(),
+            pool,
+            pooled: Vec::new(),
+            anew: false,
+        }
+    }
+
+    /// A tree made anew takes its band's mirror's nodes in their order, none spawned, so that the
+    /// band's camera draws it in its first frame; those it does not take wait in the pool, and the
+    /// next tree takes them (#2705: the statistics window, made anew as its hover changes).
+    #[test]
+    fn a_tree_made_anew_takes_the_mirrors_nodes_and_pools_the_rest() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let tree = |world: &mut World, children: usize| {
+            let root = world.spawn(Node::default()).id();
+            for _ in 0..children {
+                world.spawn((Node::default(), ChildOf(root)));
+            }
+            root
         };
-        // Its first frame: its camera draws its first picture, whatever is made.
-        assert!(!ready(&mut parts, true));
-        // Pipelines still compiling, as at the start.
-        assert!(!ready(&mut parts, false));
-        assert!(!ready(&mut parts, false));
-        assert!(ready(&mut parts, true));
-        // Kept once given, whatever compiles later.
-        assert!(ready(&mut parts, false));
+        let first = tree(&mut world, 3);
+        let root = world.spawn((Node::default(), Mirror)).id();
+        let pool = world.spawn((Node::default(), Mirror)).id();
+        let mut parts = parts_of(root, pool);
+        parts.mirrors.insert(first, root);
+        world.insert_resource(Layers(HashMap::from([(
+            (first, 0),
+            Band {
+                tree: first,
+                anchor: first,
+                pieces: HashSet::new(),
+                parts,
+            },
+        )])));
+        let pass = |world: &mut World| {
+            world
+                .run_system_once(mirror)
+                .expect("the mirror's system runs");
+        };
+        let band = |world: &mut World| {
+            let layers = world.resource::<Layers>();
+            let band = layers.0.values().next().expect("one band");
+            (
+                band.parts.order.clone(),
+                band.parts.pooled.clone(),
+                band.parts.grown,
+            )
+        };
+        let anew = |world: &mut World, tree: Entity| {
+            world
+                .run_system_once(move |mut commands: Commands, mut layers: ResMut<Layers>| {
+                    if let Some(band) = layers.0.values_mut().next() {
+                        band.tree = tree;
+                        retree(&mut commands, &mut band.parts, tree);
+                    }
+                })
+                .expect("the tree is made anew");
+        };
+        pass(&mut world);
+        let (made, pooled, grown) = band(&mut world);
+        assert_eq!((made.len(), pooled.len(), grown), (3, 0, true));
+        // The tree made anew with two nodes: the first two nodes, in order, the third pooled.
+        let second = tree(&mut world, 2);
+        anew(&mut world, second);
+        pass(&mut world);
+        let (taken, pooled, grown) = band(&mut world);
+        assert_eq!((taken.as_slice(), grown), (&made[..2], false));
+        assert_eq!(pooled, [made[2]]);
+        let parent = |world: &World, node: Entity| world.get::<ChildOf>(node).map(ChildOf::parent);
+        assert_eq!(parent(&world, made[0]), Some(root));
+        assert_eq!(parent(&world, made[2]), Some(pool));
+        // A tree of four: the three, the pooled one last, and a new one.
+        let third = tree(&mut world, 4);
+        anew(&mut world, third);
+        pass(&mut world);
+        let (taken, pooled, grown) = band(&mut world);
+        assert_eq!(&taken[..3], &made[..]);
+        assert!(!made.contains(&taken[3]));
+        assert!(pooled.is_empty() && grown);
     }
 
     /// A node's showing is told from the tree itself, a node spawned this frame's too (#2642).
