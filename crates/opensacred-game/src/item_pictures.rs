@@ -322,11 +322,45 @@ pub(crate) fn camera(
     )
 }
 
+/// Makes a picture's target `target` of `wanted` pixels where it is not, and writes each material
+/// that shows it (`nodes`), as an asset is marked changed only as it is written and its bind
+/// group holds the old texture till then (`ui_layers::bands`): whether it was made again. The
+/// items' pictures ([`WindowPixels`]) and the choice's figures (`choice`, #2698) follow the
+/// window's size by it.
+pub(crate) fn resize(
+    target: &Handle<Image>,
+    wanted: UVec2,
+    (images, layers): (&mut Assets<Image>, &mut Assets<Layer>),
+    nodes: &Query<&MaterialNode<Layer>>,
+) -> bool {
+    if images
+        .get(target)
+        .is_none_or(|image| image.size() == wanted)
+    {
+        return false;
+    }
+    if let Some(mut image) = images.get_mut(target) {
+        image.resize(Extent3d {
+            width: wanted.x,
+            height: wanted.y,
+            depth_or_array_layers: 1,
+        });
+    }
+    for node in nodes {
+        if layers
+            .get(&node.0)
+            .is_some_and(|layer| layer.figures == *target)
+            && let Some(mut layer) = layers.get_mut(&node.0)
+        {
+            layer.figures = target.clone();
+        }
+    }
+    true
+}
+
 /// Keeps each picture's target at the window's pixels as the window's size changes: the target
-/// made again at the window's scale, the camera's projection over the picture's size, and the
-/// material that shows the target written, as an asset is marked changed only as it is written
-/// and its bind group holds the old texture till then (`ui_layers::bands`). A minimised window,
-/// of no rows, leaves them as they are.
+/// made again at the window's scale ([`resize`]), and the camera's projection over the picture's
+/// size. A minimised window, of no rows, leaves them as they are.
 fn follow_window(
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     mut cameras: Query<(
@@ -351,28 +385,8 @@ fn follow_window(
         };
         let size = picture.size(whole);
         let wanted = pixels(size, scale(whole));
-        if images
-            .get(handle)
-            .is_none_or(|image| image.size() == wanted)
-        {
-            continue;
-        }
-        if let Some(mut image) = images.get_mut(handle) {
-            image.resize(Extent3d {
-                width: wanted.x,
-                height: wanted.y,
-                depth_or_array_layers: 1,
-            });
-        }
-        (*projection, *place) = view(size);
-        for node in &nodes {
-            if layers
-                .get(&node.0)
-                .is_some_and(|layer| layer.figures == *handle)
-                && let Some(mut layer) = layers.get_mut(&node.0)
-            {
-                layer.figures = handle.clone();
-            }
+        if resize(handle, wanted, (&mut images, &mut layers), &nodes) {
+            (*projection, *place) = view(size);
         }
     }
 }
