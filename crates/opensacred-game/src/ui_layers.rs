@@ -129,10 +129,11 @@ struct Mirror;
 /// A band's parts: its camera, its picture and the material that draws it, the frame its
 /// mirror lies in (the window's size in the original's pixels, under the camera), the mirror of
 /// its tree's root in the frame, the node that shows the picture in the window, the window's size
-/// the picture was made for, the mirror of each node of its root's tree, whether the mirror took
-/// new nodes this frame, the frames since the parts were made, whether their picture is
-/// trusted: the window leaves the band's pieces to it only then ([`ready`]), the frames its camera
-/// has still to draw after a change ([`drawing`]), and the images its mirror shows.
+/// the picture was made for and the interface's scale its camera's target was given, the mirror
+/// of each node of its root's tree, whether the mirror took new nodes this frame, the frames
+/// since the parts were made, whether their picture is trusted: the window leaves the band's
+/// pieces to it only then ([`ready`]), the frames its camera has still to draw after a change
+/// ([`drawing`]), and the images its mirror shows.
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
@@ -141,6 +142,7 @@ struct Parts {
     root: Entity,
     composite: Entity,
     whole: Vec2,
+    scale: f32,
     mirrors: HashMap<Entity, Entity>,
     grown: bool,
     age: u32,
@@ -464,6 +466,15 @@ fn picture_size(whole: Vec2) -> UVec2 {
     whole.ceil().as_uvec2().max(UVec2::ONE)
 }
 
+/// What a band's parts made for the window's size in the original's pixels and the interface's
+/// scale of `made` need for `now`'s: a picture of the new size, and its camera's target at the new
+/// scale. Two windows of one shape, 1,920 × 1,080 and 3,840 × 2,160 that F11 switches between,
+/// have one size in the original's pixels and scales of their own, and a target left at the old
+/// scale laid the mirror out twice or half its size (#2703).
+fn refit((whole, scale): (Vec2, f32), now: (Vec2, f32)) -> (bool, bool) {
+    (whole != now.0, scale != now.1)
+}
+
 /// A frame of `whole` size in the original's pixels, laying its root out as the window's
 /// viewport lays out a root of its own (`bevy_ui`'s implicit viewport node).
 fn frame_style(whole: Vec2) -> Node {
@@ -549,6 +560,7 @@ fn make(
         root,
         composite,
         whole,
+        scale,
         mirrors: HashMap::from([(tree, root)]),
         grown: true,
         age: 0,
@@ -587,7 +599,7 @@ fn bands(
     roots: Query<Entity, Roots>,
     tree: Tree,
     looks: Query<LookData, Own>,
-    mut cameras: Query<&mut RenderTarget, With<Camera>>,
+    mut cameras: Query<(&mut RenderTarget, Option<&mut Projection>), With<Camera>>,
     (mut pictures, mut materials): (ResMut<Assets<Image>>, ResMut<Assets<Picture>>),
     (settled, composites): (Res<Settled>, Query<(), With<Composite>>),
 ) {
@@ -596,7 +608,7 @@ fn bands(
     };
     let settled = settled.made();
     let (whole, scale) = window_size(window, scale.0);
-    let native = camera_pictures(cameras.iter());
+    let native = camera_pictures(cameras.iter().map(|(target, _)| target));
     let mut found = Vec::new();
     for root in &roots {
         if !tree.nodes.contains(root) {
@@ -692,9 +704,9 @@ fn bands(
             drawn.extend(band.pieces.iter().copied());
         }
         let parts = &mut band.parts;
-        if parts.whole != whole {
+        let (resized, rescaled) = refit((parts.whole, parts.scale), (whole, scale));
+        if resized {
             parts.whole = whole;
-            parts.left = FRAMES;
             commands.entity(parts.frame).insert(frame_style(whole));
             let size = picture_size(whole);
             if let Err(error) = pictures.insert(&parts.picture, picture_image(size)) {
@@ -705,11 +717,21 @@ fn bands(
             if let Some(mut material) = materials.get_mut(&parts.material) {
                 material.picture = parts.picture.clone();
             }
-            if let Ok(mut target) = cameras.get_mut(parts.camera) {
+        }
+        if resized || rescaled {
+            parts.scale = scale;
+            parts.left = FRAMES;
+            if let Ok((mut target, projection)) = cameras.get_mut(parts.camera) {
                 *target = RenderTarget::Image(ImageRenderTarget {
                     handle: parts.picture.clone(),
                     scale_factor: 1.0 / scale,
                 });
+                // Bevy measures a camera's target again as its image, its window or its
+                // projection changes, not its target alone (`camera_system`): a picture kept
+                // whole, its new scale is told by its projection.
+                if let Some(mut projection) = projection {
+                    projection.set_changed();
+                }
             }
         }
     }
@@ -1267,6 +1289,29 @@ mod tests {
     }
 
     #[test]
+    fn a_window_of_the_same_shape_rescales_the_bands_and_keeps_their_pictures() {
+        let (hd, uhd) = (
+            window_size_of(1920.0, 1080.0),
+            window_size_of(3840.0, 2160.0),
+        );
+        assert_eq!(hd.0, uhd.0);
+        // F11 between them: the camera's target at the new scale, the picture kept.
+        assert_eq!(refit(hd, uhd), (false, true));
+        assert_eq!(refit(uhd, hd), (false, true));
+        // Another shape: both.
+        assert_eq!(refit(hd, window_size_of(1280.0, 1024.0)), (true, true));
+        assert_eq!(refit(hd, hd), (false, false));
+    }
+
+    /// [`window_size`] of a window of `width` × `height` pixels, its interface scaled to its
+    /// height (`hud::scale`).
+    fn window_size_of(width: f32, height: f32) -> (Vec2, f32) {
+        let mut window = Window::default();
+        window.resolution.set(width, height);
+        window_size(&window, height / 768.0)
+    }
+
+    #[test]
     fn a_bands_picture_is_trusted_once_its_pipelines_are_made() {
         let mut parts = Parts {
             camera: Entity::PLACEHOLDER,
@@ -1276,6 +1321,7 @@ mod tests {
             root: Entity::PLACEHOLDER,
             composite: Entity::PLACEHOLDER,
             whole: Vec2::ZERO,
+            scale: 1.0,
             mirrors: HashMap::new(),
             grown: true,
             age: 0,
