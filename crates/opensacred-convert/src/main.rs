@@ -717,6 +717,12 @@ fn execute(command: Command) -> Result<ExitCode> {
                     summary.renamed_sounds
                 );
             }
+            if summary.companion_waits > 0 {
+                println!(
+                    "  repaired: {} companions' lines waited for before the hero's",
+                    summary.companion_waits
+                );
+            }
             for warning in &summary.warnings {
                 eprintln!("warning: {warning}");
             }
