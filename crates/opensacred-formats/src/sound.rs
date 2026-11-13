@@ -480,6 +480,13 @@ mod tests {
         data.extend([0; 10]);
         assert_eq!(mp3_frames(&data), Some((3, 44_100)));
         assert_eq!(mp3_frames(&[0; 300]), None);
+        // 64 kbit/s at 48 kHz: 192 bytes a frame; the rate's bits 3 are reserved, no frame.
+        let mut fast = vec![0; 2 * 192];
+        fast[..3].copy_from_slice(&[0xFF, 0xFB, 0x54]);
+        fast[192..195].copy_from_slice(&[0xFF, 0xFB, 0x54]);
+        assert_eq!(frame_len(&fast), Some(192));
+        assert_eq!(mp3_frames(&fast), Some((2, 48_000)));
+        assert_eq!(frame_len(&[0xFF, 0xFB, 0x5C, 0]), None);
     }
 
     #[test]
