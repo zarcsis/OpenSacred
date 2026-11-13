@@ -21,11 +21,13 @@ Multiplayer comes after version 1.0; until then there is no networking. Original
 | M2 Vertical slice: streamed sectors with ground, water and objects, the hero walking and running, the start script's NPCs, footsteps, music and ambience, day and night, the buildings' insides, the original's cursor; menus, settings, a console and remote control | done |
 | M3 Rules: the Ghidra project and an emulator that runs the original's own formulas to check ours against; the converter's two stages and the game's packed assets; the world's creatures spawned and living as in the original, the followers and the summonings; the fight of the creatures and the hero (health, death, experience and levels, the combat arts and the spells); what the killed drop, and picking it up | done |
 | M4 Quests and world: the scripts translated into Luau and run through the play (the quests, the triggers, the timers, the teleports, the world's changes), the dialogues and the icons over the creatures, the townsfolk's day, the weather's choice | done |
-| M5 UI and effects: the original's main menu and choice of the hero, the difficulty levels, the interface over the world, the inventory, the character's sheet, the trade and the blacksmith, the quest log and the maps, the effects, the weather drawn, the sound by the profiles, the movies | in progress |
-| M6 Version 1.0 for Windows 11: saves, the settings' menu, the gamepad, 4K and HiDPI, the campaigns played through | planned |
-| M7–M9: HD assets, Linux and possibly Android, multiplayer | after version 1.0 |
+| M5 UI and effects: the original's main menu and choice of the hero, the difficulty levels, the interface over the world, the inventory, the character's sheet, the trade and the blacksmith, the quest log and the maps, the effects, the weather drawn, the sound by the profiles, the movies, the saves | done |
+| M6 Version 1.0 for Windows 11: the settings' menu, 4K and HiDPI, polish, the Underworld campaign's script forms, the difficulty's chances in the creatures' minds, the campaigns played through | its issues done; version 1.0 waits for the maintainer's play-through |
+| M7 HD assets: upscaling and the HD packs, built by the converter's second stage | research begun; after version 1.0 |
+| M8 Platforms: Linux, possibly Android, the gamepad | after version 1.0 |
+| M9 Multiplayer: the campaigns played together over the network | after version 1.0 |
 
-It is not a game you can play through yet: the inventory is partly made, and there is no trade, no character sheet and no saving. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
+The game has the saves, the trade, the smith and the character's sheet; whether both campaigns play through to their ends is what the maintainer's play-through before version 1.0 checks. What is still missing is in the [issues](https://github.com/zarcsis/OpenSacred/issues), and where the game departs from the original on purpose, in [docs/decisions/](docs/decisions/). The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
 
 ## Playing a release
 
@@ -48,16 +50,16 @@ The full tool list is in [docs/03-toolchain.md](docs/03-toolchain.md).
 ```bash
 git clone https://github.com/zarcsis/OpenSacred.git
 cd OpenSacred
-# Copy or link your GOG installation of Sacred Gold to OriginalGame/ (ignored by Git),
-# or pass --game-dir <path> to every converter command.
+# The converter finds your GOG or Steam installation by the registry; a copy or link of it
+# in OriginalGame/ (ignored by Git) or --game-dir <path> overrides that.
 cargo run --release -p opensacred-convert -- verify   # check the installation against the manifest
 cargo run --release -p opensacred-convert -- all      # extract everything into assets-src/, then build the game's assets/ (both ignored by Git)
 cargo run --release -p opensacred-game                # the game, from its menu
 ```
 
-In the game the left button moves, speaks to a creature that has something to say and attacks a hostile one (with Ctrl it strikes at once), the right button makes the selected combat art, Shift held walks rather than runs, I opens the inventory, L the quest book, M the world map, Tab held the overview map, Space drinks a healing potion from the belt and Q, W, E and R the other potions, 1 to 5 choose the weapon set and 6 to 0 the art slot, F1 to F6 the arts bound to them on the spells page, the wheel zooms, Esc pauses, F10 lists the keys, F7 shows the debug overlay, F12 the log, F11 switches between borderless full screen and a window, and the key under Esc opens the console; `controls.toml` beside the settings moves any of them.
+In the game the left button moves, speaks to a creature that has something to say and attacks a hostile one (with Ctrl it strikes at once), the right button makes the selected combat art, Shift held walks rather than runs, I opens the inventory, L the quest book, M the world map, Tab held the overview map, Space drinks a healing potion from the belt (Shift the yellow one) and Q, W, E and R the other potions, B gives a healing potion to a follower, 1 to 5 choose the weapon set and 6 to 0 the art slot, F1 to F6 the arts bound to them on the spells page, the wheel zooms, Esc pauses with the pause menu and P under the pause's window, F10 lists the keys, F7 shows the debug overlay, F12 the log, F11 switches between borderless full screen and a window, and the key under Esc opens the console; `controls.toml` beside the settings moves any of them.
 
-The converter works in two stages. The extractions `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes` and `netscript` write the masters into `assets-src/`; `build` makes the game's `assets/` from them, packed into ZIP archives by kind, and remakes only those whose masters changed. `all` runs every extraction in order, skipping those whose output is up to date (`--force` runs them all), then `build`; `verify` checks the installation and `coverage` tells what becomes of each of its files. `--help` describes each. The game takes `--class` (a game at once, skipping the menu), `--sector X,Y`, `--zoom`, `--time HH:MM`, `--windowed`/`--borderless`, `--width`/`--height`, `--no-music`, `--settings`, `--log-file`, `--screenshot`, `--benchmark`, `--exec` and `--remote`; its `--help` lists the rest.
+The converter works in two stages. The extractions `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes` and `netscript` write the masters into `assets-src/`; `build` makes the game's `assets/` from them, packed into ZIP archives by kind, and remakes only those whose masters changed. `all` runs every extraction in order, skipping those whose output is up to date (`--force` runs them all), then `build`; `install` is the player's run, which the game starts at its first start: the installation found and checked, the extractions and `build` into a working directory, and the assets put in place whole (`%LOCALAPPDATA%\OpenSacred\assets` by default). `locate` names the GOG or Steam installation it finds, `verify` checks it and `coverage` tells what becomes of each of its files. `--help` describes each. The game takes `--class` (a game at once, skipping the menu), `--sector X,Y`, `--zoom`, `--time HH:MM`, `--windowed`/`--borderless`, `--width`/`--height`, `--no-music`, `--settings`, `--log-file`, `--screenshot`, `--benchmark`, `--exec` and `--remote`; its `--help` lists the rest.
 
 The converted assets are made from your copy of the game. Keep them for yourself: do not publish or share them (see [docs/08-risks-legal.md](docs/08-risks-legal.md)).
 
@@ -66,14 +68,14 @@ The converted assets are made from your copy of the game. Keep them for yourself
 | Path | Contents |
 |---|---|
 | `crates/opensacred-formats` | readers of the original formats (PAK, TEX, GRN, sectors, NetScript, `global.res`, AMH); parsing only |
-| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds, the arrows, the drops, the combat arts and spells, the quests' state and rewards, the backpack, the equipment, the potions and the weapon sets, the weather, the music, the particles and the undead |
+| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds and casts, the arrows, the drops, the combat arts, the combos and the spells, the quests' state and rewards, the backpack, the equipment, the potions and the weapon sets, the trade and the smith, the weather, the music, the particles and the undead |
 | `crates/opensacred-scripts` | the runtime of the scripts translated into Luau, sandboxed |
 | `crates/opensacred-data` | open-format types shared by the converter and the game, the game's ZIP archives and KTX2 textures |
 | `crates/opensacred-convert` | the converter CLI |
 | `crates/opensacred-game` | the game on Bevy |
 | `crates/opensacred-oracle` | development only: the developer's own `Sacred.exe` in the Unicorn emulator, running the original's fight formulas to record the vectors the rules' tests compare with |
 | `docs/` | design documents, format descriptions, recovered behavior, decisions |
-| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, the original's driver under Frida, and the process scripts (usage, stacked pull requests) |
+| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, the original's driver under Frida, and the process scripts (taking an issue, usage, stacked pull requests, the daily dependency update) |
 | `.claude/skills/` | the project skills of Claude Code: running and driving the game and the original |
 
 ## Tests
@@ -83,6 +85,7 @@ cargo nextest run --workspace                       # without the game files, as
 cargo nextest run --workspace --run-ignored all     # plus the tests on OriginalGame/, the Python prototypes and the GPU
 cargo run --release -p opensacred-oracle --features emulator                  # record the original's fight formulas (docs/03 §3.4)
 cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'   # the rules' formulas against them
+cargo mutants --in-diff <diff> -p opensacred-rules -p opensacred-data -p opensacred-formats --test-package opensacred-rules,opensacred-data,opensacred-formats   # the mutants of a change's lines, as CI's Mutants check (docs/03 §3.4)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check                                    # licenses, advisories, sources
 ```
@@ -108,7 +111,7 @@ The full index is in [PLAN.md](PLAN.md), §14.
 
 ## Contributing
 
-Work goes through [issues](https://github.com/zarcsis/OpenSacred/issues) and pull requests. Open an issue from the form of its type (bug, feature, research, dependency, infrastructure, documentation), branch from `main`, and open a pull request from the template; it is merged once the checks (Linux, Windows, cargo deny) are green and the maintainer has looked at it. CI has no game files, so run the tests on your own installation (`cargo nextest run --workspace --run-ignored all`) before opening it. The process is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
+Work goes through [issues](https://github.com/zarcsis/OpenSacred/issues) and pull requests. Open an issue from the form of its type (bug, feature, research, dependency, infrastructure, documentation), branch from `main`, and open a pull request from the template; it is merged once the checks (Linux, Windows, cargo deny, Mutants) are green and the maintainer has looked at it; a change to `opensacred-rules`, `opensacred-data` or `opensacred-formats` kills the mutants of its lines with tests. CI has no game files, so run the tests on your own installation (`cargo nextest run --workspace --run-ignored all`) before opening it. The process is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
 
 ## License
 
