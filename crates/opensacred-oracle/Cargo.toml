@@ -23,6 +23,7 @@ emulator = [
     "dep:opensacred-formats",
     "dep:opensacred-rules",
     "dep:proptest",
+    "dep:serde_json",
 ]
 
 [dependencies]
@@ -34,7 +35,7 @@ opensacred-formats = { workspace = true, optional = true }
 opensacred-rules = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, optional = true }
 sha2.workspace = true
 unicorn-engine = { workspace = true, optional = true }
 

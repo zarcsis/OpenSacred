@@ -4,7 +4,7 @@
 
 * All tools are free.
   Binary analysis uses **Ghidra 12.2** with the MCP server **pyghidra-mcp** for Claude Code (**GhidraMCP 2.0** is the alternative with the Ghidra GUI); IDA Pro and Binary Ninja are excluded.
-* The product is built with **Rust 1.99.1** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.51 and the Windows SDK are needed for Rust on Windows).
+* The product is built with **Rust 1.100.0** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.51 and the Windows SDK are needed for Rust on Windows).
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions), **Frida** (driving the running original, #448) and **x64dbg**; **dgVoodoo2** (the driven original drawing on a locked desktop, and its frames captured in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
@@ -26,7 +26,7 @@
 | | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.5 | freeware | its two DLLs and its configuration beside `Sacred.exe` in `OriginalGame/`, so that the driven original draws on a locked desktop (§3.8); the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
-| Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
+| Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.100.0, edition 2024 | MIT or Apache-2.0 | all product code |
 | | Visual Studio Build Tools 2026 | MSVC 14.51 + Windows SDK | free for individual development | the linker for Rust on Windows |
 | | cargo-nextest, cargo-deny, cargo-mutants | current | open source | fast tests (`.config/nextest.toml` runs the GRN cross-checks alone, #746), dependency license checks, mutation testing (`.cargo/mutants.toml`, §3.4) |
 | | CMake (Ninja when in `PATH`) | 4.4.4 (Ninja 1.13.2) | BSD-3-Clause, free | builds libopus for the game's sound (`opusic-sys`, #701), and Unicorn for the oracle (§3.4) |
@@ -90,7 +90,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 ```powershell
 # Toolchain check
 rustup update stable
-rustc --version            # 1.99.1, the version of rust-toolchain.toml, which rustup installs in the checkout
+rustc --version            # 1.100.0, the version of rust-toolchain.toml, which rustup installs in the checkout
 cargo --version
 cl                         # MSVC 19.51 from Build Tools 2026 (in Developer PowerShell)
 cargo run -p opensacred-convert -- verify   # your installation in OriginalGame/ against the manifest
@@ -588,4 +588,4 @@ Closed: software Vulkan in CI is enough for the screenshot test, which runs on l
 ## Sources
 
 * The compiler, the libraries and the functions shared by the client and the server: docs/01, §3 and §5.
-* Rust 1.99.1: the stable channel; Visual Studio 2026 and MSVC 14.51: devblogs.microsoft.com/cppblog; Vulkan SDK 1.4.363.0: lunarg.com.
+* Rust 1.100.0: the stable channel (#2686); Visual Studio 2026 and MSVC 14.51: devblogs.microsoft.com/cppblog; Vulkan SDK 1.4.363.0: lunarg.com.

@@ -1034,8 +1034,8 @@ fn show(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    for k in 0..shown {
-        let kind = socketed.get(k).copied().or(match &smith.waiting[k] {
+    for (k, waiting) in smith.waiting.iter().enumerate().take(shown) {
+        let kind = socketed.get(k).copied().or(match waiting {
             Some(Wait::Item(held)) => Some(held.dropped.item),
             Some(Wait::Upgrade(kind)) => Some(*kind),
             None => None,

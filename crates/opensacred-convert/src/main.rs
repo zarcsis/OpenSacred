@@ -405,18 +405,29 @@ fn main() -> Result<ExitCode> {
                     println!("{name}: up to date");
                     continue;
                 }
-                run(command)?;
+                if let Some(code) = step(command)? {
+                    return Ok(code);
+                }
             }
-            run(Command::Build {
+            if let Some(code) = step(Command::Build {
                 assets_src: src,
                 out,
                 force,
-            })?;
+            })? {
+                return Ok(code);
+            }
             println!("all done in {:.1} s", start.elapsed().as_secs_f64());
             Ok(ExitCode::SUCCESS)
         }
         command => run(command),
     }
+}
+
+/// Runs a step of `all` or `install`: its code where it did not succeed, for the chain to stop
+/// with, else none.
+fn step(command: Command) -> Result<Option<ExitCode>> {
+    let code = run(command)?;
+    Ok((code != ExitCode::SUCCESS).then_some(code))
 }
 
 /// Runs a command, then records its manifest, or forgets it after a run that wrote only some of
@@ -887,14 +898,18 @@ fn install_run(
         .zip(EXTRACTIONS)
     {
         progress.stage(name);
-        run(command)?;
+        if let Some(code) = step(command)? {
+            return Ok(code);
+        }
     }
     progress.stage("build");
-    run(Command::Build {
+    if let Some(code) = step(Command::Build {
         assets_src: work.masters(),
         out: work.assets(),
         force: true,
-    })?;
+    })? {
+        return Ok(code);
+    }
     work.finish(&opensacred_data::converted::Converted {
         version: env!("OPENSACRED_VERSION").to_owned(),
         release: match release {
