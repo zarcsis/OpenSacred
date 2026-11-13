@@ -10,8 +10,8 @@
 //! the entries in the order of their paths. It leaves out the masters that the game never reads
 //! (#2645): the atlases that the sprites' images were assembled from (#838), the menus' tiles
 //! that `ui` assembles its pictures from (#2646), the motion records' files, whose clips
-//! `models` copies into the models' (#2647), and the scripts' trees, which the game runs in
-//! Luau (#726).
+//! `models` copies into the models' (#2647), the files that no code of the game reads (#2650),
+//! and the scripts' trees, which the game runs in Luau (#726).
 //!
 //! It records `<out>/manifest/build.ron`: the masters it built from and each archive's entries,
 //! `<archive>/<path>`, each with its SHA-256. An archive whose masters are all the ones recorded
@@ -230,6 +230,21 @@ impl SharedScripts {
     }
 }
 
+/// Whether the master at `path` stays among the masters alone, as the game never reads it
+/// (#2645): a menu's tile, which `ui` assembles its picture from (#2646), a motion record's
+/// file, whose clip `models` copies into the models' (#2647), a file that no code of the game
+/// reads (the heroes' own files, six tables, three loading screens and the first credits,
+/// #2650), a network game's tree, until M9 (#2648), or a script's tree ([`masters_alone`]).
+fn never_read(path: &str) -> bool {
+    crate::ui::is_menu_tile(path)
+        || crate::models::is_motion(path)
+        || crate::heroes::is_unread(path)
+        || crate::tables::is_unread(path)
+        || crate::ui::is_unread(path)
+        || crate::netscript::is_network(path)
+        || masters_alone(path)
+}
+
 /// Whether the master at `path` stays among the masters alone: a tree of the scripts as the
 /// converter reads it (`netscript/<tree>.nsc`) and their index (`netscript/netscript.ron`), the
 /// sources of the Luau that the game runs (#726).
@@ -266,9 +281,8 @@ pub struct Summary {
     pub masters: usize,
     pub built: usize,
     pub kept: usize,
-    /// The masters left out: the atlases that the sprites' images were assembled from (#838), the
-    /// menus' tiles (#2646), the motion records' files (#2647), and the scripts' trees, which the
-    /// game runs in Luau (#726).
+    /// The masters left out, which the game never reads: the atlases that the sprites' images
+    /// were assembled from (#838) and the others of [`never_read`].
     pub left_out: usize,
     pub removed: usize,
     pub archives: usize,
@@ -569,12 +583,7 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     };
     let mut archives: BTreeMap<String, Vec<Planned>> = BTreeMap::new();
     let left = |m: &FileHash| {
-        assembled.contains(&m.path)
-            || shared.left.contains(&m.path)
-            || crate::netscript::is_network(&m.path)
-            || crate::ui::is_menu_tile(&m.path)
-            || crate::models::is_motion(&m.path)
-            || masters_alone(&m.path)
+        assembled.contains(&m.path) || shared.left.contains(&m.path) || never_read(&m.path)
     };
     for master in masters.iter().filter(|m| !left(m)) {
         let (path, how) = make(&master.path, &read);
@@ -790,7 +799,7 @@ return F
         let src = scratch_dir("build-text-src");
         let out = scratch_dir("build-text-out");
         write(&src, "tables/items.ron", "\u{FEFF}[\r\n    (),\r\n]\r\n");
-        write(&src, "ui/texts/credits.txt", "a\r\nb\r\n");
+        write(&src, "ui/texts/credits2.txt", "a\r\nb\r\n");
         write(&src, "ui/fonts/antqs__.ttf", "font\r\n");
         build(&src, &out, false).unwrap();
         assert_eq!(
@@ -798,7 +807,7 @@ return F
             "[\n    (),\n]\n"
         );
         assert_eq!(
-            read(&out, "ui.zip", "ui/texts/credits.txt").unwrap(),
+            read(&out, "ui.zip", "ui/texts/credits2.txt").unwrap(),
             "a\nb\n"
         );
         assert_eq!(
@@ -1093,6 +1102,37 @@ return F
                 .unwrap()
                 .contains("textures/texture/00001-dwarf.ktx2")
         );
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The files that no code of the game reads leave its assets (#2650), what it reads beside
+    /// them stays.
+    #[test]
+    fn the_files_the_game_never_reads_are_left_out() {
+        let src = scratch_dir("build-unread-src");
+        let out = scratch_dir("build-unread-out");
+        for path in [
+            "heroes/heroes.ron",
+            "heroes/templates/hero00.hero",
+            "tables/creatures.ron",
+            "tables/triggers.ron",
+            "ui/texts/credits.txt",
+            "ui/texts/credits2.txt",
+        ] {
+            write(&src, path, "[]");
+        }
+        let summary = build(&src, &out, false).unwrap();
+        assert_eq!(
+            (summary.masters, summary.built, summary.left_out),
+            (6, 3, 3)
+        );
+        let data = Archive::open(&out.join("data.zip")).unwrap();
+        let mut names: Vec<&str> = data.names().collect();
+        names.sort_unstable();
+        assert_eq!(names, ["heroes/heroes.ron", "tables/creatures.ron"]);
+        let ui = Archive::open(&out.join("ui.zip")).unwrap();
+        assert_eq!(ui.names().collect::<Vec<_>>(), ["ui/texts/credits2.txt"]);
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }

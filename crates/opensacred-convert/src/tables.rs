@@ -35,6 +35,31 @@ pub fn output_dir(out: &Path) -> PathBuf {
     out.join("tables")
 }
 
+/// The tables that no code of the game reads, which `build` leaves out of the game's assets
+/// (#2650); they stay among the masters, the network games' for M9:
+/// - `mercenaries_addon.ron`: byte for byte `mercenaries.ron`, and `Sacred.exe` names only
+///   `bin\merc.bin`;
+/// - `static_remap.ron`, `world_index.ron`: the original's loader of saves (`0x63B580`) alone
+///   uses them, for the saves of its older versions;
+/// - `world_map.ron`, `start_points.ron`: the network games' (`World2.bin` checksummed at
+///   `0x803920`, `MultiStart.bin` read at `0x4609A0`);
+/// - `triggers.ron`: every record of `Triggers.PAK` has the state 1, and the game keys the
+///   buildings by their anchor cells with that state (`buildings`).
+pub const UNREAD: [&str; 6] = [
+    MERCENARIES_ADDON,
+    STATIC_REMAP,
+    WORLD_INDEX,
+    WORLD_MAP,
+    START_POINTS,
+    TRIGGERS,
+];
+
+/// Whether the master at `path`, relative to the masters' directory, is one of [`UNREAD`].
+pub fn is_unread(path: &str) -> bool {
+    path.strip_prefix("tables/")
+        .is_some_and(|name| UNREAD.contains(&name))
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Summary {
     pub creatures: usize,
@@ -688,6 +713,15 @@ mod tests {
     use super::*;
     use crate::testing::scratch_dir;
 
+    #[test]
+    fn the_unread_tables_are_named_by_their_files() {
+        assert!(is_unread("tables/triggers.ron"));
+        assert!(is_unread("tables/mercenaries_addon.ron"));
+        assert!(!is_unread("tables/mercenaries.ron"));
+        assert!(!is_unread("tables/weapon_groups.ron"));
+        assert!(!is_unread("heroes/triggers.ron"));
+    }
+
     /// A `balance.ron` of an earlier converter, without the tail's tables, still reads; the
     /// tables come back as they were written.
     #[test]
@@ -807,6 +841,12 @@ mod tests {
         );
         let dir = output_dir(&out);
         let read = |file: &str| fs::read_to_string(dir.join(file)).unwrap();
+        // The tables `build` leaves out are among them, the mercenaries' of the add-on the same
+        // bytes as the others' (#2650).
+        for name in UNREAD {
+            assert!(dir.join(name).is_file(), "{name}");
+        }
+        assert_eq!(read(MERCENARIES_ADDON), read(MERCENARIES));
         // The human type 1's portrait, a part of `GUI_portraitX34.TGA`, and the default's (#1032).
         let portraits: Portraits = ron::from_str(&read(PORTRAITS)).unwrap();
         assert_eq!(
