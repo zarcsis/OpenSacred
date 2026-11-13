@@ -21,7 +21,6 @@ use bevy::picking::events::{PointerClick, PointerEnter};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::FontSize;
-use bevy::window::PrimaryWindow;
 
 /// The menu's screen.
 #[derive(SubStates, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -305,7 +304,6 @@ fn item<'a>(
 fn main_screen(
     mut commands: Commands,
     screen: Res<State<Screen>>,
-    window: Option<Single<&Window, With<PrimaryWindow>>>,
     images: Res<Images>,
     words: Res<Words>,
     assets: Res<AssetServer>,
@@ -323,7 +321,6 @@ fn main_screen(
     );
     chosen.0 = items.iter().position(|(item, _)| item.works()).unwrap_or(0);
     shown.0 = 0.0;
-    let height = picture_height(window.map(|window| window.height()));
     let pond = Pond {
         bed: images.bed.as_ref(),
         reflection: if first.0 {
@@ -335,12 +332,7 @@ fn main_screen(
         view: ripples::MAIN,
         cave: false,
     };
-    let water = ripples.spawn(
-        &mut commands,
-        (&mut targets, &assets),
-        (screen, &pond),
-        height,
-    );
+    let water = ripples.spawn(&mut commands, (&mut targets, &assets), (screen, &pond));
     let font: Handle<Font> = assets.load(MENU_FONT);
     let small: Handle<Font> = assets.load(FONT);
     commands
