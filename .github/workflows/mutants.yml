@@ -1,18 +1,15 @@
 # cargo-mutants on the lines a pull request changes in the crates without Bevy (docs/03 §3.4, #1432): a
-# mutant that every test lets through marks code that no test pins. The job reports and fails nothing
-# for its mutants: their counts and the missed ones go into its summary, mutants.out/ into an artifact.
-# It fails only when it could not measure them (a usage error, a baseline whose tests fail). Not a
-# required check (docs/03 §3.6).
+# mutant that every test lets through marks code that no test pins. A required check since #2690: the
+# job fails on a missed mutant, which the pull request kills with a test or excludes, an equivalent one,
+# in .cargo/mutants.toml with its reason, and when it could not measure them (a usage error, a baseline
+# whose tests fail); a timed-out mutant, whose tests did not pass, fails nothing. The counts and the
+# missed ones go into its summary, mutants.out/ into an artifact.
 name: Mutants
 
+# Every pull request, as a required check that never runs leaves one waiting: the job looks at the
+# changed files itself and passes at once where the mutants have nothing to test.
 on:
   pull_request:
-    paths:
-      - crates/opensacred-rules/**
-      - crates/opensacred-data/**
-      - crates/opensacred-formats/**
-      - .cargo/mutants.toml
-      - .github/workflows/mutants.yml
 
 permissions:
   contents: read
@@ -35,18 +32,37 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
+      # The files whose changes the mutants concern: the three crates', the settings' and this
+      # workflow's.
+      - id: paths
+        name: Changed crates
+        run: |
+          files=$(git diff --name-only HEAD^1 HEAD)
+          if grep -qE '^(crates/opensacred-(rules|data|formats)/|\.cargo/mutants\.toml$|\.github/workflows/mutants\.yml$)' <<< "$files"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Mutants on this pull request's lines"
+              echo
+              echo "No change in opensacred-rules, opensacred-data or opensacred-formats: no mutants to test."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Install toolchain from rust-toolchain.toml
+        if: steps.paths.outputs.changed == 'true'
         run: rustup toolchain install
       - uses: taiki-e/install-action@v2
+        if: steps.paths.outputs.changed == 'true'
         with:
           tool: cargo-nextest,cargo-mutants
       # The mutants of the changed lines, each built in a copy of the tree and tested with the tests
       # of the three crates (.cargo/mutants.toml: nextest, the lints capped, the exclusions): those of
       # opensacred-data take the tests of opensacred-rules and opensacred-formats, its users without
       # Bevy. cargo-mutants exits with 2 for missed mutants and 3 for timeouts, which the summary
-      # reports; any other failure is the job's.
+      # reports and the last step judges.
       - id: mutants
         name: Mutants on the changed lines
+        if: steps.paths.outputs.changed == 'true'
         run: |
           git diff HEAD^1 HEAD > "$RUNNER_TEMP/pull-request.diff"
           start=$(date +%s)
@@ -89,10 +105,23 @@ jobs:
           name: mutants.out
           path: ${{ runner.temp }}/mutants.out
           if-no-files-found: ignore
-      - name: Fail when the mutants could not be measured
-        if: steps.mutants.outputs.status != '0' && steps.mutants.outputs.status != '2' && steps.mutants.outputs.status != '3'
+      # By the list of the missed rather than by the exit status, which tells one kind of outcome
+      # where both missed and timed-out mutants are.
+      - name: Fail on a missed mutant, or when the mutants could not be measured
+        if: always() && steps.mutants.outputs.status != ''
         env:
           STATUS: ${{ steps.mutants.outputs.status }}
         run: |
-          echo "cargo mutants exited with $STATUS: see its log above"
-          exit 1
+          case "$STATUS" in
+            0 | 2 | 3) ;;
+            *)
+              echo "cargo mutants exited with $STATUS: see its log above"
+              exit 1
+              ;;
+          esac
+          missed="$RUNNER_TEMP/mutants.out/missed.txt"
+          if [ -s "$missed" ]; then
+            echo "$(grep -c . "$missed") mutants missed: kill each with a test, or exclude an equivalent one in .cargo/mutants.toml with its reason (docs/03 §3.4)"
+            cat "$missed"
+            exit 1
+          fi
