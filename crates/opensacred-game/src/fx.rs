@@ -365,23 +365,27 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 /// The extension of [`Effect`]: whether an added particle takes its colour whole, its alpha
 /// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
 /// 3), where Bevy's premultiplies it by its alpha: the texels of `PARTICLE_FIRE02` and of some
-/// glows carry an alpha as their brightness, which that would take twice (#1092).
+/// glows carry an alpha as their brightness, which that would take twice (#1092); and whether its
+/// `depth_bias` is a blended layer's, for its order alone ([`layered`]).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
+    layered: bool,
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ParticlesKey {
     whole: bool,
+    layered: bool,
 }
 
 impl From<&Particles> for ParticlesKey {
     fn from(extension: &Particles) -> Self {
         Self {
             whole: extension.whole,
+            layered: extension.layered,
         }
     }
 }
@@ -403,7 +407,25 @@ impl MaterialExtension for Particles {
                 fragment.shader_defs.push("WHOLE".into());
             }
         }
+        if key.bind_group_data.layered {
+            crate::blended::unbias(descriptor);
+        }
         Ok(())
+    }
+}
+
+/// `material` in the blended layer `layer`: drawn after every mesh of the layers before it and
+/// before every mesh of those after, its depth as it is (`blended`, [`Particles`]).
+pub(crate) fn layered(material: Effect, layer: crate::blended::Layer) -> Effect {
+    Effect {
+        base: StandardMaterial {
+            depth_bias: layer.bias(),
+            ..material.base
+        },
+        extension: Particles {
+            layered: true,
+            ..material.extension
+        },
     }
 }
 
@@ -427,7 +449,10 @@ pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> 
 /// (`ONE`, `ONE`, [`Particles`]).
 pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
     Effect {
-        extension: Particles { whole: true },
+        extension: Particles {
+            whole: true,
+            layered: false,
+        },
         ..particle_material(image, AlphaMode::Add)
     }
 }
@@ -1789,5 +1814,15 @@ mod tests {
         let was = ring.positions.clone();
         ring.in_order(Some(order), root);
         assert_eq!(ring.positions, was);
+    }
+
+    #[test]
+    fn a_layered_effect_takes_its_layers_order_and_keeps_the_rest() {
+        let added = whole_material(Handle::default());
+        let rings = layered(added.clone(), crate::blended::Layer::Rings);
+        assert_eq!(rings.base.depth_bias, crate::blended::Layer::Rings.bias());
+        assert!(rings.extension.layered && rings.extension.whole);
+        assert_eq!(rings.base.alpha_mode, added.base.alpha_mode);
+        assert!(!added.extension.layered);
     }
 }

@@ -41,6 +41,10 @@ pub enum Layer {
     StaticShadows,
     /// The sprites of list 2.
     LateUnderlays,
+    /// The health rings on the ground, which the original lays with their creatures in list 3,
+    /// before their models and their shadows (`cCreature_render` `0x599910`): under every model's
+    /// shadow, which darkens them (`health_rings`, #2701).
+    Rings,
     /// The models' shadows, which the original draws with their models, in list 3
     /// (`cGranny::renderShadow`), and the shadows that it draws right before their statics in
     /// their lists (entries of kind `0x11`).
@@ -62,9 +66,10 @@ impl Layer {
             Layer::Underlays => 1.0,
             Layer::StaticShadows => 2.0,
             Layer::LateUnderlays => 3.0,
-            Layer::Shadows => 4.0,
-            Layer::Objects => 5.0,
-            Layer::Glows => 6.0,
+            Layer::Rings => 4.0,
+            Layer::Shadows => 5.0,
+            Layer::Objects => 6.0,
+            Layer::Glows => 7.0,
         }
     }
 }
@@ -135,6 +140,7 @@ mod tests {
             Layer::Underlays,
             Layer::StaticShadows,
             Layer::LateUnderlays,
+            Layer::Rings,
             Layer::Shadows,
             Layer::Objects,
             Layer::Glows,

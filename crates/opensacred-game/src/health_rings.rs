@@ -10,18 +10,25 @@
 //! written, their alpha fading over the timer's last half second. Never for the dead, the horses,
 //! a creature thrown through the air or the demon's horn 6114.
 //!
+//! The rings lie on the ground in the world's pass, in their own layer before the models' shadows
+//! (`blended::Layer::Rings`, #2701): a shadow darkens a ring as the original's drawn after it
+//! does, where a shadow's depth tested against cut it away, and the models' bodies cover them.
+//! The night tints them as it tints the ground under them, where the original leaves them unlit
+//! (docs/decisions/drawing.md, "The health rings on the ground of the world's pass").
+//!
 //! Not followed: the champions' and the bosses' turning symbols (`UI_DISPLAY_GROUNDSYMBOL03`
 //! and `04`, `0x4087E0`).
 
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
 use opensacred_rules::fight::{
     RING_FIGHTS, RING_NEAR, RING_NEAR_RANGED, RING_NEAR_WITHIN, RING_STRUCK, ring_alpha,
     ring_colour, ring_half_side, ring_pie,
 };
 
+use crate::blended::Layer;
 use crate::frame::{Playing, WorldTick};
-use crate::fx::{Effect, Orders, Quads, empty, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, layered, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::iso;
@@ -254,10 +261,10 @@ fn draw(
                         if fill.is_none() || frame.is_none() {
                             warn!("health rings: no texture {FILL} or {FRAME}; no ring is drawn");
                         }
-                        Some([
-                            effects.add(particle_material(fill?, AlphaMode::Blend)),
-                            effects.add(particle_material(frame?, AlphaMode::Blend)),
-                        ])
+                        let material = |image| {
+                            layered(particle_material(image, AlphaMode::Blend), Layer::Rings)
+                        };
+                        Some([effects.add(material(fill?)), effects.add(material(frame?))])
                     })
                     .clone()
                 else {
@@ -281,7 +288,6 @@ fn draw(
                                 MeshMaterial3d(material),
                                 Transform::IDENTITY,
                                 NoFrustumCulling,
-                                RenderLayers::layer(iso::UNTINTED),
                             ));
                         }
                     })
