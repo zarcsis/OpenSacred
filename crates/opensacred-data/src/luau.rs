@@ -14,6 +14,12 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Index {
     pub functions: BTreeMap<String, Vec<Entry>>,
+    /// The tree's files whose bytecode another tree's directory holds, each by the tree, in the
+    /// game's assets alone (#2648): `build` packs a file that several trees share at one path, the
+    /// same source, once, in the first of them by name, and the others' indices name it here.
+    /// The masters' indices have none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub shared: BTreeMap<String, String>,
 }
 
 /// A function in a tree's sources: its file and its key in the file's table, its name or, for a

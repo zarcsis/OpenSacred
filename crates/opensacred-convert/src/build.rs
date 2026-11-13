@@ -57,11 +57,13 @@ enum Make {
     Video,
     /// A script's Luau source, compiled into Luau's bytecode (#723).
     Luau,
+    /// A script tree's index, naming the files whose bytecode another tree holds (#2648).
+    ScriptIndex,
 }
 
 impl Make {
     /// Every way.
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Copy,
         Self::Texture(Use::Read),
         Self::Texture(Use::Sampled),
@@ -72,6 +74,7 @@ impl Make {
         Self::Sound(true),
         Self::Video,
         Self::Luau,
+        Self::ScriptIndex,
     ];
 
     /// The way's name in the manifest and its version, raised when the converter makes its
@@ -92,6 +95,7 @@ impl Make {
             // 1: the movies cut to their content (#2413).
             Self::Video => ("video", 1),
             Self::Luau => ("luau", 1),
+            Self::ScriptIndex => ("script-index", 1),
         }
     }
 }
@@ -117,6 +121,9 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     }
     if path.starts_with("models/") && path.ends_with(".glb") {
         return (path.to_owned(), Make::Model);
+    }
+    if script_tree_index(path).is_some() {
+        return (path.to_owned(), Make::ScriptIndex);
     }
     if let Some(stem) = path.strip_suffix(".luau")
         && path.starts_with("netscript/")
@@ -171,6 +178,56 @@ fn world_textures(src: &Path) -> Result<(HashSet<String>, HashSet<String>)> {
     let (named, assembled) =
         crate::world::textures_of(&text).with_context(|| format!("reading {}", path.display()))?;
     Ok((named.into_iter().collect(), assembled.into_iter().collect()))
+}
+
+/// The tree whose index the master at `path` is (`netscript/<tree>/index.ron`).
+fn script_tree_index(path: &str) -> Option<&str> {
+    path.strip_prefix("netscript/")?
+        .strip_suffix(&format!("/{}", crate::luau::INDEX))
+        .filter(|tree| !tree.contains('/'))
+}
+
+/// The script trees' files that several trees share (#2648): of the Luau sources that trees
+/// the game loads hold at one path within their directories, the same source each, the first in
+/// the masters' order is packed, and the others' trees name it in their indices.
+#[derive(Debug, Default)]
+struct SharedScripts {
+    /// Each tree's shared files, by the path within its directory, each with the tree that
+    /// holds its bytecode ([`opensacred_data::luau::Index::shared`]).
+    by_tree: HashMap<String, BTreeMap<String, String>>,
+    /// The masters left out, as another tree's directory holds their bytecode.
+    left: HashSet<String>,
+}
+
+impl SharedScripts {
+    /// The shared files among `masters`, in their order; the network games' trees take no part
+    /// ([`crate::netscript::NETWORK`]).
+    fn of(masters: &[FileHash]) -> Self {
+        let mut shared = Self::default();
+        let mut holders: HashMap<(&str, &str), &str> = HashMap::new();
+        for master in masters {
+            let Some((tree, file)) = master
+                .path
+                .strip_prefix("netscript/")
+                .and_then(|rest| rest.split_once('/'))
+            else {
+                continue;
+            };
+            if !file.ends_with(".luau") || crate::netscript::NETWORK.contains(&tree) {
+                continue;
+            }
+            let holder = *holders.entry((file, &master.sha256)).or_insert(tree);
+            if holder != tree {
+                shared
+                    .by_tree
+                    .entry(tree.to_owned())
+                    .or_default()
+                    .insert(file.to_owned(), holder.to_owned());
+                shared.left.insert(master.path.clone());
+            }
+        }
+        shared
+    }
 }
 
 /// Whether the master at `path` stays among the masters alone: a tree of the scripts as the
@@ -258,6 +315,8 @@ struct Planned<'a> {
     master: &'a FileHash,
     path: String,
     how: Make,
+    /// A script tree's index's files whose bytecode another tree holds ([`SharedScripts`]).
+    shared: Option<&'a BTreeMap<String, String>>,
 }
 
 /// The output of `planned`, made from its master.
@@ -291,6 +350,14 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
             let flac = fs::read(&from).with_context(what)?;
             crate::sound::encode_opus(&flac, music, &planned.master.path).with_context(what)
         }
+        Make::ScriptIndex => {
+            let text = fs::read_to_string(&from).with_context(what)?;
+            let mut index: crate::luau::Index = ron::from_str(&text).with_context(what)?;
+            index.shared = planned.shared.cloned().unwrap_or_default();
+            let text =
+                ron::ser::to_string_pretty(&index, crate::utf8::pretty()).with_context(what)?;
+            Ok(text.into_bytes())
+        }
         Make::Luau => {
             let source = fs::read_to_string(&from).with_context(what)?;
             crate::luau::compile(&source).with_context(what)
@@ -321,6 +388,9 @@ struct Last<'a> {
     written: HashMap<&'a str, &'a FileHash>,
     ways: BTreeMap<String, u32>,
     same_world: bool,
+    /// Whether the scripts' masters are those built last, every one: a tree's index names the
+    /// files that the others share with it, so it is made again when any of them changes.
+    same_scripts: bool,
 }
 
 impl Last<'_> {
@@ -330,6 +400,7 @@ impl Last<'_> {
         self.built_from.get(planned.master.path.as_str()) == Some(&planned.master)
             && self.ways.get(way).copied().unwrap_or(0) == version
             && (self.same_world || !matches!(planned.how, Make::Texture(_)))
+            && (self.same_scripts || planned.how != Make::ScriptIndex)
     }
 }
 
@@ -475,6 +546,14 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     let world = world_index();
     let same_world =
         built_from.get(world.as_str()).copied() == masters.iter().find(|m| m.path == world);
+    let scripts = |path: &str| path.starts_with("netscript/");
+    let same_scripts = masters
+        .iter()
+        .filter(|m| scripts(&m.path))
+        .all(|m| built_from.get(m.path.as_str()) == Some(&m))
+        && built_from.keys().filter(|p| scripts(p)).count()
+            == masters.iter().filter(|m| scripts(&m.path)).count();
+    let shared = SharedScripts::of(&masters);
     let last = Last {
         built_from,
         written: recorded
@@ -486,20 +565,29 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
             .map(|run| run.ways.clone())
             .unwrap_or_default(),
         same_world,
+        same_scripts,
     };
     let mut archives: BTreeMap<String, Vec<Planned>> = BTreeMap::new();
     let left = |m: &FileHash| {
         assembled.contains(&m.path)
+            || shared.left.contains(&m.path)
+            || crate::netscript::is_network(&m.path)
             || crate::ui::is_menu_tile(&m.path)
             || crate::models::is_motion(&m.path)
             || masters_alone(&m.path)
     };
     for master in masters.iter().filter(|m| !left(m)) {
         let (path, how) = make(&master.path, &read);
+        let shared = script_tree_index(&master.path).and_then(|tree| shared.by_tree.get(tree));
         archives
             .entry(archive_of(&path))
             .or_default()
-            .push(Planned { master, path, how });
+            .push(Planned {
+                master,
+                path,
+                how,
+                shared,
+            });
     }
     for entries in archives.values_mut() {
         entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -617,11 +705,12 @@ mod tests {
                 Make::Luau
             )
         );
+        // A tree's index names the files that other trees hold for it (#2648).
         assert_eq!(
             make("netscript/type_npc_seraphim/index.ron"),
             (
                 "netscript/type_npc_seraphim/index.ron".to_owned(),
-                Make::Copy
+                Make::ScriptIndex
             )
         );
         // The bytecode of a source, Luau's own; a source that does not compile fails.
@@ -1004,6 +1093,65 @@ return F
                 .unwrap()
                 .contains("textures/texture/00001-dwarf.ktx2")
         );
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// A file that two trees hold at one path, the same source, is packed once, in the first
+    /// tree, and the other's index names it; a network game's tree is left out (#2648).
+    #[test]
+    fn the_trees_share_their_files_and_the_network_trees_are_left_out() {
+        let src = scratch_dir("build-shared-scripts-src");
+        let out = scratch_dir("build-shared-scripts-out");
+        let index = r#"(functions: {"StartCode": [(file: "start.luau", key: "StartCode")], "Quest": [(file: "quests/1.luau", key: "Quest")]})"#;
+        for tree in ["type_npc_a", "type_npc_b", "netscript"] {
+            write(&src, &format!("netscript/{tree}/index.ron"), index);
+            write(
+                &src,
+                &format!("netscript/{tree}/quests/1.luau"),
+                "return {}\n",
+            );
+            let start = format!("return {{ tree = \"{tree}\" }}\n");
+            write(&src, &format!("netscript/{tree}/start.luau"), &start);
+        }
+        let summary = build(&src, &out, false).unwrap();
+        // The network tree's three and the second tree's quest left out.
+        assert_eq!((summary.masters, summary.left_out), (9, 4));
+        let data = Archive::open(&out.join("data.zip")).unwrap();
+        let mut names: Vec<&str> = data.names().collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "netscript/type_npc_a/index.ron",
+                "netscript/type_npc_a/quests/1.luauc",
+                "netscript/type_npc_a/start.luauc",
+                "netscript/type_npc_b/index.ron",
+                "netscript/type_npc_b/start.luauc",
+            ]
+        );
+        let shared = |tree: &str| {
+            let text = read(&out, "data.zip", &format!("netscript/{tree}/index.ron")).unwrap();
+            let index: crate::luau::Index = ron::from_str(&text).unwrap();
+            assert_eq!(index.functions.len(), 2);
+            index.shared
+        };
+        assert!(shared("type_npc_a").is_empty());
+        assert_eq!(
+            shared("type_npc_b"),
+            BTreeMap::from([("quests/1.luau".to_owned(), "type_npc_a".to_owned())])
+        );
+        // The first tree's quest changed: the second's is its own again, and its index made again.
+        write(
+            &src,
+            "netscript/type_npc_a/quests/1.luau",
+            "return { a = 1 }\n",
+        );
+        let summary = build(&src, &out, false).unwrap();
+        assert_eq!(summary.left_out, 3);
+        let data = Archive::open(&out.join("data.zip")).unwrap();
+        assert!(data.contains("netscript/type_npc_b/quests/1.luauc"));
+        assert!(shared("type_npc_b").is_empty());
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }
