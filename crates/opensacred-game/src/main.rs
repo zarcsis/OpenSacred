@@ -140,6 +140,7 @@ mod info_lines;
 mod inventory;
 mod iso;
 mod item_glows;
+mod item_pictures;
 mod journal;
 mod killer_plants;
 mod knock_down;
@@ -638,6 +639,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         info_lines::InfoLinesPlugin,
         inventory::InventoryPlugin,
         item_glows::ItemGlowsPlugin,
+        item_pictures::ItemPicturesPlugin,
         journal::JournalPlugin,
         killer_plants::KillerPlantsPlugin,
         knock_down::KnockDownPlugin,
@@ -646,9 +648,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         light_blades::LightBladesPlugin,
         light_strikes::LightStrikesPlugin,
         lightning_strikes::LightningStrikesPlugin,
-        lines::LinesPlugin,
     ))
     .add_plugins((
+        lines::LinesPlugin,
         liquids::LiquidsPlugin,
         lost_souls::LostSoulsPlugin,
         low_health::LowHealthPlugin,

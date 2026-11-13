@@ -180,6 +180,7 @@ fn show(
         },
         RenderLayers::layer(MODELS),
         Apart,
+        crate::item_pictures::DrawnOnChange::default(),
         DespawnOnExit(AppState::InGame),
     ));
     commands.spawn((

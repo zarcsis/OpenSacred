@@ -179,9 +179,23 @@ struct Band {
 }
 
 /// Whether Bevy's render pipelines had all been made as the last frame's drawing ended ([`settle`]),
-/// shared by the render world and the main world.
+/// shared by the render world and the main world; the items' pictures read it too
+/// (`item_pictures`).
 #[derive(Resource, Clone, Default)]
-struct Settled(Arc<AtomicBool>);
+pub(crate) struct Settled(Arc<AtomicBool>);
+
+impl Settled {
+    /// Whether every render pipeline had been made as the last frame's drawing ended.
+    pub(crate) fn made(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Tells whether every render pipeline was made, as [`settle`] does.
+    #[cfg(test)]
+    pub(crate) fn tell(&self, made: bool) {
+        self.0.store(made, Ordering::Relaxed);
+    }
+}
 
 /// Whether a band's picture is trusted, its parts' readiness kept once given: from the parts'
 /// second frame, as a camera draws new nodes from their second frame on (#2642), and only once no
@@ -560,7 +574,7 @@ fn bands(
     let Ok(window) = window.single() else {
         return;
     };
-    let settled = settled.0.load(Ordering::Relaxed);
+    let settled = settled.made();
     let (whole, scale) = window_size(window, scale.0);
     let native = camera_pictures(cameras.iter());
     let mut found = Vec::new();
