@@ -994,20 +994,25 @@ fn keys(mut commands: Commands, keys: crate::controls::Keys, listing: Option<Res
 
 /// The keys typed into the selected row's name in a game (`0x737AC0`): its characters, and
 /// Backspace; the other keys of the game are taken from the systems after, the window's own
-/// (`[interface]`: Esc, Enter) left, as the open console takes them.
+/// (`[interface]`: Esc, Enter) and the tools' (`[tools]`: the console's among them, #2666) left,
+/// as the open console takes them. The tools' keys type nothing, and the open console takes
+/// every key from the name.
 fn typing(
     mut input: MessageReader<KeyboardInput>,
     mut keys: crate::controls::KeysMut,
     listing: Option<ResMut<Listing>>,
-    texts: Option<Res<Texts>>,
+    (texts, console): (Option<Res<Texts>>, Option<Res<crate::console::Console>>),
 ) {
-    let Some(mut listing) = listing.filter(|listing| listing.mode == Mode::Save) else {
+    let typing = listing.filter(|listing| listing.mode == Mode::Save);
+    let Some(mut listing) = typing.filter(|_| crate::console::closed(console)) else {
         input.clear();
         return;
     };
     let empty = word(texts.as_deref(), ("UI_SAVE_EMPTY", "<empty>"));
     for event in input.read() {
-        if event.state != ButtonState::Pressed {
+        if event.state != ButtonState::Pressed
+            || keys.in_section(crate::controls::Section::Tools, event.key_code)
+        {
             continue;
         }
         match &event.logical_key {
@@ -1019,7 +1024,10 @@ fn typing(
             }
         }
     }
-    keys.take_all_but(crate::controls::Section::Interface);
+    keys.take_all_but(&[
+        crate::controls::Section::Interface,
+        crate::controls::Section::Tools,
+    ]);
 }
 
 /// The caret's blink, a half each 0.3 s of the real time.
@@ -1141,6 +1149,54 @@ mod tests {
             typed: None,
             caret: true,
         }
+    }
+
+    #[test]
+    fn the_consoles_key_opens_the_console_over_a_games_list_and_types_nothing() {
+        // #2666: the name took the console's key and the console stayed shut.
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        crate::frame::held_back(&mut app);
+        app.add_plugins(crate::console::ConsolePlugin)
+            .insert_resource(crate::console::Console::default())
+            .insert_resource(crate::journal::Journal::new(None))
+            .insert_resource(Listing {
+                mode: Mode::Save,
+                ..listing(1)
+            })
+            .add_systems(
+                PreUpdate,
+                typing
+                    .after(bevy::input::InputSystems)
+                    .before(crate::console::keys),
+            );
+        app.update();
+        let press = |app: &mut App, key_code: KeyCode, text: &str| {
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: Key::Character(text.into()),
+                    state,
+                    text: Some(text.into()),
+                    repeat: false,
+                    window: Entity::PLACEHOLDER,
+                });
+                app.update();
+            }
+        };
+        let open = |app: &App| app.world().resource::<crate::console::Console>().is_open();
+        let typed = |app: &App| app.world().resource::<Listing>().typed.clone();
+        press(&mut app, KeyCode::Backquote, "`");
+        assert!(open(&app));
+        assert_eq!(typed(&app), None);
+        // The open console's line takes the keys, the name none.
+        press(&mut app, KeyCode::KeyA, "a");
+        assert_eq!(typed(&app), None);
+        press(&mut app, KeyCode::Backquote, "`");
+        assert!(!open(&app));
+        assert_eq!(typed(&app), None);
+        press(&mut app, KeyCode::KeyB, "b");
+        assert_eq!(typed(&app), Some("GAME01b".to_owned()));
     }
 
     #[test]

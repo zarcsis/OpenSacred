@@ -2360,15 +2360,30 @@ fn start(
 }
 
 /// The arrows choose the next figure or the one before, a key types the chosen hero's name and
-/// Backspace takes its last character back, and Enter starts the game.
+/// Backspace takes its last character back, and Enter starts the game. Held back with
+/// [`crate::frame::Control`], by the open console among others, its keys read and dropped so that
+/// none typed into the console reaches the name once it closes; the tools' keys type nothing, the
+/// console's among them (#2666).
 fn keys(
     mut commands: Commands,
-    mut input: MessageReader<KeyboardInput>,
+    (mut input, keys, held): (
+        MessageReader<KeyboardInput>,
+        crate::controls::Keys,
+        Option<Res<crate::frame::HeldBack>>,
+    ),
     mut choice: ResMut<Choice>,
     words: Res<Words>,
 ) {
+    if held.is_some_and(|held| held.held()) {
+        input.clear();
+        return;
+    }
+    let tools = |code| {
+        keys.controls()
+            .in_section(crate::controls::Section::Tools, code)
+    };
     for input in input.read() {
-        if !input.state.is_pressed() {
+        if !input.state.is_pressed() || tools(input.key_code) {
             continue;
         }
         match &input.logical_key {
@@ -2931,8 +2946,7 @@ impl Plugin for ChoicePlugin {
             Update,
             (
                 (
-                    keys.in_set(crate::frame::Control)
-                        .run_if(in_state(Screen::Heroes)),
+                    keys.run_if(in_state(Screen::Heroes)),
                     show,
                     caret,
                     colour_labels.run_if(choosing_saved),
@@ -3158,6 +3172,16 @@ mod tests {
         typed(&mut app, Key::ArrowRight, None);
         typed(&mut app, Key::Character("x".into()), Some("x"));
         typed(&mut app, Key::Character("y".into()), Some("y"));
+        // The console's key types nothing (#2666).
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Backquote,
+            logical_key: Key::Character("`".into()),
+            state: bevy::input::ButtonState::Pressed,
+            text: Some("`".into()),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
         typed(&mut app, Key::Backspace, None);
         typed(&mut app, Key::Enter, None);
         app.update();
