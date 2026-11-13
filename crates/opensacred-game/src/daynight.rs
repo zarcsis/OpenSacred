@@ -32,11 +32,13 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use bevy::asset::embedded_asset;
 use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
+use bevy::ecs::query::QueryItem;
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
-    AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, Entity,
-    GlobalTransform, IntoScheduleConfigs, OnExit, Plugin, PostUpdate, Projection, Query, Res,
-    ResMut, Resource, StandardMaterial, Startup, Time, Transform, Update, With, Without, default,
+    AlphaMode, App, AssetServer, Assets, Camera, ChildOf, Color, Commands, Component,
+    DetectChanges, Entity, GlobalTransform, Has, InheritedVisibility, IntoScheduleConfigs,
+    IsDefaultUiCamera, OnExit, Plugin, PostUpdate, Projection, Query, Ref, Res, ResMut, Resource,
+    StandardMaterial, Startup, Time, Transform, Update, Visibility, With, Without, default,
 };
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
@@ -176,7 +178,14 @@ impl Plugin for DayNightPlugin {
                     .in_set(crate::frame::Playing),
             )
             .add_systems(OnExit(crate::game::AppState::InGame), leave)
-            .add_systems(PostUpdate, follow.before(bevy::camera::CameraUpdateSystems));
+            .add_systems(
+                PostUpdate,
+                (
+                    follow.before(bevy::camera::CameraUpdateSystems),
+                    // Before the interface takes its camera, the one that draws last.
+                    on_demand.before(bevy::ui::UiSystems::Prepare),
+                ),
+            );
     }
 }
 
@@ -198,6 +207,123 @@ fn follow(
             matches!(&*projection, Projection::Orthographic(ortho) if ortho.scale != world.scale);
         if differs && let Projection::Orthographic(ortho) = &mut *projection {
             ortho.scale = world.scale;
+        }
+    }
+}
+
+/// How far past the view's edges, in the view's own halves (normalized device coordinates), a part
+/// of the layer [`crate::iso::UNTINTED`] counts as shown: the parts are placed by the frame
+/// before's transforms, and the view moves a little a frame.
+const UNTINTED_MARGIN: f32 = 1.25;
+
+/// Whether bounds spanning `min` to `max` in the view's normalized coordinates show within
+/// [`UNTINTED_MARGIN`].
+fn spans(min: Vec2, max: Vec2) -> bool {
+    max.x >= -UNTINTED_MARGIN
+        && min.x <= UNTINTED_MARGIN
+        && max.y >= -UNTINTED_MARGIN
+        && min.y <= UNTINTED_MARGIN
+}
+
+/// What tells whether a part of the layer [`crate::iso::UNTINTED`] shows.
+type UntintedPart = (
+    Ref<'static, bevy::camera::visibility::RenderLayers>,
+    Option<Ref<'static, Visibility>>,
+    Option<&'static InheritedVisibility>,
+    Option<&'static GlobalTransform>,
+    Option<&'static bevy::camera::primitives::Aabb>,
+    Option<&'static bevy::prelude::Mesh3d>,
+);
+
+/// Whether `part` shows in the view of `camera` at `eye`: made, put on the layer or shown again in
+/// this frame, whose transforms and visibility Bevy tells only after this, or shown and within
+/// the view by the frame before's, its bounds Bevy's or, for a part that Bevy does not cull (the
+/// effects', whose meshes change every frame), its mesh's own.
+fn untinted_shows(
+    (layers, visibility, inherited, place, bounds, mesh): &QueryItem<'_, '_, UntintedPart>,
+    (camera, eye): (&Camera, &GlobalTransform),
+    meshes: &Assets<bevy::prelude::Mesh>,
+) -> bool {
+    if !layers.intersects(&bevy::camera::visibility::RenderLayers::layer(
+        crate::iso::UNTINTED,
+    )) {
+        return false;
+    }
+    let new = layers.is_changed() || visibility.as_ref().is_some_and(DetectChanges::is_changed);
+    if new {
+        return true;
+    }
+    if !inherited.is_some_and(|inherited| inherited.get()) {
+        return false;
+    }
+    let Some(place) = place else {
+        return true;
+    };
+    let own = || {
+        mesh.as_ref()
+            .and_then(|mesh| meshes.get(&mesh.0))
+            .and_then(bevy::camera::primitives::MeshAabb::get_aabb)
+    };
+    let corners: Vec<Vec3> = match bounds.copied().or_else(own) {
+        Some(aabb) => {
+            let (centre, half) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
+            (0..8)
+                .map(|k| {
+                    let sign = |bit: u32| if k & bit == 0 { -1.0 } else { 1.0 };
+                    place.transform_point(centre + half * Vec3::new(sign(1), sign(2), sign(4)))
+                })
+                .collect()
+        }
+        None => vec![place.translation()],
+    };
+    let (mut min, mut max) = (Vec2::MAX, Vec2::MIN);
+    for corner in corners {
+        // A point the projection does not take: counted as shown.
+        let Some(ndc) = camera.world_to_ndc(eye, corner) else {
+            return true;
+        };
+        min = min.min(ndc.truncate());
+        max = max.max(ndc.truncate());
+    }
+    spans(min, max)
+}
+
+/// The camera of what the night leaves untinted (`iso::Untinted`, #1191) draws only while a part
+/// of its layer shows (#2662): with the window's MSAA, it wrote the night's frame back into the
+/// samples, resolved them again and ran its own output pass whatever its layer held, some 1 ms a
+/// frame at 3,840 × 2,160 (research #2637). The interface goes with it: Bevy draws it through
+/// the window's camera of the highest order, the untinted one while it draws (over the effects),
+/// else the world's (`IsDefaultUiCamera`), after the night's pass either way.
+fn on_demand(
+    mut commands: Commands,
+    mut untinted: Query<
+        (Entity, &mut Camera, &ChildOf, Has<IsDefaultUiCamera>),
+        With<crate::iso::Untinted>,
+    >,
+    worlds: Query<
+        (&Camera, &GlobalTransform, Has<IsDefaultUiCamera>),
+        Without<crate::iso::Untinted>,
+    >,
+    parts: Query<UntintedPart, Without<Camera>>,
+    meshes: Res<Assets<bevy::prelude::Mesh>>,
+) {
+    for (entity, mut camera, parent, marked) in &mut untinted {
+        let world = parent.parent();
+        let Ok((world_camera, eye, world_marked)) = worlds.get(world) else {
+            continue;
+        };
+        let shows = parts
+            .iter()
+            .any(|part| untinted_shows(&part, (world_camera, eye), &meshes));
+        if camera.is_active != shows {
+            camera.is_active = shows;
+        }
+        if shows && (!marked || world_marked) {
+            commands.entity(entity).insert(IsDefaultUiCamera);
+            commands.entity(world).remove::<IsDefaultUiCamera>();
+        } else if !shows && (marked || !world_marked) {
+            commands.entity(entity).remove::<IsDefaultUiCamera>();
+            commands.entity(world).insert(IsDefaultUiCamera);
         }
     }
 }
@@ -592,6 +718,18 @@ pub fn light(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_untinted_part_shows_within_the_view_and_its_margin() {
+        // #2662: within the view, across its edge, within its margin; past it.
+        let shows = |min: (f32, f32), max: (f32, f32)| spans(Vec2::from(min), Vec2::from(max));
+        assert!(shows((-0.2, -0.2), (0.2, 0.2)));
+        assert!(shows((0.9, 0.0), (1.5, 0.3)));
+        assert!(shows((1.2, 1.2), (1.3, 1.3)));
+        assert!(shows((-3.0, -3.0), (3.0, 3.0)));
+        assert!(!shows((1.3, 0.0), (1.6, 0.2)));
+        assert!(!shows((0.0, -2.0), (0.2, -1.3)));
+    }
 
     #[test]
     fn the_phases_and_the_nights_level_follow_the_renderers_times() {
