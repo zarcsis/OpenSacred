@@ -177,7 +177,7 @@ pub fn free(look: Option<Res<Look>>) -> bool {
 /// the world.
 fn take_keys(look: Option<Res<Look>>, mut keys: crate::controls::KeysMut) {
     if !free(look) {
-        keys.take_all_but(crate::controls::Section::Tools);
+        keys.take_all_but(&[crate::controls::Section::Tools]);
     }
 }
 

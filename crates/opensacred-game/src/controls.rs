@@ -825,6 +825,14 @@ impl Controls {
         self.keys.get(&action).map_or(&[], Vec::as_slice)
     }
 
+    /// Whether `code` is a key of an action of `section`.
+    pub fn in_section(&self, section: Section, code: KeyCode) -> bool {
+        Action::all().any(|action| {
+            action.section() == section
+                && self.bindings(action).iter().any(|binding| binding.is(code))
+        })
+    }
+
     /// The names of the keys of `action`, joined by commas.
     pub fn names(&self, action: Action) -> String {
         self.bindings(action)
@@ -1154,24 +1162,21 @@ impl KeysMut<'_> {
         pressed
     }
 
+    /// Whether `code` is a key of an action of `section`.
+    pub fn in_section(&self, section: Section, code: KeyCode) -> bool {
+        self.controls().in_section(section, code)
+    }
+
     /// Takes every key that went down or up this frame from the systems after, but the keys of
-    /// `kept`'s actions: the open console's line has them, the tools keep theirs (#1981).
-    pub fn take_all_but(&mut self, kept: Section) {
-        let controls = self.controls.as_deref().unwrap_or(&DEFAULTS);
+    /// the actions of the sections `kept`: the open console's line has them, the tools keep
+    /// theirs (#1981).
+    pub fn take_all_but(&mut self, kept: &[Section]) {
         let taken: Vec<KeyCode> = self
             .input
             .get_just_pressed()
             .chain(self.input.get_just_released())
             .copied()
-            .filter(|&code| {
-                !Action::all().any(|action| {
-                    action.section() == kept
-                        && controls
-                            .bindings(action)
-                            .iter()
-                            .any(|binding| binding.is(code))
-                })
-            })
+            .filter(|&code| !kept.iter().any(|&section| self.in_section(section, code)))
             .collect();
         for code in taken {
             self.input.clear_just_pressed(code);
