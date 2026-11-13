@@ -625,10 +625,13 @@ fn bands(
             continue;
         };
         let shows = signature(&pieces, &looks);
+        // Whether the band's tree was made anew whole this frame (#2642).
+        let mut anew = false;
         let band = match layers.0.entry(key) {
             Entry::Occupied(entry) => {
                 let band = entry.into_mut();
                 if band.tree != root {
+                    anew = true;
                     retree(&mut commands, &mut band.parts, root);
                     band.tree = root;
                     if !alike(&band.parts.signature, &shows) {
@@ -644,6 +647,7 @@ fn bands(
                     .position(|parts| alike(&parts.signature, &shows));
                 let parts = match like {
                     Some(index) => {
+                        anew = true;
                         let mut parts = spare.swap_remove(index);
                         retree(&mut commands, &mut parts, root);
                         parts
@@ -667,9 +671,12 @@ fn bands(
         band.pieces = pieces.into_iter().collect();
         band.parts.signature = shows;
         // A picture's node gone with its host's children (a window's rows made anew, #2668) is
-        // made again in this frame ([`composites`]), and shows from its second frame on (seen):
-        // the window draws the band's pieces itself in this frame, as it does a new piece's.
-        let shown = composites.contains(band.parts.composite);
+        // made again in this frame ([`composites`]), and shows from its second frame on under a
+        // host that stays (seen): the window draws the band's pieces itself in this frame, as it
+        // does a new piece's. Under a host made anew with the whole tree (the quest book's, #2642)
+        // it shows in its first, and the window's drawing would be a frame of the pieces apart
+        // (#2675).
+        let shown = anew || composites.contains(band.parts.composite);
         if ready(&mut band.parts, settled) && shown {
             drawn.extend(band.pieces.iter().copied());
         }
