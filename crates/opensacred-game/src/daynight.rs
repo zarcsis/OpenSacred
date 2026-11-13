@@ -37,8 +37,9 @@ use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
     AlphaMode, App, AssetServer, Assets, Camera, ChildOf, Color, Commands, Component,
     DetectChanges, Entity, GlobalTransform, Has, InheritedVisibility, IntoScheduleConfigs,
-    IsDefaultUiCamera, OnExit, Plugin, PostUpdate, Projection, Query, Ref, Res, ResMut, Resource,
-    StandardMaterial, Startup, Time, Transform, Update, Visibility, With, Without, default,
+    IsDefaultUiCamera, Local, OnExit, Plugin, PostUpdate, Projection, Query, Ref, Res, ResMut,
+    Resource, StandardMaterial, Startup, Time, Transform, Update, Visibility, With, Without,
+    default,
 };
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
@@ -216,6 +217,11 @@ fn follow(
 /// before's transforms, and the view moves a little a frame.
 const UNTINTED_MARGIN: f32 = 1.25;
 
+/// The frames the untinted camera draws from its making whatever its layer holds: its view's
+/// pipelines and textures made while the game loads, where made by its first drawing in a game
+/// begun with nothing of its layer in view they took a frame of some 120 ms (#2681).
+const UNTINTED_WARMING: u32 = 30;
+
 /// Whether bounds spanning `min` to `max` in the view's normalized coordinates show within
 /// [`UNTINTED_MARGIN`].
 fn spans(min: Vec2, max: Vec2) -> bool {
@@ -306,15 +312,20 @@ fn on_demand(
     >,
     parts: Query<UntintedPart, Without<Camera>>,
     meshes: Res<Assets<bevy::prelude::Mesh>>,
+    mut drawn: Local<HashMap<Entity, u32>>,
 ) {
     for (entity, mut camera, parent, marked) in &mut untinted {
         let world = parent.parent();
         let Ok((world_camera, eye, world_marked)) = worlds.get(world) else {
             continue;
         };
-        let shows = parts
-            .iter()
-            .any(|part| untinted_shows(&part, (world_camera, eye), &meshes));
+        let frames = drawn.entry(entity).or_default();
+        let warming = *frames < UNTINTED_WARMING;
+        *frames = frames.saturating_add(1);
+        let shows = warming
+            || parts
+                .iter()
+                .any(|part| untinted_shows(&part, (world_camera, eye), &meshes));
         if camera.is_active != shows {
             camera.is_active = shows;
         }
