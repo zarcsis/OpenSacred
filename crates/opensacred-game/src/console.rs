@@ -277,7 +277,7 @@ pub fn keys(
     // The line has the keys: the windows' toggles after it, which `frame::Control` does not hold
     // back, find none of them, the tools' keys alone left, nor a click on the bar's buttons
     // (#1981).
-    keys.take_all_but(crate::controls::Section::Tools);
+    keys.take_all_but(&[crate::controls::Section::Tools]);
     buttons.clear();
 }
 

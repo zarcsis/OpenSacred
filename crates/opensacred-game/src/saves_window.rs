@@ -168,15 +168,67 @@ pub struct Listing {
     saves: Vec<Slot>,
     place: usize,
     selected: usize,
-    /// The button under the cursor, whose word is lit.
-    lit: Option<Button>,
     /// The user's short date's pattern, read as the window opens.
     pattern: String,
     /// The selected row's name as typed into its field, none until a key types: the field shows
     /// the row's name or the placeholder until then, and the typing goes after it.
     typed: Option<String>,
-    /// Whether the caret shows, its blink's half.
-    caret: bool,
+}
+
+/// The button under the cursor, whose word is lit: apart from the [`Listing`], whose change makes
+/// the rows anew (#2668).
+#[derive(Resource, Default)]
+struct Lit(Option<Button>);
+
+/// The caret after the selected row's name in a game, of its row's colour while it shows: it
+/// blinks by its colour alone, the rows standing (#2668: made anew at each blink, the window
+/// blinked with it).
+#[derive(Component)]
+struct Caret(Color);
+
+/// The selected row's name's text in a game, which a key typed changes in place.
+#[derive(Component)]
+struct NameField;
+
+/// What the rows show but the typed name: a listing changed with this the same changes only the
+/// name's field, in place, the rows standing (#2668: made anew, the interface's layers drew their
+/// pieces apart for a frame).
+#[derive(PartialEq)]
+struct Shown {
+    rows: Entity,
+    mode: Mode,
+    first: usize,
+    place: usize,
+    selected: usize,
+    /// The quick save's and the slots' saves: each one's file, name and time.
+    saves: Vec<Option<(String, String, u64)>>,
+}
+
+impl Shown {
+    fn of(rows: Entity, listing: &Listing) -> Self {
+        let save = |slot: &Slot| {
+            (
+                slot.stem.clone(),
+                slot.header.name.clone(),
+                slot.header.saved,
+            )
+        };
+        Self {
+            rows,
+            mode: listing.mode,
+            first: listing.first(),
+            place: listing.place,
+            selected: listing.selected,
+            saves: std::iter::once(listing.quick.as_ref().map(save))
+                .chain(listing.saves.iter().map(|slot| Some(save(slot))))
+                .collect(),
+        }
+    }
+}
+
+/// Whether the caret shows at `time`: a half each [`CARET`] of the real time.
+fn caret_shows(time: &Time<Real>) -> bool {
+    (time.elapsed_secs() / CARET).floor().rem_euclid(2.0) < 1.0
 }
 
 impl Listing {
@@ -337,11 +389,10 @@ fn open_in(world: &mut World, mode: Mode) {
         saves,
         place,
         selected: 1,
-        lit: None,
         pattern: short_date_pattern(),
         typed: None,
-        caret: true,
     });
+    world.insert_resource(Lit(None));
     world.run_system_cached(spawn).ok();
 }
 
@@ -478,12 +529,12 @@ fn spawn(
                                 Pickable::IGNORE,
                             )],
                         ))
-                        .observe(move |_: On<PointerOver>, mut listing: ResMut<Listing>| {
-                            listing.lit = Some(button);
+                        .observe(move |_: On<PointerOver>, mut lit: ResMut<Lit>| {
+                            lit.0 = Some(button);
                         })
-                        .observe(move |_: On<PointerOut>, mut listing: ResMut<Listing>| {
-                            if listing.lit == Some(button) {
-                                listing.lit = None;
+                        .observe(move |_: On<PointerOut>, mut lit: ResMut<Lit>| {
+                            if lit.0 == Some(button) {
+                                lit.0 = None;
                             }
                         })
                         .observe(move |click: On<PointerClick>, mut commands: Commands| {
@@ -553,17 +604,49 @@ pub(crate) fn lettering(font: &Handle<Font>, size: f32) -> TextFont {
     }
 }
 
-/// Draws the rows anew as the listing changes: the quick save's group or its plate, the three
-/// rows from the first shown, the selection's corners, the scroll bar's thumb and the buttons'
-/// words' colours.
-fn redraw(
-    mut commands: Commands,
-    listing: Option<Res<Listing>>,
-    rows: Query<Entity, With<Rows>>,
-    (ui, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
-    mut pictures: ResMut<Assets<Image>>,
+/// The buttons' words' colours as the listing or the button under the cursor changes: greyed
+/// where the button does nothing, lit under the cursor.
+fn colour_words(
+    (listing, lit): (Option<Res<Listing>>, Option<Res<Lit>>),
     buttons: Query<(&Button, &Children)>,
     mut words: Query<&mut TextColor>,
+) {
+    let (Some(listing), Some(lit)) = (listing, lit) else {
+        return;
+    };
+    if !listing.is_changed() && !lit.is_changed() {
+        return;
+    }
+    for (button, children) in &buttons {
+        let colour = if !listing.enabled(*button) {
+            DISABLED
+        } else if lit.0 == Some(*button) {
+            SELECTED
+        } else {
+            WHITE
+        };
+        for &child in children {
+            if let Ok(mut word) = words.get_mut(child)
+                && word.0 != colour
+            {
+                word.0 = colour;
+            }
+        }
+    }
+}
+
+/// The selected row's name's text in a game.
+type Names<'w, 's> = Query<'w, 's, &'static mut Text, With<NameField>>;
+
+/// Draws the rows anew as the listing changes: the quick save's group or its plate, the three
+/// rows from the first shown, the selection's corners and the scroll bar's thumb.
+fn redraw(
+    mut commands: Commands,
+    (listing, time): (Option<Res<Listing>>, Res<Time<Real>>),
+    (rows, mut names): (Query<Entity, With<Rows>>, Names),
+    (ui, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
+    mut pictures: ResMut<Assets<Image>>,
+    mut last: Local<Option<Shown>>,
 ) {
     let Some(listing) = listing.filter(|listing| listing.is_changed()) else {
         return;
@@ -571,23 +654,21 @@ fn redraw(
     let Ok(rows) = rows.single() else {
         return;
     };
-    for (button, children) in &buttons {
-        let colour = if !listing.enabled(*button) {
-            DISABLED
-        } else if listing.lit == Some(*button) {
-            SELECTED
-        } else {
-            WHITE
-        };
-        for &child in children {
-            if let Ok(mut word) = words.get_mut(child) {
-                word.0 = colour;
-            }
-        }
-    }
-    let font: Handle<Font> = assets.load(FONT);
     let texts = texts.as_deref();
     let empty = word(texts, ("UI_SAVE_EMPTY", "<empty>"));
+    let shown = Shown::of(rows, &listing);
+    if last.as_ref() == Some(&shown) {
+        // A key typed: the name's field alone.
+        for mut name in &mut names {
+            let typed = listing.name_field(&empty);
+            if name.0 != typed {
+                name.0 = typed;
+            }
+        }
+        return;
+    }
+    *last = Some(shown);
+    let font: Handle<Font> = assets.load(FONT);
     commands
         .entity(rows)
         .despawn_children()
@@ -646,11 +727,9 @@ fn redraw(
                     // In a game the list's rows' names take the keys, the selected one's showing
                     // what was typed and its caret (`0x7382F0`).
                     let editable = listing.mode == Mode::Save && group != 0;
-                    if editable && listing.selected == group {
+                    let typing = editable && listing.selected == group;
+                    if typing {
                         lines[0] = listing.name_field(&empty);
-                        if listing.caret {
-                            lines[0].push('_');
-                        }
                     }
                     for (k, line) in lines.into_iter().enumerate() {
                         let y = picture_at.y + FIELD_STEP * f32::from(u8::try_from(k).unwrap_or(0));
@@ -660,7 +739,7 @@ fn redraw(
                             FIELD[0]
                         };
                         field(rows, (&ui, &assets), Vec2::new(FIELD_X, y), left);
-                        rows.spawn((
+                        let mut text = rows.spawn((
                             Text::new(line),
                             lettering(&font, WORDS),
                             TextColor(colour),
@@ -674,6 +753,15 @@ fn redraw(
                             },
                             Pickable::IGNORE,
                         ));
+                        if typing && k == 0 {
+                            let shows = caret_shows(&time);
+                            text.insert(NameField).with_child((
+                                TextSpan::new("_"),
+                                lettering(&font, WORDS),
+                                TextColor(if shows { colour } else { Color::NONE }),
+                                Caret(colour),
+                            ));
+                        }
                     }
                 }
                 // The group's rectangle, which a click selects, a double press on a save loads.
@@ -994,20 +1082,25 @@ fn keys(mut commands: Commands, keys: crate::controls::Keys, listing: Option<Res
 
 /// The keys typed into the selected row's name in a game (`0x737AC0`): its characters, and
 /// Backspace; the other keys of the game are taken from the systems after, the window's own
-/// (`[interface]`: Esc, Enter) left, as the open console takes them.
+/// (`[interface]`: Esc, Enter) and the tools' (`[tools]`: the console's among them, #2666) left,
+/// as the open console takes them. The tools' keys type nothing, and the open console takes
+/// every key from the name.
 fn typing(
     mut input: MessageReader<KeyboardInput>,
     mut keys: crate::controls::KeysMut,
     listing: Option<ResMut<Listing>>,
-    texts: Option<Res<Texts>>,
+    (texts, console): (Option<Res<Texts>>, Option<Res<crate::console::Console>>),
 ) {
-    let Some(mut listing) = listing.filter(|listing| listing.mode == Mode::Save) else {
+    let typing = listing.filter(|listing| listing.mode == Mode::Save);
+    let Some(mut listing) = typing.filter(|_| crate::console::closed(console)) else {
         input.clear();
         return;
     };
     let empty = word(texts.as_deref(), ("UI_SAVE_EMPTY", "<empty>"));
     for event in input.read() {
-        if event.state != ButtonState::Pressed {
+        if event.state != ButtonState::Pressed
+            || keys.in_section(crate::controls::Section::Tools, event.key_code)
+        {
             continue;
         }
         match &event.logical_key {
@@ -1019,17 +1112,20 @@ fn typing(
             }
         }
     }
-    keys.take_all_but(crate::controls::Section::Interface);
+    keys.take_all_but(&[
+        crate::controls::Section::Interface,
+        crate::controls::Section::Tools,
+    ]);
 }
 
-/// The caret's blink, a half each 0.3 s of the real time.
-fn blink(time: Res<Time<Real>>, listing: Option<ResMut<Listing>>) {
-    let Some(mut listing) = listing.filter(|listing| listing.mode == Mode::Save) else {
-        return;
-    };
-    let caret = (time.elapsed_secs() / CARET).floor().rem_euclid(2.0) < 1.0;
-    if listing.caret != caret {
-        listing.caret = caret;
+/// The caret's blink, a half each 0.3 s of the real time: its colour alone.
+fn blink(time: Res<Time<Real>>, mut carets: Query<(&mut TextColor, &Caret)>) {
+    let shows = caret_shows(&time);
+    for (mut colour, caret) in &mut carets {
+        let wanted = if shows { caret.0 } else { Color::NONE };
+        if colour.0 != wanted {
+            colour.0 = wanted;
+        }
     }
 }
 
@@ -1064,6 +1160,7 @@ fn close(mut commands: Commands, listing: Option<Res<Listing>>, mut kept: ResMut
         }
     }
     commands.remove_resource::<Listing>();
+    commands.remove_resource::<Lit>();
 }
 
 /// The game's window closes with the pause.
@@ -1099,7 +1196,7 @@ impl Plugin for SavesWindowPlugin {
                 Update,
                 (
                     s_key.run_if(in_state(Play::Running)),
-                    (blink, keys, redraw)
+                    (blink, keys, redraw, colour_words)
                         .chain()
                         .run_if(resource_exists::<Listing>),
                 ),
@@ -1136,11 +1233,82 @@ mod tests {
             saves: (1..=saves).map(|n| slot(&format!("GAME{n:02}"))).collect(),
             place: 0,
             selected: 1,
-            lit: None,
             pattern: "dd/MM/yyyy".to_owned(),
             typed: None,
-            caret: true,
         }
+    }
+
+    #[test]
+    fn the_consoles_key_opens_the_console_over_a_games_list_and_types_nothing() {
+        // #2666: the name took the console's key and the console stayed shut.
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin));
+        crate::frame::held_back(&mut app);
+        app.add_plugins(crate::console::ConsolePlugin)
+            .insert_resource(crate::console::Console::default())
+            .insert_resource(crate::journal::Journal::new(None))
+            .insert_resource(Listing {
+                mode: Mode::Save,
+                ..listing(1)
+            })
+            .add_systems(
+                PreUpdate,
+                typing
+                    .after(bevy::input::InputSystems)
+                    .before(crate::console::keys),
+            );
+        app.update();
+        let press = |app: &mut App, key_code: KeyCode, text: &str| {
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: Key::Character(text.into()),
+                    state,
+                    text: Some(text.into()),
+                    repeat: false,
+                    window: Entity::PLACEHOLDER,
+                });
+                app.update();
+            }
+        };
+        let open = |app: &App| app.world().resource::<crate::console::Console>().is_open();
+        let typed = |app: &App| app.world().resource::<Listing>().typed.clone();
+        press(&mut app, KeyCode::Backquote, "`");
+        assert!(open(&app));
+        assert_eq!(typed(&app), None);
+        // The open console's line takes the keys, the name none.
+        press(&mut app, KeyCode::KeyA, "a");
+        assert_eq!(typed(&app), None);
+        press(&mut app, KeyCode::Backquote, "`");
+        assert!(!open(&app));
+        assert_eq!(typed(&app), None);
+        press(&mut app, KeyCode::KeyB, "b");
+        assert_eq!(typed(&app), Some("GAME01b".to_owned()));
+    }
+
+    #[test]
+    fn the_caret_blinks_by_its_colour_alone() {
+        // #2668: the caret's blink made the rows anew, and the window blinked with it.
+        use bevy::ecs::system::RunSystemOnce;
+        let start = std::time::Instant::now();
+        let mut world = World::new();
+        let mut real = Time::<Real>::new(start);
+        // The elapsed time counts from the first update.
+        real.update_with_instant(start);
+        world.insert_resource(real);
+        let caret = world
+            .spawn((TextSpan::new("_"), TextColor(SELECTED), Caret(SELECTED)))
+            .id();
+        let at = |world: &mut World, seconds: f32| {
+            world
+                .resource_mut::<Time<Real>>()
+                .update_with_instant(start + std::time::Duration::from_secs_f32(seconds));
+            world.run_system_once(blink).unwrap();
+            world.get::<TextColor>(caret).unwrap().0
+        };
+        assert_eq!(at(&mut world, 0.1), SELECTED);
+        assert_eq!(at(&mut world, 0.4), Color::NONE);
+        assert_eq!(at(&mut world, 0.7), SELECTED);
     }
 
     #[test]
