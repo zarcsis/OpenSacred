@@ -949,18 +949,31 @@ fn camera() -> (Transform, PerspectiveProjection) {
     )
 }
 
-/// The figures' stage of a choice's screen of `scope`, `height` pixels high: their camera, its
-/// texture of its frustum's shape, their light and the figures of `looks`; answers the layer that
-/// lays the texture on the interface.
+/// The figures' camera, whose texture follows the window's height ([`follow_window`]).
+#[derive(Component)]
+struct Stage;
+
+/// The figures' texture's pixels in a window of `height` rows: the picture's height
+/// (`menu::picture_height`), and its frustum's shape.
+fn stage_pixels(height: f32) -> UVec2 {
+    let height = menu::picture_height(Some(height));
+    let (_, projection) = camera();
+    Vec2::new(height * projection.aspect_ratio, height)
+        .round()
+        .as_uvec2()
+        .max(UVec2::ONE)
+}
+
+/// The figures' stage of a choice's screen of `scope`, in a window of `height` rows: their camera,
+/// its texture of its frustum's shape, their light and the figures of `looks`; answers the layer
+/// that lays the texture on the interface.
 fn stage(
     commands: &mut Commands,
     (scope, looks, height): (Scope, &[Look], f32),
     (targets, layers, assets): (&mut Assets<Image>, &mut Assets<Layer>, &AssetServer),
 ) -> Handle<Layer> {
     let (eye, projection) = camera();
-    let size = Vec2::new(height * projection.aspect_ratio, height)
-        .round()
-        .as_uvec2();
+    let size = stage_pixels(height);
     let target = targets.add(Image::new_target_texture(
         size.x,
         size.y,
@@ -968,6 +981,7 @@ fn stage(
         None,
     ));
     scope.bind(&mut commands.spawn((
+        Stage,
         // Its own picture's, which the world's camera's following and zoom leave alone over a
         // game (the export, #2554).
         crate::iso::Apart,
@@ -1024,6 +1038,28 @@ fn stage(
     layers.add(Layer { figures: target })
 }
 
+/// Keeps the figures' texture at the window's height as the window's size changes while a choice
+/// shows (#2698): made again at it, as the items' pictures are (`item_pictures::resize`); the
+/// camera takes the texture's shape for its projection itself. Made once, it kept the rows of the
+/// window it was made in, and F11's full screen drew the figures stretched. A minimised window,
+/// of no rows, leaves it as it is.
+fn follow_window(
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    stages: Query<&RenderTarget, With<Stage>>,
+    (mut images, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
+    nodes: Query<&MaterialNode<Layer>>,
+) {
+    let Some(window) = window.filter(|window| window.height() >= 1.0) else {
+        return;
+    };
+    let wanted = stage_pixels(window.height());
+    for target in &stages {
+        if let Some(handle) = target.as_image() {
+            crate::item_pictures::resize(handle, wanted, (&mut images, &mut layers), &nodes);
+        }
+    }
+}
+
 /// The screen: the picture and its water, the figures' layer, the figures' windows and the
 /// panel; the figures' camera, light and models.
 #[expect(
@@ -1050,7 +1086,7 @@ fn screen(
     let named = request.0.difficulty;
     choice.difficulty = named.unwrap_or_default();
     choice.offered = offered(named);
-    let height = menu::picture_height(window.map(|window| window.height()));
+    let height = window.map_or(menu::SCREEN.y, |window| window.height());
     let water = ripples.spawn(
         &mut commands,
         (&mut targets, &assets),
@@ -1152,7 +1188,7 @@ fn saved_screen(
             *stand = Some(look.stand.clone());
         }
     }
-    let height = menu::picture_height(window.map(|window| window.height()));
+    let height = window.map_or(menu::SCREEN.y, |window| window.height());
     let pond = pond(&images, false);
     let water = match scope {
         Scope::Menu(screen) => {
@@ -2958,6 +2994,14 @@ impl Plugin for ChoicePlugin {
         )
         .add_systems(Update, colour_words.after(show))
         .add_systems(Update, unveil.run_if(choosing))
+        // Before the cameras' targets are measured, its change told with the frame's assets'.
+        .add_systems(
+            PostUpdate,
+            follow_window
+                .before(bevy::asset::AssetEventSystems)
+                .before(bevy::camera::CameraUpdateSystems)
+                .run_if(choosing),
+        )
         .add_systems(
             Update,
             introduce
@@ -3325,5 +3369,77 @@ mod tests {
             ]
         );
         assert_eq!(spans("plain"), [("plain".to_owned(), false)]);
+    }
+
+    #[test]
+    fn the_figures_texture_is_the_windows_height_of_the_frustums_shape_never_below_768_rows() {
+        assert_eq!(stage_pixels(1080.0), UVec2::new(1533, 1080));
+        assert_eq!(stage_pixels(2160.0), UVec2::new(3065, 2160));
+        assert_eq!(stage_pixels(600.0), UVec2::new(1090, 768));
+    }
+
+    #[test]
+    fn the_figures_texture_follows_the_windows_height() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<Layer>()
+            .add_systems(PostUpdate, follow_window);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1920, 1080)
+                        .with_scale_factor_override(1.0),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        let made = stage_pixels(1080.0);
+        let world = app.world_mut();
+        let image = world
+            .resource_mut::<Assets<Image>>()
+            .add(Image::new_target_texture(
+                made.x,
+                made.y,
+                TextureFormat::Rgba8UnormSrgb,
+                None,
+            ));
+        let layer = world.resource_mut::<Assets<Layer>>().add(Layer {
+            figures: image.clone(),
+        });
+        world.spawn(MaterialNode(layer.clone()));
+        world.spawn((Stage, RenderTarget::from(image.clone())));
+        let size = |app: &App| {
+            app.world()
+                .resource::<Assets<Image>>()
+                .get(&image)
+                .map(Image::size)
+        };
+        let told = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<Messages<AssetEvent<Layer>>>()
+                .drain()
+                .any(|event| event.is_modified(&layer))
+        };
+        let resize = |app: &mut App, (width, height): (u32, u32)| {
+            if let Some(mut window) = app.world_mut().get_mut::<Window>(window) {
+                window.resolution.set_physical_resolution(width, height);
+            }
+        };
+        app.update();
+        told(&mut app);
+        assert_eq!(size(&app), Some(UVec2::new(1533, 1080)));
+        // F11's full screen: the texture made again at its height, and its material told.
+        resize(&mut app, (3840, 2160));
+        app.update();
+        assert_eq!(size(&app), Some(UVec2::new(3065, 2160)));
+        assert!(told(&mut app));
+        // A minimised window leaves it.
+        resize(&mut app, (0, 0));
+        app.update();
+        assert_eq!(size(&app), Some(UVec2::new(3065, 2160)));
+        assert!(!told(&mut app));
     }
 }
