@@ -768,7 +768,7 @@ fn keep<T: PartialEq>(mut value: Mut<T>, wanted: T) -> bool {
 }
 
 /// Whether two images show alike: a module that writes its node's image every frame marks it
-/// changed whatever it writes (#2661: the bar's, the portrait's).
+/// changed whatever it writes, as seven nodes of a game's bands were written (#2661).
 fn same_image(one: &ImageNode, other: &ImageNode) -> bool {
     one.color == other.color
         && one.image.id() == other.image.id()
