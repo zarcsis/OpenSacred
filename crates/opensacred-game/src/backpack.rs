@@ -361,6 +361,8 @@ pub(crate) fn spawn_picture<S: Component + Clone>(
         Transform::from_xyz(size.x / 2.0, -size.y / 2.0, 0.0),
         Tonemapping::None,
         DebandDither::Disabled,
+        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
+        bevy::light::cluster::ClusterConfig::Single,
         AmbientLight {
             color: Color::WHITE,
             brightness: AMBIENT,

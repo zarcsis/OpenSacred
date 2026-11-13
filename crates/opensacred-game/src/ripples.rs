@@ -342,6 +342,8 @@ impl Ripples<'_> {
                 Transform::IDENTITY,
                 Tonemapping::None,
                 DebandDither::Disabled,
+                // Its meshes unlit: one cluster for the lights (#2664).
+                bevy::light::cluster::ClusterConfig::Single,
                 Msaa::Off,
                 layer.clone(),
             ));
