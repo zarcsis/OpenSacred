@@ -333,7 +333,7 @@ enum Look {
 /// magnifies it as the window would, and keeps its joins.
 fn sharper_apart(
     image: &ImageNode,
-    (computed, transform): (&ComputedNode, &UiGlobalTransform),
+    (node, computed, transform): (&Node, &ComputedNode, &UiGlobalTransform),
     textures: &Assets<Image>,
 ) -> bool {
     if !transform.matrix2.abs_diff_eq(Mat2::IDENTITY, 1e-4) {
@@ -346,11 +346,20 @@ fn sharper_apart(
             None => return false,
         },
     };
-    // Not laid out yet, spawned this frame: taken as one to one until the layout tells.
-    if computed.unrounded_size == Vec2::ZERO {
-        return false;
-    }
-    let size = computed.unrounded_size * computed.inverse_scale_factor();
+    let size = if computed.unrounded_size == Vec2::ZERO {
+        // Not laid out yet, spawned this frame: of the size its style gives in the original's
+        // pixels, else taken as one to one until the layout tells. Taken as one to one, a field's
+        // end narrower than its part (the saves' window's) joined the bands about it in its first
+        // frame, and the window's rows made anew ended those bands for a frame (#2668).
+        match (node.width, node.height) {
+            (Val::Px(width), Val::Px(height)) if width > 0.0 && height > 0.0 => {
+                Vec2::new(width, height)
+            }
+            _ => return false,
+        }
+    } else {
+        computed.unrounded_size * computed.inverse_scale_factor()
+    };
     (texels - size).max_element() > 0.5
 }
 
@@ -374,7 +383,7 @@ fn look(
     let image = image.filter(|image| image.color.alpha() > 0.0);
     let apart = image.is_some_and(|image| {
         pictures.contains(&image.image.id())
-            || sharper_apart(image, (computed, transform), textures)
+            || sharper_apart(image, (node, computed, transform), textures)
     });
     if native || shadow || gradient || border_gradient || outline || bordered || apart {
         return Look::Native;
@@ -555,7 +564,7 @@ fn bands(
     looks: Query<LookData, Own>,
     mut cameras: Query<&mut RenderTarget, With<Camera>>,
     (mut pictures, mut materials): (ResMut<Assets<Image>>, ResMut<Assets<Picture>>),
-    settled: Res<Settled>,
+    (settled, composites): (Res<Settled>, Query<(), With<Composite>>),
 ) {
     let Ok(window) = window.single() else {
         return;
@@ -643,7 +652,11 @@ fn bands(
         band.anchor = anchor;
         band.pieces = pieces.into_iter().collect();
         band.parts.signature = shows;
-        if ready(&mut band.parts, settled) {
+        // A picture's node gone with its host's children (a window's rows made anew, #2668) is
+        // made again in this frame ([`composites`]), and shows from its second frame on (seen):
+        // the window draws the band's pieces itself in this frame, as it does a new piece's.
+        let shown = composites.contains(band.parts.composite);
+        if ready(&mut band.parts, settled) && shown {
             drawn.extend(band.pieces.iter().copied());
         }
         let parts = &mut band.parts;
@@ -1053,8 +1066,9 @@ mod tests {
             ..default()
         };
         let still = UiGlobalTransform::default();
+        let style = Node::default();
         let apart = |computed: &ComputedNode, transform: &UiGlobalTransform| {
-            sharper_apart(&part, (computed, transform), &textures)
+            sharper_apart(&part, (&style, computed, transform), &textures)
         };
         // One to one, at the window's scale 2 too, and stretched over a larger node: assembled.
         assert!(!apart(&node(Vec2::new(32.0, 16.0), 1.0), &still));
@@ -1066,6 +1080,25 @@ mod tests {
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &turned));
         let scaled = UiGlobalTransform::from_scale(Vec2::new(2.0, 1.0));
         assert!(apart(&node(Vec2::new(32.0, 16.0), 1.0), &scaled));
+        // Not laid out yet: of its style's size where it gives one in pixels, else one to one
+        // (#2668).
+        let unlaid = node(Vec2::ZERO, 1.0);
+        let sized = |width: Val, height: Val| Node {
+            width,
+            height,
+            ..default()
+        };
+        let narrower = sized(Val::Px(16.0), Val::Px(16.0));
+        assert!(sharper_apart(
+            &part,
+            (&narrower, &unlaid, &still),
+            &textures
+        ));
+        let whole = sized(Val::Px(32.0), Val::Px(16.0));
+        assert!(!sharper_apart(&part, (&whole, &unlaid, &still), &textures));
+        let auto = sized(Val::Auto, Val::Px(8.0));
+        assert!(!sharper_apart(&part, (&auto, &unlaid, &still), &textures));
+        assert!(!sharper_apart(&part, (&style, &unlaid, &still), &textures));
     }
 
     /// A band made anew of the same images is alike, one of others not.
