@@ -1,0 +1,22 @@
+# The music's files of the original that nothing in it names, which `build` leaves out of the game's
+# assets (#2649): the masters' paths, a line each, under the reason they are found dead.
+# A feature that comes to use one takes it off the list.
+
+# nothing in the original names it
+sound/music/ATMOSPOT_WATERFALL.flac
+sound/music/ATMO_VILLAGE_SIEGE_MILITARY.flac
+sound/music/JINGLE_MAINQUEST_DONE01.flac
+sound/music/JINGLE_MAINQUEST_DONE02.flac
+sound/music/JINGLE_MAINQUEST_DONE03.flac
+sound/music/JINGLE_MAINQUEST_DONE04.flac
+sound/music/JINGLE_MAINQUEST_DONE05.flac
+sound/music/JINGLE_MAINQUEST_DONE06.flac
+sound/music/JINGLE_MAINQUEST_DONE07.flac
+sound/music/JINGLE_MAINQUEST_DONE08.flac
+sound/music/JINGLE_MAINQUEST_DONE09.flac
+sound/music/JINGLE_MAINQUEST_DONE10.flac
+sound/music/MUSIC_ARENA01.flac
+sound/music/MUSIC_DUNGEON_KARIBIK.flac
+sound/music/MUSIC_DUNGEON_PIRATEN.flac
+sound/music/MUSIC_KARIBIK_NETT.flac
+sound/music/MUSIC_MENU.flac
