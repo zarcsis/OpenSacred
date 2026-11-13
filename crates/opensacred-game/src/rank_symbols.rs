@@ -5,8 +5,8 @@
 //! arrowheads) or `04` (of twelve spikes) in red (`0xFFFF0000`), its half side twice half its type's size, flat at its
 //! place, laid over by its alpha and its depth tested, unlit (`cCreature_render` `0x599910` at
 //! `0x59A053` and `0x59A0B9`, `0x4087E0`), turning about the upright once in 16.384 s by the
-//! real clock (`opensacred_rules::fight::symbol_turn`); untinted by the night, as the health
-//! rings are.
+//! real clock (`opensacred_rules::fight::symbol_turn`); untinted by the night, as the original's
+//! are unlit.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
