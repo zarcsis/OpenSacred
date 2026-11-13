@@ -6,6 +6,7 @@ mod animation;
 mod boss_drops;
 mod build;
 mod coverage;
+mod dead;
 mod embedded;
 mod ffmpeg;
 mod flow;

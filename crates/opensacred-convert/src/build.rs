@@ -234,7 +234,8 @@ impl SharedScripts {
 /// (#2645): a menu's tile, which `ui` assembles its picture from (#2646), a motion record's
 /// file, whose clip `models` copies into the models' (#2647), a file that no code of the game
 /// reads (the heroes' own files, six tables, three loading screens and the first credits,
-/// #2650), a network game's tree, until M9 (#2648), or a script's tree ([`masters_alone`]).
+/// #2650), a network game's tree, until M9 (#2648), the original's dead content (#2649), or a
+/// script's tree ([`masters_alone`]).
 fn never_read(path: &str) -> bool {
     crate::ui::is_menu_tile(path)
         || crate::models::is_motion(path)
@@ -242,6 +243,7 @@ fn never_read(path: &str) -> bool {
         || crate::tables::is_unread(path)
         || crate::ui::is_unread(path)
         || crate::netscript::is_network(path)
+        || crate::dead::is_dead(path)
         || masters_alone(path)
 }
 

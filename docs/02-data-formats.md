@@ -1331,6 +1331,10 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
   The heroes' own files (`heroes/**/*.hero`, `heroes::is_unread`) go, as the game takes what it needs of them from `heroes.ron`.
   So do six tables (`tables::UNREAD`): `mercenaries_addon.ron`, byte for byte `mercenaries.ron`, `static_remap.ron` and `world_index.ron`, which the original's loader of saves alone uses for its older versions' saves, `world_map.ron` and `start_points.ron`, the network games' until M9, and `triggers.ron`.
   So do the screens and texts that `Sacred.exe` never names (`ui::UNREAD`, confirmed 2026-11-12 by its strings): the loading screens `loading1`, `loadinguw00` and `loadinguw01`, as it names only `LOADING0.BMP`, and the first credits, as it reads only `credits2.txt`.
+* The original's dead content stays among the masters alone (#2649, `dead`): what nothing in the original names, no script, table, model, world record or string of `Sacred.exe`, so that the game never reads it.
+  The lists of `crates/opensacred-convert/src/dead/` name the masters, a kind each, under the reasons the audit of 2026-11-12 found (#2645): 1,333 samples, 17 music files, 3,266 sprites, 372 textures and 79 models, 444 MB of masters.
+  The sprites are those that no static draws, of no item type or of the types that no static places and no script of the 16 trees the game loads creates (`create_obj`, `create_npc`, `replace_spawn` and `set_drop` name none of them in their `_02`).
+  The sounds that the original's data names wrongly stay, for their repairs to be decided (#2652), and so does whatever a feature not implemented yet needs, which the original's code or data names; a feature that comes to use a listed master takes it off its list.
 
 ### 12.3 Order
 
