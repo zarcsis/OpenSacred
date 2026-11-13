@@ -229,6 +229,7 @@ fn show(
         },
         RenderLayers::layer(HELD),
         Apart,
+        crate::item_pictures::DrawnOnChange::default(),
         DespawnOnExit(AppState::InGame),
     ));
     commands.spawn((

@@ -368,6 +368,7 @@ pub(crate) fn spawn_picture<S: Component + Clone>(
         },
         RenderLayers::layer(layer),
         Apart,
+        crate::item_pictures::DrawnOnChange::default(),
         DespawnOnExit(AppState::InGame),
     ));
     commands.spawn((

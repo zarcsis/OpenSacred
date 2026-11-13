@@ -273,6 +273,7 @@ fn show(
             },
             RenderLayers::layer(WORN),
             Apart,
+            crate::item_pictures::DrawnOnChange::default(),
             DespawnOnExit(AppState::InGame),
         ));
         commands.spawn((
