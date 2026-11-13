@@ -150,6 +150,13 @@ fn drawing(left: &mut u8, marked: bool, settled: bool) -> bool {
     drawing
 }
 
+/// The assets' events that tell of a change of a part's material or of a picture's target.
+type AssetChanges<'w, 's> = (
+    MessageReader<'w, 's, AssetEvent<StandardMaterial>>,
+    MessageReader<'w, 's, AssetEvent<ApartMaterial>>,
+    MessageReader<'w, 's, AssetEvent<Image>>,
+);
+
 /// Lets each picture's camera draw only in the frames after a change of its render layer or of
 /// itself, and while a pipeline is still being made.
 fn draw_on_change(
@@ -160,11 +167,7 @@ fn draw_on_change(
         Res<Assets<ApartMaterial>>,
         Res<AssetServer>,
     ),
-    (mut standard_events, mut apart_events, mut image_events): (
-        MessageReader<AssetEvent<StandardMaterial>>,
-        MessageReader<AssetEvent<ApartMaterial>>,
-        MessageReader<AssetEvent<Image>>,
-    ),
+    (mut standard_events, mut apart_events, mut image_events): AssetChanges,
     settled: Option<Res<Settled>>,
 ) {
     let assets = Looks {
