@@ -265,17 +265,20 @@ pub struct Ripples<'w> {
 }
 
 impl Ripples<'_> {
-    /// The water of `pond` for the screen of the state `screen`, `height` pixels high: its
-    /// passes and their cameras, gone with the screen, and the texture they draw into, for the
-    /// picture to lay under its tiles.
+    /// The water of `pond` for the screen of the state `screen`: its passes and their cameras,
+    /// gone with the screen, and the texture they draw into, for the picture to lay under its
+    /// tiles. The texture is as high as the original's screen, its 768 pixels, and the interface
+    /// scales it with the picture, as the original's water joins its picture at its pixels: drawn
+    /// at the window's height it took 1.69 ms a frame at 3,840 × 2,160, some eight times as many
+    /// pixels (#2663, research #2637).
     pub fn spawn<S: States>(
         &mut self,
         commands: &mut Commands,
         (images, assets): (&mut Assets<Image>, &AssetServer),
         (screen, pond): (S, &Pond),
-        height: f32,
     ) -> Handle<Image> {
         let projection = projection(pond.view);
+        let height = crate::menu::SCREEN.y;
         let size = Vec2::new(height * projection.aspect_ratio, height)
             .round()
             .as_uvec2();
