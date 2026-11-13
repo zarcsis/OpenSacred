@@ -268,8 +268,6 @@ pub fn between(machine: &mut Machine<'_>, runs: (u32, u64)) -> Found<(i32, i32, 
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use crate::pe::Image;
     use crate::{machine, vectors};
