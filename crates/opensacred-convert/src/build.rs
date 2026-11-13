@@ -9,8 +9,9 @@
 //! `models.zip`, `music.zip`, `sound.zip`, `textures.zip`, `ui.zip`, `video.zip` and `world.zip`,
 //! the entries in the order of their paths. It leaves out the masters that the game never reads
 //! (#2645): the atlases that the sprites' images were assembled from (#838), the menus' tiles
-//! that `ui` assembles its pictures from (#2646), the files that no code of the game reads
-//! (#2650), and the scripts' trees, which the game runs in Luau (#726).
+//! that `ui` assembles its pictures from (#2646), the motion records' files, whose clips
+//! `models` copies into the models' (#2647), the files that no code of the game reads (#2650),
+//! and the scripts' trees, which the game runs in Luau (#726).
 //!
 //! It records `<out>/manifest/build.ron`: the masters it built from and each archive's entries,
 //! `<archive>/<path>`, each with its SHA-256. An archive whose masters are all the ones recorded
@@ -173,11 +174,13 @@ fn world_textures(src: &Path) -> Result<(HashSet<String>, HashSet<String>)> {
 }
 
 /// Whether the master at `path` stays among the masters alone, as the game never reads it
-/// (#2645): a menu's tile, which `ui` assembles its picture from (#2646), a file that no code of
-/// the game reads (the heroes' own files, six tables, three loading screens and the first
-/// credits, #2650), or a script's tree ([`masters_alone`]).
+/// (#2645): a menu's tile, which `ui` assembles its picture from (#2646), a motion record's
+/// file, whose clip `models` copies into the models' (#2647), a file that no code of the game
+/// reads (the heroes' own files, six tables, three loading screens and the first credits,
+/// #2650), or a script's tree ([`masters_alone`]).
 fn never_read(path: &str) -> bool {
     crate::ui::is_menu_tile(path)
+        || crate::models::is_motion(path)
         || crate::heroes::is_unread(path)
         || crate::tables::is_unread(path)
         || crate::ui::is_unread(path)
@@ -979,6 +982,36 @@ return F
         let textures = Archive::open(&out.join("textures.zip")).unwrap();
         assert!(!textures.contains(tile));
         assert!(textures.contains("textures/texture/00001-dwarf.ktx2"));
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The motion records' files leave the game's assets, which read the clips from the models'
+    /// (#2647); a motion's master is never opened, and a `models.zip` of them alone goes.
+    #[test]
+    fn the_motions_are_left_out() {
+        let src = scratch_dir("build-motions-src");
+        let out = scratch_dir("build-motions-out");
+        let png = crate::textures::encode_png(8, 8, &[255; 256]).unwrap();
+        write(
+            &src,
+            "models/models/2845-gladiator.motion.glb",
+            "not a glTF",
+        );
+        let texture = src.join("textures/texture/00001-dwarf.png");
+        fs::create_dir_all(texture.parent().unwrap()).unwrap();
+        fs::write(texture, &png).unwrap();
+        let summary = build(&src, &out, false).unwrap();
+        assert_eq!(
+            (summary.masters, summary.built, summary.left_out),
+            (2, 1, 1)
+        );
+        assert!(!out.join("models.zip").exists());
+        assert!(
+            Archive::open(&out.join("textures.zip"))
+                .unwrap()
+                .contains("textures/texture/00001-dwarf.ktx2")
+        );
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }

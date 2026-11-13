@@ -1,7 +1,8 @@
 //! `models` subcommand: the records of `PAK/models*.pak` → glTF binaries in
-//! `<out>/models/<pak>/<index>-<name>.glb` (docs/02 §4.5; the conversion is in [`gltf`]). A
-//! model's file holds its meshes and, as animations, the motions of its motion slots; a motion's
-//! file holds its skeleton and its own animation. A texture is referenced as the PNG that
+//! `<out>/models/<pak>/<index>-<name>.glb`, a motion's `<index>-<name>.motion.glb` (docs/02 §4.5;
+//! the conversion is in [`gltf`]). A model's file holds its meshes and, as animations, the motions
+//! of its motion slots; a motion's file holds its skeleton and its own animation, among the
+//! masters alone (`build` leaves it out, #2647). A texture is referenced as the PNG that
 //! `opensacred-convert textures` writes to `<out>/textures/texture/`, and in the game's file as the
 //! KTX2 file that `build` makes of it ([`built`]). The records that [`model_repairs`] names are
 //! repaired as they are written.
@@ -37,10 +38,38 @@ pub fn output_dir(out: &Path, dir_name: &str) -> PathBuf {
     out.join("models").join(dir_name)
 }
 
+/// The end of a motion record's file name, by which `build` leaves it out of the game's assets
+/// (#2647): the game reads a motion's clip from the files of the models whose slots name it, into
+/// which `models` copies it, and never opens the motion's own file.
+pub const MOTION: &str = ".motion.glb";
+
 /// `0661-seraphim.glb`: the four-digit record index, then the [`textures::stem`] of the name
-/// without `.grn`.
-pub fn file_name(index: usize, name: &[u8]) -> String {
-    format!("{index:04}-{}.glb", textures::stem(name, b".grn"))
+/// without `.grn`; a motion record's ends in [`MOTION`] (`2845-gladiator.motion.glb`).
+pub fn file_name(index: usize, name: &[u8], kind: Kind) -> String {
+    let stem = textures::stem(name, b".grn");
+    match kind {
+        Kind::Model => format!("{index:04}-{stem}.glb"),
+        Kind::Motion => format!("{index:04}-{stem}{MOTION}"),
+    }
+}
+
+/// Whether the master at `path`, relative to the masters' directory, is a motion record's file.
+pub fn is_motion(path: &str) -> bool {
+    path.starts_with("models/") && path.ends_with(MOTION)
+}
+
+/// Removes the binary glTF files that a run before wrote into `dir`, so that a full run leaves
+/// only its own: the motions' files of the runs before #2647, named as the models', would else
+/// stay among the masters and in the game's assets.
+fn remove_outputs(dir: &Path) -> Result<()> {
+    let what = || format!("reading {}", dir.display());
+    for entry in fs::read_dir(dir).with_context(what)? {
+        let path = entry.with_context(what)?.path();
+        if path.is_file() && path.extension().is_some_and(|e| e == "glb") {
+            fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// The images of `texture.pak` by name, found as the game finds them: the GRN texture's name
@@ -117,9 +146,10 @@ struct Motion<'a> {
     animation: Animation,
 }
 
-/// Converts the records of the container `src` into `dst_dir`, in parallel: all of them, or for
-/// a non-empty `only` those with these names (without regard to case). The placeholders
-/// `INVALID_MODEL` and `INVALID_MOTION` have no file and are skipped.
+/// Converts the records of the container `src` into `dst_dir`, in parallel: all of them, in
+/// place of the files a run before wrote, or for a non-empty `only` those with these names
+/// (without regard to case), beside them. The placeholders `INVALID_MODEL` and `INVALID_MOTION`
+/// have no file and are skipped.
 pub fn convert_pak(
     src: &Path,
     dst_dir: &Path,
@@ -129,6 +159,9 @@ pub fn convert_pak(
     let data = read_game_file(src)?;
     let pak = MdlPak::parse(&data).with_context(|| src.display().to_string())?;
     fs::create_dir_all(dst_dir).with_context(|| format!("creating {}", dst_dir.display()))?;
+    if only.is_empty() {
+        remove_outputs(dst_dir)?;
+    }
 
     let converted = (0..pak.len())
         .into_par_iter()
@@ -193,7 +226,7 @@ pub fn convert_pak(
                 textures.uri(name)
             })
             .with_context(what)?;
-            let path = dst_dir.join(file_name(index, name));
+            let path = dst_dir.join(file_name(index, name, record.kind));
             fs::write(&path, glb).with_context(|| format!("writing {}", path.display()))?;
             let repaired = match repaired {
                 Outcome::Mismatch(reason) => {
@@ -548,12 +581,38 @@ mod tests {
 
     #[test]
     fn file_name_is_index_and_sanitized_lower_case_name() {
-        assert_eq!(file_name(661, b"SERAPHIM.GRN"), "0661-seraphim.glb");
+        assert_eq!(
+            file_name(661, b"SERAPHIM.GRN", Kind::Model),
+            "0661-seraphim.glb"
+        );
         // The 33-character name is cut to 32 characters (docs/02 §4.1).
         assert_eq!(
-            file_name(1546, b"VAMP_WEAPON_SWORDLONG_2HANDED.GR"),
+            file_name(1546, b"VAMP_WEAPON_SWORDLONG_2HANDED.GR", Kind::Model),
             "1546-vamp_weapon_swordlong_2handed.gr.glb"
         );
+        // A motion's, which `build` leaves out (#2647), though it carries meshes.
+        let motion = file_name(2845, b"GLADIATOR.GRN", Kind::Motion);
+        assert_eq!(motion, "2845-gladiator.motion.glb");
+        assert!(is_motion(&format!("models/models/{motion}")));
+        assert!(!is_motion("models/models/0661-seraphim.glb"));
+        assert!(!is_motion("world/2845-gladiator.motion.glb"));
+    }
+
+    #[test]
+    fn a_full_run_removes_the_files_of_the_runs_before() {
+        let dir = scratch_dir("models-remove-outputs");
+        for name in ["2845-gladiator.glb", "0661-seraphim.glb", "notes.txt"] {
+            fs::write(dir.join(name), b"x").unwrap();
+        }
+        fs::create_dir_all(dir.join("sub.glb")).unwrap();
+        remove_outputs(&dir).unwrap();
+        let mut left: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["notes.txt", "sub.glb"]);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
