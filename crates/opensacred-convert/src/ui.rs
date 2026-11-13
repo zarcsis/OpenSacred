@@ -41,6 +41,29 @@ const MENU_COLUMNS: u32 = 4;
 const MENU_COUNT: usize = 12;
 pub const MENU_PICTURE: &str = "mainmenu.png";
 pub const CREDITS: [&str; 2] = ["credits.txt", "credits2.txt"];
+/// The screens and texts that `Sacred.exe` never names, which `build` leaves out of the game's
+/// assets (#2650): the loading screens other than `LOADING0.BMP`, which it would show only from a
+/// `GFXLOADING` of `Settings.cfg` that the installation's does not list (`0x818A80`), and the
+/// first credits, as it reads only `credits2.txt`.
+pub const UNREAD: [&str; 4] = [
+    "PAK/loading1.bmp",
+    "PAK/LoadingUW00.bmp",
+    "PAK/LoadingUW01.bmp",
+    "credits.txt",
+];
+
+/// Whether the master at `path`, relative to the masters' directory, is the output of one of
+/// [`UNREAD`].
+pub fn is_unread(path: &str) -> bool {
+    UNREAD.iter().any(|&unread| {
+        let master = if CREDITS.contains(&unread) {
+            format!("ui/texts/{}", target(unread, None))
+        } else {
+            format!("ui/screens/{}", target(unread, Some("png")))
+        };
+        path == master
+    })
+}
 
 pub fn output_dir(out: &Path) -> PathBuf {
     out.join("ui")
@@ -236,6 +259,26 @@ mod tests {
     }
 
     #[test]
+    fn the_unread_screens_and_texts_are_their_masters() {
+        for path in [
+            "ui/screens/loading1.png",
+            "ui/screens/loadinguw00.png",
+            "ui/screens/loadinguw01.png",
+            "ui/texts/credits.txt",
+        ] {
+            assert!(is_unread(path), "{path}");
+        }
+        for path in [
+            "ui/screens/loading0.png",
+            "ui/screens/loadgame.png",
+            "ui/texts/credits2.txt",
+            "ui/screens/credits.txt",
+        ] {
+            assert!(!is_unread(path), "{path}");
+        }
+    }
+
+    #[test]
     fn targets_are_lower_case_names() {
         assert_eq!(
             target("PAK/LoadingUW00.bmp", Some("png")),
@@ -292,6 +335,11 @@ mod tests {
             .filter(|name| is_menu_tile(&format!("textures/texture/{name}")))
             .collect();
         assert_eq!(left.len(), MENU_PICTURES.len() * MENU_COUNT, "{left:?}");
+        // The screens and texts `build` leaves out are among the outputs (#2650).
+        let mut outputs = Vec::new();
+        crate::manifest::files(&out, &output_dir(&out), &mut outputs).unwrap();
+        let unread: Vec<&String> = outputs.iter().filter(|p| is_unread(p)).collect();
+        assert_eq!(unread.len(), UNREAD.len(), "{unread:?}");
         for path in SCREENS {
             let data = read_game_file(&game.join(path)).unwrap();
             let args = [
