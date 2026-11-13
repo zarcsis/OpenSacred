@@ -889,7 +889,10 @@ fn main() -> ExitCode {
             return first_start::run((need, assets), cli.hidden, log_file, cli.screenshot.clone());
         }
     }
-    match run(cli) {
+    let ended = run(cli);
+    // A recording still running finished with the frames it has (#2667).
+    mkv::finish_running();
+    match ended {
         Ok(AppExit::Success) => ExitCode::SUCCESS,
         Ok(AppExit::Error(code)) => ExitCode::from(code.get()),
         Err(e) => {
