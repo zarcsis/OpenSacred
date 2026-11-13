@@ -1918,6 +1918,28 @@ fn pools(records: &[&Record]) -> HashMap<i32, Vec<u32>> {
     pools
 }
 
+/// The weapon pools as the original leaves them once the start script has run: the engine's
+/// start (`0x46F9B0`, a new game's and a load's) then reads `bin\wea.bin` over the scripts' pools
+/// (`0x470B20`), each of its lists the whole of its pool in order and an empty one emptying it
+/// (#2651); `groups` its lists (`tables/weapon_groups.ron`), the scripts' pools alone without
+/// them.
+fn with_groups(
+    mut pools: HashMap<i32, Vec<u32>>,
+    groups: Option<&[Vec<u32>]>,
+) -> HashMap<i32, Vec<u32>> {
+    for (pool, items) in groups.unwrap_or_default().iter().enumerate() {
+        let Ok(pool) = i32::try_from(pool) else {
+            break;
+        };
+        if items.is_empty() {
+            pools.remove(&pool);
+        } else {
+            pools.insert(pool, items.clone());
+        }
+    }
+    pools
+}
+
 /// The `MakeGroup` rules of the sectors' `Enter` functions, by sector, in order.
 fn rules(tree: &Tree) -> HashMap<(u32, u32), Vec<Rule>> {
     let mut out: HashMap<(u32, u32), Vec<Rule>> = HashMap::new();
@@ -4295,7 +4317,15 @@ impl Npcs {
                 template(creature, kind, &model_slots[&kind.model]),
             );
         }
-        let pools = pools(&records);
+        // The scripts' pools, which `wea.bin`'s lists replace (#2651).
+        let groups: Option<Vec<Vec<u32>>> = files::read_to_string(
+            assets
+                .join("tables")
+                .join(opensacred_data::tables::WEAPON_GROUPS),
+        )
+        .ok()
+        .and_then(|text| ron::from_str(&text).ok());
+        let pools = with_groups(pools(&records), groups.as_deref());
         // The pools' items, the weapons that an archer takes to melee and back (#396), the
         // hero's (#486), and every type of a `Weapon.pak` record: the bows and the weapons of
         // kind 1 that a crossbow its holder cannot shoot becomes (#1217), and whatever weapon,
@@ -5647,6 +5677,12 @@ pub fn place(
                     })
                 });
                 if !gear.is_empty() {
+                    bevy::log::debug!(
+                        "npcs: a {} of {at:?}'s fills on {:?} takes {:?}",
+                        made.creature,
+                        placement.cell,
+                        gear.iter().map(|&(item, _)| item).collect::<Vec<_>>()
+                    );
                     let categories: Vec<(u8, Option<u8>)> =
                         gear.iter().map(|(_, g)| (g.category, g.kind)).collect();
                     placement.holding =
@@ -15485,6 +15521,32 @@ mod tests {
             ]
         );
         assert_eq!(class, motions::class(Some((true, 0)), Some(1)));
+    }
+
+    /// `wea.bin`'s lists replace the scripts' pools, each the whole of its pool, an empty one
+    /// emptying it; a pool past them stays the scripts' (#2651).
+    #[test]
+    fn the_weapon_groups_replace_the_scripts_pools() {
+        let scripts = HashMap::from([
+            (0, vec![10, 11]),
+            (1, vec![20]),
+            (2, vec![30]),
+            (200, vec![1773]),
+        ]);
+        assert_eq!(with_groups(scripts.clone(), None), scripts);
+        let mut groups = vec![Vec::new(); 3];
+        groups[0] = vec![10, 11];
+        groups[2] = vec![31, 31];
+        let pools = with_groups(scripts.clone(), Some(&groups));
+        assert_eq!(
+            pools,
+            HashMap::from([(0, vec![10, 11]), (2, vec![31, 31]), (200, vec![1773])])
+        );
+        // The installation's: pool 200 of the Schädelreißer's first item, 1833 for the scripts'
+        // 1773, and the 256 lists.
+        groups.resize(256, Vec::new());
+        groups[200] = vec![1833];
+        assert_eq!(with_groups(scripts, Some(&groups))[&200], [1833]);
     }
 
     #[test]
