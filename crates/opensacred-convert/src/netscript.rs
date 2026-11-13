@@ -55,6 +55,8 @@ pub struct Summary {
     pub repairs: BTreeMap<&'static str, usize>,
     /// The old potions that the records named, made the new ones (`script_repairs::renew_potions`).
     pub renewed_potions: usize,
+    /// The sounds that the records named wrongly, named right (`script_repairs::rename_sounds`).
+    pub renamed_sounds: usize,
     pub warnings: Vec<String>,
 }
 
@@ -407,6 +409,7 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 &mut tree,
             );
             let renewed = script_repairs::renew_potions(&mut tree);
+            let renamed = script_repairs::rename_sounds(&mut tree);
             let file = file_name(source);
             let bytes = tree
                 .encode()
@@ -453,15 +456,16 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 u64::try_from(bytes.len()).unwrap_or(u64::MAX),
                 outcome,
                 report,
-                renewed,
+                (renewed, renamed),
             ))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
     let mut trees = Vec::with_capacity(entries.len());
-    for (entry, bytes, outcome, report, renewed) in entries {
+    for (entry, bytes, outcome, report, (renewed, renamed)) in entries {
         summary.renewed_potions += renewed;
+        summary.renamed_sounds += renamed;
         match outcome {
             Outcome::None => {}
             Outcome::Repaired(cells) => {
@@ -571,6 +575,11 @@ mod tests {
         );
     }
 
+    /// The `PlaySound`s and `PlayMusic`s of the 20 trees that name a sound wrongly (#2652): 127 in
+    /// the multiplayer's tree and its add-on's, 126 in the campaign's other trees, 115 in the
+    /// add-on's others (a scan of the Luau sources' `play_sound` and `play_music`, 2026-11-13).
+    const RENAMED_SOUNDS: usize = 2 * 127 + 9 * 126 + 9 * 115;
+
     /// Every tree converts, its records all land in the tree file, and the file reads back.
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
@@ -596,6 +605,8 @@ mod tests {
         assert_eq!((summary.repaired_trees, summary.repaired_cells), (11, 11));
         // The old potions of 1,308 `CreateObj`s and 120 `FillChest`s (#1634).
         assert_eq!(summary.renewed_potions, 1_308 + 120);
+        // The misnamed sounds' records (#2652), in every tree that holds them.
+        assert_eq!(summary.renamed_sounds, RENAMED_SOUNDS);
         // The quests' repairs, each in every tree that holds its quest.
         assert_eq!(
             summary.repairs,

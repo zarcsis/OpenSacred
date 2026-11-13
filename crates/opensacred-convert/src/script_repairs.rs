@@ -12,6 +12,8 @@
 //!   warning.
 //! - The old potions that the records make (#1634, docs/decisions/netscript.md, "Scripts' old
 //!   potions made the new ones"): [`renew_potions`].
+//! - The sounds that the records name wrongly, which the original never plays (#2652,
+//!   docs/decisions/sound.md, "Scripts' misnamed sounds named right"): [`rename_sounds`].
 
 use opensacred_data::netscript::{Body, Function, Operand, Record, Tree, Value};
 
@@ -47,6 +49,9 @@ const REPLACE_SPAWN: u16 = 96;
 const INFO_PLAYER: u16 = 132;
 /// `FillChest`.
 const FILL_CHEST: u16 = 78;
+/// `PlaySound` and `PlayMusic`, which name their sound by their first string (`0x01`).
+const PLAY_SOUND: u16 = 104;
+const PLAY_MUSIC: u16 = 127;
 
 /// The old potions and the new ones that the original's object maker makes of them, of the same
 /// kind and size (`0x43FC40`, which `sdk_OBJ_CREATE_NPOS` at `0x5FB530` calls on the type of
@@ -93,6 +98,221 @@ pub fn renew_potions(tree: &mut Tree) -> usize {
         }
     }
     made
+}
+
+/// The sounds that the scripts name wrongly, and the names of the sounds they mean (#2652, the
+/// maintainer's decision of 2026-11-13): the original finds a `PlaySound`'s or a `PlayMusic`'s
+/// sound by its name, `SOUND_FX_` put before one that lacks it, compared without case with the
+/// client's table (`0x85AA60`, `0x676170`), and these names match none of it, so that it never
+/// plays their 127 sounds. Each right name is one sound's of `sound.ron`'s table, which no other
+/// name of the scripts reaches; a wrong name that no sound would match is left out (the Gladiator's
+/// lines of the locations 9 and 10, the Battle Mage's of 46, the Dwarf's and the Vampiress's of 55).
+pub const SOUNDS: [(&str, &str); 127] = [
+    // The locations' lines: the number without its leading zero.
+    ("SFX_Loc1_SCdelf", "SOUND_FX_SFX_LOC01_SCDELF"),
+    ("SFX_Loc1_SCdemon", "SOUND_FX_SFX_LOC01_SCDEMON"),
+    ("SFX_Loc1_SCdwarf", "SOUND_FX_SFX_LOC01_SCDWARF"),
+    ("SFX_Loc1_SCglad", "SOUND_FX_SFX_LOC01_SCGLAD"),
+    ("SFX_Loc1_SCmage", "SOUND_FX_SFX_LOC01_SCMAGE"),
+    ("SFX_Loc1_SCsera", "SOUND_FX_SFX_LOC01_SCSERA"),
+    ("SFX_Loc1_SCvamp", "SOUND_FX_SFX_LOC01_SCVAMP"),
+    ("SFX_Loc2_SCdelf", "SOUND_FX_SFX_LOC02_SCDELF"),
+    ("SFX_Loc2_SCdemon", "SOUND_FX_SFX_LOC02_SCDEMON"),
+    ("SFX_Loc2_SCdwarf", "SOUND_FX_SFX_LOC02_SCDWARF"),
+    ("SFX_Loc2_SCglad", "SOUND_FX_SFX_LOC02_SCGLAD"),
+    ("SFX_Loc2_SCmage", "SOUND_FX_SFX_LOC02_SCMAGE"),
+    ("SFX_Loc2_SCsera", "SOUND_FX_SFX_LOC02_SCSERA"),
+    ("SFX_Loc2_SCvamp", "SOUND_FX_SFX_LOC02_SCVAMP"),
+    ("SFX_Loc3_SCdelf", "SOUND_FX_SFX_LOC03_SCDELF"),
+    ("SFX_Loc3_SCdemon", "SOUND_FX_SFX_LOC03_SCDEMON"),
+    ("SFX_Loc3_SCdwarf", "SOUND_FX_SFX_LOC03_SCDWARF"),
+    ("SFX_Loc3_SCglad", "SOUND_FX_SFX_LOC03_SCGLAD"),
+    ("SFX_Loc3_SCmage", "SOUND_FX_SFX_LOC03_SCMAGE"),
+    ("SFX_Loc3_SCsera", "SOUND_FX_SFX_LOC03_SCSERA"),
+    ("SFX_Loc3_SCvamp", "SOUND_FX_SFX_LOC03_SCVAMP"),
+    ("SFX_Loc4_SCdelf", "SOUND_FX_SFX_LOC04_SCDELF"),
+    ("SFX_Loc4_SCdemon", "SOUND_FX_SFX_LOC04_SCDEMON"),
+    ("SFX_Loc4_SCdwarf", "SOUND_FX_SFX_LOC04_SCDWARF"),
+    ("SFX_Loc4_SCglad", "SOUND_FX_SFX_LOC04_SCGLAD"),
+    ("SFX_Loc4_SCmage", "SOUND_FX_SFX_LOC04_SCMAGE"),
+    ("SFX_Loc4_SCsera", "SOUND_FX_SFX_LOC04_SCSERA"),
+    ("SFX_Loc4_SCvamp", "SOUND_FX_SFX_LOC04_SCVAMP"),
+    ("SFX_Loc5_SCdelf", "SOUND_FX_SFX_LOC05_SCDELF"),
+    ("SFX_Loc5_SCdemon", "SOUND_FX_SFX_LOC05_SCDEMON"),
+    ("SFX_Loc5_SCdwarf", "SOUND_FX_SFX_LOC05_SCDWARF"),
+    ("SFX_Loc5_SCglad", "SOUND_FX_SFX_LOC05_SCGLAD"),
+    ("SFX_Loc5_SCmage", "SOUND_FX_SFX_LOC05_SCMAGE"),
+    ("SFX_Loc5_SCsera", "SOUND_FX_SFX_LOC05_SCSERA"),
+    ("SFX_Loc5_SCvamp", "SOUND_FX_SFX_LOC05_SCVAMP"),
+    ("SFX_Loc6_SCdelf", "SOUND_FX_SFX_LOC06_SCDELF"),
+    ("SFX_Loc6_SCdemon", "SOUND_FX_SFX_LOC06_SCDEMON"),
+    ("SFX_Loc6_SCdwarf", "SOUND_FX_SFX_LOC06_SCDWARF"),
+    ("SFX_Loc6_SCglad", "SOUND_FX_SFX_LOC06_SCGLAD"),
+    ("SFX_Loc6_SCmage", "SOUND_FX_SFX_LOC06_SCMAGE"),
+    ("SFX_Loc6_SCsera", "SOUND_FX_SFX_LOC06_SCSERA"),
+    ("SFX_Loc6_SCvamp", "SOUND_FX_SFX_LOC06_SCVAMP"),
+    ("SFX_Loc7_SCdelf", "SOUND_FX_SFX_LOC07_SCDELF"),
+    ("SFX_Loc7_SCdemon", "SOUND_FX_SFX_LOC07_SCDEMON"),
+    ("SFX_Loc7_SCdwarf", "SOUND_FX_SFX_LOC07_SCDWARF"),
+    ("SFX_Loc7_SCglad", "SOUND_FX_SFX_LOC07_SCGLAD"),
+    ("SFX_Loc7_SCmage", "SOUND_FX_SFX_LOC07_SCMAGE"),
+    ("SFX_Loc7_SCsera", "SOUND_FX_SFX_LOC07_SCSERA"),
+    ("SFX_Loc7_SCvamp", "SOUND_FX_SFX_LOC07_SCVAMP"),
+    ("SFX_Loc8_SCdelf", "SOUND_FX_SFX_LOC08_SCDELF"),
+    ("SFX_Loc8_SCdemon", "SOUND_FX_SFX_LOC08_SCDEMON"),
+    ("SFX_Loc8_SCdwarf", "SOUND_FX_SFX_LOC08_SCDWARF"),
+    ("SFX_Loc8_SCglad", "SOUND_FX_SFX_LOC08_SCGLAD"),
+    ("SFX_Loc8_SCmage", "SOUND_FX_SFX_LOC08_SCMAGE"),
+    ("SFX_Loc8_SCsera", "SOUND_FX_SFX_LOC08_SCSERA"),
+    ("SFX_Loc8_SCvamp", "SOUND_FX_SFX_LOC08_SCVAMP"),
+    ("SFX_Loc9_SCdelf", "SOUND_FX_SFX_LOC09_SCDELF"),
+    ("SFX_Loc9_SCdemon", "SOUND_FX_SFX_LOC09_SCDEMON"),
+    ("SFX_Loc9_SCdwarf", "SOUND_FX_SFX_LOC09_SCDWARF"),
+    ("SFX_Loc9_SCmage", "SOUND_FX_SFX_LOC09_SCMAGE"),
+    ("SFX_Loc9_SCsera", "SOUND_FX_SFX_LOC09_SCSERA"),
+    ("SFX_Loc9_SCvamp", "SOUND_FX_SFX_LOC09_SCVAMP"),
+    // The Wood Elf's locations' lines: `SCelf` for the samples' `SCHELF`, the first nine without the zero too.
+    ("SFX_Loc10_SCelf", "SOUND_FX_SFX_LOC10_SCHELF"),
+    ("SFX_Loc11_SCelf", "SOUND_FX_SFX_LOC11_SCHELF"),
+    ("SFX_Loc12_SCelf", "SOUND_FX_SFX_LOC12_SCHELF"),
+    ("SFX_Loc13_SCelf", "SOUND_FX_SFX_LOC13_SCHELF"),
+    ("SFX_Loc14_SCelf", "SOUND_FX_SFX_LOC14_SCHELF"),
+    ("SFX_Loc15_SCelf", "SOUND_FX_SFX_LOC15_SCHELF"),
+    ("SFX_Loc16_SCelf", "SOUND_FX_SFX_LOC16_SCHELF"),
+    ("SFX_Loc17_SCelf", "SOUND_FX_SFX_LOC17_SCHELF"),
+    ("SFX_Loc18_SCelf", "SOUND_FX_SFX_LOC18_SCHELF"),
+    ("SFX_Loc19_SCelf", "SOUND_FX_SFX_LOC19_SCHELF"),
+    ("SFX_Loc1_SCelf", "SOUND_FX_SFX_LOC01_SCHELF"),
+    ("SFX_Loc20_SCelf", "SOUND_FX_SFX_LOC20_SCHELF"),
+    ("SFX_Loc21_SCelf", "SOUND_FX_SFX_LOC21_SCHELF"),
+    ("SFX_Loc23_SCelf", "SOUND_FX_SFX_LOC23_SCHELF"),
+    ("SFX_Loc24_SCelf", "SOUND_FX_SFX_LOC24_SCHELF"),
+    ("SFX_Loc25_SCelf", "SOUND_FX_SFX_LOC25_SCHELF"),
+    ("SFX_Loc26_SCelf", "SOUND_FX_SFX_LOC26_SCHELF"),
+    ("SFX_Loc27_SCelf", "SOUND_FX_SFX_LOC27_SCHELF"),
+    ("SFX_Loc28_SCelf", "SOUND_FX_SFX_LOC28_SCHELF"),
+    ("SFX_Loc29_SCelf", "SOUND_FX_SFX_LOC29_SCHELF"),
+    ("SFX_Loc2_SCelf", "SOUND_FX_SFX_LOC02_SCHELF"),
+    ("SFX_Loc30_SCelf", "SOUND_FX_SFX_LOC30_SCHELF"),
+    ("SFX_Loc31_SCelf", "SOUND_FX_SFX_LOC31_SCHELF"),
+    ("SFX_Loc32_SCelf", "SOUND_FX_SFX_LOC32_SCHELF"),
+    ("SFX_Loc33_SCelf", "SOUND_FX_SFX_LOC33_SCHELF"),
+    ("SFX_Loc34_SCelf", "SOUND_FX_SFX_LOC34_SCHELF"),
+    ("SFX_Loc35_SCelf", "SOUND_FX_SFX_LOC35_SCHELF"),
+    ("SFX_Loc36_SCelf", "SOUND_FX_SFX_LOC36_SCHELF"),
+    ("SFX_Loc37_SCelf", "SOUND_FX_SFX_LOC37_SCHELF"),
+    ("SFX_Loc38_SCelf", "SOUND_FX_SFX_LOC38_SCHELF"),
+    ("SFX_Loc39_SCelf", "SOUND_FX_SFX_LOC39_SCHELF"),
+    ("SFX_Loc3_SCelf", "SOUND_FX_SFX_LOC03_SCHELF"),
+    ("SFX_Loc40_SCelf", "SOUND_FX_SFX_LOC40_SCHELF"),
+    ("SFX_Loc41_SCelf", "SOUND_FX_SFX_LOC41_SCHELF"),
+    ("SFX_Loc42_SCelf", "SOUND_FX_SFX_LOC42_SCHELF"),
+    ("SFX_Loc43_SCelf", "SOUND_FX_SFX_LOC43_SCHELF"),
+    ("SFX_Loc44_SCelf", "SOUND_FX_SFX_LOC44_SCHELF"),
+    ("SFX_Loc45_SCelf", "SOUND_FX_SFX_LOC45_SCHELF"),
+    ("SFX_Loc46_SCelf", "SOUND_FX_SFX_LOC46_SCHELF"),
+    ("SFX_Loc4_SCelf", "SOUND_FX_SFX_LOC04_SCHELF"),
+    ("SFX_Loc55_SCelf", "SOUND_FX_SFX_LOC55_SCHELF"),
+    ("SFX_Loc5_SCelf", "SOUND_FX_SFX_LOC05_SCHELF"),
+    ("SFX_Loc64_SCelf", "SOUND_FX_SFX_LOC64_SCHELF"),
+    ("SFX_Loc65_SCelf", "SOUND_FX_SFX_LOC65_SCHELF"),
+    ("SFX_Loc66_SCelf", "SOUND_FX_SFX_LOC66_SCHELF"),
+    ("SFX_Loc67_SCelf", "SOUND_FX_SFX_LOC67_SCHELF"),
+    ("SFX_Loc6_SCelf", "SOUND_FX_SFX_LOC06_SCHELF"),
+    ("SFX_Loc7_SCelf", "SOUND_FX_SFX_LOC07_SCHELF"),
+    ("SFX_Loc8_SCelf", "SOUND_FX_SFX_LOC08_SCHELF"),
+    ("SFX_Loc9_SCelf", "SOUND_FX_SFX_LOC09_SCHELF"),
+    // The quests' voice-overs cut short.
+    (
+        "SOUND_FX_HQ_3_3_NPC_AUFTRAG1_QZIEL",
+        "SOUND_FX_HQ_3_3_NPC_AUFTRAG1_QZIEL_QSTART",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_DELF_NPC_ZIEL_QOFF",
+        "SOUND_FX_HQ_3_5_2_DELF_NPC_ZIEL_QOFFEN",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_DELF_NPC_ZIEL_QSIE",
+        "SOUND_FX_HQ_3_5_2_DELF_NPC_ZIEL_QSIEG",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_GLAD_NPC_ZIEL_QOFF",
+        "SOUND_FX_HQ_3_5_2_GLAD_NPC_ZIEL_QOFFEN",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_GLAD_NPC_ZIEL_QSIE",
+        "SOUND_FX_HQ_3_5_2_GLAD_NPC_ZIEL_QSIEG",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_HELF_NPC_ZIEL_QOFF",
+        "SOUND_FX_HQ_3_5_2_HELF_NPC_ZIEL_QOFFEN",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_HELF_NPC_ZIEL_QSIE",
+        "SOUND_FX_HQ_3_5_2_HELF_NPC_ZIEL_QSIEG",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_MAGE_NPC_ZIEL_QOFF",
+        "SOUND_FX_HQ_3_5_2_MAGE_NPC_ZIEL_QOFFEN",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_MAGE_NPC_ZIEL_QSIE",
+        "SOUND_FX_HQ_3_5_2_MAGE_NPC_ZIEL_QSIEG",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_SERA_NPC_ZIEL_QOFF",
+        "SOUND_FX_HQ_3_5_2_SERA_NPC_ZIEL_QOFFEN",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_SERA_NPC_ZIEL_QSIE",
+        "SOUND_FX_HQ_3_5_2_SERA_NPC_ZIEL_QSIEG",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_VAMP_NPC_ZIEL_QOFF",
+        "SOUND_FX_HQ_3_5_2_VAMP_NPC_ZIEL_QOFFEN",
+    ),
+    (
+        "SOUND_FX_HQ_3_5_2_VAMP_NPC_ZIEL_QSIE",
+        "SOUND_FX_HQ_3_5_2_VAMP_NPC_ZIEL_QSIEG",
+    ),
+    // The music cues without their underscores.
+    ("MusicFightGiantSpider", "SOUND_FX_MUSIC_FIGHT_GIANTSPIDER"),
+    (
+        "SOUND_FX_MusicEnterKhoradnur",
+        "SOUND_FX_MUSIC_ENTER_KHORADNUR",
+    ),
+];
+
+/// Makes every `PlaySound` and `PlayMusic` of `tree` that names a sound of [`SOUNDS`] wrongly name
+/// the sound it means, its case aside, so that the game plays it; the number renamed.
+pub fn rename_sounds(tree: &mut Tree) -> usize {
+    let mut renamed = 0;
+    let scripts = [&mut tree.start, &mut tree.quest]
+        .into_iter()
+        .chain(tree.functions.iter_mut().map(|f| &mut f.records));
+    for records in scripts {
+        for record in records {
+            if ![PLAY_SOUND, PLAY_MUSIC].contains(&record.kind) {
+                continue;
+            }
+            let Body::Operands(ops) = &mut record.body else {
+                continue;
+            };
+            let Some(Value::Str(name)) =
+                ops.iter_mut().find(|o| o.tag == 0x01).map(|o| &mut o.value)
+            else {
+                continue;
+            };
+            if let Some(&(_, right)) = SOUNDS
+                .iter()
+                .find(|(wrong, _)| wrong.eq_ignore_ascii_case(name))
+            {
+                *name = right.to_owned();
+                renamed += 1;
+            }
+        }
+    }
+    renamed
 }
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
@@ -1186,6 +1406,54 @@ mod tests {
             [Some(5145), Some(5172), Some(5056)]
         );
         assert_eq!(tree.functions[0].records[2], counted);
+    }
+
+    #[test]
+    fn the_sounds_that_records_name_wrongly_are_named_right() {
+        // #2652: a location's line without its zero, in another case, a music cue without its
+        // underscores, a name no sound matches and a string of another record.
+        let named = |kind, name: &str| record(kind, vec![(0x01, Value::Str(name.into()))]);
+        let line = named(PLAY_SOUND, "sfx_loc5_SCsera");
+        let cue = named(PLAY_MUSIC, "MusicFightGiantSpider");
+        let silent = named(PLAY_SOUND, "SFX_Loc9_SCglad");
+        let text = named(TEXT, "SFX_Loc5_SCsera");
+        let mut tree = Tree {
+            start: Vec::new(),
+            quest: Vec::new(),
+            functions: vec![Function {
+                name: "sprich_5".into(),
+                quest: -1,
+                region: 0,
+                records: vec![line, cue, silent.clone(), text.clone()],
+            }],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        assert_eq!(rename_sounds(&mut tree), 2);
+        let names: Vec<_> = tree.functions[0]
+            .records
+            .iter()
+            .map(|r| match &operands(r)[0].value {
+                Value::Str(name) => name.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "SOUND_FX_SFX_LOC05_SCSERA",
+                "SOUND_FX_MUSIC_FIGHT_GIANTSPIDER",
+                "SFX_Loc9_SCglad",
+                "SFX_Loc5_SCsera",
+            ]
+        );
+        assert_eq!(tree.functions[0].records[2], silent);
+        assert_eq!(tree.functions[0].records[3], text);
+        // Each wrong name once, each right name of another sound.
+        let wrong: std::collections::HashSet<_> =
+            SOUNDS.iter().map(|(w, _)| w.to_ascii_lowercase()).collect();
+        let right: std::collections::HashSet<_> = SOUNDS.iter().map(|(_, r)| *r).collect();
+        assert_eq!((wrong.len(), right.len()), (SOUNDS.len(), SOUNDS.len()));
     }
 
     #[test]

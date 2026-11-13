@@ -4,8 +4,9 @@
 //! masters' paths, a line each, under `#` comments that say why they are dead; the audit of
 //! 2026-11-12 found them (#2645). A feature that comes to use one takes it off its list.
 //!
-//! Kept off the lists: the sounds that the original's data names wrongly (#2652), and whatever a
-//! feature not implemented yet needs, which the original's code or data names.
+//! Kept off the lists: the sounds that the original's data names wrongly, which the game plays
+//! since #2652 (`script_repairs::SOUNDS`, `opensacred-game`'s click lines), and whatever a feature
+//! not implemented yet needs, which the original's code or data names.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;

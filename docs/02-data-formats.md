@@ -1334,7 +1334,7 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 * The original's dead content stays among the masters alone (#2649, `dead`): what nothing in the original names, no script, table, model, world record or string of `Sacred.exe`, so that the game never reads it.
   The lists of `crates/opensacred-convert/src/dead/` name the masters, a kind each, under the reasons the audit of 2026-11-12 found (#2645): 1,333 samples, 17 music files, 3,266 sprites, 372 textures and 79 models, 444 MB of masters.
   The sprites are those that no static draws, of no item type or of the types that no static places and no script of the 16 trees the game loads creates (`create_obj`, `create_npc`, `replace_spawn` and `set_drop` name none of them in their `_02`).
-  The sounds that the original's data names wrongly stay, for their repairs to be decided (#2652), and so does whatever a feature not implemented yet needs, which the original's code or data names; a feature that comes to use a listed master takes it off its list.
+  The sounds that the original's data names wrongly stay, and since #2652 the game plays them: `netscript` names right the 127 that the scripts name wrongly (docs/decisions/sound.md, "Scripts' misnamed sounds named right"), and the game compares the two companions' names that the original's code writes in German by their keys ("Companions' click lines by their names' keys"); so does whatever a feature not implemented yet needs, which the original's code or data names; a feature that comes to use a listed master takes it off its list.
 
 ### 12.3 Order
 

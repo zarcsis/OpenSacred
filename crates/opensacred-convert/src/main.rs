@@ -711,6 +711,12 @@ fn execute(command: Command) -> Result<ExitCode> {
                     summary.renewed_potions
                 );
             }
+            if summary.renamed_sounds > 0 {
+                println!(
+                    "  repaired: {} sounds that the records named wrongly named right",
+                    summary.renamed_sounds
+                );
+            }
             for warning in &summary.warnings {
                 eprintln!("warning: {warning}");
             }
