@@ -16,7 +16,8 @@
 //! same styles at the original's pixels, draws the band's pieces, and its picture is drawn in the
 //! window where the band's first piece stacks ([`composites`]). The window's own drawing of those
 //! pieces is left out as Bevy extracts the interface ([`hide`]), from a band's second frame on:
-//! in its first its camera draws its first picture.
+//! in its first its camera draws its first picture. A band's camera draws only in the frames after
+//! its mirror or an image of it changed, its picture kept between ([`drawing`], #2661).
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -25,7 +26,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use bevy::asset::{AssetId, embedded_asset};
+use bevy::asset::{AssetEvent, AssetId, embedded_asset};
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
 use bevy::camera::{CameraUpdateSystems, CompositingSpace, ImageRenderTarget, RenderTarget};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
@@ -58,6 +59,10 @@ const ORDER: isize = -100;
 /// The render layer of the layers' cameras, which no entity of the world is on: they draw the
 /// interface alone.
 const LAYER: usize = 31;
+
+/// The frames a band's camera draws after a change of its mirror: the change's own and two more,
+/// as the render world runs a frame behind and an image may come in a frame after its node.
+const FRAMES: u8 = 3;
 
 /// A node of the interface that draws at the window's pixels where the interface stacks it,
 /// between the bands: a material's, made [`Native`] by [`NativeMaterialPlugin`].
@@ -125,8 +130,9 @@ struct Mirror;
 /// mirror lies in (the window's size in the original's pixels, under the camera), the mirror of
 /// its tree's root in the frame, the node that shows the picture in the window, the window's size
 /// the picture was made for, the mirror of each node of its root's tree, whether the mirror took
-/// new nodes this frame, the frames since the parts were made, and whether their picture is
-/// trusted: the window leaves the band's pieces to it only then ([`ready`]).
+/// new nodes this frame, the frames since the parts were made, whether their picture is
+/// trusted: the window leaves the band's pieces to it only then ([`ready`]), the frames its camera
+/// has still to draw after a change ([`drawing`]), and the images its mirror shows.
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
@@ -140,6 +146,8 @@ struct Parts {
     age: u32,
     ready: bool,
     signature: Signature,
+    left: u8,
+    images: HashSet<AssetId<Image>>,
 }
 
 /// What a band's pieces show: each image and its part, by which a band of this frame that takes
@@ -546,6 +554,8 @@ fn make(
         age: 0,
         ready: false,
         signature: Signature::new(),
+        left: FRAMES,
+        images: HashSet::new(),
     }
 }
 
@@ -556,6 +566,7 @@ fn make(
 fn retree(commands: &mut Commands, parts: &mut Parts, tree: Entity) {
     commands.entity(parts.root).despawn_children();
     parts.mirrors = HashMap::from([(tree, parts.root)]);
+    parts.left = FRAMES;
 }
 
 /// Despawns a band's parts: its camera, its frame with its mirror, its picture's node.
@@ -676,6 +687,7 @@ fn bands(
         let parts = &mut band.parts;
         if parts.whole != whole {
             parts.whole = whole;
+            parts.left = FRAMES;
             commands.entity(parts.frame).insert(frame_style(whole));
             let size = picture_size(whole);
             if let Err(error) = pictures.insert(&parts.picture, picture_image(size)) {
@@ -746,11 +758,43 @@ type MirrorData = (
     &'static mut ScrollPosition,
 );
 
-/// Keeps `value` at `wanted`, marking it changed only when it is not.
-fn keep<T: PartialEq>(mut value: Mut<T>, wanted: T) {
-    if *value != wanted {
+/// Keeps `value` at `wanted`, marking it changed only when it is not: whether it was not.
+fn keep<T: PartialEq>(mut value: Mut<T>, wanted: T) -> bool {
+    let differs = *value != wanted;
+    if differs {
         *value = wanted;
     }
+    differs
+}
+
+/// Whether two images show alike: a module that writes its node's image every frame marks it
+/// changed whatever it writes (#2661: the bar's, the portrait's).
+fn same_image(one: &ImageNode, other: &ImageNode) -> bool {
+    one.color == other.color
+        && one.image.id() == other.image.id()
+        && one.texture_atlas == other.texture_atlas
+        && one.flip_x == other.flip_x
+        && one.flip_y == other.flip_y
+        && one.rect == other.rect
+        && one.image_mode == other.image_mode
+        && one.visual_box == other.visual_box
+}
+
+/// The nodes of `nodes` (a tree's, each before its children) that are of `pieces` or hold one: a
+/// turn of another changes nothing that the band draws, as a turned piece draws at the window's
+/// pixels ([`sharper_apart`]).
+fn bearing(nodes: &[Entity], pieces: &HashSet<Entity>, tree: &Tree) -> HashSet<Entity> {
+    let mut bearing = HashSet::new();
+    for &node in nodes.iter().rev() {
+        let holds = tree
+            .children
+            .get(node)
+            .is_ok_and(|children| children.iter().any(|child| bearing.contains(&child)));
+        if holds || pieces.contains(&node) {
+            bearing.insert(node);
+        }
+    }
+    bearing
 }
 
 /// Keeps each band's mirror of its root's tree: a node for each of the tree's, spawned for the
@@ -765,12 +809,17 @@ fn mirror(
 ) {
     for band in layers.0.values_mut() {
         let mut grown = false;
+        // Whether anything of the mirror changed: its camera then draws ([`drawing`], #2661).
+        let mut changed = false;
+        let mut images = HashSet::new();
         let nodes = tree.all(band.tree);
         let present: HashSet<Entity> = nodes.iter().copied().collect();
+        let bearing = bearing(&nodes, &band.pieces, &tree);
         band.parts.mirrors.retain(|original, mirror| {
             let kept = present.contains(original);
             if !kept {
                 commands.entity(*mirror).try_despawn();
+                changed = true;
             }
             kept
         });
@@ -781,6 +830,9 @@ fn mirror(
                 continue;
             };
             let piece = band.pieces.contains(&original);
+            if let Some(image) = &image {
+                images.insert(image.image.id());
+            }
             let colour = |colour: Color| if piece { colour } else { Color::NONE };
             let mirror = *band.parts.mirrors.entry(original).or_insert_with(|| {
                 grown = true;
@@ -810,30 +862,38 @@ fn mirror(
                 }
                 continue;
             };
-            keep(node, style);
-            keep(mirror_background, BackgroundColor(colour(background.0)));
-            keep(shown, *visibility);
-            keep(order, *z);
-            keep(turned, *turn);
+            changed |= keep(node, style);
+            changed |= keep(mirror_background, BackgroundColor(colour(background.0)));
+            changed |= keep(shown, *visibility);
+            changed |= keep(order, *z);
+            changed |= keep(turned, *turn) && bearing.contains(&original);
             if scrolled.0 != scroll.0 {
                 scrolled.0 = scroll.0;
+                changed = true;
             }
             match (image, mirror_image) {
                 (Some(image), Some(mut mirrored)) => {
                     if image.is_changed() {
-                        *mirrored = copy(&image);
+                        let wanted = copy(&image);
+                        if !same_image(&mirrored, &wanted) {
+                            *mirrored = wanted;
+                            changed = true;
+                        }
                     } else {
                         let wanted = colour(image.color);
                         if mirrored.color != wanted {
                             mirrored.color = wanted;
+                            changed = true;
                         }
                     }
                 }
                 (Some(image), None) => {
                     commands.entity(mirror).insert(copy(&image));
+                    changed = true;
                 }
                 (None, Some(_)) => {
                     commands.entity(mirror).remove::<ImageNode>();
+                    changed = true;
                 }
                 (None, None) => {}
             }
@@ -863,10 +923,32 @@ fn mirror(
                 .unwrap_or_default();
             if current != wanted {
                 commands.entity(mirror).replace_children(&wanted);
+                changed = true;
             }
         }
         band.parts.grown = grown;
+        band.parts.images = images;
+        if grown || changed {
+            band.parts.left = FRAMES;
+        }
     }
+}
+
+/// Whether a band's camera draws this frame: always before its picture is trusted; not in a frame
+/// its mirror took new nodes, which the camera draws from their second frame on, its picture of
+/// the last frame kept (#2642); else in the [`FRAMES`] frames after a change (`left`, counted
+/// down), its picture of the last drawing kept between (#2661). Research #2637 measured some
+/// 0.2 ms a frame a band's camera at 3,840 × 2,160.
+fn drawing(ready: bool, grown: bool, left: &mut u8) -> bool {
+    if !ready {
+        return true;
+    }
+    if grown {
+        return false;
+    }
+    let draws = *left > 0;
+    *left = left.saturating_sub(1);
+    draws
 }
 
 /// Keeps each band's picture's node where its first piece stacks: the first child of a context's
@@ -879,14 +961,28 @@ fn composites(
     hosts: Query<HostData, Without<Composite>>,
     mut placed: Query<(&mut Node, &mut ZIndex), With<Composite>>,
     mut cameras: Query<&mut Camera, With<Camera2d>>,
+    (mut images, settled): (MessageReader<AssetEvent<Image>>, Res<Settled>),
 ) {
+    // The images that came in or changed, which a band showing them draws again.
+    let came: HashSet<AssetId<Image>> = images
+        .read()
+        .filter_map(|event| match event {
+            AssetEvent::Added { id }
+            | AssetEvent::Modified { id }
+            | AssetEvent::LoadedWithDependencies { id } => Some(*id),
+            AssetEvent::Removed { .. } | AssetEvent::Unused { .. } => None,
+        })
+        .collect();
+    let settled = settled.made();
     for (&(context, _), band) in &mut layers.0 {
-        // A band trusted whose mirror took new nodes this frame keeps its last picture: its camera
-        // draws them from their second frame on (#2642).
+        // A pipeline still being made draws nothing (#2640): the band draws on until none is.
+        if !settled || !band.parts.images.is_disjoint(&came) {
+            band.parts.left = FRAMES;
+        }
         if let Ok(mut camera) = cameras.get_mut(band.parts.camera) {
-            let drawing = !band.parts.ready || !band.parts.grown;
-            if camera.is_active != drawing {
-                camera.is_active = drawing;
+            let draws = drawing(band.parts.ready, band.parts.grown, &mut band.parts.left);
+            if camera.is_active != draws {
+                camera.is_active = draws;
             }
         }
         let anchor = band.anchor;
@@ -1139,6 +1235,31 @@ mod tests {
     /// A band's picture is trusted from its second frame, once no pipeline is left to make, and
     /// stays trusted (#2640).
     #[test]
+    fn a_bands_camera_draws_after_a_change_and_keeps_its_picture_between() {
+        let frames = |ready: bool, grown: &[bool], left: &mut u8| -> Vec<bool> {
+            grown
+                .iter()
+                .map(|&grown| drawing(ready, grown, left))
+                .collect()
+        };
+        // Before its picture is trusted, every frame.
+        let mut left = 0;
+        assert_eq!(frames(false, &[false, true], &mut left), [true, true]);
+        // After a change, its frames, then none.
+        let mut left = FRAMES;
+        assert_eq!(
+            frames(true, &[false; 5], &mut left),
+            [true, true, true, false, false]
+        );
+        // A frame its mirror grew keeps the last picture, the frames after the change drawn after.
+        let mut left = FRAMES;
+        assert_eq!(
+            frames(true, &[true, false, false, false, false], &mut left),
+            [false, true, true, true, false]
+        );
+    }
+
+    #[test]
     fn a_bands_picture_is_trusted_once_its_pipelines_are_made() {
         let mut parts = Parts {
             camera: Entity::PLACEHOLDER,
@@ -1153,6 +1274,8 @@ mod tests {
             age: 0,
             ready: false,
             signature: Signature::new(),
+            left: FRAMES,
+            images: HashSet::new(),
         };
         // Its first frame: its camera draws its first picture, whatever is made.
         assert!(!ready(&mut parts, true));
