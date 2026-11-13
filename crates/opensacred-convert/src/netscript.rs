@@ -57,6 +57,8 @@ pub struct Summary {
     pub renewed_potions: usize,
     /// The sounds that the records named wrongly, named right (`script_repairs::rename_sounds`).
     pub renamed_sounds: usize,
+    /// The companions' lines waited for before the hero's (`script_repairs::companion_waits`).
+    pub companion_waits: usize,
     pub warnings: Vec<String>,
 }
 
@@ -410,6 +412,7 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
             );
             let renewed = script_repairs::renew_potions(&mut tree);
             let renamed = script_repairs::rename_sounds(&mut tree);
+            let waits = script_repairs::companion_waits(&mut tree);
             let file = file_name(source);
             let bytes = tree
                 .encode()
@@ -456,16 +459,17 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 u64::try_from(bytes.len()).unwrap_or(u64::MAX),
                 outcome,
                 report,
-                (renewed, renamed),
+                (renewed, renamed, waits),
             ))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
     let mut trees = Vec::with_capacity(entries.len());
-    for (entry, bytes, outcome, report, (renewed, renamed)) in entries {
+    for (entry, bytes, outcome, report, (renewed, renamed, waits)) in entries {
         summary.renewed_potions += renewed;
         summary.renamed_sounds += renamed;
+        summary.companion_waits += waits;
         match outcome {
             Outcome::None => {}
             Outcome::Repaired(cells) => {
@@ -594,12 +598,14 @@ mod tests {
         // (9) and 1702's target (9) gain one each, 1401's day (11) loses its one; 301's and 302's
         // losses gain two (9), 9009's win three (11), the 5.7.4 entrance two (20) and the air's
         // compass three (9); 501's new loss holds two (11); Jacquaire moves; 2303's dialogue (11)
-        // loses one; `BadToGood`'s fills of area 2 gain five (11).
+        // loses one; `BadToGood`'s fills of area 2 gain five (11); the companions' lines gain a
+        // wait each, 23 (20).
         assert_eq!(
             summary.records,
             2_203_278 + 11 + 20 + 20 + 9 + 9 + 9 - 11 + 2 * 9 + 3 * 11 + 2 * 20 + 3 * 9 + 2 * 11
                 - 11
                 + 5 * 11
+                + 23 * 20
         );
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
@@ -608,6 +614,8 @@ mod tests {
         assert_eq!(summary.renewed_potions, 1_308 + 120);
         // The misnamed sounds' records (#2652), in every tree that holds them.
         assert_eq!(summary.renamed_sounds, RENAMED_SOUNDS);
+        // The companions' lines waited for, in each tree (#2688).
+        assert_eq!(summary.companion_waits, 20 * 23);
         // The quests' repairs, each in every tree that holds its quest.
         assert_eq!(
             summary.repairs,

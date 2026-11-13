@@ -15,8 +15,9 @@
 //! - The sounds that the records name wrongly, which the original never plays (#2652,
 //!   docs/decisions/sound.md, "Scripts' misnamed sounds named right"): [`rename_sounds`], and
 //!   with it the companions' location lines by the companion that their branch tests (#2684,
-//!   "Companions' location lines named right"), and the hero's line that the desert bridge's
-//!   announcement calls with Vilya, an [`Edit`] ("Desert bridge's hero's line with Vilya").
+//!   "Companions' location lines named right"), heard whole before the hero's ([`companion_waits`],
+//!   #2688), and the hero's line that the desert bridge's announcement calls with Vilya, an
+//!   [`Edit`] ("Desert bridge's hero's line with Vilya").
 
 use opensacred_data::netscript::{Body, Function, Operand, Record, Tree, Value};
 
@@ -55,6 +56,10 @@ const FILL_CHEST: u16 = 78;
 /// `PlaySound` and `PlayMusic`, which name their sound by their first string (`0x01`).
 const PLAY_SOUND: u16 = 104;
 const PLAY_MUSIC: u16 = 127;
+/// `Wait`, which holds the queue of the creature its first `0x01` names, under the anim mode, for
+/// `0x5F` seconds of the real clock, hundredths where negative (docs/re/netscript.md, "The other
+/// kinds, the waits and the cinema").
+const WAIT: u16 = 90;
 
 /// The old potions and the new ones that the original's object maker makes of them, of the same
 /// kind and size (`0x43FC40`, which `sdk_OBJ_CREATE_NPOS` at `0x5FB530` calls on the type of
@@ -302,31 +307,94 @@ const GLUBBA: &str = "res:18308";
 /// the 20 trees. Two names lack the location's number too, which the hero's line that the same
 /// branch calls gives: Vilya's 3 (`sprich_3`) and Glubba's 43 (`sprich_2.13`). Prince Valor's
 /// `SFX_Loc36_SH` is left out, as no sample is his line of the location 36.
-pub const COMPANION_SOUNDS: [(&str, &str, &str); 23] = [
-    ("SFX_Loc_SH3", VILYA, "SOUND_FX_SFX_LOC03_SHVILYA"),
-    ("SFX_Loc4_SH", VILYA, "SOUND_FX_SFX_LOC04_SHVILYA"),
-    ("SFX_Loc5_SH", VILYA, "SOUND_FX_SFX_LOC05_SHVILYA"),
-    ("SFX_Loc6_SH", VILYA, "SOUND_FX_SFX_LOC06_SHVILYA"),
-    ("SFX_Loc7_SH", VILYA, "SOUND_FX_SFX_LOC07_SHVILYA"),
-    ("SFX_Loc8_SH", WILBUR, "SOUND_FX_SFX_LOC08_SHWILBUR"),
-    ("SFX_Loc9_SH", WILBUR, "SOUND_FX_SFX_LOC09_SHWILBUR"),
-    ("SFX_Loc10_SH", WILBUR, "SOUND_FX_SFX_LOC10_SHWILBUR"),
-    ("SFX_Loc11_SH", WILBUR, "SOUND_FX_SFX_LOC11_SHWILBUR"),
-    ("SFX_Loc12_SH", WILBUR, "SOUND_FX_SFX_LOC12_SHWILBUR"),
-    ("SFX_Loc13_SH", WILBUR, "SOUND_FX_SFX_LOC13_SHWILBUR"),
-    ("SFX_Loc15_SH", WILBUR, "SOUND_FX_SFX_LOC15_SHWILBUR"),
-    ("SFX_Loc16_SH", SHAREEFA, "SOUND_FX_SFX_LOC16_SHSHAREEFA"),
-    ("SFX_Loc17_SH", SHAREEFA, "SOUND_FX_SFX_LOC17_SHSHAREEFA"),
-    ("SFX_Loc18_SH", SHAREEFA, "SOUND_FX_SFX_LOC18_SHSHAREEFA"),
-    ("SFX_Loc19_SH", SHAREEFA, "SOUND_FX_SFX_LOC19_SHSHAREEFA"),
-    ("SFX_Loc21_SH", SHAREEFA, "SOUND_FX_SFX_LOC21_SHSHAREEFA"),
-    ("SFX_Loc23_SH", SHAREEFA, "SOUND_FX_SFX_LOC23_SHSHAREEFA"),
-    ("SFX_Loc24_SH", SHAREEFA, "SOUND_FX_SFX_LOC24_SHSHAREEFA"),
-    ("SFX_Loc35_SH", VALOR, "SOUND_FX_SFX_LOC35_SHVALOR"),
-    ("SFX_Loc_SH", GLUBBA, "SOUND_FX_SFX_LOC43_SHGLUBBA"),
-    ("SFX_Loc46_SH", VILYA, "SOUND_FX_SFX_LOC46_SHVILYA"),
-    ("SFX_Loc67_SH", VILYA, "SOUND_FX_SFX_LOC67_SHVILYA"),
+pub const COMPANION_SOUNDS: [CompanionLine; 23] = [
+    line("SFX_Loc_SH3", VILYA, "SOUND_FX_SFX_LOC03_SHVILYA", 395),
+    line("SFX_Loc4_SH", VILYA, "SOUND_FX_SFX_LOC04_SHVILYA", 403),
+    line("SFX_Loc5_SH", VILYA, "SOUND_FX_SFX_LOC05_SHVILYA", 343),
+    line("SFX_Loc6_SH", VILYA, "SOUND_FX_SFX_LOC06_SHVILYA", 481),
+    line("SFX_Loc7_SH", VILYA, "SOUND_FX_SFX_LOC07_SHVILYA", 413),
+    line("SFX_Loc8_SH", WILBUR, "SOUND_FX_SFX_LOC08_SHWILBUR", 489),
+    line("SFX_Loc9_SH", WILBUR, "SOUND_FX_SFX_LOC09_SHWILBUR", 225),
+    line("SFX_Loc10_SH", WILBUR, "SOUND_FX_SFX_LOC10_SHWILBUR", 382),
+    line("SFX_Loc11_SH", WILBUR, "SOUND_FX_SFX_LOC11_SHWILBUR", 71),
+    line("SFX_Loc12_SH", WILBUR, "SOUND_FX_SFX_LOC12_SHWILBUR", 176),
+    line("SFX_Loc13_SH", WILBUR, "SOUND_FX_SFX_LOC13_SHWILBUR", 523),
+    line("SFX_Loc15_SH", WILBUR, "SOUND_FX_SFX_LOC15_SHWILBUR", 322),
+    line(
+        "SFX_Loc16_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC16_SHSHAREEFA",
+        638,
+    ),
+    line(
+        "SFX_Loc17_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC17_SHSHAREEFA",
+        468,
+    ),
+    line(
+        "SFX_Loc18_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC18_SHSHAREEFA",
+        596,
+    ),
+    line(
+        "SFX_Loc19_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC19_SHSHAREEFA",
+        309,
+    ),
+    line(
+        "SFX_Loc21_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC21_SHSHAREEFA",
+        215,
+    ),
+    line(
+        "SFX_Loc23_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC23_SHSHAREEFA",
+        505,
+    ),
+    line(
+        "SFX_Loc24_SH",
+        SHAREEFA,
+        "SOUND_FX_SFX_LOC24_SHSHAREEFA",
+        557,
+    ),
+    line("SFX_Loc35_SH", VALOR, "SOUND_FX_SFX_LOC35_SHVALOR", 196),
+    line("SFX_Loc_SH", GLUBBA, "SOUND_FX_SFX_LOC43_SHGLUBBA", 136),
+    line("SFX_Loc46_SH", VILYA, "SOUND_FX_SFX_LOC46_SHVILYA", 301),
+    line("SFX_Loc67_SH", VILYA, "SOUND_FX_SFX_LOC67_SHVILYA", 460),
 ];
+
+/// A companion's location line of [`COMPANION_SOUNDS`].
+#[derive(Debug, Clone, Copy)]
+pub struct CompanionLine {
+    /// The name that its `PlaySound` writes.
+    pub wrong: &'static str,
+    /// The companion's key that the test before it names (`0x40`).
+    pub companion: &'static str,
+    /// The sound meant.
+    pub right: &'static str,
+    /// The sample's length in hundredths of a second, rounded up: its MPEG-1 Layer III frames in
+    /// `sound.pak`, of 1,152 samples each at 44.1 kHz.
+    pub hundredths: i32,
+}
+
+const fn line(
+    wrong: &'static str,
+    companion: &'static str,
+    right: &'static str,
+    hundredths: i32,
+) -> CompanionLine {
+    CompanionLine {
+        wrong,
+        companion,
+        right,
+        hundredths,
+    }
+}
 
 /// Makes every `PlaySound` and `PlayMusic` of `tree` that names a sound of [`SOUNDS`] wrongly, and
 /// every `PlaySound` of a companion's location line of [`COMPANION_SOUNDS`] after a test of that
@@ -368,12 +436,12 @@ pub fn rename_sounds(tree: &mut Tree) -> usize {
                 .map(|&(_, right)| right);
             let companions = COMPANION_SOUNDS
                 .iter()
-                .find(|&&(wrong, key, _)| {
+                .find(|line| {
                     kind == PLAY_SOUND
-                        && wrong.eq_ignore_ascii_case(name)
-                        && tested.as_deref() == Some(key)
+                        && line.wrong.eq_ignore_ascii_case(name)
+                        && tested.as_deref() == Some(line.companion)
                 })
-                .map(|&(_, _, right)| right);
+                .map(|line| line.right);
             if let Some(right) = named.or(companions) {
                 *name = right.to_owned();
                 renamed += 1;
@@ -381,6 +449,50 @@ pub fn rename_sounds(tree: &mut Tree) -> usize {
         }
     }
     renamed
+}
+
+/// Puts a `Wait` of its line's length in the companion's queue after every companion's location
+/// line of [`COMPANION_SOUNDS`] that [`rename_sounds`] named right, before the `CallFunktion` of
+/// the hero's line that its branch queues there (#2688): the queue's step would run the call at
+/// the creature's next tick, waiting for nothing (`0x59CE5B`), and the hero's line, the line by
+/// name, would stop the companion's as it starts (`0x693FE0`); the number put.
+pub fn companion_waits(tree: &mut Tree) -> usize {
+    let mut put = 0;
+    let scripts = [&mut tree.start, &mut tree.quest]
+        .into_iter()
+        .chain(tree.functions.iter_mut().map(|f| &mut f.records));
+    for records in scripts {
+        let mut i = 0;
+        while i + 1 < records.len() {
+            let played = (records[i].kind == PLAY_SOUND)
+                .then(|| {
+                    COMPANION_SOUNDS
+                        .iter()
+                        .find(|line| has(&records[i], 0x01, &text(line.right)))
+                })
+                .flatten();
+            let called = played.filter(|line| {
+                records[i + 1].kind == CALL_FUNCTION
+                    && matches!(
+                        operands(&records[i + 1]),
+                        [_, companion] if companion.value == text(line.companion)
+                    )
+            });
+            if let Some(line) = called {
+                let wait = new(
+                    WAIT,
+                    vec![
+                        op(0x01, text(line.companion)),
+                        op(0x5F, Value::I32(-line.hundredths)),
+                    ],
+                );
+                records.insert(i + 1, wait);
+                put += 1;
+            }
+            i += 1;
+        }
+    }
+    put
 }
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
@@ -1554,7 +1666,7 @@ mod tests {
         let right: std::collections::HashSet<_> = SOUNDS.iter().map(|(_, r)| *r).collect();
         assert_eq!((wrong.len(), right.len()), (SOUNDS.len(), SOUNDS.len()));
         let companions: std::collections::HashSet<_> =
-            COMPANION_SOUNDS.iter().map(|&(_, _, r)| r).collect();
+            COMPANION_SOUNDS.iter().map(|line| line.right).collect();
         assert_eq!(companions.len(), COMPANION_SOUNDS.len());
         assert!(companions.is_disjoint(&right));
     }
@@ -1606,6 +1718,71 @@ mod tests {
                 "SFX_Loc8_SH",
             ]
         );
+    }
+
+    #[test]
+    fn a_companions_line_is_waited_for_in_its_queue_before_the_heros() {
+        // #2688: Vilya's branch as `rename_sounds` leaves it, then a line of hers that calls the
+        // hero's line in no queue, and one of another name.
+        let line = |name: &str| record(PLAY_SOUND, vec![(0x01, Value::Str(name.into()))]);
+        let call = |names: &[&str]| {
+            record(
+                CALL_FUNCTION,
+                names
+                    .iter()
+                    .map(|&name| (0x01, Value::Str(name.into())))
+                    .collect(),
+            )
+        };
+        let hers = "SOUND_FX_SFX_LOC05_SHVILYA";
+        let mut tree = tree(vec![function(
+            "OMO-1Feenbach_audiomeldungen",
+            vec![
+                line(hers),
+                call(&["sprich_5", VILYA]),
+                line(hers),
+                call(&["sprich_5"]),
+                line("SOUND_FX_SFX_LOC05_SCSERA"),
+                call(&["sprich_5", VILYA]),
+            ],
+        )]);
+        assert_eq!(companion_waits(&mut tree), 1);
+        let waited = record(
+            WAIT,
+            vec![(0x01, Value::Str(VILYA.into())), (0x5F, Value::I32(-343))],
+        );
+        assert_eq!(tree.functions[0].records[1], waited);
+        assert_eq!(tree.functions[0].records[2], call(&["sprich_5", VILYA]));
+        assert_eq!(tree.functions[0].records.len(), 7);
+        // Once put, the wait is not put again.
+        assert_eq!(companion_waits(&mut tree), 0);
+    }
+
+    /// Each companion's line's length, in hundredths rounded up, is its sample's in `sound.pak`.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn each_companions_line_lasts_its_samples_frames() {
+        use opensacred_formats::sound::{Sample, SoundPak, mp3_frames, names};
+
+        let game = opensacred_locate::original();
+        let exe = crate::verify::read_game_file(&game.join("Sacred.exe")).unwrap();
+        let names = names(&exe).unwrap();
+        let sound = crate::verify::read_game_file(&game.join("PAK/sound.pak")).unwrap();
+        let pak = SoundPak::parse(&sound).unwrap();
+        for line in COMPANION_SOUNDS {
+            let id = names.iter().find(|n| n.name == line.right).unwrap().id;
+            let sample = pak.get(usize::try_from(id).unwrap()).unwrap();
+            let Some(Sample::Mp3 { data, .. }) = sample else {
+                panic!("{} is no MP3", line.right);
+            };
+            let (frames, rate) = mp3_frames(data).unwrap();
+            assert_eq!(
+                usize::try_from(line.hundredths).unwrap(),
+                (frames * 1152 * 100).div_ceil(rate),
+                "{}",
+                line.right
+            );
+        }
     }
 
     #[test]

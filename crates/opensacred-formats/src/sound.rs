@@ -130,6 +130,20 @@ pub fn mp3_first_frame(data: &[u8]) -> Option<usize> {
     })
 }
 
+/// The number of MPEG-1 Layer III frames of `data` from its first one on, back to back, and their
+/// sampling rate, the first frame's; `None` if it has none. Each frame holds 1,152 samples, so
+/// that the frames last `frames · 1152 / rate` seconds.
+pub fn mp3_frames(data: &[u8]) -> Option<(usize, usize)> {
+    let mut at = mp3_first_frame(data)?;
+    let (_, rate) = frame(&data[at..])?;
+    let mut frames = 0;
+    while let Some((len, _)) = data.get(at..).and_then(frame) {
+        frames += 1;
+        at += len;
+    }
+    Some((frames, rate))
+}
+
 /// Whether `data` starts with the sync word of an MPEG-1 Layer III frame.
 fn is_sync(data: &[u8]) -> bool {
     matches!(data, [0xFF, b, ..] if b & 0xFE == 0xFA)
@@ -137,6 +151,12 @@ fn is_sync(data: &[u8]) -> bool {
 
 /// The length of the MPEG-1 Layer III frame whose header starts `data`, if it is a valid one.
 fn frame_len(data: &[u8]) -> Option<usize> {
+    frame(data).map(|(len, _)| len)
+}
+
+/// The length and the sampling rate of the MPEG-1 Layer III frame whose header starts `data`, if
+/// it is a valid one.
+fn frame(data: &[u8]) -> Option<(usize, usize)> {
     const KBPS: [usize; 15] = [
         0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
     ];
@@ -147,7 +167,7 @@ fn frame_len(data: &[u8]) -> Option<usize> {
     let flags = *data.get(2)?;
     let kbps = *KBPS.get(usize::from(flags >> 4)).filter(|&&k| k > 0)?;
     let rate = *RATES.get(usize::from((flags >> 2) & 3))?;
-    Some(144_000 * kbps / rate + usize::from((flags >> 1) & 1))
+    Some((144_000 * kbps / rate + usize::from((flags >> 1) & 1), rate))
 }
 
 /// The `fmt ` chunk of the RIFF WAV `r`, after checking that the chunks fill the file and that a
@@ -454,6 +474,12 @@ mod tests {
         // A bitrate of 0 (free) or 15 (bad) is no frame.
         assert_eq!(frame_len(&[0xFF, 0xFB, 0x00, 0]), None);
         assert_eq!(frame_len(&[0xFF, 0xFB, 0xF0, 0]), None);
+        // The frames from the first on, a padded one among them, to the end or to what is no frame.
+        assert_eq!(mp3_frames(&data), Some((2, 44_100)));
+        data.extend(frame(false));
+        data.extend([0; 10]);
+        assert_eq!(mp3_frames(&data), Some((3, 44_100)));
+        assert_eq!(mp3_frames(&[0; 300]), None);
     }
 
     #[test]
