@@ -121,8 +121,10 @@ const CLICKED_KEYS: [(&str, &str); 4] = [
 
 /// The line `n`, from 0, of the four that a click on a creature of the type `creature` and of the
 /// name's text `name` says (`0x67E645`): a hireling's by its type, else a companion's by its name,
-/// or by the text of a key of [`CLICKED_KEYS`] (`named`); none of another. Wilbur's first line's
-/// name holds an underscore that his others lack.
+/// or by the text of a key of [`CLICKED_KEYS`] (`named`); none of another. Wilbur's first is his
+/// sample's name, `SFX_CLICKMYSHWILBUR_1`, where the original's code writes it with an underscore
+/// that no sample has, `SFX_CLICKMYSH_WILBUR_1`, and never plays it (#2684; docs/decisions/sound.md,
+/// "Wilbur's first click line named right").
 fn click_line(
     creature: u32,
     name: Option<&str>,
@@ -143,11 +145,7 @@ fn click_line(
         .find(|&&(of, _)| of == name)
         .map(|&(_, stem)| stem)
         .or(keyed)?;
-    Some(if stem == "WILBUR" && n == 1 {
-        "SOUND_FX_SFX_CLICKMYSH_WILBUR_1".to_owned()
-    } else {
-        format!("SOUND_FX_SFX_CLICKMYSH{stem}_{n}")
-    })
+    Some(format!("SOUND_FX_SFX_CLICKMYSH{stem}_{n}"))
 }
 
 /// The hirelings' lines of an item given (the case of (8, `0x10`)): by the keys of their names
@@ -902,10 +900,10 @@ mod tests {
             click_line(1, Some("Shareefa"), 1).as_deref(),
             Some("SOUND_FX_SFX_CLICKMYSHSHAREEFA_2")
         );
-        // Wilbur's first holds an underscore, his others not.
+        // Wilbur's first by his sample's name, as his others (#2684).
         assert_eq!(
             click_line(1, Some("Wilbur"), 0).as_deref(),
-            Some("SOUND_FX_SFX_CLICKMYSH_WILBUR_1")
+            Some("SOUND_FX_SFX_CLICKMYSHWILBUR_1")
         );
         assert_eq!(
             click_line(1, Some("Wilbur"), 2).as_deref(),
