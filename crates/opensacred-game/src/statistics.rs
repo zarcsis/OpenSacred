@@ -1514,6 +1514,11 @@ fn show(
                 height: Val::Px(WINDOW.height()),
                 ..default()
             },
+            // Under the other windows: its lower background reaches past its 388 rows over the
+            // equipment window's top frame, and a root made anew, as this window is at each
+            // change of its hover, took another place among the roots of one `ZIndex`, its
+            // overhang over the frame in one frame and under it in the next (#2710).
+            ZIndex(-1),
             Pickable::IGNORE,
             DespawnOnExit(AppState::InGame),
         ))
