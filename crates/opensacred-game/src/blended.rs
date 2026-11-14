@@ -19,9 +19,19 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 
-/// The `depth_bias` between two layers: beyond the spread of the meshes' depths, which the
-/// camera's range bounds (`iso::camera`, 20,000 units).
-const STEP: f32 = 100_000.0;
+/// The `depth_bias` between two layers: beyond the spread of the meshes' depths anywhere in the
+/// world, not only in the camera's range (`iso::camera`, 20,000 units). A mesh may sort by a
+/// centre far from where it draws: the hero's shadow, after a teleport, by one from before it,
+/// some 170,000 units off, which put it before the health rings' layer (#2713). The world's
+/// 6,400 cells a side span some 485,000 units across, which a step of a million keeps within;
+/// its float keeps half a unit of a centre's distance in the last layer, enough to order meshes
+/// a cell apart.
+const STEP: f32 = 1_000_000.0;
+
+/// How far apart two meshes of the world can lie along the line of sight at most: the world's
+/// diagonal, its sectors' cells a side by a cell's side, times √2.
+#[cfg(test)]
+const WORLD_ACROSS: f32 = 100.0 * 64.0 * crate::iso::CELL * std::f32::consts::SQRT_2;
 
 /// A layer of the blended things, in the order they are drawn.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -146,9 +156,9 @@ mod tests {
             Layer::Glows,
         ];
         for pair in layers.windows(2) {
-            // Every mesh of a layer after every mesh of the one before, the camera's 20,000
-            // units of range apart.
-            assert!(pair[1].bias() - pair[0].bias() > 2.0 * 20_000.0, "{pair:?}");
+            // Every mesh of a layer after every mesh of the one before, wherever in the world
+            // either sorts (#2713).
+            assert!(pair[1].bias() - pair[0].bias() > WORLD_ACROSS, "{pair:?}");
         }
     }
 }
