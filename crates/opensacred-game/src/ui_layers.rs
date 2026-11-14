@@ -379,21 +379,25 @@ fn sharper_apart(
             None => return false,
         },
     };
-    let size = if computed.unrounded_size == Vec2::ZERO {
-        // Not laid out yet, spawned this frame: of the size its style gives in the original's
-        // pixels, else taken as one to one until the layout tells. Taken as one to one, a field's
-        // end narrower than its part (the saves' window's) joined the bands about it in its first
-        // frame, and the window's rows made anew ended those bands for a frame (#2668).
-        match (node.width, node.height) {
-            (Val::Px(width), Val::Px(height)) if width > 0.0 && height > 0.0 => {
-                Vec2::new(width, height)
-            }
-            _ => return false,
+    // The size its style gives in the original's pixels, which the layout gives it: weighed as
+    // well as the last layout's, which a node whose part and size change together (the health's
+    // ring's red part as it fills) has not caught up with in that frame, its new part read as
+    // drawn smaller for a frame, and the portrait's bands cut otherwise for it (#2720).
+    let styled = match (node.width, node.height) {
+        (Val::Px(width), Val::Px(height)) if width > 0.0 && height > 0.0 => {
+            Some(Vec2::new(width, height))
         }
-    } else {
-        computed.unrounded_size * computed.inverse_scale_factor()
+        _ => None,
     };
-    (texels - size).max_element() > 0.5
+    let smaller = |size: Vec2| (texels - size).max_element() > 0.5;
+    if computed.unrounded_size == Vec2::ZERO {
+        // Not laid out yet, spawned this frame: of its style's size, else taken as one to one
+        // until the layout tells. Taken as one to one, a field's end narrower than its part (the
+        // saves' window's) joined the bands about it in its first frame, and the window's rows
+        // made anew ended those bands for a frame (#2668).
+        return styled.is_some_and(smaller);
+    }
+    smaller(computed.unrounded_size * computed.inverse_scale_factor()) && styled.is_none_or(smaller)
 }
 
 /// What a node of the interface draws: a piece, an image or a background shown; something at the
@@ -1388,6 +1392,13 @@ mod tests {
         let auto = sized(Val::Auto, Val::Px(8.0));
         assert!(!sharper_apart(&part, (&auto, &unlaid, &still), &textures));
         assert!(!sharper_apart(&part, (&style, &unlaid, &still), &textures));
+        // Its part and its style's size grown together, the layout of the last frame smaller: of
+        // its style's size, assembled (#2720: the health's ring's red part as it fills); its
+        // style smaller too, apart.
+        let last = node(Vec2::new(32.0, 10.0), 1.0);
+        assert!(!sharper_apart(&part, (&whole, &last, &still), &textures));
+        assert!(sharper_apart(&part, (&narrower, &last, &still), &textures));
+        assert!(sharper_apart(&part, (&style, &last, &still), &textures));
     }
 
     /// A band made anew of the same images is alike, one of others not.
