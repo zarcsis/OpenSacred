@@ -21,6 +21,9 @@ A table at `0x956E40` gives each action a row of 20 slots, one for each class of
 
 Class 13 has slots of its own (235 standing, 237 walking, 238 running, 236 the stance, 241 an attack, 239 defending), class 14 takes class 12's, and the rest of each row is 0.
 
+For an NPC (`+0x200` bit `0x40` clear) the attack's slot is the table's for its class whether its model has it or not (`0x5467A0`'s action 4, read 2026-11-13 for #2708, **confirmed** by code): no fallback as for standing and moving; what the attack action then plays where the model lacks the slot is not read.
+A grave's skeleton warrior (`grab_21` and the like: the type 32 holding the dagger 1712, class 5 `DOLCH`) has the bare hands' attack `SKLW_ATTACK_BH_A` alone; the game takes class 0's attacks where a model has none of its class (`motions::Slots::attacks`, docs/decisions/fight.md, "A creature's strike of a class its model has no clip of").
+
 The classes agree with the names of the clips in the slots, over the 231 converted models that have a slot 1: 0 `BH` (bare hands), 1 `1H`, 2 `2H`, 3 `2H_AXT`, 4 `STAB`, 5 `DOLCH`, 6 `WURF`, 7 `BOGEN`, 8 `2WAFFEN`, 9 `1H_KLINGE`, 10 `2H_KLINGE`, 12 `ARMBRUST`; no model has a clip named for class 11.
 Most models fill few slots: a thief's idle `THFM_IDLE_BH` fills 1, 14 and 21, its walk 27, its run 40, and its `THFM_HORSE_IDLE`, a rider's idle in the saddle, 169.
 
