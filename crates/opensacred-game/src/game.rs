@@ -321,6 +321,12 @@ pub struct Data(pub Arc<sectors::Shared>);
 #[derive(Resource, Clone, Default)]
 pub struct Request(pub NewGame);
 
+/// The game that the command line asked for, which every game that the menus start begins from
+/// (`choice`): a load leaves its own game in the [`Request`], its hero's sector among it, and a
+/// new game chosen after it started where the loaded hero had stood (#2712).
+#[derive(Resource, Clone, Default)]
+pub struct Launch(pub NewGame);
+
 /// The command line's options about how a game shows (`--zoom`, `--no-music`), which hold for
 /// every game of the run that a `new-game` starts, unless its own line sets them (#831).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
@@ -1186,6 +1192,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
             .init_resource::<Request>()
+            .init_resource::<Launch>()
             .init_resource::<Shows>()
             .add_systems(Startup, setup)
             .add_systems(OnEnter(AppState::Loading), (leftovers, begin))
