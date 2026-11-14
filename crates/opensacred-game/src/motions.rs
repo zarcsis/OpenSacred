@@ -172,18 +172,22 @@ impl Slots {
         slots.iter().find_map(|&slot| self.slot(slot))
     }
 
-    /// The fight stance's clip for `class`, only where the model has its slot: 14 to 26 for the
-    /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
-    /// standing creature takes it instead of its idle only then (`0x5467A0`,
-    /// docs/re/motions.md, "The fight stance").
     /// The attack's clips for `class`, the slots 79 + 5 · class to 4 more where the model has them
-    /// (`0x5467A0`, the action 4; class 14 taking 12's; docs/re/motions.md).
+    /// (`0x5467A0`, the action 4; class 14 taking 12's; docs/re/motions.md); where it has none of
+    /// them, the bare hands' of class 0 (docs/decisions/fight.md, "A creature's strike of a class
+    /// its model has no clip of"): the original names an NPC's slot of its class whether its
+    /// model has it or not, and a grave's skeleton warrior holding a dagger, whose model has the
+    /// bare hands' alone, never struck here (#2708).
     pub fn attacks(&self, class: u8) -> Vec<String> {
+        let of = |class: u8| {
+            let first = 79 + 5 * u16::from(class);
+            (first..first + 5)
+                .filter_map(|slot| self.slot(slot).map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
         let class = if class == 14 { 12 } else { class.min(12) };
-        let first = 79 + 5 * u16::from(class);
-        (first..first + 5)
-            .filter_map(|slot| self.slot(slot).map(str::to_owned))
-            .collect()
+        let own = of(class);
+        if own.is_empty() { of(0) } else { own }
     }
 
     /// The attack's first slot for `class` (`0x5467A0`'s action 4, the table `0x956E40`): 79 + 5 ·
@@ -209,6 +213,10 @@ impl Slots {
         self.slot(slot).map(|_| slot)
     }
 
+    /// The fight stance's clip for `class`, only where the model has its slot: 14 to 26 for the
+    /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
+    /// standing creature takes it instead of its idle only then (`0x5467A0`,
+    /// docs/re/motions.md, "The fight stance").
     pub fn stance(&self, class: u8) -> Option<&str> {
         let slot = match class {
             0..=12 => 14 + u16::from(class),
@@ -347,6 +355,17 @@ mod tests {
         assert_eq!(plain.riding_attack(0), Some("P_ATTACK_B"));
         assert_eq!(plain.riding_attack(12), None);
         assert_eq!(Slots::default().riding_attack(0), None);
+    }
+
+    /// A grave's skeleton warrior holds a dagger of class 5, and its model has the bare hands'
+    /// strike alone (#2708).
+    #[test]
+    fn a_class_without_strikes_of_its_own_strikes_with_the_bare_hands() {
+        let skeleton = Slots::of([(79, "BH_A"), (80, "BH_B"), (104, "SWORD_A")]);
+        assert_eq!(skeleton.attacks(0), ["BH_A", "BH_B"]);
+        assert_eq!(skeleton.attacks(5), ["SWORD_A"]);
+        assert_eq!(skeleton.attacks(1), ["BH_A", "BH_B"]);
+        assert!(Slots::default().attacks(5).is_empty());
     }
 
     #[test]
