@@ -957,23 +957,30 @@ fn mirror(
                 pooled,
                 ..
             } = &mut band.parts;
-            // Else a node of an image takes one that shows an image and a node of none one that
-            // shows none, the pool's first, so that the last tree's nodes that this one does not
-            // show as they are wait there for a tree that does; else any; else a new one.
+            // Else a node of an image takes a new node, and a node of none one that shows none,
+            // the pool's first, so that the last tree's nodes that this one does not show as they
+            // are wait there for a tree that does; else a new one. A node's image changed shows
+            // from its second frame on, as a new node does: given to another image, the header
+            // bar's node was not there for it as the statistics window came back from the
+            // health's line, and the bar showed a frame late (#2706).
             let matched = matched.remove(&original);
-            let imaged = image.is_some();
-            let kind = |node: &Entity| mirror_looks(&mirrors, *node).is_some() == imaged;
+            let unimaged = |node: &Entity| mirror_looks(&mirrors, *node).is_none();
             let mirror = *kept.entry(original).or_insert_with(|| {
-                let taken = matched
-                    .or_else(|| {
-                        pooled
-                            .iter()
-                            .position(kind)
-                            .map(|at| pooled.swap_remove(at))
-                    })
-                    .or_else(|| spare.iter().position(kind).and_then(|at| spare.remove(at)))
-                    .or_else(|| pooled.pop())
-                    .or_else(|| spare.pop_front());
+                let taken = matched.or_else(|| {
+                    if image.is_some() {
+                        return None;
+                    }
+                    pooled
+                        .iter()
+                        .position(unimaged)
+                        .map(|at| pooled.swap_remove(at))
+                        .or_else(|| {
+                            spare
+                                .iter()
+                                .position(unimaged)
+                                .and_then(|at| spare.remove(at))
+                        })
+                });
                 taken.unwrap_or_else(|| {
                     grown = true;
                     commands
@@ -1556,6 +1563,79 @@ mod tests {
         assert_eq!(&taken[..3], &made[..]);
         assert!(!made.contains(&taken[3]));
         assert!(pooled.is_empty() && grown);
+    }
+
+    /// A node of an image takes a node of the same image or a new one, never another image's,
+    /// which waits in the pool for its own (#2706: the statistics window's header bar).
+    #[test]
+    fn a_nodes_image_is_never_given_to_another() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let part = |x: f32| ImageNode {
+            rect: Some(Rect::new(x, 0.0, x + 1.0, 1.0)),
+            ..ImageNode::default()
+        };
+        let tree = |world: &mut World, parts: &[f32]| {
+            let root = world.spawn(Node::default()).id();
+            for &x in parts {
+                world.spawn((Node::default(), part(x), ChildOf(root)));
+            }
+            root
+        };
+        let first = tree(&mut world, &[1.0, 2.0]);
+        let root = world.spawn((Node::default(), Mirror)).id();
+        let pool = world.spawn((Node::default(), Mirror)).id();
+        let mut parts = parts_of(root, pool);
+        parts.mirrors.insert(first, root);
+        world.insert_resource(Layers(HashMap::from([(
+            (first, 0),
+            Band {
+                tree: first,
+                anchor: first,
+                pieces: HashSet::new(),
+                parts,
+            },
+        )])));
+        let pass = |world: &mut World| {
+            world
+                .run_system_once(mirror)
+                .expect("the mirror's system runs");
+        };
+        let anew = |world: &mut World, tree: Entity| {
+            world
+                .run_system_once(move |mut commands: Commands, mut layers: ResMut<Layers>| {
+                    if let Some(band) = layers.0.values_mut().next() {
+                        band.tree = tree;
+                        retree(&mut commands, &mut band.parts, tree);
+                    }
+                })
+                .expect("the tree is made anew");
+        };
+        let order = |world: &mut World| {
+            let layers = world.resource::<Layers>();
+            layers
+                .0
+                .values()
+                .next()
+                .map(|band| (band.parts.order.clone(), band.parts.pooled.clone()))
+                .unwrap_or_default()
+        };
+        pass(&mut world);
+        let (made, _) = order(&mut world);
+        // The part 1 alone and a part 3: the part 2's node waits, the part 3 takes a new one.
+        let second = tree(&mut world, &[1.0, 3.0]);
+        anew(&mut world, second);
+        pass(&mut world);
+        let (taken, pooled) = order(&mut world);
+        assert_eq!(taken[0], made[0]);
+        assert!(!made.contains(&taken[1]));
+        assert_eq!(pooled, [made[1]]);
+        // The part 2 again: its own node.
+        let third = tree(&mut world, &[2.0]);
+        anew(&mut world, third);
+        pass(&mut world);
+        let (taken, _) = order(&mut world);
+        assert_eq!(taken, [made[1]]);
     }
 
     /// A node's showing is told from the tree itself, a node spawned this frame's too (#2642).
