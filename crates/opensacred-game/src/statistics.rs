@@ -1924,6 +1924,10 @@ fn show(
             x -= images.size(index).x - 4.0;
         }
     }
+    // Before the portraits, which draw at the window's pixels (`ui_layers::sharper_apart`) and
+    // overlap neither: after them the close button, alone without the list's "+", took no band
+    // of its own, and the window drew it a pixel aside of its place in the window's band (#2726).
+    finish(&mut commands, window, (&images, &assets), &sheet);
     // The last foe's portrait.
     if let Some((file, [x, y, w, h])) = sheet.foe.and_then(|foe| portraits.of(foe)) {
         let rect = Rect::new(
@@ -1966,11 +1970,11 @@ fn show(
             .id();
         commands.entity(window).add_child(child);
     }
-    finish(&mut commands, window, (&images, &assets), &sheet);
 }
 
 /// The window's last pieces over the rest: the close button, which glows under the pointer
-/// (#1595), and the "+" of `sheet`'s list where it shows.
+/// (#1595), and the "+" of `sheet`'s list where it shows; but the portraits, which overlap
+/// neither, after them, so that the close button stays in the window's band (#2726).
 fn finish(
     commands: &mut Commands,
     window: Entity,
