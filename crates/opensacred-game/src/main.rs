@@ -825,6 +825,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         app.insert_resource(talk::CloseFirst);
     }
     app.insert_resource(game::Shows::of(&cli.game));
+    app.insert_resource(game::Launch(cli.game.clone()));
     app.insert_resource(game::Request(cli.game));
     app.insert_resource(movies);
     if named {

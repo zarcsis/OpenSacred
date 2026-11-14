@@ -48,7 +48,7 @@ use bevy_kira_audio::prelude::{AudioChannel, AudioControl};
 use opensacred_rules::drops::Difficulty;
 
 use crate::bar::{self, UiImages};
-use crate::game::{AppState, Class, Data, FONT, Request};
+use crate::game::{AppState, Class, Data, FONT, Launch, Request};
 use crate::menu::{self, MENU_FONT, Screen, Words};
 use crate::menu_sound::Introductions;
 use crate::pause::Exporting;
@@ -1072,7 +1072,7 @@ fn screen(
     words: Res<Words>,
     figures: Res<Figures>,
     assets: Res<AssetServer>,
-    (window, request): (Option<Single<&Window, With<PrimaryWindow>>>, Res<Request>),
+    (window, launch): (Option<Single<&Window, With<PrimaryWindow>>>, Res<Launch>),
     mut targets: ResMut<Assets<Image>>,
     mut layers: ResMut<Assets<Layer>>,
     mut choice: ResMut<Choice>,
@@ -1083,7 +1083,8 @@ fn screen(
         ..default()
     };
     choice.stands = ORDER.map(|class| Some(Stand { class, saved: None }));
-    let named = request.0.difficulty;
+    // The difficulty that the command line named, not a loaded game's (#2712).
+    let named = launch.0.difficulty;
     choice.difficulty = named.unwrap_or_default();
     choice.offered = offered(named);
     let height = window.map_or(menu::SCREEN.y, |window| window.height());
@@ -2349,15 +2350,17 @@ fn classes(mut screen: ResMut<NextState<Screen>>) {
 /// Starts a game of the hero chosen, of its name, if one is: a class's of the Ancaria campaign,
 /// or a saved hero's of the Underworld campaign, in its class's tree of the add-on, whose start
 /// script places it (`IMPORT_DO`, `0x70DC20`; docs/re/underworld.md), the saved hero's values,
-/// skills and combat arts carried (`carry`, #2362).
+/// skills and combat arts carried (`carry`, #2362). The game begins from what the command line
+/// asked for, whatever a game loaded before left in the request (#2712).
 fn start(
     choice: Res<Choice>,
-    mut request: ResMut<Request>,
+    (mut request, launch): (ResMut<Request>, Option<Res<Launch>>),
     mut state: ResMut<NextState<AppState>>,
 ) {
     let Some(stand) = choice.chosen.and_then(|pedestal| choice.stand(pedestal)) else {
         return;
     };
+    request.0 = launch.map(|launch| launch.0.clone()).unwrap_or_default();
     let class = stand.class;
     // The import's game is the Ancaria campaign's, in the class's own tree.
     let tree = stand
@@ -2947,6 +2950,7 @@ impl Plugin for ChoicePlugin {
             bevy::app::HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate),
         ))
         .init_resource::<Choice>()
+        .init_resource::<Launch>()
         .init_resource::<Introduction>()
         .add_systems(OnExit(Screen::Heroes), hush)
         .init_resource::<Figures>()
@@ -3095,6 +3099,39 @@ mod tests {
         assert_eq!(request.difficulty, Some(Difficulty::Silver));
         assert_eq!(request.tree.as_deref(), Some("addon-type_npc_zwerg"));
         assert_eq!(request.saved, Some(6));
+    }
+
+    /// A new game chosen after a load starts at its class's start, from the command line's game,
+    /// not where the loaded hero stood (#2712).
+    #[test]
+    fn a_new_game_after_a_load_begins_from_the_command_lines_game() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .init_state::<AppState>();
+        let launch = crate::game::NewGame {
+            zoom: Some(1.5),
+            ..crate::game::NewGame::default()
+        };
+        app.insert_resource(Launch(launch));
+        // The load's own game: its hero's sector, class and difficulty.
+        app.insert_resource(Request(crate::game::NewGame {
+            class: Some(Class::Seraphim),
+            sector: Some((55, 38)),
+            difficulty: Some(Difficulty::Gold),
+            ..crate::game::NewGame::default()
+        }));
+        let mut choice = Choice {
+            stands: ORDER.map(|class| Some(Stand { class, saved: None })),
+            ..Choice::default()
+        };
+        choose(&mut choice, &Words::default(), 3);
+        app.insert_resource(choice);
+        app.world_mut().run_system_cached(start).unwrap();
+        let request = &app.world().resource::<Request>().0;
+        assert_eq!(request.class, Some(ORDER[3]));
+        assert_eq!(request.sector, None);
+        assert_eq!(request.difficulty, Some(Difficulty::Bronze));
+        assert_eq!(request.zoom, Some(1.5));
     }
 
     #[test]
