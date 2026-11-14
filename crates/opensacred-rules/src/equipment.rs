@@ -181,7 +181,18 @@ impl Wearer<'_> {
                 .map_or(0, |&(_, level)| level),
         )
     }
+
+    /// Whether it has the skill of two weapons ([`TWO_WEAPONS`]), its level with its items'
+    /// bonuses above 0 (`0x582450`), which lets a second one-handed weapon into its left hand
+    /// (the weapon sets' rule, `0x6E09C0`, `crate::sets::put`); not where its skills are not
+    /// followed (#2723).
+    pub fn two_weapons(&self) -> bool {
+        self.skill(TWO_WEAPONS).is_some_and(|level| level > 0)
+    }
 }
+
+/// The skill of two weapons, Dual Wielding (`0x582450`'s 6).
+pub const TWO_WEAPONS: u8 = 6;
 
 /// The attributes that an item's requirements `+0x15` to `+0x18` are weighed against, by their
 /// indices among a creature's six (`0x54ABE0`: `+0x3B8`, `+0x3BC`, `+0x3C2` and `+0x3BA`).
@@ -700,6 +711,23 @@ pub fn armour_switch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_skill_of_two_weapons_at_a_level_above_0_lets_a_second_weapon_in() {
+        let wearer = |skills| Wearer {
+            skills,
+            ..Wearer::of(5, 3)
+        };
+        let learned: &[(u8, u32)] = &[(4, 2), (TWO_WEAPONS, 3)];
+        assert!(wearer(Some(learned)).two_weapons());
+        // Another skill's level, the skill at 0, none at all, or skills not followed.
+        let other: &[(u8, u32)] = &[(4, 2), (7, 1)];
+        assert!(!wearer(Some(other)).two_weapons());
+        let unlearned: &[(u8, u32)] = &[(TWO_WEAPONS, 0)];
+        assert!(!wearer(Some(unlearned)).two_weapons());
+        assert!(!wearer(Some(&[])).two_weapons());
+        assert!(!wearer(None).two_weapons());
+    }
 
     #[test]
     fn the_armour_switch_gives_a_creatures_variant_or_nothing() {
