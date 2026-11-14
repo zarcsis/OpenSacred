@@ -14,10 +14,13 @@
 //! The edges are soft (#2624; docs/decisions/drawing.md, "The models' shadows' soft edges"), as
 //! the statics' shadows, silhouettes of 32 texels stretched over many pixels, look beside them:
 //! each mesh has a second copy, of [`MaskMaterial`], that the mask's camera ([`MaskCamera`]), a
-//! child of the world's, draws white into [`ShadowMask`] before the world, wherever any shadow
-//! lies; a shadow's pixel then takes its darkness from that mask blurred about it, full where the
-//! shadow reaches a few pixels on every side and none at its edge. At the highest detail alone
-//! (#2628): at the medium the shadows are the original's, sharp, the mask's camera off.
+//! child of the world's, draws into [`ShadowMask`] before the world, wherever any shadow lies; a
+//! shadow's pixel then takes its darkness from that mask blurred about it, full where the shadow
+//! reaches a few pixels on every side and none at its edge. On a model, the mask is that of the
+//! shadows in front of it alone, which darken it, by the nearest shadow's caster that the mask
+//! keeps at each pixel: another's shadow under a model, which the model hides, kept the edge of a
+//! shadow that fell on the model sharp (#2722). At the highest detail alone (#2628): at the medium
+//! the shadows are the original's, sharp, the mask's camera off.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
@@ -66,8 +69,10 @@ pub struct MaskCopy;
 #[derive(Component)]
 pub struct MaskCamera;
 
-/// Where any model's shadow lies on the screen, white on black, the size of the world camera's
-/// viewport: drawn by [`MaskCamera`], read by [`ShadowMaterial`].
+/// Where any model's shadow lies on the screen, the size of the world camera's viewport: its red
+/// whole there and none elsewhere, its green and blue the number of the nearest shadow's caster
+/// there, its slot of the [`Anchors`] plus one. Drawn by [`MaskCamera`], read by
+/// [`ShadowMaterial`].
 #[derive(Resource)]
 pub struct ShadowMask {
     image: Handle<Image>,
@@ -95,8 +100,8 @@ pub struct ShadowMaterial {
     layer: Layer,
 }
 
-/// The material of the shadows' copies in the [`ShadowMask`]: flattened as the shadows are,
-/// white, through the shader's `mask`.
+/// The material of the shadows' copies in the [`ShadowMask`]: flattened as the shadows are, each
+/// its caster's number at the depth of its plane, through the shader's `mask`.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct MaskMaterial {
     #[storage(0, read_only)]
@@ -124,6 +129,9 @@ impl Material for MaskMaterial {
         false
     }
 
+    /// The depth of a shadow's plane that the fragment shader gives, written, and a pixel taken
+    /// where it is as near as what lies there or nearer: where shadows overlap, the mask keeps the
+    /// nearest's caster.
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -132,6 +140,10 @@ impl Material for MaskMaterial {
     ) -> Result<(), SpecializedMeshPipelineError> {
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.entry_point = Some("mask".into());
+        }
+        if let Some(depth) = descriptor.depth_stencil.as_mut() {
+            depth.depth_write_enabled = Some(true);
+            depth.depth_compare = Some(CompareFunction::GreaterEqual);
         }
         Ok(())
     }
