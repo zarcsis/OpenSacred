@@ -135,7 +135,8 @@ struct Mirror;
 /// pieces to it only then ([`ready`]), the frames its camera has still to draw after a change
 /// ([`drawing`]), the images its mirror shows, its mirror's nodes in its tree's order but the
 /// root's, the nodes a tree made anew takes first ([`retree`]), the hidden node that keeps the
-/// nodes no tree takes, with them, and whether its tree was made anew this frame.
+/// nodes no tree takes, with them, whether its tree was made anew this frame, and whether its
+/// camera was held back the last frame ([`drawing`]).
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
@@ -157,6 +158,7 @@ struct Parts {
     pool: Entity,
     pooled: Vec<Entity>,
     anew: bool,
+    held_back: bool,
 }
 
 /// What a band's pieces show: each image and its part, by which a band of this frame that takes
@@ -591,6 +593,7 @@ fn make(
         pool,
         pooled: Vec::new(),
         anew: false,
+        held_back: false,
     }
 }
 
@@ -1096,17 +1099,26 @@ fn mirror(
 /// Whether a band's camera draws this frame: always before its picture is trusted; not in a frame
 /// its mirror took new nodes, which the camera draws from their second frame on, its picture of
 /// the last frame kept (#2642), but in the frame its tree was made anew (`anew`), whose picture
-/// lacks only the new nodes where the last frame's is another tree's (#2705); else in the
-/// [`FRAMES`] frames after a change (`left`, counted down), its picture of the last drawing kept
-/// between (#2661). Research #2637 measured some 0.2 ms a frame a band's camera at
-/// 3,840 × 2,160.
-fn drawing(ready: bool, (grown, anew): (bool, bool), left: &mut u8) -> bool {
+/// lacks only the new nodes where the last frame's is another tree's (#2705), nor two frames
+/// running (`held_back`, the last frame's): a mirror that takes new nodes at every frame would
+/// hold its camera back for ever, as the backpack's grid's did while its sockets' icons were made
+/// anew at every frame (#2718); else in the [`FRAMES`] frames after a change (`left`, counted
+/// down), its picture of the last drawing kept between (#2661). Research #2637 measured some
+/// 0.2 ms a frame a band's camera at 3,840 × 2,160.
+fn drawing(
+    ready: bool,
+    (grown, anew): (bool, bool),
+    (left, held_back): (&mut u8, &mut bool),
+) -> bool {
     if !ready {
+        *held_back = false;
         return true;
     }
-    if grown && !anew {
+    if grown && !anew && !*held_back {
+        *held_back = true;
         return false;
     }
+    *held_back = false;
     let draws = *left > 0;
     *left = left.saturating_sub(1);
     draws
@@ -1141,10 +1153,11 @@ fn composites(
             band.parts.left = FRAMES;
         }
         if let Ok(mut camera) = cameras.get_mut(band.parts.camera) {
+            let parts = &mut band.parts;
             let draws = drawing(
-                band.parts.ready,
-                (band.parts.grown, band.parts.anew),
-                &mut band.parts.left,
+                parts.ready,
+                (parts.grown, parts.anew),
+                (&mut parts.left, &mut parts.held_back),
             );
             band.parts.anew = false;
             if camera.is_active != draws {
@@ -1403,9 +1416,10 @@ mod tests {
     #[test]
     fn a_bands_camera_draws_after_a_change_and_keeps_its_picture_between() {
         let frames = |ready: bool, grown: &[bool], left: &mut u8| -> Vec<bool> {
+            let mut held_back = false;
             grown
                 .iter()
-                .map(|&grown| drawing(ready, (grown, false), left))
+                .map(|&grown| drawing(ready, (grown, false), (left, &mut held_back)))
                 .collect()
         };
         // Before its picture is trusted, every frame.
@@ -1425,7 +1439,13 @@ mod tests {
         );
         // A tree made anew draws in its first frame though its mirror grew (#2705).
         let mut left = FRAMES;
-        assert!(drawing(true, (true, true), &mut left));
+        assert!(drawing(true, (true, true), (&mut left, &mut false)));
+        // A mirror that grows at every frame holds its camera back one frame in two (#2718).
+        let mut left = FRAMES;
+        assert_eq!(
+            frames(true, &[true; 6], &mut left),
+            [false, true, false, true, false, true]
+        );
     }
 
     #[test]
@@ -1487,6 +1507,7 @@ mod tests {
             pool,
             pooled: Vec::new(),
             anew: false,
+            held_back: false,
         }
     }
 

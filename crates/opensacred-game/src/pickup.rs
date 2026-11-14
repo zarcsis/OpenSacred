@@ -50,8 +50,13 @@ pub const QUESTS_ITEM: u32 = 7117;
 /// The most gold the handler keeps (`0x57FD80`).
 const MOST_GOLD: i64 = 0x7FFF_FFFE;
 
-/// Plays the gold's sounds that the gold's changes owe ([`Pack::add_gold`], #1792).
+/// Plays the gold's sounds that the gold's changes owe ([`Pack::add_gold`], #1792). The pack is
+/// written only where sounds are owed: written at every frame, it was changed at every frame,
+/// and the backpack laid its items and their sockets' icons out anew at every frame (#2718).
 fn gold_sounds(mut pack: ResMut<Pack>, mut sounds: MessageWriter<sfx::Play>) {
+    if pack.gold_sounds == 0 {
+        return;
+    }
     for _ in 0..std::mem::take(&mut pack.gold_sounds) {
         sounds.write(gold_sound());
     }
@@ -1809,5 +1814,25 @@ mod tests {
         let places: Vec<(u8, u8)> = pack.grid.items.iter().map(|item| item.at).collect();
         assert_eq!(places, [(0, 0), (0, 1), (0, 2), (0, 3), (0, 5)]);
         assert_eq!(pack.items.len(), 5);
+    }
+
+    /// The gold's sounds leave the pack unchanged where none are owed: changed at every frame, it
+    /// had the backpack lay its sockets' icons out anew at every frame (#2718).
+    #[test]
+    fn the_gold_sounds_change_the_pack_only_where_owed() {
+        let mut app = App::new();
+        app.add_message::<sfx::Play>()
+            .init_resource::<Pack>()
+            .add_systems(Update, gold_sounds);
+        app.update();
+        app.update();
+        let before = app.world().resource_ref::<Pack>().last_changed();
+        app.update();
+        assert_eq!(app.world().resource_ref::<Pack>().last_changed(), before);
+        app.world_mut().resource_mut::<Pack>().gold_sounds = 2;
+        let owed = app.world().resource_ref::<Pack>().last_changed();
+        app.update();
+        assert_ne!(app.world().resource_ref::<Pack>().last_changed(), owed);
+        assert_eq!(app.world().resource::<Pack>().gold_sounds, 0);
     }
 }
