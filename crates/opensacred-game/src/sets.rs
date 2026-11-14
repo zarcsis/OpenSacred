@@ -15,6 +15,10 @@
 //! (`sdk_EQUIP` of the slots 12 and 13), its arms made anew with them (`arsenal::Maker`): their
 //! models, the clips of their class, its values and its weapons' sounds; a change of the class
 //! stops the hero (`0x54E6D0`). A set of nothing leaves its hands empty.
+//!
+//! The inventory open, a click on a slot takes an item out of its set or puts the held one in by
+//! the sets' rule (`0x6E09C0`), a second one-handed weapon into the left hand where the hero has
+//! the skill of two weapons (`Wearer::two_weapons`, #2723).
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -461,8 +465,14 @@ fn edit(
         refusals.write(crate::voices::NotMine { level: level_only });
         return false;
     }
-    let made = piece(tables, PUT, held.dropped.item)
-        .and_then(|piece| rule::drop(pieces(tables, &halves), tried[0], piece, false));
+    let made = piece(tables, PUT, held.dropped.item).and_then(|piece| {
+        rule::drop(
+            pieces(tables, &halves),
+            tried[0],
+            piece,
+            wearer.two_weapons(),
+        )
+    });
     let Some((_, (made, replaced))) = made else {
         refusals.write(crate::voices::NotMine { level: false });
         return false;
@@ -538,7 +548,7 @@ fn send(
     let set = sets.selected;
     let halves = sets.halves[set].clone();
     let made = piece(&tables, PUT, dropped.item)
-        .and_then(|piece| rule::drop(pieces(&tables, &halves), 0, piece, false));
+        .and_then(|piece| rule::drop(pieces(&tables, &halves), 0, piece, wearer.two_weapons()));
     let Some((_, (made, replaced))) = made else {
         remarks.write(crate::remarks::Remark::CantCarry);
         return;
@@ -623,7 +633,7 @@ fn glow(
         let corner = bar::weapon_slot(set, shown.0);
         let images_of = GLOWS[usize::from(set != sets.selected)];
         for half in 0..HALVES {
-            if rule::put(pieces(&tables, halves), half, piece, false).is_none() {
+            if rule::put(pieces(&tables, halves), half, piece, wearer.two_weapons()).is_none() {
                 continue;
             }
             // The right hand's on the slot's left half.
