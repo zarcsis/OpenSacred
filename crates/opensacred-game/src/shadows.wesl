@@ -3,7 +3,9 @@
 // black at its texture's alpha, every pixel of one shadow darkened once (docs/re/drawing.md,
 // "The models' shadows"; docs/decisions/drawing.md, "Models' shadows by depth, not stencil"), its
 // edges soft by the mask of every shadow blurred about the pixel (#2624; "The models' shadows'
-// soft edges"), whose copies the same vertex stage flattens and `mask` draws white.
+// soft edges"), whose copies the same vertex stage flattens and `mask` draws, the nearest's
+// caster's number kept where they overlap, so that on a model a shadow's edge is blurred by the
+// silhouettes of the shadows that fall on it alone (#2722).
 //
 // The vertex stage is Bevy's own (`bevy_pbr::render::mesh`, MIT OR Apache-2.0) but for the
 // flattening, as the models' is (`models.wesl`).
@@ -18,6 +20,8 @@ import bevy_pbr::render::{
     view_transformations::position_world_to_clip,
 };
 import package::order;
+@if(DEPTH_PREPASS)
+import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
 
 /// Each model's anchor (`models::Anchors`), by the mesh's tag, as the models' shader takes it.
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var<storage, read> anchors: array<vec4<f32>>;
@@ -27,7 +31,8 @@ import package::order;
 /// Each model's floor (`models::Anchors`), by the mesh's tag, as the models' shader takes it: for
 /// a model under a liquid's surface, how far back its place lies, third.
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> floors: array<vec4<f32>>;
-/// Where any model's shadow lies (`shadows::ShadowMask`): white on black, the size of the view.
+/// Where any model's shadow lies (`shadows::ShadowMask`), the size of the view: its red whole
+/// there and none elsewhere, its green and blue the nearest shadow's caster's number.
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var shadow_mask: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(4) var shadow_mask_sampler: sampler;
 /// Its x 1 for the soft edges, at the highest detail, 0 for the original's sharp ones (#2628).
@@ -67,6 +72,8 @@ struct Flattened {
     @location(1) @interpolate(flat) ground: f32,
     /// How far back the model's place lies under a liquid's surface.
     @location(2) @interpolate(flat) sunk: f32,
+    /// Its caster's number in the mask: the slot of its anchors, plus one.
+    @location(3) @interpolate(flat) caster: u32,
 };
 
 struct Shade {
@@ -120,6 +127,7 @@ fn vertex(vertex_no_morph: Vertex) -> Flattened {
     out.ground = grounds[tag].y;
     out.anchor = anchors[tag];
     out.sunk = floors[tag].z;
+    out.caster = tag + 1u;
     out.position = position_world_to_clip(flatten(world.xyz, out.ground));
 @if(SOFT_EDGES)
     {
@@ -179,21 +187,67 @@ fn masked(at: vec2<f32>) -> f32 {
     return textureSampleLevel(shadow_mask, shadow_mask_sampler, at, 0.0).r;
 }
 
+/// The depth of the nearest shadow's plane at `at` of the view, by the caster's number that the
+/// mask holds at its pixel there; none where it holds none.
+fn nearest_shadow(at: vec2<f32>) -> f32 {
+    let size = vec2<i32>(textureDimensions(shadow_mask));
+    let pixel = clamp(vec2<i32>(at * vec2<f32>(size)), vec2(0), size - 1);
+    let texel = textureLoad(shadow_mask, pixel, 0);
+    let caster = u32(round(texel.g * 255.0)) | (u32(round(texel.b * 255.0)) << 8u);
+    if caster == 0u {
+        return 0.0;
+    }
+    let tag = caster - 1u;
+    let row = at.y * view.viewport.w + view.viewport.y;
+    return plane_depth(row, anchors[tag], grounds[tag].y, floors[tag].z);
+}
+
+/// The depth of the model whose texel lies at `at` of the view: the models' prepass holds their
+/// depths alone (`prepass.wesl`), none on the ground.
+fn model_depth(at: vec2<f32>) -> f32 {
+@if(DEPTH_PREPASS) {
+    let size = vec2<i32>(textureDimensions(depth_prepass_texture));
+    let pixel = clamp(vec2<i32>(at * view.viewport.zw + view.viewport.xy), vec2(0), size - 1);
+    // Its first sample, multisampled or not.
+    return textureLoad(depth_prepass_texture, pixel, 0);
+}
+@else {
+    return 0.0;
+}
+}
+
+/// The share of the mask at `at` that the shadows falling on a surface of the depth `receiver`
+/// cover. On the ground (`receiver` none), every shadow's silhouette: the shadows join there, and
+/// run on under the models that stand in them. On a model, only those of the shadows in front of
+/// it, which darken it, as the nearest at `at` decides: the others lie behind the models that hide
+/// them, and the edge of a shadow that fell on a model, an open chest, a creature standing in it,
+/// stayed sharp within the silhouette of the model's own shadow under it (#2722).
+fn covered(at: vec2<f32>, receiver: f32) -> f32 {
+    let share = masked(at);
+    if share <= 0.0 || receiver <= 0.0 || nearest_shadow(at) > receiver {
+        return share;
+    }
+    return 0.0;
+}
+
 /// The share of the pixels about `pixel` that a shadow covers: the mask blurred by a Gaussian of
 /// [`SOFTNESS`], sampled over a grid of 9 × 9 across two spreads each way, half a spread apart
 /// and between its pixels, so that no pixel of a thin part's mask (a blade a few pixels wide)
 /// falls between the samples (#2630). It is a half on a straight edge and one a few pixels
 /// within. A pixel whose mask is whole two spreads away every way, the diagonals too, lies well
-/// within a shadow, and the grid is spared; one near the edge, within or out, takes it whole.
+/// within a shadow, and the grid is spared; one near the edge, within or out, takes it whole. The
+/// mask is that of the shadows that fall on what lies at the pixel, the ground or a model
+/// ([`covered`]).
 fn coverage(pixel: vec2<f32>) -> f32 {
     let spread = SOFTNESS * per_unit();
     let texel = 1.0 / view.viewport.zw;
     let at = (pixel - view.viewport.xy) * texel;
+    let receiver = model_depth(at);
     let far = 2.0 * spread * texel;
     var probes = 0.0;
     for (var i = -1; i <= 1; i++) {
         for (var j = -1; j <= 1; j++) {
-            probes += masked(at + vec2(f32(i), f32(j)) * far);
+            probes += covered(at + vec2(f32(i), f32(j)) * far, receiver);
         }
     }
     if probes >= 8.999 {
@@ -206,7 +260,7 @@ fn coverage(pixel: vec2<f32>) -> f32 {
         for (var j = -4; j <= 4; j++) {
             let offset = vec2(f32(i), f32(j));
             let weight = exp(-0.125 * dot(offset, offset));
-            sum += weight * masked(at + offset * step);
+            sum += weight * covered(at + offset * step, receiver);
             weights += weight;
         }
     }
@@ -228,8 +282,14 @@ fn fragment(in: Flattened) -> Shade {
     return out;
 }
 
-/// The shadows' copies in the mask (`shadows::MaskMaterial`): white wherever one lies.
+/// The shadows' copies in the mask (`shadows::MaskMaterial`): wherever one lies, its red whole and
+/// its caster's number in its green and blue, at the depth of its plane, which the depth test
+/// keeps the nearest's of where they overlap.
 @fragment
-fn mask() -> @location(0) vec4<f32> {
-    return vec4(1.0);
+fn mask(in: Flattened) -> Shade {
+    var out: Shade;
+    let caster = in.caster & 0xFFFFu;
+    out.colour = vec4(1.0, f32(caster & 0xFFu) / 255.0, f32(caster >> 8u) / 255.0, 1.0);
+    out.depth = plane_depth(in.position.y, in.anchor, in.ground, in.sunk);
+    return out;
 }
