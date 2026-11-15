@@ -320,6 +320,9 @@ pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
     if spell == FLOWER_LEAP {
         return FLOWER_LEAP_CLIP;
     }
+    if throws_trap(spell) {
+        return TRAP_CLIP;
+    }
     if matches!(spell, SPIDER_SHOT | DRAGON_FIRE | SPIT) {
         return SPIDER_SHOT_CLIP;
     }
@@ -805,6 +808,9 @@ pub enum OwnMark {
     /// 1062, 1004 or 1008 far from it, and once landed (`0x210`) the bow (`0x4D8657`,
     /// `0x4D8980`, #2566).
     Dryad,
+    /// The lich (34) and the animated conjurer (81) of `0x1000`: the Dark Elf's trap thrown at
+    /// the hero's place by a roll of three, its deadline passed ([`trap_of`], `0x4DB689`, #2731).
+    Trapper,
 }
 
 /// The caster's mark of its own of a creature of type `creature`, if any.
@@ -828,21 +834,52 @@ pub fn own_mark(creature: u32) -> Option<OwnMark> {
         203 | 351 | 352 => OwnMark::BrainFooter,
         192 | 329 | 342 | 343 | TUKTUK => OwnMark::Minimummy,
         218 | 219 => OwnMark::Dryad,
+        34 | 81 => OwnMark::Trapper,
         _ => return None,
     })
 }
 
+/// The Dark Elf's traps that the casters of `0x1000` throw (`0x4DB710`, #2731): the venom's
+/// (1052) poison on the ground, and the animated conjurer's explosive charge (1049).
+pub const VENOM: u16 = 1052;
+pub const BOMB: u16 = 1049;
+
+/// The trap that a caster of `0x1000` of type `creature` throws: the animated conjurer's (81)
+/// [`BOMB`], any other's [`VENOM`].
+pub fn trap_of(creature: u32) -> u16 {
+    if creature == 81 { BOMB } else { VENOM }
+}
+
+/// Whether `spell` is a trap that a creature throws as a pseudo-spell of its casts, as the
+/// flowers leap ([`FLOWER_LEAP`]): ordered at the hero's place, made as the Dark Elf's executor
+/// makes it (`0x4FD0F0`, `0x506770`).
+pub fn throws_trap(spell: u16) -> bool {
+    matches!(spell, VENOM | BOMB)
+}
+
+/// The clip that a creature throws its trap by: the first of the slots 109, 84 and 79 that its
+/// model has (`0x50A0FA`…`0x50A1A1`), 84 for the lich's and the animated conjurer's, which have
+/// no 109 (**seen**, #2731), at the rate 1.0; the ball thrown once less than [`crate::arts::TRAPS`]
+/// of it is left, at the share [`TRAP_THROWN`].
+pub const TRAP_CLIP: u16 = 84;
+pub const TRAP_THROWN: f32 = 1.0 - crate::arts::TRAPS;
+
 /// The kind of hero whose action of the arts a creature of type `creature` takes as it makes a
-/// weapon art at a special's order (`0x5500D0`, the action of `0x95583C`): the Dark Elf's (4) for
-/// 146, 190, 202, 203, 247, 344, 351, 352 and 354; the Gladiator's (2) for 192, 204, 329, 342,
-/// 343, 350 and 363; the Wood Elf's (5) for 218 and 219; none for any other (#2564).
+/// weapon art at a special's order (`0x5500D0`, the action of `0x95583C`; #2564, read whole for
+/// #2731): a hero's type below 10 its own; the Gladiator's (2) for 192, 204, 329, 342, 343, 350
+/// and 363; the Magician's (3) for 137 and 701; the Seraphim's (1) for 141; the Wood Elf's (5) for
+/// 218 and 219; the Daemon's (7) for 80; the Dark Elf's (4) for any other, 34, 48, 81, 186 and 202
+/// among them by name.
 pub fn executor(creature: u32) -> Option<u32> {
-    match creature {
-        146 | 190 | 202 | 203 | 247 | 344 | 351 | 352 | 354 => Some(4),
-        192 | 204 | 329 | 342 | 343 | 350 | 363 => Some(2),
-        218 | 219 => Some(5),
-        _ => None,
-    }
+    Some(match creature {
+        0..=9 => creature,
+        192 | 204 | 329 | 342 | 343 | 350 | 363 => 2,
+        137 | 701 => 3,
+        141 => 1,
+        218 | 219 => 5,
+        80 => 7,
+        _ => 4,
+    })
 }
 
 /// The weapon arts that the specials order (#2564): the Gladiator's `Attacke`, the Dark Elf's
