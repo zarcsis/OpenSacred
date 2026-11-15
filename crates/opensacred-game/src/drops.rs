@@ -1102,20 +1102,23 @@ fn throw(
 /// The quality key of a plain item, of no pass (docs/re/items.md).
 const PLAIN_KEY: u8 = 16;
 
-/// Throws off the item of the type `item` from `at` on `level`, as a skeleton warrior its head
-/// (`0x550580`, [`Flight::flung`]): a plain item of no level (`sdk_OBJ_CREATE_NPOS`), none of a
-/// type the table does not hold.
-pub(crate) fn fling(
-    In((item, at, level)): In<(u32, Vec3, Level)>,
+/// Throws off a skeleton warrior's head (`opensacred_rules::undead::HEAD`) from `at` on `level`,
+/// the warrior of the level `grade` (`0x550580`, [`Flight::flung`]): a plain item of no level
+/// (`sdk_OBJ_CREATE_NPOS`) whose damages the warrior's level rolls (`fight::Rules::head_damage`,
+/// #2730), its worth, level and asked level by them, as its tooltip shows and a socket takes
+/// them; none where the table does not hold the type.
+pub(crate) fn fling_head(
+    In((grade, at, level)): In<(u32, Vec3, Level)>,
     mut commands: Commands,
-    tables: Option<Res<Tables>>,
+    (tables, rules): (Option<Res<Tables>>, Option<Res<crate::fight::Rules>>),
     mut dice: ResMut<Dice>,
     assets: Res<AssetServer>,
 ) {
     let Some(tables) = tables else {
         return;
     };
-    let Some(dropped) = drops::thrown(
+    let item = opensacred_rules::undead::HEAD;
+    let Some(mut dropped) = drops::thrown(
         (&tables.catalogue, &tables.templates),
         (tables.rules.sockets(), drops::Difficulty::default()),
         (item, 0, PLAIN_KEY, 1),
@@ -1123,6 +1126,13 @@ pub(crate) fn fling(
     ) else {
         return;
     };
+    // Its damages, before the flight's rolls (`0x55070A`…`0x550929`).
+    if let Some(rules) = rules {
+        let mut values = tables.own_values(&dropped);
+        values.damage = rules.head_damage(grade, &mut dice.0);
+        values.scale = tables.template_scale(item);
+        dropped.values = Some(values);
+    }
     let flight = Flight::flung(at.x, at.z, &mut dice.0);
     lay(
         &mut commands,

@@ -283,8 +283,9 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
 /// (`0x532E3C`'s cases 0 and 2 to 5, #1260): a body of that type, which lacks an arm or the head,
 /// takes its place on its cell and plays its dying clip `choice` (a death at a creature's hands
 /// where `by_creature`), to lie and rise as [`rise`] raises it; a head it loses it throws off
-/// as an item (`0x550580`, `undead::HEAD`), from its place (**hypothesis** for its neck's point),
-/// an arm's bone, which does not stay, not made.
+/// as an item of damages rolled by its level (`0x550580`, `undead::HEAD`,
+/// `crate::drops::fling_head`), from its place (**hypothesis** for its neck's point), an arm's
+/// bone, which does not stay, not made.
 pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creature): (u32, bool)) {
     let Some(into) = rises.into else {
         return;
@@ -300,7 +301,7 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
         && let Some(at) = world.get::<Transform>(fallen).map(|at| at.translation)
     {
         info!("undead: {fallen}, a {kind}, throws off its head");
-        if let Err(e) = world.run_system_cached_with(crate::drops::fling, (undead::HEAD, at, on)) {
+        if let Err(e) = world.run_system_cached_with(crate::drops::fling_head, (level, at, on)) {
             warn!("undead: no head thrown off: {e}");
         }
     }
