@@ -237,7 +237,11 @@ fn covered(at: vec2<f32>, receiver: f32) -> f32 {
 /// within. A pixel whose mask is whole two spreads away every way, the diagonals too, lies well
 /// within a shadow, and the grid is spared; one near the edge, within or out, takes it whole. The
 /// mask is that of the shadows that fall on what lies at the pixel, the ground or a model
-/// ([`covered`]).
+/// ([`covered`]). On a model the share's upper half is stretched over the whole, the ramp drawn
+/// within the silhouette: the vertices move out by the slope of every shadow's mask, which is
+/// level where another's shadow lies under the model (a chest's own under the chest), so that the
+/// ramp beyond the silhouette was not drawn there, and the edge stopped at half its darkness
+/// (#2734).
 fn coverage(pixel: vec2<f32>) -> f32 {
     let spread = SOFTNESS * per_unit();
     let texel = 1.0 / view.viewport.zw;
@@ -264,7 +268,11 @@ fn coverage(pixel: vec2<f32>) -> f32 {
             weights += weight;
         }
     }
-    return sum / weights;
+    let share = sum / weights;
+    if receiver > 0.0 {
+        return clamp(2.0 * share - 1.0, 0.0, 1.0);
+    }
+    return share;
 }
 
 @fragment
