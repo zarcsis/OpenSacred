@@ -209,6 +209,45 @@ pub fn changes(kind: u32, draws: [u32; 2]) -> Option<u32> {
 /// which a warrior throws off as it loses its head (`0x426DF0` of the types 32 and 112 to 117).
 pub const HEAD: u32 = 5100;
 
+/// The damages that a skeleton warrior of the level `level` gives the head it throws off
+/// (`0x550580`, `0x55070A`…`0x550929`, #2730), as `[least, most]` of the four kinds, by the
+/// balance's `SpawnWeaponMin` and `SpawnWeaponMax` (`spawn_weapon`): a budget of half of
+/// `min + (max − min) · n / 100` truncated, `n` the level less one and at most 5 (12 to 18); each
+/// kind in turn, physical, fire, magic and poison, taken by a roll `rand() % 3` of 0 (the last
+/// three while the budget is not 0) at a most of the game's roll between 2 and the budget
+/// ([`crate::drops::between`]), which the budget loses; the physical most 2 where no kind was
+/// taken; each least half its most, truncated. Every kind rolls its `% 3`, taken or not.
+pub fn head_damage(
+    level: u32,
+    spawn_weapon: [f32; 2],
+    dice: &mut impl crate::spawning::Dice,
+) -> [[f32; 2]; crate::fight::KINDS] {
+    let n = (i64::from(level) - 1).min(5);
+    let n = f64::from(i32::try_from(n).unwrap_or(5));
+    let [least, most] = spawn_weapon.map(f64::from);
+    // `n · 0.01f` at the x87's double precision (#589).
+    let budget = (least + (most - least) * n * crate::fight::HUNDREDTH) * 0.5;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the budget truncated as `_ftol` does, a few tens at most"
+    )]
+    let mut budget = budget.trunc() as i64;
+    let mut mosts = [0_i64; crate::fight::KINDS];
+    for (kind, most) in mosts.iter_mut().enumerate() {
+        let taken = dice.below(3) == 0;
+        if taken && (kind == 0 || budget != 0) {
+            *most = crate::drops::between(2, budget, dice);
+            budget -= *most;
+        }
+    }
+    if mosts.iter().all(|&most| most == 0) {
+        mosts[0] = 2;
+    }
+    // Whole numbers of a few tens, exact as floats.
+    let whole = |value: i64| i16::try_from(value).map_or(f32::from(i16::MAX), f32::from);
+    mosts.map(|most| [whole(most / 2), whole(most)])
+}
+
 /// Whether a skeleton warrior that changes from the type `from` into `to` loses its head, which
 /// it throws off (`0x550580`'s part 0): the whole one into the headless, and those of one arm
 /// into 114 and 117; an arm lost is a bone (`0x427650`'s part 4 of the gib set 3, the types 926
@@ -439,6 +478,86 @@ pub fn exorcised(value: f32, params: [f32; 3], roll: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spawning::Script;
+
+    /// The balance's `SpawnWeaponMin` and `SpawnWeaponMax`.
+    const SPAWN_WEAPON: [f32; 2] = [25.0, 275.0];
+
+    #[test]
+    fn a_warriors_head_takes_the_damages_of_the_maintainers_frame() {
+        // A warrior of the level 4: physical taken at 3, fire not, magic at 5, poison not (#2730).
+        let mut dice = Script::new(vec![0, 1, 1, 0, 3, 1]);
+        let damage = head_damage(4, SPAWN_WEAPON, &mut dice);
+        assert_eq!(damage, [[1.0, 3.0], [0.0, 0.0], [2.0, 5.0], [0.0, 0.0]]);
+        assert_eq!(dice.taken(), 6);
+        // Its level by the estimate at its template's scale 16, as the original's frame shows,
+        // and the level it asks.
+        let values = crate::fight::ItemValues {
+            damage,
+            scale: 16,
+            ..crate::fight::ItemValues::default()
+        };
+        let level = crate::fight::item_level(&values, &crate::fight::Rules::default());
+        assert_eq!(level, 4);
+        assert_eq!(crate::equipment::asked_level(level), 1);
+    }
+
+    #[test]
+    fn a_heads_budget_grows_with_its_warriors_level_to_the_sixth() {
+        for (level, budget) in (1..=7).zip([12_u32, 13, 14, 16, 17, 18, 18]) {
+            // The physical kind takes the budget whole; the others, taken, find none left and
+            // roll nothing more, where a larger budget would roll the fire's.
+            let mut dice = Script::new(vec![0, budget - 2, 0, 0, 0, 0]);
+            let most = f32::from(u16::try_from(budget).unwrap());
+            assert_eq!(
+                head_damage(level, SPAWN_WEAPON, &mut dice),
+                [[(most / 2.0).floor(), most], [0.0; 2], [0.0; 2], [0.0; 2]],
+                "the level {level}"
+            );
+            assert_eq!(dice.taken(), 5, "the level {level}");
+        }
+        // The balance's own bounds, through the rules.
+        let mut dice = Script::new(vec![0, 1, 1, 0, 3, 1]);
+        assert_eq!(
+            crate::fight::Rules::default().head_damage(4, &mut dice),
+            [[1.0, 3.0], [0.0, 0.0], [2.0, 5.0], [0.0, 0.0]]
+        );
+    }
+
+    #[test]
+    fn a_head_of_no_kind_taken_has_a_physical_two() {
+        let mut dice = Script::new(vec![1, 2, 1, 1]);
+        assert_eq!(
+            head_damage(1, SPAWN_WEAPON, &mut dice),
+            [[1.0, 2.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
+        );
+        assert_eq!(dice.taken(), 4);
+    }
+
+    #[test]
+    fn a_heads_spent_budget_rolls_no_more_but_each_kind_its_three() {
+        // The physical takes the budget whole: the others taken roll nothing.
+        let mut dice = Script::new(vec![0, 10, 0, 0, 0]);
+        assert_eq!(
+            head_damage(1, SPAWN_WEAPON, &mut dice),
+            [[6.0, 12.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]
+        );
+        assert_eq!(dice.taken(), 5);
+        // A budget of 2 left: the fire takes it with no roll.
+        let mut dice = Script::new(vec![0, 8, 0, 1, 1]);
+        assert_eq!(
+            head_damage(1, SPAWN_WEAPON, &mut dice),
+            [[5.0, 10.0], [1.0, 2.0], [0.0, 0.0], [0.0, 0.0]]
+        );
+        assert_eq!(dice.taken(), 5);
+        // A budget of 1 left: the fire rolls between 1 and 2, the budget below 0 after.
+        let mut dice = Script::new(vec![0, 9, 0, 1, 1, 1]);
+        assert_eq!(
+            head_damage(1, SPAWN_WEAPON, &mut dice),
+            [[5.0, 11.0], [1.0, 2.0], [0.0, 0.0], [0.0, 0.0]]
+        );
+        assert_eq!(dice.taken(), 6);
+    }
 
     #[test]
     fn a_body_lays_a_puddle_of_its_sets_blood_but_a_big_demons() {

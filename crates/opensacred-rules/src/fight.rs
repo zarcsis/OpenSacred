@@ -1296,6 +1296,16 @@ impl Rules {
         crate::arrows::weapon_element(most, self.spawn_weapon)
     }
 
+    /// The damages that a skeleton warrior of the level `level` gives the head it throws off
+    /// (`crate::undead::head_damage`), by the balance's `SpawnWeaponMin` and `SpawnWeaponMax`.
+    pub fn head_damage(
+        &self,
+        level: u32,
+        dice: &mut impl crate::spawning::Dice,
+    ) -> [[f32; 2]; KINDS] {
+        crate::undead::head_damage(level, self.spawn_weapon, dice)
+    }
+
     /// The damages of the four kinds of a dragon's fire on the ground (923, `0x5AF75D`): each
     /// kind's `dragonfire_dmg_*` times one plus a hundredth of the damage multipliers' curve at the
     /// level `skill_2` of the dragon's skill 2, times its level `level` plus 9, truncated and held
