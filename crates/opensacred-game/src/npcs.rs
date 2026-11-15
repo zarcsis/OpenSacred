@@ -6659,6 +6659,22 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
     bevy::log::info!("npcs: the save's {count} followers back beside the hero");
 }
 
+/// The point `height` units of the models' height over the point `spot` of the ground at height
+/// 0, as the original puts an object of a script's height (the record's tag `0x7E`): the record's
+/// point taken into its models' space on the plane of height 0, the height its third coordinate
+/// (`0x489022`, `0x6239C0`, `0x623940`), which its view raises by
+/// [`iso::PIXELS_PER_MODEL_HEIGHT`] pixels a unit, with no ground under it added (`0x5A5AE2`). The
+/// models' scale's 1.66 pixels a unit, and the point moved along the line of sight to the
+/// standing height of its cell as a model's is, left a wall torch's flame over stairs below its
+/// bowl (#2728).
+fn raised(spot: Vec2, height: f32) -> Vec3 {
+    Vec3::new(
+        spot.x,
+        iso::height(height * iso::PIXELS_PER_MODEL_HEIGHT),
+        spot.y,
+    )
+}
+
 /// Spawns the NPC or the object of `placement`: its model on its cell and level, an object's at
 /// its drawn position (`model_position`), turned to its heading, with its texture, its items, its
 /// shadow, its clips, its walk and its place in the others' way.
@@ -6724,11 +6740,15 @@ fn spawn(
             model.z,
         );
     }
+    // A placed object's point on the plane of height 0: its record's, else its cell's centre.
+    let spot = placement
+        .drawn
+        .unwrap_or_else(|| Vec2::new(position.x, position.z));
     if let Some((variant, height)) = placement.fx {
         return crate::fx::spawn(
             commands,
             (variant, level),
-            Vec3::new(model.x, height * iso::MODEL_SCALE, model.z),
+            raised(spot, height),
             (layered, layered.visibility(states)),
         );
     }
@@ -6736,7 +6756,7 @@ fn spawn(
         return commands
             .spawn((
                 piece,
-                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                Transform::from_translation(raised(spot, height)),
                 layered,
                 layered.visibility(states),
             ))
@@ -6746,7 +6766,7 @@ fn spawn(
         return commands
             .spawn((
                 crate::summonings::Summon(variant),
-                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                Transform::from_translation(raised(spot, height)),
                 layered,
                 layered.visibility(states),
             ))
@@ -6759,7 +6779,7 @@ fn spawn(
                     variant,
                     name: placement.key.clone(),
                 },
-                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                Transform::from_translation(raised(spot, height)),
                 layered,
                 layered.visibility(states),
             ))
@@ -6769,7 +6789,7 @@ fn spawn(
         return commands
             .spawn((
                 crate::dwarf_magics::Magic(variant),
-                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                Transform::from_translation(raised(spot, height)),
                 layered,
                 layered.visibility(states),
             ))
@@ -6779,7 +6799,7 @@ fn spawn(
         return commands
             .spawn((
                 crate::prisons::Prison,
-                Transform::from_translation(Vec3::new(model.x, height * iso::MODEL_SCALE, model.z)),
+                Transform::from_translation(raised(spot, height)),
                 layered,
                 layered.visibility(states),
             ))
@@ -12527,6 +12547,18 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn a_placed_objects_height_raises_it_as_the_originals_view_does() {
+        // The wall torch's flame over the stairs of 58,1: its record's point, 120 high (#2728).
+        let spot = Vec2::new(199_840.0, 6_155.0);
+        let placed = raised(spot, 120.0);
+        // On its record's point, not moved along the line of sight.
+        assert_eq!((placed.x, placed.z), (spot.x, spot.y));
+        // 1.7173 pixels a unit at zoom 1: a world unit up spans cos 30° of the ground's pixels.
+        let pixels = placed.y * iso::PIXELS_PER_UNIT * (std::f32::consts::FRAC_PI_6).cos();
+        assert!((pixels - 120.0 * 1.717_300_2).abs() < 1e-2, "{pixels}");
+    }
 
     #[test]
     fn an_item_goes_onto_its_holders_own_bone_not_an_items_socket() {
