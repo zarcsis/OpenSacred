@@ -9571,6 +9571,16 @@ impl ScriptClip {
         }
     }
 
+    /// A creature's throw of a trap, its clip of the slot `slot` once at the rate 1.0, the ball
+    /// thrown at the share `share` (`creature_casts`, #2731).
+    pub(crate) fn thrown(slot: u16, share: f32) -> Self {
+        Self {
+            acts_at: Some(share),
+            rate: Some(1.0),
+            ..Self::new(slot, 1)
+        }
+    }
+
     /// A creature's cast's clip of the slot `slot`, once, its spell acting at the share `share`
     /// (`creature_casts`, #1852).
     pub(crate) fn casting(slot: u16, share: f32) -> Self {

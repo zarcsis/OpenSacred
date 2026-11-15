@@ -1849,6 +1849,24 @@ impl Mind {
                 };
                 return Some(self.ordered_art(art));
             }
+            // A lich or an animated conjurer, by a roll of three of 1 and its deadline below the
+            // clock, throws its trap at the hero's place wherever it stands, its deadline renewed
+            // as the casters' (`0x4D4670(1)`), and stands after as an art's order has it; else it
+            // fights in melee (`0x4DB689`…`0x4DB7B1`, #2731). The trap a pseudo-spell of its casts.
+            OwnMark::Trapper => {
+                if rng.below(3) != 1 || self.cast_deadline >= cast.now {
+                    return None;
+                }
+                let roll = rng.below(3);
+                self.cast_deadline = cast.now.floor()
+                    + f64::from(casts::deadline(self.level, cast.elite, cast.hostiles, roll));
+                self.stands = casts::ART_STANDS;
+                self.cast_ordered = true;
+                return Some(Pursues::Casts {
+                    spell: casts::trap_of(self.creature),
+                    variant: 0,
+                });
+            }
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -1906,7 +1924,8 @@ impl Mind {
             | OwnMark::Fetzer
             | OwnMark::BrainFooter
             | OwnMark::Minimummy
-            | OwnMark::Dryad => None,
+            | OwnMark::Dryad
+            | OwnMark::Trapper => None,
             // A flower spits, leaps or stands beyond its melee, and fights in it (#2226).
             OwnMark::Flower => {
                 if casts::flower_melee(d, reach) {
@@ -5127,6 +5146,60 @@ mod tests {
     }
 
     #[test]
+    fn a_lich_and_an_animated_conjurer_throw_their_traps_by_a_roll_of_three() {
+        use crate::spawning::Script;
+        let cast = hornets_cast(0, (0, false), false);
+        // Point-blank: no test of the distance nor of the way (#2731).
+        let near = hornets_sight(10.0, false);
+        let trap = |spell| Some(Pursues::Casts { spell, variant: 0 });
+        let mut lich = fighting(34);
+        let mut dice = Script::new(vec![1, 0]);
+        assert_eq!(
+            lich.cast(&near, &cast, || false, &mut dice),
+            trap(casts::VENOM)
+        );
+        // The roll of three, and the deadline's.
+        assert_eq!(dice.taken(), 2);
+        assert_eq!(lich.stands, casts::ART_STANDS);
+        assert!(lich.cast_ordered);
+        let renewed = cast.now.floor() + f64::from(casts::deadline(lich.level, false, 0, 0));
+        assert!((lich.cast_deadline - renewed).abs() < 1e-9);
+        // Its deadline not below the clock: melee, whatever the roll.
+        lich.stands = 0;
+        lich.cast_deadline = cast.now;
+        assert_eq!(
+            lich.cast(&near, &cast, || true, &mut Script::new(vec![1, 0])),
+            None
+        );
+        lich.cast_deadline = cast.now - 0.5;
+        assert_eq!(
+            lich.cast(&near, &cast, || true, &mut Script::new(vec![1, 0])),
+            trap(casts::VENOM)
+        );
+        // Rolls of 0 and 2: melee.
+        for roll in [0, 2] {
+            let mut lich = fighting(34);
+            assert_eq!(
+                lich.cast(&near, &cast, || true, &mut Script::new(vec![roll, 0])),
+                None
+            );
+        }
+        // The animated conjurer its explosive charge.
+        let mut conjurer = fighting(81);
+        assert_eq!(
+            conjurer.cast(&near, &cast, || true, &mut Script::new(vec![1, 0])),
+            trap(casts::BOMB)
+        );
+        assert_eq!(casts::own_mark(34), Some(casts::OwnMark::Trapper));
+        assert!(casts::throws_trap(casts::VENOM) && casts::throws_trap(casts::BOMB));
+        assert!(!casts::throws_trap(casts::FLOWER_LEAP));
+        assert_eq!(casts::clip(casts::VENOM, 34, false), casts::TRAP_CLIP);
+        assert_eq!(casts::clip(casts::BOMB, 81, false), casts::TRAP_CLIP);
+        // Thrown once less than 0.7 of its clip is left.
+        assert!((casts::TRAP_THROWN - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
     fn the_underworlds_bosses_order_the_heroes_arts_by_their_rolls() {
         use crate::spawning::Script;
         let cast = hornets_cast(0, (0, false), false);
@@ -5177,7 +5250,14 @@ mod tests {
         assert_eq!(casts::executor(146), Some(4));
         assert_eq!(casts::executor(204), Some(2));
         assert_eq!(casts::executor(218), Some(5));
-        assert_eq!(casts::executor(76), None);
+        assert_eq!(casts::executor(76), Some(4));
+        // `0x5500D0` whole (#2731): a hero's type its own, and those it names.
+        assert_eq!(casts::executor(34), Some(4));
+        assert_eq!(casts::executor(5), Some(5));
+        assert_eq!(casts::executor(80), Some(7));
+        assert_eq!(casts::executor(137), Some(3));
+        assert_eq!(casts::executor(701), Some(3));
+        assert_eq!(casts::executor(141), Some(1));
     }
 
     #[test]

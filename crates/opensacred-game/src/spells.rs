@@ -296,6 +296,7 @@ fn balls(
         ),
         (Without<Body>, Without<Dies>, Without<Ball>),
     >,
+    bodies: Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
 ) {
     let dt = time.delta_secs();
     for (entity, mut ball, mut transform) in &mut flying {
@@ -343,28 +344,42 @@ fn balls(
                     point: here,
                     rate: (0.5, crate::sfx::Roll::None),
                 });
-                // The explosion strikes once every hostile creature within 80 and its size.
-                for (target, at, way, mind, health, size) in &creatures {
-                    let reach = opensacred_rules::arts::EXPLOSION_REACH
-                        + size.map_or(arrows::size(0), |size| size.0);
-                    if way.creature
-                        && way.level == ball.level
-                        && mind.hostile()
-                        && health.current > 0
-                        && (at.translation - here).xz().length() < reach
-                    {
-                        hits.write(fight::Hit {
-                            attacker: ball.caster,
-                            target,
-                            share: 1.0,
-                            ranged: false,
-                            art: None,
-                            fixed: Some(damages),
-                            sure: true,
-                            poison: false,
-                            ward: true,
-                        });
-                    }
+                // The explosion strikes once every hostile creature within 80 and its size; a
+                // creature's, the heroes alone (#2731), as its objects that strike do (#1854).
+                let struck: Vec<Entity> = if bodies.contains(ball.caster) {
+                    creatures
+                        .iter()
+                        .filter(|(_, at, way, mind, health, size)| {
+                            let reach = opensacred_rules::arts::EXPLOSION_REACH
+                                + size.map_or(arrows::size(0), |size| size.0);
+                            way.creature
+                                && way.level == ball.level
+                                && mind.hostile()
+                                && health.current > 0
+                                && (at.translation - here).xz().length() < reach
+                        })
+                        .map(|(target, ..)| target)
+                        .collect()
+                } else {
+                    let reach = opensacred_rules::arts::EXPLOSION_REACH + arrows::size(0);
+                    heroes_on(&bodies, ball.level)
+                        .into_iter()
+                        .filter(|&(_, at)| (at - here.xz()).length() < reach)
+                        .map(|(hero, _)| hero)
+                        .collect()
+                };
+                for target in struck {
+                    hits.write(fight::Hit {
+                        attacker: ball.caster,
+                        target,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: Some(damages),
+                        sure: true,
+                        poison: false,
+                        ward: true,
+                    });
                 }
                 // The bomb trap's blast (`explosions`).
                 crate::explosions::blast(&mut commands, here, true);

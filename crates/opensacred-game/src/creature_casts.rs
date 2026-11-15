@@ -31,10 +31,12 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
-const FOLLOWED: [u16; 31] = [
+const FOLLOWED: [u16; 33] = [
     casts::SPIDER_SHOT,
     casts::SPIT,
     casts::FLOWER_LEAP,
+    casts::VENOM,
+    casts::BOMB,
     casts::DRAGON_FIRE,
     casts::HOLY_LIGHT,
     casts::BLADES,
@@ -222,13 +224,25 @@ fn begin(
             continue;
         }
         cast.begun = true;
+        let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
+        if casts::throws_trap(cast.spell) {
+            // A trap thrown as the Dark Elf's executor throws it: its clip once at the rate 1.0,
+            // the ball as its share passes (`0x50A0FA`, `0x509987`, #2731).
+            debug!(
+                "creature_casts: {entity} throws the trap {} by its clip {slot}",
+                cast.spell
+            );
+            commands
+                .entity(entity)
+                .insert(ScriptClip::thrown(slot, casts::TRAP_THROWN));
+            continue;
+        }
         // Its cast's sights in its hands (`0x51E110`; `cast_sights`), on its clip's rate.
         sights.write(crate::cast_sights::CreatureCast {
             caster: entity,
             spell: cast.spell,
             rate: combat.map_or(1.2, |combat| combat.cast / 100.0),
         });
-        let slot = casts::clip(cast.spell, mind.creature, casts::dragon(mind.creature));
         // The spider shoots and the dragon breathes as its clip starts (`0x4E3464`); the giant
         // spider and the crab queen spit at its share (`0x4E4CF0`'s sub-state 5).
         let share = if matches!(cast.spell, casts::SPIDER_SHOT | casts::DRAGON_FIRE) {
@@ -353,6 +367,31 @@ fn act(
                 rate: (0.5, crate::sfx::Roll::None),
             });
             info!("creature_casts: {entity} leaps {distance:.0} to {to}");
+            continue;
+        }
+        if casts::throws_trap(cast.spell) {
+            // The lich's venom or the animated conjurer's explosive charge (#2731): its ball from
+            // its right hand (the bone 2, `0x5A55B2`) to the hero's place at the order, at the
+            // creature's level of a spell, its strikes through its spells' factor (`0x5ABD80`).
+            let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
+            let level = rules.0.creature_spell_level(mind.level, rank);
+            let factor = rules.0.creature_spell_damage(level);
+            let multipliers = combat
+                .map_or([1.0; 4], |combat| combat.spells)
+                .map(|multiplier| scaled(multiplier, factor));
+            let from = crate::making::bone(entity, &[BALL_HAND], &children, (&bones, &worn))
+                .unwrap_or(at.translation + Vec3::Y * crate::bolts::HEIGHT);
+            crate::spells::throw_trap(
+                &mut commands,
+                entity,
+                (cast.spell, level),
+                multipliers,
+                (from, cast.point, way.level),
+            );
+            info!(
+                "creature_casts: {entity} throws the trap {} at {}",
+                cast.spell, cast.point
+            );
             continue;
         }
         if cast.spell == casts::SPIT {
