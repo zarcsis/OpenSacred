@@ -358,9 +358,10 @@ struct Placement {
     /// A piece of the scripts' Pong (1156 to 1158; `pong`, #2008) and its height in the models'
     /// units, its `0x7E`; it has no model.
     pong: Option<(crate::pong::Piece, f32)>,
-    /// A magic bar or barrier of the FX objects (`FX_MAGICPRISON`, 854; `prisons`, #2063), its
-    /// height in the models' units, the record's `0x7E`; it has no model.
-    prison: Option<f32>,
+    /// A magic bar or barrier of the FX objects (`FX_MAGICPRISON`, 854; `prisons`, #2063) or a
+    /// bubble prison (`FX_BUBBLEPRISON`, 853; `bubble_prisons`, #2750): its type and its height in
+    /// the models' units, the record's `0x7E`; it has no model.
+    prison: Option<(u32, f32)>,
     /// A dwarves' magic of the FX objects (`FX_DWARFMAGIC`, 832 and 833; `dwarf_magics`), its
     /// variant, 1 or 2, and its height in the models' units, the record's `0x7E`; it has no model.
     dwarf_magic: Option<(u8, f32)>,
@@ -624,6 +625,8 @@ const FX_HEIGHT: u8 = 0x7E;
 const DEMON_SUMMON: u32 = 918;
 /// The FX type of the scripts' magic bars and barriers (`FX_MAGICPRISON`; `prisons`).
 const MAGIC_PRISON: u32 = 854;
+/// The FX type of the scripts' bubble prisons (`FX_BUBBLEPRISON`; `bubble_prisons`, #2750).
+const BUBBLE_PRISON: u32 = 853;
 /// The dwarves' magics, `CreateObj`'s variants 1 and 2 (`0x4898B2`, `0x489920`).
 const DWARF_MAGICS: [u32; 2] = [832, 833];
 /// `CreateObj`'s mark of a quest's item that it lays in the world, an object of `+0x14` bit
@@ -3512,18 +3515,21 @@ impl Makers {
                 });
                 (variant.unwrap_or(0), height.unwrap_or(0.0))
             });
-        // A magic bar or barrier of the FX objects, which has no model: its height.
+        // A magic bar or barrier, or a bubble prison, of the FX objects, which has no model: its
+        // type and its height.
         let prison = (record.kind == CREATE_OBJ
             && category(item) == FX
-            && creature == MAGIC_PRISON)
-            .then(|| {
-                ops.iter()
-                    .find_map(|o| match (o.tag, &o.value) {
-                        (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
-                        _ => None,
-                    })
-                    .unwrap_or(0.0)
-            });
+            && [MAGIC_PRISON, BUBBLE_PRISON].contains(&creature))
+        .then(|| {
+            let height = ops
+                .iter()
+                .find_map(|o| match (o.tag, &o.value) {
+                    (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                    _ => None,
+                })
+                .unwrap_or(0.0);
+            (creature, height)
+        });
         // A dwarves' magic of the FX objects, which has no model: its variant and its height.
         let dwarf_magic = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| DWARF_MAGICS.iter().position(|&kind| kind == creature))
@@ -6818,15 +6824,18 @@ fn spawn(
             ))
             .id();
     }
-    if let Some(height) = placement.prison {
-        return commands
-            .spawn((
-                crate::prisons::Prison,
-                Transform::from_translation(raised(spot, height)),
-                layered,
-                layered.visibility(states),
-            ))
-            .id();
+    if let Some((kind, height)) = placement.prison {
+        let mut made = commands.spawn((
+            Transform::from_translation(raised(spot, height)),
+            layered,
+            layered.visibility(states),
+        ));
+        if kind == BUBBLE_PRISON {
+            made.insert(crate::bubble_prisons::Bubble);
+        } else {
+            made.insert(crate::prisons::Prison);
+        }
+        return made.id();
     }
     if let Some((sound, kind)) = placement.fx_loop {
         let mut made = commands.spawn((

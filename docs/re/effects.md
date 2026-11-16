@@ -1053,6 +1053,23 @@ Read 2026-11-04 for #2063 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #2063 (`prisons`, `opensacred_rules::particles::magic_prison`): `npcs` makes an entity for each `CreateObj` of 854 at its place and the height of its record's `0x7E`, as the fires, which draws its glows and its ground glow untinted by the night and sounds once as it is made.
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start: the same row of lilac lights along the platform's edge, alike in place, height and colour.
 
+## The bubble prison
+
+Read 2026-11-16 for #2750 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| A captive's bubble of the scripts | 853 `FX_BUBBLEPRISON` | `cParticleSystem_bubbleprison` (`0x898540`) | `0x79C380`, `0x79C860`, `0x79C490`, `0x79C570` |
+
+- **Seen**: the Daemon's tree makes one at its start about the captive Seraphim of quest 209 (`CreateObj` of `buble1`, 853, at `pos_ziel209`, about 3782,99 in sector 58,1), and the death of her guard `res:17435` removes it (`tot209`).
+- Its constructor loads `PARTICLE_BLOB01` (`+0x28E0`, white, its pattern in its alpha) and `FX_RINGXGLOW` (`+0x28E4`), and lays at `+0x2120` a strip of 26 points, the vertex format `0x1E2` (a place, a reserved word, a diffuse and a specular colour, one texture's point): for `j` from 0 to 12, the foot at `(35 sin(jπ/6), 35 cos(jπ/6), 0)` and the top 40 over it, each of the colour `0xFFA060FF`, the texture's `u` `j/12` and its `v` 1 at the foot and 0 at the top: an open cylinder of radius 35 and height 40, twelve sides, the texture once around.
+- Its start (`0x79C860`): its clock 0; for each of its ten cylinders `k` a turn about the upright at random over a whole turn (`+0x20A8 + 4k`), a speed of 3 to 10 radians a second (`+0x20D0 + 4k`) and a height of `3k` times a roll of 0 to 1 (`+0x20F8 + 4k`); then the last's turn rolled anew, its height 0.02 and its speed 1 to 11; its flags 0, no light.
+- Its run (`0x79C490`): each turn grows by its speed times the frame's time; the last's height is times `1 + 4 dt` and its speed grows by 3 a second, and past 150 its height is rolled anew at 0.01 to 0.03, its turn at random and its speed at 4 to 5. So nine cylinders turn within the first 64 over the ground and the last rises out of them in some 2.2 s, above them for its last 0.2 s.
+- Its draw (`0x79C570`): a flat quad (`0x7631E0`) of `FX_RINGXGLOW` of a half side of 85 in `0xFFD080FF`, added whole (`ONE`, `ONE`), depth tested; then, the depth tested and not written, unlit, no faces culled, added by their alpha (`SRCALPHA`, `ONE`), in `PARTICLE_BLOB01`, the strip once for each cylinder, its world matrix its turn about the upright and its place raised by its height.
+
+`opensacred-game` draws it since #2750 (`bubble_prisons`, `opensacred_rules::particles::BubblePrison`): `npcs` makes an entity for each `CreateObj` of 853 at its place and the height of its record's `0x7E`, as the magic prison's, which draws its ring and its cylinders untinted by the night.
+**Seen** 2026-11-16 beside the original's frames at the Daemon's captive: the violet column about her, its glow on the ground, and its last ring rising out of it and starting again.
+
 ## The fear
 
 Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwise) and seen in the running original under the driver of #448 (the Daemon's new game, his spell 67 at the level 5 by two goblins, by day).

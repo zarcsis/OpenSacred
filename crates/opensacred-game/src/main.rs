@@ -37,6 +37,7 @@ mod bolt_trails;
 mod bolts;
 mod bonus_list;
 mod breath;
+mod bubble_prisons;
 mod bubble_traps;
 mod buildings;
 mod burning_bones;
@@ -523,12 +524,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         bolt_trails::BoltTrailsPlugin,
         bolts::BoltsPlugin,
         breath::BreathPlugin,
+        bubble_prisons::BubblePrisonsPlugin,
         bubble_traps::BubbleTrapsPlugin,
         buildings::BuildingsPlugin,
         burning_bones::BurningBonesPlugin,
-        burns::BurnsPlugin,
     ))
     .add_plugins((
+        burns::BurnsPlugin,
         busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
         carry::CarryPlugin,

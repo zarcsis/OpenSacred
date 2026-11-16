@@ -3390,6 +3390,118 @@ pub const PRISON_GLOW_COLOUR: [f32; 4] = [128.0 / 255.0, 128.0 / 255.0, 1.0, 1.0
 /// Its sound as it is made (`0x79CC80`): `SPELL_BANNKREIS` once, at the rate's factor 0.5.
 pub const PRISON_SOUND: u32 = 2029;
 
+/// The bubble prison's textures (`0x79C380`): its glowing ring on the ground and its cylinders'
+/// blobs, white in their alpha.
+pub const BUBBLE_RING: &str = "FX_RINGXGLOW";
+pub const BUBBLE_BLOB: &str = "PARTICLE_BLOB01";
+/// Its ring's half side and colour, flat on the ground under it, added whole (`0x79C570`'s
+/// `0x7631E0`).
+pub const BUBBLE_RING_HALF: f32 = 85.0;
+pub const BUBBLE_RING_COLOUR: u32 = 0xFFD0_80FF;
+/// Its cylinders' colour, added by their alpha, their radius, their height, their sides and their
+/// count (`0x79C380`).
+pub const BUBBLE_COLOUR: u32 = 0xFFA0_60FF;
+pub const BUBBLE_RADIUS: f32 = 35.0;
+pub const BUBBLE_HIGH: f32 = 40.0;
+pub const BUBBLE_SIDES: u8 = 12;
+pub const BUBBLE_CYLINDERS: usize = 10;
+/// The height past which its last cylinder starts again from the ground (`0x79C490`).
+const BUBBLE_RISES_TO: f32 = 150.0;
+
+/// A side of a cylinder: its four corners in the models' frame, the foot's two and then the
+/// top's, and their texture's points.
+pub type BubbleSide = ([[f32; 3]; 4], [[f32; 2]; 4]);
+
+/// The bubble prison (853, `FX_BUBBLEPRISON`, `cParticleSystem_bubbleprison`, its constructor
+/// `0x79C380`, start `0x79C860`, run `0x79C490` and draw `0x79C570`; #2750), which a script's
+/// `CreateObj` stands about a captive (the Daemon's quest 209's Seraphim, `buble1`): a ring of
+/// [`BUBBLE_RING`] flat on the ground, and ten open cylinders of [`BUBBLE_BLOB`] about its place,
+/// each turning about the upright at its own speed at its own height, its texture once around;
+/// nine stand within the first 64 over the ground, and the last rises ever faster to 150 and
+/// starts again from the ground. It has no particles and no light, and stands until its `DelNPC`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BubblePrison {
+    turns: [f32; BUBBLE_CYLINDERS],
+    speeds: [f32; BUBBLE_CYLINDERS],
+    heights: [f32; BUBBLE_CYLINDERS],
+}
+
+impl BubblePrison {
+    /// A prison as it starts (`0x79C860`): the cylinder `k` turned at random, turning at 3 to 10
+    /// radians a second, and at most `3k` over the ground at random; then the last turned anew, 0.02
+    /// over the ground and turning at 1 to 11.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let mut turns = [0.0; BUBBLE_CYLINDERS];
+        let mut speeds = [0.0; BUBBLE_CYLINDERS];
+        let mut heights = [0.0; BUBBLE_CYLINDERS];
+        for (k, ((turn, speed), height)) in
+            (0_u8..).zip(turns.iter_mut().zip(&mut speeds).zip(&mut heights))
+        {
+            *turn = share(dice) * std::f32::consts::TAU;
+            *speed = share(dice) * 7.0 + 3.0;
+            *height = f32::from(k) * 3.0 * share(dice);
+        }
+        let last = BUBBLE_CYLINDERS - 1;
+        turns[last] = share(dice) * std::f32::consts::TAU;
+        heights[last] = 0.02;
+        speeds[last] = share(dice) * 10.0 + 1.0;
+        Self {
+            turns,
+            speeds,
+            heights,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x79C490`): each cylinder turns by its speed; the last rises by four
+    /// times its height a second and turns faster by 3 a second, and past 150 it starts again 0.01
+    /// to 0.03 over the ground, turned at random and turning at 4 to 5.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        for (turn, speed) in self.turns.iter_mut().zip(&self.speeds) {
+            *turn += dt * speed;
+        }
+        let last = BUBBLE_CYLINDERS - 1;
+        self.heights[last] *= dt * 4.0 + 1.0;
+        self.speeds[last] += dt * 3.0;
+        if self.heights[last] > BUBBLE_RISES_TO {
+            self.heights[last] = share(dice) * 0.02 + 0.01;
+            self.turns[last] = share(dice) * std::f32::consts::TAU;
+            self.speeds[last] = share(dice) + 4.0;
+        }
+    }
+
+    /// Its cylinders' turns and heights now.
+    pub fn cylinders(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
+        self.turns.iter().copied().zip(self.heights.iter().copied())
+    }
+
+    /// The sides of a cylinder turned by `turn` and `height` over its place, in the models' frame
+    /// (`0x79C380`'s strip of 26 points, its world matrix the turn about the upright and the
+    /// height): the point `j` of its foot at `(35 sin(jπ/6 − turn), 35 cos(jπ/6 − turn))`, its
+    /// top 40 higher, its texture's `u` `j/12` along it and its `v` 1 at the foot and 0 at the top.
+    pub fn sides(turn: f32, height: f32) -> impl Iterator<Item = BubbleSide> {
+        let point = move |j: u8, up: f32| {
+            let angle = f32::from(j) * std::f32::consts::TAU / f32::from(BUBBLE_SIDES) - turn;
+            [
+                BUBBLE_RADIUS * angle.sin(),
+                BUBBLE_RADIUS * angle.cos(),
+                height + up,
+            ]
+        };
+        let u = |j: u8| f32::from(j) / f32::from(BUBBLE_SIDES);
+        (0..BUBBLE_SIDES).map(move |j| {
+            (
+                [
+                    point(j, 0.0),
+                    point(j + 1, 0.0),
+                    point(j + 1, BUBBLE_HIGH),
+                    point(j, BUBBLE_HIGH),
+                ],
+                [[u(j), 1.0], [u(j + 1), 1.0], [u(j + 1), 0.0], [u(j), 0.0]],
+            )
+        })
+    }
+}
+
 /// The look of an object of a big demon's summoning, `cParticleSystem_bigdemonsummon`
 /// (`FX_BIG_DEMON_SUMMON`, 918, its start `0x7A92E0`, its run `0x7A8C10` and its draw
 /// `0x7A9060`; docs/re/effects.md, "The big demon's summoning"), which the scripts make six at
@@ -15165,6 +15277,89 @@ impl DemonDeath {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bubble_prisons_cylinders_turn_and_its_last_rises_and_starts_again() {
+        // Every roll the highest: each cylinder turned a whole turn, turning at 10, `3k` high; the
+        // last turned anew, 0.02 high and turning at 11 (`0x79C860`, #2750).
+        let mut dice = crate::spawning::Script::new(vec![32_767; 64]);
+        let mut bubble = BubblePrison::new(&mut dice);
+        assert_eq!(dice.taken(), 32);
+        let tau = std::f32::consts::TAU;
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        for (k, (turn, height)) in (0_u8..).zip(bubble.cylinders()) {
+            assert!(close(turn, tau), "{k}: {turn}");
+            let high = if k == 9 { 0.02 } else { 3.0 * f32::from(k) };
+            assert!(close(height, high), "{k}: {height}");
+        }
+        assert!(close(bubble.speeds[0], 10.0) && close(bubble.speeds[9], 11.0));
+        // Half a second on: each turns by half its speed; the last rises to three times its
+        // height and turns faster by 1.5 (`0x79C490`).
+        bubble.update(0.5, &mut dice);
+        let (turn, _) = bubble.cylinders().next().unwrap_or_default();
+        assert!(close(turn, tau + 5.0));
+        let (turn, height) = bubble.cylinders().last().unwrap_or_default();
+        assert!(close(turn, tau + 5.5) && close(height, 0.06));
+        assert!(close(bubble.speeds[9], 12.5));
+        assert_eq!(dice.taken(), 32);
+        // It rises past 150 and starts again, its rolls the highest: 0.03 high, a whole turn,
+        // turning at 5; the others stand as they were.
+        let rises = (1..=20).find(|_| {
+            bubble.update(0.5, &mut dice);
+            bubble.heights[9] < 0.05
+        });
+        assert_eq!(
+            rises,
+            Some(8),
+            "0.06 times 3 a step passes 150 at the eighth"
+        );
+        assert!(close(bubble.heights[9], 0.03));
+        assert!(close(bubble.turns[9], tau));
+        assert!(close(bubble.speeds[9], 5.0));
+        assert_eq!(dice.taken(), 35);
+        assert!(close(bubble.heights[3], 9.0));
+        // At 150 it rises on.
+        bubble.heights[9] = 150.0;
+        bubble.update(0.0, &mut dice);
+        assert!(close(bubble.heights[9], 150.0));
+        // Every roll the lowest: no turn, turning at 3 and the last at 1, on the ground.
+        let mut low = crate::spawning::Script::new(vec![0; 32]);
+        let bubble = BubblePrison::new(&mut low);
+        assert!(
+            bubble
+                .cylinders()
+                .all(|(turn, height)| turn == 0.0 && height < 0.03)
+        );
+        assert!(close(bubble.speeds[0], 3.0) && close(bubble.speeds[9], 1.0));
+    }
+
+    #[test]
+    fn a_bubble_prisons_cylinder_stands_its_sides_about_its_place() {
+        // Unturned, its first side runs from 35 along y to its next point a twelfth round, 40
+        // high, the texture's foot at v 1 (`0x79C380`).
+        let sides: Vec<BubbleSide> = BubblePrison::sides(0.0, 10.0).collect();
+        assert_eq!(sides.len(), 12);
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3);
+        let (corners, uvs) = sides[0];
+        assert!(close(corners[0], [0.0, 35.0, 10.0]), "{corners:?}");
+        assert!(close(corners[1], [17.5, 30.311, 10.0]), "{corners:?}");
+        assert!(close(corners[2], [17.5, 30.311, 50.0]), "{corners:?}");
+        assert!(close(corners[3], [0.0, 35.0, 50.0]), "{corners:?}");
+        let twelfth = 1.0 / 12.0;
+        assert_eq!(
+            uvs,
+            [[0.0, 1.0], [twelfth, 1.0], [twelfth, 0.0], [0.0, 0.0]]
+        );
+        // The last side closes the round at u 1.
+        let (corners, uvs) = sides[11];
+        assert!(close(corners[1], [0.0, 35.0, 10.0]), "{corners:?}");
+        assert!((uvs[1][0] - 1.0).abs() < 1e-6);
+        // Turned a quarter, its first point lies at −35 along x.
+        let (corners, _) = BubblePrison::sides(std::f32::consts::FRAC_PI_2, 0.0)
+            .next()
+            .unwrap_or_default();
+        assert!(close(corners[0], [-35.0, 0.0, 0.0]), "{corners:?}");
+    }
 
     #[test]
     fn a_big_demons_death_grows_writhes_its_rays_and_fades() {
