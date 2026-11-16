@@ -876,6 +876,18 @@ fn class_of(holding: &[InHand]) -> u8 {
     )
 }
 
+/// Whether a creature strikes with two weapons, its items in their hands `holding` of the class
+/// `class` (`0x4EA3F0`): the class 8, or an item in each hand, the left no shield.
+fn two_weapons_of(holding: &[InHand], class: u8) -> bool {
+    let holds = |hand, shield: Option<bool>| {
+        holding
+            .iter()
+            .any(|held| held.hand == hand && shield.is_none_or(|s| (held.category == SHIELD) == s))
+    };
+    class == opensacred_rules::fight::TWO_WEAPONS_CLASS
+        || (holds(Hand::Right, None) && holds(Hand::Left, Some(false)))
+}
+
 /// The skill whose level lessens the shortfall of a creature's weapon's level, by the class of
 /// what it holds `class` and its items in their hands with their values, left hand first
 /// (`opensacred_rules::fight::weapon_skill`, `0x578ED0`; #844).
@@ -1413,11 +1425,20 @@ pub struct Npc {
     /// Whether both its hands are empty, and the instrument it took, of [`INSTRUMENTS`].
     hands_empty: bool,
     instrument: Option<usize>,
-    /// Its hits' share of a strike: 0.5 with two weapons, else 1 (`0x4EA3F0`).
-    share: f32,
+    /// How its strike's hits fall by what it holds ([`Hits`]).
+    hits: Hits,
     /// The factor of its walk and run speeds and of their clips' rate, its pace's
     /// (`opensacred_rules::fight::Combat::pace_factor`, #599).
     pace: f32,
+}
+
+/// How a creature's strike's hits fall by what it holds (`0x4EA1F0`, `0x4EA3F0`): the class of
+/// what it holds, by which a clip of one hit point hits twice with two weapons, and its hits' share
+/// of a strike, halved with two weapons (`opensacred_rules::fight::Holds::share`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Hits {
+    class: u8,
+    share: f32,
 }
 
 impl Npc {
@@ -4556,6 +4577,8 @@ impl Npcs {
             sets: Default::default(),
             // On foot as it starts; `equipment::refit` seats it.
             mounted: false,
+            class,
+            two: two_weapons_of(&holding, class),
         }
     }
 
@@ -6989,7 +7012,7 @@ fn spawn(
         if current == 0 {
             entity.insert(Dies::unkilled());
         }
-        let (values, share) = arms.fight(grade, placement.rank, rules);
+        let (values, hits) = arms.fight(grade, placement.rank, rules);
         // Its walk and run by its pace (`0x4F75F0`, #599).
         let pace = values.0.pace_factor();
         mind.speed = placement.speed[0] * pace;
@@ -7025,7 +7048,7 @@ fn spawn(
                 player: None,
                 hands_empty: placement.equipment.is_empty(),
                 instrument: None,
-                share,
+                hits,
                 pace,
             },
             crowd::InTheWay::of(record_flags, word, level),
@@ -11616,18 +11639,15 @@ fn strike(
             continue;
         };
         let done = active.seek_time() / length;
-        let first = if fractions[0] > 0.0 {
-            fractions[0]
-        } else {
-            0.5
-        };
-        // At a tick, or as the clip ends between two, which the next tick's thought then sees.
+        // At a tick, or as the clip ends between two, which the next tick's thought then sees; a
+        // second hit with two weapons whatever the clip (`0x4EA1F0`, #2748).
         let due = (tick.seconds.is_some() || active.is_finished())
             && match (strikes.shot, strikes.struck) {
                 (Some(_), 0) => opensacred_rules::minds::looses(fractions[0], done),
-                (None, 0) => done >= first,
-                (None, 1) => fractions[1] > 0.0 && done >= fractions[1],
-                _ => false,
+                (Some(_), _) => false,
+                (None, struck) => {
+                    opensacred_rules::minds::hit_due(fractions, struck, done, npc.hits.class)
+                }
             };
         if due && strikes.shot.is_some() {
             strikes.struck += 1;
@@ -11662,7 +11682,7 @@ fn strike(
                     ward: false,
                     attacker: entity,
                     target: strikes.target,
-                    share: npc.share,
+                    share: npc.hits.share,
                     ranged: false,
                     art: None,
                 });
@@ -11964,11 +11984,11 @@ pub(crate) fn refit(
     effects: &[Effect],
     (mind, combat, npc): (&mut ai::Mind, &mut fight::Combat, &mut Npc),
 ) -> f32 {
-    let (values, share) = arms.fight_with(grade, rank, rules, effects);
+    let (values, hits) = arms.fight_with(grade, rank, rules, effects);
     // Its pace times its time's factor, the effect 15's (`0x537160`).
     let pace = values.0.pace_factor() * opensacred_rules::fight::time_factor(effects);
     repace(mind, npc, pace);
-    npc.share = share;
+    npc.hits = hits;
     *combat = values;
     let skills = fight::skills(&arms.base, grade, arms.plain);
     opensacred_rules::fight::regeneration_with(&arms.base, grade, &skills, effects, rules)
@@ -12024,8 +12044,9 @@ impl Arms {
     /// Its attack, defence, damage and resistances at level `grade` and of rank `rank`
     /// (`0x5796A0`), with its skills and its items' values: unarmed when what it holds is of
     /// class 0 and its right hand empty (`0x546F80`); and its hits' share of a strike, halved with
-    /// two weapons, the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
-    fn fight(&self, grade: u32, rank: fight::Rank, rules: &fight::Rules) -> (fight::Combat, f32) {
+    /// two weapons, the class 8 or one in each hand, the left no shield (`0x4EA3F0`), with the
+    /// class by which its strikes hit ([`Hits`]).
+    fn fight(&self, grade: u32, rank: fight::Rank, rules: &fight::Rules) -> (fight::Combat, Hits) {
         self.fight_with(grade, rank, rules, &[])
     }
 
@@ -12087,15 +12108,19 @@ impl Arms {
         rank: fight::Rank,
         rules: &fight::Rules,
         effects: &[Effect],
-    ) -> (fight::Combat, f32) {
-        let (held, two) = self.holds();
+    ) -> (fight::Combat, Hits) {
+        let held = self.holds();
+        let hits = Hits {
+            class: held.class,
+            share: held.share(),
+        };
         let skills = fight::skills(&self.base, grade, self.plain);
         let mut values =
             opensacred_rules::fight::combat_with(&self.base, grade, held, &skills, effects, rules);
         let [attack, defence] = rank.fight(rules);
         values.attack *= attack;
         values.defence *= defence;
-        (fight::Combat(values), if two { 0.5 } else { 1.0 })
+        (fight::Combat(values), hits)
     }
 
     /// Its most health at level `grade` and of the rank's factor `rank` (`0x5658F0`): by its
@@ -12106,13 +12131,13 @@ impl Arms {
             return PLAIN_HEALTH;
         }
         let skills = fight::skills(&self.base, grade, self.plain);
-        fight::most_health_held(&self.base, grade, &self.holds().0, &skills, rank, rules)
+        fight::most_health_held(&self.base, grade, &self.holds(), &skills, rank, rules)
     }
 
     /// What it holds as its values take it: unarmed when what it holds is of class 0 and its
-    /// right hand empty (`0x546F80`), its items' values; and whether it strikes with two weapons,
-    /// the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
-    fn holds(&self) -> (fight::Holds, bool) {
+    /// right hand empty (`0x546F80`), its items' values, the class of what it holds and whether it
+    /// strikes with two weapons ([`two_weapons_of`]).
+    fn holds(&self) -> fight::Holds {
         let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
         let class = class_of(&in_hands);
         let holds = |hand, shield: Option<bool>| {
@@ -12121,8 +12146,7 @@ impl Arms {
             })
         };
         let right = holds(Hand::Right, None);
-        let two = class == 8 || (right && holds(Hand::Left, Some(false)));
-        let held = fight::Holds {
+        fight::Holds {
             weapon: class != 0 || right,
             shield: holds(Hand::Left, Some(true)),
             ranged: ranged_of(&in_hands),
@@ -12143,8 +12167,9 @@ impl Arms {
             // A creature not a player's takes no set's bonus (`0x57AE56`).
             sets: Default::default(),
             mounted: self.mounted,
-        };
-        (held, two)
+            class,
+            two: two_weapons_of(&in_hands, class),
+        }
     }
 }
 
@@ -12406,7 +12431,7 @@ fn rearm(
             }
             None => {}
         }
-        let (values, share) = arms.fight(grade, rank.0, &npcs.fight);
+        let (values, hits) = arms.fight(grade, rank.0, &npcs.fight);
         // Its pace by what it holds now, and its walk and run by it.
         repace(&mut mind, &mut npc, values.0.pace_factor());
         *combat = values;
@@ -12414,7 +12439,7 @@ fn rearm(
         if rearms.disarmed {
             combat.0 = opensacred_rules::fight::disarmed(combat.0);
         }
-        npc.share = share;
+        npc.hits = hits;
         let in_hands: Vec<InHand> = arms.holding.iter().map(|&(held, _)| held).collect();
         npc.hands_empty = in_hands.is_empty();
         mind.ranged = ranged_of(&in_hands);
@@ -12557,6 +12582,34 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn two_weapons_halve_the_hits_and_hit_twice() {
+        // A weapon in each hand, the left no shield, halves the hits' share (`0x4EA3F0`, #2748)
+        // and is the class 8, by which a clip of one hit point hits twice (`0x4EA1F0`).
+        let held = |hand, category, kind| InHand {
+            item: 1,
+            category,
+            kind: Some(kind),
+            hand,
+        };
+        let blades = [held(Hand::Left, WEAPON, 1), held(Hand::Right, WEAPON, 1)];
+        assert_eq!(
+            class_of(&blades),
+            opensacred_rules::fight::TWO_WEAPONS_CLASS
+        );
+        assert!(two_weapons_of(&blades, class_of(&blades)));
+        let shielded = [held(Hand::Left, SHIELD, 0), held(Hand::Right, WEAPON, 1)];
+        assert!(!two_weapons_of(&shielded, class_of(&shielded)));
+        let one = [held(Hand::Right, WEAPON, 1)];
+        assert!(!two_weapons_of(&one, class_of(&one)));
+        let left = [held(Hand::Left, WEAPON, 1)];
+        assert!(!two_weapons_of(&left, class_of(&left)));
+        // Two items of no class are the class 0, yet two weapons.
+        let plain = [held(Hand::Left, WEAPON, 0), held(Hand::Right, WEAPON, 0)];
+        assert_eq!(class_of(&plain), 0);
+        assert!(two_weapons_of(&plain, 0));
+    }
 
     #[test]
     fn a_placed_objects_height_raises_it_as_the_originals_view_does() {
@@ -15030,7 +15083,10 @@ mod tests {
                     player: None,
                     hands_empty: true,
                     instrument: None,
-                    share: 1.0,
+                    hits: Hits {
+                        class: 0,
+                        share: 1.0,
+                    },
                     pace: 1.0,
                 },
             ))
