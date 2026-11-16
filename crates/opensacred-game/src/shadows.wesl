@@ -5,7 +5,8 @@
 // edges soft by the mask of the shadows blurred about the pixel (#2624; "The models' shadows'
 // soft edges"), whose copies the same vertex stage flattens and `mask` draws, the nearest's
 // caster's number kept where they overlap, so that a shadow's edge is blurred by its own
-// silhouette and those of the shadows in front of it alone (#2722, #2737).
+// silhouette and those of the shadows in front of it alone (#2722, #2737), over a level of the
+// mask at close zooms (`shadow_levels.wesl`, #2739).
 //
 // The vertex stage is Bevy's own (`bevy_pbr::render::mesh`, MIT OR Apache-2.0) but for the
 // flattening, as the models' is (`models.wesl`).
@@ -32,7 +33,12 @@ import package::order;
 /// Where any model's shadow lies (`shadows::ShadowMask`), the size of the view: its red whole
 /// there and none elsewhere, its green and blue the nearest shadow's caster's number.
 @group(constants::MATERIAL_BIND_GROUP) @binding(3) var shadow_mask: texture_2d<f32>;
-/// Its x 1 for the soft edges, at the highest detail, 0 for the original's sharp ones (#2628).
+/// A level of the mask (`shadow_levels.wesl`, #2739), the one that `soft` names: each texel a
+/// block of the mask's pixels two to the level across, the two casters that cover the most of it
+/// in its red and green and their shares of it, of [`WHOLE`], in its blue and alpha.
+@group(constants::MATERIAL_BIND_GROUP) @binding(4) var shadow_level: texture_2d<u32>;
+/// Its x 1 for the soft edges, at the highest detail, 0 for the original's sharp ones (#2628);
+/// its y the level of the mask that the blur reads, 0 for the mask's own pixels (#2739).
 @group(constants::MATERIAL_BIND_GROUP) @binding(5) var<uniform> soft: vec4<f32>;
 
 /// How far a point moves along X on the plane per unit of its height above it: the original's
@@ -51,7 +57,8 @@ const BEHIND: f32 = 1.0;
 const DARKNESS: f32 = 0.6666667;
 /// The spread of a shadow's edge, in world units: the blur's standard deviation, a pixel and a
 /// half at zoom 1 (1.2649 pixels a unit), so that the edge ramps over some four pixels, about as
-/// the statics' stretched silhouettes do, and scales with the zoom as they do.
+/// the statics' stretched silhouettes do, and scales with the zoom as they do. `shadows.rs`
+/// chooses the mask's level by the same (`shadows::SOFTNESS`).
 const SOFTNESS: f32 = 1.2;
 /// How far a shadow's vertices at its silhouette move out of it on the screen, in spreads, so that
 /// the blurred edge beyond the silhouette is drawn too: two spreads, and some to spare. Out of
@@ -61,6 +68,10 @@ const SOFTNESS: f32 = 1.2;
 const REACH: f32 = 2.5;
 /// How far apart the mask is read about a vertex for its slope, in pixels.
 const SLOPE_STEP: f32 = 1.5;
+/// A whole block's share in a level of the mask (`shadow_levels.wesl`).
+const WHOLE: f32 = 65535.0;
+/// The most samples of the blur each way from a pixel.
+const MOST_SAMPLES: i32 = 8;
 
 struct Flattened {
     @builtin(position) position: vec4<f32>,
@@ -198,14 +209,20 @@ fn plane_depth(row: f32, anchor: vec4<f32>, ground: f32, sunk: f32) -> f32 {
     return order::depth(place, SQUEEZE * (own - BEHIND));
 }
 
-/// Whether the mask's pixel `texel` in the pixel row `row` is of the shadow `own`'s mask: one
-/// where its own silhouette or a nearer shadow's lies, as the nearest's caster that the mask keeps
-/// there tells, none where only shadows behind its plane lie, or none.
-fn counts(texel: vec4<f32>, row: f32, own: Plane) -> f32 {
+/// The caster of the nearest shadow at the mask's pixel `texel`, 0 where none lies.
+fn caster_of(texel: vec4<f32>) -> u32 {
     if texel.r < 0.5 {
+        return 0u;
+    }
+    return u32(round(texel.g * 255.0)) | (u32(round(texel.b * 255.0)) << 8u);
+}
+
+/// Whether the shadow of `caster` in the pixel row `row` is of the shadow `own`'s mask: one for
+/// its own silhouette or a nearer shadow's, none for a shadow behind its plane, or for 0, none.
+fn counts(caster: u32, row: f32, own: Plane) -> f32 {
+    if caster == 0u {
         return 0.0;
     }
-    let caster = u32(round(texel.g * 255.0)) | (u32(round(texel.b * 255.0)) << 8u);
     if caster == own.caster {
         return 1.0;
     }
@@ -235,40 +252,84 @@ fn covered(at: vec2<f32>, own: Plane) -> f32 {
         let pixel = clamp(corner + offset, vec2(0), size - 1);
         let across = select(1.0 - part.x, part.x, offset.x == 1);
         let down = select(1.0 - part.y, part.y, offset.y == 1);
-        share += across * down * counts(textureLoad(shadow_mask, pixel, 0), row, own);
+        share += across * down * counts(caster_of(textureLoad(shadow_mask, pixel, 0)), row, own);
+    }
+    return share;
+}
+
+/// The share of the mask at `at` that is the shadow `own`'s, as [`covered`] tells it, over the
+/// blocks of the mask's level `level` (`shadow_level`), the mask's own pixels the level 0:
+/// weighed between the four blocks about `at`, each by the shares of it that its casters cover
+/// and that count for `own` ([`counts`]).
+fn covered_on(at: vec2<f32>, own: Plane, level: u32) -> f32 {
+    if level == 0u {
+        return covered(at, own);
+    }
+    let size = vec2<i32>(textureDimensions(shadow_level));
+    let row = at.y * view.viewport.w + view.viewport.y;
+    let place = at * vec2<f32>(textureDimensions(shadow_mask)) / f32(1u << level) - 0.5;
+    let corner = vec2<i32>(floor(place));
+    let part = place - floor(place);
+    var share = 0.0;
+    for (var k = 0; k < 4; k++) {
+        let offset = vec2(k & 1, k >> 1u);
+        let block = clamp(corner + offset, vec2(0), size - 1);
+        let across = select(1.0 - part.x, part.x, offset.x == 1);
+        let down = select(1.0 - part.y, part.y, offset.y == 1);
+        let texel = textureLoad(shadow_level, block, 0);
+        let mine = f32(texel.z) * counts(texel.x, row, own) + f32(texel.w) * counts(texel.y, row, own);
+        share += across * down * mine / WHOLE;
     }
     return share;
 }
 
 /// The share of the pixels about `pixel` that the shadow `own` covers: its mask ([`covered`])
-/// blurred by a Gaussian of [`SOFTNESS`], sampled over a grid of 9 × 9 across two spreads each
-/// way, half a spread apart and between its pixels, so that no pixel of a thin part's mask (a
-/// blade a few pixels wide) falls between the samples (#2630). It is a half on a straight edge and
-/// one a few pixels within. A pixel whose mask is whole two spreads away every way, the diagonals
-/// too, lies well within a shadow, and the grid is spared; one near the edge, within or out, takes
-/// it whole.
+/// blurred by a Gaussian of [`SOFTNESS`], sampled over a grid across two spreads each way, half a
+/// spread apart, a pixel at least, so that no pixel of a thin part's mask (a blade a few pixels
+/// wide) falls between the samples (#2630). It is a half on a straight edge and one a few pixels
+/// within. Where half a spread is more than a pixel and a tenth, at close zooms on a large
+/// screen, the samples lie on the mask's level that `soft` names (`shadows::level_for`), whose
+/// blocks are as wide as that or wider, a block apart, so that each part of the mask falls in a
+/// block that the samples weigh alike in every row: on the mask's own pixels, two of which a
+/// sample takes in, a thin part one or two pixels high fell between samples in some rows and not
+/// in the next, and its edge was striped across (#2739). The Gaussian is narrower by as much as
+/// the blocks spread the mask, so that the edge is as wide as the pixels' would make it. A pixel
+/// whose mask is whole two spreads away every way, the diagonals too, lies well within a shadow,
+/// and the grid is spared; one near the edge, within or out, takes it whole.
 fn coverage(pixel: vec2<f32>, own: Plane) -> f32 {
     let spread = SOFTNESS * per_unit();
     let texel = 1.0 / view.viewport.zw;
     let at = (pixel - view.viewport.xy) * texel;
+    let step = max(0.5 * spread, 1.0);
+    let level = u32(soft.y);
+    var apart = step;
+    var reach = 4;
+    if level > 0u {
+        apart = f32(1u << level);
+        reach = min(i32(ceil(4.0 * step / apart)), MOST_SAMPLES);
+    }
     let far = 2.0 * spread * texel;
     var probes = 0.0;
     for (var i = -1; i <= 1; i++) {
         for (var j = -1; j <= 1; j++) {
-            probes += covered(at + vec2(f32(i), f32(j)) * far, own);
+            probes += covered_on(at + vec2(f32(i), f32(j)) * far, own, level);
         }
     }
     if probes >= 8.999 {
         return 1.0;
     }
-    let step = max(0.5 * spread, 1.0) * texel;
+    // A block's share spreads a part of the mask over the block, and the weighing between the
+    // blocks about a sample over as much again: a variance of a quarter of the block's width
+    // squared, which the mask's own pixels add too.
+    let block = f32(1u << level);
+    let variance = 4.0 * step * step + 0.25 * (1.0 - block * block);
     var sum = 0.0;
     var weights = 0.0;
-    for (var i = -4; i <= 4; i++) {
-        for (var j = -4; j <= 4; j++) {
-            let offset = vec2(f32(i), f32(j));
-            let weight = exp(-0.125 * dot(offset, offset));
-            sum += weight * covered(at + offset * step, own);
+    for (var i = -reach; i <= reach; i++) {
+        for (var j = -reach; j <= reach; j++) {
+            let offset = vec2(f32(i), f32(j)) * apart;
+            let weight = exp(-0.5 * dot(offset, offset) / variance);
+            sum += weight * covered_on(at + offset * texel, own, level);
             weights += weight;
         }
     }

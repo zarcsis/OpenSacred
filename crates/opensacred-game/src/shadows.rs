@@ -20,23 +20,40 @@
 //! and those of the shadows in front of its plane, by the nearest shadow's caster that the mask
 //! keeps at each pixel: another's shadow behind it, a chest's own under the chest that it falls
 //! on, which the chest hides, or a further creature's on the ground, kept its edge sharp (#2722,
-//! #2737). At the highest detail alone (#2628): at the medium the shadows are the original's,
-//! sharp, the mask's camera off.
+//! #2737). At close zooms on a large screen, where the blur's samples lie pixels apart, they read
+//! a level of the mask whose blocks are as wide, each with the casters that cover it and their
+//! shares, which a compute pass makes from the mask after its camera draws it: on the mask's own
+//! pixels a thin part's edge, a blade's, was striped across, falling between the samples in some
+//! rows and not in the next (#2739). At the highest detail alone (#2628): at the medium the
+//! shadows are the original's, sharp, the mask's camera off.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::camera::{CameraUpdateSystems, ClearColorConfig, RenderTarget};
+use bevy::core_pipeline::schedule::Core3d;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
+use bevy::core_pipeline::upscaling::upscaling;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
+use bevy::render::diagnostic::RecordDiagnostics as _;
+use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
+use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
+use bevy::render::render_asset::RenderAssets;
+use bevy::render::render_resource::binding_types::{texture_2d, texture_storage_2d};
 use bevy::render::render_resource::{
-    AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
-    TextureFormat,
+    AsBindGroup, BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
+    CachedComputePipelineId, CompareFunction, ComputePassDescriptor, ComputePipelineDescriptor,
+    Extent3d, PipelineCache, RenderPipelineDescriptor, ShaderStages, SpecializedMeshPipelineError,
+    StorageTextureAccess, TextureDimension, TextureFormat, TextureId, TextureSampleType,
+    TextureUsages,
 };
+use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::storage::ShaderBuffer;
-use bevy::shader::ShaderRef;
+use bevy::render::texture::GpuImage;
+use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
+use bevy::shader::{ShaderDefVal, ShaderRef};
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
@@ -45,6 +62,22 @@ use crate::models::{Anchors, Fringe, ModelMaterial, Ordered, OrderedWith, Sunk};
 
 /// The shader of [`ShadowMaterial`] and [`MaskMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/shadows.wesl";
+/// The shader that makes a level of the mask ([`ShadowMask`]), embedded in the binary.
+const LEVEL_SHADER: &str = "embedded://opensacred_game/shadow_levels.wesl";
+/// The spread of a shadow's edge, in world units: the shader's (`shadows.wesl`), by which
+/// [`level_for`] chooses the level of the mask that its blur reads.
+const SOFTNESS: f32 = 1.2;
+/// How far apart, in pixels, the blur's samples may lie on the mask's own pixels: each takes in
+/// two of them about it, and a thin part one or two pixels high, which falls between samples
+/// further apart in some rows and not in the next, striped its edge across (#2739). Further apart
+/// they lie on a level of the mask, a block apart.
+const PIXELS_APART: f32 = 1.1;
+/// The highest level of the mask: blocks of 64 pixels, as far apart as the blur's samples lie at
+/// a spread of 128 pixels, some fifteen times the spread at zoom 0.5 on 3,840 × 2,160.
+const LEVELS: u8 = 6;
+/// The side of the groups of threads of the level's compute shader (`shadow_levels.wesl`), each
+/// thread a texel of the level.
+const GROUP: u32 = 8;
 
 /// The render layer of the shadows' mask, which [`MaskCamera`] alone draws.
 pub const MASK_LAYER: usize = 21;
@@ -65,17 +98,25 @@ pub struct Shadow;
 pub struct MaskCopy;
 
 /// The camera of the [`ShadowMask`]: a child of the world's, with its projection, drawing the
-/// layer [`MASK_LAYER`] before it.
-#[derive(Component)]
+/// layer [`MASK_LAYER`] before it; its view, in the render world, makes the mask's level.
+#[derive(Component, Clone, ExtractComponent)]
+#[extract_app(RenderApp)]
 pub struct MaskCamera;
 
 /// Where any model's shadow lies on the screen, the size of the world camera's viewport: its red
 /// whole there and none elsewhere, its green and blue the number of the nearest shadow's caster
 /// there, its slot of the [`Anchors`] plus one. Drawn by [`MaskCamera`], read by
-/// [`ShadowMaterial`].
-#[derive(Resource)]
+/// [`ShadowMaterial`]. And the level of it that the zoom chooses ([`level_for`], #2739), which
+/// [`reduce`] makes from it: each texel a block of the mask's pixels, two to the level across,
+/// with the two casters that cover the most of it and their shares of it, over which the blur
+/// samples a thin part alike in every row at close zooms.
+#[derive(Resource, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct ShadowMask {
     image: Handle<Image>,
+    level_image: Handle<Image>,
+    /// The level, 0 for the mask's own pixels, which need no level made.
+    level: u8,
 }
 
 /// The material of the shadows, which every one of a layer shares: the models' anchors, for their
@@ -91,8 +132,12 @@ pub struct ShadowMaterial {
     floors: Handle<ShaderBuffer>,
     #[texture(3)]
     mask: Handle<Image>,
+    /// The level of the mask that the blur reads (#2739).
+    #[texture(4, sample_type = "u_int")]
+    level: Handle<Image>,
     /// Its x 1 for the soft edges, at the highest detail, and 0 for the original's sharp ones
-    /// (#2628).
+    /// (#2628); its y the level of the mask that the blur reads, 0 for the mask's own pixels
+    /// (#2739).
     #[uniform(5)]
     soft: Vec4,
     /// The shadows' layer, or the one under the liquids for the sunk models'.
@@ -245,6 +290,48 @@ fn mask_image(size: UVec2) -> Image {
     )
 }
 
+/// The level of the shadows' mask whose blocks are as wide as the blur's samples lie apart at
+/// `per_unit` pixels a world unit, half a spread ([`SOFTNESS`]), a pixel at least (#2739): 0, the
+/// mask's own pixels, while that is no more than [`PIXELS_APART`], at zoom 1 on 1,920 × 1,080
+/// and smaller; else the lowest whose blocks, two to the level pixels across, are as wide, at
+/// most [`LEVELS`].
+fn level_for(per_unit: f32) -> u8 {
+    let step = (0.5 * SOFTNESS * per_unit).max(1.0);
+    if step <= PIXELS_APART {
+        return 0;
+    }
+    (1..LEVELS)
+        .find(|&level| f32::from(1_u16 << level) >= step)
+        .unwrap_or(LEVELS)
+}
+
+/// The size of the level `level` of the shadows' mask at `size`: a pixel at the level 0, which is
+/// not made.
+fn level_size(size: UVec2, level: u8) -> UVec2 {
+    if level == 0 {
+        return UVec2::ONE;
+    }
+    let block = 1_u32 << level;
+    UVec2::new(size.x.div_ceil(block), size.y.div_ceil(block)).max(UVec2::ONE)
+}
+
+/// A level of the shadows' mask of `size` (#2739): written by [`reduce`], read pixel by pixel.
+fn level_image(size: UVec2) -> Image {
+    let mut image = Image::new_uninit(
+        Extent3d {
+            width: size.x,
+            height: size.y,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        TextureFormat::Rgba16Uint,
+        RenderAssetUsages::default(),
+    );
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING;
+    image
+}
+
 pub fn setup(
     mut commands: Commands,
     mut materials: ResMut<Assets<ShadowMaterial>>,
@@ -254,12 +341,14 @@ pub fn setup(
     grounds: Res<Grounds>,
 ) {
     let image = images.add(mask_image(UVec2::ONE));
+    let level_image = images.add(self::level_image(UVec2::ONE));
     let mut in_layer = |layer| {
         materials.add(ShadowMaterial {
             anchors: anchors.buffer().clone(),
             grounds: grounds.buffer.clone(),
             floors: anchors.floor_buffer().clone(),
             mask: image.clone(),
+            level: level_image.clone(),
             soft: Vec4::X,
             layer,
         })
@@ -273,7 +362,11 @@ pub fn setup(
             floors: anchors.floor_buffer().clone(),
         }),
     });
-    commands.insert_resource(ShadowMask { image });
+    commands.insert_resource(ShadowMask {
+        image,
+        level_image,
+        level: 0,
+    });
 }
 
 /// Gives the world's camera, as it comes, the [`MaskCamera`] as a child.
@@ -346,6 +439,56 @@ fn follow_mask(
                 if let Some(mut material) = materials.get_mut(material) {
                     material.mask = mask.image.clone();
                 }
+            }
+        }
+    }
+}
+
+/// Chooses the level of the [`ShadowMask`] that the shadows' blur reads, by the world camera's
+/// pixels a unit at its zoom and its viewport's size ([`level_for`]), and keeps the level's image
+/// at its size and the materials reading it (#2739): once its projection is updated for the
+/// frame.
+fn choose_level(
+    eyes: Query<&Camera, iso::Eye<Without<MaskCamera>>>,
+    cameras: Query<&ChildOf, With<MaskCamera>>,
+    mut mask: ResMut<ShadowMask>,
+    shared: Res<Shared>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<ShadowMaterial>>,
+) {
+    for parent in &cameras {
+        let Ok(camera) = eyes.get(parent.parent()) else {
+            continue;
+        };
+        let Some(size) = camera.physical_viewport_size() else {
+            continue;
+        };
+        // As the shader's `per_unit`: the projection is orthographic, as many pixels across as up.
+        let per_unit = camera.clip_from_view().y_axis.y * size.as_vec2().y * 0.5;
+        let level = level_for(per_unit);
+        let wanted = level_size(size, level);
+        let current = images
+            .get(&mask.level_image)
+            .map(|image| image.texture_descriptor.size);
+        if mask.level == level
+            && current
+                == Some(Extent3d {
+                    width: wanted.x,
+                    height: wanted.y,
+                    depth_or_array_layers: 1,
+                })
+        {
+            continue;
+        }
+        if let Err(error) = images.insert(&mask.level_image, level_image(wanted)) {
+            warn!("shadows: the mask's level {level} at {wanted}: {error}");
+            continue;
+        }
+        mask.level = level;
+        for material in [&shared.dry, &shared.wet] {
+            if let Some(mut material) = materials.get_mut(material) {
+                material.level = mask.level_image.clone();
+                material.soft.y = f32::from(level);
             }
         }
     }
@@ -451,15 +594,15 @@ fn detail(
             camera.is_active = soft;
         }
     }
-    let wanted = if soft { Vec4::X } else { Vec4::ZERO };
+    let wanted = if soft { 1.0 } else { 0.0 };
     for material in shared.iter().flat_map(|shared| [&shared.dry, &shared.wet]) {
         // Borrowed mutably only to change it: a material borrowed so is prepared again.
         if materials
             .get(material)
-            .is_some_and(|known| known.soft != wanted)
+            .is_some_and(|known| known.soft.x != wanted)
             && let Some(mut material) = materials.get_mut(material)
         {
-            material.soft = wanted;
+            material.soft.x = wanted;
         }
     }
 }
@@ -521,14 +664,141 @@ pub fn ground(
     }
 }
 
+/// The pipelines that make a level of the mask, each level's, from the first on, and their
+/// bind group's layout.
+#[derive(Resource)]
+struct LevelPipelines {
+    layout: BindGroupLayoutDescriptor,
+    levels: Vec<CachedComputePipelineId>,
+}
+
+/// Queues the [`LevelPipelines`].
+fn init_levels(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    pipeline_cache: Res<PipelineCache>,
+) {
+    let shader = assets.load(LEVEL_SHADER);
+    let layout = BindGroupLayoutDescriptor::new(
+        "shadow mask's level",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::COMPUTE,
+            (
+                texture_2d(TextureSampleType::Float { filterable: false }),
+                texture_storage_2d(TextureFormat::Rgba16Uint, StorageTextureAccess::WriteOnly),
+            ),
+        ),
+    );
+    let levels = (1..=LEVELS)
+        .map(|level| {
+            pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                label: Some(format!("shadow mask's level {level}").into()),
+                layout: vec![layout.clone()],
+                shader: shader.clone(),
+                shader_defs: vec![ShaderDefVal::UInt("BLOCK".into(), 1 << level)],
+                entry_point: Some("reduce".into()),
+                ..default()
+            })
+        })
+        .collect();
+    commands.insert_resource(LevelPipelines { layout, levels });
+}
+
+/// The bind group of the pass that makes the mask's level, from the mask into the level's image,
+/// with the level's size: made again only when either texture is new, at the window's new size
+/// or a new level.
+#[derive(Resource, Default)]
+struct LevelBindGroup {
+    textures: Option<(TextureId, TextureId)>,
+    made: Option<(BindGroup, UVec2)>,
+}
+
+/// Keeps the [`LevelBindGroup`] for the textures of the [`ShadowMask`].
+fn prepare_level(
+    mask: Option<Res<ShadowMask>>,
+    pipelines: Option<Res<LevelPipelines>>,
+    pipeline_cache: Res<PipelineCache>,
+    images: Res<RenderAssets<GpuImage>>,
+    device: Res<RenderDevice>,
+    mut bind_group: ResMut<LevelBindGroup>,
+) {
+    let (Some(mask), Some(pipelines)) = (mask, pipelines) else {
+        return;
+    };
+    let (Some(source), Some(level)) = (images.get(&mask.image), images.get(&mask.level_image))
+    else {
+        *bind_group = LevelBindGroup::default();
+        return;
+    };
+    let textures = (source.texture.id(), level.texture.id());
+    if bind_group.textures == Some(textures) {
+        return;
+    }
+    let size = level.texture_descriptor.size;
+    *bind_group = LevelBindGroup {
+        textures: Some(textures),
+        made: Some((
+            device.create_bind_group(
+                "shadow mask's level",
+                &pipeline_cache.get_bind_group_layout(&pipelines.layout),
+                &BindGroupEntries::sequential((&source.texture_view, &level.texture_view)),
+            ),
+            UVec2::new(size.width, size.height),
+        )),
+    };
+}
+
+/// Makes the [`ShadowMask`]'s level from the mask, once the [`MaskCamera`] has drawn it, before
+/// the world's camera draws the shadows that read it (#2739): none at the level 0, where they read
+/// the mask's own pixels.
+fn reduce(
+    _view: ViewQuery<(), With<MaskCamera>>,
+    mask: Option<Res<ShadowMask>>,
+    pipelines: Option<Res<LevelPipelines>>,
+    pipeline_cache: Res<PipelineCache>,
+    bind_group: Res<LevelBindGroup>,
+    mut ctx: RenderContext,
+) {
+    let (Some(mask), Some(pipelines), Some((bind_group, size))) =
+        (mask, pipelines, bind_group.made.as_ref())
+    else {
+        return;
+    };
+    let Some(pipeline) = usize::from(mask.level)
+        .checked_sub(1)
+        .and_then(|index| pipelines.levels.get(index))
+        .and_then(|&id| pipeline_cache.get_compute_pipeline(id))
+    else {
+        return;
+    };
+    // Timed with the render's passes where its diagnostics are on: some 0.06 ms of the GPU at
+    // 3,840 × 2,160, the mask read whole once.
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let mut pass = ctx
+        .command_encoder()
+        .begin_compute_pass(&ComputePassDescriptor {
+            label: Some("shadow mask's level"),
+            timestamp_writes: None,
+        });
+    let span = diagnostics.pass_span(&mut pass, "shadow_mask_level");
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, bind_group, &[]);
+    pass.dispatch_workgroups(size.x.div_ceil(GROUP), size.y.div_ceil(GROUP), 1);
+    span.end(&mut pass);
+}
+
 /// The models' shadows.
 pub struct ShadowsPlugin;
 
 impl Plugin for ShadowsPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shadows.wesl");
+        embedded_asset!(app, "shadow_levels.wesl");
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
             .add_plugins(MaterialPlugin::<MaskMaterial>::default())
+            .add_plugins(ExtractComponentPlugin::<MaskCamera>::default())
+            .add_plugins(ExtractResourcePlugin::<ShadowMask>::default())
             .init_resource::<Grounds>()
             .add_systems(Startup, setup)
             .add_systems(
@@ -537,7 +807,19 @@ impl Plugin for ShadowsPlugin {
                     .chain()
                     .in_set(Step::Shadows),
             )
-            .add_systems(PostUpdate, follow_mask.before(CameraUpdateSystems));
+            .add_systems(PostUpdate, follow_mask.before(CameraUpdateSystems))
+            .add_systems(PostUpdate, choose_level.after(CameraUpdateSystems));
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app
+                .init_resource::<LevelBindGroup>()
+                .add_systems(RenderStartup, init_levels)
+                .add_systems(
+                    Render,
+                    prepare_level.in_set(RenderSystems::PrepareBindGroups),
+                )
+                // The mask's camera draws into the mask at its upscaling, the last of its passes.
+                .add_systems(Core3d, reduce.after(upscaling));
+        }
     }
 }
 
@@ -612,6 +894,7 @@ mod tests {
             grounds: Handle::default(),
             floors: Handle::default(),
             mask: Handle::default(),
+            level: Handle::default(),
             soft: Vec4::X,
             layer: Layer::Shadows,
         };
@@ -670,6 +953,8 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(ShadowMask {
             image: Handle::default(),
+            level_image: Handle::default(),
+            level: 0,
         })
         .add_systems(Update, attach_mask);
         let world = app.world_mut();
@@ -686,6 +971,39 @@ mod tests {
             .map(|(parent, layers)| (parent.parent(), layers.clone()))
             .collect();
         assert_eq!(found, vec![(eye, RenderLayers::layer(MASK_LAYER))]);
+    }
+
+    /// The blur reads the mask's own pixels where its samples lie a pixel or so apart, and a level
+    /// whose blocks are as wide as they lie apart at closer zooms on larger screens (#2739).
+    #[test]
+    fn the_blur_reads_the_level_of_its_samples() {
+        assert_eq!(shader_constant(SHADER, "SOFTNESS"), SOFTNESS);
+        // The world's pixels a unit on a screen `height` pixels high at `zoom`.
+        let per_unit =
+            |height: f32, zoom: f32| iso::PIXELS_PER_UNIT * height / iso::SCREEN_HEIGHT / zoom;
+        let step = |per_unit: f32| (0.5 * SOFTNESS * per_unit).max(1.0);
+        // 1,920 × 1,080 at zoom 1 and further: the mask's own pixels, as before.
+        for zoom in [1.0, 1.5, 2.0] {
+            assert_eq!(level_for(per_unit(1080.0, zoom)), 0, "{zoom}");
+        }
+        // Closer, and on larger screens: the lowest level whose blocks are as wide as the samples
+        // lie apart, a block apart then.
+        for (height, zoom, level) in [
+            (1080.0, 0.5, 2),
+            (2160.0, 1.0, 2),
+            (2160.0, 0.5, 3),
+            (1440.0, 0.75, 1),
+            (4320.0, 0.5, 4),
+        ] {
+            let per_unit = per_unit(height, zoom);
+            assert_eq!(level_for(per_unit), level, "{height} at {zoom}");
+            let block = f32::from(1_u16 << level);
+            assert!(block >= step(per_unit) && block < 2.0 * step(per_unit));
+        }
+        assert_eq!(level_for(1e6), LEVELS);
+        assert_eq!(level_size(UVec2::new(3840, 2160), 3), UVec2::new(480, 270));
+        assert_eq!(level_size(UVec2::new(1001, 7), 2), UVec2::new(251, 2));
+        assert_eq!(level_size(UVec2::new(1920, 1080), 0), UVec2::ONE);
     }
 
     #[test]
