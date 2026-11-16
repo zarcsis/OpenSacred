@@ -277,25 +277,19 @@ impl Weighing<'_, '_> {
         let (bonuses, left) =
             opensacred_rules::smith::shown_bonuses(values.bonuses, &dropped.socketed);
         values.bonuses = bonuses;
-        // Its level (`drops::Tables::item_level`) and the level asked of it: a made item's and a
-        // set's piece's of its level, another's as its record holds it, a potion's none, a
-        // scroll's level none (seen, #1273); with its sockets filled, of its level (`0x5C0810`,
-        // #1661). A set's piece's record values take its template's scale, which the client's
-        // estimate of every record's level and the pace's slowing read; a unique's (its record's
-        // quality bits all set) as well (seen: the sword 1712 of the level 30 and 22 asked, whose
-        // record holds the level 10, #1709).
-        let unique = (record.word >> 16) & 0xF == 0xF;
-        let piece = tables.set_name(dropped.item).is_some() || unique;
-        let made = dropped.values.is_some() || piece;
-        if piece && dropped.values.is_none() {
+        // Its level (`drops::Tables::item_level`) and the level asked of it, which the use's test
+        // weighs (`drops::Tables::asked_level`, #2742): a made item's and a set's piece's of its
+        // level, another's as its record holds it, a potion's none, a scroll's level none (seen,
+        // #1273); with its sockets filled, of its level (`0x5C0810`, #1661). A set's piece's
+        // record values take its template's scale, which the client's estimate of every record's
+        // level and the pace's slowing read; a unique's (its record's quality bits all set) as
+        // well (seen: the sword 1712 of the level 30 and 22 asked, whose record holds the level
+        // 10, #1709).
+        if tables.piece(dropped) && dropped.values.is_none() {
             values.scale = tables.template_scale(dropped.item);
         }
         let level = tables.item_level(dropped, &self.rules);
-        let asked = if made || !dropped.socketed.is_empty() {
-            opensacred_rules::equipment::asked_level(level)
-        } else {
-            u32::from(record.asked)
-        };
+        let asked = tables.asked_level(dropped, &self.rules);
         let quality = if dropped.quality != 0 {
             dropped.quality
         } else {
