@@ -85,6 +85,8 @@ use crate::{
 /// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
+/// The record that puts items on a creature (`EquipNPC`, `0x481D80`; #2752).
+const EQUIP_NPC: u16 = 7;
 const SET_NPC_STATE: u16 = 3;
 const SET_HP: u16 = 52;
 const DEL_NPC: u16 = 55;
@@ -3131,14 +3133,17 @@ fn death_functions(ops: &[opensacred_data::netscript::Operand]) -> DeathFunction
 /// it, `made` the placement of each record; the stables' horses their levels, after their
 /// `CreateNPC`s' rule, and the start's captain of 52,39 its dialogue. The dialogues' table fills
 /// as the records' entries of type 40 run, the first entry twice (`0x476A05`), so that a
-/// dialogue's index is its entry's place from 1 and the index 0 gives none.
+/// dialogue's index is its entry's place from 1 and the index 0 gives none. It returns the items
+/// that the records' `EquipNPC`s put on those placements, by their indices, in their order
+/// (`0x481D80`, #2752), which [`Makers::equip`] puts on them.
 fn set_states(
     records: &[&Record],
     made: &HashMap<*const Record, usize>,
     placements: &mut [Placement],
-) {
+) -> Vec<(usize, Vec<u32>)> {
     let mut named: HashMap<String, Vec<usize>> = HashMap::new();
     let mut dialogues: Vec<String> = Vec::new();
+    let mut equips = Vec::new();
     for record in records {
         let ops = match &record.body {
             Body::Dialog { name, .. } => {
@@ -3187,9 +3192,24 @@ fn set_states(
                     }
                 }
             }
+            // Its items, each of its `0x02`s, onto the creature of its name.
+            EQUIP_NPC => {
+                let Some(indices) = name_of(ops).and_then(|name| named.get(&name)) else {
+                    continue;
+                };
+                let items: Vec<u32> = ops
+                    .iter()
+                    .filter_map(|o| match (o.tag, &o.value) {
+                        (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
+                        _ => None,
+                    })
+                    .collect();
+                equips.extend(indices.iter().map(|&index| (index, items.clone())));
+            }
             _ => {}
         }
     }
+    equips
 }
 
 /// Where the records' `NPC_Goto`s send the NPCs they name, by name: the global cell and the
@@ -3835,6 +3855,29 @@ impl Makers {
         Ok(Some(changed))
     }
 
+    /// Puts the items that `EquipNPC`s put on placements (`equips`, of [`set_states`]) on them, after
+    /// those they hold (`0x481D80`): each of them equipped as a `CreateNPC`'s items are
+    /// (`0x54B130`), what it holds and wears and its clips made anew by them (#2752).
+    fn equip(
+        &self,
+        equips: Vec<(usize, Vec<u32>)>,
+        placements: &mut [Placement],
+        model_slots: &mut HashMap<String, motions::Slots>,
+    ) -> Result<()> {
+        for (index, items) in equips {
+            let Some(placement) = placements.get_mut(index) else {
+                continue;
+            };
+            let held: Vec<u32> = placement.items.iter().copied().chain(items).collect();
+            if let Some(equipped) =
+                self.remade(placement, placement.creature.0, &held, model_slots)?
+            {
+                *placement = equipped;
+            }
+        }
+        Ok(())
+    }
+
     /// The placement `placement` of an NPC made of the type `creature` holding the items `items`:
     /// its model, texture, size, speeds, `Creature.pak` values, class and flags, its shadow, what
     /// it holds and its clips by them; its flags word, side, place and the rest kept. None where
@@ -3958,6 +4001,11 @@ impl Makers {
                 continue;
             };
             worn.push((item, category));
+            // A horse's bridle goes into its slot 1, which no draw reads (`0x54ACC0`; a stable's
+            // horses stand bare, docs/re/horses.md, "The bridle"); its values count.
+            if category == crate::riding::BRIDLES {
+                continue;
+            }
             if let Some(held) = self.worn_model(item, record) {
                 equipment.push(held);
             }
@@ -4265,7 +4313,8 @@ impl Npcs {
                 made.insert(std::ptr::from_ref(*record), placements.len() - 1);
             }
         }
-        set_states(&records, &made, &mut placements);
+        let equips = set_states(&records, &made, &mut placements);
+        makers.equip(equips, &mut placements, &mut model_slots)?;
         // The start's objects outside the 3 × 3 about its `StartPosition`, the sectors that no
         // `Enter` has marked yet (`+0x30` bit `0x800`), which its `CreateObj`s keep in the
         // interpreter's list `+0x364` rather than making them (`0x486AA7`), their sectors' `Enter`
@@ -8412,7 +8461,9 @@ impl Npcs {
                 self.pending.push(index);
             }
         }
-        set_states(&records, &made, &mut self.placements);
+        let equips = set_states(&records, &made, &mut self.placements);
+        self.makers
+            .equip(equips, &mut self.placements, &mut self.slots)?;
         let born = records
             .iter()
             .enumerate()
@@ -12918,6 +12969,45 @@ mod tests {
         // Without a world position at its cell's centre.
         assert_eq!(model_position(at, None), at);
         assert_eq!(model_position(floor, None), floor);
+    }
+
+    #[test]
+    fn an_equip_npc_puts_its_items_on_the_creature_made_before_it() {
+        let op = |tag, value| Operand { tag, value };
+        let named = |kind, name: &str, rest: &[Operand]| {
+            let mut ops = vec![op(0x01, Value::Str(name.into()))];
+            ops.extend_from_slice(rest);
+            Record {
+                kind,
+                body: Body::Operands(ops),
+            }
+        };
+        let items = |items: &[i32]| -> Vec<Operand> {
+            items.iter().map(|&i| op(0x02, Value::I32(i))).collect()
+        };
+        // The Daemon's quest 209's captive and the abbess of `help47`, her name cased otherwise
+        // than her `EquipNPC`s' (`0x481D80`, #2752); an `EquipNPC` before its creature, or of a
+        // creature made by no record here, puts nothing.
+        let records = [
+            named(EQUIP_NPC, "res:17436", &items(&[4010])),
+            named(CREATE_NPC, "res:17436", &items(&[132])),
+            named(EQUIP_NPC, "res:17436", &items(&[4015])),
+            named(EQUIP_NPC, "res:17436", &items(&[4011, 4013])),
+            named(CREATE_NPC, "Res:18245", &items(&[132])),
+            named(EQUIP_NPC, "res:18245", &items(&[4017])),
+            named(EQUIP_NPC, "res:1", &items(&[4012])),
+        ];
+        let records: Vec<&Record> = records.iter().collect();
+        let made: HashMap<*const Record, usize> = [(1, 0), (4, 1)]
+            .iter()
+            .map(|&(r, index)| (std::ptr::from_ref(records[r]), index))
+            .collect();
+        let mut placements = vec![Placement::default(); 2];
+        let equips = set_states(&records, &made, &mut placements);
+        assert_eq!(
+            equips,
+            [(0, vec![4015]), (0, vec![4011, 4013]), (1, vec![4017])]
+        );
     }
 
     #[test]
