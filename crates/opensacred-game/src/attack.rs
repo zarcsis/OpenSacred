@@ -368,6 +368,9 @@ fn engage(
         });
         // With a bow or a crossbow in hand it shoots (the AI's state 8 for a hero, #784).
         let ranged = holding.is_some_and(|holding| holding.0.ranged) || bolt.is_some();
+        // The class of what it holds and its hits' share of a strike (`0x4EA1F0`, `0x4EA3F0`).
+        let class = holding.map_or(0, |holding| holding.0.class);
+        let share = holding.map_or(1.0, |holding| holding.0.share());
         // From the saddle it strikes as its horse's size reaches (#2302), not turning to its
         // target, by its own clip (docs/re/horses.md, "Fighting from horseback").
         let riding = seat.is_some_and(|seat| seat.ridden().is_some());
@@ -414,8 +417,10 @@ fn engage(
                 continue;
             };
             let done = active.seek_time() / striking.length;
-            // The action tests its hits at its steps, the world's ticks, alone (`0x4EA1F0`).
-            if ticked && minds::hit_due(striking.fractions, striking.struck, done) {
+            // The action tests its hits at its steps, the world's ticks, alone (`0x4EA1F0`); with
+            // two weapons it hits twice whatever its clip, each hit of half the share (`0x4EA3F0`,
+            // #2748).
+            if ticked && minds::hit_due(striking.fractions, striking.struck, done, class) {
                 striking.struck += 1;
                 // The swing within reach or in the air (`0x4EA6FD`, #712).
                 if attack.target.is_none() {
@@ -454,7 +459,7 @@ fn engage(
                         ward: false,
                         attacker: hero,
                         target: entity,
-                        share: 1.0,
+                        share,
                         ranged: false,
                         art: None,
                     });
@@ -468,7 +473,7 @@ fn engage(
                 && !attack.at_once
                 && !attack.ends
                 && target.is_some()
-                && minds::strike_gives_way(striking.fractions, striking.struck, left, rate)
+                && minds::strike_gives_way(striking.fractions, striking.struck, (left, rate), class)
             {
                 commands.entity(hero).remove::<Striking>();
                 blend = Duration::from_secs_f32(left.max(0.001));

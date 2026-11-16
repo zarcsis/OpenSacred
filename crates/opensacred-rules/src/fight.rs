@@ -1643,7 +1643,8 @@ impl Base {
 /// and 14, `0x54A340`, by which the cursor shows a pistol over a foe), the values of the items it
 /// holds and wears that have them (an NPC's in its hands, a hero's of its template too), and the
 /// skill of what it holds ([`weapon_skill`]), and what the sets of its pieces give it
-/// ([`crate::set_bonuses::stats`], a hero's alone, #1727).
+/// ([`crate::set_bonuses::stats`], a hero's alone, #1727); the class of what it holds and whether
+/// it strikes with two weapons, by which its strikes hit ([`Holds::share`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
@@ -1656,6 +1657,24 @@ pub struct Holds {
     /// Whether it sits on a mount (`0x552660`), which its riding skill's curve weighs its `A`
     /// multiplier by ([`combat_with`]).
     pub mounted: bool,
+    /// The class of what it holds (`0x546F80`), [`TWO_WEAPONS_CLASS`] for a weapon in each hand,
+    /// by which a strike of a clip of one hit point hits twice ([`crate::minds::hit_due`]).
+    pub class: u8,
+    /// Whether it strikes with two weapons, its class [`TWO_WEAPONS_CLASS`] or an item in each
+    /// hand, the left no shield, which halves its hits' share ([`Holds::share`]).
+    pub two: bool,
+}
+
+/// The class of what a creature holds with a weapon in each hand, the left no shield
+/// (`0x546F80`).
+pub const TWO_WEAPONS_CLASS: u8 = 8;
+
+impl Holds {
+    /// Its hits' share of a strike (the event 5's factor `+0x1C`, `0x4EA3F0`): a half with two
+    /// weapons, so that the two hits of a strike deal the damage of both once, else whole.
+    pub fn share(&self) -> f32 {
+        if self.two { 0.5 } else { 1.0 }
+    }
 }
 
 /// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
@@ -5242,6 +5261,18 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn two_weapons_strike_each_hit_at_half_the_share() {
+        // Two hits of a half, the damage of both weapons once a strike (`0x4EA3F0`, #2748).
+        let two = Holds {
+            class: TWO_WEAPONS_CLASS,
+            two: true,
+            ..Holds::default()
+        };
+        assert!((two.share() - 0.5).abs() < f32::EPSILON);
+        assert!((Holds::default().share() - 1.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn a_disarmed_creature_keeps_a_fifth_of_its_attack_and_its_terror_rolls_by_the_levels() {

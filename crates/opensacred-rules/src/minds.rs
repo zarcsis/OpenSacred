@@ -4189,16 +4189,24 @@ pub fn hero_comes_on_to_shoot(at_once: bool, distance: f32, coming: bool) -> boo
     !at_once && distance > within
 }
 
-/// Whether the hero's strike's next hit is due (the attack action 3, `0x4E4CF0`), `done` of its
-/// clip played and `struck` hits sent, by the clip's `fractions`: the first at its first
-/// fraction, 0.5 for one of 0; a second at its second where there is one.
-pub fn hit_due([first, second]: [f32; 2], struck: u8, done: f32) -> bool {
+/// Whether a strike's next hit is due (`0x4EA1F0`, of the hero's attack action 3, `0x4E4CF0`,
+/// and a creature's), `done` of its clip played and `struck` hits sent, by the clip's
+/// `fractions` and the class of what the striker holds `class`: the first at its first fraction,
+/// 0.5 for one of 0; a second where it hits twice ([`hits_twice`]), at its second fraction, or at
+/// the next step after the first where the clip has none.
+pub fn hit_due([first, second]: [f32; 2], struck: u8, done: f32, class: u8) -> bool {
     let first = if first > 0.0 { first } else { 0.5 };
     match struck {
         0 => done >= first,
-        1 => second > 0.0 && done >= second,
+        1 => hits_twice(second, class) && done >= second,
         _ => false,
     }
+}
+
+/// Whether a strike hits twice (`0x4EA1F0`): where its clip has a second fraction `second`, or
+/// its striker holds two weapons, the class [`crate::fight::TWO_WEAPONS_CLASS`].
+pub fn hits_twice(second: f32, class: u8) -> bool {
+    second > 0.0 || class == crate::fight::TWO_WEAPONS_CLASS
 }
 
 /// The turn from a strike to the next that the held button asks for, in seconds at an attack
@@ -4210,11 +4218,17 @@ pub const STRIKE_TURN: f32 = 0.2;
 
 /// Whether the hero's strike gives way to the next that the held button asks for, `struck` hits
 /// sent of the clip's `fractions` and `left` seconds left of its clip at the attack speed's factor
-/// `speed`: once its hits are struck, the first and a second where there is one, and what is left
-/// is at most [`STRIKE_TURN`] over `speed`, so that the Seraphim's one-handed strikes, 1.9 s at
-/// 1.54 times the game's speed of 1.25, come 0.86 s apart rather than 0.99 (#707).
-pub fn strike_gives_way([_, second]: [f32; 2], struck: u8, left: f32, speed: f32) -> bool {
-    let hits = if second > 0.0 { 2 } else { 1 };
+/// `speed`, the hero holding the class `class`: once its hits are struck, the first and a second
+/// where it hits twice ([`hits_twice`]), and what is left is at most [`STRIKE_TURN`] over
+/// `speed`, so that the Seraphim's one-handed strikes, 1.9 s at 1.54 times the game's speed of
+/// 1.25, come 0.86 s apart rather than 0.99 (#707).
+pub fn strike_gives_way(
+    [_, second]: [f32; 2],
+    struck: u8,
+    (left, speed): (f32, f32),
+    class: u8,
+) -> bool {
+    let hits = if hits_twice(second, class) { 2 } else { 1 };
     struck >= hits && left <= STRIKE_TURN / speed
 }
 
@@ -6523,15 +6537,36 @@ mod tests {
         // The Seraphim's one-handed clip: one hit, 0.987 s at 1.54 times 1.25; the next starts with
         // 0.13 s left, 0.857 s after the strike's start.
         let speed = 1.54;
-        assert!(!strike_gives_way([0.39, 0.0], 0, 0.1, speed));
-        assert!(!strike_gives_way([0.39, 0.0], 1, 0.14, speed));
-        assert!(strike_gives_way([0.39, 0.0], 1, 0.129, speed));
+        assert!(!strike_gives_way([0.39, 0.0], 0, (0.1, speed), 1));
+        assert!(!strike_gives_way([0.39, 0.0], 1, (0.14, speed), 1));
+        assert!(strike_gives_way([0.39, 0.0], 1, (0.129, speed), 1));
         assert!((0.987 - STRIKE_TURN / speed - 0.857).abs() < 0.001);
         // A clip of two hits waits for its second.
-        assert!(!strike_gives_way([0.3, 0.95], 1, 0.05, speed));
-        assert!(strike_gives_way([0.3, 0.95], 2, 0.05, speed));
+        assert!(!strike_gives_way([0.3, 0.95], 1, (0.05, speed), 1));
+        assert!(strike_gives_way([0.3, 0.95], 2, (0.05, speed), 1));
         // A faster strike turns sooner.
-        assert!(!strike_gives_way([0.39, 0.0], 1, 0.1, 2.2));
+        assert!(!strike_gives_way([0.39, 0.0], 1, (0.1, 2.2), 1));
+        // Two weapons' strike of one hit point waits for its second hit too (#2748).
+        assert!(!strike_gives_way([0.39, 0.0], 1, (0.05, speed), 8));
+        assert!(strike_gives_way([0.39, 0.0], 2, (0.05, speed), 8));
+    }
+
+    #[test]
+    fn two_weapons_hit_twice_whatever_the_clip() {
+        // A clip of one hit point hits once with one weapon, and with two a second time at the
+        // step after the first (`0x4EA1F0`, #2748).
+        assert!(!hit_due([0.4, 0.0], 0, 0.39, 8));
+        assert!(hit_due([0.4, 0.0], 0, 0.4, 1));
+        assert!(!hit_due([0.4, 0.0], 1, 1.0, 1));
+        assert!(hit_due([0.4, 0.0], 1, 0.4, 8));
+        assert!(!hit_due([0.4, 0.0], 2, 1.0, 8));
+        // A clip of two hit points hits its second at its own point.
+        assert!(!hit_due([0.3, 0.4], 1, 0.39, 8));
+        assert!(hit_due([0.3, 0.4], 1, 0.4, 1));
+        // A first point of 0 is the clip's half.
+        assert!(!hit_due([0.0, 0.0], 0, 0.49, 1));
+        assert!(hit_due([0.0, 0.0], 0, 0.5, 1));
+        assert!(hits_twice(0.0, 8) && hits_twice(0.4, 1) && !hits_twice(0.0, 1));
     }
 
     #[test]
