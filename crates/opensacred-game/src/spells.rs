@@ -436,7 +436,9 @@ fn balls(
                         cooldown: 0.0,
                         strikes: Strikes::About,
                     },
-                    crate::trap_landings::Landing::Poison,
+                    crate::trap_landings::Landing::Poison {
+                        by_hero: bodies.contains(ball.caster),
+                    },
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     crate::hums::Hum(POISON_LOOP),
