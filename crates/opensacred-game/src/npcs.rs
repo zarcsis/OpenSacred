@@ -9688,6 +9688,12 @@ impl ScriptClip {
         }
     }
 
+    /// A creature's cast's clip of the slot `slot`, once, its spell acting by its own timer: a
+    /// script's teleport's (`script_attacks`, #2753).
+    pub(crate) fn cast(slot: u16) -> Self {
+        Self::new(slot, 1)
+    }
+
     /// A creature's cast's clip of the slot `slot`, once, its spell acting at the share `share`
     /// (`creature_casts`, #1852).
     pub(crate) fn casting(slot: u16, share: f32) -> Self {
