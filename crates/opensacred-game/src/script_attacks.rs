@@ -218,11 +218,13 @@ fn send(attacker: Entity, target: Target, groups: bool, creatures: &mut Creature
 }
 
 /// Carries out the scripts' teleports: a creature drawn on the screen casts `PHASEN`, its sound
-/// at it, and stands at its end 3.35 s over its cast's rate later, as the hero's teleport takes it
+/// at it and the teleport's sights at its feet and at its end (774 and 775, `teleports`, #2751),
+/// and stands at its end 3.35 s over its cast's rate later, as the hero's teleport takes it
 /// (`spells::teleport`): along the line to the place in steps, as far as the spell's value at the
 /// level that a creature lacking it casts it at, `⌊level / 5⌋ + 1`, or onto a cell of negative
-/// numbers with no test; one not drawn (no timer listener, `+8` bit 7, which the draw registers)
-/// is put on the place at once (`sdk_ENGINE_TP`). The objects 775 and 774 are not drawn.
+/// numbers with no test, its end worked out as it casts (`0x522742`); one not drawn (no timer
+/// listener, `+8` bit 7, which the draw registers) is put on the place at once
+/// (`sdk_ENGINE_TP`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -246,7 +248,6 @@ fn phase(
 ) {
     for (entity, mut phase, mut transform, mind, way, layered) in &mut phasing {
         let here = transform.translation;
-        let mut to = phase.to;
         match phase.left {
             None => {
                 let seen = children
@@ -258,9 +259,38 @@ fn phase(
                         at: Some(entity),
                         rate: (0.5, Roll::None),
                     });
+                    // Its end as it casts, on its own level, where the arrival's sight stands.
+                    if !phase.direct {
+                        let level = way.as_ref().and_then(|way| way.level);
+                        let spell_level = mind.map_or(1, |mind| mind.level / 5 + 1);
+                        let points = arts
+                            .as_ref()
+                            .and_then(|arts| {
+                                arts.tables.spells.iter().find(|s| s.id == spells::TELEPORT)
+                            })
+                            .map_or(0, |record| spells::value(record, 0, spell_level));
+                        let passes = |[x, z]: [f32; 2]| {
+                            heights.walkable_on(crate::paths::cell_of(x, z), level)
+                        };
+                        let stands = |[x, z]: [f32; 2]| heights.standing(x, z, level).is_some();
+                        let to = phase.to;
+                        let [x, z] = spells::teleport(
+                            [here.x, here.z],
+                            [to.x, to.z],
+                            points,
+                            passes,
+                            stands,
+                        );
+                        phase.to = Vec3::new(x, here.y, z);
+                        phase.level = level;
+                    }
+                    if let Some(y) = heights.standing(phase.to.x, phase.to.z, phase.level) {
+                        phase.to.y = y;
+                    }
                     let rate = opensacred_rules::fight::CAST_SPEED / 100.0;
                     phase.left = Some(spells::TELEPORT_TIME / rate);
                     commands.entity(entity).remove::<Walk>();
+                    crate::teleports::spawn(&mut commands, entity, (here, phase.to), rate);
                     continue;
                 }
             }
@@ -270,29 +300,10 @@ fn phase(
                     phase.left = Some(left);
                     continue;
                 }
-                if !phase.direct {
-                    let level = way.as_ref().and_then(|way| way.level);
-                    let spell_level = mind.map_or(1, |mind| mind.level / 5 + 1);
-                    let points = arts
-                        .as_ref()
-                        .and_then(|arts| {
-                            arts.tables.spells.iter().find(|s| s.id == spells::TELEPORT)
-                        })
-                        .map_or(0, |record| spells::value(record, 0, spell_level));
-                    let passes =
-                        |[x, z]: [f32; 2]| heights.walkable_on(crate::paths::cell_of(x, z), level);
-                    let stands = |[x, z]: [f32; 2]| heights.standing(x, z, level).is_some();
-                    let [x, z] =
-                        spells::teleport([here.x, here.z], [to.x, to.z], points, passes, stands);
-                    to = Vec3::new(x, here.y, z);
-                }
             }
         }
-        let level = if phase.left.is_some() && !phase.direct {
-            way.as_ref().and_then(|way| way.level)
-        } else {
-            phase.level
-        };
+        let level = phase.level;
+        let mut to = phase.to;
         if let Some(y) = heights.standing(to.x, to.z, level) {
             to.y = y;
         }
