@@ -893,6 +893,15 @@ fn two_weapons_of(holding: &[InHand], class: u8) -> bool {
         || (holds(Hand::Right, None) && holds(Hand::Left, Some(false)))
 }
 
+/// Whether an `EquipNPC` takes the item `item` of the category `category` and the kind `kind`
+/// out of a hand before it equips another (`0x5CECD0`): a weapon of the kinds 2, 3, 4, 7 or 12,
+/// or of the types 4067 to 4072.
+fn taken_out(item: u32, category: u8, kind: Option<u8>) -> bool {
+    category == WEAPON
+        && (kind.is_some_and(|kind| matches!(kind, 2 | 3 | 4 | 7 | 12))
+            || (4067..=4072).contains(&item))
+}
+
 /// The skill whose level lessens the shortfall of a creature's weapon's level, by the class of
 /// what it holds `class` and its items in their hands with their values, left hand first
 /// (`opensacred_rules::fight::weapon_skill`, `0x578ED0`; #844).
@@ -3425,7 +3434,15 @@ pub struct Added {
     /// Each placement made, by the position of its record among the records and its index, by
     /// which a later `DelNPC` of the same run takes only those made before it ([`Npcs::regroup`]).
     pub born: Vec<(usize, usize)>,
+    /// The items that the creatures of earlier records held before the records' `EquipNPC`s and
+    /// after them, by their placements' indices ([`Npcs::equip_made`]), for those in the world
+    /// (#2756).
+    pub equipped: Vec<Equipped>,
 }
+
+/// A placement's index and the items its creature held before a run's `EquipNPC`s and after them
+/// ([`Npcs::equip_made`], #2756).
+pub type Equipped = (usize, Vec<u32>, Vec<u32>);
 
 /// What the play changed of the scripts' placements and triggers, as a save keeps it (#1958):
 /// the play's records of the world in the batches that [`script_records`] placed, in order, which
@@ -3856,8 +3873,9 @@ impl Makers {
     }
 
     /// Puts the items that `EquipNPC`s put on placements (`equips`, of [`set_states`]) on them, after
-    /// those they hold (`0x481D80`): each of them equipped as a `CreateNPC`'s items are
-    /// (`0x54B130`), what it holds and wears and its clips made anew by them (#2752).
+    /// those they hold as [`Self::equipped`] leaves them (`0x481D80`): each of them equipped as a
+    /// `CreateNPC`'s items are (`0x54B130`), what it holds and wears and its clips made anew by
+    /// them (#2752).
     fn equip(
         &self,
         equips: Vec<(usize, Vec<u32>)>,
@@ -3868,7 +3886,7 @@ impl Makers {
             let Some(placement) = placements.get_mut(index) else {
                 continue;
             };
-            let held: Vec<u32> = placement.items.iter().copied().chain(items).collect();
+            let held = self.equipped(&placement.items, &items);
             if let Some(equipped) =
                 self.remade(placement, placement.creature.0, &held, model_slots)?
             {
@@ -3876,6 +3894,35 @@ impl Makers {
             }
         }
         Ok(())
+    }
+
+    /// The items that a creature holding `held` holds after an `EquipNPC` of `items` (`0x481D80`,
+    /// #2756): before each item, a weapon in a hand ([`hands`]) of the kinds 2, 3, 4, 7 or 12, or
+    /// of the types 4067 to 4072, is taken out of it (`0x5CECD0`, `0x556F10`), and the item goes
+    /// after the others (`0x54B130`, the hand by [`hands`]).
+    fn equipped(&self, held: &[u32], items: &[u32]) -> Vec<u32> {
+        let mut equipped = held.to_vec();
+        for &item in items {
+            let categories: Vec<(u8, Option<u8>)> = equipped
+                .iter()
+                .map(|held| {
+                    (
+                        self.record(*held).map_or(0, category),
+                        self.kinds.get(held).copied(),
+                    )
+                })
+                .collect();
+            let in_hands = hands(&categories);
+            let mut kept = Vec::with_capacity(equipped.len());
+            for ((held, (category, kind)), hand) in equipped.iter().zip(&categories).zip(in_hands) {
+                if hand.is_none() || !taken_out(*held, *category, *kind) {
+                    kept.push(*held);
+                }
+            }
+            kept.push(item);
+            equipped = kept;
+        }
+        equipped
     }
 
     /// The placement `placement` of an NPC made of the type `creature` holding the items `items`:
@@ -6602,6 +6649,7 @@ fn rearms_for(hands: &[(u32, Hand, Option<fight::ItemValues>)], made: &[InHand])
         away: Vec::new(),
         takes: Vec::new(),
         disarmed: false,
+        wears: Vec::new(),
     };
     for hand in [Hand::Left, Hand::Right] {
         let held = hands.iter().find(|&&(_, held, _)| held == hand);
@@ -8464,6 +8512,7 @@ impl Npcs {
         let equips = set_states(&records, &made, &mut self.placements);
         self.makers
             .equip(equips, &mut self.placements, &mut self.slots)?;
+        let equipped = self.equip_made(&records, &made)?;
         let born = records
             .iter()
             .enumerate()
@@ -8473,6 +8522,7 @@ impl Npcs {
             })
             .collect();
         Ok(Added {
+            equipped,
             placed: made.len(),
             changes,
             born,
@@ -8770,6 +8820,71 @@ impl Npcs {
             stated.push((name, state));
         }
         stated
+    }
+
+    /// What the records' `EquipNPC`s do to the creatures of their names that earlier records made
+    /// (`0x481D80`, #2756), not those of the same records before them ([`set_states`]): the items
+    /// each leaves on each placement of the name ([`Makers::equipped`]), given to it where it
+    /// persists, the start's and the `Init`s' (an `Enter`'s is made again as its record runs),
+    /// and returned by the placements' indices for the creatures in the world.
+    fn equip_made(
+        &mut self,
+        records: &[&Record],
+        made: &HashMap<*const Record, usize>,
+    ) -> Result<Vec<Equipped>> {
+        let batch: HashSet<usize> = made.values().copied().collect();
+        let mut named: HashSet<String> = HashSet::new();
+        let mut after: std::collections::BTreeMap<usize, (Vec<u32>, Vec<u32>)> = Default::default();
+        for record in records {
+            let Body::Operands(ops) = &record.body else {
+                continue;
+            };
+            let Some(name) = name_of(ops) else {
+                continue;
+            };
+            if record.kind == CREATE_NPC {
+                named.insert(name);
+                continue;
+            }
+            if record.kind != EQUIP_NPC || named.contains(&name) {
+                continue;
+            }
+            let items: Vec<u32> = ops
+                .iter()
+                .filter_map(|o| match (o.tag, &o.value) {
+                    (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
+                    _ => None,
+                })
+                .collect();
+            for (index, placement) in self.placements.iter().enumerate() {
+                if placement.object
+                    || batch.contains(&index)
+                    || placement.name.as_ref() != Some(&name)
+                {
+                    continue;
+                }
+                let (_, held) = after
+                    .entry(index)
+                    .or_insert_with(|| (placement.items.clone(), placement.items.clone()));
+                *held = self.makers.equipped(held, &items);
+            }
+        }
+        for (&index, (_, items)) in &after {
+            let placement = &self.placements[index];
+            if placement.made.0 {
+                continue;
+            }
+            if let Some(equipped) =
+                self.makers
+                    .remade(placement, placement.creature.0, items, &mut self.slots)?
+            {
+                self.placements[index] = equipped;
+            }
+        }
+        Ok(after
+            .into_iter()
+            .map(|(index, (before, held))| (index, before, held))
+            .collect())
     }
 
     /// What the play's `SetGroupState`s and `DelNPC`s do (#1021): each given to the placements
@@ -10602,7 +10717,7 @@ pub(crate) fn script_records(
         ResMut<ScriptAttacks>,
         ResMut<crate::creature_casts::PendingCasts>,
     ),
-    (dying, mut particles, traders): (
+    (dying, mut particles, traders, indexed): (
         Query<
             (
                 Entity,
@@ -10615,6 +10730,7 @@ pub(crate) fn script_records(
         >,
         Particles,
         Query<&Trades>,
+        Query<(Entity, &PlacementIndex), Without<Dies>>,
     ),
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
@@ -10696,7 +10812,7 @@ pub(crate) fn script_records(
                     })
             }),
     });
-    let born = match npcs.add(&records, |at| streamer.area(at)) {
+    let (born, equipped) = match npcs.add(&records, |at| streamer.area(at)) {
         Ok(added) => {
             if added.placed > 0 {
                 bevy::log::info!(
@@ -10705,11 +10821,11 @@ pub(crate) fn script_records(
                 );
             }
             changes.0.extend(added.changes);
-            added.born
+            (added.born, added.equipped)
         }
         Err(e) => {
             bevy::log::warn!("npcs: the scripts' records: {e:#}");
-            Vec::new()
+            (Vec::new(), Vec::new())
         }
     };
     // Kept for a save, whose load places them again (`Npcs::resume`, #1958).
@@ -10718,6 +10834,29 @@ pub(crate) fn script_records(
     }
     let icons = set_icons(&records);
     let npcs = &mut *npcs;
+    // An `EquipNPC` of a creature in the world that earlier records made puts its items on it
+    // (`0x481D80`, #2756): what it holds made anew, those it held keeping their values, and what
+    // it wears that it did not put on.
+    for (index, before, after) in equipped {
+        let Some(placement) = npcs.placements.get(index) else {
+            continue;
+        };
+        let creature = placement.creature.0;
+        let worn: Vec<u32> = npcs
+            .makers
+            .arming(&before, creature)
+            .worn
+            .iter()
+            .map(|&(item, _)| item)
+            .collect();
+        let arming = npcs.makers.arming(&after, creature);
+        for (entity, _) in indexed.iter().filter(|(_, at)| at.0 == index) {
+            bevy::log::info!("npcs: the scripts equip {entity} with {after:?}");
+            commands
+                .entity(entity)
+                .insert(Rearms::equipping(&arming, &worn));
+        }
+    }
     reicon(&npcs.dialogues, &mut npcs.icons, icons);
     for (name, state) in npcs.restate(&records) {
         // A dead creature takes its dialogue too, which holds its body to be spoken to (the dying
@@ -12249,6 +12388,9 @@ pub struct Rearms {
     /// Whether it is disarmed (`0x4E9900`, #2298): its values made anew keep a share alone
     /// (`opensacred_rules::fight::disarmed`).
     disarmed: bool,
+    /// The items it puts on that go in no hand, each its type, its category and its model where
+    /// it has one (an `EquipNPC`'s, #2756), made at its level.
+    wears: Vec<(u32, u8, Option<Held>)>,
 }
 
 impl Rearms {
@@ -12265,6 +12407,7 @@ impl Rearms {
                 .into_iter()
                 .collect(),
             disarmed: false,
+            wears: Vec::new(),
         }
     }
 
@@ -12275,6 +12418,7 @@ impl Rearms {
             away: vec![Hand::Right, Hand::Left],
             takes: vec![(bow, Hand::Left, None)],
             disarmed: false,
+            wears: Vec::new(),
         }
     }
 
@@ -12290,6 +12434,7 @@ impl Rearms {
                 opensacred_rules::minds::Torch::PutsAway => Vec::new(),
             },
             disarmed: false,
+            wears: Vec::new(),
         }
     }
 
@@ -12300,6 +12445,35 @@ impl Rearms {
             away: Vec::new(),
             takes: vec![(opensacred_rules::casts::DAGGER, Hand::Right, None)],
             disarmed: false,
+            wears: Vec::new(),
+        }
+    }
+
+    /// A script's `EquipNPC` on a creature in the world (`0x481D80`, #2756), what it holds and
+    /// wears after it `arming`: both hands emptied and its items in their hands taken again, those
+    /// it held before with their values, and its items worn that it did not wear put on.
+    fn equipping(arming: &Arming, worn_before: &[u32]) -> Self {
+        Self {
+            away: vec![Hand::Left, Hand::Right],
+            takes: arming
+                .holding
+                .iter()
+                .map(|held| (held.item, held.hand, None))
+                .collect(),
+            disarmed: false,
+            wears: arming
+                .worn
+                .iter()
+                .filter(|(item, _)| !worn_before.contains(item))
+                .map(|&(item, category)| {
+                    let model = arming
+                        .equipment
+                        .iter()
+                        .find(|held| held.item == item && held.mount == Mount::Worn)
+                        .cloned();
+                    (item, category, model)
+                })
+                .collect(),
         }
     }
 
@@ -12309,6 +12483,7 @@ impl Rearms {
             away: vec![Hand::Right],
             takes: Vec::new(),
             disarmed: false,
+            wears: Vec::new(),
         }
     }
 
@@ -12319,6 +12494,7 @@ impl Rearms {
             away: vec![hand],
             takes: Vec::new(),
             disarmed: true,
+            wears: Vec::new(),
         }
     }
 
@@ -12339,6 +12515,7 @@ impl Rearms {
                 .into_iter()
                 .collect(),
             disarmed: false,
+            wears: Vec::new(),
         }
     }
 }
@@ -12432,6 +12609,7 @@ fn rearm(
         &mut armed
     {
         commands.entity(entity).remove::<Rearms>();
+        let before = arms.holding.clone();
         let gone = |hand: Hand| rearms.away.contains(&hand);
         let put_away: Vec<u32> = arms
             .holding
@@ -12457,7 +12635,12 @@ fn rearm(
             let Some(gear) = npcs.gear.get(&item) else {
                 continue;
             };
-            let values = given.or_else(|| {
+            // An item it held before keeps its values (an `EquipNPC`'s, #2756).
+            let kept = before
+                .iter()
+                .find(|(held, _)| held.item == item)
+                .and_then(|&(_, values)| values);
+            let values = given.or(kept).or_else(|| {
                 let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
                 let mut dice = spawning::Rng::of(
                     u32::try_from(x).unwrap_or(0),
@@ -12485,6 +12668,28 @@ fn rearm(
                     },
                     gltf: assets.load(model.clone()),
                     texture: gear.texture.as_ref().map(|t| load_texture(&assets, t)),
+                    ready: true,
+                    waits: 0,
+                });
+            }
+        }
+        // What it puts on that goes in no hand, made at its level, its model on its skeleton.
+        for (item, category, held) in &rearms.wears {
+            let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
+            let mut dice = spawning::Rng::of(
+                u32::try_from(x).unwrap_or(0),
+                u32::try_from(y).unwrap_or(0),
+                usize::try_from(*item).unwrap_or(0),
+            );
+            let values = npcs
+                .items
+                .make(*item, grade, (rules.difficulty(), 0), &mut dice);
+            arms.worn.push((*category, values));
+            if let Some(held) = held {
+                equips.push(Equip {
+                    piece: held.piece(),
+                    gltf: assets.load(held.model.clone()),
+                    texture: held.texture.as_ref().map(|t| load_texture(&assets, t)),
                     ready: true,
                     waits: 0,
                 });
@@ -13451,6 +13656,53 @@ mod tests {
             ("models/renegade.glb".to_owned(), motions::Slots::default()),
         ]);
         (makers, slots)
+    }
+
+    #[test]
+    fn an_equip_npc_takes_a_two_handed_or_ranged_weapon_out_of_the_hands_first() {
+        let (mut makers, _) = soldiers();
+        let item = |slot, name: &str, category: u8| Item {
+            slot,
+            kind: 2,
+            class: 0,
+            subclass: 0,
+            name: name.into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0, 0, 0, 0, 0, 0, u32::from(category) << 16, 0],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0; 10],
+        };
+        for (slot, name, category, kind) in [
+            (1729, "sword.grn", WEAPON, Some(1)),
+            (1726, "sword_2handed.grn", WEAPON, Some(2)),
+            (1733, "bow_long.grn", WEAPON, Some(BOW)),
+            (4067, "special.grn", WEAPON, Some(1)),
+            (1200, "shield_kite.grn", SHIELD, None),
+            (3852, "gladiator_metal_02.grn", 6, None),
+        ] {
+            makers.items.insert(slot, item(slot, name, category));
+            if let Some(kind) = kind {
+                makers.kinds.insert(slot, kind);
+            }
+        }
+        // `0x481D80`: before each item, a weapon in a hand of the kinds 2, 3, 4, 7 or 12, or of
+        // the types 4067 to 4072, is taken out (`0x5CECD0`, #2756); the item goes after the others.
+        assert_eq!(makers.equipped(&[1726], &[1729]), [1729]);
+        assert_eq!(makers.equipped(&[1733], &[1729]), [1729]);
+        assert_eq!(makers.equipped(&[4067], &[1729]), [1729]);
+        // A one-handed weapon, a shield and an armour stay.
+        assert_eq!(makers.equipped(&[1729], &[1200]), [1729, 1200]);
+        assert_eq!(makers.equipped(&[3852, 1726], &[1729]), [3852, 1729]);
+        // Each item in turn: the bow given first goes as the shield comes, and as the sword does.
+        assert_eq!(makers.equipped(&[1729], &[1733, 1200]), [1729, 1200]);
+        assert_eq!(makers.equipped(&[], &[1733, 1729]), [1729]);
+        assert!(!taken_out(1729, WEAPON, Some(1)) && !taken_out(1200, SHIELD, None));
+        assert!(taken_out(4072, WEAPON, None) && !taken_out(4073, WEAPON, None));
+        assert!(taken_out(1, WEAPON, Some(12)) && !taken_out(1, WEAPON, Some(5)));
     }
 
     #[test]
