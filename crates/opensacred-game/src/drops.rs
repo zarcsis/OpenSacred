@@ -266,6 +266,9 @@ impl Tables {
                 (id, opensacred_rules::trade::worth::worth(&worths, &item))
             })
             .collect();
+        // Each record's values at its template's scale (`0x42CA70`, after the chain of parents),
+        // by which the client works out its level as it loads the types (`0x5D3AB0` at
+        // `0x425AEB`, #2743) and the pace's slowing reads.
         let used = records
             .iter()
             .map(|(&id, weapon)| {
@@ -275,7 +278,10 @@ impl Tables {
                     (
                         word(0) | word(1) << 16,
                         weapon.bytes_1c[2],
-                        fight::ItemValues::of_record(&weapon.words_84),
+                        fight::ItemValues {
+                            scale: templates.scale(id),
+                            ..fight::ItemValues::of_record(&weapon.words_84)
+                        },
                     ),
                 )
             })
@@ -468,49 +474,46 @@ impl Tables {
             .unwrap_or(0)
     }
 
+    /// Whether the level of `dropped` and the level it asks are worked out of its values: a made
+    /// item's or one whose sockets hold items, else every type's that the client works out as it
+    /// loads the types (`opensacred_rules::equipment::worked_out`, #2743).
+    fn worked_out(&self, dropped: &Dropped) -> bool {
+        dropped.values.is_some()
+            || !dropped.socketed.is_empty()
+            || opensacred_rules::equipment::worked_out(dropped.item, self.category(dropped.item))
+    }
+
     /// The level of `dropped`, its object's `+0x131` (its record's `+0x19`), which its tooltip
     /// tells and the Dwarf's check of the smithing takes (`0x5C8E90`): a made item's by its own
-    /// values (`0x5D3AB0` at `0x5D56FA`), and a set's piece's or a unique's by its record's values
-    /// at its template's scale (seen: the set 1's arm protectors 4050 of the level 9, #1701; the
-    /// sword 1712 of the level 30, #1709); another's as its record holds it; with its sockets
-    /// filled, at least theirs (`0x5C0810`, #1661).
+    /// values (`0x5D3AB0` at `0x5D56FA`), another's by its record's values at its template's
+    /// scale, as the client works them out as it loads the types (seen: the set 1's arm
+    /// protectors 4050 of the level 9, #1701; the sword 1712 of the level 30, #1709; the sword
+    /// 1764 of 29 and the shield 1202 of 10, #2743), a potion's, a book's and a gold pile's as its
+    /// file holds it; with its sockets filled, at least theirs (`0x5C0810`, #1661).
     pub(crate) fn item_level(
         &self,
         dropped: &Dropped,
         rules: &opensacred_rules::fight::Rules,
     ) -> u32 {
-        let piece = self.piece(dropped);
-        let own = if dropped.values.is_some() || piece {
-            let mut values = self.own_values(dropped);
-            if piece && dropped.values.is_none() {
-                values.scale = self.template_scale(dropped.item);
-            }
-            opensacred_rules::fight::item_level(&values, rules)
+        let own = if self.worked_out(dropped) {
+            opensacred_rules::fight::item_level(&self.own_values(dropped), rules)
         } else {
             u32::from(self.record_of(dropped).level)
         };
         own.max(self.sockets_level(dropped, rules))
     }
 
-    /// Whether `dropped` is a set's piece or a unique (its record's quality bits all set), whose
-    /// record's values take its template's scale ([`Self::item_level`], #1701, #1709).
-    pub(crate) fn piece(&self, dropped: &Dropped) -> bool {
-        let unique = (self.record_of(dropped).word >> 16) & 0xF == 0xF;
-        self.set_name(dropped.item).is_some() || unique
-    }
-
     /// The level that `dropped` asks of the hero that would use it, its object's `+0x14`, which the
     /// use's test weighs (`0x5BEB30`) and its tooltip tells, the one of the other (#2742): of its
-    /// level ([`Self::item_level`], `0x5D3AB0`, #1303) where its maker gave it values, where it is
-    /// a set's piece or a unique, its record's values at its template's scale (seen: the sword
-    /// 1712 of the level 30 asked 22, #1709), or where its sockets hold items (`0x5C0810`, #1661);
-    /// another's as its record holds it.
+    /// level ([`Self::item_level`], `0x5D3AB0`, #1303; seen: the sword 1712 of the level 30 asked
+    /// 22, #1709; the sword 1764 asked 21 and the shield 1202 asked 6 where their files hold 5 and
+    /// 1, #2743), a potion's, a book's and a gold pile's as its file holds it.
     pub(crate) fn asked_level(
         &self,
         dropped: &Dropped,
         rules: &opensacred_rules::fight::Rules,
     ) -> u32 {
-        if dropped.values.is_some() || self.piece(dropped) || !dropped.socketed.is_empty() {
+        if self.worked_out(dropped) {
             opensacred_rules::equipment::asked_level(self.item_level(dropped, rules))
         } else {
             u32::from(self.record_of(dropped).asked)
@@ -1721,6 +1724,8 @@ pub struct Throw {
     pub level: Option<u32>,
     pub key: u8,
     pub amount: Option<u32>,
+    /// As its type's record holds it, made by no item maker (a script's item, #2743).
+    pub plain: bool,
 }
 
 /// Throws the item of `throw` as a death's drop is thrown (the command `item`, #525); a line of
@@ -1739,15 +1744,24 @@ pub fn throw_item(
         Some(amount) => amount,
         None => tables.rules.gold(level, &mut dice.0),
     };
-    let dropped = drops::thrown(
-        (&tables.catalogue, &tables.templates),
-        (
-            tables.rules.sockets(),
-            difficulty.map(|d| d.0).unwrap_or_default(),
-        ),
-        (request.item, level, request.key, amount),
-        &mut dice.0,
-    )
+    let dropped = if request.plain {
+        let known = tables.catalogue.kind(request.item).is_some()
+            || tables.categories.contains_key(&request.item);
+        known.then(|| Dropped {
+            key: PLAIN_KEY,
+            ..tables.held_item(request.item, 0, None)
+        })
+    } else {
+        drops::thrown(
+            (&tables.catalogue, &tables.templates),
+            (
+                tables.rules.sockets(),
+                difficulty.map(|d| d.0).unwrap_or_default(),
+            ),
+            (request.item, level, request.key, amount),
+            &mut dice.0,
+        )
+    }
     .ok_or_else(|| format!("item {} is not in the items' table", request.item))?;
     let line = format!("thrown: {}", listed(std::slice::from_ref(&dropped)));
     throw(
@@ -1907,11 +1921,11 @@ mod tests {
         )
     }
 
-    /// Tables of no files but the type `item`'s record: its word `+0x04`, its values, the bytes
-    /// `+0x14` to `+0x1B` that its file holds, and a template of the scale `scale` for it.
+    /// Tables of no files but the type `item`'s record of the category `category`, as
+    /// [`Tables::read`] gives it: its word `+0x04`, its values at the scale of its template, of
+    /// the scale `scale`, and the bytes `+0x14` to `+0x1B` that its file holds.
     fn tables_of(
-        item: u32,
-        word: u32,
+        (item, word, category): (u32, u32, u8),
         values: fight::ItemValues,
         bytes: [u8; 8],
         scale: u32,
@@ -1925,6 +1939,10 @@ mod tests {
             entries: Vec::new(),
         }];
         let templates = fight::Templates::new(&modifiers, &[]);
+        let values = fight::ItemValues {
+            scale: templates.scale(item),
+            ..values
+        };
         Tables {
             rules: Rules::of(None),
             catalogue: Catalogue::new(&[], &[], &[], &templates),
@@ -1933,7 +1951,7 @@ mod tests {
             sizes: HashMap::new(),
             poses: HashMap::new(),
             in_slot: HashMap::new(),
-            categories: HashMap::new(),
+            categories: HashMap::from([(item, category)]),
             rune_arts: HashMap::new(),
             records: HashMap::from([(item, (word, 0, values))]),
             prices: HashMap::new(),
@@ -1954,29 +1972,33 @@ mod tests {
     #[test]
     fn the_use_asks_the_level_that_the_tooltip_tells() {
         let rules = opensacred_rules::fight::Rules::of(None);
-        // A dagger worth 21, the level 1 of its values as they are and asking 1, as its file
-        // holds it, but the level 18 at its template's scale 30 (`100·21/30` 70, `(70 − 25)·100/250`
-        // 18) and asking 13 (`⌊27·0.8 − 8.5⌋`), as the client works it out (#2742).
+        // A dagger worth 21, the level 9 and asking 4 as its file holds them, but the level 18 at
+        // its template's scale 30 (`100·21/30` 70, `(70 − 25)·100/250` 18) and asking 13
+        // (`⌊27·0.8 − 8.5⌋`), as the client works them out as it loads the types (#2742, #2743).
         let values = fight::ItemValues {
             damage: [[20.0, 22.0], [0.0; 2], [0.0; 2], [0.0; 2]],
             ..fight::ItemValues::default()
         };
-        let bytes = [1, 0, 0, 0, 0, 1, 0, 0];
-        // A unique (its quality bits all set) of no values of its own, as the console or a script
-        // gives it: the level of its template's scale, in the tooltip and in the use's test alike.
-        let unique = tables_of(2013, 0xF << 16, values, bytes, 30);
-        let dropped = unique.held_item(2013, 0, None);
-        assert_eq!(unique.item_level(&dropped, &rules), 18);
-        assert_eq!(unique.asked_level(&dropped, &rules), 13);
-        assert_eq!(unique.asks(&dropped, &rules).level, 13);
-        // Another item of no values of its own asks as its record holds it.
-        let plain = tables_of(2013, 0, values, [4, 0, 0, 0, 0, 9, 0, 0], 30);
-        let dropped = plain.held_item(2013, 0, None);
-        assert_eq!(plain.item_level(&dropped, &rules), 9);
-        assert_eq!(plain.asked_level(&dropped, &rules), 4);
-        assert_eq!(plain.asks(&dropped, &rules).level, 4);
+        let bytes = [4, 0, 0, 0, 0, 9, 0, 0];
+        // A unique (its quality bits all set) and another item of no values of its own, as the
+        // console or a script gives them: the level of the template's scale, in the tooltip and in
+        // the use's test alike, the values at that scale for the pace's slowing.
+        for word in [0xF << 16, 0] {
+            let tables = tables_of((2013, word, 5), values, bytes, 30);
+            let dropped = tables.held_item(2013, 0, None);
+            assert_eq!(tables.item_level(&dropped, &rules), 18);
+            assert_eq!(tables.asked_level(&dropped, &rules), 13);
+            assert_eq!(tables.asks(&dropped, &rules).level, 13);
+            assert_eq!(tables.values(&dropped).scale, 30);
+        }
+        // A potion's as its file holds them, none.
+        let potion = tables_of((5171, 0, 9), values, [0; 8], 30);
+        let dropped = potion.held_item(5171, 0, None);
+        assert_eq!(potion.item_level(&dropped, &rules), 0);
+        assert_eq!(potion.asked_level(&dropped, &rules), 0);
         // A made item, of its maker's values at their scale.
-        let made = plain.held_item(
+        let tables = tables_of((2013, 0, 5), values, bytes, 0);
+        let made = tables.held_item(
             2013,
             5,
             Some(fight::ItemValues {
@@ -1984,8 +2006,8 @@ mod tests {
                 ..values
             }),
         );
-        assert_eq!(plain.asked_level(&made, &rules), 13);
-        assert_eq!(plain.asks(&made, &rules).level, 13);
+        assert_eq!(tables.asked_level(&made, &rules), 13);
+        assert_eq!(tables.asks(&made, &rules).level, 13);
     }
 
     #[test]
