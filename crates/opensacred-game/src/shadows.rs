@@ -16,17 +16,17 @@
 //! each mesh has a second copy, of [`MaskMaterial`], that the mask's camera ([`MaskCamera`]), a
 //! child of the world's, draws into [`ShadowMask`] before the world, wherever any shadow lies; a
 //! shadow's pixel then takes its darkness from that mask blurred about it, full where the shadow
-//! reaches a few pixels on every side and none at its edge. On a model, the mask is that of the
-//! shadows in front of it alone, which darken it, by the nearest shadow's caster that the mask
-//! keeps at each pixel: another's shadow under a model, which the model hides, kept the edge of a
-//! shadow that fell on the model sharp (#2722). At the highest detail alone (#2628): at the medium
-//! the shadows are the original's, sharp, the mask's camera off.
+//! reaches a few pixels on every side and none at its edge. A shadow's mask is its own silhouette
+//! and those of the shadows in front of its plane, by the nearest shadow's caster that the mask
+//! keeps at each pixel: another's shadow behind it, a chest's own under the chest that it falls
+//! on, which the chest hides, or a further creature's on the ground, kept its edge sharp (#2722,
+//! #2737). At the highest detail alone (#2628): at the medium the shadows are the original's,
+//! sharp, the mask's camera off.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::camera::{CameraUpdateSystems, ClearColorConfig, RenderTarget};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
-use bevy::image::ImageSampler;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
@@ -90,7 +90,6 @@ pub struct ShadowMaterial {
     #[storage(2, read_only)]
     floors: Handle<ShaderBuffer>,
     #[texture(3)]
-    #[sampler(4)]
     mask: Handle<Image>,
     /// Its x 1 for the soft edges, at the highest detail, and 0 for the original's sharp ones
     /// (#2628).
@@ -236,16 +235,14 @@ impl Shared {
     }
 }
 
-/// The shadows' mask at `size`: drawn into and sampled, linearly between its pixels.
+/// The shadows' mask at `size`: drawn into and read pixel by pixel, each a caster's (#2737).
 fn mask_image(size: UVec2) -> Image {
-    let mut image = Image::new_target_texture(
+    Image::new_target_texture(
         size.x.max(1),
         size.y.max(1),
         TextureFormat::Rgba8Unorm,
         None,
-    );
-    image.sampler = ImageSampler::linear();
-    image
+    )
 }
 
 pub fn setup(
