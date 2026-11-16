@@ -161,6 +161,7 @@ The item maker writes the level it makes an item at into the item (`0x5D55FE`), 
 The sockets' code (`0x5C0430`) takes the level back from `+0x14` the other way, `⌊(+0x14 + 9)/0.8 − 8.5⌋`.
 For example the Seraphim's staff 3809 of 1018 (35 to 42 physical and 8 to 15 magic, its template's scale 113) is worth 50, `100·50/113` 44.25, `(44.25 − 25)·100/250` 7.7, the level 8, and `+0x14` `⌊17·0.8 − 8.5⌋` 5, as #448's driver read in the running original where the file has 10 and 6, which follow the same rule for `+0x14`.
 `opensacred_rules::fight::item_level` works it out so, its sockets left out (#844), and the game raises it to the highest of its sockets' items' levels, each of its values (`drops::Tables::sockets_level`, #1661).
+The level an item asks is one function's, `drops::Tables::asked_level`, which the tooltip tells and the use's test weighs (#2742): of the level worked out where the item's maker gave it values, where it is a set's piece or a unique (its record's values at its template's scale, #1701, #1709) or where its sockets hold items, else its record's `+0x14` as the file holds it; whether the other types of a template take its scale as well is #2743.
 
 ## The worth of an item (`0x5D3AB0`)
 
