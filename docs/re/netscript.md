@@ -284,6 +284,17 @@ Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless
   The Underworld's `the_end_of_uw` lifts Vilya at 1 % and sets her to 0 again in the same run, which lays her down again, her dialogue `endofall` holding her body; `Game_over` lifts her at 100.
   Since #2477 `npcs::script_healths` lifts a dead creature of the name so where it kept its mind aside as it died (`npcs::Stashed`, which a creature that the scripts name keeps), a later `SetHP` of the same run finding it standing.
 
+## `EquipNPC`
+
+Read off the client with Ghidra 2026-11-16 (#2752), **confirmed** by code unless marked otherwise.
+
+- `EquipNPC` (7, the walker's case `0x47595D`, `0x481D80`) takes a creature's name (`01`, a `res:` key resolved as `CreateNPC`'s, `sdk_RESOLVE_CONTENT`) and its items (each `02`, one or more); `7B` or `9E` set a flag (none of the trees' 164 records carries them).
+- With no item it calls `0x54CCC0(1)` on the creature (not read); else, for a creature without `+0x200` bit `0x2000`, each item that `0x54B0E0` admits is made (`sdk_OBJ_CREATE_NPOS`), for a creature above the id 16 by the item maker at the creature's level (`+0x3FE`, `0x5D5080`; with the flag by `0x5C29A0`), and equipped as `CreateNPC`'s items are (`0x54B130`, the slot by `0x54ACC0`); a creature with the bit has the pairs kept in the interpreter's list `+0x7654` (not read).
+- **Seen** 2026-11-16: the Daemon's quest 209's captive Seraphim (`res:17436`, type 132), whom the start makes and then equips with 4015, 4011, 4013, 4014 and 4012 (`SeraShoulder02`, `SeraArmor02`, `SeraBoots02`, `SeraGloves02`, `SeraBelt02`), wears that armour; a stable's horse, which the start equips with its bridle, stands bare, the bridle in its slot 1 that no draw reads (docs/re/horses.md, "The bridle").
+- Of the Daemon's tree's 164 records, 143 name a creature that a `CreateNPC` before them in the same function makes (the start's guards, captains, traders, horses; the regions' and the quests' creatures made and equipped at once), and 21 one made elsewhere (the quests' changes, as `change1203`'s `res:17167`).
+
+`opensacred-game` follows it since #2752 (`npcs`): an `EquipNPC` of the start, a region's, a sector's or a script's function puts its items after the items of the placement of that name made before it in the same records (`npcs::set_states`, `Makers::equip`), which holds and wears them as a `CreateNPC`'s, a bridle worn and not drawn; one that names a creature already in the world is not followed (#2756).
+
 ## The deaths' functions
 
 Read 2026-10-26 (#656) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise.
