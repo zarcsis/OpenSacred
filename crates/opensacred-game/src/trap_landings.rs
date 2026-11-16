@@ -4,9 +4,9 @@
 //! a column of fire or fading out (`opensacred_rules::particles::PentagramKiller`); the
 //! confusion 871 of 1051, a turning rune circle, a small one flying up from it and a helix
 //! sliding up about it (`ConfusionCircle`); and the ground's poison 792 of 1052, a green stain
-//! with a circle turning under it and green smoke rising (`GroundPoison`). The glows and the
-//! smoke are added and untinted by the night; the stain lies over the ground in the world's
-//! camera.
+//! with a circle turning under it where a hero threw the ball and green smoke rising
+//! (`GroundPoison`, #2746). The glows and the smoke are added and untinted by the night; the
+//! stain lies over the ground in the world's camera.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -23,12 +23,12 @@ use crate::spawning::Rng;
 const GROUND_LIFT: f32 = 0.5;
 
 /// What a trap's ball made where it landed, which takes its look: the pentagram of its seconds,
-/// the confusion or the ground's poison (`spells`).
+/// the confusion or the ground's poison, whether a hero threw it (`spells`).
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) enum Landing {
     Pentagram(f32),
     Confusion,
-    Poison,
+    Poison { by_hero: bool },
 }
 
 /// The looks' dice.
@@ -93,7 +93,9 @@ impl Looks {
 enum System {
     Pentagram(PentagramKiller),
     Confusion(ConfusionCircle),
-    Poison(GroundPoison),
+    /// The poison and whether its circle turns under it, a hero's trap's alone (`0x778980`
+    /// draws it where the system's `+0xA9` is 0, a caster of an id up to 16, #2746).
+    Poison(GroundPoison, bool),
 }
 
 /// A landing's look, the pentagram's outliving its object while it bursts or fades: its object
@@ -129,11 +131,14 @@ fn show(
                 looks.confusion.clone(),
                 None,
             ),
-            Landing::Poison => (
-                System::Poison(GroundPoison::new()),
-                looks.poison.clone(),
-                Some(1),
-            ),
+            Landing::Poison { by_hero } => {
+                let [circle, stain, smoke] = looks.poison.clone();
+                (
+                    System::Poison(GroundPoison::new(), by_hero),
+                    [circle.filter(|_| by_hero), stain, smoke],
+                    Some(1),
+                )
+            }
         };
         let parts: [Handle<Mesh>; 3] = std::array::from_fn(|_| meshes.add(empty()));
         let mut shown = commands.spawn((
@@ -142,7 +147,7 @@ fn show(
             DespawnOnExit(AppState::InGame),
         ));
         // The ground poison's Direct3D light at its place (`0x778760`, `0x778980`).
-        if matches!(*landing, Landing::Poison) {
+        if matches!(*landing, Landing::Poison { .. }) {
             let owner = shown.id();
             shown.commands().spawn(crate::fx_lights::child(
                 crate::fx_lights::POISON,
@@ -270,17 +275,19 @@ fn run(
                     [r, g, b, confusion.alpha()],
                 );
             }
-            System::Poison(poison) => {
+            System::Poison(poison, circle) => {
                 if gone {
                     commands.entity(entity).despawn();
                     continue;
                 }
                 poison.update(dt, &mut dice.0);
-                flat(
-                    &mut quads[0],
-                    (particles::POISON_CIRCLE_HALF * s, poison.turn(), 0.0),
-                    particles::POISON_CIRCLE_COLOUR,
-                );
+                if *circle {
+                    flat(
+                        &mut quads[0],
+                        (particles::POISON_CIRCLE_HALF * s, poison.turn(), 0.0),
+                        particles::POISON_CIRCLE_COLOUR,
+                    );
+                }
                 flat(
                     &mut quads[1],
                     (particles::POISON_STAIN_HALF * s, 0.0, 0.0),

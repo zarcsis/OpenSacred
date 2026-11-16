@@ -1553,6 +1553,7 @@ The spells' executor still makes 782 for the spell 6 and 792 for the spell 12 (`
 - Its draw: its light; for a player's trap (the system's `+0xA9` 0) a circle of `FX_MAGICCIRCLE03` flat on the ground, of the half side 65, in (160, 160, 160), turned by 0.2 times its clock, added whole; a stain of `FX_GROUNDPOISON` flat over it, of the half side 70, laid by its alpha; its puffs, billboards of `PARTICLE_SMOKE03` of the flags `0x109` (the ramp's colour, added, the frame of the grid of 2 by their byte).
 
 `opensacred-game` draws them since #1092 (`trap_landings`, `opensacred_rules::particles::{PentagramKiller, ConfusionCircle, GroundPoison, helix_ribbons}`): each landing of `spells` takes its look, the glows, the sparks, the puffs, the helix and the smoke added and untinted by the night, the poison's stain in the world's camera; the pentagram's look outlives its object while it bursts or fades out; their flat parts lie level over the ground, not hidden by it where it rises, and the poison's Direct3D light follows since #2106.
+The poison's circle turns under a hero's trap alone, a creature's showing the stain, the smoke and the light (#2746): **seen** 2026-11-16 at the Daemon's start, where a creature of the type 34 throws its trap at the hero, the original's without the circle.
 **Seen** 2026-11-05 beside the original: in both the poison's green stain over its turning circle in green smoke, the confusion's turquoise rune circle with its small purple one, and the pentagram's bluish ring and star of sparks drawing themselves.
 
 ## The laser beams
