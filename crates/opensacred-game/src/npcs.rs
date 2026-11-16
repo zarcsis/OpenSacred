@@ -439,8 +439,8 @@ struct Placement {
     plain: bool,
     /// The clips an NPC plays.
     clips: ClipNames,
-    /// An NPC's name in the scripts (`CreateNPC`'s `0x01`, lower-cased), by which their records
-    /// name it, and the share of its most health that a `SetHP` gave it, in per cent (#1001).
+    /// An NPC's or an object's name in the scripts (`CreateNPC`'s or `CreateObj`'s `0x01`,
+    /// lower-cased), by which their records name it (an object's a `DelNPC`'s, #2758), and the share of its most health that a `SetHP` gave it, in per cent (#1001).
     name: Option<String>,
     health_share: Option<u32>,
     /// An NPC's dialogue, its name in the dialogues' table, which the hero speaks to it by (`+0x245`,
@@ -1103,6 +1103,9 @@ pub struct Npcs {
     /// The placements of the quests' items that the hero took, which their sectors do not place
     /// again ([`QuestItem`], #1256).
     taken: HashSet<usize>,
+    /// The placements of the objects that a play's `DelNPC` removed by their names, which their
+    /// sectors do not place again (#2758); a save's records remove them again as it loads.
+    removed: HashSet<usize>,
     /// The level that each placement's item lying was made at the first time it was placed,
     /// which its sector's later comings make it at again (`CreateObj`'s, #1125).
     laid: HashMap<usize, u32>,
@@ -1190,6 +1193,11 @@ pub struct Special(pub u32);
 /// (`merchant`, #1959), where its entity is another.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlacementIndex(pub usize);
+
+/// The name of a script's object, its `CreateObj`'s `0x01` in lower case, by which a `DelNPC`
+/// destroys it (`0x497F80`, #2758); a creature's is its [`ScriptName`].
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct ObjectName(pub String);
 
 #[derive(Clone)]
 enum Source {
@@ -3748,7 +3756,7 @@ impl Makers {
             tag,
             clips,
             plain: false,
-            name: (record.kind == CREATE_NPC).then(|| name_of(ops)).flatten(),
+            name: name_of(ops),
             health_share: None,
             talk: (record.kind == CREATE_NPC)
                 .then(|| {
@@ -4489,6 +4497,7 @@ impl Npcs {
             played: HashSet::new(),
             records: Vec::new(),
             taken: HashSet::new(),
+            removed: HashSet::new(),
             emptied: HashSet::new(),
             laid: HashMap::new(),
             dialogues,
@@ -5247,8 +5256,9 @@ fn place_index(
     (armoury, made): (Option<Armoury>, Option<Laying>),
     streamer: &mut Streamer,
 ) {
-    // A quest's item that the hero took lies no more (#1256).
-    if npcs.taken.contains(&index) {
+    // A quest's item that the hero took lies no more (#1256), nor an object that a `DelNPC`
+    // removed (#2758).
+    if npcs.taken.contains(&index) || npcs.removed.contains(&index) {
         return;
     }
     // An `Enter`'s creature, made again as its `CreateNPC` runs again, of the type that its
@@ -5418,6 +5428,12 @@ fn place_index(
     }
     if !placement.object {
         commands.entity(entity).insert(PlacementIndex(index));
+    }
+    // An object goes by its name for a `DelNPC` (#2758).
+    if placement.object
+        && let Some(name) = &placement.name
+    {
+        commands.entity(entity).insert(ObjectName(name.clone()));
     }
     // An `Enter`'s creature keeps what it was made of, which a `RegionChange` changes (#1064).
     if placement.made.0 && !placement.object {
@@ -8774,8 +8790,8 @@ impl Npcs {
 
     /// What the play's `SetGroupState`s and `DelNPC`s do (#1021): each given to the placements
     /// of its group or name here, but those that the records after it made (`born`, [`Added`]),
-    /// a removal keeping them from being placed again, and returned, in order, for the creatures
-    /// in the world ([`script_records`]). Quest 45's `Init45` removes Prince Valor and its
+    /// a removal keeping them from being placed again, an object's of its name too (#2758), and
+    /// returned, in order, for the creatures and the objects in the world ([`script_records`]). Quest 45's `Init45` removes Prince Valor and its
     /// `QIS_OnEnter45` makes him again at once, who stands so (#2448).
     fn regroup(&mut self, records: &[Record], born: &[(usize, usize)]) -> Vec<Regrouped> {
         let mut regrouped = Vec::new();
@@ -8808,7 +8824,15 @@ impl Npcs {
                     Regrouped::Group(state) => placement.group == state.group,
                     Regrouped::Removed(name) => placement.name.as_ref() == Some(name),
                 };
-                if !member || placement.object || later.contains(&index) {
+                if !member || later.contains(&index) {
+                    continue;
+                }
+                // An object of the name is destroyed for good (`0x497F80`), its sector's later
+                // comings making it no more.
+                if placement.object {
+                    if matches!(change, Regrouped::Removed(_)) {
+                        self.removed.insert(index);
+                    }
                     continue;
                 }
                 match &change {
@@ -10602,7 +10626,7 @@ pub(crate) fn script_records(
         ResMut<ScriptAttacks>,
         ResMut<crate::creature_casts::PendingCasts>,
     ),
-    (dying, mut particles, traders): (
+    (dying, mut particles, traders, objects): (
         Query<
             (
                 Entity,
@@ -10615,6 +10639,7 @@ pub(crate) fn script_records(
         >,
         Particles,
         Query<&Trades>,
+        Query<(Entity, &ObjectName)>,
     ),
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
@@ -10843,7 +10868,13 @@ pub(crate) fn script_records(
                 if state.removes { "remove" } else { "set" },
                 state.group.map_or(0, |group| group & !SCRIPT_GROUP)
             ),
-            Regrouped::Removed(name) => bevy::log::info!("npcs: the scripts remove {name}"),
+            Regrouped::Removed(name) => {
+                // The objects of the name too (`0x497F80`, #2758).
+                for (object, _) in objects.iter().filter(|(_, named)| named.0 == *name) {
+                    commands.entity(object).despawn();
+                }
+                bevy::log::info!("npcs: the scripts remove {name}");
+            }
         }
     }
     morphed.0.extend(morphs(&records));
