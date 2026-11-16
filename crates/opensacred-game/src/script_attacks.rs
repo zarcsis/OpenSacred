@@ -217,8 +217,10 @@ fn send(attacker: Entity, target: Target, groups: bool, creatures: &mut Creature
     info!("script_attacks: {attacker} sent at {target:?}: {goes}");
 }
 
-/// Carries out the scripts' teleports: a creature drawn on the screen casts `PHASEN`, its sound
-/// at it and the teleport's sights at its feet and at its end (774 and 775, `teleports`, #2751),
+/// Carries out the scripts' teleports: a creature drawn on the screen casts `PHASEN`, its cast's
+/// clip once (the slot of `0x522030` for the spell 1, 163 but for the dragons and Anducar, #2753),
+/// its sound at it and the teleport's sights at its feet and at its end (774 and 775,
+/// `teleports`, #2751),
 /// and stands at its end 3.35 s over its cast's rate later, as the hero's teleport takes it
 /// (`spells::teleport`): along the line to the place in steps, as far as the spell's value at the
 /// level that a creature lacking it casts it at, `⌊level / 5⌋ + 1`, or onto a cell of negative
@@ -289,7 +291,16 @@ fn phase(
                     }
                     let rate = opensacred_rules::fight::CAST_SPEED / 100.0;
                     phase.left = Some(spells::TELEPORT_TIME / rate);
-                    commands.entity(entity).remove::<Walk>();
+                    let creature = mind.map_or(0, |mind| mind.creature);
+                    let slot = opensacred_rules::casts::clip(
+                        spells::TELEPORT,
+                        creature,
+                        opensacred_rules::casts::dragon(creature),
+                    );
+                    commands
+                        .entity(entity)
+                        .remove::<Walk>()
+                        .insert(crate::npcs::ScriptClip::cast(slot));
                     crate::teleports::spawn(&mut commands, entity, (here, phase.to), rate);
                     continue;
                 }
