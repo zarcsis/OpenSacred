@@ -374,6 +374,19 @@ pub fn asked_level(level: u32) -> u32 {
     asked
 }
 
+/// The categories of the potions and of the books (`items.pak +0x2E`; `0x428110`, `0x428490`).
+const POTIONS: u8 = 9;
+const BOOKS: u8 = 16;
+
+/// Whether the client works out the level of the item type `item` of the category `category`, and
+/// the level it asks, of its record's values at its template's scale as it loads the types
+/// (`0x5D3AB0` at `0x425AEB`, docs/re/items.md, "The level an item asks", #2743): every type's
+/// but a potion's, a book's and the gold piles' ([`crate::drops::GOLD`]), which keep their file's
+/// `+0x19` and `+0x14`.
+pub fn worked_out(item: u32, category: u8) -> bool {
+    !matches!(category, POTIONS | BOOKS) && !crate::drops::GOLD.contains(&item)
+}
+
 /// The bit among [`CLASSES`] of the class whose items a creature of the type `creature` takes
 /// (`0x5BF810`): a hero's own ([`class_bit`]), the Seraphim's for the type 132, the Dark Elf's
 /// for 133, 319 to 321, 326, 327 and 693, the Wood Elf's for 105 and 134; none for another.
@@ -1002,6 +1015,22 @@ mod tests {
         assert_eq!(asked_level(30), 22);
         assert_eq!(asked_level(8), 5);
         assert_eq!(asked_level(1), 1);
+    }
+
+    #[test]
+    fn the_client_works_out_every_types_level_but_the_potions_books_and_gold() {
+        // A sword (category 5), a shield (13), a ring (8), a rune (28) (seen: the sword 1764 of
+        // the level 29 asked 21, the shield 1202 of 10 asked 6, #2743).
+        for (item, category) in [(1764, 5), (1202, 13), (7511, 8), (2500, 28)] {
+            assert!(worked_out(item, category), "{item}");
+        }
+        // A potion, a book, the gold piles.
+        assert!(!worked_out(3904, POTIONS));
+        assert!(!worked_out(4097, BOOKS));
+        for gold in crate::drops::GOLD {
+            assert!(!worked_out(gold, 15), "{gold}");
+        }
+        assert!(worked_out(5131, 15) && worked_out(5136, 15));
     }
 
     #[test]

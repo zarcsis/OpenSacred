@@ -749,6 +749,8 @@ The offset of `ITEMS0n.PAK` is the sum of the texture manager's counts of the `n
 - **WPN v8**, 4,883 × 258 B (the array is followed by 4,883 × 64 zero bytes of reserve): float `+0x00/+0x10/+0x18`, `u8 +0x1C (1..4)`, `+0x1D (1..5)`, `+0x22 (1..3)`, `char name @+0x28` (German internal names for ~200 unique items), `u32 id @+0x80` (925…8,047, unique, monotonic), mask `u8 +0x84`, subtype `+0x85`, flags `+0x86`, `u32 +0x88`, `u32 +0x94`, `u16 +0x98`; byte 30 is the weapon kind, by which the client picks the clips (above).
   The UI names come from `global.res` (hypothesis).
   Medium confidence; an estimate of 5–10 days for the semantics.
+- **The levels on file** (`+0x94`, `+0x99`: the item record's `+0x14`, the level it asks, and `+0x19`, its own level), **confirmed** on the files 2026-11-16 (#2743): every record but the potions', the books' and the gold piles' holds the level that `0x5D3AB0` works out of its values and the level it asks of that (docs/re/items.md, "The level an item asks"), as if its type had no template, and none asks an attribute (`+0x95` to `+0x98` all 0).
+  The client works both out anew at its template's scale as it loads the types, so that the 2,173 records of a template whose scale moves the level hold a level the game never shows (the sword 1764 holds 9 and 5 and shows 29 and 21); the potions (category 9) and the books (16) hold the level 0 and keep their bytes, the level asked 0 but for one potion and 85 of the 143 books that ask 1, and the gold piles 5132 to 5135 hold 0 and 0.
 
 ### 6.3 bin/*.bin and the scripts/*.txt sources
 

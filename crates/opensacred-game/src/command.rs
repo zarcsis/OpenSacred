@@ -192,6 +192,10 @@ enum Command {
         /// Gold's pieces, a pile's by the level by default
         #[arg(long)]
         amount: Option<u32>,
+        /// As its type's record holds it, made by no item maker, as a script's item or the
+        /// original's driver's `wear` makes one
+        #[arg(long)]
+        plain: bool,
     },
     /// The hero's level, its experience at the level's start: its health, values and points
     /// follow as at a level-up
@@ -1394,6 +1398,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             level,
             key,
             amount,
+            plain,
         } => {
             in_game(world)?;
             let (x, y) = cell_at(world, at)?;
@@ -1416,6 +1421,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 level,
                 key,
                 amount,
+                plain,
             };
             let line = world
                 .run_system_cached_with(crate::drops::throw_item, throw)
