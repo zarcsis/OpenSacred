@@ -199,7 +199,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/exports.rs`: The heroes' exports
 - `crates/opensacred-game/src/fades.rs`: The scripts' fades
 - `crates/opensacred-game/src/fight.rs`: The fight as the game plays it
-- `crates/opensacred-game/src/figures.wesl`: The heroes' figures of the choice of the hero
+- `crates/opensacred-game/src/figures.wesl`: The heroes' figures of the choice of the hero and the interface's pictures of the items' models
 - `crates/opensacred-game/src/files.rs`: The game's files
 - `crates/opensacred-game/src/fire_skins.rs`: The look of the fire skin and of the fire spiral's flames
 - `crates/opensacred-game/src/first_start.rs`: The packaged game's first start
@@ -222,7 +222,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/glad_sights.rs`: The Gladiator's arts' sights
 - `crates/opensacred-game/src/glance.rs`: The Gladiator's 1016's effect
 - `crates/opensacred-game/src/glitter.rs`: The glitter over the items lying on the ground and flying as they are thrown
-- `crates/opensacred-game/src/glow.wesl`: The glow of the health's red ring
+- `crates/opensacred-game/src/glow.wesl`: The glow of a picture of the interface
 - `crates/opensacred-game/src/goblin_impacts.rs`: The goblin mages' ball's impacts
 - `crates/opensacred-game/src/grenade_impacts.rs`: The mortar shells' impacts
 - `crates/opensacred-game/src/ground.wesl`: The ground's fragment shader
@@ -351,7 +351,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/skies.rs`: The weather drawn and heard
 - `crates/opensacred-game/src/skies.wesl`: The weather drawn over the world
 - `crates/opensacred-game/src/skins.rs`: The skins over a creature's model
-- `crates/opensacred-game/src/sonar.wesl`: The red alarm's ring about the hero's portrait
+- `crates/opensacred-game/src/sonar.wesl`: A sonar's ring
 - `crates/opensacred-game/src/soul_sparks.rs`: The look of the souls that fly to the Dark Elf's soulcatcher
 - `crates/opensacred-game/src/soulcatchers.rs`: The look of the Dark Elf's soulcatcher
 - `crates/opensacred-game/src/souls.rs`: The Dark Elf's soulcatcher 1044
