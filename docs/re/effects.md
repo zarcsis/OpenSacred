@@ -1237,6 +1237,23 @@ Read 2026-11-10 for #2516 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` lays it since #2516 (`marks::puddle`, `opensacred_rules::particles::Puddle`; docs/re/fight.md, "The bodies' end") under `[gameplay] violence`.
 
+## The blood splashes
+
+Read 2026-11-17 for #2773 in Ghidra (**confirmed** by code unless marked otherwise).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| The blood a blow leaves on the ground | 903 `FX_BLOODPUDDLE` | `cParticleSystem_bloodpuddle` (virtual table `0x898858`, constructor `0x7A58E0`) | `0x7A5C30`, `0x7A5970`, `0x7A59E0` |
+
+- **Who makes it**: a bleed (772, "The bleed and the parade") whose last droplet is gone, but for the gib sets 3 and 4 (`0x76AEF0`), asks the action 1 for the type 903 with its blood's colour as the data, at offsets of `U·30 − 15` along each of the ground's axes from its place; the action (`0x5B34A8`), with `VIOLENCE` on (`0x819FD0`), makes the object there on the ground (`0x636310`) and starts it with the FX event `0x74`, its `+0x38` 25 and its `+0x3C` the colour.
+- **Its start** (`0x7A5C30`): its clock 0; one layer of the life −20 a second (12.75 s); one block of the size 3 ± 2, the angle π ± π, the place ± the event's `+0x38` (25) along x and y, a frame at random below 4, every 0.04 s at the detail 2 (1.5 and 2.2 times that below); its ramp the colour, opaque over 220 entries and to an alpha of 0 over the last 36.
+- **Its run** (`0x7A5970`): its blobs age (`0x7640C0`); while its clock is below 1.1 s new ones fall (`0x764760`, up to its 100), about 27; past it, it ends with its last blob, about 14 s after its start.
+- **Its draw** (`0x7A59E0`): `FX_BLOB_ALL`, no faces culled, its particles as billboards (`0x761B00`) of the flags `0x14C` (the ramp's colour, turned by their angles, tinted by the light at the object, the frame from the particle's byte) and the grid 2, laid over by their alpha, in a matrix of its own (`0x653710` of the upright, **hypothesis**: the ground's plane, so that the blobs lie flat, as the maintainer's frame shows them); a type of the kind 6, drawn under everything on the ground.
+- **Seen** in the maintainer's frame (2026-11-17): small red blobs scattered on the floor about a wounded soldier.
+
+`opensacred-game` lays them since #2773 (`marks::splashes`, `blow_sights`, `opensacred_rules::particles::{Splashes, bleed_splashes, splash_offset}`) under `[gameplay] violence`: as a bleed's last droplet goes, at its creature's place on the ground and the offsets (**estimate**: the creature's place for the system's, the offsets in the models' units), each blob a flat square of its half side, turned, of its frame, in the ramp's colour, tinted by the night with the ground.
+**Seen** 2026-11-17 in the game: a goblin struck eight times, red blobs scattered on the floor about it.
+
 ## The dragons' fire
 
 Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwise).
@@ -2007,7 +2024,8 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws both since #1092 (`blow_sights`, `opensacred_rules::particles::{Bleed, Parade, blood_colour, blow_bleeds}`), from each strike that `fight::resolve` resolves (`fight::Struck`, its damage and the target's most health), at the struck creature's neck, the bleed's droplets where they flew, the parade's streaks riding with it in the camera's plane, both just behind its model (`fx::Orders`, #2178); a hero bleeds red.
 **Seen** 2026-11-07 in the game (not beside the original): the Seraphim of level 1 struck for 12 by a bandit, a spray of red droplets beside her neck; at her miss, ten golden streaks bursting from her neck up and aside.
-Not followed: the puddle 903, the cell's bit `0x800`, and the clash's sound, which `sfx` plays its own way.
+Since #2773 the bleed leaves its splashes (903, "The blood splashes").
+Not followed: the cell's bit `0x800`, and the clash's sound, which `sfx` plays its own way.
 
 ## The force of hell
 
