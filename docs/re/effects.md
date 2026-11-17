@@ -1258,7 +1258,7 @@ Read 2026-11-17 for #2773 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` lays them since #2773 (`marks::splashes`, `blow_sights`, `opensacred_rules::particles::{Splashes, bleed_splashes, splash_offset}`) under `[gameplay] violence`: as a bleed's last droplet goes, at its creature's place on the ground (for the bleed's object's) and the offsets, whole world units along the cells' axes since #2777 (the models' units along the frame's axes before), each blob a flat square of its half side, turned, of its frame, in the ramp's colour, tinted by the night with the ground.
 **Seen** 2026-11-17 in the game: a goblin struck eight times, red blobs scattered on the floor about it.
 **Seen** 2026-11-17 beside the original at one place (#2776): the game's blobs as flat, of the same colour (their pixels' mean (155, 9, 7)) and width (6 pixels at the median), falling as soon after the blow (its bleed's 0.425 s), under the hero as under the goblin.
-They and their spread show a ninth deeper on the screen than the original's (a blob's width to its height 1.59 for the original's 1.86 over a frame), as all that lies flat in the models' frame does under the game's camera of 30° (#2778; docs/re/drawing.md, "The models' shadows").
+They and their spread show a ninth deeper on the screen than the original's (a blob's width to its height 1.59 for the original's 1.86 over a frame), as all that lies flat in the models' frame does under the game's camera of 30° (docs/decisions/drawing.md, "Models and effects seen as the ground is"; docs/re/drawing.md, "The models' shadows").
 
 ## The dragons' fire
 

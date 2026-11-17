@@ -39,6 +39,9 @@ pub const PIXELS_PER_MODEL_HEIGHT: f32 = 1.717_300_2;
 pub const GROUND_BEHIND: f32 = 5_000.0;
 
 /// The camera's pitch below the horizon: sin 30° = 1/2 squeezes a square into a 2:1 diamond.
+/// The models and the effects are seen at it too, where the original's view of them looks down
+/// at atan(1/2): what lies flat in their frame shows √5/2 as deep on the screen and the models
+/// 0.968 as high (docs/decisions/drawing.md, "Models and effects seen as the ground is").
 const PITCH: f32 = FRAC_PI_6;
 /// How far back the camera stands from what it looks at (also in `sprites.wesl`).
 pub const DISTANCE: f32 = 20_000.0;
