@@ -8,7 +8,7 @@
   The converter links the BC7 encoder's kernels, which `intel_tex_2` ships compiled from Intel's ISPC sources, so that no ISPC compiler is needed.
 * **No intermediate C++ layer.**
   The original is decompiled only to understand its formats and rules; the behavior is described in prose in `docs/re/`, implemented independently in Rust and checked by tests written from that description and by observations of the running original (#227).
-  Vectors recorded from the developer's own `Sacred.exe` by the oracle check them as well (§2.3, #363): the fight's levels, hit chance, damage through a resistance and most health so far.
+  Vectors recorded from the developer's own `Sacred.exe` by the oracle check them as well (§2.3, #363): the fight's levels, hit chance, damage through a resistance, most health and factor of the levels, and the game's roll between two bounds.
   Anything made locally while studying the original is never committed.
   VC6 is not needed.
 * **The engine is Bevy 0.20 on wgpu 30.**
@@ -94,6 +94,8 @@ Because GPL-2.0 cannot be combined with the project's Apache-2.0 option, it is a
 Advantages: it works on any OS, does not require running the game, and is deterministic.
 Limitation: it suits "pure" functions: formulas, generators, transformations, and a method whose `this` can be laid out from docs/re's offsets (the stats of `0x5658F0`).
 Its first sets (2026-10-21) covered the levels' ends and the levels of an experience, the hit chance and each kind's damage through its resistance, and the most health; five differences from `opensacred-rules` were found and filed, all five fixed since (#406, #407, #408, #417, #418).
+Two sets followed: the factor of the levels of a creature against a hero (`0x551530`) and the game's roll between two bounds (`0x443B20`), for which the emulated `rand()` answers a script of values as the rules' `Script` dice do (#1433).
+Its `fuzz` runs random inputs through a set's function and through `opensacred-rules`' in one process, and prints the first mismatch shrunk (#1431; docs/03 §3.4).
 Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`) and the running original that Claude Code drives under Frida (#448; docs/03 §3.8).
 
 ## 3. Implementing the logic in Rust without unsafe
@@ -101,16 +103,16 @@ Functions that touch D3D, files or threads cannot be checked this way; for those
 | Original construct | Rust solution |
 |---|---|
 | Class hierarchies with virtual functions (`cObject → cCreature → cCreatureHero`, 410 vtables) | ECS components and enumerations (`enum`) instead of inheritance; traits where polymorphism is needed |
-| 178 effect classes `cParticleSystem_*` with the same structure | one effect description in data (RON) + a shared executor |
+| 178 effect classes `cParticleSystem_*` with the same structure | one shared machinery (the particles, the emitters' layers, the colour ramps) in `opensacred-rules`' `particles`, each effect a function that fills it, in code rather than in data; `opensacred-game` draws them (#1092) |
 | Raw pointers, intrusive lists | indices and Bevy entities |
 | Structures written to files from memory | parsing only in `opensacred-formats` by safe means: our own bounds-checked slice reader `Reader` (decision of 2026-10-16: errors name the record and the offset; data quirks are logic, not layout; zero-copy is not needed because the game does not read the original formats); after that, ordinary `serde` types |
 | Global variables | Bevy resources or an explicit context in `opensacred-rules` |
 | `rand()` from the CRT (LCG 214013/2531011) | a small generator of our own (SplitMix64, `opensacred-rules`'s `spawning.rs`), seeded by the sector and the record, so that a sector that comes back has the same creatures; to keep the "feel" of the loot the LCG can be reproduced, exactness is not required |
 | x87 numbers with 80-bit intermediate values | `f32`/`f64`; bit-exact precision is not a goal |
 | The NetScript interpreter built on `switch` and `goto` | the scripts translated by the converter into structured Luau, run through mlua (PLAN.md ADR-13) |
-| Engine threads and critical sections | the Bevy system schedule; in `opensacred-rules` (#364) the rules are to be single-threaded and deterministic within one machine; the world's systems run on the original's world tick of 0.1 s gathered from the frames (`frame::WorldTick`, #616) |
+| Engine threads and critical sections | the Bevy system schedule; in `opensacred-rules` (#364) the rules are single-threaded and deterministic within one machine; the world's systems run on the original's world tick of 0.1 s gathered from the frames (`frame::WorldTick`, #616) |
 
-The `unsafe` policy: the workspace lint `unsafe_code = "deny"` (`Cargo.toml`, `[workspace.lints.rust]`), which `opensacred-formats`, `opensacred-data`, `opensacred-rules`, `opensacred-scripts`, `opensacred-convert` and `opensacred-game` take through `[lints] workspace = true`.
+The `unsafe` policy: the workspace lint `unsafe_code = "deny"` (`Cargo.toml`, `[workspace.lints.rust]`), which `opensacred-formats`, `opensacred-data`, `opensacred-rules`, `opensacred-scripts`, `opensacred-locate`, `opensacred-convert` and `opensacred-game` take through `[lints] workspace = true`.
 Unsafe operations exist inside dependencies (wgpu, Unicorn), but not in our code.
 `opensacred-oracle` takes the lint too: the `unicorn-engine` crate's safe wrapper is enough for it, and it would be the exception only if a wrapper required `unsafe`.
 
@@ -192,47 +194,56 @@ Rejected.
 Of the two paths, "our own Rust version" or "an existing engine + C++", the project takes its own Rust version, but not from scratch: on top of Bevy as a ready-made set of subsystems.
 
 **Sensitivity.**
-If the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust scores the same as Bevy.
+If the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust comes close to Bevy: 405 against 417.5 by the matrix of §4.3.
 That is why the architecture insures against a wrong choice:
 
 * `opensacred-rules` (rules) and `opensacred-convert` (converter) do not depend on the engine;
 * `opensacred-data` (asset types) consists of ordinary `serde` structures that any code can read;
-* the presentation layer `opensacred-game` is to be thin: it connects the rules to rendering, sound and input.
+* the presentation layer `opensacred-game` was to be thin: it connects the rules to rendering, sound and input.
+  It is not: on 2026-11-17 it is the largest crate, some 171,000 lines of Rust against `opensacred-rules`' 70,000, with the interface, the effects' drawing, the scripts' host and the saves.
   `opensacred-game` still holds the parts of the rules followed so far that its systems weave into reading the world (#364).
 
 **Triggers for revisiting** (if one fires, the comparison is redone):
 
 1. a migration to a new Bevy regularly takes more than 10 agent-hours;
-2. Bevy's animation or UI system blocks the vertical slice for more than two weeks;
+2. Bevy's animation or UI system blocks the vertical slice for more than two weeks (it did not: the slice, M2, closed on 2026-10-23);
 3. Android needs a capability that wgpu or Bevy lacks.
 
 **What to do when switching to Godot:** connect `opensacred-rules` through godot-rust as a GDExtension, rewrite the presentation in Godot scenes, keep the converter.
-The switch is estimated at 40–80 agent-hours, depending on the milestone at which it happens.
+The switch was estimated on 2026-10-16 at 40–80 agent-hours, depending on the milestone at which it happens; the estimate has not been redone for the presentation written since.
 
 ## 6. Crate set
 
 ### 6.1 In use
 
-The direct dependencies of `[workspace.dependencies]` in `Cargo.toml` and what Bevy brings for the project's needs, at their versions in `Cargo.lock` on 2026-10-28:
+The direct dependencies of `[workspace.dependencies]` in `Cargo.toml` and what Bevy brings for the project's needs, at their versions in `Cargo.lock` on 2026-11-17:
 
 | Task | Crate | Version | License |
 |---|---|---|---|
-| Engine | bevy | 0.20.0 | MIT or Apache-2.0 |
-| Graphics API (through Bevy) | wgpu | 30.0.1 | MIT or Apache-2.0 |
+| Engine | bevy | 0.20.1 | MIT or Apache-2.0 |
+| Graphics API (through Bevy) | wgpu | 30.0.2 | MIT or Apache-2.0 |
 | Text (through Bevy) | parley | 0.11.1 | MIT or Apache-2.0 |
-| Sound | bevy_kira_audio / kira | 0.27.1 / 0.12.5 | MIT or Apache-2.0 |
-| Audio decoders: the game's Ogg Opus (#701), decoded whole into Kira's static sounds by the game's `opus` | symphonia (its Ogg demuxer), symphonia-adapter-libopus, opusic-sys (libopus 1.5, built with CMake), kira | 0.6.1, 0.3.0, 0.7.6, 0.12.5 | MPL-2.0; MIT or Apache-2.0; BSD-3-Clause; MIT or Apache-2.0 |
-| Serialization | serde, ron, postcard, serde_json | 1.0.229, 0.12.2, 1.1.3, 1.0.154 | MIT or Apache-2.0 |
-| Settings file (comments and order kept) | toml_edit | 0.25.17 | MIT or Apache-2.0 |
+| The glyphs of the world map's places' names, written on arcs (#1577) | swash (the outlines' scaler that parley builds on) | 0.2.10 | MIT or Apache-2.0 |
+| Sound | bevy_kira_audio / kira | 0.27.1 / 0.12.6 | MIT or Apache-2.0 |
+| Audio decoders: the game's Ogg Opus (#701), decoded whole into Kira's static sounds by the game's `opus` | symphonia (its Ogg demuxer), symphonia-adapter-libopus, opusic-sys (libopus 1.5, built with CMake), kira | 0.6.1, 0.3.0, 0.7.7, 0.12.6 | MPL-2.0; MIT or Apache-2.0; BSD-3-Clause; MIT or Apache-2.0 |
+| The recording's sound: the taps' ring buffer (#1230) | rtrb | 0.4.1 | MIT or Apache-2.0 |
+| AV1 video (#1945) | rav1d: upstream's main at a pinned commit, for its safe Rust API, which no release carries (1.1.0 exports dav1d's C API alone) | 1.1.1 (git) | BSD-2-Clause |
+| The movies' WebM container and their Opus (#1945) | symphonia's Matroska demuxer, beside the sound's Ogg one, and the sound's libopus | 0.6.1 | MPL-2.0 |
+| Serialization | serde, ron, postcard, serde_json | 1.0.229, 0.12.3, 1.1.3, 1.0.154 | MIT or Apache-2.0 |
+| Settings file (comments and order kept) | toml_edit | 0.25.19 | MIT or Apache-2.0 |
 | The game's own texts, Fluent files of `opensacred-game`'s `text/` (#1986) | fluent-syntax | 0.12.0 | MIT or Apache-2.0 |
-| The saves' window's dates in the computer's time zone (#1990), the user's short date's pattern read from the registry | jiff, winreg | 1.0.0, the workspace's | MIT or Unlicense; MIT |
+| The saves' window's dates in the computer's time zone (#1990), the user's short date's pattern read from the registry | jiff, winreg | 1.0.0, 0.56.0 | MIT or Unlicense; MIT |
+| The player's installation found by the registry (#1496), in `opensacred-locate` | winreg | 0.56.0 | MIT |
+| The packaged game's folder dialog at its first start on Windows (#1498) | rfd | 0.18.0 | MIT |
+| The free space of the disk that the player's conversion writes to (#1497) | fs4 | 1.1.0 | MIT or Apache-2.0 |
 | Binary format parsing | our own `opensacred_formats::reader::Reader`; binrw, zerocopy and bytemuck are not used (see above) | — | — |
 | Compression | miniz_oxide (zlib: decompression with an output size limit, and the zlib stream of the postcard files) | 0.9.1 | MIT, Zlib or Apache-2.0 |
 | The game's archives (#699) | a reader and writer of their own in `opensacred-data` (`archive`) over miniz_oxide and crc32fast | — | — |
-| Checksums | sha2 (the manifest), crc32fast | 0.11.1, 1.5.3 | MIT or Apache-2.0 |
-| Images and textures | png (PNG masters); intel_tex_2 (the converter's BC7 encoder, #700); zstd (the KTX2 files' supercompression, the C library); ktx2 (Bevy's reader, which the tests check our writer against) | 0.18.1, 0.5.0, 0.14.3, 0.5.0 | MIT or Apache-2.0; MIT or Apache-2.0; MIT (zstd-sys and the C library BSD-3-Clause); Apache-2.0 |
-| Converter CLI | clap, rayon, anyhow, thiserror | 4.6.7, 1.12.0, 1.0.104, 2.0.21 | MIT or Apache-2.0 |
+| Checksums | sha2 (the manifest), crc32fast | 0.11.1, 1.5.5 | MIT or Apache-2.0 |
+| Images and textures | png (PNG masters); intel_tex_2 (the converter's BC7 encoder, #700); zstd (the KTX2 files' supercompression, the C library); ktx2 (Bevy's reader, which the tests check our writer against) | 0.18.1, 0.5.0, 0.14.4, 0.5.0 | MIT or Apache-2.0; MIT or Apache-2.0; BSD-3-Clause (zstd-sys BSD-3-Clause and BSD-2-Clause); Apache-2.0 |
+| Converter CLI | clap, rayon, anyhow, thiserror | 4.6.8, 1.12.0, 1.0.104, 2.0.21 | MIT or Apache-2.0 |
 | Tests (the converter's Fluent output, its BC7 decoded) | fluent-syntax, bcdec_rs | 0.12.0, 0.2.1 | MIT or Apache-2.0; MIT |
+| Tests: the rules' properties (#1428), the open formats' round trips on random values (#1434), the saves' layout traced from their types (#2306) | proptest, proptest-derive, serde-reflection | 1.12.0, 0.9.0, 0.7.0 | MIT or Apache-2.0 |
 | Scripts: the translated NetScript, and mods after 1.0 (#725) | mlua with its `luau` feature (Luau vendored) | 0.12.2 | MIT |
 | Particles | our own executor in `opensacred-rules` (`particles`), drawn by `fx` (#1092) | — | — |
 | Oracle (development only, the optional feature `emulator`) | unicorn-engine | 2.1.5 | GPL-2.0 |
@@ -248,25 +259,27 @@ Versions as of 2026-10-16.
 
 | Task | Crate | Version | License |
 |---|---|---|---|
-| Input with remapping | leafwing-input-manager (not used: the game's own `controls`, #1553) | 0.22.0 | MIT or Apache-2.0 |
-| AV1 video | rav1d (upstream's main at a pinned commit for its safe Rust API, which 1.1.0 lacks; #1945) | 1.1.1 | BSD-2-Clause |
-| WebM container | symphonia's Matroska demuxer, which the sound's Ogg one is beside (#1945); matroska-demuxer and webm-iterable not needed | 0.6.1 | MPL-2.0 |
-| Tests | insta, proptest | 1.49.0, 1.12.0 | Apache-2.0; MIT or Apache-2.0 |
 | Upscaling through ONNX (M7, optional) | ort | 2.0.0-rc.14 | MIT or Apache-2.0 |
+
+Considered then and not taken: leafwing-input-manager 0.22.0 for input with remapping (the game's own `controls`, #1553), matroska-demuxer and webm-iterable for the WebM container (Symphonia's Matroska demuxer, §6.1), and insta 1.49.0 for snapshot tests (no test is written with it).
+rav1d and proptest, planned then, are dependencies now (§6.1).
 
 Update policy: Rust stable at the latest version (currently 1.100.0), bumped together with the dependencies; dependencies daily, in a `Dependencies: cargo update` pull request, and a `deps` issue for each newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"; docs/03 §3.3); Bevy when a release comes out, after the ecosystem crates we use have been updated.
 
 ## Open questions
 
-1. Whether oracle vectors pin down the formulas of M3 where the order of floating-point operations matters, or whether observations of the running original are needed as well.
-   The first vectors (#363) pin the whole-number results exactly and the floats of `0x43EEE0` within 10⁻⁵ of `f32` arithmetic, at the runtime's 53 bits of precision.
-   The running original computes its world at 53 bits too: the driver's `fpu` (#589) reads the x87 control word 0x027F on the render thread's frame, in the stats' recomputation `0x5796A0` and in the strike `0x56B130`, all on that thread (through dgVoodoo2); only the main thread runs at 24 bits, which `WinMain` sets.
+1. Whether the original computes its world at 53 bits without dgVoodoo2 as it does through it (below).
    Both of the game's cooperative levels with DirectDraw carry `DDSCL_FPUSETUP` (`0xC11` full screen, `0xC08` in a window; docs/re/window.md, #551), by which Direct3D leaves the FPU as it finds it, so the system's Direct3D does not lower it either (**hypothesis** by the flags; measured through dgVoodoo2 alone).
-   So a whole number the original truncates can differ from one of `f32` arithmetic by one: `fight::combat` computes `A`, `D` and their multipliers at 53 bits (#593).
 2. The Fyrox 1.0 renderer: confirm from the source code if Fyrox is ever reconsidered.
+
+Closed: whether oracle vectors pin down the formulas of M3 where the order of floating-point operations matters, or whether observations of the running original are needed as well.
+Both were needed.
+The first vectors (#363) pin the whole-number results exactly and the floats of `0x43EEE0` within 10⁻⁵ of `f32` arithmetic, at the runtime's 53 bits of precision.
+The running original computes its world at 53 bits too: the driver's `fpu` (#589) reads the x87 control word 0x027F on the render thread's frame, in the stats' recomputation `0x5796A0` and in the strike `0x56B130`, all on that thread (through dgVoodoo2); only the main thread runs at 24 bits, which `WinMain` sets.
+So a whole number the original truncates can differ from one of `f32` arithmetic by one: `fight::combat` computes `A`, `D` and their multipliers at 53 bits (#593).
 
 ## Sources
 
 * Precedents (OpenNox, OpenGothic, isle-portable): docs/09 §5 and the links there.
-* Crate versions: `Cargo.lock` on 2026-10-28 (§6.1), crates.io as of 2026-10-16 (§4.1, §6.2); Rust 1.100.0: the stable channel and `rust-toolchain.toml`.
+* Crate versions: `Cargo.lock` on 2026-11-17 (§6.1), crates.io as of 2026-10-16 (§4.1, §6.2); Rust 1.100.0: the stable channel and `rust-toolchain.toml`.
 * Bevy 0.20: bevy.org/news/bevy-0-20 and release reviews; Godot 4.7.2: godotengine.org; godot-rust WebAssembly: docs.rs/godot 0.5.5; Fyrox 1.0: fyrox.rs/blog and secondary reviews; Unreal Engine 5.8: unrealengine.com; Visual Studio 2026 and MSVC 14.50: devblogs.microsoft.com/cppblog.

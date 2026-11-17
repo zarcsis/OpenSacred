@@ -2,9 +2,10 @@
 
 Dollar figures are the hypothetical cost of the same tokens at Anthropic API prices; development runs on a Claude subscription, so they are not money actually spent.
 
-Since 2026-10-17 (#16), every pull request carries its own usage: a "Claude Code usage" section at the end of its description, with the tokens per model, their cost at API prices and the agent-hours.
+Since 2026-10-17 (#16), every pull request that a session makes carries its own usage: a "Claude Code usage" section at the end of its description, with the tokens per model, their cost at API prices and the agent-hours.
+The daily dependency update's pull request, which a workflow makes without a session, has none.
 The badge in the README sums every pull request's figures and the sessions before them (the table below).
-After 30 days, the estimates in `docs/07-roadmap-estimates.md` are recalculated from them (PLAN.md §10, step 8).
+What they sum to beside the estimates is in `docs/07-roadmap-estimates.md`, §1.4, and PLAN.md §9.1.
 
 ## How it is calculated
 
@@ -25,10 +26,11 @@ The description can be edited after the merge, so the figures include the CI, th
   A branch that the session renamed with `git branch -m`, such as the `worktree-<name>` that `EnterWorktree` with a name creates, counts under its new name.
 * **Tokens and cost.**
   Each model response counts once (by its id), at the API prices per 1M tokens (Opus 5.5: $4 input, $20 output, $0.20 cache read, $8 one-hour cache write).
+  The script's table of prices (`PRICES`) holds Opus 5.5, Sonnet 5.5 and Fable 5.1; a response of another model is listed as "not priced": its tokens count and its dollars do not.
   The tokens are input, output, cache reads and cache writes together; in a long session most of them are cache reads, the context reread by every request.
   The same calculation matched the `/cost` snapshots in the transcripts to the cent.
 * **Agent-hours.**
-  The time from a prompt of the maintainer to the agent's last action; pauses longer than 10 minutes are not counted.
+  The time from a prompt of the maintainer to the agent's last action; a pause longer than 10 minutes counts as 10.
 * **The block.**
   A table for people and a comment `<!-- usage {...} -->` with the same figures for scripts, between the markers `<!-- usage:begin -->` and `<!-- usage:end -->`, which a rerun replaces.
 * **The badge.**
@@ -76,3 +78,6 @@ Each row was computed by the script's predecessor, `tools/usage/session_cost.py`
   Most of the wall clock was CI: the first Windows builds took 28 and 29 minutes without a cache, the next pull request 1 minute with one.
 - 2026-10-17 (versions): ≈$11 per agent-hour, within the model; cache reads 16M/h, just above its top.
   A short single-task session: most of the wall clock was waiting for the maintainer's merges and for CI.
+- 2026-11-17 (the sessions above and the blocks of 1,465 pull requests, M0 to M5 done and every issue of M6 closed): 432.4 agent-hours, 42.3B tokens, $11,498, ≈$27 per agent-hour.
+  Output (0.17M/h) and cache writes (0.59M/h) are at or under the model; cache reads (97M/h) are six times its top and about three quarters of the cost, as in the long sessions above.
+  The sums by the milestones' closing days are in `docs/07-roadmap-estimates.md`, §1.4.

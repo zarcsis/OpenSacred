@@ -2,10 +2,10 @@
 
 ## Summary
 
-* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`), the game's remote-control client and its conformance tools (`game/`) and the original's driver (`original/`).
+* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`, `deps/`), the build of the release's FFmpeg (`ffmpeg/`), the game's remote-control client and its conformance tools (`game/`) and the original's driver (`original/`).
   The research scripts are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
 * The research scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
-  The process tools work on Git and GitHub, as their rows say: `stack/stack.py` commits and pushes branches, `stack/claim.py` assigns an issue and pushes its branch, `usage/pr_usage.py --update` edits a pull request's description.
+  The process tools work on Git and GitHub, as their rows say: `stack/stack.py` commits and pushes branches, `stack/claim.py` assigns an issue and pushes its branch, `usage/pr_usage.py --update` edits a pull request's description, `deps/daily.py` pushes the update's branch and opens its pull request and the `deps` issues.
 * The scanners read the GOG executables as is.
   Only the GOG build 2.28 is supported; the network protocol is out of scope.
 * The Rust converter `opensacred-convert` does the conversion; the format-parsing scripts are kept as the reference the Rust readers are cross-checked against: the tests of `opensacred-formats` that need the game files run the prototypes and compare their output record by record.
@@ -118,7 +118,7 @@ uv run python -I tools/game/remote.py --port 15703 exec quit
 | `analysis/formats/snd_ls.py` | formats | `sound.pak` directory: WAV (PCM, IMA ADPCM) and MP3, durations, cross-check with `sndProfiles.pak` |
 | `analysis/formats/global_res_dump.py` | formats | `global.res` string table: layout checks on every record (23,123 strings), a per-record table for the Rust reader |
 | `analysis/formats/global_res_hash.py` | formats | resource name hash and its check against `global.res` |
-| `analysis/formats/amh_dump.py` | formats | AMH hero templates (and saves with `--saves`): checks on every section, per-section rows for the Rust reader; the items of the inventory (`--items`), the items of the backpack at their cells (`--backpack`, #1285) and the combat arts of the creature section (`--arts`, #506) |
+| `analysis/formats/amh_dump.py` | formats | AMH hero templates (and saves with `--saves`): checks on every section, per-section rows for the Rust reader; the items of the inventory (`--items`), the items of the backpack at their cells (`--backpack`, #1285), the combat arts of the creature section (`--arts`, #506), the summaries' equipment and won difficulties (`--summaries`), the creatures' stats and equipment (`--stats`), the weapon sets (`--sets`), the socketed items (`--sockets`) and the bar's art slots (`--art-slots`) |
 | `analysis/formats/mhp_probe.py`, `mhp_vs_mdt.py` | formats | `MOTIONS.PAK` fields and cross-check with `Models.tmp`, a file outside the manifest (docs/02 §13) |
 | `analysis/formats/grn_dump.py` | formats | MDL containers `models*.pak` and the GRN container of every record: layout checks, chunk tag census; the object section's string table, data extensions, transform channels and the skeleton with bone names; meshes, weights, the form's mesh bindings, textures, materials and render passes; animation tracks (split and interleaved); a per-record table with tree, skeleton, mesh, material and animation fingerprints for the Rust readers |
 | `analysis/formats/spf_names.py` | formats | `sndProfiles.pak` sound profiles |

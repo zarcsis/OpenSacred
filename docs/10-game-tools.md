@@ -5,9 +5,9 @@
 * **Why:** before this work everything the game could be told was a command line option, read before Bevy started; the hero's class was fixed for the process, and a change meant a restart.
   The tools let the maintainer test the game as a game, and let Claude Code drive a running game by itself.
 * **Settings:** `settings.toml` in the user's directory; borderless full screen by default, F11 for a window, both kept.
-* **Menu:** a main menu (New Game, Quit) and the choice of the hero, which needs the game to start and end inside one process: states, and a loading in the background.
+* **Menu:** a main menu and the choice of the hero, the original's since #1118 and #1119, which need the game to start and end inside one process: states, and a loading in the background.
   Esc in the game, or the taskbar's Options button, pauses it under the original's Esc menu (#1410).
-* **On the screen:** the HUD's portrait, health bar and gait go, the original's bar and portrait coming in their place with #1087; F7 shows a debug overlay (the frame rate and times, the hero's place), F12 the log, which a file keeps too.
+* **On the screen:** the first HUD's portrait, health bar and gait went (#168), the original's bar and portrait in their place since #1087; F7 shows a debug overlay (the frame rate and times, the hero's place), F12 the log, which a file keeps too.
 * **Commands:** one set of commands, which the command line's scripts, the console on `~` and the remote protocol run alike; the command line's options become commands.
 * **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/` and the project skill `game` for Claude Code, no MCP server.
 * **Work:** the issue #165 and its sub-issues #166–#181 and #189, in M2, then #196, #198 and #202; done 2026-10-19 and 2026-10-20.
@@ -19,7 +19,7 @@
 3. What the command line can set now, the console can change while the game runs, without a restart.
 4. Claude Code starts the game, plays it as a player does (the menu, the clicks, the keys), reads its state and log, takes screenshots, and repeats a run from a script, without the maintainer.
 
-None of this changes the game's rules or look; the menu and the HUD are stopgaps until the interface of M5.
+None of this changes the game's rules or look; the first menu and HUD were stopgaps until the interface of M5, whose menus (#1118, #1119) and bar (#1087) took their place.
 
 ## 2. The parts
 
@@ -55,41 +55,42 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * Writing changes only the keys it sets and keeps the user's comments (`toml_edit`).
 * The command line overrides the file for one run without writing it: `--settings FILE` (another file, for the tests and Claude Code's runs), `--windowed` or `--borderless`, `--width` and `--height`, and `--hidden`, a window that is never shown, for the runs driven from afar (#556).
 * `--screenshot`, `--record` and `--benchmark` run in a window of the given size, as now, so that their frames do not depend on the monitor.
-* The overlays add `[debug] overlay` and `[debug] log` (§5); the keys are in `controls.toml` beside the settings (§9, #1553); the rest of docs/06 §6 (sound, gameplay) comes with M6.
+* The overlays add `[debug] overlay` and `[debug] log` (§5); the keys are in `controls.toml` beside the settings (§9, #1553); the sound and the gameplay of docs/06 §6 are the options window's keys (below).
 * `[interface] enemy_info` (on by default, as the installation's `SHOW_ENEMYINFO`) shows the foe's panel at the bottom while the cursor is over a foe (#1459).
 * `[interface] warning_level` (25 by default, as the installation's `WARNING_LEVEL`) is the percentage of the most health below which the hero's falling health raises the red alarm about its portrait (#1463).
 * `[movies] show` (on by default, as the original's `SHOWMOVIE`) plays the movies that play by themselves: the start's logos, the scripts' and `GameEnd`'s; `[movies] extro` and `extro_underworld`, the original's `SHOWEXTRO` and `SHOWEXTRO_UW`, are written as a campaign's extro plays, and the Extras offer it from then on (#1946).
-* `[gameplay] autosave` (off by default, as the original writes its `AUTOSAVE`) lets the scripts' autosaves save the game as the main quests are done, each into a slot of its own, `saves/GAME01.sav` and on (#1989).
   A run with `--remote`, `--exec`, `--script`, `--screenshot`, `--record` or `--benchmark` plays none by itself whatever `show` says, as a logo or the intro would stand in its way; `movies on|off` sets it for the run.
+* `[gameplay] autosave` (off by default, as the original writes its `AUTOSAVE`) lets the scripts' autosaves save the game as the main quests are done, each into a slot of its own, `saves/GAME01.sav` and on (#1989).
 * `[graphics] screen_quake` (on by default, as the installation's `SCREEN_QUAKE`) lets the screen quake and jolt, with the earthquake's sound; the options window has no control of it, as the original's has none (#1096).
 * `[gameplay] violence` (off by default, as the installation's `VIOLENCE`) lets the creatures bleed as they die: the blood fountains of docs/re/effects.md (#1964) and the puddles under their bodies (#2516).
 * The options window (#2340, docs/re/menus.md) writes its fifteen keys at its OK, each the original's key of `Settings.cfg`, its default the GOG installation's: `[graphics] detail` (`DETAILLEVEL`, 0 low to 2 high, 2) and `fsaa_filter` (`FSAA_FILTER`, on); `[interface] map_alpha` (`MINIMAP_ALPHA`, the overview map's transparency, 0 to 254, 127), `explore_map` (`EXPLOREMAP`, on) and `follow_foe` (`AUTOTRACKENEMY`, on); `[sound] on` (`SOUND`, on), `quality` (`SOUNDQUALITY`, 0 to 2, 1), `effects`, `speech` and `music` (`SFXVOLUME`, `VOICEVOLUME`, `MUSICVOLUME`, 0 to 125, 64); `[gameplay] autosave`, `violence`, `pickup_animation` (`PICKUPANIM`, on) and `collect` (`PICKUPAUTO`: `"all"`, `"valuables"` or `"gold"`, `"all"`); `[network] speed` (`NETWORK_SPEEDSETTINGS`: `"fast"` or `"slow"`, `"fast"`).
-  The volumes and the sound's switch act since #2341 (docs/re/sound.md, "The volumes"); the rest comes with #2342 and #2343; the FSAA filter and the data flow change nothing (docs/decisions/interface.md).
+  The volumes and the sound's switch act since #2341 (docs/re/sound.md, "The volumes"), the detail since #2342, and the map's transparency, the explored map, the pick-up's clip, the collect modes and the cursor that follows the foe since #2343 (docs/re/menus.md); the FSAA filter and the data flow change nothing (docs/decisions/interface.md).
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 
 * Before #171, `main.rs` read the world, the hero, the start script and the first sector before Bevy started.
   For a menu, the game must start and end inside one process.
 * States `AppState { Menu, Loading, InGame }`.
-  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`, the hero's `--name` and the `--difficulty`, #1086), as a `clap::Args` struct that the command `new-game` reuses (§6).
+  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`, `--leave-open`, the hero's `--name` and the `--difficulty`, #1086, and a saved or an exported hero's slot, `--saved` and `--exported`, #2362, #2552), as a `clap::Args` struct that the command `new-game` reuses (§6).
   The command line's `--zoom` and `--no-music`, which say how a game shows, hold for every game of the run: a `new-game` of a script, the console or remote control takes them from a resource `Shows` unless its own line sets them (#831).
-* What every game shares (the world's index, the sprites, the tables) is read once; the tables that the start and the loads read (`items`, `weapons`, `creatures`, `motions`, `balance`) are parsed when first asked for and kept in `sectors::Shared` (`tables`, #830).
+* What every game shares (the world's index, the sprites, the tables) is read once; the tables that the start and the loads read (`items`, `weapons`, `creatures`, `motions`, `balance`, `stairs`) are parsed when first asked for and kept in `sectors::Shared` (`tables`, #830).
   `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.
 * The modules' systems run only in `InGame`: the steps of `frame::Step` take the condition once, and the plugins' `Startup` systems move to `OnEnter(InGame)`.
   Leaving `InGame` despawns the game's entities (`DespawnOnExit`) and removes its resources.
 * Done 2026-10-19 (#171), in a module `game`: the systems of a game are in a set `frame::Playing`, which runs only in `InGame`; the camera and the light are spawned once and stay, so that the menus draw through the same camera and its sRGB frame; each module takes back what it made on `OnExit(InGame)`, the sectors with what they adopted, the hero, the building it was in, the music and the night, and `game` the resources it loaded, and warns of anything left in the world when the menu comes.
-  Until the menu (#172), the process goes straight into the game that the command line gives and ends, failing, when it does not load.
-* The menu: New Game and Quit, in the original's interface font.
+  Until the menu (#172), the process went straight into the game that the command line gave and ended, failing, when it did not load.
+* The first menu, which the original's replaced (below): New Game and Quit, in the original's interface font.
   New Game shows the eight classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game (the Vampiress since #790).
   The mouse, or the arrows, Enter and Esc.
-  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/interface.md, "Menus' scale, keys, text and figures"): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.png`).
+  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/interface.md, "Menus' scale, keys, text and figures"): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.ktx2`, a PNG until #700).
   A game that the command line names starts at once, and a screenshot's, a recording's or a benchmark's ends the process when it does not load; any other goes back to the menu.
 * The original's main menu (#1118, docs/re/menus.md): its picture of 12 tiles with the water at its foot, the column of its items in Carolingia, gold, lit under the cursor with a glow and fading in, and the Multiplayer and Extras submenus, a sub-state `Screen { Main, Multiplayer, Extras, Heroes }`; the items' words come from the game's texts (`menu::Words`), and those whose screens the game does not have yet stand greyed and are passed over by the arrows.
   The picture keeps the original's 1024 × 768, scaled to the window's height, black at its sides in a wider window.
 * The original's choice of the hero (#1119, docs/re/menus.md), a module `choice`: the eight classes as idling 3D figures on the pedestals, in a scene of their own that their camera draws into a texture between the picture and the panel (`figures.wesl`), dark until pointed at or chosen; the panel of the name, the difficulty, Import, Back and Start Game, and a class's description while the cursor is on its figure; the saved heroes, the installation's and those the player exported, on their pedestals for the Underworld campaign and for the Ancaria campaign's Import, an exported one erased by its button (#1676, #2552).
   The arrows choose a figure, the keys type the hero's name, Enter starts the game with the class and the name (`--name` of `new-game`).
-  The Underworld campaign's choice (#1129), a sub-state `Screen::Underworld`: the same picture, its pedestals labelled free until the heroes can be saved and imported, Back, and Start Game greyed.
-* The pause menu (#178): Esc in the game pauses it under a small menu over the frame dimmed, Continue, Main menu and Quit; Continue or Esc again goes on.
+  The Underworld campaign's choice (#1129), a sub-state `Screen::Underworld`: the same picture, the saved heroes on the pedestals of their slots, each labelled with its name and level, the other pedestals labelled free, Back, and Start Game greyed until a hero is chosen (#1676, #2362).
+  The menu's other screens are sub-states too: `Screen::Load`, the saves' window (#1990), `Screen::Options`, the options window (#2340), and `Screen::Import`, the Ancaria campaign's import of a saved hero (#2552).
+* The pause menu (#178): Esc in the game pauses it under a menu over the frame dimmed, at first Continue, Main menu and Quit, since #1410 the original's (below); Continue or Esc again goes on.
   The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input.
   The sound pauses too, the music, the ambient loops and the footsteps fading out and, on Continue, in again from where they stopped: paused rather than muted, so that a track does not run on unheard.
   With the console open, Esc closes the console instead.
@@ -98,11 +99,11 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
 * A game named on the command line (`--class` or another of the game's options but `--zoom` and `--no-music`, which only say how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
-* The menus depart from the original's screens (the hero's name, difficulty, a turning model; saving and the options in the game's menu): a decision in `docs/decisions/`, a stopgap that does not change the play.
+* Where the menus still depart from the original's screens (the picture's scale, the keyboard's arrows, Enter and Esc, the text, the unlit figures) is a decision: docs/decisions/interface.md, "Menus' scale, keys, text and figures".
 
 ## 5. The HUD, the overlay and the log (#168, #170, #169)
 
-* The HUD's portrait, health bar and Walk/Run label go (#168): the health was always full until M3, and the gait is the overlay's now.
+* The first HUD's portrait, health bar and Walk/Run label went (#168): the health was always full until M3, and the gait is the overlay's now.
   Since #292 the overlay shows the hero's health too; the original's bar and the hero's portrait came back in #1087 (`bar`).
   The cursor and the interface's scale stay; docs/decisions/interface.md, "Bar, portrait and cursor scaled" changes with it.
   Done 2026-10-19.
@@ -166,6 +167,9 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `spawn TYPE [--at X,Y\|+DX,+DY] [--count N] [--level L] [--rank champion\|boss] [--hostile\|--peaceful] [--immortal]` | makes N creatures of type TYPE on a cell and the rings about it, the hero's by default (on its floor), each row by row and whatever the cells are, a liquid's or a wall's too, but never the hero's own, on the cells that the original's driver takes for the same command (#984), as `CreateNPC` makes them: awake when hostile, at the level `CreateNPC` gives them by their sector's values about the hero's (docs/re/spawning.md, "`CreateNPC`'s level"), or L; hostile by default where their class's side is hostile to the heroes and peaceful otherwise, as the creature maker makes them for neither (`0x480D40`, docs/re/fight.md, "Sides"); `--immortal` takes no damage, a target for the hero's hits; kept by their sectors as a fill's creatures (#524) | |
 | `kill [RADIUS]` | fells the hostile creatures within RADIUS cells of the hero (5): they die, drop and give the hero their experience, as its kills do (#524) | |
 | `item ITEM [--at X,Y\|+DX,+DY] [--level L] [--key K] [--amount N] [--plain]` | throws an item of type ITEM (an `items.pak` slot) about a cell, the hero's by default, as a death's drop is thrown: gold of N pieces (a pile's by the level by default), a potion as it is, a weapon, armour or a jewel made by the item maker at level L (the hero's) with the pass's quality key K (16 plain, 2 to 15 the maker's key 16 − K, 0 its 14); a type of no drop's kind (a book, a quest's item, an upgrade) as it is (#1358), a type that the items' table does not hold refused (#525); `--plain` any type as its record holds it, made by no item maker, as a script's item or the original's driver's `wear` makes one (#2743) | |
+| `ride [ID]` | sends the hero to mount the horse ID, or the nearest, as a left click on it does; a hero that rides gets off (#2299) | |
+| `win` | counts the hero a win of the game's difficulty, as the original's console's `win` and the scripts' `InfoPlayer` 27 count one (#2464) | |
+| `export SLOT`, `exports` | exports the hero to the slot SLOT (0 to 7) of the choice's pedestals, over what it held; lists the exported heroes, each slot's name, class, level, experience and wins of each difficulty (#2551) | |
 | `level L`, `experience N\|+N` | the hero's level, its experience at the level's start; or its experience set or added to: its level, its attribute and skill points follow as its kills would give them (a rise adds the difference, so that the points spent stay spent; a fall starts again from none, #1522), and its health (refilled), values and regeneration as at a level-up (#526) | |
 | `heal [ID] [--to N]` | a creature's health, the hero's by default, to its most or to N (#526, #618) | |
 | `hire ID` | the creature hired as the hero's follower, its entry in the portraits' column, as a script's `0x4B` hires it; the original's driver's `hire ID` calls `sdk_HIRE` as `SetNPCState` does (#1771) | |
@@ -192,7 +196,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 * `--assets` and `--settings` stay the command line's alone.
 * The build that the releases ship is the feature `packaged` (#1495, #1494): it opens no console window (the Windows subsystem `windows`), and its `--assets` is `assets` in the user's data directory, `%LOCALAPPDATA%\OpenSacred\assets` (`$XDG_DATA_HOME/OpenSacred/assets` elsewhere), where the converter writes the player's assets, not `assets` in the working directory.
   The error it ends with, the command line's too (its usage, its help, its version), goes to `logs\opensacred-error.log` beside the log, as it has no console to print it.
-* Its first start makes those assets (`first_start`, #1498): when they have no mark `converted.ron`, or the mark of another version (the game was updated), a window of its own runs the converter beside the game, `locate --json` and then `install --json` (docs/03 §2), and shows its stages, a bar that moves on within a stage by the run's pace (the development machine's before a fifth of the run is behind) and the time left; with no installation found, or one refused, a button opens a folder dialog (`rfd`, Windows) for the player to pick it; a failure says what failed, Quit or Esc ends it and stops the converter.
+* Its first start makes those assets (`first_start`, #1498): when they have no mark `converted.ron`, or the mark of another version (the game was updated), a window of its own runs the converter beside the game, `locate --json` and then `install --json` (docs/03 §1), and shows its stages, a bar that moves on within a stage by the run's pace (the development machine's before a fifth of the run is behind) and the time left; with no installation found, or one refused, a button opens a folder dialog (`rfd`, Windows) for the player to pick it; a failure says what failed, Quit or Esc ends it and stops the converter.
   The assets made, the game starts again with the same arguments, as one process makes one window's event loop alone.
   With `--screenshot FILE`, it saves a frame of that window as `<FILE's stem>-first-start.png` after four seconds, for the checks.
 * `sector` and `cell` jump: the streamer drops the sectors beyond two of the new place and builds the 3 × 3 around it, and the hero lands once they are in (`hero::land`, `terrain::Heights::landing`, #458), and `wait ready` waits for it.
@@ -228,6 +232,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 
 * `--remote [PORT]` turns on Bevy's Remote Protocol: JSON-RPC 2.0 over HTTP on `127.0.0.1:15702` by default, on the loopback only, off by default and never from the settings.
   Under a Claude Code session, `--remote` without a port takes a port of the session's own, which the client finds (docs/03 §3.7, #1397).
+  The build that the releases ship keeps the protocol, off unless `--remote` is on its command line: its feature `packaged` (§6) leaves `bevy_remote` in, and a Cargo feature of its own could leave it out of a player's build.
 * The game's own methods:
 
   | Method | What it does |
@@ -250,9 +255,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   The cursor the game steers by is now the one its input saw last (`hud::Pointer`), the system's moves and the protocol's alike, so that a click sent from afar moves the hero and the system's cursor stays where it is.
   Bevy's own methods see no type of the game for reflection yet: `opensacred/state` and the commands cover what the plan named.
 * Done 2026-10-19 (#176): the project skill `game` (`.claude/skills/game/SKILL.md`), which says when to take a script and when the remote protocol, how to start the game without covering the desktop or touching the maintainer's settings, what the client does, the commands and the keys, and the rules for screenshots; CLAUDE.md's commands name it.
-  No MCP server for now: the skill and `remote.py` need nothing installed.
-* How Claude Code learns all this in a new session (#176): a project skill that describes the run and the client, needing nothing installed, or the MCP server `bevy_brp_mcp` (0.23 for Bevy 0.20), whose tools are discoverable but generic and which has to be installed and to follow Bevy's releases.
-  The skill comes first, and MCP if it falls short.
+  No MCP server: the skill and `remote.py` need nothing installed, where the MCP server `bevy_brp_mcp` (0.23 for Bevy 0.20), whose tools are discoverable but generic, has to be installed and to follow Bevy's releases; it stays the option if the skill falls short.
 * `bevy_brp_extras` 0.23 has ready methods for screenshots and keys; the game's own methods are a few small systems that do not wait for its releases after Bevy's.
 
 ## 9. Keys
@@ -285,6 +288,9 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | F1 to F6 | the game | the art bound to the key into the selected slot; over an art of the spells page, bind the key to it or take it off (#1536, #1750) |
 | Wheel | the game | zoom |
 | Esc | the menus, the game, the console | back a screen; in the game, closes the world map, else the quest book, else the inventory's windows (#1592), else the pause menu and back; closes the console |
+| Enter, keypad Enter | the menus, a dialogue | do the menu's choice; end a dialogue's line |
+| Arrows | the menus | the menu's next item (down, right) or the one before (up, left) |
+| Shift + click on an item | the windows | the stash's item to the backpack, a potion to a follower |
 | `~` (the key under Esc) | everywhere | the console |
 | F7 | everywhere | the overlay |
 | F10 | everywhere | the keys' help (#196); Esc hides it too |
@@ -302,29 +308,6 @@ Every key is in a file of its own, `controls.toml` beside `settings.toml` (#1553
   An action the file lacks takes its default (deleting the file brings back them all); an unknown section, action or key's name is a warning in the log, the default kept; two actions of one section on one key are a warning.
 * Not in it: the editing of a line of text (the console's and the hero's name's: Enter, the arrows, Tab, Ctrl+V and Ctrl+C), and the mouse's buttons.
 * The keys' help (F10) names the keys as the file has them, and so do the bar's buttons' and the belt's tooltips and the spells page's keys over the arts (#1980).
+
 F10 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
 Its words are Fluent messages of `crates/opensacred-game/text/en-US/help.ftl`, embedded in the game, the game's own texts beside the original's converted `global.ftl` (`own_texts`, #1986).
-
-## 10. Order and estimates
-
-| Issue | Part | Needs | Agent-hours (estimate) |
-|---|---|---|---|
-| #166, #179 | this plan and its refinements | | 0.3–0.5 |
-| #167 | settings, borderless, F11 | | 0.5–1.5 |
-| #168 | the HUD trimmed | | 0.2–0.5 |
-| #169 | the log on F4 and in a file | | 0.5–1.5 |
-| #170 | the overlay on F3 | #168 | 0.5–1.5 |
-| #171 | the game's states | | 1.5–3 |
-| #172 | the menu and the choice of the hero | #171 | 1–2 |
-| #178 | the pause menu on Esc | #172 | 0.5–1 |
-| #173 | commands and scripts | #171 | 1.5–3 |
-| #174 | the console | #173, #169 | 1–2.5 |
-| #175 | remote control | #173, #170 | 1.5–3 |
-| #176 | a skill or MCP for Claude Code | #175 | 0.5–1.5 |
-
-The estimates follow the game's recent pull requests, ≈0.7 agent-hours each; the total, ≈10–20 agent-hours, is within M2's budget (PLAN.md §9.2).
-#167, #168, #169 and #171 can go in parallel; #172 and #173 after #171.
-
-## 11. Open questions
-
-1. Whether the remote protocol stays in release builds: on at runtime only with `--remote`; a Cargo feature can leave it out of a player's build later.

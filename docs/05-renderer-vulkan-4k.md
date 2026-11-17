@@ -5,7 +5,7 @@
 * The renderer is written from scratch on **Bevy 0.20 / wgpu 30**: Vulkan by default on Windows and Linux, DX12 as the fallback on Windows, Vulkan or GLES on Android.
   The code of the original renderer (D3D7) is not ported; only facts are taken from it: the projection, the diamond geometry, the order of passes.
 * The scene stays isometric under an orthographic camera with the original's angle, but becomes a real 3D scene: **the ground is a mesh from the heightmap**, objects are sprites in world space with depth, characters are skeletal glTF models with lighting and shadows.
-* **4K:** rendering at native resolution; by default the same area of the world is visible as in the original at zoom 1.0; an extended view is an option.
+* **4K:** rendering at native resolution; by default the same area of the world is visible as in the original at zoom 1.0; an extended view is planned as an option (§3.4).
   The UI and text are scaled separately from the scene, with the window's height, and rasterized at the window's resolution (§3.5).
 * The main limit of the image is the 256² ARGB4444 textures without mipmaps.
   The base textures go to the game as KTX2 with BC7 and mipmaps since M3 (#700); **HD packs** remove the size limit (milestone M7): offline upscaling with free models into masters that the converter's stage B packs the same way, path-based substitution on top of the base assets.
@@ -41,9 +41,9 @@ Details: the floor cell, the heights and the UV table in docs/02, §5.2–5.4; t
 | Per-vertex lighting only | the original's light and night colours, multiplied over the drawn frame in a fullscreen pass (docs/decisions/drawing.md, "Night as a pass over the frame"); a fixed directional light and an ambient light for the models | the original's look by day and by night |
 | Flat stencil shadows | the same flattened meshes for the models, the depth test in place of the stencil (docs/decisions/drawing.md, "Models' shadows by depth, not stencil"); the statics' shadows from the original's shadow atlas | Bevy's main pass has no stencil |
 | CPU skinning | Bevy GPU skinning | takes the load off the CPU |
-| Thousands of small draw calls | one ground mesh and atlas per sector, one sprite mesh per page of 2,048 × 2,048 | 60 fps in 4K |
+| Thousands of small draw calls | one ground mesh per sector, drawn from a pool of tile sheets that the loaded sectors share, one sprite mesh per page of 2,048 × 2,048 | 60 fps in 4K |
 | 256² GDI fonts | Bevy's text (parley) at native resolution; the original TTFs; a free Unicode font is planned | crisp text at any scale |
-| No mipmaps | a full mip chain in the KTX2 textures that the GPU samples (#700, docs/decisions/drawing.md, "Textures as KTX2 with mipmaps"); the ground and the sprites, composed per sector, are filtered linearly without them (docs/decisions/drawing.md, "Linear filter at every zoom") | no shimmering when zoomed out |
+| No mipmaps | a full mip chain in the KTX2 textures that the GPU samples (#700, docs/decisions/drawing.md, "Textures as KTX2 with mipmaps"); the ground's tile sheets are filtered linearly without them, and the sprites' pages carry 4 levels of their own, which stand in where the screen shrinks the sprites (#839; docs/decisions/drawing.md, "Linear filter at every zoom") | no shimmering when zoomed out |
 
 Fidelity of the image is not a goal: differences are acceptable if the game looks better and reads the same.
 Where the game draws as the original does instead, a row of docs/decisions/drawing.md says why (§3.6).
@@ -52,14 +52,14 @@ Where the game draws as the original does instead, a row of docs/decisions/drawi
 
 ### 3.1 World
 
-* **Sectors** are streamed in around the hero (the radius is configurable).
-  For each sector, a terrain mesh is built at load time: vertices at the nodes of the cell grid, heights from the converted data, UVs into the tile atlas.
-* **The tile atlas** is a texture array: each 256² sheet is a layer; the UVs of the 18 diamonds come from a table recovered from the code (`tools/analysis/world/uv_table.py`).
-  Tile blend layers are a second UV set and a mask.
-* **Water and lava** are a separate material with UV animation and, optionally, sky reflection.
-* **Static objects** (trees, houses, decorations) are sprite quads in world space.
+* **Sectors** are streamed in around the hero: the 3 × 3 about the hero's (`sectors::LOAD_RADIUS`, a constant, not a setting).
+  For each sector, a terrain mesh is built at load time: a quad per cell, its corners' heights from the converted data, its texture coordinate the flat screen position in the sector.
+* **The tile sheets** are the layers of an array texture that the loaded sectors share (`sheet_pool`, #2484): each 256² sheet is a layer; the places of the 18 diamonds in a sheet come from a table recovered from the code (`tools/analysis/world/uv_table.py`).
+  The ground's shader composes a cell's tile and its blend layers through their masks, texel by texel (§3.6).
+* **Water and lava** are surfaces of their own over their beds, their materials' frames cycling as the original's (§3.6); there is no sky reflection.
+* **Static objects** (trees, houses, decorations) are sprite quads in the plane of the screen, each at the depth of its cell (§3.6).
   The camera looks at a constant angle, so the quads are oriented once at load time.
-  Depth comes from the world position, sorting goes through the depth buffer with alpha testing; translucent parts go in a separate sorted pass.
+  Their opaque texels are sorted through the depth buffer; the translucent ones go in a separate sorted pass.
 
 ### 3.2 Characters and items
 
@@ -70,28 +70,29 @@ Where the game draws as the original does instead, a row of docs/decisions/drawi
 
 ### 3.3 Effects
 
-* The original's 178 effects are described in data (RON): emitter, textures, color and size curves, lifetime.
+* The original's effect classes are described in code, not in data: each is a function of `opensacred-rules`' `particles` that fills one machinery of emitters, colour ramps, sizes and lifetimes.
 * The executor is our own, on the CPU: `opensacred-rules`' `particles` runs the original's particle systems and `fx` draws them as billboards (#1092, docs/re/effects.md).
 
 ### 3.4 Camera and visible area
 
-* An orthographic camera with the original's dimetric angle (`atan 0.5`).
+* An orthographic camera at a pitch of 30°, under which a cell shows the original's 2:1 diamond; the original's `atan 0.5` is the angle of its own view of the models (§3.6).
 * The base visible area is the original's 768-pixel-high screen at zoom 1, 607 world units tall (534×400 in the units of the models, §3.6); at 3840×2160 it fills the whole screen, keeping the proportions by height.
-* Zoom spans the original's range of views (0.5–2.0, §1); the "extended view" mode shows more of the world and streams in more sectors.
+* Zoom spans the original's range of views (0.5–2.0, §1).
+  An "extended view" that shows more of the world and streams in more sectors is in the plan (PLAN.md §8) and not in the game.
 * The ground and the sprites are filtered linearly at any zoom, each texel weighted by its alpha (docs/decisions/drawing.md, "Linear filter at every zoom"); a point filter and a sharp bilinear one were tried and dropped (#124, #136).
 
 ### 3.5 UI and text
 
 * A new interface in Bevy UI, laid out on the original's 768-pixel-high screen and scaled with the window's height (`hud.rs`), whatever the desktop's scaling: the window's scale factor is fixed at 1 (`main.rs`).
-  A user setting for the scale is planned.
+  The settings hold no scale of the interface (docs/10 §3).
 * Text: Bevy's text (parley) at native resolution.
   The original fonts (`ANTQS__.TTF`, `CAROLING.TTF`) are converted by `opensacred-convert ui`; the game sets its words over the world in `ANTQS__.TTF` (`game::FONT`), and its debug panels and console in Bevy's default font.
-  A free Unicode font (Noto, OFL) for missing characters is planned.
-* The original UI textures are used as skins with nine-slice stretching (9-slice) so that the frames do not blur.
+  A free Unicode font (Noto, OFL) for missing characters is planned (PLAN.md §7) and not added yet.
+* The original's interface images are assembled at the original's pixels, one to one, into pictures that are scaled to the window and filtered once (`ui_layers`, #2636; docs/decisions/interface.md, "Interface assembled at the original's pixels"); no nine-slice stretching is used.
 
-### 3.6 What `opensacred-game` does so far
+### 3.6 What `opensacred-game` does
 
-The vertical slice (`crates/opensacred-game`, Bevy 0.20) implements R1 and R2, and of R3 the shadows, day and night, the weather and the world's fires.
+The game (`crates/opensacred-game`, Bevy 0.20) implements R1 and R2, and R3 as M5 closed it on 2026-11-09 (§8): the shadows, day and night, the weather and the effects (#1092).
 Where it departs from §2 and §3.1–3.4, it mostly draws as the original does, on purpose, and a row of docs/decisions/drawing.md says why (the sprites' depth and alpha, the liquids, the night, the models' shadows, the linear filter); a departure that is interim says so below.
 
 * **Camera:** orthographic, yaw 45°, pitch 30° (sin 30° = 1/2 gives the 2:1 diamond), in the original's world units (a cell is 24·√5 = 53.67 units, the edge of its diamond in pixels; 1.26 pixels a unit), scaled so that a cell's diamond is 96 × 48 pixels at zoom 1 and the view is as tall as the original's 768-pixel screen at any resolution (607 world units).
@@ -104,11 +105,11 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
   The lit models looked the same either way, so the lights stay.
   The frame holds sRGB values, in a target of `Rgba8Unorm`, and the blending takes them as they are, as the original's Direct3D 7 device blends its frame's 8-bit values (`srgb`, #109): Bevy's own sRGB compositing, which Bevy grants to 2D cameras alone, granted to the 3D camera, since every material of the game encodes its colour last (`post.wesl`, `standard.wesl`) and the HUD gives Bevy's interface its colours and images in those values; Bevy's last pass decodes the frame onto the window.
   The sRGB target before blended in linear light, so a translucent dark texel darkened less than in the original: black at half its alpha over a grey of 128 left 92 rather than 64.
-* **Ground:** per sector, every cell's tile and floor overlays are composed on the CPU into one slot of an atlas of the distinct stacks of layers (748 slots for the median sector, 7.7 MB) and draped over a mesh of the cells with their corner heights and light as vertex colour, unlit.
-  The slots' diamonds lie edge to edge in the atlas, as the cells' do on the ground (`terrain::slot_origin`, #1651), so that the atlas holds their texels alone; the slots of a diamond's box and a border, which repeated the diamond's edge for the texels past a sector's edge, took 2.1 times as much, and the shader now holds such a texel at the edge of its diamond's row instead.
-  A material of its own (`terrain::GroundMaterial`, `ground.wesl`) filters the ground as the one image the original's frame makes of the diamonds: the texture coordinate is the flat screen position in the sector, and each of the four texels around a fragment comes from the slot of the cell it lies in (a 64 × 64 table of the cells' slots), so that the cells' edges blend as their insides do; filtering each cell's slot alone left a step at every edge, a grid of diamonds once magnified (across the edges the steps were 4 times those inside at 2.8 pixels a texel, against 1.3 now).
-  It samples the atlas as stored and multiplies the texel by the light in sRGB values, then decodes the product, as the original multiplies the 8-bit values (docs/02 §5.3); a `StandardMaterial` multiplies its vertex colour in linear light, which left shaded ground too light (a light of 128 kept 73 % of the brightness instead of 50 %).
-  A texture array of the sheets with the layers composed in a shader (§3.1) would use less memory; the CPU atlas keeps the first version simple.
+* **Ground:** per sector, a mesh of the cells with their corner heights and light as vertex colour, unlit, whose texels the ground's shader composes from the tile sheets (`terrain::GroundMaterial`, `ground.wesl`, #2484): each texel of its cell's stack of layers, the ground tile and each floor overlay through its mask's alpha or its own, in integers.
+  The sheets lie in an array texture that the loaded sectors share (`sheet_pool`, §4); a sector sends its distinct stacks, some 3,000 words, and a 64 × 64 table of where each cell's stack begins.
+  Until #2484 each sector's stacks were composed on the CPU into an atlas of its own (748 slots for the median sector, 7.7 MB), whose slots' diamonds lay edge to edge since #1651; the shader holds a texel past a sector's edge at the edge of its diamond's row, as it did then.
+  The material filters the ground as the one image the original's frame makes of the diamonds: the texture coordinate is the flat screen position in the sector, and each of the four texels around a fragment comes from the cell it lies in, so that the cells' edges blend as their insides do; filtering each cell alone left a step at every edge, a grid of diamonds once magnified (across the edges the steps were 4 times those inside at 2.8 pixels a texel, against 1.3 now).
+  It takes the texels as stored and multiplies them by the light in sRGB values, then decodes the product, as the original multiplies the 8-bit values (docs/02 §5.3); a `StandardMaterial` multiplies its vertex colour in linear light, which left shaded ground too light (a light of 128 kept 73 % of the brightness instead of 50 %).
 * **Objects:** each sprite and miniature is a quad in the plane of the screen at the depth of its cell's centre at height 0, whatever the cell's height, as the original orders its lists by the cells alone (#112), drawn in two passes (docs/decisions/drawing.md, "Sprites' opaque and translucent texels apart"): its opaque texels through the depth buffer, then the others blended by their alpha, after the original's alpha test for the sprites, the blended things in layers in the original's order (`blended`, docs/re/drawing.md).
   The shader filters the four texels around a sample linearly, each colour weighted by its alpha, so that the transparent texels, black in the atlases, do not darken the edges.
   A sector's sprites are read when the sector is built, each as the converter assembled it from its pieces, one to one (#838; docs/02 §5.6), and packed into pages of 2,048 × 2,048 (the start's 3 × 3 sectors use 489 sprites), one mesh per page: filtering each piece in its own atlas left a step at every piece's edge, a line on roofs and walls once magnified, and the samples keep to the sprite's own texels (`sprites.wesl`).
@@ -123,18 +124,20 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
   The ground lies 5,000 units behind along the line of sight, so it never hides an object (the original draws it first); the underlay types go behind the ordinary sprites (draw lists 0 and 2, by the object's mask) and the types of list 4 in front of them (docs/02 §6.1).
   The liquids' surfaces lie between the ground and list 0, and the miniatures of the liquid cells under them, as the original draws those before the surfaces (docs/re/drawing.md).
   The models (the hero, the NPCs and their weapons, the start script's objects) take their cell's place too, after the cell's statics, with a hundredth of their own depth (`models.wesl`, docs/re/drawing.md): a sprite covers a model whole or not at all, as in the original, which draws them in its lists without depth.
+  Among themselves the models are ordered by their true depths, which a depth prepass of the models alone holds (`prepass.wesl`, `nearest.wesl`, #998).
 * **Water and lava:** each liquid cell shows the frames of its sector's liquid material (`B_WATER`, `C_LAVA`, …), a frame over 4 × 4 cells, cycling in 2,048 ms as the original does, each cell's surface flat at height 0 and each corner as opaque as the bed is deep there, the bed's height times the material's factor, and under the clear waters' surfaces their second layer, the frames again over 2 × 2 cells added to the frame, brighter over the deeper bed and gone by night (docs/re/liquids.md, docs/decisions/drawing.md, "Clear waters' second layer per cell").
 * **Streaming:** the 3 × 3 sectors around the hero's are built off the main thread, two at a time, and spawned one a frame; farther than two sectors they go.
-* **Characters:** the hero (`--class`: any of the eight heroes, the Seraphim, the Gladiator, the Battle Mage, the Wood Elf, the Dark Elf, the Daemon, the Dwarf and the Vampiress) as its glTF with idle, walk and run clips, starting at its start script's `StartPosition` blended by `AnimationTransitions`, at the creature's walk and run speeds (the `R` key toggles walking), round the cells it may not walk on by the client's rule and search, and through the doors onto the buildings' inside layers (docs/re/movement.md); the start script's NPCs in the clips the client plays standing by the class of what they hold (docs/re/motions.md), holding their weapons and shields as the client equips them (docs/re/equipment.md), and its objects (1,990 in the Seraphim's: barrels, chests, book stands, coffins, signposts); the NPCs of the quests the start enters, the Seraphim's novice walking into the chapel as the first quest sends her (docs/decisions/netscript.md, "NPCs sent by scripts walk the hero's way").
+* **Characters:** the hero (`--class`: any of the eight heroes, the Seraphim, the Gladiator, the Battle Mage, the Wood Elf, the Dark Elf, the Daemon, the Dwarf and the Vampiress) as its glTF with idle, walk and run clips, starting at its start script's `StartPosition` blended by `AnimationTransitions`, at the creature's walk and run speeds (Shift held walks), round the cells it may not walk on by the client's rule and search, and through the doors onto the buildings' inside layers (docs/re/movement.md); the start script's NPCs in the clips the client plays standing by the class of what they hold (docs/re/motions.md), holding their weapons and shields as the client equips them (docs/re/equipment.md), and its objects (1,990 in the Seraphim's: barrels, chests, book stands, coffins, signposts); the NPCs of the quests the start enters, the Seraphim's novice walking into the chapel as the first quest sends her (docs/decisions/netscript.md, "NPCs sent by scripts walk the hero's way").
   The hero, the NPCs and the chests, barrels and the like of the start script cast the original's shadows, their meshes flattened onto the ground at their height, leaning up and to the right (docs/re/drawing.md, "The models' shadows"; docs/decisions/drawing.md, "Models' shadows by depth, not stencil").
 * **Creatures:** the creatures of the sectors' `Init` and `Enter` functions and of their `FillSector` records (docs/re/spawning.md), their life while no foe is near (docs/re/ai.md), and the fight between them and the hero (docs/re/fight.md); the buildings' doors open and close (#274).
   The damage numbers (**hypothesis** for their look: the original's is not read) and the creatures' lines (#270) are interface text over the world, in `ANTQS__.TTF` (`fight.rs`, `lines.rs`).
-* **HUD:** the original's bar and the hero's portrait at the original's places (#1087, docs/re/interface.md); the interface is laid out on a 768-pixel-high screen scaled to the window's height (`hud.rs`), and the original's cursor (`MOUSE_MAIN`, the arrow in the top left 32 × 32 of its image) is scaled in whole steps of the system's display scale, rounded down.
+* **HUD:** the original's bar, the hero's portrait and the windows at the original's places (#1087, docs/re/interface.md; the windows are listed in CLAUDE.md, "Workspace"); the interface is laid out on a 768-pixel-high screen scaled to the window's height (`hud.rs`), its images assembled at the original's pixels and scaled once (`ui_layers`, §3.5), and the original's cursor (`MOUSE_MAIN` and the others, each in the top left 32 × 32 of its image) grows with the system's display scale exactly, 48 × 48 at 150 % (#2436; docs/decisions/interface.md, "Bar, portrait and cursor scaled").
   The menus, the pause, the debug overlay, the log, the console and the keys' help are Bevy UI on the same screen (docs/10).
 * **Day and night:** the original's clock (08:00 at the start, a day in an hour) and phases, and the night's colour laid over the frame drawn by a fullscreen pass, as the original multiplies its art by its vertices' colour; lit by night by the light statics and the hero's own light (docs/re/daynight.md, docs/decisions/drawing.md, "Night as a pass over the frame").
-* **Sound:** the hero's footsteps at the moments of the walk and run clips (docs/02 §4.1), the group of the footstep profile by the nature of the cell underfoot, by the client's own table (docs/re/sound.md); the music of the hero's sector, switching as the hero enters a sector of another music, and the wood tracks of the `music` profile one after another in a sector without (docs/re/sound.md, "The region's music"); beside it, the ambient loop that the nature underfoot calls for, by the client's own switch (docs/re/sound.md), the day's.
-  The game decodes a whole track into memory (`opus`, #701), so only the one playing is loaded.
+* **Sound:** what plays is in docs/06 §2 and docs/re/sound.md.
+  The game decodes a whole track into memory (`opus`, #701), so only the tracks playing are loaded.
 * **Measured:** at 3840 × 2160 while the hero runs across sectors (`--benchmark`, music on, on a development machine with 32 logical cores), about 690 frames a second on 2026-10-18 with four compute threads (#40), and 750 at 1920 × 1080 with the hero standing; the slowest frames, 30 ms, came when sectors spawned.
+  The day before, without the music and before the compute pool's limit, 650 to 775 while the hero ran across three sectors.
   Later the same day, with the ground filtered across the cells' edges, about 570 at 3840 × 2160 (#38); on 2026-10-19, running across sectors, 580 without the overlay and 566 with it (docs/10 §5, #170).
   Since the creatures, their life and the fight came (2026-10-20), on 2026-10-25 (`main` at #927, the hero standing at the Seraphim's start, `--hidden`, #928): 365 to 392 frames a second at 3840 × 2160 in three runs and 391 at 1920 × 1080, the slowest frames 22 to 24 ms, no stall.
   The two sizes giving the same rate, the frame is now bound by the CPU, the world's systems, rather than by the GPU (**estimate**: not profiled).
@@ -198,7 +201,7 @@ The models', the items' and the effects' textures come as KTX2 since #700, the o
 3. **Alpha channel:** ARGB4444 gives 16 transparency levels; the alpha is upscaled separately and smoothed, otherwise the edges become jagged.
 4. **Ground tiles:** upscaling the whole 256² sheet, followed by a check of the diamond seams; if needed, upscaling with overlap.
 5. **Packing:** KTX2, BC7 for PC, ASTC or UASTC for Android, a full set of mipmaps.
-6. **Hooking up:** the `assets-hd/` directory with the same relative paths; the game takes the HD version if it exists.
+6. **Hooking up:** the `assets-hd/` directory holds the HD masters at the same relative paths; stage B is to build them into overlay archives, which the game already reads before the base ones (`files`, the assets' `overlays/`, #699).
 7. **Size:** upscaling all textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are selective and separate.
 
 HD packs are derived from the game assets and, like the assets themselves, are not published.
@@ -207,7 +210,7 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 
 | Platform | wgpu backend | Specifics |
 |---|---|---|
-| Windows 11 x64 | Vulkan; DX12 as fallback | the main target; backend choice in the settings (planned: the settings hold the display and the debug panels so far, docs/10 §3) |
+| Windows 11 x64 | Vulkan; DX12 as fallback | the main target; the game names no backend and the settings hold no such choice (docs/10 §3): Bevy takes Vulkan where the system has it, else DX12, and the `WGPU_BACKEND` variable names another for a run (§7) |
 | Linux | Vulkan | the same functionality |
 | Android | Vulkan; GLES as fallback | a smaller streaming radius; ASTC; touch controls |
 
@@ -227,8 +230,8 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 |---|---|---|---|
 | R1 First sector | terrain mesh, tile atlas, orthographic camera, 4K | 8–15 | M2 |
 | R2 Slice | sector streaming, sprite objects, hero with animations, water | 15–30 | M2 |
-| R3 Full world | all object types, shadows, day and night lighting, weather, effects (the shadows, day and night, the weather and the world's fires have come, §3.6) | 25–50 | M5 |
-| R4 4K polish | UI scale, graphics settings | 8–15 | M6 |
+| R3 Full world | all object types, shadows, day and night lighting, weather, effects (the effects, the last of them, came with M5, closed 2026-11-09; §3.6) | 25–50 | M5 |
+| R4 4K polish | UI scale, graphics settings (the options window's graphic settings came, #2340; the interface scales with the window's height, with no setting of its own, §3.5) | 8–15 | M6 |
 | R5 HD pipeline | upscaling, KTX2, path-based substitution | 15–30 | M7 |
 
 ## Open questions

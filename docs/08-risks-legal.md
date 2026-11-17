@@ -61,7 +61,7 @@ The risk is low (**estimate**), and it stays apart from the repository: a compla
 
 ## 4. Repository and CI
 
-* The tools read the user's own GOG Sacred Gold 2.28 installation from `OriginalGame/` (ignored by Git) or from `--game-dir`; `opensacred-convert verify` checks it against the manifest.
+* The tools read the user's own Sacred Gold 2.28 installation, the GOG release's (the converter the Steam release's too, #1484), from `OriginalGame/` (ignored by Git), from `--game-dir` or where the registry names it (docs/03 §1); `opensacred-convert verify` checks it against the manifests.
 * The converter writes to `assets-src/` and `assets/`, which are ignored by Git as well.
 * CI has no game files.
   The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
@@ -107,7 +107,7 @@ A constant table or formula taken from an MIT project carries the project's noti
 | # | Risk | Probability | Impact | Mitigation | Signal |
 |---|---|---|---|---|---|
 | 1 | Granny animations convert with errors | medium | high | three open readers as a reference; control poses; an early start in M1 | poses in Blender do not match the original's frames |
-| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors (#363: the levels, the hit chance, the damage through a resistance and the most health so far); checks in the running original (#227); the deviation log | the balance "doesn't feel right" in play |
+| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors (#363: the levels, the hit chance, the damage through a resistance, the most health, the factor of the levels and the roll between two bounds so far); checks in the running original (#227); the deviation log | the balance "doesn't feel right" in play |
 | 3 | NetScript semantics are harder than expected | medium | high | a disassembler early; coverage by type frequency | a quest cannot be completed |
 | 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`, #364); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
 | 5 | Ecosystem crates lag behind Bevy | high | low | upgrade after the needed crates are out; keep critical parts in our own code | a crate does not build with the new Bevy |
