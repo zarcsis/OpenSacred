@@ -148,6 +148,13 @@ zstd = { version = "0.14.3", default-features = false }
 # No unsafe in our code (CLAUDE.md): opensacred-oracle's Unicorn wrapper needs none either.
 unsafe_code = "deny"
 
+[workspace.lints.rustdoc]
+# A public item's doc comment may link to a private one: the crates are not published, and
+# their documentation is built with the private items (`cargo doc --document-private-items`,
+# as CI builds it), where such a link resolves and rustdoc still fails one that names nothing
+# (#2842).
+private_intra_doc_links = "allow"
+
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 # `as` casts when parsing binary fields: truncation, sign change, widening without From.
