@@ -61,7 +61,7 @@ deny = [
     { crate = "unicorn-engine", wrappers = ["opensacred-oracle"] },
     { crate = "unicorn-engine-sys", wrappers = ["unicorn-engine"] },
 ]
-# png 0.18.1, the latest release, uses miniz_oxide 0.8 directly and 0.9 through flate2 1.1.10, so
+# png 0.18.1, the latest release, uses miniz_oxide 0.8 directly and 0.9 through flate2, so
 # the duplicate comes from png alone. png's master no longer depends on miniz_oxide directly
 # (checked 2026-10-16): remove the entry after the next png release; cargo deny then reports the
 # skip as unused.

@@ -6,9 +6,10 @@ Closes #
 
 ## Checks run locally
 
-CI runs fmt, clippy, the tests without the game files, the screenshot test on Mesa's lavapipe and `cargo deny`; it has no game files, so the rest is on you.
+CI runs fmt, clippy, the tests without the game files, the screenshot test on Mesa's lavapipe, `cargo deny` and the mutants of the lines changed in `opensacred-rules`, `opensacred-data` and `opensacred-formats`; it has no game files, so the rest is on you.
 
 - [ ] `cargo nextest run --workspace --run-ignored all` on my own installation (the tests on the game files)
+- [ ] the mutants of the branch's lines (`cargo mutants --in-diff`, after changing `opensacred-rules`, `opensacred-data` or `opensacred-formats`)
 - [ ] `cargo deny check` (after changing dependencies)
 - [ ] a new screenshot reference (`UPDATE_SCREENSHOTS=1`), looked at
 

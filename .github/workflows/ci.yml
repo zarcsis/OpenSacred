@@ -1,5 +1,6 @@
 # Checks on every pull request and on main (docs/03 §5): formatting, clippy, tests without game files on Linux
-# and Windows, cargo deny. The ruleset on main requires the Linux, Windows and cargo deny checks (docs/03 §3.6).
+# and Windows, cargo deny. The ruleset on main requires the Linux, Windows and cargo deny checks, and the Mutants
+# check of mutants.yml (#2690; docs/03 §3.6).
 # CI has no game files; the tests that need them are #[ignore] and run locally (docs/08 §4).
 name: CI
 
