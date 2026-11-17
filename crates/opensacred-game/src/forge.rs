@@ -46,7 +46,7 @@ type Others<'w> = (
     Option<Res<'w, crate::merchant::Merchant>>,
 );
 
-/// Whether one of the `others` shows.
+/// Whether one of the [`Others`] shows.
 fn others_show((stash, master, merchant): &Others) -> bool {
     stash.as_ref().is_some_and(|stash| stash.0.is_some()) || master.is_some() || merchant.is_some()
 }

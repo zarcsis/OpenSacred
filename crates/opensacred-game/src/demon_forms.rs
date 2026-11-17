@@ -153,7 +153,7 @@ fn show(
 }
 
 /// Runs each look a frame on at its bearer's head (`0x7B20F0`, `0x7B2230`): its comets' ribbons
-/// and flares about it, its crest in the head's own plane, and its light at the first comet; it
+/// and flares about it, its crest over it facing the viewer, and its light at the first comet; it
 /// goes at its seconds' end, as his form ends, or with him.
 #[expect(
     clippy::type_complexity,

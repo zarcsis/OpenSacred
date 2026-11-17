@@ -1,10 +1,11 @@
 //! The teleport's sights (774 `FX_TELEPORT_OUT`, 775 `FX_TELEPORT_IN`, #1092; docs/re/effects.md,
-//! "The teleport"): as the Mage's teleport acts, a ring of blue sparks about his feet and another
-//! at the arrival, each opening, rising into a cylinder, putting him at the arrival as it holds
-//! (`spells`'s `Teleporting`, at the same 3.35 s over the cast's rate), then sinking and closing;
-//! the departure's rides on him until then and stays where he was, the arrival's rides on him
-//! from then (`opensacred_rules::particles::TeleportSight`). Each lights the night by 170; none
-//! is tinted by it.
+//! "The teleport"): as the Mage's teleport acts, or a creature's that a script's `Attack` orders
+//! (`script_attacks`, #1831), a ring of blue sparks about his feet and another at the arrival,
+//! each opening, rising into a cylinder, putting him at the arrival as it holds (`spells`'s
+//! `Teleporting` or `script_attacks`' `Phase`, at the same 3.35 s over the cast's rate), then
+//! sinking and closing; the departure's rides on him until then and stays where he was, the
+//! arrival's rides on him from then (`opensacred_rules::particles::TeleportSight`). Each lights
+//! the night by 170; none is tinted by it.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -19,8 +20,8 @@ use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
 
-/// A sight to make ([`make`]): its caster, its place, whether it is the departure's, and the
-/// cast's rate.
+/// A sight to make at its entity's place ([`make`]): its caster, whether it is the departure's,
+/// and the cast's rate.
 #[derive(Component)]
 struct Unmade {
     caster: Entity,

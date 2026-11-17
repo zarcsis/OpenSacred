@@ -9,9 +9,12 @@
 //! cell by cell.
 //! A magic skeleton's drain lays one of the variant 2 from its killer's spine to its own, the
 //! hellfire one of the variant 1 from its ball to its target's neck at each strike, the big demons
-//! one from each eye, and the Vampiress's bite one of the variant 0 from her spine to its target's.
+//! one from each eye, the Vampiress's bite one of the variant 0 from her spine to its target's, a
+//! strike's life leech one of the variant 2 from the attacker's spine to a bone of the struck
+//! one's at random (`fight`), and a brain-footer's stare one of its type's variant (10 to 12) from
+//! its spine to a bone of its target's at random (`creature_arts`, #2567).
 //!
-//! Not followed: the segments' lights of 80, as the world's lights wait for #61.
+//! Not followed: the segments' lights of 80.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -38,7 +41,8 @@ pub(crate) enum End {
 }
 
 /// The bones' names by their index (`0x401000`, the table of 32-byte names at `0x8E7200`;
-/// docs/re/effects.md, "The bones"), of which the life leech's beam rolls one of its target's.
+/// docs/re/effects.md, "The FX event"), of which the life leech's beam and the brain-footer's
+/// stare roll one of their target's.
 pub(crate) static BONES: [&str; 50] = [
     "__Root",
     "Bip01 L Hand",

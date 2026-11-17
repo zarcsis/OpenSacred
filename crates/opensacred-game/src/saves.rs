@@ -1,9 +1,9 @@
 //! The saves (#1095; docs/re/saves.md): a game kept in a file of its own and given back, as the
 //! original's `cEngine::save` keeps its game in `SAVE/GAMEnn.PAK`, in the game's own versioned
-//! format (PLAN.md ADR-08). A save is postcard: its [`Header`], which the saves' list reads alone,
-//! then its [`Hero`], its [`Scripts`] and its [`World`]; a save of another version is refused, as
-//! the original's load refuses one (`0x61B6F0`). The saves lie in `saves/` beside the settings'
-//! file.
+//! format (PLAN.md ADR-08). A save is postcard: its [`Header`] and its picture (`save_picture`,
+//! #1991), which the saves' lists read alone, then its [`Hero`], its [`Scripts`] and its
+//! [`World`]; a save of another version is refused, as the original's load refuses one
+//! (`0x61B6F0`). The saves lie in `saves/` beside the settings' file.
 //!
 //! The first part (#1957) keeps the hero: its class, name, difficulty, values, items, arts,
 //! combos, effects, statistics and place, and the calendar. A load starts a game of the save's
@@ -18,13 +18,19 @@
 //!
 //! The third (#1959) keeps the world: the creatures that the sectors keep, those of the sectors in
 //! the world gone as their sectors keep them going, which a load's sectors put back as they come
-//! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; the drops; the
-//! town stash; the merchants' stock; the land explored and the map's pin; and the weather.
+//! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; its own horse,
+//! put back where it stood, with its bridle (#2301, #2316); the drops; the town stash; the
+//! merchants' stock; the land explored and the map's pin; and the weather.
 //!
 //! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` in the slot 0's file
 //! `GAME00` where the interface allows a save ([`allowed`]), F8 and Control+X load it. The
 //! scripts' autosave (#1989): an `AutoSave` saves the game into the first free slot, named by its
-//! number's text, where `[gameplay] autosave` is on ([`autosave`]).
+//! number's text, where `[gameplay] autosave` is on ([`autosave`]). Both take the save's picture
+//! first and wait for it ([`waited`]).
+//!
+//! The saves' window (#1990, `saves_window`) lists the slots' files with their pictures
+//! ([`slots`]) and erases one ([`erase`]). An exported hero's character is put on the hero of a
+//! new game once it stands ([`Import`], #2552).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -648,7 +654,8 @@ fn import(world: &mut bevy::prelude::World) {
 /// Puts a loaded save's world back after the resets of a game's start, its sectors' creatures put
 /// back as they come in (`npcs::Npcs::remember`): the town stash, the merchants' stock, the land
 /// explored, the map's pin and the weather, its timers on this run's real time; the drops, laid
-/// once the tables are read (`drops::Again`); and the hero's followers beside it.
+/// once the tables are read (`drops::Again`); the hero's followers beside it; and its own horse
+/// where it stood, with its bridle (`npcs::mount_again`, `riding::bridle_again`).
 fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     let World {
         creatures: _,
@@ -893,7 +900,8 @@ fn forget(mut commands: Commands) {
     commands.remove_resource::<drops::Again>();
 }
 
-/// The saves' restoring of a loaded game's hero.
+/// The saves: a loaded game's hero and world put back, an exported hero's import, the quick save
+/// and load and the scripts' autosave.
 pub struct SavesPlugin;
 
 impl Plugin for SavesPlugin {

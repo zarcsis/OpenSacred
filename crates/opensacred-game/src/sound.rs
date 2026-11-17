@@ -1,5 +1,5 @@
 //! Footsteps: while the hero walks or runs, each footstep of the clip plays a sample of the
-//! hero's footstep profile, the variants in turn (docs/02 §10.2), through Kira (ADR-07).
+//! hero's footstep profile, the variants in turn (docs/02 §10.1), through Kira (ADR-07).
 //!
 //! The moments of the footsteps are the first two parameters of the clip's motion in
 //! `MOTIONS.PAK` (`tables/motions.ron`): fractions of the clip about half a cycle apart for the

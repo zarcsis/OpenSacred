@@ -2,7 +2,8 @@
 //! coffins, graves, cabinets, book stands and shrines that the scripts' `CreateObj`s place, the
 //! `items.pak` category 4, the client's `cChest3D`. A left click on one gives the hero the event 7
 //! and the AI's state 1 (`0x53A170`), which walks it there and, standing within 300 of it with a
-//! straight line of walkable cells to it (`0x4FCC80`), sends it the event `0x21`: its own trigger opens with its model's clip of the slot 170
+//! straight line of walkable cells to it (`0x4FCC80`), sends it the event `0x21`: its own trigger
+//! opens with its model's clip of the slot 170
 //! (`MOTION_ACTIVATE`) and its type's sound (`0x44BCD0`, `0x695800`), its `Take:` function runs,
 //! which fills it (`0x4A71F0`), and it throws what it holds to the hero (`0x5C9BA0`, #1381) and is
 //! emptied for good (`+0x14` bit `0x4000`): the cursor shows no hand over it, a click on it does
@@ -180,10 +181,11 @@ fn walks_to(hero: Vec3, container: Vec3) -> bool {
 }
 
 /// The hero that stands, once its way to a container it was sent to ends: within 300 of the
-/// container's logical position (`npcs::Object`) it opens it, else it gives up. The opening
-/// plays the container's clip and its sound, opens its own trigger, runs its `Take:` function
-/// (`scripts::run_function`; its `FillChest`s, which fill the container, are #1381's), and
-/// empties it.
+/// container's logical position (`npcs::Object`), with a straight way to it ([`opens_from`]), it
+/// opens it, else it gives up. The opening plays the container's clip and its sound, opens its
+/// own trigger, runs its `Take:` function (`scripts::run_function`) and the function's
+/// `FillChest`s, which fill the container and throw what it holds to the hero ([`fill`], #1381),
+/// and empties it; a town stash shows its window instead, emptied while the window shows.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -485,8 +487,8 @@ fn opens_from(hero: Vec3, container: Vec3, walkable: impl Fn(crate::paths::Cell)
         && crate::paths::straight(hero.xz(), container.xz(), walkable)
 }
 
-/// Gives each container's animation player its clip of opening, played to its end at once for
-/// one emptied before (its sector placed again).
+/// Gives each container's animation player its clips of opening and of closing, the opening's
+/// played to its end at once for one emptied before (its sector placed again).
 fn clips(
     mut commands: Commands,
     mut containers: Query<&mut Container>,

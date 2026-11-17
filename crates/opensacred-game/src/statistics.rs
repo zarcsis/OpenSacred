@@ -19,6 +19,11 @@
 //! own values, the list that the header did not choose, and four fills; the hero's own portrait
 //! its values so. A click on the gold's line drops gold (#1665).
 //!
+//! The player's statistics' records are kept here too: the last foe the hero struck
+//! ([`LastFoe`]), whose panel the window shows; what the quest book's statistics tab shows, the
+//! counters ([`Tally`], #1611), the kills ([`Kills`], #1612) and the game's history ([`History`],
+//! #1613); and the wins of each difficulty ([`Wins`], #2464).
+//!
 //! Not followed yet: the player's own name, and a follower's points of the levels it reaches.
 
 use bevy::prelude::*;
@@ -603,9 +608,10 @@ const PANEL_HEADER: u32 = 0xFFFF_FF80;
 type Icons = (u32, Vec2, [u32; 4]);
 
 /// The panel that takes the upper panel's place while the line `block` of the lower panel is under
-/// the mouse (`0x6AA7D2`): the last foe's (D, `0x6A7390`), the weapon's kinds (E, `0x6A7C60`) or
-/// the resistances' (G, `0x6A8A00`), and below the weapon's and the resistances' the four more
-/// lines (`0x6AAA6E`); its texts by `write` and its icons into `icons`.
+/// the mouse (`0x6AA7D2`): the last foe's (D, `0x6A7390`), the weapon's kinds (E, `0x6A7C60`), the
+/// selected art's (F, `0x6A82F0`) or the resistances' (G, `0x6A8A00`), and below the weapon's, the
+/// art's and the resistances' the four more lines (`0x6AAA6E`); its texts by `write` and its icons
+/// into `icons`.
 fn upper_panel(
     sheet: &Sheet,
     block: Option<Block>,
@@ -780,8 +786,8 @@ fn upper_panel(
     }
 }
 
-/// The four more lines under the weapon's and the resistances' panels (`0x6AAA6E`): the bonus
-/// `bonus` of the text `name`, the pace, the attack speed and the survival bonus.
+/// The four more lines under the weapon's, the art's and the resistances' panels (`0x6AAA6E`):
+/// the bonus `bonus` of the text `name`, the pace, the attack speed and the survival bonus.
 fn more_lines(
     sheet: &Sheet,
     bonus: i64,
@@ -1018,8 +1024,8 @@ const SMALL_FONT_SIZE: f32 = 16.0;
 
 /// The description of the row that the mouse is over in `sheet` (`0x6ABDC6`, `0x6AC14E`): a
 /// skill's name, or a skill to learn, its name (9399 + the skill) and its text (9499 + the
-/// skill); an attribute's name (1090 + k) and its `UI_ATTRIB_*` text. A skill's level's effects
-/// wait (#1715).
+/// skill); an attribute's name (1090 + k) and its `UI_ATTRIB_*` text. A skill's level has none:
+/// its effects are a panel of their own ([`effects()`], #1715).
 fn description(texts: &Texts, sheet: &Sheet) -> Option<(String, String)> {
     let text = |name: &str| texts.named(name).unwrap_or_default().to_owned();
     let skill = |id: u8| {
@@ -1435,7 +1441,8 @@ fn show(
                 .zip(heroes.iter().next())
                 .filter(|_| on)
                 .map(|(texts, (base, combat, health, holding))| {
-                    // The hero's name, its class's by default (the player's own is not kept yet).
+                    // The hero's name, its class's: the player's own, which `game::Request`
+                    // keeps, is not shown.
                     let class = arts.as_deref().map_or(1, |arts| arts.kind);
                     let name = texts.named(&class.to_string()).unwrap_or_default();
                     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
@@ -2520,7 +2527,8 @@ mod tests {
             description(&texts, &sheet(Hover::Attribute(0))),
             pair("Strength", "About strength")
         );
-        // A skill's level's effects are not yet described, nor a row past the list.
+        // A skill's level has no description, its effects a panel of their own (#1715), nor has
+        // a row past the list.
         assert_eq!(description(&texts, &sheet(Hover::SkillLevel(1))), None);
         assert_eq!(description(&texts, &sheet(Hover::SkillName(5))), None);
     }

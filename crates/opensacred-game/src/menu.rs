@@ -2,11 +2,12 @@
 //! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving water
 //! (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor with a
 //! glow and fading in as a menu replaces another, and the Multiplayer and Extras submenus, whose
-//! movies play (#1946); the items whose screens the game does not have yet stand greyed (#1095,
-//! #1096, #1110). The campaigns
-//! open their choices of the hero (`choice`); a paused game's menu is the original's Esc menu
-//! (`esc_menu`, #1410). The mouse chooses by pointing and clicking, the keyboard with the arrows
-//! and Enter; Esc goes back a screen.
+//! movies play (#1946); the items whose screens the game does not have yet stand greyed: the
+//! Multiplayer submenu's networks, which wait for M9, and the Extras' credits. The campaigns
+//! open their choices of the hero (`choice`), Load Game the saves' window (`saves_window`, #1990)
+//! and Options the options window (`options`, #2340); a paused game's menu is the original's Esc
+//! menu (`esc_menu`, #1410). The mouse chooses by pointing and clicking, the keyboard with the
+//! arrows and Enter; Esc goes back a screen.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -85,7 +86,7 @@ impl Item {
         }
     }
 
-    /// Whether it does anything yet: multiplayer waits for M9, the credits for #1110.
+    /// Whether it does anything yet: multiplayer waits for M9, and the credits have no screen.
     fn works(self) -> bool {
         !matches!(
             self,
@@ -637,7 +638,7 @@ fn shown(app: Option<Res<State<AppState>>>) -> bool {
     app.is_some_and(|app| *app.get() == AppState::Menu)
 }
 
-/// The main menu, its submenus, the pause's menu and their keys.
+/// The main menu, its submenus and their keys.
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {

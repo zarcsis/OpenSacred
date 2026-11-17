@@ -5,9 +5,9 @@
 //! skills left to learn, and its gold, of its creature section (docs/02 §9, "The creature"); its
 //! items in place of its template's: those its equipment's slots hold worn in them, those of its
 //! backpack at their cells and its weapon sets, the set in its hands selected, each of its
-//! record's values with the items in its sockets; its values made anew at its level and its
-//! health full once the items' are in them. Its combat arts are its file's from the start
-//! (`game`).
+//! record's values with the items in its sockets; its bar's art slots and the slot its file
+//! selects (#2370); its values made anew at its level and its health full once the items' are in
+//! them. Its combat arts are its file's from the start (`game`).
 
 use bevy::prelude::*;
 use opensacred_data::heroes::{HeroEntry, Socketed, Worn};
@@ -72,7 +72,8 @@ impl Carry {
                 .find(|&&(at, _)| at == slot)
                 .map_or(0, |&(_, id)| id)
         });
-        // The set its file names selected, else the one whose halves its hands' slots hold.
+        // The set its file names selected where its hands' slots hold its halves, else the first
+        // whose halves they hold.
         sets.selected = Some(usize::from(self.hero.selected[0]))
             .filter(|&set| {
                 set < SETS
@@ -219,8 +220,9 @@ fn dropped(
 struct Filling(u8);
 
 /// Carries the saved hero into the game once its hero stands in place (`hero::Ready`): its
-/// experience, its base's skills and points, its gold, its items and weapon sets, its values made
-/// anew at its level and its health full; the taskbar's "+" as its points left it.
+/// experience, its base's skills and points, its gold, its items and weapon sets, its bar's art
+/// slots, its values made anew at its level and its health full; the taskbar's "+" as its points
+/// left it.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"

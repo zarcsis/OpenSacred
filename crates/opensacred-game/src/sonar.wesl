@@ -1,6 +1,7 @@
-// The red alarm's ring about the hero's portrait (`low_health`, `0x6D70F0`, `0x75FC70`): the
-// texture's top row laid across the ring, its left at the outer edge and its right at the inner,
-// tinted and blended by its alpha. The original's ring is 90 straight pieces of 4°.
+// A sonar's ring (`low_health::Sonar`), the red alarm's about the hero's portrait (`0x6D70F0`,
+// `0x75FC70`) and the compass's of a marker set anew (`compass`): the texture's top row laid
+// across the ring, its left at the outer edge and its right at the inner, tinted and blended by
+// its alpha. The original's ring is 90 straight pieces of 4°.
 
 import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 

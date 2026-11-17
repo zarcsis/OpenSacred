@@ -8,8 +8,9 @@
 //! whole and unlit, untinted by the night, lit by a light of 300, and laid under its bearer's
 //! model, as the original draws its system before the creature (`models::Pass::Under`, #2178).
 //! Each arrow the arrowproof sends back widens it by a tenth for a moment
-//! (`opensacred_rules::particles::DarkWard`). Not followed: the spells the spellproof turns aside,
-//! which nothing in the game turns aside yet.
+//! (`opensacred_rules::particles::DarkWard`). Not followed: the spells the spellproof turns aside
+//! by its effect `0x1A`, which nothing in the game reads: a spell is turned aside by its target's
+//! magic defence alone (`fight`, #2277).
 
 use bevy::gltf::Gltf;
 use bevy::prelude::*;

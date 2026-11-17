@@ -1,7 +1,8 @@
 //! The tooltips of the bar and the portraits' column (#1681, a part of #1594; docs/re/interface.md,
 //! "The tooltip"), each of the style `0x209` (`tooltip::spawn_tip_in`), as the pointer rests a
 //! third of a second on its control: a button of the bar its text centred 20 above its top's middle
-//! (`0x6E4560`), and a belt's slot its kind's text and key alike (#1684); a portrait's ring or picture the text 9960 with the creature's health and its
+//! (`0x6E4560`), and a belt's slot its kind's text and key alike (#1684); a portrait's ring or
+//! picture the text 9960 with the creature's health and its
 //! most, four wide each, centred 64 left of the ring's corner; the hero's experience bar the text
 //! 9961 with the experience into the level and the level's span, six wide each, centred 24 left of
 //! the bar's corner (`0x6D7B80`).
@@ -16,8 +17,8 @@
 //! `0x55C9F0`) centred 92 left of and 32 above the bar's corner (`0x6D7B80`), as the original's
 //! show them (seen).
 //!
-//! Not followed yet (#1594): the disc's and the compass's texts; the weapon sets' items'
-//! tooltips are #1516's.
+//! Not followed yet (#1594): the disc's and the compass's texts; a weapon set's slot's item's
+//! tooltip is `tooltip`'s (#1689) and an art slot's `tooltip::art`'s (#1694).
 
 use bevy::prelude::*;
 
@@ -65,8 +66,8 @@ const HORSE_BUTTON_TEXT: u32 = 151_704_389;
 const HORSE_TEXT_AT: Vec2 = Vec2::new(4.0, 26.0);
 
 /// A control whose tooltip the pointer rests on: a button of the bar by its index, a belt's slot,
-/// 1 to 5, a creature's health by its entry in the column, the hero's experience, or the column's
-/// "+" of the hero's bonuses (#1698).
+/// 1 to 5, a creature's health by its entry in the column, the hero's experience, the column's
+/// "+" of the hero's bonuses (#1698), the horse's button, or the mount's bar (#2301).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Control {
     Button(usize),
@@ -111,7 +112,8 @@ fn bar_control(images: &UiImages, at: Vec2) -> Option<Control> {
 }
 
 /// The control of the portraits' column under the point `at` of the original's screen, the
-/// column's places at the window's right, of `entries` shown (the hero's first): the hero's
+/// column's places at the window's right, of `entries` shown (the hero's first): the bonuses'
+/// "+", the horse's button and the mount's bar while the hero owns a horse (`horse`), the hero's
 /// experience bar, else an entry's ring or picture (`0x6D7B80`'s order).
 fn column_control(images: &UiImages, at: Vec2, entries: usize, horse: bool) -> Option<Control> {
     let (plus, at_plus) = bar::BONUSES;

@@ -1,8 +1,8 @@
-//! The hover's highlight (#1460; docs/re/cursor.md, "The hover's highlight"): the foe under the
-//! cursor, or the container under the hand, takes the original's `+0x14` bit `0x20000000`, which
-//! the world's drawing reads (`0x62FDE5`): its light's ambient share, 0.8 of its colour otherwise,
-//! pulses from 1.0 down to 0.2 and back every 0.4 s (`0x642FD0`), by which `standard.wesl` lights
-//! its model.
+//! The hover's highlight (#1460; docs/re/cursor.md, "The point, the size, the tint and the
+//! buttons"): the foe under the cursor, or the container under the hand, takes the original's
+//! `+0x14` bit `0x20000000`, which the world's drawing reads (`0x62FDE5`): its light's ambient
+//! share, 0.8 of its colour otherwise, pulses from 1.0 down to 0.2 and back every 0.4 s
+//! (`0x642FD0`), by which `standard.wesl` lights its model.
 
 use bevy::prelude::*;
 

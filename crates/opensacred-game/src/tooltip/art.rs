@@ -8,14 +8,16 @@
 //! The spells page asks for them with the flags 1 (#1696): a held art's lines end with the next
 //! level's line and its block, its time the entry's scaled by the record's growth.
 //!
+//! The statistics window's line of the selected art's damage takes its ends from the same values
+//! (`window_damage`, #1545).
+//!
 //! Not followed: the first block's time of the flags 1 by the last entry's level and bonus (the
-//! entry's own taken, as the bar's), the language's other
-//! level line (`0x17E7D34` 3), and of some arts a part of their values: the weapon multipliers'
-//! second array (`+0xA6`, the stats' `+0x96` alone taken) of 56, 1018 and 1085 to 1087 and 1101
-//! to 1103, the traps' skill 26 (its curve taken as 0) of 1049, 1050 and 1052, the difficulty's
-//! scaling of the levels of 66, 1003 and 1091 (bronze's), the hero's weapon of 1013 and 1054 (no
-//! line), the stats' flag `0x400000` of 1022 and 1023 (1), and the lowest bit of 1011's value,
-//! which the original prints as the bits of a double.
+//! entry's own taken, as the bar's), the language's other level line (`0x17E7D34` 3), and of some
+//! arts a part of their values: the traps' skill 26 (its curve taken as 0) of 1049, 1050 and
+//! 1052, the difficulty's scaling of the levels of 66, 1003 and 1091 (bronze's), the hero's
+//! weapon of 1013 and 1054 (no line), the stats' flag `0x400000` of 1022 and 1023 (their time
+//! doubled by night instead, #1742), and the low 32 bits of 1011's value as a double, which the
+//! original prints (the value shown whole).
 
 use opensacred_data::tables::{Arts as Tables, Spell, WeaponArt};
 use opensacred_rules::arts::{self, Arts, Speeds};
@@ -58,9 +60,9 @@ const CASTS: [(u16, u16); 8] = [
 ];
 
 /// The hero that the tooltip weighs the art for: its creature type, its level, its arts, their
-/// speeds, its damages' multipliers (the stats' `+0x96`) and its spells' (`+0x96` and `+0xB6`),
-/// its attributes and skills, whether it holds a ranged weapon, whether the day shows, and the
-/// fight's rules.
+/// speeds, its damages' multipliers (the stats' `+0x96` and `+0xA6`) and its spells' (`+0x96`
+/// and `+0xB6`), its attributes and skills, whether it holds a ranged weapon, whether the day
+/// shows, and the fight's rules.
 pub(crate) struct Hero<'a> {
     pub kind: u32,
     pub level: u32,
@@ -467,10 +469,10 @@ pub(crate) fn lines(
 }
 
 /// The statistics window's damage of the art `art` (`0x6A6550`, docs/re/character.md, "The
-/// combat art's damage"): each kind's least and most at the hero's level of it, a spell's of its
-/// record's effects times its multipliers (the traps' times their factor), a weapon art's of the
-/// weapon's damages `weapon` (or of its own values) times its factor by the art, each end
-/// `f·d + 0.5`; none where the hero holds no such art or neither record is found.
+/// hovered lines and their panels"): each kind's least and most at the hero's level of it, a
+/// spell's of its record's effects times its multipliers (the traps' times their factor), a
+/// weapon art's of the weapon's damages `weapon` (or of its own values) times its factor by the
+/// art, each end `f·d + 0.5`; none where the hero holds no such art or neither record is found.
 pub(crate) fn window_damage(
     art: u16,
     hero: &Hero,
@@ -1334,7 +1336,6 @@ mod tests {
                 "<1085>: 75 = 0+75+0+0",
             ]
         );
-        // An art not held has no next level.
         // An art not held has no next level, and the page shows its record's time at the level 1
         // (12 s over the speed 2), the bar's at 0.
         let not_held = shown_next(5, &Arts::default(), &tables, true);

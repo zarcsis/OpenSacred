@@ -2,8 +2,8 @@
 //! a ball that every tree's `Sector84080Enter` makes (`npcs`), the FX types 1156 to 1158. The
 //! hero's bat follows the hero across the court while he stands in its columns, the other bat
 //! follows the ball, and the ball flies off the court's walls and the bats
-//! (`opensacred_rules::pong`); each ball the hero's bat returns sounds `PONG` at it, brightens it
-//! for a second and gives the hero experience by the ball's speed.
+//! (`opensacred_rules::pong`); each ball a bat returns sounds `PONG` at it and brightens it for a
+//! second, and one the hero's bat returns gives the hero experience by the ball's speed.
 //!
 //! The bats are lilac boxes of lines over their faces of `Fx_dwarf_shield` (`0x7BCC60`), the ball
 //! a blue glow on the ground under a white one, with two shrinking rings of `Fx_twirl_rays` while

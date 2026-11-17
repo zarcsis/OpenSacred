@@ -8,7 +8,12 @@
 //!
 //! What the hero picks up goes into the grid at its first fit by columns (`pickup::Pack`); while
 //! the cursor holds an item over the grid, the cells under it are tinted by where it would go
-//! (#1269, `held`), and the cells of an item the hero cannot use are red (#1417).
+//! (#1269, `held`), and the cells of an item the hero cannot use are red (#1417). An item's
+//! sockets show their icons along its bottom (#1691).
+//!
+//! The town stash's and the merchant's grids are made of the same parts ([`spawn_grid`],
+//! [`lay_models`], [`lay_icons`]), and the smith's, the combat master's and the tooltip's item
+//! pictures of [`spawn_picture`].
 
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
@@ -192,7 +197,7 @@ pub(crate) fn screen() -> impl Bundle {
 /// picture of the window's pixels (`scale` of the original's) that a camera of the render layer
 /// `layer` draws the items' models into, its light with it, both `scene`, and over it the
 /// container of the items' sockets' icons ([`Icons`] of `layer`): the backpack's grid, a town
-/// stash's (`chest`), a merchant's.
+/// stash's (`town_stash`), a merchant's (`merchant`).
 pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
     commands: &mut Commands,
     (images, assets): (&UiImages, &AssetServer),

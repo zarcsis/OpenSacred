@@ -3,10 +3,10 @@
 //! column of light 1,000 high of its vertices' colours alone, added by their alpha and pulsing,
 //! its ground symbol turning and a glow on the ground, both added whole, and sparks of
 //! `PARTICLE_GLOW03` rising from it, its column and sparks narrowing as it fades
-//! (`opensacred_rules::particles::HolyLight`); all untinted by the night, its light of 200 at it.
+//! (`opensacred_rules::particles::HolyLight`); all untinted by the night, its light of 200 at it,
+//! and its Direct3D point light on the models about it (`fx_lights`, #2106).
 //!
-//! Not followed: the sparks' colours' spread (±15 each, `+0x2138`), and its Direct3D point light on
-//! the models.
+//! Not followed: the sparks' colours' spread (±15 each, `+0x2138`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

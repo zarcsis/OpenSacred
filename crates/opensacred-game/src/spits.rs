@@ -8,7 +8,10 @@
 //! and theirs of, the hero among them, with the spit's fixed damages and no hit chance
 //! (`opensacred_rules::fight::Rules::spit_damages`), and lands, laying a mark of blood and
 //! sounding; over a cell that may not be walked on it ends at once. In one case of three the giant
-//! spider bears two to four young of half its level on its spot instead.
+//! spider bears two to four young of half its level and one on its spot instead. The eiterblume
+//! (186) and its spinneling (333) spit as the spider does, from their feet, by their own mark's
+//! decision (#2226, `opensacred_rules::casts::flower`), and the crab queen, by an odd roll, first
+//! drops its ten plant cages on its target, which hold it 3 s (`plant_cages`).
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;

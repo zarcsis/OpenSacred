@@ -1,10 +1,10 @@
 //! The holds' sights (#1092; docs/re/effects.md, "The burning light and the holy conversion"): the
-//! burning light (816) about a creature that the Seraphim's irritation holds or that a blow knocks
-//! back, pale blue sparks bursting now and then about its neck and falling, left in the world,
-//! for the hold's seconds or 3 s (`opensacred_rules::particles::BurningLight`); and the holy
-//! conversion's halo (806) at a converted creature's head, forty small blue-violet glows on a ring
-//! that swells away as the conversion ends (`particles::HolyConversion`). Both are added and
-//! untinted by the night.
+//! burning light (816) about a creature that the Seraphim's irritation holds, that a blow knocks
+//! back or that a brain-footer stares at (`creature_arts`), pale blue sparks bursting now and then
+//! about its neck and falling, left in the world, for the hold's seconds, 3 s or the stare's 2 s
+//! (`opensacred_rules::particles::BurningLight`); and the holy conversion's halo (806) at a
+//! converted creature's head, forty small blue-violet glows on a ring that swells away as the
+//! conversion ends (`particles::HolyConversion`). Both are added and untinted by the night.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

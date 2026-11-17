@@ -8,7 +8,8 @@
 //! Continue goes on, and Quit asks first in the original's dialog
 //! (`DEFAULT_BUSYDLG`, `busy_dialog`): the screen darkened, its framed box, its question and the
 //! buttons OK, which leaves the game for the main menu, and Cancel, which closes the dialog alone.
-//! A still frame's pause (`pause on`) and the key P's (`busy_dialog`) show none of it.
+//! A still frame's pause (`pause on`), the key P's (`busy_dialog`) and the keys S's and O's, under
+//! the saves' window and the options alone, show none of it.
 
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
 use bevy::prelude::*;

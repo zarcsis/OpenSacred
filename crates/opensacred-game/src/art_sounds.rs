@@ -6,7 +6,9 @@
 //! read). Each plays at the caster or the maker, the healing's cast at its target, at the
 //! volume 1 and a rate's factor of 0.5, the sample's own rate.
 //!
-//! The spells' and arts' objects' own sounds, their flights, impacts and loops, are #1173's.
+//! The sounds of the objects that an art makes as it starts and at its point are here too
+//! ([`objects`]); the spells' and arts' objects' other sounds, their flights, impacts and loops,
+//! are #1173's.
 
 use bevy::prelude::*;
 
@@ -143,7 +145,8 @@ fn play(sounds: &mut MessageWriter<Play>, id: u32, at: Entity) {
 }
 
 /// The sounds of the arts and the spells that the hero starts: a spell's cast, an art's own cry,
-/// one of its sounds at even odds, and its executor's.
+/// one of its sounds at even odds, its executor's, and those of the objects it makes as it starts
+/// ([`objects`]).
 fn starts(
     started: Query<(Entity, &Making, &Playing), Added<Playing>>,
     hero: Option<Res<crate::hero::Hero>>,

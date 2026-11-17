@@ -26,7 +26,7 @@ use crate::lines::Texts;
 use crate::pause::Play;
 use crate::tooltip::argb;
 
-/// The view (`0x759AF0`), its middle and the lens's point's place.
+/// The view (`0x759AF0`).
 const VIEW: Rect = Rect {
     min: Vec2::new(162.0, 120.0),
     max: Vec2::new(862.0, 645.0),
@@ -126,8 +126,8 @@ fn arrow_corner(edge: usize, at: Vec2, size: Vec2) -> Vec2 {
     )
 }
 
-/// Tab or the middle button held shows the overview, unless the world map shows or the game is
-/// paused (`cEngine_receiveEvent`).
+/// Tab or the middle button held shows the overview, unless the world map shows, the game is
+/// paused (`cEngine_receiveEvent`) or the console is open.
 fn hold(
     keys: crate::controls::Keys,
     buttons: Res<ButtonInput<MouseButton>>,

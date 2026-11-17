@@ -1,6 +1,7 @@
 //! The plant cages' looks (849, `FX_PLANTCAGE`, #1092; docs/re/effects.md, "The plant cage"): each
 //! cage about a held creature, the Wood Elf's spell 40 (`spells`), a creature's at the hero
-//! (`creature_casts`) or the ten of the hero's terror (`ai`), is a vine of dots facing the camera
+//! (`creature_casts`), the crab queen's (`spits`), the ten of the hero's set 60 (`attack`, held
+//! by [`hold`]) or the ten of the hero's terror (`ai`), is a vine of dots facing the camera
 //! from the creature's neck down to a base point on the ground within 50 of it, growing from the
 //! ground up over 0.667 s, swaying as its waves run down it, seven spurs from its bends and a glow
 //! flat on the ground at its base, all added by their alpha in its colour, green a hero's and blue

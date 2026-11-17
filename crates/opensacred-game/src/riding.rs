@@ -13,6 +13,13 @@
 //! (`0x6D6EDB`); and the ridden horse's counts among its rider's items (`0x552660`,
 //! `equipment::refit`). A stable's horse holds its gear in its slot 1 (`EquipNPC`, `0x54ACC0`),
 //! which neither reads.
+//!
+//! Beside them: the horse's description ([`description`], `0x55C9F0`, #2301, #2401), which the
+//! mount's bar shows (`bar_tips`), and from the saddle the slot of an art that may not be made on
+//! horseback (`tooltip`); the rider's most health raised by the horse under it ([`Saddle`],
+//! #2302); the rider thrown off by a knock-down ([`throw_off`], #2311) and its horse felled in
+//! its place by a lethal blow ([`fell`]); the line of a hero that may not ride and the call's
+//! whistles (#1180); and the command `ride` ([`ride`]).
 
 use std::time::Duration;
 
@@ -753,9 +760,10 @@ fn approach(
 const FOLLOWS_BY: f32 = 10.0;
 
 /// Seats a hero whose mount has played on its horse (`0x5559E0`): the hero takes the horse's place
-/// and heading, the horse stops and leaves the way, and the hero goes at the horse's speeds, its
-/// `Creature.pak` walk and run times its class's pace (the horse data's first word) times the
-/// game's speed (`0x4F75F0`), playing its ride (`0x5467A0`).
+/// and heading, the horse, held out of the way since the clip's start ([`hold`]), becomes the
+/// hero's own ([`own`]), and the hero goes at the horse's speeds, its `Creature.pak` walk and run
+/// times its class's pace (the horse data's first word) times the game's speed (`0x4F75F0`),
+/// playing its ride (`0x5467A0`).
 fn mount(
     mut commands: Commands,
     time: Res<Time>,

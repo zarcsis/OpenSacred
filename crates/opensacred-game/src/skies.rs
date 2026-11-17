@@ -4,15 +4,18 @@
 //! drifting and moved with the camera, at its alpha and tinted by the night; the storm's
 //! lightning, a grey added over the screen and a thunder; the snow's flakes of `PARTICLE_SPARK03`,
 //! added, falling and swaying as the original's; and the rain's loop, at the volume of its drops
-//! over 3,000. None of it in a dungeon. They are drawn by one full-screen material over the world
-//! and under the interface (`skies.wesl`), its parameters from the weather's state (`weather`) at
-//! each frame, blended as premultiplied colours so that the flash and the flakes add to what lies
-//! below. A quake of the screen moves the camera by a random offset within its amplitude at each
-//! frame, with the earthquake's sound, in a dungeon too.
+//! over 3,000. None of it is drawn in a dungeon, where no thunder sounds either, nor the drops,
+//! the fog and the flakes at the options' lowest detail. They are drawn by one full-screen
+//! material over the world and under the interface (`skies.wesl`), its parameters from the
+//! weather's state (`weather`) at each frame, blended as premultiplied colours so that the flash
+//! and the flakes add to what lies below. A quake of the screen moves the camera by a random
+//! offset within its amplitude at each frame, with the earthquake's sound, and a jolt, a big
+//! demon's step's (`steps`, #1171) or its fire's (`creature_casts`), moves it down by its pixels
+//! as it falls, in a dungeon too.
 //!
-//! Not followed yet: the jolts of the big creatures' steps, the butterflies and the birds
-//! (#1073); the drops' and the flakes' light is the night's tint over the whole screen, not the
-//! light where each falls (`0x41B510`).
+//! Not followed: the drops' and the flakes' light is the night's tint over the whole screen, not
+//! the light where each falls (`0x41B510`). The butterflies and the birds over the camera are
+//! `butterflies`' and `fliers`'.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
@@ -68,8 +71,9 @@ const FALL: f32 = 10.0;
 const SWAY: f32 = 5.0;
 const SWAY_PERIOD: f32 = 0.1;
 const WRAP: f32 = 1_024.0;
-/// The side of a cell of the snow's grid, in the original's pixels: the most a flake's half side
-/// reaches at the closest zoom, so that a flake covers at most two cells along each axis.
+/// The side of a cell of the snow's grid, in the original's pixels: above the most a flake's half
+/// side reaches, 20 at the closest zoom, so that a flake covers at most three cells along each
+/// axis.
 const SNOW_CELL: f32 = 32.0;
 /// The earthquake's sound (`SOUND_FX_EARTHQUAKE_LOOP`), and how soon after it it plays again, at
 /// the soonest.
@@ -487,7 +491,8 @@ fn shake(
     } else {
         (0.0, 0.0)
     };
-    // A jolt moves the view down by its pixels as it falls (docs/re/weather.md, "The jolt").
+    // A jolt moves the view down by its pixels as it falls (docs/re/weather.md, "`cEventWeather`
+    // and its kinds").
     let down = down + state.jolt;
     for (mut transform, projection) in &mut cameras {
         let zoom = match projection {

@@ -3,17 +3,17 @@
 //! the name by the item's class (its virtual `+0x44`: a weapon's, an armour's
 //! and a shield's with its difficulty's icon, its colour and its class, a weapon's lore and hands;
 //! a ring's, an amulet's and a rune's, each with its sockets filled over its sockets; any other
-//! plain), then `0x5C5360`'s: the refusal of the class, the price, the damage and the protection
-//! as the hero would deal and take them, the hands' and the pace's slowing, the item's level, `A`
-//! and `D`, each kind of damage with its bonuses, the requirements red where the hero falls short,
-//! the resistances, the other bonuses (`0x5C4450`) and the hint of its use; then each socket's
-//! item's own lines (#1691).
+//! plain), then `0x5C5360`'s: the set's name, the refusal of the class, the price, the damage and
+//! the protection as the hero would deal and take them, the hands' and the pace's slowing, the
+//! item's level, `A` and `D`, each kind of damage with its bonuses, the requirements red where
+//! the hero falls short, the resistances, the other bonuses (`0x5C4450`) and the hint of its use;
+//! then each socket's item's own lines (#1691).
 //!
 //! The price's place factor is 1.0 offline, which a network game's message alone changes (#1728).
 //! The extra text of the item's `+0xFC` after a weapon's name is never written but 0 (#1819).
 //!
-//! Not followed: the quest's line (the quest items' page's), the class's variants in the refusal
-//! (`0x43CA20`), and the hands of the types that the list of `0x5CECD0` names.
+//! Not followed: the quest's line (the quest items' page's), and the hands of the types that the
+//! list of `0x5CECD0` names.
 
 use opensacred_rules::equipment::Takers;
 use opensacred_rules::equipment::{Asks, CLASSES, NO_CLASS};
@@ -539,8 +539,7 @@ fn slowing(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
         Some(("1169", shortfall(skill).unwrap_or(1.0)))
     } else if opensacred_rules::fight::slows(item.category) {
         // Only what lowers the pace, which a cannon does not, though the original's line shows
-        // its slowing (#2520; docs/decisions/interface.md, "Bonus lines of what the code
-        // applies").
+        // its slowing (#2520; docs/decisions/interface.md, "No slowing line for a cannon").
         let scale = f64::from(item.values.scale);
         let x = shortfall(ARMOUR_LORE)
             .filter(|_| (1.0..=999.0).contains(&scale))

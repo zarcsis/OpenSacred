@@ -3,8 +3,8 @@
 //! `tables/arts.ron` shortened by its skills; their regeneration with the game's time at the
 //! speeds of its attributes and items; and what the console's `arts` shows and does, as the
 //! original's driver does: the list, an art taught as runes teach it, every art ready, and an
-//! art's use, which starts the regeneration of every art of its kind until the hero makes them
-//! itself (#509).
+//! art's use, which starts the regeneration of every art of its kind as the hero's own making of
+//! it does (`making`, #509).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -191,7 +191,9 @@ impl HeroArts {
 /// The arts' regeneration (`0x562730`), the hero's alone, on the world's tick as the creatures'
 /// updates run it (`frame::WorldTick`, #627): what is still to run of each art goes down by the
 /// tick's seconds times its factor and its kind's speed, the speeds by the hero's level,
-/// attributes, items and effects (`fight::arts_speeds_with`, #763).
+/// attributes, items and effects (`fight::arts_speeds_with`, #763). It also keeps the hero's
+/// skills, its arts' bonuses of its items and sets, and the arts' times by them, as they change
+/// (#1717, #1725, #1727, #2374).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"

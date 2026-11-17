@@ -24,8 +24,11 @@
 //! shine at any hour, the hero's of radius 200, and the colour is a grey ramp,
 //! `(blue ramp) · 0.75 + 64`, whatever the night's level. The lamps' glows (`statics`) show from
 //! the dusk to the dawn, (255, 236, 149) at an opacity of half the night's level, and in a
-//! dungeon (255, 218, 43) at 64 out of 255 (`0x62FF60`). **Not yet** (#61): the creatures' and
-//! the spells' lights, and the torches.
+//! dungeon (255, 218, 43) at 64 out of 255 (`0x62FF60`). A lit torch in the hero's hand makes its
+//! light 300 in a dungeon and half as much again by night, its items' effect of the light grows
+//! it, and each of its followers is lit as a hero of its own (#61); the effects of the world, the
+//! spells and the arts are sources of their own radii ([`Light`], #1092). Not followed: a ridden
+//! horse's light, its rider's.
 
 use std::collections::{HashMap, HashSet};
 
@@ -577,8 +580,8 @@ impl FullscreenMaterial for Night {
 /// The hero's light.
 #[derive(Resource, Default)]
 pub struct HeroLight {
-    /// Whether the hero's light is doubled by night: the Wood Elf's, class 5 (and the
-    /// Vampiress's in her night's form, class 7, not yet: her art 1023, #758).
+    /// Whether the hero's light is doubled by night: the Wood Elf's, class 5, and the
+    /// Vampiress's in her night's form, class 7 (`forms`, #758).
     pub doubled: bool,
 }
 

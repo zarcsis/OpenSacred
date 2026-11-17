@@ -1,7 +1,7 @@
 //! A creature's clips by the original's motion slots (docs/re/motions.md): a model's file keeps,
-//! with each clip, the slots of its `ModelDesc` that name it (`extras.slots`, docs/02 §4.1), and
-//! the client plays for an action the slot that a table gives by the class of what the creature
-//! holds, or the nearest slot the model has (`0x5467A0`).
+//! with each clip, the slots of its `ModelDesc` (docs/02 §4.1) that name it (`extras.slots`,
+//! §4.5), and the client plays for an action the slot that a table gives by the class of what
+//! the creature holds, or the nearest slot the model has (`0x5467A0`).
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -66,8 +66,10 @@ fn table(action: Action, class: u8) -> u16 {
 /// and the gait it moves at, as `0x5467A0` picks them: the table's slot (`table`) where the
 /// model has it; else, standing, slot 2 where it has that, else 1; walking, the first it has of
 /// the walks 27, 28 and 29, then of the runs 40, 41 and 42, at a run, else the standing slot;
-/// running, the runs first, then the walks, at a walk. Its other cases are not followed: a
-/// mounted creature's 179, the small spider's walk, the fight stance (#155).
+/// running, the runs first, then the walks, at a walk. Its other cases are followed elsewhere:
+/// the fight stance by [`Slots::stance`] (#219), the attacks by [`Slots::attacks`], a rider's
+/// 169, else 166, and a flyer's 179 by `npcs` (#2288, #2250); the small spider's walk, always
+/// the slot 27, is not followed.
 pub fn slot(action: Action, class: u8, has: impl Fn(u16) -> bool) -> (u16, Action) {
     let slot = table(action, class);
     if slot != 0 && has(slot) {
@@ -214,8 +216,8 @@ impl Slots {
     }
 
     /// The fight stance's clip for `class`, only where the model has its slot: 14 to 26 for the
-    /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
-    /// standing creature takes it instead of its idle only then (`0x5467A0`,
+    /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s row of the action
+    /// 3); a standing creature takes it instead of its idle only then (`0x5467A0`,
     /// docs/re/motions.md, "The fight stance").
     pub fn stance(&self, class: u8) -> Option<&str> {
         let slot = match class {

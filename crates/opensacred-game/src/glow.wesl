@@ -1,7 +1,9 @@
-// The glow of the health's red ring (`low_health`, `0x732220`): the part of the picture drawn
-// again at the offsets −6 to +6 by 2 on both axes, 49 times, each copy's colours by its alpha
-// times the copies' alpha, their sum added onto the screen. The node is the part with 6 pixels
-// about it; the picture's texels hold the frame's sRGB values, which the original adds.
+// The glow of a picture of the interface (`low_health::Glow`, `0x732220`), the health's red
+// ring's, the points' "+"'s (`points`) and a control's under the pointer (`control_glow`): the
+// part of the picture drawn again at the offsets −6 to +6 by 2 on both axes, 49 times, each
+// copy's colours by its alpha times the copies' alpha, their sum added onto the screen. The node
+// is the part with 6 pixels about it; the picture's texels hold the frame's sRGB values, which
+// the original adds.
 
 import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 

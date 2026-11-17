@@ -1,9 +1,9 @@
 //! The pool of the ground's tile sheets that the loaded sectors share (#2484): a 2D array texture
-//! of 256 × 256 layers, each sheet written into a layer of its own as the first sector that takes
-//! it comes in, and its layer free again once the last such sector is gone. A sector's ground
-//! draws its cells' stacks of layers from the pool (`terrain`, `ground.wesl`), so that a sheet
-//! goes to the graphics card once for every loaded sector that uses it, where each sector's
-//! composed atlas sent it again (20 to 30 MB a sector on the overworld, docs/05 §4).
+//! of layers of 256 × 256 texels, each sheet written into a layer of its own as the first sector
+//! that takes it comes in, and its layer free again once the last such sector is gone. A sector's
+//! ground draws its cells' stacks of layers from the pool (`terrain`, `ground.wesl`), so that a
+//! sheet goes to the graphics card once for all the loaded sectors that use it, where each
+//! sector's composed atlas sent it again (20 to 30 MB a sector on the overworld, docs/05 §4).
 //!
 //! A layer is written alone through the render queue: changing the pool's image would send the
 //! whole of it again.
@@ -63,8 +63,8 @@ impl SheetPool {
                 depth_or_array_layers: u32::from(LAYERS),
             },
             TextureDimension::D2,
-            // The sheets' values as stored, whole: the shader blends them as integers, as the
-            // atlas was composed (`terrain::compose_slot`).
+            // The sheets' values as stored, whole: the shader blends them as integers (`composed`
+            // of `ground.wesl`), as the atlas was composed.
             TextureFormat::Rgba8Uint,
             RenderAssetUsages::RENDER_WORLD,
         );

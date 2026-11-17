@@ -21,7 +21,7 @@ use bevy::window::WindowResolution;
 use opensacred_data::converted::{Converted, MARK};
 use serde_json::Value;
 
-/// The converter's run on the development machine, in seconds (docs/03 §2, #1497), by which the
+/// The converter's run on the development machine, in seconds (docs/03 §1, #1497), by which the
 /// bar moves before the run's own pace is known.
 const RUN_SECONDS: f32 = 483.0;
 

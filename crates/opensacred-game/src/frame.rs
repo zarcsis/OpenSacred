@@ -52,9 +52,10 @@ pub struct Playing;
 pub struct Unpaused;
 
 /// The player's keys and mouse on the world, the pause and the menus, which the open console
-/// holds back (`console`), and the pointer over the bar or a window (`bar`, `inventory`,
-/// `quest_book`, `talk`, `world_map`): each module's test of it ([`HoldsControl`]) taken as the
-/// frame begins ([`HeldBack`]).
+/// holds back (`console`), a movie and the scripts' cinema (`movies`, `cinema`), and the pointer
+/// over the bar or a window (`bar`, `inventory`, `purchase`, `quest_book`, `stables`, `talk`,
+/// `world_map`): each module's test of it ([`HoldsControl`]) taken as the frame begins
+/// ([`HeldBack`]).
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Control;
 

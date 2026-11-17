@@ -1,11 +1,15 @@
-//! The FX objects' particle systems (#1092; docs/re/effects.md): for now the world's fires, the
-//! smoke class's variants of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) that
-//! the scripts' `CreateObj` places with their heights (`npcs`). Each runs its particles by
-//! `opensacred_rules::particles` at the frame's time and draws them as the original's billboards
-//! (`0x761B00`): a quad of the particle's size facing the camera, turned by its angle, coloured
-//! by its layer's ramp at its life, of `PARTICLE_FIRE03`, the flames added to the frame by their
-//! alpha and the smoke laid over it by its alpha, not tinted by the night; and the fire lights
-//! the night by its system's radius (`+0x9C`, docs/re/effects.md, "Lights").
+//! The FX objects' particle systems (#1092; docs/re/effects.md): the world's fires and smokes, the
+//! smoke class's variants 1 to 13 (the chimneys' smokes 771, 810 and 811, the fire smokes
+//! `FX_FI_SMOKE_*` 812, 813 and 876, the geyser 879, the lavas' smokes 882 and 881, the fires
+//! `FX_FIRE_L` 884 to 886 and the magic fire 904) that the scripts' `CreateObj` places with their
+//! heights (`npcs`). Each runs its particles by `opensacred_rules::particles` at the frame's time
+//! and draws them as the original's billboards (`0x761B00`): a quad of the particle's size facing
+//! the camera, turned by its angle, coloured by its layer's ramp at its life, of its variant's
+//! texture, each layer added to the frame or laid over it, the chimneys' smokes and the geyser
+//! tinted by the night and the rest not; and a fire lights the night by its system's radius
+//! (`+0x9C`, docs/re/effects.md, "Lights"). A geyser bursts by its clock, with its sound; the two
+//! larger fire smokes and a bursting geyser strike the creatures in them once a second (`scald`,
+//! #2518); and the fires' loop plays at the fires near the hero (`crackle`, `0x690420`).
 //!
 //! The small fires of `cParticleSystem_smallfire`'s variant 2 (878, `FX_SMALLFIRE`, #1808) that
 //! six pieces of set 23 leave at each of the hero's steps (`0x63918C`, `sound::HeroStep`): their
@@ -15,9 +19,17 @@
 //! the step, of the hero's strength and dexterity (`opensacred_rules::fight::small_fire_damages`,
 //! no hit chance, through the resistances).
 //!
+//! The last burnings (#1262), the generic system's variants 7 and 8 that `undead` starts where a
+//! fire ghoul or a magic skeleton dies its last death: their flames, emitted for a second, over a
+//! scorch on the ground that stays for 10 s and fades.
+//!
+//! The other effects' modules draw with this one's parts: the particles' material ([`Effect`],
+//! #2017) and its makers, the quads of a mesh ([`Quads`]), the particles' textures, and the depth
+//! of a system's place in the original's order of drawing ([`Orders`], [`InOrder`], #2178).
+//!
 //! Left out: the wind that the smoke class writes into its layers (`+0x68` of the renderer, a
-//! **hypothesis**), the other classes, the spells' among them, for which their modules draw
-//! stand-ins, and the small fire's variants 0 and 1; the torches' flames are `torches`'s.
+//! **hypothesis**), and the small fire's variant 1. The other classes are their own modules', the
+//! small fire's variant 0 `lava_bursts`'s and the torches' flames `torches`'s.
 
 use std::sync::Arc;
 
@@ -72,8 +84,8 @@ struct Fires {
 /// A layer's material, none without its texture.
 type Material = Option<Handle<Effect>>;
 
-/// The smoke class's variants that the game makes: the chimneys', the fire smokes', the lavas'
-/// smokes and the fires (docs/re/effects.md).
+/// The smoke class's variants that the game makes: the chimneys', the fire smokes', the geyser,
+/// the lavas' smokes, the fires and the magic fire (docs/re/effects.md).
 const VARIANTS: [u8; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 /// The steps' small fires' data and materials: their flame's and smoke's layers' and their burnt
@@ -715,8 +727,6 @@ impl Quads {
         }
     }
 
-    /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
-    /// as the renderer warns of a mesh without vertices (#1203).
     /// Lays every vertex nearer the camera than the depth of `order` back to it along the line of
     /// sight, where one is given, the mesh's origin at `origin` (its entity's place, of no turn and
     /// no scale): in the camera's orthographic view each vertex shows where it did, none nearer
@@ -776,6 +786,8 @@ impl Quads {
             .extend(other.indices.into_iter().map(|index| first + index));
     }
 
+    /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
+    /// as the renderer warns of a mesh without vertices (#1203).
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
         if self.indices.is_empty() {
             self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);
@@ -850,8 +862,8 @@ impl OnFloor {
 /// of `models.wesl`).
 const ON_FLOOR_SQUEEZE: f32 = 0.002;
 
-/// Where the original draws a particle system in its draw lists (docs/re/drawing.md, "The effects
-/// among the creatures", #2047): its FX object's whole system at the object's place, after the
+/// Where the original draws a particle system in its draw lists (docs/re/drawing.md, "The models",
+/// #2047): its FX object's whole system at the object's place, after the
 /// statics of its cell and before the creature it follows, or one in its cell, which is drawn
 /// after it and covers it; its billboards write no depth, so the model covers every quad of its
 /// system that it lies over. The game draws such a system's quads at the depth of that place
@@ -910,10 +922,10 @@ impl Orders<'_, '_> {
 
     /// The depth of a system whose object has stood at `position` from the world's start, a
     /// fire of the world's: after the statics of its cell, at the last place of its chain short of
-    /// the next cell of its diagonal (`statics`' places run to 33.8), as the row walk draws a
+    /// the next cell of its diagonal (33.8 places on, see `models::PLACE`), as the row walk draws a
     /// cell's chain and then its objects (`0x62AE90`); a creature that came into the cell later is
-    /// chained before it and drawn first (`0x5FCCB0`, docs/re/drawing.md, "The effects among the
-    /// creatures"), but for the texels of its model's own depth before its place.
+    /// chained before it and drawn first (`0x5FCCB0`, docs/re/drawing.md, "The models"), but for
+    /// the texels of its model's own depth before its place.
     pub(crate) fn after_statics(&self, position: Vec3) -> Option<InOrder> {
         let place = crate::models::place_of(position);
         let anchor = Vec4::new(place.x, 0.0, place.z, LAST_PLACE);
@@ -982,8 +994,8 @@ impl Orders<'_, '_> {
     }
 }
 
-/// The last place of a cell's chain short of the next cell of its diagonal, where the statics'
-/// places run to 33.8 (`models::PLACE`).
+/// The last place of a cell's chain short of the next cell of its diagonal, which lies 33.8
+/// places on (see `models::PLACE`).
 const LAST_PLACE: f32 = 33.0;
 
 // In front of the statics' places of its cell's chain (to 32) and of a model's own place, behind

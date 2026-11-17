@@ -1,8 +1,8 @@
-//! The world map (#1561; docs/re/maps.md): `M` and the bar's map button show and hide it
-//! (`cUI_Megamap`, `UI_WND_MEGAMAP`), its close button and Esc hide it; it pauses the game while it shows (a
-//! single player's, `0x6C7BB0`), and its show hides the inventory and the quest book. It is laid
-//! out on the original's 1024 × 768 screen centred along the window's width, as the bar is
-//! (`bar`).
+//! The world map (#1561; docs/re/maps.md; `cUI_Megamap`, `UI_WND_MEGAMAP`): `M` shows and hides
+//! it, the bar's map button shows it, and its close button and Esc hide it; it pauses the game
+//! while it shows (a single player's, `0x6C7BB0`), and its show hides the inventory and the quest
+//! book. It is laid out on the original's 1024 × 768 screen centred along the window's width, as
+//! the bar is (`bar`).
 //!
 //! The map of 2,048 × 2,816 pixels, the Underworld's three rows of 256 × 256 pictures above
 //! Ancaria's eight (`ui_worldMapUW<row><column>`, `ui_worldMapX<row><column>`), shown from its
@@ -16,8 +16,9 @@
 //!
 //! The left button held off the bar shows the lens (#1568, `0x6CCBD0`): over 0.2 s a view of
 //! 700 × 525 at the screen's middle of the minimap's ground about the point under the pointer
-//! (`minimap`), its fog of war over the land explored (`explored`), and the quests' icons with
-//! their titles beside them; the map's tooltip hides under it.
+//! (`minimap`), its fog of war over the land explored (`explored`), the quests' icons with
+//! their titles beside them and the creatures' marks (#1571, `lens_creatures`); the map's
+//! tooltip hides under it.
 //!
 //! The pin's button starts the pin's mode, its cursor the pin (#1569, `0x6C8140`): a left
 //! release off the bar places the pin there, its mark the pin's picture 64 × 64, its world
@@ -156,12 +157,12 @@ impl Map {
     }
 }
 
-/// The pin's picture, which its mode's cursor and its mark show (`MOUSE_PUSHPIN`), the mark's
-/// side, the hot spot's offset of the cursor's picture, and the box about the mark that a right
-/// press takes it away within (`0x6C8140`).
+/// The pin's picture, which its mode's cursor and its mark show (`MOUSE_PUSHPIN`).
 pub(crate) const PUSHPIN: &str = "mouse_pushpin";
 /// The places' names' ink (`0x6C8A40`, the flag `0x800`): its alpha the names' opacity.
 pub(crate) const INK: &str = "ui_worldmapfontbg";
+/// The pin's mark's side, the box about the mark that a right press takes it away within, and
+/// the hot spot's offset of the cursor's picture (`0x6C8140`).
 const PIN_MARK: f32 = 64.0;
 const PIN_SPOT: f32 = 16.0;
 
@@ -927,8 +928,9 @@ fn times(length: f32, step: f32) -> u16 {
     times
 }
 
-/// `M` and the bar's map button (`UI_TB_MAP`), the close button and Esc show and hide the map; its show pauses the game and hides the
-/// inventory and the book, its hide goes on.
+/// `M` shows and hides the map, the bar's map button (`UI_TB_MAP`) shows it, and its close button
+/// and Esc hide it; its show pauses the game and hides the inventory and the book, its hide goes
+/// on.
 fn toggle(
     mut keys: crate::controls::KeysMut,
     buttons: Res<ButtonInput<MouseButton>>,

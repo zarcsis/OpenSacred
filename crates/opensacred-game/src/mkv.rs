@@ -9,9 +9,9 @@
 //! goes on. FFmpeg's Matroska muxer rounds the blocks' times to 1 ms, so that once it ends the
 //! game remuxes its file (the one asked for with `.part` after its name) into the one asked for
 //! at a microsecond a unit ([`remux`], #1227): each frame's block and its times' event at the
-//! frame's exact time, the packets copied as they are (docs/10, the command `record`; docs/05,
-//! "Looking at frames"). The process's end finishes a recording that runs with the frames it has
-//! ([`finish_running`], #2667).
+//! frame's exact time, the packets copied as they are (docs/10, the command `record`; docs/05
+//! §3.6, "Looking at frames"). The process's end finishes a recording that runs with the frames
+//! it has ([`finish_running`], #2667).
 //!
 //! The game's whole mix goes with them as a third track (#1230): the taps' frames (`sound_tap`) as
 //! float PCM at the device's rate, set against the frames' `Time<Real>` by when the mix's first
@@ -35,7 +35,7 @@ use crate::sound_tap::Sound;
 
 /// The Matroska stream's time scale: nanoseconds a unit of its timestamps, a microsecond.
 const TIMESTAMP_SCALE: u64 = 1_000;
-/// The tracks: the frames, then their times.
+/// The tracks: the frames, then their times, then the sound (#1230).
 const VIDEO: u64 = 1;
 const TEXT: u64 = 2;
 const AUDIO: u64 = 3;
@@ -122,7 +122,7 @@ const CUE_TIME: u32 = 0xB3;
 const CUE_TRACK_POSITIONS: u32 = 0xB7;
 const CUE_TRACK: u32 = 0xF7;
 const CUE_CLUSTER_POSITION: u32 = 0xF1;
-/// A track's types: video and subtitles.
+/// A track's types: video, audio and subtitles.
 const TRACK_VIDEO: u64 = 1;
 const TRACK_AUDIO: u64 = 2;
 const TRACK_SUBTITLE: u64 = 0x11;
@@ -660,8 +660,9 @@ fn next_frame(received: &Receiver<Frame>, closing: &AtomicBool) -> Option<Frame>
 }
 
 /// The thread's work: the frames from `received` in their order into FFmpeg, until the stream
-/// closes (`closing`) or a frame of another size comes; then FFmpeg's end waited for. Returns why
-/// the recording ended short of its frames, if it did.
+/// closes (`closing`) or a frame of another size comes; then FFmpeg's end waited for, and its
+/// file remuxed into `out` at a microsecond a unit ([`remux`]). Returns why the recording ended
+/// short of its frames, if it did.
 fn write(
     out: &Path,
     tags: &[(String, String)],
@@ -985,9 +986,10 @@ fn flac_frame(packet: &[u8]) -> Option<(u64, bool, u64)> {
 /// Makes again the Matroska file `encoded`, FFmpeg's at a millisecond a unit, as `out` at a
 /// microsecond a unit (#1227): `timeline` holds each frame's exact time and its event's length,
 /// in microseconds; the video track's blocks take them in their order, and so do the text track's
-/// events. The info's scale and duration, the clusters (each block within a signed 16-bit offset
-/// of its cluster's time), the cues and the seek head are written anew, the packets copied as
-/// they are; the tracks and the tags are kept, the CRCs and the voids left out.
+/// events; a sound track's FLAC frames, of `sound` samples a second, each take its first sample's
+/// time (#1230). The info's scale and duration, the clusters (each block within a signed 16-bit
+/// offset of its cluster's time), the cues and the seek head are written anew, the packets copied
+/// as they are; the tracks and the tags are kept, the CRCs and the voids left out.
 pub fn remux(
     encoded: &Path,
     out: &Path,

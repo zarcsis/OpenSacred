@@ -17,6 +17,8 @@
 //! The glyphs are hinted and their advances whole at the font's size, as GDI's cells are; the
 //! arc's angle takes no kerning in the original either. Not followed: the font 3's glyph cell's
 //! width and height, taken as the advances and the font's ascent and descent (**hypothesis**).
+//!
+//! [`line()`] writes a text upright the same way, white and on no arc, for `info_lines` (#2499).
 
 use std::f32::consts::{PI, TAU};
 

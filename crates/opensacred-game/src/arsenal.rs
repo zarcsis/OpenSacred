@@ -7,9 +7,11 @@
 //! [`arts::RAILGUN`] holds, her hands hold nothing, each weapon in them bursting into sparks of
 //! its shape as it comes (the adder's case 17 makes an object 856 of the variant 2 at each and
 //! takes them out of her hands, `0x556A30`; seen 2026-11-07: her sword gone 1.9 s after the art
-//! and back as the effect's 30 s ended). The Gladiator's 1013 (#755; docs/re/arts.md, "The Gladiator's"): the item it hurls
-//! leaves his hand (`0x556A30`), and his arms are those without it until he picks it up again
-//! (`pickup`), the weapon going back into his empty hand (`0x54ACC0`).
+//! and back as the effect's 30 s ended). The Gladiator's 1013 (#755; docs/re/arts.md, "The
+//! Gladiator's"): the item it hurls leaves his hand (`0x556A30`), and his arms are those without
+//! it until he picks it up again (`pickup`), the weapon going back into his empty hand
+//! (`0x54ACC0`). The hero's own arms are made anew as the items in its hands change, a weapon
+//! set chosen ([`Maker`], [`Rearm`], #1348).
 
 use bevy::prelude::*;
 use opensacred_rules::arts;
@@ -447,9 +449,9 @@ fn throw(
     }
 }
 
-/// Gives the hero the arms of the items now in its hands (#1348), its own from then on; what its
-/// effect [`arts::BFG`] puts in its hand, or its hand that hurled its item, holds on until it
-/// ends, the new arms coming then. A hero that has had no effect yet has none.
+/// Gives the hero the arms of the items now in its hands (#1348), its own from then on; the arms
+/// of its effect [`arts::BFG`] or [`arts::RAILGUN`], or its hand that hurled its item, hold on
+/// until it ends, the new arms coming then. A hero that has had no effect yet has none.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"

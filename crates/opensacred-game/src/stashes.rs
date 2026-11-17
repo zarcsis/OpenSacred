@@ -6,7 +6,7 @@
 //! and no type makes a random item for the hero (`0x4863D4`, `opensacred_rules::drops::
 //! script_item`), which this module makes and throws to the hero's feet. Each stash blinks
 //! (#1519, `0x40A230`): for the first 1,024 milliseconds of each 8,192 of the game's clock, all
-//! together, a square of `PARTICLE_SPARK07` grows from its cell's centre at the height 0 and
+//! together, a square of `PARTICLE_SPARK07` grows from its cell's centre on its ground (#1788) and
 //! shrinks again as it turns, tinted `0xBB9360`, and a grey one of half its side over it, both
 //! added to the frame, at its cell's last place in the original's order of drawing, after the
 //! cell's statics and objects (`0x62CF12`, `fx::Orders::after_statics`, #2220).
@@ -15,15 +15,16 @@
 //! and are used the same way: the well, the gravestones, the stones and the like. An event loses
 //! a use as its function runs, and leaves the world with none left: a stash and an event of
 //! `0x66` (the well) have one, the others never run out; those of the flags 1, every `MouseEvent`
-//! of `0x10`, do not blink.
+//! of `0x10`, do not blink, and those of neither flag show sparks in the blink's place
+//! (`0x409D00`, `glitter`).
 //!
 //! An event of a box (`0x0C`, `0x0D`; #1586) is reached by it alone: the cursor in the box about
 //! its cell's point on the screen, in the original's pixels at the zoom 1 and smaller as the view
 //! shows more (`0x62CF20`, [`BoxedUnder`]); one without is picked as a creature is.
 //!
 //! Not followed: the static object's mark (the stash stands at its cell's centre on the ground,
-//! whatever its floor), the arrival's straight way, the item maker's use of the `CreateObj`'s
-//! `0x79`, and the hero's walk of the order 7 (the click's own walk takes it there).
+//! whatever its floor), the arrival's straight way, and the hero's walk of the order 7 (the
+//! click's own walk takes it there).
 
 use std::collections::HashSet;
 
@@ -357,8 +358,9 @@ fn give(
     }
 }
 
-/// The hidden stashes within `radius` cells of the hero along each axis, the nearest first: each
-/// its cell, its function and its text's name (the command `stashes`).
+/// The hidden stashes and the mouse events within `radius` cells of the hero along each axis, the
+/// nearest first: each its cell, its function, its text's name, its uses left and how it shows
+/// (the command `stashes`).
 pub(crate) fn near(world: &mut World, radius: u32) -> Result<Vec<String>, String> {
     let mut heroes = world.query_filtered::<&Transform, With<Body>>();
     let hero = heroes

@@ -83,8 +83,8 @@ fn begin(
     });
 }
 
-/// Sets each new arrow: its model a child of it, scaled to the world, and its helix's mesh in
-/// the camera that draws after the night's pass (#1191).
+/// Sets each new arrow: its model an entity of its own, scaled to the world, and its helix's
+/// mesh a child of it in the camera that draws after the night's pass (#1191).
 fn set(
     mut commands: Commands,
     unset: Query<(Entity, &Unset)>,

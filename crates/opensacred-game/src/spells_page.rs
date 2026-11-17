@@ -13,16 +13,19 @@
 //!
 //! The keys F1 to F6, on their release (#1536): while the page shows, one over a held art binds
 //! the key to it, in the page's list and in the hero's entries (`0x580D00`), and the same key over
-//! the art that holds it clears it in the list alone, which the page's next show reads back from
-//! the entries (`0x6C1E60`, `0x580C80`); elsewhere the key's art goes into the bar's selected
-//! slot as the right press puts one, F1 to F6 whether the page shows or not, where the original's
-//! hidden page takes F1 to F4 alone (`0x6C1F30`; docs/decisions/arts.md, "F5 and F6 with the page
-//! hidden"). The page writes `F%d` on an art of a key (`0x6C25A0`).
+//! the art that holds it clears it in both (#1743), where the original's clears it in the list
+//! alone, which its page's next show reads back from the entries (`0x6C1E60`, `0x580C80`;
+//! docs/decisions/arts.md, "Spells page's key cleared with its binding"); elsewhere the key's art
+//! goes into the bar's selected slot as the right press puts one, F1 to F6 whether the page shows
+//! or not, where the original's hidden page takes F1 to F4 alone (`0x6C1F30`;
+//! docs/decisions/arts.md, "F5 and F6 with the page hidden"). The page writes its key's name on
+//! an art of a key (`0x6C25A0`'s `F%d`), as `controls.toml` names it (#1980).
 //!
 //! The hovered art shows its tooltip with its next level at its icon's (x + 70, y + 32)
 //! (`0x6C25A0`, `tooltip::art`, #1696).
 //!
-//! Not followed yet: the master's window's view of the page (#1540).
+//! Not followed: the master's window's view of the page (`master`), the Vampiress's later arts not
+//! greyed by day and her night arts not refused.
 
 use std::collections::HashMap;
 
@@ -62,7 +65,7 @@ const FLASH_FRAMES: f32 = 13.0;
 const NIGHT_ARTS: [u16; 3] = [1025, 1027, 1029];
 const NIGHT_ARTS_FROM: u16 = 1030;
 const NIGHT_ARTS_TO: u16 = 1041;
-/// The Vampiress's two types, her first eight arts by day and by night, and the place from which
+/// The Vampiress's two types, her first eight arts as they are by night, and the place from which
 /// her later arts are grey by day.
 const VAMPIRESS: [u32; 2] = [6, 7];
 const BY_NIGHT: [u16; 8] = [1023, 1025, 1027, 1029, 1038, 1039, 1040, 1041];
@@ -285,8 +288,8 @@ fn refused(art: u16, night: bool) -> bool {
     !night && (NIGHT_ARTS.contains(&art) || (NIGHT_ARTS_FROM..=NIGHT_ARTS_TO).contains(&art))
 }
 
-/// The art held by the hero under the point `at` of the original's screen on the page of a hero of
-/// the type `kind`.
+/// The art held by the hero under the point `at` of the original's screen on the page of its type
+/// (`arts.kind`), by night where `night`.
 fn held_under(arts: &HeroArts, night: bool, at: Vec2) -> Option<u16> {
     let (_, places) = arts_of(arts.kind, night)?;
     places

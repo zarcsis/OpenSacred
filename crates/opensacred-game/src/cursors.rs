@@ -5,14 +5,19 @@
 //! `MOUSE_ATTACKA`, `MOUSE_GUN`); over another creature a trader's sign by its trades, else the
 //! speech bubble where it has a dialogue (`MOUSE_TRADER`, `MOUSE_COMBO`, `MOUSE_BLACKSMITH`,
 //! `MOUSE_HORSETRADER`, `MOUSE_DIALOG04`); the hand over an item, lying on the ground or still in
-//! flight (#1647), and over a door (`mouse_action`), and over the teleports, the stairs and the
-//! cells before them that `bin/treppe.bin` sends a click on to them (`0x616AD0`, `0xAB4498`,
-//! #2508); else, over the interface and outside a game, the arrow (`MOUSE_MAIN`). `hud` puts the
-//! picture on the window. Beside the hand over an item, the item's name.
+//! flight (#1647), over a door, over a container that opens (#1380) and over a hidden stash or a
+//! mouse event of the scripts (#1518, `stashes`; `mouse_action`), and over the teleports, the
+//! stairs and the cells before them that `bin/treppe.bin` sends a click on to them (`0x616AD0`,
+//! `0xAB4498`, #2508); else, over the interface and outside a game, the arrow (`MOUSE_MAIN`); and
+//! the pin while the world map's pin's mode holds (`MOUSE_PUSHPIN`, #1569). `hud` puts the picture
+//! on the window. Beside the hand over an item, the item's name, and over a stash its text.
+//! The same choice tells the foe under the cursor, whose panel shows ([`Foe`], #1459), what the
+//! hover highlights ([`Highlit`], #1460) and whether the cursor glows, the right button's art
+//! ready for what lies under it ([`Glow`], #1461).
 //!
-//! Not followed yet: the hand over the scripts' spots, the glow of a right-button art that may be
-//! made, the enemy's panel, the hover's highlight, the horses' looks and the map's arrows; the
-//! name's red for some objects (`+0x14` bit `0x20`, not read).
+//! Not followed yet: the glow over a friend or the dead for an art on one (the launch types 2 and
+//! 4), the horses' looks and the map's arrows; the name's red for some objects (`+0x14` bit
+//! `0x20`, not read).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
@@ -227,9 +232,11 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
 /// The cursor's look at each frame: the arrow outside a game, while a dialogue's window shows and
 /// over the interface; else by what lies nearest the cursor's line of sight, as a click picks it
 /// (`attack::from_line`): a living foe first, then a creature of a dialogue or a trader, then an
-/// item, lying or in flight, then a door, then the stairs of the cell a click sends the hero to
-/// (`pick`). With Alt held a label under the cursor picks what it names, as a click does
-/// (`0x6270A0`, `0x631CEB`, #1425), and an item or its label comes before a foe (`attack::aim`).
+/// item, lying or in flight, then a door, then a container that opens, then a hidden stash, then
+/// the teleport or the stairs of the cell a click sends the hero to (`pick`); the pin whatever
+/// lies there while the world map's pin's mode holds. With Alt held a label under the cursor picks
+/// what it names, as a click does (`0x6270A0`, `0x631CEB`, #1425), and an item or its label comes
+/// before a foe (`attack::aim`).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,

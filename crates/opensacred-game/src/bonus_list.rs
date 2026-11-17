@@ -1,7 +1,8 @@
-//! The text of the hero's list of bonuses (#1698; docs/re/inventory.md, "The hero's list of
-//! bonuses"), which the column's "+" shows (`0x55E5E0`): a line for each entry of the list
-//! (`opensacred_rules::fight::listed_bonuses`), its class and its opponent before it as an item's
-//! bonus's, in its effect's colour, of the format its effect takes, the value whole and signed.
+//! The text of the hero's list of bonuses (#1698; docs/re/interface.md, "The bar's and the
+//! column's tooltips"), which the column's "+" shows (`0x55E5E0`): a line for each entry of the
+//! list (`opensacred_rules::fight::listed_bonuses`), its class and its opponent before it as an
+//! item's bonus's, in its effect's colour, of the format its effect takes, the value whole and
+//! signed.
 //!
 //! Not followed: the opponents' names but the ranged ones' and the riders' (`0x43D0E0`), and the
 //! line of the effect 852 (`SCHRECKEN_NEU`, its share by the difficulty and `0x570ED0`).

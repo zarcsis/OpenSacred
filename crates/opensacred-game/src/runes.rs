@@ -15,8 +15,8 @@
 //! the grid (`0x5DA630`), with no sound.
 //!
 //! Not followed: the spells' page told of the art (`UI_TABPAGE_SPELLS`), the taskbar's book button
-//! told of a new book (`UI_TB_BOOK`), and the `Use:` function of an item dropped into the world and taken
-//! again, or of a quest's item, whose page waits for #1090.
+//! told of a new book (`UI_TB_BOOK`), and the `Use:` function of an item dropped into the world
+//! and taken again, or of a quest's item, which the hero's book only lists (`quest_book`, #1565).
 
 use bevy::prelude::*;
 use opensacred_rules::equipment::{class_bit, may_use};

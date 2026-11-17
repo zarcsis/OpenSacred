@@ -62,7 +62,7 @@ pub enum Sound {
 pub enum Ground {
     /// As the hero's (`0x68EDDA`'s switch).
     Hero,
-    /// The horses': 2 on water and swamp, 5 on roads, stones and the dungeon, else 1.
+    /// The horses': 2 on water and swamp, 5 on the two roads and `IND-STONE`, else 1.
     Horse,
     /// The big ones': 2 on water and swamp, else 1.
     Big,

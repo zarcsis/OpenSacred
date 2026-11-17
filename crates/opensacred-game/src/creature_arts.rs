@@ -11,13 +11,18 @@
 //! champion (`0x580A10`), and its strikes carry the art's factor at that level, halved for two
 //! blades (`0x4EA3F0`). An `Attacke` strikes its target at each of its clip's hit points while
 //! the target stands within the two creatures' reach and 45; a `Hardhit` once, at its clip's hit
-//! point or its half, whatever the distance (docs/re/arts.md, "The arts in a strike").
+//! point or its half, whatever the distance (docs/re/arts.md, "An art in a strike").
 //!
 //! The minimummy bosses' daggers (#2575, the Gladiator's hurled blades 1013 of a creature): a
 //! volley of the dagger in its hand and 2 to 4 more ([`Volley`]), each thrown a while after it
 //! takes it, flying on the arc of a creature's throw, which strikes its target alone, a player,
 //! and is gone; a fresh dagger in its hand as each strikes or ends, while the volley lasts
 //! (`0x4D93C1`, the runner `0x4FE870`).
+//!
+//! The brain-footers' stare (#2567, [`stare`]): its beam and its sound, the hero's arts and combos
+//! further from ready and their regeneration frozen, and its target's sight burning. A dryad's
+//! leap by the art 1003 (#2566, [`Leaps`]): its clip, its flight to its point and its mark as its
+//! art is over; it strikes nothing.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{self, ArtClip, Style};

@@ -1,10 +1,14 @@
 // The fragment stage of the game's extensions of Bevy's own material (`models::ModelMaterial`,
-// `blended::Sorted`): its colour encoded for the frame, which holds sRGB values (`srgb::Frame`).
-// A model's second pass (`models::Pass::Fringe`) keeps the translucent texels that the original's
-// alpha test keeps (`FRINGE`). A model's fragment (`NEAREST`) takes only the samples over which
-// no model's texel lies nearer (`nearest.wesl`). A model drawn apart from the world by a camera
-// of its own, whose frame takes linear light (`model_effects::ApartMaterial`, `LINEAR`), keeps its
-// colour linear, its effect laid under it in sRGB values all the same.
+// `blended::Sorted`, `fx::Effect`): its colour encoded for the frame, which holds sRGB values
+// (`srgb::Frame`). A model's second pass (`models::Pass::Fringe`) keeps the translucent texels
+// that the original's alpha test keeps (`FRINGE`). A model's fragment (`NEAREST`) takes only the
+// samples over which no model's texel lies nearer (`nearest.wesl`), and its light pulses under
+// the cursor (`LIT_BY_SLOT`, `hover`); its other passes lay its effect under its texels
+// (`EFFECT`, `HOLOGRAM`) or draw it in the water form's look or a vision's (`WATER`, `VISION`).
+// A particle's colour (`fx::Effect`, `PARTICLES`) is encoded before its alpha premultiplies an
+// added one. A model drawn apart from the world by a camera of its own, whose frame takes linear
+// light (`model_effects::ApartMaterial`, `LINEAR`), keeps its colour linear, its effect laid
+// under it in sRGB values all the same.
 //
 // Bevy's own fragment stage (`bevy_pbr::render::pbr`, MIT OR Apache-2.0) but for the encoding,
 // without the meshlets, the decals and the order-independent transparency, which the game does
@@ -37,8 +41,10 @@ const CUTOFF: f32 = 64.5 / 255.0;
 @if(LIT_BY_SLOT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(102) var<storage, read> slot_lights: array<vec4<f32>>;
 
-/// The effect's texture and the glow's under a model's texels, and their offsets (`models::Pass::
-/// Effect`, `model_effects`; #1834).
+/// The effect's texture and the glow's under a model's texels, their offsets and the glow's share
+/// of its colour, in `x` (`models::Pass::Effect`, `model_effects`; #1834, #1848); in the effect's
+/// place, the texture of the water form's look or of a vision's (`models::Pass::Water`,
+/// `models::Pass::Vision`).
 @if(EFFECT || WATER || VISION)
 @group(constants::MATERIAL_BIND_GROUP) @binding(103) var effect_texture: texture_2d<f32>;
 @if(EFFECT || WATER || VISION)
@@ -115,7 +121,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         normalize(world_from_local[2].xyz),
     );
     let local = transpose(turn) * normalize(in.world_normal);
-    // glTF's frame is the model's turned by −90° about x: its y is the model's −z.
+    // glTF's frame is the model's turned by −90° about x: the model's y is its −z.
     let texel = textureSample(effect_texture, effect_sampler, vec2<f32>(local.x, -local.z));
     if texel.a < CUTOFF {
         discard;

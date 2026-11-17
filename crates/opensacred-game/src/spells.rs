@@ -6,11 +6,27 @@
 //! [`SHIELD_TIME`] at the cast's rate, and the crusader's strength after [`STRENGTH_TIME`]; the
 //! holy shield turns arrows aside (`arrows`); the irritation and the conversion hold a hostile
 //! creature with the effect 13, under which it leaves the hero alone (`ai`), and 14, which turns
-//! its sides over (`effects`); the healing adds its health to its bearer's, its most at most. A spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
+//! its sides over (`effects`); the healing adds its health to its bearer's, its most at most. A
+//! spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
 //! lightning strikes its target at once; her holy light stands at its point, and her blades of
 //! light and her light go with their bearer, each striking about itself once a second for its
 //! time ([`Aura`]). Each one's sight is its own module's (#1092): the stone skin's, the water
 //! form's, the quickening's and the crusader's strength's strikes of light `light_strikes`'.
+//!
+//! The other spells act here too (docs/re/arts.md, "The Mage's other spells", "The Wood Elf's
+//! spells", "The Dwarf's spells", "The Daemon's spells"): the Mage's teleport, water form
+//! ([`Unseen`]), flesh to stone, ring of frost, banishing circle, hail of meteors, whirlwind, ice
+//! splinters, chain lightning, fire spiral, purgatory, fire skin, quickening, gust, shield wall
+//! and mana's spring; the Wood Elf's summoning (`followers`), changeling, speed, bubble, thorns,
+//! plant cage, lost souls and plants' healing; the Dwarf's greed, mines, burrowing, armour and
+//! steel; the Daemon's hell disk, call of death, force of hell, hellfire, tentacles, choir and
+//! fear, a kill under his tentacles' effect raising a tentacle and one under his call's raising
+//! its value ([`killed`]). Two of the weapon arts' objects fly and act here, as `making` sends
+//! them: the Dark Elf's traps' ball, which lands as its explosion, pentagram, confusion, ground's
+//! poison or fog ([`throw_trap()`]), and the Vampiress's death's kiss's skull ([`kiss()`]). A
+//! creature's cast makes the same objects (`creature_casts`; [`meteors()`], [`thorns()`],
+//! [`purgatory()`], [`skin()`], [`strikes_about()`], [`throw_trap()`]), which then strike the
+//! heroes alone.
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -43,9 +59,9 @@ pub struct Acts {
     pub level: u32,
 }
 
-/// A spell's effects waiting for its object's clock, the stone skin's or the crusader's
-/// strength's: what is left of it in the world's seconds, and the skin its action 6 asks with
-/// them, for its seconds (`skins`).
+/// A spell's effects waiting for its object's clock, the stone skin's, the quickening's, the
+/// shield wall's or the crusader's strength's: what is left of it in the world's seconds, and
+/// the skin its action 6 asks with them, if any, for its seconds (`skins`).
 #[derive(Component, Debug, Clone)]
 struct Shielding {
     left: f32,
@@ -148,7 +164,7 @@ struct Changeling {
 
 /// The Dark Elf's trap's ball (867, `cParticleSystem_ball`): its caster, its art and level in
 /// play, its damages' multipliers, where it flies from and to, its level, the part of its course
-/// flown, and whether its look is on.
+/// flown, and whether its throw has sounded.
 #[derive(Component, Debug, Clone)]
 struct Ball {
     caster: Entity,
@@ -254,10 +270,11 @@ const HELL_DISK_LOOP: u32 = 2119;
 /// 1033 at `0x793C8E`, #2028): `VAMP_BLUTKUSS`; the class's `VAMP_BEHERRSCHUNG_LOOP` of
 /// `0x793D52` is the master bite's (1031).
 const SKULL_HIT_LOOP: u32 = 2077;
+/// The Daemon's other two loops ([`HELL_DISK_LOOP`]): the demon fire's and the tentacles'.
 const DEMON_FIRE_LOOP: u32 = 2124;
 const TENTACLES_LOOP: u32 = 2123;
 /// The call of death's object at each kill (1010, the particle system `callofdeath`, made at the
-/// corpse at `0x533ABD`), whose sight is not made: its `VAMP_SHORTCAST` once as it starts
+/// corpse at `0x533ABD`), whose sight is `doom_signs`': its `VAMP_SHORTCAST` once as it starts
 /// (`0x7AFD9E`).
 const DOOM_KILL_SOUND: u32 = 2078;
 
@@ -898,8 +915,8 @@ fn skulls(
             debug!("spells: the skull {entity} curses {target}");
             give(&mut commands, target, curse.to_vec());
             // Its object 862 (`FX_VAMP_SM_HIT`) at the target, whose sight is not made, looping
-            // `VAMP_BEHERRSCHUNG_LOOP` while it lives, for the curse's time (**hypothesis** for its
-            // life).
+            // `VAMP_BLUTKUSS` while it lives (`SKULL_HIT_LOOP`, #2028), for the curse's time
+            // (**hypothesis** for its life).
             commands.entity(target).with_child((
                 crate::hums::Hum(SKULL_HIT_LOOP),
                 Fades(opensacred_rules::arts::CURSE_SECONDS),
@@ -1411,7 +1428,7 @@ fn act(
         if spells::lasts(act.spell) && act.spell != spells::SOULS {
             given.push(spells::lasting(record, act.level));
         }
-        // The sound of the spell's object at its target, whose sight the game does not make: a
+        // The sound of the spell's object at its target, whose sight is `shields`' (below): a
         // loop for the spell's time (**hypothesis** for the object's life), or once.
         match object_sound(act.spell) {
             Some((sound, true)) => {
@@ -2142,9 +2159,8 @@ fn act(
             }
             HOLY_SHIELD => given.push(spells::holy_shield(record, act.level)),
             IRRITATION | CONVERSION => {
-                // On a hostile creature alive, no boss nor champion, nor of a big type for the
-                // conversion (`0x524196`, `0x5242D3`, the action 7); the effect's own refusal of
-                // `+0x2B8` bit `0x40` is not followed.
+                // On a hostile creature alive, no boss nor champion (`+0x2B8` bit `0x40`), nor of
+                // a big type for the conversion (`0x524196`, `0x5242D3`, the action 7).
                 let Ok((health, Some(mind), rank)) = targets.get(act.target) else {
                     continue;
                 };
@@ -3636,8 +3652,8 @@ fn give(commands: &mut Commands, bearer: Entity, given: Vec<(Effect, f32)>) {
         });
 }
 
-/// Runs each stone skin's shield and gives its effects as its clock passes (its system's update
-/// and the action 6).
+/// Runs each waiting spell's clock ([`Shielding`]) and gives its effects as it passes (its
+/// system's update and the action 6).
 fn shield(time: Res<Time>, mut commands: Commands, mut shields: Query<(Entity, &mut Shielding)>) {
     for (bearer, mut shielding) in &mut shields {
         shielding.left -= time.delta_secs();

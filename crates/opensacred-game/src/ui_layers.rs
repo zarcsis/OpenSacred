@@ -132,11 +132,11 @@ struct Mirror;
 /// the picture was made for and the interface's scale its camera's target was given, the mirror
 /// of each node of its root's tree, whether the mirror took new nodes this frame, the frames
 /// since the parts were made, whether their picture is trusted: the window leaves the band's
-/// pieces to it only then ([`ready`]), the frames its camera has still to draw after a change
-/// ([`drawing`]), the images its mirror shows, its mirror's nodes in its tree's order but the
-/// root's, the nodes a tree made anew takes first ([`retree`]), the hidden node that keeps the
-/// nodes no tree takes, with them, whether its tree was made anew this frame, and whether its
-/// camera was held back the last frame ([`drawing`]).
+/// pieces to it only then ([`ready`]), what its pieces show ([`Signature`]), the frames its
+/// camera has still to draw after a change ([`drawing`]), the images its mirror shows, its
+/// mirror's nodes in its tree's order but the root's, the nodes a tree made anew takes first
+/// ([`retree`]), the hidden node that keeps the nodes no tree takes, with them, whether its tree
+/// was made anew this frame, and whether its camera was held back the last frame ([`drawing`]).
 struct Parts {
     camera: Entity,
     picture: Handle<Image>,
@@ -1131,7 +1131,9 @@ fn drawing(
 /// Keeps each band's picture's node where its first piece stacks: the first child of a context's
 /// root that is its first piece, else just before the first piece among its parent's children
 /// at its `ZIndex`; over the whole window, placed by its parent's layout of the frame before
-/// ([`centre`] puts it right as the layout ends).
+/// ([`centre`] puts it right as the layout ends). It also turns each band's camera on or off for
+/// the frame ([`drawing`]), a pipeline still being made and an image of its mirror that came in
+/// or changed asking for its frames again.
 fn composites(
     mut commands: Commands,
     mut layers: ResMut<Layers>,

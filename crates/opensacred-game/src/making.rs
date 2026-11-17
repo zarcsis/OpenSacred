@@ -9,6 +9,12 @@
 //! hero stands with the clip of its slot at its casts' speed, and acts once the share of its clip
 //! still to play falls below its own (`opensacred_rules::spells`, #872): its regeneration starts
 //! and `spells` carries out what it does.
+//!
+//! The special weapon arts (docs/re/arts.md, "The special weapon arts") are carried out in the
+//! arms of `make`, by their styles (`opensacred_rules::arts::Style`), and the right button aims
+//! them by their launch types (`aim`, `launch`). Here too are the hurled blades' strikes
+//! (`blades`), the jumps' flights (`Leap`), the knockbacks and the throws (`Knocked`), and the
+//! point of a model's bone but its worn items' (`bone`, `Worn`), which the effects' modules read.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -258,10 +264,11 @@ pub(crate) fn first_art(arts: &HeroArts) -> Option<u16> {
 }
 
 /// Whether the hero may make `art` now: it holds it, it is ready, its action is read, no effect
-/// holds on it that refuses it (`effects`, `arts::refused_while`), and it wears the cannon that
-/// its art wants (`pack`'s slot 14, `arts::wants_cannon`; `0x51D840`); riding (`riding`, with a
-/// bow or a crossbow in hand or not), an art that may be made on horseback alone
-/// (`HeroArts::on_horseback`; the others go to the horse, whose trample they start, `trample`).
+/// holds on it that refuses it (`effects`, `arts::refused_while`), the Vampiress's form is the
+/// art's (`arts::in_form`), and it wears the cannon that its art wants (`pack`'s slot 14,
+/// `arts::wants_cannon`; `0x51D840`); riding (`riding`, with a bow or a crossbow in hand or not),
+/// an art that may be made on horseback alone (`HeroArts::on_horseback`; the others go to the
+/// horse, whose trample they start, `trample`).
 pub fn may_make(
     arts: &HeroArts,
     art: u16,
@@ -553,10 +560,11 @@ pub(crate) fn whole_distance(a: Vec3, b: Vec3) -> u32 {
 /// it comes on to within 10 of the reach of the two creatures, or makes it where it stands for
 /// an art of the distance 0, then plays its art's clip and strikes: an `Attacke` at each of its
 /// clip's hit points, on its target or the next hostile creature within the reach and 45, and
-/// ends with none or after its last; a `Rundum` before 0.7 of its clip about its weapon's or its
-/// hand's bone, on the nearest creature within its radius but the one it struck last, until its
-/// clip ends; a `Hardhit` once at its hit point, on its target. The first strike, or a
-/// `Rundum`'s start, starts the regeneration.
+/// ends with none or after its last; a `Rundum`, the Gladiator's from 0.3 of its clip, about its
+/// weapon's or its hand's bone, on the nearest creature within its radius but the one it struck
+/// last, until its clip ends; a `Hardhit` once at its hit point, on its target. The first strike,
+/// or a `Rundum`'s start, starts the regeneration. The spells' casts and the special weapon arts
+/// are carried out in their styles' arms, told there.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1077,8 +1085,8 @@ fn make(
                         });
                 }
             }
-            // A `Rundum`, the whirling blow, the hurled blades and the backbreaker start their
-            // regeneration as they start.
+            // A `Rundum`, the whirling blow, the hurled blades, the backbreaker and the domination
+            // start their regeneration as they start.
             if matches!(
                 style,
                 Style::Rundum
@@ -3015,11 +3023,10 @@ fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
     }
 }
 
-/// A whole number of world units as a float.
 /// The sounds of the Dwarf's guns' objects at him, each once as it starts: the flames' 1016
 /// `DWARF_FLAMMENWERFER` (`0x516C36`, `0x7B3EFB`), the mortar's grenade's 1018
 /// `DWARF_MOERSER_ABSCHUSS` (`0x516A4A`, `0x7B577E`) and the cannon's flash's 1017
-/// `DWARF_KANONE_ABSCHUSS` (`0x5172F0`, `0x7B4AD8`); their sights are not made.
+/// `DWARF_KANONE_ABSCHUSS` (`0x5172F0`, `0x7B4AD8`); their sights are `dwarf_fires`'.
 const FLAMER_SOUND: u32 = 2113;
 const MORTAR_SOUND: u32 = 2114;
 const CANNON_SOUND: u32 = 2116;
@@ -3033,6 +3040,7 @@ fn gun_sound(points: &mut MessageWriter<crate::sfx::PlayAt>, sound: u32, at: Vec
     });
 }
 
+/// A whole number of world units as a float.
 fn to_f32(value: u32) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
