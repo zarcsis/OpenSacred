@@ -1,7 +1,7 @@
 # Data formats and assets
 
 Plan document 02.
-Describes all containers and data files of Sacred Gold 2.28 (GOG, English), how far each has been parsed as of 2026-10-28, and what each is converted into.
+Describes all containers and data files of Sacred Gold 2.28 (GOG, English), how far each has been parsed as of 2026-11-17, and what each is converted into.
 The game does not read the original formats: the `opensacred-convert` converter translates them once into open formats, and the new engine works only with those (PLAN.md, §4 and §7).
 
 The level of confidence is marked with these words: **confirmed on file** (parsed by a script on a local copy), **confirmed by static analysis** (client code in Ghidra or via the `tools/analysis` scripts), **community-reported** (not checked on the file), **hypothesis**.
@@ -11,7 +11,7 @@ The level of confidence is marked with these words: **confirmed on file** (parse
 - Most game containers (≈20 files in `pak/` and `World/`, ≈1.9 GiB of the ≈2.55 GiB release) share one layout: a 0x100 B header, a `count × 12` B directory `(type, offset, size)`, then arrays of fixed-size records written straight from memory.
   `sectors.keyx`, `Creature.pak`, `Weapon.pak` and `MOTIONS.PAK` have the header without a directory, their records right after it, and `Triggers.PAK` has one directory entry for the whole array (§1, §5.5).
   Confirmed on file for all containers.
-- Textures: 25,535 records, 22,932 of them 256×256; format 4 = ARGB4444 + zlib, format 6 = uncompressed A8R8G8B8 (bytes B, G, R, A); no mipmaps, DXT or color key; 10,591 ground atlases `MIX*.444`.
+- Textures: 25,535 records, 22,932 of them 256×256; format 4 = ARGB4444 + zlib, format 6 = uncompressed A8R8G8B8 (bytes B, G, R, A); no mipmaps, DXT or color key; 10,591 atlases `MIX*.444`, 10,585 of them holding the pieces of the static objects' sprites (§3.3).
   Converted to PNG (the master), and by `build` into KTX2: BC7 with mipmaps for the opaque textures that the GPU samples, 8-bit RGBA for the others (§12.2, #700).
 - Models: `models.pak` and `models03.pak` = 1,574 models + 3,423 animations (1,572 + 3,421 in `models.pak`), each a complete Granny **1.2b** file.
   The format has been solved by three independent community readers; the MDL container, the GRN container, the skeleton, the meshes and their materials are confirmed on our files (§4.1–4.2); converted to glTF 2.0 with skeletons and clips.
@@ -22,7 +22,7 @@ The level of confidence is marked with these words: **confirmed on file** (parse
   Converted into an intermediate representation (IR), which the converter translates into Luau for the game (#720).
 - `global.res`: UTF-16LE, 23,123 strings with id = `sacred_hash(name)`; the formula is verified.
   Converted to Fluent.
-- Original saves are not supported (but the installation's two Underworld heroes, #1676); the hero templates are converted with their sections whole, their level, class, items worn, backpack and combat arts indexed, and into the rest of the starting presets once their layouts are recovered (§9).
+- Original saves are not supported (but the installation's two Underworld heroes, #1676); the hero templates are converted with their sections whole, their level, class, stats, items worn, equipment's slots, weapon sets, backpack, combat arts and the bar's art slots indexed (§9).
 - Sound: `sound.pak` holds 6,598 samples, 3,194 RIFF WAV (PCM and IMA ADPCM) and 3,404 MP3; confirmed on file.
 - Not established: the semantics of some cell and static object fields (Open questions 1 and 2).
 
@@ -82,7 +82,7 @@ The scripts in the last column are under `tools/analysis/`.
 | `World/Triggers.PAK` | `TRG` 1 | 2,268 × 16 (1,246 occupied) | triggers → 20-bit reference (hypothesis: a Static.PAK index) | confirmed | `formats/tables_dump.py`; §5.5 |
 | `Templates/Hero*.ptx`, `save/hero*.pax` | `AMH` 0x1B (u16 version 0x101B) | 0x100 + 16 × 12 table + sections | hero templates and saves | container confirmed; section fields partially | `formats/amh_dump.py`; §9 |
 | `scripts/us/global.res` | `SZ` 0 | 23,123 × 16 + UTF-16LE pool | localized strings | confirmed; the id hash is known | `formats/global_res_dump.py`, `formats/global_res_hash.py`; §8 |
-| `bin/**/{FunkCode,StartCode,QuestCode}.bin` | — | stream of `(u16 op, u16 len, operands)` | NetScript bytecode, 20 directories | encoding confirmed (parsed without remainder); semantics per sacred-sdk/openheilig; 9 Underworld `QuestCode.bin` files are empty (0 B, §13) | `scripts/netscript_census.py`, `scripts/netscript_dump.py`; §7 |
+| `bin/**/{FunkCode,StartCode,QuestCode}.bin` | — | stream of `(u16 op, u16 len, operands)` | NetScript bytecode, 20 directories | encoding confirmed (parsed without remainder); semantics read off the client (docs/re/netscript.md); 9 Underworld `QuestCode.bin` files are empty (0 B, §13) | `scripts/netscript_census.py`, `scripts/netscript_dump.py`; §7 |
 | `bin/**/{DefPos,Vectoren,QuestPoolCode}.bin` | — | Vectoren: three counted tables (84 B function blocks, 292 B quests, regions); DefPos: 100 B positions and 80 B dialog entries; QuestPoolCode is empty (0 B) | Vectoren: the function blocks of `FunkCode.bin`, the quests and the regions; DefPos: a cache the client rebuilds | Vectoren confirmed on every file; DefPos skipped (§7.1) | `scripts/netscript_dump.py`; §7.1 |
 | `bin/*.bin` (11 tables: Balance, World, World2, sets, wpmod, wea, treppe, static10_18, merc, MultiStart, Rust) | none (static10_18: `map`) | see §6.3 | balance tables compiled from `scripts/*.txt` | medium | `formats/bin_tables_dump.py`; §6.3 |
 | `font/*.ttf`, `pak/*.bmp`, `movie/*.wmv`, `mp3/*.mp3` | standard | 2 TTF; 6 BMP 1024×768, 24-bit; 10 WMV (113.3 MB; WMV3 640×480, WMAv2 or WMA Pro); 173 MP3 (399.5 MB) | fonts, loading screens, cutscenes, music | standard formats | `ffprobe`; §10.3, §11 |
@@ -113,10 +113,10 @@ Confirmed on file 2026-10-16 by the `tools/analysis/formats/tex_fmt6.py` script:
 The directory is sorted by offset; records are packed back to back with no gaps (confirmed on file 2026-10-16).
 
 Conversion: each record is decompressed (zlib) and converted to RGBA8 → PNG as the master copy; `build` encodes the masters into KTX2 (§12.2, #700), ASTC for Android later (#702).
-In total ≈1.6 Gpix, i.e. ≈3.2 GB of uncompressed 16-bit data; `build`'s `textures.zip` holds them in 977 MB with the mip chains (confirmed 2026-10-23).
+In total ≈1.6 Gpix, i.e. ≈3.2 GB of uncompressed 16-bit data; `build`'s `textures.zip` held them all in 977 MB with the mip chains (confirmed 2026-10-23), before the atlases of the sprites' pieces, the menus' tiles and the dead textures left it (§5.6, §12.2).
 Format 6 is converted to RGBA8 by swapping bytes B and R.
 
-Implemented 2026-10-16: `opensacred_formats::tex` and `opensacred-convert textures` write `assets/textures/<pak>/<number>-<name>.png`.
+Implemented 2026-10-16: `opensacred_formats::tex` and `opensacred-convert textures` write `textures/<pak>/<number>-<name>.png`, among the masters of `assets-src/` since #696 (§12.1).
 The number is the five-digit record number, the name is lowercase without `.tga`, with characters outside `[a-z0-9._-]` replaced by `_`.
 This yields 25,536 PNGs (1.2 GB) in 16.5 s on 32 threads.
 The pixels match `tex_decode.py` on a sample of 97 fmt 4 records (41 sizes, 22 atlases, all names without a NUL, the last record) and `tex_fmt6.py` on 48 menu screen tiles; the share of alpha 255 and 0 in fmt 6 matches the script output (77.4% and 11.2%).
@@ -135,11 +135,11 @@ Confirmed on file.
 This is the `cTextureManager` cache, sorted by name; the new engine builds the index from the directories itself and **does not write to the game directory**.
 The client loads it at its start (`0x656420`) and, when it is missing or stale, reads the directories of `PAK\TEXTURE.PAK` and of the overlays `PAK\TEXTURE00.PAK`…`TEXTURE15.PAK` that exist and writes it again (**confirmed** by code 2026-10-29, #1482).
 
-### 3.3 MIX ground atlases and mixed.pak
+### 3.3 MIX atlases and mixed.pak
 
 - `texture.pak` already contains 10,591 pre-baked textures `MIX0.444 … MIX9999.444` (fmt 4).
   Confirmed on file.
-  Hypothesis based on three inspected atlases (`MIX100`, `MIX5000`, `MIX9000`, 2026-10-16): these are not ground but packed fragments of static objects: tree crowns, roofs, rocks, logs on a transparent background.
+  Seen on three inspected atlases (`MIX100`, `MIX5000`, `MIX9000`, 2026-10-16) and confirmed for the 10,585 that the sprites' pieces name (below): these are not ground but packed fragments of static objects: tree crowns, roofs, rocks, logs on a transparent background.
 - `mixed.pak` (`MIX` v0, 32,096 records, directory type 99): **the sprites of the static objects**, not blended ground tiles as an earlier reading guessed.
   Confirmed on every record 2026-10-17 by `tools/analysis/formats/mixed_dump.py` (layout per openheilig, engine `formats/mixed.gd`, MIT): record 0 is 16 B, `u32 99`, the file size − 16, `u32 16` and the fill `0xCCCCCCCC`; a sprite is `u32 n`, `u16 width`, `u16 height`, `i16 dx, dy` (meaning unknown; openheilig found that adding them misplaces the sprite), the fill `0xCCCCCCCC`, then `n` pieces of 64 B: `char atlas[32]` (`MIXnnn.444`), `u32` texture.pak record (10,585 atlases of 256 × 256), `u16 x1, y1, x0, y0` (the piece in sprite pixels), `u32 0`, `f32 u0, v0, u1, v1` (the piece in the atlas as fractions of its size).
   Every piece is as large in the atlas as in the sprite and falls on whole pixels; 62,406 of the 209,956 pieces (blocks of up to 64 pixels) run past the sprite's width or height.
@@ -371,7 +371,7 @@ In short: the format is solved, **the runtime has been solved by nobody**. open-
 
 * **A Granny 1.2b parser in Rust** in `opensacred-formats`, based on open format descriptions (the openheilig specification, CC BY-SA 4.0, as a source of facts) and using the MIT code of grn2glb and open-grn as a reference; anything borrowed is credited.
 * **Export:** meshes, the Bip01 skeleton, weights, materials and texture references → `.glb`; animations → glTF clips with the same bone names, so that one clip fits all models with that skeleton.
-* **Models, implemented 2026-10-16:** `opensacred-convert models` writes every record of both paks to `assets/models/<pak>/<index>-<name>.glb`: 1,572 models and 3,421 motions in 2.5 seconds, 1.4 GB; the conversion is `crates/opensacred-convert/src/gltf.rs`.
+* **Models, implemented 2026-10-16:** `opensacred-convert models` writes every record of both paks to `models/<pak>/<index>-<name>.glb` (among the masters of `assets-src/` since #696): 1,572 models and 3,421 motions in 2.5 seconds, 1.4 GB; the conversion is `crates/opensacred-convert/src/gltf.rs`.
   A model's file carries the motions of its slots as animations, a motion's file its skeleton, its meshes if any and its own animation.
   Since #2647 a motion's file is named `<index>-<name>.motion.glb` and stays among the masters: the game reads a clip from the files of the models that play it and never opens a motion's own, so `build` leaves the 3,421 out of `models.zip`, 706 MB of its 1.44 GB (§12.2).
   A full run of `models` first removes the files of the runs before, so that the motions' files of the runs before #2647, named as the models', go.
@@ -409,9 +409,8 @@ In short: the format is solved, **the runtime has been solved by nobody**. open-
 * **Embedded textures, implemented 2026-10-17** (`crates/opensacred-convert/src/embedded.rs`): a texture of any format refers to the image of `texture.pak` with its name, as the game binds it (244 of the 270 embedded ones); the other 26 are decoded and stored in the `.glb` as PNG images: raw RGBX and RGBA as they are, VTex by FFmpeg run as an external program (`FFMPEG`, else `ffmpeg` from `PATH`), which turns YUV into RGB by BT.601 with the limited range, as grn2glb does.
   No Bink code is in the converter; grn2glb's decoder (LGPL-2.1+, from FFmpeg) was not needed.
   A test decodes all 270 embedded images; Blender renders of `CITIZEN_FEM`, `ZOMBIE` (embedded) and `BARBARIAN` (bound by name) show them textured.
-* **The original's animation runtime** (ADSR envelopes, period, root-motion accumulation, `AddControlledPose` for the head and arms) is not part of the files and is carried over approximately: into a Bevy animation graph with blend durations from `MOTIONS.PAK`; exactness is not required.
+* **The original's animation runtime** (ADSR envelopes, period, root-motion accumulation, `AddControlledPose` for the head and arms) is not part of the files and is carried over approximately: into a Bevy animation graph whose clips blend over fixed times of the game's own (100 to 200 ms), `MOTIONS.PAK` giving the moments of the footsteps and of the strikes (§4.1); exactness is not required.
 * **Verification:** glTF-Validator on all files and inspection in Blender (done, above); a screenshot test in the game.
-* **Estimate:** models 15–30 agent-hours, animations 10–20 (milestones M1 and M2).
 
 ### 4.6 Defects the community reports
 
@@ -461,7 +460,7 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   The surface is closed there: the body's only boundaries are slits along the four legs and the mouth's opening, and the mesh's 16 three-vertex loops are the open bases of spikes on the head and the tail's last segments.
   The converter repairs it (#400, docs/decisions/models.md, "Large dragons' tails blended into the thighs") by blending the tail into the thighs over two rings of the mesh's 1,634 positions.
   The six positions wholly on a thigh that share a side with a position wholly on `Bip01 Tail` take 2/3 of `Bip01 Tail` and 1/3 of their thigh, and the six wholly on a thigh that share a side with those take 1/3 and 2/3.
-  The rings hold four positions of the left side and two of the right each, since the right's mirror image of the left's position 225, wholly on the tail, is half on its thigh already.
+  The first ring holds four positions of the left side and two of the right, and the second three of each, since the right's mirror image of the left's position 225, wholly on the tail, is half on its thigh already.
   Measured with 48 samples a clip, the sides from the twelve positions then stretch at most 2.26 times in the walk and 3.94 in the dying clip (4.66 and 10.63 before), below the most stretched sides of the rest of the mesh in the same clips (2.57, and 4.54 at the belly's seam between `Bip01 Spine` and a thigh), and at most 3.94 over all the clips, where the rest reach 7.32 (the crest of the head in the first attack); the three sets of clips give the same numbers (**confirmed** on the converted files).
   One ring alone leaves 4.3 to 6.5 times in the dying clip, with 2/3, 1/2 or all of the tail; taking the right side's mirror images of the left's positions as well gives the same peaks with more sides stretched past three times (9 against 5).
   Which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
@@ -563,7 +562,7 @@ Their values look like uninitialised memory of the tool that made them (ARGB4444
 
 Confirmed by static analysis: the data is a full heightfield with shared vertices (bottom(r,c) = left(r,c+1) = right(r+1,c) = top(r+1,c+1) in 99.77–99.97% of cases; the remainder are ledges and manual edits), but the engine draws a cell as a pretransformed quad, FVF 0x244 (XYZRHW + DIFFUSE + 2 UV, 36 B/vertex), with immediates `z = 0.9f`, `rhw = 1.0f`, vertex offsets (−48.2, 0), (0, −24.2), (0, 24.2), (48.2, 0)/zoom and each vertex's screen Y shifted by `−h/zoom` (1 height unit = 1 px at zoom 1).
 The ground enters the Z-buffer as the plane z = 0.9; the "manual" depth of building sprites is given by the formula `depth = (2·zoom·(200 − screenY·400/768) − height/sin(atan 0.5) + bias) / 3100 + 0.002` on the same normalized scale as the orthographic projection of the models, `ortho(±267·zoom, ±200·zoom, −600, 2500)`.
-The camera angle is 26.565°; when moving to "real" 3D ground, the height in pixels is converted to the world vertical as `h / cos 26.565° ≈ 1.118·h` (hypothesis).
+The camera angle is 26.565° (atan 0.5); `opensacred-game`'s real 3D ground lies under a pitch of 30°, whose sine of 1/2 keeps the cells' diamonds 2:1, and a height of `h` pixels is `h / (1.265 · cos 30°)` world units up, so that it lifts a point by `h` pixels on the screen (`iso::height`; docs/05 §3.6).
 There is no D3D fog anywhere.
 Cell (r, c) lies on screen at `(48·(c − r), 24·(c + r))` plus the frame offset.
 This reconciles two earlier readings ("real 3D geometry" and "flat quads"): the only geometry under the orthographic projection is the Granny models and their stencil shadows; the ground is a heightfield in the data and flat diamonds in the frame.
@@ -610,7 +609,7 @@ This closes an earlier hypothesis of "9 half-rows with a step of 24".
 1. The converter reads a sector by `(x, y)`: keyx → wldx zlib block (≤ 500 KB) → 4,096 cells, whose chains name their statics and floor overlays.
    Implemented 2026-10-17: `opensacred_formats::world` (`Keyx`, `Sector`, `Tiles`, `Statics`, `Floors`); on the game files every sector and chain reads and matches `world_dump.py` sector by sector (the CRC-32 of the cells rebuilt from their fields, of the third chunk and of the chained records), and since 2026-10-18 the inside layers (`Sector::layers`, with the CRC-32 of their places, sizes and cells); the world format (version 4) carries each layer's place, size and its cells' second heights, offsets, flags and ground byte.
 2. Heights stay per cell corner, as the original stores them (shared corners agree but at 2,082 of 48.8 million); the new renderer builds the terrain mesh from them.
-3. **Implemented 2026-10-17:** `opensacred-convert world` writes `assets/world/world.ron` (the 6,050 sectors with their ids and files, and the 5,008 tile sheets as PNGs of `opensacred-convert textures`) and one `sectors/<x>-<y>.sector` per sector: the `opensacred_data::world::Sector` of its cells (tile, floor overlays as art and mask tiles, heights, light, the second heights, the offsets, flags, ground) and its static objects (type, flags, position, record, children), postcard-encoded in a zlib stream.
+3. **Implemented 2026-10-17:** `opensacred-convert world` writes `world/world.ron`, among the masters of `assets-src/` since #696 (the 6,050 sectors with their ids and files, and the 5,008 tile sheets as PNGs of `opensacred-convert textures`) and one `sectors/<x>-<y>.sector` per sector: the `opensacred_data::world::Sector` of its cells (tile, floor overlays as art and mask tiles, heights, light, the second heights, the offsets, flags, ground) and its static objects (type, flags, position, record, children), postcard-encoded in a zlib stream.
    All 6,050 sectors in 2.2 s, 74 MB; a test reads the starting sector back.
    A Python render of the ground of the starting sector (50, 39) from the tile sheets with the UV table of §5.4 and the overlays shows seamless grass, stone paths, the village square and a field: the table holds on real sheets.
    An overlay without a mask tile draws through the alpha of its own art tile; with the mask's alpha instead, its transparent texels show black.
@@ -748,7 +747,7 @@ The offset of `ITEMS0n.PAK` is the sum of the texture manager's counts of the `n
   sacred-sdk publishes a table of 474 creature types (MIT), SacredUtils contains a `creature.pak` editor (Apache-2.0): sources for cross-checking the fields.
 - **WPN v8**, 4,883 × 258 B (the array is followed by 4,883 × 64 zero bytes of reserve): float `+0x00/+0x10/+0x18`, `u8 +0x1C (1..4)`, `+0x1D (1..5)`, `+0x22 (1..3)`, `char name @+0x28` (German internal names for ~200 unique items), `u32 id @+0x80` (925…8,047, unique, monotonic), mask `u8 +0x84`, subtype `+0x85`, flags `+0x86`, `u32 +0x88`, `u32 +0x94`, `u16 +0x98`; byte 30 is the weapon kind, by which the client picks the clips (above).
   The UI names come from `global.res` (hypothesis).
-  Medium confidence; an estimate of 5–10 days for the semantics.
+  Medium confidence; the item's record from `+0x80` is read in docs/re/items.md (above).
 - **The levels on file** (`+0x94`, `+0x99`: the item record's `+0x14`, the level it asks, and `+0x19`, its own level), **confirmed** on the files 2026-11-16 (#2743): every record but the potions', the books' and the gold piles' holds the level that `0x5D3AB0` works out of its values and the level it asks of that (docs/re/items.md, "The level an item asks"), as if its type had no template, and none asks an attribute (`+0x95` to `+0x98` all 0).
   The client works both out anew at its template's scale as it loads the types, so that the 2,173 records of a template whose scale moves the level hold a level the game never shows (the sword 1764 holds 9 and 5 and shows 29 and 21); the potions (category 9) and the books (16) hold the level 0 and keep their bytes, the level asked 0 but for one potion and 85 of the 143 books that ask 1, and the gold piles 5132 to 5135 hold 0 and 0.
 
@@ -759,7 +758,7 @@ Confirmed on file (`tools/analysis/formats/bin_tables_dump.py`):
 
 | File | Size | Structure | Purpose |
 |---|---|---|---|
-| `Balance.bin` | 24,328 | `u32 4896`, the size in bytes of what follows: an image of the client's balance variables at `0xAD4490`–`0xAD57AF`, 1,224 words, f32 or i32 by key. **Confirmed** 2026-10-18, counted again 2026-10-19 (#71, `tools/analysis/pe/balance_keys.py`): the balance text's parser (`Scripts\Balance.txt`, `key=value`, the chain around `0x5EAC70`) tests 380 keys (`push` of the key's name, `call 0x5E3700`), and 357 of them store their value into the image, each to a word of its own, with `fstp` (276 floats), `mov` (78 integers) or `sscanf`'s `%x` (3 colours, `Healthbar` `+0x8D8`, `Healthborder` `+0x8DC` and `ARGBInfoText` `+0x95C`, ARGB words read as hexadecimal, `0x5EDB61`; #2505), 24 of them a row of values through a register (`mov esi, <the row>`, its first word the key's variable: `ProzAW`, `ProzHP`, `ProzDmg`, `ProzRes`, `ProzExp`, `OffLevel`, `LevelKap`, `OffLevelProz`, `BaseOffLevel` and others, rows of six by the difficulty, docs/re/fight.md; #277); the other 26 store elsewhere (`SKILL_`, `MOVES`, `HorseData:`, …). A key that ends in `:` heads a row of values, of which it names the first. The 357 span exactly the 4,896 bytes, from `BalanceDmg` (`+0x000`, 1.0) to `DaemonDamageBonus` (`+0x131C`, 2.0), and each holds a value of its kind (`GameSpeed` `+0x6FC` 1.25, `TransSize` `+0x960` 190.0, `TransValu` `+0x964` 50.0, `skilllearn2` `+0x30C` 6); the earlier count of 301 missed some. The earlier reading of 4,896 words was wrong. `opensacred-convert tables` writes `balance.ron` with the 357 variables and `GoldProLevel`'s second value (below) by name and kind (`opensacred_formats::bin_tables::BALANCE_KEYS`), the image's 1,224 words as stored, and the tables after it (below). Then 19,428 bytes (4,857 u32, 1,253 of them 0xFFFFFFFF, "not set") of another layout, starting 33, 0, 56: tables of their own, below | balance constants; the variables' names are the parser's keys, and are also printed by the exe itself (`defaults.h`, `xls_*.h` on Ctrl+K) or shown by the SacredUtils/SacredMagician editors |
+| `Balance.bin` | 24,328 | `u32 4896`, the size in bytes of what follows: an image of the client's balance variables at `0xAD4490`–`0xAD57AF`, 1,224 words, f32 or i32 by key. **Confirmed** 2026-10-18, counted again 2026-10-19 (#71, `tools/analysis/pe/balance_keys.py`): the balance text's parser (`Scripts\Balance.txt`, `key=value`, the chain around `0x5EAC70`) tests 380 keys (`push` of the key's name, `call 0x5E3700`), and 357 of them store their value into the image, each to a word of its own, with `fstp` (276 floats), `mov` (78 integers) or `sscanf`'s `%x` (3 colours, `Healthbar` `+0x8D8`, `Healthborder` `+0x8DC` and `ARGBInfoText` `+0x95C`, ARGB words read as hexadecimal, `0x5EDB61`; #2505), 24 of them a row of values through a register (`mov esi, <the row>`, its first word the key's variable: `ProzAW`, `ProzHP`, `ProzDmg`, `ProzRes`, `ProzExp`, `OffLevel`, `LevelKap`, `OffLevelProz`, `BaseOffLevel` and others, rows of six by the difficulty, docs/re/fight.md; #277); the other 23 store elsewhere (`SKILL_`, `MOVES`, `HorseData:`, …). A key that ends in `:` heads a row of values, of which it names the first. The 357 span exactly the 4,896 bytes, from `BalanceDmg` (`+0x000`, 1.0) to `DaemonDamageBonus` (`+0x131C`, 2.0), and each holds a value of its kind (`GameSpeed` `+0x6FC` 1.25, `TransSize` `+0x960` 190.0, `TransValu` `+0x964` 50.0, `skilllearn2` `+0x30C` 6); the earlier count of 301 missed some. The earlier reading of 4,896 words was wrong. `opensacred-convert tables` writes `balance.ron` with the 357 variables and `GoldProLevel`'s second value (below) by name and kind (`opensacred_formats::bin_tables::BALANCE_KEYS`), the image's 1,224 words as stored, and the tables after it (below). Then 19,428 bytes (4,857 u32, 1,253 of them 0xFFFFFFFF, "not set") of another layout, starting 33, 0, 56: tables of their own, below | balance constants; the variables' names are the parser's keys, and are also printed by the exe itself (`defaults.h`, `xls_*.h` on Ctrl+K) or shown by the SacredUtils/SacredMagician editors |
 | `World.bin` | 46,264 | `u32 3855` and 3,855 rows of 3 × i32: the first `(−1, −1, −1)`, then mostly `(i, 3392 + 64·(i − 1), 0)` (not all: the last is `(3854, 4096, 6336)`) | a table of id → offset of 64-byte blocks (hypothesis) |
 | `World2.bin` | 32,772 | `u32 32768` + 32,768 bytes (11,823 nonzero) | a 256×128 byte map (hypothesis) |
 | `sets.bin` | 7,396 | `u32 66` + 66 × 112 B: the first all 0xCC, the others `{u32 items[10]; u32 hash; u8 bytes[4]; 64 zero bytes}`. **Confirmed** by code 2026-10-20 (#357, the loader `0x42C3E0`): the hash is the key of the set's name (its low 31 bits the name's `global.res` id), `bytes[0]` the count of pieces and `bytes[1]` the set's number, equal to its slot (all three on all 65 sets), which the loader writes to each piece's `Weapon.pak +0x23`; the set bonuses are not in the file but compiled into the client (`0x571710`, docs/re/items.md) | item sets |
@@ -767,7 +766,7 @@ Confirmed on file (`tools/analysis/formats/bin_tables_dump.py`):
 | `wea.bin` | 4,648 | 256 lists `{u32 k; u32 ids[k]}` to the end (the leading 10 is the first list's count) | the weapon pools, which replace the start script's once it has run (docs/re/spawning.md, `MakeGroup`, #2651) |
 | `treppe.bin` | 19,952 | 2,494 × (u32 key, u32 value) | "stairs": a cell and the cell on its floor that a click on it sends the hero to, each packed as `floor << 26 \| y << 13 \| x` (0 the ground, `n` a building's floor `n`); keys strictly ascending, each pair on one floor; 661 targets, each its own key too, in groups of 2 to 27 cells: 306 on the ground (282 of them in a base trigger's box, the teleports into the caves and dungeons), 355 on floors (176 on floor 1, 169 on 2, 9 on 3, 1 on 4), the stairs' cells, their keys the cells before them (#2508, **confirmed** by `bin_tables_dump.py`) |
 | `static10_18.bin` | 41,440 | `map\0`, u32 2574, zeros to 0x100, 2,574 × `u32[4]`: two (old, new) pairs, the second 0xCCCCCCCC twice when unset (8 rows) | remap of static ids v1.0 → v1.8 |
-| `merc.bin`, `Addon/merc.bin` | 1,872 | 117 × `(0, x, y, type)` | mercenary positions |
+| `merc.bin`, `Addon/merc.bin` | 1,872 | 117 × `(0, x, y, type)` | the cells of the traders (type 0), the smiths (1), the combat masters (2) and the horse traders (3), whose icons the world map shows (docs/re/maps.md) |
 | `MultiStart.bin` | 768 | 48 × `(0, x≈174118, y≈153134, 0)` | multiplayer start points |
 | `Rust.bin` | 4,392 | `u32 85` + 85 × `{u32 k; k × (u32, u32)}` | armor switching |
 
@@ -811,7 +810,7 @@ AMH save ──▶ Items.pak (inventory), classes 1..9, QuestDB (section 0xCD)
 
 **Confirmed on every record 2026-10-23** by `tools/analysis/formats/arts_dump.py` (#505); what each field means and the code that reads it are in [docs/re/arts.md](re/arts.md) (#500).
 The combat arts are in no data file: two tables compiled into `Sacred.exe` hold them, the defaults of a balancing spreadsheet (`xls_magictypes.h`, `xls_smovetypes.h`), as the table of the sound ids' names is compiled into it (§10.2).
-Both lie in `.data`, which the GOG 2.28 file stores at its virtual addresses less the image base `0x400000`; another build would hold them elsewhere, so the converter reads them only from the manifest's `Sacred.exe` (§13).
+Both lie in `.data`, which the GOG 2.28 file stores at its virtual addresses less the image base `0x400000`; another build would hold them elsewhere, so the converter reads them only from a `Sacred.exe` of the GOG manifest or of the Steam one, whose data sections are the same (§13).
 Each table opens with an empty record 0, the id 0 with the icon `INVALID.TGA`, which the code does not search; the second table ends where the first starts.
 A value by the level `L` is a pair `(a, b)`, `a + L·b`.
 
@@ -879,6 +878,13 @@ The client's code tests the names for parts: the footsteps of the creatures othe
 **Confirmed** by code 2026-10-28 (#1183; docs/re/items.md, "A pass: what it makes"): 123 types (`u32` each) at VA `0x9565A0`, from 5375 to 5782 with gaps, each of the runes' category 28, of which a drop's rune is one at random (`0x559BF0`).
 `opensacred-convert tables` writes them into `tables/runes.ron`, a list of the types in the table's order.
 
+### 6.11 The weather's rolls and the bosses' drops in Sacred.exe
+
+The weather's rolls (#1072; docs/re/weather.md): 256 bytes at VA `0x95FA84`, from which the weather's choice (`0x625290`) takes its times and its intensities by a rolling index.
+`opensacred-convert tables` writes them into `tables/weather_rolls.ron`, a list of numbers.
+The bosses' drops (#2269; docs/re/items.md, "How many drops, and the bonus") lie in code: a switch over the type in the deaths' handler (`0x533E2E`, its jump tables at `0x536EBC` and `0x536F48`) tells what a boss of some twenty types adds to its death's drops.
+The converter carries its cases as constants, numbers and the balance's key names alone, and `tables` writes them into `tables/boss_drops.ron` (`opensacred_data::tables::BossDrop`); a test on the game files compares how they group the types with the jump tables.
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding
@@ -908,6 +914,7 @@ The quests' defects of #356 whose repairs are in the data are mended there too, 
 - Quest 2203's count and quest 501's ghosts kept apart from quests 2303's and 5002's names, in 11 trees (docs/decisions/netscript.md, "Quests 2203 and 501 kept apart").
 - Area 2's fills turned back by quest 72's `BadToGood` with the others', in 11 trees, and the `ReplaceSpawn`s of quest 50's `Dialog:DlgHologram50` and quest 61's `ElementAbfrage` that carry no side given their siblings' `0x08` and `0x46`, in 9 trees each, the maintainer's decision of 2026-10-26 (#1068, docs/decisions/netscript.md, "Area 2's fills turned back after quest 72").
 - The old potions that the records make, the type (`0x02`) of 1,308 `CreateObj`s and 120 `FillChest`s in the 20 trees: the bottle 3999 and the bottles 5056 to 5064 made the new potions of their kinds and sizes, as the original's object maker makes them (`0x43FC40`, docs/re/netscript.md), the maintainer's decision of 2026-10-31 (#1634, docs/decisions/netscript.md, "Scripts' old potions made the new ones"); the numbers 5056 to 5064 that are cells' coordinates stay.
+- The sounds that the records name wrongly, which the original never plays: 127 names of `PlaySound`s and `PlayMusic`s named right (#2652, docs/decisions/sound.md, "Scripts' misnamed sounds named right"), the companions' 23 location lines named by the companion that their branch tests, each with a `Wait` of its length before the hero's line (#2684, #2688, "Companions' location lines named right"), and the desert bridge's announcement's call of the hero's line in its branch with Vilya ("Desert bridge's hero's line with Vilya"), in the 20 trees (§12.2).
 There are no jumps by offset: branching goes by names and indices (`Vectoren.bin`), state is quest flags, variables, triggers.
 Terminology: in this document "opcode" = record type (u16), corresponding to sacred-sdk's "tag"; the operand marker is called "tag" by openheilig and "opcode" by sacred-sdk.
 
@@ -937,7 +944,7 @@ The empty `QuestPoolCode.bin`s leave the dynamic quests without a template, so t
 | `bin/NetScript`, `bin/Addon/NetScript` | 2,774,680 (679) / 78,733 / 87 | 640,517 / 16,962 / 29 | multiplayer/"free play" |
 
 Correction to an earlier reading: `NetScriptCamp` is the Sacred campaign; Underworld lives in `bin/Addon/*`.
-For the port it is enough to load the directory by hero class (as the original does: `Bin\NetScript%s`, `bin\Addon\%s`); storing "one bytecode + 8 patches" is an option.
+The game loads the tree of its hero's class, as the original does (`Bin\NetScript%s`, `bin\Addon\%s`), and `build` packs once a source that several trees hold alike (§7.6, #2648).
 
 ### 7.3 The opcode space: 141 and 113
 
@@ -998,14 +1005,15 @@ This refutes an earlier guess ("the VM on the server is the best entry point") a
 Addresses according to sacred-sdk: the operand reader `FUN_00472BC0` (a table of 256 markers in 40 groups), the walker `FUN_00475680`, section start `FUN_0046BA90`.
 The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScriptedSequenceR`, `cInterpretSQW`, error messages with line numbers, keyword and directive tables `ToDoBloecke:`/`Delay:`/`Belohnungen:`/`Dialog:`) is built into the exe: the grammar can be recovered by decompilation, which opens up quest modding from text.
 
-### 7.6 Conversion and the translation into Luau: what is needed, and the estimate
+### 7.6 Conversion and the translation into Luau
+
+All of it is done: the converter and the IR in M1, the translator, the runtime and the semantics in M4, which closed on 2026-10-26.
 
 1. A disassembler in Rust with a "no remainder" check on all 20 trees: done 2026-10-17 (`opensacred_formats::netscript`, §7.1).
 2. IR: done 2026-10-17 as a faithful one (`opensacred_data::netscript`, `opensacred-convert netscript`): one postcard file per tree with the start script, the quest flags, `FunkCode.bin` split into its named function blocks by `Vectoren.bin`, the quests and the regions; the records keep their types and operand tags.
    `--listing` writes a readable listing of each tree.
    Grouping into quests, states, conditions and actions is the translator's (step 4).
-3. The walker's control flow read off the client (#722), then the record types' semantics from its code in Ghidra, starting with the most frequent: 45 types give 95% of campaign records, 68 give 99%.
-   For each type, a test on real records.
+3. The walker's control flow read off the client: done 2026-10-24 (#722, §7.4); the record types' semantics from its code in Ghidra, starting with the most frequent (45 types give 95% of campaign records, 68 give 99%), are in docs/re/netscript.md and the subsystems' documents of `docs/re/`.
 4. The translator in `opensacred-convert` (#723): each tree into Luau sources, a file per quest, sector, region and start script, with their bytecode; a record becomes a call of the scripts' API, the control flow Luau's `if`, `elseif` and `else`; what it does not understand fails the conversion.
    The sources: done 2026-10-24 (`opensacred-convert`'s `luau`, by its `flow`, §7.4).
    A call is named by its record type's keyword in snake case (`CreateNPC` → `create_npc`), and the 18 keywords that are German words by names of the project's own in English (#1388, `opensacred_data::luau::ENGLISH`): `DeleteFunktionBlock` `delete_function_block`, `CallFunktion` `call_function`, `MaxOffen` `max_open`, `Rettungsmission` `rescue_mission`, `ToDoBloecke` `to_do_blocks`, `Belohnungen` `rewards`, `Schatzsuche` `treasure_hunt`, `AddHandel` `add_trade`, `QuestKompassPos` `quest_compass_pos`, `QuestKompassObj` `quest_compass_obj`, `Partikel` `particles`, `Toete_NPC` `kill_npc`, `Begleite` `escort`, `Waffenpool` `weapon_pool`, `Strafen` `penalties`, `RegionFrei` `free_region`, `Gewinn` `prize`, `MachVersteck` `make_hiding_place`.
@@ -1028,9 +1036,9 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
    Stage B compiles each source into Luau's bytecode (`<file>.luauc`, the converter's `build`), the trees (`<tree>.nsc`) and their index staying among the masters, since the game runs the Luau alone (#726), and every function and script of the 20 trees, run in Luau with a recording stand-in for the API, makes the same calls, tests and end as the walker for the same outcomes of its tests (807,800 runs, two each).
    Since #2648 `build` packs a source that several trees hold at one path, the same source, once, in the first of them in the masters' order, and the other trees' indices name it in `shared`, by which the game loads its bytecode from that tree's directory; the 8 Underworld trees are the same, and `sectors/` the same in all 20.
    The network games' trees (`netscript`, `netscriptcamp`, `addon-netscript`, `addon-netscriptcamp`, `netscript::NETWORK`) stay among the masters alone until M9, as the game loads none of them before it.
-   `luau0-src` is held at Luau 740, whose bytecode version 9 `mlua-sys` 0.13.0 knows, where Luau 744's 13 is not (#869).
-5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726); the 28 types absent from the release are not implemented.
-6. Estimate: converter and IR 15–30 agent-hours (M1); the translator, the runtime and the semantics 25–50 agent-hours (M4).
+   `luau0-src` is 0.22.0 of Luau 740, whose bytecode version 9 `mlua-sys` 0.13.0 knows; 0.22.1 of Luau 744, whose version 13 it does not, was held back (#869) until that release was yanked, and nothing holds the crate now (`tools/deps/holds.toml`).
+5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726): done; the 28 types absent from the release are not implemented.
+6. The estimates were 15–30 agent-hours for the converter and the IR (M1) and 25–50 for the translator, the runtime and the semantics (M4).
 
 ## 8. Localization: global.res and the hash
 
@@ -1048,9 +1056,8 @@ All ids are `sacred_hash(name) & 0x7fffffff`; numeric references `res:N` are has
 The formula of the client's `FUN_0080E780` (credited to sacred-sdk, MIT; confirmed by rebuilding all slots with `tools/analysis/formats/global_res_hash.py`): starting from `h = 0`, for each byte `c` of the name, with ASCII `a`–`z` upper-cased, `h = (h·113 + c) mod 999,999,991`, where `h·113 + c` wraps to 32 bits and is taken as a signed 32-bit integer, and the remainder has the sign of the dividend (C's `%`); the id is `h & 0x7fffffff`.
 The port is `opensacred_data::text::sacred_hash` (`crates/opensacred-data/src/text.rs`), the key of the open format's texts, which `opensacred_formats::text` re-exports and the game looks its lines up by (#270).
 A "mathematical" version without the 32-bit overflow and the signed remainder gives different values (checked by brute force).
-For the engine: an in-memory index, UTF-16LE → UTF-8 at load time, byte comparisons wherever gameplay depends on them (inventory sort order), a `mods:/<lang>/global.res` overlay and CSV/PO export/import by a tool; font fallbacks for Cyrillic/CJK: §11 and docs/06.
-Ready-made code: sacred-sdk (`sacred_hash.h`, a `global.res` generator), SacredUtils (Apache-2.0, decompiler/compiler).
-Estimate: < 1 day with the ready-made code.
+The game never reads `global.res`: it reads the converter's `text/en-US/global.ftl` into an index by id (`opensacred-game`'s `lines::Texts`), and an overlay archive can carry another (§12.2); font fallbacks for Cyrillic/CJK: §11 and docs/06.
+Other code for the format: sacred-sdk (`sacred_hash.h`, a `global.res` generator), SacredUtils (Apache-2.0, decompiler/compiler).
 
 **Defects the community reports**, checked for #358 on `scripts/us/global.res`, the converted `text/en-US/global.ftl` and the tables on 2026-10-21; a string is named here by its id, the message `id-N` of `global.ftl`, never by its wording:
 
@@ -1062,7 +1069,7 @@ Estimate: < 1 day with the ready-made code.
 - **Missing names and lines**, which ReBorn restored in every language after Sacred NL (**community-reported**): two kinds show in the data (**confirmed**), whether they are those ReBorn restored is a **hypothesis**.
   Names: a creature type's name is the string whose id is the hash of its number in decimal, as a weapon's (§6.2; type 37 is id 5818), and 25 of the 474 types have none: the empty type 0, 146, 164 to 167, 182, 183 (`Anducar.grn`, `Anducar_Demon.grn`), 222 to 224, 328, 356, 357, 361 to 365, 367, 368, 599 (`WOLF.GRN`), 706 (`NOBLE_FEM.GRN`), 1879 and 6114; and 566 of the 4,883 `Weapon.pak` records have none (§6.2), 448 of them with an `items.pak` slot.
   Lines: of the `res:` keys the scripts name whole, not built at run time with `+VAR(…)`, four quest-log keys of `QuestBook` records (type 53) resolve to no string, `HQ_6_2_1_Log_preQuest`, `NQ_7607_LOG_HEADER`, `NQ_LOG_QLOSE` and `R09NQ01_Log_Qsieg`, besides `res:174242` (type 22), the one numeric reference that does not resolve (above).
-  What the game shows for a missing name or line is not read.
+  What the game shows for a missing line is not read; an item without a name shows none (seen 2026-10-26, below).
   The four keys' lines are added by `opensacred-convert text` since #687, words of the project's own (docs/decisions/text.md, "Quest log's missing lines written"): `HQ_6_2_1_Log_preQuest` notes the main quest 61's element of the air taken before the quest asks for it, as its siblings of fire, earth and water note theirs; `NQ_7607_LOG_HEADER` is the heading of the quest 7607, whose siblings 7605 and 7606 have theirs; `NQ_LOG_QLOSE` is the log's line as the quests 9009 and 9010 are lost (`QIS_OnLose`), beside the generic lines of a quest completed and failed; and `R09NQ01_Log_Qsieg` is the quest 901's line as it is won.
   `res:174242` is the operand of the call of `spawn2003` in `zauber2003` of the quest 2003, where the same call in `QIS_OnEnter2003` names `res:17242`: a digit too many, and `spawn2003` reads no operand of its call (read on the converter's Luau 2026-10-25), so no text shows it and it needs no line.
   Of the 25 types, the scripts give every creature that they make a name of its own (read on the trees' listings 2026-10-23, #684): `CreateNPC`'s tag `01` in every record of the types 146, 182, 222 to 224, 328, 356, 357, 361 to 365, 367, 368 and 6114, the first `MakeGroup` rule's `1D` in the 260 functions whose `FillSector` makes a 146, and `Morph`'s `01` for the 183.
@@ -1083,7 +1090,7 @@ Since #2559, also set 58's line at 6 pieces under the original's own key `UI_SET
 Since #2606, also the label of the trap of the fleeing animals (the items' effect 855, set 41's terror) under a name of the project's own, `OPENSACRED_TRAP_FLEEING` (`opensacred_data::text::TRAP_FLEEING`), where the original's text speaks of flying opponents (docs/decisions/interface.md, "Fleeing animals' trap told").
 The items' missing names (#685), the gameboxes' names (#686) and the scripts' keys that resolve to nothing (#687) are sub-issues of #403.
 Since #685, the 300 nameless `Weapon.pak` records with an `items.pak` slot that the drops' lists of a category a drop asks for hold are named, each by the class it is made for, the word of its family of models and its piece (`crates/opensacred-convert/src/item_names.rs`, docs/decisions/text.md, "Nameless droppable items named"); the original shows them with no name, a worn one's tooltip beginning with its class's line (seen 2026-10-26).
-So is the lung 1331 that quest 15072's `SetDrop` drops; of the other 147 with a slot, the quest items that their `CreateObj`s name, the guards' weapons and the rabbit outfits never show a type's name, nor the doors and a chest (**hypothesis**), and 105 that no record names wait for the trade (#1066).
+So is the lung 1331 that quest 15072's `SetDrop` drops; of the other 147 with a slot, the quest items that their `CreateObj`s name, the guards' weapons and the rabbit outfits never show a type's name, nor the doors and a chest (**hypothesis**), and 105 that no record names were left for the trade (#1066), whose stock the drops' choice makes (docs/re/trade.md, #1617); whether a merchant can offer one of them is not checked.
 The sources that were weighed, in the order of preference:
 
 1. **The same file**: a string takes another id's string whole, or a span of it (id, offset and length in UTF-16 units) replaces a span of its own.
@@ -1173,7 +1180,7 @@ The Seraphim's weapon is the record 7901: physical damage 21 to 23, `A` 5 and `D
 The earlier names, the skill table and the combat arts, were wrong.
 The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): `amh_dump.py --saves` checks the saves of a clean installation, and since #1676 the converter reads the two heroes as the installation ships them, by their SHA-256, for the Underworld campaign's choice (docs/re/underworld.md; docs/decisions/interface.md, "The installation's Underworld heroes").
 Implemented: `opensacred_formats::amh` (`Amh::items`, `Amh::backpack`, `Amh::arts`); `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level, class, the items the hero wears, their records' words from `+4`, the items of its backpack at their cells with their sizes and words (#1285), and the combat arts of its creature section (#506) in `heroes.ron`.
-The sections stay whole until their layout is recovered.
+The sections stay whole in the hero files, which stay among the masters since #2650: the game takes what it needs of them from `heroes.ron` (§12.2).
 There is no encryption and there are no checksums (the "export" `.PAK` saves do have 48 bytes of checksums according to gonX, but the game does not check them).
 The 304×360 hero portrait is written as a JPEG via IJL (according to sacred-bild).
 The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold: Gold 2.28 writes only the 0x101B layout.
@@ -1184,6 +1191,7 @@ For the new engine: original `.pax` saves are not supported (by design), but for
 The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears, the items of its backpack (#1285) and its combat arts in `heroes.ron`; the stats of 0xC7 (above) are read by `amh_dump.py --stats` (#2361) and since #2362 by `Amh::stats` and `Amh::equipment`, cross-checked against it, and `heroes.ron` indexes each hero's (`HeroStats`: its experience, gold, the attribute points spent and left, its skills and their bases, its skill points and skills to learn), and since #2362's second part its equipment's slots by the items' ids, its weapon sets (`Amh::sets`) and each item's socketed items' records (`Item::socketed`), cross-checked against `amh_dump.py --sets --sockets`.
 **The bar's art slots** after the weapon sets, **confirmed** 2026-11-09 (#2370) on the 10 files (`amh_dump.py --art-slots`) and against the original's bar of the shipped heroes: ten records of 20 bytes, the slot `s` of the bank `b` the record `2s + b` (the container's `+0xC90`, docs/re/inventory.md), its kind (0 none, 2 a spell, 3 a weapon art, 4 a combo) and its art's id the first two `u32`; then two `u16`, the selections (`+0xD58`): the weapon set selected and the art slot selected.
 A template's first slot holds its first art, the rest none; the Dwarf's four hold his weapon arts 1080, 1082, 1085 and 1087, his fourth set and his second slot selected, which the original's bar and right button show after his load (the statistics window's "Combat Arts" line of 1082); the Daemon's her arts 1097 and 1099 and her spells 60 and 67, her first set and her fourth slot selected; the second bank is empty in the 10 files.
+`Amh::art_slots` reads them, and `heroes.ron` indexes each hero's first bank's slots and its two selections (`art_slots`, `selected`).
 **The weapon sets' halves** of the 10 files, **confirmed** 2026-11-09 (#2362): each names an item of the inventory outside the backpack (22 halves: the templates' weapons, the Dwarf's six and the Daemon's seven), and the set whose halves the equipment's hands' slots (12 and 13) hold is the one in the hands (the Dwarf's fourth, the Daemon's first).
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 
@@ -1284,20 +1292,21 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 | Tiles and MIX atlases | PNG atlases + the UV table of the 18 diamonds | rendering a test sector |
 | MDL + GRN (`models*.pak`) | `.glb`: meshes, skeletons, weights, materials, clips; `Models.tmp` is a cache, not in the manifest | glTF-Validator, Blender, reference poses |
 | Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 9), `sprites.bin` and the sprites assembled from their pieces (`sprites/<record>.png`) | loading all 6,050 sectors; the sprites against `mixed_dump.py --assembled` |
-| `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts of `Sacred.exe` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
+| `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts and the other tables of `Sacred.exe` (§6.5–§6.11) | RON tables with a typed schema under `tables/` | comparing the fields with the source |
 | `global.res` | Fluent (`.ftl`) | 23,123 strings in place |
 | NetScript | one postcard file per tree with a `netscript.ron` index, and each tree's Luau sources, built into bytecode (#723); listings on request | disassembler without remainder on the 20 trees |
 | `sndProfiles.pak`, `sound.pak` | profiles in RON (`sound.ron`); WAV (PCM, IMA ADPCM) → FLAC; MP3 → FLAC (#697) | durations and spot listening |
 | MP3 | FLAC (#697) | playback |
 | WMV | AV1 + Opus in WebM via FFmpeg; FFV1 and FLAC in Matroska as the master with #698 | playback |
 | TTF, BMP | TTF unchanged; BMP → PNG | viewing |
-| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn, the backpack's items and the combat arts; the rest of the starting presets later | reading back |
+| `Templates/*.ptx`, the two shipped heroes of `save/` | postcard hero files with the sections whole and `heroes.ron` with the items worn, the backpack's items, the combat arts, the stats, the equipment's slots, the weapon sets and the bar's art slots (§9) | reading back |
 
 ### 12.2 Structure
 
 * `opensacred-formats`: reading the original formats (safe slice parsing, no `unsafe`).
 * `opensacred-data`: open format types shared by the converter and the game.
-* `opensacred-convert`: a CLI with the subcommands `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, `build`, `all` and `coverage`; parallel (rayon); the commands but `build` are stage A, extracting into `--assets-src` (`assets-src/`), and `build` is stage B, building into `--out` (`assets/`) the files whose masters changed (#696).
+* `opensacred-convert`: a CLI with the subcommands `install`, `locate`, `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, `build`, `all` and `coverage`; parallel (rayon); the ten extractions, `textures` to `heroes`, are stage A, extracting into `--assets-src` (`assets-src/`), and `build` is stage B, building into `--out` (`assets/`) the files whose masters changed (#696); `all` runs the extractions and then `build`.
+  `locate` finds the player's installation, GOG's by the registry and Steam's by its libraries (`opensacred-locate`), each place checked against the manifests (§13), and `install` is the player's run for the game's first start (#1497): the installation found or named and checked, the extractions and `build` run in a working directory beside the assets, the mark `converted.ron` written last, the assets put in place whole and the masters removed.
   Stage A is reproducible by nature; stage B's lossy encoders need not be, and identical reruns are no longer a goal (#694).
   Each full run of an extraction records `manifest/<command>.ron` under the masters' directory, and `build` its own under the game's (the SHA-256 of the converter, of the installation files it read and of the files it wrote), and `all` skips a command whose record still holds.
 * Outputs go to `assets-src/` (the masters) and `assets/` (the game's), neither committed.
@@ -1306,7 +1315,7 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 * `opensacred-game` reads `assets/` in layers (#699): a path takes the first that has it, the loose files of the directory itself, then the ZIP archives of its `overlays/` (HD packs, mods), then the base ZIP archives beside the loose files, each set in the order of the archives' names.
   An archive's entries are stored or deflated, their paths the loose files' relative to `assets/` with `/` between the parts; both Bevy's asset server (its default asset source) and the game's own reads of the tables, sectors, scripts and atlases go through the layers.
   `build` writes the base archives by kind (#699): `data.zip` (the tables, texts, scripts and heroes), `models.zip`, `music.zip` (`sound/music/`), `sound.zip` (the rest of `sound/`), `textures.zip`, `ui.zip`, `video.zip` and `world.zip`, with `manifest/` beside them loose.
-  The archives are reproducible: the entries in the order of their paths with UTF-8 names, the date 1980-01-01 00:00, the formats compressed already (PNG, glTF binary, FLAC, MP3, Ogg, WebM, KTX2, the sectors in zlib) stored and the rest deflated at level 6 where that makes it smaller, a stored entry's data aligned to 16 bytes by Android's `zipalign` padding field (`0xD935`) and no other extra field; ZIP64 only for the count of the entries, so an archive stays below 4 GiB, and one of 65,535 entries or more counts them in ZIP64's end record and its locator before the end record, whose count is then 65,535 (#962): `data.zip` holds 131,348 since the scripts' bytecode (#870), and 7-Zip and Python's `zipfile` read it.
+  The archives are reproducible: the entries in the order of their paths with UTF-8 names, the date 1980-01-01 00:00, the formats compressed already (PNG, glTF binary, FLAC, MP3, Ogg, WebM, KTX2, the sectors in zlib) stored and the rest deflated at level 6 where that makes it smaller, a stored entry's data aligned to 16 bytes by Android's `zipalign` padding field (`0xD935`) and no other extra field; ZIP64 only for the count of the entries, so an archive stays below 4 GiB, and one of 65,535 entries or more counts them in ZIP64's end record and its locator before the end record, whose count is then 65,535 (#962): `data.zip` held 131,348 with the scripts' bytecode (#870), and 7-Zip and Python's `zipfile` read it; since the trees' shared sources are packed once and the network games' trees are left out (#2648), it holds 7,150 (the build of 2026-11-15), and no archive needs ZIP64.
   `build.ron` records each entry as `<archive>/<path>`; an archive whose masters all changed nothing is kept, and one written again copies its unchanged entries from the old archive as they are.
   It removes the loose files that earlier runs wrote into `assets/` and that would take the archives' place: the outputs of the builds before #699 that `build.ron` names, and those of the extractions before #696 that their records under `assets/manifest/` name, with the records; any other loose file stays, the layer read first.
   `build.ron` also records the version of each way of making an output (`ways`): an output whose way's version changed is made again, and a record without the versions stands for the ways before #700.
@@ -1340,18 +1349,19 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 
 ### 12.3 Order
 
-The order follows the vertical slice (PLAN.md, §9): textures and tiles → models and animations of the hero and of the starting region's creatures → the starting region's sectors → sound → the remaining tables, texts, scripts → the whole world → video.
+The converter was written in the order of the vertical slice (PLAN.md, §9): textures and tiles → models and animations of the hero and of the starting region's creatures → the starting region's sectors → sound → the remaining tables, texts, scripts → the whole world → video; all of it is done (§12.1).
+`all` and `install` run the extractions in the order `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, then `build`: `models` and `world` name the PNGs of `textures`.
 
 ### 12.4 Tests
 
-* Synthetic mini files in the repository, for CI.
-* Tests on the real installation are marked and run only locally.
+* Synthetic containers that the tests build themselves (the test-only `testing` module of `opensacred-formats`), with no file of them in the repository, for CI.
+* Tests on the real installation are marked `#[ignore = "needs the game files in OriginalGame/"]` and run only locally (CLAUDE.md, "Tests").
 * The run manifests (§12.2) hold the SHA-256 of every output, so a changed output of stage A shows up in them; stage B's lossy outputs may differ from run to run.
-* The Python prototypes in `tools/analysis/` serve as the reference when porting the parsing logic to Rust.
+* The Python prototypes in `tools/analysis/` are the reference of the readers in Rust: the cross-check tests on the game files run them through `uv run python -I` and compare.
 
 ### 12.5 Estimate
 
-The whole converter: 80–160 agent-hours (milestone M1); the breakdown by format is in `docs/07-roadmap-estimates.md`, M1.
+The whole converter was estimated at 80–160 agent-hours (milestone M1, whose exit criteria were met on 2026-10-17); the breakdown by format is in `docs/07-roadmap-estimates.md`, M1.
 
 ## 13. Specifics of the GOG release
 
@@ -1370,24 +1380,22 @@ The whole converter: 80–160 agent-hours (milestone M1); the breakdown by forma
   Check: `cd OriginalGame && sha256sum -c ../docs/manifest-gog-2.28.txt`.
 * The Steam release differs in four of those files (docs/01 §1), whose SHA-256 `docs/manifest-steam-2.28.txt` lists in the same format: `Sacred.exe`, `PAK/loading0.bmp`, `PAK/loading1.bmp` and `movie/oem.wmv`.
   Since #1490 `verify` takes a file that is either release's, and says how many are the Steam release's own; `tables` takes either `Sacred.exe`, whose data sections it reads, the same in both.
-  As of 2026-10-16 the manifest matches a clean GOG 2.28 installation (395 files: 377 game files plus 18 GOG and installer files, such as PDF manuals, `unins*`, `goggame-*`).
+  A clean GOG 2.28 installation holds 395 files (counted 2026-10-16): 377 game files, of which the manifest lists the 313 above, plus 18 GOG and installer files, such as PDF manuals, `unins*`, `goggame-*`.
   The converter ignores the files outside the manifest.
 
 ## Open questions
 
-Closed and not in the list: where the screen resolution is stored (nowhere: it is hard-coded to 1024×768) and the purpose of the `BINARY #107` resource (an embedded copy of `global.res`, docs/01 §4.6), both while preparing the plan; the channel order of format 6 (§3.1), the container and codecs of `sound.pak` (§10.2) and the codecs of the WMV cutscenes (§10.3), on 2026-10-16; the UV table of the 18 diamonds on real sheets (§5.6) and the image of the type 9/25 statics (the `mixed.pak` sprite, §6.1), on 2026-10-17; the cell's low nibbles 3 and 5 to 10 (§5.2), on 2026-10-18; how the models get their height on hills (the second heights, §5.3), on 2026-10-19; where the client draws a `CreateObj`'s model and in which cell's list it puts the object (`0x20` at height 0 moved by the object's height, its `0x04` cell's list, §7.3), on 2026-10-22.
+Closed and not in the list: where the screen resolution is stored (nowhere: it is hard-coded to 1024×768) and the purpose of the `BINARY #107` resource (an embedded copy of `global.res`, docs/01 §4.6), both while preparing the plan; the channel order of format 6 (§3.1), the container and codecs of `sound.pak` (§10.2) and the codecs of the WMV cutscenes (§10.3), on 2026-10-16; the UV table of the 18 diamonds on real sheets (§5.6) and the image of the type 9/25 statics (the `mixed.pak` sprite, §6.1), on 2026-10-17; the cell's low nibbles 3 and 5 to 10 (§5.2), on 2026-10-18; how the models get their height on hills (the second heights, §5.3), on 2026-10-19; where the client draws a `CreateObj`'s model and in which cell's list it puts the object (`0x20` at height 0 moved by the object's height, its `0x04` cell's list, §7.3), and the hero templates' inventory, section 0xC8 (§9, #486), on 2026-10-22; the blocks of the NetScript record types 41 and 42 (§7.4, #722), on 2026-10-24; the reference `res:174242`, a digit too many in an operand that nothing reads (§8), on 2026-10-25; the hero's creature section 0xC7, its equipment, stats and combat arts (§9, #2361), on 2026-11-09.
 
 1. The value 15 of the cell's low nibble of `+0x1F`; the 256 bytes that end a sector's stream (§5.2); the cell statistics of `sector_stats.py`, which reads the cells eight late, are to be measured again where they matter.
 2. The meaning of the Static.PAK flags other than those of §5.5 and §6.1 (`0x10`, `0x20`, `0x40`, `0x80`, `0x290`, `0x400`, `0x800`) and of its bytes `+0x16` and `+0x34…+0x3F`.
    Closed on 2026-10-17: the position (screen pixels at `+0x0E`/`+0x12`, community-reported; the "`z`" was the high half of `x`) and how Floor.PAK and Static.PAK attach to the sectors (the cells' chains, §5.5).
 3. Granny animation blending parameters (ADSR envelopes, period, the events of the MotionDesc float table other than the attack's hit fractions, §4.1); needed only for the approximate transfer into the Bevy animation graph.
-4. Semantics of the NetScript record types without a keyword (the fields `a`, `b` of type 40; the five cases of type 41; 42), the single unresolvable reference `res:174242`.
-   Closed on 2026-10-17: the operand tag widths of the Windows build and the names of 43, 44, 111, 122, 123 (§7.1, §7.3); on 2026-10-26, type 39, a base trigger's name and the index of its function (docs/re/netscript.md, "Base triggers").
-5. Hero template fields (section 0xC7) to the extent needed for the starting presets.
-   Closed on 2026-10-22: the inventory's blocks of section 0xC8, the items the hero wears and holds (§9, #486).
-6. The meaning of the X fields in the TEX (9,406/27,100), MDL (13,268 in `models.pak`, also in the `Models.tmp` and `MOTIONS.PAK` headers; 19,897 in `models03.pak`), CIF (0x3C3D5) and WPN (0x1A3717) headers; probably CRCs/timestamps.
-7. How the 719 of the 875 bipeds that face −Y in their bind pose come to face their way (§4.5): the client turns a model's `x` along its direction (docs/re/drawing.md, "The models' turn"), which suits the 148 that face +X, among them `SERAPHIM.GRN`.
-8. What the ground's 636 cells of flag bit 2 that no door names are (§5.7).
+4. The first value of a NetScript dialogue entry, the field `a` of type 40 (**hypothesis**: a function's index, docs/re/netscript.md, "The dialogue's run").
+   Closed on 2026-10-17: the operand tag widths of the Windows build and the names of 43, 44, 111, 122, 123 (§7.1, §7.3); on 2026-10-26, type 39, a base trigger's name and the index of its function (docs/re/netscript.md, "Base triggers"), and the field `b` of type 40, the entry's icon ("The icons over the creatures").
+5. The meaning of the X fields in the TEX (9,406/27,100), MDL (13,268 in `models.pak`, also in the `Models.tmp` and `MOTIONS.PAK` headers; 19,897 in `models03.pak`), CIF (0x3C3D5) and WPN (0x1A3717) headers; probably CRCs/timestamps.
+6. How the 719 of the 875 bipeds that face −Y in their bind pose come to face their way (§4.5): the client turns a model's `x` along its direction (docs/re/drawing.md, "The models' turn"), which suits the 148 that face +X, among them `SERAPHIM.GRN`.
+7. What the ground's 636 cells of flag bit 2 that no door names are (§5.7).
    Closed on 2026-10-22: the side the client turns a model's +z to, the doors' leaves swinging onto the ground as the game's do (§5.7, #430).
 
 ## Sources
@@ -1400,11 +1408,12 @@ Scripts ([tools/README.md](../tools/README.md); run with `uv run python -I` on t
 - `world/world_dump.py`, `world/sector_stats.py`, `world/static_stats.py`, `world/uv_table.py` — keyx, wldx, tiles, Static.PAK, Floor.PAK, the UV table (§5).
 - `formats/tables_dump.py`, `formats/bin_tables_dump.py` — Creature, Weapon, MOTIONS, Triggers, Items03 and the `bin/` tables (§5.5, §6).
 - `formats/arts_dump.py` — the combat arts' tables in `Sacred.exe` (§6.5).
-- `scripts/netscript_census.py`, `scripts/netscript_dump.py`, `scripts/kwtab.py` — NetScript (§7).
+- `scripts/netscript_census.py`, `scripts/netscript_dump.py`, `scripts/netscript_flow.py`, `scripts/kwtab.py` — NetScript (§7).
 - `formats/global_res_dump.py`, `formats/global_res_hash.py` — `global.res` and the hash (§8).
 - `formats/amh_dump.py` — AMH templates, and saves with `--saves` (§9).
 - `formats/snd_ls.py`, `formats/sound_dump.py`, `formats/spf_names.py` — `sound.pak`, `sndProfiles.pak`, the sound names (§10).
 - `pe/granny_args.py` — the Granny call sites (§4.3).
+- `pe/balance_keys.py` — the keys of `Balance.bin`'s image (§6.3).
 
 Plan documents this one relies on: docs/01-binary-analysis.md (§4.5–4.6: `COMPAT_VIDEO`, `BINARY #107`), docs/05-renderer-vulkan-4k.md, docs/06-platform-backends.md.
 

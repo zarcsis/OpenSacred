@@ -1,6 +1,6 @@
 ---
 name: game
-description: Run opensacred-game and drive it yourself - start it windowed with --remote and play it through tools/game/remote.py (its commands, its state, keys, text, clicks, screenshots, the log), or run a one-shot script with --exec. Use to see a change working in the game, to reproduce a bug, to take a screenshot of a scene, or to measure the frame rate.
+description: Run opensacred-game and drive it yourself - start it hidden with --remote and play it through tools/game/remote.py (its commands, its state, keys, text, clicks, screenshots, the log), or run a one-shot script with --exec. Use to see a change working in the game, to reproduce a bug, to take a screenshot of a scene, or to measure the frame rate.
 ---
 
 # Running and driving the game
@@ -17,7 +17,7 @@ The game is `opensacred-game` (docs/10). It reads the converted assets of `asset
     --exec "new-game --class mage; wait ready; go +6,+2; wait arrived; screenshot <scratch>/shot.png; quit"
   ```
 
-  `--script FILE` takes the same commands from a file, a line each, `#` for comments. The process ends with `quit`; read the log file for each command's output (`> line`, then its lines, `ERROR` for a failure).
+  `--script FILE` takes the same commands from a file, a line each, `#` for comments. The process ends with `quit`; read the log file for each command's output (`> line`, then its lines, `ERROR` for a failure). A path inside a command (`screenshot`, `record`, `exec`) reaches the game as written, so give it in Windows' form (`C:/…` or `C:\…`): Git Bash's `/c/…` there lands in `C:\c\…`.
 - **Interactive** (look, decide, act again): start the game with `--remote` in the background, then call `tools/game/remote.py` as often as needed.
 
   ```bash
@@ -54,7 +54,7 @@ The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM] [-
 
 ## Keys of the game
 
-The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, the right button on a foe makes the selected combat art, Shift held walks rather than runs (`--hold` it, or `gait walk`), I opens the inventory, L the quest book and M the world map (Esc closes them), Tab held the overview map, Space drinks a healing potion of the belt (Shift the yellow one), Q, W, E and R the purple, blue, green and yellow ones, B gives a healing one to a follower, 1 to 5 choose a weapon set and 6 to 0 an art slot, F1 to F6 put the arts bound to them into the selected slot (over an art of the spells page they bind it), the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F10 the keys' help (a frame of it lists them all), F7 the overlay, F12 the log, F11 borderless or windowed; the key under Esc the console.
+The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, the right button on a foe makes the selected combat art, Shift held walks rather than runs (`--hold` it, or `gait walk`), I opens the inventory, L the quest book and M the world map (Esc closes them), Tab held the overview map, Space drinks a healing potion of the belt (Shift the yellow one), Q, W, E and R the purple, blue, green and yellow ones, B gives a healing one to a follower, 1 to 5 choose a weapon set and 6 to 0 an art slot, F1 to F6 put the arts bound to them into the selected slot (over an art of the spells page they bind it), the wheel zooms; Esc pauses under the menu over a game (Options, Save Game, Export, Quit, Continue) or goes back in the menus; F10 the keys' help (a frame of it lists them all), F7 the overlay, F12 the log, F11 borderless or windowed; the key under Esc the console.
 
 ## Rules
 

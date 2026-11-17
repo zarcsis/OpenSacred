@@ -2,9 +2,9 @@
 
 [![Claude Code usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzarcsis%2FOpenSacred%2Fbadges%2Fusage.json)](docs/usage.md)
 
-An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, the GOG release 2.28), written in Rust on [Bevy](https://bevyengine.org/). The goal is to play Sacred and Underworld comfortably on modern hardware: Windows 11 x64 at 4K first, later Linux, possibly Android.
+An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, the GOG or Steam release 2.28), written in Rust on [Bevy](https://bevyengine.org/). The goal is to play Sacred and Underworld comfortably on modern hardware: Windows 11 x64 at 4K first, later Linux, possibly Android.
 
-OpenSacred contains none of the game's files. You need your own copy of Sacred Gold from GOG:
+OpenSacred contains none of the game's files. You need your own copy of Sacred Gold from GOG or Steam:
 
 - an offline converter reads your installation once and turns its assets into open formats in two stages: the masters (PNG, glTF, FLAC, FFV1 video, RON and postcard, Fluent, the scripts translated into Luau), then the game's assets made from them (KTX2, Ogg Opus, AV1/Opus WebM, Luau bytecode) and packed into ZIP archives;
 - the engine reads only the game's assets;
@@ -68,14 +68,16 @@ The converted assets are made from your copy of the game. Keep them for yourself
 | Path | Contents |
 |---|---|
 | `crates/opensacred-formats` | readers of the original formats (PAK, TEX, GRN, sectors, NetScript, `global.res`, AMH); parsing only |
-| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds and casts, the arrows, the drops, the combat arts, the combos and the spells, the quests' state and rewards, the backpack, the equipment, the potions and the weapon sets, the trade and the smith, the weather, the music, the particles and the undead |
+| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds and casts, the arrows, the horses, the drops and the containers, the combat arts, the runes' exchange, the combos and the spells, the quests' state and rewards, the regions' kills, the land explored, the backpack, the equipment and the item sets' bonuses, the potions and the weapon sets, the trade and the smith, the weather, the music, the particles, the undead and the scripts' Pong |
 | `crates/opensacred-scripts` | the runtime of the scripts translated into Luau, sandboxed |
 | `crates/opensacred-data` | open-format types shared by the converter and the game, the game's ZIP archives and KTX2 textures |
 | `crates/opensacred-convert` | the converter CLI |
 | `crates/opensacred-game` | the game on Bevy |
+| `crates/opensacred-locate` | finding the installation: the player's GOG or Steam one for the converter, the developer's GOG one for the development tools and the tests |
 | `crates/opensacred-oracle` | development only: the developer's own `Sacred.exe` in the Unicorn emulator, running the original's fight formulas to record the vectors the rules' tests compare with |
 | `docs/` | design documents, format descriptions, recovered behavior, decisions |
-| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, the original's driver under Frida, and the process scripts (taking an issue, usage, stacked pull requests, the daily dependency update) |
+| `release/` | the release archive's own files: its read-me, the configuration and template of the crates' licenses, the Fira Mono font's license |
+| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, the original's driver under Frida, the release's FFmpeg build, and the process scripts (taking an issue, usage, stacked pull requests, the daily dependency update) |
 | `.claude/skills/` | the project skills of Claude Code: running and driving the game and the original |
 
 ## Tests
@@ -119,4 +121,4 @@ The code is licensed under either of [Apache License, Version 2.0](LICENSE-APACH
 
 ## Legal
 
-OpenSacred is not affiliated with, endorsed by or sponsored by THQ Nordic, Ascaron Entertainment or GOG. "Sacred" and "Sacred Gold" are trademarks of their owner. The repository contains no files of the game and does not quote its texts; it records facts about the formats and the game's behavior. Do not attach game files, converted assets or screenshots of them to issues or pull requests. Details: [docs/08-risks-legal.md](docs/08-risks-legal.md).
+OpenSacred is not affiliated with, endorsed by or sponsored by THQ Nordic, Ascaron Entertainment or GOG. "Sacred" and "Sacred Gold" are trademarks of their owner. The repository contains no files of the game and does not quote its texts; it records facts about the formats and the game's behavior. Do not attach game files or converted assets to issues or pull requests; of a screenshot, only the part that shows a problem, cropped to it. Details: [docs/08-risks-legal.md](docs/08-risks-legal.md).

@@ -43,7 +43,7 @@ Specifics of the GOG release that matter for the converter and the engine:
 
 * `EULA.txt` (the GOG user agreement) and `license.rtf` (the license of the publisher, Ascaron) are license agreements; they are not quoted in the project documents, and the converter ignores them.
 * `Gold.jpg`, `drache.jpg` are illustrations; the game does not load them, and the converter ignores them.
-* `pak/loading0.bmp`, `pak/loading1.bmp` are 1024×768, 24-bit loading screens.
+* `PAK/loading0.bmp`, `PAK/loading1.bmp` are 1024×768, 24-bit loading screens.
 * 29 `QuestCode.bin` and `QuestPoolCode.bin` files in `bin/` have zero size; the converter treats them as "no script".
 * `Settings.cfg` in a clean installation: `GFX32 : 1` (32-bit color), `GFX_LIMIT128 : 1`, `COMPAT_VIDEO : 1` (§4.5), lobby `sacreduweng.ascaron-net.com` (does not work and is not needed).
 
@@ -52,10 +52,10 @@ The build path `F:\Buildserver\Lord_2_28_ProtectDisc6\Source\engine\object\balan
 
 Other known builds (community-reported): German retail 2.0 (0x451BBE74 = 2006-09-28), Russian retail Gold 2.28 (a separate binary, the addresses differ), the official 2009 LGP Linux port (stripped i386 ELF, Itanium RTTI with 318 classes; a supplementary, not a primary, source).
 
-The Steam release of Sacred Gold (**confirmed** on file 2026-10-30, #1484, `opensacred-convert verify` on the maintainer's Steam installation): 315 of the manifest's 319 files are the GOG files byte for byte; four differ.
+The Steam release of Sacred Gold (**confirmed** on file 2026-10-30, #1484, `opensacred-convert verify` on the maintainer's Steam installation): 309 of the manifest's 313 files are the GOG files byte for byte; four differ.
 - `Sacred.exe` (11,927,552 B) is the same build, its PE timestamp 0x452F85C7, wrapped by Steam's DRM: a fifth section `.bind` (RVA 0x196C000, 0x2000 B) holds the entry point, and `.text` is encrypted; `.rdata`, `.data` and `.rsrc` are the GOG file's byte for byte, at the same addresses.
   The project decrypts nothing of it (docs/08), so what lies in the code of the GOG build (the voices' and the portraits' tables, docs/02 §6.6, §6.7) cannot be read from it.
-- `pak/loading0.bmp` and `pak/loading1.bmp` are other loading screens, 1024×768: the first at 24 bits with two bytes after its pixels, the second at 16 bits (`BI_RGB`, 5-5-5).
+- `PAK/loading0.bmp` and `PAK/loading1.bmp` are other loading screens, 1024×768: the first at 24 bits with two bytes after its pixels, the second at 16 bits (`BI_RGB`, 5-5-5).
 - `movie/oem.wmv` is another intro's logo.
 
 ## 2. The GOG client
@@ -109,9 +109,9 @@ What exactly the 18 Processor Pack objects build is not established (hypothesis:
 
 | Library | Evidence | Consequence for the port |
 |---|---|---|
-| VC6 CRT (static, multithreaded) | no imports from `MSVCRT.dll` in either the client or the server; strings `Microsoft Visual C++ Runtime Library`, `R6xxx`; `rand`/`srand` with a per-thread seed via `_getptd` (§7) | replaced by a modern CRT/`std`; the semantics of `rand()` and `_ftol` are preserved by explicit wrappers |
+| VC6 CRT (static, multithreaded) | no imports from `MSVCRT.dll` in either the client or the server; strings `Microsoft Visual C++ Runtime Library`, `R6xxx`; `rand`/`srand` with a per-thread seed via `_getptd` (§7) | replaced by Rust's `std`; `_ftol`'s truncation and the rolls of `rand()` are kept by explicit helpers in `opensacred-rules` (§7) |
 | STLport 4.x (namespace `_STL`) | ≈50 RTTI classes of facets and streams; ≈209 KB of byte-identical code in the server; the exact release (4.5.x / 4.6.x) cannot be determined from RTTI | `std::` instead of `_STL::`; template instances inside game objects (≈1,130 functions, 0.56–0.6 MB) are not rewritten; in Ghidra the functions of the `_STL` classes are tagged `STL` (241), and the template instances in the game code stay untagged (§3.4) |
-| zlib 1.2.1 | strings `deflate 1.2.1`/`inflate 1.2.1` in `.rdata` at 0x494338 / 0x495548 | current zlib; the stream format is compatible |
+| zlib 1.2.1 | strings `deflate 1.2.1`/`inflate 1.2.1` in `.rdata` at 0x494338 / 0x495548 | the `miniz_oxide` crate inflates the streams; the format is compatible |
 | D3DX7 (with PSGP) | strings `D3DX: (WARN) …`, `DisableD3DXPSGP`, the key `Software\Microsoft\Direct3D` at 0x49B6F0…; a 64 KB block 0x821000–0x831000 with 7,853 SSE/MMX/3DNow! instructions (matrix math implementations for Katmai/K6-2); hypothesis: the neighboring blocks 0x811000–0x841000 are the rest of D3DX7 (≈100–150 KB) | not needed: matrices/texture loading are written from scratch; needed only as a source of signatures |
 | MSLU loader (`unicows`) | a table of 17 DLL names, the path `\Microsoft Shared\MSLU\` | removed |
 | NA2dLib (IME) | classes `NA2dLib::CIMHandler/CW32IMHandler`, 16 KB in 0x7F1000–0x821000 | not carried over: text input via Bevy and winit |
@@ -230,14 +230,14 @@ Client: 389 imports from 16 DLLs (41 `jmp [IAT]` thunks); 31 imports are loaded 
 |---|---|---|---|---|
 | KERNEL32 | 123 | 657 | files, `CreateFileMappingA`/`MapViewOfFile` (mmap PAK), threads, mutexes (`ReleaseMutex` 64, `WaitForSingleObject` 55), `VirtualProtect` 72 (§7) | std, Bevy AssetServer |
 | USER32 | ≈60 | 190 | window, message loop, `GetAsyncKeyState` 39, `ChangeDisplaySettingsA` 2, dialogs of the built-in UI editor, the `tabblocker` hook (docs/re/window.md) | Bevy (winit) |
-| GDI32 | 19 | 94 | rasterizing TTF into 256² pages (`CreateFontIndirectA`, `TextOutA` 11, `SetTextColor` 15, `BitBlt`) | cosmic-text via Bevy |
+| GDI32 | 19 | 94 | rasterizing TTF into 256² pages (`CreateFontIndirectA`, `TextOutA` 11, `SetTextColor` 15, `BitBlt`) | Bevy's text (parley) |
 | granny.dll | 54 | 424 | Granny 1.2b: 51 are called directly, the rest via pointers; per `granny_args.py`, the most frequent are `GrannyGetAnimationParameter` (175), `SetAnimationParameter` (72), `GetBoneState` (61), `LockSequenceForRendering` (25) | models and animations are converted to glTF; Bevy animation graph |
-| mss32.dll | 62 | 237 | 57 of 62 functions: streams (`AIL_set_stream_volume_pan` 27, `AIL_pause_stream` 24), 3D samples (`AIL_set_3D_position` 15) | Kira + Symphonia |
+| mss32.dll | 62 | 237 | 57 of 62 functions: streams (`AIL_set_stream_volume_pan` 27, `AIL_pause_stream` 24), 3D samples (`AIL_set_3D_position` 15) | Kira; the sound converted to Ogg Opus, read through Symphonia and libopus ([06-platform-backends.md](06-platform-backends.md), §2) |
 | libxml2.dll | 12 | 154 | `xmlGetProp` 86, `xmlSetProp` 30: `guiconfig.xml` | not needed (new UI, settings in TOML) |
-| IMM32 | 10 | 70 | IME (`ImmGetCompositionStringW` 21) | IME via Bevy and winit |
+| IMM32 | 10 | 70 | IME (`ImmGetCompositionStringW` 21) | not carried over: the typed text comes from Bevy's keyboard input (winit), and the game enables no IME |
 | tincat2.dll | 4 | 31 | `TinCat_GetBuildNumber` 19, `TinCat_Scramble` 8; the rest of the API is a virtual interface | not needed: networking comes after version 1.0 and is written anew |
 | WS2_32 | 14 | 21 | UDP: `recvfrom`, `select` (LAN announce/ping 2005); `connect/send` only in the server | not needed: networking comes after version 1.0 and is written anew |
-| ijl15.dll | 4 | 12 | JPEG | the `image` crate (converter) |
+| ijl15.dll | 4 | 12 | JPEG | not needed: nothing the converter reads or the game writes is a JPEG |
 | OLEAUT32 / ole32 | 5 / 4 | 13 / 5 | Excel OLE automation (the balancing tool, 0x5E6550 ≈ 16 KB: reads sheets and writes `defaults.h`/`xls_*.h`) and COM for `amstream` | not needed |
 | ADVAPI32 | 6 | 9 | registry: `Software\Microsoft\Direct3D` (PSGP), MSLU, writing a DirectPlay8 key without importing `dpnet.dll` | settings in TOML |
 | DDRAW | 3 | 7 | `DirectDrawCreateEx` → QI `IID_IDirect3D7`, `IID_IDirect3DTnLHalDevice` | Bevy and wgpu (Vulkan) |
@@ -255,7 +255,7 @@ Dynamically loaded: `riched20.dll` (console/editor), `amstream.dll`, `snmpapi.dl
 
 | Type / ID | Size | Contents | Status |
 |---|---|---|---|
-| `BINARY` #107 (lang 1031 de-DE) | 2,760,574 B | **an encoded copy of `scripts/us/global.res`** embedded in the executable (despite the language tag 1031), loaded by function 0x80E680 right after `.\SCRIPTS\%s\global.res`; the port reads the file `scripts/<lang>/global.res` and does not use the resource | confirmed |
+| `BINARY` #107 (lang 1031 de-DE) | 2,760,574 B | **an encoded copy of `scripts/us/global.res`** embedded in the executable (despite the language tag 1031), loaded by function 0x80E680 right after `.\SCRIPTS\%s\global.res`; the converter reads the file `scripts/us/global.res` and does not use the resource | confirmed |
 | `RT_BITMAP` 124–126 | 787 KB × 3 | 1024×768, 8 bpp | hypothesis: startup/loading screens |
 | `RT_BITMAP` 102, 103, 112, 113 | 85 KB × 4 | 813×35, 24 bpp | hypothesis: progress bars |
 | `RT_DIALOG` 105, 106 | 4,498 / 510 B | "Attribute Editor" (96 controls: name/type, position, UV, color, tooltips, 29 flags) and "Frame Texture Settings": **the built-in `cUI_Control2` property editor**, matching the set of `cUI_*::Command*` in RTTI | confirmed |
@@ -352,8 +352,8 @@ A sample:
 | Files and resources | `cFile_cached` (1), `cFile_memoryMapped` (1), `cResourceMgr` (1), `CABBCache` (1) | `async_read`, `open`, `disposeAll` | a `cFile` hierarchy with mmap and asynchronous reading |
 | Networking | `NetworkManager` (1), `cObject` (`createPacket`) | `receive_event`, `createPacket () ref/type/bakRef/bakType` | a packet factory by ref/type; ≥107 packet names from error strings (enumeration estimate 110–140) |
 
-Additional sources of names (PLAN.md, ADR-10): sacred-bild's `functions_eng.tsv` (7,631 functions without the exception funclets, §4.1; ≈145 meaningful names: `dxDriver7_*`, `cEngine_renderThreadRun/simThreadRun`, `cWorldView*`, `cTileRenderer_*`, `cFontTTF2_*`), `sacred_addr.h` (≈40 structs and globals, e.g. `g_pDxDriver`), sacred-sdk addresses: the NetScript operand reader `FUN_00472BC0`, the record walker `FUN_00475680` (123 cases), section start `FUN_0046BA90`, the `global.res` loader `FUN_0080E680` (an earlier attribution "`FUN_00472BC0` is the interpreter" is obsolete; [docs/re/netscript.md](re/netscript.md)); `FUN_0046F9B0`, once taken for a "loader", runs a new game's start script record by record ([docs/re/netscript.md](re/netscript.md), "Quests").
-Rule: every imported name carries a provenance tag (`src=rtti|str|xref|bsim|tsv|llm`); names from sacred-bild are facts under GPL-3 usable only as names, not as code.
+Additional sources of names (PLAN.md §4.2): sacred-bild's `functions_eng.tsv` (7,631 functions without the exception funclets, §4.1; ≈145 meaningful names: `dxDriver7_*`, `cEngine_renderThreadRun/simThreadRun`, `cWorldView*`, `cTileRenderer_*`, `cFontTTF2_*`), `sacred_addr.h` (≈40 structs and globals, e.g. `g_pDxDriver`), sacred-sdk addresses: the NetScript operand reader `FUN_00472BC0`, the record walker `FUN_00475680` (123 cases), section start `FUN_0046BA90`, the `global.res` loader `FUN_0080E680` (an earlier attribution "`FUN_00472BC0` is the interpreter" is obsolete; [docs/re/netscript.md](re/netscript.md)); `FUN_0046F9B0`, once taken for a "loader", runs a new game's start script record by record ([docs/re/netscript.md](re/netscript.md), "Quests").
+Rule: an imported name shows where it came from, in the Ghidra project by its source type `IMPORTED` and, for sacred-sdk's, the prefix `sdk_` (`tools/ghidra/community_names.py`, `ImportNamesScript.java`; docs/03 §4.1); names from sacred-bild are facts under GPL-3 usable only as names, not as code.
 
 ## 7. Behavior details useful for the reimplementation
 
@@ -364,7 +364,7 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | Threads | simulation in `cEngine::simThread` (0x60f060), rendering in `cEngine::renderThread` (0x60e350), UI and input on the main thread | our own Bevy system schedule; the rules are single-threaded |
 | x87 precision | the main thread runs at 24-bit precision (`_controlfp(_PC_24)` in `WinMain`), the simulation and render threads at 53-bit (the render thread's frame, where the world's stats and strikes are computed, measured at 53 bits, #589); in the original the same function computes differently | bit-exact results are not needed; `f32`/`f64` |
 | Rounding | `_ftol` truncates toward zero, 2,816 calls in the game code | when porting formulas, use `trunc`, not rounding |
-| Random numbers | MSVC CRT `rand()` is the LCG `seed·214013 + 2531011` with the result `(seed >> 16) & 0x7FFF`; 1,828 calls in 228 functions; deterministic seeding in the name generator and for creatures | a modern generator can be used; the LCG can be reproduced if the same "character" of the distributions is needed |
+| Random numbers | MSVC CRT `rand()` is the LCG `seed·214013 + 2531011` with the result `(seed >> 16) & 0x7FFF`; 1,828 calls in 228 functions; deterministic seeding in `0x425EC0`, a weapon's sound profile by its type ([docs/re/sound.md](re/sound.md); first taken for a name generator), and in `0x549920`, a creature's talk ([docs/re/netscript.md](re/netscript.md), "Dialogues") | the rules roll through `opensacred_rules::spawning::Dice`: the game's own generator (SplitMix64) in play, the values of `rand()` in the tests and the oracle; the LCG itself is reproduced only for the pick that `0x425EC0` seeds by a type |
 | Positions | `u16 map, i32 x, i32 y, u8 z` in the object | an integer world grid is convenient for the new engine too |
 | Hero data protection | 72 `VirtualProtect` calls guard one page holding an encrypted copy of the stats | not carried over |
 
@@ -382,25 +382,28 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | UI | 987 / 572 KB | **selective analysis**: the interface's places, images and behaviour ([docs/re/interface.md](re/interface.md), [menus.md](re/menus.md), [cursor.md](re/cursor.md), [inventory.md](re/inventory.md)) |
 | Rendering, D3D7, fonts | 134 / 56 KB | **selective analysis**: what is drawn and in what order ([docs/re/drawing.md](re/drawing.md), [liquids.md](re/liquids.md), [daynight.md](re/daynight.md)), not the D3D7 calls, whose facts are in [docs/05-renderer-vulkan-4k.md](05-renderer-vulkan-4k.md) |
 | Sound | — | **selective analysis**: the choice of the music, the footsteps and the ambient loops ([docs/re/sound.md](re/sound.md)); the Miles layer is replaced |
-| Video, networking, files, IME | — | **not analyzed**: replaced, networking after version 1.0 |
+| Video, networking, files, IME | — | **not analyzed**: replaced, networking after version 1.0; read only for where the original plays its movies ([docs/re/movies.md](re/movies.md)) and what its save holds and when it saves ([docs/re/saves.md](re/saves.md)) |
 | Libraries (CRT, STLport, zlib, D3DX7) | ≈2,750 | **not analyzed** |
 
 In total, on the order of 2,000–3,000 functions need analysis.
-At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent-hours, which are part of milestones M3 and M4 ([docs/07-roadmap-estimates.md](07-roadmap-estimates.md)).
+At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent-hours, which the estimates counted into milestones M3 and M4 ([docs/07-roadmap-estimates.md](07-roadmap-estimates.md)); both closed on 2026-10-26, and the code was read on through M5 and M6, for the interface, the effects, the sound and the saves (§8.2).
 
 ### 8.2 How to analyze
 
 1. A Ghidra project (12.2 since 2026-10-24, [docs/03-toolchain.md](03-toolchain.md), §2) with the GOG `Sacred.exe` and `GameServer.exe`, outside the repository, set up on 2026-10-18 (#87) and completed on 2026-10-19 (#88; [docs/03-toolchain.md](03-toolchain.md), §4.1): the classes from RTTI by `tools/ghidra/RttiClassesScript.java` (410 in the client, 253 in the server), the community names (sacred-bild only locally, sacred-sdk: 137 functions named, 37 data addresses labeled), the library code tagged (`LIBRARY` 1,725, `EH` 17,422 and `STL` 241 functions in the client) and the names carried between the two binaries over 1,546 matched functions.
-2. Claude Code works with the decompilation through an MCP server (pyghidra-mcp) and writes per-subsystem notes into `docs/re/`: so far `ai`, `arts`, `cursor`, `daynight`, `drawing`, `effects`, `equipment`, `fight`, `interface`, `inventory`, `items`, `liquids`, `menus`, `motions`, `movement`, `netscript`, `objects`, `sound`, `spawning`, `traces`, `weather` and `window`.
+2. Claude Code works with the decompilation through an MCP server (pyghidra-mcp) and writes per-subsystem notes into `docs/re/`: on 2026-11-17 `ai`, `arts`, `blacksmith`, `character`, `containers`, `cursor`, `daynight`, `drawing`, `effects`, `equipment`, `fight`, `horses`, `interface`, `inventory`, `items`, `liquids`, `maps`, `menus`, `motions`, `movement`, `movies`, `netscript`, `objects`, `questbook`, `saves`, `sets`, `sound`, `spawning`, `traces`, `trade`, `underworld`, `weather` and `window`.
 3. For formula functions: the behavior is described in prose in `docs/re/`, implemented independently in Rust and verified against vectors from the user's own executable in the Unicorn emulator ([docs/04-language-and-engine.md](04-language-and-engine.md), §2).
 4. `GameServer.exe` helps where functions are shared: boundaries, types, class names.
+5. Where a rule is spread over threads and frames, or shows only on the screen, the running original is observed through its driver (`tools/original/`, [docs/03-toolchain.md](03-toolchain.md), §3.8; PLAN.md §4.2).
 
 ## Open questions
 
-1. Which values the deterministically seeded functions 0x425ec0 (name generator) and 0x549920 (a creature's talk line, [docs/re/ai.md](re/ai.md)) generate; decompilation is needed to reimplement the generation.
-2. Whether the 77 KB of `game_sim` and 21 KB of `events` in the library block 0x7F1180–0x85AB59 are game code or a labeling artifact.
-3. The semantics of the `COMPAT_VIDEO` key (a medium-confidence hypothesis, §4.5): unimportant for the new engine, of interest only for running the original.
-4. The exact STLport release (4.5.3 or 4.6.x): no longer needed for tagging the library code, which is tagged by address range and by the `_STL` classes ([docs/03-toolchain.md](03-toolchain.md), §4.1); it would help only to tag the template instances in the game code.
+1. Whether the 77 KB of `game_sim` and 21 KB of `events` in the library block 0x7F1180–0x85AB59 are game code or a labeling artifact.
+2. The semantics of the `COMPAT_VIDEO` key (a medium-confidence hypothesis, §4.5; the two ways the movies' player draws a frame are in [docs/re/movies.md](re/movies.md), which of them the key picks is not read): unimportant for the new engine, of interest only for running the original.
+3. The exact STLport release (4.5.3 or 4.6.x): no longer needed for tagging the library code, which is tagged by address range and by the `_STL` classes ([docs/03-toolchain.md](03-toolchain.md), §4.1); it would help only to tag the template instances in the game code.
+
+Closed: what the two deterministically seeded functions give (§7).
+`0x425EC0`, taken for a name generator, gives an item type's sound profile and, for a weapon type without one, that of a weapon of its family picked by `srand(type)` ([docs/re/sound.md](re/sound.md), #2496); `0x549920` gives a creature's talk, its own dialogue or its type's ([docs/re/netscript.md](re/netscript.md), "Dialogues").
 
 ## Sources
 

@@ -8,9 +8,9 @@
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions), **Frida** (driving the running original, #448) and **x64dbg**; **dgVoodoo2** (the driven original drawing on a locked desktop, and its frames captured in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
-* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02, screenshot tests and the oracle's vectors of the fight's formulas; converter golden data and snapshots are planned.
+* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02, screenshot tests, the oracle's vectors of the fight's formulas, property tests and the mutants of each pull request's lines (§3.4); converter golden data and snapshots are planned.
   Maintainer review covers key decisions, not every line.
-* The game files are never in the repository: every developer points the tools at their own GOG installation in `OriginalGame/` (§1).
+* The game files are never in the repository: every developer points the tools at their own GOG installation, in `OriginalGame/` or where the registry names it (§1).
 
 ## 1. Tool map
 
@@ -20,10 +20,10 @@
 | | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session, which each session reaches through `tools/ghidra/mcp_bridge.py`, starting it when it is down (§3.2) |
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
-| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1, uv's own; packages in `pyproject.toml`, their versions in `uv.lock` | open source | research scripts in `tools/analysis/` |
+| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15, uv's own; packages in `pyproject.toml`, their versions in `uv.lock` | open source | research scripts in `tools/analysis/` |
 | | uv | 0.13.6 | MIT or Apache-2.0 | the repository's Python: the interpreter and the packages of its own in `.venv/` for `tools/`, the hooks and the cross-check tests (§2); pyghidra-mcp (§3.2) |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
-| | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
+| | Frida | 17 (the Python package `frida`, its version in `uv.lock`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.5 | freeware | its two DLLs and its configuration beside `Sacred.exe` in `OriginalGame/`, so that the driven original draws on a locked desktop (§3.8); the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.100.0, edition 2024 | MIT or Apache-2.0 | all product code |
@@ -51,7 +51,7 @@ On Windows a link is `New-Item -ItemType SymbolicLink -Path OriginalGame -Target
 A command run without `--game-dir` where `OriginalGame/` is not there takes the first place found that holds a `Sacred.exe`.
 The development tools do the same with the GOG release alone (#1556): the oracle, the tests on the game files (`opensacred_locate::original`), the driver of the original and the research scripts (`tools/common/installation.py`) take `OriginalGame/`, else the GOG installation that the registry names, so that a worktree needs no link.
 `opensacred-convert install` is the player's run, which the game's first start calls (#1497): the installation named or found as `locate` finds it, checked against the manifests; every extraction into the masters and `build` into the assets, both in a working directory `<assets>.work` beside the assets' directory (`%LOCALAPPDATA%\OpenSacred\assets` by default, `opensacred_data::converted`); the mark `converted.ron` (the converter's version and the release) written into the new assets last; the old assets moved aside and the new ones put in their place, so that a run cut off leaves the old assets or none, never half of them; the working directory with the masters removed.
-It checks first that the disk has 11 GB free, the masters (6.5 GB) and the assets (3.5 GB) of a run with a margin; on the development machine a run takes 8.1 minutes, 6 of them `build`'s (2026-10-30).
+It checks first that the disk has 11 GB free, the masters (6.5 GB) and the assets (3.5 GB then, 2.5 GB since #2645) of a run with a margin; on the development machine a run takes 8.1 minutes, 6 of them `build`'s (2026-10-30).
 With `--json` its progress goes to stdout as JSON lines among the commands' own lines: `{"stage": {"stage", "step", "steps", "done", "until"}}` as a stage starts, `done` and `until` the shares of the run at its start and end by the stages' measured times, `{"done": {"assets"}}` at its end and `{"error": {"message"}}` on a failure.
 The converter runs the `ffmpeg` beside its own executable first, as a release carries it, then `FFMPEG`, then `ffmpeg` from `PATH`.
 The manifest lists only the files the game never writes (docs/02 §13), so the same installation can be played from without breaking the checks.
@@ -63,7 +63,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 * **OS:** Windows 11 x64 is the main platform for development and running.
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
-* **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
+* **Disk:** ≈3 GB for the GOG installation; 6.5 GB for the masters in `assets-src/` and 2.5 GB for the game's `assets/` (measured 2026-11-17); HD packs separately, up to tens of GB.
 * **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; uv, which brings the repository's Python (below) and runs pyghidra-mcp (§3.2); Ghidra 12.2 with JDK 25; x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin).**
   Ghidra 12.2 requires a 64-bit JDK of version 25 or later (`application.java.min=25`, no upper bound); 12.1 still accepted 21.
@@ -104,8 +104,9 @@ The repository root holds `CLAUDE.md` with the rules that Claude Code reads at t
 
 * the workspace structure and the purpose of each crate;
 * commands: build, tests, running the converter, running the game;
+* the work order, and how an issue is taken and its pull request opened and merged (§3.3, §3.6);
 * prohibitions: do not commit anything from `OriginalGame/`, `assets/`, `assets-hd/`; do not publish `Sacred.exe`; do not write `unsafe` (`opensacred-oracle` needs none either);
-* mandatory checks before finishing a task: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo nextest run`;
+* mandatory checks before finishing a task: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo nextest run`, and, after the changes that call for them, `cargo deny check` and the mutants of the branch's lines (§3.4);
 * where to write notes on recovered logic (`docs/re/<subsystem>.md`) and the decision log of deviations from the original (`docs/decisions/`);
 * naming conventions: the original class and function names (`cCreature::takeDamage`) are mentioned in comments next to the Rust code.
 
@@ -124,7 +125,7 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
   A connection straight to `http://127.0.0.1:8000/mcp` does not do this: Claude Code retries a refused HTTP server three times at the session's start, then leaves it failed for the session's life until `/mcp` reconnects it by hand, and neither a hook nor Claude can reconnect it (code.claude.com/docs/en/mcp.md, 2026-10-28).
   A stdio server connects in the background, and its tools reach the session through the tool search as soon as it answers, mid-turn too; a connection may take `MCP_TIMEOUT`, 30 s by default, so `~/.claude/settings.json` raises it (`"env": {"MCP_TIMEOUT": "120000"}`) for a server that starts cold, which took 20 s on 2026-10-28 and 6 s warm.
 * **The project lies outside the repository**, in `%USERPROFILE%\GhidraProjects\`: `OpenSacred.gpr`, `OpenSacred.rep\` and `OpenSacred-pyghidra-mcp\` (the ChromaDB index of the code and the strings, and a cache of GZF files).
-  In a checkout, `git clean -xfd` would delete it with the names and comments it gathers over M3, and `.gitignore` does not cover the `-pyghidra-mcp` directory.
+  In a checkout, `git clean -xfd` would delete it with the names and comments it gathers, and `.gitignore` does not cover the `-pyghidra-mcp` directory.
 * **The server's working directory** is the project's directory too (`-WorkingDirectory` below), not the shell's current one.
   A process keeps the directory it was started from as its own for as long as it runs, and Windows does not let a process's working directory be deleted.
   On 2026-10-18 a server restarted from a worktree kept `ExitWorktree` and `Remove-Item` from deleting that worktree ("being used by another process") until it was restarted with its own working directory; started from the main checkout, as the first start is, it would pin the checkout the same way.
@@ -175,7 +176,7 @@ The Ghidra project, the decompilation and anything exported from it stay on the 
 |---|---|---|---|
 | Parse a format | a file from `OriginalGame/`, the facts in `docs/02-data-formats.md` | a reader in `opensacred-formats` + a converter in `opensacred-convert` | a test on all files of the installation; cross-check with the Python prototype |
 | Recover a rule | the original's function in the local Ghidra project | a description of the behavior in `docs/re/`, oracle vectors, an independent implementation in `opensacred-rules` (the game's rules with no engine, its modules in `CLAUDE.md`'s workspace table, #364) | the vectors pass; clippy without warnings |
-| Implement a system | notes in `docs/re/`, data from `assets/` | code in `opensacred-game` or `opensacred-rules` | snapshot and screenshot tests; a manual check in the game |
+| Implement a system | notes in `docs/re/`, data from `assets/` | code in `opensacred-game` or `opensacred-rules` | unit tests and the screenshot test; a check in the running game (§3.7) |
 | Migrate Bevy | the migration guide | an updated `opensacred-game` | everything builds, tests and screenshots match |
 | Update dependencies | `cargo update`, `uv lock --upgrade` | a new `Cargo.lock` and `uv.lock` | CI is green, `cargo deny check` reports no violations |
 
@@ -198,7 +199,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
 * **Claude Code hooks** (`.claude/settings.json`, script `.claude/hooks/rust_checks.py`): after an edit of a `.rs` file, `cargo fmt --all`; when Claude stops, `cargo clippy --all-targets -- -D warnings` and `cargo nextest run` for the crates with uncommitted changes and the crates that depend on them.
   On failure Claude is sent back to fix it; if the checks still fail after that retry, Claude stops and the developer gets a warning.
   A passing state is remembered in `target/`, so a turn without new changes does not rebuild anything.
-  Tests on the game files and `cargo deny check` stay manual.
+  Tests on the game files, `cargo deny check` and the mutants (below) stay manual.
 * **Merge guard** (`.claude/hooks/merge_guard.py`, a `PreToolUse` hook on shell commands): `gh pr merge` is refused when the pull request is labeled `needs-maintainer`, touches the guardrails (`.claude/hooks/`, `.claude/settings.json`, `.claude/settings.local.json`), `.github/`, `deny.toml`, the README of `docs/decisions/` or a screenshot reference, or was opened by someone other than the repository's owner; `--admin` is refused always (§3.6).
   A decision (a row of a subsystem's table in `docs/decisions/`, added, changed or removed), `CLAUDE.md` or the rest of `.claude/` (the skills) does not stop the merge.
   Whether the change waits for the maintainer instead (§3.6) the guard cannot judge: Claude Code labels such a pull request `needs-maintainer`, and the guard refuses it by the label.
@@ -223,10 +224,11 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   Its sets (2026-10-21): `level_end` (`0x57F6E0`, the levels 1 to 216), `level_of` (`0x57F8D0`, the experiences about each level's end by six levels held), `hit_chance` and `dealt` (`0x43EEE0` as the strike's resolution calls it: 100 attacks against defences, 880 damages against resistances by eight levels above) `most_health` (`0x5658F0` on synthetic stats and creature, 162 vectors of nine bases at nine levels, of a hero's type and not; with stubs for the client's object `0x7D84A0` and the hero's test `0x426650`), `weighing` (`0x551530`, the factor of the levels: 168 vectors of fourteen creatures' levels against twelve heroes', on bronze, #1454) and `between` (`0x443B20`, the game's roll between two bounds: 180 vectors of five least bounds, nine most and four scripts of one value, #1433).
   It writes `<set>.json` to `--out`, else `OPENSACRED_VECTORS`, else `%LOCALAPPDATA%\OpenSacred\vectors` (`$XDG_DATA_HOME/OpenSacred/vectors` elsewhere), and refuses a directory inside the repository: the vectors are never committed.
   A file holds the set's name, the function's address, the SHA-256 of the `Sacred.exe` that ran, the FPU's control word and the vectors, each its inputs and outputs by name.
-  `cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'` compares `opensacred_rules::fight` with them (`crates/opensacred-rules/tests/oracle.rs`, ignored without the game files): the levels' ends and the levels exactly, the chance within 10⁻⁶ and the damage within 10⁻⁵ of its value (x87 against `f32`); the differences found are bugs of their own: #406, #407 and #408 are fixed, and the test leaves out the most health's vectors of #417 and #418 until they are.
+  `cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'` compares `opensacred_rules::fight` and `drops::between` with them (`crates/opensacred-rules/tests/oracle.rs`, ignored without the game files): the levels' ends, the levels, the most health and the rolls exactly, the chance and the factor of the levels within 10⁻⁶ and the damage within 10⁻⁵ of its value (x87 against `f32`); the differences found were bugs of their own, all fixed: #406, #407, #408, #417 and #418.
   On 2026-10-21 a release run took 80 s; the functions called no import, so no Windows stub was needed.
 * **Properties of the fight's formulas** (#1428, part of #1435): `crates/opensacred-rules/tests/fight_properties.rs` asserts in CI, with `proptest` on random inputs of the game's ranges (256 cases each), what the oracle's vectors show of the levels' ends and levels, the hit chance, the damage let through and a creature's experience: bounds, monotony, the band of ±0.001 that divides nothing; `oracle.rs`'s `the_fights_properties_hold_on_the_originals_vectors` asserts each on the vectors first, so that a property is the original's, never bent to ours.
-  A failing case is kept in `crates/opensacred-rules/proptest-regressions/`, committed: our inputs alone.
+  The ways on random maps (`tests/ways_properties.rs`, #1429) and the backpack's grid on random sequences of its operations (`tests/grid_properties.rs`, #1430) have properties of their own beside them.
+  A failing case is kept beside its test, as `crates/opensacred-rules/tests/fight_properties.proptest-regressions`, committed: our inputs alone.
 * **Differential fuzzing** (#1431): `cargo run --release -p opensacred-oracle --features emulator -- fuzz --set hit_chance|dealt|most_health|between --cases N [--seed S]` runs random inputs, of the game's ranges and biased toward their bounds and the band of ±0.001 of `0x43EEE0`, through the original's function in the emulator and through `opensacred-rules`' in one process, and proptest's runner shrinks the first mismatch to the smallest input that still shows it, both run again on each smaller one; it prints the mismatch with the seed, and how many inputs the emulator rejected.
   The integers compare exactly, the floats within `oracle.rs`'s tolerances, at the 53 bits of `--precision`.
   A mismatch's input joins the fixed sets of `crates/opensacred-oracle/src/fight.rs`, so that `oracle.rs` holds it from the next recording on, and its fix is an issue of its own; the oracle's own `fuzz::tests` shrinks a deliberate error of the hit chance's band into that band (ignored without the game files).
@@ -243,7 +245,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   The same run on the developer's machine finds them before the push (CLAUDE.md, "Before finishing a task").
   A full run goes by hand on the developer's machine: `cargo mutants -p opensacred-rules --jobs 16 --output <scratch>`, then the same with `--iterate`, which tests only the mutants not caught before.
   On 2026-10-29 a mutant of `opensacred-rules` took about 5 s to build and 5 s to test, so its 7,500 mutants take about 6.5 hours at 8 jobs (**estimate** from a sample of 188).
-  The copies of the tree in which it tests the mutants leave out the files that Git ignores, `OriginalGame/` among them, so the tests on the game files run only with `--in-place`, which mutates the worktree itself with one job (`-- --run-ignored all`).
+  The copies of the tree in which it tests the mutants leave out the files that Git ignores, `OriginalGame/` among them: the tests on the game files (`-- --run-ignored all`) find there the GOG installation that the registry names (§1, #1556), and one that lies in `OriginalGame/` alone only with `--in-place`, which mutates the worktree itself with one job.
   A full run's missed mutants become an issue per module, filed by a session under the account; CI files none, since an issue of `github-actions[bot]` is one that `claim.py` refuses (#1421).
 * **The oracle's build:** the emulator is the feature `emulator` of `opensacred-oracle`, so that the workspace builds without Unicorn's toolchain: `unicorn-engine-sys` builds Unicorn's C library with CMake, Ninja (on Windows the ones of Visual Studio when they are not in `PATH`) and the C compiler, and makes its bindings with bindgen, which needs libclang (without it the build stops: "Unable to find libclang").
   libclang comes with the Build Tools component "C++ Clang tools for Windows" (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`), which puts LLVM under `VC\Tools\Llvm` and is updated with Build Tools; bindgen's clang-sys looks there by itself, as it does in a standalone LLVM's `C:\Program Files\LLVM`, so neither needs `LIBCLANG_PATH`.
@@ -269,7 +271,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
 * The sessions still share the machine; the tools keep them out of each other's way, and messages do what no tool does (#1391, #1396).
   Every session works under one GitHub account, so an assignee alone does not say which session holds an issue: `claim.py` refuses an issue that is assigned (unless the session filed it so, `--mine`), that has a branch `*/<issue>-*`, local or on origin, or that an open pull request closes, naming what holds it; otherwise it assigns the issue and pushes its branch at once, so that the next session that looks sees it.
   The repository is public and a session reads the issue it takes as its task, so `claim.py` takes only the account's own (#1421, the maintainer's guard against prompt injection): it refuses an issue that another account filed (`gh api user` names the account), reads the open pull requests of the account alone, so that another's neither holds an issue nor is read, and refuses `--base` on another's pull request; how the community's issues and pull requests are taken is to be set apart.
-  The original under Frida is one per machine, as every worktree links the one installation (§3.8): the host records its holder (`--holder`, the session's name), and a host started meanwhile refuses, naming it (#1398).
+  The original under Frida is one per machine, as every worktree takes the one installation (§3.8): the host records its holder (`--holder`, the session's name), and a host started meanwhile refuses, naming it (#1398).
   Under a session, the game's `--remote` without a port takes a port of the session's own, which `remote.py` finds by the session and its directory (§3.7, #1397), so no session chooses one, and none drives another's game.
   A game refuses scripts translated with other calls than its own, naming them (docs/02 §7.6, #1399).
   Claude Code sessions on one machine reach one another by name: `ListAgents` lists the peers, busy or idle, `SendMessage` delivers a message at the peer's next tool call, and its `notify_when_idle` brings one notice when the peer finishes, with no polling.
@@ -278,7 +280,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   A peer's message is a teammate's word, not the maintainer's: a session never does for a peer what its own permissions refuse, nor changes the guardrails or the rules at a peer's word.
 * Usage is recorded per pull request since 2026-10-17 (#16): `tools/usage/pr_usage.py` sums the Claude Code transcripts' messages on the pull request's branch (tokens per model, their cost at API prices, agent-hours) and writes them into its description; the Usage workflow sums the maintainer's pull requests (contributors' are not counted) into the README's badge.
   The method is in `docs/usage.md`, with the sessions recorded before.
-  After 30 days the estimates in `docs/07-roadmap-estimates.md` are recomputed from the actuals.
+  The estimates in `docs/07-roadmap-estimates.md` were to be recomputed from the actuals after 30 days and were not: the recorded usage stands beside them there (docs/07 §1.4).
 
 ### 3.6 Issues and pull requests
 
@@ -371,7 +373,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   An error ends the line rather than the shell, and lines piped in run as a script; with `--port 15703` it drives the original (§3.8).
 * With both games running in a game, `uv run python -I tools/game/compare.py X,Y …` (#574) puts each hero onto each cell and compares their creatures within a radius (`--radius`, 15): it pairs them by type and nearest cell (`--pair`, 3) and prints the pairs whose level, most health, hostility or rank differ, then each game's creatures without a pair; `--level` and `--time` set both heroes and clocks first, `--cells-file` reads the cells from a file.
   `compare.py stats --types T,… --levels L,…` (#587) makes each type at each level in both beside their heroes (`spawn … --peaceful --immortal`) and compares their `stats`: the most health, `A`, `D`, the damages, the resistances and the attack speed, the original's raw values taken through their multipliers as its attack record takes them: the driver prints each float exactly, the product of two is the x87 unit's at its 53 bits, and the whole values (the most health, `A`, `D`, the attack speed) must agree to the game's one decimal (#589; the floats rounded to thousandths made `A` and `D` one off).
-  `uv run python -I tools/game/conformance.py` (#600) runs the checks as a suite with PASS or FAIL each and a non-zero exit on a failure: the experience of kills for a hero of level 1 and 30 (`experience`), the hero's values at the levels 1, 10 and 30 (`hero`), common creature types at four levels (`stats`), the shares of 1,000 drops by category (`drops`), and the scripts' creatures where they stand, the guards of 52,39 and the stable of 64,41 (`places`, #606), and the health regained per second of world time from 1 (`heal --to 1`) by a creature and by the hero alone and in a fight (`regeneration`, #609), and a goblin's strikes at the hero over 60 s, their pace, the share that lands and the damage (`strikes`, #609, which needs the game's log of `opensacred_game::fight` at `debug`: `RUST_LOG=info,opensacred_game::fight=debug`), the arts' times after a use and the rate of their regeneration (`arts`, #623), and the hero's run of 9 cells and back, its pace and its time from the first step to the stop (`movement`, #632); it starts both games afresh (`new-game`, and the original's `load` of a save of the Seraphim's new game, `--save`).
+  `uv run python -I tools/game/conformance.py` (#600) runs the checks as a suite with PASS or FAIL each and a non-zero exit on a failure: the experience of kills for a hero of level 1 and 30 (`experience`), the hero's values at the levels 1, 10 and 30 (`hero`), common creature types at four levels (`stats`), the shares of 1,000 drops by category (`drops`), and the scripts' creatures where they stand, the guards of 52,39 and the stable of 64,41 (`places`, #606), and the health regained per second of world time from 1 (`heal --to 1`) by a creature and by the hero alone and in a fight (`regeneration`, #609), and a goblin's strikes at the hero over 40 s at each of three levels, their pace, the share that lands and the damage (`strikes`, #609, which needs the game's log of `opensacred_game::fight` at `debug`: `RUST_LOG=info,opensacred_game::fight=debug`), the arts' times after a use and the rate of their regeneration (`arts`, #623), and the hero's run of 9 cells and back, its pace and its time from the first step to the stop (`movement`, #632); it starts both games afresh (`new-game`, and the original's `load` of a save of the Seraphim's new game, `--save`).
   The game reads `assets/`, so after a change of the converter `opensacred-convert all` comes first: a `heroes.ron` of before #604 holds no arts, and `arts` then fails (#623).
   The original makes a sector's `Enter` creatures again when the sector comes back into the view after a teleport, beside the ones kept (#227's item 10), so after a jump away and back its list holds such pairs on one cell; a fresh load before a cell avoids them.
 * Screenshots and logs taken this way show the converted assets: they stay local, but for a frame of a problem, cropped to it, which its issue or pull request carries as an attachment (`gh … --attach`; docs/08 §3, #1222).
@@ -415,7 +417,7 @@ The maintainer's decisions of 2026-10-21:
   The game may overwrite every file it writes itself (`Settings.cfg`, `save/`, `Capture/`, `DEBUG.LOG`, `ExpLog.LOG`, the `DefPos.bin` caches), never one of the manifest, so `verify` and the oracle's check stay green.
   Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, 1 in the maintainer's play; `SHOWMOVIE : 0`; the three volumes 0) and nothing else.
   The volumes it replaces, unless it wrote them itself or all three are 0, it keeps in `%LOCALAPPDATA%\OpenSacred\original-volumes.json`, and `--sound` writes them back, or the installation's 64 where none were kept (#1383).
-  Worktrees link `OriginalGame/` to one installation, so one original runs at a time.
+  Every worktree takes the one installation, linked at its `OriginalGame/` or named by the registry (§1), so one original runs at a time.
   While a host runs it records the original's holder in `%LOCALAPPDATA%\OpenSacred\original-holder.json` (`--holder`, the session's name as `ListAgents` shows it; the Claude Code session, the branch and the worktree), and a host started meanwhile refuses, naming them (#1398).
 * **At any time, without disturbing the maintainer.**
   The original runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.
@@ -533,7 +535,7 @@ The maintainer's play (#551, asked for on 2026-10-22): the original on the scree
 5. Use `GameServer.exe` as an auxiliary binary: 1,176 game functions in it are byte-identical to the client, which helps confirm function boundaries.
    Done 2026-10-19: `CarryNamesScript.java` matches the two programs' functions by the MD5 of their normalized bytes, as docs/01 §5.1 does, 32 bytes or more and unique on both sides, 1,546 pairs over Ghidra's function boundaries; a function of a default name in the global namespace takes the other's name and namespace: 11 names went into `GameServer.exe` and 2 functions into classes of `Sacred.exe` (each program's classes come from its own RTTI).
 
-The steps run on the project with the server stopped (`save`, then `taskkill`, §3.2), each through Ghidra's headless analyzer with the scripts of `tools/ghidra/` (`ProjectStatsScript.java` counts before and after; tools/README.md has the commands), then the server is started again; a Claude Code session connected before the stop reconnects with `/mcp`.
+The steps run on the project with the server stopped and `pyghidra-mcp.paused` in the project's directory (`save`, then `taskkill`, §3.2), each through Ghidra's headless analyzer with the scripts of `tools/ghidra/` (`ProjectStatsScript.java` counts before and after; tools/README.md has the commands), then the file is deleted and the server started again, by hand or by a session's bridge at its next call (§3.2).
 
 ### 4.2 What to analyze and what not
 
@@ -544,9 +546,10 @@ The steps run on the project with the server stopped (`save`, then `taskkill`, �
 | Creature AI, spawning | yes, selectively | behavior parameters and tables |
 | NetScript interpreter, triggers, quests | yes | content semantics |
 | Time of day, weather | selectively | parameters |
-| Rendering, D3D7, particles (as code) | no | written from scratch; effect parameters are taken from the data and selectively from the code |
-| UI, fonts, IME | no | a new interface |
-| Sound (Miles), video (amstream), network (TinCat), files | no | replaced entirely or out of scope |
+| Rendering, particles | selectively | what is drawn and in what order, and the particle systems' machinery (docs/re/drawing.md, liquids.md, effects.md); the D3D7 calls are not analyzed, the renderer is written from scratch |
+| UI | selectively | the interface's places, images and behavior, which the game follows (docs/re/interface.md, menus.md, cursor.md, inventory.md, questbook.md, maps.md) |
+| Sound, movies, saves | selectively | the choice of the music, the footsteps and the ambient loops, where the movies play, what a save holds (docs/re/sound.md, movies.md, saves.md); the Miles and amstream layers are replaced |
+| Fonts, IME, network (TinCat), files | no | replaced entirely or out of scope |
 
 Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 need analysis (mostly the game logic module); the rest is replaced without reading the code.
 
@@ -567,6 +570,8 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 * The Mutants workflow (`.github/workflows/mutants.yml`, #1432) runs on every pull request and `cargo-mutants` on the lines that it changes in `opensacred-rules`, `opensacred-data` or `opensacred-formats`, on Linux alone and without a cache, since the three crates build without Bevy; it fails on a missed mutant or when it cannot measure them, and the ruleset requires it (§3.4, #2690).
 * The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.
 * The Dependencies workflow (`.github/workflows/deps.yml`, #1550) runs every day: the dependency update's pull request and the `deps` issues of newer incompatible releases (§3.3).
+* The FFmpeg workflow (`.github/workflows/ffmpeg.yml`, #1499) builds the release's `ffmpeg.exe` on Linux and tests it on Windows, on a pull request that changes `tools/ffmpeg/` or the workflow and when the Release workflow calls it (tools/README.md, "The release's FFmpeg").
+* The Usage workflow (`.github/workflows/usage.yml`) sums the usage of the maintainer's pull requests into the README's badge on the branch `badges`, when `pr_usage.py --update` runs it and once a day (§3.5, §3.6).
 * A run that fails on GitHub's side (a stalled download on the runner, a broken answer of the API) is run again by hand, `gh run rerun <id> --failed`; the workflows carry no timeouts or retries for it.
   Until 2026-10-22 the Mesa install (#534) and the release's lookup of a pull request (#515) had them; they did not keep a run green (#543) and made the workflows harder to read (#544).
 

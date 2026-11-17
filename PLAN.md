@@ -2,7 +2,7 @@
 
 The main plan document.
 The project's goal is to **play Sacred Gold 2.28 (GOG) comfortably on modern hardware**: Windows 11 x64 at 4K, later Linux, possibly Android.
-The tools work on the user's own GOG installation; the repository holds no game files (§12).
+The tools work on the user's own installation, the GOG release or, for the converter alone, the Steam one (#1484); the repository holds no game files (§12).
 This document is self-contained; details are in `docs/01…10`, analysis scripts in `tools/` ([description](tools/README.md)).
 
 Claim status is marked with the words **confirmed** (verified on GOG release files with a script or a disassembler), **community-reported** (not verified on a file), **estimate** (model calculation) and **hypothesis**.
@@ -10,7 +10,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 ## Summary
 
 * **Approach: "convert the assets + rewrite the game", not "decompile and rebuild".**
-  A toolset reads the assets of the user's GOG installation once and converts them into open formats (PNG/KTX2, glTF, FLAC/Ogg, AV1, RON/Fluent).
+  A toolset reads the assets of the user's own installation once and converts them into open formats (PNG/KTX2, glTF, FLAC/Ogg, AV1, RON/Fluent, Luau).
   The new game reads only these formats.
   Where the game's rules are not evident from the data, `Sacred.exe` is studied only to understand them; the behavior is described in prose and implemented independently in Rust with a redesign; an exact copy of the behavior is not required.
 * **Language: Rust for the entire product**: the game, the converter, the tools.
@@ -26,6 +26,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
   To a playable version on Windows 11: **≈390–770 agent-hours** (estimate).
   At API prices for Claude Opus 5.5 the same tokens would cost ≈$3k–14k, center ≈$6k; development runs on a Claude subscription, so this is a hypothetical figure, not money spent (§9).
   The first visible result, a walk through the starting region in 4K, came on 2026-10-17 (G2).
+  By 2026-11-17 M0 to M5 are done and every issue of M6 is closed, with ≈432 agent-hours and ≈$11.5k at API prices recorded (§9.1); version 1.0 waits for the maintainer's own play-through (G5, §10).
 
 ## 1. Requirements and goals
 
@@ -36,7 +37,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | The main goal is to play comfortably on modern hardware | The success criterion is completing the Sacred and Underworld campaigns in 4K without crashes, not matching the original |
 | Fidelity to the original is not a priority; modern improvements are acceptable | No byte-for-byte matching, no VC6, no determinism requirements; behavior may be redesigned |
 | Multiplayer after version 1.0 (changed 2026-10-23: no network components were planned before) | No network code, TinCat, lobby or server before 1.0; the game is built so that a host can later run it for several players (ADR-09) |
-| Work only with the GOG version | The reference is GOG ENG 2.28; the tools read the user's own installation |
+| Work only with the GOG version (changed 2026-10-30: the converter also takes a player's Steam installation, #1484) | The reference is GOG ENG 2.28; the tools read the user's own installation, the development tools (the oracle, the original's driver, the research scripts) the GOG one alone |
 | The game does not have to read the original formats and saves | An offline converter into open formats; the runtime reads only those; HD and upscale packs in the future |
 | Solo development almost entirely through Claude Code | Estimates in agent-hours and tokens; the process is built around tests and text artifacts |
 | Modern toolchains: Visual Studio Build Tools 2026, latest Vulkan, newest dependencies | Latest stable Rust, scheduled dependency updates |
@@ -49,16 +50,17 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 
 | # | Goal | Criterion |
 |---|---|---|
-| G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; since 2026-10-29 the manifest holds only the files the project uses, 313: 303 converted and 10 used in development, the converter reading 304 of them (#1482); tables and hero files keep the fields not yet understood as raw spans |
+| G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun of the extraction gives the same result (stage B's lossy encoders need not, §7). 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; since 2026-10-29 the manifest holds only the files the project uses, 313: 303 converted and 10 used in development, the converter reading 304 of them (#1482); tables and hero files keep the fields not yet understood as raw spans |
 | G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors, about 580 on 2026-10-19, and 365 to 392 on 2026-10-25 with the creatures and the fight (docs/05 §3.6, docs/10) |
-| G3 | Game rules | Combat, attributes, skills, items and loot work by the recovered formulas; deviations from the original are deliberate and recorded |
-| G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish |
-| G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings; 4K and HiDPI; a playthrough without critical bugs; the gamepad after G5, in M8 (the maintainer's decision of 2026-11-09, #1097); version 1.0 is released after the research of the shadows (#1436) and once the maintainer has tested the game and says so, not when M6 closes (the maintainer's decision of 2026-11-10, #2479) |
+| G3 | Game rules | Combat, attributes, skills, items and loot work by the recovered formulas; deviations from the original are deliberate and recorded. M3 closed on 2026-10-26 (§10); the deviations are in `docs/decisions/` |
+| G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish. Both were played through to their ends in Claude Code's driven runs on 2026-11-10 (#1099); the maintainer's play-through of G5 checks it again |
+| G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings; 4K and HiDPI; a playthrough without critical bugs; the gamepad after G5, in M8 (the maintainer's decision of 2026-11-09, #1097); version 1.0 is released once the maintainer has tested the game and says so, not when M6 closes (the maintainer's decision of 2026-11-10, #2479). The research of the shadows that it also waited for ended on 2026-11-11 (#1436); by 2026-11-17 every issue of M6 is closed, and the maintainer's play-through is what remains |
 | G6 | HD assets | The upscale pipeline produces HD packs that the game picks up on top of the base assets |
 | G7 | Other platforms | Linux: the same functionality; Android: by a separate decision after G5 |
 | G8 | Multiplayer | After G5: the Sacred and Underworld campaigns played together over the network; how is decided when the work starts (§13) |
 
-**Out of scope:** networking before version 1.0 (multiplayer comes after it, G8); loading the original saves; byte-for-byte compatibility; the Steam version; macOS and iOS; the browser version (dropped 2026-10-23); publishing the game assets in any form.
+**Out of scope:** networking before version 1.0 (multiplayer comes after it, G8); loading the original saves; byte-for-byte compatibility; macOS and iOS; the browser version (dropped 2026-10-23); publishing the game assets in any form.
+The Steam version left this list on 2026-10-30: the converter takes a player's Steam installation, its four files that differ from the GOG ones checked against `docs/manifest-steam-2.28.txt` (#1484), while the reference and the development tools stay with the GOG release; other builds of the game are not supported.
 
 ## 2. What is already known
 
@@ -84,17 +86,17 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ID | Decision | Why |
 |---|---|---|
 | ADR-01 Goal | A playable modern reimplementation on the original's converted assets, inspired by the original, not an exact copy | Requirement (§1.1); removes the most expensive requirements (matching, determinism, save compatibility) |
-| ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
+| ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2); since M2 that includes what the player sees and hears, the interface, the sounds, the ways and the order of the draws among it (`docs/re/`) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.100.0) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
 | ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls, then the fight's formulas, the ways and the creatures' decisions moved into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
 | ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI) in two stages (#694, the maintainer's choice of 2026-10-23): **extract**, the installation → lossless masters in open formats that tools edit, with the repairs of the data, in `assets-src/` (textures → PNG, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound and music → FLAC, video → FFV1 and FLAC in Matroska, scripts → Luau, ADR-13); **build**, the masters → the game's packed assets in `assets/` (textures → KTX2 with BC7 and mipmaps, sound → Opus in Ogg, video → AV1 and Opus in WebM, scripts → Luau bytecode, all in ZIP archives); `all` does both; the game reads only the built assets; HD packs and mods are made in the masters' formats and built by the same stage B (§7) | Requirement (§1.1); the masters can be checked and edited with third-party tools (Blender, glTF-Validator) and lose nothing, so a build from them gives what a direct conversion would; the game's formats load fast and fit the GPU |
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
-| ADR-07 Sound, input, video | Kira via `bevy_kira_audio`, the sound and the music as Ogg Opus decoded through libopus (#701), the one C library of the sound, which the build compiles with CMake; Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder | Everything is free and builds for Windows, Linux and Android |
-| ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
+| ADR-07 Sound, input, video | Kira via `bevy_kira_audio`, the sound and the music as Ogg Opus decoded through libopus (#701), the one C library of the sound, which the build compiles with CMake; Bevy input with every key remapped in `controls.toml` (#1553), and the gamepad after version 1.0 (M8, #1097); video: AV1 and Opus in WebM, the AV1 decoded by rav1d (#1945) | Everything is free and builds for Windows, Linux and Android |
+| ADR-08 Saves and settings | Our own versioned save format, postcard through serde: a header, then the hero, the scripts and the world, in `saves/` beside the settings' file, a save of another version refused (`saves.rs`, #1095; docs/re/saves.md); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
 | ADR-09 Network | Multiplayer after version 1.0 (M9), no network code, server or lobby before it; until then the game does not rule it out: the rules stay apart from the engine (ADR-04), the world's state lives in the rules and the ECS rather than in presentation or input, and the scripts run on the host, as in the original (docs/02 §7.5); `GameServer.exe` is an auxiliary binary when analyzing shared functions, and a reference for the server's part once M9 starts | Requirement (§1.1), changed 2026-10-23 |
 | ADR-10 Tools | Free only: Ghidra 12.2 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), Frida (driving the running original for Claude Code, #448), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
-| ADR-11 Process | Claude Code as the main executor: `CLAUDE.md` with rules, MCP to Ghidra, tests as guardrails (converter golden data, oracle vectors, screenshot tests), small tasks, maintainer review | Solo development; quality rests on automated checks, not on manual review of every line |
-| ADR-12 Repository and legal | The repository is public and holds no game bytes: no game files, converted assets, HD packs or dumps, in the repository or in CI; users supply their own GOG copy and run the converter locally; converted output is never published (§12, docs/08) | The game belongs to the rights holder; every user needs their own copy |
+| ADR-11 Process | Claude Code as the main executor: `CLAUDE.md` with rules, MCP to Ghidra, tests as guardrails (the readers' cross-checks against the Python prototypes, oracle vectors, property tests, mutation testing of the lines a pull request changes, screenshot tests; docs/03 §3.4), small tasks, maintainer review | Solo development; quality rests on automated checks, not on manual review of every line |
+| ADR-12 Repository and legal | The repository is public and holds no game bytes: no game files, converted assets, HD packs or dumps, in the repository or in CI; users supply their own copy, GOG's or Steam's, and run the converter locally; converted output is never published (§12, docs/08) | The game belongs to the rights holder; every user needs their own copy |
 | ADR-13 Scripts | The converter translates the NetScript bytecode into Luau, a source file per quest, sector, region and start script, with its bytecode; the game runs only Luau, through mlua and its vendored Luau in a crate of its own (`opensacred-scripts`), sandboxed and bounded; what each record type does is the scripts' API, recovered from the original and implemented in `opensacred-rules` and `opensacred-game`; the quests' state, the variables and the triggers live in the engine and the saves, not in Luau; mods after 1.0 are Luau on the same API; the translated scripts are converted assets, never published (#720) | Decided 2026-10-23: the operands of the 113 types are decoded once, in the translator, not in an interpreter and again in a translator; the reference is the running original (#448), not an interpreter of ours; Luau rather than Rhai or Lua 5.4 for its types, its sandbox and interrupts, its bytecode compiled ahead and its speed; its WebAssembly needs Emscripten, which the dropped browser version makes moot |
 
 ## 4. Strategy
@@ -102,11 +104,11 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 ### 4.1 Pipeline
 
 ```text
-OriginalGame/      ← the user's own GOG installation (git-ignored)
-   │  opensacred-convert extract (stage A: lossless, with the data's repairs)
+OriginalGame/      ← the user's own installation (git-ignored), else the GOG or Steam one that the converter finds
+   │  opensacred-convert's extractions (stage A: lossless, with the data's repairs)
    ▼
 assets-src/        ← masters in open formats that tools edit (PNG, glTF, FLAC, FFV1, RON, Luau)
-assets-hd/         ← HD packs and mods in the masters' formats, over assets-src/ at matching paths
+assets-hd/         ← HD packs and mods in the masters' formats, over assets-src/ at matching paths (M7, not made yet)
    │  opensacred-convert build (stage B: packed and encoded)
    ▼
 assets/            ← the game's assets: KTX2, Opus, AV1, Luau bytecode, in ZIP archives
@@ -120,6 +122,9 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
    tools/original (Frida, local, #448): the user's own Sacred.exe, running → observations
 ```
 
+A developer runs the extractions and `build` apart, or both with `all`.
+A player's run is `opensacred-convert install` (#1497), which the packaged game starts at its first start (#1498): it finds the installation, runs both stages into a working directory, puts the assets in place whole in `%LOCALAPPDATA%\OpenSacred\assets` and removes the masters.
+
 ### 4.2 How the rules are recovered
 
 1. **A local Ghidra project on the user's own GOG `Sacred.exe`** with imported community names (sacred-bild, sacred-sdk) and RTTI.
@@ -127,7 +132,8 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 2. **Choosing a mode for each subsystem:**
    * rules with numbers (damage, defense, resistances, experience, skills, item generation, prices) are studied in the code;
    * content semantics (NetScript opcodes, triggers, spawning) are studied in the code and the data;
-   * everything else (rendering, UI, sound, input, files, camera, pathfinding) is written from scratch without reading the original's code.
+   * what the player sees and hears of the original's behavior is studied in the code too, since M2: the interface's windows and their layout, the sources of the sounds, the search of the ways, the order of the draws, the effects' particle systems (`docs/re/interface.md`, `sound.md`, `movement.md`, `drawing.md`, `effects.md` and their neighbors);
+   * the engine under it (the renderer, the asset loading, the files and their formats, the tools) is written from scratch on Bevy, without the original's code.
 3. **A description in prose.**
    What the original does (inputs, outputs, formulas, tables, order of events) is written down per subsystem in `docs/re/`, in our own words, not as code.
 4. **Reference vectors.**
@@ -140,8 +146,9 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 6. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
-   Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), the fight's formulas with the hero's levels (#360), the ways (#361) and the creatures' decisions (#362), which `opensacred-game` calls; `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`) and the most health, which `opensacred-rules`' tests compare with: the levels agree, the others showed five bugs, all fixed (#406, #407, #408, #417, #418); the checks in the original of #227 were worked through with the driver and closed on 2026-10-25.
-   Since then the crate took the archers' arrows, the drops, the combat arts, the spells, the scripts' state and rewards, the weather, the peace stream's music, the undead, the particle systems, the backpack, the equipment, the potions and the weapon sets (`CLAUDE.md`, "Workspace").
+   What the crate holds is in §6.3.
+   `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`), the most health, the factor of the levels and the game's roll between two bounds, which `opensacred-rules`' `tests/oracle.rs` compares with; its `fuzz` runs random inputs through the original's functions and the rules' in one process and shrinks the first mismatch (#1431).
+   The first vectors, of 2026-10-21, agreed on the levels and showed five bugs in the rest, all fixed (#406, #407, #408, #417, #418); the checks in the original of #227 were worked through with the driver and closed on 2026-10-25.
 7. **Nothing from the study is committed.**
    The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
@@ -219,42 +226,54 @@ Triggers for revisiting: Bevy migrations regularly take more than 10 agent-hours
 OpenSacred/
 ├─ Cargo.toml                 Rust workspace (edition 2024)
 ├─ rust-toolchain.toml        stable, updated together with the dependencies
+├─ build.rs                   the converter's and the game's --version from git describe (Cargo.toml has no version)
+├─ pyproject.toml  uv.lock    the repository's Python through uv: the packages of tools/ (docs/03 §2)
 ├─ CLAUDE.md                  project rules for Claude Code
+├─ .claude/                   Claude Code's hooks, settings and the project skills `game` and `original`
+├─ .github/                   the issue forms, the pull request template and the workflows: CI, Mutants, Release, Dependencies, Usage, FFmpeg
 ├─ crates/
 │  ├─ opensacred-formats/     reading the original formats (PAK, TEX, GRN, sectors, NetScript, global.res, AMH templates)
-│  ├─ opensacred-convert/     CLI: OriginalGame → assets-src/ → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, build, all, coverage)
-│  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
-│  ├─ opensacred-rules/       game rules without the engine: the spawning, the fight, the ways, the creatures' minds, the drops, the arts and spells, the quests' state, the backpack, the equipment, the potions, the weapon sets, the weather, the music and the undead (#364)
+│  ├─ opensacred-locate/      (#1496, #1556) finding the installation: the player's GOG or Steam one for the converter, the developer's for the tools and the tests
+│  ├─ opensacred-convert/     CLI: the installation → assets-src/ → assets/ (subcommands install, locate, verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, build, all, coverage)
+│  ├─ opensacred-data/        open-format types shared by the converter and the game (serde), the game's ZIP archives and KTX2 textures
+│  ├─ opensacred-rules/       game rules without the engine (§6.3)
 │  ├─ opensacred-scripts/     (#725) the Luau runtime of the translated scripts: mlua with Luau, sandboxed, each call bounded, its records handed to the game's host
-│  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves
+│  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves (§6.2)
 │  └─ opensacred-oracle/      (#363; development only, run locally, Unicorn its feature `emulator`) runs functions of the user's own Sacred.exe in Unicorn, records vectors
-├─ tools/analysis/            Python research scripts (archive, gradually replaced by Rust)
-├─ tools/ghidra/              scripts of the local Ghidra project (classes, names, library marks)
+├─ tools/analysis/  tools/triage/   Python research scripts: an archive, and the reference the Rust readers are cross-checked against
+├─ tools/common/              the developer's installation found for the Python tools (#1556)
+├─ tools/ghidra/              scripts of the local Ghidra project (classes, names, library marks) and the bridge to pyghidra-mcp
 ├─ tools/game/                the game's remote-control client and the conformance tools
 ├─ tools/original/            the original's driver under Frida (#448)
-├─ tools/usage/  tools/stack/ the process: Claude Code usage per pull request, stacked pull requests
-├─ docs/                      plan, format specifications, prose notes on the original's behavior (docs/re/), decision log
+├─ tools/usage/  tools/stack/  tools/deps/   the process: Claude Code usage per pull request, the issues' claims and stacked pull requests, the daily dependency update
+├─ tools/ffmpeg/              the release's own FFmpeg build under the LGPL and its pinned sources (#1499)
+├─ release/                   the player's archive's own files: its read-me, the licenses' template, the Fira Mono license (#1500)
+├─ docs/                      the plan's details (§14): format specifications, prose notes on the original's behavior (docs/re/), decision log (docs/decisions/), the manifests of the GOG and Steam installations
 ├─ assets-src/  assets/  assets-hd/   generated locally, in .gitignore
-└─ OriginalGame/              the user's GOG installation (git-ignored)
+└─ OriginalGame/              the developer's GOG installation (git-ignored), or a link to it; without it the tools take the one the registry names
 ```
 
 ### 6.2 Presentation layer (Bevy)
 
-* **World:** sectors are streamed in around the hero; the ground is built as a mesh from the heightmap with tile atlases; static objects are sprites in 3D space with correct depth; water and lava are separate materials.
+* **World:** sectors are streamed in around the hero; the ground is a mesh of the cells with their corner heights, its tiles and floor overlays composed by the ground's shader from a pool of tile sheets that the loaded sectors share (#2484); static objects are sprites in 3D space with correct depth; water and lava are separate materials.
 * **Characters:** glTF models with a skeleton; walk, run, attack and skill animations through Bevy's animation graph with blending.
-* **Effects:** the original's 178 effects are described as data; rendering uses GPU or CPU particles.
-* **Camera:** orthographic with the original's angle; zoom with smooth approach; an extended view option.
-* **UI:** a new scalable interface in Bevy UI; text through cosmic-text at native resolution; the original UI textures serve as skins.
+* **Effects:** the original's effect classes, each written after the original's in a module of the game rather than described as data; their particle systems run on the CPU by the machinery of `opensacred_rules::particles` and are drawn as the original's billboards (docs/re/effects.md, #1092).
+* **Camera:** orthographic, 2:1 dimetric as the original's; the wheel and the keypad zoom within the original's range, 0.5 to 2.0 (`iso::ZOOM`).
+* **UI:** the original's interface in Bevy UI, laid out on the original's 768-pixel-high screen and scaled to the window's height, as the world is; its pieces are assembled from the original's atlases at the original's pixels and scaled once (`ui_layers`, #2636); text through Bevy's text (parley) in the original's fonts, its glyphs drawn at the window's pixels.
 * **Sound:** event profiles from `sndProfiles` → RON tables → Kira.
 * **Tools:** settings in TOML, the original's menus (#1120, #1123), a debug overlay and the log on the screen, a console of the game's commands, and remote control through which Claude Code drives the game ([docs/10](docs/10-game-tools.md)).
 
+What the game holds today is listed in `CLAUDE.md`, "Workspace"; each module of `crates/opensacred-game/src/` tells what it does in its doc comment, and one with systems registers them in a plugin of its own.
+
 ### 6.3 Rules layer (`opensacred-rules`)
 
-Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quests' state and the scripts' variables (the scripts themselves run in Luau, ADR-13).
-The layer is tested without graphics.
-The Bevy layer calls it through a thin ECS adapter.
-Status 2026-10-21: the crate holds the spawning's rolls of `FillSector` (`spawning`, #359), the fight's formulas: the creatures' levels, health, attack, defence, damage and resistances, a strike's hit, the items' values, the regeneration, and the hero's experience and levels (`fight`, #360), the ways: the search of the fewest steps over a 64 × 64 window, the straight line's test of the cells it crosses, and who stops whose step into a cell that another creature holds (`ways`, #361), and the creatures' decisions: waking and dormancy by their timers and the hero's look, the idle action's steps, the animals' flight and strolls, the guards' posts, the townsfolk's and the children's rolls and the evening's way, parting and stepping aside, coming at the hero, keeping the band of the reach, fleeing and going home, and the hero's attack's choice of where it stands and when it strikes (`minds`, #362).
-The fight's components, resources and systems stay in `opensacred-game` (`fight.rs`) and call them, and so do the walks: the world's points and the next point to head for (`paths.rs`), and the cells the creatures stand on (`crowd.rs`); and so do the creatures' life and the hero's attack (`ai.rs`, `attack.rs`): the minds as components, and the systems that find the creatures, the doors and the cells about a creature and carry the decisions out with the walks, the strikes and the turns.
+Pure Rust without Bevy, its only dependencies `opensacred-data` and serde: what the original's client decides, as `docs/re/` reads it, so that a switch of the engine keeps it (ADR-04).
+The crate was made on 2026-10-21, when the spawning, the fight's formulas, the ways and the creatures' decisions moved out of `opensacred-game` (#328, #364).
+Today it holds the spawning, the fight's formulas with the hero's experience and levels, the ways, the creatures' decisions and casts, the archers' arrows, the drops with the item maker, the combat arts, the combos and the spells, the scripts' state (the quests, the variables and the dialogues; the scripts themselves run in Luau, ADR-13) with their rewards and their Pong, the backpack, the equipment, the potions, the weapon sets and the item sets' bonuses, the containers' contents, the trade, the blacksmith and the combat master's exchange, the horses, the weather, the peace stream's music, the undead that rise again, the land explored, the regions' kills and the particle systems' machinery.
+Its modules are listed in `crates/opensacred-rules/src/lib.rs`, and each module's doc comment tells what it holds and which part of `docs/re/` it follows.
+The day's clock and the night's light are not among them: they are `opensacred-game`'s (`daynight.rs`).
+The layer is tested without graphics: unit tests, property tests (#1428) and, on the developer's machine, the oracle's vectors (§4.2).
+`opensacred-game` keeps the components, the resources and the systems, which read the world for the rules and carry out what they decide: the fight (`fight.rs`), the walks (`paths.rs`, `crowd.rs`), the creatures' life and the hero's attack (`ai.rs`, `attack.rs`), and the rest alike.
 
 ## 7. Asset converter
 
@@ -263,7 +282,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | Source | Master (stage A, `assets-src/`) | Game (stage B, `assets/`) | How it is checked |
 |---|---|---|---|
 | `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 | KTX2 with zstd supercompression (#700): BC7 with a full mip chain for the opaque textures that the GPU samples, 8-bit RGBA for the others; ASTC for Android later (M8, #702) | pixel comparison with a reference decoder; viewing |
-| Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | KTX2 in 8-bit RGBA, one level, as the game composes them on the CPU | rendering a test sector |
+| Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | KTX2 in 8-bit RGBA, one level, as the game reads them on the CPU into the pool of sheets that the ground's shader draws from (#2484) | rendering a test sector |
 | `models.pak` (Granny 1.2b) | glTF 2.0 (`.glb`): meshes, skeletons, weights, materials, its textures by reference to the PNGs | the same `.glb`, referring to the KTX2 textures by path | glTF-Validator, Blender, an in-game screenshot test |
 | Granny animations | glTF clips; the Bip01 bone names are kept so that clips fit models with the same skeleton | in the models' `.glb` | visual check, comparing poses in key frames |
 | World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard in a zlib stream) + RON descriptions | the same files | loading all 6,050 sectors |
@@ -293,8 +312,8 @@ Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
 * Vulkan through wgpu by default on Windows and Linux; DX12 as the fallback on Windows; Vulkan or GLES on Android.
 * The original's bottleneck is thousands of draw calls on the CPU.
   Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
-* Visible area: by default as in the original at zoom 1.0, but with 4K pixel density; an extended view is an option.
-* The UI scales independently of the scene resolution; fonts are rasterized for the actual DPI.
+* Visible area: as in the original, whose 768-pixel-high screen at zoom 1.0 fills the window's height, but with 4K pixel density; the zoom keeps to the original's range, 0.5 to 2.0, and no wider view is offered.
+* The interface is laid out on the same 768-pixel-high screen and scaled to the window's height; its pieces are assembled at the original's pixels and scaled once (#2636), and the text's glyphs are rasterized at the window's pixels.
 * The base textures go to the game as KTX2 since M3 (#700), built by stage B from the PNG masters: BC7 with a full mip chain where the GPU samples them and they are opaque (docs/decisions/drawing.md, "Textures as KTX2 with mipmaps").
 * HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate) and separate alpha channel processing, into PNG masters in `assets-hd/`, which stage B packs as it packs the base ones.
   Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
@@ -319,21 +338,27 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
   What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
   By 2026-10-20 the README's badge summed 4.15B tokens, ≈$1.2k at API prices: ≈37 agent-hours in 152 pull requests and 12.7 in the sessions before, about $24 per agent-hour, above the model's $8–18 (the subagents' time is not counted).
   On 2026-10-28 the badge summed 17.6B tokens, ≈$5.0k at API prices, with M3 and M4 closed.
-  The recomputation of §9 from these figures is due on 2026-11-15, 30 days after 2026-10-16.
+  On 2026-11-17, with M0 to M5 done and every issue of M6 closed, the usage blocks of 1,465 pull requests and the sessions before summed 42.3B tokens, ≈$11.5k at API prices and ≈432 agent-hours (`tools/usage/usage_badge.py` over every pull request of the maintainer's account): within the estimate to version 1.0 both in agent-hours (≈390–770) and in cost (≈$3.1k–13.9k), near its low end in hours and its high end in cost.
+  An agent-hour cost ≈$27, not $8–18: its output (0.17M tokens) and its cache writes (0.6M) are at or under the model's, but its cache reads are 97M against the model's 5–15M and make about three quarters of the cost, as the long sessions of `docs/usage.md` showed from the first days; all but a little of the work ran on Opus 5.5.
+  By the days the milestones closed, the sums were ≈136 agent-hours at the end of 2026-10-26 (M0 to M4, estimated at 296–592) and ≈359 at the end of 2026-11-09 (M0 to M5, estimated at 346–692, with much of M6's work among them).
+  The maintainer's hours were not recorded.
+  The estimates of §9.2 were not recomputed 30 days after 2026-10-16, as was planned: those of M0 to M6 are overtaken by these figures, and those of M7 and M8 stand as of 2026-10-16.
 
 ### 9.2 Milestones
 
+The hours are the estimates of 2026-10-16; what was recorded is in §9.1, and what each milestone delivered in §10.
+
 | Milestone | Contents | Agent-hours | Maintainer hours |
 |---|---|---|---|
-| M0 Foundation | Cargo workspace, `CLAUDE.md`, CI, GOG installation manifest | 6–12 | 4–8 |
-| M1 Converter | all formats from §7; tests and the manifest | 80–160 | 25–50 |
-| M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K | 30–60 | 15–30 |
-| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23); closed 2026-10-26, the estimates standing until the recomputation of §9 | 120–240 | 40–80 |
+| M0 Foundation | Cargo workspace, `CLAUDE.md`, CI, GOG installation manifest; done 2026-10-16 | 6–12 | 4–8 |
+| M1 Converter | all formats from §7; tests and the manifest; done 2026-10-17 | 80–160 | 25–50 |
+| M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K; G2 met 2026-10-17, closed 2026-10-23 | 30–60 | 15–30 |
+| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23); closed 2026-10-26 | 120–240 | 40–80 |
 | M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26); closed 2026-10-26 | 60–120 | 25–50 |
-| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies, saves (from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns can be played through and checked) | 50–100 | 20–40 |
-| M6 Version 1.0 for Windows 11 | settings, 4K and HiDPI, polish, campaign playthroughs; the add-on's script forms and the difficulty's remaining AI chances, which wait for M6's Underworld campaign and bosses (from M5, 2026-11-03); the hero's export, which carries a hero from the Ancaria campaign into the Underworld's (from M9, 2026-11-10, #2358); the gamepad moved to M8 on 2026-11-09 | 40–80 | 100–200 |
+| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies, saves (from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns could be played through and checked); closed 2026-11-09 | 50–100 | 20–40 |
+| M6 Version 1.0 for Windows 11 | settings, 4K and HiDPI, polish, campaign playthroughs; the add-on's script forms and the difficulty's remaining AI chances, which waited for M6's Underworld campaign and bosses (from M5, 2026-11-03); the hero's export, which carries a hero from the Ancaria campaign into the Underworld's (from M9, 2026-11-10, #2358); the gamepad moved to M8 on 2026-11-09; every issue closed by 2026-11-17, the milestone open until the maintainer's play-through and version 1.0 (G5) | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
-| M7 HD assets | upscaling, HD packs, built by stage B | 15–30 | 10–30 |
+| M7 HD assets | upscaling, HD packs, built by stage B; its research begun (§10), the rest after version 1.0 | 15–30 | 10–30 |
 | M8 Platforms | Linux 5–10; Android 25–50; the gamepad (from M6, 2026-11-09, #1097) | 30–60 | 10–20 |
 | M9 Multiplayer | the campaigns played together over the network: the protocol, a host or a server, joining a game, the multiplayer script trees (docs/02 §7.2) | not estimated (§13) | not estimated |
 
@@ -351,249 +376,74 @@ A sensible mode is Opus 5.5 for binary analysis and architecture, and Sonnet 5.5
 The choice of model is up to the maintainer.
 
 Calendar: in an intensive mode (≈40 agent-hours and 25 maintainer hours a week), the vertical slice comes in ≈1 month and version 1.0 in ≈2.5–4.5 months; "evenings and weekends" (≈15 and 10 hours) gives ≈2–3 and ≈6–12 months.
+As it went: the vertical slice came on the second day, 2026-10-17, and M0 to M5 were done and every issue of M6 closed by 2026-11-17, the thirty-third, at ≈90 agent-hours a week; version 1.0 waits for the maintainer's play-through (G5).
 The pace is limited more by the maintainer's time for review and playtesting (≈230–460 hours) than by the agents' work.
 The main sources of uncertainty (each up to ×2): recovering the combat and loot rules, NetScript semantics, correctness of the Granny animation conversion, how often the Bevy API breaks.
 
-## 10. Work order: the first 30 days
+## 10. Work order
 
-1. **M0.**
-   Done 2026-10-16: Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with the `verify` command), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions; `.gitignore` excludes `assets/`, `assets-hd/`, `target/`.
-2. Done 2026-10-16: the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt` (`sha256sum` format); the converter checks the installation against it.
-   Since 2026-10-17 it lists 319 files: the files the game writes (`Gameserver.cfg`, the saves of `save/`, the `DefPos.bin` caches) were removed, like `Settings.cfg` before them (docs/02 §13).
-   Since 2026-10-29 it lists 313: the six files that nothing of the project reads were removed (#1482).
-3. Moved to the start of M3 on 2026-10-16: install Ghidra 12.1.4, load the GOG `Sacred.exe` and `GameServer.exe`, import the community names, connect GhidraMCP or pyghidra-mcp to Claude Code.
-   M1 and M2 work from the data and the community format descriptions; if a format question needs the original's code, Ghidra is installed earlier.
-   Done 2026-10-18, ahead of M3: Ghidra 12.1.4 on Temurin 25, pyghidra-mcp connected to Claude Code, `Sacred.exe` and `GameServer.exe` imported and analyzed (docs/03 §3.2).
-   On 2026-10-19 the rest followed (#88, #137, docs/03 §4.1): 410 classes from RTTI by `RttiClassesScript`, 137 functions named and 37 addresses labeled from sacred-bild and sacred-sdk, the library code tagged by `MarkLibraryScript`, and 1,546 functions matched between `Sacred.exe` and `GameServer.exe` by `CarryNamesScript`; the scripts are in `tools/ghidra/`.
-4. **M1, textures.**
-   Done 2026-10-16.
-   The `opensacred-formats` crate got a shared PAK reader and a TEX decoder.
-   `opensacred-convert textures` produces 25,536 PNGs: 25,534 from `texture.pak` (one directory entry is empty) and 2 from `texture03.pak`.
-   Tests cross-check the pixels against `tools/analysis/formats/tex_decode.py` and `tex_fmt6.py` (docs/02 §3.1).
-5. **M1, models.**
-   A Granny 1.2b parser in Rust based on the open format descriptions; export of one hero model with its skeleton to glTF; checks in Blender and glTF-Validator.
-   Started 2026-10-16: `opensacred_formats::mdl` reads the `models*.pak` containers, `opensacred_formats::grn` reads the GRN container (sections, CRCs, node trees) and the skeleton (bones, parents, bind-pose local transforms, names through the form's bone channels), and all of it is cross-checked on every record against the prototype `tools/analysis/formats/grn_dump.py` (docs/02 §4.1–4.2).
-   The prototype also reads, on every file, the meshes, weights, the form's mesh bindings, textures, materials and render passes; the bind pose composition is confirmed by the per-bone bounds of the meshes, and every scale/shear matrix is symmetric, so its order does not matter (docs/02 §4.2).
-   The same day `opensacred_formats::grn::Model` reads them in Rust and matches the prototype's mesh and material fingerprints on every record, and `opensacred-convert models` writes all 1,572 models to `.glb` files that glTF-Validator passes without errors or warnings; `SERAPHIM.GRN` draws in the six batches of the game's own trace (docs/02 §4.5).
-   Animations, done 2026-10-16 (night session): `opensacred_formats::grn::Animation` reads every track and matches `grn_dump.py` on every record; `opensacred-convert models` now writes all 4,993 records, a model's file carrying the motions of its slots as glTF animations (quadratic curves as cubic splines, exact for translations and within 0.0025° for rotations; sheared bones as two nodes, exact), and glTF-Validator passes all of them without errors or warnings; Blender renders of the hero, wolf, dwarf and bear clips look right (docs/02 §4.2, §4.5).
-   Embedded textures, done 2026-10-17: every texture binds by name to `texture.pak` as in the game (244 of the 270 embedded ones); the other 26 are decoded (VTex, a one-frame Bink 1 file, by FFmpeg as an external program) and stored in the `.glb`.
-6. **M1, world.**
-   Reading one sector of the starting region: floor cells with heights, static objects.
-   Readers done 2026-10-17: `opensacred_formats::world` reads `sectors.keyx`, every sector of `sectors.wldx`, `tiles.pak`, `Static.PAK` and `Floor.PAK`, and matches the new prototype `tools/analysis/world/world_dump.py` on every sector.
-   The cells start at `+0x20` of a sector stream, not at `+0x120` as first assumed, and the cells' chains reach every static and floor overlay (docs/02 §5).
-   The same day `opensacred-convert world` writes all 6,050 sectors (cells, overlays, static objects) and the sprites of the statics: `mixed.pak` holds them as pieces of atlases, and `items.pak +0x10` names a type's sprite; a render of the starting sector from the ground tiles and the sprites shows the monastery, the pond, the garden and the field in place.
-7. **M2, start.**
-   A Bevy application with an orthographic camera, rendering one sector and the hero model at 3840×2160.
-   Done 2026-10-17: `opensacred-game` (Bevy 0.20) shows the starting sector's ground (every cell's tile and floor overlays composed into one image, draped over the cells with their corner heights and light) under a 2:1 dimetric orthographic camera in the original's units, and `SERAPHIM.GRN` playing `SERA_WALK_1H`; `--screenshot` renders a frame at any resolution, 3840×2160 included.
-   Bevy's features are chosen in the root `Cargo.toml` (no Wayland, `zstd_c`) and `deny.toml` admits ISC and MIT-0 for Bevy's dependencies.
-   The same night the static objects followed (743 of the starting sector's 936 objects have a sprite; the monastery courtyard renders in place): each sprite is a quad in the plane of the screen at the depth of its cell's centre, and the ground lies behind every object along the line of sight, as the original draws the ground first.
-   Then walking: the left mouse button sends the hero running over the ground (the height interpolated between the corners of the cell), turning toward the target, blending the idle and run clips, the camera following.
-   Then sector streaming: the 3 × 3 sectors around the hero's are built in the background and spawned when ready (the eight neighbours of the start in about 1.5 s), those beyond two sectors go.
-   `--benchmark 8` at 3840 × 2160 while the hero runs across three sectors: 650–775 frames a second on a development machine (a few frames a run took 30–150 ms at that size, a stall of every thread of the process: Bevy's compute pool used all the cores the other pools left, and the threads ready to run outnumbered the cores; four compute threads remove it, #2, docs/05 §3.6), after the ground moved from one image per sector (75 MB) to an atlas of the distinct stacks of layers (13 MB for the median sector).
-   Then the miniatures (squares of their type's atlas; the animated ones show their first frame) and the original's draw lists approximated in depth: the types flagged as underlays lie under the ordinary sprites.
-   The liquids show the frames of their sector's two liquid materials, cycling in 2,048 ms and mapped a frame over 4 × 4 cells as the client does (docs/re/liquids.md), the clear waters translucent and every surface fading at the shore until its blending is recovered (docs/decisions/drawing.md, "Clear waters' second layer per cell").
-   Footsteps through Kira (`bevy_kira_audio`): each step of the run clip, at the moments that the clip's motion parameters in `MOTIONS.PAK` give (a hypothesis the run and walk clips support: two fractions half a cycle apart), plays the next sample of `footsteps_hero_female` in the group that the cell's nature calls for, by the client's own table (docs/re/sound.md).
-   Fixed the same night: a hero sent off before its model's player existed ran with the idle clip.
-   The run speed comes from the hero's record in `Creature.pak` (180 units a second, a hypothesis), and the models and speeds are scaled from the units of the original's model projection (534 × 400 on 1024 × 768) to the ground's by 1.52, which sizes the hero against the sprites as in the original.
-   Ahead of M4, the start script's 319 `CreateNPC` records place their creatures' models (soldiers, citizens, horses) at their `DefPos` or cell, each sector's when it comes in, playing an idle clip (docs/02 §7.3).
-   Later that night: soft shadows under the characters; walking at the creature's walk speed (`R` toggles it); the client's names of the sound ids and of the profiles' groups, which make the music profile's group 0 the peace music, and its choice of the ambient loop by the ground, both playing (docs/re/sound.md); the cells' natures named by the client (docs/02 §5.2); a minimal HUD (the portrait, a health bar, the gait) and the original's cursor; the start script's 1,990 objects (barrels, chests, book stands) placed like its NPCs, and the NPCs facing their headings the client's way; the draw lists 0, 2 and 4 by the type's flags and the object's mask (world format version 3); and the screenshot test of a synthetic scene, rendered without a window, which CI runs on lavapipe (docs/05 §7).
-   Fixed: the hero's clips went to the NPCs' animation players too, so the hero stopped switching clips once their models loaded.
-   On 2026-10-18 the NPCs took up their weapons and shields in the hands the client gives them (#4, docs/re/equipment.md).
-   Done 2026-10-18 and 2026-10-19 in some hundred pull requests (#19–#164): the frame time spikes (#2), the roofs and walls in front of the hero (#3), day and night with the night's lights (#5), the regions' music (#6), the buildings' insides and upper floors, the trees fading about the hero, and the NPCs walking where the scripts send them.
-8. Usage tracking: done 2026-10-16, per pull request since 2026-10-17 (#16).
-   Every pull request's description carries its Claude Code usage (agent-hours, tokens and their hypothetical cost at API prices, §9), which `tools/usage/pr_usage.py` computes from the transcripts' messages on its branch; the README's badge sums them with the sessions recorded before in `docs/usage.md`.
-   After 30 days, the §9 estimates are recomputed from the actual agent-hours.
-9. Issues and pull requests: done 2026-10-17 (#1).
-   Every change reaches `main` through a squash-merged pull request with green checks (Linux, Windows, cargo deny); Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the guardrails, the rules, the process, the licenses, the deviations from the original that can change the play seriously or carry legal consequences, the screenshot references, and contributors' work).
-   The dependencies are updated at most once a day, in an auto-merged pull request.
-   The process is in docs/03 §3.6.
-10. **M2, tools to test and drive the game.**
-    Planned 2026-10-19 (#165), when every option of the game was a command line flag read before Bevy started, so the hero was fixed for the process and each change was a restart.
-    The plan, in [docs/10](docs/10-game-tools.md): settings in `%APPDATA%\OpenSacred\settings.toml` with borderless full screen by default and F11 for a window (#167); the HUD's portrait, health bar and gait removed (#168); the log on F4 and in a file (#169); a debug overlay on F3 (#170); the game's states, so that a game starts and ends inside the process (#171); a main menu with the choice of the hero (#172) and a pause menu on Esc (#178); one set of commands for the command line's scripts (#173), the console on `~` (#174) and remote control over Bevy's Remote Protocol (#175); and a project skill or an MCP server through which Claude Code drives the game (#176).
-    ≈10–20 agent-hours (estimate).
-    Done the same night in ten pull requests of the game (#183–#193) and the skill's (#194): the game opens on its menu, borderless, and a game starts and ends inside the process; the console and `--exec` scripts run the game's commands, and Claude Code drives a game started with `--remote` through `tools/game/remote.py` (docs/03 §3.7, the skill `game`).
-    Pasting into the console followed once the maintainer allowed BSL-1.0, the licence of the clipboard's Windows backend (#189).
-11. **M2 into M3: the walk and the start's world.**
-    The night of 2026-10-20, with the queue of M2 run out but for what waits on later milestones, the research and the features went on in some twenty pull requests (#205–#231), the code's reading shared with subagents of the session:
-    the open buildings, the castles' walls and towers, whose upper floors show from outside (#149, #203);
-    a click that sends the hero to the cell under the cursor and onto its level, as the original picks it (#204, #208);
-    the hero's id, 1, by which the creatures in its way stop it only when hostile, while the NPCs stop at it and at one another (#157, #212);
-    the chests' cells, closed by the scripts' trigger patches rather than by their objects (#211, #216);
-    the world peopled as the original peoples it, by the sectors' `Init` and `Enter` script functions and their `FillSector` records (#215, #221, #222: the start's novices and animals, rabbits about it, goblins and thieves placed, bandits further out), standing idle, hostile ones in the hero's way;
-    and the fight stance, which the NPCs take by the distance of the hero's nearest hostile and the hero by its own (#155, #219, #230).
-    Their departure is docs/decisions/spawning.md, "Sectors' creatures kept and seeded".
-    The rules read off the code and not yet seen in the original are gathered for the maintainer in #227.
-    Then (item 12): the creatures' items and packs (#228, #229) and their life while no foe is near (#232), before their fight.
-12. **M3 into M4: the creatures' life.**
-    The same night went on in some twenty more pull requests (#235–#271), the research shared with subagents of the session:
-    the fills' creatures in their packs and with their `MakeGroup` items (#228, #229);
-    the creatures' life while no foe is near, read off the code (#232, docs/re/ai.md): they wake by their timers and the hero's look and step about (#237), the animals flee and stroll (#238), the guards keep their posts (#239), and the crowded ones part and step aside for the hero (#240), a walk that cannot start standing a second (#258);
-    and the townsfolk's day, read (#241) and followed in the sub-issues of #255 (#247–#254): they roll at the hero's looks within the zoom's range, walk home, to the animals, the traders and their partners, and meet them; the children play and gather about the hero; the jugglers play their instruments; they run from danger and from the Daemon (#269); and at dusk and by night the town goes into its houses.
-    Their departures are in docs/decisions/ai.md; the checks for the maintainer are added to #227.
-    Then the doors that open and close (#268) and the lines over the creatures (#270), done in #274 and #275, and the fight's rules (item 13), which the creatures' attacks, the guards' torches (#61) and the danger of a fight wait for.
-13. **M3: the fight.**
-    The rest of the night of 2026-10-20 read the fight off the code (#276, #281, #294, #300, #316; docs/re/fight.md, docs/re/items.md) and followed it in some twenty pull requests (#286–#319), the sub-issues of #285, the research shared with subagents of the session:
-    the balance's rows by the difficulty (#277) and the creatures' health by their levels (#278);
-    the hostile creatures coming at the hero and keeping the band of their reach (#279), striking with their attack clips at their attack speed (#280, #306), their hits resolved by the chance of attack against defence, the damage against the resistances and the damping, the number over the target, and death (#282);
-    an NPC's attack, defence, damage and resistances by its attributes, its level, its bonuses and its skills (#281, #293), and an armed one's by its weapon, made by its template (#294, #309);
-    the hero attacking at a click, its strikes chained faster (#283, #312), taking the creatures' hits by bronze's factors, regenerating, falling and rising at the start (#292), and gaining levels by its kills' experience (#300);
-    the wounded creatures fleeing and the far ones going home (#304); the bosses and the champions (#316, #318); each hero at its own speed (#298), and the creatures' lines over them in a tall window (#296).
-    Their departures are in docs/decisions/fight.md; the checks for the maintainer are added to #227.
-    Next: the doors in the way, the places about the hero and the archers (#284, the last open sub-issue of #285, split in #391 and #392 after #383 read them); the hero's items and its character sheet come with the interface.
-14. **The documents against the code.**
-    On 2026-10-20 the documents were audited against the code, the issues and the pull requests (#321–#325), and the problems found were filed as issues of their own (#326–#333).
-    Among them: the rules live in `opensacred-game`, with no `opensacred-rules` or `opensacred-oracle` yet (#328); a creature killed or moved comes back whole with its sector (#329); and the game's zoom number was the inverse of the original's (#330, since fixed).
-15. **The night of 2026-10-20 into 21: the data's repairs, the kept creatures and the rules' crate.**
-    The night opened with the maintainer's answers to #328, #273 and #227, and went on in some twenty pull requests (#365–#390), the work shared with subagents of the session:
-    the converter repairing the original's data as it writes `assets/`, by the rule of #348: the MP3 samples' and the music's bytes before their first frame (#354, #367), the forearms' two spellings (#355), the instruments' socket (#353), the lavas' streaks (#347) and the Underworld menu's faint tile (#352), each recorded as a decision;
-    the creatures that go with their sectors kept as the original keeps them, a killed monster never coming back and a fill's living ones put back where they stood (#329); the hero no longer going round at a stair it was sent to (#373); a fleeing creature fleeing to its point (#387); the hero opening and closing a door by a click, its trigger's cells with it (#372); and a command's Windows paths keeping their backslashes (#368).
-    The maintainer chose to move the rules out of the game (#328): `opensacred-rules` now holds the spawning (#359), the fight's formulas and the hero's levels (#360), the ways and the cells in the way (#361) and the creatures' decisions (#362), the game keeping its systems, components and resources (#364); the oracle is #363.
-    The research read the table defects that the community reports (#357, none to repair in the data), the archers' arrows, the places about the hero and the doors in the way (#383), and measured the doors' leaves and headings from the models (#273, in part); the checks in the original are a page of 68 with the shortest way to each (#227), and the problems found on the way became issues of their own (#367, #368, #371–#374, #387).
-    Next: the archers (#391), the places about the hero and the doors in the way (#392), the oracle (#363).
-16. **The morning of 2026-10-21: the archers, the oracle's vectors and the drops.**
-    The night went on in some thirty more pull requests (#395–#436), the work shared with subagents of the session:
-    the archers keeping their band and shooting (#391), putting their bows away for melee and taking them again (#396), the places about the hero and the doors in the way (#392), and a creature walking to a far target a leg at a time (#425);
-    the converter repairing the models' defects that the community reports and the research confirmed in the data (#358): the dwarf's earth amulet (#398), a cannon's strap (#399) and the large dragons' tail roots (#400), each recorded as a decision;
-    the oracle (#363), the original's fight's functions in Unicorn on the developer's own `Sacred.exe`, whose vectors found five departures of the rules, all fixed: the most health grows as `S^g` (#408), the weight of nearly nothing (#406), the exponent 99 levels above (#407), the level's factor above its last point (#418) and a most below 1 (#417); the crate waits for the maintainer (`deny.toml`, #422);
-    the drops read (#404) and followed: the tail of `Balance.bin` (#413), the rules of what a killed creature drops (#414) and the drops falling and lying where it dies (#415), without the runes, the uniques, the sets and the pick-up yet (#412);
-    and the doors' outer and inner points measured from the models and placements, with no table of the client's (#273).
-    The defects whose repair changes the look, the voices or the texts wait for the maintainer (#401–#403), the scripts' objects at their exact positions waits for a look at a door in the original (#429, a draft), and the checks in the original are 83 with the night's 15 (#227).
-    The maintainer chose a driver of the running original for Claude Code (#448): Frida, not a Rust crate, and the original run in place in `OriginalGame/`, where it may write its own files; the plan is in the documents (#453) and in four steps (#449–#452), after which Claude Code works the checks of #227 itself.
-    Next: the townsfolk and the monsters through the doors by their points (#431), which way a door's leaf turns (#430), the driver of the original (#449–#452), and the rest of M3: the character, its skills and combat arts.
-17. **The night of 2026-10-21 into 22: the original's driver, the checks in the original and the heroes' items.**
-    The driver of the running original came in its four steps (#449–#452): `Sacred.exe` under Frida in the background, its input and menus, the world's state and commands, and the traces of its functions, which Claude Code then used to work the checks of #227 itself, with second Frida sessions reading the creatures' words and stats.
-    The checks it ran confirmed the sectors' creatures, the guard and the captain in the way, a chest's cells, the packs, the waking steps, the guards, the fleeing, the places about the hero, the range by the zoom, the children and the coming at the hero by a clear line, and led to some twenty pull requests (#460–#493):
-    a creature's strike chaining or waiting for the AI's two steps (#466), the rabbits' variants without a behaviour (#468), the damage numbers' colours and fading (#470), the doors' swing and the models' handedness confirmed (#430, #445), the hero's regeneration in its fight stance (#474), the townsfolk and the monsters by a door's points (#431), a drop rising and falling in place (#478), the trigger's state traced (#480), and an `Enter` function's trader or speaker keeping no flags (#482);
-    and the heroes' items: the templates' inventory read (#486), each hero holding its template's weapon and moving with its class's clips (#488), the items' bonus slots and the cosmetic items that count for nothing (#490), and a bow's multiplier and the skill 10's health (#492), so that every class's hero of level 1 has the original's attack, defence, damage, resistances, attack speed and most health.
-    A race in Bevy's spawner that an item attached at once to a scene spawned anew could hit is held off by a wait of four frames (#488); the console's tests no longer read an earlier run's settings (#484).
-    The way past a wall's corner (#476) and the floor-2 doors (#459) wait for the maintainer's choice; the checks in the original left are in #227.
-    Next: the skills and the attribute points spent, the combat arts, an NPC's most health by its skill 10, and the rest of the checks.
-18. **The day of 2026-10-22: the combat arts read, and the game's own commands of the driver.**
-    The combat arts' two tables, their fields, the runes that name them, their regeneration and their strikes were read (#500; docs/re/arts.md, #501, #502, #512), and an NPC's most health took its skill 10 (#498).
-    The maintainer chose the way round a wall's corner into a house (#476, #503) and the script's models standing in their own cell's place (#459, #513), and the goblins kept the original's voices (#402, #514); the blacksmith's apron was made opaque (#401, #517), and the models' texels tested and blended by their alpha as the original's (#516, #519).
-    The game took the driver's commands for itself, so that one script drives both: `cell`, `cell-info` and `nearest` (#522), `creatures` and `stats` (#523), `spawn` and `kill` (#524), `item` (#525), and `level`, `experience`, `heal`, `god` and `fly` (#526); its `--remote` keeps off the driver's port (#528).
-    The original ran on a locked desktop with dgVoodoo2 beside it, its watermark off (#546, #548), and a failed CI run is rerun by hand rather than worked around (#544).
-19. **The night of 2026-10-22 into 23, and the day: the conformance runs, the hero's arts, and the maintainer's choices.**
-    The driver took `god`, `heal`, `level`, `experience`, `spawn`, `kill`, `drop`, `item`, `pause` and the arts (#558–#573), and `tools/game/compare.py` and `tools/game/conformance.py` compared the two games' creatures, values, drops, regeneration, strikes, arts and runs (#574–#648).
-    What they found was fixed in some forty pull requests (#563–#682): the levels of the scripts' creatures and of the fills by their sectors (#540, #541, #562, #570, #582, #621), the bosses' health by their rank (#583), the fist fight (#592), `A` and `D` at the x87's 53 bits (#593), the sides that make a creature hostile (#580), the derived item types among the drops (#596), the walk and the run by the pace (#599), the regeneration, the creatures' decisions and the hero's orders on the world's tick of 0.1 s (#616, #639, #640), and the strikes' level factor and rolled damage (#615, #620).
-    The hero makes its combat arts (#505–#509): the arts' tables from `Sacred.exe` (#581), a creature's arts, levels and runes (#604), the regeneration and the skills that shorten it (#613), an art's strikes (#619) and the hero's clips and strikes (#638); then the kicks and their knockback (#650, #676), the other classes' `Rundum`, `Hardhit` and `Attacke` (#649, #679), and a right click on an art not ready walking to the creature (#654).
-    The creatures of hostile sides fight one another (#630), a struck creature raises its group's alarm (#669), a creature's kill earns it experience (#690), and the quests' `OnSetUp` functions place their givers (#624).
-    The fight took its sound: the hero's strikes keep their pace and one click strikes once (#704, #705), the creatures and the heroes speak and their weapons sound (#713, #729–#735), the hero's death plays its music (#734), and a sound takes its volume and pan by its place (#731).
-    The maintainer chose (#716, #718, #721, #694): multiplayer after version 1.0, as the milestone M9, the browser version dropped, the scripts translated into Luau (ADR-13, #720), and the converter in two stages, the extractions into lossless masters and `build` into the game's assets (#736–#739), which the game reads in layers from ZIP archives by kind (#699, #740, #741); the texts' defects are repaired with words of the project's own (#403, #683, #684).
-20. **2026-10-24: the special weapon arts, the Vampiress, the assets' formats, and a night's queue.**
-    `build` encodes the textures into KTX2 with BC7 and mipmaps (#700, #744) and the sound into Ogg Opus that the game decodes by libopus (#701, #745), and the mip levels' alpha is raised only, so that the models stay solid from afar (#816).
-    The creatures' effects came into play (#651, #763), with the effect 53 that turns a part of one kind's damage into another's (#761, #783), and the special weapon arts were read (#653, #753, #762) and made, each class's in a dozen pull requests (#754–#760, #766–#813): the Dark Elf's boons, viper, arrowproof and panther, the Dwarf's war cry and frenzy, the Gladiator's hand of god, heroism, roar, jump and backbreaker, the Seraphim's hurled blades, whirling blow and jump, the Daemon's 1094 and forms, the Wood Elf's multi-shot, dumdum, club arrow and blades, and the Vampiress's arts.
-    The hero shoots with a bow or a crossbow (#784, #785), the Wood Elf wears her own model (#789), and the Vampiress is a hero (#790) with her night form, its speeds and its record (#792–#795), her dash, claw jump, blood bite, domination, death's kiss and bloodlust.
-    Every text file is UTF-8 without a BOM and with LF on every platform (#834, #835), `sound.ron` and the cutscenes' files lost what repeated their ids and names (#827, #828), and the items' sockets take the scales above them (#814).
-    The session of that evening took the queue in its order (#831, #826, #830, #838, #754): a `new-game` keeps the command line's `--zoom` and `--no-music` (#840), zstd 0.14 (#841), the tables parsed once a run (#842), the statics' sprites assembled by the converter, so that the start's sectors read 14.4 MiB for their sprites instead of 23.5 and `textures.zip` drops the 10,585 atlases (#843), and the Seraphim's 1018, its effect 16 putting the item 3809 in her hands (#845).
-    Found on the way: the items whose level lowers the attack speed and the pace (#844), and the Seraphim's shots of 1018 and 1019, their beams the objects 875 and 801 (#754).
-    Next: the special weapon arts' objects and effects (#761, #672), the rest of the classes' arts (#754–#760) and of the checks (#227), then M4's scripts in Luau (#720).
-21. **The night of 2026-10-24 into 25: the spells, the followers, and the rest of the special weapon arts.**
-    The NetScript functions' control flow was read and structured (#848, #858), and the converter writes the script trees as Luau sources and compiles them into bytecode that runs against the walker (#863, #870), `luau0-src` 0.22.1 held back for its bytecode's version (#869).
-    The special weapon arts went on (#849–#868): the Seraphim's 1019 and her bolts, which land as the original's (#850, #855), the Gladiator's 1016 (#852), the Daemon's charge 1091 and its blast with the art's attack (#853, #857), his ring of poison and emperor (#865) and his breath of fire (#868), the Dwarf's war frenzy (#861), guns (#867) and momentum (#866), and the Dark Elf's soulcatcher (#862); the items above their holder's level lower the speeds (#859).
-    The spells were read (#876, #891) and made in some twenty pull requests (#877–#899): the cast at its share of the clip and the Mage's fireball; the Mage's skins, shields, healing, quickening, attacking spells, teleport, water form, stone and ring of frost; the Seraphim's striking, strengthening, holding and converting spells; and the Dwarf's, the Daemon's and the Wood Elf's spells.
-    The followers were read (#896) and made (#900): they keep the band of 150 to 240 about the hero, step off, are put near it from afar, and fight for it, and the Wood Elf's unicorn and the Vampiress's wolf are summoned so.
-    Then the Vampiress's awakening, whose raised dead raise their kills in turn (#903, #904), her master's bite (#905) and her bats (#906), with the Wood Elf's spider arrow (#902), so that every art of #756 and #758 is made.
-    The Mage's whirlwind knocks back and his banishing circle sends the weak away (#901), the ring of frost slows by an NPC's time's factor, the effect 15's value (#907), and the Wood Elf's changeling turns the creatures about her into animals for a time (#908), so that every spell of #887 and #888 is made.
-    The objects of #761 were read by subagents of the session and made: the Dark Elf's traps, a ball thrown in an arc that makes an explosion, a pentagram, a confusion, a poison or a fog where it lands (#913), with his spellproof (#910), so that every art of #757 is made; and the death's kiss's skull, which homes and curses each creature it touches, and its bleeding (#914).
-    The checks in the original saw the hero's death and rising (#882), the master's bite's effect 14 go to its target rather than to her, the bats' clip and level, a rabbit's flight (#227, check 8), and the packs of 48,38 walking on all the time (check 7), which their reading found to be the idle action's steps moving a whole group, as the game now moves it (#912, #915); a creature's way ends in its target's cell whoever stands there (#883, #884).
-    By the morning the last of #761's effects were read: 35 a marker, 16 and 17 the Seraphim's bolts' level, 50 the Daemon's form, 60 its object, and 26 a spell turned aside, which under 1046 shares its damage among the hostiles about her rather than going back to its caster (#919), so that #761 is done.
-    The Daemon in his form now wades over the cells an arrow flies over where a corner lies low, loses it on a building's or a settlement's cell, sees its last seconds counted over him, and as it ends off the ground is put on the dry ground about him or drowns, his steps sounding as wings (#920, of #918); the followers keep their master's pace (#921), and of their step off the original's floor and its two rolls for the two axes were read (#922, #926).
-    M4 began: the rules hold the scripts' state, the quests' flags and transitions, the variables and the dialogues' table (#916, of #724), and `opensacred-scripts` runs a tree's Luau sandboxed, a file at a time from its bytecode, each call bounded and its records handed to a host (#917, of #725).
-    The texts' repairs went on in the project's own words: the four quest-log keys that resolve to nothing have lines, the fifth reference being a script's typo (#923, of #687), and the eleven gameboxes are named by their art (#925, of #686), so that of #403 only the items' names remain (#685).
-    Found on the way: the hero cannot pick up the items on the ground (#911), for which the Gladiator's thrown weapon waits (#755); how the original picks them up was read, from the click and its priorities to the inventory's grid and the automatic pick-up (#924).
-    The tests on the game files passed on `main` in the morning, 742 of 742.
-    Waiting for the maintainer: the chest whose cell patch is cut short (#871).
-    Next: the game running the scripts in Luau (#726, of #720), the hero picking up the items (#911) and with it the Gladiator's 1013 (#755), the rest of the followers (#895, #657), and the checks in the original still open (#227).
-22. **2026-10-25: the M3 bugs, and the scripts in Luau.**
-    The day's dependency update (#985), then six M3 bugs: the waters' crabs and fish drawn under their surface (#983), the console's spawn on the driver's cells and by the class's side (#984), an archer that gives up a hero gone beyond 800 or out of its line (#972), no stepping aside for a creature of the AI's state 0 (#977), a course found once at its order (#981, #989), and a hero landed in a wall by a bad stair stepping out (#978).
-    The translated scripts keep their markers' order (#993), and the game runs its scripts in Luau (#726, of #720): the hero's tree's `StartCode` and every sector's `Init` and `Enter` at a new game's load, through `opensacred-scripts`, the records handed back to `npcs`' readers.
-23. **The night of 2026-10-25 into 26: the scripts through the play, M3 closed, and the dialogues.**
-    The maintainer chose Luau before the rest of M3, and the scripts now live on through the play (`scripts::Live`): the regions' `Init`s (#585), the base triggers and the hero's teleports into the caves (#1002, closing #954), the timers (#933), `SetDrop` (#930), the barred triggers (#1006), `SetObjState` (#952) and `SetHP` (#1001), with the console's `script` and `quest`.
-    M3 was closed on the way: the hero picks up the items on the ground (#911), a death's gold (#976), the Gladiator's hurled weapon (#755, closing #511), the summoned followers' bit 0 and the step off's floor (#1013), and the Vampiress's start floor (#1017).
-    The play's records reach the world: `CreateNPC` and `CreateObj` (#1014), the hero's home (#974), the deaths' functions and `GroupIsDead` (#656), `SetNPCState`'s heading, group and stock (#658), a sight function (#1025), `SetGroupState`, `DelNPC`, `SetOnKill` and `SetOnCollect` (#1021), `NPC_Goto` and a creature's `Teleport` (#1035), and a place at a creature (`CPOS:`, #1046).
-    The dialogues, read in the original and its code (#1024): a click on a creature of a dialogue sends the hero to it, and its window shows its name, its portrait, its texts and its buttons, which run their functions (#1028, #1032); `Popup`, `InfoPlayer` (#1033) and `NPC_TalkTo` (#1037) begin talks and show texts; the icons over the creatures pulse as the original's, whose tints never show (#1039).
-    The scripts' hired followers were read and made: an escort follows the hero, never fights, runs from a fight and is let go (#657).
-    Read and found dead in the release: the dynamic quests, whose templates are empty and whose functions the runner refuses, so that their table, their hook, `Dialog` and the `ToDo`s never run (#1020, #1037, #1051).
-    Bugs found and fixed: Luau files whose names differ in case alone overwrote each other on Windows (#1043), the runner ran the functions that the original refuses (#1051), the scripts' variables told names that differ in case apart (#1054), the Fluent literals of the texts (#1030), and a `0x60` taken for a death function (#1025).
-    The sieges' and the world change's music follow the scripts' variables (#55, its music).
-    The maintainer's new rule: an issue taken into work and a pull request are assigned to oneself (#1049), and all the earlier ones were assigned.
-    The tests on the game files passed on `main` in the morning, 828 of 828.
-    Next: the rest of #55 (the world's changes, `RegionChange` and `ReplaceSpawn`), the trades and the blacksmith of M4, and the texts' repairs that wait for the maintainer (#403, #685).
-24. **2026-10-26: M4's end: the world's changes, the weather and the items' names.**
-    The maintainer moved the trade (#1066) and the blacksmith (#1067) to M5, where the inventory and its windows come, and kept the weather's choice in M4, its drawing going to M5 (#1072, #1073).
-    `RegionChange` was read again and followed (#1063, #1064): a record replaces its area's list while a function runs and adds to it once a function it called has ended, the later `CreateNPC`s of the area that carry `0x6B` of 0 take the list's type (none of the soldiers', as the original shows, #1102) and keep their records' side, and the creatures that exist take the new type, their items, the record's flags and its side, made again where they stand.
-    So after quest 45 the soldiers about the world turn hostile, while those that the sectors' `Enter`s make again come of the new types but peaceful, by their records (confirmed by code, not seen in the original).
-    Two slips of the world change's fills were repaired on the maintainer's word (#1068): area 2's fills turn back after quest 72, and the two `ReplaceSpawn`s without a side take their siblings' hostile guards' mode.
-    The weather was read (#1065, docs/re/weather.md): drawn and heard only, chosen by the camera's sector's `sectors.keyx` entries on timers of real time that every sector shares, carried with the screen's quakes, the lightning and the butterflies by one event; the game follows its choice and its levels (#1072).
-    The 301 nameless item types that reach the player take names of the project's own, 214 names (#685, closing #403); the original shows such an item with no name, its tooltip beginning with its class's line (seen).
-    Three advisories of Bevy's zstd 0.13 are ignored, none reached, until Bevy moves to zstd 0.14 (#1070, #1071).
-    Next: the breakdown of M5 and M6 into issues.
-25. **The night of 2026-10-26 into 27: M5's menus, the weather drawn, the interface, the sounds and the first effects.**
-    The day's dependency update (#1113) and the README after M4 (#1112), then the sectors' fills kept and filled again by the regions (#1107, #1116).
-    The original's main menu and choice of the hero were read (#1115) and made (#1120, #1123): its menus' water moving, music, drops and idle sounds (#1141, #1142), the figures of the showcase in what they wear (#1138, #1139, the items' models read in #1137), the Underworld's choice with its pedestals empty (#1133), the introductions one at a time and gone with the screen (#1148), the descriptions laid out as the original's (#1150), and the difficulty a drop-down list of bronze and silver (#1149), carried through the rules (#1126, #1135) and the scripts' tests, the hostile creatures hardened (#1155); the voices at their places' volume and `playSFX`'s rate (#1143).
-    The weather is drawn and heard (#1073): the rain, the fog and the storm's lightning (#1156), the snow and the screen's quakes (#1158), the crows and the bats over the camera, their sector's byte confirmed in the running original (#1187), the butterflies and the fireflies (#1190), and the Big Demon's steps' jolts (#1195), so that #1073 is done.
-    The interface over the world (#1087): the client's interface images whole (#1160), the cursor's looks, the hand over an item and the sword over a foe (#1157), the item's name beside the hand (#1161), and the bar and the hero's portrait at the original's places, matched with its frames (#1164).
-    The scripts' rewards, `AddExp`, `AddGold` and `Gewinn` (#1163), a strike's damage rounded as the original's (#1151), the items table with the client's changes (#1153) and the overlay's textures in one numbering (#1154).
-    The sound's sources were read whole (#1182) and filed as sixteen issues (#1166–#1181), and in the night most were played: the doors', the pick-up's, the gold's and the level-up's (#1184), the spells' and the combat arts' (#1185), the hero's critical cry and the fire ghoul's end (#1186), the animals' misses by the weapon's name (#1196, after the types' names of `Sacred.exe`, #1193), the idle effects and the water's loops (#1188, a decision on the water's pan), the listener's loudness by the zoom (#1192), the other creatures' footsteps (#1195) and the fires' loops (#1197).
-    The effects were read (#1165) and the particle systems' machinery made with the world's fires, set beside the original's braziers (#1189), the chimneys' and the lavas' smokes (#1194) and the geysers (#1198); by night the fires and the fireflies keep their colours, drawn by a camera of their own after the night's pass (#1205, closing #1191), and an empty system warns no more (#1204, closing #1203).
-    The hero comments on the fight as the original's (#1200), names the kind of foe it attacks (#1206), breathes as it runs and stands (#1207) and remarks on its foes on the run, their motions kept over their last 16 updates (#1208), so that #1175 is done.
-    The magic skeletons and the undead goblins rise once, 4 s after their first fall, with no drop nor experience at it, the skeletons draining a lower killer, and burn away at their last (#1201, closing #1199, seen in the running original first); their effects and the other undead's ends are #1202.
-    Subagents of the session read the code for the ambience, the footsteps, the hero's comments in the fight and the undead that rise again; one original ran at a time.
-    Found on the way: the night's pass darkening the effects that the original leaves untinted (#1191), the runes left out of the drops (#1183), the undead that rise again (#1199), their effects (#1202) and the effects' empty meshes (#1203).
-    The tests on the game files passed on `main` before #1200, 892 of 892.
-    Next: the hero's comments in the world and the quests' sounds (#1176), the rest of the effects (#1092, #1202), and the inventory and its windows (#1088).
-26. **2026-10-27: the sound's last threads, the scripts' music and remarks, and the anim mode.**
-    The peace stream's alternation was read (#1211) and followed: the music and the ambient loop take the stream in turns (#1177); the original's driver's mute reads a stream's volume back as asked (#1213).
-    The voices: a dialogue's voice-over ends as its window closes (#1234), and the voice-overs and the hero's lines by name share one slot (#1238).
-    The scripts in the play: `ExitQuest`, `LoseQuest` and `UnTriggerQuest` (#1242), the scripts' music, jingles and sound control and the quests' fanfare (#1243), the hero's remarks on the quests and on idling (#1246) and on the land, its regions and settlements (#1247), so that #1176 is done; the talks' binds and `SelfTriggerQuest<n>` were read (#1250), and a side quest accepted by a dialogue's button gives `GETNQ` (#1253).
-    The scripts' anim mode queues a creature's walks and teleports, one step a tick (#1220).
-    The hero plays its pick-up as it takes an item (#1219), lands on its start's floor as soon as its cell is in (#1218) and keeps what ends its art or strike through an order (#1215); a creature's crossbow that its model cannot shoot becomes a bow (#1217).
-    The choice of the hero's panel is laid out of the original's pieces (#1221), and the interface's images that the original turns keep their part and their turn (#1236).
-    The maintainer's new rule: a problem that shows on the screen carries its frames, cropped, in its issue and pull request (#1222).
-27. **The night of 2026-10-27 into 28: the inventory, the scripts' queues and the undead's ends.**
-    The day's dependency update (#1258), then the maintainer's three reports: the pick-up's clip plays at the original's rate (#1255); the items that the scripts lay in the world are picked up, the Seraphim's plant of quest 15001 among them (#1256); the "!" over a creature stands left of its head as in the original, the glyph in its texture's left columns (no issue: the maintainer chooses whether to centre it); #1168 was closed at the maintainer's word.
-    The class 5's deaths (#1260): the skeleton warriors' changes as they rise, the bursts, the vanishing and the fire ghoul's burn; the undead's ring and dust of 781 (#1261, a decision on the dust's points), and the magic skeletons' drain beam beside the original's (#1263).
-    The inventory (#1088) was read in the original and its code (#1251) and broken into sub-issues: its windows and frames (#1267); the backpack's grid with the items as their models, turned by their records' transforms through a mirror of the files' y found by the original's frames (#1268); the templates' backpacks at a new game's start (#1285); and the cursor's item, taken, put down, swapped and dropped beside the hero (#1269).
-    The equipment (#1270) was split into its slots (#1288), the putting on (#1289) and the hero's values and look (#1290); the use's test waits for the class bits and the level byte to be settled in the original.
-    The scripts' anim mode (#1232): its other kinds, the waits and the cinema were read (#1276); the queue keeps every kind and plays `PlayAnim`, Malorka's dancers going through their clips as in the original (#1277); a `CallFunktion` naming a creature waits its turn (#1278), and `Wait` holds its creature's queue (#1279).
-    The cinema's walk of the Daemon's start was tried in the original, where the hero did not walk under the driver, so its hypothesis waits for a reading (#1280, its comment).
-    The scripts' test `0x3A` finds an item in the hero's list of the main quest's items (#1257); quest 204 played through it found two bugs, both fixed: a death's function now places at its dying creature (#1295), and a `CreateObj` of an item's type lays an item to pick up, as seen in the original (#1296).
-    `luau0-src` 0.22.1, held back by #869, was yanked upstream, and #869 was closed.
-    The tests on the game files passed before each merge, 948 of 948 at #1263.
-    Waiting for the maintainer: whether the "!" over a creature is to be centred.
-    Next: the equipment's use test, read first (#1288), then #1289 and #1290; the effect 856 (#1262); the rest of the queue's kinds (#1281); and the cinema's hero (#1280).
-28. **The morning of 2026-10-28: the equipment worn, the belt, the runes and the sort.**
-    The equipment window's slots and their glow (#1288), putting items on and taking them off (#1289), the hero's values made again by what it wears (#1290), and its look by it, the classes' defaults taken off and given back by their slots (#1307), seen beside the original's; the original's glow of the wings waits in #1309.
-    The belt: its flasks lit by the potions in the grid, the healing potions drunk by a click, by Space and by the right button in the grid, at the original's shares of the most health by the difficulty (#1311); the right button's potion to the weakest follower, and Shift for the yellow one (#1313); the potions' creature events were read, a healing potion's share added as followed (#1328), and the other potions' effects wait in #1272.
-    The runes: the drops' runes, a table of `Sacred.exe` written into `tables/runes.ron`, by the original's chance of the hero's level, class, runes and arts (#1183, the drops' decision losing its "no runes"), and read from the backpack by the right button (#1315).
-    The weapon sets' rule was read (#1317) and written in `opensacred-rules` (#1319); the taskbar's sets and the hero's arms by them are #1271's.
-    The inventory's sort by its button (#1321), the doc's "largest first" corrected to the smallest first; the hero's line on a full backpack (#1324).
-    Later the same morning: the yellow potions turned out the combos' cocktails, which set the combos' regeneration (#1330); the weapon sets' lock and the sort's mode, the inventory window's own, were read (#1332); the amulets are worn on the hero as in the original, whose rings show nothing (#1334); and the original's glow of the wings was traced to their model's effect texture, which the game's retexture covers (#1309's comment).
-    The tests on the game files passed before each merge, 974 of 974 at #1334.
-    Waiting for the maintainer: whether the "!" over a creature is to be centred.
-    Next: the taskbar's weapon sets and the hero's arms by them (#1271), the other potions' effects and the `Use:` items (#1272), the items' tooltip (#1273), the effect 856 (#1262), the rest of the queue's kinds (#1281), and the cinema's hero (#1280).
-29. **The day of 2026-10-28: the driver's clicks, the hero's queue, the weapon sets, the potions and the books.**
-    The maintainer decided that the "!" over a creature stays left of its head, as in the original, and the question of items 27 and 28 is closed.
-    The maintainer's own clicks in the original under `--interactive` showed why the driver's clicks missed the interface's windows: the items' page tests the cursor's previous point, which only a mouse move sets; the driver now moves twice before a click, reads the windows and their controls (`ui`, `ui press`), names the tooltips' links by the scripts' functions and points at an object by its id (#1340, #1341).
-    The maintainer's report that a hero at full health drinks no potion is the original's own rule, which the game follows since #1311.
-    The scripts' cinema mode and the hero's own queue (#1280, #1342): `NPC_Goto` takes its last name, a `Teleport` of none puts the hero in its turn, and the Daemon's start walks nobody, in the original as in the game (seen).
-    The hero heads for a far target a leg at a time, the nearer point tested on the target's floor (#1344, #1345); the rest of the original's way out of a building's floor is #1346.
-    The weapon sets (#1271): kept and drawn in the taskbar's slots (#1347, #1350), chosen by a click or the keys 1 to 5 with the hero's arms made again by them (#1348, #1351), and, the inventory open, the items put into the sets and taken out, the grid's right button sending a weapon or a shield into the selected set and the halves that would take the held item glowing (#1349, #1352), each matched with the original's frames; the slots' damage icons and the skill of two weapons are left out.
-    The potions' effects (#1353, #1357), read in the code and seen in the original: the purple's undead that its drinker kills never rise, the blue's kill earns half its base experience more, the green cure the effect 30 by their per cent, and the yellow, whose combos wait for #1090, are only used up; the effect 30 is what a strike gives (**hypothesis**: the poison), which the game never gives yet (#1354).
-    The books and the scrolls read from the backpack join the hero's books read and are used up (#1358, #1359), and the command `item` throws any type.
-    Found on the way: #1341 had joined the driver's `KILL_TRIES` into a comment, and its `kill` failed until #1356 (#1355); the first window of a new game and its tips (#1343); and, the maintainer's report, the garden's quest plant named and drawn unlike the original's (#1360).
-    The tests on the game files of the crates changed passed before each merge.
-    At the maintainer's word the documents were brought up to date (#1362) and the decision log is to be gathered by subsystems, a table each (#1361).
-    Next: the garden's plant (#1360), the rest of #1272 (the horse, the `Use:` items), the items' tooltip (#1273), the strikes' poison (#1354), the effect 856 (#1262), the rest of the queue's kinds (#1281), the wings' glow (#1309), the first window (#1343) and the queue's walk (#1346).
+The plan of 2026-10-16 for the first thirty days was M0, the converter's first formats and a Bevy application with one sector and the hero: that was done by 2026-10-17, and by 2026-11-17 M0 to M5 were done and every issue of M6 was closed.
+This section records, at the level of a plan, when each milestone was done and what it delivered.
+The day-by-day record is in the Git history (this section held it until 2026-11-17, for the days to 2026-10-28), the pull requests and the issues of the GitHub milestones M2–M9.
+The details are in their own documents: the formats in docs/02, the original's behavior in `docs/re/`, the deliberate deviations in `docs/decisions/`, the tools and the process in docs/03, and what each crate holds today in `CLAUDE.md`, "Workspace".
+
+* **M0 Foundation: done 2026-10-16.**
+  The Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with its `verify`), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions, and the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt`, which the converter checks an installation against.
+  The manifest lists 313 files: the files the game writes left it on 2026-10-17 (docs/02 §13), and the six that nothing of the project reads on 2026-10-29 (#1482).
+  The process followed on 2026-10-17: every change reaches `main` through a squash-merged pull request with green checks (#1), each pull request carries its Claude Code usage (#16, docs/usage.md), and the queue is the issues (§10.1).
+* **M1 Converter: done 2026-10-17**, its four exit criteria met (docs/07 §2).
+  The readers of `opensacred-formats`, cross-checked against the Python prototypes of `tools/analysis/`, and the converter's extractions: the textures, the Granny models with their animations as glTF that glTF-Validator passes without errors or warnings, the 6,050 sectors of the world with the statics' sprites, the sound, the texts, the videos, the interface, the tables, the hero templates and the NetScript trees (§7, docs/02).
+  `coverage` accounts for every file of the manifest (G1), and each command records a manifest of its run, by which `all` skips what still holds.
+  Since then the converter took its two stages (M3), the repairs of the original's data (#348), the scripts' translation into Luau (M4), and the player's run and the Steam installation (M6).
+* **M2 Vertical slice: G2 met 2026-10-17, the milestone closed 2026-10-23.**
+  `opensacred-game` on Bevy 0.20: the sectors streamed about the hero with their ground, liquids and static objects under the original's 2:1 dimetric camera, the hero walking and running, the start script's NPCs and objects, footsteps, music and ambient loops, day and night, the buildings' insides and upper floors, and the screenshot test of a synthetic scene that CI runs on lavapipe (docs/05).
+  The tools to test and drive the game (#165, docs/10) came on 2026-10-19 and 2026-10-20: the settings' file, the menus, the debug overlay, the log, the console, the scripts of `--exec`, and remote control (`--remote`, `tools/game/remote.py`, the skill `game`), through which Claude Code plays the game itself.
+* **M3 Rules: closed 2026-10-26.**
+  The Ghidra project was set up ahead of it, on 2026-10-18 and 2026-10-19 (moved from M0, as M1 and M2 worked from the data): the classes from RTTI, the community names, the library marks, and the names carried between `Sacred.exe` and `GameServer.exe` (#88; docs/03 §3.2, §4.1; `tools/ghidra/`).
+  Read off the code into `docs/re/` and made: the world's creatures by the sectors' script functions and their `FillSector` records, kept with their sectors; the creatures' life and the townsfolk's day; the fight with health, death, experience and levels, the bosses and the champions, the archers; the drops and their pick-up; the heroes' items; the combat arts, each class's special weapon arts, the spells, the followers and the summonings.
+  The rules moved out of the game into `opensacred-rules` on 2026-10-21 (#328, #364), and `opensacred-oracle` (#363) recorded its first vectors, which found five bugs of the rules, all fixed (§4.2).
+  The driver of the running original (#448, 2026-10-22; docs/03 §3.8) lets Claude Code make the checks in the original itself (those of #227 closed on 2026-10-25), and `tools/game/compare.py` and `conformance.py` compare the two games' creatures, values, drops, strikes and arts.
+  The converter took its two stages on 2026-10-23 and 2026-10-24 (#694, from M7): the masters in `assets-src/`, and `build` into KTX2 (#700), Ogg Opus (#701) and ZIP archives (#699); since 2026-10-21 it repairs the defects of the original's data as it writes them (#348).
+  The maintainer's choices of 2026-10-23: multiplayer after version 1.0 (M9), the browser version dropped, and the scripts translated into Luau (ADR-09, ADR-13).
+* **M4 Quests and world: closed 2026-10-26.**
+  The converter translates the NetScript trees into Luau and compiles them (#723), `opensacred-scripts` runs them sandboxed and bounded (#725), `opensacred-rules` holds the quests' state, the variables and the dialogues' table (#724), and the game runs the scripts through the play (#726): the start's, the sectors' and the regions' functions, the base triggers and their teleports, the timers, the creatures and objects that the records make, move and remove, the deaths' functions, and the world's changes (`RegionChange`, `ReplaceSpawn`).
+  With them came the dialogues and the icons over the creatures (#1028), the scripts' hired followers (#657) and the weather's choice (#1072).
+  The dynamic quests were read and found dead in the release (docs/re/netscript.md, "The dynamic quests").
+  The texts' defects are repaired with words of the project's own (#403, #685; docs/decisions/text.md).
+  The trade and the blacksmith went to M5 on 2026-10-26, where the inventory's windows came.
+* **M5 UI and effects: closed 2026-11-09**, with 892 issues.
+  The original's main menu and choice of the hero with the difficulty levels (#1118, #1119), the interface over the world and the dialogue's window (#1087), the inventory with the equipment, the belt, the weapon sets and the tooltips (#1088), the character's sheet (#1089), the combat arts' window, the art slots and the combos (#1090), the quest book and the maps (#1091), the trade (#1066), the blacksmith (#1067) and the item sets' bonuses (#1727).
+  The weather drawn and heard (#1073), the sound by the profiles (#1093), the effects of the spells, the arts and the world as the original's particle systems (#1092), the creatures' casts (#1852), and the movies where the original plays them (#1094).
+  The saves came from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns could be played through and checked (#1095).
+  The guardrails grew beside it, on 2026-10-29: property tests of the rules and round trips of the open formats (#1428, #1434), the oracle's `fuzz` (#1431), mutation testing of the lines a pull request changes (#1432, a required check since #2690), and the tools that keep parallel sessions apart (#1396; docs/03 §3.4, §3.5).
+* **M6 Version 1.0 for Windows 11: every issue closed by 2026-11-17, the milestone open until version 1.0** (G5).
+  The player's release (#1494): the converter finds a GOG or Steam installation (#1484, #1496) and converts it in one run (#1497), which the packaged game starts at its first start (#1498); the Release workflow publishes the newest version at most once a day, with a 7z archive of the game, the converter and the project's own FFmpeg build (#1548, #1500, #1499).
+  Every key in `controls.toml`, the defaults the original's (#1553); the original's options window and the settings behind it (#1096); 4K and HiDPI (#1098).
+  The horses (#1822); the Underworld campaign with its heroes, a hero carried into it and the hero's export (#1117, #2362, #2358); the difficulty's other rules (#1125) and the Underworld's bosses' specials (#2548).
+  Both campaigns were played through to their ends in Claude Code's driven runs on 2026-11-10, no critical bug stopping either (#1099, G4).
+  The game's assets lost what the game never reads (#2645), the loaded sectors share the ground's tile sheets and the statics' sprites (#2484, #2485), and the interface's pieces are assembled at the original's pixels before they are scaled (#2636).
+  The research of the soft shadows (#1436) ended on 2026-11-11; the next day the shadow-mapped ones left `main` for the experiments' branch (#2623), and the models' flattened shadows took soft edges (#2624).
+  What remains is the maintainer's own play-through, after which version 1.0 is released (the decision of 2026-11-10, #2479).
+* **M7 HD assets: research begun, the rest after version 1.0.**
+  Done on 2026-11-12: the game's recording into one lossless Matroska file, each frame at its time, with the game's sound (#1225).
+  By the maintainer's decision of 2026-11-12 `main` keeps the original's shadows alone, with softer edges, and the lighting, shading and depth experiments live on a branch of their own, kept for M7 and never merged whole (#2622).
+  Open with it: the statics' sprites with a depth per texel (#1437), the sprites receiving the sun's soft shadows (#2604), and the statics placed from a depth model's view of the whole scene (#2621).
+  The upscaling and the HD packs of §8 have not started.
+* **M8 Platforms and M9 Multiplayer: after version 1.0.**
+  M8 holds the gamepad (#1097) and the ASTC textures for Android (#702); M9 has no issue yet (§13).
 
 ### 10.1 Priority queue
 
 Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M9 of §9.2 are GitHub milestones.
 Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
-The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-20 there were none: all 17 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable; on 2026-10-28 none was open for the 25 direct dependencies.
+The dependencies are updated every day without a session (#1550): the Dependencies workflow (`.github/workflows/deps.yml`, running `tools/deps/daily.py`) moves every package to its newest compatible version in a pull request that merges itself once its checks are green, and opens a `deps` issue for every newer incompatible release of a direct dependency, of a Python package, of Rust, of Python and of a source of the release's FFmpeg (`CLAUDE.md`, "Work order"; docs/03 §3.3).
+A session takes an issue with `tools/stack/claim.py`, which refuses one that another session holds or that another account filed (`CLAUDE.md`, "Issues and pull requests").
+On 2026-11-17 the queue holds no bug and no `deps` issue: beside the documents' audit (#2787), the research of M7 (#1437, #2604, #2621, #2622) and M8's gamepad (#1097) and ASTC textures (#702) are open.
 
 ## 11. Top risks
+
+The table is the plan's of 2026-10-16 with its later rows; the full register is docs/08 §7.
+Where its first rows stand on 2026-11-17: the animations converted and passed their checks in M1; the rules are compared with the oracle's vectors and the running original since M3; both campaigns' scripts ran to their ends in M6 (#1099); Bevy has had no breaking release since the start; and an agent-hour costs more than the model said, while the whole stayed within the estimate (§9.1).
 
 | Risk | Probability | Impact | What we do |
 |---|---|---|---|
@@ -612,11 +462,11 @@ The daily dependency check opens a `deps` issue for every newer incompatible rel
 Details: [docs/08-risks-legal.md](docs/08-risks-legal.md).
 This is not legal advice.
 
-* Every user needs their own lawful copy of the GOG release.
+* Every user needs their own lawful copy of the game: the GOG release, or the Steam one, which the converter takes too (#1484).
   Interoperability work (studying the formats and the behavior, writing our own code) relies on Articles 5(3) and 6 of Directive 2009/24/EC, which a contract cannot override (Article 8).
-  The GOG release has no copy protection, so nothing is circumvented.
+  The GOG release has no copy protection, so nothing is circumvented; the Steam release's `Sacred.exe` is wrapped in Steam's DRM, which encrypts its code: the converter reads only the data sections that the DRM leaves as they are and decrypts nothing (docs/08 §2).
 * The repository and CI hold no game bytes: no game files, no `Sacred.exe`, no converted assets, HD packs, memory dumps, decompiler output or game texts.
-  Tests that need the game run locally on the user's installation in `OriginalGame/` (git-ignored); CI runs only the tests that need no game files.
+  Tests that need the game run locally on the developer's installation, `OriginalGame/` (git-ignored) or the GOG one that the registry names (#1556); CI runs only the tests that need no game files.
 * Converted output is generated locally from the user's own copy and is never published.
   The same rules apply to issues and pull requests, which carry only the frames of a problem, cropped to it, as their attachments (docs/08 §3, #1222).
 * OpenSacred is not affiliated with the rights holder; Sacred is a trademark of THQ Nordic GmbH.
@@ -624,11 +474,10 @@ This is not legal advice.
 
 ## 13. Open questions
 
-1. The actual cost of an agent-hour on the project's tasks (in tokens and at API prices): to be refined after 30 days.
-2. Whether Android is needed: a decision after version 1.0; the browser version was dropped on 2026-10-23.
-3. How multiplayer is made after version 1.0 (M9): our own protocol between OpenSacred games or the original's (TinCat 2, docs/09 §3.2), so that the original clients could join; a host's game or a dedicated server; which network crate; its estimate.
+1. Whether Android is needed: a decision after version 1.0; the browser version was dropped on 2026-10-23.
+2. How multiplayer is made after version 1.0 (M9): our own protocol between OpenSacred games or the original's (TinCat 2, docs/09 §3.2), so that the original clients could join; a host's game or a dedicated server; which network crate; its estimate.
 
-Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the channel order of format 6 textures (docs/02, §3.1), how completely the Granny animation curves carry over to glTF (all of them do, docs/02 §4.5); on 2026-10-17, where the image of the extensionless static templates of `Items.pak` lives (the `mixed.pak` sprite named at `+0x10`, docs/02 §3.3, §6.1).
+Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the channel order of format 6 textures (docs/02, §3.1), how completely the Granny animation curves carry over to glTF (all of them do, docs/02 §4.5); on 2026-10-17, where the image of the extensionless static templates of `Items.pak` lives (the `mixed.pak` sprite named at `+0x10`, docs/02 §3.3, §6.1); on 2026-11-17, the actual cost of an agent-hour on the project's tasks: ≈98M tokens, nearly all of them cache reads, and ≈$27 at API prices (§9.1).
 
 ## 14. Document index
 
@@ -645,10 +494,15 @@ Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2),
 | [docs/09-ecosystem.md](docs/09-ecosystem.md) | game versions, community work, comparable projects |
 | [docs/10-game-tools.md](docs/10-game-tools.md) | tools to test and drive the game: settings, menu, overlays, log, console, remote control |
 | [docs/re/](docs/re/) | the original's behavior described in prose, per subsystem |
-| [docs/decisions/](docs/decisions/) | deliberate deviations from the original's behavior |
+| [docs/decisions/](docs/decisions/) | deliberate deviations from the original's behavior, a table per subsystem ([README](docs/decisions/README.md)) |
 | [docs/usage.md](docs/usage.md) | how Claude Code usage is recorded per pull request; the sessions before |
-| [tools/README.md](tools/README.md) | research analysis scripts, the game's remote control and the original's driver |
+| [docs/manifest-gog-2.28.txt](docs/manifest-gog-2.28.txt), [docs/manifest-steam-2.28.txt](docs/manifest-steam-2.28.txt) | the SHA-256 of the reference GOG installation's files, and of the Steam release's four files that differ |
+| [tools/README.md](tools/README.md) | the research analysis scripts, the Ghidra project's scripts, the game's remote control, the original's driver and the process tools |
+| [README.md](README.md) | the project's overview: status, requirements, getting started, the keys |
 | [CLAUDE.md](CLAUDE.md) | the conventions of development with Claude Code |
+| [.claude/skills/game/SKILL.md](.claude/skills/game/SKILL.md), [.claude/skills/original/SKILL.md](.claude/skills/original/SKILL.md) | Claude Code's project skills: how to run and drive the game, and the original |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | the notices of the community projects whose facts the readers follow |
+| [release/README.txt](release/README.txt) | the read-me of the player's archive |
 
 ## Sources
 
