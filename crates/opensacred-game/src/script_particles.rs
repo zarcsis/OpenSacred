@@ -12,9 +12,10 @@
 //! gives the hero the effect 33 of the whole value of the first number for the seconds of the
 //! second (`0x582D50(33, n0, 0, n1, …)`), whose adder takes its value of 0 for a half, heals
 //! the hero whole and readies its arts (`0x5841DA`), plays its pick-up's clip (172) where it
-//! stands, its gold sparks of the variant 2 on its body (`particles::statue_sparks`), and the
-//! jingle `LEVELUP01`. Seen in the original (#1846): the power-up 2 raised the hero's third
-//! damage factor from 1 to 1.5.
+//! stands, its gold sparks of the variant 2 at every `⌊V/500⌋`th vertex of its model as last
+//! posed (`particles::vertex_sparks`, #2766), drawn over its model as the level-up's are
+//! (`puffs::spawn_over`), and the jingle `LEVELUP01`. Seen in the original (#1846): the power-up
+//! 2 raised the hero's third damage factor from 1 to 1.5.
 
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, GOLD_ARROW, SMOKE_PUFFS, SPAWN_RING, SPAWN_SOUND};
@@ -61,7 +62,7 @@ fn make(
     mut made: MessageReader<Partikel>,
     (heights, mut dice): (Res<Heights>, ResMut<Dice>),
     heroes: Query<(Entity, &Transform), With<Body>>,
-    (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
+    (shapes, meshes): (crate::vertices::ModelPoints, Res<Assets<Mesh>>),
     creatures: Query<(&ScriptName, &Transform), Without<Body>>,
     mut sounds: MessageWriter<Play>,
 ) {
@@ -72,9 +73,13 @@ fn make(
         {
             power_up(&mut commands, entity, (whole, seconds), &mut sounds);
             let at = at.translation;
-            let points = crate::undead::bones(entity, at, (&children, &names, &places));
-            let burst = particles::statue_sparks(&points, partikel.colour, &mut dice.0);
-            crate::puffs::spawn(&mut commands, burst, at, None);
+            let points: Vec<[f32; 3]> = shapes
+                .picked(entity, &meshes)
+                .into_iter()
+                .map(|point| crate::puffs::local(point, at))
+                .collect();
+            let burst = particles::vertex_sparks(&points, partikel.colour, &mut dice.0);
+            crate::puffs::spawn_over(&mut commands, burst, at, entity);
             continue;
         }
         let creature = |name: &str| {
