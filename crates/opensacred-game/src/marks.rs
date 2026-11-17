@@ -4,13 +4,14 @@
 //! (`opensacred_rules::particles::Mark`): the lost souls' dark star of streaks at each soul's
 //! starting point. The night tints it as it does the ground under it. A body's blood puddle (907,
 //! `opensacred_rules::particles::Puddle`, #2516) is laid so too, unturned, growing and fading by
-//! its own clock.
+//! its own clock, and a blow's blood splashes (903, `opensacred_rules::particles::Splashes`,
+//! #2773), small blobs of the blood's colour that fall about a place for a second and lie twelve.
 
 use std::collections::HashMap;
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
-use opensacred_rules::particles::{Mark, Puddle};
+use opensacred_rules::particles::{Mark, Puddle, SPLASH_GRID, SPLASH_TEXTURE, Splashes};
 
 use crate::frame::{Playing, Unpaused};
 use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
@@ -32,20 +33,23 @@ struct Unmade {
 enum Kind {
     Mark { hold: f32, half: f32 },
     Puddle(Entity),
+    Splashes([f32; 3]),
 }
 
-/// What shows: a mark and its half side, or a puddle.
-#[derive(Clone, Copy, Debug)]
+/// What shows: a mark and its half side, a puddle, or a blow's splashes.
+#[derive(Clone, Debug)]
 enum Look {
     Mark(Mark, f32),
     Puddle(Puddle),
+    Splashes(Box<Splashes>),
 }
 
 impl Look {
-    fn update(&mut self, dt: f32) {
+    fn update(&mut self, dt: f32, dice: &mut Rng) {
         match self {
             Self::Mark(mark, _) => mark.update(dt),
             Self::Puddle(puddle) => puddle.update(dt),
+            Self::Splashes(splashes) => splashes.update(dt.min(0.1), dice),
         }
     }
 
@@ -53,14 +57,16 @@ impl Look {
         match self {
             Self::Mark(mark, _) => mark.done(),
             Self::Puddle(puddle) => puddle.done(),
+            Self::Splashes(splashes) => splashes.done(),
         }
     }
 
-    /// Its half side, and its alpha.
+    /// Its half side, and its alpha; a blow's splashes none, each blob its own.
     fn square(&self) -> (f32, f32) {
         match self {
             Self::Mark(mark, half) => (*half, mark.alpha()),
             Self::Puddle(puddle) => (puddle.half(), puddle.alpha()),
+            Self::Splashes(_) => (0.0, 0.0),
         }
     }
 }
@@ -122,6 +128,19 @@ pub(crate) fn puddle(
     ));
 }
 
+/// Lays a blow's blood splashes of the blood `colour` on the ground about `place` (903,
+/// `0x7A5C30`).
+pub(crate) fn splashes(commands: &mut Commands, place: Vec3, colour: [f32; 3]) {
+    commands.spawn((
+        Unmade {
+            texture: SPLASH_TEXTURE,
+            kind: Kind::Splashes(colour),
+        },
+        Transform::from_translation(place),
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
 /// Gives each new mark its look, its turn at random (`rand()/32767 · 2π`), its mesh and its
 /// material (`0x76DD40`); a puddle none (`0x76E150`).
 fn make(
@@ -161,10 +180,11 @@ fn make(
                 )
             }
             Kind::Puddle(_) => (Look::Puddle(Puddle::default()), 0.0),
+            Kind::Splashes(colour) => (Look::Splashes(Box::new(Splashes::new(colour))), 0.0),
         };
         let body = match unmade.kind {
             Kind::Puddle(body) => Some(body),
-            Kind::Mark { .. } => None,
+            Kind::Mark { .. } | Kind::Splashes(_) => None,
         };
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
@@ -192,20 +212,54 @@ fn make(
 /// flat on the ground, turned about the upright by its turn, its texture's `u` and `v` running
 /// from 1 at its corner of `(−s, −s)` to 0 at `(s, s)`, white at its alpha; a puddle (`0x76DE50`,
 /// `0x76DF00`, the flat quad `0x7631E0`) unturned, its `u` and `v` running from 0 at `(−s, −s)`
-/// to 1 at `(s, s)`; each goes once faded.
+/// to 1 at `(s, s)`; a blow's splashes (`0x7A5970`, `0x7A59E0`) each blob a square of its half
+/// side flat on the ground about its place, turned by its angle, of its frame of the texture's
+/// 2 × 2, in its ramp's colour at its life; each goes once faded.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut marks: Query<(Entity, &mut Shown, &GlobalTransform)>,
-    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
+    (mut meshes, orders, mut dice): (ResMut<Assets<Mesh>>, crate::fx::Orders, ResMut<Dice>),
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
     let (across, depth) = iso::fx_axes();
     for (entity, mut mark, place) in &mut marks {
-        mark.look.update(dt);
+        mark.look.update(dt, &mut dice.0);
         if mark.look.done() {
             commands.entity(entity).despawn();
+            continue;
+        }
+        if let Look::Splashes(splashes) = &mark.look {
+            let mut quads = Quads::default();
+            let side = 1.0 / f32::from(SPLASH_GRID);
+            for blob in &splashes.system.particles {
+                let (sin, cos) = blob.angle.sin_cos();
+                let [px, py, _] = blob.place;
+                let corner = |x: f32, y: f32| {
+                    let (x, y) = (x * cos + y * sin, -x * sin + y * cos);
+                    (across * (px + x * blob.size) + depth * (py + y * blob.size)) * s
+                };
+                let cell = Vec2::new(
+                    f32::from(blob.frame % SPLASH_GRID),
+                    f32::from(blob.frame / SPLASH_GRID % SPLASH_GRID),
+                ) * side;
+                quads.push_corners(
+                    [
+                        corner(-1.0, -1.0),
+                        corner(1.0, -1.0),
+                        corner(1.0, 1.0),
+                        corner(-1.0, 1.0),
+                    ],
+                    [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y].map(|uv| cell + uv * side),
+                    splashes.ramp.at(blob.life),
+                );
+            }
+            if let Some(mut mesh) = meshes.get_mut(&mark.mesh) {
+                let origin = place.translation();
+                quads.in_order(orders.at(origin), origin);
+                quads.into_mesh(&mut mesh);
+            }
             continue;
         }
         let (sin, cos) = mark.turn.sin_cos();
@@ -216,7 +270,7 @@ fn run(
         };
         let uvs = match mark.look {
             Look::Mark(..) => [Vec2::ONE, Vec2::Y, Vec2::ZERO, Vec2::X],
-            Look::Puddle(_) => [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
+            Look::Puddle(_) | Look::Splashes(_) => [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
         };
         let mut quads = Quads::default();
         quads.push_corners(

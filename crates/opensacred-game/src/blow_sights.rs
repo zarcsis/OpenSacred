@@ -7,7 +7,8 @@
 //! the original draws the system before the creature it follows (`fx::Orders`, #2178)
 //! (`opensacred_rules::particles::{Bleed, Parade}`).
 //!
-//! Not followed: the blood's puddle (903) that the bleed leaves under the violence, and the
+//! Under `[gameplay] violence` a bleed leaves its blood's splashes on the ground about its
+//! creature as it ends (903, `marks::splashes`, #2773). Not followed: the
 //! parade's frame, taken as the camera's (**hypothesis**).
 
 use std::collections::HashMap;
@@ -15,7 +16,8 @@ use std::collections::HashMap;
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
 use opensacred_rules::particles::{
-    BLEED_TEXTURE, Bleed, PARADE_COLOURS, Parade, blood_colour, blow_bleeds,
+    BLEED_TEXTURE, Bleed, PARADE_COLOURS, Parade, bleed_splashes, blood_colour, blow_bleeds,
+    splash_offset,
 };
 
 use crate::bolt_looks::world;
@@ -44,10 +46,10 @@ impl Default for Dice {
     }
 }
 
-/// Each creature type's blood (`items.pak`'s category and gib set), read at the start; one
-/// without, the heroes', bleeds red.
+/// Each creature type's blood and gib set (`items.pak`'s category and gib set), read at the
+/// start; one without, the heroes', bleeds red, of the set 0.
 #[derive(Resource, Default)]
-struct Bloods(HashMap<u32, [f32; 3]>);
+struct Bloods(HashMap<u32, ([f32; 3], u8)>);
 
 /// The sights' materials, made as the first asks: the droplets laid over by their alpha, the
 /// streaks of their vertices' colours laid over; none for the droplets where their texture is
@@ -55,12 +57,13 @@ struct Bloods(HashMap<u32, [f32; 3]>);
 #[derive(Resource, Default)]
 struct Looks(Option<(Option<Handle<Effect>>, Handle<Effect>)>);
 
-/// A bleed that shows: its creature, its look, its blood and its mesh.
+/// A bleed that shows: its creature, its look, its blood, its gib set and its mesh.
 #[derive(Component)]
 struct Bleeding {
     target: Entity,
     look: Bleed,
     colour: [f32; 3],
+    gib_set: u8,
     mesh: Handle<Mesh>,
 }
 
@@ -81,7 +84,10 @@ fn read(mut commands: Commands, data: Option<Res<Data>>) {
         Ok(items) => commands.insert_resource(Bloods(
             items
                 .iter()
-                .map(|item| (item.slot, blood_colour(item.category(), item.gib_set())))
+                .map(|item| {
+                    let blood = blood_colour(item.category(), item.gib_set());
+                    (item.slot, (blood, item.gib_set()))
+                })
                 .collect(),
         )),
         Err(e) => warn!("blow sights: no bloods: {e:#}"),
@@ -162,15 +168,16 @@ fn make(
                 mesh,
             });
         } else {
-            let colour = minds
+            let (colour, gib_set) = minds
                 .get(blow.target)
                 .ok()
                 .and_then(|mind| bloods.as_ref()?.0.get(&mind.creature).copied())
-                .unwrap_or_else(|| blood_colour(2, 0));
+                .unwrap_or_else(|| (blood_colour(2, 0), 0));
             sight.insert(Bleeding {
                 target: blow.target,
                 look: Bleed::new(&mut dice.0),
                 colour,
+                gib_set,
                 mesh,
             });
         }
@@ -179,20 +186,34 @@ fn make(
 
 /// Runs each bleed a frame on (`0x76AEF0`) and draws it (`0x76AFF0`): its droplets facing the
 /// camera, turned by their angles, in its blood at the alpha of their life, where they flew from
-/// its creature's neck; it goes with its last droplet.
+/// its creature's neck; it goes with its last droplet, and then, with the violence on and but
+/// for the gib sets 3 and 4, leaves its blood's splashes on the ground within 15 of its creature
+/// (`0x76AEF0`, `0x5B34A8`; **estimate**: the creature's place for the system's on the ground).
 fn bleed(
     mut commands: Commands,
     time: Res<Time>,
     mut sights: Query<(Entity, &mut Bleeding, &Transform)>,
     (mut dice, mut meshes): (ResMut<Dice>, ResMut<Assets<Mesh>>),
-    orders: Orders,
+    (orders, settings, places): (
+        Orders,
+        Option<Res<crate::settings::Settings>>,
+        Query<&GlobalTransform>,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
+    let violence = settings.is_some_and(|settings| settings.gameplay.violence);
     for (entity, mut sight, at) in &mut sights {
         let sight = &mut *sight;
         sight.look.update(dt, &mut dice.0);
         if sight.look.done() {
             commands.entity(entity).despawn();
+            if violence && bleed_splashes(sight.gib_set) {
+                let [x, y] = splash_offset(&mut dice.0);
+                let ground = places
+                    .get(sight.target)
+                    .map_or(at.translation, GlobalTransform::translation);
+                crate::marks::splashes(&mut commands, ground + world([x, y, 0.0]), sight.colour);
+            }
             continue;
         }
         let [r, g, b] = sight.colour;

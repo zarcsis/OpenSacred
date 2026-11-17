@@ -7003,6 +7003,90 @@ impl Bleed {
     }
 }
 
+/// The texture of a blow's blood splashes and the side of its grid of frames (`0x7A58E0`,
+/// `0x7A59E0`).
+pub const SPLASH_TEXTURE: &str = "FX_BLOB_ALL";
+pub const SPLASH_GRID: u8 = 2;
+/// The splashes at most at once (`0x5A0C50`'s count for the type 903).
+const SPLASH_COUNT: usize = 100;
+/// The seconds for which the splashes fall (`0x7A5970`).
+const SPLASH_FALLS: f32 = 1.1;
+
+/// Whether a bleed of a creature of the gib set `gib_set` leaves its splashes on the ground as
+/// it ends (`0x76AEF0`): every set but 3 and 4; the setting `VIOLENCE` aside (`0x5B34A8`).
+pub fn bleed_splashes(gib_set: u8) -> bool {
+    !matches!(gib_set, 3 | 4)
+}
+
+/// Where a bleed's splashes lie from its place, along the ground's two axes (`0x76AEF0`): each
+/// `U·30 − 15`.
+pub fn splash_offset(dice: &mut impl Dice) -> [f32; 2] {
+    let mut roll = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+    let x = roll() * 30.0 - 15.0;
+    [x, roll() * 30.0 - 15.0]
+}
+
+/// A blow's blood splashes on the ground (903, `FX_BLOODPUDDLE`, `cParticleSystem_bloodpuddle`,
+/// its start `0x7A5C30`, run `0x7A5970` and draw `0x7A59E0`; #2773; docs/re/effects.md, "The
+/// blood splashes"): for 1.1 s a blob falls every 0.04 s (the `DETAILLEVEL` 2's) within 25 of
+/// its place along the ground's two axes, of a half side of 3 ± 2, turned at random, of one of
+/// the texture's four frames at random, still; each lies 12.75 s (−20), in the blood's colour,
+/// whole for its first 220 parts of 256 and fading over the last 36.
+#[derive(Clone, Debug)]
+pub struct Splashes {
+    pub system: System,
+    pub ramp: Ramp,
+}
+
+impl Splashes {
+    /// The splashes of the blood `colour`.
+    pub fn new([r, g, b]: [f32; 3]) -> Self {
+        Self {
+            system: System::new(SPLASH_COUNT),
+            ramp: Ramp::new(
+                [r, g, b, 1.0],
+                &[([r, g, b, 1.0], 220), ([r, g, b, 0.0], 36)],
+            ),
+        }
+    }
+
+    /// The blobs' layer: the life by −20 a second.
+    fn layer() -> Layer {
+        Layer {
+            life: -20.0,
+            ..Layer::default()
+        }
+    }
+
+    /// The blobs' block (the FX event's `+0x38`, 25, its spread along the ground).
+    fn block() -> Block {
+        Block {
+            size: spread(3.0, 2.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            offset: spread([0.0; 3], [25.0, 25.0, 0.0]),
+            interval: 0.04,
+            frames: 4,
+            ..Block::default()
+        }
+    }
+
+    /// A run of `dt` seconds: its blobs age, and new ones fall while its clock is below 1.1 s.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = [Self::layer()];
+        let falling = self.system.clock < SPLASH_FALLS;
+        self.system.update(dt, &layers);
+        if falling {
+            self.system
+                .emit(&[Self::block()], &layers, SPLASH_COUNT, dice);
+        }
+    }
+
+    /// Whether they fell and the last is gone.
+    pub fn done(&self) -> bool {
+        self.system.clock >= SPLASH_FALLS && self.system.particles.is_empty()
+    }
+}
+
 /// The parade's streaks, the colours of their five points from the head (`0x76C150`).
 pub const PARADE_STREAKS: usize = 10;
 pub const PARADE_COLOURS: [[f32; 4]; 5] = [
@@ -19366,6 +19450,79 @@ mod tests {
         );
         assert_eq!(burst.layer.size, -5.0);
         assert_eq!(burst.light, 0.0);
+    }
+
+    #[test]
+    fn a_bleeds_splashes_fall_for_a_second_and_lie_twelve() {
+        assert_eq!(
+            [0, 1, 2, 3, 4, 5].map(bleed_splashes),
+            [true, true, true, false, false, true]
+        );
+        let mut dice = Rng::of(4, 2, 9);
+        let offsets: Vec<[f32; 2]> = (0..200).map(|_| splash_offset(&mut dice)).collect();
+        for axis in 0..2 {
+            let along = offsets.iter().map(|offset| offset[axis]);
+            assert!(along.clone().all(|v| (-15.0..=15.0).contains(&v)));
+            // Over the whole of ± 15.
+            assert!(along.clone().fold(f32::MAX, f32::min) < -10.0);
+            assert!(along.fold(f32::MIN, f32::max) > 10.0);
+        }
+        assert!(offsets.iter().any(|[x, y]| (x - y).abs() > 5.0));
+        let mut splashes = Splashes::new([170.0 / 255.0, 0.0, 0.0]);
+        splashes.system = System::at_factor(100, 1.0);
+        assert!(!splashes.done());
+        // Half a second: a blob every 0.04 s.
+        for _ in 0..50 {
+            splashes.update(0.01, &mut dice);
+        }
+        let fallen = splashes.system.particles.len();
+        assert!((11..=14).contains(&fallen), "{fallen}");
+        // Past 1.1 s no more fall: 27 or so in all, flat within 25 of the place, still.
+        for _ in 0..100 {
+            splashes.update(0.01, &mut dice);
+        }
+        let all = splashes.system.particles.len();
+        assert!((26..=29).contains(&all), "{all}");
+        for blob in &splashes.system.particles {
+            assert!(blob.place[0].abs() <= 25.0 && blob.place[1].abs() <= 25.0);
+            assert_eq!(blob.place[2], 0.0);
+            assert_eq!(blob.velocity, [0.0; 3]);
+            assert!((1.0..=5.0).contains(&blob.size) && blob.frame < 4);
+            assert!((0.0..=std::f32::consts::TAU).contains(&blob.angle));
+        }
+        // About the whole of ± 25, turned every way, of every frame.
+        let blobs = &splashes.system.particles;
+        assert!(blobs.iter().any(|blob| blob.place[0].abs() > 12.0));
+        assert!(blobs.iter().any(|blob| blob.place[1].abs() > 12.0));
+        assert!(blobs.iter().any(|blob| blob.angle < 2.0) && blobs.iter().any(|b| b.angle > 4.0));
+        assert!((0..4).all(|frame| blobs.iter().any(|blob| blob.frame == frame)));
+        assert!(!splashes.done());
+        // At 1.1 s exactly none falls: two runs of 0.55 s drop as many as three.
+        let fallen_by = |runs: usize| {
+            let mut dice = Rng::of(4, 2, 9);
+            let mut splashes = Splashes::new([1.0; 3]);
+            splashes.system = System::at_factor(100, 1.0);
+            for _ in 0..runs {
+                splashes.update(0.55, &mut dice);
+            }
+            splashes.system.particles.len()
+        };
+        assert!(fallen_by(2) > 20);
+        assert_eq!(fallen_by(2), fallen_by(3));
+        // Whole in its blood until its last 36 parts, then fading.
+        assert_eq!(splashes.ramp.at(255.0), [170.0 / 255.0, 0.0, 0.0, 1.0]);
+        assert_eq!(splashes.ramp.at(40.0)[3], 1.0);
+        let fading = splashes.ramp.at(18.0)[3];
+        assert!(fading > 0.3 && fading < 0.7, "{fading}");
+        // The first lies 12.75 s; the last falls at 1.1 s and is gone by 13.9 s.
+        for _ in 0..120 {
+            splashes.update(0.1, &mut dice);
+        }
+        assert!(splashes.system.particles.len() < all && !splashes.done());
+        for _ in 0..10 {
+            splashes.update(0.1, &mut dice);
+        }
+        assert!(splashes.done());
     }
 
     #[test]
