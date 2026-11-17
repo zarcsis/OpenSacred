@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-18.
 The draw lists and the cells' chains are in [docs/02 §6.1](../02-data-formats.md#61-itemspak-itm-v5-the-object-template-database) and [§5.5](../02-data-formats.md#55-staticpak-floorpak-triggerspak); the depth formula is in [§5.3](../02-data-formats.md#53-heights-and-the-render-contract).
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-game` (`statics`, `models`, `blended`, `buildings`, `shadows`, `shadow_dots`, `fx`, `model_effects`, `skins`, `terrain`, `iso`, `srgb`, `sprites.wesl`, `models.wesl`, `order.wesl`, `standard.wesl`, `prepass.wesl`, `nearest.wesl`, `shadows.wesl`), `opensacred-rules` (`spells`), `opensacred-convert` (`world`, `model_scales`), `opensacred-data` (`world`, `tables`) and `opensacred-formats` (`world`, `items`).
 
 ## The rows
 

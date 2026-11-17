@@ -4,6 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and scans of the executable
 Seen in the running original with the driver of #448 on 2026-10-27 (a Seraphim's new game: the braziers of 50,39 by noon and by night, the butterflies of 54,42 by noon and by night, a torch in the hero's hand by night; frames in the scratchpad only).
 Status: **confirmed** by code unless marked otherwise.
 Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The objects' hits", "The objects' systems"), docs/re/weather.md ("The butterflies and the birds"), docs/re/daynight.md ("The light", "The glows") and docs/re/drawing.md (the draw lists, the engine's switch of render states `0x643430`/`0x643470`).
+Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
 
 ## Summary
 
@@ -329,7 +330,7 @@ Its frame's origin is the holder's place on the ground (the flag `4`), so that i
 - The draw: `PARTICLE_FIRE01` as a 4 × 4 flip-book, the flags `0x15` (additive `ONE`, `ONE`, turned), white: each flame plays the sixteen frames of a burst over its 0.32 s while it rises 16 units; then a glow of style 3 (`GLOW01`, `SRCALPHA`, `ONE`) of a half side of 20, the colour (255, 234, 59) at an alpha of 128, at the bone.
 - The start plays the sample 219 at the torch, looping, its handle kept at `+0xB0` and stopped with the system (**hypothesis**: the torch's crackle).
 - An end sent by the off switch (`+0x20A8` 1) stops the emission; the system dies when its last flame does.
-- No light of its own (above).
+- Its Direct3D light on the models is the table's ("The systems' Direct3D lights": (1, 1, 0)); the light about its holder by night is the hero's and the guards' rule (docs/re/daynight.md).
 - **Seen** 2026-10-27: with `TORCH_SMALL_ON` in the Seraphim's left hand by night, a bright yellow-white ball of flame at the torch's head, with the scene lit about the hero.
   **Seen** 2026-11-04 with `TORCH_LARGE_ON` in her right hand: as she runs, the flame stays a ball at the torch with a short streak down her arm, no trail behind her.
 

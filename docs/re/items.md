@@ -10,6 +10,7 @@ Then, but for equal bounds, which take no roll, it is `low + rand() % (high − 
   It seeds it with the time again in a quest's reward (`0x4AC984`), the scripts' drop of a creature's type (`0x4B073D`), `CreateObj` (`0x486401`), at the end of `FillChest` (`0x4A1440`) and at `0x60AB66`, `0x756A69` and `0x812D64`.
   It seeds it with a value of its own only where a roll is to repeat: `FillChest` by the hero and the container (`0x4A0705`, docs/re/containers.md), a creature's line of chatter by the creature's id `+0x0C` (`0x549A84`), and `0x425F64` and `0x426128` (not read further).
 The damage kinds 0–3 are physical, fire, magic and poison, as in docs/re/fight.md.
+Implemented in `opensacred-rules` (`drops`, `drops/quality`, `drops/sockets`, `drops/names`, `fight`, `fight/magic`, `trade/worth`, `equipment`, `particles`), `opensacred-game` (`drops`, `pickup`, `labels`, `glitter`, `npcs`, `tooltip`), `opensacred-convert` (`tables`, `boss_drops`, `item_patches`, `item_names`) and `opensacred-formats` (`items`, `tables`, `bin_tables`).
 
 ## The template (`wpmod.bin`)
 

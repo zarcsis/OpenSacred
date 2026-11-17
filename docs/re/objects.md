@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-21, for the original's driver (#448, #451; docs/03 §3.8), from the community's labels of the Ghidra project (sacred-sdk, **community-reported**) and the code.
 Status: **confirmed** on the code unless marked otherwise; "observed" marks what the driver read in the running original on 2026-10-21, at the Seraphim's start of a new game.
 Distances are in world units, 53.66563 a cell.
+Implemented in `opensacred-game` (`npcs`, `daynight`, `iso`, `command`) and `opensacred-rules` (`spawning`, `fight`); the driver's side in `tools/original/agent.js` and `tools/original/host.py`.
 
 ## The objects' table
 

@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-20 (#215).
 The record formats are in [docs/02 §7.3](../02-data-formats.md#73-the-opcode-space-141-and-113); the record walker in [docs/re/netscript.md](netscript.md).
 Status: **confirmed** on the code and on the trees' listings unless marked otherwise.
+Implemented in `opensacred-rules` (`spawning`, `fight`, `quests`, `equipment`, `drops`), `opensacred-game` (`npcs`, `scripts`), `opensacred-convert` (`tables`) and `opensacred-formats` (`bin_tables`).
 
 ## The sectors' functions
 

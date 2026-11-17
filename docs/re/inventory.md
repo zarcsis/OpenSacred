@@ -3,6 +3,7 @@
 Read 2026-10-28 for #1251 by a static reading of the GOG `Sacred.exe` 2.28 (a subagent of the session through the Ghidra MCP server and byte scans of the PE), and seen the same day in the running original (the driver of #448, the Seraphim's new game).
 Status: **confirmed** by code unless marked otherwise; places are pixels of the 1024 × 768 screen, as in docs/re/interface.md.
 "Image N" is the entry N of the interface's images' table at `0x9ECEB0` (`tables/ui_images.ron`), its anchors relative as docs/re/interface.md has them.
+Implemented in `opensacred-rules` (`inventory`, `equipment`, `sets`, `potions`, `trade`, `smith`, `set_bonuses`) and `opensacred-game` (`inventory`, `backpack`, `held`, `equipment`, `sets`, `belt`, `tooltip`, `runes`, `sparkles`, `set_icon`, `pickup`, `item_pictures`, `statistics`).
 
 ## Summary
 

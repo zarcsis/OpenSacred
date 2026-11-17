@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17.
 The cells' natures and the material table are in [docs/02 §5.2](../02-data-formats.md#52-a-sector-in-sectorswldx-the-32-b-floor-cell).
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-game` (`liquids`, `ambience`), `opensacred-convert` (`world`) and `opensacred-data` (`world`).
 
 ## Materials
 

@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17 (`tools/analysis/scripts/netscript_dump.py` checks the dispatch tables and reads the keyword resolvers; the handler widths below were read off their code).
 The record format is in [docs/02 §7](../02-data-formats.md#7-netscript-scripts); this document describes how the client reads it.
 Status: **confirmed** on the code and on all 2,203,278 records of the 20 trees, unless marked otherwise.
+Implemented in `opensacred-game` (`scripts`, `npcs`, `talk`, `rewards`, `icons`, `script_attacks`, `script_particles`, `cinema`, `fades`, `info_lines`), `opensacred-rules` (`quests`, `rewards`), `opensacred-scripts` (`lib`, `record`), `opensacred-convert` (`netscript`, `luau`, `flow`, `script_repairs`), `opensacred-formats` (`netscript`, `netscript/vectoren`) and `opensacred-data` (`netscript`, `luau`).
 
 ## Record walker `FUN_00475680`
 

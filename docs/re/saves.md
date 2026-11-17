@@ -3,6 +3,7 @@
 What the original's save holds, and when it saves and loads (read 2026-11-03 for #1956, a part of #1095; **confirmed** by code unless marked otherwise).
 The game does not load the original's saves (PLAN.md §1.1, ADR-08): this is what its own saves must give back.
 The saves' window is in docs/re/menus.md, "The saves' window"; the driver's view of it and the keys are in docs/re/window.md ("The menus that the driver clicks", the keys of `cEngine_receiveEvent`); the exported heroes `save/hero*.pax` are not saves (docs/02 §9, docs/re/menus.md).
+Implemented in `opensacred-game` (`saves`, `saves_window`, `save_picture`, `npcs`, `scripts`, `seed`, `points`) and `opensacred-rules` (`quests`).
 
 ## The file
 

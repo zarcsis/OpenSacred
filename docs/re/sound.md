@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17.
 The formats are in [docs/02 §10](../02-data-formats.md#10-sound-music-video), the natures of the cells in [docs/02 §5.2](../02-data-formats.md#52-a-sector-in-sectorswldx-the-32-b-floor-cell).
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-rules` (`music`), `opensacred-game` (`music`, `atmosphere`, `voices`, `sfx`, `sound`, `steps`, `ambience`, `remarks`, `art_sounds`, `hums`, `volumes`, `waterfalls`, `fx_loops`, `menu_sound`), `opensacred-convert` (`sound`, `voices`, `idle_noises`), `opensacred-data` (`sound`, `tables`) and `opensacred-formats` (`sound`, `voices`).
 
 ## Sound names
 

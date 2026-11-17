@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and byte scans on 2026-10-31 (#1066, #1617).
 Status: **confirmed** by code unless marked otherwise; the window, its pages and the purchase window **seen** the same day in the running original (the driver of #448) at the merchant of 50,40 (the creature 1165, type 692, level 2), the Seraphim at level 1.
+Implemented in `opensacred-rules` (`trade`, `trade/stock`, `trade/worth`, `drops`) and `opensacred-game` (`merchant`, `purchase`, `talk`).
 
 The prices are docs/re/inventory.md, §9 "The item's tooltip" (the price, `0x43C350`, `opensacred_rules::trade::shown`, #1273).
 The talk that opens the traders' windows is docs/re/arts.md, "The combat master" (`0x52AB70`): a creature of `+0x200` bit `0x2000` without a dialogue opens the inventory and `UI_WND_MERCHANT` and sends the window the UI event `0x2E` of the sub-kind 8 with its level (`+0x3FE`) and its id.
@@ -55,7 +56,7 @@ The best weapon skill's weapon: the balance's lists of the weapon skills' types 
 
 - None for no type; its size in cells (`0x428D60`) looked for at its first fit column by column (`0x5DABA0`'s mode 0), none where it fits nowhere.
 - The object is made (`0x5FB530`) and placed; gold, a potion (`0x428110`) and the categories 28, 26, 30 and 31 stay as they are, and the add answers that it made nothing.
-- Another item is made by the item maker (`0x5D5080`, docs/re/items.md) at the level `R(⌊0.98·L⌋, ⌊1.1·L⌋)` in one case of two, else `L`, by the floats a little above 0.98 and 1.1, rolled again where the first roll is below 1 (1 then), with the key, the raw key of the maker (not `16 − k` as a drop's); before the level, the maker's fourth argument is rolled (0 in three cases of four, else 1, 3 or 2), which it does not read.
+- Another item is made by the item maker (`0x5D5080`, docs/re/items.md) at the level `R(⌊0.98·L⌋, ⌊1.1·L⌋)` in one case of two, else `L`, by the floats a little above 0.98 and 1.1, rolled again unless the first roll is below 1 (1 then), with the key, the raw key of the maker (not `16 − k` as a drop's); before the level, the maker's fourth argument is rolled (0 in three cases of four, else 1, 3 or 2), which it does not read.
 - While it is made, the balance's `SlotFeasibility` is raised by `SlotProbBonusMerchant` (`0xAD56F0`, 0), the first socket's chance of the quality pass `0x5D2E40` (**confirmed** by code 2026-11-01, #1660; docs/re/items.md, "The sockets").
 
 ### The potions

@@ -75,6 +75,7 @@ The converted assets are made from your copy of the game. Keep them for yourself
 | `crates/opensacred-game` | the game on Bevy |
 | `crates/opensacred-locate` | finding the installation: the player's GOG or Steam one for the converter, the developer's GOG one for the development tools and the tests |
 | `crates/opensacred-oracle` | development only: the developer's own `Sacred.exe` in the Unicorn emulator, running the original's fight formulas to record the vectors the rules' tests compare with |
+| `crates/opensacred-docs` | development only: the map of the code ([docs/11-code-map.md](docs/11-code-map.md)) and the tests that keep the documents and the comments in line with the tree |
 | `docs/` | design documents, format descriptions, recovered behavior, decisions |
 | `release/` | the release archive's own files: its read-me, the configuration and template of the crates' licenses, the Fira Mono font's license |
 | `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, the original's driver under Frida, the release's FFmpeg build, and the process scripts (taking an issue, usage, stacked pull requests, the daily dependency update) |
@@ -105,6 +106,7 @@ Tests that need the game files are marked `#[ignore]`: CI does not have them. Cr
 | [docs/decisions/](docs/decisions/) | the deliberate deviations from the original, a table per subsystem |
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | the legal policy: what the project publishes and what it never does |
 | [docs/10-game-tools.md](docs/10-game-tools.md) | the game's commands, scripts and remote control |
+| [docs/11-code-map.md](docs/11-code-map.md) | the map of the code: a line per source file of `crates/`, generated from the file's own header |
 | [docs/usage.md](docs/usage.md) | how the Claude Code usage of each pull request is counted |
 | [tools/README.md](tools/README.md) | the research scripts and how to run them |
 | [CLAUDE.md](CLAUDE.md) | conventions for development with Claude Code |

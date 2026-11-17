@@ -1,0 +1,467 @@
+# The map of the code
+
+A line per source file of `crates/`: the first words of the file's own header, its `//!` doc comment or a shader's first comment.
+The lines are generated, never written by hand: `UPDATE_CODE_MAP=1 cargo nextest run -p opensacred-docs` writes the map again, and the crate's test fails while the map and the headers disagree.
+To find where a thing lives, search this file for its word, then read the header of the file it names: the header tells what the file holds and cites the notes of `docs/re/` it follows.
+A file's line is changed by changing its header.
+
+## `crates/opensacred-convert`
+
+- `crates/opensacred-convert/src/animation.rs`: Granny animation curves as glTF keyframes
+- `crates/opensacred-convert/src/boss_drops.rs`: The bosses' drops by their type
+- `crates/opensacred-convert/src/build.rs`: `build`, the converter's stage B
+- `crates/opensacred-convert/src/coverage.rs`: `coverage` subcommand
+- `crates/opensacred-convert/src/dead.rs`: The original's dead content
+- `crates/opensacred-convert/src/embedded.rs`: Images embedded in GRN files
+- `crates/opensacred-convert/src/ffmpeg.rs`: FFmpeg as an external program
+- `crates/opensacred-convert/src/flow.rs`: The control flow of a NetScript function
+- `crates/opensacred-convert/src/gltf.rs`: glTF 2.0 binary (`.glb`) of a GRN model
+- `crates/opensacred-convert/src/heroes.rs`: `heroes` subcommand
+- `crates/opensacred-convert/src/idle_noises.rs`: The creatures' idle noises
+- `crates/opensacred-convert/src/install.rs`: The player's run
+- `crates/opensacred-convert/src/item_names.rs`: Names of the project's own for the item types that `global.res` leaves without one and that a kill can make
+- `crates/opensacred-convert/src/item_patches.rs`: The client's own changes to its items table as it loads it
+- `crates/opensacred-convert/src/ktx.rs`: `build`'s textures
+- `crates/opensacred-convert/src/locate.rs`: The installation found, by `opensacred-locate`
+- `crates/opensacred-convert/src/luau.rs`: NetScript translated into Luau
+- `crates/opensacred-convert/src/main.rs`: `opensacred-convert`: offline converter of the player's own Sacred Gold 2.28 installation
+- `crates/opensacred-convert/src/manifest.rs`: The run manifests
+- `crates/opensacred-convert/src/model_repairs.rs`: Repairs of the models' data (docs/02 §4.6) that `models` makes as it writes the records they name
+- `crates/opensacred-convert/src/model_scales.rs`: The scale that the client gives 24 models as it loads its items table
+- `crates/opensacred-convert/src/models.rs`: `models` subcommand
+- `crates/opensacred-convert/src/netscript.rs`: `netscript` subcommand
+- `crates/opensacred-convert/src/portraits.rs`: The creatures' portraits of the dialogues' window
+- `crates/opensacred-convert/src/script_repairs.rs`: Repairs of the scripts' data (docs/02 §7.1) that `netscript` makes as it writes the trees
+- `crates/opensacred-convert/src/sound.rs`: `sound` subcommand
+- `crates/opensacred-convert/src/tables.rs`: `tables` subcommand
+- `crates/opensacred-convert/src/testing.rs`: Test helpers
+- `crates/opensacred-convert/src/text.rs`: `text` subcommand
+- `crates/opensacred-convert/src/text_repairs.rs`: Repairs of the texts (docs/02 §8) that `text` makes as it writes `global.ftl`
+- `crates/opensacred-convert/src/textures.rs`: `textures` subcommand
+- `crates/opensacred-convert/src/ui.rs`: `ui` subcommand
+- `crates/opensacred-convert/src/utf8.rs`: The converter's text files are UTF-8 without a BOM with LF line ends
+- `crates/opensacred-convert/src/verify.rs`: Checking an installation against the SHA-256 manifest of the GOG release
+- `crates/opensacred-convert/src/video.rs`: `video` subcommand
+- `crates/opensacred-convert/src/voices.rs`: The creatures' voices
+- `crates/opensacred-convert/src/world.rs`: `world` subcommand
+
+## `crates/opensacred-data`
+
+- `crates/opensacred-data/src/archive.rs`: The game's asset archives
+- `crates/opensacred-data/src/converted.rs`: The assets converted for a player
+- `crates/opensacred-data/src/heroes.rs`: The converted heroes
+- `crates/opensacred-data/src/lib.rs`: Open-format types shared by the converter and the game
+- `crates/opensacred-data/src/luau.rs`: The scripts translated into Luau
+- `crates/opensacred-data/src/netscript.rs`: The converted scripts
+- `crates/opensacred-data/src/packed.rs`: The binary files of the open formats
+- `crates/opensacred-data/src/round_trips.rs`: The open formats' round trips on random values
+- `crates/opensacred-data/src/sound.rs`: The converted sound
+- `crates/opensacred-data/src/tables.rs`: The converted tables
+- `crates/opensacred-data/src/text.rs`: The game's texts in the open format
+- `crates/opensacred-data/src/texture.rs`: The game's textures
+- `crates/opensacred-data/src/video.rs`: The converted cutscenes
+- `crates/opensacred-data/src/world.rs`: The converted world
+
+## `crates/opensacred-docs`
+
+- `crates/opensacred-docs/src/lib.rs`: `opensacred-docs`: development only
+
+## `crates/opensacred-formats`
+
+- `crates/opensacred-formats/src/amh.rs`: The AMH container of the hero templates `Templates/Hero*.ptx` and the saves `save/hero*.pax`
+- `crates/opensacred-formats/src/amh/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/arts.rs`: The combat arts' two tables compiled into `Sacred.exe`
+- `crates/opensacred-formats/src/arts/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/bin_tables.rs`: The data tables of `bin/`
+- `crates/opensacred-formats/src/bin_tables/balance_keys.rs`: The keys of the client's balance text and the variables they name in `Balance.bin`'s image
+- `crates/opensacred-formats/src/bin_tables/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/bmp.rs`: Windows bitmaps
+- `crates/opensacred-formats/src/error.rs`: Parse error
+- `crates/opensacred-formats/src/grn.rs`: Granny 1.2b files (`.GRN`) of the MDL records in `PAK/models*.pak`
+- `crates/opensacred-formats/src/grn/animation.rs`: Animation of a GRN file
+- `crates/opensacred-formats/src/grn/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/grn/model.rs`: Meshes of a GRN file and what draws them
+- `crates/opensacred-formats/src/grn/objects.rs`: Tables of the GRN object section that its other parts refer to by number
+- `crates/opensacred-formats/src/grn/skeleton.rs`: Skeleton of a GRN file
+- `crates/opensacred-formats/src/items.rs`: `PAK/items.pak`: the object types that `Static.PAK`
+- `crates/opensacred-formats/src/lib.rs`: Readers for the original Sacred Gold 2.28 (GOG) formats
+- `crates/opensacred-formats/src/mdl.rs`: MDL model containers
+- `crates/opensacred-formats/src/mdl/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/mixed.rs`: `PAK/mixed.pak`: the sprites of the static objects
+- `crates/opensacred-formats/src/mixed/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/netscript.rs`: NetScript bytecode
+- `crates/opensacred-formats/src/netscript/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/netscript/vectoren.rs`: `bin/<tree>/Vectoren.bin`: three counted tables back to back to the end of the file
+- `crates/opensacred-formats/src/pak.rs`: Common reader of PAK containers
+- `crates/opensacred-formats/src/pe.rs`: Where a virtual address of a 32-bit PE image lies in its file
+- `crates/opensacred-formats/src/portraits.rs`: The creatures' portraits of the dialogues' window compiled into `Sacred.exe`
+- `crates/opensacred-formats/src/reader.rs`: Reader of little-endian fields from a file held in memory
+- `crates/opensacred-formats/src/sound.rs`: Sound
+- `crates/opensacred-formats/src/sound/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/tables.rs`: The fixed-record tables
+- `crates/opensacred-formats/src/tables/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/testing.rs`: Test helpers
+- `crates/opensacred-formats/src/tex.rs`: TEX textures
+- `crates/opensacred-formats/src/tex/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/text.rs`: `scripts/<language>/global.res`: the game's strings by the hash of their name
+- `crates/opensacred-formats/src/text/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/type_names.rs`: The types' names that `Sacred.exe` holds (`0x8EC328`), entries of 0x44 bytes
+- `crates/opensacred-formats/src/voices.rs`: The byte table of the creatures' voices compiled into `Sacred.exe`
+- `crates/opensacred-formats/src/world.rs`: The world
+- `crates/opensacred-formats/src/world/game_tests.rs`: Tests on the GOG installation files
+- `crates/opensacred-formats/src/zlib.rs`: zlib streams of the containers
+
+## `crates/opensacred-game`
+
+- `crates/opensacred-game/src/ai.rs`: The creatures' life and their way of fighting
+- `crates/opensacred-game/src/ambience.rs`: The world's ambience of the sound manager
+- `crates/opensacred-game/src/arrow_elements.rs`: The arrows' elements
+- `crates/opensacred-game/src/arrows.rs`: The archers' arrows
+- `crates/opensacred-game/src/arsenal.rs`: The arms that the heroes' arts change
+- `crates/opensacred-game/src/art_burn.rs`: The burn of the bar's art slots
+- `crates/opensacred-game/src/art_slots.rs`: The bar's art slots
+- `crates/opensacred-game/src/art_sounds.rs`: The sounds of the hero's spells and combat arts
+- `crates/opensacred-game/src/arts.rs`: The hero's combat arts
+- `crates/opensacred-game/src/atmosphere.rs`: The atmosphere
+- `crates/opensacred-game/src/attack.rs`: The hero's attack
+- `crates/opensacred-game/src/backpack.rs`: The backpack's grid on the inventory's items' page
+- `crates/opensacred-game/src/banishing_runes.rs`: The look of the banishing circle's runes
+- `crates/opensacred-game/src/bar.rs`: The interface over the world
+- `crates/opensacred-game/src/bar_tips.rs`: The tooltips of the bar and the portraits' column
+- `crates/opensacred-game/src/battle_fogs.rs`: The look of the battle fog
+- `crates/opensacred-game/src/beacons.rs`: The gold arrows that a script's `Partikel` of the variant 3 sets over a place
+- `crates/opensacred-game/src/beams.rs`: The laser beams
+- `crates/opensacred-game/src/belt.rs`: The potions' belt
+- `crates/opensacred-game/src/benchmark.rs`: `--benchmark SECONDS`: renders without vsync for that long once the hero is in place
+- `crates/opensacred-game/src/blacksmith.rs`: The blacksmith's window
+- `crates/opensacred-game/src/blast.rs`: The Daemon's blast as his charge 1091 lands
+- `crates/opensacred-game/src/blended.rs`: The order of the blended things
+- `crates/opensacred-game/src/blood_fountains.rs`: The blood fountains
+- `crates/opensacred-game/src/blow_sights.rs`: The blows' sights
+- `crates/opensacred-game/src/bodies.rs`: The bodies' end
+- `crates/opensacred-game/src/body_parts.rs`: The body parts of a creature's burst
+- `crates/opensacred-game/src/bolt_looks.rs`: The bolts' looks
+- `crates/opensacred-game/src/bolt_trails.rs`: The looks of the Mage's whirlwind and of the fire bolt
+- `crates/opensacred-game/src/bolts.rs`: The bolts
+- `crates/opensacred-game/src/bonus_list.rs`: The text of the hero's list of bonuses
+- `crates/opensacred-game/src/breath.rs`: The Daemon's breath of fire 1102
+- `crates/opensacred-game/src/bubble_prisons.rs`: The scripts' bubble prisons
+- `crates/opensacred-game/src/bubble_traps.rs`: The look of the Wood Elf's bubble
+- `crates/opensacred-game/src/buildings.rs`: The buildings' states
+- `crates/opensacred-game/src/burning_bones.rs`: The burning bones
+- `crates/opensacred-game/src/burns.rs`: The burns of the effect 62
+- `crates/opensacred-game/src/busy_dialog.rs`: The interface's busy dialog
+- `crates/opensacred-game/src/butterflies.rs`: The butterflies
+- `crates/opensacred-game/src/carry.rs`: A saved hero carried into a game
+- `crates/opensacred-game/src/cast_sights.rs`: The sights of the casts in their casters' hands
+- `crates/opensacred-game/src/chain_bolts.rs`: The look of the chain lightning
+- `crates/opensacred-game/src/change_sparks.rs`: The look of the Wood Elf's changeling
+- `crates/opensacred-game/src/choice.rs`: The campaigns' choices of the hero
+- `crates/opensacred-game/src/choirs.rs`: The look of the Daemon's choir
+- `crates/opensacred-game/src/cinema.rs`: The scripts' cinema's look
+- `crates/opensacred-game/src/combos.rs`: The hero's combos
+- `crates/opensacred-game/src/combos_page.rs`: The inventory's combos page
+- `crates/opensacred-game/src/command.rs`: The game's commands
+- `crates/opensacred-game/src/compass.rs`: The bar's compass
+- `crates/opensacred-game/src/console.rs`: The console
+- `crates/opensacred-game/src/containers.rs`: The containers that the hero opens
+- `crates/opensacred-game/src/control_glow.rs`: The interface's controls' glow under the pointer
+- `crates/opensacred-game/src/controls.rs`: The game's keys
+- `crates/opensacred-game/src/creature_arts.rs`: The heroes' weapon arts that the fight's specials order creatures to make
+- `crates/opensacred-game/src/creature_casts.rs`: The creatures' casts
+- `crates/opensacred-game/src/crowd.rs`: The creatures in one another's way
+- `crates/opensacred-game/src/cursors.rs`: The cursor's looks over the world
+- `crates/opensacred-game/src/daemon.rs`: The Daemon's form of 1094 as its effect 50 holds it
+- `crates/opensacred-game/src/dark_helices.rs`: The Dark Elf's casts' helices
+- `crates/opensacred-game/src/dark_wards.rs`: The look of the Dark Elf's two wards
+- `crates/opensacred-game/src/daynight.rs`: Day and night
+- `crates/opensacred-game/src/debug.rs`: The commands for testing that read the world
+- `crates/opensacred-game/src/demon_deaths.rs`: The big demons' death
+- `crates/opensacred-game/src/demon_fires.rs`: The look of the Daemon's demon fire
+- `crates/opensacred-game/src/demon_forms.rs`: The look of the Daemon's forms
+- `crates/opensacred-game/src/doom_signs.rs`: The Daemon's call of death's sign at a kill
+- `crates/opensacred-game/src/doors.rs`: The doors that the hero opens and closes
+- `crates/opensacred-game/src/dragon_fires.rs`: The dragons' breath of fire
+- `crates/opensacred-game/src/drops.rs`: The creatures' drops
+- `crates/opensacred-game/src/dryad_ghosts.rs`: The dryad ghosts
+- `crates/opensacred-game/src/dwarf_armours.rs`: The look of the Dwarf's armour (58, 1021, `cParticleSystem_panzer`) and steel
+- `crates/opensacred-game/src/dwarf_berserks.rs`: The look of the Dwarf's berserk
+- `crates/opensacred-game/src/dwarf_burrows.rs`: The look of the Dwarf's burrowing
+- `crates/opensacred-game/src/dwarf_fires.rs`: The Dwarf's guns' sights at his cannon's muzzle
+- `crates/opensacred-game/src/dwarf_greeds.rs`: The look of the Dwarf's greed
+- `crates/opensacred-game/src/dwarf_magics.rs`: The look of the dwarves' magic
+- `crates/opensacred-game/src/effects.rs`: The creatures' effects
+- `crates/opensacred-game/src/elf_sights.rs`: The Wood Elf's multi-shot's sight
+- `crates/opensacred-game/src/equipment.rs`: The equipment window's slots
+- `crates/opensacred-game/src/esc_menu.rs`: The menu over a game (#1410; docs/re/menus.md, "The menu over a game
+- `crates/opensacred-game/src/explored.rs`: The land explored
+- `crates/opensacred-game/src/explosions.rs`: The blasts
+- `crates/opensacred-game/src/exports.rs`: The heroes' exports
+- `crates/opensacred-game/src/fades.rs`: The scripts' fades
+- `crates/opensacred-game/src/fight.rs`: The fight as the game plays it
+- `crates/opensacred-game/src/figures.wesl`: The heroes' figures of the choice of the hero and the interface's pictures of the items' models
+- `crates/opensacred-game/src/files.rs`: The game's files
+- `crates/opensacred-game/src/fire_skins.rs`: The look of the fire skin and of the fire spiral's flames
+- `crates/opensacred-game/src/first_start.rs`: The packaged game's first start
+- `crates/opensacred-game/src/flash.wesl`: The flash over a newly taught art on the spells page
+- `crates/opensacred-game/src/fliers.rs`: The crows and the bats over the camera
+- `crates/opensacred-game/src/flight.rs`: The flyers aloft
+- `crates/opensacred-game/src/floops.rs`: A trampling horse's floops
+- `crates/opensacred-game/src/flying_skulls.rs`: The look of the death's kiss's flying skull
+- `crates/opensacred-game/src/foe_panel.rs`: The foe's panel
+- `crates/opensacred-game/src/follow_foe.rs`: The cursor that follows the foe
+- `crates/opensacred-game/src/followers.rs`: The hero's followers
+- `crates/opensacred-game/src/forge.rs`: The Dwarf's smithing
+- `crates/opensacred-game/src/forge_elements.rs`: The forge's ritual
+- `crates/opensacred-game/src/forms.rs`: The Vampiress's forms
+- `crates/opensacred-game/src/frame.rs`: The order of a frame's systems across the modules
+- `crates/opensacred-game/src/fx.rs`: The FX objects' particle systems
+- `crates/opensacred-game/src/fx_lights.rs`: The effects' own lights on the models
+- `crates/opensacred-game/src/fx_loops.rs`: The element stones' and the stargates' loops
+- `crates/opensacred-game/src/game.rs`: The game's states
+- `crates/opensacred-game/src/glad_sights.rs`: The Gladiator's arts' sights
+- `crates/opensacred-game/src/glance.rs`: The Gladiator's 1016's effect
+- `crates/opensacred-game/src/glitter.rs`: The glitter over the items lying on the ground and flying as they are thrown
+- `crates/opensacred-game/src/glow.wesl`: The glow of a picture of the interface
+- `crates/opensacred-game/src/goblin_impacts.rs`: The goblin mages' ball's impacts
+- `crates/opensacred-game/src/grenade_impacts.rs`: The mortar shells' impacts
+- `crates/opensacred-game/src/ground.wesl`: The ground's fragment shader
+- `crates/opensacred-game/src/gun_fires.rs`: The guns' sights
+- `crates/opensacred-game/src/guns.rs`: The Dwarf's mortar shells
+- `crates/opensacred-game/src/hard_rays.rs`: The `Hardhit`'s ray's sight with a bow
+- `crates/opensacred-game/src/healings.rs`: The healings' sights
+- `crates/opensacred-game/src/health_rings.rs`: The health rings on the ground
+- `crates/opensacred-game/src/held.rs`: The cursor's item
+- `crates/opensacred-game/src/hell_disks.rs`: The look of the Daemon's hell disk
+- `crates/opensacred-game/src/hell_forces.rs`: The look of the Daemon's force of hell
+- `crates/opensacred-game/src/hell_screams.rs`: The look of the Daemon's fear
+- `crates/opensacred-game/src/help.rs`: The keys' help
+- `crates/opensacred-game/src/hero.rs`: The hero
+- `crates/opensacred-game/src/hero_held.rs`: The hero held
+- `crates/opensacred-game/src/hit_sparks.rs`: The combat arts' hit sparks
+- `crates/opensacred-game/src/holding_sights.rs`: The holds' sights
+- `crates/opensacred-game/src/holy_lights.rs`: The look of the Seraphim's holy light
+- `crates/opensacred-game/src/homing_fires.rs`: The look of the creatures' homing fires
+- `crates/opensacred-game/src/hover.rs`: The hover's highlight
+- `crates/opensacred-game/src/hud.rs`: The interface over the world
+- `crates/opensacred-game/src/hums.rs`: The loops that the spells' and arts' objects hold while they live
+- `crates/opensacred-game/src/hurled.rs`: The Gladiator's hurled weapon
+- `crates/opensacred-game/src/ice_splinters.rs`: The look of the ice splinters
+- `crates/opensacred-game/src/icebergs.rs`: The look of the ring of frost's objects
+- `crates/opensacred-game/src/icons.rs`: The icons over the creatures of a dialogue or a trade
+- `crates/opensacred-game/src/info_glow.wesl`: The glow of an info line's text
+- `crates/opensacred-game/src/info_lines.rs`: The info lines of the scripts' `InfoPlayer`s
+- `crates/opensacred-game/src/inventory.rs`: The inventory's windows
+- `crates/opensacred-game/src/iso.rs`: The original's isometric view in 3D
+- `crates/opensacred-game/src/item_glows.rs`: The items' own glows
+- `crates/opensacred-game/src/item_pictures.rs`: The items' pictures drawn only when they change
+- `crates/opensacred-game/src/journal.rs`: The log, readable in the game and after it
+- `crates/opensacred-game/src/killer_plants.rs`: The look of the thorns' plants
+- `crates/opensacred-game/src/knock_down.rs`: A player's hero knocked down by a heavy blow
+- `crates/opensacred-game/src/labels.rs`: The labels while Alt is held
+- `crates/opensacred-game/src/lava_bursts.rs`: The lava bursts
+- `crates/opensacred-game/src/layer.wesl`: A band of the interface
+- `crates/opensacred-game/src/lens_creatures.rs`: The creatures in the lens of the world map and of the overview
+- `crates/opensacred-game/src/level_sparks.rs`: The sparks of a level-up
+- `crates/opensacred-game/src/light_blades.rs`: The look of the Seraphim's blades of light
+- `crates/opensacred-game/src/light_strikes.rs`: The light strikes
+- `crates/opensacred-game/src/lightning_strikes.rs`: The look of the lightning 13
+- `crates/opensacred-game/src/lines.rs`: The lines over the creatures
+- `crates/opensacred-game/src/liquids.rs`: The surfaces of water, lava and sulphur
+- `crates/opensacred-game/src/lost_souls.rs`: The look of the Wood Elf's lost souls
+- `crates/opensacred-game/src/low_health.rs`: The hero's low health on the portraits' column
+- `crates/opensacred-game/src/magic_lights.rs`: The look of the light 20
+- `crates/opensacred-game/src/main.rs`: `opensacred-game`: the game on Bevy
+- `crates/opensacred-game/src/making.rs`: The hero makes its combat arts
+- `crates/opensacred-game/src/marks.rs`: The marks laid on the ground
+- `crates/opensacred-game/src/master.rs`: The combat master's window
+- `crates/opensacred-game/src/menu.rs`: The main menu, its submenus and the choice of the hero
+- `crates/opensacred-game/src/menu_sound.rs`: The menus' sound
+- `crates/opensacred-game/src/mercenaries.rs`: The followers' entries of the portraits' column take a weapon or a shield from the cursor and give theirs
+- `crates/opensacred-game/src/merchant.rs`: The merchant's window
+- `crates/opensacred-game/src/meteors.rs`: The look of a meteor of the hail of meteors
+- `crates/opensacred-game/src/mines.rs`: The looks of the Dwarf's mines and of their sign
+- `crates/opensacred-game/src/minimap.rs`: The minimap's ground
+- `crates/opensacred-game/src/mkv.rs`: Recording into one Matroska file
+- `crates/opensacred-game/src/model_effects.rs`: The effects that the original's second model renderer draws on the models of the types whose flags have the bit `0x100000`
+- `crates/opensacred-game/src/models.rs`: The models among the sprites
+- `crates/opensacred-game/src/models.wesl`: The models' vertex shader
+- `crates/opensacred-game/src/motions.rs`: A creature's clips by the original's motion slots
+- `crates/opensacred-game/src/movies.rs`: The movies
+- `crates/opensacred-game/src/music.rs`: Music
+- `crates/opensacred-game/src/nearest.wesl`: The models' true depths
+- `crates/opensacred-game/src/night.wesl`: The night's darkness
+- `crates/opensacred-game/src/npcs.rs`: The NPCs and objects that the scripts place
+- `crates/opensacred-game/src/options.rs`: The options window
+- `crates/opensacred-game/src/opus.rs`: The game's sound
+- `crates/opensacred-game/src/order.wesl`: The original's order of drawing as depth
+- `crates/opensacred-game/src/overlay.rs`: The debug overlay
+- `crates/opensacred-game/src/overview.rs`: The overview map
+- `crates/opensacred-game/src/own_texts.rs`: The game's own texts
+- `crates/opensacred-game/src/parallel.rs`: Work spread over a pool of threads while a frame waits for it
+- `crates/opensacred-game/src/paths.rs`: The hero's way around what blocks it
+- `crates/opensacred-game/src/pause.rs`: The pause
+- `crates/opensacred-game/src/pick.rs`: The cell under a point of the screen
+- `crates/opensacred-game/src/pickup.rs`: The hero picks up the items on the ground
+- `crates/opensacred-game/src/place_names.rs`: The world map's places' names
+- `crates/opensacred-game/src/plant_cages.rs`: The plant cages' looks
+- `crates/opensacred-game/src/plant_healings.rs`: The Wood Elf's plants' healing's sight
+- `crates/opensacred-game/src/points.rs`: The taskbar's points "+"
+- `crates/opensacred-game/src/poison_rings.rs`: The look of the Daemon's ring of poison 1101
+- `crates/opensacred-game/src/pong.rs`: The scripts' Pong
+- `crates/opensacred-game/src/post.wesl`: What the game's materials do to their colour last
+- `crates/opensacred-game/src/power_auras.rs`: The auras of the effect 33
+- `crates/opensacred-game/src/prepass.wesl`: The models' prepass's vertex stage
+- `crates/opensacred-game/src/prisons.rs`: The scripts' magic bars and barriers
+- `crates/opensacred-game/src/puffs.rs`: The particle systems that make their particles once and live while they do
+- `crates/opensacred-game/src/purchase.rs`: The purchase window
+- `crates/opensacred-game/src/purgatories.rs`: The look of the purgatory
+- `crates/opensacred-game/src/quest_book.rs`: The quest book
+- `crates/opensacred-game/src/rank_symbols.rs`: The champions' and the bosses' symbols on the ground
+- `crates/opensacred-game/src/reanimations.rs`: The ring about a creature that a caster raises
+- `crates/opensacred-game/src/regions.rs`: The regions' kills
+- `crates/opensacred-game/src/remarks.rs`: The hero's remarks outside the fight
+- `crates/opensacred-game/src/remote.rs`: Remote control
+- `crates/opensacred-game/src/rewards.rs`: The scripts' rewards
+- `crates/opensacred-game/src/riding.rs`: The hero on horseback
+- `crates/opensacred-game/src/ripples.rs`: The menus' water
+- `crates/opensacred-game/src/runes.rs`: The runes read from the backpack
+- `crates/opensacred-game/src/save_picture.rs`: A save's picture
+- `crates/opensacred-game/src/saves.rs`: The saves
+- `crates/opensacred-game/src/saves_window.rs`: The saves' window
+- `crates/opensacred-game/src/scene_tests.rs`: Screenshot tests of the scene
+- `crates/opensacred-game/src/screenshot.rs`: `--screenshot`: once the hero animates and every sector near it is in place
+- `crates/opensacred-game/src/script_attacks.rs`: The scripts' `Attack`s without an art
+- `crates/opensacred-game/src/script_particles.rs`: The scripts' `Partikel`s
+- `crates/opensacred-game/src/scripts.rs`: The scripts run in Luau
+- `crates/opensacred-game/src/sectors.rs`: Sector streaming
+- `crates/opensacred-game/src/seed.rs`: The run's seed of the rolls
+- `crates/opensacred-game/src/sera_sights.rs`: The Seraphim's casts' sights
+- `crates/opensacred-game/src/set_icon.rs`: The equipment window's set icon
+- `crates/opensacred-game/src/sets.rs`: The taskbar's five weapon sets
+- `crates/opensacred-game/src/settings.rs`: The game's settings
+- `crates/opensacred-game/src/sfx.rs`: The fight's sounds but the voices
+- `crates/opensacred-game/src/shaders.rs`: The library of the game's shaders
+- `crates/opensacred-game/src/shadow_dots.rs`: The models' shadow dots
+- `crates/opensacred-game/src/shadow_levels.wesl`: A level of the shadows' mask
+- `crates/opensacred-game/src/shadows.rs`: The models' shadows
+- `crates/opensacred-game/src/shadows.wesl`: The models' shadows' shader
+- `crates/opensacred-game/src/sheet_pool.rs`: The pool of the ground's tile sheets that the loaded sectors share
+- `crates/opensacred-game/src/shields.rs`: The shields and the regenerations about their bearers
+- `crates/opensacred-game/src/skies.rs`: The weather drawn and heard
+- `crates/opensacred-game/src/skies.wesl`: The weather drawn over the world
+- `crates/opensacred-game/src/skins.rs`: The skins over a creature's model
+- `crates/opensacred-game/src/sonar.wesl`: A sonar's ring
+- `crates/opensacred-game/src/soul_sparks.rs`: The look of the souls that fly to the Dark Elf's soulcatcher
+- `crates/opensacred-game/src/soulcatchers.rs`: The look of the Dark Elf's soulcatcher
+- `crates/opensacred-game/src/souls.rs`: The Dark Elf's soulcatcher 1044
+- `crates/opensacred-game/src/sound.rs`: Footsteps
+- `crates/opensacred-game/src/sound_tap.rs`: The game's whole mix for a recording's sound track
+- `crates/opensacred-game/src/sparkle.wesl`: A quad of the interface's sparkles
+- `crates/opensacred-game/src/sparkles.rs`: The interface's sparkles
+- `crates/opensacred-game/src/speed_sights.rs`: The Wood Elf's speed's sight
+- `crates/opensacred-game/src/spells.rs`: What the hero's spells do as they act
+- `crates/opensacred-game/src/spells_page.rs`: The inventory's spells page
+- `crates/opensacred-game/src/spikes.rs`: The looks of Anducar's demon's rings (1163, `FX_ANDUCAR_DEMON`) and the demon prince's fan (1166, `FX_DAEMONENFUERST`)
+- `crates/opensacred-game/src/spits.rs`: The creatures' spit
+- `crates/opensacred-game/src/sprites.wesl`: The static objects' shader
+- `crates/opensacred-game/src/srgb.rs`: The frame in sRGB values
+- `crates/opensacred-game/src/stables.rs`: The stables' horse window
+- `crates/opensacred-game/src/standard.wesl`: The fragment stage of the game's extensions of Bevy's own material
+- `crates/opensacred-game/src/stargates.rs`: The look of the stargates
+- `crates/opensacred-game/src/stashes.rs`: The hidden stashes
+- `crates/opensacred-game/src/statics.rs`: The static objects of a sector
+- `crates/opensacred-game/src/statistics.rs`: The statistics window beside the inventory
+- `crates/opensacred-game/src/steps.rs`: The footsteps of the creatures other than the hero
+- `crates/opensacred-game/src/stones.rs`: The flesh to stone's sight
+- `crates/opensacred-game/src/summon_looks.rs`: The summonings' sights
+- `crates/opensacred-game/src/summonings.rs`: A big demon's summoning
+- `crates/opensacred-game/src/tables.rs`: The tables of `tables/` that the start and every game's load read
+- `crates/opensacred-game/src/talk.rs`: The talks
+- `crates/opensacred-game/src/teleports.rs`: The teleport's sights
+- `crates/opensacred-game/src/tentacles.rs`: The looks of the Daemon's tentacles
+- `crates/opensacred-game/src/terrain.rs`: The ground of a sector
+- `crates/opensacred-game/src/tooltip.rs`: The items' tooltip
+- `crates/opensacred-game/src/tooltip/art.rs`: The lines of a combat art's tooltip
+- `crates/opensacred-game/src/tooltip/lines.rs`: The lines of an item's tooltip
+- `crates/opensacred-game/src/tooltip/set.rs`: The list of the sets worn that the equipment window's set icon shows
+- `crates/opensacred-game/src/torches.rs`: The torches' flames
+- `crates/opensacred-game/src/town_stash.rs`: The town stash's window (#1411; docs/re/containers.md, "The town stash
+- `crates/opensacred-game/src/trample.rs`: The horse's trample
+- `crates/opensacred-game/src/trap_balls.rs`: The look of the thrown balls
+- `crates/opensacred-game/src/trap_landings.rs`: The looks of what the Dark Elf's trap balls make where they land
+- `crates/opensacred-game/src/twisters.rs`: The look of the gust 28
+- `crates/opensacred-game/src/ui_layers.rs`: The interface's layers
+- `crates/opensacred-game/src/undead.rs`: The undead that rise again
+- `crates/opensacred-game/src/vamp_casts.rs`: The Vampiress's casts' sights
+- `crates/opensacred-game/src/vamp_sights.rs`: The Vampiress's domination's ring and her raising's pentagram
+- `crates/opensacred-game/src/vertices.rs`: A model's vertices as last posed
+- `crates/opensacred-game/src/voices.rs`: The creatures' and the heroes' voices in the fight
+- `crates/opensacred-game/src/volumes.rs`: The sound's three volumes and its switch
+- `crates/opensacred-game/src/war_cries.rs`: The look of the Dwarf's war cry
+- `crates/opensacred-game/src/war_cry_signs.rs`: The sign of the Dwarf's war cry
+- `crates/opensacred-game/src/waterfalls.rs`: The waterfalls' loop
+- `crates/opensacred-game/src/weather.rs`: The world's weather
+- `crates/opensacred-game/src/world_map.rs`: The world map
+
+## `crates/opensacred-locate`
+
+- `crates/opensacred-locate/src/lib.rs`: Finding the installation of Sacred Gold 2.28
+
+## `crates/opensacred-oracle`
+
+- `crates/opensacred-oracle/src/fight.rs`: The vector sets of the fight's formulas
+- `crates/opensacred-oracle/src/fuzz.rs`: The fight's formulas and the rolls of `Sacred.exe` against `opensacred-rules`' on random inputs
+- `crates/opensacred-oracle/src/machine.rs`: The emulated machine
+- `crates/opensacred-oracle/src/main.rs`: `opensacred-oracle`: a development tool
+- `crates/opensacred-oracle/src/pe.rs`: A 32-bit PE image laid out as the Windows loader lays it out
+- `crates/opensacred-oracle/src/rolls.rs`: The game's rolls
+- `crates/opensacred-oracle/src/vectors.rs`: The oracle's inputs and outputs
+
+## `crates/opensacred-rules`
+
+- `crates/opensacred-rules/src/arrows.rs`: The archers' arrows
+- `crates/opensacred-rules/src/arts.rs`: A creature's combat arts
+- `crates/opensacred-rules/src/casts.rs`: The creatures' casts
+- `crates/opensacred-rules/src/combos.rs`: A hero's combos
+- `crates/opensacred-rules/src/containers.rs`: What a container gives as it opens
+- `crates/opensacred-rules/src/drops.rs`: What a killed creature drops
+- `crates/opensacred-rules/src/drops/names.rs`: The names that the item maker gives the items it makes
+- `crates/opensacred-rules/src/drops/quality.rs`: The item maker's quality pass
+- `crates/opensacred-rules/src/drops/sockets.rs`: The sockets that the item maker's quality pass rolls for an item it makes
+- `crates/opensacred-rules/src/equipment.rs`: The equipment window's slots and who may use an item
+- `crates/opensacred-rules/src/exchange.rs`: The combat master's exchange of runes
+- `crates/opensacred-rules/src/explored.rs`: The land explored
+- `crates/opensacred-rules/src/fight.rs`: The fight's rules as far as the game follows them
+- `crates/opensacred-rules/src/fight/magic.rs`: The item maker's magic bonus
+- `crates/opensacred-rules/src/horses.rs`: The horses
+- `crates/opensacred-rules/src/inventory.rs`: The hero's backpack as the original's grid
+- `crates/opensacred-rules/src/lib.rs`: `opensacred-rules`: the game's rules with no engine
+- `crates/opensacred-rules/src/minds.rs`: The creatures' decisions
+- `crates/opensacred-rules/src/music.rs`: The peace stream's alternation
+- `crates/opensacred-rules/src/particles.rs`: The particle systems' machinery
+- `crates/opensacred-rules/src/pong.rs`: The scripts' Pong
+- `crates/opensacred-rules/src/potions.rs`: The potions and the belt
+- `crates/opensacred-rules/src/quests.rs`: The scripts' state
+- `crates/opensacred-rules/src/regions.rs`: The regions' kills
+- `crates/opensacred-rules/src/rewards.rs`: A quest's reward
+- `crates/opensacred-rules/src/set_bonuses.rs`: The sets' bonuses
+- `crates/opensacred-rules/src/sets.rs`: The weapon sets of the taskbar
+- `crates/opensacred-rules/src/smith.rs`: The blacksmith
+- `crates/opensacred-rules/src/spawning.rs`: The creatures that the sectors' `FillSector` records make at random as their sectors come near
+- `crates/opensacred-rules/src/spells.rs`: The spells' cast and their objects
+- `crates/opensacred-rules/src/trade.rs`: The prices
+- `crates/opensacred-rules/src/trade/stock.rs`: The merchants' stock
+- `crates/opensacred-rules/src/trade/worth.rs`: The worth of an item
+- `crates/opensacred-rules/src/undead.rs`: The undead that rise again
+- `crates/opensacred-rules/src/ways.rs`: The ways and the cells in the way
+- `crates/opensacred-rules/src/weather.rs`: The weather
+- `crates/opensacred-rules/tests/fight_properties.rs`: Properties of the fight's formulas on random inputs
+- `crates/opensacred-rules/tests/grid_properties.rs`: Properties of the backpack's grid on random sequences of its operations
+- `crates/opensacred-rules/tests/oracle.rs`: The fight's formulas and the game's rolls against the vectors that `opensacred-oracle` records from the developer's own `Sacred.exe`
+- `crates/opensacred-rules/tests/ways_properties.rs`: Properties of the ways on random maps
+
+## `crates/opensacred-scripts`
+
+- `crates/opensacred-scripts/src/lib.rs`: `opensacred-scripts`: the runtime of the scripts translated into Luau
+- `crates/opensacred-scripts/src/record.rs`: A record's call back as the record it was

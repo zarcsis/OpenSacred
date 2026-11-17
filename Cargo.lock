@@ -4809,6 +4809,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "opensacred-docs"
+version = "0.0.0"
+
+[[package]]
 name = "opensacred-formats"
 version = "0.0.0"
 dependencies = [

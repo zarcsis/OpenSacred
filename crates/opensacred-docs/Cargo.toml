@@ -1,0 +1,11 @@
+[package]
+name = "opensacred-docs"
+description = "Development only: the map of the code and the tests that keep the documents and the comments in line with the tree"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

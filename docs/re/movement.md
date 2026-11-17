@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-18.
 The cell record is in [docs/02 §5.2](../02-data-formats.md#52-a-sector-in-sectorswldx-the-32-b-floor-cell).
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-rules` (`ways`) and `opensacred-game` (`paths`, `terrain`, `hero`, `crowd`, `npcs`, `pick`, `doors`, `buildings`).
 
 ## Which cells may be walked on
 

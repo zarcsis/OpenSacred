@@ -45,7 +45,7 @@
 | Music system | the region's music and the ambient loop in turns, the fights' music and jingles, the scripts' music, crossfaded (`music`, `opensacred_rules::music`; docs/re/sound.md) |
 | Volumes | music, effects, speech, as in the original's settings (`[sound]`, the options window; `volumes`, #2341) |
 
-Estimate of 2026-10-16: 10–20 agent-hours (M2 and M5); done with M5 (#1093); docs/re/sound.md, "The sources: what plays, and what `opensacred-game` does not yet", lists what is not played.
+Estimate of 2026-10-16: 10–20 agent-hours (M2 and M5); done with M5 (#1093); docs/re/sound.md, "The sources: what plays, and what `opensacred-game` plays of it", lists what is not played.
 
 ## 3. Input
 

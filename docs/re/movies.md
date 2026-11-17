@@ -2,6 +2,7 @@
 
 Where the original plays its movies, and how (read 2026-11-03 for #1094, **confirmed** by code unless marked otherwise).
 The files and their conversion are in docs/02 §10.3.
+Implemented in `opensacred-game` (`movies`, `scripts`, `menu`, `settings`, `command`), `opensacred-data` (`video`) and `opensacred-convert` (`video`).
 
 ## The player
 

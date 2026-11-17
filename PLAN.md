@@ -239,6 +239,7 @@ OpenSacred/
 │  ├─ opensacred-rules/       game rules without the engine (§6.3)
 │  ├─ opensacred-scripts/     (#725) the Luau runtime of the translated scripts: mlua with Luau, sandboxed, each call bounded, its records handed to the game's host
 │  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves (§6.2)
+│  ├─ opensacred-docs/        (#2793; development only) the map of the code and the tests that keep the documents and the comments in line with the tree
 │  └─ opensacred-oracle/      (#363; development only, run locally, Unicorn its feature `emulator`) runs functions of the user's own Sacred.exe in Unicorn, records vectors
 ├─ tools/analysis/  tools/triage/   Python research scripts: an archive, and the reference the Rust readers are cross-checked against
 ├─ tools/common/              the developer's installation found for the Python tools (#1556)
@@ -263,14 +264,14 @@ OpenSacred/
 * **Sound:** event profiles from `sndProfiles` → RON tables → Kira.
 * **Tools:** settings in TOML, the original's menus (#1120, #1123), a debug overlay and the log on the screen, a console of the game's commands, and remote control through which Claude Code drives the game ([docs/10](docs/10-game-tools.md)).
 
-What the game holds today is listed in `CLAUDE.md`, "Workspace"; each module of `crates/opensacred-game/src/` tells what it does in its doc comment, and one with systems registers them in a plugin of its own.
+What the game holds today is listed in `docs/11-code-map.md`, a line per module; each module of `crates/opensacred-game/src/` tells what it does in its doc comment, and one with systems registers them in a plugin of its own.
 
 ### 6.3 Rules layer (`opensacred-rules`)
 
 Pure Rust without Bevy, its only dependencies `opensacred-data` and serde: what the original's client decides, as `docs/re/` reads it, so that a switch of the engine keeps it (ADR-04).
 The crate was made on 2026-10-21, when the spawning, the fight's formulas, the ways and the creatures' decisions moved out of `opensacred-game` (#328, #364).
 Today it holds the spawning, the fight's formulas with the hero's experience and levels, the ways, the creatures' decisions and casts, the archers' arrows, the drops with the item maker, the combat arts, the combos and the spells, the scripts' state (the quests, the variables and the dialogues; the scripts themselves run in Luau, ADR-13) with their rewards and their Pong, the backpack, the equipment, the potions, the weapon sets and the item sets' bonuses, the containers' contents, the trade, the blacksmith and the combat master's exchange, the horses, the weather, the peace stream's music, the undead that rise again, the land explored, the regions' kills and the particle systems' machinery.
-Its modules are listed in `crates/opensacred-rules/src/lib.rs`, and each module's doc comment tells what it holds and which part of `docs/re/` it follows.
+Its modules are listed in `crates/opensacred-rules/src/lib.rs` and in `docs/11-code-map.md`, and each module's doc comment tells what it holds and which part of `docs/re/` it follows.
 The day's clock and the night's light are not among them: they are `opensacred-game`'s (`daynight.rs`).
 The layer is tested without graphics: unit tests, property tests (#1428) and, on the developer's machine, the oracle's vectors (§4.2).
 `opensacred-game` keeps the components, the resources and the systems, which read the world for the rules and carry out what they decide: the fight (`fight.rs`), the walks (`paths.rs`, `crowd.rs`), the creatures' life and the hero's attack (`ai.rs`, `attack.rs`), and the rest alike.
@@ -385,7 +386,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
 The plan of 2026-10-16 for the first thirty days was M0, the converter's first formats and a Bevy application with one sector and the hero: that was done by 2026-10-17, and by 2026-11-17 M0 to M5 were done and every issue of M6 was closed.
 This section records, at the level of a plan, when each milestone was done and what it delivered.
 The day-by-day record is in the Git history (this section held it until 2026-11-17, for the days to 2026-10-28), the pull requests and the issues of the GitHub milestones M2–M9.
-The details are in their own documents: the formats in docs/02, the original's behavior in `docs/re/`, the deliberate deviations in `docs/decisions/`, the tools and the process in docs/03, and what each crate holds today in `CLAUDE.md`, "Workspace".
+The details are in their own documents: the formats in docs/02, the original's behavior in `docs/re/`, the deliberate deviations in `docs/decisions/`, the tools and the process in docs/03, and what each crate holds today in `docs/11-code-map.md`.
 
 * **M0 Foundation: done 2026-10-16.**
   The Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with its `verify`), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions, and the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt`, which the converter checks an installation against.
@@ -493,6 +494,7 @@ Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2),
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | risks and the legal framework |
 | [docs/09-ecosystem.md](docs/09-ecosystem.md) | game versions, community work, comparable projects |
 | [docs/10-game-tools.md](docs/10-game-tools.md) | tools to test and drive the game: settings, menu, overlays, log, console, remote control |
+| [docs/11-code-map.md](docs/11-code-map.md) | the map of the code: a line per source file of `crates/`, generated from the file's own header |
 | [docs/re/](docs/re/) | the original's behavior described in prose, per subsystem |
 | [docs/decisions/](docs/decisions/) | deliberate deviations from the original's behavior, a table per subsystem ([README](docs/decisions/README.md)) |
 | [docs/usage.md](docs/usage.md) | how Claude Code usage is recorded per pull request; the sessions before |

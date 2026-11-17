@@ -3,6 +3,7 @@
 The original's driver (#448, #452; docs/03 §3.8) logs the calls of the original's functions: `exec "trace …"` or `original/trace`, a preset by its name or any address with the kinds of its arguments.
 This page lists the presets, the functions they hook and what they read; each function is described in the page named.
 Status: the functions as their pages have them; "observed" marks what the traces showed on 2026-10-21 in a new game of the Seraphim.
+The driver makes the traces: `tools/original/agent.js` (the presets and the hooks) and `tools/original/host.py` (the commands).
 
 ## A record
 
