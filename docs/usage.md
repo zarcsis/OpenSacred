@@ -43,6 +43,7 @@ A block that would hold fewer tokens than the one in the description is not writ
 * **The badge.**
   `pr_usage.py --update` then runs the Usage workflow (`.github/workflows/usage.yml`; also daily).
   It sums the blocks of the maintainer's pull requests and the sessions below (`tools/usage/usage_badge.py`), lists the pull requests in its run summary, and publishes `usage.json`, a shields.io endpoint, on the branch `badges`: the ruleset on `main` takes no commit from a workflow.
+  The workflow lists every pull request, and the script keeps the maintainer's (`--author`): `gh pr list --author` is a search, which answers 1,000 results at most, so until #2847 the badge counted the newest 1,000 pull requests alone.
   Contributors' pull requests are not counted: their descriptions are theirs to edit.
 
 ## Sessions before per-pull-request tracking

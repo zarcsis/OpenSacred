@@ -34,10 +34,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
+        # Every pull request is listed, and the script keeps the owner's: `gh pr list --author` is a search, which
+        # answers 1,000 results at most, so the badge dropped the oldest pull requests after the 1,000th (#2847).
         run: |
           set -euo pipefail
-          gh pr list --state all --author "$OWNER" --limit 10000 --json number,title,body > "$RUNNER_TEMP/prs.json"
-          uv run --no-project python -I tools/usage/usage_badge.py "$RUNNER_TEMP/prs.json" \
+          gh pr list --state all --limit 100000 --json number,title,body,author > "$RUNNER_TEMP/prs.json"
+          uv run --no-project python -I tools/usage/usage_badge.py "$RUNNER_TEMP/prs.json" --author "$OWNER" \
             --badge "$RUNNER_TEMP/usage.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Publish on the branch badges
         run: |
