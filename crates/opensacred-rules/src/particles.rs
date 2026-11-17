@@ -1550,6 +1550,42 @@ pub fn burn_variant(creature: u32) -> Option<u8> {
 /// her weapons, (128, 128, 255) (the adder `0x582D50`'s case 17).
 pub const WEAPON_SPARKS: u32 = 0xFF80_80FF;
 
+/// The texture of the aura over the head of a creature under the effect 33 (`cGranny +0xC8`,
+/// loaded at `0x401318`): a white ring of rays about a black middle.
+pub const AURA_TEXTURE: &str = "FX_AURA01";
+/// The bone the aura stands at, and how far above it in the models' units (`0x40A690`'s point,
+/// `+5` at `0x40AE02`).
+pub const AURA_BONE: &str = "Bip01 Head";
+pub const AURA_RISE: f32 = 5.0;
+
+/// The colour of the aura that the effect 33 of the whole value `whole` puts over its bearer's
+/// head (#2767): the adder sets the bit `0x8000`, `0x10000`, `0x20000`, `0x40000`, `0x80000` or
+/// `0x1000000` of `+0xB0` by the whole values 0 to 5 (a statue's power-ups of the four damage
+/// kinds, the purple and the blue potions), and the model's draw (`0x44A9D0`) draws `0x40A690`
+/// of the style 1 to 6 for each, in a grey, a red, a green, a blue, a cyan and an orange
+/// (`0x40A782` to `0x40A7B4`); none for another whole value.
+pub fn power_aura(whole: i32) -> Option<u32> {
+    match whole {
+        0 => Some(0xFF30_3030),
+        1 => Some(0xFF30_0000),
+        2 => Some(0xFF00_3000),
+        3 => Some(0xFF00_0030),
+        4 => Some(0xFF00_3030),
+        5 => Some(0xFFFF_8030),
+        _ => None,
+    }
+}
+
+/// The aura's two quads at the real time `millis` in milliseconds (`0x40A690`, the styles 1 to 7):
+/// each camera-facing, of the half side `20·(1 + 0.05·sin(πt/1024))` in the models' units, a
+/// pulse of 2,048 ms, and turned in the screen's plane by `t/8192` and `−t/16384` radians, `t`
+/// the time modulo 65,536 (`0x40A74A`, `0x89070C`, `0x890794`, `0x890790`).
+pub fn aura_quads(millis: u64) -> [(f32, f32); 2] {
+    let t = f32::from(u16::try_from(millis % 65_536).unwrap_or(0));
+    let half = 20.0 * (1.0 + 0.05 * (t * std::f32::consts::PI / 1024.0).sin());
+    [(half, t / 8192.0), (half, -t / 16_384.0)]
+}
+
 /// Who rises a level, which picks the colour of the generic system's variant 2 that
 /// `addExperience` makes at it once the level's setter has run (`0x57E160`, `0x57F4F2` to
 /// `0x57F59E`; docs/re/fight.md, "The hero's levels").
@@ -19330,6 +19366,35 @@ mod tests {
         );
         assert_eq!(burst.layer.size, -5.0);
         assert_eq!(burst.light, 0.0);
+    }
+
+    #[test]
+    fn the_effect_33_puts_an_aura_of_its_whole_values_colour_over_the_head() {
+        let colours = [-1, 0, 1, 2, 3, 4, 5, 6].map(power_aura);
+        assert_eq!(
+            colours,
+            [
+                None,
+                Some(0xFF30_3030),
+                Some(0xFF30_0000),
+                Some(0xFF00_3000),
+                Some(0xFF00_0030),
+                Some(0xFF00_3030),
+                Some(0xFFFF_8030),
+                None
+            ]
+        );
+        // At 0 ms both quads of the half side 20, unturned.
+        assert_eq!(aura_quads(0), [(20.0, 0.0), (20.0, -0.0)]);
+        // A quarter of the pulse on, the largest, 21; the first turned twice as far as the
+        // second the other way.
+        let [(half, first), (other, second)] = aura_quads(512);
+        assert!((half - 21.0).abs() < 1e-4 && half == other);
+        assert!((first - 0.0625).abs() < 1e-6 && (second + 0.03125).abs() < 1e-6);
+        // Three quarters on, the smallest, 19; the time wraps at 65,536 ms.
+        assert!((aura_quads(1536)[0].0 - 19.0).abs() < 1e-4);
+        assert_eq!(aura_quads(65_536 + 512), aura_quads(512));
+        assert!((aura_quads(65_535)[0].1 - 65_535.0 / 8192.0).abs() < 1e-3);
     }
 
     #[test]

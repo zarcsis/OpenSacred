@@ -190,6 +190,7 @@ mod plant_healings;
 mod points;
 mod poison_rings;
 mod pong;
+mod power_auras;
 mod prisons;
 mod puffs;
 mod purchase;
@@ -690,6 +691,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         points::PointsPlugin,
         poison_rings::PoisonRingsPlugin,
         pong::PongPlugin,
+        power_auras::PowerAurasPlugin,
         prisons::PrisonsPlugin,
         puffs::PuffsPlugin,
         purchase::PurchasePlugin,
