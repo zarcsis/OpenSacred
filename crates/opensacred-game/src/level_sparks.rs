@@ -121,10 +121,7 @@ mod tests {
         let mut bursts = app
             .world_mut()
             .query_filtered::<&Transform, With<crate::puffs::Unmade>>();
-        let made: Vec<Vec3> = bursts
-            .iter(app.world())
-            .map(|at| at.translation)
-            .collect();
+        let made: Vec<Vec3> = bursts.iter(app.world()).map(|at| at.translation).collect();
         assert_eq!(made, [place.translation()]);
         assert!(app.world().get::<Rises>(creature).is_none());
         assert!(app.world().get::<Rises>(bare).is_none());

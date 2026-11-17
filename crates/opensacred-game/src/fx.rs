@@ -1913,7 +1913,10 @@ mod tests {
             let spark = root + order.drawn(point, root);
             let was = root + point;
             // Where it shows on screen, it shows still.
-            assert!((spark - was).dot(iso::right()).abs() < 1e-3, "{was} {spark}");
+            assert!(
+                (spark - was).dot(iso::right()).abs() < 1e-3,
+                "{was} {spark}"
+            );
             assert!((spark - was).dot(iso::up()).abs() < 1e-3, "{was} {spark}");
             // Just before the model's texel there, by `OVER` squeezed: over the texels behind
             // it, under those before it.
