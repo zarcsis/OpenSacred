@@ -26,7 +26,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
   To a playable version on Windows 11: **≈390–770 agent-hours** (estimate).
   At API prices for Claude Opus 5.5 the same tokens would cost ≈$3k–14k, center ≈$6k; development runs on a Claude subscription, so this is a hypothetical figure, not money spent (§9).
   The first visible result, a walk through the starting region in 4K, came on 2026-10-17 (G2).
-  By 2026-11-17 M0 to M5 are done and every issue of M6 is closed, with ≈432 agent-hours and ≈$11.5k at API prices recorded (§9.1); version 1.0 waits for the maintainer's own play-through (G5, §10).
+  By 2026-11-17 M0 to M5 are done and every issue of M6 is closed, with ≈465 agent-hours and ≈$13.2k at API prices recorded (§9.1); version 1.0 waits for the maintainer's own play-through (G5, §10).
 
 ## 1. Requirements and goals
 
@@ -340,9 +340,9 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
   What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
   By 2026-10-20 the README's badge summed 4.15B tokens, ≈$1.2k at API prices: ≈37 agent-hours in 152 pull requests and 12.7 in the sessions before, about $24 per agent-hour, above the model's $8–18 (the subagents' time is not counted).
   On 2026-10-28 the badge summed 17.6B tokens, ≈$5.0k at API prices, with M3 and M4 closed.
-  On 2026-11-17, with M0 to M5 done and every issue of M6 closed, the usage blocks of 1,465 pull requests and the sessions before summed 42.3B tokens, ≈$11.5k at API prices and ≈432 agent-hours (`tools/usage/usage_badge.py` over every pull request of the maintainer's account): within the estimate to version 1.0 both in agent-hours (≈390–770) and in cost (≈$3.1k–13.9k), near its low end in hours and its high end in cost.
-  An agent-hour cost ≈$27, not $8–18: its output (0.17M tokens) and its cache writes (0.6M) are at or under the model's, but its cache reads are 97M against the model's 5–15M and make about three quarters of the cost, as the long sessions of `docs/usage.md` showed from the first days; all but a little of the work ran on Opus 5.5.
-  By the days the milestones closed, the sums were ≈136 agent-hours at the end of 2026-10-26 (M0 to M4, estimated at 296–592) and ≈359 at the end of 2026-11-09 (M0 to M5, estimated at 346–692, with much of M6's work among them).
+  On 2026-11-17, with M0 to M5 done and every issue of M6 closed, the usage blocks of 1,480 pull requests and the sessions before summed 47.0B tokens, ≈$13.2k at API prices and ≈465 agent-hours (`tools/usage/usage_badge.py` over every pull request of the maintainer's account, after that day's recount of the blocks that were behind the transcripts, #2849; `docs/usage.md`): within the estimate to version 1.0 both in agent-hours (≈390–770) and in cost (≈$3.1k–13.9k), near its low end in hours and its high end in cost.
+  An agent-hour cost ≈$28, not $8–18: its output (0.18M tokens) and its cache writes (0.7M) are at or under the model's, but its cache reads are 100M against the model's 5–15M and make about seven tenths of the cost, as the long sessions of `docs/usage.md` showed from the first days; all but a little of the work ran on Opus 5.5.
+  By the days the milestones closed, the sums were ≈143 agent-hours at the end of 2026-10-26 (M0 to M4, estimated at 296–592) and ≈376 at the end of 2026-11-09 (M0 to M5, estimated at 346–692, with much of M6's work among them).
   The maintainer's hours were not recorded.
   The estimates of §9.2 were not recomputed 30 days after 2026-10-16, as was planned: those of M0 to M6 are overtaken by these figures, and those of M7 and M8 stand as of 2026-10-16.
 
@@ -378,7 +378,7 @@ A sensible mode is Opus 5.5 for binary analysis and architecture, and Sonnet 5.5
 The choice of model is up to the maintainer.
 
 Calendar: in an intensive mode (≈40 agent-hours and 25 maintainer hours a week), the vertical slice comes in ≈1 month and version 1.0 in ≈2.5–4.5 months; "evenings and weekends" (≈15 and 10 hours) gives ≈2–3 and ≈6–12 months.
-As it went: the vertical slice came on the second day, 2026-10-17, and M0 to M5 were done and every issue of M6 closed by 2026-11-17, the thirty-third, at ≈90 agent-hours a week; version 1.0 waits for the maintainer's play-through (G5).
+As it went: the vertical slice came on the second day, 2026-10-17, and M0 to M5 were done and every issue of M6 closed by 2026-11-17, the thirty-third, at ≈100 agent-hours a week; version 1.0 waits for the maintainer's play-through (G5).
 The pace is limited more by the maintainer's time for review and playtesting (≈230–460 hours) than by the agents' work.
 The main sources of uncertainty (each up to ×2): recovering the combat and loot rules, NetScript semantics, correctness of the Granny animation conversion, how often the Bevy API breaks.
 
