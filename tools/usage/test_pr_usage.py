@@ -335,6 +335,22 @@ class Block(unittest.TestCase):
         self.assertEqual(pr_usage.spliced('Closes #1\n\n', new), 'Closes #1\n\n%s\n' % new)
         self.assertEqual(pr_usage.spliced(None, new), '\n\n%s\n' % new)
 
+    def test_a_description_goes_to_the_command_with_its_line_ends(self):
+        echo = [sys.executable, '-c', 'import sys; sys.stdout.write(repr(sys.stdin.buffer.read()))']
+        self.assertEqual(pr_usage.run(echo, stdin='Closes #1\n\nµ\n'), repr('Closes #1\n\nµ\n'.encode('utf-8')))
+        self.assertEqual(pr_usage.run(echo), repr(b''))
+
+    def test_the_carriage_returns_of_earlier_runs_are_dropped(self):
+        self.assertEqual(pr_usage.unix('a\r\nb\r\r\r\nc\nd\re\r'), 'a\nb\nc\nd\re\r')
+        block = '%s\nthe same\n%s' % (pr_usage.BEGIN, pr_usage.END)
+        stored = ('Closes #1\n\n%s\n\n%s\n' % (block, pr_usage.ATTRIBUTION)).replace('\n', '\r\r\n')
+        # A description stored with them is written once more, without them; after that, its block the same, the
+        # one to write is the one stored, and it is left.
+        cleaned = pr_usage.spliced(pr_usage.unix(stored), block)
+        self.assertNotEqual(cleaned, stored)
+        self.assertNotIn('\r', cleaned)
+        self.assertEqual(pr_usage.spliced(pr_usage.unix(cleaned), block), cleaned)
+
 
 def usage(inp=0, out=0, read=0, write_5m=0, write_1h=0):
     """A response's usage as the transcripts record it."""
