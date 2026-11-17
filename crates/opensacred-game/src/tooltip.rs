@@ -1148,6 +1148,27 @@ pub(crate) fn spawn_tip_right_in(
     panel
 }
 
+/// A control's tooltip of the style `0xB` (the inventory's sort button's, `0x6C63C0`): the top
+/// left corner of its window on the original's screen, kept 16 pixels within it (#2772).
+#[derive(Component)]
+struct TipLeft(Vec2);
+
+/// [`spawn_tip_in`] of the style `0xB`: the text's panel with its top left corner at `corner`;
+/// the style's border is the caller's to add ([`add_border`]).
+pub(crate) fn spawn_tip_left_in(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    (text, corner): (&str, Vec2),
+    frame: Frame,
+) -> Entity {
+    let panel = spawn_tip_in(commands, assets, (text, corner), frame);
+    commands
+        .entity(panel)
+        .remove::<Tip>()
+        .insert(TipLeft(corner));
+    panel
+}
+
 /// A control's tooltip's container.
 #[derive(Component)]
 pub(crate) struct TipRoot;
@@ -1417,13 +1438,26 @@ pub(crate) fn coloured(text: &str) -> Vec<(String, u32)> {
 
 /// Each control's tooltip centred on its place by its size as laid out, kept 16 pixels within
 /// the screen.
-fn centre_tips(mut tips: Query<(Option<&Tip>, Option<&TipRight>, &ComputedNode, &mut Node)>) {
-    for (tip, right, computed, mut node) in &mut tips {
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn centre_tips(
+    mut tips: Query<(
+        Option<&Tip>,
+        Option<&TipRight>,
+        Option<&TipLeft>,
+        &ComputedNode,
+        &mut Node,
+    )>,
+) {
+    for (tip, right, left, computed, mut node) in &mut tips {
         let size = computed.size() * computed.inverse_scale_factor();
-        let corner = match (tip, right) {
-            (Some(tip), _) => tip_corner(tip.0, size),
-            (None, Some(right)) => kept_corner(right.0 - Vec2::new(size.x, 0.0), size),
-            (None, None) => continue,
+        let corner = match (tip, right, left) {
+            (Some(tip), ..) => tip_corner(tip.0, size),
+            (None, Some(right), _) => kept_corner(right.0 - Vec2::new(size.x, 0.0), size),
+            (None, None, Some(left)) => kept_corner(left.0, size),
+            (None, None, None) => continue,
         };
         if node.left != Val::Px(corner.x) {
             node.left = Val::Px(corner.x);
